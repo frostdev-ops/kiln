@@ -124,6 +124,9 @@ def cmd_validate(a):
     data = Path(a.bin).read_bytes()
     blob = Path(a.blob).read_bytes() if a.blob else Path(a.bin).with_suffix(".blob").read_bytes()
     docs = [gltf.read(a.gltf)] if a.gltf else None
+    if docs and any("skin" in p for p in docs[0]["primitives"]):
+        print("modelcook: a skinned glTF is compared with the model when it is cooked, not here (its bind pose depends on the skeleton)", file=sys.stderr)
+        docs = None
     r = validate(k, t, data, blob, against=a.against, gltf_docs=docs)
     print(json.dumps(r, indent=2))
     return 0 if r["ok"] else 1

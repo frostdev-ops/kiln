@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "comment": "MaterialSample's cook recipe (tools/modelcook recipe). Frost Steel Sword maps its glTF materials to blocks in blocks/materials.json. Ember Sword makes blocks of its glTF's own materials: blocks/ember_sword.materials.json and PNGs under cooked/materials. Only the visual template comes from the player's game.",
+  "tool": "modelcook",
+  "out": "cooked",
+  "game": { "side": "client", "madeOn": "1287369" },
+  "inputs": {
+    "bronze_visual": { "guid": "fc562683-2a8e-472b-8c37-db2dfb36d449", "type": "keen::ecs::TemplateResource",
+                       "comment": "the Bronze Sword's equipment.visualEntity (Visuals_Sword_01_Grassland01)" }
+  },
+  "steps": [
+    { "op": "model", "gltf": "src/frost_sword.gltf", "guid": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b3", "mode": "new", "name": "kiln_frost_steel_sword", "stem": "frost_sword",
+      "materialMap": { "blade": "frost_steel", "grip": "frost_grip" } },
+    { "op": "visual", "base": "bronze_visual", "model": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b3", "guid": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a2",
+      "name": "Visuals_Kiln_FrostSteelSword", "stem": "frost_sword_visual" },
+    { "op": "model", "gltf": "src/ember_sword.gltf", "guid": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b4", "mode": "new", "name": "kiln_ember_sword", "stem": "ember_sword",
+      "materials": "gltf" },
+    { "op": "visual", "base": "bronze_visual", "model": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b4", "guid": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a3",
+      "name": "Visuals_Kiln_EmberSword", "stem": "ember_sword_visual" }
+  ]
+}

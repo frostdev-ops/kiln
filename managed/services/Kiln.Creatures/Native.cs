@@ -152,6 +152,56 @@ internal static unsafe class CreaturesNative
         public delegate* unmanaged[Cdecl]<ulong, uint, uint, int> SetReady;
         public delegate* unmanaged[Cdecl]<uint, GuidBytes*, uint*, int> ArsenalOf;
         public delegate* unmanaged[Cdecl]<NpcCommand*, int> SendNpcCommand;
+        public delegate* unmanaged[Cdecl]<ulong, NativeStr, byte*, nuint, nuint*, int> ArsenalDefine;
+        public delegate* unmanaged[Cdecl]<ulong, GuidBytes*, int> ArsenalRemove;
+        public delegate* unmanaged[Cdecl]<GuidBytes*, byte*, nuint, nuint*, int> ArsenalInfo;
+        public delegate* unmanaged[Cdecl]<uint*, int> ArsenalRefresh;
+        public delegate* unmanaged[Cdecl]<uint*, uint*, int> ArsenalSelftest;
+        public delegate* unmanaged[Cdecl]<RuleWork*, uint, uint> RulesDrain;
+        public delegate* unmanaged[Cdecl]<uint, uint, uint, int> RulesConditionSet;
+        public delegate* unmanaged[Cdecl]<uint, int> RulesConditionClear;
+        public delegate* unmanaged[Cdecl]<uint, ulong*, ulong*, int> RulesConditionStats;
+        public delegate* unmanaged[Cdecl]<uint, void> RulesPump;
+        public delegate* unmanaged[Cdecl]<uint, uint, int> RulesPhaseSet;
+        public delegate* unmanaged[Cdecl]<uint, uint*, int> RulesPhaseGet;
+        public delegate* unmanaged[Cdecl]<RulesStatus*, int> GetRulesStatus;
+        public delegate* unmanaged[Cdecl]<ulong, uint, void*, void*, int> RulesJobHandler;
+        public delegate* unmanaged[Cdecl]<ulong, uint, AttackOverride*, int> SetAttackOverride;
+        public delegate* unmanaged[Cdecl]<ulong, GuidBytes*, uint, int> AttackPickArsenal;
+        public delegate* unmanaged[Cdecl]<ulong, uint, uint, int> AiSwitch;
+        public delegate* unmanaged[Cdecl]<uint, uint*, int> AiSwitchGet;
+        public delegate* unmanaged[Cdecl]<uint, int> TargetPrefer;
+    }
+
+    public const uint WorkAction = 1, WorkCondition = 2, WorkPick = 3, WorkGone = 4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RuleWork
+    {
+        public uint Kind;
+        public uint Entity;
+        public uint Id;
+        public uint Target;
+        public ulong Step;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AttackOverride
+    {
+        public uint Size;
+        public int Forced;
+        public uint Allow;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RulesStatus
+    {
+        public uint Size;
+        public byte Writer, Dispatcher, Attacks, RuleHooks, AttackHooks, AiSwitch, R0, R1;
+        public uint Arsenals, Tracked, Overrides, AiOff, Handlers, MapCapacity, MapCount, R2;
+        public ulong Constraints, ConstraintsTrue, Actions, ActionsDropped, Selects, SelectsForced, SelectsFiltered,
+            PicksWaiting, FollowupsRefused, Starts, StartsOffOverride, SequencesRefused, PreNs, PreCalls, JobTicks, JobCalls, JobTickHz;
     }
 
     private static Table* _t;

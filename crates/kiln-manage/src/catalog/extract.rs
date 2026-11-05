@@ -58,6 +58,7 @@ pub(super) struct Src {
     pub kfc: Kfc,
     pub types: TypeDb,
     pub exe_sha256: String,
+    pub exe: PathBuf,
 }
 
 impl Src {
@@ -71,7 +72,7 @@ impl Src {
         let raw = std::fs::read(&exe).map_err(crate::util::io_at(&exe, "reading"))?;
         let exe_sha256 = crate::hash::sha256_hex(&raw);
         let types = TypeDb::from_pe(&PeFile::parse(raw)?)?;
-        let src = Src { kfc, types, exe_sha256 };
+        let src = Src { kfc, types, exe_sha256, exe };
         // exe and data of one build: ItemInfo's layout hash must be the .kfc bundle's (else Steam is mid-update)
         src.check_layout("keen::ItemInfo")
             .map_err(|e| Error::new(ErrorCode::Conflict, format!("{} (are the exe and the data from different builds? Steam may be updating the game)", e.message)))?;
@@ -379,7 +380,7 @@ type ArsenalUsers = HashMap<String, Vec<String>>;
 /// Component short name -> reflection type name, for every component some template has.
 type ComponentTypes = BTreeMap<String, String>;
 
-fn templates(s: &Src) -> Result<(Vec<Entry>, ArsenalUsers, ArsenalUsers, ComponentTypes)> {
+fn templates(s: &Src) -> Result<(Vec<Entry>, ArsenalUsers, ArsenalUsers, ComponentTypes, VfxUsers)> {
     const T: &str = "keen::ecs::TemplateResource";
     let o = Offsets::new(&s.types);
     let name_off = o.need(T, "name")?;
@@ -394,6 +395,9 @@ fn templates(s: &Src) -> Result<(Vec<Entry>, ArsenalUsers, ArsenalUsers, Compone
     let mut by_arsenal: ArsenalUsers = HashMap::new();
     let mut by_graph: ArsenalUsers = HashMap::new();
     let mut components = ComponentTypes::new();
+    let carrier = s.types.get("keen::ecs::VfxComponentResource").map(|t| t.hash);
+    let mut vfx_field: HashMap<u32, Option<usize>> = HashMap::new();
+    let mut by_vfx = VfxUsers::new();
     for (ix, key) in s.of_type(T)? {
         if key.part != 0 {
             continue;
@@ -401,6 +405,8 @@ fn templates(s: &Src) -> Result<(Vec<Entry>, ArsenalUsers, ArsenalUsers, Compone
         let b = s.kfc.read(ix)?;
         let g = key.guid_text();
         let n = blob_string_at(&b, name_off);
+        let named = !n.is_empty();
+        let mut carried = false;
         let n = if n.is_empty() { g.clone() } else { n };
         let mut en = e(Some(n.clone()), Some(hex_id(fnv1a32(&key.guid))), Some(g));
         put(&mut en, "family", opt(fam_off.and_then(|o| u8_at(&b, o)).and_then(|v| s.enum_name("keen::ecs::TemplateFamily", v as u64)).filter(|f| f != "None")));
@@ -435,12 +441,31 @@ fn templates(s: &Src) -> Result<(Vec<Entry>, ArsenalUsers, ArsenalUsers, Compone
                 {
                     by_graph.entry(gg).or_default().push(n.clone());
                 }
+                // any component with a `vfx` field says what it plays; only VfxComponentResource (the first) is what a name finds at run time
+                let field = *vfx_field.entry(h).or_insert_with(|| {
+                    let rec = s.types.by_hash(h)?;
+                    let (off, ty) = s.types.path(&rec.name, "vfx")?;
+                    (ty?.name == "keen::VfxReference").then_some(off as usize)
+                });
+                if named
+                    && let Some(field) = field
+                    && let Some(rel) = decode::i32_at(&b, at + 4)
+                    && let Some(vg) = guid_at(&b, (at as i64 + 4 + rel as i64) as usize + field)
+                {
+                    let user = by_vfx.entry(vg).or_default();
+                    if Some(h) == carrier && !carried {
+                        carried = true;
+                        user.templates.push(n.clone());
+                    } else {
+                        user.labels.push(format!("{n}_{nm}"));
+                    }
+                }
             }
             put(&mut en, "components", Value::Array(comps));
         }
         out.push(en);
     }
-    Ok((out, by_arsenal, by_graph, components))
+    Ok((out, by_arsenal, by_graph, components, by_vfx))
 }
 
 /// A GUID in `guid_text` form back to its 16 bytes.
@@ -602,10 +627,16 @@ pub fn sub_id(g: &[u8; 16], k: usize) -> u32 {
     if k == 0 { h } else { h ^ (k as u32).wrapping_mul(0x9E37_79B1) }
 }
 
-fn sequences(s: &Src) -> Result<Vec<Entry>> {
+/// Sequences, and which VFX they play: `events[VfxNotifierEvent#0].vfx` is what a name finds at run time.
+fn sequences(s: &Src, by_vfx: &mut VfxUsers) -> Result<Vec<Entry>> {
     const T: &str = "keen::actor::ActorSequenceResource";
     const S: &str = "keen::actor::ActorSubSequenceResource";
     let o = Offsets::new(&s.types);
+    let events_off = o.get(S, "events");
+    let notifier = s.types.get("keen::VfxNotifierEvent").map(|t| t.hash);
+    let notifier_vfx = o.get("keen::VfxNotifierEvent", "vfx");
+    let spawn = s.types.get("keen::SpawnEntityEvent").map(|t| t.hash);
+    let spawn_vfx = o.get("keen::SpawnEntityEvent", "vfxOnSpawn");
     let subs = o.need(T, "subSequences")?;
     let stride = s.types.get(S).map_or(72, |t| t.size as usize);
     let name_off = o.need(S, "name")?;
@@ -626,6 +657,32 @@ fn sequences(s: &Src) -> Result<Vec<Entry>> {
                 name = if k == 0 { g.clone() } else { format!("{g}#{k}") };
             }
             seen.insert(name.clone());
+            if let Some(eo) = events_off
+                && !name.starts_with(g.as_str())
+                && let Some((ebase, en)) = blob_array_at(&b, at + eo)
+            {
+                let mut first = true;
+                for i in 0..en.min(4096) {
+                    let va = ebase + 12 * i;
+                    let (Some(h), Some(rel)) = (u32_at(&b, va), decode::i32_at(&b, va + 4)) else { break };
+                    let body = (va as i64 + 4 + rel as i64) as usize;
+                    if Some(h) == notifier
+                        && let Some(vg) = notifier_vfx.and_then(|f| guid_at(&b, body + f))
+                    {
+                        let user = by_vfx.entry(vg).or_default();
+                        if first {
+                            user.sequences.push(name.clone());
+                        } else {
+                            user.labels.push(name.clone());
+                        }
+                        first = false;
+                    } else if Some(h) == spawn
+                        && let Some(vg) = spawn_vfx.and_then(|f| guid_at(&b, body + f))
+                    {
+                        by_vfx.entry(vg).or_default().labels.push(format!("{name}_Spawn"));
+                    }
+                }
+            }
             let mut en = e(Some(name), Some(hex_id(sub_id(&key.guid, k))), Some(g.clone()));
             put(&mut en, "sequence", g.clone());
             if k > 0 {
@@ -748,6 +805,261 @@ fn sounds(s: &Src) -> Result<(Vec<Entry>, HashMap<String, String>)> {
         out.push(en);
     }
     Ok((out, sound_names))
+}
+
+/// What names a VFX. VFX have no names of their own, so the catalog derives one from what uses it.
+#[derive(Default)]
+struct VfxUser {
+    /// Templates whose first `VfxComponentResource` is this VFX: `VfxId.Game` finds it by these names.
+    templates: Vec<String>,
+    /// Sequences whose first `VfxNotifierEvent` plays it: `VfxId.Game` finds it by these too.
+    sequences: Vec<String>,
+    /// Everything else that names it (`DestroyOnLoot`, a later event, ...): a label, which nothing finds at run time.
+    labels: Vec<String>,
+}
+type VfxUsers = HashMap<String, VfxUser>;
+
+/// The best of several names: not a `Base_` template, then the shortest, then by text.
+fn best_name(list: &[String]) -> Option<&String> {
+    list.iter().min_by_key(|n| (n.starts_with("Base_"), n.len(), n.as_str()))
+}
+
+/// A parameter's type, from its DsTypeId: the FNV-1a of `VfxEffectParameter<Name>`. Lower case first, as `Vfx.Set` documents them.
+fn vfx_parameter_types() -> HashMap<u32, String> {
+    let mut m = HashMap::new();
+    let scalar = |n: &str| [n.to_string(), format!("{n}2"), format!("{n}3"), format!("{n}4")];
+    let names = [scalar("Float"), scalar("Int"), scalar("Uint"), scalar("Bool")].concat();
+    for n in names.iter().map(String::as_str).chain(["Color", "Quaternion", "Mesh", "Model", "JointCollection"]) {
+        let mut lower = n.to_string();
+        lower[..1].make_ascii_lowercase();
+        m.insert(fnv1a32(format!("VfxEffectParameter{n}").as_bytes()), lower);
+    }
+    m
+}
+
+/// Parameter names are stored only as hashes. Recovered by hashing what the player's own game has: the exe's strings and the names of particle state members.
+fn vfx_parameter_names(s: &Src, wanted: &HashSet<u32>, state_names: &HashSet<String>) -> HashMap<u32, String> {
+    let mut out = HashMap::new();
+    for n in state_names {
+        let h = fnv1a32(n.as_bytes());
+        if wanted.contains(&h) {
+            out.insert(h, n.clone());
+        }
+    }
+    if let Ok(raw) = std::fs::read(&s.exe) {
+        for run in raw.split(|c| !(c.is_ascii_alphanumeric() || *c == b'_')) {
+            if (2..=48).contains(&run.len()) && !run[0].is_ascii_digit() {
+                let h = fnv1a32(run);
+                if wanted.contains(&h)
+                    && !out.contains_key(&h)
+                    && let Ok(t) = std::str::from_utf8(run)
+                {
+                    out.insert(h, t.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The default of a parameter, from the 64-byte block: only the kinds an author can say back through `Vfx.Set`.
+fn vfx_parameter_default(block: &[u8], ty: &str, start: usize, count: usize) -> Option<Value> {
+    let bytes = block.get(start..start + count)?;
+    let f = |i: usize| bytes.get(4 * i..4 * i + 4).map(|x| f32::from_le_bytes(x.try_into().unwrap())).filter(|v| v.is_finite()).map(|v| Value::from((v as f64 * 1e4).round() / 1e4));
+    Some(match ty {
+        "float" => f(0)?,
+        "float2" | "float3" | "float4" => Value::Array((0..count / 4).map(f).collect::<Option<Vec<_>>>()?),
+        "int" => Value::from(i32::from_le_bytes(bytes.get(..4)?.try_into().ok()?)),
+        "uint" => Value::from(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?)),
+        "bool" => Value::from(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?) != 0),
+        "color" => {
+            let c = bytes.get(..4)?;
+            Value::from(format!("#{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3]))
+        }
+        _ => return None,
+    })
+}
+
+/// How long Kiln runs a one-shot of this VFX: the larger of its kill time and its `duration` + `lifetime` parameters, 10 s if it says nothing,
+/// 1 to 60 s. The same rule as `one_shot_ns` in native/services/vfx/core.cpp.
+fn vfx_length(kill: u32, duration: Option<f64>, lifetime: Option<f64>) -> f64 {
+    let exposed = duration.filter(|v| *v > 0.0).unwrap_or(0.0) + lifetime.filter(|v| *v > 0.0).unwrap_or(0.0);
+    let s = (kill as f64).max(exposed);
+    if s <= 0.0 { 10.0 } else { (s.clamp(1.0, 60.0) * 1000.0).round() / 1000.0 }
+}
+
+/// Every `keen::VfxResource`, named from what uses it.
+fn vfx(s: &Src, users: &VfxUsers) -> Result<Vec<Entry>> {
+    const V: &str = "keen::VfxResource";
+    const P: &str = "keen::VfxUserEffectParameterDescription";
+    let o = Offsets::new(&s.types);
+    let (kill_off, particles_off, emitters_off) = (o.need(V, "killTimeInSeconds")?, o.need(V, "particles")?, o.need(V, "emitterCount")?);
+    let (params_off, defaults_off, images_off, meshes_off) = (o.need(V, "parameters")?, o.need(V, "defaultParameterData")?, o.need(V, "images")?, o.need(V, "meshes")?);
+    let (cull_min, cull_max) = (o.need(V, "cullingDistanceMin")?, o.need(V, "cullingDistanceMax")?);
+    let states_off = o.get(V, "stateInfos");
+    let members_off = o.get("keen::VfxParticleStateBufferInfo", "members").unwrap_or(0);
+    let member_name = o.get("keen::VfxBufferMember", "name");
+    let stride = |n: &str, d: usize| s.types.get(n).map_or(d, |t| t.size as usize);
+    let (state_stride, member_stride, image_stride, param_stride) = (stride("keen::VfxParticleStateBufferInfo", 12), stride("keen::VfxBufferMember", 16), stride("keen::VfxImagePatchPoint", 24), stride(P, 12));
+    let image_ref = o.get("keen::VfxImagePatchPoint", "image");
+    let (p_name, p_type, p_range) = (o.need(P, "nameHash")?, o.need(P, "typeId")?, o.need(P, "dataRange")?);
+    let (range_start, range_count) = (o.get("keen::Range8", "start").unwrap_or(0), o.get("keen::Range8", "count").unwrap_or(1));
+
+    let list: Vec<_> = s.of_type(V)?.into_iter().filter(|(_, k)| k.part == 0).collect();
+    let mut blobs = Vec::with_capacity(list.len());
+    let mut wanted = HashSet::new();
+    let mut state_names = HashSet::new();
+    for (ix, key) in &list {
+        let b = s.kfc.read(*ix)?;
+        if let Some((base, n)) = blob_array_at(&b, params_off) {
+            for i in 0..n.min(64) {
+                if let Some(h) = u32_at(&b, base + i * param_stride + p_name) {
+                    wanted.insert(h);
+                }
+            }
+        }
+        if let (Some(so), Some(mn)) = (states_off, member_name)
+            && let Some((base, n)) = blob_array_at(&b, so)
+        {
+            for i in 0..n.min(256) {
+                if let Some((mb, mc)) = blob_array_at(&b, base + i * state_stride + members_off) {
+                    for j in 0..mc.min(256) {
+                        let t = blob_string_at(&b, mb + j * member_stride + mn);
+                        if !t.is_empty() {
+                            state_names.insert(t);
+                        }
+                    }
+                }
+            }
+        }
+        blobs.push((key.guid_text(), key.guid, b));
+    }
+    let names = vfx_parameter_names(s, &wanted, &state_names);
+    let types = vfx_parameter_types();
+    // a name that two VFX could claim stays with the first (a template's wins: the run-time lookup tries templates first)
+    let mut holder: HashMap<&str, &str> = HashMap::new();
+    let mut guids: Vec<&String> = users.keys().collect();
+    guids.sort();
+    for g in &guids {
+        for t in &users[*g].templates {
+            holder.entry(t).or_insert(g);
+        }
+    }
+    for g in &guids {
+        for t in &users[*g].sequences {
+            holder.entry(t).or_insert(g);
+        }
+    }
+    let empty = VfxUser::default();
+    // run-time names first, so that a label never takes one
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut run_time: HashMap<&str, (String, &str)> = HashMap::new();
+    let mut all_names: HashMap<&str, Vec<String>> = HashMap::new();
+    for (g, _, _) in &blobs {
+        let user = users.get(g).unwrap_or(&empty);
+        let finds = |l: &[String]| l.iter().filter(|n| holder.get(n.as_str()) == Some(&g.as_str())).cloned().collect::<Vec<_>>();
+        let (by_t, by_s) = (finds(&user.templates), finds(&user.sequences));
+        let chosen = best_name(&by_t).map(|n| (n.clone(), "template")).or_else(|| best_name(&by_s).map(|n| (n.clone(), "sequence")));
+        if let Some(c) = chosen {
+            taken.insert(c.0.clone());
+            run_time.insert(g, c);
+            let mut every: Vec<String> = by_t.into_iter().chain(by_s).collect();
+            every.sort_by_key(|n| (n.starts_with("Base_"), n.len(), n.clone()));
+            every.dedup();
+            all_names.insert(g, every);
+        }
+    }
+    let mut out = Vec::with_capacity(blobs.len());
+    for (g, raw, b) in &blobs {
+        let user = users.get(g).unwrap_or(&empty);
+        let by_name = run_time.contains_key(g.as_str());
+        let (name, from) = if let Some((n, from)) = run_time.get(g.as_str()) {
+            (n.clone(), Some(*from))
+        } else if user.labels.is_empty() {
+            (format!("Vfx_{}", &g[..8]), None)
+        } else {
+            // the best label that's free. Labels repeat (two uses by one template, or a name another VFX has), and names stay unique.
+            let mut labels: Vec<&String> = user.labels.iter().collect();
+            labels.sort_by_key(|n| (n.starts_with("Base_"), n.len(), n.as_str()));
+            let free = labels.iter().find(|n| !taken.contains(n.as_str())).map(|n| n.to_string());
+            let name = free.unwrap_or_else(|| (2..).map(|k| format!("{}_{k}", labels[0])).find(|n| !taken.contains(n)).unwrap());
+            taken.insert(name.clone());
+            (name, Some("use"))
+        };
+        let mut en = e(Some(name.clone()), Some(hex_id(fnv1a32(raw))), Some(g.clone()));
+        if let Some(from) = from {
+            put(&mut en, "namedFrom", from);
+        }
+        if by_name {
+            put(&mut en, "byName", true);
+        }
+        // every name a run-time lookup takes, then a few of what else uses it
+        let every = all_names.get(g.as_str());
+        if let Some(every) = every.filter(|e| e.len() > 1) {
+            put(&mut en, "names", Value::Array(every.iter().map(|n| Value::from(n.as_str())).collect()));
+        }
+        let mut others: Vec<&String> = user.labels.iter().filter(|n| **n != name && every.is_none_or(|e| !e.contains(n))).collect();
+        others.sort_by_key(|n| (n.starts_with("Base_"), n.len(), n.as_str()));
+        others.dedup();
+        if !others.is_empty() {
+            put(&mut en, "usedBy", Value::Array(others.iter().take(8).map(|n| Value::from(n.as_str())).collect()));
+        }
+        let count = |off: usize| blob_array_at(b, off).map_or(0, |(_, n)| n as u64);
+        put(&mut en, "particles", count(particles_off));
+        put(&mut en, "emitters", u32_at(b, emitters_off).unwrap_or(0));
+        put(&mut en, "meshes", count(meshes_off));
+        let mut tex = HashSet::new();
+        if let (Some(ir), Some((base, n))) = (image_ref, blob_array_at(b, images_off)) {
+            for i in 0..n.min(4096) {
+                if let Some(t) = guid_at(b, base + i * image_stride + ir) {
+                    tex.insert(t);
+                }
+            }
+        }
+        put(&mut en, "textures", tex.len() as u64);
+        let kill = u32_at(b, kill_off).unwrap_or(0);
+        let f32_at = |off: usize| u32_at(b, off).map(|v| f32::from_bits(v) as f64);
+        put(&mut en, "cullDistance", json!([f32_at(cull_min), f32_at(cull_max)]));
+        put(&mut en, "killTime", kill);
+        let block = b.get(defaults_off..defaults_off + 64).unwrap_or(&[]);
+        let (mut duration, mut lifetime) = (None, None);
+        let mut params = Vec::new();
+        if let Some((base, n)) = blob_array_at(b, params_off) {
+            for i in 0..n.min(64) {
+                let at = base + i * param_stride;
+                let (Some(h), Some(t)) = (u32_at(b, at + p_name), u32_at(b, at + p_type)) else { break };
+                let start = u8_at(b, at + p_range + range_start).unwrap_or(0) as usize;
+                let size = u8_at(b, at + p_range + range_count).unwrap_or(0) as usize;
+                let ty = types.get(&t).cloned().unwrap_or_else(|| hex_id(t));
+                let def = vfx_parameter_default(block, &ty, start, size);
+                if ty == "float"
+                    && let Some(v) = def.as_ref().and_then(Value::as_f64)
+                {
+                    match names.get(&h).map(String::as_str) {
+                        Some("duration") => duration = Some(v),
+                        Some("lifetime") => lifetime = Some(v),
+                        _ => {}
+                    }
+                }
+                let mut p = Map::new();
+                match names.get(&h) {
+                    Some(n) => drop(p.insert("name".into(), n.as_str().into())),
+                    None => drop(p.insert("hash".into(), hex_id(h).into())),
+                }
+                p.insert("type".into(), ty.into());
+                if let Some(v) = def {
+                    p.insert("default".into(), v);
+                }
+                params.push(Value::Object(p));
+            }
+        }
+        put(&mut en, "length", vfx_length(kill, duration, lifetime));
+        if !params.is_empty() {
+            put(&mut en, "parameters", Value::Array(params));
+        }
+        out.push(en);
+    }
+    Ok(out)
 }
 
 /// Resources mods name by GUID + type in cook recipes and asset entries (models, materials, hierarchies, UI
@@ -1224,12 +1536,15 @@ pub fn build(game_dir: &Path, dest: &Path, opts: &BuildOptions, p: &mut dyn Prog
     let mut by_arsenal = HashMap::new();
     let mut by_graph = HashMap::new();
     let mut components = ComponentTypes::new();
-    if want("templates") || want("arsenals") || want("graphs") {
+    let mut by_vfx = VfxUsers::new();
+    let want_vfx = side == "client" && want("vfx");
+    if want("templates") || want("arsenals") || want("graphs") || want_vfx {
         match templates(&s) {
-            Ok((v, a, g, c)) => {
+            Ok((v, a, g, c, x)) => {
                 by_arsenal = a;
                 by_graph = g;
                 components = c;
+                by_vfx = x;
                 if want("templates") {
                     sections.insert("templates".into(), v);
                 }
@@ -1251,10 +1566,21 @@ pub fn build(game_dir: &Path, dest: &Path, opts: &BuildOptions, p: &mut dyn Prog
     }
     canceled(p)?;
     p.report(Some(0.6), "Sequences, buffs, perks, skills");
-    if want("sequences") {
-        match sequences(&s) {
-            Ok(v) => drop(sections.insert("sequences".into(), v)),
+    if want("sequences") || want_vfx {
+        match sequences(&s, &mut by_vfx) {
+            Ok(v) => {
+                if want("sequences") {
+                    sections.insert("sequences".into(), v);
+                }
+            }
             Err(e) => note("sequences", e, &mut problems),
+        }
+    }
+    // the client has VFX, a dedicated server none
+    if want_vfx {
+        match vfx(&s, &by_vfx) {
+            Ok(v) => drop(sections.insert("vfx".into(), v)),
+            Err(e) => note("vfx", e, &mut problems),
         }
     }
     for (name, f) in [("buffs", buffs as fn(&Src, &Loca) -> Result<Vec<Entry>>), ("perks", perks)] {

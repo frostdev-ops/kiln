@@ -1,0 +1,10 @@
+{
+  "id": "blocks-reloaded",
+  "name": "blocks: a mod hot reloaded",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksReloaded.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Part of blocks-test: blocks in code and in data, hot reloaded by the test."
+}

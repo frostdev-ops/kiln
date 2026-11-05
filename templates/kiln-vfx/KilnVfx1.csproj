@@ -1,0 +1,20 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- An effect made from nothing: blocks/spark.json and KilnVfx1Mod.cs say the same effect, as data and in C#, with vfx/dot.png as its texture. No game data
+       and no compiler: Kiln builds the effect when the game starts.
+         kiln build && kiln deploy
+       Every player's game draws it, so it has to be on theirs too: side both, clients mod. A dedicated server draws nothing, so see it in a client:
+         F7 plays the block from blocks/spark.json, Shift+F7 the one from code.
+       kiln.log says "vfx: built N Kiln VFX ...", then "vfx: #N play ...". Docs: docs/kiln/modding/vfx.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnVfx1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnVfx1: a new effect.</Description>
+    <KilnServices>Blocks;Vfx;Client;Ui;World</KilnServices>
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

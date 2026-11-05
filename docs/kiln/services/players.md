@@ -9,6 +9,7 @@
 | Test mod | `mods/tests/players-test/` |
 | Evidence | `docs/re/players.md` |
 | Progression | `kiln.progression` (level, experience, skill tree, skill points) is published by the same DLL: `docs/kiln/services/progression.md`; `Player.Progression` |
+| State and actions | `kiln.playerstate` (gliding, swimming, health, buffs, eating, every action) is published by the same DLL: `docs/kiln/services/player-state.md`; `player.Is(...)`, `player.Snapshot()`, `PlayerStateChangedEvent`, `PlayerConsumeEvent` |
 
 ## What you get
 

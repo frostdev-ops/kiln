@@ -1,0 +1,10 @@
+{
+  "id": "material-test",
+  "name": "material lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "MaterialTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "PASS/FAIL lines: MaterialBlock, player-free. C# and JSON give the same definition and ids, mistakes come back by field, a particle names a material, and with kiln/config/vfx.json {\"sim\": true} what the builder made at boot is served by kiln.assets. What shows on a screen is a client's to say."
+}

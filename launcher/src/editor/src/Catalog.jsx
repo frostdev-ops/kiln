@@ -107,8 +107,9 @@ export default function Catalog({ target, onAdd, onClose, nivel }) {
                 {t(CATEGORY_PT[pick.category] || pick.category)}{pick.tier ? ` · ${t('Tier {n}', { n: pick.tier })}` : ''} · {t(RARITY_PT[pick.r])}
               </div>
               {/* o nome no outro idioma, que ajuda a casar com guias e vídeos escritos nele */}
-              {pick.en && pick.pt && (
-                <div className="hint" style={{ textAlign: 'center' }}>{campoDeNome() === 'pt' ? pick.en : pick.pt}</div>
+              {/* Kiln: only for Portuguese readers; the launcher is English, where the other name just looks wrong */}
+              {campoDeNome() === 'pt' && pick.en && pick.pt && (
+                <div className="hint" style={{ textAlign: 'center' }}>{pick.en}</div>
               )}
               {pick.maxStack > 1 && (
                 <div className="ed-row"><div className="ed-label">{t('Quantidade')}</div>

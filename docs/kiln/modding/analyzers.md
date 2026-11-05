@@ -6,7 +6,7 @@ Kiln.Sdk runs Roslyn analyzers over every mod. They catch the mistakes that the 
 - a blocked game thread;
 - an API the mod has not opted into.
 
-The warnings appear in `dotnet build` output and live in the editor (C# Dev Kit, Rider, Visual Studio). Six rules
+The warnings appear in `dotnet build` output and live in the editor (C# Dev Kit, Rider, Visual Studio). Eight rules
 come with code fixes.
 
 | Id | Default | What | From |
@@ -19,13 +19,17 @@ come with code fixes.
 | [KILN106](#kiln106) | warning | thread, timer, watcher, socket or subscription never released | lifecycle.md "What a mod must still release itself" |
 | [KILN107](#kiln107) | **error** | advanced API (hooks, symbols, memory) without `KilnAdvanced` | `HooksGate.RequireAdvanced` (generated table) |
 | [KILN108](#kiln108) | warning | Kiln service used but not listed in `KilnServices` | mdk.md |
+| [KILN194](#kiln194) | **error** | a path string the game doesn't have | the local catalog |
+| [KILN195](#kiln195) | warning | a config name no program of the game declares | the local catalog |
+| [KILN196](#kiln196) | warning | writing an identity field or a name | the local catalog |
+| [KILN197](#kiln197) | **error** | a typed field on an entry of another section | the code |
 | [KILN110](#kiln110) | **error** | bad or duplicate block name | blocks.md |
 | [KILN111](#kiln111) | warning | a name that is no block, or the wrong kind of block | blocks.md |
 | [KILN112](#kiln112) | **error** | `clients` too low for the mod's blocks | blocks.md |
 
 Other KILN codes:
 - **KILN0xx** come from the SDK's MSBuild task (manifest checks, mdk.md).
-- **KILN190** is the game-id generator's "no catalog" note (catalogs.md).
+- **KILN190** to **KILN193**, **KILN198** are the game-id generator's notes (catalogs.md).
 - **KL** codes are the data-file linter's (`kiln lint`).
 
 ## How it ships
@@ -56,7 +60,8 @@ One place:
 Categories:
 - `Kiln.Threading`: 101, 102, 105;
 - `Kiln.HotReload`: 103, 104, 106;
-- `Kiln.Manifest`: 107, 108.
+- `Kiln.Manifest`: 107, 108;
+- `Kiln.GameData`: 194 to 197. These ship with the game-id generator, so `<KilnGameIds>None</KilnGameIds>` turns them off.
 
 ## Where the API facts come from
 KILN101 and KILN107 do not use a hand-kept list. `managed/Kiln.Analyzers/tools/gen-apis.sh` builds Kiln.Api,
@@ -355,6 +360,47 @@ once per service per file.
 
 ---
 
+<a id="kiln194"></a>
+## KILN194: No such field in the game
+**What.** A constant path string given to `GameDataEntry` or `ContentEntry` (`Get`, `Original`, `GetNumber`, `GetJson`, `GetRef`, `Set`,
+`SetJson`, `Reset`, `Fields`), or a key of a definition's `Fields`, that the game doesn't have:
+```csharp
+Content.Items.Get(GameItems.Weapon_T1_1H_SwordEpic_01)!.Set("damageSetup.dmgMood", 1.5);
+// error KILN194: 'damageSetup.dmgMood' is not a path of items: damageSetup has no field 'dmgMood'. Did you mean 'damageSetup.dmgMod'?
+```
+**Why.** It would be refused when the mod runs. The path is checked against the catalog made from your own game, the same way
+kiln.gamedata walks it: `[i]`, `[*]`, `[Type#k]`, `[guid]`, `Component#k`, names exact and then ignoring case.
+
+**When it stays silent.** A computed string. An entry whose section the code doesn't show, such as a parameter or a field; locals, loops
+and `?.` are followed. Sections with no field list (arsenals, drops). Anything below a list of variants. No catalog on the machine. A
+false alarm would stop your build, so anything it can't know is let through.
+
+**Fix.** Use the suggestion (a code fix writes it), or the typed field ([typed-fields.md](typed-fields.md)). A test that wants the
+refusal keeps its path with `#pragma warning disable KILN194`.
+
+<a id="kiln195"></a>
+## KILN195: Config name the game doesn't know
+**What.** A config below `impactValues`, `configValues` or `ImpactConfiguration.configValues`, or in `Config("...")`, with a name no Impact
+program of the game uses.
+
+**Why it's only a warning.** Your own program can declare a name the game has never heard of. Names with dots are yours by nature: write
+them in brackets, `impactValues[mymod.Radius]`, and they aren't checked. So are `0x` ids.
+
+**Fix.** Use the suggestion, or suppress it for your own name.
+
+<a id="kiln196"></a>
+## KILN196: Field Kiln doesn't change
+**What.** A write to an identity field or a name (`itemId`, `guid`, `debugName`).
+
+**Why.** They identify the entry in registries and saves, and kiln.gamedata refuses them. The typed form doesn't compile.
+
+<a id="kiln197"></a>
+## KILN197: Typed field of another section
+**What.** `Content.Templates.Get(x)!.Set(GameFields.Items.MaxStackSize, 5)`: a field of `items` on a template.
+
+**Why.** The path would mean nothing there. A field stored in a variable isn't followed, and is refused with an `ArgumentException` when it
+runs.
+
 ## Tests and development
 - Tests: `dotnet test managed/Kiln.Analyzers/tests/Kiln.Analyzers.Tests --artifacts-path $KILN_OUT/dotnet`. Each test
   compiles a small mod against the real Kiln.Api and service assemblies. It runs one analyzer, and applies code
@@ -389,8 +435,8 @@ is built at run time, because it could be any name.
 
 <a id="kiln112"></a>
 ## KILN112: clients too low for the mod's blocks
-**What.** `KilnClients` (or `clients` in `kiln.mod.json`) says less than the mod's blocks need. A new item, spell or status needs `kiln`. A field that
-names the mod's own file or cue needs `mod`.
+**What.** `KilnClients` (or `clients` in `kiln.mod.json`) says less than the mod's blocks need. A new item, spell or status needs `kiln`. A `VfxBlock`, or a field that
+names the mod's own file, cue or VFX, needs `mod`. A game VFX by name asks for no more than its block.
 
 **Why.** Kiln refuses the block when the mod loads, because players' games could not show it.
 

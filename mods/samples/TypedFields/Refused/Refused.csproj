@@ -1,0 +1,13 @@
+<Project>
+  <!-- Meant not to build: a typo in a path string is an error (KILN194) that says which field was meant. -->
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>typed-fields-refused</KilnModId>
+    <KilnModName>Typed fields: refused</KilnModName>
+    <Version>0.1.0</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Content</KilnServices>
+    <KilnClients>kiln</KilnClients>
+  </PropertyGroup>
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

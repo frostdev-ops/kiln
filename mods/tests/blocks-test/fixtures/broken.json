@@ -1,5 +1,9 @@
 {
   "format": 1,
+  "vfx": {
+    "bad-vfx-field": { "particles": [ { "burst": 1, "burts": 2 } ] },
+    "vfx-in-kiln-mod": { "particles": [ { "burst": 1 } ] }
+  },
   "spells": {
     "no-cast": { "name": "No Cast", "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "ice": 1 } } ] } } ] } },
     "typo": { "name": "Typo", "cast": { "manaCost": 1, "manacosts": 2 }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "ice": 1 } } ] } } ] } },

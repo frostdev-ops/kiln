@@ -96,6 +96,75 @@
         "guid": "00011001-0000-4000-8000-000000000002",
         "type": "keen::UiTextureResource"
       }
+    ],
+    "vfx": [
+      {
+        "name": "Explosion_Fixture_Frost",
+        "id": "0x0f000001",
+        "guid": "0000f001-0000-4000-8000-000000000001",
+        "namedFrom": "template",
+        "byName": true,
+        "names": [
+          "Explosion_Fixture_Frost",
+          "Attack_Fixture_Frost_Burst"
+        ],
+        "particles": 4,
+        "length": 10,
+        "parameters": [
+          {
+            "name": "radius",
+            "type": "float",
+            "default": 2
+          },
+          {
+            "name": "color",
+            "type": "color",
+            "default": "#ffffffff"
+          },
+          {
+            "name": "targetPosition",
+            "type": "float3"
+          },
+          {
+            "name": "count",
+            "type": "int",
+            "default": 3
+          },
+          {
+            "name": "enabled",
+            "type": "bool",
+            "default": true
+          },
+          {
+            "hash": "0x445b114d",
+            "type": "float"
+          }
+        ]
+      },
+      {
+        "name": "Sequence_Fixture_Charge",
+        "id": "0x0f000002",
+        "guid": "0000f002-0000-4000-8000-000000000002",
+        "namedFrom": "sequence",
+        "byName": true,
+        "particles": 1,
+        "length": 10
+      },
+      {
+        "name": "Prop_Fixture_Crate_DestroyOnLoot",
+        "id": "0x0f000003",
+        "guid": "0000f004-0000-4000-8000-000000000004",
+        "namedFrom": "use",
+        "particles": 2,
+        "length": 10
+      },
+      {
+        "name": "Vfx_0000f003",
+        "id": "0x0f000004",
+        "guid": "0000f003-0000-4000-8000-000000000003",
+        "particles": 0,
+        "length": 10
+      }
     ]
   },
   "fields": {

@@ -24,6 +24,7 @@ internal sealed class GameFieldsEmitter
     private const string Nodes = "global::Kiln.GameIds.GameFieldNodes.";
 
     private readonly FieldCatalog _cat;
+    private readonly HashSet<string>? _only;
     private readonly Dictionary<string, EnumDef> _enums = new(StringComparer.Ordinal);
     private readonly StringBuilder _nodes = new();
     private readonly HashSet<string> _nodeNames = new(StringComparer.Ordinal) { "ConfigValues" };
@@ -45,11 +46,16 @@ internal sealed class GameFieldsEmitter
         public string Ident { get; set; } = "";
     }
 
-    public GameFieldsEmitter(FieldCatalog cat)
+    /// <param name="only">The sections to emit; null: all of them.</param>
+    public GameFieldsEmitter(FieldCatalog cat, HashSet<string>? only = null)
     {
         _cat = cat;
+        _only = only;
         CollectEnums();
     }
+
+    private IEnumerable<KeyValuePair<string, List<FieldRow>>> Sections =>
+        _cat.Fields.Where(k => k.Value.Count > 0 && (_only is null || _only.Contains(k.Key))).OrderBy(k => k.Key, StringComparer.Ordinal);
 
     /// <summary>The generated files: (hint name, source).</summary>
     public IEnumerable<(string Hint, string Source)> Emit(Func<StringBuilder> header, string build)
@@ -61,9 +67,8 @@ internal sealed class GameFieldsEmitter
             .AppendLine("</summary>");
         fields.AppendLine("    public static partial class GameFields");
         fields.AppendLine("    {");
-        foreach (var kv in _cat.Fields.OrderBy(k => k.Key, StringComparer.Ordinal))
+        foreach (var kv in Sections)
         {
-            if (kv.Value.Count == 0) continue;
             var cls = Pascal(kv.Key);
             var tree = FieldNode.Build(kv.Value);
             fields.Append("        /// <summary>").Append(GameIdsGenerator.Xml($"The paths of `{kv.Key}` entries.")).AppendLine("</summary>");
@@ -257,7 +262,8 @@ internal sealed class GameFieldsEmitter
             var others = g.SelectMany(c => c.Names).Where(n => !string.Equals(n, name, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
             sb.Append("            /// <summary>").Append(GameIdsGenerator.Xml((g.First().Type ?? "a value") + ", " + ids + (others.Count > 0 ? "; also called " + string.Join(", ", others) : "") + "."))
                 .AppendLine("</summary>");
-            sb.Append("            public ").Append(FieldType).Append('<').Append(type).Append("> ").Append(ident).Append(" => new(_s, _p + ").Append(GameIdsGenerator.Lit("." + name)).AppendLine(");");
+            sb.Append("            public ").Append(FieldType).Append('<').Append(type).Append("> ").Append(ident).Append(" => new(_s, _p + ")
+                .Append(GameIdsGenerator.Lit(name.IndexOf('.') >= 0 ? "[" + name + "]" : "." + name)).AppendLine(");");   // a name with a dot goes in brackets
         }
         sb.AppendLine("        }");
     }
@@ -280,8 +286,8 @@ internal sealed class GameFieldsEmitter
             if (flags && (names.Count > 64 || (numbers?.Any(n => n >= 64) ?? false))) return;
             _enums[type] = new EnumDef(type, flags, names, numbers);
         }
-        foreach (var list in _cat.Fields.Values)
-            foreach (var r in list)
+        foreach (var kv in Sections)
+            foreach (var r in kv.Value)
                 Add(r.Type, r.EffectiveKind, r.EnumNames, r.EnumNumbers);
         foreach (var c in _cat.Configs)
             Add(c.Type, c.Kind, c.EnumNames, c.EnumNumbers);

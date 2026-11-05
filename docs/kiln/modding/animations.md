@@ -147,7 +147,8 @@ sk.hierarchy_hash, sk.name_hashes
   "joints": [ { "index": 0, "name": "root", "parent": null, "nameHash": "0x...", "translation": [0,0,0], "rotation": [0,0,0,1], "scale": [1,1,1] } ] }
 ```
 
-The sidecar exists only after the `skeleton` step ran: put that step before anything that reads it. The compiled form's
+tools/modelcook binds meshes to a recipe's `skeleton` step without the sidecar: see [Skinned models](models.md#skinned-models). The sidecar exists only after the `skeleton` step ran, so any other
+tool should run after it. The compiled form's
 `skinToJointMatrices` are the inverse of the chained rest pose, columns x, y, z, so a mesh's inverse bind matrices have to agree
 with it after the same mirror on X.
 

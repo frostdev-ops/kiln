@@ -120,6 +120,12 @@ test("Play button follows the game state", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "More ways to play" }).click();
+  // every item is really on screen: a parent with overflow: hidden once cut them off
+  for (const name of ["Play vanilla once", "Play without mods once", "Play a profile once"]) {
+    const box = await page.getByRole("menuitem", { name }).boundingBox();
+    const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.textContent ?? "", [box!.x + box!.width / 2, box!.y + box!.height / 2]);
+    expect(hit).toContain(name);
+  }
   await page.getByRole("menuitem", { name: "Play a profile once…" }).click();
   await expect(page.getByRole("dialog", { name: "Play a profile once" })).toBeVisible();
 });

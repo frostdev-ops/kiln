@@ -128,6 +128,12 @@ bool store_has(uintptr_t addr) {
     return g_slots.count(addr) != 0;
 }
 
+void store_originals(uintptr_t addr, size_t size, uint8_t* out) {
+    std::lock_guard lock(g_mu);
+    for (auto it = g_slots.lower_bound(addr); it != g_slots.end() && it->first < addr + size; ++it)
+        if (it->first + it->second.n <= addr + size) std::memcpy(out + (it->first - addr), it->second.original, it->second.n);
+}
+
 bool store_original(uintptr_t addr, uint8_t n, uint8_t* out) {
     std::lock_guard lock(g_mu);
     auto it = g_slots.find(addr);

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """Writes a small rigged figure as glTF 2.0 (.glb), no game data: a body of tapered tubes with smooth weights, 15 joints, a club in its right hand, and the animations a
-creature needs. Facing +Z, y up, metres, so its right side is -X in the file and +X in the game. The club is a mesh with no skin, parented to the hand: it tests that case
+creature needs (Idle, Walk, Run, Attack, Dead, Flinch), plus Bend and Hold, large poses for checks. Facing +Z, y up, metres, so its right side is -X in the file and +X in the game. The club is a mesh with no skin, parented to the hand: it tests that case
 and it tells a mirrored body from a correct one.
 
     python3 tools/modelcook/samples/rigged_figure.py OUT.glb [--lod1]
@@ -133,7 +133,7 @@ def body(sides=10, rings=4):
     w = world_rest()
     at = lambda n: w[n][0]
     m = Mesh()
-    m.tube(at("pelvis"), (0, at("head")[1], 0), 0.20, 0.17, _torso, sides, rings * 3, 0.0, 0.5)
+    m.tube((0, at("pelvis")[1] - 0.10, 0), (0, at("head")[1], 0), 0.20, 0.17, _torso, sides, rings * 3, 0.0, 0.5)
     m.tube(at("head"), (0, at("head")[1] + 0.26, 0.01), 0.10, 0.12, lambda u: [("head", 1.0)], sides, 2, 0.5, 0.7)
     for s in "rl":
         arm, fore, hand = (at(f"{n}_{s}") for n in ("arm", "forearm", "hand"))
@@ -185,7 +185,13 @@ def _pose_bend(u):
             "leg_r": ("x", -50 * u), "shin_r": ("x", 70 * u), "leg_l": ("x", 30 * u)}
 
 
-ANIMATIONS = {"Idle": (_pose_idle, 2.0), "Walk": (_pose_walk, 1.0), "Run": (lambda u: _pose_walk(u, 55.0), 0.6), "Attack": (_pose_attack, 1.2), "Dead": (_pose_dead, 1.2), "Bend": (_pose_bend, 1.0)}
+def _pose_flinch(u):
+    return {"chest": ("x", 25 * math.sin(math.pi * u)), "head": ("x", -15 * math.sin(math.pi * u))}
+
+
+ANIMATIONS = {"Idle": (_pose_idle, 2.0), "Walk": (_pose_walk, 1.0), "Run": (lambda u: _pose_walk(u, 55.0), 0.6), "Attack": (_pose_attack, 1.2), "Dead": (_pose_dead, 1.2), "Bend": (_pose_bend, 1.0),
+              "Hold": (lambda u: _pose_bend(1.0), 1.0), "Flinch": (_pose_flinch, 0.5), "Ref": (lambda u: {"chest": ("x", 0.0)}, 0.1)}
+PELVIS_DROP = {"Dead": lambda u: -0.78 * min(1.0, u * 1.5)}  # the body falls to the ground as it turns over
 KEYS_PER_SECOND = 30
 
 
@@ -279,6 +285,11 @@ def build(lod1=False):
             vals = b"".join(struct.pack("<4f", *pose_rotation(jname, pose(i / (n - 1)))) for i in range(n))
             samplers.append({"input": ti, "output": wr.add(vals, 5126, "VEC4", n), "interpolation": "LINEAR"})
             channels.append({"sampler": len(samplers) - 1, "target": {"node": idx[jname], "path": "rotation"}})
+        if aname in PELVIS_DROP:
+            rest = next(j[2] for j in JOINTS if j[0] == "pelvis")
+            vals = b"".join(struct.pack("<3f", rest[0], rest[1] + PELVIS_DROP[aname](i / (n - 1)), rest[2]) for i in range(n))
+            samplers.append({"input": ti, "output": wr.add(vals, 5126, "VEC3", n), "interpolation": "LINEAR"})
+            channels.append({"sampler": len(samplers) - 1, "target": {"node": idx["pelvis"], "path": "translation"}})
         anims.append({"name": aname, "samplers": samplers, "channels": channels})
     doc = {"asset": {"version": "2.0", "generator": "kiln rigged_figure.py"}, "scene": 0, "scenes": [{"nodes": [body_node, 0]}], "nodes": nodes,
            "meshes": [{"name": "Body", "primitives": prims}, {"name": "Club", "primitives": [club_prim]}],

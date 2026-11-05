@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "tool": "modelcook",
+  "out": "cooked",
+  "inputs": {
+    "vukah_model": { "guid": "7d9ae3f5-d713-48e3-9ee0-c053d03c7c2a", "type": "keen::RenderModel" },
+    "vukah_skeleton": { "guid": "aa1770ef-e285-453c-a5c5-2356d2c3b7be", "type": "keen::ModelHierarchyResource" },
+    "body_material": { "guid": "3bd52b5e-363d-46c3-b65b-4e72ea351076", "type": "keen::RenderMaterialResource" },
+    "club_material": { "guid": "71165a08-1a37-495c-9cb9-39cd1145ebf0", "type": "keen::RenderMaterialResource" }
+  },
+  "steps": [
+    { "op": "model", "gltf": "src/mannequin.gltf", "base": "vukah_model", "guid": "@vukah_model", "mode": "override", "skeleton": "@vukah_skeleton", "material": "@body_material",
+      "name": "vukah_mannequin", "stem": "vukah_mannequin" },
+    { "tool": "animcook", "op": "skeleton", "name": "figure", "gltf": "src/figure.glb" },
+    { "tool": "animcook", "op": "clips", "skeleton": "figure", "gltf": "src/figure.glb", "clips": {
+        "idle": { "animation": "Idle", "loop": true },
+        "walk": { "animation": "Walk", "loop": true },
+        "run": { "animation": "Run", "loop": true },
+        "attack": { "animation": "Attack" },
+        "dead": { "animation": "Dead" },
+        "flinch": { "animation": "Flinch" },
+        "ref": { "animation": "Ref" },
+        "hold": { "animation": "Hold", "loop": true } } },
+    { "tool": "animcook", "op": "graph", "name": "figure", "skeleton": "figure",
+      "slots": { "HandR": "hand_r", "HandL": "hand_l", "Head": "head", "Chest": "chest", "Pelvis": "pelvis", "FootR": "shin_r", "FootL": "shin_l" },
+      "comment": "The states with an id are the ones the cloned template's AI and arsenal ask for, by the id they have on the creature it was cloned from.",
+      "states": {
+        "idle": { "engine": "Idle", "clip": "idle" },
+        "walk": { "engine": "Walk", "clip": "walk" },
+        "run": { "engine": "Run", "clip": "run" },
+        "idle_combat": { "engine": "IdleCombat", "clip": "idle" },
+        "fall": { "engine": "Fall", "clip": "idle" },
+        "stun": { "engine": "Stun", "clip": "idle" },
+        "dead": { "engine": "Dead", "clip": "dead", "loop": false },
+        "attack_01": { "id": "0x2f9a458c", "clip": "attack", "loop": false },
+        "attack_02": { "id": "0xc1d1816c", "clip": "attack", "loop": false },
+        "patrol": { "id": "0x34caa06a", "clip": "walk" },
+        "flee": { "id": "0x000f8e2b", "clip": "run" },
+        "taunt": { "id": "0x2f52ce18", "clip": "idle" },
+        "shout": { "id": "0x436f1bff", "clip": "idle" },
+        "block": { "id": "0xeb2a5b2e", "clip": "idle" },
+        "hit_stagger": { "id": "0x42756d9d", "clip": "flinch", "loop": false },
+        "hit_uppercut": { "id": "0xd201f9d9", "clip": "flinch", "loop": false },
+        "turn_l": { "id": "0x108329b9", "clip": "idle" },
+        "turn_r": { "id": "0xaf4cab42", "clip": "idle" },
+        "hold": { "clip": "hold" } },
+      "layers": [ { "name": "flinch", "overlay": "hit", "clip": "flinch", "reference": "ref", "bones": [ "chest", "head" ] } ] },
+    { "op": "model", "gltf": "src/figure.glb", "lods": [ "src/figure_lod1.glb" ], "pixelSizes": [ 0, 0.05 ], "skeleton": "figure",
+      "materialMap": { "body": "@body_material", "club": "@club_material" }, "name": "figure", "stem": "figure" }
+  ]
+}

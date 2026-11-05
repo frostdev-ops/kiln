@@ -51,7 +51,20 @@ public static class CreatureAdminCommands
                     .Then(Commands.Argument("seconds", Arg.Double(0, 3600)).Executes(WatchCmd))))
             .Then(Commands.Literal("ready").Describe("lab only: holds a creature ready for gameplay (on/off)")
                 .Then(Commands.Argument("entity", Arg.Entity())
-                    .Then(Commands.Argument("on", Arg.Bool()).Executes(Ready))));
+                    .Then(Commands.Argument("on", Arg.Bool()).Executes(Ready))))
+            .Then(Commands.Literal("rules").Describe("rules and arsenals: what resolved, what ran; with an entity, its arsenal")
+                .Executes(RulesCmd)
+                .Then(Commands.Argument("entity", Arg.Entity()).Executes(RulesCmd)))
+            .Then(Commands.Literal("attack").Describe("overrides a creature's attack: force <index> | allow <i,j,...> | natural | clear")
+                .Then(Commands.Argument("entity", Arg.Entity())
+                    .Then(Commands.Argument("how", Arg.Choice("force", "allow", "natural", "clear")).Executes(AttackCmd)
+                        .Then(Commands.Argument("which", Arg.Word()).Executes(AttackCmd)))))
+            .Then(Commands.Literal("aiswitch").Describe("turns a creature's AI off or on: the body keeps running, decisions stop")
+                .Then(Commands.Argument("entity", Arg.Entity())
+                    .Then(Commands.Argument("on", Arg.Bool()).Executes(AiSwitchCmd))))
+            .Then(Commands.Literal("target").Describe("makes another entity the creature's combat target")
+                .Then(Commands.Argument("entity", Arg.Entity())
+                    .Then(Commands.Argument("target", Arg.Entity()).Executes(TargetCmd))));
         return Commands.Register(root, CommandPermission.Admin, "Kiln creatures (kiln.creatures)");
     }
 
@@ -75,6 +88,73 @@ public static class CreatureAdminCommands
                 $"{s.Entities} creatures changed ({s.Layers} layers, {s.PrivateCopies} private copies); " +
                 $"{CreatureVariants.All.Count} variants, {CreatureVariants.SpawnRules.Count} spawn rules");
         static string On(bool b) => b ? "on" : "off";
+    }
+
+    private static void RulesCmd(CommandContext c)
+    {
+        Require();
+        var s = Arsenals.Status ?? throw new CommandException("kiln.creatures is not available on this server");
+        if (c.Has("entity"))
+        {
+            var cr = Creatures.Of(c.Get<EntityId>("entity"));
+            var a = Arsenals.Info(cr.Arsenal) ?? throw new CommandException($"{cr.Entity}: its arsenal {cr.Arsenal} is not in the registry");
+            var text = new StringBuilder($"{cr.Entity}: arsenal {a.Id} ({(a.IsKiln ? "Kiln's" : "the game's")}), AI {(cr.AiEnabled ? "on" : "off")}, phase {cr.Phase:x8}");
+            foreach (var x in a.Attacks) text.Append($"\n  attack {x.Index}: sequence {x.Sequence} ({RuleIds.Fnv(x.Sequence):x8}), style 0x{x.Style:x}");
+            foreach (var r in a.Rules) text.Append($"\n  rule {r.Index}: mode {(RuleMode)r.Mode}, {r.When} condition(s), {r.Actions} action(s)");
+            foreach (var p in a.Problems) text.Append($"\n  problem: {p}");
+            c.Reply(text.ToString());
+            return;
+        }
+        c.Reply($"rules: writer {On(s.Writer)}, dispatcher {On(s.Dispatcher)} (hooks {On(s.RuleHooks)}), attack overrides {On(s.Attacks)} (hooks {On(s.AttackHooks)}), AI switch {On(s.AiSwitch)}; " +
+                $"{s.Arsenals} Kiln arsenals, map {s.MapCount}/{s.MapCapacity}; table {s.Tracked} creatures, {s.Overrides} overrides, {s.AiOff} AI off\n" +
+                $"  constraints {s.Constraints} ({s.ConstraintsTrue} true), actions {s.Actions} ({s.ActionsDropped} dropped); selects {s.Selects} (forced {s.SelectsForced}, refused {s.SelectsFiltered}, waited {s.PicksWaiting}); " +
+                $"starts {s.Starts} (against an override {s.StartsOffOverride}), follow-ups refused {s.FollowupsRefused}, sequences refused {s.SequencesRefused}");
+        static string On(bool b) => b ? "on" : "off";
+    }
+
+    private static void AttackCmd(CommandContext c)
+    {
+        Require();
+        var e = c.Get<EntityId>("entity");
+        var how = c.Get<string>("how");
+        var which = c.GetOrDefault("which", "");
+        var a = Creatures.Of(e).Attacks;
+        switch (how)
+        {
+            case "force":
+                if (!int.TryParse(which, CultureInfo.InvariantCulture, out var i)) throw new CommandException("force <attack index>; /creature rules <entity> lists them");
+                a.Force(i);
+                break;
+            case "allow":
+                try { a.Allow(which.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToArray()); }
+                catch (FormatException) { throw new CommandException("allow <i,j,...>"); }
+                break;
+            case "natural":
+                a.Natural();
+                break;
+            default:
+                a.Clear();
+                break;
+        }
+        c.Reply($"{e}: attack override {how} {which}");
+    }
+
+    private static void AiSwitchCmd(CommandContext c)
+    {
+        Require();
+        var e = c.Get<EntityId>("entity");
+        var cr = Creatures.Of(e);
+        cr.AiEnabled = c.Get<bool>("on");
+        c.Reply($"{e}: AI {(cr.AiEnabled ? "on" : "off")}, state {cr.State}");
+    }
+
+    private static void TargetCmd(CommandContext c)
+    {
+        Require();
+        var e = c.Get<EntityId>("entity");
+        var t = c.Get<EntityId>("target");
+        Creatures.Of(e).PreferTarget(t);
+        c.Reply($"{e}: prefers {t}");
     }
 
     private static void Near(CommandContext c)

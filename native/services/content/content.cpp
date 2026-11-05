@@ -977,6 +977,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_owner = owner;
     info->id = KilnStr{kName, std::strlen(kName)};
     info->version = KilnStr{"4", 1};
+    near_alloc_boot();
     resolve();
     if (E.items && E.reflection) nc_boot();
 #if KC_GAMEDATA

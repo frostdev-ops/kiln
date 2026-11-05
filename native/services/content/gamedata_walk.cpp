@@ -7,6 +7,8 @@
 // Path grammar: "a.b[3].c", "[Type#k]" / "[Type]" (k-th element of a variant array whose type is Type), "[*]" (every
 // element), "[<guid>]" (the element whose `guid` field is that GUID), "Component#k" (templates: a component by its type
 // name), and below a keen::impact::Configurations a config by alias / 0x id ("impactValues.ManaCost.scaleFactor").
+#include <windows.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -581,7 +583,7 @@ gjson leaf_json(const Field& f, const uint8_t* b, bool raw) {
             return v.i;
         case KILN_CV_FLOAT: return v.f;
         case KILN_CV_TIME: return v.f;
-        case KILN_CV_GUID: return guid_text(v.guid);
+        case KILN_CV_GUID: return ref_text(v.guid);
         default: return nullptr;
     }
 }
@@ -926,6 +928,22 @@ bool enum_value(const Field& f, const std::string& name, int64_t* v) {
     return false;
 }
 
+// Whether a client's data may name this VFX. The game aborts on a VFX GUID its VFX system did not register, and only kiln.vfx's guard stands in
+// the way. So a client without kiln.vfx keeps the game's own VFX, and a mod's becomes no VFX at all: the game ends an empty entry at once. On a
+// server the GUID is only carried. <kiln>/data/content/no-vfx-client makes a lab behave as such a client.
+bool vfx_reference_kept(const uint8_t g[16]) {
+    static const bool test = GetFileAttributesA((data_dir() + "\\content\\no-vfx-client").c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (g_api->side() != KILN_SIDE_CLIENT && !test) return true;
+    if (!test && g_api->service(KilnStr{"kiln.vfx", 8}, 1)) return true;
+    if (res_data(g, fnv1a(std::string("keen::VfxResource")))) return true;
+    static std::mutex mu;
+    static std::set<std::string> said;
+    const std::string text = guid_text(g);
+    std::lock_guard lock(mu);
+    if (said.insert(text).second) LOGW("gamedata: VFX %s is not in this game and kiln.vfx is off here: the data naming it shows nothing", text.c_str());
+    return false;
+}
+
 // The resource type a reference field points at: "keen::ObjectReference<keen::X>" somewhere in its typedef chain.
 uint32_t ref_target(const std::string& type_name) {
     const TType* t = type_named(type_name);
@@ -963,7 +981,7 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
             return false;
         }
         const std::string s = j.get<std::string>();
-        if (s.empty() || s == "none") return true;  // all zero: no reference
+        if (s.empty() || s == "none" || s == "00000000-0000-0000-0000-000000000000") return true;  // all zero: no reference
         uint8_t g[16] = {};
         const uint32_t target = ref_target(f.type_name);
         const GEntry* named = nullptr;
@@ -992,6 +1010,17 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
             std::memcpy(out, g, 16);
             return true;
         }
+        // A VFX (VfxComponentResource.vfx, a sequence's VfxNotifierEvent, a buff's whileApplied and onCreate). A dedicated server has no VFX
+        // resources and carries the GUID for its clients. See vfx_reference_kept.
+        static const uint32_t kVfxDefinition = fnv1a(std::string("keen::VfxDefinition"));
+        if (target == kVfxDefinition && f.ref) {
+            if (!(s.size() == 36 && guid_parse(s, g))) {
+                *err = "\"" + s + "\" is not a VFX's GUID";
+                return false;
+            }
+            if (vfx_reference_kept(g)) std::memcpy(out, g, 16);
+            return true;
+        }
         if (!(s.size() == 36 && guid_parse(s, g))) {
             // names: templates, sequences, perks, items ("item:<name>")
             if (s.rfind("item:", 0) == 0) {
@@ -1014,7 +1043,10 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
         if (target && f.ref) {
             // the GUID must be a loaded resource of the reference's type (a template the game knows, ...)
             // A StateId is only hashed, it is never a resource: any GUID is valid, so blocks can invent new states.
+            // A dedicated server loads no UI images and nothing on it reads them: a reference to one cannot be checked there, and needs not be.
+            static const bool server = GetModuleHandleA("enshrouded_server.exe") != nullptr;
             const bool ok = f.type_name == "keen::ObjectReference<keen::animationgraph::StateId>" ||
+                            (server && f.type_name == "keen::ObjectReference<keen::UiImage>") ||
                             res_data(g, target) != 0 ||
                             (target == fnv1a(std::string("keen::ecs::TemplateResource")) && greg(KILN_GD_TEMPLATES).get(fnv1a(g, 16)));
             if (!ok) {

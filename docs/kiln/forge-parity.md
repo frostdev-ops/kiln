@@ -60,6 +60,7 @@ Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{event
 | LivingKnockBackEvent | `EntityKnockbackEvent` (Strength/Direction/Reaction, cancel) | done |
 | ItemCraftedEvent | `CraftEvent` (cancel) + `ItemCraftedEvent` | done |
 | PlayerInteractEvent | `InteractEvent` (cancel) + `InteractionResultEvent` | done (injected); real players: client |
+| LivingEntityUseItemEvent, player tick state (`isSprinting`, `isSwimming`, `isFallFlying` ...) | `PlayerConsumeEvent` (cancel), `PlayerActionEvent` (cancel), `PlayerClientActionEvent` (cancel), `player.Is(...)`, `PlayerStateChangedEvent` | lab (spawned player character); real players: manual test |
 | EntityItemPickupEvent | `LootEvent` (cancel) + `ItemPickupEvent` | done |
 | ItemTossEvent | `ItemTossEvent` (inventory Destroy/Trash, cancel) | client |
 | BlockEvent.Break/EntityPlace, terrain | `BuildEvent` (observe) + `Gameplay.Protect` zones refusing build/break/terraform | client |
@@ -124,7 +125,7 @@ one mod per hot function (docs/kiln/hooks.md).
 | Sounds (SoundEvent, PlaySoundEvent) | `Kiln.Audio` `Sound`, soundcook | see the rows below |
 | Particles (`level.addParticle`, ParticleEngine) | `Vfx.PlayAt/On/For`, any game VFX by name (`Kiln.Vfx`, relay `kiln:vfx`), a guard against unknown GUIDs | lab; paths and guards ran in a client; what shows: manual test |
 | Particles (ParticleType, ParticleProvider, particle JSON) | `VfxBlock`, `ParticleBlock` | in progress |
-| Shader packs, custom render types, core shader overrides | `ShaderBlock`, `MaterialBlock` | planned; particle compute first, surface shaders later |
+| Shader packs, custom render types, core shader overrides | `MaterialBlock` (new surfaces on the game's shaders), `ShaderBlock` | materials built, not yet seen in a game; particle compute first, then transparent and opaque surface shaders |
 | Post chains (`PostChain`, `GameRenderer` effects) | `ScreenEffectBlock`, `ColorGradingBlock` | planned |
 | Render events (`RenderLevelStageEvent`) | Render-pass hooks | research |
 | Title/pause screen buttons (`ScreenEvent.Init`) | `Ui.Menus.Add` (drawn by the game's own menu code) | done (real client) |

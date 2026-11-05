@@ -26,8 +26,10 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Quests, conversations | `quests` |
 | Placed and new NPCs, the game's journal and menus | `npcs` |
 | Sounds, music, voice | `sounds` |
+| Particles, lights, the game's VFX: [vfx.md](vfx.md) | `vfx` |
 | Icons, retextures, resources | `assets` |
 | 3D models | `models` |
+| New surfaces for models from PNGs and numbers | `materials` |
 | Terrain, props, schematics, zones | `world-edits` |
 | Menus, screens, crafting tabs, HUD, keys | `game-ui` |
 | Network channels, synced configs, client code | `multiplayer` |
@@ -35,7 +37,7 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | What works today | `status` |
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
-ImpactSample, AssetSample, ModelSample, SoundSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,
+ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,
 NetSample, Claims.
 
 Kiln's reverse-engineering notes are for its own developers. Mods never need them. Don't copy addresses or offsets into mod code.

@@ -36,7 +36,7 @@ internal static class ItemParts
             if (p is IPremade m && m.Key == r.Name) return p;
         var h = ctx.Find(r.Name, path);
         if (h is BlockHandle<T> typed) return typed.Block;
-        if (h != null) throw new BlockError(ctx.Block, path, $"\"{r.Name}\" is a {KindOf(h.GetType().GenericTypeArguments[0])}; this field takes a {KindOf(typeof(T))}");
+        if (h != null) throw new BlockError(ctx.Block, path, $"\"{r.Name}\" is a {KindOf(h.BlockType)}; this field takes a {KindOf(typeof(T))}");
         var own = ctx.Mod.Handles.Where(x => x.Value is BlockHandle<T>).Select(x => x.Key);
         var keys = Premades<T>().OfType<IPremade>().Select(p => p.Key).Concat(own).Order();
         throw new BlockError(ctx.Block, path, $"no {KindOf(typeof(T))} \"{r.Name}\"; there are: {string.Join(", ", keys)}");
@@ -47,8 +47,8 @@ internal static class ItemParts
     {
         var h = ctx.Find(r.Value, path);
         if (h == null) return r.Value;
-        if (h is BlockHandle<EffectBlock> or BlockHandle<StatusBlock> or BlockHandle<VisualBlock> or BlockHandle<OnHitBlock> or BlockHandle<WeaponStats> or BlockHandle<ArmorStats> or BlockHandle<WeaponClass> or BlockHandle<ArmorSlot> or BlockHandle<ArmorSet>)
-            throw new BlockError(ctx.Block, path, $"\"{r.Value}\" is a {KindOf(h.GetType().GenericTypeArguments[0])}, not an item");
+        if (h is BlockHandle<EffectBlock> or BlockHandle<StatusBlock> or BlockHandle<VfxBlock> or BlockHandle<VisualBlock> or BlockHandle<OnHitBlock> or BlockHandle<WeaponStats> or BlockHandle<ArmorStats> or BlockHandle<WeaponClass> or BlockHandle<ArmorSlot> or BlockHandle<ArmorSet>)
+            throw new BlockError(ctx.Block, path, $"\"{r.Value}\" is a {KindOf(h.BlockType)}, not an item");
         return h.GameName;
     }
 
@@ -59,8 +59,8 @@ internal static class ItemParts
         if (r.Part is not { } part) return r.ToList();
         if (part.Name is { } name && ctx.Find(name, path) is BlockHandle<EffectBlock>) return [(EffectRef)name];
         var block = ctx.Part(part, path);
-        if (block.Vfx != null) throw Compiler.NoVfxYet(ctx, $"{path}.vfx");
-        return block.Effects;
+        // shown where a hit lands: the same as an effect that only shows it
+        return block.Vfx == null ? block.Effects : [.. block.Effects, new EffectBlock { Vfx = block.Vfx }];
     }
 
     /// <summary>Where a recipe is crafted: what kiln.content takes for it.</summary>
@@ -71,7 +71,7 @@ internal static class ItemParts
         if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return (Convert.ToUInt32(v, 16), v);
         var h = ctx.Find(v, path);
         if (h is BlockHandle<StationBlock> s) return (Convert.ToUInt32(s.Block.Kind.Workshop, 16), s.Block.Kind.Workshop);
-        if (h != null) throw new BlockError(ctx.Block, path, $"\"{v}\" is a {KindOf(h.GetType().GenericTypeArguments[0])}, not a station");
+        if (h != null) throw new BlockError(ctx.Block, path, $"\"{v}\" is a {KindOf(h.BlockType)}, not a station");
         var own = ctx.Mod.Handles.Where(x => x.Value is BlockHandle<StationBlock>).Select(x => x.Key).Order();
         throw new BlockError(ctx.Block, path, $"\"{v}\" is not a station: say \"hand\", a workshop's 0x id (GameWorkshops), or a station block; this mod has: {string.Join(", ", own)}");
     }

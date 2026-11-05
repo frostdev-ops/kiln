@@ -100,7 +100,7 @@ export default function RuntimePage() {
       </div>
 
       <Card flush title="Bundles" actions={<span className="k-hint">{bundles.data?.length ?? 0} in the launcher</span>}>
-        {bundles.error ? <EmptyState title="Bundles unavailable" hint={errorText(bundles.error)} /> : (
+        {bundles.isLoading ? <Skeleton /> : bundles.error ? <EmptyState title="Bundles unavailable" hint={errorText(bundles.error)} /> : (
           <Table aria-label="Runtime bundles" columns={cols} rows={bundles.data ?? []} rowKey={(b) => b.version} rowHeight={48}
             empty={<EmptyState icon={<Package />} title="No bundles" hint="Drop a kiln-runtime zip below." />} />
         )}

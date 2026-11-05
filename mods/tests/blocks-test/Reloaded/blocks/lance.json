@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "spells": {
+    "reload-lance": {
+      "name": "Reload Lance",
+      "cast": { "manaCost": 13 },
+      "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "ice": 6 } } ] } } ] }
+    }
+  }
+}

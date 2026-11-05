@@ -12,7 +12,7 @@ from kfc.blob import Decoder
 from kfc.blobwrite import Encoder
 from kfc.util import guid_bytes, guid_text
 
-from . import gltf, rendermodel as RM, skin as SK
+from . import gltf, material as MB, rendermodel as RM, skin as SK
 from .validate import validate
 
 
@@ -24,7 +24,13 @@ def _norm_guid(g):
     return guid_text(guid_bytes(g))
 
 
-def _material_entry(k, t, guid, base_materials):
+def _material_entry(k, t, guid, base_materials, own=None):
+    """A model's RenderModelMaterial: a MaterialBlock of this mod by name (own: {"blocks", "mod"}), or a game material by GUID."""
+    if not MB.GUID.match(str(guid)):
+        got = MB.entry(guid, own["blocks"], own["mod"]) if own else None
+        if got is None:
+            raise StepError(f"material {guid!r} is neither a GUID nor a block in this mod's blocks/*.json \"materials\"")
+        return got
     guid = _norm_guid(guid)
     for m in base_materials:
         if m["material"] == guid:
@@ -57,9 +63,10 @@ def global_scale_of(k, t, hierarchy):
 
 
 def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None, material_map=None,
-          pixel_sizes=None, stem=None, subdir="cooked", target=None, global_scale=None):
+          pixel_sizes=None, stem=None, subdir="cooked", target=None, global_scale=None, own_materials=None):
     """glTF (one file per LOD, LOD 0 first) -> RenderModel .bin + renderData .blob. `base` is a game model whose materials are the defaults, or None. With `target`
-    (a skin.Target) the model is skinned on that skeleton. Returns (files {relative name: bytes}, entries, report)."""
+    (a skin.Target) the model is skinned on that skeleton. own_materials {"blocks", "mod"}: the mod's MaterialBlocks, which material and material_map may name.
+    Returns (files {relative name: bytes}, entries, report)."""
     th = t.get("keen::RenderModel")["hash"]
     base_desc, base_key = {"materials": []}, None
     if base is not None:
@@ -93,7 +100,7 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
             if not g:
                 raise StepError(f"glTF material {key!r} has no game material: give \"material\", \"materialMap\" or a \"base\" model")
             slots[key] = len(materials)
-            materials.append(_material_entry(k, t, g, base_desc["materials"]))
+            materials.append(_material_entry(k, t, g, base_desc["materials"], own_materials))
         return slots[key]
 
     lods = []
@@ -118,7 +125,8 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
     data = RM.encode(t, desc)
     stem = stem or name
     fb, fo = f"{subdir}/{stem}.bin", f"{subdir}/{stem}.blob"
-    report = validate(k, t, data, blob, against=base_key.guid if base_key else None, gltf_docs=docs, target=target)
+    own_guids = {m["material"] for m in materials if not k.has(ResourceKey(m["material"], t.get("keen::RenderMaterialResource")["hash"], 0))} if own_materials else ()
+    report = validate(k, t, data, blob, against=base_key.guid if base_key else None, gltf_docs=docs, target=target, own_materials=own_guids)
     report.update({"op": "model", "guid": out_guid, "mode": mode, "base": base_key.guid if base_key else None, "bin": fb, "blob": fo,
                    "bin_size": len(data), "blob_size": len(blob), "content_hash": desc["renderData"]["hash"],
                    "materials": materials, "warnings": warnings})
@@ -163,6 +171,20 @@ def visual(k, t, base, model_guid, guid, name=None, stem=None, subdir="cooked"):
     entries = [{"kind": "resource", "guid": guid, "type": "keen::ecs::TemplateResource", "part": 0, "file": fb,
                 "mode": "new"}]
     return {fb: data}, entries, report
+
+
+def gltf_blocks(gltf_file, mod_dir, stem, out):
+    """The glTF's own materials as MaterialBlocks: the file of blocks and any PNGs embedded in it, for kiln.vfx to build at boot.
+    -> ({glTF material: block name}, {block name: block}, files {path relative to the mod: bytes}, warnings)."""
+    try:
+        names, blocks, images, warnings = MB.from_gltf(gltf_file, mod_dir, stem, out)
+    except MB.MaterialError as e:
+        raise StepError(str(e)) from e
+    if not blocks:
+        raise StepError(f"{gltf_file}: it has no materials to make blocks from")
+    files = dict(images)
+    files[f"blocks/{stem}.materials.json"] = MB.blocks_file(blocks, Path(gltf_file).name).encode()
+    return names, blocks, files, warnings
 
 
 def sha256(b):

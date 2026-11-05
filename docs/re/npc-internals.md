@@ -33,8 +33,8 @@ Evidence tags:
   scratch works **[rt]**. A custom graph talks to the engine through a small input contract (section 2.5).
 - **A new skeleton is fine; a body need not fit an existing one.** Nothing validates `hierarchyHash` against the graph at
   run time (43 of the clips the game's graphs use match no skeleton **[data]**, and ours ran). Limit: 255 joints.
-- **Skinned bodies are one gap away.** `tools/modelcook` lacks glTF skins, the skin stream and `skinningMap`; the format
-  is documented (section 1.1). Blend shapes, cloth and chains are optional and can come later.
+- **Skinned bodies cook.** `tools/modelcook` turns a glTF skin into the skin stream and `skinningMap`, on a skeleton of our own or one of the game's (section 1.1). What's unseen is a client
+  drawing one. Blend shapes, cloth and chains are optional and can come later.
 - **Creature collision is simple shapes on the root**, 1 or 11 sets per `ColliderMode`, no per-bone hit zones, no ragdoll in
   any template. Weak spots are child entities on slots. **[data]**
 - **AI is a fixed FSM plus two layers of data, and every decision has a clean choke point.** All 53 hook targets are found
@@ -71,18 +71,13 @@ skeleton, 5 LODs × 3 materials = 15 meshes.
 | `positionScale`, `positionOffset`, `wholeModelRadius` | as for rigid models |
 | `materials` | as for rigid models. `RenderMaterialResource` + textures: `tools/modelcook`, kiln.assets `texture`. VFX and shaders are a separate topic |
 | `blendShapes`, `cloth`, `chain`, `sleeves`, `collider`, `sdf`, `skinnedTree` | empty is valid. In the 267 creature models: cloth 96, cloth collider 28, chain 11, sdf 1, **blend shapes 0**, sleeves 0, skinned tree 0. `modelcook` already forces them empty |
-| `globalScale` | 1.0 on weapons, **1.3 on the Vukah**, not 1 on 142 of 267 creature models. What it multiplies was not traced: stored vertices and skeleton already agree without it **[hyp: culling or LOD]**. Write 1.0 |
+| `globalScale` | 1.0 on weapons, **1.3 on the Vukah**, not 1 on 142 of 267 creature models. A value of the skeleton, one per skeleton in all 249, already in the stored vertices and joints. At run time it multiplies only cloth colliders **[dis]** (`models.md` 5). The cooker writes what the skeleton's models have, 1.0 on a new skeleton |
 
 **LODs:** 8 (152 models), 7 (45), 6 (48), 5 (18), 4 (3), 1 (1). `lods` must not be empty. One LOD is legal, as in `models.md`.
 
-**What `tools/modelcook` lacks (`cook/gltf.py` raises "skinned meshes are not supported yet"):**
-1. read `JOINTS_0`, `WEIGHTS_0`, `skins[].joints` and `inverseBindMatrices`;
-2. normalise to the 4 heaviest weights, quantise to sum 255, remap to used joints (`skinningMap`);
-3. write the skin stream and range, per-group `skinVertexOffset`, `hierarchy`, the joint counts;
-4. cook the skeleton (1.2) or bind to a game skeleton by index;
-5. validation: decode, re-encode, deform at bind within 1 quantum (the `models.md` check), joint distance as in `models.md` 5.
-
-`tools/kfc` already exports a skinned model and now a clip to glTF, so a vanilla creature can round-trip as the reference test.
+**The cooker:** `tools/modelcook`, a model step with `skeleton` (`docs/kiln/modding/models.md`, Skinned models): reads `JOINTS_n`, `WEIGHTS_n`, `skins[].joints` and `inverseBindMatrices`,
+keeps the 4 heaviest weights, quantises them to sum 255, remaps to used joints, and writes the stream and the fields above. `tools/kfc` exports a skinned model and a clip to glTF, so a vanilla
+creature round-trips as the reference test. All of this is offline (section 7).
 
 ### 1.2 Skeleton: `keen::ModelHierarchyResource` (72 B; 257 resources, 2-172 joints, median 15) **[refl] [data] [rt]**
 A new skeleton can exist. Written from nothing, it loaded and animated on the server **[rt]**.
@@ -93,7 +88,7 @@ A new skeleton can exist. Written from nothing, it loaded and animated on the se
 | 0x10 | `jointNames` u32[] | any unique hashes. The game's names are stripped (`models.md`) and all 257 skeletons have them unique. The only use seen is the clip's `hierarchyHash`; no search was made for others **[hyp]** |
 | 0x18 | `jointParentIndices` u16[] | 0xFFFF = root, a parent before its child |
 | 0x20 | `unbendableJoints` u16[] | may be empty. Meaning not read **[hyp: a knee/elbow list for IK]** |
-| 0x28 | `skinToJointMatrices` Matrix43[] | the inverse of the chained rest pose: 249 of 257 skeletons within 0.02, columns x, y, z stored in that order, then translation. Only the client's skinning can use it **[hyp]** |
+| 0x28 | `skinToJointMatrices` Matrix43[] | the inverse of the chained rest pose: 249 of 257 skeletons within 0.02, columns x, y, z stored in that order, then translation. The client multiplies each chained joint by it **[dis]** (`models.md` 5); it is what a mesh is bound to |
 | 0x30 | `jointCount` | |
 | 0x34 | `defaultPose` {vf32 blocks, `alignedJointCount`} | `alignedJointCount` = jointCount rounded up to 4. Blocks: orientation float4 × aligned, position float4 × aligned, scale float4 × aligned, read by the sampler for `default` tracks **[dis] [data]** |
 | 0x40 | `defaultPoseJoints` AnimationJoint[aligned] | the same pose as a struct; padding entries are identity |
@@ -101,8 +96,9 @@ A new skeleton can exist. Written from nothing, it loaded and animated on the se
 `JointAnimation.hierarchyHash` = **FNV-1a 64 over the `jointNames` array bytes**: 190 of the clips' 191 distinct hashes match a skeleton, with the same joint count **[data]**. It is not a run-time
 check: 437 clips carry the one remaining hash, 43 of them referenced by graphs **[data]**. Skeletons with the same names share a hash and clips (257 resources, 201 hashes).
 
-**Limits [refl] [dis]:** bones are by index, never by name. u8 bone indices appear in `BoneMaskEntryResource`, `BlendProfileEntryResource`, `IKChainItem_Runtime`;
-`AnimationJoint[256]` static arrays and the log `doJointExportJoints: joint capacity %,u < hierarchy %,u`. So 255 joints; the game's maximum is 172.
+**Limits [refl] [dis]:** bones are by index, never by name. u8 bone indices appear in `BoneMaskEntryResource`, `BlendProfileEntryResource`, `IKChainItem_Runtime`, and the skin stream;
+`AnimationJoint[256]` static arrays and the log `doJointExportJoints: joint capacity %,u < hierarchy %,u`. So 255 joints; the game's maximum is 172. The client's skinning path itself has no fixed
+cap (a growing scratch array, `models.md` 5). Nothing above 172 has been run.
 
 ### 1.3 Colliders, hit zones, ragdoll, scale **[data] [refl]**
 - `ColliderResourceComponent.colliders`: 1 entry (74 templates) or 11 (621): one per `keen::ecs::ColliderMode` {Default, Sitting, Lying, Evading, ClimbingWall, Death, Invisible,
@@ -126,7 +122,7 @@ So armor binds through **the same skeleton**, by joint index: a custom skinned a
 Blend shape data remains undecoded (`models.md` 8), needed only to adapt armor to the player's body shapes.
 
 ### 1.5 Is an author's skinned glTF possible?
-Yes. Everything above is a writer's job with no unknown format left except blend shapes and cloth, which are optional. Unverified: the client drawing it (section 8).
+Yes, and it's written: `tools/modelcook`, with no unknown format left except blend shapes and cloth, which are optional. Unverified: the client drawing it (section 8).
 
 ## 2. AnimationBlock
 
@@ -528,7 +524,9 @@ Unchanged: `services/npcs.md` works on any template with `ActiveNpcState`. Roste
 | Clip codec | `anim.parse`/`build`: 5,461 of 5,461 byte-identical; 21,480 segments; key norms 0.99995..1.0 on the clips checked; `tools/kfc/tests/test_anim.py` (6 tests; `KILN_ANIM_ALL=1` for every clip) |
 | Clip semantics | Vukah Attack_01 decoded, skinned with our own LBS on its own model (CPU, numpy, Pillow), drawn: a recognisable swing. The same pose stream through `anim.encode` draws the same **[data]** |
 | All creature resources round-trip through the reader | byte-identical: JointAnimation 5,461, ModelHierarchyResource 257, RootMotionAnimation 578, LveAnimation 578, AnimationSequenceContainer 2,896, SequenceResource 2,901, AnimationGraphResource2_0 279, RetargetData 3, BoneMask 9, BlendProfile 1, FeetIKSettings 2, ActorSequenceResource 2,157, arsenal 1 + 1 |
-| Inverse bind rule | 249 of 257 skeletons within 0.02 of the inverse chained rest pose; the 8 others not studied |
+| Inverse bind rule | 249 of 257 skeletons within 0.02 of the inverse chained rest pose; on the 8 others joints with weights differ by a half turn or a scale, and the client uses `skinToJointMatrices` either way (`models.md` 5) |
+| Skin writer and skinned cook | all 1,342 skinned game models through glTF and `tools/modelcook`, posed against the originals, and a Blender-authored creature against Blender's own evaluation (`models.md` 6). Offline |
+| Cooked body's skeleton, clips and graph on the engine | `mods/tests/skincheck`, server lab: joints within 0.0005 of the cooked clip, model vertices skinned by them within 0.26 mm of the cook's numbers, attack and Dead states reached by id **[rt server]** |
 | Export | `kfc.py clip <guid> --gltf F --model <model>`: skeleton, skinned mesh, sampled animation: valid JSON with 97 joints, 291 channels. Not opened in Blender here (no GPU use) |
 | From-scratch skeleton, clips, graph, state id on the engine | server lab, section 2.6 **[rt]** |
 | Reduced templates | server lab, section 5.1 **[rt]** |
@@ -542,13 +540,14 @@ Reproduce (the method; the scratch tools are not in the repo):
 - the lab test of the cooker: `mods/tests/animcook-test`.
 
 ## 8. Manual checks in the client
-H1 and H2 are `tools/animcook/samples/clip_override.py` with `mods/tests/clipcheck`; the steps are in `docs/kiln/modding/animations.md`.
+H1 and H2 are `tools/animcook/samples/clip_override.py` with `mods/tests/clipcheck`; the steps are in `docs/kiln/modding/animations.md`. H3 and H4 are `mods/tests/skincheck`; the steps are in
+`docs/kiln/modding/models.md`; neither has been run yet.
 
 | # | Build | See | Tells us |
 |---|---|---|---|
 | H1 | Override one Vukah clip with `anim.encode` output: read Idle `d099cbe2-…`, add 30° to the head joint's rotation in every frame, `anim.build`, kiln.assets `override`, side both. `/creature spawn Enemy_Vukah_Melee`, stand back | The Vukah idles with its head turned, smoothly, no jumps at 1.05 s intervals (segment joints) | Clip writer on the client's sampler |
 | H2 | H1 with a clip that moves an arm off the bind pose by 60° over 2 s, on `Enemy_Fogger_*` | The bent arm bends, the mesh follows | Same on another skeleton |
-| H3 | A cooked skinned model on the Vukah's skeleton (needs skin support in modelcook) on a Vukah override | The cooked mesh animates with all the Vukah's clips, no spikes | Skin stream, `skinningMap`, inverse binds on the game's skeleton |
+| H3 | A cooked skinned model on the Vukah's skeleton on a Vukah override | The cooked mesh animates with all the Vukah's clips, no spikes | Skin stream, `skinningMap`, inverse binds on the game's skeleton |
 | H4 | A skeleton, model, clips and graph of our own on a clone of the Vukah, Idle + Walk + Run + one attack + Dead | Spawns, idles, walks to you with `Walk`, swings, dies. kiln.log: no `failed to initialize Animation Graph Instance`, no `Could not find description`, no `[model_loader]` | The whole body + animation path |
 | H5 | `Creatures.Of(e)` with `+0x498 = 0`, `ActorInput` per tick toward the player | Walks with its walk animation, foot speed matches, turns | The C# puppet's walking; which inputs the graph gets |
 | H6 | The arsenal rule of 4.3 on a Vukah near a player, action = heal or chat line | Fires only when your condition holds | Kiln rules in real combat |

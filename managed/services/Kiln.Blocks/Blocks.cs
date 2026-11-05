@@ -47,6 +47,14 @@ public static class Blocks
         return Compiler.Define(mod, name, block);
     }
 
+    /// <summary>Defines a VFX as the calling mod's. The handle goes in a <c>Vfx</c> field, and to <see cref="Vfx"/>'s calls. The game lists VFX once at start, so one defined here is
+    /// there from the next start; see <see cref="VfxBlockHandle.Status"/>. A block in a data file's "vfx" section is there at once.</summary>
+    public static VfxBlockHandle Define(string name, VfxBlock block) => (VfxBlockHandle)Define<VfxBlock>(name, block);
+
+    /// <summary>Defines a material as the calling mod's. Its <see cref="BlockHandle.Name"/> goes in a recipe's <c>material</c> and in <see cref="ParticleBlock.Material"/>. The game lists every
+    /// material's textures once at start, so one defined here is there from the next start; see <see cref="MaterialBlockHandle.Status"/>. A block in a data file's "materials" section is there at once.</summary>
+    public static MaterialBlockHandle Define(string name, MaterialBlock block) => (MaterialBlockHandle)Define<MaterialBlock>(name, block);
+
     /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
     public static BlockHandle? Find(string name, string? mod = null)
     {
@@ -103,7 +111,14 @@ public static class Blocks
         var id = BlocksBridge.CallerModId ?? throw new InvalidOperationException("Blocks.Define must be called from mod code");
         BlocksStartup.Touch();
         var m = ModFor(id, BlocksBridge.CallerOwner);
-        m.Owner = BlocksBridge.CallerOwner();     // a reload has a new owner
+        var owner = BlocksBridge.CallerOwner();
+        // A reload has a new owner: what the old one had went with it. The mod's OnLoad and its data files make all of it again.
+        if (m.Owner != owner)
+        {
+            if (m.OwnedByMod) m.Reset();
+            m.Owner = owner;
+        }
+        m.OwnedByMod = true;
         return m;
     }
 }
@@ -118,10 +133,43 @@ internal sealed class ModBlocks(string id, ulong owner)
     public readonly ConcurrentDictionary<Guid, (string Key, byte[] Blob, string Listing)> Programs = new();
     public readonly List<string> Errors = new();
     public readonly List<string> Warnings = new();
+    /// <summary>The text of VFX blocks read from data files, by name, until each is compiled: what the boot build read.</summary>
+    public readonly Dictionary<string, string> VfxRaw = new();
+    /// <summary>Templates carrying a VFX, defined once for the mod however many blocks play it.</summary>
+    public readonly HashSet<Guid> Carriers = new();
+    /// <summary>Game VFX named by a block, filled in when content is ready.</summary>
+    public readonly List<VfxLate> VfxLates = new();
+    public bool VfxPreloaded;
     /// <summary>Blocks of this mod's data files not compiled yet: a reference by name compiles them first.</summary>
     public readonly Dictionary<string, Func<BlockHandle>> Pending = new();
     public readonly HashSet<string> Compiling = new();
     public string? ManifestClients;
+    /// <summary>The owner is the mod's own, not one of Kiln's for a mod with only data files.</summary>
+    public bool OwnedByMod;
+    /// <summary>A rule was added since they were last applied: they are applied again though content did not change.</summary>
+    public volatile bool RulesDirty;
+
+    /// <summary>Forgets what the mod made: it is reloading, and makes it again.</summary>
+    public void Reset()
+    {
+        Handles.Clear();
+        Lowered.Clear();
+        Programs.Clear();
+        LateBuilders.Clear();
+        lock (Errors) Errors.Clear();
+        lock (Warnings) Warnings.Clear();
+        ReadyRules.Clear();
+        LatePending.Clear();
+        LateFailed.Clear();
+        LateRules.Clear();
+        Icons.Clear();
+        VfxRaw.Clear();
+        VfxLates.Clear();
+        Carriers.Clear();
+        VfxPreloaded = false;
+        ReportDirty = true;
+    }
+
     /// <summary>Something changed since the report for <c>kiln blocks</c> was written.</summary>
     public volatile bool ReportDirty;
     /// <summary>Programs that wait for values only the running game knows, by GUID.</summary>

@@ -455,7 +455,7 @@ them it derives the layout from Kiln's modules and draws with `test/render_fallb
 | Contention: 32 instances spawning in one depth, all appending to one list, 4,096 particles live | No lost or duplicated slot, no torn or stale state read back, list overflow settles exactly at capacity |
 | Draw records as real `vkCmdDrawIndexedIndirect` arguments, drawn by the game's `Transparent_Forward` `vs_main` and `fs_main` | Billboards face the camera at any camera rotation, upright and unmirrored; flipbook frames, additive and alpha blending as §3.3 |
 | Kiln's sort keys through the game's `VfxTransparentDrawWriteback` | Nearest on top. The sort itself was done by the test, ascending |
-| Cooked output of `kiln-vfxcook` patched as the game patches it | Hashes, wiring and stop times hold, and the BC7 texture and cooked quad draw |
+| Cooked output of `kiln-vfxcook` patched as the game patches it | Hashes, wiring and stop times hold. Each effect draws with the cooked quad and the BC7 texture it names, whole mip chain uploaded |
 
 Pipeline compile time, no cache, on the same two GPUs:
 
@@ -467,8 +467,15 @@ Pipeline compile time, no cache, on the same two GPUs:
 | `Transparent_Forward` (graphics) | 91 ms | - |
 
 **What this leaves open:** whether the game accepts the modules and serves them through kiln.assets; its real camera, exposure and fog values; its radix sort; which queue it
-dispatches on; the Lit and Shaded paths with real lighting; Windows drivers. No validation layer was available, so API misuse that happened to work would not show. Robust buffer
-access was on, as in the game, so out-of-bounds access is only caught by the CPU tests.
+dispatches on; the Lit and Shaded paths with real lighting; the sampler modes a cooked effect names, since the harness draws with one sampler; Windows drivers.
+
+**Validation.** `test_gpu.py --validate` runs any stage under `VK_LAYER_KHRONOS_validation`. `sync`, the default, adds synchronization validation. `gpuav` adds GPU-assisted
+validation with robust access off, unlike the game, so it can see out-of-bounds shader access and bad descriptors. Each run first breaks a rule on purpose and stops if the layer
+doesn't report it, and a missing layer stops the run with a message. Findings go to `validation-<stage>.json`.
+
+With layer 1.4.363, both modes, on both GPUs, with and without the game's files: no errors in any stage (the cooked stage ran only with them). The only warnings are GPU-assisted
+mode's own notes on its settings and speed. This covers the harness's Vulkan calls and the shader paths its scenes run. It says nothing about the game's own calls, and the
+game's modules in the compile stage are built, not run.
 
 ## 4. How VFX start and stop
 ### 4.1 The layers **[dis]**
@@ -593,10 +600,55 @@ of the chunk's own (a fence or a readback, **[hyp]**). The entry itself is only 
 - `PbrRfxRenderMaterial`: two layers of albedo, normal, emissive, params, height maps with tint, plus blend map, overlay
   normal, translucency, dissolve glow, anisotropy, vertex-colour swizzles, and `flags` (dissolve, gradient map, AO, opacity,
   contact shadows, anisotropy, disable frost/snow/wetness, glitter, translucency).
-- **A clone can change all of that**, including flags. It cannot change the code. Loader: `0xcf540`, `0xd1490`; it resolves
-  materials through `S+0x7d8` **[dis]**, so kiln.assets reaches it. A new or overridden material has not been seen in game
-  yet: ModelSample's sword used the vanilla material. Whether the loader checks `dataTypeSignature` against `effectId` is not
-  settled.
+- **A clone can change all of that**, including flags. It cannot change the code.
+
+### 5.1 The loader **[dis]**
+`MaterialAcquire 0xcf540` (from the model loader, `0xe105f`) finds or adds a GUID in a map, allocates a record of `0xb0` B, and `MaterialUpdate 0xd1490` walks it through states 0 to 3; 4 is failed.
+- **The block type is checked.** The loader keeps one table per effect, set at render system create (`0x103678`): {Pbr `PbrRfxRenderMaterial`, **4,096**}, {Gizmo, Grid, VfxGrid, TerraformingCursor, SkyTexture, 128 each}. A material whose `dataTypeSignature` isn't its effect's, or an effect with no table (Billboard, PbrTerrain, PbrBuilding, PbrRoof, Transparent), goes to state 4.
+- **Slots come from a free list.** No slot left: state 4. A model with a material in state 4 stays unloaded and doesn't draw; nothing is logged and nothing aborts. Materials hold slots while a model holds them, so 4,096 is what's alive at once, of 3,403 Pbr materials in the game.
+- **A block is at most `0x800` B** (fatal), **a feedback list at most 8 images** (fatal, "SmallDynamicArray is out of elements").
+- **A material can't bring a new texture late.** It looks each image up by `content.hash` (`0xb5580`) in the map the renderer filled at boot, and a texture that isn't there is fatal: "corrupted streamed texture parameters". So a material has to be there when the map is filled.
+- State 1 waits for the mip tail of every image. Then the block is copied, the bindless handle of each image is written at its `dataOffset` and the handle of each feedback list at its own, and the block is uploaded to `g_rfxMaterials`. So every texture and feedback slot is 0 in the data, 13,207 of 13,207.
+
+### 5.2 Textures **[dis] [data]**
+`RenderInit 0xbe410` runs once at boot. It lists 8 resource types through `ResourcesByType` (`S+0x7d0`, the slot kiln.assets answers): `BuildingMaterialBlendingResource`, `CardClusterResource`, `RenderDecal`, `DetailScatterResource`, `GiVoxelBuildingMaterialResource`, `RenderMaterialResource`, `SimpleWorldMaterialResource`, `WorldMaterialBlending2Resource`. Every `RenderStreamedTexture` in them goes to `0xb2fb0`, deduplicated by `content.hash`.
+
+| Limit | Value | Over it |
+|---|---|---|
+| Streamed textures | 16,384 slots (`0x1027d6`), slot 0 reserved. The game uses 13,930 distinct ones, so 2,453 are left | Fatal at boot: "too many streamed textures" |
+| Mip ranges of one texture | 16 | Fatal |
+| An empty `content.hash` | | Fatal: "invalid streamed texture parameters" |
+| A format or size the driver refuses | | Fatal: "could not create texture" |
+| Mip tail not served | | Fatal: "error loading streamed texture mip tail: %k" |
+| Texture feedback lists alive | 4,095 | Handle 0: nothing logged, and the textures stay at their mip tail |
+
+The rules of a texture in a material, all holding for 13,207 of 13,207 images: a full chain, largest first; `content` holds it all; one range per level with more than 4 KiB left, each to the end; the levels no range starts at are the tail, a second blob, the end of the chain, or the chain itself with no ranges; both blobs under their real `ContentHash`. `content.category` 1840640251, `bundleId` the material GUID's first field, `sortKey` the image's index. Tail category 1185060183, `bundleId` 0, `sortKey` its `hash2`. What reads `bundleId` wasn't followed. 9 images aren't a power of two, so the game takes those.
+
+Image order in vanilla: emissive, albedo, normal, params, height, then the second layer, then anisotropy, tint masks, translucency. A feedback list names a layer's images, without anisotropy or translucency.
+
+### 5.3 What the flags pick **[dis] [spv]**
+`0xe1390` makes each mesh's `RenderMeshDrawData2.pipelineBits` from the **model's** `RenderModelMaterial`: `effectId | AlphaTested << 8 | DoubleSided << 9 | DisableShadows << 10 | HashedAlpha << 11`. `Culling2_Instanced` reads a table at `pipelineBits`, or'ing in 256 while the instance is dissolving, and takes 6 bits per pass: 0 means not drawn in that pass. So a model must carry the flags of its materials, as 14,339 of 14,339 do. The table's contents are C++ and weren't read: which pipeline a bit means is from the names, `Model_{Visibility,GBuffer,Shadow}[_Discard|_HashedAlpha][_DoubleSided]_GpuCulling2_*`.
+
+`Foliage` is set on 93 % of Pbr materials, weapons and armour included, and no code found reads it. Over the data, `CanDissolve` is `EnableDissolve` and `HashedAlpha` is `EnableHashedAlpha`, without exception; `AlphaTested` comes with `SampleOpacity`, `FlipBackfaceNormals` with `DoubleSided`, `Translucent` with a `translucencyStrength` above 0.
+
+### 5.4 What the shader reads **[spv]**
+`fs_main` of `Model_GBuffer_GpuCulling2_Instanced`, for one layer:
+
+| Field | Use |
+|---|---|
+| `albedoMap` | Read unconditionally. rgb is the colour. The alpha is what `Model_Visibility_Discard_*` tests: `a < 0.5` kills, fixed in the shader |
+| `normalMap` | Read unconditionally. RG × 2 − 1, z rebuilt, against the vertex's tangent frame, with bitangent = w × N × T |
+| `materialParamsMap` | Read unconditionally. R metallic, G perceptual roughness, B occlusion if `SampleAo`, A reflectance if `constantReflectance` < 0 |
+| `emissiveMap` | Only if not 0. rgb × `intensity` × mix(1, scene exposure, `exposureCorrectionFactor`), × the instance's emissive factor |
+| `texCoordScaling` | Multiplies UV 0. The sampler is `g_rfxSamplers[0]`, always wrap |
+| Vertex colour | `multiplyAlbedoVertexColorChannelSwizzle` 0 multiplies albedo by linear vertex rgb; 255 is none |
+
+There is **no tint in the block**: `albedoTintShaderData` masks tint with colours from the instance (player dyes), and a material has no constant colour, roughness or metallic. All of that comes from textures. So a block's plain values are built into constant 16 × 16 textures, as the game's own constant maps are.
+
+Checked on real GPUs, headless, with the game's own `fs_main` behind a small vertex shader (`tools/vfxcook/tests/material_gpu.py`): Kiln's block and BC7, BC5 and BC1 textures give the expected albedo, roughness, metallic, reflectance, occlusion, normal and emissive in the G-buffer, on an RTX 3080 Ti and an AMD iGPU. **[gpu]**
+
+### 5.5 Walls, floors and terrain
+They are not `RenderMaterialResource`. See `docs/re/building.md` §1.4: each surface is a slot in `BuildingMaterialBlendingResource` or `WorldMaterialBlending2Resource`, with shaders of their own. They share `RenderStreamedTexture` and these limits, so what writes a material's textures fits them too, and their textures count against the same 16,384. A `MaterialBlock` doesn't reach them.
 
 ## 6. Shaders
 ### 6.1 GpcResource **[refl] [data]**
@@ -740,7 +792,8 @@ situation), the LUTs `colorGradingFogRegular/FogDangerous/LowHealth` (`RenderTex
 | Content hash | §6.2 |
 | Kiln's built VFX have the game's shape | `tools/vfxcook/tests`: decoded and re-encoded byte-identical through `tools/kfc`; the rules in `tools/kfc/kfc/vfx.py` pass on 1,575 of 1,575 game VFX, 638 of 638 meshes, 145 of 145 textures, and on what `kiln-vfxcook` writes. Not seen in a game |
 | VFX mesh format | Quad and triangle decode exactly; positions fit the stored bounding spheres |
-| **In the game** | The game's own VFX played through kiln.vfx, and its guards: §4.5. Kiln's modules: nothing yet. Offscreen on real GPUs: §3.8 |
+| Kiln's materials have the game's shape | `tools/vfxcook/tests/test_material.py`: all 3,458 game materials read and rewrite byte-identical through the builder's own writer, the rules in `tools/kfc/kfc/material.py` hold for all of them and for what `kiln-vfxcook` writes. The game's G-buffer shader reads them on real GPUs (§5.4). Not seen in a game |
+| **In the game** | The game's own VFX played through kiln.vfx, and its guards: §4.5. Kiln's modules and materials: nothing yet. Offscreen on real GPUs: §3.8, §5.4 |
 
 Tests: `python3 -m unittest tools/kfc/tests/test_contenthash.py`.
 

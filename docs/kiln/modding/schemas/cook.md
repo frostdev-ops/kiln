@@ -79,7 +79,7 @@ assets/cook.json: model, sound and animation steps.
 | `guidNamespace` | [guid](#guid) |  | soundcook: GUIDs of new sounds are UUIDv5(namespace, "<op>:<name>"); pick it once, never change it. |
 | `inputs` | object |  | Vanilla inputs read from the installed game: id -> {guid, type, part}. |
 | `manifest` | [path](#path) |  | soundcook: the kiln.assets manifest it updates. Default `"assets.json"`. |
-| `mod` | string |  | animcook: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json. min length 1 |
+| `mod` | string |  | animcook and skinned models: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json. min length 1 |
 | `out` | string |  | Output folder, relative to cook.json (gitignored). Default `"cooked"`. min length 1 |
 | `steps` | array |  |  |
 | `voiceoverFallback` | [voLang](#volang) or null |  | soundcook: the mod-wide default for empty voice slots (null / absent: silence, as the game). |
@@ -184,6 +184,12 @@ impact/cook.json: Impact programs (tools/impact).
 @<input id>: that input's GUID. Pattern `^@.+$`.
 
 Type: string
+
+## materialRef
+
+a GUID, @<input id>, or the name of a material in this mod's blocks/*.json
+
+Type: [guid](#guid) or [inputRef](#inputref) or string
 
 ## modelStep
 

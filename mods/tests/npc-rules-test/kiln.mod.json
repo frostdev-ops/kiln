@@ -1,0 +1,9 @@
+{
+  "id": "npc-rules-test",
+  "name": "kiln.creatures rules and arsenals lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NpcRulesTest.dll",
+  "side": "server",
+  "advanced": true
+}

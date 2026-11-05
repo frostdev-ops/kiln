@@ -63,7 +63,22 @@ def types():
         _enum("keen::VfxBufferMemberComponentType", "keen::uint8", Float=0, SignedInt=1, UnsignedInt=2, BoolMask=3),
         _enum("keen::RenderSamplerAddressMode", "keen::uint8", Wrap=0, Mirror=1, Clamp=2, ClampToZero=3),
         _enum("keen::TextureType", "keen::uint8", Texture1D=0, Texture2D=1, Texture3D=2, Cube=3),
-        _enum("keen::PixelFormat", "keen::uint8", BC7_unorm_block=145, BC7_srgb_block=146),
+        _enum("keen::PixelFormat", "keen::uint8", BC1_RGB_unorm_block=131, BC5_unorm_block=141, BC7_unorm_block=145, BC7_srgb_block=146),
+        _enum("keen::RenderEffectId", "keen::uint8", Billboard=0, Pbr=1, PbrTerrain=2, PbrBuilding=3, PbrRoof=4, Gizmo=5, Grid=6, VfxGrid=7, Transparent=8,
+              TerraformingCursor=9, SkyTexture=10),
+        _enum("keen::RenderMaterialFlag", "keen::uint8", Tessellated=0, AlphaTested=1, DoubleSided=2, DisableShadows=3, CanDissolve=4, Translucent=5, Foliage=6, HashedAlpha=7),
+        {"name": "keen::Bitmask8<keen::RenderMaterialFlag>", "hash": fnv1a32("keen::Bitmask8<keen::RenderMaterialFlag>"), "layout": 0, "size": 1, "align": 1, "kind": R.K_BM8,
+         "flags": 0, "count": 0, "inner": "keen::RenderMaterialFlag"},
+        {"name": "keen::RenderMaterialFlagMask", "hash": fnv1a32("keen::RenderMaterialFlagMask"), "layout": 0, "size": 1, "align": 1, "kind": R.K_TYPEDEF, "flags": 0, "count": 0,
+         "inner": "keen::Bitmask8<keen::RenderMaterialFlag>"},
+        _struct("keen::RenderStreamedTexture", 88, 8, (0, "width", "keen::uint16"), (2, "height", "keen::uint16"), (4, "levelCount", "keen::uint8"), (5, "format", "keen::PixelFormat"),
+                (8, "content", "keen::ResourceContentReference"), (0x28, "mipTailContent", "keen::ResourceContentReference"),
+                (0x48, "mipChainContentRanges", "keen::BlobArray<keen::Range32>"), (0x50, "debugName", "keen::string")),
+        _struct("keen::RenderMaterialImage", 96, 8, (0, "dataOffset", "keen::uint32"), (8, "texture", "keen::RenderStreamedTexture")),
+        _struct("keen::RenderMaterialTextureFeedback", 12, 4, (0, "dataOffset", "keen::uint32"), (4, "renderMaterialImageIndices", "keen::BlobArray<keen::uint32>")),
+        _struct("keen::RenderMaterialResource", 40, 4, (0, "effectId", "keen::RenderEffectId"), (1, "flags", "keen::RenderMaterialFlagMask"),
+                (4, "data", "keen::BlobArray<keen::uint8>"), (0xc, "dataTypeSignature", "keen::HashKey32"), (0x10, "images", "keen::BlobArray<keen::RenderMaterialImage>"),
+                (0x18, "textureFeedbacks", "keen::BlobArray<keen::RenderMaterialTextureFeedback>"), (0x20, "debugName", "keen::string")),
         _enum("keen::GraphicsTextureChannel", "keen::uint8", Identity=0, Zero=1, One=2, R=3, G=4, B=5, A=6),
         _struct("keen::GraphicsTextureChannelMapping", 4, 1, (0, "x", "keen::GraphicsTextureChannel"), (1, "y", "keen::GraphicsTextureChannel"),
                 (2, "z", "keen::GraphicsTextureChannel"), (3, "w", "keen::GraphicsTextureChannel")),
@@ -114,7 +129,8 @@ def types():
         ts.append(_struct(name, size, 4))
         ts.append(_blob_array(name))
     for inner in ("keen::VfxParticleResource", "keen::VfxParticleStateBufferInfo", "keen::uint8", "keen::VfxMeshPatchPoint", "keen::VfxImagePatchPoint",
-                  "keen::VfxBufferMember", "keen::Range32", "keen::ObjectReference<keen::VfxMeshResource>", "keen::ObjectReference<keen::RenderModel>",
+                  "keen::VfxBufferMember", "keen::Range32", "keen::uint32", "keen::RenderMaterialImage", "keen::RenderMaterialTextureFeedback",
+                  "keen::ObjectReference<keen::VfxMeshResource>", "keen::ObjectReference<keen::RenderModel>",
                   "keen::ObjectReference<keen::VfxJointCollectionResource>"):
         ts.append(_blob_array(inner))
     # align of element records as reflection has them

@@ -711,6 +711,7 @@ uint32_t release_owner_now(KilnOwner owner) {
     for (auto it = g_ents.begin(); it != g_ents.end();)
         it = it->second.fields.empty() && it->second.copies.empty() ? g_ents.erase(it) : std::next(it);
     ai_release_owner(owner);
+    rules_release_owner(owner);
     if (n) KC_I("owner %llu released: %u change(s) reverted", static_cast<unsigned long long>(owner), n);
     return n;
 }

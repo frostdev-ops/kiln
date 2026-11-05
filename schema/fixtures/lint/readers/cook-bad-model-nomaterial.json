@@ -1,0 +1,1 @@
+{ "format": 1, "steps": [ { "op": "model", "gltf": "src/x.glb", "skeleton": "@skel", "stem": "x" } ] }

@@ -19,6 +19,7 @@ namespace GamedataTest;
 public sealed class GamedataTestMod : Mod
 {
     private const string Fireball = "Ammo_T1_Spell_Fire_Ball_lvl10", DoubleJump = "Ability_DoubleJump";
+    private const string CodeBurstBase = "Explosion_Player_Spell_Fireball_2";
     private const string Explosion = "Explosion_Player_Spell_Fireball_1", Projectile = "Projectile_Player_Staff_Fireball_1";
     private const string Vukah = "Enemy_Vukah_Melee", Cast = "Attack_Player_Staff_FixedAnim_Fireball_fast";
     private const string ViewRange = "Enemy01BehaviorState.aggroSetup.viewRange";
@@ -51,6 +52,13 @@ public sealed class GamedataTestMod : Mod
             _sectionCalls.Add((c.Owner, c.Source, c.Json));
             return ContentSectionResult.Ok(1);
         }, (o, s) => _sectionReverts.Add((o, s)));
+        Content.Templates.Define(new GameDataClone
+        {
+            Guid = new Guid("9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c34"),
+            Name = "Kiln_Test_Code_Burst",
+            Base = CodeBurstBase,
+            Fields = { [PushBack] = "Big" },
+        });
         Content.OnReady(e =>
         {
             if (_ran) return;
@@ -236,6 +244,41 @@ public sealed class GamedataTestMod : Mod
             $"fields: {fields.Count} leaves under {Explosion}.ImpactConfiguration (NoiseRange with its original, the added PushBackStrength)");
         var dump = Content.Templates.Dump(Vukah);
         Check(File.Exists(dump) && File.ReadAllText(dump).Contains("aggroSetup"), $"dump: {dump}");
+        // a cleared reference: the round trip below applies what the export writes for it, here and for an item's field
+        const string Tag = "events[SpawnEntityEvent#0].requiredEntityTag";
+        var noTag = Content.Sequences.Get("Kiln_Test_No_Tag");
+        var withTag = Content.Sequences.Get("Attack_Player_Wand_AllElements_Heavy");
+        Check(noTag != null && noTag.Get(Tag).Guid == Guid.Empty && withTag != null && withTag.Get(Tag).Guid != Guid.Empty,
+            $"a reference cleared by a rule is empty on the clone ({noTag?.Get(Tag).Guid}), and the base keeps its own ({withTag?.Get(Tag).Guid})");
+        var noIcon = Content.Items.Get("Ring_T3_Ring_of_Stamina");
+        Check(noIcon != null && noIcon.GetRef("iconModel") == Guid.Empty && noIcon.Original("iconModel").Guid != Guid.Empty,
+            $"an item's reference cleared by a rule is empty ({noIcon?.GetRef("iconModel")}), with its original kept ({noIcon?.Original("iconModel").Guid})");
+        var zeroGuid = Content.Apply("{\"format\":1,\"sequences\":{\"Kiln_Test_No_Tag\":{\"" + Tag + "\":\"00000000-0000-0000-0000-000000000000\"}}}", "gamedata-test: an all-zero GUID");
+        Check(zeroGuid.Errors.Count == 0, $"an all-zero GUID is accepted as no reference: {string.Join("; ", zeroGuid.Errors)}");
+        // a game item's reference needs the opt-in to change; a reset needs none, because all it can do is put the game's own value back
+        var health = Content.Items.Get("Ring_T5_Ring_of_Health");
+        var healthIcon = health?.GetRef("iconModel") ?? Guid.Empty;
+        string RingRule(string body) => "{\"format\":1,\"items\":{\"Ring_T5_Ring_of_Health\":{" + body + "}}}";
+        var bare = Content.Apply(RingRule("\"iconModel\":\"none\""), "gamedata-test: no opt-in");
+        var notReset = Content.Apply(RingRule("\"iconModel\":{\"mul\":2}"), "gamedata-test: no opt-in, not a reset");
+        Check(healthIcon != Guid.Empty && health!.GetRef("iconModel") == healthIcon && bare.Errors.Any(x => x.Contains("opt-in")) && notReset.Errors.Any(x => x.Contains("opt-in")),
+            $"without the opt-in a rule cannot change a game item's reference: {bare.Errors.FirstOrDefault()}; {notReset.Errors.FirstOrDefault()}");
+        var optIn = Content.Apply(RingRule("\"@refs\":true,\"iconModel\":\"none\""), "gamedata-test: opt-in");
+        var cleared = health?.GetRef("iconModel");
+        var reset = Content.Apply(RingRule("\"iconModel\":{\"mul\":1}"), "gamedata-test: reset");
+        Check(optIn.Ok && cleared == Guid.Empty && reset.Ok && health?.GetRef("iconModel") == healthIcon,
+            $"with the opt-in it clears ({cleared}), and a reset with none puts the game's value back ({health?.GetRef("iconModel")}): {string.Join("; ", optIn.Errors.Concat(reset.Errors))}");
+        CheckCodeClone("first load");
+        // a clone of a template whose configs a rule changed: it starts from the game's own, not from a list that only makes sense from where the base is
+        var ofChanged = Content.Templates.Define(new GameDataClone { Guid = new Guid("9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c35"), Name = "Kiln_Test_Clone_Of_Changed", Base = Explosion });
+        var cloneOfChanged = Content.Templates.Get("Kiln_Test_Clone_Of_Changed");
+        Check(string.IsNullOrEmpty(ofChanged.Error) && cloneOfChanged != null && Val(cloneOfChanged, PushBack) == "?" && cloneOfChanged.Fields("ImpactConfiguration").Count > 0 && Val(Content.Templates.Get(Explosion)!, PushBack) == "Big",
+            $"a clone of a template with an added config starts from the game's own configs ({ofChanged.State}; PushBackStrength {(cloneOfChanged != null ? Val(cloneOfChanged, PushBack) : "?")}, the base {Val(Content.Templates.Get(Explosion)!, PushBack)})");
+        // an item a pack defines goes into kiln.gamedata's list when it registers, without waiting for the next world
+        var gem = Content.Items.Get("Kiln_Test_PackGem");
+        var gemData = Content.ItemData.Get("Kiln_Test_PackGem");
+        Check(gem != null && gemData != null && gem.Data() != null && gemData.Guid == gem.Guid, $"a pack's new item is in Content.ItemData and item.Data(): {gemData}");
+        CloneOrigins();
         var rt = ContentSync.CheckRoundTrip();
         Check(rt.Ok, $"content sync round trip with the gamedata sections: {rt}");
 
@@ -482,8 +525,65 @@ public sealed class GamedataTestMod : Mod
 
     // ------------------------------------------------------------------------------------------- later phases --
 
+    // A clone starts from the game's original, whatever other mods' rules say; a clone of a clone takes the definitions before it.
+    private void CloneOrigins()
+    {
+        GameDataEntry? Clone(GameDataRegistry registry, string guid, string name, string baseName, JsonObject? fields = null)
+        {
+            var clone = new GameDataClone { Guid = new Guid(guid), Name = name, Base = baseName };
+            foreach (var (k, v) in fields ?? []) clone.Fields[k] = v?.DeepClone();
+            registry.Define(clone);
+            return registry.Get(name);
+        }
+        // templates: of a clone that added a config
+        var burst2 = Clone(Content.Templates, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c36", "Kiln_Test_Burst_2", "Kiln_Test_Code_Burst", new JsonObject { [Noise] = 7 });
+        Check(burst2 != null && Val(burst2, PushBack) == "Big" && Near(Num(burst2, Noise), 7), $"a clone of a clone keeps the config its base added and has its own value: PushBackStrength {(burst2 != null ? Val(burst2, PushBack) : "?")}, NoiseRange {(burst2 != null ? Num(burst2, Noise) : -1)}");
+        // sequences: the pack moved the game's cast to 0.45 s; the clone Kiln_Test_Fireball_Cast says 0.3 s
+        const string Spawn = "events[SpawnEntityEvent#0].time";
+        var castGame = Clone(Content.Sequences, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c37", "Kiln_Test_Cast_Game", Cast);
+        var cast2 = Clone(Content.Sequences, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c38", "Kiln_Test_Cast_2", "Kiln_Test_Fireball_Cast");
+        Check(castGame != null && Near(Num(castGame, Spawn), 0.65) && Near(Num(Content.Sequences.Get(Cast)!, Spawn), 0.45), $"a sequence clone has the game's time, not the rule on its base: {(castGame != null ? Num(castGame, Spawn) : -1)} s");
+        Check(cast2 != null && Near(Num(cast2, Spawn), 0.3), $"a sequence clone of a clone has the clone's time: {(cast2 != null ? Num(cast2, Spawn) : -1)} s");
+        // buffs: a rule on the base here, in code
+        const string Life = "defaultLifeTime";
+        var poisoned = Content.Buffs.Get("0x5f425faf")!;
+        var gameLife = Num(poisoned, Life);
+        poisoned.Set(Life, TimeSpan.FromSeconds(99));
+        var buffGame = Clone(Content.Buffs, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c39", "Kiln_Test_Buff_Game", "0x5f425faf");
+        Check(buffGame != null && Near(Num(buffGame, Life), gameLife) && Near(Num(poisoned, Life), 99), $"a buff clone has the game's lifetime, not the rule on its base: {(buffGame != null ? Num(buffGame, Life) : -1)} s (game {gameLife} s)");
+        poisoned.Reset(Life);
+        var frost = Content.Buffs.Get("Kiln_Test_Frostbite");
+        if (frost != null)
+        {
+            var frost2 = Clone(Content.Buffs, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c3a", "Kiln_Test_Frostbite_2", "Kiln_Test_Frostbite");
+            Check(frost2 != null && Near(Num(frost2, Life), 7), $"a buff clone of a clone has the clone's lifetime: {(frost2 != null ? Num(frost2, Life) : -1)} s");
+        }
+        // perks: of a clone whose definition points at a buff clone
+        const string BuffOf = "impactValues.BuffType";
+        var perk = Content.Perks.Get("Kiln_Test_Frostbite_Perk");
+        if (perk != null)
+        {
+            var perk2 = Clone(Content.Perks, "9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c3b", "Kiln_Test_Frostbite_Perk_2", "Kiln_Test_Frostbite_Perk");
+            Check(perk2 != null && perk2.Get(BuffOf).Guid == perk.Get(BuffOf).Guid && perk.Get(BuffOf).Guid == frost?.Guid, $"a perk clone of a clone applies the clone's buff: {perk2?.Get(BuffOf).Guid}");
+        }
+        // items: the pack changed the game item's mana cost
+        const string Mana = "impactValues.ManaCost";
+        var ammo = Content.ItemData.Get(Fireball)!;
+        NewContent.RegisterJson(ContentKind.Items, "{\"guid\":\"9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c3c\",\"name\":\"Kiln_Test_Ammo_Game\",\"base\":\"" + Fireball + "\"}");
+        var ammoGame = Content.ItemData.Get("Kiln_Test_Ammo_Game");
+        Check(ammoGame != null && Near(Num(ammoGame, Mana), ammo.Original(Mana).AsDouble) && Near(Num(ammo, Mana), 30), $"an item clone has the game's mana cost, not the rule on its base: {(ammoGame != null ? Num(ammoGame, Mana) : -1)} (game {ammo.Original(Mana).AsDouble}, the base 30)");
+    }
+
+    private void CheckCodeClone(string when)
+    {
+        var clone = Content.Templates.Get("Kiln_Test_Code_Burst");
+        Check(clone != null && Val(clone, PushBack) == "Big" && Val(Content.Templates.Get(CodeBurstBase)!, PushBack) == "?",
+            $"{when}: a clone defined by code has the config it added to the base (PushBackStrength {(clone != null ? Val(clone, PushBack) : "?")})");
+    }
+
     private void AfterReload()
     {
+        CheckCodeClone("after reload");
         var proj = Content.Templates.Get(Projectile)!;
         var vukah = Content.Templates.Get(Vukah)!;
         Check(Near(Num(proj, Life), 5), $"after reload: {Projectile} {Life} back to {Num(proj, Life)} s (the old instance's code layer came off)");

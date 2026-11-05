@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of rules, arsenals and attack overrides (PASS/FAIL lines in kiln.log), player-free: forced-ready creatures
+       fighting each other away from the base. Needs the force-ready file, and the companion mod for the unload check. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AssemblyName>NpcRulesTest</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Companion/**" />
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Creatures/Kiln.Creatures.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Abilities/Kiln.Abilities.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Time/Kiln.Time.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="sigdb/server.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

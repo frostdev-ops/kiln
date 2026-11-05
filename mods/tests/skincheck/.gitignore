@@ -1,0 +1,6 @@
+# Made on your machine by build-assets.py, partly from your installed game: never committed.
+assets/src/
+assets/cooked/
+assets/assets.json
+bin/
+obj/

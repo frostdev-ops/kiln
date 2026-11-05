@@ -35,6 +35,7 @@ public static unsafe partial class Creatures
         var warnings = new List<string>();
         var applied = 0;
         CreatureVariants.RemoveOwned(key, source);
+        Arsenals.RemoveOwned(key, source);
         JsonDocument doc;
         try { doc = JsonDocument.Parse(sectionJson, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip }); }
         catch (JsonException e) { return new CreaturesPackReport(0, [$"creatures: bad JSON: {e.Message}"], []); }
@@ -43,7 +44,7 @@ public static unsafe partial class Creatures
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return new CreaturesPackReport(0, ["creatures: expected an object"], []);
             foreach (var p in root.EnumerateObject())
-                if (p.Name is not ("variants" or "spawnRules" or "format" or "comment"))
+                if (p.Name is not ("variants" or "spawnRules" or "arsenals" or "format" or "comment"))
                     warnings.Add($"creatures: unknown key '{p.Name}' ignored");
             if (root.TryGetProperty("variants", out var vs) && vs.ValueKind == JsonValueKind.Array)
             {
@@ -60,6 +61,8 @@ public static unsafe partial class Creatures
                     }
                 }
             }
+            if (root.TryGetProperty("arsenals", out var ars) && ars.ValueKind == JsonValueKind.Array)
+                applied += Arsenals.ApplyPack(ars, key, source, errors);
             if (root.TryGetProperty("spawnRules", out var rs) && rs.ValueKind == JsonValueKind.Array)
             {
                 foreach (var r in rs.EnumerateArray())
@@ -90,6 +93,7 @@ public static unsafe partial class Creatures
     {
         var key = PackOwner(owner);
         var n = CreatureVariants.RemoveOwned(key, source);
+        n += Arsenals.RemoveOwned(key, source);
         var t = CreaturesNative.T;
         if (source is null && key.Mod is null && t != null) t->ReleaseOwner(key.Native);
         return n;
@@ -186,6 +190,7 @@ internal static class ContentLink
             Events.On<ContentReadyEvent>(_ =>
             {
                 if (Creatures.Available) Creatures.RefreshCopies();
+                if (Creatures.Available) Arsenals.Refresh();
             });
             BindSection();
         }

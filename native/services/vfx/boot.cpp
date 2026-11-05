@@ -190,13 +190,14 @@ std::vector<std::string> skip_list() {
 }
 
 // The game's reflection in this process: the same reader kiln-vfxcook runs on the exe file.
-std::string check_layouts() {
+kvb::ImageView own_image() {
     const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    const kvb::ImageView view{base, nt->OptionalHeader.SizeOfImage, reinterpret_cast<uint64_t>(base)};
-    return kvb::compare_layouts(kvb::read_layouts(view));
+    return kvb::ImageView{base, nt->OptionalHeader.SizeOfImage, reinterpret_cast<uint64_t>(base)};
 }
+std::string check_layouts() { return kvb::compare_layouts(kvb::read_layouts(own_image())); }
+std::string check_material_layouts() { return kvb::compare_layouts(kvb::read_layouts(own_image(), kvb::material_layouts())); }
 
 bool game_has_blob(const kvb::ContentHash& hash) { return kvb::kfc_has_content(to_utf8(to_path(api_path(KILN_PATH_GAME)) / L"enshrouded.kfc"), hash); }
 
@@ -277,7 +278,15 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
             KV_E("vfx: this game build changed what Kiln's particle modules were made for: mod particles are off until Kiln is updated; game VFX still "
                  "work. %s",
                  diff.c_str());
-            set_status("changed", diff, nullptr);
+        }
+        const std::string material_diff = check_material_layouts();
+        if (!material_diff.empty()) {
+            KV_E("vfx: this game build changed what Kiln's materials are written for: new materials are off until Kiln is updated, and models that name one "
+                 "don't draw; the game's own materials still work. %s",
+                 material_diff.c_str());
+        }
+        if (!diff.empty() && !material_diff.empty()) {
+            set_status("changed", diff + "; " + material_diff, nullptr);
             return;
         }
         g_game = counts_from_game();
@@ -299,27 +308,36 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         opt.read_file = &read_all;
         opt.cache = disk_cache();
         opt.game_has_blob = game_has_blob;
+        opt.skip_vfx = !diff.empty();
+        opt.skip_materials = !material_diff.empty();
+        const char* fingerprint = diff.empty() && material_diff.empty() ? "ok" : "changed";
+        const std::string fingerprint_detail = diff.empty() ? material_diff : diff;
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
         for (const std::string& e : r.errors) KV_E("vfx: %s", e.c_str());
         for (const std::string& e : r.refused_mods) KV_E("vfx: %s", e.c_str());
         for (const std::string& w : r.warnings) KV_W("vfx: %s", w.c_str());
-        if (r.blocks.empty()) {
-            set_status("ok", "", &r);
-            if (r.mods_with_vfx) KV_W("vfx: no Kiln VFX built from %u mod(s) with VFX blocks", r.mods_with_vfx);
+        if (r.blocks.empty() && r.materials.empty()) {
+            set_status(fingerprint, fingerprint_detail, &r);
+            if (r.mods_with_vfx) KV_W("vfx: no Kiln VFX or materials built from %u mod(s) with such blocks", r.mods_with_vfx);
             return;
         }
         if (!serve(r)) {
-            set_status("ok", "kiln.assets refused a part: nothing registered", &r);
+            set_status(fingerprint, "kiln.assets refused a part: nothing registered", &r);
             return;
         }
         {
             std::lock_guard lk(g_mu);
             for (const kvb::BuiltBlock& b : r.blocks) g_built[b.guid] = Built{b.definition, b.loops ? 0 : static_cast<int64_t>(static_cast<double>(b.stop_after) * 1e9)};
+            for (const kvb::BuiltMaterialBlock& m : r.materials) g_built[m.guid] = Built{m.definition, 0};
         }
-        set_status("ok", "", &r);
-        g_late_done.store(false);
+        set_status(fingerprint, fingerprint_detail, &r);
         const kvb::Capacity& cap = r.capacity;
+        if (!r.materials.empty())
+            KV_I("vfx: built %u Kiln material(s): materials %u+%u of %u, streamed textures %u+%u of %u", r.used_materials, g_game.materials, r.used_materials, cap.materials,
+                 g_game.streamed_textures, r.used_streamed_textures, cap.streamed_textures);
+        if (r.blocks.empty()) return;
+        g_late_done.store(false);
         KV_I("vfx: built %u Kiln VFX in %llu ms: VFX %u+%u of %u, meshes %u+%u of %u (%llu of %llu bytes free), sounds %u+%u of %u, curves %u+%u of %u; fingerprint ok",
              r.used_vfx, static_cast<unsigned long long>(GetTickCount64() - t0), g_game.vfx, r.used_vfx, cap.vfx, g_game.meshes, r.used_meshes, cap.meshes,
              static_cast<unsigned long long>(cap.mesh_bytes - g_game.mesh_bytes - r.used_mesh_bytes), static_cast<unsigned long long>(cap.mesh_bytes), g_game.sounds,
@@ -382,11 +400,12 @@ KilnResult build_define_json(KilnOwner, KilnStr json, char* report, size_t cap, 
     try {
         const ojson doc = kvb::parse_relaxed(std::string(json.ptr, json.len));
         ojson result = ojson::object();
+        const auto section_ok = [&](const char* key) { return !doc.contains(key) || doc[key].is_object(); };
         if (doc.is_discarded() || !doc.is_object() || !doc.contains("mod") || !doc["mod"].is_string() || !doc.contains("dir") || !doc["dir"].is_string() ||
-            !doc.contains("vfx") || !doc["vfx"].is_object()) {
+            !section_ok("vfx") || !section_ok("materials") || (!doc.contains("vfx") && !doc.contains("materials"))) {
             rc = KILN_ERR_INVALID_ARGUMENT;
             result["ok"] = false;
-            result["errors"] = ojson::array({"expected {\"format\": 1, \"mod\": id, \"dir\": folder, \"vfx\": {...}}"});
+            result["errors"] = ojson::array({"expected {\"format\": 1, \"mod\": id, \"dir\": folder, \"vfx\": {...}, \"materials\": {...}}"});
         } else {
             kvb::ModInput m;
             m.id = doc["mod"].get<std::string>();
@@ -394,8 +413,16 @@ KilnResult build_define_json(KilnOwner, KilnStr json, char* report, size_t cap, 
             m.side = "client";  // the manifest's rule was checked when the mod loaded
             ojson only = ojson::object();
             only["format"] = 1;
-            only["vfx"] = doc["vfx"];
+            if (doc.contains("vfx")) only["vfx"] = doc["vfx"];
+            if (doc.contains("materials")) only["materials"] = doc["materials"];
             m.documents.emplace_back("code", only.dump());
+            // A particle in this definition may name a material of the mod's data files, or one already kept from code.
+            if (doc.contains("vfx")) {
+                kvb::ModInput all;
+                const fs::path pending_root = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending";
+                if (read_mod(m.dir, pending_root, &all))
+                    for (auto& [file, text] : all.documents) m.lookup_documents.push_back(std::move(text));
+            }
             kvb::CookOptions opt;
             opt.game = g_game;
             opt.read_file = &read_all;
@@ -406,6 +433,18 @@ KilnResult build_define_json(KilnOwner, KilnStr json, char* report, size_t cap, 
             if (!r.errors.empty() || !r.refused_mods.empty()) rc = KILN_ERR_INVALID_ARGUMENT;
             const fs::path pending = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending" / to_path(m.id);
             std::lock_guard lk(g_mu);
+            const auto keep = [&](const char* section, const std::string& name, const std::string& file) {
+                ojson one = ojson::object();
+                one["format"] = 1;
+                one[section] = ojson::object();
+                one[section][name] = doc[section][name];
+                std::error_code ec;
+                fs::create_directories(pending, ec);
+                std::ofstream f(pending / to_path(file), std::ios::binary);
+                const std::string s = one.dump(1);
+                f.write(s.data(), static_cast<std::streamsize>(s.size()));
+                if (!f) KV_W("vfx: %s:%s: can't keep it for the next start", m.id.c_str(), name.c_str());
+            };
             for (size_t i = 0; i < r.blocks.size(); ++i) {
                 const kvb::BuiltBlock& b = r.blocks[i];
                 const auto it = g_built.find(b.guid);
@@ -415,16 +454,18 @@ KilnResult build_define_json(KilnOwner, KilnStr json, char* report, size_t cap, 
                 }
                 // The game enumerates VFX once: this one is there from the next start.
                 result["blocks"][i]["status"] = "pending";
-                ojson one = ojson::object();
-                one["format"] = 1;
-                one["vfx"] = ojson::object();
-                one["vfx"][b.name] = doc["vfx"][b.name];
-                std::error_code ec;
-                fs::create_directories(pending, ec);
-                std::ofstream f(pending / to_path(b.name + ".json"), std::ios::binary);
-                const std::string s = one.dump(1);
-                f.write(s.data(), static_cast<std::streamsize>(s.size()));
-                if (!f) KV_W("vfx: %s:%s: can't keep it for the next start", m.id.c_str(), b.name.c_str());
+                keep("vfx", b.name, b.name + ".json");
+            }
+            for (size_t i = 0; i < r.materials.size(); ++i) {
+                const kvb::BuiltMaterialBlock& b = r.materials[i];
+                const auto it = g_built.find(b.guid);
+                if (it != g_built.end() && it->second.definition == b.definition) {
+                    result["materials"][i]["status"] = "registered";
+                    continue;
+                }
+                // The renderer lists the textures of every material once at boot, and a texture it didn't list is fatal: this one is there from the next start.
+                result["materials"][i]["status"] = "pending";
+                keep("materials", b.name, "material-" + b.name + ".json");
             }
         }
         text = result.dump();

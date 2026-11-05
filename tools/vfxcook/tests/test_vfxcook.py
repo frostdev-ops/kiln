@@ -29,7 +29,7 @@ SAMPLE = TOOL / "samples" / "frost"
 SHADERS = REPO / "native" / "services" / "vfx" / "shaders"
 sys.path[:0] = [str(TOOL), str(REPO / "tools" / "kfc"), str(SHADERS / "test")]
 
-from harness import COUNTERS, KU, LIGHTS, P, Entry, World  # noqa: E402
+from harness import LIGHTS, P, Entry, World  # noqa: E402
 from kfc.blob import Decoder  # noqa: E402
 from kfc.blobwrite import Encoder  # noqa: E402
 from kfc.contenthash import content_hash, keen_hash128  # noqa: E402
@@ -985,8 +985,8 @@ class Fingerprint(Base):
         return p
 
     def names(self):
-        r = run("fingerprint", "--exe", self._pe([("keen::Nothing", 1)]), ok=(1,))
-        return [(x["name"], int(x["expected"], 16)) for x in json.loads(r.stdout)["layouts"]]
+        r = json.loads(run("fingerprint", "--exe", self._pe([("keen::Nothing", 1)]), ok=(1,)).stdout)
+        return [(x["name"], int(x["expected"], 16)) for x in r["layouts"] + r["materialLayouts"]]
 
     def test_all_found_and_matching(self):
         names = self.names()

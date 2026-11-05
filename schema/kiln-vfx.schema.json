@@ -92,10 +92,110 @@
         "faceCamera": { "type": "boolean", "description": "Turn the mesh to the camera. Default: true for quad, false for others." },
         "depthFade": { "type": "number", "minimum": 0, "description": "Metres of soft fade against the scene." },
         "emissive": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much the colour follows the camera's exposure correction." },
+        "material": { "$ref": "#/$defs/name", "description": "A material of this mod: its albedo as the texture, its tint in the colour, and lit, as far as the particle says nothing itself. A sprite draws with the game's transparent shaders, so the rest of a material doesn't apply." },
         "comment": {}
       },
       "additionalProperties": false,
       "anyOf": [ { "required": ["burst"] }, { "required": ["rate"] } ]
+    },
+    "materialSection": {
+      "type": "object",
+      "description": "Surfaces for models, by name. Each becomes one material with an id from your mod id and its name. Name one in a model step of assets/cook.json.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/material" }
+    },
+    "materialPng": { "type": "string", "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "description": "Relative to your mod's folder. A power of two on both sides, 4 to 4096." },
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "material": {
+      "type": "object",
+      "description": "A surface on the game's own shaders. Everything has a default: a material with no maps at all is a flat colour.",
+      "properties": {
+        "kind": { "enum": ["opaque", "metal", "cutout", "foliage", "cloth", "emissive", "dithered"], "description": "What it is, and where every other field starts from. Default opaque. metal: metallic 1, roughness 0.35. cutout: holes where alpha is under 0.5. foliage: cutout, double sided, light comes through. cloth: double sided, rough. emissive: glows, strength 4. dithered: soft edges from a dither pattern." },
+        "albedo": { "$ref": "#/$defs/materialPng", "description": "Colour, sRGB. Its alpha is what a cutout cuts by." },
+        "tint": { "$ref": "#/$defs/colour", "description": "sRGB. Multiplies the albedo; without one it is the colour. Built into the texture: the game's block has no tint of its own." },
+        "normal": {
+          "description": "A tangent-space normal map, green up as in glTF and Blender.",
+          "oneOf": [
+            { "$ref": "#/$defs/materialPng" },
+            {
+              "type": "object",
+              "properties": {
+                "map": { "$ref": "#/$defs/materialPng" },
+                "strength": { "type": "number", "minimum": 0, "maximum": 16, "description": "Scales the slope. Default 1." },
+                "yDown": { "type": "boolean", "description": "Green points down, as in DirectX maps." },
+                "comment": {}
+              },
+              "required": ["map"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "params": { "$ref": "#/$defs/materialPng", "description": "The game's own layout, linear: R metallic, G roughness, B occlusion, A reflectance if reflectance says \"params\"." },
+        "metallicRoughness": { "$ref": "#/$defs/materialPng", "description": "glTF's layout, linear: G roughness, B metallic." },
+        "occlusion": { "$ref": "#/$defs/materialPng", "description": "Linear, in R." },
+        "roughness": { "$ref": "#/$defs/unit", "description": "The value without a map, a factor with one. Default by kind, 0.7 for opaque." },
+        "metallic": { "$ref": "#/$defs/unit", "description": "The value without a map, a factor with one. Default by kind, 0 for opaque." },
+        "reflectance": {
+          "description": "Non-metal specular, a number. \"params\" reads it from the alpha of the params map. Default 0.503, what nearly all of the game's materials use.",
+          "oneOf": [ { "$ref": "#/$defs/unit" }, { "enum": ["params"] } ]
+        },
+        "emissive": {
+          "description": "What glows: a PNG, a colour, or both with a strength.",
+          "oneOf": [
+            { "$ref": "#/$defs/materialPng" },
+            { "$ref": "#/$defs/colour" },
+            {
+              "type": "object",
+              "properties": {
+                "map": { "$ref": "#/$defs/materialPng" },
+                "color": { "$ref": "#/$defs/colour", "description": "sRGB. Multiplies the map; without one it is the colour." },
+                "strength": { "type": "number", "minimum": 0, "description": "Default 1, 4 for kind emissive." },
+                "exposure": { "$ref": "#/$defs/unit", "description": "How much it follows the camera's exposure correction. Default 0.75." },
+                "comment": {}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "alphaTest": {
+          "description": "Cut where the albedo's alpha is under this. true is 0.5. The game's shaders cut at 0.5, so another value rescales the alpha.",
+          "oneOf": [ { "type": "boolean" }, { "type": "number", "exclusiveMinimum": 0, "maximum": 1 } ]
+        },
+        "doubleSided": { "type": "boolean", "description": "Draw both faces, with the normal turned on the back." },
+        "shadows": { "type": "boolean", "description": "Casts a shadow. Default true." },
+        "contactShadows": { "type": "boolean", "description": "Default true." },
+        "frost": { "type": "boolean", "description": "Takes frost in the cold. Default true." },
+        "snow": { "type": "boolean", "description": "Takes snow. Default true." },
+        "wetness": { "type": "boolean", "description": "Darkens in the rain. Default true." },
+        "vertexColor": { "type": "boolean", "description": "Multiply the albedo by the model's vertex colour." },
+        "translucent": { "$ref": "#/$defs/unit", "description": "How much light comes through from behind. Default 0, 1 for kind foliage." },
+        "dissolve": {
+          "description": "The game can fade it in and out with an edge glow, as it does to creatures and placed objects.",
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "properties": {
+                "color": { "$ref": "#/$defs/colour", "description": "The edge's glow. Default white." },
+                "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "The edge's width. Default 0.05." },
+                "noiseTiling": { "type": "number", "minimum": 0, "description": "Noise repeats per metre. Default 0.5." },
+                "noiseBlend": { "$ref": "#/$defs/unit", "description": "Noise against distance from the centre. Default 0.3." },
+                "comment": {}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "uvScale": {
+          "description": "Repeats of every map: a number, or [u, v]. Default 1.",
+          "oneOf": [ { "type": "number", "minimum": 0 }, { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 } ]
+        },
+        "shader": { "type": "string", "minLength": 1, "description": "Reserved for surface shaders, which aren't built yet: Kiln refuses a material that names one." },
+        "was": { "type": "string", "minLength": 1, "description": "The block's old name: the id stays the old one, so a model that names it doesn't notice the rename." },
+        "comment": {}
+      },
+      "additionalProperties": false,
+      "not": { "anyOf": [ { "required": ["params", "metallicRoughness"] }, { "required": ["params", "occlusion"] } ] }
     },
     "light": {
       "type": "object",

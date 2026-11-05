@@ -131,19 +131,12 @@ public static unsafe partial class Creatures
     {
         var t = CreaturesNative.Require("Creatures.AiFields");
         var s = new CreaturesNative.Utf8(component);
-        nuint len = 0;
         fixed (byte* p = s.Bytes)
         {
-            var rc = t->AiFields(s.Str(p), null, 0, &len);
-            if (rc != CreaturesNative.BufferTooSmall && rc != CreaturesNative.Ok)
-                throw new ArgumentException($"{component}: {CreaturesNative.Describe(rc)}");
-            var buf = new byte[(int)len + 1];
-            fixed (byte* b = buf)
-            {
-                rc = t->AiFields(s.Str(p), b, (nuint)buf.Length, &len);
-                if (rc != CreaturesNative.Ok) throw new ArgumentException($"{component}: {CreaturesNative.Describe(rc)}");
-                return System.Text.Encoding.UTF8.GetString(b, (int)len);
-            }
+            var name = s.Str(p);
+            var text = NativeText.Read((b, cap, len) => t->AiFields(name, b, cap, len), out var rc);
+            if (rc != CreaturesNative.Ok) throw new ArgumentException($"{component}: {CreaturesNative.Describe(rc)}");
+            return text;
         }
     }
 
@@ -203,6 +196,7 @@ public static unsafe partial class Creatures
         lock (WatchedMods) WatchedMods.Remove(mod);
         CreatureVariants.Retire(mod);
         try { Guarding.Retire(mod); } catch (Exception) { }
+        try { Arsenals.Retire(mod); } catch (Exception) { }
         var t = CreaturesNative.T;
         if (t != null) t->ReleaseOwner(mod.Owner);
     }
@@ -283,6 +277,8 @@ public static unsafe partial class Creatures
         catch (Exception ex) { Backend.Current.Log(0, LogLevel.Warn, "Kiln.Creatures: villagers: " + ex.Message); }
         try { Guarding.Pump(); }
         catch (Exception ex) { Backend.Current.Log(0, LogLevel.Warn, "Kiln.Creatures: guard orders: " + ex.Message); }
+        try { RulePump.Pump(); }
+        catch (Exception ex) { Backend.Current.Log(0, LogLevel.Warn, "Kiln.Creatures: rules: " + ex.Message); }
         return Interest();
     }
 }

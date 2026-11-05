@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "effects": {
+    "boom": { "vfx": "game:Explosion_Fixture_Frost" },
+    "guid": { "vfx": { "name": "0000f001-0000-4000-8000-000000000001", "slot": "chest" } }
+  }
+}

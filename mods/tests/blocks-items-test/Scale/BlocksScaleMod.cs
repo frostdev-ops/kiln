@@ -25,6 +25,7 @@ public sealed class BlocksScaleMod : Mod
             Try(() => Blocks.Define($"item-{n}", new ItemBlock { Name = $"Item {n}", Stack = 10, Recipe = new RecipeBlock { Needs = { ["Material_T1_Twigs"] = 1 } } }));
             Try(() => Blocks.Define($"sword-{n}", new WeaponBlock { Name = $"Sword {n}", Class = WeaponClass.Sword, Stats = new WeaponStats { Level = 5, Power = 30, Rarity = Rarity.Rare }, Recipe = new RecipeBlock { Needs = { ["Material_T1_Twigs"] = 1 } } }));
             Try(() => Blocks.Define($"mail-{n}", new ArmorBlock { Name = $"Mail {n}", Slot = ArmorSlot.Chest, Stats = new ArmorStats { Level = 5, Physical = 30, Bonus = new Dictionary<EquipBonus, double> { [EquipBonus.Health] = 60 } } }));
+            Try(() => Blocks.Define($"status-{n}", new StatusBlock { Name = $"Status {n}", Kind = StatusKind.Buff, Seconds = 5, Modifies = { [Stat.MoveSpeed] = 0.05 } }));
             Try(() => Blocks.Define($"wand-{n}", new WandBlock
             {
                 Name = $"Wand {n}",
@@ -50,7 +51,6 @@ public sealed class BlocksScaleMod : Mod
         Log.Info($"blocks-scale: {problems.Count} problem(s) reported by name");
         foreach (var p in problems.Take(6)) Log.Info($"blocks-scale: reported: {p}");
         foreach (var d in items.Where(d => !d.Worlds.Contains("server")).Take(3)) Log.Info($"blocks-scale: not in the world: {d.Name}: {d.State}: {d.Problem}");
-        Log.Info($"blocks-scale: near memory {System.Text.RegularExpressions.Regex.Match(NewContent.InfoJson(), "\"nearMemory\":\\[[^\\]]*\\]").Value}");
         Log.Info("blocks-scale done");
     }
 }

@@ -113,6 +113,8 @@ ad.use_nla = False
 result = {}
 for name, (a, b, _) in ACTIONS.items():
     act = bpy.data.actions[name]
+    for pb in arm.pose.bones:  # a bone this action doesn't key would keep the last action's pose
+        pb.rotation_euler = (0, 0, 0)
     ad.action = act
     ad.action_slot = next((s for s in act.slots if s.target_id_type == "OBJECT"), act.slots[0])
     for frame in (a, (a + b) // 2, b):

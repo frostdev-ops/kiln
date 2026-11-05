@@ -1,0 +1,98 @@
+{
+  "format": 1,
+  "comment": "The string half of typed-test: each definition again in TypedTestMod.cs as typed fields, under a name ending in _Typed instead of _Strings.",
+  "items": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b01",
+        "name": "Typed_Sword_Strings",
+        "base": "Weapon_T1_1H_Sword_01",
+        "fields": {
+          "maxStackSize": 3,
+          "rarity": "Epic",
+          "damageSetup.dmgMod": 1.5,
+          "damageSetup.speedMod": 1.25,
+          "itemLevelRange.minLevel": 7,
+          "itemLevelRange.maxLevel": 7,
+          "disableRarityGeneration": [ "Common", "Rare" ]
+        }
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b02",
+        "name": "Typed_Recipe_Strings",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 2 } ],
+        "outputs": [ { "item": "Typed_Sword_Strings", "count": 1 } ],
+        "fields": { "craftingDuration": 2.5 }
+      }
+    ]
+  },
+  "templates": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b03",
+        "name": "Typed_Bolt_Strings",
+        "base": "Projectile_Player_Staff_IceBolt_1",
+        "fields": {
+          "LifeTime.lifeTime": 5,
+          "StaticGravityModifier.modifier": 0.1,
+          "ImpactConfiguration.configValues.SpawnTemplate": "Explosion_Player_Spell_IceBolt_1"
+        }
+      },
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b04",
+        "name": "Typed_Vukah_Strings",
+        "base": "Enemy_Vukah_Melee",
+        "fields": {
+          "Level.dataStorage[0]": 20,
+          "ScaleComponent.uniformScale": 1.4,
+          "Enemy01BehaviorState.aggroSetup.viewRange": 36,
+          "Enemy01BehaviorState.aggroSetup.checkLineOfSight": false
+        }
+      },
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b05",
+        "name": "Typed_Burst_Strings",
+        "base": "Explosion_Player_Spell_Fireball_1",
+        "fields": {
+          "ImpactConfiguration.configValues.NoiseRange": 40,
+          "ImpactConfiguration.configValues.PushBackStrength": "Big"
+        }
+      }
+    ]
+  },
+  "buffs": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b06",
+        "name": "Typed_Buff_Strings",
+        "base": "0x5f425faf",
+        "fields": { "defaultLifeTime": 9 }
+      }
+    ]
+  },
+  "perks": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b07",
+        "name": "Typed_Perk_Strings",
+        "base": "Perk_OnDamage_Dealt_Debuff_Poisoned_T2",
+        "fields": { "impactValues.BuffType": "a00dbdc0-0394-43c5-83cb-96c6c425dec9" }
+      }
+    ]
+  },
+  "sequences": {
+    "add": [
+      {
+        "guid": "3d0d6f0e-41a3-4c56-9d6b-1c7a0a9f2b08",
+        "name": "Typed_Cast_Strings",
+        "base": "Attack_Player_Staff_FixedAnim_Fireball_fast",
+        "fields": { "length": 2.5, "loop": false }
+      }
+    ]
+  }
+}

@@ -10,9 +10,12 @@
 //   kiln-vfxcook id MOD KIND NAME       a block's GUID
 //   kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
 //        Layouts and bindings of this game against what the modules were made for (JSON). 0 = match.
-//   kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N]
+//   kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
+//   kiln-vfxcook material-roundtrip FILE
+//        FILE holds {u32 size, bytes} records of RenderMaterialResources: reads and rewrites each with the builder's own code. JSON; 0 = all byte-identical.
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -132,6 +135,8 @@ GameCounts counts_of(const Args& a) {
         else if (k == "curves") g.curves = static_cast<uint32_t>(v);
         else if (k == "sounds") g.sounds = static_cast<uint32_t>(v);
         else if (k == "meshBytes") g.mesh_bytes = v;
+        else if (k == "materials") g.materials = static_cast<uint32_t>(v);
+        else if (k == "streamedTextures") g.streamed_textures = static_cast<uint32_t>(v);
     }
     return g;
 }
@@ -141,6 +146,7 @@ const char* type_name(uint32_t t) {
         case kTypeVfx: return "keen::VfxResource";
         case kTypeMesh: return "keen::VfxMeshResource";
         case kTypeTexture: return "keen::RenderTextureResource";
+        case kTypeMaterial: return "keen::RenderMaterialResource";
         default: return "?";
     }
 }
@@ -149,6 +155,7 @@ const char* type_short(uint32_t t) {
         case kTypeVfx: return "vfx";
         case kTypeMesh: return "mesh";
         case kTypeTexture: return "texture";
+        case kTypeMaterial: return "material";
         default: return "res";
     }
 }
@@ -218,7 +225,7 @@ int cmd_cook(const Args& a, bool write) {
     for (const std::string& e : r.refused_mods) std::fprintf(stderr, "refused: %s\n", e.c_str());
     for (const std::string& w : r.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     if (!write) std::cout << report.dump(1) << "\n";
-    else std::printf("%zu VFX, %zu resources, %zu blobs -> %s\n", r.blocks.size(), r.resources.size(), r.blobs.size(), a.out.c_str());
+    else std::printf("%zu VFX, %zu materials, %zu resources, %zu blobs -> %s\n", r.blocks.size(), r.materials.size(), r.resources.size(), r.blobs.size(), a.out.c_str());
     return r.errors.empty() && r.refused_mods.empty() ? 0 : 1;
 }
 
@@ -271,6 +278,21 @@ int cmd_fingerprint(const Args& a) {
             l.push_back({{"name", f.name}, {"expected", e}, {"found", g}, {"ok", f.found == f.expected}});
         }
         out["layouts"] = l;
+        const auto material_found = read_layouts({image.data(), image.size(), base}, material_layouts());
+        ojson ml = ojson::array();
+        for (const LayoutFound& f : material_found) {
+            char e[16], g[16];
+            std::snprintf(e, sizeof e, "%08x", f.expected);
+            std::snprintf(g, sizeof g, "%08x", f.found);
+            ml.push_back({{"name", f.name}, {"expected", e}, {"found", g}, {"ok", f.found == f.expected}});
+        }
+        out["materialLayouts"] = ml;
+        const std::string material_diff = compare_layouts(material_found);
+        out["materialLayoutsOk"] = material_diff.empty();
+        if (!material_diff.empty()) {
+            out["materialDifference"] = material_diff;
+            rc = 1;
+        }
         const std::string diff = compare_layouts(found);
         out["layoutsOk"] = diff.empty();
         if (!diff.empty()) {
@@ -318,15 +340,56 @@ int cmd_budget(const Args& a) {
     o["meshBytes"] = {{"game", b.game().mesh_bytes}, {"capacity", b.capacity().mesh_bytes}, {"margin", b.capacity().mesh_margin}, {"room", b.room_mesh_bytes()}};
     o["sounds"] = {{"game", b.game().sounds}, {"capacity", b.capacity().sounds}, {"room", b.room_sounds()}};
     o["curves"] = {{"game", b.game().curves}, {"capacity", b.capacity().curves}, {"room", b.room_curves()}};
+    o["materials"] = {{"game", b.game().materials}, {"capacity", b.capacity().materials}, {"room", b.room_materials()}};
+    o["streamedTextures"] = {{"game", b.game().streamed_textures}, {"capacity", b.capacity().streamed_textures}, {"room", b.room_streamed_textures()}};
     std::cout << o.dump(1) << "\n";
     return 0;
+}
+
+int cmd_material_roundtrip(const Args& a) {
+    if (a.rest.size() != 1) {
+        std::fprintf(stderr, "material-roundtrip FILE\n");
+        return 2;
+    }
+    const std::string all = slurp(a.rest[0]);
+    size_t at = 0;
+    uint64_t total = 0, identical = 0;
+    ojson different = ojson::array();
+    while (at + 4 <= all.size()) {
+        uint32_t size = 0;
+        std::memcpy(&size, all.data() + at, 4);
+        at += 4;
+        if (at + size > all.size()) {
+            std::fprintf(stderr, "record %llu is cut short\n", static_cast<unsigned long long>(total));
+            return 2;
+        }
+        const auto* p = reinterpret_cast<const uint8_t*>(all.data() + at);
+        RenderMaterial m;
+        std::string why;
+        if (!read_material(p, size, &m, &why)) {
+            different.push_back({{"record", total}, {"problem", why}});
+        } else {
+            const Bytes back = write_material(m);
+            if (back.size() == size && std::memcmp(back.data(), p, size) == 0) ++identical;
+            else different.push_back({{"record", total}, {"problem", "rewrote " + std::to_string(back.size()) + " bytes of " + std::to_string(size) + ": they differ"}, {"name", m.debug_name}});
+        }
+        at += size;
+        ++total;
+    }
+    ojson o = ojson::object();
+    o["records"] = total;
+    o["identical"] = identical;
+    if (different.size() > 20) different.erase(different.begin() + 20, different.end());
+    o["different"] = different;
+    std::cout << o.dump(1) << "\n";
+    return identical == total ? 0 : 1;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: kiln-vfxcook cook|check|hash|modules|id|fingerprint|budget ... (docs/kiln/services/vfx-cook.md)\n");
+        std::fprintf(stderr, "usage: kiln-vfxcook cook|check|hash|modules|id|fingerprint|budget|material-roundtrip ... (docs/kiln/services/vfx-cook.md)\n");
         return 2;
     }
     const std::string cmd = argv[1];
@@ -343,6 +406,7 @@ int main(int argc, char** argv) {
     if (cmd == "modules") return cmd_modules();
     if (cmd == "fingerprint") return cmd_fingerprint(a);
     if (cmd == "budget") return cmd_budget(a);
+    if (cmd == "material-roundtrip") return cmd_material_roundtrip(a);
     if (cmd == "id" && a.rest.size() == 3) {
         std::printf("%s\n", guid_text(block_id(a.rest[0], a.rest[1], a.rest[2])).c_str());
         return 0;

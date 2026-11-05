@@ -86,13 +86,34 @@ const std::vector<LayoutExpect>& expected_layouts() {
     return k;
 }
 
+const std::vector<LayoutExpect>& material_layouts() {
+    // Client 26430625, svn 1287369.
+    static const std::vector<LayoutExpect> k = [] {
+        const std::vector<std::pair<const char*, uint32_t>> list = {
+            {"keen::RenderMaterialResource", 0x7804bc58u},
+            {"keen::RenderMaterialImage", 0x7ea87df5u},
+            {"keen::RenderStreamedTexture", 0x37063ad9u},
+            {"keen::RenderMaterialTextureFeedback", 0xcf368219u},
+            {"keen::PbrRfxRenderMaterial", 0x1220f31fu},
+            {"keen::PbrMaterialTintShaderData", 0xea19af89u},
+            {"keen::PbrMaterialEmissiveMapShaderData", 0x7bc7f6ffu},
+            {"keen::RenderModelMaterial", 0x8a5797d6u},
+        };
+        std::vector<LayoutExpect> v;
+        for (const auto& [name, layout] : list) v.push_back({name, fnv1a(name), layout});
+        return v;
+    }();
+    return k;
+}
+
 Guid vfx_gpc_guid() {
     // vfx/vfx.gpc: ad606c3f-f737-51b2-9617-e0c5aba82b11, in the game's byte order
     return Guid{{0x3f, 0x6c, 0x60, 0xad, 0x37, 0xf7, 0xb2, 0x51, 0x96, 0x17, 0xe0, 0xc5, 0xab, 0xa8, 0x2b, 0x11}};
 }
 
-std::vector<LayoutFound> read_layouts(const ImageView& v) {
-    const auto& want = expected_layouts();
+std::vector<LayoutFound> read_layouts(const ImageView& v) { return read_layouts(v, expected_layouts()); }
+
+std::vector<LayoutFound> read_layouts(const ImageView& v, const std::vector<LayoutExpect>& want) {
     std::vector<LayoutFound> out;
     for (const LayoutExpect& e : want) out.push_back({e.name, e.layout, 0});
     std::vector<Section> secs;
@@ -266,6 +287,9 @@ GameCounts game_counts_from(const std::map<uint32_t, KfcBundle>& bundles) {
     take(kTypeVfx, &c.vfx);
     take(kTypeMesh, &c.meshes);
     take(fnv1a("keen::VfxCurveResource"), &c.curves);
+    uint32_t materials = 0;
+    take(kTypeMaterial, &materials);
+    if (materials > kOtherEffectMaterials) c.materials = materials - kOtherEffectMaterials;
     return c;
 }
 

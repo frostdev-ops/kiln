@@ -10,6 +10,10 @@
     { "op": "visual", "base": "nope", "model": "@model", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d63", "stem": "unlisted" },
     { "tool": "soundcook", "op": "sound", "name": "chime", "src": "src/chime.wav", "gain": 1, "normalize": -24 },
     { "tool": "soundcook", "op": "cue", "name": "chime", "sounds": ["chmie"], "base": "model" },
-    { "tool": "soundcook", "op": "cue", "name": "chime", "sounds": ["chime"] }
+    { "tool": "soundcook", "op": "cue", "name": "chime", "sounds": ["chime"] },
+    { "tool": "animcook", "op": "skeleton", "name": "golem", "gltf": "src/none.gltf" },
+    { "op": "model", "gltf": "src/none.gltf", "skeleton": "golemm", "material": "@model" },
+    { "op": "model", "gltf": "src/none.gltf", "skeleton": "@model", "material": "@model" },
+    { "op": "model", "gltf": "src/none.gltf", "skeleton": "golem", "material": "@model" }
   ]
 }

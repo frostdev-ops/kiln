@@ -1,0 +1,54 @@
+{
+  // Effects from nothing, and a spell that uses them. Field by field: docs/kiln/modding/schemas/kiln-vfx.md.
+  "format": 1,
+  "vfx": {
+    "ember_burst": {
+      // sparks that fly out, fall and cool, with smoke rising behind them, and a flash of light
+      "particles": [
+        {
+          "burst": 32, "lifetime": [0.5, 1.2], "speed": [1.5, 4], "spread": { "cone": 60 }, "gravity": -3, "drag": 0.8,
+          "size": { "linear": [0.18, 0] }, "color": ["#fff2c0", "#ff7a20", "#802000"], "intensity": 2,
+          "alpha": { "keys": [[0, 1], [0.7, 0.8], [1, 0]] },
+          "roll": [0, 360], "spin": [-180, 180],
+          "texture": "vfx/spark.png", "blend": "additive", "emissive": 1
+        },
+        {
+          "burst": 6, "delay": 0.05, "lifetime": [0.8, 1.4], "speed": [0.2, 0.6], "spread": "sphere", "acceleration": [0, 0.5, 0],
+          "size": { "linear": [0.4, 1.2] }, "color": "#6b4a36", "alpha": { "linear": [0.5, 0] },
+          "texture": "vfx/puff_2x2.png", "flipbook": { "columns": 2, "rows": 2 }, "lit": true, "depthFade": 0.2
+        }
+      ],
+      "light": { "color": "#ffb060", "radius": 6, "brightness": 4, "lifetime": 0.6, "fadeOut": 0.5 }
+    },
+    "warm_glow": {
+      "light": { "color": "#ffb060", "radius": 8, "brightness": 3, "lifetime": 2.5, "fadeIn": 0.2, "fadeOut": 1, "flicker": 0.25 }
+    },
+    "ember_charge": {
+      "particles": [ { "burst": 8, "lifetime": 0.3, "speed": [0.2, 0.6], "spread": "sphere", "size": { "linear": [0.08, 0] }, "color": "#ffd080", "texture": "vfx/spark.png", "blend": "additive" } ]
+    },
+    "ember_trail": {
+      "particles": [ { "rate": 40, "lifetime": 0.5, "speed": [0, 0.3], "spread": "sphere", "size": { "linear": [0.12, 0] }, "alpha": { "linear": [0.8, 0] }, "color": "#ff9040", "texture": "vfx/spark.png", "blend": "additive" } ],
+      "light": { "color": "#ff9040", "radius": 3, "brightness": 2 }
+    }
+  },
+  "effects": {
+    "ember_hit": { "damage": { "fire": 20 }, "flinch": "light" },
+    // one of the game's VFX by name, recoloured through its own parameters. Only an effect can set them; `kiln catalog search` or a hover in VS Code says which it has
+    "orange_flash": { "vfx": { "name": "game:VFX_Dummy_Impact", "parameters": { "radius": 2, "lifetime": 0.8, "color": "#ff9040" } } }
+  },
+  "spells": {
+    "vfx_sample_bolt": {
+      "name": "Ember Bolt",
+      "description": "A bolt of embers that bursts where it lands.",
+      "cast": { "manaCost": 20, "vfx": "ember_charge" },
+      "delivery": {
+        "type": "projectile",
+        "speed": 30,
+        "gravity": 0.1,
+        "vfx": "ember_trail",
+        "onImpact": [ { "vfx": "ember_burst", "area": { "radius": 3, "effects": [ "ember_hit", "orange_flash" ] } } ]
+      },
+      "recipe": { "station": "hand", "makes": 10, "needs": { "Material_T1_Twigs": 2 } }
+    }
+  }
+}

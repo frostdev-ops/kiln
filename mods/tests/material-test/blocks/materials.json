@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "comment": "Twins of the blocks MaterialTestMod.cs defines: each must give the same definition from JSON as from C#.",
+  "materials": {
+    "steel-json": { "kind": "metal", "albedo": "tex/a.png", "normal": { "map": "tex/n.png", "strength": 2, "yDown": true }, "metallicRoughness": "tex/a.png", "occlusion": "tex/n.png", "roughness": 0.3, "tint": "#dff2ff",
+                    "emissive": { "map": "tex/n.png", "color": "#7fd4ff", "strength": 8, "exposure": 0.5 } },
+    "leaf-json": { "kind": "foliage", "albedo": "tex/a.png", "alphaTest": 0.25, "translucent": 0.5, "uvScale": [2, 1] },
+    "plain-json": { "tint": "#336699", "doubleSided": true, "shadows": false, "contactShadows": false, "frost": false, "snow": false, "wetness": false, "vertexColor": true, "reflectance": 0.25, "uvScale": 2,
+                    "dissolve": { "color": "#ff0000", "width": 0.1, "noiseTiling": 2, "noiseBlend": 0.25 } },
+    "glow-json": { "kind": "emissive", "emissive": "#7fd4ff" },
+    "melt-json": { "kind": "dithered", "dissolve": true },
+    "fromparams-json": { "params": "tex/a.png", "reflectance": "params" }
+  },
+  "vfx": {
+    "sparks-json": { "particles": [ { "burst": 4, "material": "steel-json" } ] }
+  }
+}

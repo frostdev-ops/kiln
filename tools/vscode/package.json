@@ -220,6 +220,10 @@
       {
         "language": "kimp",
         "path": "./snippets/kimp.json"
+      },
+      {
+        "language": "jsonc",
+        "path": "./snippets/vfx.json"
       }
     ],
     "commands": [

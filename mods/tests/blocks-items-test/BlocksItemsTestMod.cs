@@ -104,7 +104,6 @@ public sealed class BlocksItemsTestMod : Mod
             Info($"{Blocks.DumpPrograms(dump)} generated program(s) written to {dump}");
             FindChest();
             _at = await Anchor();
-            Info($"addresses: skill node 0x{Content.Skills.Get("item:Ability_DoubleJump")?.Address:x}, wand item {Content.ItemData.Get(G("ember-wand"))?.Address:x}, bronze sword {Content.ItemData.Get("Weapon_T1_1H_SwordEpic_01")?.Address:x}, a template clone {Content.Templates.Get(G("ember-wand.primary.impact"))?.Address:x}, a sequence clone {Content.Sequences.Get(G("ember-wand.primary"))?.Address:x}, the Vukah template {Content.Templates.Get("Enemy_Vukah_Melee")?.Address:x}");
             await Part("mistakes", () => { Errors(); return Task.CompletedTask; });
             await Part("registered", () => { Registered(); return Task.CompletedTask; });
             await Part("weapons", () => { Weapons(); return Task.CompletedTask; });

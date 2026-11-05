@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { Ctx } from "./ctx";
 import { CatalogFeature } from "./features/catalog";
+import { VfxFeature } from "./features/vfx";
 import { registerConsole } from "./features/console";
 import { DebugFeature } from "./features/debug";
 import { ImpactFeature } from "./features/impact";
@@ -24,6 +25,7 @@ export interface KilnApi {
   testing: Testing;
   impact: ImpactFeature;
   debug: DebugFeature;
+  vfx: VfxFeature;
 }
 
 export function activate(context: vscode.ExtensionContext): KilnApi {
@@ -39,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): KilnApi {
   const mods = new Mods(ctx, servers);
   const lint = new Lint(ctx, mods, schemaMap);
   const catalog = new CatalogFeature(ctx);
+  const vfx = new VfxFeature(ctx, catalog);
   const log = new LogFeature(ctx, servers, mods);
   const testing = new Testing(ctx, mods, servers);
   log.testLocator = (mod, name) => testing.locate(mod, name);
@@ -50,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): KilnApi {
     mods,
     lint,
     catalog,
+    vfx,
     log,
     testing,
     impact,
@@ -60,7 +64,7 @@ export function activate(context: vscode.ExtensionContext): KilnApi {
   );
   void testing.discover();
   ctx.out.info(`Kiln ${context.extension.packageJSON.version} active; Kiln checkout: ${ctx.kilnRoot() ?? "none"}`);
-  return { ctx, servers, mods, lint, catalog, log, testing, impact, debug };
+  return { ctx, servers, mods, lint, catalog, vfx, log, testing, impact, debug };
 }
 
 export function deactivate(): void {

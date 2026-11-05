@@ -412,6 +412,14 @@ kiln.mod.json:7:14: error KL210: this mod has a quest in the game's journal (the
 ```
 Fix: declare `"clients": "mod"` (quick fix). For a mod vanilla clients must be able to join: `"journal": "chat"` on every quest and `"native": false` on every dialogue, which is chat lines, `/quests` and `/talk`.
 
+### KL211 clients-vfx
+Error. A block in the `vfx` or `materials` section, or a `vfx` field that names one (anything but `"game:<name>"` or a GUID), in a mod that doesn't say `"clients": "mod"`. A client builds a new VFX or material at boot
+from the mod's own files, and no server sends assets. On side `server`, [KL203](#kl203-side-assets) says the same about where the mod loads.
+```text
+kiln.mod.json:7:14: error KL211: this mod has a new VFX but says "clients": "kiln": a client builds it at boot from the mod's own files, and the server never sends assets; declare "clients": "mod". A VFX of the game ("game:<name>") needs no such thing
+```
+Fix: declare `"clients": "mod"` (quick fix), or use one of the game's VFX.
+
 ### KL209 manifest-refused
 Error. The real manifest reader refuses the file for a reason the schema cannot express. It is reported only when the
 schema found no error in the file.
@@ -537,12 +545,67 @@ quests/tobin.json:21:9: warning KL313: npc tobin: the Survivors list shows this 
 ### KL314 block-reference
 
 Warning. A field of a `blocks/*.json` file names a block that no `blocks/*.json` file of the mod defines and the mod's code does not mention, or one of the wrong kind
-(a status where an effect goes, stats where a look goes). Kiln.Blocks refuses that block at load. A premade's key is fine (`"class": "sword"`), and `other-mod:name` is not checked.
+(a status where an effect goes, stats where a look goes, an effect where a VFX goes). Kiln.Blocks refuses that block at load. A premade's key is fine (`"class": "sword"`), and `other-mod:name` is not checked.
+A `vfx` field's `"game:<name>"` and GUIDs are [KL323](#kl323-vfx-reference)'s.
 With the catalog, the same goes for an item a block names (`recipe.needs`, `like`, `dropsLike`, `dropped`) that is neither a block of the mod nor an item of the game.
 
 ```
 blocks/frost.json:9:22: warning KL314: no effect block "frost-bust" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is "mod-id:frost-bust"
 ```
+
+### KL320 vfx-budget
+Error. More than the game's VFX system holds, for this mod and the mods checked with it (`--profile`). Past a limit the game aborts, so at boot Kiln refuses the mod that reaches it, and none of its VFX load.
+Only blocks in `blocks/*.json` are counted: a `VfxBlock` defined in code isn't, nor is what other mods define unless they are checked too.
+
+| What | Limit | The game uses | Left for all mods |
+|---|---|---|---|
+| VFX | 2,048 | 1,575 (from the catalog when there is one) | 473 |
+| Meshes | 1,024 | 638 | 386 |
+| Mesh memory | 17,825,792 B | 17,567,564 B, and 16 KB is kept free | about 240 KB |
+| Sounds in VFX | 16 | 6 | 10 |
+
+A block can only name the built-in `quad` and `quad-xz` meshes today, 140 B each and shared by all mods, so the mesh limits don't come into play yet.
+```text
+blocks/many.json:4:5: error KL320: This mod asks for 474 new VFX, and the game has room for 473 (2048 less its 1575): past a limit the game aborts, so Kiln refuses the mod that reaches it and none of its VFX load
+```
+Fix: share effects between blocks, or split the mod so that a player chooses.
+
+### KL321 vfx-parameter
+`"parameters"` on a `vfx` field.
+
+An error where Kiln.Blocks refuses it: on a spell's `cast`, a projectile or a status, because the game's data takes a block laid out by the VFX, which only clients have; and on a VFX block of the mod, which has no named
+parameters yet. An effect can set them on a game VFX, and so can an area, an on-hit and the effects inside a status.
+
+A warning, with the catalog, for a name or type the game VFX doesn't have: the game ignores those without a word, so this is the only place that says so. The value's form decides the type: a number is a float (`3` too), `{"int": 7}`
+an int, `[x, y, z]` a float3, `"#rrggbb"` or `"#rrggbbaa"` a colour. Hover a `game:` name in VS Code, or look the VFX up with `kiln catalog search`, for what it takes. Not every parameter has a known name, because the game stores only their hashes.
+```text
+blocks/fx.json:7:80: warning KL321: Explosion_Fixture_Frost has no parameter "radus", and the game ignores what it doesn't have; it has radius, color, count; did you mean "radius"?
+blocks/fx.json:9:92: warning KL321: "count" of Explosion_Fixture_Frost is an int, and this is a float: the game ignores it; write it as {"int": n}
+blocks/fx.json:22:95: error KL321: a spell's cast cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have (Kiln.Blocks refuses it). Put the VFX on an effect, or leave them out
+```
+
+### KL322 vfx-texture
+Error. A particle's or material's PNG that Kiln refuses: both sides must be powers of two, from 4 to 2048 for a particle and to 4096 for a material. A file that isn't a PNG at all is [KL503](#kl503-not-png).
+```text
+blocks/fx.json:5:54: error KL322: vfx/odd_6x8.png: 6x8 is not a power of two on both sides (Kiln refuses this block)
+```
+Fix: resize the image.
+
+### KL323 vfx-reference
+Warning (needs the catalog). A `vfx` field names a game VFX the catalog doesn't have, or one only its GUID can find. VFX have no names of their own: `"game:<name>"` finds one through a template that carries it or a sequence that plays it. Catalog
+entries without `byName` have a name only as a label (`Vfx_0000f003`, a template's `DestroyOnLoot`). An unknown GUID shows nothing, because Kiln's guard stops it before the game would abort.
+```text
+blocks/fx.json:13:22: warning KL323: no game VFX "Explosion_Fixture_Frots" in the catalog; did you mean "Explosion_Fixture_Frost"?
+blocks/fx.json:14:23: warning KL323: "Prop_Fixture_Crate_DestroyOnLoot" is the catalog's label for this VFX: nothing at run time finds it by that name; use its GUID
+```
+Fix: correct the name, or use the GUID (both are quick fixes).
+
+### KL324 vfx-flipbook
+Warning. A `flipbook` grid whose PNG can't divide evenly into it, so frames will be cut. A grid that divides but doesn't match the art can't be detected.
+```text
+blocks/fx.json:8:86: warning KL324: vfx/good_8x8.png: 8x8 doesn't divide into 3 columns and 2 rows: frames will be cut
+```
+Fix: correct `columns` and `rows`, or the image.
 
 ### KL401 unknown-reference
 Warning by default; an error where the reader refuses the file or the node (game-tree links, a talent node's `requires`).
@@ -676,6 +739,13 @@ Error. A schematic over Kiln.Build's limit of 4,194,304 cells.
 build/hut.kschem:1:40: error KL515: 33554432 cells: Kiln.Build reads schematics of at most 4,194,304 cells
 ```
 Fix: split it, or export a smaller area.
+
+### KL516 cook-skeleton
+Error. A model step's `skeleton` is neither a `skeleton` step of the recipe nor an input of type `keen::ModelHierarchyResource`.
+```text
+assets/cook.json:15:60: error KL516: step 7 (model): no skeleton step is named "golemm" in this recipe (a game skeleton is @input); did you mean "golem"?
+```
+Fix: name the step, or add the game's skeleton to `inputs`. See [Skinned models](models.md#skinned-models).
 
 ## KL6xx: licences and what may be shipped
 

@@ -53,14 +53,17 @@ public sealed partial class BlocksTestMod : Mod
             OnExpire = [new EffectBlock { Damage = Damage.Blunt(9), Flinch = Flinch.None }],
         });
         DefineParts();
+        DefineVfxBlocks();
         Events.On<ImpactNativeEvent>(e =>
         {
             if (e is ImpactDamageEvent h) _hits.Add(h);
             if (e is ImpactBuffEvent b) _buffs.Add(b);
+            if (e is ImpactSpawnEvent s) _spawnsSeen.Add(s);
         });
         Events.On<ImpactSignalEvent>(e =>
         {
             if (e.Tag == ProbeTag) _probe = e.Value;
+            else if ((e.Tag & 0xFFFF0000) == 0xB10D0000) _vfxCues.Add((e.Tag, BitConverter.ToSingle(e.Value, 0), BitConverter.ToSingle(e.Value, 8)));
             else if ((e.Tag & 0xFFFF0000) == 0xB10C0000) _sounds.Add((e.Tag, BitConverter.ToSingle(e.Value, 0), BitConverter.ToSingle(e.Value, 8)));
         });
         _ = Run();
@@ -82,6 +85,7 @@ public sealed partial class BlocksTestMod : Mod
             await Effects();
             await ItemPath();
             await Weapon();
+            await VfxBlocks();
             await Parts();
         }
         catch (Exception e)
@@ -109,7 +113,9 @@ public sealed partial class BlocksTestMod : Mod
         Named("no-target", "no target");     // an effect at a place that has none
         Named("bad-ref", "no-such-effect");  // a name that is nothing
         Named("bad-anim", "sideways", "fast-bolt");  // what it could have been
-        Check(!mine.Blocks.Any(x => x is "no-cast" or "typo" or "no-target" or "bad-ref" or "bad-anim"), $"none of the broken blocks became anything ({string.Join(", ", mine.Blocks)})");
+        Named("bad-vfx-field", "burts");     // a VFX's unknown field
+        Named("vfx-in-kiln-mod", "KilnClients", "mod");   // a new VFX in a mod that says clients kiln
+        Check(!mine.Blocks.Any(x => x is "no-cast" or "typo" or "no-target" or "bad-ref" or "bad-anim" or "bad-vfx-field" or "vfx-in-kiln-mod"), $"none of the broken blocks became anything ({string.Join(", ", mine.Blocks)})");
 
         var none = report.TryGetValue("blocks-noclients", out var nc) ? nc.Errors.FirstOrDefault() : null;
         Check(none != null && none.Contains("KilnClients", StringComparison.Ordinal), $"a mod with clients none is told what to set: \"{none}\"");
@@ -158,7 +164,7 @@ public sealed partial class BlocksTestMod : Mod
         Check(Math.Abs(N(dd, "damageSetup.distribution.magicalIceDamage") - 1) < 1e-5 && N(dd, "damageSetup.distribution.magicalFireDamage") == 0, "all of it is ice");
 
         var cast = dd.Get("sequences[0].sequence").Guid;
-        Check(cast == Content.Sequences.Get(CastAnimation.FastBolt.Sequence)!.Guid, $"the cast is FastBolt's sequence {cast}");
+        Check(cast == BlockIds.Derive(Sample, "sequence", "frostbolt"), $"the cast is a copy of FastBolt's sequence, for its VFX: {cast}");
         Check((uint)N(dd, "sequences[0].sequenceId") == BlockIds.Fnv(cast), "its sequenceId follows");
 
         var projectile = Content.Templates.Get($"{Sample}.frostbolt.projectile");
@@ -189,7 +195,7 @@ public sealed partial class BlocksTestMod : Mod
         var swordPower = (int)((float)(int)(10 * 0.15f * 5 + 10) * (float)N(sd, "damageSetup.dmgMod") * (float)N(sd, "damageSetup.speedMod"));
         Check(swordPower == 30, $"its tooltip damage at level 5 is Power 30: {swordPower}");
         var clients = File.ReadAllText(Path.Combine(Mods.Get(Sample)!.Directory, "kiln.mod.json"));
-        Check(clients.Contains("\"both\"", StringComparison.Ordinal) && clients.Contains("\"kiln\"", StringComparison.Ordinal), "the SDK made the manifest side both, clients kiln, from KilnServices alone");
+        Check(clients.Contains("\"both\"", StringComparison.Ordinal) && clients.Contains("\"clients\": \"mod\"", StringComparison.Ordinal), "the SDK made the manifest side both from KilnServices, and clients mod from its new VFX");
         var only = Blocks.Report().TryGetValue("blocks-dataonly", out var dataOnly);
         Check(only && dataOnly.Blocks.Contains("ember") && Content.Items.Get("blocks-dataonly.ember") != null && Content.Recipes.Get("blocks-dataonly.ember.recipe") != null, "a mod with no code: blocks/ember.json made its item and recipe");
     }
@@ -197,7 +203,7 @@ public sealed partial class BlocksTestMod : Mod
     // JSON and C# are the same objects: what they lower to differs only in names and the ids that follow from names.
     private void Twin()
     {
-        string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "frostlance", "frostbolt");
+        string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "frostlance", "frostbolt").Replace("-json", "");
         var cs = Normal(Blocks.Lowered("frostbolt", Sample));
         var json = Normal(Blocks.Lowered("frostlance", Sample));
         Check(cs.Length > 500 && cs == json, $"blocks/frostlance.json lowers to what the C# frostbolt does ({cs.Length} characters of definitions)");
@@ -209,7 +215,7 @@ public sealed partial class BlocksTestMod : Mod
 
     private async Task Ids()
     {
-        var names = new[] { "frostbolt", "frost-edge", "chilled", "frostlance" };
+        var names = new[] { "frostbolt", "frost-edge", "chilled", "frostlance", "frost_burst", "frost_trail", "frost_burst-json" };
         var now = new JsonObject();
         foreach (var n in names) now[n] = Blocks.Find(n, Sample)!.Guid.ToString();
         now["program"] = Content.Templates.Get($"{Sample}.frostbolt.impact")!.Get("Impact.program").Guid.ToString();
@@ -227,6 +233,9 @@ public sealed partial class BlocksTestMod : Mod
             File.Delete(file);
             return;
         }
+        // what a run that did not get to its restart left in this world's chests
+        foreach (var e in Items.FindInventories(InventoryKinds.Containers | InventoryKinds.NonEmpty))
+            if (Items.Read(e)?.Count(spell) is > 0 and var left) await Items.Take(e, spell, left);
         EntityId box = EntityId.None;
         foreach (var e in Items.FindInventories(InventoryKinds.Containers | InventoryKinds.NonEmpty))
             if (Items.Read(e) is { Initialized: true } c && c.FreeSlots() >= 2 && (!EntityData.Available || EntityData.IsPersistent(e)))

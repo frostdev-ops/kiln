@@ -734,6 +734,108 @@
             "additionalProperties": true
           }
         },
+        "vfx": {
+          "type": "array",
+          "description": "VfxResource (client only). VFX have no names of their own: name is the template that carries it or the sequence that plays it (byName: VfxId.Game finds it by this name), else a label from what else uses it, else Vfx_<guid8>. id = FNV-1a of the GUID.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "namedFrom": {
+                "enum": [
+                  "template",
+                  "sequence",
+                  "use"
+                ],
+                "description": "Where the name comes from. use: a component field or a later event, which nothing finds at run time. Absent: nothing names it."
+              },
+              "byName": {
+                "type": "boolean",
+                "description": "VfxId.Game and \"game:<name>\" find it by name. Absent: use the GUID."
+              },
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Every name VfxId.Game takes for it, when there are several."
+              },
+              "usedBy": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Up to 8 other uses, which nothing finds it by at run time: a component's field, a later event."
+              },
+              "particles": {
+                "type": "integer"
+              },
+              "emitters": {
+                "type": "integer"
+              },
+              "meshes": {
+                "type": "integer"
+              },
+              "textures": {
+                "type": "integer"
+              },
+              "cullDistance": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "killTime": {
+                "type": "integer"
+              },
+              "length": {
+                "type": "number",
+                "description": "Seconds Kiln runs a one-shot of it: the larger of killTime and its duration + lifetime parameters, 10 if it says nothing, 1 to 60."
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Where recovered: the game stores only a hash."
+                    },
+                    "hash": {
+                      "$ref": "#/$defs/id",
+                      "description": "FNV-1a of the name, when the name is not known."
+                    },
+                    "type": {
+                      "type": "string",
+                      "description": "float, float2, float3, float4, int, uint, bool, color, quaternion, mesh, model, jointCollection, ..."
+                    },
+                    "default": {}
+                  }
+                }
+              }
+            }
+          }
+        },
         "loca": {
           "type": "array",
           "description": "en-us loca texts. id = the tag id (FNV-1a of the tag GUID); text with the game's markup.",

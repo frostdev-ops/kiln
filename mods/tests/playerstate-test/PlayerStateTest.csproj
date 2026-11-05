@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.playerstate lab test (PASS/FAIL/INFO lines in kiln.log), no client: spawned player characters, sequences,
+       the game's own consume path through a used item, cancels, cost. Advanced: it writes fake input into components. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>PlayerStateTest</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Abilities/Kiln.Abilities.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Client/Kiln.Client.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

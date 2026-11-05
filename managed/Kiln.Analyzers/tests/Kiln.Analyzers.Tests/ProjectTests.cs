@@ -176,6 +176,43 @@ public sealed class BlocksTests
     }
 
     [Fact]
+    public async Task A_new_vfx_asks_for_the_mod_on_every_client()
+    {
+        var source = Mod("""
+            var burst = Blocks.Define("burst", new VfxBlock { Particles = [new ParticleBlock { Burst = 1 }] });
+            Blocks.Define("a", new EffectBlock { Vfx = "burst" });
+            """);
+        var none = await Run(A, source, Props(("KilnClients", "kiln")));
+        Ids(none, "KILN112", "KILN112");
+        Assert.Contains(none, x => x.GetMessage().Contains("new vfx"));
+        Assert.Contains(none, x => x.GetMessage().Contains("Vfx"));
+        Ids(await Run(A, source, Props(("KilnClients", "mod"))));
+    }
+
+    [Fact]
+    public async Task A_game_vfx_by_name_asks_for_no_more_than_the_block()
+    {
+        Ids(await Run(A, Mod("""
+            Blocks.Define("a", new EffectBlock { Vfx = "game:Explosion_Player_Spell_Fireball_1" });
+            Blocks.Define("b", new EffectBlock { Vfx = "2f3d7c11-90ab-4cde-8f01-23456789abcd" });
+            Blocks.Define("s", new StatusBlock { Name = "x", Seconds = 1, Vfx = VfxRef.Game("Explosion_Player_Spell_Fireball_1") });
+            """), Props(("KilnClients", "kiln"))));
+    }
+
+    [Fact]
+    public async Task A_vfx_name_that_is_nothing_or_the_wrong_kind()
+    {
+        var d = await Run(A, Mod("""
+            Blocks.Define("hold", new StatusBlock { Name = "x", Seconds = 1 });
+            Blocks.Define("a", new EffectBlock { Vfx = "no-such-vfx" });
+            Blocks.Define("b", new EffectBlock { Vfx = "hold" });
+            """));
+        Ids(d, "KILN111", "KILN111");
+        Assert.Contains(d, x => x.GetMessage().Contains("no-such-vfx"));
+        Assert.Contains(d, x => x.GetMessage().Contains("status block"));
+    }
+
+    [Fact]
     public async Task An_effect_alone_asks_for_nothing()
     {
         Ids(await Run(A, Mod("""Blocks.Define("only", new EffectBlock { Heal = 1 });"""), Props(("KilnClients", "none"))));
@@ -185,6 +222,10 @@ public sealed class BlocksTests
     [InlineData("""Blocks.Define("e", new EffectBlock { Heal = 1 });""", "none")]
     [InlineData("""Blocks.Define("s", new StatusBlock { Name = "x", Seconds = 1 });""", "kiln")]
     [InlineData("""Blocks.Define("e", new EffectBlock { Sound = "chime" });""", "mod")]
+    [InlineData("""Blocks.Define("v", new VfxBlock { Light = new LightBlock { Radius = 3f } });""", "mod")]
+    [InlineData("""Blocks.Define("m", new MaterialBlock { Tint = "#ffffff" });""", "mod")]
+    [InlineData("""Blocks.Define("e", new EffectBlock { Vfx = "mine" });""", "mod")]
+    [InlineData("""Blocks.Define("e", new EffectBlock { Vfx = "game:Explosion_Player_Spell_Fireball_1" });""", "none")]
     public void The_generator_writes_the_level_the_blocks_need(string body, string level)
     {
         var comp = Compile(Mod(body));

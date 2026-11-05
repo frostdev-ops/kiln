@@ -1,0 +1,10 @@
+{
+  "id": "materialsample",
+  "name": "Material Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "MaterialSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Sample for MaterialBlock: two swords on materials written from nothing, with no game material named. Frost Steel Sword's are blocks written by hand in blocks/materials.json; Ember Sword's are made by modelcook from its glTF's own materials. A spark effect takes a particle's look from a material. Every player needs it: materials are drawn by the client. Build the assets first: build-assets.sh (reads the installed game, writes assets/)."
+}

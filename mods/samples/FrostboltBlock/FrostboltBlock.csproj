@@ -1,13 +1,13 @@
 <Project>
-  <!-- Sample: a staff spell, a sword and a status from building blocks (docs/kiln/modding/blocks.md). No GUIDs, no base items, no
-       field paths. The side and the clients follow from using Blocks (both, kiln). Build it like any mod; game ids come from your
-       catalog (kiln catalog build). -->
+  <!-- Sample: a staff spell, a sword and a status from building blocks (docs/kiln/modding/blocks.md), with VFX of their own. No GUIDs, no base
+       items, no field paths. The side and the clients follow from the blocks (both; mod, for its new VFX). Build it like any mod; game ids come
+       from your catalog (kiln catalog build). -->
   <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
   <PropertyGroup>
     <KilnModId>frostbolt-block</KilnModId>
     <KilnModName>Frostbolt (blocks sample)</KilnModName>
     <Version>0.1.0</Version>
-    <Description>A staff spell, a sword and a status from building blocks: one Frost Burst effect, shared by the spell's area and the sword's hits. Frostlance is the same spell in blocks/frostlance.json.</Description>
+    <Description>A staff spell, a sword and a status from building blocks: one Frost Burst effect, shared by the spell's area and the sword's hits, with an original charge, trail, burst and aura. Frostlance is the same spell in blocks/frostlance.json.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <KilnServices>Blocks</KilnServices>
   </PropertyGroup>

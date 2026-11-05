@@ -469,6 +469,9 @@ fn generated_files_are_current() {
         let id = row["schema"].as_str().unwrap();
         check(repo().join("docs/kiln/modding/schemas").join(lint::docs::page_name(id)), lint::docs::schema_markdown(id).unwrap());
     }
+    // a section of blocks/*.json with a page of its own, so not a row of the index
+    let vfx = "kiln-vfx.schema.json";
+    check(repo().join("docs/kiln/modding/schemas").join(lint::docs::page_name(vfx)), lint::docs::schema_markdown(vfx).unwrap());
     assert!(stale.is_empty(), "stale (regenerate with KILN_LINT_WRITE=1): {stale:?}");
 }
 

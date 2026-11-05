@@ -1,0 +1,3 @@
+# Made by build-assets.sh
+blocks/*.materials.json
+assets/cooked/

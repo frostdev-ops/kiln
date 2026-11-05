@@ -1,0 +1,8 @@
+{
+ "format": 1,
+ "inputs": {
+  "model": { "guid": "c1d2e3f4-0000-4000-8000-000000000001", "type": "keen::RenderModel" },
+  "skel": { "guid": "c1d2e3f4-0000-4000-8000-000000000003", "type": "keen::ModelHierarchyResource" }
+ },
+ "steps": [ { "op": "model", "gltf": "src/x.glb", "base": "model", "guid": "@model", "mode": "override", "skeleton": "@skel", "globalScale": 1.3, "stem": "x" } ]
+}

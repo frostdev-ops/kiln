@@ -55,6 +55,7 @@ kiln pack                                     # bin/<config>/my-items-0.1.0.zip 
 | `kiln catalog build [--side client\|server] [--game DIR] [--force] [--types]` | makes or refreshes `<data>/catalog/{client,server}.json` from the installed game (only when outdated unless `--force`; `--types`: the reflection dump for local Kiln.Game types) | `{ok, catalogs: [{side, path, built, game, counts, bytes, seconds}]}` |
 | `kiln catalog path` | the catalog folder | `{dir, client, server, exists, current}` |
 | `kiln catalog search <query> [--section S] [--limit N] [--side S]` | entries whose name, display name, id or GUID contain every word | `{catalog, hits: [{section, name, id, guid, displayName}]}` |
+| `kiln vfx info <name\|guid>` | One game VFX from the catalog: what finds it, how long it runs, what it takes ([vfx.md](vfx.md)) | the catalog's entry |
 
 Test filters: Kiln.Testing matches a case-insensitive **substring** of the test name (`[KilnTest(Name = …)]`, else
 `<Class>.<Method>`, no namespace), and the control folder splits on spaces, so a filter has none. `--exact` runs the

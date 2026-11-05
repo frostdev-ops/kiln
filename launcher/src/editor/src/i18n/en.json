@@ -258,5 +258,17 @@
   "Pés (visual)": "Feet (vanity)",
   "O jogo soma ainda os nós que dependem do nível da Chama e os bônus do equipamento; nenhum dos dois está no save do personagem.": "The game also adds the nodes that scale with your Flame level and the bonuses from your gear; neither is stored in the character save.",
   "Item desconhecido (0x{h})": "Unknown item (0x{h})",
-  "Itens desconhecidos neste save (mod removido?): somente leitura": "Unknown items in this save (a mod that is gone?): read-only"
+  "Itens desconhecidos neste save (mod removido?): somente leitura": "Unknown items in this save (a mod that is gone?): read-only",
+  "Sobrevivente": "Survivor",
+  "Mestre das Feras": "Beastmaster",
+  "Defensor": "Ranger",
+  "Assassino": "Assassin",
+  "Malandragem": "Trickster",
+  "Bruxaria": "Wizard",
+  "Curandeiro": "Healer",
+  "Bruxaria Combatente": "Battlemage",
+  "Tanque": "Tank",
+  "Guerreiro": "Warrior",
+  "Barbárie": "Barbarian",
+  "Atleta": "Athlete"
 }

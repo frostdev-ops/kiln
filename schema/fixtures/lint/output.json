@@ -418,6 +418,132 @@
       }
     },
     {
+      "code": "KL501",
+      "col": 70,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 85,
+      "endLine": 14,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 14,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/6/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 1004,
+        "start": 989
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 45,
+      "endLine": 15,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 15,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/7/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 1052,
+        "start": 1037
+      }
+    },
+    {
+      "code": "KL516",
+      "col": 59,
+      "docs": "docs/kiln/modding/lint.md#kl516-cook-skeleton",
+      "endCol": 67,
+      "endLine": 15,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [
+        {
+          "edits": [
+            {
+              "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+              "newText": "\"golem\"",
+              "span": {
+                "end": 1074,
+                "start": 1066
+              }
+            }
+          ],
+          "title": "Replace with \"golem\""
+        }
+      ],
+      "line": 15,
+      "message": "step 7 (model): no skeleton step is named \"golemm\" in this recipe (a game skeleton is @input); did you mean \"golem\"?",
+      "related": [],
+      "rule": "cook-skeleton",
+      "severity": "error",
+      "span": {
+        "end": 1074,
+        "start": 1066
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 45,
+      "endLine": 16,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 16,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/8/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 1144,
+        "start": 1129
+      }
+    },
+    {
+      "code": "KL516",
+      "col": 59,
+      "docs": "docs/kiln/modding/lint.md#kl516-cook-skeleton",
+      "endCol": 67,
+      "endLine": 16,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 16,
+      "message": "step 8 (model): skeleton @model is a keen::RenderModel, needs keen::ModelHierarchyResource",
+      "related": [],
+      "rule": "cook-skeleton",
+      "severity": "error",
+      "span": {
+        "end": 1166,
+        "start": 1158
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 45,
+      "endLine": 17,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 17,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/9/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 1236,
+        "start": 1221
+      }
+    },
+    {
       "code": "KL514",
       "col": 69,
       "docs": "docs/kiln/modding/lint.md#kl514-native-hash",
@@ -507,7 +633,7 @@
   "format": 1,
   "ok": false,
   "summary": {
-    "errors": 17,
+    "errors": 23,
     "hints": 0,
     "infos": 1,
     "warnings": 5

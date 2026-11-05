@@ -443,7 +443,10 @@ std::vector<uintptr_t> registry_items() {
 KilnResult apply_kitbash(KilnOwner owner, uint64_t seq, const Entry& e, const std::string& key, const json& value,
                          bool allow_game, const std::string& source, std::vector<std::string>* problems) {
     const Registry& I = reg(KILN_CONTENT_ITEMS);
-    if (!nc_is_new(KILN_CONTENT_ITEMS, e.id) && !allow_game) {
+    // {"mul": 1} / {"reset": true}: this owner's layer holds the game's own value. It can write nothing else, so it needs no opt-in (the content sync's "match the server" sends these).
+    const bool object = value.is_object() && key != "refs";
+    const bool reset = object && ((value.contains("mul") && value["mul"] == 1) || (value.contains("reset") && value["reset"] == true));
+    if (!reset && !nc_is_new(KILN_CONTENT_ITEMS, e.id) && !allow_game) {
         problems->push_back("items " + e.name + "." + key + ": a reference of a game item; changing it needs the opt-in "
                             "(\"@refs\": true in the rule, \"options\": {\"refs\": true}, or the API's allowGameItems)");
         return KILN_ERR_INVALID_ARGUMENT;
@@ -452,11 +455,17 @@ KilnResult apply_kitbash(KilnOwner owner, uint64_t seq, const Entry& e, const st
         problems->push_back("items " + e.name + ".icon: icons are part of a definition (\"icon\" in the item's \"add\" entry)");
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    if (value.is_object() && key != "refs") {  // {"mul": 1} / {"reset": true}: back to the original (this owner's layers off)
+    if (object) {
         KitbashOut probe;
         const ItemFind self = [&](const std::string&) -> uintptr_t { return e.addr; };
-        kitbash(I.schema, key, key == "perks" ? json("item:x") : json("item:x"), self, registry_items(), &probe);
-        for (const RefWrite& w : probe.writes) store_drop(owner, e.addr + w.f->offset);
+        kitbash(I.schema, key, json("item:x"), self, registry_items(), &probe);
+        for (const RefWrite& w : probe.writes) {
+            uint8_t original[sizeof w.bytes];
+            if (!store_original(e.addr + w.f->offset, w.f->bytes, original)) rd(e.addr + w.f->offset, original, w.f->bytes);  // no layer yet: memory holds the original
+            const int32_t idx = static_cast<int32_t>(w.f - I.schema.fields.data());
+            if (!store_put(owner, seq, KILN_CONTENT_ITEMS, e.id, idx, -1, e.addr + w.f->offset, w.f->bytes, original, source))
+                problems->push_back("items " + e.name + "." + w.f->path + ": not writable");
+        }
         return KILN_OK;
     }
     const ItemFind find = [&](const std::string& sel) -> uintptr_t {
@@ -1125,7 +1134,7 @@ std::string export_changes_json(uint32_t kinds, uint32_t* fields) {
         if (s.field >= 0) {
             if (static_cast<size_t>(s.field) >= r.schema.fields.size()) return;
             const Field& f = r.schema.fields[static_cast<size_t>(s.field)];
-            value = f.ref && f.bytes == 16 ? json(guid_text(s.current)) : raw_json(f, decode(f, s.current));
+            value = f.ref && f.bytes == 16 ? json(ref_text(s.current)) : raw_json(f, decode(f, s.current));
             if (value.is_null()) return;
             if (f.ref) has_refs = true;
             key = f.path;

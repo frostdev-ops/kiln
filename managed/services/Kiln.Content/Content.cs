@@ -125,15 +125,24 @@ public static unsafe partial class Content
     internal static ContentReport ApplyAs(ulong owner, string json, string src)
     {
         var t = Require("Content.Apply");
-        const int cap = 1 << 16;
-        var buf = new byte[cap];
+        // Applying twice is not the same as applying once, so the report gets one chance: room for a thousand errors. Most reports are short, and the buffer is shared.
+        const int cap = 1 << 21;
+        var buf = System.Buffers.ArrayPool<byte>.Shared.Rent(cap);
         nuint len = 0;
         int rc;
-        using (var j = new ContentNative.Utf8(json))
-        using (var s = new ContentNative.Utf8(src))
-            fixed (byte* b = buf)
-                rc = t->ApplyJson(owner, j.Str, s.Str, b, cap, &len);
-        var text = System.Text.Encoding.UTF8.GetString(buf, 0, (int)Math.Min(len, (nuint)(cap - 1)));
+        string text;
+        try
+        {
+            using (var j = new ContentNative.Utf8(json))
+            using (var s = new ContentNative.Utf8(src))
+                fixed (byte* b = buf)
+                    rc = t->ApplyJson(owner, j.Str, s.Str, b, cap, &len);
+            text = System.Text.Encoding.UTF8.GetString(buf, 0, (int)Math.Min(len, (nuint)(cap - 1)));
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buf);
+        }
         if (rc != ContentNative.Ok && rc != ContentNative.InvalidArgument) throw Failure("Content.Apply", rc);
         return ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null);
     }
@@ -167,11 +176,7 @@ public static unsafe partial class Content
     public static string PackReport()
     {
         var t = Require("Content.PackReport");
-        nuint len = 0;
-        t->Report(null, 0, &len);
-        var buf = new byte[(int)len + 1];
-        fixed (byte* b = buf) t->Report(b, (nuint)buf.Length, &len);
-        return System.Text.Encoding.UTF8.GetString(buf, 0, (int)len);
+        return ContentNative.ReadText(t->Report);
     }
 
     /// <summary>Writes every registry (schema, entries with their non-zero fields, recipe lists, drop stacks, what

@@ -19,5 +19,6 @@
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Audio/Kiln.Audio.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Vfx/Kiln.Vfx.csproj" Private="false" />
   </ItemGroup>
 </Project>

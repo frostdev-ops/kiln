@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "vfx": { "spark": { "light": { "radius": 2 } } },
+  "effects": {
+    "right": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 3, "color": "#ff0000", "targetPosition": [1, 2, 3], "count": { "int": 7 } } } },
+    "by_hash": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "unnamedOne": 1 } } },
+    "typo": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radus": 3 } } },
+    "not_float": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": "#ff0000" } } },
+    "not_int": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "count": 7 } } },
+    "not_settable": { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "enabled": 1 } } },
+    "none_at_all": { "vfx": { "name": "game:0000f002-0000-4000-8000-000000000002", "parameters": { "radius": 1 } } },
+    "own": { "vfx": { "name": "spark", "parameters": { "radius": 1 } } },
+    "in_an_area": { "area": { "radius": 2, "effects": [], "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 2 } } } }
+  },
+  "statuses": {
+    "on_a_status": { "name": "Chill", "seconds": 4, "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 1 } } },
+    "in_its_effect": { "name": "Chill", "seconds": 4, "onApply": [ { "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 1 } } } ] }
+  },
+  "spells": {
+    "bolt": {
+      "name": "Bolt",
+      "cast": { "manaCost": 1, "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 1 } } },
+      "delivery": { "type": "projectile", "onImpact": [ { "damage": { "ice": 1 } } ], "vfx": { "name": "game:Explosion_Fixture_Frost", "parameters": { "radius": 1 } } }
+    }
+  }
+}

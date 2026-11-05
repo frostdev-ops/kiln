@@ -1,0 +1,78 @@
+{
+  "catalog": true,
+  "description": "KL321. Names and types against the catalog: the game silently ignores what its VFX doesn't have. Errors where Kiln.Blocks refuses them: a cast, a projectile, a status, a VFX block of the mod.",
+  "diagnostics": [
+    {
+      "code": "KL321",
+      "col": 80,
+      "file": "blocks/fx.json",
+      "line": 7,
+      "message": "Explosion_Fixture_Frost has no parameter \"radus\", and the game ignores what it doesn't have; it has radius, color, targetPosition, count, enabled and 1 without a known name; did you mean \"radius\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL321",
+      "col": 95,
+      "file": "blocks/fx.json",
+      "line": 8,
+      "message": "\"radius\" of Explosion_Fixture_Frost is a float, and this is a color: the game ignores it; write it as a number",
+      "severity": "warning"
+    },
+    {
+      "code": "KL321",
+      "col": 92,
+      "file": "blocks/fx.json",
+      "line": 9,
+      "message": "\"count\" of Explosion_Fixture_Frost is an int, and this is a float: the game ignores it; write it as {\"int\": n}",
+      "severity": "warning"
+    },
+    {
+      "code": "KL321",
+      "col": 99,
+      "file": "blocks/fx.json",
+      "line": 10,
+      "message": "\"enabled\" of Explosion_Fixture_Frost is a bool, and this is a float: the game ignores it; a block can't set bool",
+      "severity": "warning"
+    },
+    {
+      "code": "KL321",
+      "col": 100,
+      "file": "blocks/fx.json",
+      "line": 11,
+      "message": "Sequence_Fixture_Charge has no parameter \"radius\", and the game ignores what it doesn't have; it has no named ones",
+      "severity": "warning"
+    },
+    {
+      "code": "KL321",
+      "col": 54,
+      "file": "blocks/fx.json",
+      "line": 12,
+      "message": "\"spark\" is a VFX block, which has no named parameters yet (Kiln.Blocks refuses it). Only a game VFX takes them",
+      "severity": "error"
+    },
+    {
+      "code": "KL321",
+      "col": 116,
+      "file": "blocks/fx.json",
+      "line": 16,
+      "message": "a status cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have (Kiln.Blocks refuses it). Put the VFX on an effect, or leave them out",
+      "severity": "error"
+    },
+    {
+      "code": "KL321",
+      "col": 95,
+      "file": "blocks/fx.json",
+      "line": 22,
+      "message": "a spell's cast cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have (Kiln.Blocks refuses it). Put the VFX on an effect, or leave them out",
+      "severity": "error"
+    },
+    {
+      "code": "KL321",
+      "col": 150,
+      "file": "blocks/fx.json",
+      "line": 23,
+      "message": "a projectile cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have (Kiln.Blocks refuses it). Put the VFX on an effect, or leave them out",
+      "severity": "error"
+    }
+  ]
+}

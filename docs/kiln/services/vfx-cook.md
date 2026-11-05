@@ -61,6 +61,7 @@ refused if this game no longer has the module.
 | `blend`, `lit` | `"alpha"` or `"additive"`; takes ambient and sun light | alpha, false |
 | `mesh`, `faceCamera` | `"quad"` or `"quad-xz"`; turn to the camera | quad, true for quad |
 | `depthFade`, `emissive` | metres of soft fade against the scene; 0 to 1 | 0 |
+| `material` | a [material](../modding/materials.md) of this mod: its albedo as the texture, its tint in the colour, and lit, as far as the particle says nothing itself | none |
 
 A curve is a number, `{"linear": [start, end]}`, a list of evenly spaced values, or `{"keys": [[t, value], ...]}`. Curves are sampled to 8 values.
 
@@ -81,6 +82,7 @@ C#. With `was`, the old name decides the id.
 | `keen::VfxResource` | a block | Two entries per particle block (emitter, sprite), one for a light. Parameters live in Kiln's own blocks, `native/services/vfx/shaders/kiln_vfx_params.h` |
 | `keen::VfxMeshResource` | `quad`, `quad-xz` | Kiln's, shared by all mods. GUIDs from `kiln:vfx-mesh:<name>` |
 | `keen::RenderTextureResource` | a PNG | BC7 with a full mip chain, cached in `kiln/data/vfx/cache`. GUID from `<mod>:vfx-texture:<path>` |
+| `keen::RenderMaterialResource` | a block of the `materials` section | [materials.md](../modding/materials.md). GUID from `<mod>:material:<name>`. Its textures are inline, as the game's are: BC7, BC5, BC1, a blob for the chain and one for the mip tail |
 
 Every blob, shader or not, is served under its real `ContentHash`, so the output is a pure function of the input.
 
@@ -88,22 +90,22 @@ Every blob, shader or not, is served under its real `ContentHash`, so the output
 The game enumerates VFX resources once, so everything is served in `on_ready`, before its entry point.
 
 1. **Fingerprint.** The game's reflection records for every structure the builder and modules rely on are read from the exe image, with no signatures.
-   A change turns mod particles off with a log line naming the type. Game VFX aren't affected.
-2. **Budget.** Counts come from the KFC directory (`enshrouded.kfc`) on whatever build this is.
+   A change turns mod particles off with a log line naming the type, and a change in a material's layouts turns new materials off the same way, each without the other. Game VFX and materials aren't affected.
+2. **Budget.** Counts come from the KFC directory (`enshrouded.kfc`) on whatever build this is, except what would need decompressing: mesh memory, sounds and streamed textures are measured per build.
 3. **Mods**, in load order, from `blocks/*.json` and `kiln/data/vfx/pending/<id>/`. `kiln/config/vfx.json` can list `"skipMods"`.
 4. **Serve** through `kiln.assets`: blobs first, each read back and re-hashed, then meshes and textures, then VFX.
 5. **Late check.** At the first FxController update, once `vfx/vfx.gpc` is resident, the binding list of `VfxUpdateDescriptorSetLayout` is compared. A
    difference makes the guard treat Kiln's VFX as unknown.
 
 ## Definitions from code
-`define_json` in the `kiln.vfx` table (`native/core/abi/services/kiln_vfx.h`) takes the blocks of one mod:
+`Blocks.Define("name", new VfxBlock { ... })` serialises the record to this shape ([blocks.md](../modding/blocks.md#vfx)). `define_json` in the `kiln.vfx` table (`native/core/abi/services/kiln_vfx.h`) takes the blocks of one mod:
 
 ```json
-{ "format": 1, "mod": "frost-fx", "dir": "<the mod's folder>", "vfx": { "frost_burst": { } } }
+{ "format": 1, "mod": "frost-fx", "dir": "<the mod's folder>", "vfx": { "frost_burst": { } }, "materials": { "frost_steel": { } } }
 ```
 
-It validates and builds them, textures included, without serving them. Mod code runs after the game has enumerated VFX, so a block the game doesn't
-already have, unchanged, is kept in `kiln/data/vfx/pending/<id>/<name>.json` and is there from the next start.
+It validates and builds them, textures included, without serving them. Mod code runs after the game has enumerated VFX and listed the textures of every material, so a block the game doesn't
+already have, unchanged, is kept in `kiln/data/vfx/pending/<id>/` and is there from the next start.
 
 The report is JSON. The result is `KILN_OK`, `KILN_ERR_INVALID_ARGUMENT` when something is wrong, or `KILN_ERR_BUFFER_TOO_SMALL`, with the full length in
 `out_len`:
@@ -136,6 +138,11 @@ All of these abort the game when hit. Each has a check that runs first, and a fa
 | "out of vfx mesh memory" | 17,825,792 B; the game uses 17,567,564. About 240 KB is left after a 16 KB margin | Budget. Kiln's quad takes 140 B |
 | "too many vfx sounds" | 16; the game uses 6, so 10 | Budget |
 | "too many vfx curves" | 16; the game uses 8, so 8 | Budget. Blocks use none: curves live in the parameter data |
+| "too many streamed textures" | 16,384 slots, one reserved; the game uses 13,930, so 2,453 | Budget: the whole mod is refused, by name. A texture two materials share counts once |
+| A Pbr material with no slot: its model silently doesn't draw | 4,096 alive at once; the game has 3,403, so 693 are always safe | Budget |
+| "corrupted streamed texture parameters" | a material from after boot, with a texture the renderer didn't list | A definition from code waits for the next start |
+| "error loading streamed texture mip tail" | a tail blob not served | Blobs are served before what names them. If serving fails, nothing is registered |
+| "SmallDynamicArray is out of elements" | more than 8 images in one feedback list | A block makes at most 4 |
 | "invalid vfx pipeline code hash", "error streaming vfx pipeline" | a module's hash is empty, wrong or not served | C++ `ContentHash`, checked against the Python reference and read back after serving. If serving fails, no VFX is registered |
 | "error creating vfx compute pipeline" | a module the driver refuses | SPIR-V ≤ 1.5, entry `cs_main`, `LocalSize 32 1 1`, the game's capabilities, at every boot |
 | "error streaming vfx mesh data" | a mesh's blob is missing | Blobs are served and read back before any resource names them |
@@ -161,7 +168,8 @@ kiln-vfxcook hash FILE ...                 # 128-bit hash and ContentHash
 kiln-vfxcook modules                       # the starter modules and their hashes
 kiln-vfxcook id MOD KIND NAME              # a block's GUID
 kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
-kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N]
+kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
+kiln-vfxcook material-roundtrip FILE       # {u32 size, bytes} records of RenderMaterialResources, rewritten by the builder's own code
 ```
 
 `cook` writes what the game would be served: `assets.json`, `cooked/` and `report.json`, the report above plus which file is what. It exits 1 on any error
@@ -170,6 +178,7 @@ or refusal.
 ## Tests
 ```sh
 python3 -m unittest discover -s tools/vfxcook/tests
+python3 tools/vfxcook/tests/material_gpu.py [--device NAME]   # the game's G-buffer shader over Kiln's materials, on a real GPU
 ```
 
 Without the game: `ContentHash` against the Python reference; bytes decoded and re-encoded through `tools/kfc`, identical; the structural rules; each field's
@@ -182,7 +191,7 @@ layouts match its reflection, and the fingerprint and budget match its files.
 ## After a game update
 1. `kiln-vfxcook fingerprint --exe <exe> --gpc <vfx/vfx.gpc from tools/kfc> --kfc <kfc>`: what moved, by name.
 2. If a layout moved, rebuild the modules and the builder against it, and update `expected_layouts` and `kBindingHash`. Mods' JSON and C# need no change.
-3. Run the tests with the game installed. They fail if the game's mesh memory or sound count moved. Those two can't be read at boot without decompressing resources, so `GameCounts` holds them as measured.
+3. Run the tests with the game installed. They fail if the game's mesh memory, sound count or streamed textures moved. Those can't be read at boot without decompressing resources, so `GameCounts` holds them as measured.
 
 ## Not done yet
 - The sound of a VFX, decals, fog and custom meshes.

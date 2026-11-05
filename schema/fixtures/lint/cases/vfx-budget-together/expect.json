@@ -1,0 +1,21 @@
+{
+  "description": "KL320 counts the mods checked together: each fits alone, 480 together do not. Both are told.",
+  "diagnostics": [
+    {
+      "code": "KL320",
+      "col": 5,
+      "file": "a/blocks/many.json",
+      "line": 4,
+      "message": "Together, the mods checked here ask for 480 new VFX, and the game has room for 473 (2048 less its 1575): past a limit the game aborts, so Kiln refuses the mod that reaches it and none of its VFX load",
+      "severity": "error"
+    },
+    {
+      "code": "KL320",
+      "col": 5,
+      "file": "b/blocks/many.json",
+      "line": 4,
+      "message": "Together, the mods checked here ask for 480 new VFX, and the game has room for 473 (2048 less its 1575): past a limit the game aborts, so Kiln refuses the mod that reaches it and none of its VFX load",
+      "severity": "error"
+    }
+  ]
+}

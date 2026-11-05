@@ -1,0 +1,61 @@
+{
+  "VFX block: a burst": {
+    "prefix": "vfx-burst",
+    "description": "An effect that throws out particles once, with a light (the \"vfx\" section of blocks/*.json)",
+    "body": [
+      "\"${1:my_burst}\": {",
+      "  \"particles\": [ {",
+      "    \"burst\": ${2:24}, \"lifetime\": [${3:0.4}, ${4:0.9}], \"speed\": [${5:2}, ${6:5}],",
+      "    \"spread\": { \"cone\": ${7:35} }, \"gravity\": ${8:-4},",
+      "    \"size\": { \"linear\": [${9:0.15}, 0] },",
+      "    \"color\": [\"${10:#ffffff}\", \"${11:#7fd4ff}\"], \"alpha\": { \"linear\": [1, 0] },",
+      "    \"texture\": \"${12:vfx/dot.png}\", \"blend\": \"${13|additive,alpha|}\"",
+      "  } ],",
+      "  \"light\": { \"color\": \"${11}\", \"radius\": ${14:6}, \"brightness\": ${15:4}, \"lifetime\": ${16:0.6}, \"fadeOut\": ${17:0.5} }",
+      "}"
+    ]
+  },
+  "VFX block: a trail": {
+    "prefix": "vfx-trail",
+    "description": "An effect that keeps emitting until it stops: for a projectile or an aura",
+    "body": [
+      "\"${1:my_trail}\": {",
+      "  \"particles\": [ {",
+      "    \"rate\": ${2:40}, \"lifetime\": ${3:0.5}, \"speed\": [0, ${4:0.3}], \"spread\": \"sphere\",",
+      "    \"size\": { \"linear\": [${5:0.12}, 0] }, \"alpha\": { \"linear\": [${6:0.8}, 0] },",
+      "    \"color\": \"${7:#7fd4ff}\", \"texture\": \"${8:vfx/dot.png}\", \"blend\": \"${9|additive,alpha|}\"",
+      "  } ]",
+      "}"
+    ]
+  },
+  "VFX block: a light": {
+    "prefix": "vfx-light",
+    "description": "An effect that is a point light and nothing else",
+    "body": [
+      "\"${1:my_light}\": {",
+      "  \"light\": { \"color\": \"${2:#ffb060}\", \"radius\": ${3:6}, \"brightness\": ${4:3}, \"lifetime\": ${5:2}, \"fadeIn\": ${6:0.1}, \"fadeOut\": ${7:1}, \"flicker\": ${8:0.2} }",
+      "}"
+    ]
+  },
+  "VFX particle: a flipbook": {
+    "prefix": "vfx-flipbook",
+    "description": "A particle block whose texture is a grid of frames",
+    "body": [
+      "{",
+      "  \"burst\": ${1:6}, \"lifetime\": [${2:0.8}, ${3:1.4}], \"speed\": [${4:0.2}, ${5:0.6}], \"spread\": \"sphere\",",
+      "  \"size\": { \"linear\": [${6:0.4}, ${7:1.2}] }, \"alpha\": { \"linear\": [${8:0.5}, 0] },",
+      "  \"texture\": \"${9:vfx/puff_2x2.png}\", \"flipbook\": { \"columns\": ${10:2}, \"rows\": ${11:2} }",
+      "}"
+    ]
+  },
+  "A vfx field: one of the game's": {
+    "prefix": "vfx-game",
+    "description": "A field that plays a VFX of the game by name",
+    "body": ["\"vfx\": \"game:${1:Explosion_Player_Spell_Fireball_1}\""]
+  },
+  "A vfx field: with parameters": {
+    "prefix": "vfx-parameters",
+    "description": "A game VFX on an effect, with its named parameters (only an effect can set them)",
+    "body": ["\"vfx\": { \"name\": \"game:${1:VFX_Dummy_Impact}\", \"parameters\": { \"${2:radius}\": ${3:2}, \"${4:color}\": \"${5:#ff9040}\" } }"]
+  }
+}

@@ -58,12 +58,12 @@
 
   <!-- Mod data folders: copied into the mod folder (= the output folder) as they are. content/ (kiln.content and
        kiln.gamedata data packs), assets/ (kiln.assets: assets.json, cook recipes, sources, cooked/), skills/
-       (Kiln.Skills trees), quests/ (quest chains, NPCs), icons/, impact/ (Impact sources + recipe), audio/ (sound sources). KilnModFolders replaces
+       (Kiln.Skills trees), quests/ (quest chains, NPCs), icons/, impact/ (Impact sources + recipe), audio/ (sound sources), vfx/ (VFX blocks' PNGs). KilnModFolders replaces
        the list; KilnIncludeModFolders=false turns it off (then add None items with CopyToOutputDirectory yourself).
        KilnPack leaves out KilnPackExclude (default assets/cooked/**: files cooked from the player's own game are made
        on each player's machine and never shipped; docs/kiln/modding/models.md). -->
   <PropertyGroup>
-    <KilnModFolders Condition="'$(KilnModFolders)' == ''">content;assets;skills;quests;blocks;icons;impact;audio</KilnModFolders>
+    <KilnModFolders Condition="'$(KilnModFolders)' == ''">content;assets;skills;quests;blocks;icons;impact;audio;vfx</KilnModFolders>
     <KilnPackExclude Condition="'$(KilnPackExclude)' == ''">assets/cooked/**</KilnPackExclude>
     <_KilnModFolderGlobs>$([MSBuild]::Unescape($(KilnModFolders.Replace(' ', '').Replace(',', ';').Replace(';', '/**;'))))/**</_KilnModFolderGlobs>
   </PropertyGroup>
@@ -131,7 +131,7 @@
   <!-- kiln.mod.json: generated from the properties above, or validated when the project has its own. -->
   <Target Name="KilnManifest" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(KilnManifest)' != 'false'">
     <KilnManifest Source="$(KilnManifestSource)" Output="$(IntermediateOutputPath)kiln.mod.json"
-                  Id="$(KilnModId)" Name="$(KilnModName)" Version="$(Version)" ApiVersion="$(KilnApiVersion)" Side="$(KilnSide)" Clients="$(KilnClients)" ClientsFallback="$(_KilnClientsFallback)" AssemblyPath="$(TargetPath)"
+                  Id="$(KilnModId)" Name="$(KilnModName)" Version="$(Version)" ApiVersion="$(KilnApiVersion)" Side="$(KilnSide)" Clients="$(KilnClients)" ClientsFallback="$(_KilnClientsFallback)" AssemblyPath="$(TargetPath)" BlocksDirectory="$(MSBuildProjectDirectory)/blocks"
                   Authors="$(_KilnAuthors)" Description="$(Description)" License="$(PackageLicenseExpression)" Url="$(PackageProjectUrl)"
                   EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Advanced="$(KilnAdvanced)"
                   Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"

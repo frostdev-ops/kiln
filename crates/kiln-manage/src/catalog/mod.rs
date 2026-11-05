@@ -37,13 +37,13 @@ pub const FORMAT: u32 = 1;
 pub const KIND: &str = "kiln.catalog";
 /// What gets extracted and how. Bump it when a section or field rule changes, so existing catalogs read as outdated
 /// and `build_default` remakes them.
-pub const RECIPE: u32 = 3; // 2: graphs. 3: template fields, configs, field kinds
+pub const RECIPE: u32 = 4; // 2: graphs. 3: template fields, configs, field kinds. 4: vfx
 /// The sides, in lookup order for `side: None`.
 pub const SIDES: [&str; 2] = ["client", "server"];
 /// Every section name the format defines (all optional in a file).
-pub const SECTIONS: [&str; 17] = [
+pub const SECTIONS: [&str; 18] = [
     "items", "recipes", "loot", "drops", "templates", "arsenals", "graphs", "sequences", "buffs", "perks", "skills", "configs", "workshops",
-    "itemCategories", "resources", "sounds", "loca",
+    "itemCategories", "resources", "sounds", "vfx", "loca",
 ];
 
 /// The game build a catalog was made from.
@@ -252,9 +252,12 @@ pub fn search(cat: &Catalog, query: &str, section: Option<&str>, limit: usize) -
             _ => {}
         }
         for e in entries {
+            // a VFX has no name of its own: what else uses it finds it too
+            let used_by = ["names", "usedBy"].into_iter().flat_map(|k| e.get(k).and_then(Value::as_array).into_iter().flatten()).filter_map(Value::as_str);
             let fields: Vec<String> = [e.name.as_deref(), e.display_name(), e.id.as_deref(), e.guid.as_deref(), e.get("text").and_then(Value::as_str)]
                 .into_iter()
                 .flatten()
+                .chain(used_by)
                 .map(str::to_lowercase)
                 .collect();
             if fields.is_empty() || !words.iter().all(|w| fields.iter().any(|f| f.contains(w))) {

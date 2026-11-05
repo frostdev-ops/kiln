@@ -89,6 +89,7 @@ where the game has them, plus the per-section fields below.
 | `arsenals` | `enemy::EnemyArsenalRegistryResource.arsenals` | GUID / FNV-1a / GUID | `templates` (the templates whose `EnemyArsenalReference` names it) | 201 |
 | `graphs` | every `anim_graph::runtime_graph::AnimationGraphResource2_0` | the shortest name among the templates that use it (the GUID when none) / FNV-1a of the GUID / GUID | `skeleton`, `states` (`{name, id, guid when a sequence names it, clip, seconds, loop, or blend}`), `floatInputs`, `slots`, `nodes`, `templates` | 279 |
 | `sequences` | every `actor::ActorSequenceResource`, one entry per sub-sequence | sub-sequence name (`<guid>#k` when unnamed or repeated) / FNV-1a(GUID) ^ k·0x9E3779B1 / the sequence GUID | `sequence`, `index` (k > 0), `length` (s) | 2,162 |
+| `configs` | every config id a `keen::ImpactProgram` binds, and the ones the game's code reads | the most used name / config id / – | `names` (every name, most used first), `shared` (true when `name` also names another id), `programs`, `readBy`, `type`, `kind`, `enum` | 348 |
 | `buffs` | `BuffTypeCollectionResource.buffs` | `buff_<id>` / buffTypeId / – | `displayName`, `description`, `slot`, `hidden` | 274 |
 | `perks` | every `keen::Perk` | debugName / FNV-1a of the GUID / GUID | `displayName`, `description` | 365 |
 | `skills` | `SkillTreeResource.nodes` | `skill_<id>` / node id / – | `displayName`, `description`, `item` (the ability it unlocks), `type`, `maxLevel`, `costs` | 243 |
@@ -96,23 +97,43 @@ where the game has them, plus the per-section fields below.
 | `itemCategories` | `RecipeRegistryResource.inputCategories` (recipe inputs `{"category": "0x…"}`) | – / inputCategoryId / – | `items` (member names) | 22 |
 | `resources` | RenderModel, RenderMaterialResource, ModelHierarchyResource, UiTextureResource, ImpactProgram, SoundContainerResource, SoundResource, VoiceoverResource (what cook recipes and asset entries name) | texture / sound debugName / – / GUID | `type`, `part` (> 0) | 45,220 (server 2,093) |
 | `sounds` | every `SoundContainerResource` (sound cues; client only) | the first sound's debugName (the GUID when none) / FNV-1a / GUID | `scene`, `positional`, `entries` | 6,951 |
+| `vfx` | every `keen::VfxResource` (client only). VFX have no names of their own, so see below | a template that carries it, a sequence that plays it, a label, or `Vfx_<guid8>` / FNV-1a of the GUID / GUID | `namedFrom`, `byName`, `names`, `usedBy`, `particles`, `emitters`, `meshes`, `textures`, `cullDistance`, `killTime`, `length`, `parameters` | 1,575 |
 | `loca` | `LocaTagCollectionResource`, en-us (client only) | – / tag id (FNV-1a of the tag GUID) / – | `text` (with the game's markup) | 16,740 |
 
 The names and ids follow kiln.content and kiln.gamedata exactly (`native/services/content/gamedata_res.cpp`): what the
 catalog calls `skill_81d8b64f` is what a `skills` section accepts. Display names have the game's markup removed.
 
+**VFX names.** A VFX gets its `name` in this order:
+- a template whose first `VfxComponentResource` is this VFX (`namedFrom: "template"`, `byName: true`);
+- a sequence whose first `VfxNotifierEvent` plays it (`namedFrom: "sequence"`, `byName: true`);
+- a label from something else that uses it: a component's `vfx` field, a later event (`Prop_Crate_DestroyOnLoot`; `namedFrom: "use"`);
+- `Vfx_<guid8>` when nothing does.
+
+`byName` means `VfxId.Game` and `"game:<name>"` find it at run time, because that is the lookup they make, and `names` lists every name that does. The others have only a label, so use the GUID: `usedBy` lists up to 8 such uses. `length`
+is how long Kiln runs it as a one-shot: the larger of `killTime` and its `duration` + `lifetime` parameters, 10 s if it says nothing, 1 to 60 s.
+
+`parameters` are `{name, type, default}`, or `{hash, type, default}` where the name isn't known. The game stores only the FNV-1a of a name, so names are recovered by hashing the strings in your exe and the names of particle state members.
+That finds about a fifth of them (client 1287369: 1,541 of 8,049 uses). `type` comes from the DsTypeId, the FNV-1a of `VfxEffectParameter<Type>`.
+
 `fields` lists, per section, the paths data packs can name. They come from the exe's reflection:
-- `{path, type, writable?, enum?}`; paths like `maxStackSize`, `damageSetup.dmgMod`, `perkIds[2]`, `tags[*].tag`;
+- `{path, type, kind, writable?, enum?, enumNumbers?}`; paths like `maxStackSize`, `damageSetup.dmgMod`, `perkIds[2]`,
+  `tags[*].tag`;
 - `type` drops the `keen::` prefix;
-- `enum` holds the value names of enum and flag fields;
-- `writable: false` marks identity fields (ids, GUIDs, ItemInfo `flags`, debug names);
-- sections: items (409 paths), recipes (45), loot (27), buffs (68), perks (44), skills (32), sequences (9).
+- `kind` says what the value is: a scalar's name (`float32`, `uint16`, `bool`), `time`, `enum`, `flags`, `ref`, `guid`, `string`,
+  `list`, `variant`, `configs`, or `struct` (nothing below it is listed);
+- `enum` holds the value names of enum and flag fields; `enumNumbers` their numbers (for flags, the bit) when they aren't 0, 1, 2, ...;
+- `writable: false` marks identity fields (ids, GUIDs, ItemInfo `flags`, debug names) and names;
+- sections: items (420 paths), recipes (45), loot (29), buffs (74), perks (47), skills (35), sequences (10), templates (7,134).
 
-Templates have no `fields`: their paths start with a component type, so check the first segment against the
-template's `components`.
+`templates` lists the template's own fields, then every component's, with the component's name as the first segment:
+`LifeTime.lifeTime`, `Enemy01BehaviorState.aggroSetup.viewRange`. A component with no fields of its own is listed by name. Which
+template has which component is in that template's `components`.
 
-Size and speed: the client catalog is 18.5 MB (templates 7 MB with their components, resources 4.4 MB). It loads in
-0.12 s (Rust, release). The server catalog is 10 MB.
+Below a `configs` field (`impactValues`, `configValues`, `ImpactConfiguration.configValues`) a path takes a config by any of its
+`names` in the `configs` section. Below a `variant` nothing is listed, because the type depends on the entry.
+
+Size and speed: the client catalog is 21 MB (templates 7 MB with their components, resources 4.4 MB, `fields` 1 MB). It loads in
+0.12 s (Rust, release). The server catalog is 12 MB.
 
 ### Rust API (`kiln_manage::catalog`)
 | Item | Feature | What |
@@ -146,6 +167,7 @@ both namespaces.
 | Class | Constant value | Identifier |
 |---|---|---|
 | `GameItems`, `GamePerks`, `GameRecipes`, `GameTemplates`, `GameSequences`, `GameSounds` | the entry's `name` | the name (GUID-named and `<guid>#k` entries are left out) |
+| `GameVfx` | the GUID, which always finds it (`VfxId.Of`, `VfxRef.Game`) | the name |
 | `GameBuffs`, `GameSkills` | the `0x` id (the data packs' key) | display name + `_<id>` (`Rested_cdbe9c80`; the game names them `buff_<id>`) |
 | `GameWorkshops` | the `0x` workshop id (a recipe's station) | the station item's name |
 
@@ -161,7 +183,7 @@ Identifiers:
 
 | Property | Default | |
 |---|---|---|
-| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | sections (with or without `Game`); any of those plus `Recipes`, `Templates`, `Sequences`, `Sounds`; `All`; `None` |
+| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | sections (with or without `Game`); any of those plus `Recipes`, `Templates`, `Sequences`, `Sounds`, `Vfx`; `Fields` or `Fields.Items` for typed paths ([typed-fields.md](typed-fields.md)); `All`; `None` |
 | `KilnCatalog` | `$KILN_CATALOG`, else the default folder | a catalog file or folder |
 | `KilnCatalogSide` | `server` for `KilnSide` server, else `client` | which file of a folder first; the other one when it is missing (the server catalog has no display names) |
 
@@ -170,15 +192,19 @@ Diagnostics:
   with CS0234 until a catalog exists.
 - **KILN191** (warning): the catalog cannot be read.
 - **KILN192** (warning): `KilnGameIds` names an unknown section.
+- **KILN193** (warning): `KilnGameIds` asks for `Fields` and the project doesn't reference Kiln.Content.
+- **KILN198** (warning): the catalog is older than what `GameFields` needs. Run `kiln catalog build`.
+- **KILN194** to **KILN197**: string paths checked against the catalog ([analyzers.md](analyzers.md#kiln194)).
 
 Cost on the real client catalog:
 - default sections: ~5,000 constants, 150 ms per compilation;
-- `All`: 57,656 constants (12k templates), 0.6 s to generate and 2.9 s with the compile.
+- `All`: 57,656 constants (12k templates), 0.6 s to generate and 2.9 s with the compile;
+- `Fields`: about 8,000 paths, 1.3 MB of dll, 3 to 7 s more per compile; `Fields.Items` alone: 130 KB, about 1 s.
 
 The generator re-runs only when the catalog file or the property changes.
 
 The generator is `managed/Kiln.Analyzers/src/Kiln.GameIds` (netstandard2.0 `IIncrementalGenerator`, its own small
-JSON reader). It ships in the Kiln.Sdk package (`analyzers/dotnet/cs/Kiln.GameIds.dll`); `Sdk/Kiln.GameIds.targets`
+JSON reader). The path analyzer lives in the same assembly and reads the same file. It ships in the Kiln.Sdk package (`analyzers/dotnet/cs/Kiln.GameIds.dll`); `Sdk/Kiln.GameIds.targets`
 wires it:
 - the catalog as an `AdditionalFiles` item with `KilnCatalog="true"`;
 - the property passed as `KilnGameIdsList` with `,` (`;` starts a comment in the generated `.editorconfig`).
@@ -209,7 +235,7 @@ Checks:
 - Kiln.Game builds against the local file.
 
 ## Legal review notes
-- **Stays local, never committed or shipped**: `client.json`, `server.json`, `types/*.json` and the local
+- **Stays local, never committed or shipped**: `client.json` (with its `vfx` section), `server.json`, `types/*.json` and the local
   `Kiln.Game/Generated.cs`. They are made on the user's machine from the user's own install. Like gameart, the default
   location is the launcher's data folder, outside the repository and the game folder.
 - **Committed and game-derived** (flag for the review): `managed/Kiln.Game/Generated.cs` and
@@ -226,8 +252,9 @@ Checks:
 ## Development
 - Tests: `cargo test -p kiln-manage --lib catalog` (reader, search, status, fixture vs schema) and
   `--features gameart` (a whole build from a synthetic KFC4 + PE, refusals, the typegen port).
-  `dotnet test managed/Kiln.Analyzers/tests/Kiln.GameIds.Tests` (generator; `KILN_CATALOG_TEST=<client.json>` adds a
-  run over a real catalog).
+  `dotnet test managed/Kiln.Analyzers/tests/Kiln.GameIds.Tests` (generator, `GameFields`, path analyzer;
+  `KILN_CATALOG_TEST=<client.json>` adds runs over a real catalog and every path string in `mods/`;
+  `KILN_LIVE_PATHS=<live-paths.json>` from `mods/tests/typed-test` adds every path the running game reports).
 - Real game (read-only, opt-in): `KILN_CATALOG_GAME=<game folder> KILN_CATALOG_OUT=<scratch> cargo test -p
   kiln-manage --features gameart --release --lib -- --ignored catalog::tests::build::real_game --nocapture`; an exe
   alone: `KILN_CATALOG_EXE=<exe> KILN_CATALOG_SIDE=server KILN_CATALOG_OUT=<scratch> … -- --ignored

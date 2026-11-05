@@ -46,6 +46,68 @@ public readonly unsafe struct CreatureRef
     /// <summary>Its catalog template (null for non-creatures).</summary>
     public CreatureTemplate? Template => Spawn.Inspect(Entity)?.Template is { } g ? Creatures.Template(g) : null;
 
+    /// <summary>Overrides the creature's attack choice, on every path the game starts an attack by. See <see cref="AttackControl"/>.</summary>
+    public AttackControl Attacks => new(Entity, _owner);
+
+    /// <summary>The game's AI switch for this creature, as a layer of the calling mod: off while any mod wants it off, back
+    /// on when the last lets go or unloads. With it off, the body, sequences and damage keep running; decisions stop, and
+    /// the game also stops upkeep of the combat target (<c>SelectedTargets</c> clears). Your code drives through
+    /// <c>ActorInput</c> and sequences on the tick thread. Tick thread.</summary>
+    [TickThreadOnly]
+    public bool AiEnabled
+    {
+        get
+        {
+            var t = Creatures.Tick("CreatureRef.AiEnabled");
+            uint on = 0;
+            Creatures.Check(t->AiSwitchGet(Entity.Value, &on), $"entity {Entity}: AI switch");
+            return on != 0;
+        }
+        set
+        {
+            var t = Creatures.Tick("CreatureRef.AiEnabled");
+            var o = Creatures.RequireOwner(_owner, "CreatureRef.AiEnabled");
+            Creatures.Check(t->AiSwitch(o.Native, Entity.Value, value ? 1u : 0u), $"entity {Entity}: AI switch");
+        }
+    }
+
+    /// <summary>The creature's phase as a rule's <see cref="Is.InPhase(string)"/> sees it: FNV-1a of the phase's GUID, 0 for
+    /// none. Works on any body; the game's own phases exist only on templates with <c>EnemyPhases</c>. Tick thread.</summary>
+    [TickThreadOnly]
+    public uint Phase
+    {
+        get
+        {
+            var t = Creatures.Tick("CreatureRef.Phase");
+            uint v = 0;
+            Creatures.Check(t->RulesPhaseGet(Entity.Value, &v), $"entity {Entity}: phase");
+            return v;
+        }
+    }
+
+    /// <summary>Sets the phase by name (see <see cref="Is.InPhase(string)"/>). Tick thread.</summary>
+    [TickThreadOnly]
+    public void SetPhase(string name) => SetPhase(RuleIds.Phase(name));
+
+    /// <summary>Sets the phase by GUID. Tick thread.</summary>
+    [TickThreadOnly]
+    public void SetPhase(Guid phase)
+    {
+        var t = Creatures.Tick("CreatureRef.SetPhase");
+        Creatures.Check(t->RulesPhaseSet(Entity.Value, RuleIds.Fnv(phase)), $"entity {Entity}: phase");
+    }
+
+    /// <summary>Makes <paramref name="target"/> the creature's combat target as soon as the game's target pass runs:
+    /// a threat large enough to win, through the game's own <c>AddThreatTargetEvent</c>, and no wait for the next allowed
+    /// target change. Needs no hook. Tick thread.</summary>
+    [TickThreadOnly]
+    public void PreferTarget(EntityId target, float threat = 1_000_000f)
+    {
+        var t = Creatures.Tick("CreatureRef.PreferTarget");
+        Command.Attack(target, threat);
+        t->TargetPrefer(Entity.Value);
+    }
+
     /// <summary>The enemy AI state (Invalid without enemy AI).</summary>
     public EnemyState State => Inspect()?.State ?? EnemyState.Invalid;
 

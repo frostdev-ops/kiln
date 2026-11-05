@@ -137,6 +137,9 @@ bool field_named(const Rec& r, std::string_view name, uintptr_t* type, uint32_t*
             return true;
         }
     }
+    // a struct's `inner` is its base, at offset 0
+    Rec base;
+    if (r.kind == K_STRUCT && r.inner && load(r.inner, &base) && base.kind == K_STRUCT) return field_named(base, name, type, off);
     return false;
 }
 
@@ -244,7 +247,7 @@ bool resolve_path(const TypeInfo& t, std::string_view path, FieldRef* out, std::
             *err = "empty field name in '" + std::string(path) + "'";
             return false;
         }
-        if (cur.kind != K_STRUCT || !cur.fields) {
+        if (cur.kind != K_STRUCT || (!cur.fields && !cur.inner)) {
             *err = "'" + std::string(path.substr(0, i)) + "' is not a struct";
             return false;
         }
@@ -316,6 +319,31 @@ bool resolve_path(const TypeInfo& t, std::string_view path, FieldRef* out, std::
             *err = "bad path '" + std::string(path) + "'";
             return false;
         }
+        cur = fr;
+        i = j + 1;
+    }
+}
+
+bool field_layout(const TypeInfo& t, std::string_view name, uint32_t* offset, uint32_t* size) {
+    Rec cur;
+    if (!load(t.record, &cur)) return false;
+    uint32_t base = 0;
+    size_t i = 0;
+    while (true) {
+        const size_t j = name.find('.', i);
+        uintptr_t ft = 0;
+        uint32_t fo = 0;
+        if (!field_named(cur, name.substr(i, j == std::string_view::npos ? j : j - i), &ft, &fo)) return false;
+        base += fo;
+        Rec fr;
+        if (!load(ft, &fr)) return false;
+        if (j == std::string_view::npos) {
+            *offset = base;
+            *size = fr.size;
+            return true;
+        }
+        if (fr.kind == K_TYPEDEF && !resolve_typedef(fr.inner, &fr)) return false;
+        if (fr.kind != K_STRUCT) return false;
         cur = fr;
         i = j + 1;
     }

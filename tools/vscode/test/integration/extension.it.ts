@@ -159,6 +159,46 @@ suite("Kiln extension", () => {
     assert.ok(api.catalog.getChildren().length >= 5, "explorer sections");
   });
 
+  test("VFX blocks: the schema through its reference, completion, hover, budget, snippets", async () => {
+    const doc = await open(path.join(MOD, "blocks", "fx.json"));
+    assert.equal(doc.languageId, "jsonc");
+    // the section's schema is another file: the JSON language service has to follow the $ref
+    const typo = await until("a schema diagnostic on a VFX field", () => vscode.languages.getDiagnostics(doc.uri).find((d) => d.source !== "kiln lint" && /lifetimes/.test(d.message))).catch((e) => {
+      throw new Error(`${e.message}; the document has: ${JSON.stringify(vscode.languages.getDiagnostics(doc.uri).map((d) => [d.source, d.range.start.line, d.message]))}`);
+    });
+    assert.equal(typo.range.start.line, doc.positionAt(doc.getText().indexOf('"lifetimes"')).line);
+    assert.ok(!vscode.languages.getDiagnostics(doc.uri).some((d) => d.source !== "kiln lint" && /comment/i.test(d.message)), "comments are fine in blocks/*.json");
+    const labels = async (at: vscode.Position) => {
+      const list = await vscode.commands.executeCommand<vscode.CompletionList>("vscode.executeCompletionItemProvider", doc.uri, at);
+      return list.items.map((i) => (typeof i.label === "string" ? i.label : i.label.label));
+    };
+    const fields = await labels(posOf(doc, '"burst": 24', 1));
+    assert.ok(fields.includes("drag"), `the schema completes a particle's fields (${fields.slice(0, 6).join(", ")})`);
+    const refs = await labels(posOf(doc, '"empty": { "vfx": ""', 18));
+    assert.ok(refs.includes("frost_burst"), `a block of this mod (${refs.slice(0, 6).join(", ")})`);
+    assert.ok(refs.includes("game:Explosion_Test_Frost"), "a game VFX from the catalog");
+    const params = await labels(posOf(doc, '"": 1', 1));
+    assert.ok(params.includes("color") && params.includes("targetPosition"), `a game VFX's parameters (${params.slice(0, 8).join(", ")})`);
+    const hover = async (needle: string, d = 2) => hoverText(await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, posOf(doc, needle, d)));
+    const onGame = await hover('"game:Explosion_Test_Frost"');
+    assert.match(onGame, /runs 10 s/);
+    assert.match(onGame, /`radius` float = 2/);
+    assert.match(await hover('"game:Attack_Test_Frostling_Slash"'), /Explosion_Test_Frost/, "any name that finds it");
+    assert.match(await hover('"000003ea-7e57'), /use `game:<guid>`/, "a label says so");
+    assert.match(await hover('"game:No_Such_Vfx"'), /not in the catalog/);
+    const onBlock = await hover('"frost_burst": {');
+    assert.match(onBlock, /2 particle blocks and a light: 5 of a VFX's 55 entries/);
+    assert.match(onBlock, /VFX: 2 of the 2,045 left for all mods \(2,048, the game uses 3\)/, "the catalog's count: 3 in the fixture");
+    assert.match(onBlock, /Mesh memory: 280 of 241,844 bytes/);
+    assert.match(onBlock, /Sounds in VFX: 1 of 10/);
+    assert.match(await hover('"vfx": "frost_burst"', 10), /VFX block/, "a reference to a block shows the block");
+    const cs = await vscode.workspace.openTextDocument({ language: "csharp", content: 'var v = VfxId.Game("Attack_Test_Frostling_Slash");' });
+    const onCode = hoverText(await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", cs.uri, new vscode.Position(0, 25)));
+    assert.match(onCode, /Explosion_Test_Frost/, "a name in C#");
+    const snippets = await labels(posOf(doc, '"effects": {', 0));
+    assert.ok(["vfx-burst", "vfx-trail", "vfx-light", "vfx-flipbook", "vfx-game", "vfx-parameters"].every((s) => snippets.includes(s)), `snippets (${snippets.filter((s) => s.startsWith("vfx")).join(", ")})`);
+  });
+
   test("Impact: hover, completion, signature help, definition, diagnostics", async () => {
     const doc = await open(path.join(MOD, "impact", "chill.kimp"));
     const h = hoverText(await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, posOf(doc, "getSelf", 2)));

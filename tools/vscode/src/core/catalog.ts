@@ -172,6 +172,8 @@ export class Catalog {
         if (n === needle || d === needle) score = 0;
         else if (n.startsWith(needle) || d.startsWith(needle)) score = 1;
         else if (n.includes(needle) || d.includes(needle) || e.guid === needle || e.id === needle) score = 2;
+        // a VFX has no name of its own: what else uses it finds it too
+        else if ([e.names, e.usedBy].some((l) => Array.isArray(l) && (l as string[]).some((x) => x.toLowerCase().includes(needle)))) score = 2;
         if (score >= 0) out.push({ section: s, entry: e, score });
       }
     }
@@ -186,7 +188,7 @@ export function describeEntry(section: string, e: CatalogEntry): string[] {
   const title = e.displayName ? `**${e.displayName}** \`${e.name}\`` : `\`${e.name}\``;
   lines.push(`${title}  _${section}_`);
   const facts: string[] = [];
-  for (const k of ["kind", "rarity", "tier", "maxStack", "level", "family", "workshopName", "slot", "type", "scene", "maxLevel"]) {
+  for (const k of ["kind", "rarity", "tier", "maxStack", "level", "family", "workshopName", "slot", "type", "scene", "maxLevel", "length", "particles"]) {
     if (e[k] !== undefined && e[k] !== null && e[k] !== "") facts.push(`${k} ${String(e[k])}`);
   }
   if (e.id) facts.push(`id \`${e.id}\``);

@@ -1,0 +1,20 @@
+<Project>
+  <!-- Lab test of typed fields, player-free: prints PASS / FAIL lines into kiln.log. The same definitions as string paths
+       (content/strings.json) and as typed fields (TypedTestMod.cs) must come out identical, and typed reads and writes must
+       do what the string paths do. It also writes every path kiln.gamedata reports (kiln/data/typed-test/live-paths.json)
+       for Kiln.GameIds.Tests to check the path analyzer against. Needs a catalog (kiln catalog build). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>typed-test</KilnModId>
+    <KilnModName>Typed fields lab test</KilnModName>
+    <Version>0.1.0</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Content</KilnServices>
+    <KilnClients>kiln</KilnClients>
+    <KilnGameIds>Items;Templates;Sequences;Perks;Buffs;Fields</KilnGameIds>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="content/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="content" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

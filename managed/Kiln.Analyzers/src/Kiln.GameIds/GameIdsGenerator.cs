@@ -17,7 +17,7 @@ namespace Kiln.GameIds;
 /// name and description as XML docs. With <c>Fields</c> also the game's data structures as typed paths
 /// (<see cref="GameFieldsEmitter"/>). Input: the AdditionalFiles item with metadata <c>KilnCatalog=true</c> (added by
 /// Kiln.Sdk's Kiln.GameIds.targets) and the build property <c>KilnGameIds</c> (sections: <c>Items;Perks;...</c>,
-/// <c>Fields</c>, <c>All</c>, <c>None</c>; default <see cref="DefaultSections"/>).
+/// <c>Fields</c> or <c>Fields.Items</c>, <c>All</c>, <c>None</c>; default <see cref="DefaultSections"/>).
 /// </summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class GameIdsGenerator : IIncrementalGenerator
@@ -60,12 +60,14 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
     private const string FieldsSection = "Fields";
 
     /// <summary>What a section becomes: the class, the constant's value (the entry's <c>name</c> or its <c>id</c>,
-    /// whichever data packs accept as the key), and whether identifiers come from display names (buffs and skill
-    /// nodes are named <c>buff_&lt;id&gt;</c> / <c>skill_&lt;id&gt;</c> in the game).</summary>
+    /// whichever data packs accept as the key; <c>guid</c> for VFX, which have no names of their own and where a GUID
+    /// always finds one), and whether identifiers come from display names (buffs and skill nodes are named
+    /// <c>buff_&lt;id&gt;</c> / <c>skill_&lt;id&gt;</c> in the game).</summary>
     internal sealed class Spec
     {
-        public Spec(string section, string cls, bool valueIsId, bool identFromDisplay, string what)
+        public Spec(string section, string cls, bool valueIsId, bool identFromDisplay, string what, bool valueIsGuid = false)
         {
+            ValueIsGuid = valueIsGuid;
             Section = section;
             Class = cls;
             ValueIsId = valueIsId;
@@ -76,6 +78,7 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         public string Section { get; }
         public string Class { get; }
         public bool ValueIsId { get; }
+        public bool ValueIsGuid { get; }
         public bool IdentFromDisplay { get; }
         public string What { get; }
     }
@@ -91,6 +94,7 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         new("templates", "GameTemplates", false, false, "entity templates (names; `templates` keys, spawns)"),
         new("sequences", "GameSequences", false, false, "action sub-sequences (names; `sequences` keys)"),
         new("sounds", "GameSounds", false, false, "sound cues (first sound's name; use the GUID in cook recipes)"),
+        new("vfx", "GameVfx", false, false, "VFX, named after what uses them (GUIDs: VfxId.Of, VfxRef.Game)", valueIsGuid: true),
     ];
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -122,6 +126,7 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         if (string.Equals(sectionsProp, "none", StringComparison.OrdinalIgnoreCase) || sectionsProp == "false") return;
         var wanted = new List<Spec>();
         bool fieldsAsked = false, fieldsImplied = false;
+        var fieldSections = new List<string>();   // Fields.Items: that section's paths only
         foreach (var raw in sectionsProp.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var s = raw.Trim();
@@ -136,6 +141,11 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
                 fieldsAsked = true;
                 continue;
             }
+            if (s.StartsWith(FieldsSection + ".", StringComparison.OrdinalIgnoreCase))
+            {
+                fieldSections.Add(s.Substring(FieldsSection.Length + 1));
+                continue;
+            }
             var spec = Specs.FirstOrDefault(x => x.Class.Equals(s, StringComparison.OrdinalIgnoreCase) || x.Section.Equals(s, StringComparison.OrdinalIgnoreCase) ||
                                                  x.Class.Equals("Game" + s, StringComparison.OrdinalIgnoreCase));
             if (spec is null)
@@ -148,8 +158,8 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
             if (sdk) spc.ReportDiagnostic(Diagnostic.Create(NoCatalog, Location.None));
             return;
         }
-        if (fieldsAsked && !fieldType) spc.ReportDiagnostic(Diagnostic.Create(FieldsNeedContent, Location.None));
-        var fields = fieldType && (fieldsAsked || fieldsImplied);
+        if ((fieldsAsked || fieldSections.Count > 0) && !fieldType) spc.ReportDiagnostic(Diagnostic.Create(FieldsNeedContent, Location.None));
+        var fields = fieldType && (fieldsAsked || fieldsImplied || fieldSections.Count > 0);
         var want = new HashSet<string>(wanted.Select(w => w.Section), StringComparer.Ordinal);
         if (fields) want.Add("configs");
         Catalog cat;
@@ -170,7 +180,16 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         }
         if (!fields) return;
         if (cat.Recipe < FieldsRecipe) spc.ReportDiagnostic(Diagnostic.Create(OldCatalog, Location.None, file.Path));
-        foreach (var (hint, source) in new GameFieldsEmitter(FieldCatalog.From(cat)).Emit(Header, BuildText(cat)))
+        var fieldCatalog = FieldCatalog.From(cat);
+        HashSet<string>? only = null;
+        if (!fieldsAsked && !fieldsImplied)
+        {
+            only = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in fieldSections)
+                if (fieldCatalog.Fields.ContainsKey(name.ToLowerInvariant())) only.Add(name);
+                else spc.ReportDiagnostic(Diagnostic.Create(UnknownSection, Location.None, FieldsSection + "." + name, string.Join(", ", fieldCatalog.Fields.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => FieldsSection + "." + GameFieldsEmitter.Pascal(k)))));
+        }
+        foreach (var (hint, source) in new GameFieldsEmitter(fieldCatalog, only).Emit(Header, BuildText(cat)))
             spc.AddSource(hint, SourceText.From(source, Encoding.UTF8));
     }
 
@@ -292,7 +311,7 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
             var id = Str(e, "id");
             var guid = Str(e, "guid");
             var display = Str(e, "displayName");
-            var value = spec.ValueIsId ? id : name;
+            var value = spec.ValueIsGuid ? guid : spec.ValueIsId ? id : name;
             if (value is null) continue;
             string? baseIdent;
             if (spec.IdentFromDisplay || name is null || LooksGenerated(name))
@@ -308,6 +327,8 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
             if (e.TryGetValue("maxStack", out var ms) && ms is double m) facts.Add("stack " + m.ToString(CultureInfo.InvariantCulture));
             if (spec.ValueIsId && name is not null && name != value) facts.Add(name);
             if (Str(e, "item") is { Length: > 0 } item) facts.Add("unlocks " + item);
+            if (e.TryGetValue("length", out var len) && len is double seconds) facts.Add(seconds.ToString(CultureInfo.InvariantCulture) + " s");
+            if (spec.ValueIsGuid && Parameters(e) is { Length: > 0 } parameters) facts.Add("parameters " + parameters);
             if (id is not null) facts.Add(id);
             if (guid is not null) facts.Add(guid);
             var doc = display is { Length: > 0 } ? display + (facts.Count > 0 ? " (" + string.Join(", ", facts) + ")" : "") : string.Join(", ", facts);
@@ -347,6 +368,14 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine("}");
         return sb.ToString();
+    }
+
+    /// <summary>A VFX's parameters as a short text, those with a known name.</summary>
+    private static string Parameters(Dictionary<string, object?> e)
+    {
+        if (!e.TryGetValue("parameters", out var v) || v is not List<object?> list) return "";
+        var named = list.OfType<Dictionary<string, object?>>().Where(p => Str(p, "name") is not null).Select(p => $"{Str(p, "name")}: {Str(p, "type")}");
+        return string.Join(", ", named);
     }
 
     /// <summary>A GUID-named or <c>guid#k</c> entry: no useful identifier.</summary>

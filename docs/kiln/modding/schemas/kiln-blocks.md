@@ -21,6 +21,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `format` | `1` | yes |  |
 | `items` | object |  | Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it. |
 | `looks` | object |  | Parts: what an item looks like. Use one by name wherever a field takes a look. |
+| `materials` | `kiln-vfx.schema.json materialSection` |  | Surfaces for models, on the game's own shaders. No base to name, no game data. Built by the game client at start. |
 | `onHits` | object |  | Parts: what an item does to what its wearer hits. |
 | `spells` | object |  | Staff spells. A charge is one item in the stack. |
 | `stations` | object |  | Crafting stations a player builds. |
@@ -56,6 +57,7 @@ Everything around the place gets these effects; who is in it is found when it ha
 | `affects` | `"enemies"` \| `"friends"` |  | Default enemies. |
 | `effects` | [effects](#effects) | yes |  |
 | `radius` | number | yes | Metres. |
+| `vfx` | [vfx](#vfx) |  | A VFX where the area is, once. Its size is the VFX's own. |
 
 ## armor
 
@@ -70,6 +72,7 @@ Everything around the place gets these effects; who is in it is found when it ha
 | `set` | `"warrior"` \| `"mage"` \| `"ranger"` or [ref](#ref) or [armorSet](#armorset) |  | A family of looks: this takes the look the set has for its slot. visual wins over it. |
 | `slot` | `"head"` \| `"chest"` \| `"arms"` \| `"legs"` \| `"feet"` \| `"ring"` or [ref](#ref) or [armorSlot](#armorslot) | yes | Where it is worn. |
 | `stats` | [armorStatsRef](#armorstatsref) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `visual` | [visualRef](#visualref) |  |  |
 | `was` | [name](#name) |  |  |
 
@@ -194,6 +197,7 @@ Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else 
 | `stack` | integer |  | How many fit in a stack. Default: the kind's own. A tool does not stack. min 1 max 65535 |
 | `texts` | object |  | Texts per language (en, de, pt-BR, ...). |
 | `tool` | [tool](#tool) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `visual` | [visualRef](#visualref) |  |  |
 | `was` | [name](#name) |  |  |
 
@@ -253,7 +257,7 @@ What an item does to what its wearer hits.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `effects` | [effects](#effects) | yes |  |
-| `vfx` |  |  | Reserved for VfxBlock: an error for now. |
+| `vfx` |  |  | Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status. |
 
 ## perks
 
@@ -273,6 +277,7 @@ It flies. What it strikes gets onHit, and where it stops onImpact happens.
 | `onImpact` | [effects](#effects) |  | At the place it stops, which has no target of its own: use an area. |
 | `range` | number |  | Metres before it fizzles (default 150). |
 | `speed` | number |  | Metres per second (default 30). |
+| `tweak` | [tweak](#tweak) |  |  |
 | `type` | `"projectile"` | yes |  |
 | `vfx` | [vfx](#vfx) |  |  |
 
@@ -311,6 +316,7 @@ Type: string
 | `name` | string | yes | min length 1 |
 | `onCast` | [effects](#effects) |  | On the caster, the moment it leaves the staff. |
 | `recipe` | [recipe](#recipe) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `was` | [name](#name) |  |  |
 
 ## station
@@ -324,6 +330,7 @@ A crafting station a player builds: it opens a workshop's menu, which lists that
 | `loot` | [loot](#loot) |  |  |
 | `name` | string | yes | min length 1 |
 | `recipe` | [recipe](#recipe) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `visual` | [visualRef](#visualref) |  |  |
 | `was` | [name](#name) |  |  |
 
@@ -345,6 +352,7 @@ A buff or debuff, shown in the game's buff bar.
 | `refreshes` | boolean |  | Applied again while it runs: the timer starts over (true, the default), or the new one replaces the old. |
 | `seconds` | number | yes | How long it lasts unless whoever applies it says otherwise. |
 | `tickEvery` | number |  | Seconds between onTick (default 1). |
+| `tweak` | [tweak](#tweak) |  |  |
 | `vfx` | [vfx](#vfx) |  |  |
 | `was` | [name](#name) |  | The name this block had before a rename. Ids come from the oldest name, so saves keep it. |
 
@@ -358,9 +366,15 @@ What a tool gets out of the world.
 | `power` | integer |  | How hard it bites into what it is for: an axe's wood damage, a pickaxe's stone damage. The rest of what it can do scales along. |
 | `staminaCost` | integer |  | Stamina each swing costs; the tooltip follows. min 0 |
 
+## tweak
+
+Game fields this block does not cover, by the path a data pack writes, set on what it makes. They win over what the block sets.
+
+Type: object
+
 ## vfx
 
-A VFX and where it shows. Not available yet: setting it is an error.
+A VFX and where it shows: a VFX block of this mod by name, "other-mod:name", or "game:<name>" for one of the game's (a template that carries it, a sequence that plays it, or a GUID). A new VFX needs "clients": "mod".
 
 Type: [ref](#ref) or object
 
@@ -375,7 +389,7 @@ What an item looks like. Empty: its starter's look.
 | `like` | [itemRef](#itemref) |  | An item whose whole look this takes: held or worn model, dropped model, collection model and icon. |
 | `model` | string |  | The model alone: item:<name>, or the GUID of a model your assets/assets.json serves (then clients "mod"). |
 | `tint` | string |  | The colour of the parts the game lets you tint. Pattern `^#[0-9a-fA-F]{6}$`. |
-| `vfx` |  |  | Reserved for VfxBlock: an error for now. |
+| `vfx` |  |  | Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status. |
 
 ## visualRef
 
@@ -399,6 +413,7 @@ Type: [ref](#ref) or [visual](#visual)
 | `recipe` | [recipe](#recipe) |  |  |
 | `special` | [wandAttack](#wandattack) |  | Once a player has the game's skill for it. Default: the primary again. Its damage is exactly what it says. |
 | `stats` | [weaponStatsRef](#weaponstatsref) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `visual` | [visualRef](#visualref) |  |  |
 | `was` | [name](#name) |  |  |
 
@@ -426,6 +441,7 @@ One of a wand's attacks: how it is cast and what it sends.
 | `perks` | [perks](#perks) |  |  |
 | `recipe` | [recipe](#recipe) |  |  |
 | `stats` | [weaponStatsRef](#weaponstatsref) |  |  |
+| `tweak` | [tweak](#tweak) |  |  |
 | `visual` | [visualRef](#visualref) |  |  |
 | `was` | [name](#name) |  |  |
 

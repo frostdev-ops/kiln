@@ -273,7 +273,17 @@ deploy() {
     id=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['id'])" "$m/kiln.mod.json")
     [[ $id =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "--mod $m: bad id '$id'"
     mkdir -p "$k/mods/$id"
-    rsync -a --delete --exclude='Kiln.*' --exclude='*.deps.json' "$m/" "$k/mods/$id/"
+    # The mod's own assemblies stay, even when named Kiln.* (Kiln.Admin.dll), as in deploy-server.sh.
+    local keep=()
+    while IFS= read -r f; do [[ -n $f ]] && keep+=(--include="$f"); done < <(python3 -c "
+import json, sys
+m = json.load(open(sys.argv[1]))
+for f in [m.get('entryAssembly', '')] + list(m.get('exports', [])):
+    if f:
+        print(f)
+        print(f[:-4] + '.pdb' if f.endswith('.dll') else f)
+" "$m/kiln.mod.json")
+    rsync -a --delete "${keep[@]}" --exclude='Kiln.*' --exclude='*.deps.json' "$m/" "$k/mods/$id/"
     grep -qx "$id" "$k/.extra-mods" 2>/dev/null || echo "$id" >> "$k/.extra-mods"
     echo "client: mod $id installed from $m"
   done

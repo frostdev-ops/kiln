@@ -1,0 +1,1 @@
+{"id": "fixture-vfx-section", "version": "1.0.0", "apiVersion": "0.2", "side": "server", "license": "MIT", "entryAssembly": "Fixture.dll", "clients": "kiln"}

@@ -127,6 +127,8 @@ internal static unsafe class ContentNative
     public static bool Has(Table* t, uint v) => t != null && t->Header.Version >= v;
 
     // KilnResult
+    internal static string ReadText(delegate* unmanaged[Cdecl]<byte*, nuint, nuint*, int> call) => NativeText.Read((b, cap, len) => call(b, cap, len), out _);
+
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, WrongThread = 4, BufferTooSmall = 5,
         Internal = 7;
 

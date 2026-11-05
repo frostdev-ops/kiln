@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "materials": {
+    "good": { "kind": "metal", "albedo": "tex/ok.png" },
+    "odd": { "albedo": "tex/odd.png" },
+    "tiny": { "emissive": { "map": "tex/tiny.png", "strength": 2 } }
+  }
+}

@@ -1,0 +1,20 @@
+<Project>
+  <!-- Sample: changing the game's own data with typed fields (docs/kiln/modding/typed-fields.md). GameFields, GameEnums and the
+       game ids come from your catalog (kiln catalog build); a mod's source never spells out a path. Refused/ is the same
+       kind of mod with a typo in a path string: it is meant not to build. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>typed-fields</KilnModId>
+    <KilnModName>Typed fields (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Changes a sword, a spell and a projectile through typed paths from your own game's catalog, and clones the projectile.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Content</KilnServices>
+    <KilnClients>kiln</KilnClients>
+    <KilnGameIds>Items;Templates;Fields</KilnGameIds>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Refused/**" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

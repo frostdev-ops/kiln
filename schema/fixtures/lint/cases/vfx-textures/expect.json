@@ -1,0 +1,53 @@
+{
+  "description": "KL322: not a power of two, too small, too large, in both forms of the field. KL324: a grid the PNG can't divide into, and one it can. A file that is not a PNG stays KL503.",
+  "diagnostics": [
+    {
+      "code": "KL322",
+      "col": 54,
+      "file": "blocks/fx.json",
+      "line": 5,
+      "message": "vfx/odd_6x8.png: 6x8 is not a power of two on both sides (Kiln refuses this block)",
+      "severity": "error"
+    },
+    {
+      "code": "KL322",
+      "col": 66,
+      "file": "blocks/fx.json",
+      "line": 6,
+      "message": "vfx/small_2x8.png: 2x8 is outside 4..2048 (Kiln refuses this block)",
+      "severity": "error"
+    },
+    {
+      "code": "KL322",
+      "col": 55,
+      "file": "blocks/fx.json",
+      "line": 7,
+      "message": "vfx/huge_4096.png: 4096x4096 is outside 4..2048 (Kiln refuses this block)",
+      "severity": "error"
+    },
+    {
+      "code": "KL324",
+      "col": 86,
+      "file": "blocks/fx.json",
+      "line": 8,
+      "message": "vfx/good_8x8.png: 8x8 doesn't divide into 3 columns and 2 rows: frames will be cut",
+      "severity": "warning"
+    },
+    {
+      "code": "KL324",
+      "col": 91,
+      "file": "blocks/fx.json",
+      "line": 9,
+      "message": "vfx/good_8x8.png: 8x8 doesn't divide into 1 columns and 3 rows: frames will be cut",
+      "severity": "warning"
+    },
+    {
+      "code": "KL503",
+      "col": 58,
+      "file": "blocks/fx.json",
+      "line": 10,
+      "message": "vfx/not_really.png is not a PNG file (kiln.assets decodes PNG only)",
+      "severity": "error"
+    }
+  ]
+}

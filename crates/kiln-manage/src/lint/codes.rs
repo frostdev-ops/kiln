@@ -53,6 +53,7 @@ rules! {
     MANIFEST_REFUSED = "KL209", "manifest-refused", Error, "a manifest Kiln.Host (or the native loader) refuses";
     NATIVE_PREFIX = "KL208", "native-prefix", Warning, "a Kiln native named after another mod id";
     CLIENTS_QUESTS = "KL210", "clients-quests", Error, "a quest in the game's own journal needs \"clients\": \"mod\"";
+    CLIENTS_VFX = "KL211", "clients-vfx", Error, "a new VFX or material needs \"clients\": \"mod\"";
 
     // KL3xx: ids, GUIDs and names
     DUPLICATE_GUID = "KL301", "duplicate-guid", Error, "a GUID defined twice in one mod";
@@ -69,6 +70,11 @@ rules! {
     NATIVE_QUEST = "KL312", "native-quest", Error, "a native quest, dialogue or NPC the boot build refuses (the mod's native data is not built)";
     BLOCK_REF = "KL314", "block-reference", Warning, "a block a blocks/*.json file names does not exist, or is the wrong kind";
     SUMMON_ITEM_TEXT = "KL313", "summon-item-text", Warning, "a roster NPC's summon tool with a name or description of its own: the game's Survivors list shows the tool's for the NPC, so the build replaces them with the NPC's";
+    VFX_BUDGET = "KL320", "vfx-budget", Error, "more VFX, meshes, mesh memory or sounds in VFX than the game has room for";
+    VFX_PARAMETER = "KL321", "vfx-parameter", Warning, "a VFX parameter the VFX does not have, of the wrong type, or on a field that cannot set one";
+    VFX_TEXTURE = "KL322", "vfx-texture", Error, "a VFX or material texture that is not a power of two, or outside the sizes it may have";
+    VFX_REF = "KL323", "vfx-reference", Warning, "a game VFX the catalog does not have, or that only its GUID can find";
+    VFX_FLIPBOOK = "KL324", "vfx-flipbook", Warning, "a flipbook grid its PNG cannot divide into";
 
     // KL4xx: references to the game's data (needs the game-data catalog)
     UNKNOWN_REF = "KL401", "unknown-reference", Warning, "a name, id or GUID the game (and the mods) do not have";
@@ -90,6 +96,7 @@ rules! {
     COOK_STEM = "KL513", "cook-stem", Error, "two cook steps write the same output";
     NATIVE_HASH = "KL514", "native-hash", Error, "a native's hash or argc that does not match its name or args";
     SCHEMATIC_SIZE = "KL515", "schematic-size", Error, "a schematic over the 4 M cell limit";
+    COOK_SKELETON = "KL516", "cook-skeleton", Error, "a model step's skeleton is neither a skeleton step of the recipe nor a skeleton input";
 
     // KL6xx: licences and what may be shipped
     NO_LICENSE = "KL601", "no-license", Info, "the manifest names no licence";

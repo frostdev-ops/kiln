@@ -16,6 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sync-test"))
 import synctest as st  # noqa: E402
+import nettest as nt  # noqa: E402
 
 ITEMS = ["ember-shard", "healing-draught", "ember-tonic", "ember-stew", "ember-arrow", "ember-axe", "ember-pick", "ember-gem", "sword", "waraxe", "mace", "greatsword",
          "greataxe", "hammer", "daggers", "bow", "staff", "ember-guard", "ember-edge", "ember-wand", "ember-helm", "ember-mail", "ember-band", "ember-bench"]
@@ -34,7 +35,7 @@ def main():
         print(f"{'PASS' if ok else 'FAIL'} syncitems.{name}: {detail}")
 
     probe = st.SyncClient(a.port, "syncitems-probe")
-    probe.hello([], st.CHANNELS)
+    probe.hello(nt.with_required(a.port, [], st.CHANNELS), st.CHANNELS)
     probe.wait(lambda: probe.welcome is not None, 8)
     if not probe.welcome:
         check("handshake", False, "no WELCOME (is the lab up with labPort set?)")
@@ -76,6 +77,9 @@ def main():
     wand = body("items", "item-blocks.ember-wand") or {}
     wand_refs = body("itemdata", "item-blocks.ember-wand") or {}
     check("wand-binding", any("sequences[0]" in k for k in list(wand) + list(wand_refs)), "the wand's primary is bound to its own sequence")
+    heavy = body("sequences", "item-blocks.ember-wand.heavy") or {}
+    tags = [v for k, v in heavy.items() if k.endswith(".requiredEntityTag")]
+    check("cleared-ref", bool(tags) and all(v == "none" for v in tags), f"a cleared reference is sent as none: {tags}")
     stew = body("itemdata", "item-blocks.ember-stew") or {}
     check("food-buff", any("appliedBuff" in k for k in stew), f"{list(stew)[:3]}")
     print(f"syncitems: {fails} FAIL")

@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "comment": "Named by the model steps of assets/cook.json. MaterialSampleMod.cs defines frost_steel-code, the same block in C#.",
+  "materials": {
+    "frost_steel": {
+      "kind": "metal",
+      "albedo": "textures/steel.png",
+      "normal": "textures/steel_n.png",
+      "metallicRoughness": "textures/steel_mr.png",
+      "tint": "#dff2ff",
+      "emissive": { "map": "textures/runes.png", "color": "#7fd4ff", "strength": 8 }
+    },
+    "frost_grip": { "kind": "cloth", "tint": "#2a2f3a" }
+  },
+  "vfx": {
+    "frost_sparks": {
+      "particles": [ { "burst": 24, "lifetime": [0.3, 0.7], "speed": [2, 4], "spread": "sphere", "size": { "linear": [0.08, 0] }, "alpha": { "linear": [1, 0] }, "material": "frost_steel" } ]
+    }
+  }
+}

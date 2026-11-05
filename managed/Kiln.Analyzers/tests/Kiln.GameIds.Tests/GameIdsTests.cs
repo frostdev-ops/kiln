@@ -103,6 +103,19 @@ public sealed class GameIdsTests
     }
 
     [Fact]
+    public void Vfx_constants_are_guids_named_after_what_uses_them()
+    {
+        var (output, run) = Generate(File.ReadAllText(Fixture), "Vfx");
+        NoErrors(output);
+        var vfx = run.Results[0].GeneratedSources.Single(s => s.HintName == "Kiln.GameIds.GameVfx.g.cs").SourceText.ToString();
+        Assert.Contains("public const string Explosion_Test_Frost = \"000003e9-7e57-4a11-9c00-0000000003e9\";", vfx);
+        Assert.Contains("public const string Vfx_000003eb = \"000003eb-7e57-4a11-9c00-0000000003eb\";", vfx);
+        Assert.Contains("parameters radius: float, color: color, targetPosition: float3", vfx);
+        Assert.Contains("10 s", vfx);
+        Assert.DoesNotContain("GameVfx", string.Join(",", Generate(File.ReadAllText(Fixture)).Run.Results[0].GeneratedSources.Select(s => s.HintName)));
+    }
+
+    [Fact]
     public void None_generates_nothing()
     {
         var (_, run) = Generate(File.ReadAllText(Fixture), "None");

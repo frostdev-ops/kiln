@@ -98,6 +98,42 @@ internal static unsafe class VfxNative
         global::System.Diagnostics.Debug.Assert(sizeof(Play) == 128 && sizeof(Info) == 88 && sizeof(Status) == 64 && sizeof(Table) == 112);
     }
 
+    /// <summary>The builder's answer to a definition from code (docs/kiln/services/vfx-cook.md), or null when kiln.vfx isn't here.</summary>
+    public static string? DefineJson(string json, ulong owner)
+    {
+        var t = T;
+        if (t == null) return null;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        fixed (byte* p = bytes)
+        {
+            var text = new GameDataMirror.Str { Ptr = p, Len = (nuint)bytes.Length };
+            return Text((b, cap, n) => t->DefineJson(owner, text, b, cap, n));
+        }
+    }
+
+    /// <summary>What kiln.vfx built at start: the same report, for every mod. Null when kiln.vfx isn't here.</summary>
+    public static string? BuildStatusJson()
+    {
+        var t = T;
+        return t == null ? null : Text((b, cap, n) => t->BuildStatus(b, cap, n));
+    }
+
+    private delegate int Reader(byte* buffer, nuint capacity, nuint* length);
+
+    // The buffer is grown once, to the length the call gave. Each of these reports even when the call refuses: the report says why.
+    private static string? Text(Reader read)
+    {
+        var buf = new byte[64 * 1024];
+        nuint n = 0;
+        fixed (byte* b = buf) read(b, (nuint)buf.Length, &n);
+        if ((int)n >= buf.Length)
+        {
+            buf = new byte[(int)n + 1];
+            fixed (byte* b = buf) read(b, (nuint)buf.Length, &n);
+        }
+        return System.Text.Encoding.UTF8.GetString(buf, 0, Math.Min((int)n, buf.Length));
+    }
+
     public static void WriteGuid(Guid g, byte* dst)
     {
         Span<byte> b = stackalloc byte[16];

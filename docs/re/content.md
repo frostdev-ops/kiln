@@ -93,7 +93,7 @@ Layouts used for lists (all from reflection at run time):
   Image, mapped and other memory is refused. **[rt]** BigStacks: "2252 change(s) … (writes since boot: 0 writable,
   2257 read-only pages, 746 VirtualProtect pairs)", about 16 ms once at world load.
 - Recipe lists of a different length: the BlobArray header (8 bytes in the RecipeInfo) is pointed at a copy in
-  Kiln's memory, allocated within ±1.5 GB of the recipe so the self-relative i32 offset reaches it. The RecipeInfo
+  Kiln's memory, allocated within 2 GB of the recipe so the self-relative i32 offset reaches it (§10). The RecipeInfo
   keeps its address, so the registry map and the workshop lists need no change; revert = the original 8 bytes.
 - Drop tables are loaded on demand: the DefaultInventoryAcquire hook (worker threads, under the store lock) registers
   a table the first time its data pointer appears and applies pending pack rules before the caller reads the stacks.
@@ -186,7 +186,7 @@ docs/kiln/services/content.md "New items and recipes".
 - `self_relative_fields("keen::ItemInfo")` walks the reflected struct (nested structs and static arrays): its inline
   part holds 20 BlobArrays and 1 BlobString (debugName) and no other self-relative kind (kinds 0x12, 0x13, 0x18,
   0x19, 0x1c, 0x1d and scalars only; offline walk over the exe's static reflection records, client identical)
-  **[refl]**. The clone is the 2088-byte struct copied into memory within ±1.5 GB of the base (each i32 offset
+  **[refl]**. The clone is the 2088-byte struct copied into memory within 2 GB of the base (§10; each i32 offset
   rebased to keep pointing at the base's blob data), then `itemId`, `objectId`, the `name` / `description` / `lore`
   LocaTag references (new GUIDs derived from the item GUID; tag id = FNV-1a of the GUID), `debugName` (a BlobString
   into the clone's tail) and the definition's field values. **[rt]** "keen::ItemInfo 2088 bytes (21 blob fields
@@ -472,3 +472,35 @@ new content: server world 00000000B2410080: definitions registered 258 ms after 
 newcontent-test done: 24 PASS, 0 FAIL
 ```
 Not checkable there: a client world, a prediction step, a second world in one process, a held item.
+
+## 10. Near memory and how much fits **[rt]**
+
+Lists inside game data are self-relative: a `BlobArray` is `{i32 offset, u32 count}` and a config element holds an i32 too. So Kiln's copy of a list has to be
+within 2 GB of the field that points at it. Every caller of `near_alloc` either checks the offset (`rebase`, `cm_point`, "out of reach" errors) or writes inside one block.
+`near_alloc` used to promise 1.5 GB.
+
+Server under Wine, lab with about a dozen mods. By the time definitions go in, the low 4 GB are nearly full: 1 GB of pools from `0x10030000`, the 490 MB read-only resource
+mapping, a 2 GB block at `0x7fff0000`. What is left is a few MB of holes that move between runs, some of them 1 MB thread stacks that come and go.
+
+- A skill node low in memory (`0x1714260`, `0xd7a83f0` in two runs) had nothing free within 1.5 GB. `pack ...: no memory near the configs`, with or without item blocks; whether
+  a run hit it depended on the layout. Picking the nearest chunk did not help. Reaching 2 GB less 16 MB did: its list went to `0x7f4e0000`, 1.77 GB away.
+- 100 each of items, weapons, armor and wands: `nothing free within 2 GB` on the first allocation, with no chunk yet. Loading more managed code had used the holes first.
+- So kiln.content sets aside 128 MB at boot, at the first free of `0x78000000`, `0x70000000` and lower, and commits 256 KB at a time. From there 2 GB covers nearly all of the low
+  4 GB. The game then puts its resource mapping elsewhere (`0x7fff0000`), with no change seen in any lab suite. A client has not been checked. Where the block is out of reach,
+  a chunk is searched for around the target as before.
+- A clone served by kiln.assets lives in the ordinary heap, above 4 GB at this load, where 8 GB of allocations can leave no hole within 2 GB. It has 8 KB of spare room at
+  the end of its own resource for the lists its rules add.
+
+Limits found by defining many blocks at once (whole lab mod set, server 26430253). All of them are refused by name in the log, none crashes:
+
+| What | Limit | Why | Message |
+|---|---|---|---|
+| Template clones | about 730 (12,269 game templates, table of 13,000) | `TemplateInfo` array inline at `storage+0x280`; growing it later would move every `TemplateInfo*` | `the world's template table is full (13000 of 13000)` |
+| New items | 3,979 (4,213 game items, 8,192 at the load factor) | the game reserves 2 x next_pow2(n) slots; Kiln keeps its load factor | `the map has no room left (count 8192 of 16384)` |
+| New recipes | about 1,550 (4,096 at the load factor) | the same | `the map has no room left (count 4096 of 8192)` |
+| Recipes at one workshop | 512 in all | inline `SmallDynamicArray<RecipeInfo*, 512>` | `the workshop list is full (512)` |
+| Buff clones | 1,024 | Kiln's own: the buff collection's header is rebuilt per clone, so more costs near memory quadratically | `Kiln's buff collection is full (1024 clones)` |
+
+Items, weapons and armor use no template. A wand attack or a spell uses two, a station one, so templates run out first.
+Near memory did not limit that run: 65 chunks (16 MB) with the table limits above reached. Defining blocks grows with the number already defined: a wand took 45 ms at 100 and about 260 ms at 900,
+3 minutes for 4,000 blocks.

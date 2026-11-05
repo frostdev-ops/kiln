@@ -155,6 +155,54 @@
       "severity": "error"
     },
     {
+      "code": "KL501",
+      "col": 70,
+      "file": "assets/cook.json",
+      "line": 14,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "file": "assets/cook.json",
+      "line": 15,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
+      "code": "KL516",
+      "col": 59,
+      "file": "assets/cook.json",
+      "line": 15,
+      "message": "step 7 (model): no skeleton step is named \"golemm\" in this recipe (a game skeleton is @input); did you mean \"golem\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "file": "assets/cook.json",
+      "line": 16,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
+      "code": "KL516",
+      "col": 59,
+      "file": "assets/cook.json",
+      "line": 16,
+      "message": "step 8 (model): skeleton @model is a keen::RenderModel, needs keen::ModelHierarchyResource",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "file": "assets/cook.json",
+      "line": 17,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
       "code": "KL514",
       "col": 69,
       "file": "impact/natives.json",

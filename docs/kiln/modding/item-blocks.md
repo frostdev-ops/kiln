@@ -41,7 +41,7 @@ A part is a block of its own. Write it inline, define it once and share the hand
 var blade = Blocks.Define("ember-blade", WeaponClass.Sword with { Visual = emberLook, Stats = veteran });
 Blocks.Define("ember-edge", new WeaponBlock { Name = "Ember Edge", Class = blade, OnHit = searing });
 ```
-`Vfx` fields are errors until VFX blocks exist.
+A look cannot carry a VFX yet: `VisualBlock.Vfx` is refused with a message. `OnHitBlock.Vfx` plays where a hit lands, and a wand attack's `CastBlock.Vfx` plays on the cast.
 
 ## Blocks
 | Block | Fields |
@@ -97,6 +97,10 @@ blocks/gear.json: block weapon rusty, stats.level: 99 is outside the game's item
 blocks/gear.json: block item bad, visual: no visual "gone-look"; there are: ember-look
 ```
 `kiln lint` says most of this first: KL102, KL104 and KL105 from the schema, KL201 for `clients`, KL314 for a name that is nothing or the wrong kind, KL406 for a rolled item with a recipe.
+
+## How many fit
+
+One server holds about 730 new templates (a wand attack or a spell uses two, a station one), about 3,900 new items, about 1,500 new recipes, 512 recipes at one workshop and 1,024 new statuses, across all its mods. Past that, the block's item, recipe or template is refused with a line in `kiln.log` that names it: nothing crashes, and the rest of the mod still loads. Numbers come from the game's own tables, so a game update can change them.
 
 ## Test
 `mods/tests/blocks-items-test` runs on a dedicated server with no player. A spawned player entity has no equipment slots set, so the test says which slot the chest is, through a test-only request of kiln.skills; it creates the switch that request needs, `<kiln>/data/skills/lab-ops`. Start it twice: the second run checks ids and stored items across the restart. It logs `blocks-items-test: PASS` and `FAIL` lines, and `blocks-items-test done: N PASS, M FAIL`.

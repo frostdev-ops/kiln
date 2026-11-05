@@ -8,6 +8,7 @@
 #include "stb/stb_image.h"
 
 #include "bc7enc/bc7enc.h"
+#include "bc7enc/rgbcx.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,7 +22,6 @@
 namespace kvb {
 namespace {
 
-constexpr uint8_t kFormatBc7Unorm = 145, kFormatBc7Srgb = 146;  // keen::PixelFormat
 constexpr uint32_t kCategoryTexture = 4010512636u;              // content.category on all 145 textures vanilla VFX name
 constexpr uint8_t kTexture2D = 1;                               // keen::TextureType
 constexpr const char* kEncoderVersion = "bc7-1";                // part of the cache key
@@ -64,14 +64,18 @@ Image half(const Image& s, bool srgb) {
     return d;
 }
 
-void encode_level(const Image& img, uint8_t* dst) {
+void encode_level(const Image& img, uint8_t* dst, uint8_t format = kFormatBc7Srgb) {
     static std::once_flag once;
-    std::call_once(once, [] { bc7enc_compress_block_init(); });
+    std::call_once(once, [] {
+        bc7enc_compress_block_init();
+        rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
+    });
     bc7enc_compress_block_params params;
     bc7enc_compress_block_params_init(&params);
     params.m_uber_level = 1;
     params.m_max_partitions = 16;
     const uint32_t bw = (img.w + 3) / 4, bh = (img.h + 3) / 4;
+    const uint32_t block_bytes = format == kFormatBc1Unorm ? 8 : 16;
     std::atomic<uint32_t> next{0};
     auto work = [&] {
         for (uint32_t by; (by = next.fetch_add(1)) < bh;)
@@ -82,7 +86,10 @@ void encode_level(const Image& img, uint8_t* dst) {
                         const uint32_t sx = std::min(img.w - 1, bx * 4 + x), sy = std::min(img.h - 1, by * 4 + y);
                         std::memcpy(&block[(y * 4 + x) * 4], &img.px[(size_t{sy} * img.w + sx) * 4], 4);
                     }
-                bc7enc_compress_block(dst + (size_t{by} * bw + bx) * 16, block, &params);
+                uint8_t* out = dst + (size_t{by} * bw + bx) * block_bytes;
+                if (format == kFormatBc1Unorm) rgbcx::encode_bc1(10, out, block, false, false);
+                else if (format == kFormatBc5Unorm) rgbcx::encode_bc5(out, block, 0, 1, 4);
+                else bc7enc_compress_block(out, block, &params);
             }
     };
     const unsigned threads = bh < 16 ? 1u : std::clamp(std::thread::hardware_concurrency(), 1u, 8u);
@@ -92,11 +99,134 @@ void encode_level(const Image& img, uint8_t* dst) {
     for (auto& t : pool) t.join();
 }
 
-uint32_t level_bytes(uint32_t w, uint32_t h) { return ((w + 3) / 4) * ((h + 3) / 4) * 16; }
+uint32_t level_bytes(uint32_t w, uint32_t h, uint32_t block = 16) { return ((w + 3) / 4) * ((h + 3) / 4) * block; }
 
 bool power_of_two(uint32_t x) { return x && !(x & (x - 1)); }
 
 }  // namespace
+
+bool decode_png(const Bytes& png, uint32_t max_side, RawImage* out, std::string* why) {
+    int iw = 0, ih = 0, comp = 0;
+    if (png.size() < 8 || std::memcmp(png.data(), "\x89PNG\r\n\x1a\n", 8) != 0 ||
+        !stbi_info_from_memory(png.data(), static_cast<int>(png.size()), &iw, &ih, &comp)) {
+        *why = "not a PNG";
+        return false;
+    }
+    const uint32_t w = static_cast<uint32_t>(iw), h = static_cast<uint32_t>(ih);
+    if (!power_of_two(w) || !power_of_two(h)) {
+        *why = std::to_string(w) + "x" + std::to_string(h) + " is not a power of two on both sides";
+        return false;
+    }
+    if (std::min(w, h) < kMinTextureSide || std::max(w, h) > max_side) {
+        *why = std::to_string(w) + "x" + std::to_string(h) + " is outside " + std::to_string(kMinTextureSide) + ".." + std::to_string(max_side);
+        return false;
+    }
+    int dw = 0, dh = 0, dc = 0;
+    stbi_uc* px = stbi_load_from_memory(png.data(), static_cast<int>(png.size()), &dw, &dh, &dc, 4);
+    if (!px) {
+        *why = std::string("not a readable PNG: ") + stbi_failure_reason();
+        return false;
+    }
+    out->w = w;
+    out->h = h;
+    out->px.assign(px, px + size_t{w} * h * 4);
+    stbi_image_free(px);
+    return true;
+}
+
+RawImage solid_image(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    RawImage d;
+    d.w = d.h = kSolidTextureSide;
+    d.px.resize(size_t{d.w} * d.h * 4);
+    for (size_t i = 0; i < d.px.size(); i += 4) {
+        d.px[i] = r;
+        d.px[i + 1] = g;
+        d.px[i + 2] = b;
+        d.px[i + 3] = a;
+    }
+    return d;
+}
+
+uint8_t linear_to_srgb_byte(float linear) { return to_srgb(linear); }
+
+void multiply_srgb(RawImage* image, const float linear[3]) {
+    if (linear[0] == 1 && linear[1] == 1 && linear[2] == 1) return;
+    uint8_t table[3][256];
+    for (int c = 0; c < 3; ++c)
+        for (int v = 0; v < 256; ++v) table[c][v] = to_srgb(to_linear(static_cast<uint8_t>(v)) * linear[c]);
+    for (size_t i = 0; i < image->px.size(); i += 4)
+        for (int c = 0; c < 3; ++c) image->px[i + c] = table[c][image->px[i + c]];
+}
+
+RawImage resize_image(const RawImage& s, uint32_t w, uint32_t h) {
+    RawImage d;
+    d.w = w;
+    d.h = h;
+    d.px.resize(size_t{w} * h * 4);
+    for (uint32_t y = 0; y < h; ++y) {
+        const float fy = (static_cast<float>(y) + 0.5f) * static_cast<float>(s.h) / static_cast<float>(h) - 0.5f;
+        const uint32_t y0 = static_cast<uint32_t>(std::clamp(std::floor(fy), 0.0f, static_cast<float>(s.h - 1)));
+        const uint32_t y1 = std::min(y0 + 1, s.h - 1);
+        const float ty = std::clamp(fy - static_cast<float>(y0), 0.0f, 1.0f);
+        for (uint32_t x = 0; x < w; ++x) {
+            const float fx = (static_cast<float>(x) + 0.5f) * static_cast<float>(s.w) / static_cast<float>(w) - 0.5f;
+            const uint32_t x0 = static_cast<uint32_t>(std::clamp(std::floor(fx), 0.0f, static_cast<float>(s.w - 1)));
+            const uint32_t x1 = std::min(x0 + 1, s.w - 1);
+            const float tx = std::clamp(fx - static_cast<float>(x0), 0.0f, 1.0f);
+            for (int c = 0; c < 4; ++c) {
+                const auto at = [&](uint32_t ax, uint32_t ay) { return static_cast<float>(s.px[(size_t{ay} * s.w + ax) * 4 + c]); };
+                const float top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * tx;
+                const float bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * tx;
+                d.px[(size_t{y} * w + x) * 4 + c] = static_cast<uint8_t>(std::lround(top + (bottom - top) * ty));
+            }
+        }
+    }
+    return d;
+}
+
+EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCache& cache) {
+    const uint32_t block = format == kFormatBc1Unorm ? 8 : 16;
+    EncodedChain c;
+    c.width = image.w;
+    c.height = image.h;
+    c.format = format;
+    std::vector<uint32_t> sizes;
+    uint64_t total = 0;
+    for (uint32_t lw = image.w, lh = image.h;; lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
+        sizes.push_back(level_bytes(lw, lh, block));
+        total += sizes.back();
+        if (lw == 1 && lh == 1) break;
+    }
+    c.levels = static_cast<uint32_t>(sizes.size());
+    const ContentHash pixels = content_hash(image.px.data(), image.px.size());
+    const std::string key = content_hash_text(pixels) + "-" + std::to_string(image.w) + "x" + std::to_string(image.h) + "-f" + std::to_string(format) + "-" + kEncoderVersion;
+    if (!cache.get || !cache.get(key, &c.data) || c.data.size() != total) {
+        c.data.assign(total, 0);
+        Image img;
+        img.w = image.w;
+        img.h = image.h;
+        img.px = image.px;
+        size_t at = 0;
+        for (size_t level = 0; level < sizes.size(); ++level) {
+            encode_level(img, c.data.data() + at, format);
+            at += sizes[level];
+            if (level + 1 < sizes.size()) img = half(img, format == kFormatBc7Srgb);
+        }
+        if (cache.put) cache.put(key, c.data);
+    }
+    // One range per level with more than 4 KiB left to the end of the blob, each running to the end. What no range starts at is the mip tail. It holds for
+    // all 13,207 images of the game's materials, as for VFX textures (docs/re/vfx.md 2.7, 5).
+    uint64_t cum = 0;
+    c.tail_start = 0;
+    for (uint32_t s : sizes) {
+        if (total - cum > 4096) {
+            c.ranges.push_back({static_cast<uint32_t>(cum), static_cast<uint32_t>(total - cum)});
+            c.tail_start = static_cast<size_t>(cum + s);
+        }
+        cum += s;
+    }
+    return c;
+}
 
 bool build_texture(const Bytes& png, const std::string& mod, const std::string& rel, bool linear, const TextureCache& cache, BuiltTexture* out,
                    std::string* why) {

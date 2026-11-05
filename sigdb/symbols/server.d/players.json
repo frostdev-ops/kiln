@@ -1,7 +1,7 @@
 {
   "format": 1,
   "side": "server",
-  "comment": "kiln.players: who is on the server. Layouts captured from code with typed holes; evidence in docs/re/players.md. Resolves on svn 1285601 and on build 1273043.",
+  "comment": "kiln.players: who is on the server. Layouts captured from code with typed holes; evidence in docs/re/players.md. Resolves on svn 1285601 and on build 1273043. kiln.playerstate adds the reflection lookup (field offsets and state names by name on the running build), the game's reset of a running action and its sub-sequence lookup; evidence in docs/re/player-state.md.",
   "symbols": {
     "players/RegisterSingleton": {
       "find": [
@@ -60,9 +60,36 @@
       "find": [
         { "pattern": "E8 ?? ?? ?? ?? 84 C0 75 ?? 48 8B 44 24 ?? 48 89 47 {players/rec.account:d8} 44 38 67 {players/rec.state:d8} 75" }
       ]
+    },
+    "players/TypeByHash": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 3D ?? ?? ?? ?? 8B D9 48 85 FF 74 ?? 89 4C 24 38 48 8D 54 24 38 48 8D 4F ?? E8" }
+      ]
+    },
+    "players/ActionReset": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 57 48 83 EC 20 0F B6 99 B1 01 00 00 33 D2 41 B8 F8 0B 00 00 48 8B F9 E8 ?? ?? ?? ?? C7 87 C8 0B 00 00 00 40 3C 02 F6 C3 20 74 07 80 8F B1 01 00 00 20 0F 10 05 ?? ?? ?? ?? 48 8D 8F 20 0C 00 00" }
+      ]
+    },
+    "players/SubSequence": {
+      "find": [
+        { "pattern": "40 53 48 83 EC 20 8B C2 41 0F B6 D8 48 8B D1 8B C8 E8 ?? ?? ?? ?? 48 8B C8 48 85 C0 75 0A 33 C9 8B C1 48 83 C4 20 5B C3 8B 40 14 48 3B D8 73 EE" }
+      ]
     }
   },
   "constants": {
+    "players/type.qname": { "value": 32 },
+    "players/type.inner": { "value": 56 },
+    "players/type.size": { "value": 64 },
+    "players/type.count": { "value": 72 },
+    "players/type.kind": { "value": 76 },
+    "players/type.fields": { "value": 88 },
+    "players/type.enum_values": { "value": 96 },
+    "players/field.stride": { "value": 48 },
+    "players/field.type": { "value": 16 },
+    "players/field.offset": { "value": 24 },
+    "players/enum.stride": { "value": 40 },
+    "players/enum.value": { "value": 16 },
     "players/world.singleton_map": { "min_votes": 1 },
     "players/world.singleton_map.bits": { "min_votes": 1 },
     "players/world.singleton_map.capacity": { "min_votes": 1 },
@@ -88,6 +115,16 @@
     "players/rec.account": { "min_votes": 1 }
   },
   "features": {
+    "players.reflection": {
+      "symbols": ["players/TypeByHash"],
+      "constants": ["players/type.qname", "players/type.inner", "players/type.size", "players/type.count", "players/type.kind", "players/type.fields", "players/type.enum_values", "players/field.stride", "players/field.type", "players/field.offset", "players/enum.stride", "players/enum.value"]
+    },
+    "players.action_cancel": {
+      "symbols": ["players/ActionReset"]
+    },
+    "players.sequence_names": {
+      "symbols": ["players/SubSequence"]
+    },
     "players.records": {
       "symbols": ["players/RegisterSingleton", "players/MachineLoggedIn", "players/UpdatePlayers", "players/HandleToEntity"],
       "constants": ["players/server.records", "players/rec.stride", "players/rec.count", "players/rec.state", "players/rec.name", "players/rec.entity", "players/rec.permissions", "players/rec.group", "players/rec.account"]

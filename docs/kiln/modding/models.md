@@ -1,8 +1,9 @@
-# Custom 3D models (rigid weapons first)
+# Custom 3D models
 
 A mod can:
 - give a vanilla item a new mesh (an override of its `keen::RenderModel`);
-- give a new item a model of its own.
+- give a new item a model of its own;
+- cook a [skinned model](#skinned-models) for a creature, on a skeleton of its own or one of the game's.
 
 You model in Blender (or anything that writes glTF 2.0). The cook recipe `assets/cook.json` turns the glTF into the
 game's format on the player's machine with `tools/modelcook`. kiln.assets serves the result to the game at boot.
@@ -13,7 +14,8 @@ Status:
   bytes.
 - **In game: an overridden weapon model renders**. Still to check: the handedness marker read
   upright, icons, and a crafted new item.
-- **Skinned armor and animations: not yet.** Research plan in docs/re/models.md section 7.
+- **Skinned models: proven offline and on a dedicated server, not yet seen in a client.** See [Skinned models](#skinned-models). Blend shapes, cloth and chains aren't written; skinned armor still
+  needs those decisions (docs/re/models.md section 7).
 
 ## The rule: ship sources and a recipe, never game data
 A mod folder holds only what its author made:
@@ -83,8 +85,9 @@ data):
 - `base`: the template for every non-geometry field (materials unless set below).
 - `guid`: `"@input"` is that input's GUID (an override), or give a new fixed GUID.
 - `mode`: `"override"` or `"new"`.
-- `material`: optional, one RenderMaterialResource for every primitive.
-- `materialMap`: optional, glTF material name -> material GUID.
+- `material`: optional, one material for every primitive: a game material's GUID or `@input`, or the name of a [material block](materials.md) of this mod.
+- `materialMap`: optional, glTF material name -> the same.
+- `materials`: `"gltf"` makes a material block of every glTF material the map doesn't cover ([materials.md](materials.md)). No `base` or game material is needed then.
 
 `op: "visual"` makes a visual template for a new item: a copy of `base` whose ModelResource points at `model`.
 
@@ -132,7 +135,7 @@ mismatch.
 - **Geometry limits.**
   - One glTF primitive per material.
   - Each primitive at most 65,535 vertices: indices are u16.
-  - Triangles only; no skins, morph targets or sparse accessors yet.
+  - Triangles only; no morph targets or sparse accessors yet. A skinned glTF needs `skeleton` in its step.
   - Node transforms are applied.
 - **UVs.** Top-left origin, as glTF. With the base model's material, your UVs sample its textures. ModelSample maps
   its cubes onto the Bronze Sword's steel and leather.
@@ -161,7 +164,7 @@ Each model is decoded again with tools/kfc and checked:
 - re-encodes byte for byte;
 - the content hash matches the blob (kiln.assets' SHA-256 rule);
 - ranges and indices are valid;
-- the materials exist in the game;
+- the materials exist in the game, or are blocks of this mod;
 - the winding is like vanilla's;
 - the fields, vertex format and renderData category are the same as the base's;
 - positions come back within the quantization step (≈ 1 µm on a sword), normals within 0.5 %, UVs within f16
@@ -173,6 +176,165 @@ python3 tools/kfc/kfc.py model cooked --bin assets/cooked/frost_sword.bin --gltf
 python3 tools/kfc/kfc.py model 9c38c7f0-fd0a-41a6-b91e-9a16287b8f59 --gltf bronze.gltf  # a vanilla one
 python3 tools/kfc/kfc.py find-items 'Sword'     # item -> model / visual template GUIDs
 ```
+
+## Skinned models
+
+A glTF with a skin cooks to a skinned model when its step names a `skeleton`, either a `skeleton` step of the same recipe or one of the game's skeletons:
+
+```json
+{
+  "format": 1,
+  "tool": "modelcook",
+  "inputs": { "fur": { "guid": "<a keen::RenderMaterialResource>", "type": "keen::RenderMaterialResource" } },
+  "steps": [
+    { "tool": "animcook", "op": "skeleton", "name": "golem", "gltf": "src/golem.glb" },
+    { "op": "model", "gltf": "src/golem.glb", "lods": ["src/golem_lod1.glb"], "pixelSizes": [0, 0.05],
+      "skeleton": "golem", "materialMap": { "fur": "@fur" }, "name": "golem", "stem": "golem" }
+  ]
+}
+```
+
+The animation steps are in [animations.md](animations.md). The order of the steps doesn't matter: a model step reads the skeleton step's glTF itself, so it binds to the same joints and the same
+GUID whichever tool runs first.
+
+| Key | Meaning |
+|---|---|
+| `skeleton` | The name of a `skeleton` step, or `"@input"` of type `keen::ModelHierarchyResource` |
+| `material`, `materialMap`, `base` | What to draw with. One is needed. `base` (a game model) gives the default materials, and is optional on a skinned model |
+| `guid`, `mode` | Without `base` or with `"mode": "new"`, the GUID follows from `<mod>:model:<name>`. For an override: `"guid": "@input"`, `"mode": "override"` |
+| `globalScale` | Rarely needed, see [below](#globalscale) |
+
+### Authoring
+
+- **Bind in the rest pose.** Export with the armature at rest. glTF allows a mesh bound in another pose; the game can't store that, so the cook stops and says which joints disagree.
+- **Vertices.** The file's skin decides where they go, so an armature object that is moved, turned or scaled is fine (the skeleton step bakes it into the root). A skinned mesh node's own
+  transform is ignored, as in glTF.
+- **Joints are matched by name**, so LOD files with their own node order bind the same way. On a game skeleton the names are `j<index>`, since the game's names are stripped. Start from
+  an export of one of its models, which keeps the armature and bind pose: `python3 tools/kfc/kfc.py model <guid> --gltf body.gltf --skin`.
+- **A mesh with no skin under a bone** follows that bone (a club parented to the hand). A mesh with no skin and no joint above it stops the cook, which also catches the startup cube.
+
+The sample `tools/modelcook/samples/rigged_figure.py` writes such a creature with no outside data; `samples/mannequin.py` writes a mesh for one of the game's skeletons.
+
+### Limits
+
+| Limit | Value | Where it comes from | When it's passed |
+|---|---|---|---|
+| Joints in a model | 256 with weight | the stream's u8 index; the client's own path has no fixed cap | error |
+| Joints in a skeleton | 255 | u8 bone indices in masks and IK chains. The largest in the game has 172, and more is untested in a client | error (animcook) |
+| Weights per vertex | 4, summing to 255 | the stream | keeps the heaviest 4. Over 10 % of a vertex's weight lost: error. Over 1 %: warning |
+| Unweighted vertex | none allowed | it would collapse to the origin | error |
+| Vertices per primitive | 65,535 | u16 indices | error |
+| LODs | 8 | the most in any of the game's 10,470 models; the limit in the engine wasn't found | error |
+| `pixelSizes` | one per LOD, 0 first, rising | the game's data | error |
+| Materials | 12 | the most in any game model; the loader keeps a growing array | error |
+| Material's effect | `Pbr` | every skinned model of the game | error |
+
+A coarser LOD may use fewer materials (101 of the game's models do) and any joints of the skeleton. Primitives with identical vertices share a vertex group, as the game's LODs do.
+
+Not written: blend shapes, cloth, chains, sleeves, card clusters, and a skinned tree. None of them is needed for a creature (no creature model uses blend shapes, and cloth and chains are
+optional on the ones that have them).
+
+### globalScale
+
+`globalScale` doesn't resize a model. The game's models carry a size their skeleton was cooked at (1.3 on the Vukah) and it's already in their vertices and joints. At run time the client
+multiplies only the cloth colliders by it, so without cloth the value does nothing. The cook stores what the `base` or the game's models on that skeleton store, and 1 on a skeleton of your own.
+To change a creature's size, scale the glTF, or its `ScaleComponent` per entity.
+
+### Status
+
+- **Proven offline.** All 1,342 of the game's skinned models go through glTF and this cooker: indices identical, positions within about one quantum, the same joints and weights, and posed by a
+  clip of their own they stay within 0.021 mm of the original. A creature authored and exported by Blender, cooked and posed, stays within 3.05 mm of Blender's own armature modifier
+  (weights are stored in 255ths); its rest pose within 0.01 mm.
+- **Proven on a dedicated server** (`mods/tests/skincheck`, 9 checks): the sample figure's own skeleton, clips and graph run in the server's animation engine, and model vertices skinned by the
+  engine's joints land within 0.26 mm of the cook's numbers. The states a clone's AI asks for answer. A kill with no player around sets no Dead state, on the game's own Vukah either, so that part
+  is left for the client.
+- **Not proven:** anything drawn by a client. See [Manual checks](#manual-checks).
+
+### Validation
+
+Besides the checks above, a cook reads the stream back: every vertex covered, weights sum to 255 in descending order, indices inside the map, offsets cumulative, the skeleton's GUID and joint
+count. The report's `skin` section gives the joint counts and how far vertices are from their heaviest joint.
+
+| Check | What it does | Needs |
+|---|---|---|
+| `python3 -m unittest discover -s tools/modelcook/tests` | Reading, the limits, cooked data posed as the client poses it against the glTF per its specification | nothing |
+| `python3 tools/modelcook/tests/run_blender_check.py` | A creature authored and exported by Blender, cooked, posed, against Blender's own armature modifier | Blender |
+| `python3 tools/modelcook/tests/game_skin_check.py stream` | Every skinned game model's stream through the writer, against the game's bytes | the game |
+| `python3 tools/modelcook/tests/game_skin_check.py cook` | Every skinned game model exported to glTF, cooked, compared, posed by one of its clips | the game, some minutes |
+| `python3 tools/modelcook/tests/skin_render.py` | Draws cooked or game models in a pose, for your eyes | Pillow |
+| `mods/tests/skincheck` on a dedicated server | The server's animation engine runs the skeleton, clip and graph; vertices skinned by its joints against the cook's numbers. Prints `skincheck: PASS` lines by itself. Servers have no models, so kiln.assets warns that the Vukah's override is skipped | a server |
+
+### Building on it
+
+What a tool that generates creature bodies needs:
+
+**Input.** A model step as above. `name` is what the GUID follows from, `stem` what the files are called.
+
+**Output**, in the recipe's `out` folder:
+
+| File | What |
+|---|---|
+| `<stem>.bin`, `<stem>.blob` | The RenderModel and its GPU data, listed in `assets.json` with `--update-manifest` |
+| `<stem>.model.json` | `{ guid, name, skeleton, joints, lods, materials, boundingBox, globalScale }`: what a template or a block needs, without the binary |
+| `cook-report.json` | `steps[i]`: `guid`, `mode`, `checks`, `warnings`, `skin` |
+
+**Using it in a template:**
+- `ModelResource.model` is the model's `guid`.
+- `AnimationGraphResourceComponent2.animationGraph` is the graph's `guid` (`<name>.graph.json`).
+- **The graph's skeleton has to be the model's.** Each frame the client poses a model only if its `hierarchy` equals the pose's skeleton GUID, by value; otherwise the mesh gets no joints. A
+  `<stem>.model.json` and a `<name>.graph.json` must name the same `skeleton`.
+- A clone of a game creature also needs a graph that answers the state ids its AI and arsenal ask for. `mods/tests/skincheck/assets/cook.json` lists the Vukah's, and
+  [animations.md](animations.md) says how a state takes an `id`. `mods/tests/skincheck/build-assets.py` makes the template copy.
+- Gear on slots needs `slots` in the graph step: `SlotAttachment` and `SpawnImpact` colliders read them.
+
+**From Python:** `cook/steps.py` `model(k, t, gltf_files, base, guid=..., target=..., global_scale=...)` is what a step runs, with `target` from `cook/skin.py` `Target.from_skeleton(sk, guid)` or
+`steps.game_target(k, t, guid)`. `cook/skin.py` raises `SkinError` for what would draw wrong, with a message meant for the author, and returns warnings for the rest.
+
+### Manual checks
+
+These need your eyes in the game client; nothing has been seen drawn yet. They deploy Kiln into your game folder and run on a local world, so the steps back up your saves first. They are
+checks H3 and H4 of docs/re/npc-internals.md section 8.
+
+```
+python3 mods/tests/skincheck/build-assets.py
+dotnet build mods/tests/skincheck/SkinCheck.csproj -c Release -o /tmp/skincheck
+tools/client/client.sh backup-saves
+tools/client/client.sh deploy --real --policy any --mod /tmp/skincheck
+```
+
+Start the game and load a local world, on the LOCAL tab. Commands go to a file, with `<game>` your Enshrouded folder; the answer is in `<game>/kiln/control/console/c.result.json`:
+
+```
+echo 'skincheck vukah still' > <game>/kiln/control/console/c.cmd
+```
+
+`kiln.log` is `<game>/kiln/logs/kiln.log`. At boot it should say `assets:` with no errors for the mod. In every check, look there for `[model_loader]`, `failed to initialize Animation Graph
+Instance` and `Could not find description`: none should appear.
+
+**1. A cooked mesh on the game's skeleton** (H3). `skincheck vukah still` puts a Vukah 5 m from you, friendly and standing still. It's a stick figure of tan tubes, the size of a Vukah.
+
+- **Pass:** its limbs and head move through the Vukah's idle, smoothly, the tubes staying joined at the joints. Then `skincheck clear` and `skincheck vukah`: a hostile one walks to you and
+  attacks, and hits land about where the arm swings. `skincheck kill` shows it die.
+- **Fail:** vertices shoot off to the world's origin or far away (spikes: the joint map or weights are wrong); limbs swap sides or the figure is mirrored (the bind matrices); the mesh stands
+  still while the shadow or the hit boxes move (no joints arrive: compare the model's `hierarchy`); it disappears at some angles when an arm swings out (culling: see below).
+
+**2. A creature of our own files** (H4). `skincheck clear`, then `skincheck figure still`. A figure of tubes about 2 m tall, with a club in its **right** hand. Its own skeleton, clips, graph and
+model; only the behaviour is a copy of the Vukah's.
+
+- **Pass, standing:** it breathes slowly: chest and arms move about 4 degrees over 2 seconds.
+- **Pass, as an enemy:** `skincheck clear`, then `skincheck figure`. It sees you, comes at you with its legs swinging (the walk or the run), and swings the club overhead and down when close. Hitting it
+  flinches its chest. `skincheck kill`, or your own weapon: it falls on its back and stays, then disappears as any enemy does.
+- **Fail:** T-pose or stuck in one pose (the graph isn't running, see the log lines above), a state it never leaves (a state id the AI asks for is missing from the recipe: note what it was
+  doing), the club in its left hand (mirrored).
+
+**If the first check fails and you want the second:** quit, `build-assets.py --no-override`, build and deploy again. The Vukah then keeps its own model.
+
+**What to note even when it passes:**
+- a culling pop: the model's box is the exact bind-pose bounds, as in the game's own models, and how the renderer culls a mesh animated outside it wasn't read;
+- whether the far LOD (back away about 50 m) is the coarser body, with no jump in pose;
+- whether the shadow follows the pose.
+
+**Afterwards:** quit the game, then `tools/client/client.sh undeploy --real`. Don't use `level`, `xp` or `skillpoints` for these checks: on a real client they can fire Steam achievements.
 
 ## Sample
 `mods/samples/ModelSample`:

@@ -117,12 +117,8 @@ public static unsafe partial class Ui
         {
             var t = UiNative.Craft;
             if (t == null) return "{\"menu\":false}";
-            nuint len = 0;
-            t->Describe(workshop, null, 0, &len);
-            var buf = new byte[(int)len + 1];
-            fixed (byte* p = buf)
-                if (t->Describe(workshop, p, (nuint)buf.Length, &len) != UiNative.Ok) return "{}";
-            return Encoding.UTF8.GetString(buf, 0, (int)len);
+            var text = NativeText.Read((b, cap, len) => t->Describe(workshop, b, cap, len), out var rc);
+            return rc == UiNative.Ok ? text : "{}";
         }
 
         private static CraftingMenuAddition? Add(bool tab, uint workshop, int index, UiText label, IEnumerable<uint> recipes)

@@ -1,6 +1,6 @@
 ---
 name: kiln-modding
-description: Build, test and debug Kiln mods for Enshrouded. Use when writing or changing a Kiln mod (C# with Kiln.Sdk, kiln.mod.json, content/*.json data packs, game data, new items, creatures, abilities, talents, quests, friendly NPCs, sounds, game UI, assets, world edits), when using the kiln command, kiln lint, the analyzers or the debugger, when deploying to a local test server, hot reloading, running in-server tests, or reading kiln.log to find out why a mod did not load.
+description: Build, test and debug Kiln mods for Enshrouded. Use when writing or changing a Kiln mod (C# with Kiln.Sdk, kiln.mod.json, content/*.json data packs, game data, new items, creatures, abilities, talents, quests, friendly NPCs, sounds, particles and VFX, game UI, assets, world edits), when using the kiln command, kiln lint, the analyzers or the debugger, when deploying to a local test server, hot reloading, running in-server tests, or reading kiln.log to find out why a mod did not load.
 ---
 
 # Kiln modding
@@ -28,6 +28,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 2. **Write**: to make something new, building blocks first (`kiln new spell`, `Blocks.Define`, `blocks/*.json`; [references/docs-map.md](references/docs-map.md)): no GUIDs, no base items. `kiln blocks show <name>` says what a block became. Data over code where you can.
    [references/data-packs.md](references/data-packs.md),
    [references/quests-talents-sounds.md](references/quests-talents-sounds.md),
+   [references/vfx.md](references/vfx.md),
    [references/api.md](references/api.md).
 3. **Check names**: `kiln catalog search`. Never guess game ids or field paths.
 4. **Build and deploy** to a local test server: `kiln build && kiln deploy`, then `kiln run`.

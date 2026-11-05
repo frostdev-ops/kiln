@@ -520,7 +520,68 @@ mod build {
         prog.fields = vec![("dataLayout", "keen::BlobArray<keen::ImpactVariable>", 40)];
         t.push(prog);
         t.push(rec("keen::float32", 4, K_F32));
-        std::fs::write(dir.join("enshrouded.exe"), build_pe(&t)).unwrap();
+        // a VFX: what the catalog reads of it, and the components and events that name it
+        t.push(rec("keen::ObjectReference<keen::VfxDefinition>", 16, K_OBJECT_REF));
+        let mut vref = rec("keen::VfxReference", 16, K_TYPEDEF);
+        vref.inner = Some("keen::ObjectReference<keen::VfxDefinition>");
+        t.push(vref);
+        let mut vc = rec("keen::ecs::VfxComponentResource", 16, K_STRUCT);
+        vc.fields = vec![("vfx", "keen::VfxReference", 0)];
+        t.push(vc);
+        let mut dl = rec("keen::ecs::DestroyOnLoot", 16, K_STRUCT);
+        dl.fields = vec![("vfx", "keen::VfxReference", 0)];
+        t.push(dl);
+        let mut r8 = rec("keen::Range8", 2, K_STRUCT);
+        r8.fields = vec![("start", "keen::uint8", 0), ("count", "keen::uint8", 1)];
+        t.push(r8);
+        let mut pd = rec("keen::VfxUserEffectParameterDescription", 12, K_STRUCT);
+        pd.fields = vec![("nameHash", "keen::HashKey32", 0), ("typeId", "keen::uint32", 4), ("dataRange", "keen::Range8", 8)];
+        t.push(pd);
+        for (arr, inner) in [
+            ("keen::BlobArray<keen::VfxUserEffectParameterDescription>", "keen::VfxUserEffectParameterDescription"),
+            ("keen::BlobArray<keen::VfxParticleStateBufferInfo>", "keen::VfxParticleStateBufferInfo"),
+            ("keen::BlobArray<keen::VfxBufferMember>", "keen::VfxBufferMember"),
+        ] {
+            let mut a = rec(arr, 8, K_BLOB_ARRAY);
+            a.inner = Some(inner);
+            t.push(a);
+        }
+        let mut member = rec("keen::VfxBufferMember", 16, K_STRUCT);
+        member.fields = vec![("name", "keen::string", 0)];
+        t.push(member);
+        let mut state = rec("keen::VfxParticleStateBufferInfo", 12, K_STRUCT);
+        state.fields = vec![("members", "keen::BlobArray<keen::VfxBufferMember>", 0)];
+        t.push(state);
+        let mut vr = rec("keen::VfxResource", 216, K_STRUCT);
+        vr.fields = vec![
+            ("cullingDistanceMin", "keen::float32", 0),
+            ("cullingDistanceMax", "keen::float32", 4),
+            ("killTimeInSeconds", "keen::uint32", 8),
+            ("emitterCount", "keen::uint32", 0xc),
+            ("particles", "keen::BlobArray<keen::uint32>", 0x14),
+            ("stateInfos", "keen::BlobArray<keen::VfxParticleStateBufferInfo>", 0x1c),
+            ("meshes", "keen::BlobArray<keen::uint32>", 0x34),
+            ("images", "keen::BlobArray<keen::uint32>", 0x4c),
+            ("parameters", "keen::BlobArray<keen::VfxUserEffectParameterDescription>", 0x6c),
+            ("defaultParameterData", "keen::uint32", 0x74),
+        ];
+        t.push(vr);
+        let mut ve = rec("keen::VfxNotifierEvent", 0x20, K_STRUCT);
+        ve.fields = vec![("vfx", "keen::VfxReference", 0x10)];
+        t.push(ve);
+        let mut sub = rec("keen::actor::ActorSubSequenceResource", 72, K_STRUCT);
+        sub.fields = vec![("events", "keen::BlobArray<keen::uint32>", 0), ("name", "keen::string", 0x14)];
+        t.push(sub);
+        let mut suba = rec("keen::BlobArray<keen::actor::ActorSubSequenceResource>", 8, K_BLOB_ARRAY);
+        suba.inner = Some("keen::actor::ActorSubSequenceResource");
+        t.push(suba);
+        let mut seq = rec("keen::actor::ActorSequenceResource", 24, K_STRUCT);
+        seq.fields = vec![("subSequences", "keen::BlobArray<keen::actor::ActorSubSequenceResource>", 0x10)];
+        t.push(seq);
+        // the exe's strings hold one parameter's name; a particle's state member gives another
+        let mut pe = build_pe(&t);
+        pe.extend_from_slice(b"\0radius\0");
+        std::fs::write(dir.join("enshrouded.exe"), pe).unwrap();
 
         let th = |n: &str| fnv1a32(n.as_bytes());
         let tag = |n: u8| fnv1a32(&guid(n));
@@ -550,6 +611,72 @@ mod build {
         let perk = |tagn: u8, dbg: &str| {
             let mut b = Blob::new(0x20);
             b.guid(0, guid(tagn)).string(0x10, dbg);
+            b.0
+        };
+        // a template whose components carry VFX: {type hash, offset from +4, size}, the bodies after the list
+        let tmpl_vfx = |name: &str, comps: &[(&str, u8)]| {
+            let mut b = Blob::new(24);
+            b.string(0, name);
+            let mut list = vec![0u8; (12 + 16) * comps.len()];
+            for (i, (c, vfx)) in comps.iter().enumerate() {
+                let at = 12 * i;
+                list[at..at + 4].copy_from_slice(&fnv1a32(c.as_bytes()).to_le_bytes());
+                let body = 12 * comps.len() + 16 * i;
+                list[at + 4..at + 8].copy_from_slice(&((body - (at + 4)) as i32).to_le_bytes());
+                list[at + 8..at + 12].copy_from_slice(&16u32.to_le_bytes());
+                list[body..body + 16].copy_from_slice(&guid(*vfx));
+            }
+            b.array(8, &list, comps.len() as u32);
+            b.0
+        };
+        // an actor sequence with one named sub-sequence: its events are [VfxNotifierEvent for each VFX]
+        let sequence = |name: &str, vfx: &[u8]| {
+            let mut b = Blob::new(24);
+            let mut sub = vec![0u8; 72];
+            let mut events = vec![0u8; (12 + 0x20) * vfx.len()];
+            for (i, v) in vfx.iter().enumerate() {
+                let at = 12 * i;
+                events[at..at + 4].copy_from_slice(&fnv1a32(b"keen::VfxNotifierEvent").to_le_bytes());
+                let body = 12 * vfx.len() + 0x20 * i;
+                events[at + 4..at + 8].copy_from_slice(&((body - (at + 4)) as i32).to_le_bytes());
+                events[at + 8..at + 12].copy_from_slice(&0x20u32.to_le_bytes());
+                events[body + 0x10..body + 0x20].copy_from_slice(&guid(*v));
+            }
+            sub[0..4].copy_from_slice(&72i32.to_le_bytes());
+            sub[4..8].copy_from_slice(&(vfx.len() as u32).to_le_bytes());
+            let mut all = sub;
+            all.extend_from_slice(&events);
+            b.array(0x10, &all, 1);
+            let base = b.0.len() - all.len();
+            b.string(base + 0x14, name);
+            b.0
+        };
+        // a VFX: parameters {hash, type id, range}, the 64-byte block, a state member's name
+        let vfx_res = |kill: u32, params: &[(&str, &str, u8, u8)], block: &[(usize, &[u8])]| {
+            let mut b = Blob::new(216);
+            b.0[0..4].copy_from_slice(&50f32.to_le_bytes());
+            b.0[4..8].copy_from_slice(&75f32.to_le_bytes());
+            b.u32(8, kill).u32(0xc, 1);
+            for (at, v) in block {
+                b.0[0x74 + at..0x74 + at + v.len()].copy_from_slice(v);
+            }
+            let mut p = vec![0u8; 12 * params.len()];
+            for (i, (name, ty, start, count)) in params.iter().enumerate() {
+                p[12 * i..12 * i + 4].copy_from_slice(&fnv1a32(name.as_bytes()).to_le_bytes());
+                p[12 * i + 4..12 * i + 8].copy_from_slice(&fnv1a32(format!("VfxEffectParameter{ty}").as_bytes()).to_le_bytes());
+                p[12 * i + 8] = *start;
+                p[12 * i + 9] = *count;
+            }
+            if !params.is_empty() {
+                b.array(0x6c, &p, params.len() as u32);
+            }
+            // one state info with one member, "lifetime", so that name is known without the exe
+            let mut state = vec![0u8; 12 + 16];
+            state[0..4].copy_from_slice(&12i32.to_le_bytes());
+            state[4..8].copy_from_slice(&1u32.to_le_bytes());
+            b.array(0x1c, &state, 1);
+            let base = b.0.len() - state.len();
+            b.string(base + 12, "lifetime");
             b.0
         };
         let tmpl = |name: &str, comps: &[&str]| {
@@ -600,6 +727,15 @@ mod build {
             Res { guid: guid(6), type_hash: th("keen::SkillTreeResource"), part: 0, data: tree.0.clone() },
             Res { guid: guid(7), type_hash: th("keen::BuffTypeCollectionResource"), part: 0, data: buffs.0.clone() },
             Res { guid: guid(8), type_hash: th("keen::LocaTagCollectionResource"), part: 0, data: coll.0.clone() },
+            // 0x61 carried by a template; 0x62 played first by a sequence, named by a label too; 0x63 only a label; 0x64 nothing names
+            Res { guid: guid(0x61), type_hash: th("keen::VfxResource"), part: 0, data: vfx_res(10, &[("radius", "Float", 0, 4), ("lifetime", "Float", 4, 4), ("duration", "Float", 8, 4), ("tint", "Color", 12, 4)], &[(0, &2f32.to_le_bytes()), (4, &30f32.to_le_bytes()), (8, &12f32.to_le_bytes()), (12, &[0x7f, 0xd4, 0xff, 0xff])]) },
+            Res { guid: guid(0x62), type_hash: th("keen::VfxResource"), part: 0, data: vfx_res(3, &[], &[]) },
+            Res { guid: guid(0x63), type_hash: th("keen::VfxResource"), part: 0, data: vfx_res(10, &[], &[]) },
+            Res { guid: guid(0x64), type_hash: th("keen::VfxResource"), part: 0, data: vfx_res(0, &[], &[]) },
+            Res { guid: guid(0x65), type_hash: th("keen::ecs::TemplateResource"), part: 0, data: tmpl_vfx("Explosion_Test", &[("keen::ecs::VfxComponentResource", 0x61)]) },
+            Res { guid: guid(0x66), type_hash: th("keen::ecs::TemplateResource"), part: 0, data: tmpl_vfx("Base_Explosion_Long_Name", &[("keen::ecs::VfxComponentResource", 0x61)]) },
+            Res { guid: guid(0x67), type_hash: th("keen::ecs::TemplateResource"), part: 0, data: tmpl_vfx("Prop_Test", &[("keen::ecs::DestroyOnLoot", 0x63)]) },
+            Res { guid: guid(0x68), type_hash: th("keen::actor::ActorSequenceResource"), part: 0, data: sequence("Cast_Test", &[0x62, 0x63]) },
             Res {
                 guid: guid(9),
                 type_hash: th("keen::ImpactProgram"),
@@ -688,6 +824,41 @@ mod build {
         assert_eq!(cfg("0x0d0d0003").get("kind"), Some(&serde_json::json!("ref")));
         assert_eq!(cfg("0xaf236ece").name.as_deref(), Some("ManaCost"));
         assert_eq!(cfg("0xaf236ece").get("readBy"), Some(&serde_json::json!("C++")));
+        // VFX: named from what uses them, the name a run-time lookup takes first
+        let by_guid = |n: u8| {
+            let g = crate::gameart::kfc::guid_text(&guid(n));
+            c.section("vfx").iter().find(|e| e.guid.as_deref() == Some(g.as_str())).unwrap_or_else(|| panic!("no VFX {g}"))
+        };
+        assert_eq!(c.section("vfx").len(), 4);
+        let carried = by_guid(0x61);
+        assert_eq!(carried.name.as_deref(), Some("Explosion_Test"), "not the Base_ template");
+        assert_eq!(carried.get("namedFrom"), Some(&serde_json::json!("template")));
+        assert_eq!(carried.get("byName"), Some(&serde_json::json!(true)));
+        assert_eq!(carried.get("names"), Some(&serde_json::json!(["Explosion_Test", "Base_Explosion_Long_Name"])), "every name a run-time lookup takes");
+        assert_eq!(carried.get("usedBy"), None);
+        let params = carried.get("parameters").unwrap();
+        assert_eq!(params[0], serde_json::json!({"name": "radius", "type": "float", "default": 2.0}), "the name from the exe's strings");
+        assert_eq!(params[1], serde_json::json!({"name": "lifetime", "type": "float", "default": 30.0}), "the name from a state member");
+        assert_eq!(params[2]["hash"], serde_json::json!(hex_id(fnv1a32(b"duration"))), "a name nothing holds stays a hash");
+        assert_eq!(params[3]["type"], serde_json::json!("color"));
+        assert_eq!(params[3]["default"], serde_json::json!("#7fd4ffff"));
+        assert_eq!(carried.get("length"), Some(&serde_json::json!(30.0)), "lifetime beats the kill time; duration's name was not recovered");
+        assert_eq!(carried.get("cullDistance"), Some(&serde_json::json!([50.0, 75.0])));
+        let played = by_guid(0x62);
+        assert_eq!(played.name.as_deref(), Some("Cast_Test"));
+        assert_eq!(played.get("namedFrom"), Some(&serde_json::json!("sequence")));
+        assert_eq!(played.get("byName"), Some(&serde_json::json!(true)));
+        assert_eq!(played.get("length"), Some(&serde_json::json!(3.0)));
+        let label = by_guid(0x63);
+        assert_eq!(label.name.as_deref(), Some("Prop_Test_DestroyOnLoot"), "a label, and not the shorter Cast_Test, which a run-time lookup answers with another VFX");
+        assert_eq!(label.get("namedFrom"), Some(&serde_json::json!("use")));
+        assert_eq!(label.get("byName"), None);
+        assert_eq!(label.get("usedBy"), Some(&serde_json::json!(["Cast_Test"])));
+        let alone = by_guid(0x64);
+        assert_eq!(alone.name.as_deref(), Some(format!("Vfx_{}", &crate::gameart::kfc::guid_text(&guid(0x64))[..8]).as_str()));
+        assert_eq!(alone.get("namedFrom"), None);
+        assert_eq!(alone.get("length"), Some(&serde_json::json!(10.0)), "says nothing: 10 s");
+        assert_eq!(search(&c, "Base_Explosion_Long_Name", Some("vfx"), 5).first().and_then(|h| h.name.as_deref()), Some("Explosion_Test"), "search finds a VFX by what else uses it");
         // sections the synthetic game lacks are problems, not failures
         assert!(c.problems.iter().any(|p| p.starts_with("recipes:")));
         // Kiln.Game local types: the dump and Generated.cs

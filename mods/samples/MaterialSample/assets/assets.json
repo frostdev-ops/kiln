@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "blob",
+      "file": "cooked/frost_sword.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b3",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/frost_sword.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/frost_sword.blob"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a2",
+      "type": "keen::ecs::TemplateResource",
+      "part": 0,
+      "file": "cooked/frost_sword_visual.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/ember_sword.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b4",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/ember_sword.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/ember_sword.blob"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a3",
+      "type": "keen::ecs::TemplateResource",
+      "part": 0,
+      "file": "cooked/ember_sword_visual.bin",
+      "mode": "new"
+    }
+  ]
+}

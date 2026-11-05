@@ -1,0 +1,5 @@
+{
+  "format": 1,
+  "vfx": { "spark": { "light": { "radius": 2 } } },
+  "effects": { "boom": { "vfx": "spark" } }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "npc-rules-companion",
+  "name": "kiln.creatures rules: the mod the test unloads",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NpcRulesCompanion.dll",
+  "side": "server"
+}

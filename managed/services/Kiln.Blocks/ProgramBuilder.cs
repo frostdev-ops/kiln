@@ -15,7 +15,7 @@ internal readonly record struct ImpactType(uint Hash, int Size)
         Transform = new(0x9493a8c5, 56), Material = new(0x10e7bb7a, 4), Template = new(0x2a44d9ef, 16), Damage = new(0x4af58ef7, 52),
         FactionMask = new(0x1549512f, 2), WeaponCategory = new(0x87d03d12, 16), Reaction = new(0x3aa3bbdf, 2), Push = new(0x2247ca8b, 1),
         Direction = new(0x1b94ffe1, 1), AttackMask = new(0x5a36e6e3, 1), StreamType = new(0x3c78bf79, 1), Visceral = new(0x90d72cd0, 1),
-        ItemId = new(0x5bfc0dbb, 4), CompareOp = new(0x70424866, 1);
+        ItemId = new(0x5bfc0dbb, 4), CompareOp = new(0x70424866, 1), Slot = new(0xa1fc72d4, 1);
 }
 
 /// <summary>A value of a program only the running game knows (a game status's GUID, a template's by its name): it is filled in when content is ready.</summary>
@@ -39,6 +39,7 @@ internal sealed class ProgramBuilder(string key)
         ["applyAttributeValue"] = (0x798388df, 7), ["revertApplyAttributeValue"] = (0xe41652a7, 7), ["isValidEntity"] = (0xcf3810a6, 1),
         ["filterFriends"] = (0xd6bb2b78, 4), ["filterSameRoot"] = (0xf52a5619, 4), ["forEachCollisionInStream"] = (0xd0a532b0, 11),
         ["itemBasedMaterialReaction"] = (0xad415283, 8), ["equal"] = (0x0294c6df, 3), ["triggerNoise"] = (0xd471249f, 2),
+        ["GetSlotTransform"] = (0x3e1c0b5d, 5),
     };
 
     internal sealed class Label { public int Pc = -1; public readonly List<int> Uses = new(); }

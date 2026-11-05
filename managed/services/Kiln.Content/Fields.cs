@@ -140,11 +140,11 @@ internal static class FieldConvert
     public static string FlatEnum(Enum value) =>
         value.GetType().IsDefined(typeof(FlagsAttribute), false) ? string.Join(",", EnumNames(value)) : EnumName(value);
 
-    private static object ParseEnum(Type type, string? names)
+    private static object ParseEnum(Type type, string names)
     {
         ulong bits = 0;
         var flags = type.IsDefined(typeof(FlagsAttribute), false);
-        foreach (var part in (names ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var part in names.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             Enum? hit = null;
             foreach (Enum one in Enum.GetValues(type))
@@ -178,7 +178,7 @@ internal static class FieldConvert
             t == typeof(double) ? v.AsDouble :
             t == typeof(TimeSpan) ? TimeSpan.FromSeconds(v.Number) :
             t == typeof(Guid) ? v.Guid :
-            t.IsEnum ? ParseEnum(t, v.Name) :
+            t.IsEnum ? (v.Name is null ? Enum.ToObject(t, v.Integer) : ParseEnum(t, v.Name)) :
             t == typeof(string) ? v.Name ?? v.Guid.ToString() :
             throw new ArgumentException($"a field cannot hold a {t.Name}");
         return (T)r;

@@ -4,7 +4,6 @@ compared with the same pose evaluated from the glTF per its specification. The l
 
     python3 -m unittest discover -s tools/modelcook/tests -p test_skin.py
 """
-import copy
 import json
 import struct
 import sys
@@ -230,7 +229,7 @@ class DeformTests(FigureBase):
 
     def test_a_pose_deforms_as_authored(self):
         doc = Doc(self.path)
-        for name, cap in (("Bend", 0.006), ("Attack", 0.006), ("Walk", 0.006)):
+        for name, cap in (("Bend", 0.002), ("Attack", 0.002), ("Walk", 0.002), ("Run", 0.004)):
             raw, info, _, _ = C.cook_clip(doc, name, self.sk)
             clip = anim.parse(raw)
             dp = anim.parse_default_pose(self.raw_h)
@@ -297,6 +296,27 @@ class GameSkeletonTests(FigureBase):
         self.assertEqual(Decoder(TYPES).decode("keen::RenderModel", data)["jointCount"], 14)
 
 
+    def test_a_skeleton_whose_default_pose_is_not_its_bind(self):
+        """Some of the game's skeletons turn joints away in their default pose; what the mesh is bound to is skinToJointMatrices, and an export of them has to say so."""
+        v = Decoder(ANIM_TYPES).decode("keen::ModelHierarchyResource", Encoder(ANIM_TYPES).encode("keen::ModelHierarchyResource", self.game_value()))
+        hand, forearm = rigged_figure.NAMES.index("hand_r"), rigged_figure.NAMES.index("forearm_r")
+        v["defaultPoseJoints"][forearm]["orientation"] = {"x": 1.0, "y": 0.0, "z": 0.0, "w": 0.0}
+        sk = mesh.skeleton_rh(v)
+        self.assertIn("matrix", sk[forearm])
+        d = gltf.read(self.path)
+        S.bind(d, S.Target.from_skeleton(K.from_gltf(Doc(self.path)), SKELETON))
+        club = d["primitives"][1]
+        tri = mesh.Tris()
+        n = len(club["positions"])
+        tri.submeshes.append({"material": "m", "materialIndex": 0, "positions": club["positions"], "indices": club["indices"], "joints": [(hand, 0, 0, 0)] * n, "weights": [(1.0, 0.0, 0.0, 0.0)] * n})
+        p = self.dir / "turned.gltf"
+        mesh.write_gltf(tri, p, skeleton=sk)
+        back = gltf.read(p)
+        S.bind(back, S.Target.from_game(v, SKELETON))  # raises if the export's rest pose isn't the bind pose
+        self.assertEqual(back["primitives"][0]["influences"][0], [(hand, 255)])
+        self.assertLess(D.max_distance([back["primitives"][0]["positions"]], [club["positions"]]), 1e-5)
+
+
 class LimitTests(FigureBase):
     def target(self):
         return S.Target.from_skeleton(K.from_gltf(Doc(self.path)), SKELETON)
@@ -335,55 +355,34 @@ class LimitTests(FigureBase):
         with self.assertRaisesRegex(S.SkinError, "joint 200, the skin has 15"):
             self.bind(self.variant(edit))
 
-    def test_too_many_influences_changes_the_shape(self):
-        def edit(doc, blob):
-            at = doc["meshes"][0]["primitives"][0]["attributes"]
-            at["JOINTS_1"], at["WEIGHTS_1"] = at["JOINTS_0"], at["WEIGHTS_0"]
-            o, _ = self.joints_view(doc)
-            w, _ = self.weights_view(doc, blob)
-        # a vertex with 8 equal influences on different joints needs its own buffers
+    def with_second_set(self, name, first, extra):
+        """The first vertex with 4 influences in JOINTS_0 and more in a new JOINTS_1."""
         doc, blob = glb_parts(self.path)
         at = doc["meshes"][0]["primitives"][0]["attributes"]
         n = doc["accessors"][at["JOINTS_0"]]["count"]
-        extra = bytearray(4 * n) + bytearray(16 * n)
-        struct.pack_into("<4B", extra, 0, 9, 10, 11, 12)
-        struct.pack_into("<4f", extra, 4 * n, 0.125, 0.125, 0.125, 0.125)
-        o, _ = self.weights_view(doc, blob)
-        struct.pack_into("<4f", blob, o, 0.125, 0.125, 0.125, 0.125)
-        j, _ = self.joints_view(doc)
-        struct.pack_into("<4B", blob, j, 1, 2, 3, 4)
+        more = bytearray(4 * n) + bytearray(16 * n)
+        struct.pack_into("<4B", more, 0, *[j for j, _ in extra])
+        struct.pack_into("<4f", more, 4 * n, *[w for _, w in extra])
+        struct.pack_into("<4f", blob, self.weights_view(doc, blob)[0], *[w for _, w in first])
+        struct.pack_into("<4B", blob, self.joints_view(doc)[0], *[j for j, _ in first])
         base = len(blob)
-        blob += extra
+        blob += more
         doc["bufferViews"] += [{"buffer": 0, "byteOffset": base, "byteLength": 4 * n}, {"buffer": 0, "byteOffset": base + 4 * n, "byteLength": 16 * n}]
         doc["accessors"] += [{"bufferView": len(doc["bufferViews"]) - 2, "componentType": 5121, "count": n, "type": "VEC4"},
                              {"bufferView": len(doc["bufferViews"]) - 1, "componentType": 5126, "count": n, "type": "VEC4"}]
         at["JOINTS_1"], at["WEIGHTS_1"] = len(doc["accessors"]) - 2, len(doc["accessors"]) - 1
         doc["buffers"][0]["byteLength"] = len(blob)
-        p = self.dir / "eight.glb"
+        p = self.dir / name
         write_glb(p, doc, blob)
+        return p
+
+    def test_too_many_influences_changes_the_shape(self):
+        p = self.with_second_set("eight.glb", [(j, 0.125) for j in (1, 2, 3, 4)], [(j, 0.125) for j in (9, 10, 11, 12)])
         with self.assertRaisesRegex(S.SkinError, "more than 4 influences.*Limit Total"):
             self.bind(p)
 
     def test_a_small_loss_only_warns(self):
-        doc, blob = glb_parts(self.path)
-        at = doc["meshes"][0]["primitives"][0]["attributes"]
-        n = doc["accessors"][at["JOINTS_0"]]["count"]
-        extra = bytearray(4 * n) + bytearray(16 * n)
-        struct.pack_into("<4B", extra, 0, 9, 0, 0, 0)
-        struct.pack_into("<4f", extra, 4 * n, 0.05, 0, 0, 0)
-        o, _ = self.weights_view(doc, blob)
-        struct.pack_into("<4f", blob, o, 0.45, 0.3, 0.1, 0.1)
-        j, _ = self.joints_view(doc)
-        struct.pack_into("<4B", blob, j, 1, 2, 3, 4)
-        base = len(blob)
-        blob += extra
-        doc["bufferViews"] += [{"buffer": 0, "byteOffset": base, "byteLength": 4 * n}, {"buffer": 0, "byteOffset": base + 4 * n, "byteLength": 16 * n}]
-        doc["accessors"] += [{"bufferView": len(doc["bufferViews"]) - 2, "componentType": 5121, "count": n, "type": "VEC4"},
-                             {"bufferView": len(doc["bufferViews"]) - 1, "componentType": 5126, "count": n, "type": "VEC4"}]
-        at["JOINTS_1"], at["WEIGHTS_1"] = len(doc["accessors"]) - 2, len(doc["accessors"]) - 1
-        doc["buffers"][0]["byteLength"] = len(blob)
-        p = self.dir / "five.glb"
-        write_glb(p, doc, blob)
+        p = self.with_second_set("five.glb", [(1, 0.45), (2, 0.3), (3, 0.1), (4, 0.1)], [(9, 0.05), (0, 0.0), (0, 0.0), (0, 0.0)])
         w = self.bind(p)
         self.assertEqual(len(w), 1)
         self.assertIn("more than 4 influences", w[0])

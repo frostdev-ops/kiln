@@ -24,6 +24,7 @@
 
 #include "kiln_api.h"
 #include "log_tracker.h"
+#include "playerstate.h"
 #include "progression.h"
 #include "safetyhook.hpp"
 #include "services/kiln_players.h"
@@ -898,6 +899,7 @@ void KILN_CALL on_ready(void*) {
     // kiln.world is not needed for the player list (positions come from the core's GetEntityTransform); kiln.progression
     // registers its program with it.
     kiln::progression::ready();
+    kiln::playerstate::ready();
 }
 
 }  // namespace
@@ -964,5 +966,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
          L.records ? "resolved" : "unresolved", L.admin ? "resolved" : "unresolved", L.map ? "resolved" : "unresolved",
          g_get_transform ? "resolved" : "unresolved", g_log_ok ? "subscribed" : "unavailable");
     kiln::progression::main(api, owner);  // kiln.progression (docs/kiln/services/progression.md)
+    kiln::playerstate::main(api, owner);  // kiln.playerstate (docs/kiln/services/player-state.md)
     return api->register_service(owner, KilnStr{KILN_PLAYERS_SERVICE, sizeof(KILN_PLAYERS_SERVICE) - 1}, &kTable);
 }

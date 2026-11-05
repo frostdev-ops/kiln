@@ -666,7 +666,7 @@ int vg_image(uint32_t w, uint32_t h, uint32_t d, int format, uint32_t bytesPerPi
 }
 
 // A BC7 texture with its whole mip chain, as cooked: 16 bytes per 4x4 block, mips largest first. -11 when `size` isn't that chain's size.
-int vg_image_bc7(uint32_t w, uint32_t h, int format, uint32_t levels, const void* data, uint64_t size)
+int vg_image_bc(uint32_t w, uint32_t h, int format, uint32_t levels, uint32_t blockBytes, const void* data, uint64_t size)
 {
     ALIVE();
     std::vector<VkBufferImageCopy> regions;
@@ -677,7 +677,7 @@ int vg_image_bc7(uint32_t w, uint32_t h, int format, uint32_t levels, const void
         rg.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, l, 0, 1};
         rg.imageExtent = {mw, mh, 1};
         regions.push_back(rg);
-        offset += uint64_t((mw + 3) / 4) * ((mh + 3) / 4) * 16;
+        offset += uint64_t((mw + 3) / 4) * ((mh + 3) / 4) * blockBytes;
     }
     if (offset != size) return -11;
     Image im;
@@ -723,6 +723,8 @@ int vg_image_bc7(uint32_t w, uint32_t h, int format, uint32_t levels, const void
     vg_buffer_free(stagingId);
     return r ? r : id;
 }
+
+int vg_image_bc7(uint32_t w, uint32_t h, int format, uint32_t levels, const void* data, uint64_t size) { return vg_image_bc(w, h, format, levels, 16, data, size); }
 
 // Copies a colour target (left in TRANSFER_SRC by vg_cmd_render_end) out to memory.
 int vg_read_image(int id, void* out)

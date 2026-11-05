@@ -606,7 +606,8 @@ struct Def {
 };
 using DefPtr = std::shared_ptr<Def>;
 
-std::recursive_mutex g_mu;          // definitions, clones
+// Definitions and clones share store_mutex(). A lock of their own deadlocked: the client world's setup held it and waited
+// for the store, while a job thread's first drop table held the store and waited for it.
 std::vector<DefPtr> g_defs;         // in definition order
 std::atomic<uint64_t> g_version{1};  // +1 per change of the definitions
 
@@ -681,7 +682,7 @@ void build_names(WorldState& ws) {
 bool resolve_item(WorldState& ws, const std::string& sel, NameRec* out) {
     uint8_t g[16];
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->kind == KILN_CONTENT_ITEMS && (lower(d->name) == lower(sel) || d->guid_s == lower(sel))) {
                 out->id = d->id;
@@ -966,6 +967,11 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
         *why = "the base item is not readable";
         return 0;
     }
+    // From a game item: as the game has it, whatever rules other mods have on it. From a clone: as that clone is.
+    uint32_t base_id = 0;
+    std::memcpy(&base_id, p + L.i_id, 4);
+    const bool game_base = !nc_is_new(KILN_CONTENT_ITEMS, base_id);
+    if (game_base) store_originals(base, size, p);
     for (uint32_t o : L.item_relocs)
         if (!rebase(p, base, o)) {
             *why = "a blob field of the base item is out of reach";
@@ -1015,7 +1021,7 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
 #if KC_GAMEDATA
     // its lists become its own: a change to one of them must not change the base and every other clone of it
     // Refused rather than kept: a rule on a shared list would change the base item and every other clone of it.
-    if (std::string own; !gd_own_lists(reinterpret_cast<uintptr_t>(p), &own)) {
+    if (std::string own; !gd_own_lists(reinterpret_cast<uintptr_t>(p), game_base, &own)) {
         *why = "its lists cannot be its own: " + own;
         return 0;
     }
@@ -1176,6 +1182,9 @@ void add_kc_entry(uint32_t kind, const Def& d, uintptr_t addr) {
     std::lock_guard lock(store_mutex());
     Registry& r = reg(kind);
     if (r.entries.empty()) return;  // no snapshot yet: build_registries will read the game's map
+#if KC_GAMEDATA
+    if (kind == KILN_CONTENT_ITEMS) gd_item_registered(d.id, d.name, d.guid, addr);
+#endif
     if (const Entry* e = r.get(d.id)) {
         if (e->addr != addr) {  // redefined: the entry follows the new clone
             const uint32_t i = r.by_id[d.id];
@@ -1198,7 +1207,7 @@ void fail_once(WorldState& ws, uint32_t kind, const Def& d, const std::string& w
     if (!ws.logged.insert(key).second) return;
     LOGW("new content: %s %s (%s) not registered in the %s world: %s", d.kind == KILN_CONTENT_ITEMS ? "item" : "recipe",
          d.name.c_str(), d.guid_s.c_str(), wname(kind), why.c_str());
-    std::lock_guard lock(g_mu);
+    std::lock_guard lock(store_mutex());
     const_cast<Def&>(d).error = why;
 }
 
@@ -1232,7 +1241,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
     if (!ws.ireg || !items_loaded(ws.ireg)) return false;
     std::vector<DefPtr> defs;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         defs = g_defs;
     }
     if (defs.empty()) {
@@ -1249,7 +1258,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
         if (d.kind != KILN_CONTENT_ITEMS || (d.internal && kind != g_early_kind)) continue;
         uintptr_t clone = 0;
         {
-            std::lock_guard lock(g_mu);
+            std::lock_guard lock(store_mutex());
             NameRec base{};
             if (!resolve_item(ws, d.base, &base) || !base.info || base.id == d.id) {
                 fail_once(ws, kind, d, "base item " + d.base + " not found");
@@ -1313,7 +1322,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
             if (d.kind != KILN_CONTENT_RECIPES) continue;
             uintptr_t info = 0;
             {
-                std::lock_guard lock(g_mu);
+                std::lock_guard lock(store_mutex());
                 if (d.info && d.info_version == d.version) info = d.info;
                 else {
                     std::string why;
@@ -1379,7 +1388,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
     }
     // an item that opted out and that a new recipe makes: its warnings
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& r : defs) {
             if (r->kind != KILN_CONTENT_RECIPES || r->orphan) continue;
             for (const StackSpec& o : r->outputs) {
@@ -1467,7 +1476,7 @@ uint32_t loot_sync(WorldState& ws, uintptr_t world) {
     if (!lreg) return 0;
     std::vector<DefPtr> defs;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->kind == KILN_CONTENT_ITEMS && d->distribution.contains("loot") && !d->placeholder && ws.items.count(d->id))
                 defs.push_back(d);
@@ -1635,7 +1644,7 @@ bool glob_match(const char* p, const char* s) {
 
 std::vector<DropAdd> drop_adds() {
     std::vector<DropAdd> out;
-    std::lock_guard lock(g_mu);
+    std::lock_guard lock(store_mutex());
     for (const DefPtr& d : g_defs) {
         if (d->kind != KILN_CONTENT_ITEMS || d->orphan || d->placeholder || !d->distribution.contains("drops")) continue;
         if (!g_ws[KILN_WORLD_SERVER].items.count(d->id)) continue;
@@ -1841,7 +1850,7 @@ void KILN_CALL noop(void*) {}
 void probe_owners(uint32_t kind) {
     std::vector<DefPtr> gone;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (!d->orphan && !d->pack && d->owner && g_api->post_world(d->owner, kind, &noop, nullptr) == KILN_ERR_REVOKED)
                 gone.push_back(d);
@@ -1870,7 +1879,7 @@ void retry_kitbash(WorldState& ws) {
     if (!assets_api()) return;
     std::vector<DefPtr> todo;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->kind == KILN_CONTENT_ITEMS && d->kitbash_retry && !d->clones.empty()) todo.push_back(d);
     }
@@ -1878,7 +1887,7 @@ void retry_kitbash(WorldState& ws) {
     const std::vector<uintptr_t> all = world_items(ws);
     for (const DefPtr& dp : todo) {
         Def& d = *dp;
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (auto& [base, clone] : d.clones) {
             auto* p = reinterpret_cast<uint8_t*>(clone);
             const ItemFind find = [&](const std::string& sel) -> uintptr_t {
@@ -2009,7 +2018,7 @@ void menu_sync(const WorldState& ws) {
         uint32_t best = 0;
         DefPtr def;
         {
-            std::lock_guard lock(g_mu);
+            std::lock_guard lock(store_mutex());
             for (const DefPtr& d : g_defs)
                 if (d->kind == KILN_CONTENT_RECIPES && d->id == id) def = d;
         }
@@ -2582,7 +2591,7 @@ void client_diag(uintptr_t world) {
         for (uint16_t i = 0; i < n && i < 512; ++i) {
             uint32_t id = 0;
             rdv(ui + 0x21e0 + 0x110 + i * 4ull, id);
-            std::lock_guard lock(g_mu);
+            std::lock_guard lock(store_mutex());
             for (const DefPtr& d : g_defs)
                 if (d->kind == KILN_CONTENT_RECIPES && d->id == id) have += " " + d->name;
         }
@@ -2720,6 +2729,7 @@ void note_registered(uint32_t kind, uintptr_t world, WorldState& ws) {
     else
         LOGW("new content: %s world %p: definitions registered %llu ms AFTER its first step (the early hook did not run): %zu item(s), %zu recipe(s)",
              wname(kind), reinterpret_cast<void*>(world), static_cast<unsigned long long>(g_first_step_ms[kind] ? ws.registered_ms - g_first_step_ms[kind] : 0), items, ws.recipes.size());
+    LOGI("near memory: %s", near_alloc_report().c_str());
 }
 
 // The game registered the item registry of a new world (RegisterSingleton, in its world set-up).
@@ -3138,7 +3148,7 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
     out["name"] = d->name;
     bool changed = false;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         DefPtr cur = find_def(kind, d->guid);
         for (const DefPtr& x : g_defs)
             if (x != cur && x->kind == kind && lower(x->name) == lower(d->name) && !(x->placeholder || d->placeholder))
@@ -3196,7 +3206,7 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
             else if (irc != KILN_ERR_UNAVAILABLE) {
                 LOGW("new content: item %s: icon %s refused by kiln.assets (%d); the base item's icon stays", d->name.c_str(),
                      d->icon_file.c_str(), irc);
-                std::lock_guard lock(g_mu);
+                std::lock_guard lock(store_mutex());
                 d->icon_problem = "icon " + d->icon_file + " refused by kiln.assets (" + std::to_string(irc) + ")";
             }
         }
@@ -3212,7 +3222,7 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
     if (aw && g_api->on_world_thread(active_kind())) sync_world(active_kind(), aw);
     out["ok"] = true;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         if (!d->error.empty()) out["warning"] = d->error;
         if (!d->warnings.empty()) out["warnings"] = d->warnings;
     }
@@ -3241,7 +3251,7 @@ void nc_pack_add(KilnOwner owner, uint32_t kind, const std::string& list_json, c
 }
 
 void nc_packs_begin() {
-    std::lock_guard lock(g_mu);
+    std::lock_guard lock(store_mutex());
     for (const DefPtr& d : g_defs)
         if (d->pack) d->seen = false;
 }
@@ -3249,7 +3259,7 @@ void nc_packs_begin() {
 void nc_packs_end() {
     bool changed = false;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->pack && !d->seen && !d->orphan) {
                 d->orphan = true;
@@ -3281,7 +3291,7 @@ void nc_world_stopping(uintptr_t world) {
 
 std::string nc_definitions_json() {
     json a = json::array();
-    std::lock_guard lock(g_mu);
+    std::lock_guard lock(store_mutex());
     for (const DefPtr& d : g_defs) {
         if (d->internal) continue;
         char idb[16];
@@ -3347,7 +3357,7 @@ std::string nc_info_json(const std::string& refs_json) {
     j["assets"] = assets_api() != nullptr;
     json ph = json::array();
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->placeholder && !d->orphan) {
                 char idb[16];
@@ -3356,7 +3366,6 @@ std::string nc_info_json(const std::string& refs_json) {
             }
     }
     j["placeholders"] = ph;
-    j["nearMemory"] = json::parse(near_alloc_report());
     j["loot"] = {{"on", N.loot}, {"rolls", g_loot_calls.load()}, {"extended", g_loot_extended.load()}};
     std::vector<uintptr_t> extra;
     uintptr_t lreg = 0;
@@ -3386,7 +3395,7 @@ std::string nc_info_json(const std::string& refs_json) {
 }
 
 bool nc_is_new(uint32_t kind, uint32_t id) {
-    std::lock_guard lock(g_mu);
+    std::lock_guard lock(store_mutex());
     for (const DefPtr& d : g_defs)
         if (d->kind == kind && d->id == id) return true;
     return false;
@@ -3395,7 +3404,7 @@ bool nc_is_new(uint32_t kind, uint32_t id) {
 uint32_t nc_undefine_owner(KilnOwner owner) {
     uint32_t n = 0;
     {
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         for (const DefPtr& d : g_defs)
             if (d->owner == owner && !d->orphan) d->orphan = true, ++n;
     }
@@ -3451,7 +3460,7 @@ void early_boot() {
         const KilnResult rc = nc_define(g_owner, KILN_CONTENT_ITEMS, def.dump(), false, "kiln (unknown items)", &rep);
         uint8_t g[16];
         guid_parse(kGuid, g);
-        std::lock_guard lock(g_mu);
+        std::lock_guard lock(store_mutex());
         if (const DefPtr d = find_def(KILN_CONTENT_ITEMS, g); rc == KILN_OK && d) {
             d->internal = true;
             g_unknown_id = d->id;

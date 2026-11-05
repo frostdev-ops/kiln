@@ -63,7 +63,8 @@ public sealed record EffectBlock : IBlock
     /// <summary>Spawned at the target, or at the place: a <c>GameTemplates</c> constant or a template's GUID.</summary>
     public TemplateRef? Spawns { get; init; }
 
-    /// <summary>A VFX at the target or the place. Not available yet: setting it is an error.</summary>
+    /// <summary>A VFX at the target or the place. It rides on a hidden entity that lives as long as the VFX takes. In a status's <see cref="StatusBlock.OnApply"/> the buff plays it.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 
     /// <summary>A sound at the target or the place, for everyone near it who has Kiln.</summary>
@@ -79,6 +80,9 @@ public sealed record AreaBlock
     public AreaAffects Affects { get; init; } = AreaAffects.Enemies;
     /// <summary>What each one in the area gets.</summary>
     public required IReadOnlyList<EffectRef> Effects { get; init; }
+    /// <summary>A VFX where the area is, once. Its size is the VFX's own: it does not follow <see cref="Radius"/>.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
+    public VfxRef? Vfx { get; init; }
 }
 
 public enum EffectOn { Target, Caster }
@@ -132,7 +136,7 @@ public static class Damage
 // --------------------------------------------------------------------------------------------------- statuses -----
 
 /// <summary>A buff or debuff: its own block, made of effects. Shown in the game's buff bar with its name and time.</summary>
-public sealed record StatusBlock : IBlock
+public sealed record StatusBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -150,7 +154,8 @@ public sealed record StatusBlock : IBlock
     /// Whole-number stats (strength, maximum health, armour) take whole numbers; the rest are shares, 0.1 being 10%.</summary>
     public IDictionary<Stat, double> Modifies { get; init; } = new Dictionary<Stat, double>();
 
-    /// <summary>A VFX on whoever has it. Not available yet: setting it is an error.</summary>
+    /// <summary>A VFX on whoever has it, for as long as they have it. It takes the place of the <see cref="Look"/>'s.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 
     /// <summary>Runs on whoever has it when it starts.</summary>
@@ -160,6 +165,10 @@ public sealed record StatusBlock : IBlock
     public double TickEvery { get; init; } = 1;
     /// <summary>Runs on whoever has it when it ends.</summary>
     public IReadOnlyList<EffectRef>? OnExpire { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the buff it makes: <c>Tweak = { { GameFields.Buffs.HideInUi, true } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(BuffTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 
     /// <summary>The name this block had before a rename. Ids come from the oldest name, so saves keep it.</summary>
     public string? Was { get; init; }
@@ -195,7 +204,7 @@ public sealed record StatusApply
 // ----------------------------------------------------------------------------------------------------- spells -----
 
 /// <summary>A staff spell: an item in the stack per charge. A cast takes its <see cref="CastBlock.ManaCost"/> and one charge.</summary>
-public sealed record SpellBlock : IBlock
+public sealed record SpellBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -211,6 +220,10 @@ public sealed record SpellBlock : IBlock
     public int MaxCharges { get; init; } = 500;
     /// <summary>How it is crafted. <see cref="RecipeBlock.Makes"/> is how many charges one craft gives.</summary>
     public RecipeBlock? Recipe { get; init; }
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
+
     /// <summary>The name this block had before a rename. Ids come from the oldest name, so saves keep it.</summary>
     public string? Was { get; init; }
 }
@@ -222,7 +235,8 @@ public sealed record CastBlock
     public CastAnimation Animation { get; init; } = CastAnimation.FastBolt;
     /// <summary>Seconds into the animation the spell leaves the staff (cost, sound and effects move with it). Null: the animation's own.</summary>
     public double? ReleaseAt { get; init; }
-    /// <summary>A VFX on the caster during the cast. Not available yet: setting it is an error.</summary>
+    /// <summary>A VFX on the caster's hand, when the animation has its own: it takes that one's place and moment.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 }
 
@@ -251,7 +265,12 @@ public sealed record ProjectileBlock : IDeliveryBlock
     public IReadOnlyList<EffectRef>? OnImpact { get; init; }
     /// <summary>What happens to the creature it strikes, if it struck one. A projectile needs this or <see cref="OnImpact"/>.</summary>
     public IReadOnlyList<EffectRef>? OnHit { get; init; }
-    /// <summary>A VFX on the projectile while it flies. Not available yet: setting it is an error.</summary>
+    /// <summary>Game fields this block does not cover, set on the template it flies as: <c>Tweak = { { GameFields.Templates.LifeTime.LifeTime, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(TemplateTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
+
+    /// <summary>A VFX on the projectile while it flies, in place of the <see cref="Look"/>'s. An <see cref="OnImpact"/> effect with a VFX likewise takes the place of the look's burst.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 }
 

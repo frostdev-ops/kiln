@@ -7,7 +7,6 @@
 
 No third-party modules.
 """
-import struct
 import sys
 from pathlib import Path
 
@@ -163,6 +162,3 @@ def mirrored(prims):
 
 def max_distance(a, b):
     return max(sum((x[k] - y[k]) ** 2 for k in range(3)) ** 0.5 for pa, pb in zip(a, b) for x, y in zip(pa, pb))
-
-
-__all__ = ["apply", "chain", "cooked_posed", "gltf_posed", "max_distance", "mirrored", "mul", "pose_of_clip", "rest_pose", "struct", "trs"]

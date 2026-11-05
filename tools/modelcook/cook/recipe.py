@@ -8,6 +8,7 @@ committed assets/assets.json names them.
     {
       "format": 1,
       "tool": "modelcook",                  // the default cooker of the steps (absent: modelcook)
+      "mod": "my-mod",                      // for ids that follow from names; default: the id in the nearest kiln.mod.json
       "out": "cooked",                      // relative to this file
       "game": { "side": "client", "madeOn": "1285601" },   // informational: the build the recipe was written on
       "inputs": {                           // vanilla inputs, by GUID + type (+ part): read from the installed game
@@ -16,7 +17,7 @@ committed assets/assets.json names them.
       "steps": [
         { "op": "model", "gltf": "src/sword.gltf", "lods": ["src/sword_lod1.gltf"], "pixelSizes": [0, 0.02],
           "base": "bronze_model", "guid": "@bronze_model", "mode": "override", "name": "my_sword", "stem": "sword",
-          "material": "@some_material", "materialMap": { "<glTF material name>": "<GUID or @input>" } },
+          "material": "@some_material", "materialMap": { "<glTF material name>": "<GUID, @input or a MaterialBlock's name>" } },
         { "op": "visual", "base": "bronze_visual", "model": "<GUID>", "guid": "<GUID>", "name": "Visuals_My_Sword",
           "stem": "sword_visual" },
         { "tool": "animcook", "op": "skeleton", "name": "golem", "gltf": "src/golem.glb" },
@@ -24,7 +25,9 @@ committed assets/assets.json names them.
       ]
     }
 
-"@id" means the GUID of input `id`. A step's `base` must be an input of the matching type.
+"@id" means the GUID of input `id`. A step's `base` must be an input of the matching type. `material` and `materialMap` also take the name of a MaterialBlock in the
+"materials" section of this mod's blocks/*.json. `"materials": "gltf"` makes a block of every glTF material the step doesn't otherwise map: blocks/<stem>.materials.json,
+and any PNGs embedded in the glTF under <out>/materials (docs/kiln/modding/materials.md).
 
 A model step with `skeleton` cooks a skinned model (docs/kiln/modding/models.md): `skeleton` names a `skeleton` step of this recipe, or is "@id" for one of the game's
 skeletons. A step of this recipe is read directly from its glTF, so it makes no difference which tool runs first. `base` is optional when `material` or `materialMap`
@@ -45,11 +48,12 @@ The runner writes `<out>/cook-report.json`, so a launcher can decide when to coo
 Cook again when any of them differs, or when an output is missing.
 """
 import json
+import os
 from pathlib import Path
 
 from kfc.archive import ResourceKey
 
-from . import steps as S
+from . import material as MB, steps as S
 
 OPS = ("model", "visual")
 TOOL = "modelcook"
@@ -85,8 +89,10 @@ def load(path):
         if tool == TOOL and st.get("op") == "model":
             if "gltf" not in st:
                 raise RecipeError(f"step {i} (model): gltf missing")
-            if not any(x in st for x in ("base", "material", "materialMap")):
-                raise RecipeError(f"step {i} (model): base, material or materialMap missing: nothing says what to draw it with")
+            if not any(x in st for x in ("base", "material", "materialMap", "materials")):
+                raise RecipeError(f"step {i} (model): base, material or materialMap missing, or \"materials\": \"gltf\": nothing says what to draw it with")
+            if st.get("materials", "gltf") != "gltf":
+                raise RecipeError(f"step {i} (model): materials {st['materials']!r}: the only value is \"gltf\"")
     return doc
 
 
@@ -190,7 +196,32 @@ def _model_guid(doc, st, inputs, path):
     return derive(anim_recipe.mod_id(doc, path), "model", st.get("name") or st.get("stem") or Path(st["gltf"]).stem)
 
 
-def sources_of(doc):
+def _mod_dir(path):
+    """The folder of the mod a recipe belongs to: the nearest kiln.mod.json above it, or the recipe's parent's parent, as mods/<x>/assets/cook.json is."""
+    p = Path(path).resolve()
+    for d in p.parents:
+        if (d / "kiln.mod.json").exists():
+            return d
+    return p.parent.parent
+
+
+def own_material_guids(path):
+    """The GUIDs of the MaterialBlocks of the mod a cooked file belongs to."""
+    mod_dir = _mod_dir(path)
+    try:
+        mod = MB.mod_id({}, mod_dir)
+        return {MB.block_guid(mod, b.get("was") or n) for n, (b, _) in MB.read_blocks(mod_dir).items()}
+    except MB.MaterialError:
+        return set()
+
+
+def _names_blocks(st):
+    """Whether a step may name MaterialBlocks."""
+    values = [st.get("material")] + list(st.get("materialMap", {}).values())
+    return any(isinstance(v, str) and not v.startswith("@") and not MB.GUID.match(v) for v in values)
+
+
+def sources_of(doc, path=None):
     """The files a cook of this recipe's own steps reads, relative to the recipe: a change in one means a new cook."""
     out = set()
     for _, st in own_steps(doc):
@@ -198,10 +229,22 @@ def sources_of(doc):
             continue
         out.add(st["gltf"])
         out.update(st.get("lods", []))
+        if path is not None and _names_blocks(st):
+            base = Path(path).resolve().parent
+            for f in sorted((_mod_dir(path) / "blocks").glob("*.json")):
+                out.add(os.path.relpath(f, base))
         sk = _skeleton_step(doc, st.get("skeleton"))
         if sk:
             out.add(sk["gltf"])
     return sorted(out)
+
+
+def _made_here(path, mod_dir, mod_files):
+    """A blocks file this cook just wrote is an output, not a source."""
+    try:
+        return Path(path).resolve().relative_to(mod_dir).as_posix() in mod_files
+    except ValueError:
+        return False
 
 
 def run(path, k, t, exe_sha256=None, update_manifest=False):
@@ -227,6 +270,9 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
         in_report[iid] = dict(inputs[iid], sha256=S.sha256(k.read(key)), layout=f"0x{tt['layout']:08x}")
 
     files, entries, reports = {}, [], []
+    mod_dir = _mod_dir(p)
+    own = None
+    mod_files = {}  # what goes in the mod's folder rather than beside the recipe: blocks made from a glTF, and PNGs that were embedded in it
     for i, st in own_steps(doc):
         op = st["op"]
         base_id = st.get("base")
@@ -238,10 +284,26 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
         if op == "model":
             gl = [str(base_dir / st["gltf"])] + [str(base_dir / x) for x in st.get("lods", [])]
             mm = {n: _resolve(g, inputs) for n, g in st.get("materialMap", {}).items()}
+            material = _resolve(st.get("material"), inputs)
+            from_gltf = []
+            if st.get("materials") == "gltf" or _names_blocks(st):
+                if own is None:
+                    try:
+                        own = {"mod": MB.mod_id(doc, mod_dir), "blocks": MB.read_blocks(mod_dir)}
+                    except MB.MaterialError as e:
+                        raise RecipeError(f"step {i} (model): {e}") from e
+            if st.get("materials") == "gltf":
+                stem = st.get("stem") or st.get("name") or Path(st["gltf"]).stem
+                names, blocks, made, from_gltf = S.gltf_blocks(gl[0], mod_dir, stem, Path(os.path.relpath(base_dir / out / "materials", mod_dir)).as_posix())
+                for key, name in names.items():
+                    mm.setdefault(key, name)
+                own["blocks"] = {**own["blocks"], **{n: (b, f"blocks/{stem}.materials.json") for n, b in blocks.items()}}
+                mod_files.update(made)
             f, e, r = S.model(k, t, gl, inputs[base_id]["guid"] if base_id else None, guid=_model_guid(doc, st, inputs, p),
-                              mode=st.get("mode"), name=st.get("name"), material=_resolve(st.get("material"), inputs),
+                              mode=st.get("mode"), name=st.get("name"), material=material,
                               material_map=mm, pixel_sizes=st.get("pixelSizes"), stem=st.get("stem"), subdir=out,
-                              target=_target(doc, st, inputs, k, t, base_dir, p), global_scale=st.get("globalScale"))
+                              target=_target(doc, st, inputs, k, t, base_dir, p), global_scale=st.get("globalScale"), own_materials=own)
+            r["warnings"] = r.get("warnings", []) + from_gltf
         else:
             f, e, r = S.visual(k, t, inputs[base_id]["guid"], _resolve(st["model"], inputs), _resolve(st["guid"], inputs),
                                name=st.get("name"), stem=st.get("stem"), subdir=out)
@@ -253,6 +315,9 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
     (base_dir / out).mkdir(parents=True, exist_ok=True)
     for rel, data in files.items():
         (base_dir / rel).write_bytes(data)
+    for rel, data in mod_files.items():
+        (mod_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (mod_dir / rel).write_bytes(data)
 
     # the committed assets.json must name every output exactly as cooked
     mp = base_dir / "assets.json"
@@ -271,7 +336,7 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
         "recipe": str(p), "recipe_sha256": S.sha256(p.read_bytes()), "ok": ok,
         "game": {"kfc": str(k.path), "version": k.version, "exe_sha256": exe_sha256},
         "inputs": in_report,
-        "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc)},
+        "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc, p) if not _made_here(base_dir / src, mod_dir, mod_files)},
         "outputs": [{"file": rel, "size": len(d), "sha256": S.sha256(d)} for rel, d in files.items()],
         "manifest": {"missing": missing, "mismatched": mismatched},
         "steps": reports,

@@ -44,6 +44,7 @@ An effect is what happens. It has no resource of its own: it becomes statements 
 | `On` | Who it is for: `EffectOn.Target` (what the trigger gives it), or `EffectOn.Caster` (who cast the spell, who wields the weapon) |
 | `Area` | Everyone in `Radius` metres who is an enemy (or a friend, with `Affects`) gets `Effects`. Hits through walls, like the game's sphere |
 | `Spawns` | Spawns a `GameTemplates` constant or a template's GUID there, as a child of what spawned it, at its level and faction |
+| `Vfx` | A VFX there: see [VFX](#vfx) |
 | `Sound` | A sound there, for everyone near who has Kiln: a cue of this mod (needs `clients: mod`), `"other-mod:name"`, or a cue's GUID |
 | `Damage`, `Knockback`, `Flinch` | A hit. `Damage.Ice(40) + Damage.Fire(10)` |
 | `Heal`, `Restores` | `Restore.Mana(20) + Restore.Stamina(10)`. Less than 0 takes it away. A target without that attribute gets nothing: most creatures have no mana |
@@ -51,7 +52,7 @@ An effect is what happens. It has no resource of its own: it becomes statements 
 | `Applies` | A status put on: a block, or a `GameBuffs` constant. `new StatusApply { Status = chilled, Seconds = 4 }` to set the time |
 | `Then` | More effects, after this one, at the same target or place |
 
-The parts run in that order. Where there is no target, such as the place a projectile stopped, only an area, a spawn, a sound and what is `On` the caster can happen: the block says so when it compiles.
+The parts run in that order. Where there is no target, such as the place a projectile stopped, only an area, a spawn, a VFX, a sound and what is `On` the caster can happen: the block says so when it compiles.
 
 | Trigger | Target |
 |---|---|
@@ -88,7 +89,66 @@ JSON keys are kebab case: `"move-speed"`. `new Stat("my-key", guid, Whole: true)
 `GameBuffs` constants are ids, `GameTemplates` constants are names. Only the running game knows what they stand for, so a program naming one is finished when content is ready. A name that is nothing is a load error by block and field, and `kiln lint` says so first if a catalog is there.
 
 ## VFX
-`Vfx` fields are there on effects, statuses, casts and projectiles, with `Slot`, `Offset` and `Attach`. Blocks cannot show a VFX yet: setting one is an error.
+An effect written from nothing, with no compiler and no game data: `VfxBlock` in C#, the same shape in a `vfx` section of `blocks/*.json`.
+
+```csharp
+var burst = Blocks.Define("frost_burst", new VfxBlock
+{
+    Particles =
+    [
+        new ParticleBlock
+        {
+            Burst = 24, Lifetime = (0.4f, 0.9f), Speed = (2f, 5f), Spread = Shape.Cone(35), Gravity = -4f,
+            Size = Curve.Linear(0.15f, 0f), Color = Gradient.Of("#ffffff", "#7fd4ff"), Alpha = Curve.Linear(1f, 0f),
+            Texture = "vfx/shard.png", Blend = Blend.Additive,
+        },
+    ],
+    Light = new LightBlock { Color = "#7fd4ff", Radius = 6f, Brightness = 4f, Lifetime = 0.6f, FadeOut = 0.5f },
+});
+```
+```jsonc
+{ "format": 1,
+  "vfx": { "frost_burst": {
+      "particles": [ { "burst": 24, "lifetime": [0.4, 0.9], "speed": [2, 5], "spread": { "cone": 35 }, "gravity": -4,
+                       "size": { "linear": [0.15, 0] }, "color": ["#ffffff", "#7fd4ff"], "alpha": { "linear": [1, 0] },
+                       "texture": "vfx/shard.png", "blend": "additive" } ],
+      "light": { "color": "#7fd4ff", "radius": 6, "brightness": 4, "lifetime": 0.6, "fadeOut": 0.5 } } } }
+```
+Every field is in [the builder's guide](../services/vfx-cook.md#the-definition). PNGs go in the mod's `vfx/` folder.
+
+**A block in a data file is there from the first start. One from code is there from the next**, because the game lists its VFX once, before mod code runs. Until then what names it shows nothing, `handle.Status` says `Pending`, and the log and a toast say so. The definition is kept in `kiln/data/vfx/pending/<mod>/` and built at the next start. That file stays until deleted, even if the mod stops defining the block.
+
+Attach one with a `Vfx` field. It takes what `Define` returned or a block's name, `"other-mod:name"`, or `"game:<name>"` for one of the game's (`VfxRef.Game(...)` in C#). A game name is a template that carries the VFX, a sequence that plays it, or a GUID. Kiln picks the route:
+
+| Field | What it becomes | What shows |
+|---|---|---|
+| `CastBlock.Vfx` | The cast's VFX event | At the caster's hand, in place of the motion's own VFX and at its moment |
+| `ProjectileBlock.Vfx` | The projectile template's VFX | While it flies, in place of the look's |
+| `EffectBlock.Vfx`, `OnHitBlock.Vfx` | A hidden template, spawned where the effect happens. It lives as long as the VFX takes, at least 1 s | Where the effect happens. An `OnImpact` effect with a VFX replaces the look's burst |
+| `AreaBlock.Vfx` | The same | Where the area is, once. Its size is the VFX's own: it does not follow `Radius` |
+| `StatusBlock.Vfx` | The buff's `whileApplied` entry | On whoever has it, in place of the look's |
+| An `OnApply` effect's `Vfx` | The buff's `onCreate` entry, when it has no `Chance` and is on the target | When the status starts. Any other runs as an effect |
+| `Vfx.PlayAt(burst, position)` from code | A play. On a server, a relay on `kiln:vfx` | Kiln clients near it. A joiner does not see it |
+
+All but the last are data: replication handles range and joiners. A server has no VFX and needs none. It carries the references, and each client draws its own copy.
+
+To say more, write the reference out: `new VfxRef("frost_burst") { Slot = VfxSlot.Chest, Offset = new Vector3(0, 0.5f, 0), Seconds = 3 }`, or `{ "name": "frost_burst", "slot": "chest", "offset": [0, 0.5, 0], "seconds": 3 }`.
+
+| Field | Means |
+|---|---|
+| `Slot` | Where on the body. A cast defaults to the right hand, everything else to the root. On an effect it picks where the VFX starts |
+| `Offset` | Metres from the slot, in its axes |
+| `Attach` | Follow the slot while it plays, the default. What an effect spawns stays where the effect happened |
+| `Seconds` | On an effect, how long it plays. A VFX that runs until stopped needs this on an effect, or it is refused. A game VFX defaults to its template's life, else 5 s |
+| `Parameters` | Named parameters of a game VFX: `["radius"] = 3f`, `{ "radius": 3 }` |
+
+**Parameters** work only on an effect's VFX, and only on one of the game's. Everywhere else the game takes a block laid out by the VFX itself, which a server doesn't have, so a cast, a projectile or a status with parameters is refused by name. A `VfxBlock` has none yet. An effect with parameters is a relayed play, not a hidden template: Kiln clients near it see it, a joiner doesn't. A number is a float, `VfxValue.Int(7)` (`{ "int": 7 }`) a whole number, a `Vector3` (`[x, y, z]`) three floats, `"#rrggbb"` or `"#rrggbbaa"` a colour. The game ignores a name or type its VFX doesn't have.
+
+A look can't carry a VFX yet: `VisualBlock.Vfx` is an error. A game VFX on an effect plays with its own default parameters, not its template's.
+
+**Limits.** The game has room for 473 new VFX across all mods and about 240 KB of mesh memory. Going over either aborts the game, so a mod that doesn't fit is refused as a whole, and each of its blocks says why when it loads. A server has no builder and counts VFX only. See [the builder's checks](../services/vfx-cook.md#the-limits-and-the-checks-before-them).
+
+**If kiln.vfx is off or missing,** nothing crashes. A dedicated server carries references as always. A client with `kiln.vfx` drops an unknown VFX at its guard. A client without it keeps only the game's own VFX in the data it holds, and the rest show nothing.
 
 ## What players' games need
 The build works it out from the blocks, the lowest level that works. `KilnClients` overrides it.
@@ -97,9 +157,20 @@ The build works it out from the blocks, the lowest level that works. `KilnClient
 |---|---|
 | Effects only | `none` |
 | New items, spells, statuses | `kiln`: Kiln clients get the definitions from the server. Vanilla clients cannot join |
-| A cue, a PNG icon or a model of the mod's own | `mod`: every player needs the mod. Kiln clients without it are refused |
+| A cue, a PNG icon, a model or a VFX of the mod's own | `mod`: every player needs the mod. Kiln clients without it are refused |
+| A game VFX by name, on any of these | No more than the block needs |
 
-A compiled block type says its level with `[BlockClients]`, and a field that can name the mod's own files with `[ClientsModWhen]`. A code mod gets the level from a generator at compile time. A mod with blocks only in `blocks/*.json` gets `kiln`, and `kiln lint` checks the rest.
+A compiled block type says its level with `[BlockClients]`, and a field that can name the mod's own files with `[ClientsModWhen]`. A code mod gets the level from a generator at compile time. The build also reads `blocks/*.json` for new VFX. For the rest a mod with blocks only in data files gets `kiln`, and `kiln lint` checks.
+
+## Going below a block
+A block doesn't cover every game field. `Tweak` sets the rest on what it made, and wins over what the block sets ([typed-fields.md](typed-fields.md)):
+```csharp
+Blocks.Define("frostbolt", new SpellBlock { /* ... */ Tweak = { { GameFields.Items.MaxStackSize, 5 } } });
+```
+```jsonc
+"frostbolt": { /* ... */ "tweak": { "maxStackSize": 5 } }
+```
+Spells and item blocks set their item's fields, statuses their buff's, projectiles their template's. A field of another section is an error.
 
 ## Ids and renames
 Ids come from the mod id and the block's name: `UUIDv5(<mod>:<kind>:<name>)`. Never write a GUID, and keep the names, because saves hold the ids.
@@ -114,7 +185,7 @@ A rename without `Was` makes a new item, and what the world holds of the old one
 | Compile | `required` members and typed fields: `Applies` takes a status, not an effect |
 | Build | [KILN110](analyzers.md#kiln110) a bad or duplicate name, [KILN111](analyzers.md#kiln111) a name that is no block, [KILN112](analyzers.md#kiln112) `clients` too low |
 | Editor and `kiln lint` | The schema, KL201 and KL202 for `clients`, KL314 for names, `E_UNCONNECTED` for hand-written Impact programs |
-| Load | `BlockError` with the block and the field: `block spell bad, cast.manaCost: -1 is less than 0`. A wrong block makes nothing, and the file's other blocks still load |
+| Load | `BlockError` with the block and the field: `block spell bad, cast.manaCost: -1 is less than 0`. A wrong block makes nothing, and the file's other blocks still load. A VFX's fields are checked on a server too; a client's builder also checks what needs its PNGs |
 | Content ready | What the game could not take, by name: `block status x, onApply[0].applies: the game has no status "0xdeadbeef"` |
 
 ## Seeing what a block became

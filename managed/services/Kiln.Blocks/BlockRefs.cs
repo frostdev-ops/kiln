@@ -27,17 +27,21 @@ public abstract class BlockHandle
     public uint Id => BlockIds.Fnv(Guid);
     /// <summary>The debug name it has in the game: what <c>Content.Items.Get</c>, <c>Items.Give</c> and data packs take.</summary>
     public string GameName { get; }
+    /// <summary>The block's type, for what names a block of the wrong kind.</summary>
+    internal abstract Type BlockType { get; }
 
     public override string ToString() => $"{Mod}:{Name}";
 }
 
 /// <inheritdoc />
-public sealed class BlockHandle<T> : BlockHandle where T : class, IBlock
+public class BlockHandle<T> : BlockHandle where T : class, IBlock
 {
     internal BlockHandle(string mod, string name, Guid guid, string gameName, T block) : base(mod, name, guid, gameName) => Block = block;
 
     /// <summary>The block as defined.</summary>
     public T Block { get; }
+
+    internal override Type BlockType => typeof(T);
 }
 
 /// <summary>An effect: inline, from <see cref="Blocks.Define{T}"/>, or by name.</summary>

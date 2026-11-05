@@ -151,6 +151,8 @@ bool parse_value(const FieldRef& f, std::string_view text, uint8_t* dst, std::st
 std::string format_value(const FieldRef& f, const uint8_t* src);
 // JSON array of the flattened scalar fields of a type.
 std::string fields_json(const TypeInfo& t);
+// A field of any kind by name, base structs included: its offset and size.
+bool field_layout(const TypeInfo& t, std::string_view name, uint32_t* offset, uint32_t* size);
 // Enum helpers used by the catalog and commands.
 bool enum_value(uintptr_t enum_type, std::string_view name, int64_t* out);
 std::string enum_name(uintptr_t enum_type, int64_t v);
@@ -223,6 +225,81 @@ uint64_t program_marks_written();
 // ---------------------------------------------------------------------------------------------- arsenals ----
 uint32_t arsenal_count();
 KilnResult arsenal_of(KilnEntity e, uint8_t out[16], uint32_t* known);
+
+// ---------------------------------------------------------------------------------------------- arsenal.cpp ----
+// Offsets inside the arsenal blob, from the game's reflection (arsenal_init); 0 sizes mean the writer is off.
+struct ArsenalLayout {
+    uint32_t record_size = 0, attacks = 0, rules = 0;
+    uint32_t attack_size = 0, attack_sequence = 0, attack_style = 0, attack_threat = 0, attack_selection = 0,
+             attack_execution = 0, attack_abort = 0, attack_commands = 0, attack_data = 0;
+    uint32_t rule_size = 0, rule_when = 0, rule_abort = 0, rule_actions = 0;
+    uint32_t command_size = 0, command_constraints = 0, command_actions = 0;
+};
+extern ArsenalLayout AL;
+
+// Kiln's own variant types in the arsenal's constraint and action lists. Both payloads start with what the game's
+// dispatchers read of any variant: a constraint's first byte is `negated`.
+constexpr uint32_t kRuleConstraintHash = fnv1a("kiln::npc::Constraint"), kRuleActionHash = fnv1a("kiln::npc::Action");
+struct RuleCond {
+    uint8_t negated;
+    uint8_t kind;   // KILN_RC_*
+    uint16_t slot;  // CONDITION: slot; JOB: the handler's argument
+    uint32_t id;    // BUFF: buff type id; PHASE: phase hash; JOB: handler id
+    float a, b;     // TIME: from, to (hours)
+};
+struct RuleAct {
+    uint8_t kind;   // KILN_RA_*
+    uint8_t reserved;
+    uint16_t slot;  // JOB: the handler's argument
+    uint32_t id;    // QUEUE: action id; PHASE: phase hash; JOB: handler id
+    uint8_t guid[16];  // ATTACK: the attack's GUID
+};
+
+// What Kiln's arsenals use, so that the tick reads only that.
+struct RuleUses {
+    bool any_kiln = false, buffs = false, time = false, phase = false, attack_action = false;
+};
+RuleUses arsenal_uses();
+void arsenal_init();
+void arsenal_pre();
+void arsenal_release_owner(KilnOwner owner);
+bool arsenal_writer_ready();
+uint32_t arsenal_count_kiln();
+void arsenal_map_stats(uint32_t* capacity, uint32_t* count);
+KilnResult KILN_CALL arsenal_define_api(KilnOwner owner, KilnStr json, char* error, size_t cap, size_t* len);
+KilnResult KILN_CALL arsenal_remove_api(KilnOwner owner, const KilnGuid* guid);
+KilnResult KILN_CALL arsenal_info_api(const KilnGuid* guid, char* buffer, size_t cap, size_t* len);
+KilnResult KILN_CALL arsenal_refresh_api(uint32_t* out);
+KilnResult KILN_CALL arsenal_selftest_api(uint32_t* checked, uint32_t* bad);
+
+// ---------------------------------------------------------------------------------------------- rules.cpp ----
+void rules_resolve();
+void rules_read_layout();
+bool rules_ensure_hooks();
+bool rules_ensure_attack_hooks();
+bool rules_dispatcher_resolved();
+bool rules_attacks_resolved();
+void rules_unhook_if_idle();
+void rules_pre_work();
+void rules_publish();
+bool rules_wants_listener();
+void rules_release_owner(KilnOwner owner);
+void rules_behavior_guard(uint8_t* ctx);
+uint32_t KILN_CALL rules_drain_api(KilnRuleWork* out, uint32_t capacity);
+KilnResult KILN_CALL rules_condition_set_api(KilnEntity e, uint32_t slot, uint32_t value);
+KilnResult KILN_CALL rules_condition_clear_api(uint32_t slot);
+KilnResult KILN_CALL rules_condition_stats_api(uint32_t slot, uint64_t* evaluated, uint64_t* truthy);
+void KILN_CALL rules_pump_api(uint32_t flags);
+KilnResult KILN_CALL rules_phase_set_api(KilnEntity e, uint32_t phase);
+KilnResult KILN_CALL rules_phase_get_api(KilnEntity e, uint32_t* out);
+KilnResult KILN_CALL rules_status_api(KilnRulesStatus* out);
+KilnResult KILN_CALL rules_job_handler_api(KilnOwner owner, uint32_t id, KilnRuleJobFn fn, void* user);
+KilnResult KILN_CALL attack_override_api(KilnOwner owner, KilnEntity e, const KilnAttackOverride* o);
+KilnResult KILN_CALL attack_pick_arsenal_api(KilnOwner owner, const KilnGuid* arsenal, uint32_t enabled);
+KilnResult KILN_CALL ai_switch_api(KilnOwner owner, KilnEntity e, uint32_t enabled);
+KilnResult KILN_CALL ai_switch_get_api(KilnEntity e, uint32_t* out);
+KilnResult KILN_CALL target_prefer_api(KilnEntity e);
+void ai_behavior_guard_arm();  // ai.cpp: the BehaviorUpdate hook, for rules_behavior_guard
 
 // Component hashes used across files.
 namespace H {

@@ -59,7 +59,7 @@ namespace kc::gd {
 
 namespace {
 
-constexpr uint32_t kBuffRoom = 256;  // buff clones per process (records in Kiln's copy of the collection)
+constexpr uint32_t kBuffRoom = 1024;  // buff clones per process (records in Kiln's copy of the collection)
 
 struct Def {
     uint32_t section = 0;
@@ -188,7 +188,10 @@ void dress(const Def& d, const TType* t, uint8_t* rec, size_t n) {
     inert(t, 0, 0);
 }
 
-// A resource clone's bytes: the base resource copied, the clone's name appended as the BlobString `name_field`.
+// Spare room at the end of a clone's resource, for the lists its rules add: inside its own block they are always in reach, wherever kiln.assets put it.
+constexpr size_t kCloneRoom = 8192;
+
+// A resource clone's bytes: the base resource copied, the clone's name appended as the BlobString `name_field`, then kCloneRoom.
 bool build_bytes(const Def& d, const GEntry& base, const TType* type, const char* name_field, std::vector<uint8_t>* out,
                  std::string* err) {
     uint64_t size = 0;
@@ -198,11 +201,12 @@ bool build_bytes(const Def& d, const GEntry& base, const TType* type, const char
         return false;
     }
     const size_t name_at = (static_cast<size_t>(size) + 7) & ~size_t(7);
-    out->assign(name_at + d.name.size() + 8, 0);
+    out->assign(name_at + d.name.size() + 8 + kCloneRoom, 0);
     if (!rd(src, out->data(), static_cast<size_t>(size))) {
         *err = "the base's resource is not readable";
         return false;
     }
+    store_originals(src, static_cast<size_t>(size), out->data());  // what rules changed on the base is not the clone's (see apply_fields)
     std::memcpy(out->data() + name_at, d.name.data(), d.name.size());
     if (const TField* nf = type->field(name_field)) {
         const int32_t rel = static_cast<int32_t>(name_at - nf->offset);
@@ -213,6 +217,15 @@ bool build_bytes(const Def& d, const GEntry& base, const TType* type, const char
     return true;
 }
 
+// The definition of the clone a definition is based on; nullptr when its base is the game's.
+const Def* clone_base(const Def& d) {
+    const GEntry* base = greg(d.section).lookup(d.base);
+    if (!base || !base->clone) return nullptr;
+    for (const Def& x : g_defs)
+        if (&x != &d && x.section == d.section && std::memcmp(x.guid, base->guid, 16) == 0) return &x;
+    return nullptr;
+}
+
 void apply_fields(Def& d, const GEntry& e) {
     // a redefinition: the old definition's layers come off first
     std::vector<uintptr_t> mine;
@@ -221,12 +234,24 @@ void apply_fields(Def& d, const GEntry& e) {
             for (const Layer& l : s.layers)
                 if (l.owner == g_defs_owner) mine.push_back(a);
     });
-    for (uintptr_t a : mine) store_drop(g_defs_owner, a);
-    std::vector<std::string> errs;
-    for (auto& [path, v] : d.fields.items()) {
-        if (path.empty() || path[0] == '@') continue;
-        apply_value(g_defs_owner, 1, d.section, e, path, v, "definition " + d.name, &errs);
+    for (uintptr_t a : mine) {
+        store_drop(g_defs_owner, a);
+        forget_added(g_defs_owner, a);
     }
+    // Before the rules resolve: they must see the clone without the old definition. A config it added is still in memory until the flush; a rule would change that element, and the flush would then take it away.
+    std::string flushed;
+    store_flush(&flushed);
+    // A clone starts from the game's original, not from what other mods changed. So a clone of a clone takes what the definitions before it say, oldest first, then its own.
+    std::vector<const Def*> chain{&d};
+    while (chain.size() < 16)
+        if (const Def* b = clone_base(*chain.back())) chain.push_back(b);
+        else break;
+    std::vector<std::string> errs;
+    for (auto c = chain.rbegin(); c != chain.rend(); ++c)
+        for (auto& [path, v] : (*c)->fields.items()) {
+            if (path.empty() || path[0] == '@') continue;
+            apply_value(g_defs_owner, 1, d.section, e, path, v, "definition " + d.name, &errs);
+        }
     d.warnings = errs;
     for (const std::string& w : errs) LOGW("gamedata: clone %s: %s", d.name.c_str(), w.c_str());
 }
@@ -420,17 +445,19 @@ void register_sequence(Def& d, uintptr_t world) {
         if (A->resource_data(&key, &p, &n) != KILN_OK || !p) {
             uint64_t size = 0;
             const uintptr_t src = res_data(base->guid, st->hash, &size);
-            std::vector<uint8_t> bytes(static_cast<size_t>(size));
-            if (!src || size < st->size || size > (16u << 20) || !rd(src, bytes.data(), bytes.size())) {
+            std::vector<uint8_t> bytes(static_cast<size_t>(size) + kCloneRoom);
+            if (!src || size < st->size || size > (16u << 20) || !rd(src, bytes.data(), static_cast<size_t>(size))) {
                 d.state = "error", d.problem = "the base sequence's resource is not readable";
                 return;
             }
+            store_originals(src, static_cast<size_t>(size), bytes.data());  // what rules changed on the base is not the clone's (see apply_fields)
             if (const TField* rf = st->field("resourceId")) std::memcpy(bytes.data() + rf->offset, d.guid, 16);
             if (A->resource_put(g_owner, &key, bytes.data(), bytes.size(), KILN_ASSET_PUT_NEW) != KILN_OK ||
                 A->resource_data(&key, &p, &n) != KILN_OK || !p) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
             }
+            near_alloc_add(reinterpret_cast<uintptr_t>(p) + n - kCloneRoom, kCloneRoom);
         }
         d.data = reinterpret_cast<uintptr_t>(p);
     }
@@ -509,6 +536,7 @@ void register_template(Def& d, uintptr_t world) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
             }
+            near_alloc_add(reinterpret_cast<uintptr_t>(p) + n - kCloneRoom, kCloneRoom);
             d.data = reinterpret_cast<uintptr_t>(p);
         }
     }
@@ -603,6 +631,7 @@ void register_perk(Def& d, uintptr_t world) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
             }
+            near_alloc_add(reinterpret_cast<uintptr_t>(p) + n - kCloneRoom, kCloneRoom);
             d.data = reinterpret_cast<uintptr_t>(p);
         }
         d.rebuild = false;
@@ -896,7 +925,12 @@ void register_buff(Def& d, uintptr_t world) {
     if (!d.data || d.rebuild) {
         std::vector<uint8_t> rec(BM.stride);
         const TField* fid = B.type->field("buffTypeId");
-        if (!rd(base->addr, rec.data(), BM.stride) || !rebase(rec.data(), base->addr, dst) || !fid) {
+        if (!rd(base->addr, rec.data(), BM.stride)) {
+            d.state = "error", d.problem = "the base buff's record is not readable";
+            return;
+        }
+        store_originals(base->addr, BM.stride, rec.data());  // what rules changed on the base is not the clone's (see apply_fields)
+        if (!rebase(rec.data(), base->addr, dst) || !fid) {
             d.state = "error", d.problem = "the base buff's record is not readable";
             return;
         }
@@ -1204,6 +1238,7 @@ KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& j
 }
 
 std::string clones_json() {
+    std::lock_guard l1(store_mutex());  // before g_mu, as everywhere: owner_label below takes it
     std::lock_guard lock(g_mu);
     gjson a = gjson::array();
     for (const Def& d : g_defs) {
@@ -1245,6 +1280,7 @@ void clones_packs_begin() {
 }
 
 void clones_packs_end() {
+    std::lock_guard l1(store_mutex());  // before g_mu, as everywhere: owner_label below takes it
     std::lock_guard lock(g_mu);
     for (Def& d : g_defs)
         if (owner_label(d.owner).rfind("pack ", 0) == 0) d.orphan = !g_seen_pack.count(guid_text(d.guid));

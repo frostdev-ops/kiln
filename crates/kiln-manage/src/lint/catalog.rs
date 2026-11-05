@@ -29,6 +29,24 @@ pub struct Field {
     pub enums: Vec<String>,
 }
 
+/// One parameter of a game VFX. `hash` is what the game matches: the FNV-1a of the name. The name itself is known only where the catalog recovered it.
+#[derive(Debug, Clone)]
+pub struct VfxParam {
+    pub hash: u32,
+    pub name: Option<String>,
+    pub ty: String,
+}
+
+/// What lint needs of a game VFX.
+#[derive(Debug, Clone, Default)]
+pub struct VfxInfo {
+    pub name: String,
+    pub guid: String,
+    /// `VfxId.Game` finds it by `name` at run time. Otherwise the name is only the catalog's label, and the GUID is what works.
+    pub by_name: bool,
+    pub params: Vec<VfxParam>,
+}
+
 #[derive(Debug, Default)]
 pub struct Catalog {
     pub path: PathBuf,
@@ -37,6 +55,10 @@ pub struct Catalog {
     pub sections: HashMap<String, Section>,
     pub fields: HashMap<String, Vec<Field>>,
     pub languages: Vec<String>,
+    /// The `vfx` section: by name and by lower-case GUID. Empty in a catalog made before it existed.
+    pub vfx: HashMap<String, VfxInfo>,
+    /// The number of game VFX, 0 without a `vfx` section.
+    pub vfx_count: usize,
 }
 
 pub fn parse_id(s: &str) -> Option<u32> {
@@ -128,6 +150,23 @@ impl Catalog {
                 }
                 if name == "languages" {
                     c.languages.extend(entries.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)));
+                }
+                if name == "vfx" {
+                    for e in entries.as_array().into_iter().flatten() {
+                        let (Some(n), Some(g)) = (e["name"].as_str(), e["guid"].as_str()) else { continue };
+                        let params = e["parameters"].as_array().into_iter().flatten().filter_map(|p| {
+                            let name = p["name"].as_str().map(str::to_string);
+                            let hash = name.as_deref().map(|t| super::rules::fnv1a(t.as_bytes())).or_else(|| p["hash"].as_str().and_then(parse_id))?;
+                            Some(VfxParam { hash, name, ty: p["type"].as_str().unwrap_or("").to_string() })
+                        });
+                        let info = VfxInfo { name: n.to_string(), guid: g.to_ascii_lowercase(), by_name: e["byName"].as_bool() == Some(true), params: params.collect() };
+                        c.vfx.insert(g.to_ascii_lowercase(), info.clone());
+                        for other in e["names"].as_array().into_iter().flatten().filter_map(J::as_str) {
+                            c.vfx.insert(other.to_string(), info.clone());
+                        }
+                        c.vfx.insert(n.to_string(), info);
+                        c.vfx_count += 1;
+                    }
                 }
                 c.sections.insert(name.clone(), s);
             }

@@ -272,7 +272,7 @@ private:
 const std::set<std::string> kParticleKeys = {"burst",  "rate",     "duration", "delay", "loop",       "maxCount",   "lifetime",  "speed",   "spread",
                                              "spawnRadius", "gravity", "acceleration", "drag",    "spin",  "roll",  "size",  "alpha",  "color",
                                              "intensity",   "texture", "sampler",  "flipbook",    "blend", "lit",   "mesh",  "faceCamera", "depthFade",
-                                             "emissive", "comment"};
+                                             "emissive", "material", "comment"};
 
 bool address_mode(const std::string& s, uint8_t* out) {
     if (s == "wrap") *out = 0;
@@ -331,14 +331,22 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
     }
     if ((it = find(v, "size")) != v.end()) p.curve(*it, at("size"), 0.f, kHuge, d->size);
     if ((it = find(v, "alpha")) != v.end()) p.curve(*it, at("alpha"), 0.f, 1.f, d->alpha);
-    if ((it = find(v, "color")) != v.end()) p.gradient(*it, at("color"), d->color);
+    if ((it = find(v, "color")) != v.end()) {
+        d->color_set = true;
+        p.gradient(*it, at("color"), d->color);
+    }
     if ((it = find(v, "intensity")) != v.end()) {
         float x = 1;
         if (p.number(*it, at("intensity"), 0.f, kHuge, &x))
             for (auto& c : d->color)
                 for (float& channel : c) channel *= x;
     }
+    if ((it = find(v, "material")) != v.end()) {
+        if (it->is_string() && !it->get<std::string>().empty()) d->material = it->get<std::string>();
+        else p.err(at("material"), "expected a material's name, got " + it->dump());
+    }
     if ((it = find(v, "texture")) != v.end()) {
+        d->texture_set = true;
         if (it->is_string()) d->texture = it->get<std::string>();
         else if (it->is_object()) {
             p.unknown(*it, at("texture"), {"file", "linear"});
@@ -363,7 +371,7 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
             if (it->contains("columns")) p.integer((*it)["columns"], at("flipbook") + ".columns", 1, 1024, &d->flip_columns);
             if (it->contains("rows")) p.integer((*it)["rows"], at("flipbook") + ".rows", 1, 1024, &d->flip_rows);
             if (it->contains("fps")) p.number((*it)["fps"], at("flipbook") + ".fps", 0.f, kHuge, &d->flip_fps);
-            if (d->texture.empty()) p.warn(at("flipbook"), "a flipbook without a texture shows nothing but white");
+            if (d->texture.empty() && d->material.empty()) p.warn(at("flipbook"), "a flipbook without a texture shows nothing but white");
         }
     }
     if ((it = find(v, "blend")) != v.end()) {
@@ -371,7 +379,10 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
         else if (it->is_string() && *it == "alpha") d->additive = false;
         else p.err(at("blend"), "expected \"alpha\" or \"additive\", got " + it->dump());
     }
-    if ((it = find(v, "lit")) != v.end()) p.boolean(*it, at("lit"), &d->lit);
+    if ((it = find(v, "lit")) != v.end()) {
+        d->lit_set = true;
+        p.boolean(*it, at("lit"), &d->lit);
+    }
     if ((it = find(v, "mesh")) != v.end()) {
         BuiltMesh unused;
         if (it->is_string() && builtin_mesh(it->get<std::string>(), &unused)) d->mesh = it->get<std::string>();
@@ -434,7 +445,188 @@ void parse_light(P& p, const ojson& v, const std::string& path, LightDef* d) {
     if ((it = find(v, "offset")) != v.end()) p.vec3(*it, at("offset"), -kHuge, kHuge, d->offset);
 }
 
+void kind_defaults(MaterialDef* d) {
+    if (d->kind == "metal") {
+        d->metallic = 1;
+        d->roughness = 0.35f;
+    } else if (d->kind == "cutout") {
+        d->alpha_test = true;
+    } else if (d->kind == "foliage") {
+        d->alpha_test = true;
+        d->double_sided = true;
+        d->translucent = 1;
+        d->roughness = 0.8f;
+    } else if (d->kind == "cloth") {
+        d->double_sided = true;
+        d->roughness = 0.85f;
+    } else if (d->kind == "emissive") {
+        d->has_emissive = true;
+        d->emissive_strength = 4;
+    } else if (d->kind == "dithered") {
+        d->hashed = true;
+    }
+}
+
+const std::set<std::string> kMaterialKinds = {"opaque", "metal", "cutout", "foliage", "cloth", "emissive", "dithered"};
+
+void parse_emissive(P& p, const ojson& v, const std::string& path, MaterialDef* d) {
+    auto read_colour = [&](const std::string& text, const std::string& where) {
+        ojson c = text;
+        p.colour(c, where, d->emissive_color);
+    };
+    if (v.is_string()) {
+        const std::string text = v.get<std::string>();
+        if (!text.empty() && text[0] == '#') read_colour(text, path);
+        else d->emissive_map = text;
+    } else if (v.is_object()) {
+        p.unknown(v, path, {"map", "color", "strength", "exposure", "comment"});
+        auto it = v.find("map");
+        if (it != v.end()) {
+            if (it->is_string() && !it->get<std::string>().empty()) d->emissive_map = it->get<std::string>();
+            else p.err(path + ".map", "expected a path to a PNG in your mod, got " + it->dump());
+        }
+        if ((it = v.find("color")) != v.end()) p.colour(*it, path + ".color", d->emissive_color);
+        if ((it = v.find("strength")) != v.end()) p.number(*it, path + ".strength", 0.f, kHuge, &d->emissive_strength);
+        if ((it = v.find("exposure")) != v.end()) p.number(*it, path + ".exposure", 0.f, 1.f, &d->emissive_exposure);
+    } else {
+        p.err(path, "expected a PNG, \"#rrggbb\" or {\"map\", \"color\", \"strength\"}, got " + v.dump());
+    }
+    d->has_emissive = true;
+}
+
 }  // namespace
+
+bool parse_material(const ojson& value, const std::string& name, const std::string& where, MaterialDef* out, Diagnostics* d) {
+    P p(d, where);
+    bool name_ok = !name.empty();
+    for (unsigned char c : name) name_ok = name_ok && (std::isalnum(c) || c == '_' || c == '.' || c == '-');
+    if (!name_ok) {
+        d->errors.push_back(where + ": the name may hold letters, digits, _ . and -");
+        return false;
+    }
+    if (!value.is_object()) {
+        d->errors.push_back(where + ": expected an object, got " + value.dump());
+        return false;
+    }
+    p.unknown(value, "", {"kind", "albedo", "tint", "normal", "params", "metallicRoughness", "occlusion", "roughness", "metallic", "reflectance", "emissive", "alphaTest", "doubleSided",
+                          "shadows", "contactShadows", "frost", "snow", "wetness", "vertexColor", "translucent", "dissolve", "uvScale", "shader", "was", "comment"});
+    MaterialDef def;
+    def.name = name;
+    def.id_name = name;
+    def.where = where;
+    auto it = value.find("kind");
+    if (it != value.end()) {
+        if (it->is_string() && kMaterialKinds.count(it->get<std::string>())) {
+            def.kind = it->get<std::string>();
+        } else if (it->is_string() && *it == "transparent") {
+            p.err("kind", "\"transparent\": the game draws no transparent surface from a material's data alone. It comes with ShaderBlock; until then, \"dithered\" has soft edges");
+        } else {
+            p.err("kind", "expected opaque, metal, cutout, foliage, cloth, emissive or dithered, got " + it->dump());
+        }
+    }
+    kind_defaults(&def);
+    auto png = [&](const char* key, std::string* into) {
+        const auto f = value.find(key);
+        if (f == value.end()) return;
+        if (f->is_string() && !f->get<std::string>().empty()) *into = f->get<std::string>();
+        else p.err(key, "expected a path to a PNG in your mod, got " + f->dump());
+    };
+    auto flag = [&](const char* key, bool* into) {
+        const auto f = value.find(key);
+        if (f != value.end()) p.boolean(*f, key, into);
+    };
+    png("albedo", &def.albedo);
+    if ((it = value.find("tint")) != value.end()) p.colour(*it, "tint", def.tint);
+    if ((it = value.find("normal")) != value.end()) {
+        if (it->is_string() && !it->get<std::string>().empty()) {
+            def.normal = it->get<std::string>();
+        } else if (it->is_object()) {
+            p.unknown(*it, "normal", {"map", "strength", "yDown", "comment"});
+            const auto m = it->find("map");
+            if (m != it->end() && m->is_string() && !m->get<std::string>().empty()) def.normal = m->get<std::string>();
+            else p.err("normal.map", "expected a path to a PNG in your mod");
+            if (it->contains("strength")) p.number((*it)["strength"], "normal.strength", 0.f, 16.f, &def.normal_strength);
+            if (it->contains("yDown")) p.boolean((*it)["yDown"], "normal.yDown", &def.normal_y_down);
+        } else {
+            p.err("normal", "expected a path to a PNG in your mod or {\"map\", \"strength\", \"yDown\"}, got " + it->dump());
+        }
+    }
+    png("params", &def.params);
+    png("metallicRoughness", &def.metallic_roughness);
+    png("occlusion", &def.occlusion);
+    if (!def.params.empty() && (!def.metallic_roughness.empty() || !def.occlusion.empty()))
+        p.err("params", "holds metallic, roughness and occlusion already: give params, or metallicRoughness and occlusion");
+    if ((it = value.find("roughness")) != value.end() && p.number(*it, "roughness", 0.f, 1.f, &def.roughness)) def.has_roughness = true;
+    if ((it = value.find("metallic")) != value.end() && p.number(*it, "metallic", 0.f, 1.f, &def.metallic)) def.has_metallic = true;
+    if ((it = value.find("reflectance")) != value.end()) {
+        if (it->is_string() && *it == "params") {
+            def.reflectance_from_params = true;
+            if (def.params.empty()) p.err("reflectance", "\"params\" reads the alpha of a params map, and this material has none");
+        } else {
+            p.number(*it, "reflectance", 0.f, 1.f, &def.reflectance);
+        }
+    }
+    if ((it = value.find("emissive")) != value.end()) parse_emissive(p, *it, "emissive", &def);
+    // "emissive" with nothing said glows with its own surface.
+    if (def.kind == "emissive" && def.emissive_map.empty() && !value.contains("emissive")) {
+        def.emissive_map = def.albedo;
+        for (int c = 0; c < 3; ++c) def.emissive_color[c] = def.tint[c];
+    }
+    if ((it = value.find("alphaTest")) != value.end()) {
+        if (it->is_boolean()) {
+            def.alpha_test = it->get<bool>();
+        } else if (p.number(*it, "alphaTest", 0.f, 1.f, &def.alpha_cutoff)) {
+            def.alpha_test = true;
+            if (def.alpha_cutoff <= 0) p.err("alphaTest", "must be above 0: nothing would be cut");
+        }
+    }
+    flag("doubleSided", &def.double_sided);
+    flag("shadows", &def.shadows);
+    flag("contactShadows", &def.contact_shadows);
+    flag("frost", &def.frost);
+    flag("snow", &def.snow);
+    flag("wetness", &def.wetness);
+    flag("vertexColor", &def.vertex_color);
+    if ((it = value.find("translucent")) != value.end()) p.number(*it, "translucent", 0.f, 1.f, &def.translucent);
+    if ((it = value.find("dissolve")) != value.end()) {
+        if (it->is_boolean()) {
+            def.dissolve = it->get<bool>();
+        } else if (it->is_object()) {
+            def.dissolve = true;
+            p.unknown(*it, "dissolve", {"color", "width", "noiseTiling", "noiseBlend", "comment"});
+            if (it->contains("color")) p.colour((*it)["color"], "dissolve.color", def.dissolve_color);
+            if (it->contains("width")) {
+                p.number((*it)["width"], "dissolve.width", 0.f, 1.f, &def.dissolve_width);
+                if (def.dissolve_width <= 0) p.err("dissolve.width", "must be above 0");
+            }
+            if (it->contains("noiseTiling")) p.number((*it)["noiseTiling"], "dissolve.noiseTiling", 0.f, kHuge, &def.dissolve_tiling);
+            if (it->contains("noiseBlend")) p.number((*it)["noiseBlend"], "dissolve.noiseBlend", 0.f, 1.f, &def.dissolve_fade);
+        } else {
+            p.err("dissolve", "expected true, false or {\"color\", \"width\", \"noiseTiling\", \"noiseBlend\"}, got " + it->dump());
+        }
+    }
+    if ((it = value.find("uvScale")) != value.end()) {
+        if (it->is_number()) {
+            float x = 1;
+            if (p.number(*it, "uvScale", 0.f, kHuge, &x)) def.uv_scale[0] = def.uv_scale[1] = x;
+        } else if (it->is_array() && it->size() == 2) {
+            p.number((*it)[0], "uvScale[0]", 0.f, kHuge, &def.uv_scale[0]);
+            p.number((*it)[1], "uvScale[1]", 0.f, kHuge, &def.uv_scale[1]);
+        } else {
+            p.err("uvScale", "expected a number or [u, v], got " + it->dump());
+        }
+    }
+    // The place for a surface shader. Nothing can run one yet, so a material that names one must not silently draw without it.
+    if ((it = value.find("shader")) != value.end())
+        p.err("shader", "surface shaders aren't built yet: a material draws with the game's own shaders. Take this out for now");
+    if ((it = value.find("was")) != value.end()) {
+        if (it->is_string() && !it->get<std::string>().empty()) def.id_name = it->get<std::string>();
+        else p.err("was", "expected the block's old name, got " + it->dump());
+    }
+    if (!p.ok()) return false;
+    *out = std::move(def);
+    return true;
+}
 
 ParticleDef::ParticleDef() {
     for (int i = 0; i < kN; ++i) {

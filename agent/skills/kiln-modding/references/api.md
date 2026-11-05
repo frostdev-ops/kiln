@@ -104,6 +104,8 @@ built in. Console: `kiln/control/console/*.cmd`.
 `PlayerLevelChangedEvent`, `PlayerSkillsChangedEvent`. Changes return `Task<ProgressionResult>`; game refusals come
 back as `Ok = false`, not exceptions. Level cap 50. New nodes and trees: [talents](quests-talents-sounds.md).
 
+Player state (any of 350 states from the game's own enums, `docs/kiln/modding/player-states.md`): `player.Is(PlayerStateId.Soaked)`, `player.IsGliding`, `IsSwimming`, `IsAttacking`..., `player.Snapshot()` (`Health`, `Mana`, `Stamina`, `ShroudTimeLeft`, `Action`, `Active`), `player.Equipment`, `player.Buffs`. Live on the tick thread. Events: `PlayerStateChangedEvent` (any state), `PlayerActionEvent` (any action sequence, `Cancel` stops it), `PlayerConsumeEvent` (`e.Item == GameItems.Food_...`, `Cancel`: item stays), `PlayerConsumedEvent`, `PlayerClientActionEvent` (any client command), `PlayerJumpEvent`, `PlayerGlideEvent`, `PlayerEquipmentChangedEvent`, `PlayerHotbarChangedEvent`. Real players not yet confirmed.
+
 ## Items, spawn, world, time, settings, combat
 - Items: `Items.Lookup(name)`, `Items.Search`, `await Items.Give(target, id, n, gear, options)`,
   `Items.Read(inventory)`, `await Items.Take(...)`, `Items.FindInventories(kinds)`.

@@ -1,0 +1,29 @@
+{
+  "description": "A material: KL211 without clients mod, KL322 on a map in both forms of the field. A good one says nothing.",
+  "diagnostics": [
+    {
+      "code": "KL322",
+      "col": 24,
+      "file": "blocks/m.json",
+      "line": 5,
+      "message": "tex/odd.png: 6x8 is not a power of two on both sides (Kiln refuses this block)",
+      "severity": "error"
+    },
+    {
+      "code": "KL322",
+      "col": 36,
+      "file": "blocks/m.json",
+      "line": 6,
+      "message": "tex/tiny.png: 2x2 is outside 4..4096 (Kiln refuses this block)",
+      "severity": "error"
+    },
+    {
+      "code": "KL211",
+      "col": 147,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a new material but says \"clients\": \"kiln\": a client builds it at boot from the mod's own files, and the server never sends assets; declare \"clients\": \"mod\". A VFX of the game (\"game:<name>\") needs no such thing",
+      "severity": "error"
+    }
+  ]
+}

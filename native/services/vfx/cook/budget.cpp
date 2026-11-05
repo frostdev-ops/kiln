@@ -10,10 +10,11 @@ uint64_t Budget::room_mesh_bytes() const {
 }
 
 bool Budget::try_add(const BudgetNeed& need, std::string* why) {
-    uint32_t new_meshes = 0, new_sounds = 0, new_curves = 0;
+    uint32_t new_meshes = 0, new_sounds = 0, new_curves = 0, new_streamed = 0;
     for (const Guid& g : need.meshes) new_meshes += meshes_.count(g) ? 0 : 1;
     for (const std::string& s : need.sounds) new_sounds += sounds_.count(s) ? 0 : 1;
     for (const Guid& g : need.curves) new_curves += curves_.count(g) ? 0 : 1;
+    for (const std::string& t : need.streamed_textures) new_streamed += streamed_.count(t) ? 0 : 1;
     std::string over;
     auto line = [&](const char* what, uint64_t want, uint64_t room) {
         if (want <= room) return;
@@ -24,11 +25,15 @@ bool Budget::try_add(const BudgetNeed& need, std::string* why) {
     line("mesh memory (bytes)", need.mesh_bytes, room_mesh_bytes());
     line("sounds in VFX", new_sounds, room_sounds());
     line("curves", new_curves, room_curves());
+    line("materials", need.materials, room_materials());
+    line("streamed textures", new_streamed, room_streamed_textures());
     if (!over.empty()) {
         if (why) *why = over;
         return false;
     }
     vfx_ += need.vfx;
+    materials_ += need.materials;
+    streamed_.insert(need.streamed_textures.begin(), need.streamed_textures.end());
     mesh_bytes_ += need.mesh_bytes;
     meshes_.insert(need.meshes.begin(), need.meshes.end());
     sounds_.insert(need.sounds.begin(), need.sounds.end());

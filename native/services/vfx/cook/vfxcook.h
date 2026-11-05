@@ -37,6 +37,7 @@ constexpr uint32_t kTypeVfx = 0xe64ee036u;      // keen::VfxResource
 constexpr uint32_t kTypeMesh = 0x8e2c1e03u;     // keen::VfxMeshResource
 constexpr uint32_t kTypeTexture = 0x3002d39du;  // keen::RenderTextureResource
 constexpr uint32_t kTypeGpc = 0x647628d6u;      // keen::GpcResource
+constexpr uint32_t kTypeMaterial = 0xaee1894bu; // keen::RenderMaterialResource
 
 // ---- limits ------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t kMaxEntries = 55;        // particle entries in one VFX: vanilla's largest
@@ -57,18 +58,25 @@ constexpr ContentHash kGameSpriteModule{25472, 2458470088u, 2128813632u, 3226514
 struct GameCounts {
     uint32_t vfx = 1575, meshes = 638, curves = 8, sounds = 6;
     uint64_t mesh_bytes = 17567564;  // svn 1287369: the sum of every VfxMeshResource blob, all loaded at init
+    uint32_t materials = 3403;            // RenderMaterialResources on the Pbr effect: the directory's count less kOtherEffectMaterials
+    uint32_t streamed_textures = 13930;   // svn 1287369: distinct textures of the 8 resource types the renderer lists at boot (docs/re/vfx.md 5)
 };
 struct Capacity {
     uint32_t vfx = 2048, meshes = 1024, curves = 16, sounds = 16;
     uint64_t mesh_bytes = 0x1100000;
     uint64_t mesh_margin = 16384;  // kept free: the allocator's own needs were not read
+    uint32_t materials = 4096;            // Pbr materials alive at once (render system create, 0x103695). Over it a model silently doesn't draw
+    uint32_t streamed_textures = 16383;   // 16,384 slots less slot 0. "too many streamed textures" is fatal at boot (0xb2fb0)
 };
+constexpr uint32_t kOtherEffectMaterials = 55;  // svn 1287369: TerraformingCursor 48, SkyTexture 7
 struct BudgetNeed {
     uint32_t vfx = 0;
     std::set<Guid> meshes;
     uint64_t mesh_bytes = 0;
     std::set<std::string> sounds;
     std::set<Guid> curves;
+    uint32_t materials = 0;
+    std::set<std::string> streamed_textures;  // by content hash: the game shares a texture between materials the same way
 };
 class Budget {
 public:
@@ -79,11 +87,15 @@ public:
     uint32_t room_meshes() const { return left(cap_.meshes, game_.meshes + static_cast<uint32_t>(meshes_.size())); }
     uint32_t room_sounds() const { return left(cap_.sounds, game_.sounds + static_cast<uint32_t>(sounds_.size())); }
     uint32_t room_curves() const { return left(cap_.curves, game_.curves + static_cast<uint32_t>(curves_.size())); }
+    uint32_t room_materials() const { return left(cap_.materials, game_.materials + materials_); }
+    uint32_t room_streamed_textures() const { return left(cap_.streamed_textures, game_.streamed_textures + static_cast<uint32_t>(streamed_.size())); }
     uint64_t room_mesh_bytes() const;
     uint32_t used_vfx() const { return vfx_; }
     uint32_t used_meshes() const { return static_cast<uint32_t>(meshes_.size()); }
     uint32_t used_sounds() const { return static_cast<uint32_t>(sounds_.size()); }
     uint32_t used_curves() const { return static_cast<uint32_t>(curves_.size()); }
+    uint32_t used_materials() const { return materials_; }
+    uint32_t used_streamed_textures() const { return static_cast<uint32_t>(streamed_.size()); }
     uint64_t used_mesh_bytes() const { return mesh_bytes_; }
     const GameCounts& game() const { return game_; }
     const Capacity& capacity() const { return cap_; }
@@ -92,10 +104,10 @@ private:
     static uint32_t left(uint32_t cap, uint32_t used) { return cap > used ? cap - used : 0; }
     GameCounts game_;
     Capacity cap_;
-    uint32_t vfx_ = 0;
+    uint32_t vfx_ = 0, materials_ = 0;
     uint64_t mesh_bytes_ = 0;
     std::set<Guid> meshes_, curves_;
-    std::set<std::string> sounds_;
+    std::set<std::string> sounds_, streamed_;
 };
 
 // ---- the starter modules: shaders/build/*.spv, embedded as they are ---------------------------------------------------------------
@@ -128,6 +140,8 @@ struct ParticleDef {
     float size[8], alpha[8], color[8][3];
     std::string texture;     // relative to the mod folder; empty: white
     bool texture_linear = false;
+    std::string material;    // a MaterialDef of this mod: the texture, tint and lit unless the particle says otherwise
+    bool texture_set = false, color_set = false, lit_set = false;
     uint8_t address[3] = {0, 0, 0};  // keen::RenderSamplerAddressMode: Wrap
     uint32_t flip_columns = 0, flip_rows = 0;
     float flip_fps = 0;
@@ -162,6 +176,143 @@ ojson parse_relaxed(const std::string& text);
 // One block of the "vfx" section. false: something is wrong and d->errors says what, by block and field.
 bool parse_block(const ojson& value, const std::string& name, const std::string& where, VfxDef* out, Diagnostics* d);
 
+// ---- materials (docs/re/vfx.md 5, docs/kiln/modding/materials.md) -----------------------------------------------------------------
+constexpr uint8_t kEffectPbr = 1;                // keen::RenderEffectId::Pbr
+constexpr uint32_t kPbrSignature = 0x1220f31fu;  // the layout hash of keen::PbrRfxRenderMaterial
+constexpr uint32_t kPbrBlockSize = 244;
+// keen::RenderMaterialFlag. AlphaTested, DoubleSided, DisableShadows and HashedAlpha reach RenderMeshDrawData2.pipelineBits, which picks the pipeline.
+constexpr uint8_t kMatAlphaTested = 1u << 1, kMatDoubleSided = 1u << 2, kMatDisableShadows = 1u << 3, kMatCanDissolve = 1u << 4, kMatTranslucent = 1u << 5,
+                  kMatFoliage = 1u << 6, kMatHashedAlpha = 1u << 7;
+// keen::PbrRfxRenderMaterialFlag
+constexpr uint32_t kPbrDissolve = 1u << 0, kPbrHashedAlpha = 1u << 1, kPbrSampleAo = 1u << 3, kPbrSampleOpacity = 1u << 4, kPbrContactShadows = 1u << 5,
+                   kPbrFlipBackfaceNormals = 1u << 7, kPbrDisableFrost = 1u << 9, kPbrDisableSnow = 1u << 10, kPbrDisableWetness = 1u << 11, kPbrFoliageTranslucency = 1u << 14;
+// keen::PbrRfxRenderMaterial's fields
+constexpr uint32_t kPbrAlbedoMap = 0x14, kPbrNormalMap = 0x1c, kPbrEmissiveMap = 0x24, kPbrParamsMap = 0x2c, kPbrTexCoordScaling = 0x3c, kPbrConstantReflectance = 0x5c,
+                   kPbrLayerFeedback = 0x64, kPbrHeightBlendingRange = 0x8c, kPbrEmissiveSwizzle = 0x94, kPbrAlbedoSwizzle = 0x98, kPbrAoSwizzle = 0x9c,
+                   kPbrTranslucencyStrength = 0xa0, kPbrEmissiveShaderData = 0xa8, kPbrDissolveColor = 0xd0, kPbrDissolveWidthInv = 0xdc, kPbrDissolveParam = 0xe0,
+                   kPbrDissolveNoiseMap = 0xe4, kPbrDissolveNoiseTiling = 0xe8, kPbrDissolveFadeRange = 0xec, kPbrFlags = 0xf0;
+constexpr uint32_t kSwizzleNone = 255;        // a vertex colour channel: none
+constexpr uint32_t kDissolveNoiseMap = 2;     // the entry of g_renderNoiseMaps nearly all of the game's dissolving materials use
+constexpr uint32_t kCategoryMaterialChain = 1840640251u, kCategoryMipTail = 1185060183u;  // content.category and mipTailContent.category on all 13,207 images
+constexpr uint32_t kMaxFeedbackImages = 8;    // more is fatal in the loader: "SmallDynamicArray is out of elements"
+constexpr uint32_t kMaxMipRanges = 16;        // more is fatal in the texture system
+constexpr uint32_t kMaxMaterialTextureSide = 4096;
+constexpr float kDefaultReflectance = 0.5028854608535767f;  // 3,070 of the game's 3,403
+
+// keen::PixelFormat
+constexpr uint8_t kFormatBc1Unorm = 131, kFormatBc5Unorm = 141, kFormatBc7Unorm = 145, kFormatBc7Srgb = 146;
+
+// A ResourceContentReference.
+struct ContentRef {
+    ContentHash hash;
+    uint32_t category = 0, bundle = 0;
+    uint64_t sort = 0;
+};
+struct StreamRange {
+    uint32_t start = 0, count = 0;
+};
+// keen::RenderStreamedTexture
+struct StreamedTexture {
+    uint16_t width = 0, height = 0;
+    uint8_t levels = 0, format = 0;
+    ContentRef content, tail;
+    std::vector<StreamRange> ranges;
+    std::string debug_name;
+};
+struct MaterialImage {
+    uint32_t data_offset = 0;
+    StreamedTexture texture;
+};
+struct MaterialFeedback {
+    uint32_t data_offset = 0;
+    std::vector<uint32_t> images;
+};
+// keen::RenderMaterialResource, any effect
+struct RenderMaterial {
+    uint8_t effect = 0, flags = 0;
+    Bytes data;
+    uint32_t signature = 0;
+    std::vector<MaterialImage> images;
+    std::vector<MaterialFeedback> feedbacks;
+    std::string debug_name;
+};
+Bytes write_material(const RenderMaterial& m);
+bool read_material(const uint8_t* p, size_t n, RenderMaterial* out, std::string* why);
+
+// RGBA8, top row first
+struct RawImage {
+    uint32_t w = 0, h = 0;
+    Bytes px;
+};
+
+// A plain host file reader by default; boot.cpp supplies one that handles wide paths.
+using ReadFile = std::function<bool(const std::string& utf8_path, Bytes* out, std::string* why)>;
+// A cache of encoded mip chains by key (kiln/data/vfx/cache). Either may be empty.
+struct TextureCache {
+    std::function<bool(const std::string& key, Bytes* out)> get;
+    std::function<void(const std::string& key, const Bytes& data)> put;
+};
+
+// One block of the "materials" section. Everything a kind sets is in `kind_defaults`, so a field written in the block always wins.
+struct MaterialDef {
+    std::string name, id_name, where, kind = "opaque";
+    std::string albedo;                     // PNG, sRGB; alpha is what alphaTest cuts by
+    float tint[3] = {1, 1, 1};              // linear; multiplies albedo, or is the albedo without a map
+    std::string normal;                     // PNG; R, G
+    bool normal_y_down = false;
+    float normal_strength = 1;
+    std::string params;                     // PNG in the game's channels: R metallic, G roughness, B occlusion, A reflectance
+    std::string metallic_roughness;         // PNG in glTF's channels: G roughness, B metallic
+    std::string occlusion;                  // PNG; R
+    bool has_roughness = false, has_metallic = false;
+    float roughness = 0.7f, metallic = 0;   // the value without a map, a factor with one
+    float reflectance = kDefaultReflectance;
+    bool reflectance_from_params = false;   // params' alpha
+    bool has_emissive = false;
+    std::string emissive_map;               // PNG, sRGB
+    float emissive_color[3] = {1, 1, 1};    // linear
+    float emissive_strength = 1, emissive_exposure = 0.75f;
+    bool alpha_test = false, hashed = false, double_sided = false, shadows = true, contact_shadows = true, frost = true, snow = true, wetness = true,
+         vertex_color = false;
+    float alpha_cutoff = 0.5f;
+    float translucent = 0;
+    bool dissolve = false;
+    float dissolve_color[3] = {1, 1, 1};
+    float dissolve_width = 0.05f, dissolve_tiling = 0.5f, dissolve_fade = 0.3f;
+    float uv_scale[2] = {1, 1};
+    std::string shader;                     // a ShaderBlock's name, for when surface shaders exist. Today: refused by name
+};
+bool parse_material(const ojson& value, const std::string& name, const std::string& where, MaterialDef* out, Diagnostics* d);
+void material_flags(const MaterialDef& d, uint8_t* render, uint32_t* block);
+// What the game draws a material with, by the flags: names in renderer/renderer.gpc. For reports and tests.
+std::vector<std::string> material_pipelines(uint8_t render);
+
+// A full mip chain in one block format, largest level first, with its streaming layout.
+struct EncodedChain {
+    uint32_t width = 0, height = 0, levels = 0;
+    uint8_t format = 0;
+    Bytes data;
+    std::vector<StreamRange> ranges;
+    size_t tail_start = 0;  // where the first level no range starts at begins
+};
+struct MaterialMap {
+    uint32_t slot = 0;  // kPbr*Map
+    const char* what = "";
+    EncodedChain chain;
+};
+// Reads a PNG the definition names. false: *why says what is wrong with the file.
+using ImageLoader = std::function<bool(const std::string& rel, RawImage* out, std::string* why)>;
+// The maps of a material, built from what it names and from constants for what it doesn't: the game's shader reads albedo, normal and params unconditionally.
+// false: *field is the field at fault and *why what is wrong with it.
+bool material_maps(const MaterialDef& d, const ImageLoader& load, const TextureCache& cache, std::vector<MaterialMap>* out, std::string* field, std::string* why);
+struct BuiltMaterial {
+    Guid guid;
+    Bytes resource;
+    uint8_t render_flags = 0;
+    uint32_t block_flags = 0;
+};
+bool build_material(const MaterialDef& d, const std::string& mod, const std::vector<MaterialMap>& maps, BuiltMaterial* out, std::string* why);
+
 // ---- what comes out ------------------------------------------------------------------------------------------------------------
 struct ServedBlob {
     ContentHash hash;
@@ -182,17 +333,21 @@ struct BuiltTexture {
     uint32_t width = 0, height = 0, levels = 0;
 };
 
-// A plain host file reader by default; boot.cpp supplies one that handles wide paths.
-using ReadFile = std::function<bool(const std::string& utf8_path, Bytes* out, std::string* why)>;
-// A cache of encoded mip chains by key (kiln/data/vfx/cache). Either may be empty.
-struct TextureCache {
-    std::function<bool(const std::string& key, Bytes* out)> get;
-    std::function<void(const std::string& key, const Bytes& data)> put;
-};
-
 // PNG -> BC7 mip chain -> RenderTextureResource. Power of two, kMinTextureSide..kMaxTextureSide, or it says why not.
 bool build_texture(const Bytes& png, const std::string& mod, const std::string& rel, bool linear, const TextureCache& cache, BuiltTexture* out,
                    std::string* why);
+
+// A PNG's pixels. Power of two, kMinTextureSide..max_side, or it says why not.
+bool decode_png(const Bytes& png, uint32_t max_side, RawImage* out, std::string* why);
+// A resized copy, for maps of one material that differ in size. Bilinear.
+RawImage resize_image(const RawImage& s, uint32_t w, uint32_t h);
+constexpr uint32_t kSolidTextureSide = 16;  // the game's constant maps are this size
+RawImage solid_image(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+uint8_t linear_to_srgb_byte(float linear);
+// Multiplies colour in linear light, as a shader multiplying a texture would; alpha stays.
+void multiply_srgb(RawImage* image, const float linear[3]);
+// A full chain in a format above: mips averaged (colour in linear light when srgb), encoded on every core up to 8. Cached by the pixels.
+EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCache& cache);
 
 // The mesh every sprite uses unless it says otherwise. Built from docs/re/vfx.md 2.5's numbers. Blob sizes are multiples of 28: the game
 // computes vertex offsets as allocation offset / 28, so any other size would shift every mesh loaded after it.
@@ -224,6 +379,8 @@ struct ModInput {
     std::string side = "both", clients = "mod";
     // (file name for messages, text of a blocks/*.json or a pending definition)
     std::vector<std::pair<std::string, std::string>> documents;
+    // The same kind of text, read only so a particle can name a material of its mod: a definition from code comes alone, and its mod's data files are here.
+    std::vector<std::string> lookup_documents;
 };
 struct BuiltBlock {
     std::string mod, name;
@@ -233,21 +390,31 @@ struct BuiltBlock {
     bool loops = false;
     uint64_t definition = 0;  // a hash of the block's JSON: a same definition need not be rebuilt
 };
+struct BuiltMaterialBlock {
+    std::string mod, name;
+    Guid guid;
+    uint8_t render_flags = 0;
+    uint32_t block_flags = 0;
+    uint32_t textures = 0;
+    uint64_t definition = 0;
+};
 struct CookOptions {
     GameCounts game;
     Capacity capacity;
     ReadFile read_file;   // default: std::ifstream
     TextureCache cache;
     std::function<bool(const ContentHash&)> game_has_blob;  // empty: unknown, so what needs a game blob is refused
+    bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
 };
 struct CookResult {
     std::vector<ServedBlob> blobs;
     std::vector<ServedResource> resources;  // meshes and textures come before the VFX that name them
     std::vector<BuiltBlock> blocks;
+    std::vector<BuiltMaterialBlock> materials;
     std::vector<std::string> errors, warnings;
     std::vector<std::string> refused_mods;  // refused by the budget or a manifest rule, whole
     uint32_t mods_with_vfx = 0;
-    uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0;
+    uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0, used_materials = 0, used_streamed_textures = 0;
     uint64_t used_mesh_bytes = 0;
     GameCounts game;
     Capacity capacity;
@@ -266,6 +433,8 @@ struct LayoutExpect {
     uint32_t layout;
 };
 const std::vector<LayoutExpect>& expected_layouts();
+// The same for what materials are written against. A change here turns off new materials, and particles stay on.
+const std::vector<LayoutExpect>& material_layouts();
 constexpr uint32_t kBindingHash = 0xe69e178eu;  // FNV-1a over VfxUpdateDescriptorSetLayout's bindings: see binding_hash_of_gpc
 // GUID of vfx/vfx.gpc
 Guid vfx_gpc_guid();
@@ -284,6 +453,7 @@ struct ImageView {
 // Finds the game's reflection records for expected_layouts() (the record layout is in tools/kfc/kfc/refl.py) and reads their layout hashes.
 // Reads .data and .rdata only; nothing there needs the game's static init to have run.
 std::vector<LayoutFound> read_layouts(const ImageView& img);
+std::vector<LayoutFound> read_layouts(const ImageView& img, const std::vector<LayoutExpect>& want);
 bool load_pe_file(const std::string& path, Bytes* image, uint64_t* base, std::string* why);
 // "" when every layout matches, else one line naming each difference.
 std::string compare_layouts(const std::vector<LayoutFound>& found);

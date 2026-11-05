@@ -11,7 +11,7 @@
     decode GUID TYPE [--part N] [-o FILE]  reflected decode as JSON
     content HASH [-o FILE]             one content blob from the .dat containers (32 hex digits or size-h0-h1-h2)
     refs GUID                          every resource with this GUID (all types and parts)
-    model GUID [--lod N] [--obj F] [--gltf F [--skin]] [--all-lods] [--game-space] [--bin F [--blob F]]
+    model GUID [--lod N] [--obj F] [--gltf F [--skin [--skeleton F]]] [--all-lods] [--game-space] [--bin F [--blob F]]
                                        keen::RenderModel (the game's, or a cooked file) -> OBJ/glTF
     find-items RX                      ItemInfo debug names matching RX -> their model / icon GUIDs
     find-templates RX [--components]   TemplateResource names matching RX -> GUID, family (and component types)
@@ -228,7 +228,11 @@ def cmd_model(c):
             p = Path(c.args.gltf) if not c.args.all_lods else out_dir("export") / f"{stem}.gltf"
             skel = None
             if c.args.skin and m.desc["hierarchy"] != "00000000-0000-0000-0000-000000000000":
-                skel = mesh.skeleton_rh(mesh.load_hierarchy(c.kfc, c.types, m.desc["hierarchy"]))
+                if c.args.skeleton:
+                    h = Decoder(c.types, max_array=1 << 20).decode("keen::ModelHierarchyResource", Path(c.args.skeleton).read_bytes())
+                else:
+                    h = mesh.load_hierarchy(c.kfc, c.types, m.desc["hierarchy"])
+                skel = mesh.skeleton_rh(h)
             mesh.write_gltf(tri, p, skeleton=skel)
             print(f"lod {lod}: {p}")
 
@@ -359,6 +363,7 @@ def main(argv=None):
     p.add_argument("--gltf")
     p.add_argument("--game-space", action="store_true", help="keep the game's left-handed axes (no x mirror)")
     p.add_argument("--skin", action="store_true", help="glTF: add the model's skeleton (ModelHierarchyResource) and weights")
+    p.add_argument("--skeleton", help="with --skin: decode the skeleton from this file (a cooked one) instead of the game")
     p.add_argument("--bin", help="decode this RenderModel file instead of the game's (GUID is then only a label)")
     p.add_argument("--blob", help="its renderData blob (default: the .bin path with .blob)")
     p = sub.add_parser("find-items")

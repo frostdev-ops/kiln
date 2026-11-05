@@ -215,6 +215,73 @@ typedef struct KilnCreaturesStatus {
     uint64_t copy_reads;       /* behaviour updates that read a private Enemy01BehaviorState copy (diagnostic) */
 } KilnCreaturesStatus;
 
+/* rules_drain: a unit of work for the tick side */
+enum {
+    KILN_RULE_WORK_ACTION = 1,    /* id = action id: a rule fired this action during the last sim step */
+    KILN_RULE_WORK_CONDITION = 2, /* id = slot: this creature asked for the condition and has no value yet */
+    KILN_RULE_WORK_PICK = 3,      /* the creature's attack selection waits for an override */
+    KILN_RULE_WORK_GONE = 4,      /* the creature despawned: forget it */
+};
+typedef struct KilnRuleWork {
+    uint32_t kind;
+    KilnEntity entity;
+    uint32_t id;
+    KilnEntity target; /* ACTION: its combat target when the rule fired */
+    uint64_t step;
+} KilnRuleWork;
+
+/* Payload kinds of Kiln's own arsenal variants ("kiln::npc::Constraint", "kiln::npc::Action") */
+enum {
+    KILN_RC_CONDITION = 1, /* the slot's published value */
+    KILN_RC_BUFF = 2,      /* the creature has the buff (id = buff type id) */
+    KILN_RC_TIME = 3,      /* time of day is within [a, b) hours; wraps past midnight when a > b */
+    KILN_RC_PHASE = 4,     /* the creature's phase is id (Kiln's phase, or the game's on a body that has them) */
+    KILN_RC_JOB = 5,       /* a handler on the job thread (rules_job_handler) */
+};
+enum {
+    KILN_RA_QUEUE = 1,  /* queued to the tick side as KILN_RULE_WORK_ACTION */
+    KILN_RA_PHASE = 2,  /* sets the creature's Kiln phase */
+    KILN_RA_ATTACK = 3, /* starts the attack with this GUID through the game's own selection */
+    KILN_RA_JOB = 4,    /* a handler on the job thread (rules_job_handler) */
+};
+
+/* Runs on a job thread inside the sim step. Conditions return nonzero for true; actions ignore the result. `id` is the
+ * handler id, `arg` the payload's slot. */
+typedef uint32_t(KILN_CALL* KilnRuleJobFn)(KilnEntity entity, uint32_t id, uint32_t arg, void* user);
+
+typedef struct KilnAttackOverride {
+    uint32_t size;
+    int32_t forced;      /* attack index to start whenever the creature attacks, -1 = none */
+    uint32_t allow;      /* bit per attack index (0..31): the game picks among these with its own rules; ~0 = all */
+    uint32_t reserved;
+} KilnAttackOverride;
+
+typedef struct KilnRulesStatus {
+    uint32_t size;
+    uint8_t writer;     /* arsenals can be written (registry map and record layout read) */
+    uint8_t dispatcher; /* the two hooks' targets resolved */
+    uint8_t attacks;    /* the attack override's targets resolved */
+    uint8_t rule_hooks; /* installed now */
+    uint8_t attack_hooks;
+    uint8_t ai_switch;  /* the AI switch's field resolved */
+    uint8_t reserved[2];
+    uint32_t arsenals;  /* Kiln's arsenals in the registry */
+    uint32_t tracked;   /* creatures in the published table */
+    uint32_t overrides; /* creatures with an attack override */
+    uint32_t ai_off;    /* creatures with their AI switched off by Kiln */
+    uint32_t handlers;  /* job-thread handlers */
+    uint32_t map_capacity, map_count; /* the registry's lookup map */
+    uint32_t reserved2;
+    uint64_t constraints, constraints_true; /* Kiln constraints evaluated on job threads, and true */
+    uint64_t actions, actions_dropped;      /* Kiln actions fired; lost to a full queue */
+    uint64_t selects, selects_forced, selects_filtered; /* SelectAttack calls; forced; attacks refused by an allow mask */
+    uint64_t picks_waiting;     /* selections that waited for an override */
+    uint64_t followups_refused; /* combo follow-ups refused by an override */
+    uint64_t starts, starts_off_override, sequences_refused; /* attacks started; started against an override (rewritten); rule-played attack sequences refused */
+    uint64_t pre_ns, pre_calls; /* tick cost so far */
+    uint64_t job_ticks, job_calls, job_tick_hz; /* job-thread cost so far (rdtsc, while timing is on) */
+} KilnRulesStatus;
+
 typedef struct KilnCreaturesApi {
     KilnServiceHeader header; /* { sizeof(KilnCreaturesApi), KILN_CREATURES_VERSION } */
 
@@ -281,6 +348,59 @@ typedef struct KilnCreaturesApi {
     /* Appended: sends the game's NpcCommandEvent in the next sim step (any thread). KILN_ERR_UNAVAILABLE: commands off.
      * Check header.size before calling. */
     KilnResult(KILN_CALL* npc_command)(const KilnNpcCommand* command);
+
+    /* ---- arsenals and rules (appended: check header.size) ----
+     * What these are and how a mod uses them: docs/kiln/services/creatures.md "Rules and arsenals". */
+    /* Defines or replaces `owner`'s additions to an arsenal, from JSON: { "guid", "from"?, "attacks": [...], "rules": [...] }.
+     * A GUID the game knows extends that arsenal for every creature using it; a new one is a new arsenal. Several owners
+     * on one GUID merge in the order they arrived. Tick. Parsing and type errors come back at once (INVALID_ARGUMENT,
+     * text in error); the arsenal is built and registered at the next Pre with a running world. */
+    KilnResult(KILN_CALL* arsenal_define)(KilnOwner owner, KilnStr json, char* error, size_t error_capacity, size_t* out_len);
+    /* Drops owner's additions (guid NULL: all of them). The game's own arsenal comes back. Tick. */
+    KilnResult(KILN_CALL* arsenal_remove)(KilnOwner owner, const KilnGuid* guid);
+    /* The arsenal as the AI reads it now, as JSON: { "guid", "kiln", "attacks": [{ "index", "guid", "sequence" }], "rules", "problems" }.
+     * NOT_FOUND: no arsenal with that GUID. Tick. *out_len = full length. */
+    KilnResult(KILN_CALL* arsenal_info)(const KilnGuid* guid, char* buffer, size_t capacity, size_t* out_len);
+    /* Rebuilds Kiln's arsenals from the game's current data (after a kiln.content change). Tick. *out_count = rebuilt. */
+    KilnResult(KILN_CALL* arsenal_refresh)(uint32_t* out_count);
+    /* Reads every arsenal of the registry and writes it back through the writer in memory; counts those not byte-equal
+     * in their parsed form. A self-check for tests. Tick. */
+    KilnResult(KILN_CALL* arsenal_selftest)(uint32_t* out_checked, uint32_t* out_bad);
+
+    /* Work for the tick side: actions the job threads queued, conditions a creature asked for. Tick. Returns the count
+     * written. Kiln.Creatures drains this; a native plugin must not while managed Kiln.Creatures runs. */
+    uint32_t(KILN_CALL* rules_drain)(KilnRuleWork* out, uint32_t capacity);
+    /* Publishes a condition's value for one creature (slot 0..255). It reaches job threads at the next Pre. Tick. */
+    KilnResult(KILN_CALL* rules_condition_set)(KilnEntity entity, uint32_t slot, uint32_t value);
+    /* Forgets a condition slot on every creature, and its counters. Tick. */
+    KilnResult(KILN_CALL* rules_condition_clear)(uint32_t slot);
+    /* Times a slot was evaluated on job threads, and came out true. Any thread. */
+    KilnResult(KILN_CALL* rules_condition_stats)(uint32_t slot, uint64_t* out_evaluated, uint64_t* out_true);
+    /* flags bit 0: run the listener every Pre (conditions and picks due on a schedule); bit 1: time the job-thread
+     * side (rules_status job_ticks). Any thread. */
+    void(KILN_CALL* rules_pump)(uint32_t flags);
+    /* The creature's Kiln phase: FNV-1a of a phase GUID, 0 = none. Tick. */
+    KilnResult(KILN_CALL* rules_phase_set)(KilnEntity entity, uint32_t phase);
+    KilnResult(KILN_CALL* rules_phase_get)(KilnEntity entity, uint32_t* out_phase);
+    /* Counters and what resolved. Any thread. */
+    KilnResult(KILN_CALL* rules_status)(KilnRulesStatus* out);
+    /* Handler for KILN_RC_JOB / KILN_RA_JOB kinds, id 1..63, on the game's job threads inside the sim step: read only what is
+     * safe there, call no tick API, return fast. NULL removes it. Removed when `owner` is released. Any thread. */
+    KilnResult(KILN_CALL* rules_job_handler)(KilnOwner owner, uint32_t id, KilnRuleJobFn fn, void* user);
+
+    /* Attack override of `owner` for one creature; the newest owner's wins. override NULL drops owner's. A forced attack is
+     * what the creature starts next whenever the game decides to attack, on every start path. Tick. */
+    KilnResult(KILN_CALL* attack_override)(KilnOwner owner, KilnEntity entity, const KilnAttackOverride* override);
+    /* Marks an arsenal as "picked by code": until a creature using it has an override (even an empty one), its attack
+     * selection answers "nothing available" and asks the tick side (KILN_RULE_WORK_PICK). Tick. */
+    KilnResult(KILN_CALL* attack_pick_arsenal)(KilnOwner owner, const KilnGuid* arsenal, uint32_t enabled);
+    /* The game's AI switch for one creature (DynamicEnemy01BehaviorState.enabled), a layer of `owner`: off while any owner
+     * wants it off. Body, sequences and damage keep running; decisions and target upkeep stop. Tick. */
+    KilnResult(KILN_CALL* ai_switch)(KilnOwner owner, KilnEntity entity, uint32_t enabled);
+    /* 1 when the AI runs, 0 when it is off. Tick. */
+    KilnResult(KILN_CALL* ai_switch_get)(KilnEntity entity, uint32_t* out_enabled);
+    /* Makes `target` the creature's next combat target: clears the target-change wait. The threat goes through `command`. Tick. */
+    KilnResult(KILN_CALL* target_prefer)(KilnEntity entity);
 } KilnCreaturesApi;
 
 #ifdef __cplusplus

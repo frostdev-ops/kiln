@@ -1,0 +1,11 @@
+{
+  "id": "skincheck",
+  "name": "Skin check",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SkinCheck.dll",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "Manual checks that skinned models cooked by tools/modelcook draw and animate in the game client, on one of the game's skeletons and on a creature made entirely of our own files. Its assets are made on your machine by build-assets.py. Not for distribution."
+}

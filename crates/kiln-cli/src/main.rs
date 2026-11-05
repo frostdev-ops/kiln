@@ -19,6 +19,7 @@ mod out;
 mod project;
 mod server;
 mod tools;
+mod vfx;
 
 #[cfg(feature = "catalog")]
 mod catalog;
@@ -67,6 +68,8 @@ enum Cmd {
     Blocks(blocks::BlocksArgs),
     /// The local game-data catalog (items, templates, perks, ...) made from your installed game.
     Catalog(CatalogArgs),
+    /// One game VFX from the catalog: what finds it, how long it runs, what it takes.
+    Vfx(vfx::VfxArgs),
 }
 
 #[derive(clap::Args)]
@@ -156,6 +159,7 @@ fn main() {
         Cmd::Lint(a) => lint_cmd(a, json),
         Cmd::Blocks(a) => blocks::run(a, json),
         Cmd::Catalog(a) => catalog_cmd(a, json),
+        Cmd::Vfx(a) => vfx::run(a, json),
     };
     std::process::exit(match r {
         Ok(code) => code,

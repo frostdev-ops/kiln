@@ -1,0 +1,19 @@
+<Project>
+  <!-- Sample: effects from nothing (docs/kiln/modding/vfx.md). An original particle effect, a light and one of the game's VFX by name, each on a key, and a spell that
+       uses them. Its textures are drawn by make_textures.py. How it looks in a game is for a player to check: a dedicated server draws nothing. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>vfx-sample</KilnModId>
+    <KilnModName>VFX (blocks sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>An original particle effect, a light and a game VFX by name, each on a key, and a spell that uses them.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Vfx;Client;Ui;World</KilnServices>
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="make_textures.py" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

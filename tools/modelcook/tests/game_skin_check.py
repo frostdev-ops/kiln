@@ -155,6 +155,9 @@ def cook_one(guid):
     c = dec.decode(rm, data)
     r["seconds"] = round(time.time() - t0, 1)
     r["checks_failed"] = [n for n, ok in report["checks"].items() if not ok]
+    r["winding"] = {"ours": report["ccw_agree_game_space"], "game": report.get("vanilla", {}).get("ccw_agree_game_space")}
+    if r["winding"]["game"] is not None and abs(r["winding"]["ours"] - r["winding"]["game"]) < 1e-3 and "winding_like_vanilla" in r["checks_failed"]:
+        r["checks_failed"].remove("winding_like_vanilla")  # the check is for new models: this one is as mixed as the game's
     r["problems"] = report["problems"]
     r["same_map"] = c["skinningMap"] == d["skinningMap"]
     r["same_global_scale"] = c["globalScale"] == d["globalScale"]
@@ -248,10 +251,12 @@ def cmd_cook(a):
                 print(f"{i + 1} done", flush=True)
     bad = [r for r in results if r.get("error") or r.get("problems") or r.get("checks_failed")]
     good = [r for r in results if r not in bad]
-    summary = {"models": len(results), "cooked": len(good), "refused_or_failed": len(bad), "vertices": sum(r["vertices"] for r in good),
-               "same_map": sum(r["same_map"] for r in good), "same_global_scale": sum(r["same_global_scale"] for r in good), "indices_identical": sum(r["indices_identical"] for r in good),
+    plain = [r for r in good if not r["chain"]]  # a chain model's map has placeholder entries the simulation fills, and the writer doesn't write chains
+    summary = {"models": len(results), "cooked": len(good), "refused_or_failed": len(bad), "vertices": sum(r["vertices"] for r in good), "with_chain": len(good) - len(plain),
+               "same_map": sum(r["same_map"] for r in plain), "same_global_scale": sum(r["same_global_scale"] for r in good), "indices_identical": sum(r["indices_identical"] for r in good),
                "same_ranges": sum(r["shape"]["same_ranges"] for r in good),
-               "skin_used_slots_different": sum(r["streams"].get("skin_used_slots_different", 0) for r in good),
+               "models_with_different_used_slots": sum(1 for r in plain if r["streams"].get("skin_used_slots_different")),
+               "skin_used_slots_different": sum(r["streams"].get("skin_used_slots_different", 0) for r in plain),
                "max_position_error_m": max((r["streams"].get("max_position_error_m", 0) for r in good), default=0),
                "largest_position_error_in_quanta": max((r["streams"].get("max_position_error_m", 0) / r["streams"]["quantization_step_m"] for r in good if r["streams"].get("quantization_step_m")), default=0),
                "min_normal_dot": min((r["streams"].get("min_normal_dot", 1) for r in good), default=1),

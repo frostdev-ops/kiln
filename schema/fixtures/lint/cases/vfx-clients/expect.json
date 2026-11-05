@@ -1,0 +1,37 @@
+{
+  "description": "A new VFX needs clients \"mod\": a block of the section (with the side \"server\" warning), a field naming one, one that is fine with \"mod\". Fields that name only the game's VFX need nothing of the kind.",
+  "diagnostics": [
+    {
+      "code": "KL901",
+      "col": 1,
+      "file": "field/kiln.mod.json",
+      "line": 1,
+      "message": "no game-data catalog: 2 reference(s) to the game's items, templates, ... were not checked (make one with `kiln catalog`, or pass --catalog)",
+      "severity": "info"
+    },
+    {
+      "code": "KL211",
+      "col": 147,
+      "file": "field/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a field that names a new VFX but says \"clients\": \"kiln\": a client builds it at boot from the mod's own files, and the server never sends assets; declare \"clients\": \"mod\". A VFX of the game (\"game:<name>\") needs no such thing",
+      "severity": "error"
+    },
+    {
+      "code": "KL203",
+      "col": 80,
+      "file": "section/kiln.mod.json",
+      "line": 1,
+      "message": "a new VFX is drawn by clients, but side \"server\" mods do not load on a joined client (only when a player hosts); use side \"both\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL211",
+      "col": 151,
+      "file": "section/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a new VFX but says \"clients\": \"kiln\": a client builds it at boot from the mod's own files, and the server never sends assets; declare \"clients\": \"mod\". A VFX of the game (\"game:<name>\") needs no such thing",
+      "severity": "error"
+    }
+  ]
+}

@@ -34,9 +34,20 @@ if (mapFile === lintMap) {
   for (const s of fallback.schemas) if (!have.has(s.schema)) map.schemas.push({ ...s, extra: "tools/vscode/schemas.fallback.json" });
 }
 const dialect = new Map(map.schemas.map((s) => [s.schema, s.dialect ?? {}]));
+// VS Code's JSON service (seen on 1.145) reads the local references inside another file's schema against the wrong root when the reference
+// to that file has sibling keywords: "$ref '/$defs/block' ... can not be resolved", and the whole document goes unchecked. `allOf` means the same.
+const ALONE = new Set(["$ref", "$schema", "$id", "id", "$comment"]);
+const wrapExternalRefs = (n) => {
+  if (Array.isArray(n)) return n.map(wrapExternalRefs);
+  if (!n || typeof n !== "object") return n;
+  const out = Object.fromEntries(Object.entries(n).map(([k, v]) => [k, wrapExternalRefs(v)]));
+  if (typeof out.$ref !== "string" || out.$ref.startsWith("#") || Object.keys(out).every((k) => ALONE.has(k))) return out;
+  const { $ref, ...rest } = out;
+  return { ...rest, allOf: [{ $ref }, ...(rest.allOf ?? [])] };
+};
 for (const f of fs.readdirSync(schemaDir)) {
   if (!f.endsWith(".schema.json")) continue;
-  const s = rd(path.join(schemaDir, f));
+  const s = wrapExternalRefs(rd(path.join(schemaDir, f)));
   const d = dialect.get(f);
   if (d) {
     // vscode-json-languageservice reads these two root keywords

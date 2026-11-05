@@ -22,6 +22,15 @@ public sealed class ClientsModWhenAttribute(string pattern) : Attribute
     public string Pattern { get; } = pattern;
 }
 
+/// <summary>A block that lets its author go below it: game fields it does not cover, set on what it made. Written
+/// <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>; in JSON <c>"tweak": { "maxStackSize": 5 }</c>. Applied after what the block sets, so
+/// it wins. A field of another section than what the block makes is an error.</summary>
+public interface ITweakable
+{
+    /// <summary>The game fields to set on what the block made.</summary>
+    FieldValues Tweak { get; }
+}
+
 /// <summary>Mana, stamina and health given back. <c>Restore.Mana(20)</c>, <c>Restore.Mana(20) + Restore.Stamina(10)</c>.
 /// More than the target's maximum is lost; a target without that attribute (most creatures have no mana) gets nothing.</summary>
 public sealed record RestoreBlock
@@ -68,21 +77,30 @@ public readonly record struct SoundRef(string Value)
 public enum VfxSlot { Root, Head, Chest, LeftHand, RightHand, Feet, Weapon }
 
 /// <summary>A VFX and where it shows: the slot on every field that shows one (<see cref="EffectBlock.Vfx"/>, <see cref="CastBlock.Vfx"/>,
-/// <see cref="ProjectileBlock.Vfx"/>, <see cref="StatusBlock.Vfx"/>, an item's on-hit). A name in JSON or C# is a <c>VfxBlock</c> of this mod,
-/// <c>"other-mod:name"</c> for another mod's; <see cref="Game"/> names one of the game's. Not available yet: setting it is an error.</summary>
+/// <see cref="ProjectileBlock.Vfx"/>, <see cref="StatusBlock.Vfx"/>, <see cref="AreaBlock.Vfx"/>, an item's on-hit). A name in JSON or C# is a <c>VfxBlock</c> of this mod,
+/// <c>"other-mod:name"</c> for another mod's; <see cref="Game"/> names one of the game's. A new VFX needs <c>clients: "mod"</c>; one of the game's needs no more than the block does.</summary>
 [JsonConverter(typeof(VfxRefConverter))]
 public sealed record VfxRef
 {
+    /// <summary>A name that is a new VFX, not one of the game's: the build reads it for what a mod asks of players' games.</summary>
+    internal const string OwnName = "^(?!game:)(?![0-9a-fA-F]{8}-)[^ ]+$";
+
     public VfxRef(string name) => Name = name;
 
     /// <summary>The block's name, <c>"mod:name"</c>, or <c>"game:name"</c>.</summary>
     public string Name { get; init; }
-    /// <summary>Where on the body it attaches, where there is a body.</summary>
-    public VfxSlot Slot { get; init; } = VfxSlot.Root;
+    /// <summary>Where on the body it shows, where there is a body. Null: the field's own place, a cast's hand and otherwise the root.</summary>
+    public VfxSlot? Slot { get; init; }
     /// <summary>Metres from the slot, in the slot's own axes.</summary>
     public Vector3 Offset { get; init; }
-    /// <summary>Follows the slot while it plays (true), or stays where it started (false).</summary>
+    /// <summary>Follows the slot while it plays (true), or stays where it started (false). What an effect spawns stays where the effect happened.</summary>
     public bool Attach { get; init; } = true;
+    /// <summary>On an effect, how long it plays. Null: the VFX's own length; the template's for a game VFX named after one, else 5 s.</summary>
+    public double? Seconds { get; init; }
+    /// <summary>Named parameters of a game VFX: <c>["radius"] = 3f, ["color"] = "#ff0000"</c>. Only an effect can set them: anything else starts a VFX from data the server can't lay out,
+    /// as the layout is in the VFX, which only clients have. So an effect with parameters reaches Kiln clients near it through <see cref="Vfx.PlayAt"/>'s relay, and not a joiner. A name
+    /// or type the VFX does not have does nothing.</summary>
+    public Dictionary<string, VfxValue>? Parameters { get; init; }
 
     /// <summary>One of the game's VFX, by its catalog name (<c>GameVfx</c>).</summary>
     public static VfxRef Game(string name) => new($"game:{name}");
@@ -178,9 +196,11 @@ internal sealed class VfxRefConverter : JsonConverter<VfxRef>
         if (r.TokenType == JsonTokenType.String) return new VfxRef(r.GetString()!);
         using var doc = JsonDocument.ParseValue(ref r);
         string? name = null;
-        var slot = VfxSlot.Root;
+        VfxSlot? slot = null;
         var offset = Vector3.Zero;
         var attach = true;
+        double? seconds = null;
+        Dictionary<string, VfxValue>? parameters = null;
         foreach (var p in doc.RootElement.EnumerateObject())
         {
             switch (p.Name)
@@ -188,27 +208,38 @@ internal sealed class VfxRefConverter : JsonConverter<VfxRef>
                 case "name": name = p.Value.GetString(); break;
                 case "slot": slot = p.Value.Deserialize<VfxSlot>(o); break;
                 case "attach": attach = p.Value.GetBoolean(); break;
+                case "seconds": seconds = p.Value.GetDouble(); break;
+                case "parameters": parameters = p.Value.Deserialize<Dictionary<string, VfxValue>>(o); break;
                 case "offset":
                     var a = p.Value.EnumerateArray().Select(x => x.GetSingle()).ToArray();
                     if (a.Length != 3) throw new JsonException("offset takes [x, y, z]");
                     offset = new Vector3(a[0], a[1], a[2]);
                     break;
-                default: throw new JsonException($"\"{p.Name}\" is not part of a vfx; it takes name, slot, offset and attach");
+                default: throw new JsonException($"\"{p.Name}\" is not part of a vfx; it takes name, slot, offset, attach, seconds and parameters");
             }
         }
-        return new VfxRef(name ?? throw new JsonException("a vfx needs a name")) { Slot = slot, Offset = offset, Attach = attach };
+        return new VfxRef(name ?? throw new JsonException("a vfx needs a name")) { Slot = slot, Offset = offset, Attach = attach, Seconds = seconds, Parameters = parameters };
     }
 
     public override void Write(Utf8JsonWriter w, VfxRef v, JsonSerializerOptions o)
     {
         w.WriteStartObject();
         w.WriteString("name", v.Name);
-        w.WritePropertyName("slot");
-        JsonSerializer.Serialize(w, v.Slot, o);
+        if (v.Slot is { } slot)
+        {
+            w.WritePropertyName("slot");
+            JsonSerializer.Serialize(w, slot, o);
+        }
         w.WriteStartArray("offset");
         w.WriteNumberValue(v.Offset.X); w.WriteNumberValue(v.Offset.Y); w.WriteNumberValue(v.Offset.Z);
         w.WriteEndArray();
         w.WriteBoolean("attach", v.Attach);
+        if (v.Seconds is { } seconds) w.WriteNumber("seconds", seconds);
+        if (v.Parameters is { Count: > 0 } parameters)
+        {
+            w.WritePropertyName("parameters");
+            JsonSerializer.Serialize(w, parameters, o);
+        }
         w.WriteEndObject();
     }
 }
@@ -229,3 +260,32 @@ internal sealed class StatConverter : JsonConverter<Stat>
     public override Stat ReadAsPropertyName(ref Utf8JsonReader r, Type t, JsonSerializerOptions o) => Parse(r.GetString());
     public override void WriteAsPropertyName(Utf8JsonWriter w, Stat v, JsonSerializerOptions o) => w.WritePropertyName(v.Key);
 }
+
+// "tweak": { "maxStackSize": 5 }: paths as a data pack writes them, of the section the block makes
+internal abstract class TweakConverter(string section) : JsonConverter<FieldValues>
+{
+    public override FieldValues Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+    {
+        var values = new FieldValues();
+        using var doc = JsonDocument.ParseValue(ref r);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException("tweak takes an object of game field paths and values");
+        foreach (var p in doc.RootElement.EnumerateObject())
+            values.Add(new Field<System.Text.Json.Nodes.JsonNode>(section, p.Name), System.Text.Json.Nodes.JsonNode.Parse(p.Value.GetRawText())!);
+        return values;
+    }
+
+    public override void Write(Utf8JsonWriter w, FieldValues v, JsonSerializerOptions o)
+    {
+        w.WriteStartObject();
+        foreach (var (k, x) in v)
+        {
+            w.WritePropertyName(k);
+            JsonSerializer.Serialize(w, x, o);
+        }
+        w.WriteEndObject();
+    }
+}
+
+internal sealed class ItemTweakConverter() : TweakConverter("items");
+internal sealed class BuffTweakConverter() : TweakConverter("buffs");
+internal sealed class TemplateTweakConverter() : TweakConverter("templates");

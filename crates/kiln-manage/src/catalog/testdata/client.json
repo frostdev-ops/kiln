@@ -35,7 +35,8 @@
     "templates": 2,
     "workshops": 1,
     "graphs": 1,
-    "configs": 6
+    "configs": 6,
+    "vfx": 3
   },
   "sections": {
     "items": [
@@ -361,6 +362,86 @@
         "programs": 2,
         "type": "sint32",
         "kind": "number"
+      }
+    ],
+    "vfx": [
+      {
+        "name": "Explosion_Test_Frost",
+        "id": "0x1f55a001",
+        "guid": "000003e9-7e57-4a11-9c00-0000000003e9",
+        "namedFrom": "template",
+        "byName": true,
+        "names": [
+          "Explosion_Test_Frost",
+          "Attack_Test_Frostling_Slash"
+        ],
+        "particles": 6,
+        "emitters": 2,
+        "meshes": 4,
+        "textures": 3,
+        "cullDistance": [
+          50.0,
+          75.0
+        ],
+        "killTime": 10,
+        "length": 10.0,
+        "parameters": [
+          {
+            "name": "radius",
+            "type": "float",
+            "default": 2.0
+          },
+          {
+            "name": "color",
+            "type": "color",
+            "default": "#7fd4ffff"
+          },
+          {
+            "name": "targetPosition",
+            "type": "float3",
+            "default": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "hash": "0x0fd9ca11",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "Prop_Test_Crate_DestroyOnLoot",
+        "id": "0x1f55a002",
+        "guid": "000003ea-7e57-4a11-9c00-0000000003ea",
+        "namedFrom": "use",
+        "particles": 2,
+        "emitters": 1,
+        "meshes": 1,
+        "textures": 1,
+        "cullDistance": [
+          50.0,
+          75.0
+        ],
+        "killTime": 10,
+        "length": 10.0
+      },
+      {
+        "name": "Vfx_000003eb",
+        "id": "0x1f55a003",
+        "guid": "000003eb-7e57-4a11-9c00-0000000003eb",
+        "particles": 0,
+        "emitters": 0,
+        "meshes": 0,
+        "textures": 0,
+        "cullDistance": [
+          50.0,
+          75.0
+        ],
+        "killTime": 10,
+        "length": 10.0
       }
     ]
   },

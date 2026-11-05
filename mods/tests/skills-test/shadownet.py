@@ -41,8 +41,10 @@ def main():
     a = ap.parse_args()
     failed = 0
 
+    channels = [(CH, "1", False), (CTL, "1", False)]
+    mods = nt.with_required(a.port, [("skills-test", "0.1.0", 2), ("skilltreesample", "1.0.0", 2)], channels)
     c = C(a.port, "shadownet")
-    c.hello([("skills-test", "0.1.0", 2), ("skilltreesample", "1.0.0", 2)], [(CH, "1", False), (CTL, "1", False)])
+    c.hello(mods, channels)
     if not c.wait(lambda: c.welcome is not None, 10):
         print("FAIL no WELCOME: is the lab up with labPort?")
         return 2

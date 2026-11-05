@@ -22,7 +22,6 @@ internal static partial class Compiler
         if (d is not ProjectileBlock p) throw new BlockError(ctx.Block, path, $"{d.GetType().Name} is not a delivery Kiln can compile yet");
         if (p.Speed <= 0) throw new BlockError(ctx.Block, $"{path}.speed", $"{p.Speed} must be more than 0");
         if (p.Range <= 0) throw new BlockError(ctx.Block, $"{path}.range", $"{p.Range} must be more than 0");
-        if (p.Vfx != null) throw NoVfxYet(ctx, $"{path}.vfx");
         if (p.OnImpact is not { Count: > 0 } && p.OnHit is not { Count: > 0 })
             throw new BlockError(ctx.Block, path, "a projectile that does nothing: give it onImpact or onHit");
         var mod = ctx.Mod.Id;
@@ -31,7 +30,10 @@ internal static partial class Compiler
         var (program, blob, em, listing) = EffectEmitter.PointProgram(ctx, $"{key}.impact", p.OnImpact ?? [], $"{path}.onImpact", primary);
         low.Program(program, $"{key}.impact", blob, listing);
         var impactGuid = BlockIds.Derive(mod, "template", $"{key}.impact");
-        low.Clone("templates", impactGuid, $"{mod}.{name}.impact", p.Look.Impact, new JsonObject { ["Impact.program"] = program.ToString() });
+        var impact = new JsonObject { ["Impact.program"] = program.ToString() };
+        // An effect with a VFX says what shows where it lands, in place of the look's burst.
+        if (OnImpactHasVfx(ctx, p, path)) impact["VfxComponentResource.vfx"] = "none";
+        low.Clone("templates", impactGuid, $"{mod}.{name}.impact", p.Look.Impact, impact);
 
         // the flight: the look's projectile. The game's own program spawns the impact when it hits something; a program of ours does that
         // too, and also what the block says happens on the way
@@ -48,10 +50,20 @@ internal static partial class Compiler
             em.Adopt(fem);
         }
         var projectileGuid = BlockIds.Derive(mod, "template", $"{key}.projectile");
+        if (p.Vfx is { } vfx) Merge(flight, VfxData.Component(ctx, VfxData.Lower(ctx, vfx, $"{path}.vfx"), $"{mod}.{name}.projectile"));
         low.Clone("templates", projectileGuid, $"{mod}.{name}.projectile", p.Look.Projectile, flight);
 
         // a clone can name another clone once both are registered: a rule, not a field
         low.TemplateRules($"{mod}.{name}.projectile", new JsonObject { ["ImpactConfiguration.configValues.SpawnTemplate"] = impactGuid.ToString() });
+        if (p.Tweak.Count > 0) low.Tweak($"{ctx.Block}, {path}", "templates", $"{mod}.{name}.projectile", p.Tweak);
         return new DeliveryLowered(projectileGuid, p.Speed, em, p.Look.HandItem);
+    }
+
+    private static bool OnImpactHasVfx(BlockContext ctx, ProjectileBlock p, string path)
+    {
+        var effects = p.OnImpact ?? [];
+        for (var i = 0; i < effects.Count; i++)
+            if (ctx.Effect(effects[i], $"{path}.onImpact[{i}]") is var e && (e.Vfx != null || e.Area?.Vfx != null)) return true;
+        return false;
     }
 }

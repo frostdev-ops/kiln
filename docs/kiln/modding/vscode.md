@@ -57,6 +57,18 @@ after a schema change.
   - C# string literals that name a catalog entry get the same hover.
   - The catalog is game data: the extension reads it in place and never copies it.
 
+## VFX blocks
+In `blocks/*.json` ([vfx.md](vfx.md)):
+- **Fields.** Completion, hover and problems for the `vfx` section come from the schema.
+- **What a `vfx` field names.** Completion offers this mod's blocks and the catalog's game VFX, by any name that finds them. One that only a GUID can find goes in as `game:<guid>`.
+  Hover shows how long a game VFX runs, what else uses it and its parameters. It works on `VfxId.Game("...")` and `VfxRef.Game("...")` in C# too.
+- **Parameters.** Inside `"parameters"`, completion offers the game VFX's parameters with their types and defaults.
+- **The budget.** Hover on a block's name: its share of a VFX's entries, and what the mod's blocks use of the VFX, meshes, mesh memory and sounds in VFX left for all mods.
+- **Snippets.** `vfx-burst`, `vfx-trail`, `vfx-light`, `vfx-flipbook`, `vfx-game`, `vfx-parameters`.
+
+The bundled schema copies put `allOf` around a reference to another schema file that has sibling keywords. VS Code 1.145's JSON service otherwise reads local references inside that file against the wrong root, and the
+whole document goes unchecked. `npm run sync` does this; the files in `schema/` stay as they are.
+
 ## Mods view, build, deploy, reload
 A mod is a folder with `kiln.mod.json` and/or a Kiln.Sdk project. Its id comes from `kiln.mod.json`, else
 `<KilnModId>`, else the lower-case AssemblyName.
@@ -243,7 +255,7 @@ Other tools for looking into a mod: Kiln.Testing, kiln.log and `kiln/crash-repor
 | `src/core/` | logic without VS Code (unit-tested headless): lint report, UTF-8 spans, KAP/1 client, control folder, catalog, idrefs, globs, Impact data, C# test discovery, kiln.log links, servers, projects, DAP guard, debug targets |
 | `src/dapProxy.ts` | the built-in debug adapter, a process of its own (`dist/dapProxy.js`) |
 | `scripts/fetch-netcoredbg.mjs` | fetches the pinned netcoredbg release into the build dir, checks its sha256 and stages it in `dist/netcoredbg`. `npm run package` runs it, so packaging needs the network once. Never commit the binaries; their licences are in `licenses/netcoredbg.txt` |
-| `src/features/` | VS Code features: one file each (catalog, lint, mods/tasks, servers, testing, log, console, impact, newMod, debug) |
+| `src/features/` | VS Code features: one file each (catalog, vfx, lint, mods/tasks, servers, testing, log, console, impact, newMod, debug) |
 | `python/kimp_check.py` | the assembler bridge (imports tools/impact; MIT) |
 | `syntaxes/`, `snippets/` | grammars, language configuration, snippets |
 | `test/unit/` | mocha, headless: `npm run test:unit` |

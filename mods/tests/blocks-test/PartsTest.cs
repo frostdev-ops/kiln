@@ -53,6 +53,20 @@ public sealed partial class BlocksTestMod
             Cast = new CastBlock { ManaCost = 5 },
             Delivery = new ProjectileBlock { OnHit = [new EffectBlock { Damage = Damage.Ice(33), Applies = new StatusApply { Status = "hold", Seconds = 2 } }] },
         });
+        Blocks.Define("tweaked-spell", new SpellBlock
+        {
+            Name = "Tweaked",
+            MaxCharges = 50,
+            Tweak = { { new Field<int>("items", "maxStackSize"), 77 } },
+            Cast = new CastBlock { ManaCost = 5 },
+            Delivery = new ProjectileBlock
+            {
+                Range = 30, Speed = 10,
+                Tweak = { { new Field<double>("templates", "LifeTime.lifeTime"), 9.0 } },
+                OnImpact = [new EffectBlock { Area = new AreaBlock { Radius = 1, Effects = [new EffectBlock { Heal = 1 }] } }],
+            },
+        });
+        Blocks.Define("tweaked-status", new StatusBlock { Name = "Tweaked", Seconds = 1, Tweak = { { new Field<bool>("buffs", "hideInUi"), true } } });
         Blocks.Define("flat-bolt", new SpellBlock
         {
             Name = "Flat Bolt",
@@ -99,10 +113,7 @@ public sealed partial class BlocksTestMod
         low.Program(guid, "bad.unconnected", blob, "");
         low.Commit();
         await Steps(4);
-        var thrown = "";
-        try { await Abilities.RunProgram(guid, _at, new ImpactOptions { Tag = "blocks-test" }); }
-        catch (Exception e) { thrown = e.Message; }
-        Check(thrown.Length > 0, $"a program that leaves an unchecked argument unconnected is refused, not run: \"{thrown}\"");
+        Check(Abilities.Programs.Info(BlockIds.Fnv(guid)) == null, "a program that leaves an unchecked argument unconnected is refused: it is not registered, and it never runs");
     }
 
     private async Task<double?> Attr(string which, EntityId on, bool whole)
@@ -261,12 +272,16 @@ public sealed partial class BlocksTestMod
         Check(own.Contains("KilnClients", StringComparison.Ordinal) && own.Contains("mod", StringComparison.Ordinal) && own.Contains("own-sound", StringComparison.Ordinal), $"a sound of the mod's own needs clients mod: \"{own}\"");
         var whole = Refused(() => Blocks.Define("half-strength", new StatusBlock { Name = "x", Seconds = 1, Modifies = { [Stat.Strength] = 0.5 } }));
         Check(whole.Contains("modifies[strength]", StringComparison.Ordinal), $"a stat of whole numbers says so: \"{whole}\"");
-        var vfx = Refused(() => Blocks.Define("with-vfx", new EffectBlock { Vfx = VfxRef.Game("Explosion_Player_Spell_Fireball_1") }));
-        Check(vfx.Contains("vfx", StringComparison.Ordinal), $"a VFX is refused for now, by name: \"{vfx}\"");
         var idle = Refused(() => Blocks.Define("nothing-bolt", new SpellBlock { Name = "x", Cast = new CastBlock { ManaCost = 1 }, Delivery = new ProjectileBlock() }));
         Check(idle.Contains("onImpact", StringComparison.Ordinal), $"a projectile that does nothing: \"{idle}\"");
 
         DataParts();
+        Check(N(Content.ItemData.Get("blocks-test.tweaked-spell")!, "maxStackSize") == 77, "Tweak on a spell: a game field, over what the block sets");
+        Check(N(Content.Templates.Get("blocks-test.tweaked-spell.projectile")!, "LifeTime.lifeTime") == 9, "Tweak on a projectile: its template");
+        Check(Content.Buffs.Get("blocks-test.tweaked-status")!.Get("hideInUi").Bool, "Tweak on a status: its buff");
+        Check(N(Content.ItemData.Get("blocks-dataonly.shard")!, "maxStackSize") == 33, "Tweak in JSON");
+        var wrongSection = Refused(() => Blocks.Define("wrong-tweak", new StatusBlock { Name = "x", Seconds = 1, Tweak = { { new Field<int>("items", "maxStackSize"), 1 } } }));
+        Check(wrongSection.Contains("tweak", StringComparison.Ordinal) && wrongSection.Contains("items", StringComparison.Ordinal), $"a field of another section is refused: \"{wrongSection}\"");
         var iconOf = (string? name) => Content.Buffs.Get(name!)?.GetJson("icon")?["value"]?.ToJsonString();
         Check(iconOf(GamePoison) != null && iconOf("blocks-test.borrowed-icon") == iconOf(GamePoison) && iconOf(GamePoison) != iconOf("blocks-test.hold"), $"Icon: a status takes a game status's icon: {iconOf("blocks-test.borrowed-icon")}");
         var bad = Refused(() => Blocks.Define("png-icon", new StatusBlock { Name = "x", Seconds = 1, Icon = "icons/x.png" }));
@@ -277,6 +292,7 @@ public sealed partial class BlocksTestMod
         await ItemDamage(caster);
         await Wielder(caster);
         await Rows();
+        await Reload();
     }
 
     // ---- the same parts from a data file -------------------------------------------------------------------------------
@@ -396,6 +412,24 @@ public sealed partial class BlocksTestMod
         var power = (int)((float)(int)(10 * 0.15f * 1 + 10) * (float)N(flatItem, "damageSetup.dmgMod") * (float)N(flatItem, "damageSetup.speedMod"));
         Check(power == 40, $"and a Flat spell's tooltip shows its number: {power}");
         Spawn.Destroy(enemy);
+    }
+
+    // ---- a mod with blocks in code and in data, hot reloaded -------------------------------------------------------------
+
+    private async Task Reload()
+    {
+        const string Mod = "blocks-reloaded";
+        double Mana(string block) => N(Content.ItemData.Get($"{Mod}.{block}")!, "impactValues.ManaCost");
+        int Rows(string block) => Content.ItemData.Get($"{Mod}.{block}")?.GetJson("uiValues")?["value"] is JsonArray a ? a.Count : -1;
+        Check(Mana("reload-bolt") == 12 && Mana("reload-lance") == 13, $"before a hot reload: mana {Mana("reload-bolt")}, {Mana("reload-lance")}");
+        var done = await Mods.ReloadAsync(Mod);
+        Info($"reload {Mod}: {done}");
+        await Steps(200);
+        var (blocks, errors) = Blocks.Report()[Mod];
+        Check(blocks.Contains("reload-bolt") && blocks.Contains("reload-lance"), $"after a hot reload the blocks in code and in data are there: {string.Join(", ", blocks)}");
+        Check(errors.Count == 0, $"with no errors: {string.Join("; ", errors)}");
+        Check(Mana("reload-bolt") == 12 && Mana("reload-lance") == 13, $"and their config values, which went with the old mod: {Mana("reload-bolt")}, {Mana("reload-lance")}");
+        Check(Rows("reload-bolt") == 3 && Rows("reload-lance") == 3, $"and their tooltip rows: {Rows("reload-bolt")}, {Rows("reload-lance")}");
     }
 
     // ---- what follows a wielder ----------------------------------------------------------------------------------

@@ -1,0 +1,16 @@
+{
+  // The same effect as KilnVfx1Mod.cs's, as data: read when the game starts. Field by field: docs/kiln/modding/schemas/kiln-vfx.md.
+  "format": 1,
+  "vfx": {
+    "spark": {
+      "particles": [ {
+        "burst": 24, "lifetime": [0.4, 0.9], "speed": [2, 5],
+        "spread": { "cone": 35 }, "gravity": -4,
+        "size": { "linear": [0.15, 0] },
+        "color": ["#ffffff", "#7fd4ff"], "alpha": { "linear": [1, 0] },
+        "texture": "vfx/dot.png", "blend": "additive"
+      } ],
+      "light": { "color": "#7fd4ff", "radius": 6, "brightness": 4, "lifetime": 0.6, "fadeOut": 0.5 }
+    }
+  }
+}

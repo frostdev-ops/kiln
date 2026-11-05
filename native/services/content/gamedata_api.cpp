@@ -300,7 +300,7 @@ KilnResult KILN_CALL t_set(KilnOwner owner, uint32_t section, uint32_t id, KilnS
         case KILN_CV_INT: j = v->i; break;
         case KILN_CV_FLOAT: j = v->f; break;
         case KILN_CV_TIME: j = v->f != 0 ? v->f : static_cast<double>(v->i) / 1e9; break;
-        case KILN_CV_GUID: j = guid_text(v->guid); break;
+        case KILN_CV_GUID: j = ref_text(v->guid); break;
         default: return KILN_ERR_INVALID_ARGUMENT;
     }
     const std::string s = j.dump();

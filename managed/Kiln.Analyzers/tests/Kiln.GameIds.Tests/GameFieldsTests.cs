@@ -143,7 +143,7 @@ public sealed class GameFieldsTests
     }
 
     [Theory]
-    [InlineData("e.Set(GameFields.Items.DamageSetup.DmgMod, 1.5f);", true)]            // the plan's example
+    [InlineData("e.Set(GameFields.Items.DamageSetup.DmgMod, 1.5f);", true)]
     [InlineData("e.Set(GameFields.Items.DamageSetup.DmgMod, 1);", true)]               // an int fits a float
     [InlineData("e.Set(GameFields.Items.MaxStackSize, 5);", true)]                     // a constant fits a ushort
     [InlineData("e.Set(GameFields.Items.Rarity, GameEnums.ItemRarity.Epic);", true)]
@@ -202,6 +202,25 @@ public sealed class GameFieldsTests
         // asked for by name: it says what is missing
         var (_, asked) = TypedHarness.Generate(Fixture, "Fields", "class Use { }", TypedHarness.Refs(kiln: false));
         Assert.Equal("KILN193", Assert.Single(asked.Diagnostics).Id);
+    }
+
+    [Fact]
+    public void One_section_alone_costs_less()
+    {
+        var (output, run) = TypedHarness.Generate(Fixture, "Fields.Items,Fields.buffs,Fields.Spells", """
+            using Kiln.GameIds;
+            class Use
+            {
+                Field<ushort> A = GameFields.Items.MaxStackSize;
+                Field<TimeSpan> B = GameFields.Buffs.DefaultLifeTime;
+            }
+            """);
+        TypedHarness.NoErrors(output);
+        Assert.Equal("KILN192", Assert.Single(run.Diagnostics).Id);   // Spells
+        var src = string.Concat(run.Results[0].GeneratedSources.Select(s => s.SourceText.ToString()));
+        Assert.DoesNotContain("Templates", src);
+        Assert.DoesNotContain("FactionType", src);                    // an enum only templates use
+        Assert.Contains("enum ItemRarity", src);
     }
 
     [Fact]
@@ -293,12 +312,20 @@ public sealed class GameFieldsTests
             """);
         var gen = sw.Elapsed;
         TypedHarness.NoErrors(output);
-        var sources = run.Results[0].GeneratedSources.Where(s => s.HintName.Contains("GameFields") || s.HintName.Contains("GameEnums")).ToList();
+        var sources = run.Results[0].GeneratedSources.Where(s => s.HintName.Contains("GameField") || s.HintName.Contains("GameEnums")).ToList();
         var size = sources.Sum(s => s.SourceText.Length);
         using var ms = new MemoryStream();
         var emit = output.Emit(ms);
         Assert.True(emit.Success);
         TestContext.Current.TestOutputHelper?.WriteLine($"real catalog: {sources.Count} files, {size / 1024} KiB of source, {ms.Length / 1024} KiB of dll, generate {gen.TotalMilliseconds:F0} ms, " +
                                                         $"generate + compile {sw.Elapsed.TotalMilliseconds:F0} ms");
+        foreach (var part in new[] { "Fields.Items", "Fields.Buffs,Fields.Perks", "Fields.Templates" })
+        {
+            sw.Restart();
+            var (one, _) = TypedHarness.Generate(text, part, "class Use { }");
+            using var dll = new MemoryStream();
+            Assert.True(one.Emit(dll).Success);
+            TestContext.Current.TestOutputHelper?.WriteLine($"{part}: {dll.Length / 1024} KiB of dll, generate + compile {sw.Elapsed.TotalMilliseconds:F0} ms");
+        }
     }
 }

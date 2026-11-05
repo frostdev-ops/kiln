@@ -1,0 +1,10 @@
+{
+  "id": "playerstate-test",
+  "name": "kiln.playerstate lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "PlayerStateTest.dll",
+  "side": "both",
+  "advanced": true,
+  "clients": "none"
+}

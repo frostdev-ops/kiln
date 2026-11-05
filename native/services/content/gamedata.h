@@ -186,6 +186,7 @@ const GEntry* lookup_alias(uint32_t section, const std::string& key);
 // ============================================================================================= changes ==========
 // Applies one value (any JSON for a path) as owner's layer; fans out over [*] and struct objects. Returns the number
 // of leaves changed; *err collects problems.
+void forget_added(KilnOwner owner, uintptr_t header);  // a config list goes back to what the game has: this owner's added elements are not kept for it
 uint32_t apply_value(KilnOwner owner, uint64_t seq, uint32_t section, const GEntry& e, const std::string& path,
                      const gjson& value, const std::string& source, std::vector<std::string>* errs);
 bool where_ok(uint32_t section, const GEntry& e, const gjson& where, std::string* err);

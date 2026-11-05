@@ -180,7 +180,7 @@ bool resolve(const Schema& s, const Field& f, const std::string& spec, const Ite
              uint8_t out[16], uintptr_t* from_item, const Field** from_field, std::string* why) {
     std::memset(out, 0, 16);
     if (from_item) *from_item = 0;
-    if (spec.empty() || spec == "none") return true;
+    if (spec.empty() || spec == "none" || spec == "00000000-0000-0000-0000-000000000000") return true;
     if (spec.rfind("item:", 0) == 0) {
         uintptr_t a = 0;
         const Field* src = nullptr;

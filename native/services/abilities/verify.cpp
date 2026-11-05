@@ -121,7 +121,6 @@ bool check_code(const uint32_t* code, uint32_t n, const char* what, const Arrays
         return false;
     }
     std::vector<int8_t> start(n, 0);  // 1 = an instruction starts here
-    std::vector<uint32_t> ops;        // the opcodes so far, for what a native's arguments were
     for (uint32_t pc = 0; pc < n;) {
         const uint32_t op = code[pc];
         if (op < 1 || op > 30) {
@@ -138,13 +137,14 @@ bool check_code(const uint32_t* code, uint32_t n, const char* what, const Arrays
             return false;
         }
         start[pc] = 1;
-        ops.push_back(op);
         pc += 1 + w;
     }
     // operands
+    std::vector<uint32_t> ops;  // the opcodes so far, the last one this instruction's: what a native's arguments were
     for (uint32_t pc = 0; pc < n; ++pc) {
         if (!start[pc]) continue;
         const uint32_t op = code[pc];
+        ops.push_back(op);
         if (op == BR || op == BRT || op == BRF) {
             const uint32_t t = code[pc + 1];
             if (t >= n || !start[t]) {
@@ -186,8 +186,8 @@ bool check_code(const uint32_t* code, uint32_t n, const char* what, const Arrays
                 }
             }
             if (const uint32_t mask = unchecked_args(hash)) {
-                for (uint32_t i = 0; i < 32 && i < ops.size(); ++i) {
-                    const uint32_t pushed = ops[ops.size() - 1 - i];
+                for (uint32_t i = 0; i < 32 && i + 1 < ops.size(); ++i) {
+                    const uint32_t pushed = ops[ops.size() - 2 - i];
                     if (pushed != ICONST && pushed != ICONST0 && pushed != ICONST1) break;
                     if ((mask >> i & 1) && pushed == ICONST0) {
                         r.error = fmt("%s pc %u: native 0x%08x reads args[%u] with no check, and it is unconnected: this would kill the process", what, pc, hash, i);

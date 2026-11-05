@@ -164,7 +164,11 @@ void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
     }
     if (g_spawn && g_spawn->world_state && g_spawn->world_state() == KILN_SPAWN_WORLD_RUNNING) catalog_check_engine();
     layers_pre();
+    arsenal_pre();
+    rules_pre_work();
     ai_pre();
+    rules_publish();
+    rules_unhook_if_idle();
 }
 
 void KILN_CALL on_ready(void*) {
@@ -282,18 +286,21 @@ KilnResult KILN_CALL t_inspect(KilnEntity e, KilnCreatureInfo* out) {
     }
     if (ai_forced(e)) i.flags |= KILN_CREATURE_I_FORCED;
     if (auto* st = static_cast<uint8_t*>(component(e, H::Targets, &n)); st) {
-        // targets[0].targetRootEntityId / targetEntityId (+0x60 / +0x64 on svn 1285601; read through ai.cpp's resolver
-        // for events: here the same reflection offsets)
-        TypeInfo ti;
-        std::string err;
-        FieldRef f;
-        static int64_t off = -2;
-        if (off == -2) {
-            off = -1;
-            if (type_info("keen::ecs::SelectedTargets", &ti, &err) && resolve_path(ti, "targets[0].targetRootEntityId", &f, &err))
-                off = f.offset;
+        // targets[0]: the root entity when the target is a part of one, else the entity itself (the game's own target
+        // reads use targetEntityId; targetRootEntityId stays 0 for a creature fighting a creature)
+        static int64_t off_root = -2, off_entity = -1;
+        if (off_root == -2) {
+            off_root = -1;
+            TypeInfo ti;
+            std::string err;
+            FieldRef f;
+            if (type_info("keen::ecs::SelectedTargets", &ti, &err)) {
+                if (resolve_path(ti, "targets[0].targetRootEntityId", &f, &err)) off_root = f.offset;
+                if (resolve_path(ti, "targets[0].targetEntityId", &f, &err)) off_entity = f.offset;
+            }
         }
-        if (off >= 0 && static_cast<uint32_t>(off) + 4 <= n) seh_read(st + off, &i.target, 4);
+        if (off_root >= 0 && static_cast<uint32_t>(off_root) + 4 <= n) seh_read(st + off_root, &i.target, 4);
+        if (!i.target && off_entity >= 0 && static_cast<uint32_t>(off_entity) + 4 <= n) seh_read(st + off_entity, &i.target, 4);
     }
     layers_info(e, &i);
     const uint32_t keep = out->size;
@@ -382,6 +389,10 @@ const KilnCreaturesApi kTable = {
     &t_ai_set, &t_ai_get, &t_ai_reset, &t_ai_refresh, &t_ai_fields,
     &t_release_owner,
     &t_set_listener, &t_command, &t_set_ready, &t_arsenal_of, &program_npc_command,
+    &arsenal_define_api, &arsenal_remove_api, &arsenal_info_api, &arsenal_refresh_api, &arsenal_selftest_api,
+    &rules_drain_api, &rules_condition_set_api, &rules_condition_clear_api, &rules_condition_stats_api, &rules_pump_api,
+    &rules_phase_set_api, &rules_phase_get_api, &rules_status_api, &rules_job_handler_api,
+    &attack_override_api, &attack_pick_arsenal_api, &ai_switch_api, &ai_switch_get_api, &target_prefer_api,
 };
 
 }  // namespace
@@ -425,6 +436,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         return KILN_ERR_UNAVAILABLE;
     }
     ai_install();
+    rules_resolve();
+    arsenal_init();
     KilnHandle h = 0;
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;
     KC_I("resolved: slots %s, ai %s (hooks %s), ready %s, arsenals %s, reflection %s, commands %s",

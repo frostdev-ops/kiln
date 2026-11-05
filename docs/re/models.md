@@ -129,7 +129,7 @@ arrays the decoder caps.
 | 0x7c | `foliageAnimationShaderData` BlobOptional | |
 | 0x80 | `hierarchy` ObjectReference<ModelHierarchyResource> | skeleton (null for rigid models) |
 | 0x90 | `blendShapes` BlobArray<RenderBlendResourceData {BlendShapeId ref}> | 0x98 `blendShapeMask` u32 |
-| 0x9c | `globalScale` f32 | 1.0 |
+| 0x9c | `globalScale` f32 | 1.0 on 10,050 models; what a skeleton was cooked at (section 5). Only cloth colliders use it |
 | 0xa0 | `hasCardClusterLod` bool | loader then also opens 2 `CardClusterResource`s **[dis]** |
 | 0xa4 / 0xac | `sdf`, `skinnedTree` | empty for weapons |
 | 0xd4 | `skinningMap` BlobArray<u16> | model joint → skeleton joint |
@@ -163,6 +163,7 @@ PNT and PC do not occur.
 
 **renderData layout:**
 - Order: vertexData at 0, then skinningData, then blendShapeData, then indexData. Ranges are 4-byte aligned. The blob ends with the last range.
+- Empty ranges: blendShapeData and, on rigid models, skinningData are {0, 0}. meshletData is {the end of indexData rounded up to 4, 0}, so on a blob of odd length it starts past the end.
 - The loader (`0xe0070` on the client, "[model_loader] could not create gpu vertex data of model '%k'!" …) handles each non-empty range the same way. It allocates GPU memory of `count` bytes ("could not allocate %d bytes of mesh data"). It then queues a content read of `renderData` limited to {start, count}, and the bytes are uploaded as they are. **[dis]**
 - So the formats below are what the shaders read.
 - The loader also checks:
@@ -241,7 +242,7 @@ Material flags: 2,104 of 3,000 sampled models carry flag bit 6, which reflection
   - one blend shape (`BlendShapeId 3ec83c3b…`, mask 1; blendShapeData 11,694 B; `blendShapeByteOffset` per mesh);
   - cloth on the 189-vertex group (`clothMeshIndex` 1; `RenderModelClothData` with NvCloth parameters).
 - **Skinning stream** (8 B per vertex, 1,342 skinned models): 4 × u8 joint indices into `skinningMap`, then 4 × u8 weights.
-  - Unused slots have weight 0. The weights sum to 255 in every vertex checked (32,049 of 32,049 on the dragon boss, every vertex of the wand and of the fogger shield).
+  - Unused slots have weight 0. Over all 1,342 skinned models and 5,857,527 vertices the weights sum to 255 and descend, and no used slot follows an unused one. An unused slot's index is 0 in 99.8 % of cases; the others keep the index of a weight that rounded to 0.
   - Groups index it from `skinVertexOffset`.
   - Check on the chest: map each vertex's heaviest index through `skinningMap` to a skeleton joint. The joint lies
     0.18 m from the vertex (median; 95 % within 0.28 m). Reading the index directly as a skeleton joint gives 0.98 m,
@@ -252,6 +253,18 @@ Material flags: 2,104 of 3,000 sampled models carry flag bit 6, which reflection
     - rotating the HandR chain's upper arm by 60° bends the robe's sleeve smoothly **[render]**;
     - the robe faces the front camera (glTF +Z), and the HandR arm is on the character's right: a second check of the
       handedness conversion.
+- **`skinningMap`** is ascending in 1,287 of 1,342 models and carries exactly the joints with weight in 1,341. Of the 55 others, 52 have chains: their trailing entries are 0, and vertices use them, so a model joint there means more than its map entry (presumably the chain simulation moves it). The other 3: two head armors with 0 entries like that, and a turkey with one joint listed last.
+- **Equal weights:** the order among them has no rule by index (19,445 ascending, 20,387 descending). It doesn't change what's drawn.
+- **LODs on skinned models:** 1,315 of 1,342 share one vertex group between LODs. 101 drop a material in a coarser LOD. At most 8 LODs, 12 materials, 30,861 vertices in a group, 163 model joints, 172 skeleton joints.
+- **How the client poses it [dis]** (client svn 1287369, RVAs):
+  - `0x119993` runs over a pose's model instances. It reads the model's `hierarchy` and goes on only if those 16 bytes equal the GUID of the pose's skeleton (`[rdx]`, `[rdx+8]`), so a model on another GUID gets no joints. `jointCount` 0 also skips.
+  - The skeleton's `jointCount` sizes a scratch array of 64-byte matrices. It grows by a callback; a failed grow logs `[render_system] out of skin matrix scratch memory`. So there's no fixed joint limit here.
+  - `0x171b20` chains the local pose to globals through `jointParentIndices`. `0x1716f0` multiplies each by its `skinToJointMatrices` entry (`[hierarchy+0x28]`). So **`skinToJointMatrices` is the inverse bind the client uses**, on every skeleton.
+  - Then per `skinningMap` entry it copies `matrices[entry]` as 3x4 (48 B per joint) into a ring buffer of `jointCount` entries (`0x1716b0`).
+  - The joint limit in the format is the stream's u8 index: 256 model joints.
+- **The bind pose isn't always the default pose [data].** On 248 of 257 skeletons `defaultPoseJoints` chained is the inverse of `skinToJointMatrices` within 0.001. One more is off by 0.027. On 8 (wands `beccb0be`, a watering can, a villager, rabbits, capybaras, a test cube) some joints differ by a half turn or a scale, and weights do sit on them (50 models). Since the client multiplies by `skinToJointMatrices`, clips must take those joints away from their default pose **[inf]**. So a bind is checked against `skinToJointMatrices`, and `kfc.py model --skin` writes its rest pose from it on these.
+- **`globalScale` [data] [dis].** 420 models have one other than 1.0, 152 of them skinned, from 0.01 to 100. It's a value of the skeleton: `keen::ModelHierarchyData.globalScale` in the source type, and none of the 249 skeletons with models has two values. It's already in the stored vertices and joints: a Fogger at 1.15 stands 2.45 m, a Scavenger at 1.1 stands 2.12 m, and vertices at any value agree with their joints without it. At run time the model system reads it in `0xe6dee`, `0xe74ea`, `0xe93d0`, `0xe9ace`, `0xeccdd` and `0xedfff`, which pass it to `0xe8770`, `0xec170` and `0xebf80`. Those multiply the centres and radii of the cloth collider spheres and capsules by it (`collider` at `+0xe4`). 31 other functions read a float at this offset and weren't traced; they sit outside the model system's code. So as far as read it matters only with cloth colliders, and the cooker writes what the skeleton's other models have, for fidelity.
+- **Materials:** no skinning-specific flag: 245 materials are used by both rigid and skinned models. All skinned models use effect `Pbr`. The loader keeps material slots in a growing array (`0xe0fbd`); a material that fails to resolve fails the load.
 - **`ModelHierarchyResource`** (72 B; 257 client, 246 server):
   - `hierarchyId`, `jointNames` (u32 hashes);
   - `jointParentIndices` (u16, 0xffff = root);
@@ -272,18 +285,22 @@ Material flags: 2,104 of 3,000 sampled models carry flag bit 6, which reflection
 | Cooker | vanilla sword re-cooked: LOD0 indices identical, positions ≤ 1 quantum, normals 4/1496 bytes and tangents 5/1496 bytes differ (rounding), UVs/colours identical, wholeModelRadius identical; cube sword: decode → re-encode byte-exact, round trip error 0.36 µm |
 | Cook recipes | `assets/cook.json` run by `modelcook.py recipe`: a synthetic-game test cooks override, new model and visual template; ModelSample's recipe cooks against the real game with every check passing |
 | Hand attachment | template components; slotBoneIndexMapping; bind pose |
+| Skin stream writer | `tools/modelcook/tests/game_skin_check.py stream`: the 1,290 skinned models without chains, 5,367,310 vertices, through the writer. Every vertex keeps its joints and weights. 1,063 models byte-identical; in the others the bytes differ in unused slots (29,234 keeping an old index) and in 5 models whose map repeats or leaves out an entry |
+| Skinned cooker on game models | `game_skin_check.py cook`: all 1,342 skinned models exported to glTF and cooked (5.85 M vertices). Indices identical in all; same ranges; same `globalScale`; positions within 1.42 quanta (float32 in the glTF), normals dot ≥ 0.999998. The 1,285 with a clip, posed by their largest clip: at most 0.021 mm from the game's model (dragon boss, moving 62 m), and 0.019 mm on the 152 with `globalScale` other than 1. Same map in 1,280 of the 1,284 without chains. 6 models trip a check for reasons in the data: 3 have a vertex with a zero normal, and 3 have a quantum (5-76 nm) below float32 precision. Cloth, chains and blend shapes are left out, so this says nothing about those |
+| Skinning math against an independent evaluator | `tools/modelcook/tests/run_blender_check.py`: a creature authored in Blender (armature object moved, turned and scaled; mesh object with its own transform; smooth weights of 4 influences), exported by Blender, cooked, posed with the client's math: 0.01 mm from Blender's armature modifier at rest, at most 3.05 mm in poses that move 1 m (weights are in 255ths) |
+| Skinning against the glTF | `tools/modelcook/tests/test_skin.py`: the sample figure posed by its cooked clips against the glTF per its specification: 0.6 µm at rest, at most 2.4 mm in a pose |
+| Inverse binds on a running engine | `mods/tests/skincheck`, dedicated server svn 1287369, no player, 9 PASS: the figure's skeleton, clip and graph run in the engine, slots HandR, Head and Pelvis within 0.0005 of the cooked clip's joints, and model vertices skinned by those joints within 0.26 mm of the cook's numbers **[rt]**. The engine's joint and the client's math agree on this; the client's GPU skinning itself wasn't run |
+| **Skinned in game** | **Not proven.** Nothing skinned that was cooked here has been drawn by a client. The manual checks are in `docs/kiln/modding/models.md` |
 | **In game** | **renders** (client). Boot: "modelsample: icons 0, textures 0, resources 3, blobs 2, errors 0" and "content map rebuilt: 101492 game blobs + N Kiln entries". At world load: no `[model_loader]` errors. The held Bronze Sword (override of `9c38c7f0`) draws the cooked cube-blade sword; the screenshot shows the spiral of small cubes and the box grip at the right hand **[rt]**. Not checked yet: the chirality marker read upright (the blade hung down, seen along its axis); whether the icon re-renders from the new model (the hotbar icons looked like thin vanilla blades, but it is not known whether those items were Bronze Swords: open); crafting `Kiln_Sample_TowerSword` (registered with its recipe, model and template per the log; the crafting UI lists "2542 + 7 new" recipes) |
 
 Renders (local, never committed): `export/bronze_sword.lod0.gltf` (vanilla, decoded),
 `export/cooked_cube_sword.gltf` (decoded back from modelcook's output). Headless Blender (`blender -b`, Workbench) with the
 decoded albedo.
 
-## 7. What skinned armor and animations need (research plan, not done)
-1. **Skeleton binding.** Cook against the player skeleton GUID (`87b29df6…`) by joint index. Joint names are hashes we cannot reverse. Instead:
-   - export the skeleton from `defaultPoseJoints` with indices as names. Done: `kfc.py model <armor> --gltf F --skin`
-     writes joints `j<index>` (the name hash is in `extras`) and the skin; a vanilla armor round-trips into Blender;
-   - artists weight to those bones (an "armature template" .glb, generated locally from the user's game);
-   - modelcook maps the glTF joints to skeleton indices and writes `skinningMap` + the 8-byte skin stream (top-4 weights, quantized to sum 255).
+## 7. What skinned armor needs
+Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). Armor adds the following.
+
+1. **Skeleton binding.** Done: cook against the player skeleton GUID (`87b29df6…`) by joint index. `kfc.py model <armor> --gltf F --skin` writes joints `j<index>` (the name hash is in `extras`) and the skin, artists weight to those bones, and modelcook maps the glTF joints to skeleton indices.
 2. **Body hiding and blend shapes.**
    - `hideMask` decides which body parts the armor hides. Copy it from the base armor item.
    - `blendShapeMask` and per-model blend shapes adapt the armor to body shapes (data 11,694 B on the chest; format not decoded). First target: an armor model without blend shapes. Test whether the game accepts `blendShapes` = [] for the item's mask.
@@ -293,7 +310,7 @@ decoded albedo.
    - `keen::JointAnimation` (5,461) = {u64 hierarchyHash, position/scale factors, headers, compressed `vf32_data`, fps, frameCount, jointCount}.
    - Plus `AnimationSequenceContainer`, `LveAnimation`, `RootMotionAnimation` and the anim graph (`AnimationGraphResource2_0`, 279).
    - New weapon animations would need the codec (headers + packed data), then sequences. That is research on its own; rigid weapons reuse the base weapon type's animations, which kitbash already chooses through `weaponCategoryReference` / the template.
-6. **Validation route.** Re-cook a vanilla armor through glTF + skin and compare byte ranges, as done for the sword; then a client test.
+6. **Validation route.** Done for geometry and skin, over every skinned model (section 6); the client test is open.
 
 ## 8. Open questions
 - In game:
@@ -309,5 +326,6 @@ decoded albedo.
   Settled there: the streamer reads a kiln.assets blob for renderData.
 - `boundingSphere` algorithm (the cooker writes a conservative sphere); meshlets (never cooked: `createMeshlets` exists as a converter option).
 - Material flag bit 6 ("Foliage") on weapons; `RenderModelMaterial.materialFlags` = the material's own flags (sword: equal).
-- Joint name hash; blend shape data; cloth data; animation codec (section 7).
+- Joint name hash; blend shape data; cloth data (section 7).
+- How the renderer culls a skinned mesh animated outside its stored `boundingBox`, which is the exact bind-pose bounds on the game's own models.
 - Pickup models (an item lying on the ground): which reference the pickup entity draws (`overridePickupEntity` is null on weapons).

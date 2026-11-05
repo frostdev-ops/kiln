@@ -35,6 +35,7 @@ void logf(int level, const char* fmt, ...);
 uint32_t fnv1a(const void* data, size_t n);
 inline uint32_t fnv1a(const std::string& s) { return fnv1a(s.data(), s.size()); }
 std::string guid_text(const uint8_t g[16]);       // the game's GUID byte order -> "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+std::string ref_text(const uint8_t g[16]);        // guid_text, or "none" for all zero: what a rule writes for no reference, so it can be applied again
 bool guid_parse(const std::string& s, uint8_t out[16]);
 std::string lower(std::string s);
 
@@ -85,8 +86,10 @@ WriteStats write_stats();  // totals since boot
 // One byte of code (the stack guard): PAGE_EXECUTE_READ made writable for the write, instruction cache flushed.
 bool patch_code_byte(uintptr_t address, uint8_t expect, uint8_t value);
 // Memory within +-1.5 GB of `target` (for self-relative BlobArray offsets into the game's data). Never freed.
+void near_alloc_boot();  // at boot, before the game fills the address space near its resources
 void* near_alloc(uintptr_t target, size_t n);
-std::string near_alloc_report();  // the chunks, as JSON
+void near_alloc_add(uintptr_t base, size_t size);  // memory of Kiln's own that near_alloc may hand out (a clone's spare room)
+std::string near_alloc_report();  // the chunks in use, for a log line
 
 // ============================================================================================= refl.cpp =========
 struct EnumInfo {
@@ -214,6 +217,7 @@ bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_
 bool store_drop(KilnOwner owner, uintptr_t addr);  // removes one layer
 uint32_t store_drop_owner(KilnOwner owner);         // removes every layer of owner; returns slots affected
 bool store_original(uintptr_t addr, uint8_t n, uint8_t* out);  // original bytes if the slot exists
+void store_originals(uintptr_t addr, size_t size, uint8_t* out);  // out holds a copy of this memory: what rules changed in it goes back to the original
 bool store_has(uintptr_t addr);
 // Writes every dirty slot's effective bytes (newest layer, else the original). Returns slots written.
 size_t store_flush(std::string* error);
@@ -293,7 +297,8 @@ std::string data_dir();
 #endif
 
 #if KC_GAMEDATA
-bool gd_own_lists(uintptr_t item, std::string* err);  // an item clone gets its own copy of every list (gamedata_packs.cpp)
+void gd_item_registered(uint32_t id, const std::string& name, const uint8_t guid[16], uintptr_t addr);  // an item that went in after kiln.gamedata built its list
+bool gd_own_lists(uintptr_t item, bool game_base, std::string* err);  // an item clone gets its own copy of every list; of a game item, as the game has it (gamedata_packs.cpp)
 #endif
 
 // ============================================================================================= new content =====

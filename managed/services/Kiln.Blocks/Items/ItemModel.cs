@@ -35,7 +35,7 @@ public sealed record VisualBlock : IBlock
     public ItemRef? Dropped { get; init; }
     /// <summary><c>#rrggbb</c>: the colour of the parts the game lets you tint. A client check: nothing here draws it.</summary>
     public string? Tint { get; init; }
-    /// <summary>Reserved for <c>VfxBlock</c>. Setting it today is an error.</summary>
+    /// <summary>Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status.</summary>
     public VfxRef? Vfx { get; init; }
 }
 
@@ -43,7 +43,8 @@ public sealed record VisualBlock : IBlock
 public sealed record OnHitBlock : IBlock
 {
     public IReadOnlyList<EffectRef> Effects { get; init; } = [];
-    /// <summary>Reserved for <c>VfxBlock</c>: shown where a hit lands. Setting it today is an error.</summary>
+    /// <summary>A VFX where a hit lands, as an effect with only a <see cref="EffectBlock.Vfx"/> would show it.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 }
 
@@ -83,7 +84,7 @@ public enum Rarity { Common, Uncommon, Rare, Epic, Legendary }
 // ---------------------------------------------------------------------------------------------------- weapons -----
 
 /// <summary>A weapon that is exactly what its recipe tooltip shows (the crafted-item rule is built in).</summary>
-public sealed record WeaponBlock : IBlock
+public sealed record WeaponBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -101,6 +102,10 @@ public sealed record WeaponBlock : IBlock
     public LootBlock? Loot { get; init; }
     /// <summary>The name this block had before a rename. Ids come from the oldest name, so saves keep it.</summary>
     public string? Was { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 }
 
 public sealed record WeaponStats : IBlock
@@ -152,7 +157,7 @@ public sealed record WeaponClass : IBlock, IPremade
 }
 
 /// <summary>A one-handed caster whose attacks are spells of its own: it needs no spell item, and never runs out of charges.</summary>
-public sealed record WandBlock : IBlock
+public sealed record WandBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -175,6 +180,10 @@ public sealed record WandBlock : IBlock
     public LootBlock? Loot { get; init; }
     /// <inheritdoc cref="WeaponBlock.Was"/>
     public string? Was { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 }
 
 /// <summary>One of a wand's attacks: how it is cast and what it sends.</summary>
@@ -203,7 +212,7 @@ public sealed record WandMoves(string Key, string Sequence, double ReleaseSecond
 // ------------------------------------------------------------------------------------------------------ armor -----
 
 /// <summary>Something worn: its slot, its stats and its look. Made exactly as its recipe tooltip shows.</summary>
-public sealed record ArmorBlock : IBlock
+public sealed record ArmorBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -220,6 +229,10 @@ public sealed record ArmorBlock : IBlock
     public LootBlock? Loot { get; init; }
     /// <inheritdoc cref="WeaponBlock.Was"/>
     public string? Was { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 }
 
 /// <summary>What a piece of armor gives. A null number: what its slot has at that level.</summary>
@@ -319,7 +332,7 @@ public sealed record EquipBonus(string Key, string Config, uint Row, string Form
 // ------------------------------------------------------------------------------------------------------ items -----
 
 /// <summary>Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it.</summary>
-public sealed record ItemBlock : IBlock
+public sealed record ItemBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -352,6 +365,10 @@ public sealed record ItemBlock : IBlock
     public LootBlock? Loot { get; init; }
     /// <inheritdoc cref="WeaponBlock.Was"/>
     public string? Was { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 }
 
 /// <summary>What sort of item it is. The premades are plain instances; <see cref="Starter"/> is the item it starts from.</summary>
@@ -437,7 +454,7 @@ public readonly record struct StationRef(string Value)
 }
 
 /// <summary>A crafting station a player builds: an item they place, that opens a workshop's menu and lists the recipes of that workshop.</summary>
-public sealed record StationBlock : IBlock
+public sealed record StationBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
@@ -448,6 +465,10 @@ public sealed record StationBlock : IBlock
     public LootBlock? Loot { get; init; }
     /// <inheritdoc cref="WeaponBlock.Was"/>
     public string? Was { get; init; }
+
+    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
+    [JsonConverter(typeof(ItemTweakConverter))]
+    public FieldValues Tweak { get; init; } = new();
 }
 
 /// <summary>A workshop of the game, with the item that places it. Premade instances: your station lists what this workshop lists, plus your recipes.</summary>

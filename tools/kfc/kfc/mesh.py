@@ -213,11 +213,19 @@ def _inv_affine(m):
     return [inv[0] + [it[0]], inv[1] + [it[1]], inv[2] + [it[2]], [0, 0, 0, 1]]
 
 
+def _matrix43(m):
+    """A decoded keen::Matrix43 (the columns x, y, z, then the translation) as a 4x4."""
+    rot, pos = m["rot"], m["pos"]
+    return [[rot[c][a] for c in "xyz"] + [pos[a]] for a in "xyz"] + [[0.0, 0.0, 0.0, 1.0]]
+
+
 def skeleton_rh(h):
     """A decoded keen::ModelHierarchyResource -> joints in glTF's right-handed frame (x mirrored):
-    [{"parent", "t", "r" (x, y, z, w), "s", "global" 4x4, "name_hash"}]. Bind pose = defaultPoseJoints
-    (parent-relative), which agrees with skinToJointMatrices (docs/re/models.md)."""
+    [{"parent", "t", "r" (x, y, z, w), "s", "global" 4x4, "name_hash"}], with "matrix" (4x4, parent-relative) in place of t, r and s when a joint's rest isn't its default pose.
+    The rest pose is what the mesh was bound in, the inverse of skinToJointMatrices. On 248 of the game's 257 skeletons that is defaultPoseJoints (parent-relative) within 0.001, and
+    those are written as such; the others start every clip from another pose (docs/re/models.md 5)."""
     out = []
+    mirror = (-1, 1, 1, 1)
     for i in range(h["jointCount"]):
         j = h["defaultPoseJoints"][i]
         p, q, sc = j["position"], j["orientation"], j["scale"]
@@ -229,8 +237,14 @@ def skeleton_rh(h):
         par = h["jointParentIndices"][i]
         par = None if par == 0xFFFF else par
         glob = local if par is None else _mul4(out[par]["global"], local)
-        out.append({"parent": par, "t": t, "r": r, "s": s3, "global": glob,
-                    "name_hash": h["jointNames"][i] if i < len(h["jointNames"]) else 0})
+        rec = {"parent": par, "t": t, "r": r, "s": s3, "global": glob, "name_hash": h["jointNames"][i] if i < len(h["jointNames"]) else 0}
+        if i < len(h.get("skinToJointMatrices", ())):
+            bind = _inv_affine(_matrix43(h["skinToJointMatrices"][i]))
+            bind = [[bind[a][b] * mirror[a] * mirror[b] for b in range(4)] for a in range(4)]
+            if max(abs(bind[a][b] - glob[a][b]) for a in range(4) for b in range(4)) > 1e-3:
+                rec["global"] = bind
+                rec["matrix"] = bind if par is None else _mul4(_inv_affine(out[par]["global"]), bind)
+        out.append(rec)
     return out
 
 
@@ -372,8 +386,8 @@ def write_gltf(tri, path, name="model", skeleton=None, joint_names=None):
     if skeleton:
         first = len(nodes)
         for i, j in enumerate(skeleton):
-            nodes.append({"name": (joint_names or {}).get(i, f"j{i}"), "translation": list(j["t"]), "rotation": list(j["r"]),
-                          "scale": list(j["s"]), "extras": {"keen_joint": i, "keen_name_hash": j["name_hash"]}})
+            pose = {"matrix": [j["matrix"][r][c] for c in range(4) for r in range(4)]} if "matrix" in j else {"translation": list(j["t"]), "rotation": list(j["r"]), "scale": list(j["s"])}
+            nodes.append({"name": (joint_names or {}).get(i, f"j{i}"), **pose, "extras": {"keen_joint": i, "keen_name_hash": j["name_hash"]}})
         for i, j in enumerate(skeleton):
             if j["parent"] is None:
                 roots.append(first + i)

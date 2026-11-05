@@ -23,7 +23,7 @@ namespace {
 
 safetyhook::MidHook g_cond_hook, g_set_hook, g_behavior_hook;
 std::atomic<uint32_t> g_interest{0};
-std::atomic<bool> g_diag{false};
+std::atomic<bool> g_diag{false}, g_guard{false};
 bool g_installed = false;
 
 thread_local uintptr_t t_ctx = 0;
@@ -80,6 +80,7 @@ void hk_set_state(safetyhook::Context& c) {
 }
 
 void hk_behavior(safetyhook::Context& c) {
+    if (g_guard.load(std::memory_order_relaxed)) rules_behavior_guard(reinterpret_cast<uint8_t*>(c.rcx));
     if (!g_diag.load(std::memory_order_relaxed)) return;
     uintptr_t tpl = 0;
     if (seh_read(reinterpret_cast<void*>(c.rcx + L.ctx_tpl), &tpl, 8) && tpl && is_private_copy(reinterpret_cast<void*>(tpl)))
@@ -159,6 +160,12 @@ void ai_install() {
     }
 }
 
+void ai_behavior_guard_arm() {
+    if (g_guard.load(std::memory_order_relaxed) || !fn.behavior_update) return;
+    if (!g_behavior_hook && !install_mid(g_behavior_hook, fn.behavior_update, &hk_behavior, "BehaviorUpdate")) return;
+    g_guard.store(true, std::memory_order_relaxed);
+}
+
 KilnResult ai_set_listener(KilnCreatureListenerFn f, void* user) {
     g_listener = f;
     g_listener_user = user;
@@ -223,8 +230,9 @@ void ai_pre() {
     } else if (!interest) {
         g_active.clear();
     }
-    // events, or every 10 steps an interest poll with no events (the listener tells which kinds it wants next)
-    if (!g_listener || (evs.empty() && g_step % 10 != 0)) return;
+    // events, or every 10 steps an interest poll with no events (the listener tells which kinds it wants next); rule
+    // work for the tick side goes out in the same call
+    if (!g_listener || (evs.empty() && g_step % 10 != 0 && !rules_wants_listener())) return;
     uint32_t want = 0;
     unsigned long code = 0;
     if (!seh_listener(g_listener, evs.data(), static_cast<uint32_t>(evs.size()), g_listener_user, &want, &code)) {

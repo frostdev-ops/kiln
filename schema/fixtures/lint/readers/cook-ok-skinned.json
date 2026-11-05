@@ -1,0 +1,10 @@
+{
+ "format": 1,
+ "tool": "modelcook",
+ "mod": "my-mod",
+ "inputs": { "mat": { "guid": "c1d2e3f4-0000-4000-8000-000000000002", "type": "keen::RenderMaterialResource" } },
+ "steps": [
+  { "tool": "animcook", "op": "skeleton", "name": "body", "gltf": "src/body.glb" },
+  { "op": "model", "gltf": "src/body.glb", "skeleton": "body", "material": "@mat", "name": "body", "stem": "body" }
+ ]
+}

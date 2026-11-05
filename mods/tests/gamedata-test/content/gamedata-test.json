@@ -8,6 +8,10 @@
     },
     "Ability_DoubleJump": {
       "impactValues.StaminaCost": 5
+    },
+    "Ring_T3_Ring_of_Stamina": {
+      "@refs": true,
+      "iconModel": "none"
     }
   },
   "templates": {
@@ -47,6 +51,14 @@
         "base": "Attack_Player_Staff_FixedAnim_Fireball_fast",
         "fields": {
           "events[SpawnEntityEvent#0].time": 0.3
+        }
+      },
+      {
+        "guid": "7c41d2e6-93ab-4f0e-a5d8-1be6c07f3a92",
+        "name": "Kiln_Test_No_Tag",
+        "base": "Attack_Player_Wand_AllElements_Heavy",
+        "fields": {
+          "events[SpawnEntityEvent#0].requiredEntityTag": "none"
         }
       }
     ],

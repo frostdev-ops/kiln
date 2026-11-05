@@ -3,6 +3,7 @@
 // whole and says which limit, and none of it can reach the game's fatal paths.
 #include <algorithm>
 #include <cctype>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -139,14 +140,46 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         std::vector<Block> blocks;
         std::set<std::string> names;
         std::set<Guid> ids;
+        struct MaterialBlock {
+            MaterialDef def;
+            uint64_t definition = 0;
+        };
+        std::vector<MaterialBlock> material_blocks;
+        std::map<std::string, const MaterialDef*> material_named;
+        std::set<Guid> material_ids;
         for (const auto& [file, text] : mod.documents) {
             const ojson doc = parse_relaxed(text);
             if (doc.is_discarded() || !doc.is_object()) {
                 diag.errors.push_back(mod.id + ": " + file + ": not valid JSON");
                 continue;
             }
+            const auto mat = doc.find("materials");
+            if (mat != doc.end() && !opt.skip_materials) {
+                const auto mfmt = doc.find("format");
+                if (mfmt != doc.end() && (!mfmt->is_number_integer() || mfmt->get<int>() != 1)) {
+                    diag.errors.push_back(mod.id + ": " + file + ": format " + mfmt->dump() + ": this Kiln reads format 1");
+                } else if (!mat->is_object()) {
+                    diag.errors.push_back(mod.id + ": " + file + ": materials: expected an object of blocks by name");
+                } else {
+                    for (auto it = mat->begin(); it != mat->end(); ++it) {
+                        const std::string where = mod.id + ": " + file + ": materials." + it.key();
+                        MaterialBlock b;
+                        if (!parse_material(it.value(), it.key(), where, &b.def, &diag)) continue;
+                        if (std::any_of(material_blocks.begin(), material_blocks.end(), [&](const MaterialBlock& o) { return o.def.name == it.key(); })) {
+                            diag.warnings.push_back(where + ": a block of this name is already defined; the first stays");
+                            continue;
+                        }
+                        if (!material_ids.insert(block_id(mod.id, "material", b.def.id_name)).second) {
+                            diag.errors.push_back(where + ": \"was\" names the id of another block");
+                            continue;
+                        }
+                        b.definition = fnv64(it.value().dump());
+                        material_blocks.push_back(std::move(b));
+                    }
+                }
+            }
             const auto sec = doc.find("vfx");
-            if (sec == doc.end()) continue;
+            if (sec == doc.end() || opt.skip_vfx) continue;
             const auto fmt = doc.find("format");
             if (fmt != doc.end() && (!fmt->is_number_integer() || fmt->get<int>() != 1)) {
                 diag.errors.push_back(mod.id + ": " + file + ": format " + fmt->dump() + ": this Kiln reads format 1");
@@ -173,27 +206,69 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 blocks.push_back(std::move(b));
             }
         }
-        if (!blocks.empty() || !diag.errors.empty()) ++out.mods_with_vfx;
+        if (!blocks.empty() || !material_blocks.empty() || !diag.errors.empty()) ++out.mods_with_vfx;
+        for (const MaterialBlock& m : material_blocks) material_named[m.def.name] = &m.def;
+        // Materials that aren't built here but that a particle may name: what a definition from code came without, or all of them when new materials are off.
+        // What is wrong in them is said where they are built.
+        std::deque<MaterialDef> looked_up;
+        if (!blocks.empty()) {
+            Diagnostics ignored;
+            const auto look_in = [&](const std::string& text) {
+                const ojson doc = parse_relaxed(text);
+                if (doc.is_discarded() || !doc.is_object() || !doc.contains("materials") || !doc["materials"].is_object()) return;
+                for (auto it = doc["materials"].begin(); it != doc["materials"].end(); ++it) {
+                    MaterialDef def;
+                    if (!material_named.count(it.key()) && parse_material(it.value(), it.key(), "", &def, &ignored)) {
+                        looked_up.push_back(std::move(def));
+                        material_named[it.key()] = &looked_up.back();
+                    }
+                }
+            };
+            for (const std::string& text : mod.lookup_documents) look_in(text);
+            if (opt.skip_materials)
+                for (const auto& [file, text] : mod.documents) look_in(text);
+        }
 
         auto finish = [&] {
             for (const std::string& e : diag.errors) out.errors.push_back(e);
             for (const std::string& w : diag.warnings) out.warnings.push_back(w);
         };
-        if (blocks.empty()) {
+        if (blocks.empty() && material_blocks.empty()) {
             finish();
             continue;
         }
-        // A manifest rule (lint KL208 says it first): a new VFX has to be on every client that may see it.
+        // A manifest rule (lint KL208 says it first): a new VFX or material has to be on every client that may see it.
         if (mod.side == "server") {
-            diag.warnings.push_back(mod.id + ": side \"server\": clients never load this mod, so its " + std::to_string(blocks.size()) + " VFX block(s) are skipped");
+            diag.warnings.push_back(mod.id + ": side \"server\": clients never load this mod, so its " + std::to_string(blocks.size()) + " VFX block(s) and " + std::to_string(material_blocks.size()) + " material(s) are skipped");
             finish();
             continue;
         }
         if (mod.side != "client" && mod.clients != "mod") {
-            out.refused_mods.push_back(mod.id + ": a new VFX needs \"clients\": \"mod\" (it has \"" + mod.clients + "\"): players without the mod could be sent an effect their game aborts on");
+            out.refused_mods.push_back(mod.id + ": a new VFX or material needs \"clients\": \"mod\" (it has \"" + mod.clients + "\"): players without the mod could be sent an effect their game aborts on");
             finish();
             continue;
         }
+        // A particle that names a material takes its albedo, its tint and light from it, as far as it says nothing itself. A sprite draws with the game's
+        // transparent shaders, so the rest of a material has no meaning there.
+        for (Block& b : blocks)
+            for (size_t i = 0; i < b.def.particles.size(); ++i) {
+                ParticleDef& p = b.def.particles[i];
+                if (p.material.empty()) continue;
+                const auto found = material_named.find(p.material);
+                if (found == material_named.end()) {
+                    diag.errors.push_back(b.def.where + ".particles[" + std::to_string(i) + "].material: \"" + p.material + "\" is no material of this mod");
+                    continue;
+                }
+                const MaterialDef& m = *found->second;
+                if (!p.texture_set) {
+                    p.texture = m.albedo;
+                    p.texture_linear = false;
+                }
+                if (!p.color_set)
+                    for (auto& c : p.color)
+                        for (int k = 0; k < 3; ++k) c[k] *= m.tint[k];
+                if (!p.lit_set) p.lit = true;
+            }
 
         // Textures, meshes and the VFX of this mod, kept aside until the budget says yes.
         std::map<std::string, BuiltTexture> textures;
@@ -204,6 +279,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         std::vector<std::string> used_meshes, used_textures;
         for (const Block& b : blocks) {
             bool bad = false;
+            // It has said which material isn't there.
+            if (std::any_of(b.def.particles.begin(), b.def.particles.end(), [&](const ParticleDef& p) { return !p.material.empty() && !material_named.count(p.material); })) continue;
             if (b.def.game_sprite && !(opt.game_has_blob && opt.game_has_blob(kGameSpriteModule))) {
                 // A pipeline whose blob the game can't find is fatal, so a game update that removes this module must only lose the diagnostic.
                 diag.errors.push_back(b.def.where + ".gameSpriteModule: the game's sprite module is not in this game: this block is skipped");
@@ -271,7 +348,56 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             built_vfx.emplace_back(v.guid, std::move(v.resource));
             vfx_names.push_back(mod.id + ":" + b.def.name);
         }
-        if (built_vfx.empty()) {
+        // Materials: their textures are encoded here, and nothing is kept until the budget says yes.
+        struct MaterialBuilt {
+            BuiltMaterial built;
+            std::vector<MaterialMap> maps;
+            BuiltMaterialBlock info;
+        };
+        std::vector<MaterialBuilt> built_materials;
+        std::map<std::string, RawImage> decoded;
+        const ImageLoader load_image = [&](const std::string& rel, RawImage* image, std::string* why) {
+            const auto got = decoded.find(rel);
+            if (got != decoded.end()) {
+                *image = got->second;
+                return true;
+            }
+            Bytes png;
+            if (!safe_rel(rel)) {
+                *why = "must be relative, inside the mod's folder";
+                return false;
+            }
+            if (!read(mod.dir + "/" + rel, &png, why)) {
+                *why = "can't read it (" + *why + ")";
+                return false;
+            }
+            if (!decode_png(png, kMaxMaterialTextureSide, image, why)) return false;
+            decoded[rel] = *image;
+            return true;
+        };
+        for (const MaterialBlock& b : material_blocks) {
+            MaterialBuilt m;
+            std::string field, why;
+            if (!material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why)) {
+                diag.errors.push_back(b.def.where + "." + field + ": " + why);
+                continue;
+            }
+            if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
+                diag.errors.push_back(b.def.where + ": " + why);
+                continue;
+            }
+            ++need.materials;
+            for (const MaterialMap& map : m.maps) need.streamed_textures.insert(content_hash_text(content_hash(map.chain.data.data(), map.chain.data.size())));
+            m.info.mod = mod.id;
+            m.info.name = b.def.name;
+            m.info.guid = m.built.guid;
+            m.info.render_flags = m.built.render_flags;
+            m.info.block_flags = m.built.block_flags;
+            m.info.textures = static_cast<uint32_t>(m.maps.size());
+            m.info.definition = b.definition;
+            built_materials.push_back(std::move(m));
+        }
+        if (built_vfx.empty() && built_materials.empty()) {
             finish();
             continue;
         }
@@ -281,13 +407,29 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         }
         std::string over;
         if (!budget.try_add(need, &over)) {
-            out.refused_mods.push_back(mod.id + ": over the game's limits, none of its " + std::to_string(built_vfx.size()) + " VFX are registered (" + over + ")");
+            out.refused_mods.push_back(mod.id + ": over the game's limits, none of its " + std::to_string(built_vfx.size()) + " VFX and " + std::to_string(built_materials.size()) +
+                                       " material(s) are registered (" + over + ")");
             finish();
             continue;
         }
         for (const std::string& name : used_meshes) counted_meshes.insert(meshes.at(name).guid);
 
         // Yes: serve it, blobs before the resources that name them.
+        for (MaterialBuilt& m : built_materials) {
+            for (const MaterialMap& map : m.maps) {
+                const ContentHash chain = content_hash(map.chain.data.data(), map.chain.data.size());
+                add_blob(out, shared, chain, map.chain.data.data(), map.chain.data.size(), mod.id + " material " + m.info.name + " " + map.what);
+                const size_t tail_size = map.chain.data.size() - map.chain.tail_start;
+                const uint8_t* tail = map.chain.data.data() + map.chain.tail_start;
+                add_blob(out, shared, content_hash(tail, tail_size), tail, tail_size, mod.id + " material " + m.info.name + " " + map.what + " mip tail");
+            }
+            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name);
+            out.materials.push_back(std::move(m.info));
+        }
+        if (built_vfx.empty()) {
+            finish();
+            continue;
+        }
         if (!shared.modules) {
             shared.modules = true;
             for (Module m : {Module::Emitter, Module::Sprite, Module::Light}) {
@@ -313,6 +455,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
     out.used_sounds = budget.used_sounds();
     out.used_curves = budget.used_curves();
     out.used_mesh_bytes = budget.used_mesh_bytes();
+    out.used_materials = budget.used_materials();
+    out.used_streamed_textures = budget.used_streamed_textures();
     return out;
 }
 
@@ -333,6 +477,19 @@ ojson report_json(const CookResult& r) {
         blocks.push_back(std::move(o));
     }
     j["blocks"] = std::move(blocks);
+    ojson materials = ojson::array();
+    for (const BuiltMaterialBlock& m : r.materials) {
+        ojson o = ojson::object();
+        o["mod"] = m.mod;
+        o["name"] = m.name;
+        o["guid"] = guid_text(m.guid);
+        o["renderFlags"] = m.render_flags;
+        o["blockFlags"] = m.block_flags;
+        o["textures"] = m.textures;
+        o["pipelines"] = material_pipelines(m.render_flags);
+        materials.push_back(std::move(o));
+    }
+    j["materials"] = std::move(materials);
     j["errors"] = r.errors;
     j["warnings"] = r.warnings;
     j["refusedMods"] = r.refused_mods;
@@ -342,6 +499,8 @@ ojson report_json(const CookResult& r) {
     b["meshBytes"] = {{"game", r.game.mesh_bytes}, {"mods", r.used_mesh_bytes}, {"capacity", r.capacity.mesh_bytes}, {"margin", r.capacity.mesh_margin}};
     b["sounds"] = {{"game", r.game.sounds}, {"mods", r.used_sounds}, {"capacity", r.capacity.sounds}};
     b["curves"] = {{"game", r.game.curves}, {"mods", r.used_curves}, {"capacity", r.capacity.curves}};
+    b["materials"] = {{"game", r.game.materials}, {"mods", r.used_materials}, {"capacity", r.capacity.materials}};
+    b["streamedTextures"] = {{"game", r.game.streamed_textures}, {"mods", r.used_streamed_textures}, {"capacity", r.capacity.streamed_textures}};
     j["budget"] = std::move(b);
     return j;
 }

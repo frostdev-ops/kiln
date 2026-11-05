@@ -27,7 +27,7 @@ internal static class Harness
         var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
         var refs = tpa.Where(p => Path.GetFileName(p).StartsWith("System.") || Path.GetFileName(p) is "mscorlib.dll" or "netstandard.dll")
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
-        foreach (var asm in new[] { "Kiln.Api", "Kiln.Testing", "Kiln.Chat", "Kiln.Players", "Kiln.Combat", "Kiln.Hooks", "Kiln.World", "Kiln.Spawn", "Kiln.Blocks" })
+        foreach (var asm in new[] { "Kiln.Api", "Kiln.Testing", "Kiln.Chat", "Kiln.Players", "Kiln.Combat", "Kiln.Hooks", "Kiln.World", "Kiln.Spawn", "Kiln.Blocks", "Kiln.Vfx", "Kiln.Ui" })
             refs.Add(MetadataReference.CreateFromFile(Path.Combine(AppContext.BaseDirectory, asm + ".dll")));
         return refs.ToImmutableArray();
     }

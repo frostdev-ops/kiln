@@ -1,0 +1,13 @@
+{
+  "description": "KL320, said once on the first block: 474 new VFX where the game has room for 473, and 11 sounds in VFX where it has room for 10. The limits one at a time are in the unit tests.",
+  "diagnostics": [
+    {
+      "code": "KL320",
+      "col": 5,
+      "file": "blocks/many.json",
+      "line": 4,
+      "message": "This mod asks for 474 new VFX, and the game has room for 473 (2048 less its 1575); 11 sounds in VFX, and the game has room for 10 (16 less its 6): past a limit the game aborts, so Kiln refuses the mod that reaches it and none of its VFX load",
+      "severity": "error"
+    }
+  ]
+}

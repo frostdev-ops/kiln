@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "vfx": { "spark": { "light": { "radius": 2 } } },
+  "effects": {
+    "own": { "vfx": "spark" },
+    "own_object": { "vfx": { "name": "spark", "attach": false } },
+    "other": { "vfx": "other-mod:spark" },
+    "game": { "vfx": "game:Explosion_Fixture_Frost" },
+    "second_name": { "vfx": "game:Attack_Fixture_Frost_Burst" },
+    "by_guid": { "vfx": "0000f001-0000-4000-8000-000000000001" },
+    "by_game_guid": { "vfx": "game:0000f002-0000-4000-8000-000000000002" },
+    "missing": { "vfx": "spork" },
+    "wrong_kind": { "vfx": "own" },
+    "typo": { "vfx": "game:Explosion_Fixture_Frots" },
+    "label": { "vfx": "game:Prop_Fixture_Crate_DestroyOnLoot" },
+    "unnamed": { "vfx": "game:Vfx_0000f003" },
+    "bad_guid": { "vfx": "game:0000f0ff-0000-4000-8000-0000000000ff" }
+  }
+}

@@ -15,13 +15,15 @@ internal sealed class BlockContext(ModBlocks mod, string block)
 {
     public ModBlocks Mod { get; } = mod;
     public string Block { get; } = block;
+    /// <summary>What this block lowers to, for what a field adds on the way: a VFX's carrier template.</summary>
+    public Lowered? Low { get; set; }
 
     public EffectBlock Effect(EffectRef r, string path)
     {
         if (r.Name == null) return r.Inline!;
         var handle = Lookup(r.Name, path);
         return (handle as BlockHandle<EffectBlock>)?.Block
-               ?? throw new BlockError(Block, path, $"\"{r.Name}\" is a {handle.GetType().GenericTypeArguments[0].Name}, not an effect");
+               ?? throw new BlockError(Block, path, $"\"{r.Name}\" is a {handle.BlockType.Name}, not an effect");
     }
 
     public (Guid Guid, double Seconds) Status(StatusRef r, string path)
@@ -109,16 +111,20 @@ internal static partial class Compiler
         var label = Label<T>(name);
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
-        // a new item or template is drawn by the player's game; an effect alone is nothing a client sees
-        if (block is not EffectBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
+        ctx.Low = low;
         BlockHandle handle = block switch
         {
             EffectBlock e => DefineEffect(ctx, low, name, e),
             StatusBlock s => DefineStatus(ctx, low, name, s),
             SpellBlock s => DefineSpell(ctx, low, name, s),
+            VfxBlock v => DefineVfx(ctx, low, name, v),
+            MaterialBlock m => DefineMaterial(ctx, low, name, m),
             _ => DefineItemBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
+        if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : "items", handle.GameName, tweak.Tweak);
         low.Commit();
         mod.Handles[name] = handle;
         mod.Lowered[name] = low.Json;
@@ -128,10 +134,6 @@ internal static partial class Compiler
     }
 
     private static bool ValidName(string s) => s.Length > 0 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.');
-
-    /// <summary>VFX fields are there so that a block's shape does not change when they start to work.</summary>
-    internal static BlockError NoVfxYet(BlockContext ctx, string path) =>
-        new(ctx.Block, path, "blocks cannot show a VFX yet; leave this out for now");
 
     // ---- effects ------------------------------------------------------------------------------------------------
 
@@ -152,7 +154,6 @@ internal static partial class Compiler
     {
         if (string.IsNullOrWhiteSpace(s.Name)) throw new BlockError(ctx.Block, "name", "a status needs a name players can read");
         if (s.Seconds <= 0) throw new BlockError(ctx.Block, "seconds", $"{s.Seconds} must be more than 0");
-        if (s.Vfx != null) throw NoVfxYet(ctx, "vfx");
         var key = s.Was ?? name;
         var guid = BlockIds.Derive(ctx.Mod.Id, "buff", key);
         var (program, blob, listing) = EffectEmitter.StatusProgram(ctx, $"{key}.status", s);
@@ -173,6 +174,7 @@ internal static partial class Compiler
             ["applyType"] = s.Refreshes ? "ResetTime" : "Replace",
             ["impact"] = program.ToString(),
         }, s.Name, s.Description);
+        StatusVfx(ctx, low, game, s);
         return new BlockHandle<StatusBlock>(ctx.Mod.Id, name, guid, game, s);
     }
 
@@ -184,7 +186,6 @@ internal static partial class Compiler
         if (s.Cast.ManaCost < 0) throw new BlockError(ctx.Block, "cast.manaCost", $"{s.Cast.ManaCost} is less than 0");
         if (s.Level is < 1 or > 55) throw new BlockError(ctx.Block, "level", $"{s.Level} is outside the game's item levels 1..55");
         if (s.MaxCharges is < 1 or > 65535) throw new BlockError(ctx.Block, "maxCharges", $"{s.MaxCharges} is outside 1..65535");
-        if (s.Cast.Vfx != null) throw NoVfxYet(ctx, "cast.vfx");
         var key = s.Was ?? name;
         var mod = ctx.Mod.Id;
 
@@ -218,14 +219,19 @@ internal static partial class Compiler
         // what the game reads from configs, and the tooltip rows (uiValues show what these configs say; they are tooltip-only)
         var rules = new JsonObject { ["impactValues.ManaCost"] = s.Cast.ManaCost, ["impactValues.0x579b2657"] = s.Cast.Animation.ChargeSeconds };
         var sequence = s.Cast.Animation.Sequence;
-        if (s.Cast.ReleaseAt is { } at)
+        if (s.Cast.ReleaseAt != null || s.Cast.Vfx != null)
         {
-            if (at <= 0) throw new BlockError(ctx.Block, "cast.releaseAt", $"{at} must be more than 0");
             var seqGuid = BlockIds.Derive(mod, "sequence", key);
             var seqName = $"{mod}.{name}.cast";
             var times = new JsonObject();
-            foreach (var ev in new[] { "VfxNotifierEvent#0", "SfxNotifierEvent#0", "SpawnEntityEvent#0", "PayUsageCost#0", "PayUsageCost#1" })
-                times[$"events[{ev}].time"] = at;
+            if (s.Cast.ReleaseAt is { } at)
+            {
+                if (at <= 0) throw new BlockError(ctx.Block, "cast.releaseAt", $"{at} must be more than 0");
+                foreach (var ev in new[] { "VfxNotifierEvent#0", "SfxNotifierEvent#0", "SpawnEntityEvent#0", "PayUsageCost#0", "PayUsageCost#1" })
+                    times[$"events[{ev}].time"] = at;
+            }
+            // The cast's VFX takes the place of the motion's own VFX event, at its time: its hand and its moment are the motion's.
+            if (s.Cast.Vfx is { } vfx) Merge(times, VfxData.Notifier(ctx, VfxData.Lower(ctx, vfx, "cast.vfx", Slot.HandR), seqName));
             low.Clone("sequences", seqGuid, seqName, sequence, times);
             rules["sequences[0].sequence"] = seqName;
         }
@@ -252,6 +258,31 @@ internal static partial class Compiler
         if (em.FirstRadius is { } radius) rows.Add(Row(RowRadius, "Float", (int)Math.Round(radius * 100)));
         return rows;
     }
+
+    /// <summary>Adds fields to fields, a helper's to a clone's.</summary>
+    internal static void Merge(JsonObject into, JsonObject add)
+    {
+        foreach (var (k, v) in add) into[k] = v?.DeepClone();
+    }
+
+    // A status's VFX are the buff's own lists, which clients play from the buff they get from the server. Lists are rules, as a tooltip's rows are.
+    private static void StatusVfx(BlockContext ctx, Lowered low, string game, StatusBlock s)
+    {
+        var rules = new JsonObject();
+        if (s.Vfx is { } vfx) rules["whileApplied"] = new JsonArray(VfxData.BuffEntry(ctx, VfxData.Lower(ctx, vfx, "vfx"), game));
+        var rows = new JsonArray();
+        var onApply = s.OnApply ?? [];
+        for (var i = 0; i < onApply.Count; i++)
+            if (OnCreateVfx(ctx.Effect(onApply[i], $"onApply[{i}]")) is { } first)
+                rows.Add(VfxData.BuffEntry(ctx, VfxData.Lower(ctx, first, $"onApply[{i}].vfx"), game, onCreate: true));
+        if (rows.Count > 0) rules["onCreate"] = rows;
+        if (rules.Count == 0) return;
+        low.Json["buffRules"] = rules.DeepClone();
+        low.AfterCommit(() => BlockRuntime.AddRules(ctx.Mod, "buffs", game, rules));
+    }
+
+    /// <summary>The VFX of an OnApply effect that the buff itself plays when it starts: one that happens each time, on who has the status. Any other runs in the program, with a carrier.</summary>
+    internal static VfxRef? OnCreateVfx(EffectBlock e) => e.Vfx is { Parameters: null or { Count: 0 } } && e.Chance == null && e.On == EffectOn.Target ? e.Vfx : null;
 
     private static void AddDamageFields(Dictionary<string, object> fields, DamageBlock? d, int level)
     {
@@ -284,6 +315,8 @@ internal sealed class Lowered(ModBlocks mod)
     private readonly List<(string Section, string Entry, JsonObject Rules)> _rules = new();
     private readonly List<Action> _after = new();
     private readonly List<(string Section, string Entry, string Path, Guid Program)> _lateRules = new();
+    private readonly List<(string Section, string Entry, JsonObject Rules, VfxLate Late)> _vfxLates = new();
+    private readonly HashSet<Guid> _carriers = new();
 
     public JsonObject Json { get; } = new();
 
@@ -312,6 +345,25 @@ internal sealed class Lowered(ModBlocks mod)
         _clones.Add((section, def));
     }
 
+    /// <summary>A template a VFX rides on, shared by every block of the mod that plays it: it is listed for each, and defined once.</summary>
+    public void Carrier(Guid guid, string name, string baseName, JsonObject fields)
+    {
+        if (!mod.Carriers.Contains(guid) && _carriers.Add(guid))
+        {
+            Clone("templates", guid, name, baseName, fields);
+            AfterCommit(() => mod.Carriers.Add(guid));
+            return;
+        }
+        Arr("templates").Add(new JsonObject { ["guid"] = guid.ToString(), ["name"] = name, ["base"] = baseName, ["fields"] = fields.DeepClone() });
+    }
+
+    /// <summary>A game VFX's name: <paramref name="fill"/> writes what it stands for into this entry's rules once the running game can answer.</summary>
+    public void Late(VfxTarget v, string section, string entry, Action<JsonObject, VfxResolved> fill)
+    {
+        var rules = new JsonObject();
+        _vfxLates.Add((section, entry, rules, new VfxLate(v, r => fill(rules, r))));
+    }
+
     public void Item(ItemDefinition d)
     {
         _items.Add(d);
@@ -334,6 +386,17 @@ internal sealed class Lowered(ModBlocks mod)
     {
         _rules.Add(("items", item, rules));
         Json["itemRules"] = rules.DeepClone();
+    }
+
+    /// <summary>What the author set below the block: applied with the block's other rules, after them.</summary>
+    public void Tweak(string block, string section, string entry, FieldValues values)
+    {
+        try { values.Require(section, "tweak"); }
+        catch (ArgumentException e) { throw new BlockError(block, "tweak", e.Message); }
+        var rules = new JsonObject();
+        foreach (var (path, value) in values.Json) rules[path] = value.DeepClone();
+        _rules.Add((section, entry, rules));
+        Json[section == "templates" ? "templateTweak" : "tweak"] = rules.DeepClone();
     }
 
     public void TemplateRules(string template, JsonObject rules)
@@ -365,6 +428,11 @@ internal sealed class Lowered(ModBlocks mod)
         foreach (var d in _recipes) BlocksBridge.Register(d, mod.Owner);
         foreach (var (section, entry, rules) in _rules) BlockRuntime.AddRules(mod, section, entry, rules);
         foreach (var a in _after) a();
+        foreach (var (section, entry, rules, late) in _vfxLates)
+        {
+            BlockRuntime.AddRules(mod, section, entry, rules);
+            BlockRuntime.AddVfxLate(mod, late);
+        }
     }
 
     public string Summary()
@@ -375,6 +443,8 @@ internal sealed class Lowered(ModBlocks mod)
             if (Json[key] is JsonArray a && a.Count > 0) parts.Add($"{a.Count} {what}");
         }
         Count("items", "item(s)"); Count("recipes", "recipe(s)"); Count("templates", "template(s)"); Count("buffs", "buff(s)"); Count("sequences", "sequence(s)"); Count("programs", "program(s)");
+        if (Json["vfx"] is { } vfx) parts.Add($"VFX {vfx} ({Json["status"] ?? "not built here"})");
+        if (Json["material"] is { } material) parts.Add($"material {material} ({Json["status"] ?? "not built here"})");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);
     }
 }

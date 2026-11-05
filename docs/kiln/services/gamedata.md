@@ -91,7 +91,10 @@ of other services".
   including resources kiln.assets serves (new Impact programs, clones). Program references (`impact` of a buff, perk,
   skill node: `ImpactProgramReference`) take a loaded ImpactProgram's GUID; sequence references take a sequence's
   GUID or sub-sequence name, and a sibling `sequenceId` follows (FNV-1a of the GUID: `"sequences[0].sequence":
-  "My_Cast"` on an item rebinds its trigger). Other references stay read-only.
+  "My_Cast"` on an item rebinds its trigger). A VFX reference (`VfxComponentResource.vfx`, a sequence's `VfxNotifierEvent`) takes a GUID and is not
+  checked on a server, which has no VFX; a client without kiln.vfx keeps only the VFX its game has, and a mod's becomes `"none"`. Other references stay read-only.
+- **Lists of rows**: `uiValues`, and a buff's `whileApplied` and `onCreate`, take a JSON list in place of the game's: `"whileApplied": [ { "slot": "Chest", "vfx": "<guid>",
+  "offset.orientationOffset.w": 1 } ]`. A field a row does not name is zero, so a rotation has to say its `w`.
 
 ### Values
 As in kiln.content: numbers, `true` / `false`, enum names (`"Big"`), flag lists (`["Magic", "AoE"]`, also
@@ -133,6 +136,7 @@ that needs its own permanent numbers and its own name is a **clone**.
 "templates": { "add": [ { "guid": "6b1e0c52-93a4-4f7e-b2d8-1c5a7e9f3d40", "name": "Kiln_Elite_Vukah",
                           "base": "Enemy_Vukah_Melee", "fields": { "Level.dataStorage[0]": 20 } } ] }
 ```
+- A clone starts from the game's original, not from what other mods changed; a mod that wants another mod's values states them. A clone of a clone takes the definitions before it, oldest first, then its own.
 - A new template with a fixed GUID (saves and clients find it again; never change a released GUID), a name, a base
   template and field values (any templates path, configs included; adds allowed). Kiln copies the base template's
   resource, serves it through kiln.assets as a new resource, and registers it in the running world with the game's
@@ -274,6 +278,9 @@ Content.OnReady(_ =>
   `Config(alias)` (`GameDataConfig`: `Exists`, `Get`, `Original`, `Set`, `Reset`); `Event(type, k)` (`GameDataEvent`:
   `Time`, `Duration`, `Get`, `SetJson`).
 - `item.Config(alias)` / `item.Data()` on kiln.content's item entries.
+- Typed paths: every call above that takes a path also takes a field from the generated `GameFields`
+  (`entry.Set(GameFields.Templates.LifeTime.LifeTime, TimeSpan.FromSeconds(5))`, modding/typed-fields.md). String paths are checked at
+  compile time against the local catalog (modding/analyzers.md, KILN194).
 - `Content.GameDataStatus()` (JSON), `Content.ConfigVocabulary()` (JSON), `Content.GameDataAvailable`.
 - Rules as in kiln.content: tick thread only; changes belong to the calling mod and come off in its `Retiring`; a bad
   path or value throws `ArgumentException` / `KeyNotFoundException`.

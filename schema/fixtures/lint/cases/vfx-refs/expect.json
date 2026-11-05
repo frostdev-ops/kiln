@@ -1,0 +1,54 @@
+{
+  "catalog": true,
+  "description": "Names in vfx fields. KL314: a missing block, the wrong kind of block. KL323, with the catalog: a game name it lacks (with a suggestion), a label nothing finds at run time, an unknown GUID. A right name, a GUID in either form and another mod's are fine.",
+  "diagnostics": [
+    {
+      "code": "KL314",
+      "col": 25,
+      "file": "blocks/fx.json",
+      "line": 12,
+      "message": "no vfx block \"spork\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:spork\", one of the game's \"game:spork\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 28,
+      "file": "blocks/fx.json",
+      "line": 13,
+      "message": "\"own\" is an effect block; this field takes a VFX",
+      "severity": "warning"
+    },
+    {
+      "code": "KL323",
+      "col": 22,
+      "file": "blocks/fx.json",
+      "line": 14,
+      "message": "no game VFX \"Explosion_Fixture_Frots\" in the catalog; did you mean \"Explosion_Fixture_Frost\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL323",
+      "col": 23,
+      "file": "blocks/fx.json",
+      "line": 15,
+      "message": "\"Prop_Fixture_Crate_DestroyOnLoot\" is the catalog's label for this VFX: nothing at run time finds it by that name; use its GUID",
+      "severity": "warning"
+    },
+    {
+      "code": "KL323",
+      "col": 25,
+      "file": "blocks/fx.json",
+      "line": 16,
+      "message": "\"Vfx_0000f003\" is the catalog's label for this VFX: nothing at run time finds it by that name; use its GUID",
+      "severity": "warning"
+    },
+    {
+      "code": "KL323",
+      "col": 26,
+      "file": "blocks/fx.json",
+      "line": 17,
+      "message": "no game VFX with GUID 0000f0ff-0000-4000-8000-0000000000ff: Kiln's guard ignores it, and nothing shows",
+      "severity": "warning"
+    }
+  ]
+}

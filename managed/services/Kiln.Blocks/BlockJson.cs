@@ -16,18 +16,32 @@ internal static class BlockJson
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
         AllowOutOfOrderMetadataProperties = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase), new Vec3Converter() },
     };
 
     private static readonly JsonDocumentOptions Doc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     private static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
-        ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), .. ItemJson.Kinds,
+        ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), .. ItemJson.Kinds,
     ];
 
     internal static BlockHandle Make<T>(ModBlocks mod, string name, JsonElement e) where T : class, IBlock =>
         Compiler.Define(mod, name, e.Deserialize<T>(Options) ?? throw new JsonException("null"));
+
+    // kiln.vfx read this section at boot, as the game lists VFX once before mod code runs. Here it becomes a block for others to name, and the builder is told the same text.
+    private static BlockHandle MakeVfx(ModBlocks mod, string name, JsonElement e)
+    {
+        mod.VfxRaw[name] = e.GetRawText();
+        return Make<VfxBlock>(mod, name, e);
+    }
+
+    // The same for a material: kiln.vfx read the section at boot, as the game lists every material's textures once before mod code runs.
+    private static BlockHandle MakeMaterial(ModBlocks mod, string name, JsonElement e)
+    {
+        mod.VfxRaw[name] = e.GetRawText();
+        return Make<MaterialBlock>(mod, name, e);
+    }
 
     /// <summary>Compiles a mod's blocks/*.json. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
     public static int LoadMod(ModBlocks mod, string directory)
@@ -46,14 +60,6 @@ internal static class BlockJson
                 foreach (var p in doc.RootElement.EnumerateObject())
                 {
                     if (p.Name is "format" or "comment" or "$schema") continue;
-                    if (p.Name == "vfx")
-                    {
-                        // The game enumerates VFX once, before mod code runs, so kiln.vfx reads this section natively at boot. Nothing here
-                        // builds it: without that service these effects don't exist, which deserves a line.
-                        if (!BlocksBridge.HasService("kiln.vfx", 1))
-                            BlocksBridge.Log(LogLevel.Info, $"blocks: {mod.Id}: {rel}: the \"vfx\" section is not built here: kiln.vfx is not running (a dedicated server has no VFX, or it is turned off)");
-                        continue;
-                    }
                     var kind = Kinds.FirstOrDefault(k => k.Section == p.Name);
                     if (kind.Make == null)
                     {
@@ -119,7 +125,7 @@ internal static class BlockJson
 internal static class BlocksStartup
 {
     private static readonly HashSet<string> Done = new();
-    private static IDisposable? _tick;
+    private static IDisposable? _tick, _reloads;
     private static readonly object Gate = new();
 
     static BlocksStartup() => Touch();
@@ -132,6 +138,12 @@ internal static class BlocksStartup
     private static void OnTick(ulong step)
     {
         if (step % 10 != 3) return;
+        // from the service's own tick, so that the subscription is the service's: a mod's would end with the mod
+        _reloads ??= Events.On<ModReloadedEvent>(e =>
+        {
+            Done.Remove(e.Id);
+            foreach (var dependent in e.Cascade) Done.Remove(dependent);
+        });
         BlockRuntime.WriteReports();
         BlockRuntime.SubscribeSignals();
         foreach (var m in Mods.All)

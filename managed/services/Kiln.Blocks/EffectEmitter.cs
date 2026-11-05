@@ -76,9 +76,11 @@ internal sealed class EffectEmitter
         }
     }
 
+    /// <summary>The effects whose <see cref="EffectBlock.Vfx"/> something else plays: a buff's list, for what it does as it starts.</summary>
+    private readonly HashSet<EffectBlock> _vfxElsewhere = new(ReferenceEqualityComparer.Instance);
+
     private void One(EffectBlock e, int? target, int? origin, string path)
     {
-        if (e.Vfx != null) throw Compiler.NoVfxYet(_ctx, $"{path}.vfx");
         var id = ++_n;
         var end = _b.NewLabel();
         if (e.Chance is { } chance)
@@ -97,9 +99,11 @@ internal sealed class EffectEmitter
         {
             if (area.Radius <= 0) throw new BlockError(_ctx.Block, $"{path}.area.radius", $"{area.Radius} must be more than 0");
             FirstRadius ??= area.Radius;
+            if (area.Vfx is { } areaVfx) PlaceVfx(areaVfx, target, origin, $"Area{id}", $"{path}.area.vfx");
             Area(area, origin ?? PlaceOf(target!.Value, id), id, $"{path}.area");
         }
         if (e.Spawns is { } spawns) Spawn(spawns, origin ?? PlaceOf(target!.Value, id), id, $"{path}.spawns");
+        if (e.Vfx is { } vfx && !_vfxElsewhere.Contains(e)) PlaceVfx(vfx, target, origin, id.ToString(), $"{path}.vfx");
         if (e.Sound is { } sound)
         {
             if (string.IsNullOrWhiteSpace(sound.Value)) throw new BlockError(_ctx.Block, $"{path}.sound", "a sound needs a name or a GUID");
@@ -163,6 +167,57 @@ internal sealed class EffectEmitter
         var yes = _b.VBool("yes", true);
         var no = _b.VBool("no", false);
         _b.Call("spawnEntity", null, null, no, no, yes, yes, template, place, null, null, null, null, null, null);
+        _b.Pop();
+    }
+
+    // Impact programs have no "play VFX": they spawn a template that carries one, as the game's own programs do. Spawned where the effect happens, or at the target's slot;
+    // on a body without that slot, at the target.
+    private void PlaceVfx(VfxRef r, int? target, int? origin, string tag, string path)
+    {
+        var v = VfxData.Lower(_ctx, r, path, parameters: true);
+        if (r.Parameters is { Count: > 0 })
+        {
+            RelayVfx(r, v, target, tag, path);
+            return;
+        }
+        var template = _b.VGuid($"carrier{tag}", ImpactType.Template, VfxData.Carrier(_ctx, v));
+        var place = origin ?? 0;
+        if (target is { } t)
+        {
+            place = _b.V($"carrierAt{tag}", ImpactType.Transform);
+            _b.Call("getTransform", null, place, null, t);
+            _b.Pop();
+            if (v.Slot != Slot.Root)
+            {
+                _b.Call("GetSlotTransform", null, place, null, _b.VByte($"carrierSlot{tag}", ImpactType.Slot, (byte)v.Slot), t, null);
+                _b.Pop();
+            }
+        }
+        var no = _b.VBool("no", false);
+        _b.Call("spawnEntity", null, _b.V($"carrierEntity{tag}", ImpactType.Entity), no, no, no, no, template, place, null, null, null, null, null, null);
+        _b.Pop();
+    }
+
+    // Named parameters take a play from code: what a carrier plays comes from data a server can't lay out. So the program says where, as a sound's does, and the server relays the play.
+    private void RelayVfx(VfxRef r, VfxTarget v, int? target, string tag, string path)
+    {
+        var cue = BlockRuntime.VfxCue(_ctx.Mod.Id, v, VfxData.Parameters(_ctx, r, path));
+        // what a name stands for is only checked here: the relay asks at each play
+        if (v.GameName != null) _ctx.Low!.Late(v, "templates", "", (_, _) => { });
+        int at;
+        if (target is { } t)
+        {
+            at = _b.V($"cueAt{tag}", ImpactType.Float3);
+            _b.Call("getTransform", null, null, at, t);
+            _b.Pop();
+            if (v.Slot != Slot.Root)
+            {
+                _b.Call("GetSlotTransform", null, null, at, _b.VByte($"cueSlot{tag}", ImpactType.Slot, (byte)v.Slot), t, null);
+                _b.Pop();
+            }
+        }
+        else at = _originPosition;
+        _b.Call("kiln.Signal", null, at, _b.V($"cue{tag}", ImpactType.Uint32, BitConverter.GetBytes(cue)));
         _b.Pop();
     }
 
@@ -496,7 +551,12 @@ internal sealed class EffectEmitter
             b.Call("applyAttributeValue", m.Item1, m.Item2, m.Item3, m.Item4, m.Item5, target, null, m.Item6);
             b.Pop();
         }
-        if (s.OnApply is { Count: > 0 } onApply) e.OnTarget(onApply, target, "onApply");
+        if (s.OnApply is { Count: > 0 } onApply)
+        {
+            for (var i = 0; i < onApply.Count; i++)
+                if (ctx.Effect(onApply[i], $"onApply[{i}]") is var first && Compiler.OnCreateVfx(first) != null) e._vfxElsewhere.Add(first);
+            e.OnTarget(onApply, target, "onApply");
+        }
         if (s.OnTick is { Count: > 0 } onTick)
         {
             if (s.TickEvery <= 0) throw new BlockError(ctx.Block, "tickEvery", $"{s.TickEvery} must be more than 0");

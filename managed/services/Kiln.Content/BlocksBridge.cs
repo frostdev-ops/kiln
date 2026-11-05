@@ -30,6 +30,9 @@ internal static unsafe class BlocksBridge
         try { Backend.Current.Log(0, level, text); } catch { }
     }
 
+    /// <summary>A loaded mod's folder, or empty.</summary>
+    public static string ModDirectory(string mod) => Mods.Get(mod)?.Directory ?? "";
+
     /// <summary>Whether a native service runs on this side.</summary>
     public static bool HasService(string name, uint minVersion) => Backend.Current.Service(name, minVersion) != 0;
 
@@ -50,14 +53,14 @@ internal static unsafe class BlocksBridge
     /// <summary>What the content sync would send a Kiln client now.</summary>
     public static string? SyncExport() => ContentSync.ExportJson((1u << (int)ContentKind.Items) | (1u << (int)ContentKind.Recipes) | (1u << 16), out _);
 
-    /// <summary>Runs after every content application, and at the next tick when content is ready already, until it says it is done:
-    /// clones are registered a little after content is ready.</summary>
-    public static void OnReady(Func<bool> run)
+    /// <summary>Runs after every content application, at the next tick when content is ready already, and whenever <paramref name="again"/>
+    /// says so, until it says it is done: clones are registered a little after content is ready.</summary>
+    public static void OnReady(Func<bool> run, Func<bool>? again = null)
     {
         var last = ulong.MaxValue;
         ServiceTick.Add("kiln blocks ready", (in TickInfo t) =>
         {
-            if (t.Step % 4 != 1 || Content.Status() is not { Ready: true } st || st.Generation == last) return;
+            if (t.Step % 4 != 1 || Content.Status() is not { Ready: true } st || (st.Generation == last && again?.Invoke() != true)) return;
             try { if (run()) last = st.Generation; }
             catch (Exception e)
             {

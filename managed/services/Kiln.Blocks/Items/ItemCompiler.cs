@@ -163,9 +163,12 @@ internal static partial class Compiler
 
     // ---- the parts ----------------------------------------------------------------------------------------------
 
+    private static BlockError NoLookVfx(BlockContext ctx, string path) =>
+        new(ctx.Block, path, "a look cannot carry a VFX yet: put it on what happens, an onHit or a status");
+
     private static void CheckVisual(BlockContext ctx, VisualBlock v)
     {
-        if (v.Vfx != null) throw NoVfxYet(ctx, "vfx");
+        if (v.Vfx != null) throw NoLookVfx(ctx, "vfx");
         if (v.Tint is { } t && !IsColour(t)) throw new BlockError(ctx.Block, "tint", $"\"{t}\" is not a colour: #rrggbb");
     }
 
@@ -173,7 +176,7 @@ internal static partial class Compiler
 
     private static void CheckHits(BlockContext ctx, OnHitBlock h)
     {
-        if (h.Vfx != null) throw NoVfxYet(ctx, "vfx");
+        if (h.Vfx != null) VfxData.Lower(ctx, h.Vfx, "vfx");
     }
 
     private static void CheckWeaponStats(BlockContext ctx, WeaponStats s)
@@ -196,7 +199,7 @@ internal static partial class Compiler
         if (part == null) return;
         var ctx = d.Ctx;
         var v = ctx.Part(part, path);
-        if (v.Vfx != null) throw NoVfxYet(ctx, $"{path}.vfx");
+        if (v.Vfx != null) throw NoLookVfx(ctx, $"{path}.vfx");
         if (v.Like is { } like)
         {
             var n = ctx.ItemName(like, $"{path}.like");
@@ -381,10 +384,11 @@ internal static partial class Compiler
         if (a.Cast.ManaCost < 0) throw new BlockError(ctx.Block, $"{slot}.cast.manaCost", $"{a.Cast.ManaCost} is less than 0");
         if (a.Cast.ReleaseAt is <= 0) throw new BlockError(ctx.Block, $"{slot}.cast.releaseAt", $"{a.Cast.ReleaseAt} must be more than 0");
         if (a.Cast.Animation != CastAnimation.FastBolt) throw new BlockError(ctx.Block, $"{slot}.cast.animation", "that is a staff's: a wand's motion is its attack's moves");
-        if (a.Cast.Vfx != null) throw NoVfxYet(ctx, $"{slot}.cast.vfx");
         var lowered = LowerDelivery(ctx, low, $"{key}.{slot}", $"{name}.{slot}", a.Delivery, $"{slot}.delivery", primary: main);
         var seqName = $"{mod}.{name}.{slot}";
-        low.Clone("sequences", BlockIds.Derive(mod, "sequence", $"{key}.{slot}"), seqName, moves.Sequence, new JsonObject());
+        // The attack's VFX takes the place of the motion's first VFX event, at its time.
+        var seqFields = a.Cast.Vfx is { } vfx ? VfxData.Notifier(ctx, VfxData.Lower(ctx, vfx, $"{slot}.cast.vfx", Slot.HandR), seqName) : new JsonObject();
+        low.Clone("sequences", BlockIds.Derive(mod, "sequence", $"{key}.{slot}"), seqName, moves.Sequence, seqFields);
         // A clone can name another clone once both are registered: a rule, not a field. A time and a cost are ordinary values.
         var rules = new JsonObject();
         var template = lowered.PlacedEntity.ToString();

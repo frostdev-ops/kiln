@@ -31,7 +31,7 @@ namespace {
 
 constexpr int32_t kSubAdd = 200;    // Slot.sub: a Configurations array header (config adds)
 constexpr int32_t kSubOrder = 201;  // Slot.sub: a sub-sequence's events header (sorted copy)
-constexpr int32_t kSubUi = 202;     // Slot.sub: a uiValues list header (a whole new list of tooltip rows)
+constexpr int32_t kSubUi = 202;     // Slot.sub: the header of a list of rows (tooltip rows, a buff's VFX entries), a whole new list
 
 std::vector<std::string> g_paths;
 std::unordered_map<std::string, int32_t> g_path_index;
@@ -273,16 +273,38 @@ bool add_config(KilnOwner owner, uint64_t seq, uint32_t section, const GEntry& e
     return true;
 }
 
-// ---- a whole tooltip list ----
+// ---- a whole list of rows ----
 // "uiValues": [ {"locaId": "0xc9d82dea", "valueFormat": "Float", "value": 300}, ... ]: the rows of an item, a buff or a perk, in any number, in
-// place of the game's. The list is Kiln's memory near the entry: the rows are written directly (they are this owner's), and only the list's
-// header is a layered slot, so taking the owner off puts the game's list back and the content sync exports the list as one value.
+// place of the game's. A buff's "whileApplied" and "onCreate" work the same way: [ {"slot": "Chest", "vfx": "<guid>", "offset.localOffset.y": 1} ].
+// The list is Kiln's memory near the entry: the rows are written directly (they are this owner's), and only the list's header is a layered slot,
+// so taking the owner off puts the game's list back and the content sync exports the list as one value. A field a row does not name is zero.
 bool is_ui_values(const TType* t) {
     const TType* r = t ? t->resolved() : nullptr;
     if (!r || r->kind != K_BLOBARRAY) return false;
     const TType* in = r->inner();
     in = in ? in->resolved() : nullptr;
-    return in && in->name == "keen::ImpactUiValue";
+    return in && (in->name == "keen::ImpactUiValue" || in->name == "keen::WhileAppliedHelper" || in->name == "keen::OnCreateHelper");
+}
+
+// One row for the content sync: every field that isn't zero, by its path, which is what a row takes.
+void row_leaves(const TType* decl, uintptr_t addr, const std::string& prefix, gjson* row, int depth) {
+    Field f;
+    if (leaf_of(decl, &f)) {
+        uint8_t b[16] = {}, zero[16] = {};
+        if (rd(addr + f.offset, b, f.bytes) && std::memcmp(b, zero, sizeof b) != 0) (*row)[prefix] = leaf_json(f, b, true);
+        return;
+    }
+    const TType* t = decl ? decl->resolved() : nullptr;
+    if (!t || depth > 8) return;
+    if (t->kind == K_STRUCT) {
+        for (const TField& x : t->fields) row_leaves(x.type(), addr + x.offset, prefix.empty() ? x.name : prefix + "." + x.name, row, depth + 1);
+    } else if (t->kind == K_ARRAY) {
+        const TType* el = t->inner();
+        el = el ? el->resolved() : nullptr;
+        if (!el || !el->size) return;
+        const uint32_t n = t->count ? t->count : t->size / el->size;
+        for (uint32_t i = 0; i < n && i < 256; ++i) row_leaves(el, addr + static_cast<uintptr_t>(i) * el->size, prefix + "[" + std::to_string(i) + "]", row, depth + 1);
+    }
 }
 
 struct UiList {
@@ -352,12 +374,23 @@ bool rewrite_ui_values(KilnOwner owner, uint64_t seq, uint32_t section, const GE
     std::memcpy(hb, &r32, 4);
     std::memcpy(hb + 4, &n, 4);
     Field hf;
-    hf.bytes = 8, hf.vt = KILN_CV_NONE, hf.type_name = "keen::BlobArray<keen::ImpactUiValue>";
+    hf.bytes = 8, hf.vt = KILN_CV_NONE, hf.type_name = r.node.t->resolved()->name;
     if (!put(owner, seq, section, e, r.path, hf, header, hb, source, kSubUi)) {
         *err = "the list is not readable";
         return false;
     }
     return true;
+}
+
+// {"mul": 1} on the list (the content sync's "match the server"): this owner's layer puts the game's own list back.
+bool game_ui_values(KilnOwner owner, uint64_t seq, uint32_t section, const GEntry& e, const Resolved& r, const std::string& source, std::string* err) {
+    uint8_t ob[16];
+    original_bytes(r.node.addr, 8, ob);
+    Field hf;
+    hf.bytes = 8, hf.vt = KILN_CV_NONE, hf.type_name = r.node.t->resolved()->name;
+    if (put(owner, seq, section, e, r.path, hf, r.node.addr, ob, source, kSubUi)) return true;
+    *err = "the list is not readable";
+    return false;
 }
 
 // ---- event order ----
@@ -453,6 +486,8 @@ void reorder_all() {
 
 }  // namespace
 
+void forget_added(KilnOwner owner, uintptr_t header) { g_added.erase({owner, header}); }
+
 KilnOwner internal_owner() { return g_internal; }
 std::string slot_path(int32_t field) {
     return field >= 0 && static_cast<size_t>(field) < g_paths.size() ? g_paths[static_cast<size_t>(field)] : "?";
@@ -483,14 +518,19 @@ uint32_t apply_value(KilnOwner owner, uint64_t seq, uint32_t section, const GEnt
     uint32_t n = 0;
     for (const Resolved& r : rs) {
         if (!r.node.t) {  // a config this struct does not have: add it
+            // {"mul": 1} is "back to the game's", and the game's has none: not a reason to add one with an exemplar's value (the content sync's "match the server" sends these)
+            if (value.is_object() && value.contains("mul") && value["mul"] == 1 && !value.contains("add")) {
+                ++n;
+                continue;
+            }
             std::string aerr;
             if (add_config(owner, seq, section, e, r, value, source, &aerr)) ++n;
             else errs->push_back(std::string(section_name(section)) + " " + e.name + "." + r.path + ": " + aerr);
             continue;
         }
-        if (value.is_array() && is_ui_values(r.node.t)) {
+        if (is_ui_values(r.node.t) && (value.is_array() || (value.is_object() && value.value("mul", 0) == 1))) {
             std::string uerr;
-            if (rewrite_ui_values(owner, seq, section, e, r, value, source, &uerr)) ++n;
+            if (value.is_array() ? rewrite_ui_values(owner, seq, section, e, r, value, source, &uerr) : game_ui_values(owner, seq, section, e, r, source, &uerr)) ++n;
             else errs->push_back(std::string(section_name(section)) + " " + e.name + "." + r.path + ": " + uerr);
             continue;
         }
@@ -963,13 +1003,15 @@ void gd_pack_sections(KilnOwner owner, uint64_t seq_base, const gjson& doc, cons
 // element of such a list (impactValues.ManaCost, uiValues[0].value, sequences[0].sequence) would change the game's item and every clone of it.
 // So a clone gets its own copy of every list, recursively; strings stay shared, nothing writes to them.
 namespace {
-void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, std::string* err) {
+// Each header is read at dst: there it holds what src held, offset included, and for a game item what rules changed is already back to the game's.
+void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, bool game, std::string* err) {
     const TType* t = decl ? decl->resolved() : nullptr;
     if (!t || depth > 12 || !err->empty()) return;
     const auto copy_near = [&](uintptr_t from, size_t bytes, uintptr_t near) -> uintptr_t {
         auto* mem = static_cast<uint8_t*>(near_alloc(near, bytes));
         if (!mem) *err = "no memory near the item";
         else if (!rd(from, mem, bytes)) *err = "the base item's list is not readable";
+        else if (game) store_originals(from, bytes, mem);
         return *err == "" ? reinterpret_cast<uintptr_t>(mem) : 0;
     };
     const auto point = [&](uintptr_t field, uintptr_t relative_to, uintptr_t target) {
@@ -983,7 +1025,7 @@ void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, std::s
     };
     switch (t->kind) {
         case K_STRUCT:
-            for (const TField& f : t->fields) own_node(f.type(), src + f.offset, dst + f.offset, depth + 1, err);
+            for (const TField& f : t->fields) own_node(f.type(), src + f.offset, dst + f.offset, depth + 1, game, err);
             return;
         case K_ARRAY: {
             const TType* el = t->inner();
@@ -991,18 +1033,18 @@ void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, std::s
             if (!el || !el->size) return;
             const uint32_t n = t->count ? t->count : t->size / el->size;
             for (uint32_t i = 0; i < n && i < 4096; ++i)
-                own_node(el, src + static_cast<uintptr_t>(i) * el->size, dst + static_cast<uintptr_t>(i) * el->size, depth + 1, err);
+                own_node(el, src + static_cast<uintptr_t>(i) * el->size, dst + static_cast<uintptr_t>(i) * el->size, depth + 1, game, err);
             return;
         }
         case K_BLOBSTRING: {
             int32_t rel = 0;
-            if (src != dst && rdv(src, rel) && rel) point(dst, dst, src + static_cast<intptr_t>(rel));
+            if (src != dst && rdv(dst, rel) && rel) point(dst, dst, src + static_cast<intptr_t>(rel));
             return;
         }
         case K_BLOBARRAY: {
             int32_t rel = 0;
             uint32_t n = 0;
-            if (!rdv(src, rel) || !rdv(src + 4, n) || !rel || !n) return;
+            if (!rdv(dst, rel) || !rdv(dst + 4, n) || !rel || !n) return;
             if (n > 100000) {
                 *err = "a list of " + std::to_string(n) + " elements";
                 return;
@@ -1014,30 +1056,31 @@ void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, std::s
             const uintptr_t mem = copy_near(data, static_cast<size_t>(n) * es, dst);
             if (!mem) return;
             for (uint32_t i = 0; i < n; ++i)
-                own_node(el, data + static_cast<uintptr_t>(i) * es, mem + static_cast<uintptr_t>(i) * es, depth + 1, err);
+                own_node(el, data + static_cast<uintptr_t>(i) * es, mem + static_cast<uintptr_t>(i) * es, depth + 1, game, err);
             point(dst, dst, mem);
             return;
         }
         case K_BLOBOPT: {
             int32_t rel = 0;
-            if (!rdv(src, rel) || !rel) return;
+            if (!rdv(dst, rel) || !rel) return;
             const TType* el = t->inner();
             el = el ? el->resolved() : nullptr;
             if (!el || !el->size) return;
             const uintptr_t data = src + static_cast<intptr_t>(rel);
             const uintptr_t mem = copy_near(data, el->size, dst);
             if (!mem) return;
-            own_node(el, data, mem, depth + 1, err);
+            own_node(el, data, mem, depth + 1, game, err);
             point(dst, dst, mem);
             return;
         }
         case K_BLOBVAR: {
             uint32_t h = 0, sz = 0;
-            uintptr_t data = 0;
-            if (!blob_variant(src, &h, &data, &sz) || !h || !sz) return;
+            int32_t rel = 0;
+            if (!rdv(dst, h) || !rdv(dst + 4, rel) || !rdv(dst + 8, sz) || !h || !sz || !rel) return;
+            const uintptr_t data = src + 4 + static_cast<intptr_t>(rel);
             const uintptr_t mem = copy_near(data, sz, dst);
             if (!mem) return;
-            if (const TType* vt = type_hash(h)) own_node(vt, data, mem, depth + 1, err);
+            if (const TType* vt = type_hash(h)) own_node(vt, data, mem, depth + 1, game, err);
             point(dst + 4, dst + 4, mem);
             return;
         }
@@ -1047,7 +1090,20 @@ void own_node(const TType* decl, uintptr_t src, uintptr_t dst, int depth, std::s
 }
 }  // namespace
 
-bool gd_own_lists(uintptr_t item, std::string* err) {
+void gd_item_registered(uint32_t id, const std::string& name, const uint8_t guid[16], uintptr_t addr) {
+    GRegistry& I = greg(KILN_GD_ITEMS);
+    if (I.entries.empty()) return;  // no list yet: refresh_items reads kiln.content's
+    if (const auto it = I.by_id.find(id); it != I.by_id.end()) {
+        I.entries[it->second].addr = addr;
+        return;
+    }
+    GEntry g;
+    g.id = id, g.name = name, g.addr = addr;
+    std::memcpy(g.guid, guid, 16);
+    I.add(std::move(g));
+}
+
+bool gd_own_lists(uintptr_t item, bool game_base, std::string* err) {
     std::lock_guard lock(store_mutex());
     const TType* t = type_named("keen::ItemInfo");
     if (!t) {
@@ -1055,7 +1111,7 @@ bool gd_own_lists(uintptr_t item, std::string* err) {
         return false;
     }
     err->clear();
-    own_node(t, item, item, 0, err);
+    own_node(t, item, item, 0, game_base, err);
     return err->empty();
 }
 
@@ -1119,11 +1175,19 @@ uint32_t gd_export(gjson& doc, uint32_t kinds) {
             int32_t crel = 0;
             uint32_t cn = 0;
             std::memcpy(&crel, s.current, 4), std::memcpy(&cn, s.current + 4, 4);
-            const TType* ui_t = type_named("keen::ImpactUiValue");
+            const TType* list_t = type_named(si.f.type_name);
+            list_t = list_t ? list_t->resolved() : nullptr;
+            const TType* ui_t = list_t ? list_t->inner() : nullptr;
+            ui_t = ui_t ? ui_t->resolved() : nullptr;
             gjson rows = gjson::array();
             for (uint32_t i = 0; ui_t && i < cn; ++i) {
                 const uintptr_t el = addr + static_cast<intptr_t>(crel) + static_cast<uintptr_t>(i) * ui_t->size;
                 gjson row = gjson::object();
+                if (ui_t->name != "keen::ImpactUiValue") {
+                    row_leaves(ui_t, el, "", &row, 0);
+                    rows.push_back(std::move(row));
+                    continue;
+                }
                 for (const char* name : {"locaId", "valueFormat", "value", "isSigned"}) {
                     const TField* tf = ui_t->field(name);
                     Field lf;

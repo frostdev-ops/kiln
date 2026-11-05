@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "comment": "Two new swords on models this mod serves through kiln.assets (assets/assets.json). The GUIDs are the models and visual templates of assets/cook.json. Each costs one twig in the hand menu, to be easy to try.",
+  "items": {
+    "add": [
+      {
+        "guid": "a1f4d2b6-3c52-4e7a-9b6d-2f0c8e15d701",
+        "name": "Kiln_Sample_FrostSteelSword",
+        "base": "Weapon_T1_1H_SwordEpic_01",
+        "displayName": "Frost Steel Sword",
+        "description": "Blue steel with glowing runes. Its materials are blocks written by hand.",
+        "refs": {
+          "equipment.visualEntity": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a2",
+          "equipment.equipmentEntityModelSetup.model": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b3",
+          "iconModel": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b3"
+        }
+      },
+      {
+        "guid": "a1f4d2b6-3c52-4e7a-9b6d-2f0c8e15d702",
+        "name": "Kiln_Sample_EmberSword",
+        "base": "Weapon_T1_1H_SwordEpic_01",
+        "displayName": "Ember Sword",
+        "description": "Dark iron with glowing cracks. Its materials came from its glTF.",
+        "refs": {
+          "equipment.visualEntity": "b6e0a9c4-71d3-4f28-8a55-0c94de21f7a3",
+          "equipment.equipmentEntityModelSetup.model": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b4",
+          "iconModel": "c7f1b8d5-82e4-4039-9b66-1da5ef32a8b4"
+        }
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "d3a29e17-6b08-4c5d-a1f3-7e42b9c06d11",
+        "name": "Kiln_Sample_FrostSteelSword_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "Kiln_Sample_FrostSteelSword", "count": 1 } ]
+      },
+      {
+        "guid": "d3a29e17-6b08-4c5d-a1f3-7e42b9c06d12",
+        "name": "Kiln_Sample_EmberSword_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "Kiln_Sample_EmberSword", "count": 1 } ]
+      }
+    ]
+  }
+}

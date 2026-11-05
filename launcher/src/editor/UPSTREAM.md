@@ -51,3 +51,5 @@ dev server) as a dev fallback. After re-vendoring, check gameart.md "Editor upda
 2. Re-apply the table above (`git diff` against this commit shows the exact edits).
 3. `bun scripts/scope-editor-css.ts <upstream>/src/styles.css src/editor/src/styles.css`.
 4. Update the commit line here.
+
+Kiln changes to the copied files: skill tree class labels go through `t()` with English entries in `src/i18n/en.json`; the catalog shows the other-language item name only to Portuguese readers.

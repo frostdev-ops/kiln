@@ -138,7 +138,7 @@ export default function SkillTree({ model, setModel, stage }) {
         const c = { ...h.color, a: 1 };
         return (
           <div key={i} className="st-class" style={{ left: sx, top: sy, color: rgba(c), textShadow: `0 0 18px ${rgba(h.color)}`, background: `radial-gradient(ellipse, ${rgba(h.color, 0.55)} 0%, transparent 72%)` }}>
-            {h.label}
+            {t(h.label)}
           </div>
         );
       })}

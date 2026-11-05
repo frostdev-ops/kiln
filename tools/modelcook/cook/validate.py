@@ -25,7 +25,7 @@ def _keys(v, prefix=""):
     return out
 
 
-def _check_skin(d, blob, types_target, checks, problems, report):
+def _check_skin(d, blob, target, checks, problems, report):
     """The skin stream read back: the format's rules, and the bind pose the game would draw."""
     groups = {}
     for ms in d["meshes"]:
@@ -62,11 +62,11 @@ def _check_skin(d, blob, types_target, checks, problems, report):
     checks["every_map_entry_carries_weight"] = len(used) == len(smap)
     report["skin"] = {"joints": len(smap), "skeleton_joints": d["hierarchyJointCount"], "skeleton": d["hierarchy"], "vertices": total, "stream_bytes": sd["count"],
                       "globalScale": d["globalScale"]}
-    if types_target is None:
+    if target is None:
         return
-    checks["skeleton_matches"] = types_target.guid == d["hierarchy"] and len(types_target) == d["hierarchyJointCount"]
-    # Drawn at the skeleton's bind pose every joint's pose x inverse bind is the identity, so what the shader computes is the stored vertex. What can still be
-    # wrong is a vertex far from the joints that move it: the heaviest joint's distance tells a good binding from a scrambled one (docs/re/models.md 5).
+    checks["skeleton_matches"] = target.guid == d["hierarchy"] and len(target) == d["hierarchyJointCount"]
+    # Drawn at the skeleton's bind pose every joint's pose x inverse bind is the identity, so what the shader computes is the stored vertex. How far a vertex is from the joint that
+    # moves it most tells a good binding from a scrambled one (docs/re/models.md 5). It is for reading: props and hair of the game's own have every vertex far from their one joint.
     m = kmesh.RenderModel(guid="cooked", desc=d, data=blob)
     influences = S.decode_stream(stream)
     dist = []
@@ -75,18 +75,15 @@ def _check_skin(d, blob, types_target, checks, problems, report):
         g = kmesh.decode_group(m, ms)
         for i, q in enumerate(g["positions"]):
             j = smap[influences[ms["skinVertexOffset"] + i][0][0]]
-            b = types_target.bind[j]
+            b = target.bind[j]
             dist.append(math.dist(q, (b[0][3], b[1][3], b[2][3])))
     dist.sort()
     report["skin"]["heaviest_joint_distance_m"] = {"median": dist[len(dist) // 2], "p95": dist[int(len(dist) * 0.95)], "max": dist[-1]}
-    bb = d["boundingBox"]
-    size = max(bb["max"][a] - bb["min"][a] for a in "xyz")
-    checks["vertices_near_their_joints"] = dist[len(dist) // 2] <= max(size / 2, 0.01)
 
 
-def validate(kfc, types, data, blob, against=None, gltf_docs=None, target=None):
+def validate(kfc, types, data, blob, against=None, gltf_docs=None, target=None, own_materials=()):
     """kfc may be None (no game files): the game-dependent checks (materials, vanilla comparison) are skipped.
-    target: the skin.Target a skinned model was bound to, for the checks against its skeleton."""
+    target: the skin.Target a skinned model was bound to, for the checks against its skeleton. own_materials: GUIDs the mod's MaterialBlocks make."""
     checks = {}
     problems = []
     th = types.get("keen::RenderModel")["hash"]
@@ -113,7 +110,7 @@ def validate(kfc, types, data, blob, against=None, gltf_docs=None, target=None):
     checks["indices_valid"] = ok_idx
     if kfc is not None:
         mth = types.get("keen::RenderMaterialResource")["hash"]
-        checks["materials_exist_in_game"] = all(kfc.has(ResourceKey(x["material"], mth, 0)) for x in d["materials"])
+        checks["materials_exist_in_game"] = all(x["material"] in own_materials or kfc.has(ResourceKey(x["material"], mth, 0)) for x in d["materials"])
     tri0 = kmesh.triangles(m, 0)
     w = kmesh.winding_check(tri0)
     checks["winding_like_vanilla"] = w is not None and w < 0.05

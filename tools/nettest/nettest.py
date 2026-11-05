@@ -293,6 +293,19 @@ def probe_server(port):
         mods += [(d.split()[0], d.split()[1], NET_TEST_MOD[2]) for d in c.reject[1]]
 
 
+def with_required(port, mods, channels):
+    """`mods`, and what the server's default policy refuses a client without (mods that state clients: "mod")."""
+    mods = list(mods)
+    for _ in range(3):
+        c = Client(port, "probe")
+        c.hello(mods, channels)
+        c.wait(lambda: c.welcome is not None or c.reject is not None, 8)
+        if c.reject is None:
+            break
+        mods += [(d.split()[0], d.split()[1], NET_TEST_MOD[2]) for d in c.reject[1]]
+    return mods
+
+
 def ready_client(port, name, verbose):
     c = Client(port, name, verbose)
     c.hello(FULL_MODS, CHANNELS)

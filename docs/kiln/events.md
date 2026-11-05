@@ -64,6 +64,24 @@ Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime
 | `ConfigChangedEvent` | Kiln.Api | a config's values changed while running (file edit or `ConfigFile.Set`), after the new values are in place | - | - |
 | `PermissionsChangedEvent` | Kiln.Permissions | permissions.json reloaded/edited or the server's user groups changed | - | - |
 
+### Player state and actions (Kiln.Players)
+One scan per tick, only while a handler subscribes to one of these. Details and what Cancel does: [services/player-state.md](services/player-state.md). Every state and action the game has: [modding/player-states.md](modding/player-states.md).
+
+| Event | When | Cancel |
+|---|---|---|
+| `PlayerStateChangedEvent` | any state entered or left: `State`, `Entered`, `Name`. Glide, swim, climb, grapple, dodge, sit, sleep, sprint, sneak, Shroud, base and about 340 more, and states of a newer game by raw id | - |
+| `PlayerActionEvent` | anything the game runs as an action sequence: attack, cast, dodge, block, jump, glide, item use, interact, emote, hit reaction, death. `Trigger`, `Input`, `Item`, `SequenceName`, `Action` | stops the sequence before its next event |
+| `PlayerConsumeEvent` : `PlayerActionEvent` | eating, drinking, a potion, a scroll, before the item goes: `Item`, `Kind`, `Buffs` | item stays, no buff |
+| `PlayerConsumedEvent` | the stack really went down | - |
+| `PlayerActionEndedEvent` | an action finished or was replaced: `Duration`, `Canceled` | - |
+| `PlayerClientActionEvent` | a client sent a versioned command, by the game's field name: `changeEquipmentAction`, `inventoryTransferAction`, `teleportAction` and 43 more. `Name`, `Payload` | the game's program skips it |
+| `PlayerJumpEvent` | a jump: `Type`, `Count`, `IsDoubleJump` | - |
+| `PlayerGlideEvent` | a glide started or ended: `Started`, `Glider`, `Duration` | - |
+| `PlayerEquipmentChangedEvent` | a slot's item changed, within 4 steps: `Slot`, `Before`, `Now` | - |
+| `PlayerHotbarChangedEvent` | the bar selection or the item in hand changed, within 4 steps | - |
+
+Fall damage, death and respawn stay in Kiln.Combat: `EntityFallEvent`, `EntityDeathEvent`, `PlayerRespawnEvent`.
+
 Services add their own event classes in their assemblies (combat, gameplay, saves, content, loader): see their
 docs. Added in docs/kiln/services/combat.md and gameplay.md: `EntityKnockbackEvent`, `EntityFallEvent`,
 `EntityHealEvent.Cause` (Hit, Kiln, Regeneration, Attribute) in Kiln.Combat; `EntityJoinLevelEvent`,

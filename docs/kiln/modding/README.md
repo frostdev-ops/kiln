@@ -14,6 +14,9 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations and loot as blocks: no base items, no GUIDs |
 | [impact.md](impact.md) | Impact programs: tools/impact (dis/asm/lint/clone/cook), Kiln natives, packaging into kiln.assets |
 | [sounds.md](sounds.md) | Sounds, cues, music, voice-over: tools/soundcook, cook.json sound steps, SoundSample |
+| [vfx.md](vfx.md) | Effects: particles, lights and the game's VFX by name, in `blocks/*.json` or C#, the budget, VfxSample |
+| [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
+| [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
 | [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, what players need, quests-sample |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
@@ -21,6 +24,8 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, catalog |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
+| [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
+| [player-states.md](player-states.md) | Every state and action a player can be in: `player.Is(...)`, `PlayerStateChangedEvent`, `PlayerActionEvent`, and what is left out |
 | [debugging.md](debugging.md) | Breakpoints in a running server: `kiln debug` and netcoredbg |
 
 ## Five-minute start

@@ -18,11 +18,13 @@
     <ProjectReference Include="../../../managed/services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Vfx/Kiln.Vfx.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Client/Kiln.Client.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />
     <!-- On purpose not in blocks/ in the repository: these are wrong, and the repository's mods must pass the schemas. -->
     <None Include="fixtures/broken.json" Link="blocks/broken.json" CopyToOutputDirectory="PreserveNewest" />
-    <Compile Remove="DataOnly/**;NoClients/**" />
+    <Compile Remove="DataOnly/**;NoClients/**;Reloaded/**" />
   </ItemGroup>
 </Project>

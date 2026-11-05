@@ -2,7 +2,7 @@
 //! content, assets, cook recipes, natives, schematics and licences. Each finding carries a code of codes.rs.
 
 use super::catalog::{Catalog, parse_id};
-use super::json::Node;
+use super::json::{Node, ptr_seg};
 use super::schema::Annot;
 use super::{Diagnostic, Fix, LFile, LMod, Linter, Severity, Span, TextEdit, codes, display, suggest};
 use std::collections::{HashMap, HashSet};
@@ -147,6 +147,7 @@ pub(crate) fn run(l: &mut Linter) {
         crafted_rolled(&mut out, m, cat);
         quests(&mut out, m);
         blocks(&mut out, m, &code, cat);
+        skipped_refs += vfx(&mut out, m, cat);
         quests_native(&mut out, m);
         licences(&mut out, m);
     }
@@ -829,13 +830,15 @@ struct Contents {
     voice_asset: Option<(String, Span)>,
     /// A Kiln talent tree (vanilla players still reach it through /talents).
     talent_tree: Option<(String, Span)>,
+    /// A VFX only the mod's own files can give a client: a block of the `vfx` section, or a `vfx` field that names one.
+    new_vfx: Option<(String, Span, &'static str)>,
     client_assets: Option<(String, Span, String)>,
     png_icon: bool,
     anything: bool,
 }
 
 fn contents(m: &LMod) -> Contents {
-    let mut c = Contents { definition: None, game_nodes: None, native_journal: None, voice_asset: None, talent_tree: None, client_assets: None, png_icon: false, anything: false };
+    let mut c = Contents { definition: None, game_nodes: None, native_journal: None, voice_asset: None, talent_tree: None, new_vfx: None, client_assets: None, png_icon: false, anything: false };
     for f in &m.files {
         if matches!(f.kind.as_str(), "content" | "assets" | "cook") {
             c.anything = true;
@@ -853,6 +856,15 @@ fn contents(m: &LMod) -> Contents {
         match f.kind.as_str() {
             "blocks" => {
                 c.anything = true;
+                if c.new_vfx.is_none() {
+                    if let Some(b) = r.get("vfx").and_then(Node::as_object).and_then(|o| o.first()) {
+                        c.new_vfx = Some((f.display.clone(), b.key_span, "a new VFX"));
+                    } else if let Some(b) = r.get("materials").and_then(Node::as_object).and_then(|o| o.first()) {
+                        c.new_vfx = Some((f.display.clone(), b.key_span, "a new material"));
+                    } else if let Some(u) = vfx_uses(r).into_iter().find(|u| !u.is_game()) {
+                        c.new_vfx = Some((f.display.clone(), u.span, "a field that names a new VFX"));
+                    }
+                }
                 for (key, what) in [("spells", "a new spell"), ("weapons", "a new weapon"), ("statuses", "a new status"), ("items", "a new item"), ("wands", "a new wand"), ("armor", "a new piece of armor"), ("stations", "a new station")] {
                     if c.definition.is_none()
                         && let Some(b) = r.get(key).and_then(Node::as_object).and_then(|o| o.first())
@@ -867,6 +879,10 @@ fn contents(m: &LMod) -> Contents {
                     }
                     if let Some(o) = n.as_object() {
                         for mm in o {
+                            // what a VFX needs has its own rule
+                            if mm.key == "vfx" {
+                                continue;
+                            }
                             let text = mm.value.as_str().unwrap_or("");
                             if mm.key == "icon" && text.to_ascii_lowercase().ends_with(".png") {
                                 *out = Some((mm.value.span, "a PNG item icon"));
@@ -1058,6 +1074,28 @@ fn manifest_rules(out: &mut Out, m: &LMod, _defs: &Defs, _mi: usize) {
         ))
         .with_related(file, *span, "here"));
     }
+    if let Some((file, span, what)) = &c.new_vfx {
+        if clients != "mod" {
+            let mut d = Diagnostic::new(&mf.display, codes::CLIENTS_VFX, at, &format!(
+                "this mod has {what} but says {how}: a client builds it at boot from the mod's own files, and the server never sends assets; declare \"clients\": \"mod\". A VFX of the game (\"game:<name>\") needs no such thing"
+            ))
+            .with_related(file, *span, "here");
+            if let Some(fx) = if explicit { Some(Fix::new("Set \"clients\": \"mod\"", vec![TextEdit::new(&mf.display, at, "\"mod\"")])) } else { insert_member_fix(mf, "clients", "mod") } {
+                d.fixes.push(fx);
+            }
+            out.push(d);
+        }
+        if side == "server" {
+            let sat = root.member("side").map(|x| x.value.span).unwrap_or(at);
+            let mut d = Diagnostic::new(&mf.display, codes::SIDE_ASSETS, sat, &format!("{what} is drawn by clients, but side \"server\" mods do not load on a joined client (only when a player hosts); use side \"both\"")).with_related(file, *span, "here");
+            if root.member("side").is_some() {
+                d.fixes.push(Fix::new("Set \"side\": \"both\"", vec![TextEdit::new(&mf.display, sat, "\"both\"")]));
+            } else if let Some(fx) = insert_member_fix(mf, "side", "both") {
+                d.fixes.push(fx);
+            }
+            out.push(d);
+        }
+    }
     let skills = c.game_nodes.as_ref().map(|(f, s)| (f, s, true)).or(c.talent_tree.as_ref().map(|(f, s)| (f, s, false)));
     if let Some((file, span, game_tree)) = skills
         && clients != "mod"
@@ -1213,6 +1251,7 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
         if impact { "impact" } else { s.str_of("tool").unwrap_or(file_tool) }
     }
     let sound_names: HashSet<&str> = steps.iter().filter(|s| tool_of(s, impact, file_tool) == "soundcook" && s.str_of("op") == Some("sound")).filter_map(|s| s.str_of("name")).collect();
+    let skeleton_names: HashSet<&str> = steps.iter().filter(|s| tool_of(s, impact, file_tool) == "animcook" && s.str_of("op") == Some("skeleton")).filter_map(|s| s.str_of("name")).collect();
     let input_type = |out: &mut Out, b: &Node, i: usize, op: &str, want: &str| {
         let Some(id) = b.as_str() else { return };
         match inputs.get(id) {
@@ -1302,6 +1341,24 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
                 }
             }
             continue; // soundcook writes its own assets.json entries
+        }
+        if op == "model"
+            && let Some(sk) = s.get("skeleton")
+            && let Some(name) = sk.as_str()
+        {
+            if let Some(id) = name.strip_prefix('@') {
+                if let Some(t) = inputs.get(id).filter(|t| !t.is_empty() && **t != "keen::ModelHierarchyResource") {
+                    out.push(Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} (model): skeleton @{id} is a {t}, needs keen::ModelHierarchyResource")));
+                }
+            } else if !skeleton_names.contains(name) {
+                let mut d = Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} (model): no skeleton step is named \"{name}\" in this recipe (a game skeleton is @input)"));
+                let c: Vec<&str> = skeleton_names.iter().copied().collect();
+                if let Some(b) = suggest::best(name, &c) {
+                    d.message.push_str(&format!("; did you mean \"{b}\"?"));
+                    d.fixes.push(Fix::new(&format!("Replace with \"{b}\""), vec![TextEdit::new(&f.display, sk.span, &quote(b))]));
+                }
+                out.push(d);
+            }
         }
         if let Some(b) = s.get("base") {
             let want = match (impact, op) {
@@ -1525,8 +1582,8 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     if files.is_empty() {
         return;
     }
-    const SECTIONS: [(&str, &str); 15] = [
-        ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
+    const SECTIONS: [(&str, &str); 17] = [
+        ("vfx", "vfx"), ("materials", "material"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
         ("looks", "look"), ("weaponStats", "weapon stats"), ("armorStats", "armor stats"), ("weaponClasses", "weapon class"), ("armorSlots", "armor slot"), ("armorSets", "armor set"), ("onHits", "on-hit"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
@@ -1553,12 +1610,19 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "slot" => (&["armor slot"], "an armor slot", &["head", "chest", "arms", "legs", "feet", "ring"]),
             "set" => (&["armor set"], "an armor set", &["warrior", "mage", "ranger"]),
             "station" => (&["station"], "a station", &["hand"]),
+            "vfx" => (&["vfx"], "a VFX", &[]),
             _ => return None,
         })
     }
     fn walk(n: &Node, field: Option<&str>, out: &mut Vec<(String, &'static [&'static str], &'static str, Span)>) {
         if let Some(obj) = n.as_object() {
             for mm in obj {
+                // { "name": "burst", "slot": "chest" } says the same as "burst"
+                if mm.key == "vfx"
+                    && let Some(name) = mm.value.get("name").filter(|x| x.as_str().is_some())
+                {
+                    walk(name, Some("vfx"), out);
+                }
                 walk(&mm.value, Some(mm.key.as_str()), out);
             }
         } else if let Some(arr) = n.as_array() {
@@ -1608,7 +1672,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             }
         }
         for (name, kinds, what, span) in names {
-            if name.contains(':') || code.mentions(&name) {
+            if name.contains(':') || code.mentions(&name) || (kinds.contains(&"vfx") && is_guid(&name)) {
                 continue;
             }
             // a game status: its id or GUID. The catalog knows the ids.
@@ -1622,6 +1686,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
                 continue;
             }
             match known.get(&name) {
+                None if kinds.contains(&"vfx") => out.push(Diagnostic::new(&f.display, codes::BLOCK_REF, span, &format!("no vfx block \"{name}\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:{name}\", one of the game's \"game:{name}\""))),
                 None => out.push(Diagnostic::new(&f.display, codes::BLOCK_REF, span, &format!("no {} block \"{name}\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:{name}\"", kinds[0]))),
                 Some((other, ..)) if !kinds.contains(other) => out.push(Diagnostic::new(&f.display, codes::BLOCK_REF, span, &format!("\"{name}\" is {} {other} block; this field takes {what}", a_or_an(other)))),
                 _ => {}
@@ -1679,6 +1744,302 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             }
         }
     }
+}
+
+/// One `vfx` field of a blocks file: "burst", "other-mod:burst", "game:<name>", a GUID, or { "name": ..., "parameters": ... }.
+struct VfxUse<'a> {
+    name: &'a str,
+    span: Span,
+    parameters: Option<&'a Node>,
+    /// The field can't set parameters: only an effect's does, because anything else starts the VFX from data a server can't lay out.
+    fixed_route: Option<&'static str>,
+}
+
+impl VfxUse<'_> {
+    /// The game's own VFX: "game:<name>" or a bare GUID. Everything else has to be on the player's game through a mod.
+    fn is_game(&self) -> bool {
+        self.name.starts_with("game:") || is_guid(self.name)
+    }
+    /// A GUID or a name, without the prefix.
+    fn game_name(&self) -> &str {
+        self.name.strip_prefix("game:").unwrap_or(self.name)
+    }
+}
+
+/// Every `vfx` field below a blocks file's root, leaving out the root's own `vfx` section of definitions.
+fn vfx_uses(root: &Node) -> Vec<VfxUse<'_>> {
+    fn route(key: &str, holder: &Node) -> Option<&'static str> {
+        match key {
+            "cast" => Some("a spell's cast"),
+            "delivery" | "projectile" => Some("a projectile"),
+            "visual" => Some("a look"),
+            _ if holder.str_of("type") == Some("projectile") => Some("a projectile"),
+            // a status has a name and its seconds, and an effect never does
+            _ if holder.str_of("name").is_some() && holder.get("seconds").is_some() => Some("a status"),
+            _ => None,
+        }
+    }
+    fn go<'a>(n: &'a Node, key: &str, out: &mut Vec<VfxUse<'a>>) {
+        if let Some(o) = n.as_object() {
+            for mm in o {
+                if mm.key == "vfx" {
+                    let name = mm.value.as_str().map(|t| (t, mm.value.span)).or_else(|| mm.value.get("name").and_then(|x| x.as_str().map(|t| (t, x.span))));
+                    if let Some((name, span)) = name {
+                        out.push(VfxUse { name, span, parameters: mm.value.get("parameters"), fixed_route: route(key, n) });
+                    }
+                    continue;
+                }
+                go(&mm.value, &mm.key, out);
+            }
+        } else if let Some(a) = n.as_array() {
+            for x in a {
+                go(x, key, out);
+            }
+        }
+    }
+    let mut out = vec![];
+    for mm in root.as_object().into_iter().flatten().filter(|m| m.key != "vfx") {
+        // a section's blocks: the key is the block's name, which says nothing about what it is
+        for b in mm.value.as_object().into_iter().flatten() {
+            go(&b.value, if mm.key == "looks" { "visual" } else { "" }, &mut out);
+        }
+    }
+    out
+}
+
+/// The game's numbers and what its VFX system holds (`GameCounts` and `Capacity` in native/services/vfx/cook/vfxcook.h, measured per build). Every limit is a
+/// fatal abort in the game; Kiln refuses a mod that would reach one, and this says so before it is deployed.
+mod vfx_limits {
+    pub const GAME_VFX: u64 = 1575;
+    pub const GAME_MESHES: u64 = 638;
+    pub const GAME_SOUNDS: u64 = 6;
+    pub const GAME_MESH_BYTES: u64 = 17_567_564;
+    pub const VFX: u64 = 2048;
+    pub const MESHES: u64 = 1024;
+    pub const SOUNDS: u64 = 16;
+    pub const MESH_BYTES: u64 = 0x110_0000;
+    pub const MESH_MARGIN: u64 = 16_384;
+    /// The size of a built-in mesh. `quad` and `quad-xz` are the only meshes a block can name today.
+    pub const QUAD_BYTES: u64 = 140;
+}
+
+/// What a set of mods asks of the VFX system.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct VfxNeed {
+    vfx: u64,
+    meshes: u64,
+    mesh_bytes: u64,
+    sounds: u64,
+}
+
+/// What is over, as sentences: empty when it all fits. `game_vfx`: the catalog's count when there is one.
+fn vfx_over_budget(need: &VfxNeed, game_vfx: u64) -> Vec<String> {
+    use vfx_limits::*;
+    let mut over = vec![];
+    let room = |cap: u64, used: u64| cap.saturating_sub(used);
+    let vfx_room = room(VFX, game_vfx);
+    if need.vfx > vfx_room {
+        over.push(format!("{} new VFX, and the game has room for {vfx_room} ({VFX} less its {game_vfx})", need.vfx));
+    }
+    let mesh_room = room(MESHES, GAME_MESHES);
+    if need.meshes > mesh_room {
+        over.push(format!("{} new meshes, and the game has room for {mesh_room} ({MESHES} less its {GAME_MESHES})", need.meshes));
+    }
+    let bytes_room = room(MESH_BYTES, GAME_MESH_BYTES + MESH_MARGIN);
+    if need.mesh_bytes > bytes_room {
+        over.push(format!("{} bytes of VFX mesh memory, and all mods share {bytes_room}", need.mesh_bytes));
+    }
+    let sound_room = room(SOUNDS, GAME_SOUNDS);
+    if need.sounds > sound_room {
+        over.push(format!("{} sounds in VFX, and the game has room for {sound_room} ({SOUNDS} less its {GAME_SOUNDS})", need.sounds));
+    }
+    over
+}
+
+/// What one mod's blocks files ask for, by what is shared: a mesh or a sound counts once however many blocks name it.
+fn vfx_need(mods: &[LMod]) -> VfxNeed {
+    let mut blocks = 0u64;
+    let mut meshes = HashSet::new();
+    let mut sounds = HashSet::new();
+    for m in mods {
+        for f in m.files.iter().filter(|f| f.kind == "blocks") {
+            for b in f.root.as_ref().and_then(|r| r.get("vfx")).and_then(Node::as_object).into_iter().flatten() {
+                blocks += 1;
+                if let Some(s) = b.value.str_of("sound") {
+                    sounds.insert(s.to_string());
+                }
+                for p in b.value.get("particles").and_then(Node::as_array).into_iter().flatten() {
+                    meshes.insert(p.str_of("mesh").unwrap_or("quad").to_string());
+                }
+            }
+        }
+    }
+    let n = meshes.len() as u64;
+    VfxNeed { vfx: blocks, meshes: n, mesh_bytes: n * vfx_limits::QUAD_BYTES, sounds: sounds.len() as u64 }
+}
+
+/// A PNG's size from its header. None: not a PNG, which other rules say.
+fn png_size(p: &Path) -> Option<(u32, u32)> {
+    use std::io::Read;
+    let mut head = [0u8; 24];
+    std::fs::File::open(p).ok()?.read_exact(&mut head).ok()?;
+    if head[..8] != PNG[..] || head[12..16] != *b"IHDR" {
+        return None;
+    }
+    Some((u32::from_be_bytes(head[16..20].try_into().ok()?), u32::from_be_bytes(head[20..24].try_into().ok()?)))
+}
+
+fn colour_text(t: &str) -> bool {
+    let h = t.strip_prefix('#').unwrap_or(t);
+    matches!(h.len(), 6 | 8) && h.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// A parameter's value as a block says it: a number is a float, `{"int": n}` an int, `[x, y, z]` a float3, `"#rrggbb"` a colour.
+fn vfx_value_type(v: &Node) -> Option<&'static str> {
+    if v.as_f64().is_some() {
+        return Some("float");
+    }
+    if let Some(t) = v.as_str() {
+        return colour_text(t).then_some("color");
+    }
+    if let Some(a) = v.as_array() {
+        return (a.len() == 3 && a.iter().all(|x| x.as_f64().is_some())).then_some("float3");
+    }
+    v.get("int").filter(|x| x.as_f64().is_some()).map(|_| "int")
+}
+
+/// KL320 to KL324 over one mod. Returns how many references a missing catalog left unchecked.
+fn vfx(out: &mut Out, m: &LMod, cat: Option<&Catalog>) -> usize {
+    let mut skipped = 0;
+    let files: Vec<&LFile> = m.files.iter().filter(|f| f.kind == "blocks").collect();
+    for f in &files {
+        let Some(root) = &f.root else { continue };
+        for b in root.get("vfx").and_then(Node::as_object).into_iter().flatten() {
+            for (i, p) in b.value.get("particles").and_then(Node::as_array).into_iter().flatten().enumerate() {
+                let Some(tex) = p.get("texture") else { continue };
+                let Some(file) = tex.as_str().map(|t| (t, tex.span)).or_else(|| tex.get("file").and_then(|x| x.as_str().map(|t| (t, x.span)))) else { continue };
+                let (name, span) = file;
+                let Some((w, h)) = png_size(&normalize(&m.root.join(name.replace('\\', "/")))) else { continue };
+                let at = format!("/vfx/{}/particles/{i}/texture", ptr_seg(&b.key));
+                if !w.is_power_of_two() || !h.is_power_of_two() {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_TEXTURE, span, &format!("{name}: {w}x{h} is not a power of two on both sides (Kiln refuses this block)")).pointer(&at));
+                } else if w.min(h) < 4 || w.max(h) > 2048 {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_TEXTURE, span, &format!("{name}: {w}x{h} is outside 4..2048 (Kiln refuses this block)")).pointer(&at));
+                } else if let Some(grid) = p.get("flipbook") {
+                    let side = |k: &str| grid.get(k).and_then(Node::as_f64).map_or(1, |v| v as u32);
+                    let (c, r) = (side("columns"), side("rows"));
+                    if c > 0 && r > 0 && (w % c != 0 || h % r != 0) {
+                        out.push(Diagnostic::new(&f.display, codes::VFX_FLIPBOOK, grid.span, &format!("{name}: {w}x{h} doesn't divide into {c} columns and {r} rows: frames will be cut")).pointer(&format!("/vfx/{}/particles/{i}/flipbook", ptr_seg(&b.key))));
+                    }
+                }
+            }
+        }
+        // A material's maps: what the builder refuses, said earlier. Bigger than a particle's, as a surface is close to the camera.
+        for b in root.get("materials").and_then(Node::as_object).into_iter().flatten() {
+            let map = |key: &str| b.value.get(key).and_then(|v| v.as_str().map(|t| (t, v.span)).or_else(|| v.get("map").and_then(|x| x.as_str().map(|t| (t, x.span)))));
+            for key in ["albedo", "normal", "params", "metallicRoughness", "occlusion", "emissive"] {
+                let Some((name, span)) = map(key) else { continue };
+                if name.starts_with('#') {
+                    continue;
+                }
+                let Some((w, h)) = png_size(&normalize(&m.root.join(name.replace('\\', "/")))) else { continue };
+                let at = format!("/materials/{}/{key}", ptr_seg(&b.key));
+                if !w.is_power_of_two() || !h.is_power_of_two() {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_TEXTURE, span, &format!("{name}: {w}x{h} is not a power of two on both sides (Kiln refuses this block)")).pointer(&at));
+                } else if w.min(h) < 4 || w.max(h) > 4096 {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_TEXTURE, span, &format!("{name}: {w}x{h} is outside 4..4096 (Kiln refuses this block)")).pointer(&at));
+                }
+            }
+        }
+        for u in vfx_uses(root) {
+            if let Some(p) = u.parameters {
+                if let Some(route) = u.fixed_route {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_PARAMETER, p.span, &format!("{route} cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have (Kiln.Blocks refuses it). Put the VFX on an effect, or leave them out")).severity(Severity::Error));
+                } else if !u.is_game() {
+                    out.push(Diagnostic::new(&f.display, codes::VFX_PARAMETER, p.span, &format!("\"{}\" is a VFX block, which has no named parameters yet (Kiln.Blocks refuses it). Only a game VFX takes them", u.name)).severity(Severity::Error));
+                }
+            }
+            if !u.is_game() {
+                continue;
+            }
+            let Some(c) = cat.filter(|c| c.vfx_count > 0) else {
+                skipped += 1;
+                continue;
+            };
+            let key = u.game_name();
+            let lower = key.to_ascii_lowercase();
+            let hit = c.vfx.get(if is_guid(key) { lower.as_str() } else { key });
+            let Some(info) = hit else {
+                let mut d = if is_guid(key) {
+                    Diagnostic::new(&f.display, codes::VFX_REF, u.span, &format!("no game VFX with GUID {lower}: Kiln's guard ignores it, and nothing shows"))
+                } else {
+                    Diagnostic::new(&f.display, codes::VFX_REF, u.span, &format!("no game VFX \"{key}\" in the catalog"))
+                };
+                if !is_guid(key) {
+                    let mut names: Vec<&str> = c.vfx.keys().map(String::as_str).filter(|n| !is_guid(n)).collect();
+                    names.sort_unstable();
+                    if let Some(b) = suggest::best(key, &names) {
+                        d.message.push_str(&format!("; did you mean \"{b}\"?"));
+                        d.fixes.push(Fix::new(&format!("Replace with \"game:{b}\""), vec![TextEdit::new(&f.display, u.span, &quote(&format!("game:{b}")))]));
+                    }
+                }
+                out.push(d);
+                continue;
+            };
+            if !is_guid(key) && !info.by_name {
+                out.push(
+                    Diagnostic::new(&f.display, codes::VFX_REF, u.span, &format!("\"{key}\" is the catalog's label for this VFX: nothing at run time finds it by that name; use its GUID"))
+                        .with_fix(Fix::new("Replace with its GUID", vec![TextEdit::new(&f.display, u.span, &quote(&format!("game:{}", info.guid)))])),
+                );
+            }
+            // the game silently ignores a name or type its VFX doesn't have, so this is the only place that says so
+            if u.fixed_route.is_some() {
+                continue;
+            }
+            for mm in u.parameters.and_then(Node::as_object).into_iter().flatten() {
+                let hash = fnv1a(mm.key.as_bytes());
+                let Some(param) = info.params.iter().find(|p| p.hash == hash) else {
+                    let known: Vec<&str> = info.params.iter().filter_map(|p| p.name.as_deref()).collect();
+                    let unnamed = info.params.len() - known.len();
+                    let mut d = Diagnostic::new(&f.display, codes::VFX_PARAMETER, mm.key_span, &format!(
+                        "{} has no parameter \"{}\", and the game ignores what it doesn't have; it has {}{}", info.name, mm.key,
+                        if known.is_empty() { "no named ones".to_string() } else { known.join(", ") },
+                        if unnamed > 0 { format!(" and {unnamed} without a known name") } else { String::new() }
+                    ));
+                    if let Some(b) = suggest::best(&mm.key, &known) {
+                        d.message.push_str(&format!("; did you mean \"{b}\"?"));
+                        d.fixes.push(Fix::new(&format!("Rename to \"{b}\""), vec![TextEdit::new(&f.display, mm.key_span, &quote(b))]));
+                    }
+                    out.push(d);
+                    continue;
+                };
+                let Some(given) = vfx_value_type(&mm.value) else { continue };
+                if given != param.ty {
+                    let settable = matches!(param.ty.as_str(), "float" | "int" | "float3" | "color");
+                    let how = match param.ty.as_str() {
+                        "float" => "a number",
+                        "int" => "{\"int\": n}",
+                        "float3" => "[x, y, z]",
+                        "color" => "\"#rrggbb\"",
+                        _ => "",
+                    };
+                    let note = if settable { format!("write it as {how}") } else { format!("a block can't set {}", param.ty) };
+                    let article = |t: &str| if t.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
+                    out.push(Diagnostic::new(&f.display, codes::VFX_PARAMETER, mm.value.span, &format!("\"{}\" of {} is {} {}, and this is {} {given}: the game ignores it; {note}", mm.key, info.name, article(&param.ty), param.ty, article(given))));
+                }
+            }
+        }
+    }
+    // the budget: this mod with everything it is checked against. The first block of the file says it, once per mod
+    if let Some((f, b)) = files.iter().find_map(|f| f.root.as_ref().and_then(|r| r.get("vfx")).and_then(Node::as_object).and_then(|o| o.first()).map(|b| (*f, b))) {
+        let game = cat.map(|c| c.vfx_count as u64).filter(|n| *n > 0).unwrap_or(vfx_limits::GAME_VFX);
+        let what = if out.mods.iter().filter(|x| !x.files.is_empty()).count() > 1 { "Together, the mods checked here ask for" } else { "This mod asks for" };
+        let over = vfx_over_budget(&vfx_need(out.mods), game);
+        if !over.is_empty() {
+            out.push(Diagnostic::new(&f.display, codes::VFX_BUDGET, b.key_span, &format!("{what} {}: past a limit the game aborts, so Kiln refuses the mod that reaches it and none of its VFX load", over.join("; "))));
+        }
+    }
+    skipped
 }
 
 /// What the boot build of native data refuses (native/services/quests/questpack.cpp): the whole mod's native data is left out,
@@ -2116,6 +2477,46 @@ mod tests {
         assert_eq!(fnv1a(b"kiln.Signal"), 0x38b05baf);
         assert!(is_guid("54b131f3-525f-451c-9976-a4bbcd8393c6"));
         assert!(!is_guid("54b131f3525f451c9976a4bbcd8393c6"));
+    }
+
+    #[test]
+    fn vfx_budget_at_each_limit() {
+        use vfx_limits::*;
+        let need = |vfx, meshes, mesh_bytes, sounds| VfxNeed { vfx, meshes, mesh_bytes, sounds };
+        let room = MESH_BYTES - GAME_MESH_BYTES - MESH_MARGIN;
+        assert!(vfx_over_budget(&need(473, 386, room, 10), GAME_VFX).is_empty(), "exactly full fits");
+        assert!(vfx_over_budget(&need(474, 0, 0, 0), GAME_VFX)[0].contains("474 new VFX"));
+        assert!(vfx_over_budget(&need(0, 387, 0, 0), GAME_VFX)[0].contains("387 new meshes"));
+        assert!(vfx_over_budget(&need(0, 0, room + 1, 0), GAME_VFX)[0].contains("VFX mesh memory"));
+        assert!(vfx_over_budget(&need(0, 0, 0, 11), GAME_VFX)[0].contains("11 sounds"));
+        assert_eq!(vfx_over_budget(&need(474, 387, room + 1, 11), GAME_VFX).len(), 4);
+        // the catalog's count decides when there is one: a game with more VFX leaves less room
+        assert!(vfx_over_budget(&need(473, 0, 0, 0), GAME_VFX + 1)[0].contains("room for 472"));
+        assert!(room > 240_000 && room < 245_000, "about 240 KB for all mods: {room}");
+    }
+
+    /// The same numbers as the builder, which refuses at boot what this says first.
+    #[test]
+    fn vfx_limits_match_the_builder() {
+        use vfx_limits::*;
+        let h = include_str!("../../../../native/services/vfx/cook/vfxcook.h");
+        assert!(h.contains(&format!("uint32_t vfx = {GAME_VFX}, meshes = {GAME_MESHES}, curves = 8, sounds = {GAME_SOUNDS};")));
+        assert!(h.contains(&format!("uint64_t mesh_bytes = {GAME_MESH_BYTES};")));
+        assert!(h.contains(&format!("uint32_t vfx = {VFX}, meshes = {MESHES}, curves = 16, sounds = {SOUNDS};")));
+        assert!(h.contains(&format!("uint64_t mesh_bytes = 0x{MESH_BYTES:x};")));
+        assert!(h.contains(&format!("uint64_t mesh_margin = {MESH_MARGIN};")));
+    }
+
+    #[test]
+    fn a_vfx_value_says_its_type() {
+        let p = |t: &str| super::super::json::parse("x", t, 0, super::super::json::Dialect::STRICT).root.unwrap();
+        assert_eq!(vfx_value_type(&p("3")), Some("float"), "a plain integer is still a float");
+        assert_eq!(vfx_value_type(&p("{\"int\": 7}")), Some("int"));
+        assert_eq!(vfx_value_type(&p("[1, 2, 3]")), Some("float3"));
+        assert_eq!(vfx_value_type(&p("\"#ff0000\"")), Some("color"));
+        assert_eq!(vfx_value_type(&p("\"#ff0000aa\"")), Some("color"));
+        assert_eq!(vfx_value_type(&p("\"red\"")), None);
+        assert_eq!(vfx_value_type(&p("[1, 2]")), None);
     }
 
     #[test]

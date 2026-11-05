@@ -1,12 +1,14 @@
 <Project>
   <!--
     Kiln.GameIds: game ids as C# constants (Kiln.GameIds.Items.Weapon_T1_1H_SwordEpic_01, ...) from the local game-data
-    catalog, which `kiln catalog build` makes from your own installed game (docs/kiln/modding/catalogs.md). Imported by
-    Sdk.targets after Kiln.Mod.targets.
+    catalog, which `kiln catalog build` makes from your own installed game (docs/kiln/modding/catalogs.md); on request the
+    game's data structures as typed paths (GameFields, docs/kiln/modding/typed-fields.md); and checks of string paths against
+    the same catalog (KILN194 and up). Imported by Sdk.targets after Kiln.Mod.targets.
 
     Properties (all optional):
       KilnGameIds        sections to generate: Items;Perks;Buffs;Skills;Workshops (default), any of those plus
-                         Recipes, Templates, Sequences, Sounds; All; None (off)
+                         Recipes, Templates, Sequences, Sounds, Vfx, Fields (or one section: Fields.Items); All; None (off, and no
+                         path checks)
       KilnCatalog        the catalog: a file (client.json / server.json) or the folder holding them
                          (default: env KILN_CATALOG, else <launcher data dir>/catalog)
       KilnCatalogSide    client | server: which file of a folder to use first (default: server for KilnSide server,

@@ -48,6 +48,13 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
+    /// <summary>A game VFX named by a block: what it stands for is the game's data, read when content is ready.</summary>
+    public static void AddVfxLate(ModBlocks mod, VfxLate late)
+    {
+        lock (Gate) mod.VfxLates.Add(late);
+        Hook(mod);
+    }
+
     /// <summary>A status with the icon of a game status: the icon is the game's data, read when content is ready.</summary>
     public static void AddIcon(ModBlocks mod, string buff, string source, string block)
     {
@@ -57,12 +64,13 @@ internal static class BlockRuntime
 
     private static void Hook(ModBlocks mod)
     {
+        mod.RulesDirty = true;
         lock (Gate)
         {
             if (mod.ReadyHooked) return;
             mod.ReadyHooked = true;
         }
-        BlocksBridge.OnReady(() => ApplyRules(mod));
+        BlocksBridge.OnReady(() => ApplyRules(mod), () => mod.RulesDirty);
     }
 
     private static Guid? ResolveLate(LateRef r)
@@ -100,6 +108,23 @@ internal static class BlockRuntime
     }
 
 
+    // What a game VFX's name stands for, and a client's first play of each VFX of this mod: nothing shows until a VFX's pipelines exist, and what an effect spawns may be gone by then.
+    private static void FinishVfx(ModBlocks mod, Action<string> problem)
+    {
+        List<VfxLate> lates;
+        lock (Gate) lates = mod.VfxLates.Where(l => !l.Done).ToList();
+        foreach (var late in lates)
+        {
+            late.Done = true;
+            var v = late.Vfx;
+            if (VfxData.ResolveGame(v.GameName!) is { } resolved) late.Fill(resolved);
+            else problem($"block {v.Owner}, {v.Path}: the game has no VFX \"{v.GameName}\": a template that carries one, a sequence that plays one, or a GUID");
+        }
+        if (mod.VfxPreloaded || !BlocksBridge.HasService("kiln.vfx", 1)) return;
+        mod.VfxPreloaded = true;
+        foreach (var h in mod.Handles.Values.OfType<VfxBlockHandle>().Where(h => h.Status == VfxBlockStatus.Registered)) Vfx.Preload(h);
+    }
+
     // Done once every clone of the mod is in the world: a rule can then name a clone.
     private static bool ApplyRules(ModBlocks mod)
     {
@@ -107,6 +132,7 @@ internal static class BlockRuntime
         var prefix = mod.Id + ".";
         var clones = Content.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)).ToList();
         if (clones.Any(d => d.State is "pending" or "waiting")) return false;
+        mod.RulesDirty = false;
         CheckBalancing();
         void Problem(string text)
         {
@@ -115,11 +141,13 @@ internal static class BlockRuntime
             mod.ReportDirty = true;
         }
         FinishLate(mod, Problem);
+        FinishVfx(mod, Problem);
         var doc = new JsonObject { ["format"] = 1 };
         lock (Gate)
         {
             foreach (var (section, entry, rules) in mod.ReadyRules)
             {
+                if (rules.Count == 0) continue;     // a game VFX's name that stands for nothing, which has its own error
                 var sec = (doc[section] ??= new JsonObject()).AsObject();
                 if (sec[entry] is JsonObject have)
                     foreach (var (k, v) in rules) have[k] = v?.DeepClone();
@@ -254,16 +282,61 @@ internal static class BlockRuntime
         return tag;
     }
 
+    // ---- a VFX with parameters: as a sound, the server relays the play to Kiln clients near it ------------------------------------------------------
+
+    private sealed record Cue(string Key, VfxId Vfx, VfxParams Parameters, System.Numerics.Vector3 Offset, double? Seconds);
+    private static readonly Dictionary<uint, Cue> Cues = new();
+    /// <summary>How near a client must stand to see a cue. 0: the relay's own distance. A test's fake client has no player to stand anywhere: it says every client.</summary>
+    internal static float CueRadius;
+    private const uint VfxTagBit = 0xB10D0000;
+
+    /// <summary>The tag a program signals for this VFX with these parameters. The same block gets the same tag, and a clash takes the next one.</summary>
+    public static uint VfxCue(string mod, VfxTarget v, VfxParams parameters)
+    {
+        var key = $"{mod}|{v.Text}|{v.Offset}|{v.Seconds}|{string.Join(",", parameters.Items.Select(p => $"{p.Hash:x8}:{p.Type:x8}:{Convert.ToHexString(p.Data)}"))}";
+        var low = BlockIds.Fnv(System.Text.Encoding.UTF8.GetBytes(key)) & 0xFFFF;
+        lock (Gate)
+            for (;; low = (low + 1) & 0xFFFF)
+            {
+                var tag = VfxTagBit | low;
+                if (Cues.TryGetValue(tag, out var have) && have.Key != key) continue;
+                Cues[tag] = new Cue(key, v.Known is { } g ? VfxId.Of(g) : VfxId.Game(v.GameName!), parameters, v.Offset, v.Seconds);
+                return tag;
+            }
+    }
+
+    private static void PlayCue(ImpactSignalEvent e)
+    {
+        Cue? cue;
+        lock (Gate)
+            if (!Cues.TryGetValue(e.Tag, out cue)) return;
+        try
+        {
+            var at = new WorldPosition(BitConverter.ToSingle(e.Value, 0) + cue.Offset.X, BitConverter.ToSingle(e.Value, 4) + cue.Offset.Y, BitConverter.ToSingle(e.Value, 8) + cue.Offset.Z);
+            Vfx.PlayAt(cue.Vfx, at, parameters: cue.Parameters, lifetime: cue.Seconds is { } s ? TimeSpan.FromSeconds(s) : null, radius: CueRadius);
+        }
+        catch (Exception ex)
+        {
+            BlocksBridge.Log(LogLevel.Warn, $"blocks: a VFX with parameters did not play: {ex.Message}");
+        }
+    }
+
     // From the service's own tick, so that the subscription is the service's: a mod's would end with the mod, and other mods' sounds with it.
     internal static void SubscribeSignals()
     {
         lock (Gate)
-            if (Sounds.Count > 0) _signals ??= Events.On<ImpactSignalEvent>(OnSignal);
+            if (Sounds.Count > 0 || Cues.Count > 0) _signals ??= Events.On<ImpactSignalEvent>(OnSignal);
     }
 
     private static void OnSignal(ImpactSignalEvent e)
     {
-        if ((e.Tag & 0xFFFF0000) != SoundTagBit || e.Value.Length < 12) return;
+        if (e.Value.Length < 12) return;
+        if ((e.Tag & 0xFFFF0000) == VfxTagBit)
+        {
+            PlayCue(e);
+            return;
+        }
+        if ((e.Tag & 0xFFFF0000) != SoundTagBit) return;
         (string Mod, string Sound) s;
         lock (Gate)
             if (!Sounds.TryGetValue(e.Tag, out s)) return;

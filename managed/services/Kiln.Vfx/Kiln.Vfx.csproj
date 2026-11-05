@@ -11,6 +11,8 @@
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Kiln.Blocks defines VfxBlocks through the service's table. -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />

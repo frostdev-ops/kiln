@@ -1,0 +1,32 @@
+{
+  // Emberlance: a spell whose looks are the game's own VFX, by name, on every route. "game:" takes a template that carries the VFX, a sequence that plays it, or a GUID.
+  // The hit's flash is an effect with parameters: the game's explosion in blue, relayed to Kiln clients near it.
+  "format": 1,
+  "statuses": {
+    "singed": {
+      "name": "Singed",
+      "description": "A little flame that will not go out.",
+      "seconds": 6,
+      "look": "poison",
+      "vfx": { "name": "game:Explosion_Player_Spell_Fireball_1", "slot": "chest" },
+      "onApply": [ { "vfx": "game:Explosion_Player_Spell_Fireball_1" } ]
+    }
+  },
+  "spells": {
+    "emberlance": {
+      "name": "Emberlance",
+      "description": "The game's own fire, by name.",
+      "cast": { "manaCost": 10, "animation": "lob", "vfx": "game:Attack_Player_Staff_FixedAnim_Fireball_fast" },
+      "delivery": {
+        "type": "projectile",
+        "look": "fireball",
+        "vfx": "game:Projectile_Player_Staff_Fireball_1",
+        "onImpact": [
+          { "vfx": { "name": "game:Base_Impact_Explosion_VFX", "seconds": 3, "parameters": { "color": "#2040ff", "radius": 3 } },
+            "area": { "radius": 3, "effects": [ { "damage": { "fire": 15 }, "applies": "singed" } ] } }
+        ]
+      },
+      "recipe": { "station": "hand", "makes": 10, "needs": { "Material_T1_Twigs": 1 } }
+    }
+  }
+}

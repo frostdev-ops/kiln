@@ -339,12 +339,8 @@ public static unsafe class NewContent
     public static IReadOnlyList<ContentDefinition> Definitions()
     {
         var t = Table("NewContent.Definitions");
-        nuint len = 0;
-        t->Definitions(null, 0, &len);
-        var buf = new byte[(int)len + 1];
-        fixed (byte* b = buf) t->Definitions(b, (nuint)buf.Length, &len);
         var list = new List<ContentDefinition>();
-        using var doc = JsonDocument.Parse(System.Text.Encoding.UTF8.GetString(buf, 0, (int)len));
+        using var doc = JsonDocument.Parse(ContentNative.ReadText(t->Definitions));
         foreach (var e in doc.RootElement.EnumerateArray())
         {
             var worlds = e.TryGetProperty("worlds", out var w) ? w.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : [];
@@ -371,11 +367,7 @@ public static unsafe class NewContent
     {
         var t = Content.T;
         if (!ContentNative.Has(t, 4) || t->Info == null) return "{}";
-        nuint len = 0;
-        t->Info(null, 0, &len);
-        var buf = new byte[(int)len + 1];
-        fixed (byte* b = buf) t->Info(b, (nuint)buf.Length, &len);
-        return System.Text.Encoding.UTF8.GetString(buf, 0, (int)len);
+        return ContentNative.ReadText(t->Info);
     }
 
     /// <summary>(definitions, placeholders) for <see cref="Content.Status"/>; (0, 0) when unavailable.</summary>
@@ -404,11 +396,7 @@ public static unsafe class NewContent
     public static string DefinitionsJson()
     {
         var t = Table("NewContent.DefinitionsJson");
-        nuint len = 0;
-        t->Definitions(null, 0, &len);
-        var buf = new byte[(int)len + 1];
-        fixed (byte* b = buf) t->Definitions(b, (nuint)buf.Length, &len);
-        return System.Text.Encoding.UTF8.GetString(buf, 0, (int)len);
+        return ContentNative.ReadText(t->Definitions);
     }
 
     // ------------------------------------------------------------------------------------------- internals -----

@@ -20,7 +20,7 @@ Play the game's VFX, or a mod's, at a position or attached to an entity and slot
 using Kiln;
 
 static readonly VfxId Boom = VfxId.Game("Explosion_Player_Spell_Fireball_1");   // a template that carries it, or a sequence that plays it
-static readonly VfxId Mine = VfxId.Named("my-mod", "frost_burst");              // UUIDv5(<mod>:vfx:<name>)
+static readonly VfxId Mine = VfxId.Named("my-mod", "frost_burst");              // UUIDv5(<mod>:vfx:<name>). What Blocks.Define returns for a VfxBlock works as well
 
 var h = Vfx.PlayAt(Boom, position);                                             // a one-shot
 var aura = Vfx.PlayOn(Mine, entity, Slot.HandR, new Offset(new Vector3(0, 0.1f, 0)));   // moves with the entity, ends with it

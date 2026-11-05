@@ -1,0 +1,21 @@
+{
+  // VFX blocks for the extension's tests.
+  "format": 1,
+  "vfx": {
+    "frost_burst": {
+      "particles": [ { "burst": 24, "lifetime": [0.4, 0.9], "texture": "vfx/dot.png", "blend": "additive" }, { "burst": 2, "mesh": "quad-xz" } ],
+      "light": { "radius": 6 },
+      "sound": "frost_hit"
+    },
+    "typo_block": { "particles": [ { "burst": 1, "lifetimes": 2 } ] }
+  },
+  "effects": {
+    "own": { "vfx": "frost_burst" },
+    "game": { "vfx": "game:Explosion_Test_Frost" },
+    "other_name": { "vfx": "game:Attack_Test_Frostling_Slash" },
+    "by_guid": { "vfx": "000003ea-7e57-4a11-9c00-0000000003ea" },
+    "nope": { "vfx": "game:No_Such_Vfx" },
+    "empty": { "vfx": "" },
+    "with_parameters": { "vfx": { "name": "game:Explosion_Test_Frost", "parameters": { "radius": 3, "": 1 } } }
+  }
+}

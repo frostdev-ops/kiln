@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "vfx": {
+    "fine": { "particles": [ { "burst": 1, "texture": "vfx/good_8x8.png", "flipbook": { "columns": 4, "rows": 2 } } ] },
+    "odd": { "particles": [ { "burst": 1, "texture": "vfx/odd_6x8.png" } ] },
+    "small": { "particles": [ { "burst": 1, "texture": { "file": "vfx/small_2x8.png", "linear": true } } ] },
+    "huge": { "particles": [ { "burst": 1, "texture": "vfx/huge_4096.png" } ] },
+    "cut": { "particles": [ { "burst": 1, "texture": "vfx/good_8x8.png", "flipbook": { "columns": 3, "rows": 2 } } ] },
+    "cut_rows": { "particles": [ { "burst": 1, "texture": "vfx/good_8x8.png", "flipbook": { "rows": 3 } } ] },
+    "not_png": { "particles": [ { "burst": 1, "texture": "vfx/not_really.png" } ] }
+  }
+}

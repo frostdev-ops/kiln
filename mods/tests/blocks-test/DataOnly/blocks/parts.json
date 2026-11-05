@@ -21,6 +21,7 @@
     "shard": {
       "name": "Shard",
       "cast": { "manaCost": 8 },
+      "tweak": { "maxStackSize": 33 },
       "onCast": [ "wash" ],
       "delivery": {
         "type": "projectile",

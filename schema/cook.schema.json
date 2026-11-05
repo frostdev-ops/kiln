@@ -28,6 +28,7 @@
     },
     "inputRef": { "type": "string", "pattern": "^@.+$", "description": "@<input id>: that input's GUID." },
     "guidOrInput": { "anyOf": [{ "$ref": "#/$defs/guid" }, { "$ref": "#/$defs/inputRef" }], "x-kiln-message": "a GUID or @<input id>" },
+    "materialRef": { "anyOf": [{ "$ref": "#/$defs/guid" }, { "$ref": "#/$defs/inputRef" }, { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }], "x-kiln-message": "a GUID, @<input id>, or the name of a material in this mod's blocks/*.json" },
     "input": {
       "type": "object",
       "required": ["guid", "type"],
@@ -48,7 +49,7 @@
         "tool": {},
         "out": { "type": "string", "minLength": 1, "default": "cooked", "description": "Output folder, relative to cook.json (gitignored)." },
         "manifest": { "$ref": "#/$defs/path", "default": "assets.json", "description": "soundcook: the kiln.assets manifest it updates." },
-        "mod": { "type": "string", "minLength": 1, "description": "animcook: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json." },
+        "mod": { "type": "string", "minLength": 1, "description": "animcook and skinned models: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json." },
         "game": { "$ref": "#/$defs/game" },
         "guidNamespace": { "$ref": "#/$defs/guid", "description": "soundcook: GUIDs of new sounds are UUIDv5(namespace, \"<op>:<name>\"); pick it once, never change it." },
         "voiceoverFallback": { "anyOf": [{ "$ref": "#/$defs/voLang" }, { "type": "null" }], "description": "soundcook: the mod-wide default for empty voice slots (null / absent: silence, as the game)." },
@@ -139,20 +140,24 @@
         {
           "if": { "properties": { "op": { "const": "model" } }, "required": ["op"] },
           "then": {
-            "description": "glTF (+ coarser LOD files) -> <out>/<stem>.bin (RenderModel) + <out>/<stem>.blob (GPU data).",
-            "required": ["gltf", "base"],
+            "description": "glTF (+ coarser LOD files) -> <out>/<stem>.bin (RenderModel) + <out>/<stem>.blob (GPU data). With skeleton, a skinned model.",
+            "required": ["gltf"],
+            "anyOf": [ { "required": ["base"] }, { "required": ["material"] }, { "required": ["materialMap"] }, { "required": ["materials"] } ],
             "properties": {
               "op": {}, "tool": {}, "comment": {},
               "gltf": { "$ref": "#/$defs/path" },
-              "lods": { "type": "array", "items": { "$ref": "#/$defs/path" } },
-              "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 } },
-              "base": { "type": "string", "x-kiln-cook-base": "keen::RenderModel" },
+              "lods": { "type": "array", "items": { "$ref": "#/$defs/path" }, "description": "Coarser files, coarsest last. The cook refuses more than 8 LODs: no game model has more." },
+              "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "One per LOD: 0 first, then rising." },
+              "base": { "type": "string", "x-kiln-cook-base": "keen::RenderModel", "description": "A game model: the default materials. Optional when material, materialMap or materials is given." },
+              "skeleton": { "type": "string", "minLength": 1, "description": "The glTF's skin is bound to this skeleton: the name of a skeleton step of this recipe, or @input of a game skeleton." },
+              "globalScale": { "type": "number", "exclusiveMinimum": 0, "description": "Stored in the model; only cloth uses it. Default: the base's or game skeleton's value, else 1. It doesn't resize the model." },
               "guid": { "$ref": "#/$defs/guidOrInput" },
               "mode": { "enum": ["override", "new"] },
               "name": { "type": "string" },
               "stem": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
-              "material": { "$ref": "#/$defs/guidOrInput" },
-              "materialMap": { "type": "object", "additionalProperties": { "$ref": "#/$defs/guidOrInput" } }
+              "material": { "$ref": "#/$defs/materialRef", "description": "One material for every primitive: a game material, or a material block of this mod by name." },
+              "materialMap": { "type": "object", "additionalProperties": { "$ref": "#/$defs/materialRef" }, "description": "glTF material name -> a game material, or a material block of this mod by name." },
+              "materials": { "const": "gltf", "description": "Make a material block of every glTF material the step doesn't map: blocks/<stem>.materials.json, and PNGs embedded in the glTF under <out>/materials." }
             },
             "x-kiln-unknownKeys": "warning",
             "x-kiln-unknownKeysMessage": "unknown key in a model step (modelcook ignores it)"
