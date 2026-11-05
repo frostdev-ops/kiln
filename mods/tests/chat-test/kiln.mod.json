@@ -1,0 +1,8 @@
+{
+  "id": "chat-test",
+  "name": "kiln.chat + kiln.time test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ChatTest.dll",
+  "side": "server"
+}

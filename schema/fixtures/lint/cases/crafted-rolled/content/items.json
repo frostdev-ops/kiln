@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "items": {
+    "add": [
+      { "guid": "0000c001-0000-4000-8000-000000000001", "name": "Fx_Fixed", "base": "Weapon_Fixture_Loot", "fields": { "rarity": "Epic" } },
+      { "guid": "0000c001-0000-4000-8000-000000000002", "name": "Fx_Level", "base": "Weapon_Fixture_Loot", "fields": { "itemLevelRange.minLevel": 5, "itemLevelRange.maxLevel": 5 } },
+      { "guid": "0000c001-0000-4000-8000-000000000003", "name": "Fx_Rolled", "base": "Weapon_Fixture_Loot", "rolledLoot": true },
+      { "guid": "0000c001-0000-4000-8000-000000000004", "name": "Fx_Gen", "base": "Weapon_Fixture_Loot", "fields": { "generateRarity": true } },
+      { "guid": "0000c001-0000-4000-8000-000000000005", "name": "Fx_Range", "base": "Weapon_Fixture_Loot", "fields": { "itemLevelRange.maxLevel": 55 } },
+      { "guid": "0000c001-0000-4000-8000-000000000006", "name": "Fx_LootOnly", "base": "Weapon_Fixture_Loot", "rolledLoot": true }
+    ]
+  },
+  "recipes": {
+    "add": [
+      { "guid": "0000c002-0000-4000-8000-000000000001", "name": "Fx_Fixed_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Fx_Fixed", "count": 1 } ] },
+      { "guid": "0000c002-0000-4000-8000-000000000002", "name": "Fx_Level_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Fx_Level", "count": 1 } ] },
+      { "guid": "0000c002-0000-4000-8000-000000000003", "name": "Fx_Rolled_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Fx_Rolled", "count": 1 } ] },
+      { "guid": "0000c002-0000-4000-8000-000000000004", "name": "Fx_Gen_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Fx_Gen", "count": 1 } ] },
+      { "guid": "0000c002-0000-4000-8000-000000000005", "name": "Fx_Range_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Fx_Range", "count": 1 } ] },
+      { "guid": "0000c002-0000-4000-8000-000000000006", "name": "Fx_Game_R", "station": "hand", "inputs": [ { "item": "Material_Fixture_Logs", "count": 1 } ], "outputs": [ { "item": "Weapon_Fixture_Loot", "count": 1 } ] }
+    ],
+    "Weapon_Fixture_Sword": { "outputs": [ { "item": "Fx_Rolled", "count": 1 } ] }
+  }
+}

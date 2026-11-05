@@ -1,0 +1,517 @@
+{
+  "catalog": {
+    "build": "10000001",
+    "path": "<repo>/schema/fixtures/lint/catalog/client.json",
+    "side": "client"
+  },
+  "checked": [
+    "<repo>/schema/fixtures/lint/cases/files/kiln.mod.json",
+    "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+    "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+    "<repo>/schema/fixtures/lint/cases/files/impact/natives.json"
+  ],
+  "diagnostics": [
+    {
+      "code": "KL401",
+      "col": 29,
+      "docs": "docs/kiln/modding/lint.md#kl401-unknown-reference",
+      "endCol": 67,
+      "endLine": 2,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 2,
+      "message": "no item with GUID 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 in the game or the mods",
+      "pointer": "/entries/0/guid",
+      "related": [],
+      "rule": "unknown-reference",
+      "severity": "warning",
+      "span": {
+        "end": 94,
+        "start": 56
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 77,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 96,
+      "endLine": 2,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 2,
+      "message": "icons/missing.png: no such file (<repo>/schema/fixtures/lint/cases/files/assets/icons/missing.png)",
+      "pointer": "/entries/0/file",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 123,
+        "start": 104
+      }
+    },
+    {
+      "code": "KL309",
+      "col": 29,
+      "docs": "docs/kiln/modding/lint.md#kl309-duplicate-asset",
+      "endCol": 67,
+      "endLine": 3,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 3,
+      "message": "icon 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 is served twice in this file (the later entry wins)",
+      "related": [
+        {
+          "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+          "message": "first here",
+          "span": {
+            "end": 94,
+            "start": 56
+          }
+        }
+      ],
+      "rule": "duplicate-asset",
+      "severity": "warning",
+      "span": {
+        "end": 193,
+        "start": 155
+      }
+    },
+    {
+      "code": "KL401",
+      "col": 29,
+      "docs": "docs/kiln/modding/lint.md#kl401-unknown-reference",
+      "endCol": 67,
+      "endLine": 3,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 3,
+      "message": "no item with GUID 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 in the game or the mods",
+      "pointer": "/entries/1/guid",
+      "related": [],
+      "rule": "unknown-reference",
+      "severity": "warning",
+      "span": {
+        "end": 193,
+        "start": 155
+      }
+    },
+    {
+      "code": "KL504",
+      "col": 29,
+      "docs": "docs/kiln/modding/lint.md#kl504-blob-size",
+      "endCol": 39,
+      "endLine": 4,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 4,
+      "message": "the hash says 12 bytes, built/m.blob has 10: kiln.assets refuses the override",
+      "related": [],
+      "rule": "blob-size",
+      "severity": "error",
+      "span": {
+        "end": 261,
+        "start": 251
+      }
+    },
+    {
+      "code": "KL505",
+      "col": 148,
+      "docs": "docs/kiln/modding/lint.md#kl505-patch-offset",
+      "endCol": 150,
+      "endLine": 5,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 5,
+      "message": "offset 96 + 16 bytes runs past the end of built/m.bin (100 bytes)",
+      "related": [],
+      "rule": "patch-offset",
+      "severity": "error",
+      "span": {
+        "end": 438,
+        "start": 436
+      }
+    },
+    {
+      "code": "KL502",
+      "col": 110,
+      "docs": "docs/kiln/modding/lint.md#kl502-cook-output-missing",
+      "endCol": 125,
+      "endLine": 6,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 6,
+      "message": "built/two.bin is made by the cook and is not there yet: run the mod's cook recipe (tools/modelcook, tools/impact, or the launcher at install)",
+      "pointer": "/entries/4/file",
+      "related": [],
+      "rule": "cook-output-missing",
+      "severity": "info",
+      "span": {
+        "end": 594,
+        "start": 579
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 45,
+      "endLine": 8,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 8,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/0/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 370,
+        "start": 355
+      }
+    },
+    {
+      "code": "KL510",
+      "col": 55,
+      "docs": "docs/kiln/modding/lint.md#kl510-cook-base",
+      "endCol": 60,
+      "endLine": 8,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 8,
+      "message": "step 0 (model): base cue is a keen::SoundContainerResource, needs keen::RenderModel",
+      "related": [],
+      "rule": "cook-base",
+      "severity": "error",
+      "span": {
+        "end": 385,
+        "start": 380
+      }
+    },
+    {
+      "code": "KL511",
+      "col": 70,
+      "docs": "docs/kiln/modding/lint.md#kl511-cook-input",
+      "endCol": 78,
+      "endLine": 8,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [
+        {
+          "edits": [
+            {
+              "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+              "newText": "\"@model\"",
+              "span": {
+                "end": 403,
+                "start": 395
+              }
+            }
+          ],
+          "title": "Replace with @model"
+        }
+      ],
+      "line": 8,
+      "message": "@modle: no such input; did you mean @model?",
+      "related": [],
+      "rule": "cook-input",
+      "severity": "error",
+      "span": {
+        "end": 403,
+        "start": 395
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 45,
+      "endLine": 9,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 9,
+      "message": "src/none.gltf: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/none.gltf)",
+      "pointer": "/steps/1/gltf",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 466,
+        "start": 451
+      }
+    },
+    {
+      "code": "KL513",
+      "col": 72,
+      "docs": "docs/kiln/modding/lint.md#kl513-cook-stem",
+      "endCol": 77,
+      "endLine": 9,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 9,
+      "message": "stem \"two\" is used by an earlier step too: the outputs overwrite each other",
+      "related": [
+        {
+          "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+          "message": "first here",
+          "span": {
+            "end": 418,
+            "start": 413
+          }
+        }
+      ],
+      "rule": "cook-stem",
+      "severity": "error",
+      "span": {
+        "end": 498,
+        "start": 493
+      }
+    },
+    {
+      "code": "KL510",
+      "col": 31,
+      "docs": "docs/kiln/modding/lint.md#kl510-cook-base",
+      "endCol": 37,
+      "endLine": 10,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 10,
+      "message": "step 2 (visual): base \"nope\" is not an input (the cook stops)",
+      "related": [],
+      "rule": "cook-base",
+      "severity": "error",
+      "span": {
+        "end": 538,
+        "start": 532
+      }
+    },
+    {
+      "code": "KL512",
+      "col": 114,
+      "docs": "docs/kiln/modding/lint.md#kl512-cook-unlisted",
+      "endCol": 124,
+      "endLine": 10,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 10,
+      "message": "this step writes built/unlisted.bin, which assets/assets.json does not list: kiln.assets will not serve it (cook with --update-manifest)",
+      "related": [],
+      "rule": "cook-unlisted",
+      "severity": "warning",
+      "span": {
+        "end": 625,
+        "start": 615
+      }
+    },
+    {
+      "code": "KL109",
+      "col": 5,
+      "docs": "docs/kiln/modding/models.md#cookjson-format-1",
+      "endCol": 113,
+      "endLine": 11,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 11,
+      "message": "gain and normalize exclude each other",
+      "pointer": "/steps/3",
+      "related": [],
+      "rule": "schema-rule",
+      "schema": "cook.schema.json",
+      "severity": "error",
+      "span": {
+        "end": 741,
+        "start": 633
+      }
+    },
+    {
+      "code": "KL501",
+      "col": 67,
+      "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
+      "endCol": 82,
+      "endLine": 11,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 11,
+      "message": "src/chime.wav: no such file (<repo>/schema/fixtures/lint/cases/files/assets/src/chime.wav)",
+      "pointer": "/steps/3/src",
+      "related": [],
+      "rule": "file-missing",
+      "severity": "error",
+      "span": {
+        "end": 710,
+        "start": 695
+      }
+    },
+    {
+      "code": "KL511",
+      "col": 69,
+      "docs": "docs/kiln/modding/lint.md#kl511-cook-input",
+      "endCol": 76,
+      "endLine": 12,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [
+        {
+          "edits": [
+            {
+              "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+              "newText": "\"chime\"",
+              "span": {
+                "end": 818,
+                "start": 811
+              }
+            }
+          ],
+          "title": "Replace with \"chime\""
+        }
+      ],
+      "line": 12,
+      "message": "take \"chmie\" is not a sound of this recipe, an @input or a GUID; did you mean \"chime\"?",
+      "related": [],
+      "rule": "cook-input",
+      "severity": "error",
+      "span": {
+        "end": 818,
+        "start": 811
+      }
+    },
+    {
+      "code": "KL510",
+      "col": 87,
+      "docs": "docs/kiln/modding/lint.md#kl510-cook-base",
+      "endCol": 94,
+      "endLine": 12,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 12,
+      "message": "step 4 (cue): base model is a keen::RenderModel, needs keen::SoundContainerResource",
+      "related": [],
+      "rule": "cook-base",
+      "severity": "error",
+      "span": {
+        "end": 836,
+        "start": 829
+      }
+    },
+    {
+      "code": "KL513",
+      "col": 49,
+      "docs": "docs/kiln/modding/lint.md#kl513-cook-stem",
+      "endCol": 56,
+      "endLine": 13,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+      "fixes": [],
+      "line": 13,
+      "message": "cue \"chime\" is defined twice in this recipe (soundcook stops)",
+      "related": [
+        {
+          "file": "<repo>/schema/fixtures/lint/cases/files/assets/cook.json",
+          "message": "first here",
+          "span": {
+            "end": 798,
+            "start": 791
+          }
+        }
+      ],
+      "rule": "cook-stem",
+      "severity": "error",
+      "span": {
+        "end": 895,
+        "start": 888
+      }
+    },
+    {
+      "code": "KL514",
+      "col": 69,
+      "docs": "docs/kiln/modding/lint.md#kl514-native-hash",
+      "endCol": 81,
+      "endLine": 1,
+      "file": "<repo>/schema/fixtures/lint/cases/files/impact/natives.json",
+      "fixes": [
+        {
+          "edits": [
+            {
+              "file": "<repo>/schema/fixtures/lint/cases/files/impact/natives.json",
+              "newText": "\"0x8807b1ea\"",
+              "span": {
+                "end": 80,
+                "start": 68
+              }
+            }
+          ],
+          "title": "Write \"0x8807b1ea\""
+        }
+      ],
+      "line": 1,
+      "message": "hash 0x12345678 is not FNV-1a(\"fixture-files.Ping\") = 0x8807b1ea: the ECALLs would call nothing",
+      "related": [],
+      "rule": "native-hash",
+      "severity": "error",
+      "span": {
+        "end": 80,
+        "start": 68
+      }
+    },
+    {
+      "code": "KL514",
+      "col": 91,
+      "docs": "docs/kiln/modding/lint.md#kl514-native-hash",
+      "endCol": 92,
+      "endLine": 1,
+      "file": "<repo>/schema/fixtures/lint/cases/files/impact/natives.json",
+      "fixes": [],
+      "line": 1,
+      "message": "argc 2 but 1 args are listed",
+      "related": [],
+      "rule": "native-hash",
+      "severity": "error",
+      "span": {
+        "end": 91,
+        "start": 90
+      }
+    },
+    {
+      "code": "KL208",
+      "col": 135,
+      "docs": "docs/kiln/modding/lint.md#kl208-native-prefix",
+      "endCol": 147,
+      "endLine": 1,
+      "file": "<repo>/schema/fixtures/lint/cases/files/impact/natives.json",
+      "fixes": [],
+      "line": 1,
+      "message": "a Kiln native is named \"<modid>.<Name>\": this mod's id is \"fixture-files\", not \"other\"",
+      "related": [],
+      "rule": "native-prefix",
+      "severity": "warning",
+      "span": {
+        "end": 146,
+        "start": 134
+      }
+    },
+    {
+      "code": "KL208",
+      "col": 161,
+      "docs": "docs/kiln/modding/lint.md#kl208-native-prefix",
+      "endCol": 172,
+      "endLine": 1,
+      "file": "<repo>/schema/fixtures/lint/cases/files/impact/natives.json",
+      "fixes": [],
+      "line": 1,
+      "message": "mod id \"kiln\" is reserved for Kiln's built-in natives",
+      "related": [],
+      "rule": "native-prefix",
+      "severity": "error",
+      "span": {
+        "end": 171,
+        "start": 160
+      }
+    }
+  ],
+  "format": 1,
+  "ok": false,
+  "summary": {
+    "errors": 17,
+    "hints": 0,
+    "infos": 1,
+    "warnings": 5
+  },
+  "tool": "kiln-lint",
+  "version": "<version>"
+}

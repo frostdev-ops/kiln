@@ -1,0 +1,140 @@
+{
+  "description": "mods/samples/resolver/* plus sample-lib 1.2.0 (the lab's resolver demo)",
+  "env": {
+    "kiln": "0.2.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "no.such.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/kiln/mods/sample-after-cycle",
+      "raw": "{ \"id\": \"sample-after-cycle\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: depends on a mod caught in a cycle\", \"dependencies\": { \"sample-cycle-a\": \"*\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-bad-manifest",
+      "raw": "{ \"id\": \"Sample Bad\", \"version\": \"one\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\" }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-client-only",
+      "raw": "{ \"id\": \"sample-client-only\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\", \"side\": \"client\",\n  \"description\": \"resolver fixture: a client mod is skipped on a server\" }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-cycle-a",
+      "raw": "{ \"id\": \"sample-cycle-a\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: a -> b -> a\", \"dependencies\": { \"sample-cycle-b\": \"*\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-cycle-b",
+      "raw": "{ \"id\": \"sample-cycle-b\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: b -> a -> b\", \"dependencies\": { \"sample-cycle-a\": \"*\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-future-api",
+      "raw": "{ \"id\": \"sample-future-api\", \"version\": \"1.0.0\", \"apiVersion\": \"1.0\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: built for Kiln API 1.0\" }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-incompatible",
+      "raw": "{ \"id\": \"sample-incompatible\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: declares sample-lib 1.x incompatible\", \"incompatible\": { \"sample-lib\": \"^1\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-missing-dep",
+      "raw": "{ \"id\": \"sample-missing-dep\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: requires a mod that is not installed\",\n  \"dependencies\": { \"sample-nowhere\": \"^1.0\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-needs-feature",
+      "raw": "{ \"id\": \"sample-needs-feature\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: requires a Kiln feature this build lacks\", \"features\": [\"tick\", \"no.such.feature\"] }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-needs-lib2",
+      "raw": "{ \"id\": \"sample-needs-lib2\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Never.dll\",\n  \"description\": \"resolver fixture: version mismatch (sample-lib is 1.2.0)\", \"dependencies\": { \"sample-lib\": \"[2.0,3.0)\" } }\n"
+    },
+    {
+      "dir": "/kiln/mods/sample-lib",
+      "manifest": {
+        "id": "sample-lib",
+        "name": "Sample library mod",
+        "version": "1.2.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "SampleLib.dll",
+        "exports": [
+          "SampleLib.Api.dll"
+        ],
+        "features": [
+          "tick"
+        ],
+        "dependencies": {
+          "kiln": ">=0.1"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "order": [
+      "sample-lib"
+    ],
+    "rejected": [
+      {
+        "id": "sample-after-cycle",
+        "dir": "/kiln/mods/sample-after-cycle",
+        "state": "failed",
+        "reason": "dependency sample-cycle-a * did not load (failed: dependency cycle: sample-cycle-a -> sample-cycle-b -> sample-cycle-a (each must load after the next))"
+      },
+      {
+        "id": "sample-bad-manifest",
+        "dir": "/kiln/mods/sample-bad-manifest",
+        "state": "failed",
+        "reason": "kiln.mod.json: id 'Sample Bad' must match ^[a-z0-9][a-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "sample-client-only",
+        "dir": "/kiln/mods/sample-client-only",
+        "state": "skipped",
+        "reason": "side 'client': not loaded on a server"
+      },
+      {
+        "id": "sample-cycle-a",
+        "dir": "/kiln/mods/sample-cycle-a",
+        "state": "failed",
+        "reason": "dependency cycle: sample-cycle-a -> sample-cycle-b -> sample-cycle-a (each must load after the next)"
+      },
+      {
+        "id": "sample-cycle-b",
+        "dir": "/kiln/mods/sample-cycle-b",
+        "state": "failed",
+        "reason": "dependency cycle: sample-cycle-a -> sample-cycle-b -> sample-cycle-a (each must load after the next)"
+      },
+      {
+        "id": "sample-future-api",
+        "dir": "/kiln/mods/sample-future-api",
+        "state": "failed",
+        "reason": "needs Kiln API 1.0; this Kiln provides API 0.2.0"
+      },
+      {
+        "id": "sample-incompatible",
+        "dir": "/kiln/mods/sample-incompatible",
+        "state": "failed",
+        "reason": "incompatible with sample-lib 1.2.0 (declared in its incompatible list)"
+      },
+      {
+        "id": "sample-missing-dep",
+        "dir": "/kiln/mods/sample-missing-dep",
+        "state": "failed",
+        "reason": "missing dependency sample-nowhere ^1.0"
+      },
+      {
+        "id": "sample-needs-feature",
+        "dir": "/kiln/mods/sample-needs-feature",
+        "state": "failed",
+        "reason": "needs feature no.such.feature, unavailable on this game build"
+      },
+      {
+        "id": "sample-needs-lib2",
+        "dir": "/kiln/mods/sample-needs-lib2",
+        "state": "failed",
+        "reason": "needs sample-lib [2.0,3.0), found sample-lib 1.2.0"
+      }
+    ]
+  }
+}

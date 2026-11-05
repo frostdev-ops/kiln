@@ -1,0 +1,13 @@
+{
+  // A Kiln-aware native mod: Kiln loads kiln-native-mod.dll at phase "boot" and calls kiln_native_init.
+  "$schema": "https://kiln.invalid/schema/native.schema.json",
+  "format": 1,
+  "id": "native-mod-sample",
+  "name": "Native mod sample",
+  "version": "1.0.0",
+  "side": "both",
+  "dlls": ["kiln-native-mod.dll"],
+  "phase": "boot",
+  "init": "kiln_native_init",
+  "kiln": ">=0.2.0-dev"
+}

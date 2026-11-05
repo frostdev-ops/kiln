@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "tool": "modelcook",
+  "out": "built",
+  "inputs": { "base_model": { "guid": "00011001-0000-4000-8000-000000000001", "type": "keen::RenderModel" } },
+  "steps": [
+    { "op": "model", "gltf": "src/blade.gltf", "base": "base_model", "guid": "@base_model", "mode": "override", "stem": "blade" }
+  ]
+}

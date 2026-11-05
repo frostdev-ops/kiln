@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "HookSample's own symbol fragment. Every name is prefixed 'hooksample/'. Loaded by Kiln.Hooks at mod load (Symbols.LoadShipped) and resolved against the running exe like Kiln's own definitions, so a coremod's addresses survive game updates. Targets SpawnWrapper (not a function any sample detours, so its prologue bytes still match).",
+  "symbols": {
+    "hooksample/SpawnWrapper": {
+      "find": [
+        { "pattern": "48 83 EC 58 0F 10 02 8B 15 ?? ?? ?? ?? 33 C0 41 0F 10 08 48 81 C1 {hooksample/world.storage:d32}" }
+      ]
+    }
+  },
+  "constants": { "hooksample/world.storage": { "min_votes": 1 } }
+}

@@ -1,0 +1,401 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.gameplay: the server world's pending ECS events (delivered at the start of SimStep, read and neutralized by Kiln in Pre), the game's event emitter (for Kiln's own program), the craft core, the g38_building core (place block/prop, dismantle, pick up prop), the terraforming impact function, and the queued spawn of random spawners. Evidence: docs/re/gameplay.md (svn 1285601; the event and craft patterns also resolve on 1273043).",
+  "symbols": {
+    "gameplay/DeliverEvents": {
+      "find": [
+        {
+          "pattern": "40 56 41 55 41 56 48 83 EC 40 48 8B 31 45 33 ED 4C 8B F1 4C 39 A9 {gameplay/storage.pending_count:d32} 0F 86"
+        }
+      ]
+    },
+    "@gameplay/DeliverEvents.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "gameplay/DeliverEvents",
+            "size": 96
+          },
+          "pattern": "4D 8B BE {gameplay/storage.pending:d32} 33 ED 4C 03 F9 41 39 6F {gameplay/buffer.used:d8} 0F 86"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/DeliverEvents",
+            "size": 160
+          },
+          "pattern": "4C 8B 9E {gameplay/events.map.cap:d32} 8B FD 49 03 3F 83 BE {gameplay/events.map.count:d32} 00 44 0F B6 67 {gameplay/record.size:d8} 44 8B 0F 74 ?? 48 8B 9E {gameplay/events.map.bits:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/DeliverEvents",
+            "size": 384
+          },
+          "pattern": "48 03 93 ?? ?? ?? ?? 8B 42 10 FF C0 89 42 10 3B 42 14 76 03 89 42 14 8B 42 18 FF C0 89 42 18 3B 42 1C 76 03 89 42 1C 49 8B 96 {gameplay/storage.queues:d32} 4B 8D 04 C0"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/DeliverEvents",
+            "size": 512
+          },
+          "pattern": "4C 8B 96 {gameplay/events.map.keys:d32} 0F 1F 80 00 00 00 00 45 39 0C 82"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/DeliverEvents",
+            "size": 512
+          },
+          "pattern": "48 8B 8E {gameplay/events.map.values:d32} 48 8D 14 41 E9"
+        }
+      ]
+    },
+    "@gameplay/SimStep.deliver": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "SimStep",
+            "size": 128
+          },
+          "pattern": "48 8B CE 4C 89 BC 24 ?? ?? ?? ?? E8 {gameplay/DeliverEvents:rel32} 4C 8B 0E 45 33 ED"
+        }
+      ]
+    },
+    "gameplay/EmitEvent": {
+      "find": [
+        {
+          "pattern": "48 83 EC 28 4C 8B D9 41 81 F8 00 01 00 00 73 ?? 45 8B D0 41 8B C0 41 83 E2 07"
+        }
+      ]
+    },
+    "@gameplay/PlayerCrafting.emit": {
+      "find": [
+        {
+          "pattern": "48 8B CE E8 {gameplay/JobProgramId:rel32} 48 8B CE 0F B7 D8 E8 {gameplay/JobEventBuffer:rel32} 44 0F B7 CB BA B7 6F 76 A4 41 B8 38 00 00 00 48 8B C8 E8 {gameplay/EmitEvent:rel32}"
+        }
+      ]
+    },
+    "gameplay/CraftRecipe": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 54 41 55 41 56 41 57 48 8D AC 24 A0 8B FF FF B8 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 2B E0 33 C0 48 C7 85 ?? ?? 00 00 00 02 00 00"
+        }
+      ]
+    },
+    "gameplay/RecipeFind": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 7C 24 10 8B C1 4C 8B D2 85 C9 74 ?? 83 BA {gameplay/recipes.map.count:d32} 00 48 8B 5A {gameplay/recipes.map.cap:d8} 74 ?? 48 8B 7A {gameplay/recipes.map.bits:d8}"
+        }
+      ]
+    },
+    "gameplay/PlaceBlueprint": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D A8 88 FD FF FF"
+        }
+      ]
+    },
+    "gameplay/PlaceProp": {
+      "find": [
+        {
+          "pattern": "48 89 74 24 18 48 89 7C 24 20 55 41 55 41 57 48 8D 6C 24 F0 48 81 EC"
+        }
+      ]
+    },
+    "@gameplay/Dismantle.calls": {
+      "find": [
+        {
+          "pattern": "F3 0F 11 54 24 58 0F 11 44 24 5C E8 {gameplay/DismantleBlock:rel32} 44 0F B6 F0 E9"
+        },
+        {
+          "pattern": "48 8D 54 24 50 48 8D 4D 50 48 89 5C 24 68 E8 {gameplay/DismantleBlock2:rel32} 44 0F B6 F0 E9"
+        },
+        {
+          "pattern": "44 88 65 84 48 8D 55 80 89 5D 80 48 8D 4D 50 E8 {gameplay/PickUpProp:rel32} 44 0F B6 F0"
+        }
+      ]
+    },
+    "@gameplay/BuildFinish.fields": {
+      "find": [
+        {
+          "pattern": "BA F7 BA AE BB 41 B8 18 00 00 00 48 8B C8 E8 {gameplay/EmitEvent:rel32} 48 8B 74 24 58 48 8B D8 48 85 C0 74 ?? 0F 57 C0 48 8D 54 24 50 0F 11 03 33 C0 48 89 43 10 49 8B 0E E8 {gameplay/ProgramTime:rel32} 48 8B 08 48 89 0B 41 8B 86 {gameplay/op.player:d32} 89 43 08"
+        }
+      ]
+    },
+    "gameplay/TerraformImpact": {
+      "find": [
+        {
+          "pattern": "4C 89 44 24 18 48 89 4C 24 08 55 53 56 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF B8 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 8B 12 48 8B F1"
+        }
+      ]
+    },
+    "@gameplay/TerraformImpact.args": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "gameplay/TerraformImpact",
+            "size": 160
+          },
+          "pattern": "48 8D 0C 40 45 0F B7 44 C9 {gameplay/impact.arg_offset:d8} 4D 03 47 {gameplay/impact.arg_base:d8}"
+        }
+      ]
+    },
+    "gameplay/QueueSpawn": {
+      "find": [
+        {
+          "pattern": "4C 8B DC 53 48 81 EC B0 00 00 00 48 8B 84 24 E8 00 00 00 48 8B DA C7 44 24 30 64 C5 7A 02 49 C7 43 88 38 00 00 00"
+        }
+      ]
+    },
+    "gameplay/RandomSpawnerSpawnRet": {
+      "find": [
+        {
+          "pattern": "F2 0F 11 85 ?? ?? ?? ?? E8 {gameplay/QueueSpawn:rel32} 48 8B 4D 10 8B 18 48 85 C9",
+          "offset": 13
+        }
+      ]
+    },
+    "gameplay/InventoryActions": {
+      "find": [
+        {
+          "pattern": "40 55 41 55 48 8D AC 24 ?? ?? FF FF B8 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 2B E0 4C 8B E9 E8 ?? ?? ?? ?? 84 C0 0F 85 ?? ?? 00 00 41 B8 ?? 01 00 00"
+        }
+      ]
+    },
+    "@gameplay/InventoryActions.discard": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "gameplay/InventoryActions",
+            "size": 4096
+          },
+          "pattern": "8B 8B {gameplay/pi.item.version:d32} 39 88 {gameplay/scpi.item:d32} 0F 84 ?? ?? ?? ?? 4C 8B 55 ?? 41 0F B6 8A {gameplay/pi.item.type:d32} 85 C9 0F 84"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/InventoryActions",
+            "size": 4096
+          },
+          "pattern": "48 8B 4D ?? 48 8D 55 ?? 48 81 C1 {gameplay/pi.item.slot:d32} E8 ?? ?? ?? ?? EB ?? 48 8B 4D ?? 48 8D 55 ?? 48 81 C1 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 8B 45 ?? 48 8D 4D ?? 8B 98"
+        },
+        {
+          "scope": {
+            "symbol": "gameplay/InventoryActions",
+            "size": 4096
+          },
+          "pattern": "48 8B 45 ?? 8B 4B {gameplay/pi.transfer.version:d8} 39 48 {gameplay/scpi.transfer:d8} 0F 84 ?? ?? ?? ?? 48 8D 55 ?? 49 8B CD E8 {gameplay/InventoryTransfer:rel32}"
+        }
+      ]
+    },
+    "@gameplay/InventoryTransfer.fields": {
+      "find": [
+        {
+          "pattern": "0F B6 4E {gameplay/pi.transfer.type:d8} 85 C9 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 F9 01 0F 85 ?? ?? ?? ?? 83 7E {gameplay/pi.transfer.slot:d8} 00 75 ?? 80 7E ?? 00"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "gameplay/storage.pending": {
+      "min_votes": 1
+    },
+    "gameplay/storage.pending_count": {
+      "min_votes": 1
+    },
+    "gameplay/storage.queues": {
+      "min_votes": 1
+    },
+    "gameplay/buffer.used": {
+      "min_votes": 1
+    },
+    "gameplay/buffer.stride": {
+      "value": 24
+    },
+    "gameplay/record.size": {
+      "min_votes": 1
+    },
+    "gameplay/events.map.cap": {
+      "min_votes": 1
+    },
+    "gameplay/events.map.count": {
+      "min_votes": 1
+    },
+    "gameplay/events.map.bits": {
+      "min_votes": 1
+    },
+    "gameplay/events.map.keys": {
+      "min_votes": 1
+    },
+    "gameplay/events.map.values": {
+      "min_votes": 1
+    },
+    "gameplay/op.player": {
+      "min_votes": 1
+    },
+    "gameplay/impact.arg_offset": {
+      "min_votes": 1
+    },
+    "gameplay/impact.arg_base": {
+      "min_votes": 1
+    },
+    "gameplay/impact.arg_stride": {
+      "value": 24
+    },
+    "gameplay/recipes.map.count": {
+      "min_votes": 1
+    },
+    "gameplay/recipes.map.cap": {
+      "min_votes": 1
+    },
+    "gameplay/recipes.map.bits": {
+      "min_votes": 1
+    },
+    "gameplay/recipes.workshops": {
+      "value": 248
+    },
+    "gameplay/teleport.applied": {
+      "value": 72
+    },
+    "gameplay/teleport.find_ground": {
+      "value": 73
+    },
+    "gameplay/teleport.target_entity": {
+      "value": 56
+    },
+    "gameplay/pi.item.version": {
+      "min_votes": 1
+    },
+    "gameplay/scpi.item": {
+      "min_votes": 1
+    },
+    "gameplay/pi.item.type": {
+      "min_votes": 1
+    },
+    "gameplay/pi.item.slot": {
+      "min_votes": 1
+    },
+    "gameplay/pi.transfer.version": {
+      "min_votes": 1
+    },
+    "gameplay/scpi.transfer": {
+      "min_votes": 1
+    },
+    "gameplay/pi.transfer.type": {
+      "min_votes": 1
+    },
+    "gameplay/pi.transfer.slot": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "gameplay.intercept": {
+      "symbols": [
+        "SimStep",
+        "gameplay/DeliverEvents"
+      ],
+      "constants": [
+        "world.storage",
+        "gameplay/storage.pending",
+        "gameplay/storage.pending_count",
+        "gameplay/buffer.used",
+        "gameplay/buffer.stride",
+        "gameplay/record.size"
+      ]
+    },
+    "gameplay.queues": {
+      "symbols": [
+        "gameplay/DeliverEvents"
+      ],
+      "constants": [
+        "gameplay/storage.queues",
+        "gameplay/events.map.cap",
+        "gameplay/events.map.count",
+        "gameplay/events.map.bits",
+        "gameplay/events.map.keys",
+        "gameplay/events.map.values"
+      ]
+    },
+    "gameplay.emit": {
+      "symbols": [
+        "gameplay/EmitEvent",
+        "gameplay/JobProgramId",
+        "gameplay/JobEventBuffer"
+      ]
+    },
+    "gameplay.craft": {
+      "symbols": [
+        "gameplay/CraftRecipe"
+      ]
+    },
+    "gameplay.recipes": {
+      "symbols": [
+        "gameplay/RecipeFind"
+      ],
+      "constants": [
+        "gameplay/recipes.map.count",
+        "gameplay/recipes.map.cap",
+        "gameplay/recipes.map.bits",
+        "gameplay/recipes.workshops"
+      ]
+    },
+    "gameplay.build": {
+      "symbols": [
+        "gameplay/PlaceBlueprint",
+        "gameplay/PlaceProp",
+        "gameplay/DismantleBlock",
+        "gameplay/DismantleBlock2",
+        "gameplay/PickUpProp"
+      ],
+      "constants": [
+        "gameplay/op.player"
+      ]
+    },
+    "gameplay.terraform": {
+      "symbols": [
+        "gameplay/TerraformImpact"
+      ],
+      "constants": [
+        "gameplay/impact.arg_offset",
+        "gameplay/impact.arg_base",
+        "gameplay/impact.arg_stride"
+      ]
+    },
+    "gameplay.spawn": {
+      "symbols": [
+        "gameplay/QueueSpawn",
+        "gameplay/RandomSpawnerSpawnRet"
+      ]
+    },
+    "gameplay.entities": {
+      "symbols": [
+        "spawn/CreateEntity",
+        "spawn/DestroyEntity",
+        "GetEntityTransform"
+      ],
+      "constants": [
+        "world.storage",
+        "spawn/storage.entity_map",
+        "spawn/storage.entity_map_cap",
+        "spawn/storage.entity_records",
+        "spawn/record.template",
+        "spawn/record.id"
+      ]
+    },
+    "gameplay.discard": {
+      "symbols": [
+        "gameplay/InventoryActions",
+        "gameplay/InventoryTransfer"
+      ],
+      "constants": [
+        "gameplay/pi.item.version",
+        "gameplay/scpi.item",
+        "gameplay/pi.item.type",
+        "gameplay/pi.item.slot",
+        "gameplay/pi.transfer.version",
+        "gameplay/scpi.transfer",
+        "gameplay/pi.transfer.type",
+        "gameplay/pi.transfer.slot"
+      ]
+    }
+  }
+}

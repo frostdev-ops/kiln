@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/saves.json",
+  "comment": "Client build 26404966: Save2WriteWorld (0xe1b470, same prologue) keeps its first argument in rsi (server: rdi) and that object is far larger on the client (guid +0xB72A4, slot +0xB7297, result +0xB729C; server +0xEC/+0xDF/+0xE4; EMF saw +0xB729C/+0xB7297 on client 1273043), so the field probes are re-cut with the register bytes open. RetPlayerLeave: the player-leave path in ServerReceive indexes with r15 (server r13). The strategies below match on both exes. kiln.saves' file handling (save folder, world0.ksd) is dedicated-server logic: its owner must check it before saves.write is relied on in a client. Evidence: docs/re/client.md.",
+  "symbols": {
+    "@saves.s2_fields": {
+      "find": [
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 256}, "pattern": "48 8B 85 ?? ?? ?? ?? 48 89 81 {saves/s2.result:d32} 33 C0"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "48 8D ?? {saves/s2.guid:d32} E8 ?? ?? ?? ?? 44 0F B6 F0 48 8D 8D ?? ?? ?? ?? 0F B7 ?? {saves/s2.slot:d32} 66 89 85"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "0F 10 ?? 8B ?? {saves/s2.rev_rel:d8} FF C0"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "0F B7 ?? {saves/s2.slot:d32} 4C 89 6D E8"}
+      ]
+    },
+    "saves/RetPlayerLeave": {
+      "find": [
+        {"pattern": "42 C6 84 ?? ?? ?? ?? ?? 04 E8 {saves/RequestServerSave:rel32}", "offset": 14}
+      ]
+    }
+  }
+}

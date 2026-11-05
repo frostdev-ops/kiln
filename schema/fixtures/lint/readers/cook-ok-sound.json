@@ -1,0 +1,51 @@
+{
+ "format": 1,
+ "tool": "soundcook",
+ "guidNamespace": "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
+ "steps": [
+  {
+   "op": "sound",
+   "name": "a",
+   "src": "a.wav",
+   "channels": "mono",
+   "cue": {
+    "scene": "Ui",
+    "volume": 0.5
+   }
+  },
+  {
+   "op": "cue",
+   "name": "b",
+   "sounds": [
+    "a",
+    {
+     "sound": "a",
+     "chance": 2
+    }
+   ],
+   "positional": {
+    "min": 1,
+    "max": 9
+   }
+  },
+  {
+   "op": "voiceover",
+   "name": "c",
+   "languages": {
+    "en": [
+     "c.wav"
+    ],
+    "De_De": [
+     {
+      "src": "d.wav",
+      "gain": 1
+     }
+    ]
+   },
+   "fallback": null,
+   "subtitles": {
+    "en": "Hi"
+   }
+  }
+ ]
+}

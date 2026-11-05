@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/chat.json",
+  "comment": "Client build 26404966 (enshrouded.exe ce6fdba6...): ChatReceive's call to ChatLogAdd keeps the GameServer in r15 (server: r13) and its frame is 0x2C0 bytes smaller, so the receive-call pattern is re-cut; it also captures chat/gs.chat. Everything else in chat.json matches unchanged. Evidence: docs/re/client.md.",
+  "symbols": {
+    "chat/ReceiveAddLine": {
+      "find": [
+        {"scope": {"symbol": "chat/ServerReceive", "size": 8192}, "offset": 59, "pattern": "49 8B 57 {chat/gs.chat:d8} 4C 8D 4D ?? 48 89 44 24 40 48 8D 8D ?? ?? ?? ?? 8B 85 ?? ?? ?? ?? 48 89 5C 24 38 89 44 24 30 8B 85 ?? ?? ?? ?? 89 44 24 28 8B 85 ?? ?? ?? ?? 89 44 24 20 C6 45 ?? 00 E8 {chat/ChatLogAdd:rel32}"}
+      ]
+    }
+  }
+}

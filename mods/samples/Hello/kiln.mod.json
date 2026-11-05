@@ -1,0 +1,8 @@
+{
+  "id": "hello",
+  "name": "Hello Kiln",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "Hello.dll",
+  "side": "server"
+}

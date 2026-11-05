@@ -1,0 +1,330 @@
+// SPDX-License-Identifier: MIT
+//! `kiln build | cook | deploy | pack`: Kiln.Sdk's MSBuild targets for C# mods, CMake + kiln_plugin for native mods,
+//! the repository's cook tools for recipes.
+
+use crate::out::{self, CliError};
+use crate::project::{Kind, Project};
+use crate::{server, tools};
+use anyhow::Result;
+use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(clap::Args)]
+pub struct BuildArgs {
+    /// A .csproj, a native mod folder, or a folder holding one (default: the current folder).
+    pub project: Option<PathBuf>,
+    /// Debug (default) or Release.
+    #[arg(short = 'c', long = "configuration")]
+    pub config: Option<String>,
+    /// Do not run `kiln cook` first.
+    #[arg(long)]
+    pub no_cook: bool,
+    /// Extra arguments for dotnet build / cmake --build (after --).
+    #[arg(last = true)]
+    pub extra: Vec<String>,
+}
+
+#[derive(clap::Args)]
+pub struct CookArgs {
+    pub project: Option<PathBuf>,
+    /// Only say whether a cook is needed (exit 1 when it is); never reads the game.
+    #[arg(long)]
+    pub check: bool,
+    /// The game folder the tools read (default: $KILN_GAME, else the installed client).
+    #[arg(long)]
+    pub game: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+pub struct DeployArgs {
+    pub project: Option<PathBuf>,
+    /// Server or game folder with Kiln, a lab name, or a server instance id.
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Hot-reload the mod in the running server afterwards (C# mods; native mods load once per start).
+    #[arg(long, short = 'r')]
+    pub reload: bool,
+    #[arg(short = 'c', long = "configuration")]
+    pub config: Option<String>,
+    #[arg(last = true)]
+    pub extra: Vec<String>,
+}
+
+#[derive(clap::Args)]
+pub struct PackArgs {
+    pub project: Option<PathBuf>,
+    #[arg(short = 'c', long = "configuration")]
+    pub config: Option<String>,
+    /// Where to write the zip (KilnPackageOutputPath).
+    #[arg(long, short = 'o')]
+    pub output: Option<PathBuf>,
+}
+
+fn config_args(c: &Option<String>) -> Vec<String> {
+    c.iter().flat_map(|c| ["-c".to_string(), c.clone()]).collect()
+}
+
+pub fn build(a: BuildArgs, json: bool) -> Result<i32> {
+    let p = Project::find(a.project.as_deref())?;
+    if !a.no_cook {
+        cook_project(&p, false, None, json, true)?;
+    }
+    let ok = match p.kind {
+        Kind::Dotnet => {
+            let mut cmd = Command::new("dotnet");
+            cmd.arg("build").arg(&p.path).arg("-nologo").args(config_args(&a.config)).args(&a.extra);
+            tools::run_passthrough(&mut cmd, json)?.success()
+        }
+        Kind::Native => native_build(&p, a.config.as_deref(), None, &a.extra, json)?,
+    };
+    if json {
+        out::print_json(&json!({"ok": ok, "project": p.path, "kind": kind_name(p.kind)}));
+    }
+    Ok(if ok { 0 } else { 1 })
+}
+
+fn kind_name(k: Kind) -> &'static str {
+    match k {
+        Kind::Dotnet => "dotnet",
+        Kind::Native => "native",
+    }
+}
+
+pub fn deploy(a: DeployArgs, json: bool) -> Result<i32> {
+    let p = Project::find(a.project.as_deref())?;
+    let srv = server::resolve(a.server.as_deref(), Some(&p))?;
+    if !srv.dir.join("kiln").is_dir() {
+        return Err(CliError::new("not_found", format!("{} has no kiln/ folder: install Kiln there first", srv.dir.display())).into());
+    }
+    let (ok, id) = match p.kind {
+        Kind::Dotnet => {
+            let mut cmd = Command::new("dotnet");
+            cmd.arg("build")
+                .arg(&p.path)
+                .arg("-nologo")
+                .arg("-t:KilnDeploy")
+                .arg(format!("-p:KilnServer={}", srv.dir.display()))
+                .args(config_args(&a.config))
+                .args(&a.extra);
+            if a.reload {
+                cmd.arg("-p:KilnReload=true");
+            }
+            let ok = tools::run_passthrough(&mut cmd, json)?.success();
+            let id = if ok { p.property("KilnModId").ok() } else { None };
+            (ok, id)
+        }
+        Kind::Native => {
+            if a.reload {
+                out::say(json, "note: native mods are never unloaded; the new DLL loads at the next start (kiln run --restart)");
+            }
+            let ok = native_build(&p, a.config.as_deref(), Some(&srv.dir), &a.extra, json)?;
+            (ok, p.native_manifest().ok().and_then(|m| m["id"].as_str().map(str::to_string)))
+        }
+    };
+    if json {
+        out::print_json(&json!({"ok": ok, "project": p.path, "server": srv.dir, "via": srv.via, "id": id,
+                                "reload": a.reload && p.kind == Kind::Dotnet}));
+    }
+    Ok(if ok { 0 } else { 1 })
+}
+
+pub fn pack(a: PackArgs, json: bool) -> Result<i32> {
+    let p = Project::find(a.project.as_deref())?;
+    if p.kind == Kind::Native {
+        return pack_native(&p, a.config.as_deref(), a.output.as_deref(), json);
+    }
+    let mut cmd = Command::new("dotnet");
+    cmd.arg("build").arg(&p.path).arg("-nologo").arg("-t:KilnPack").args(config_args(&a.config));
+    if let Some(o) = &a.output {
+        let o = std::path::absolute(o).unwrap_or(o.clone());
+        cmd.arg(format!("-p:KilnPackageOutputPath={}/", o.display()));
+    }
+    let ok = tools::run_passthrough(&mut cmd, json)?.success();
+    let mut zip = Value::Null;
+    if ok {
+        let props = p.properties(&["KilnModId", "Version", "KilnPackageOutputPath"], a.config.as_deref())?;
+        let s = |k: &str| props.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let dir = a.output.clone().map(|o| std::path::absolute(&o).unwrap_or(o)).unwrap_or_else(|| PathBuf::from(s("KilnPackageOutputPath")));
+        let dir = if dir.is_relative() { p.dir.join(dir) } else { dir };
+        let f = dir.join(format!("{}-{}.zip", s("KilnModId"), s("Version")));
+        if f.is_file() {
+            zip = Value::String(f.display().to_string());
+        }
+    }
+    if json {
+        out::print_json(&json!({"ok": ok, "zip": zip}));
+    } else if let Some(z) = zip.as_str() {
+        println!("{z}");
+    }
+    Ok(if ok { 0 } else { 1 })
+}
+
+// ---- native (CMake) ----
+
+fn native_build(p: &Project, config: Option<&str>, server: Option<&Path>, extra: &[String], json: bool) -> Result<bool> {
+    tools::require("cmake", "CMake 3.24+ builds native mods")?;
+    let sdk = tools::sdk_native_dir(None)?;
+    let build = p.dir.join("build");
+    let cfg = config.unwrap_or("Release");
+    let mut conf = Command::new("cmake");
+    conf.arg("-S").arg(&p.dir).arg("-B").arg(&build).arg(format!("-DKILN_SDK_DIR={}", sdk.display()));
+    conf.arg(format!("-DCMAKE_BUILD_TYPE={cfg}"));
+    if !cfg!(windows) {
+        tools::require("clang-cl", "the Linux cross build uses clang-cl + lld-link and the xwin CRT/SDK (cargo xwin)")?;
+        conf.arg(format!("-DCMAKE_TOOLCHAIN_FILE={}", sdk.join("cmake/clang-cl-xwin.cmake").display()));
+        if kiln_manage::util::which("ninja").is_some() && !build.join("CMakeCache.txt").exists() {
+            conf.arg("-G").arg("Ninja");
+        }
+    }
+    if let Some(s) = server {
+        conf.arg(format!("-DKILN_SERVER={}", s.display()));
+    }
+    if !tools::run_passthrough(&mut conf, json)?.success() {
+        return Ok(false);
+    }
+    let mut b = Command::new("cmake");
+    b.arg("--build").arg(&build).arg("--config").arg(cfg);
+    if server.is_some() {
+        b.arg("--target").arg("deploy");
+    }
+    if !extra.is_empty() {
+        b.arg("--").args(extra);
+    }
+    Ok(tools::run_passthrough(&mut b, json)?.success())
+}
+
+fn pack_native(p: &Project, config: Option<&str>, output: Option<&Path>, json: bool) -> Result<i32> {
+    if !native_build(p, config, None, &[], json)? {
+        return Ok(1);
+    }
+    let m = p.native_manifest()?;
+    let id = m["id"].as_str().unwrap_or("native-mod").to_string();
+    let version = m["version"].as_str().unwrap_or("0.0.0").to_string();
+    let stage = p.dir.join("build/mod");
+    if !stage.join(&id).is_dir() {
+        return Err(CliError::new("not_found", format!("{} was not staged by kiln_plugin(... NATIVE_JSON ...)", stage.join(&id).display())).into());
+    }
+    let dir = output.map(Path::to_path_buf).unwrap_or_else(|| p.dir.join("build"));
+    std::fs::create_dir_all(&dir)?;
+    let zip = std::path::absolute(dir.join(format!("{id}-{version}.zip")))?;
+    let _ = std::fs::remove_file(&zip);
+    // <id>/ inside the zip, like KilnPack; the pdb stays out
+    let ok = if cfg!(windows) {
+        Command::new("tar").arg("-a").arg("-cf").arg(&zip).arg("--exclude=*.pdb").arg(&id).current_dir(&stage).status()
+    } else {
+        tools::require("zip", "packing native mods")?;
+        Command::new("zip").arg("-q").arg("-r").arg(&zip).arg(&id).arg("-x").arg("*.pdb").current_dir(&stage).status()
+    }
+    .map(|s| s.success())
+    .unwrap_or(false);
+    if json {
+        out::print_json(&json!({"ok": ok, "zip": if ok { Value::String(zip.display().to_string()) } else { Value::Null }}));
+    } else if ok {
+        println!("{}", zip.display());
+    }
+    Ok(if ok { 0 } else { 1 })
+}
+
+// ---- cook ----
+
+pub fn cook(a: CookArgs, json: bool) -> Result<i32> {
+    let p = Project::find(a.project.as_deref())?;
+    let r = cook_project(&p, a.check, a.game.as_deref(), json, false)?;
+    if json {
+        out::print_json(&r);
+    }
+    Ok(if r["ok"] == true { 0 } else { 1 })
+}
+
+/// The tool behind a recipe's "tool" (or the steps' own "tool"s; modelcook dispatches those itself).
+fn tool_cmd(repo: &Path, tool: &str) -> Option<(PathBuf, &'static str)> {
+    let (rel, verb) = match tool {
+        "modelcook" => ("tools/modelcook/modelcook.py", "recipe"),
+        "impact" => ("tools/impact/impact.py", "cook"),
+        "soundcook" => ("tools/soundcook/soundcook.py", "recipe"),
+        "animcook" => ("tools/animcook/animcook.py", "recipe"),
+        _ => return None,
+    };
+    let p = repo.join(rel);
+    p.is_file().then_some((p, verb))
+}
+
+/// Runs (or checks) every recipe of the project. `auto`: called by `kiln build`: silent when nothing is to do, and
+/// a recipe whose tool or game is missing only warns.
+fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
+    let recipes = p.recipes();
+    let mut results = Vec::new();
+    if recipes.is_empty() {
+        if !auto {
+            out::say(json, "no cook recipes (*/cook.json) in this project");
+        }
+        return Ok(json!({"ok": true, "recipes": results}));
+    }
+    let repo = match tools::repo() {
+        Some(r) => r,
+        None if auto => {
+            out::say(json, "kiln: recipes found but no Kiln checkout for the cook tools (KILN_REPO); skipping the cook");
+            return Ok(json!({"ok": true, "recipes": results}));
+        }
+        None => return Err(tools::need_repo("kiln cook").unwrap_err()),
+    };
+    let py = tools::python()?;
+    let game = game.map(Path::to_path_buf).or_else(tools::client_dir);
+    let mut all_ok = true;
+    for r in recipes {
+        let doc = std::fs::read_to_string(&r).ok().and_then(|t| crate::project::jsonc(&t).ok()).unwrap_or(Value::Null);
+        let tool = doc["tool"].as_str().unwrap_or("modelcook").to_string();
+        let Some((script, verb)) = tool_cmd(&repo, &tool) else {
+            let msg = format!("{}: no cook tool '{tool}' in {}", r.display(), repo.display());
+            if auto {
+                out::say(json, format!("kiln: warning: {msg}"));
+                results.push(json!({"recipe": r, "tool": tool, "ok": false, "skipped": msg}));
+                continue;
+            }
+            return Err(CliError::new("tool_missing", msg).into());
+        };
+        let mut chk = Command::new(&py);
+        chk.arg(&script).arg(verb).arg(&r).arg("--check");
+        chk.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        let needed = !chk.status().map(|s| s.success()).unwrap_or(false);
+        if check {
+            out::say(json, format!("{}: {}", r.display(), if needed { "cook needed" } else { "up to date" }));
+            all_ok &= !needed;
+            results.push(json!({"recipe": r, "tool": tool, "needed": needed}));
+            continue;
+        }
+        if !needed {
+            if !auto {
+                out::say(json, format!("{}: up to date", r.display()));
+            }
+            results.push(json!({"recipe": r, "tool": tool, "ok": true, "cooked": false}));
+            continue;
+        }
+        let mut cmd = Command::new(&py);
+        cmd.arg(&script);
+        match &game {
+            Some(g) => {
+                cmd.arg("--game").arg(g);
+            }
+            None if tool == "soundcook" || tool == "animcook" => {
+                cmd.arg("--no-game");
+            }
+            None => {
+                let msg = format!("{}: the cook reads your installed game; none found (--game or KILN_GAME)", r.display());
+                if auto {
+                    out::say(json, format!("kiln: warning: {msg}"));
+                    results.push(json!({"recipe": r, "tool": tool, "ok": false, "skipped": msg}));
+                    continue;
+                }
+                return Err(CliError::new("not_found", msg).into());
+            }
+        }
+        cmd.arg(verb).arg(&r).arg("--update-manifest");
+        out::say(json, format!("kiln: cooking {} ({tool})", r.display()));
+        let ok = tools::run_passthrough(&mut cmd, json)?.success();
+        all_ok &= ok;
+        results.push(json!({"recipe": r, "tool": tool, "ok": ok, "cooked": true}));
+    }
+    Ok(json!({"ok": all_ok, "recipes": results}))
+}

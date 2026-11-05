@@ -1,0 +1,47 @@
+{
+  "name": "kiln-launcher",
+  "private": true,
+  "version": "0.2.0-dev",
+  "description": "Kiln Launcher: play, configure and administer Enshrouded with Kiln (frontend; backend in src-tauri/)",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "tokens": "bun scripts/gen-tokens.ts",
+    "check:schemas": "bun scripts/check-schemas.ts",
+    "test:smoke": "playwright test",
+    "build:web": "vite build"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-virtual": "^3.14.26",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "buffer": "^6.0.3",
+    "hash-wasm": "4.12.0",
+    "jsonc-parser": "^3.3.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.68.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.5",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@tauri-apps/cli": "^2.12.0",
+    "@types/leaflet": "^1.9.22",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.2.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "bun-types": "^1.4.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

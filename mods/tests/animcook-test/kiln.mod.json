@@ -1,0 +1,10 @@
+{
+  "id": "animcook-test",
+  "name": "animcook lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "AnimcookTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "advanced": true
+}

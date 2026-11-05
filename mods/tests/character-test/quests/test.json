@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "quests": {
+    "errand": {
+      "name": {
+        "en": "Character errand"
+      },
+      "steps": [
+        {
+          "id": "one",
+          "text": {
+            "en": "First"
+          },
+          "objective": {
+            "custom": "character-test.one"
+          }
+        },
+        {
+          "id": "two",
+          "text": {
+            "en": "Second"
+          },
+          "objective": {
+            "custom": "character-test.two"
+          }
+        }
+      ],
+      "journal": "chat"
+    },
+    "world_watch": {
+      "scope": "world",
+      "name": {
+        "en": "The world's watch"
+      },
+      "steps": [
+        {
+          "id": "w",
+          "text": {
+            "en": "Watch"
+          },
+          "objective": {
+            "custom": "character-test.world"
+          }
+        }
+      ],
+      "journal": "chat"
+    }
+  }
+}

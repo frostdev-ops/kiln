@@ -1,0 +1,21 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A Kiln data pack: content/*.json changes the game's items, recipes, loot and drops (kiln.content) and its
+       spells, creatures, buffs, perks and skill nodes (kiln.gamedata). The files apply when the world loads and come off
+       when the mod unloads; editing one re-applies every pack within ~2 s. The small entry class only reports what
+       applied (the loader needs an entry assembly).
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Formats: docs/kiln/services/content.md ("Data packs"), docs/kiln/services/gamedata.md ("Data packs"). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnPack1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnPack1, a Kiln data pack.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <!-- Server-side values only: vanilla players can join. Kiln clients get the changed values through the content sync. -->
+    <KilnSide>server</KilnSide>
+    <KilnServices>Content</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

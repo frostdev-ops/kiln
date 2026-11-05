@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="$(MSBuildThisFileDirectory)Kiln.Mod.targets" />
+  <!-- Development suite (docs/kiln/modding/{analyzers,catalogs}.md): Roslyn analyzers + code fixes (KILN1xx) and the
+       game-id constants generator (Kiln.GameIds) that reads the local game-data catalog. -->
+  <Import Project="$(MSBuildThisFileDirectory)Kiln.Analyzers.targets" Condition="Exists('$(MSBuildThisFileDirectory)Kiln.Analyzers.targets')" />
+  <Import Project="$(MSBuildThisFileDirectory)Kiln.GameIds.targets" Condition="Exists('$(MSBuildThisFileDirectory)Kiln.GameIds.targets')" />
+</Project>

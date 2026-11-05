@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Admin: the server side of external admin tools and of the Kiln
+       Launcher's admin pages. Speaks a file bridge (shroudforge/exports/emberwatch/{requests,results,state.json})
+       and KAP/1 over TCP on 127.0.0.1 (docs/kiln/launcher/admin-protocol.md). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <RootNamespace>Kiln.Admin</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Settings/Kiln.Settings.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Time/Kiln.Time.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Combat/Kiln.Combat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Permissions/Kiln.Permissions.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Network/Kiln.Network.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Creatures/Kiln.Creatures.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Build/Kiln.Build.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Quests/Kiln.Quests.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+{
+  "id": "hooks-test",
+  "name": "kiln.hooks test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "HooksTest.dll",
+  "side": "server",
+  "advanced": true
+}

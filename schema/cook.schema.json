@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cook.schema.json",
+  "title": "Kiln cook recipe (assets/cook.json, impact/cook.json), format 1",
+  "description": "How a mod's game-derived files are made on the player's machine from the installed game (mods ship sources and a recipe, never game data). assets/cook.json holds model steps (tools/modelcook: op model, visual) sound steps (tools/soundcook: op sound, cue, voiceover) and animation steps (tools/animcook: op skeleton, clips, graph); each step's cooker is its own \"tool\", else the file's \"tool\", else modelcook. impact/cook.json (\"tool\": \"impact\") holds Impact programs (tools/impact). Every cooker reads the file with Python's json module: plain JSON, no comments, no trailing commas. Docs: docs/kiln/modding/models.md#cookjson-format-1, docs/kiln/modding/sounds.md, docs/kiln/modding/animations.md, docs/kiln/modding/impact.md.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "format": { "const": 1 },
+    "tool": { "enum": ["modelcook", "soundcook", "animcook", "impact"], "default": "modelcook", "description": "The default cooker of the steps (absent: modelcook)." }
+  },
+  "if": { "properties": { "tool": { "const": "impact" } }, "required": ["tool"] },
+  "then": { "$ref": "#/$defs/impact" },
+  "else": { "$ref": "#/$defs/assetsRecipe" },
+  "$defs": {
+    "guid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", "x-kiln-message": "a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\\\/])(?![A-Za-z]:)[\\s\\S]+$",
+      "x-kiln-message": "a path relative to this recipe",
+      "x-kiln-file": "self"
+    },
+    "game": {
+      "type": "object",
+      "description": "Informational: the side and build the recipe was written on.",
+      "properties": { "side": { "enum": ["client", "server"] }, "madeOn": { "type": "string" } }
+    },
+    "inputRef": { "type": "string", "pattern": "^@.+$", "description": "@<input id>: that input's GUID." },
+    "guidOrInput": { "anyOf": [{ "$ref": "#/$defs/guid" }, { "$ref": "#/$defs/inputRef" }], "x-kiln-message": "a GUID or @<input id>" },
+    "input": {
+      "type": "object",
+      "required": ["guid", "type"],
+      "properties": {
+        "comment": {},
+        "guid": { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"], "x-kiln-ref-missing": "error" },
+        "type": { "type": "string", "minLength": 1 },
+        "part": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "assetsRecipe": {
+      "type": "object",
+      "description": "assets/cook.json: model, sound and animation steps.",
+      "properties": {
+        "format": {},
+        "comment": {},
+        "tool": {},
+        "out": { "type": "string", "minLength": 1, "default": "cooked", "description": "Output folder, relative to cook.json (gitignored)." },
+        "manifest": { "$ref": "#/$defs/path", "default": "assets.json", "description": "soundcook: the kiln.assets manifest it updates." },
+        "mod": { "type": "string", "minLength": 1, "description": "animcook: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json." },
+        "game": { "$ref": "#/$defs/game" },
+        "guidNamespace": { "$ref": "#/$defs/guid", "description": "soundcook: GUIDs of new sounds are UUIDv5(namespace, \"<op>:<name>\"); pick it once, never change it." },
+        "voiceoverFallback": { "anyOf": [{ "$ref": "#/$defs/voLang" }, { "type": "null" }], "description": "soundcook: the mod-wide default for empty voice slots (null / absent: silence, as the game)." },
+        "inputs": {
+          "type": "object",
+          "description": "Vanilla inputs read from the installed game: id -> {guid, type, part}.",
+          "additionalProperties": {
+            "$ref": "#/$defs/input",
+            "properties": {
+              "type": {
+                "enum": ["keen::RenderModel", "keen::ecs::TemplateResource", "keen::RenderMaterialResource", "keen::SoundResource", "keen::SoundContainerResource", "keen::VoiceoverResource", "keen::ModelHierarchyResource", "keen::JointAnimation", "keen::anim_graph::runtime_graph::AnimationGraphResource2_0"],
+                "x-kiln-severity": "warning",
+                "x-kiln-message": "model steps use keen::RenderModel / keen::ecs::TemplateResource / keen::RenderMaterialResource inputs, sound steps keen::SoundResource / SoundContainerResource / VoiceoverResource, animation steps keen::ModelHierarchyResource / JointAnimation / AnimationGraphResource2_0"
+              }
+            }
+          }
+        },
+        "steps": { "type": "array" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "tool": { "const": "animcook" } }, "required": ["tool"] },
+          "then": {
+            "properties": {
+              "steps": {
+                "items": {
+                  "if": { "properties": { "tool": { "const": "modelcook" } }, "required": ["tool"] },
+                  "then": { "$ref": "#/$defs/modelStep" },
+                  "else": {
+                    "if": { "properties": { "tool": { "const": "soundcook" } }, "required": ["tool"] },
+                    "then": { "$ref": "#/$defs/soundStep" },
+                    "else": { "$ref": "#/$defs/animStep" }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "if": { "properties": { "tool": { "const": "soundcook" } }, "required": ["tool"] },
+            "then": {
+              "properties": {
+                "steps": {
+                  "items": {
+                    "if": { "properties": { "tool": { "const": "modelcook" } }, "required": ["tool"] },
+                    "then": { "$ref": "#/$defs/modelStep" },
+                    "else": {
+                      "if": { "properties": { "tool": { "const": "animcook" } }, "required": ["tool"] },
+                      "then": { "$ref": "#/$defs/animStep" },
+                      "else": { "$ref": "#/$defs/soundStep" }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "steps": {
+                  "items": {
+                    "if": { "properties": { "tool": { "const": "soundcook" } }, "required": ["tool"] },
+                    "then": { "$ref": "#/$defs/soundStep" },
+                    "else": {
+                      "if": { "properties": { "tool": { "const": "animcook" } }, "required": ["tool"] },
+                      "then": { "$ref": "#/$defs/animStep" },
+                      "else": { "$ref": "#/$defs/modelStep" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "steps": { "contains": { "type": "object", "required": ["op"], "properties": { "op": { "enum": ["sound", "cue", "voiceover"] } } } } }, "required": ["steps"] },
+          "then": { "required": ["guidNamespace"] }
+        }
+      ],
+      "x-kiln-unknownKeys": "warning"
+    },
+    "stepTool": { "enum": ["modelcook", "soundcook", "animcook"], "description": "This step's cooker (default: the file's tool)." },
+    "modelStep": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": { "enum": ["model", "visual"], "x-kiln-message": "modelcook steps are \"model\" or \"visual\" (a sound step needs \"tool\": \"soundcook\")" },
+        "tool": { "$ref": "#/$defs/stepTool" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "model" } }, "required": ["op"] },
+          "then": {
+            "description": "glTF (+ coarser LOD files) -> <out>/<stem>.bin (RenderModel) + <out>/<stem>.blob (GPU data).",
+            "required": ["gltf", "base"],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "gltf": { "$ref": "#/$defs/path" },
+              "lods": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+              "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+              "base": { "type": "string", "x-kiln-cook-base": "keen::RenderModel" },
+              "guid": { "$ref": "#/$defs/guidOrInput" },
+              "mode": { "enum": ["override", "new"] },
+              "name": { "type": "string" },
+              "stem": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+              "material": { "$ref": "#/$defs/guidOrInput" },
+              "materialMap": { "type": "object", "additionalProperties": { "$ref": "#/$defs/guidOrInput" } }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a model step (modelcook ignores it)"
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "visual" } }, "required": ["op"] },
+          "then": {
+            "description": "A visual template for a new item: a copy of `base` whose ModelResource points at `model`.",
+            "required": ["base", "model", "guid"],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "base": { "type": "string", "x-kiln-cook-base": "keen::ecs::TemplateResource" },
+              "model": { "$ref": "#/$defs/guidOrInput" },
+              "guid": { "$ref": "#/$defs/guidOrInput" },
+              "name": { "type": "string" },
+              "stem": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a visual step (modelcook ignores it)"
+          }
+        }
+      ]
+    },
+    "animClip": {
+      "type": "object",
+      "description": "One clip of a glTF file. Its name is the key; other steps name it by that.",
+      "properties": {
+        "comment": {},
+        "animation": { "type": "string", "description": "The glTF animation's name. Default: the clip's key." },
+        "loop": { "type": "boolean", "default": false },
+        "rootMotion": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "object", "properties": { "joint": { "type": "string" }, "axes": { "type": "string" }, "rotation": { "type": "boolean" } }, "additionalProperties": false }
+          ],
+          "description": "Moves the joint's motion to the entity: true, or {joint (default the root), axes (default xz), rotation}."
+        },
+        "events": {
+          "type": "array",
+          "description": "Timed events inside the clip: {at, sound | vfx | foot: left/right | noise: range, slot, offset, attach, volumeHint}.",
+          "items": {
+            "type": "object",
+            "required": ["at"],
+            "properties": {
+              "comment": {},
+              "at": { "type": "number", "minimum": 0, "description": "Seconds." },
+              "sound": { "$ref": "#/$defs/guidOrInput" },
+              "vfx": { "$ref": "#/$defs/guidOrInput" },
+              "foot": { "enum": ["left", "right"] },
+              "noise": { "type": "number", "minimum": 0, "description": "Metres the AI hears it." },
+              "slot": { "type": "string" },
+              "offset": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+              "attach": { "type": "boolean" },
+              "noiseRange": { "type": "number" },
+              "volumeHint": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "guid": { "$ref": "#/$defs/guidOrInput", "description": "Default: follows from the mod and the clip's name. @input with a game clip overrides it." },
+        "mode": { "enum": ["new", "override"] },
+        "tolerance": { "$ref": "#/$defs/animTolerance" }
+      },
+      "additionalProperties": false
+    },
+    "animTolerance": {
+      "type": "object",
+      "description": "Largest error the key reduction may leave.",
+      "properties": {
+        "rotation": { "type": "number", "exclusiveMinimum": 0, "default": 0.0005, "description": "Quaternion components." },
+        "position": { "type": "number", "exclusiveMinimum": 0, "default": 0.0002, "description": "Metres." },
+        "scale": { "type": "number", "exclusiveMinimum": 0, "default": 0.0005 }
+      },
+      "additionalProperties": false
+    },
+    "animSource": {
+      "type": "object",
+      "description": "What a state or a layer plays: clip, or blend.",
+      "properties": {
+        "clip": { "type": "string", "description": "A clip of this recipe." },
+        "blend": {
+          "type": "object",
+          "required": ["input", "clips"],
+          "properties": {
+            "input": { "type": "string", "description": "moveDirection, hitDirection, leanYaw, leanPitch, lookYaw, lookPitch, targetLookYaw, targetLookPitch, headYaw, headPitch; any other name is this mod's own float input, or 0x<hash>." },
+            "clips": { "type": "object", "description": "Input value -> clip.", "additionalProperties": { "type": "string" } },
+            "circular": { "type": "boolean", "default": true },
+            "smoothing": { "type": "number", "minimum": 0, "default": 0.2 }
+          },
+          "additionalProperties": false
+        },
+        "loop": { "type": "boolean", "description": "Default: the clip's." },
+        "speed": { "type": "number", "exclusiveMinimum": 0, "default": 1 }
+      }
+    },
+    "animStep": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": { "enum": ["skeleton", "clips", "graph"], "x-kiln-message": "animcook steps are \"skeleton\", \"clips\" or \"graph\"" },
+        "tool": { "$ref": "#/$defs/stepTool" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "skeleton" } }, "required": ["op"] },
+          "then": {
+            "description": "A glTF file's skeleton -> <out>/<name>.skeleton.bin (ModelHierarchyResource) and <name>.skeleton.json.",
+            "required": ["name", "gltf"],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "name": { "type": "string", "minLength": 1 },
+              "gltf": { "$ref": "#/$defs/path" },
+              "skin": { "type": "integer", "minimum": 0, "description": "Which skin, when a file has several with different joints." },
+              "root": { "type": "string", "description": "The root joint's node, for a file without a skin." },
+              "guid": { "$ref": "#/$defs/guidOrInput" },
+              "mode": { "enum": ["new", "override"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "clips" } }, "required": ["op"] },
+          "then": {
+            "description": "Animations of a glTF file -> <out>/clip_<name>.bin (JointAnimation), with root motion and events under the same GUID.",
+            "required": ["skeleton", "gltf", "clips"],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "skeleton": { "type": "string", "description": "A skeleton step's name, or @input for a game skeleton (joints named j<index>, as tools/kfc exports them)." },
+              "gltf": { "$ref": "#/$defs/path" },
+              "clips": { "type": "object", "additionalProperties": { "$ref": "#/$defs/animClip" } },
+              "tolerance": { "$ref": "#/$defs/animTolerance" }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "graph" } }, "required": ["op"] },
+          "then": {
+            "description": "States, blends and layers -> <out>/graph_<name>.bin (AnimationGraphResource2_0) and <name>.graph.json. More than 34 states nest by themselves.",
+            "required": ["name", "skeleton"],
+            "anyOf": [ { "required": ["states"] }, { "required": ["raw"] } ],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "name": { "type": "string", "minLength": 1 },
+              "skeleton": { "type": "string" },
+              "guid": { "$ref": "#/$defs/guidOrInput" },
+              "mode": { "enum": ["new", "override"] },
+              "slots": { "type": "object", "description": "keen::AttachmentSlot name -> joint.", "additionalProperties": { "type": "string" } },
+              "entry": { "type": "string", "description": "The first state. Default: the engine's Idle, else the first." },
+              "raw": { "$ref": "#/$defs/path", "description": "A graph as tools/kfc decodes it, for what states cannot say." },
+              "states": {
+                "type": "object",
+                "description": "State name -> what it plays and what enters it.",
+                "additionalProperties": {
+                  "allOf": [ { "$ref": "#/$defs/animSource" } ],
+                  "properties": {
+                    "comment": {},
+                    "engine": { "enum": ["Idle", "Walk", "Run", "Sprint", "IdleCombat", "Fall", "IdleSneak", "Sneak", "Dead", "Stun"], "description": "The state id the engine itself sets." },
+                    "id": { "type": "string", "description": "A given state id: a GUID or 0x<hash>. Default: follows from the mod and the state's name." },
+                    "blendIn": { "type": "number", "minimum": 0, "default": 0.2 },
+                    "restart": { "type": "boolean", "default": true },
+                    "then": { "type": "string", "description": "Moves on to this state by itself when the clip ends." },
+                    "thenBlend": { "type": "number", "minimum": 0 },
+                    "clip": {}, "blend": {}, "loop": {}, "speed": {}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "layers": {
+                "type": "array",
+                "description": "Applied in order over the states: playing always, or when an overlay fires.",
+                "items": {
+                  "required": ["name"],
+                  "allOf": [ { "$ref": "#/$defs/animSource" } ],
+                  "properties": {
+                    "comment": {},
+                    "name": { "type": "string" },
+                    "mode": { "enum": ["additive", "override"], "default": "additive" },
+                    "reference": { "type": "string", "description": "additive: the clip whose pose this one is relative to." },
+                    "weight": { "type": "number", "minimum": 0, "default": 1 },
+                    "bones": { "description": "Joints it affects: a list, or joint -> weight. Default: all.", "type": ["array", "object"] },
+                    "overlay": { "type": "string", "description": "hit (the game's hit flinch), any other name for this mod's own, or 0x<hash>." },
+                    "fadeIn": { "type": "number", "minimum": 0 },
+                    "fadeOut": { "type": "number", "minimum": 0 },
+                    "clip": {}, "blend": {}, "loop": {}, "speed": {}
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "soundName": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,95}$", "x-kiln-message": "a name of letters, digits, _ . - (up to 96; unique per op)" },
+    "positional": {
+      "anyOf": [
+        { "type": "object", "properties": { "min": { "type": "number", "minimum": 0 }, "max": { "type": "number", "minimum": 0 } }, "additionalProperties": false },
+        { "const": false },
+        { "type": "null" }
+      ],
+      "x-kiln-message": "positional: {\"min\": m, \"max\": m}, false or null"
+    },
+    "cueFields": {
+      "description": "Cue fields (tools/soundcook/sndcook/recipe.py CUE_FIELDS).",
+      "properties": {
+        "scene": { "enum": ["Sfx", "Music", "Ui", "Voice"] },
+        "playScene": { "enum": ["Ui", "Game", "Music", "Ambience", "LoreVoiceover"] },
+        "positional": { "$ref": "#/$defs/positional" },
+        "loop": { "type": "boolean" },
+        "loopSameChosenEntry": { "type": "boolean" },
+        "hasRandomPosition": { "type": "boolean" },
+        "muteOnMain": { "type": "boolean" },
+        "gamepadSpeaker": { "type": "boolean" },
+        "gamepadVibration": { "type": "boolean" },
+        "useMaxCountLimiting": { "type": "boolean" },
+        "volume": { "type": "number" },
+        "volumeRandomness": { "type": "number" },
+        "pitch": { "type": "number" },
+        "pitchRandomness": { "type": "number" },
+        "randomLeftRight": { "type": "number" },
+        "randomFrontBack": { "type": "number" },
+        "gamepadSpeakerVolume": { "type": "number" },
+        "gamepadVibrationIntensity": { "type": "number" },
+        "sleep": { "type": "number", "minimum": 0, "description": "Seconds." },
+        "sleepRandomness": { "type": "number", "minimum": 0, "description": "Seconds." },
+        "avoidRepeatingLastX": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "maxCount": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "stealingMode": { "enum": ["Oldest", "Furthest", "Ignore"] }
+      }
+    },
+    "cueObject": { "type": "object", "$ref": "#/$defs/cueFields", "additionalProperties": false, "properties": { "scene": {}, "playScene": {}, "positional": {}, "loop": {}, "loopSameChosenEntry": {}, "hasRandomPosition": {}, "muteOnMain": {}, "gamepadSpeaker": {}, "gamepadVibration": {}, "useMaxCountLimiting": {}, "volume": {}, "volumeRandomness": {}, "pitch": {}, "pitchRandomness": {}, "randomLeftRight": {}, "randomFrontBack": {}, "gamepadSpeakerVolume": {}, "gamepadVibrationIntensity": {}, "sleep": {}, "sleepRandomness": {}, "avoidRepeatingLastX": {}, "maxCount": {}, "priority": {}, "stealingMode": {} } },
+    "sourceOpts": {
+      "properties": {
+        "channels": { "enum": ["mono", "stereo", "keep"] },
+        "gain": { "type": "number" },
+        "normalize": { "type": "number", "description": "Loudness target in LUFS (e.g. -24)." },
+        "start": { "type": "number", "minimum": 0 },
+        "end": { "type": "number", "minimum": 0 }
+      },
+      "not": { "required": ["gain", "normalize"] },
+      "x-kiln-message": "gain and normalize exclude each other"
+    },
+    "take": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "object", "required": ["sound"], "properties": { "sound": { "type": "string", "minLength": 1 }, "chance": { "type": "number", "minimum": 0 } }, "additionalProperties": false }
+      ],
+      "x-kiln-message": "a take is a sound name, @input, a GUID or {\"sound\": ..., \"chance\": c}"
+    },
+    "voLang": {
+      "type": "string",
+      "pattern": "^([Ee][Nn]|[Dd][Ee]|[Ff][Rr]|[Ee][Ss]|[Zz][Hh])([_-][A-Za-z]{2})?$|^([Ee]nglish|[Gg]erman|[Ff]rench|[Ss]panish|[Cc]hinese)$",
+      "x-kiln-message": "a voice-over language: en, de, fr, es, zh (or En_Us, De_De, Fr_Fr, Es_Es, Zh_Cn)"
+    },
+    "soundStep": {
+      "type": "object",
+      "required": ["op", "name"],
+      "properties": {
+        "op": { "enum": ["sound", "cue", "voiceover"], "x-kiln-message": "soundcook steps are \"sound\", \"cue\" or \"voiceover\" (a model step needs \"tool\": \"modelcook\")" },
+        "tool": { "$ref": "#/$defs/stepTool" },
+        "name": { "$ref": "#/$defs/soundName" },
+        "comment": {},
+        "guid": { "$ref": "#/$defs/guidOrInput" },
+        "mode": { "enum": ["new", "override"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "sound" } }, "required": ["op"] },
+          "then": {
+            "required": ["src"],
+            "allOf": [{ "$ref": "#/$defs/sourceOpts" }],
+            "properties": {
+              "op": {}, "tool": {}, "name": {}, "comment": {}, "guid": {}, "mode": {},
+              "src": { "$ref": "#/$defs/path", "description": "A WAV, FLAC, Ogg Vorbis or MP3 file (the format is read from its content); may use ../audio/..." },
+              "channels": {}, "gain": {}, "normalize": {}, "start": {}, "end": {},
+              "debugName": { "type": "string" },
+              "cue": { "anyOf": [{ "const": true }, { "$ref": "#/$defs/cueObject" }, { "type": "null" }], "x-kiln-message": "cue: true or an object of cue fields" }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "cue" } }, "required": ["op"] },
+          "then": {
+            "anyOf": [{ "required": ["sounds"] }, { "required": ["base"] }],
+            "x-kiln-message": "a cue needs \"sounds\" (or \"base\": a vanilla cue input)",
+            "allOf": [{ "$ref": "#/$defs/cueFields" }],
+            "properties": {
+              "op": {}, "tool": {}, "name": {}, "comment": {}, "guid": {}, "mode": {},
+              "sounds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/take" } },
+              "addSounds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/take" } },
+              "base": { "type": "string", "x-kiln-cook-base": "keen::SoundContainerResource" },
+              "scene": {}, "playScene": {}, "positional": {}, "loop": {}, "loopSameChosenEntry": {}, "hasRandomPosition": {}, "muteOnMain": {}, "gamepadSpeaker": {}, "gamepadVibration": {}, "useMaxCountLimiting": {}, "volume": {}, "volumeRandomness": {}, "pitch": {}, "pitchRandomness": {}, "randomLeftRight": {}, "randomFrontBack": {}, "gamepadSpeakerVolume": {}, "gamepadVibrationIntensity": {}, "sleep": {}, "sleepRandomness": {}, "avoidRepeatingLastX": {}, "maxCount": {}, "priority": {}, "stealingMode": {}
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "voiceover" } }, "required": ["op"] },
+          "then": {
+            "anyOf": [{ "required": ["languages"] }, { "required": ["base"] }],
+            "x-kiln-message": "a voice-over needs \"languages\" (or \"base\": a vanilla voice-over input)",
+            "allOf": [{ "$ref": "#/$defs/cueFields" }, { "$ref": "#/$defs/sourceOpts" }],
+            "properties": {
+              "op": {}, "tool": {}, "name": {}, "comment": {}, "guid": {}, "mode": {},
+              "languages": {
+                "type": "object",
+                "propertyNames": { "$ref": "#/$defs/voLang" },
+                "additionalProperties": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "anyOf": [
+                      { "$ref": "#/$defs/path" },
+                      { "type": "object", "required": ["src"], "allOf": [{ "$ref": "#/$defs/sourceOpts" }], "properties": { "src": { "$ref": "#/$defs/path" }, "channels": {}, "gain": {}, "normalize": {}, "start": {}, "end": {} }, "additionalProperties": false }
+                    ],
+                    "x-kiln-message": "a path or {src, channels, gain, normalize, start, end}"
+                  }
+                }
+              },
+              "fallback": { "anyOf": [{ "$ref": "#/$defs/voLang" }, { "type": "null" }], "description": "The language whose takes fill empty slots; null: silence (absent: the file's voiceoverFallback)." },
+              "narration": { "type": "boolean" },
+              "subtitles": { "type": "object", "additionalProperties": { "type": "string" } },
+              "cue": { "$ref": "#/$defs/cueObject" },
+              "languageCue": { "type": "object", "propertyNames": { "$ref": "#/$defs/voLang" }, "additionalProperties": { "$ref": "#/$defs/cueObject" } },
+              "channels": {}, "gain": {}, "normalize": {},
+              "base": { "type": "string", "x-kiln-cook-base": "keen::VoiceoverResource" },
+              "scene": {}, "playScene": {}, "positional": {}, "loop": {}, "loopSameChosenEntry": {}, "hasRandomPosition": {}, "muteOnMain": {}, "gamepadSpeaker": {}, "gamepadVibration": {}, "useMaxCountLimiting": {}, "volume": {}, "volumeRandomness": {}, "pitch": {}, "pitchRandomness": {}, "randomLeftRight": {}, "randomFrontBack": {}, "gamepadSpeakerVolume": {}, "gamepadVibrationIntensity": {}, "sleep": {}, "sleepRandomness": {}, "avoidRepeatingLastX": {}, "maxCount": {}, "priority": {}, "stealingMode": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "anchor": {
+      "type": "object",
+      "description": "{\"native\": \"getSelf\", \"nth\": 0, \"section\": \"code\"}, {\"pc\": 13}, or {\"label\": \"start\"|\"end\"}.",
+      "properties": {
+        "native": { "type": "string" },
+        "nth": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "const": "all" }] },
+        "pc": { "type": "integer", "minimum": 0 },
+        "label": { "enum": ["start", "end"] },
+        "section": { "enum": ["code", "shutdown"] }
+      },
+      "minProperties": 1
+    },
+    "code": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "object", "required": ["file"], "properties": { "file": { "$ref": "#/$defs/path" } } }
+      ]
+    },
+    "edit": {
+      "type": "object",
+      "description": "tools/impact/impact/patch.py: set, config, var, swap, insert, replace, remove, streams, stack.",
+      "properties": {
+        "comment": {},
+        "set": { "type": "string" }, "value": {},
+        "config": { "type": "string" }, "id": {},
+        "var": { "type": "string" },
+        "swap": { "type": "string" }, "with": { "type": "string" }, "nth": {}, "section": { "enum": ["code", "shutdown"] },
+        "insert": { "$ref": "#/$defs/code" }, "before": { "$ref": "#/$defs/anchor" }, "after": { "$ref": "#/$defs/anchor" },
+        "replace": { "$ref": "#/$defs/anchor" }, "code": { "$ref": "#/$defs/code" },
+        "remove": { "$ref": "#/$defs/anchor" },
+        "streams": { "type": "string" },
+        "stack": { "type": "integer", "minimum": 1 }
+      },
+      "anyOf": [
+        { "required": ["set", "value"] }, { "required": ["config"] }, { "required": ["var"] }, { "required": ["swap", "with"] },
+        { "required": ["insert"], "anyOf": [{ "required": ["before"] }, { "required": ["after"] }] },
+        { "required": ["replace", "code"] }, { "required": ["remove"] }, { "required": ["streams"] }, { "required": ["stack"] }
+      ],
+      "x-kiln-message": "an edit is one of {set, value}, {config}, {var}, {swap, with}, {insert, before|after}, {replace, code}, {remove}, {streams}, {stack}",
+      "x-kiln-unknownKeys": "warning"
+    },
+    "impact": {
+      "type": "object",
+      "description": "impact/cook.json: Impact programs (tools/impact).",
+      "required": ["tool"],
+      "properties": {
+        "format": {},
+        "comment": {},
+        "tool": { "const": "impact" },
+        "out": { "type": "string", "minLength": 1, "default": "../assets/cooked/impact" },
+        "manifest": { "$ref": "#/$defs/path", "default": "../assets/assets.json", "description": "The kiln.assets manifest that serves the outputs." },
+        "natives": { "type": "array", "items": { "$ref": "#/$defs/path" }, "description": "Kiln natives the programs call (impact/natives.json)." },
+        "game": { "$ref": "#/$defs/game" },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/input", "properties": { "type": { "const": "keen::ImpactProgram", "x-kiln-message": "tools/impact inputs are keen::ImpactProgram resources" } } }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["op", "stem"],
+            "properties": { "op": { "enum": ["assemble", "clone"] }, "stem": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.-]+$" } },
+            "allOf": [
+              {
+                "if": { "properties": { "op": { "const": "assemble" } }, "required": ["op"] },
+                "then": {
+                  "required": ["src"],
+                  "properties": {
+                    "op": {}, "stem": {}, "comment": {},
+                    "src": { "$ref": "#/$defs/path", "pattern": "\\.kimp$" },
+                    "guid": { "$ref": "#/$defs/guid" },
+                    "mode": { "enum": ["override", "new"] }
+                  },
+                  "x-kiln-unknownKeys": "warning"
+                }
+              },
+              {
+                "if": { "properties": { "op": { "const": "clone" } }, "required": ["op"] },
+                "then": {
+                  "required": ["base", "guid"],
+                  "properties": {
+                    "op": {}, "stem": {}, "comment": {},
+                    "base": { "type": "string", "x-kiln-cook-base": "keen::ImpactProgram" },
+                    "guid": { "$ref": "#/$defs/guid" },
+                    "edits": { "type": "array", "items": { "$ref": "#/$defs/edit" } },
+                    "keepSites": { "type": "boolean" },
+                    "mode": { "enum": ["override", "new"] }
+                  },
+                  "x-kiln-unknownKeys": "warning"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "x-kiln-unknownKeys": "warning"
+    }
+  }
+}

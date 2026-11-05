@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Analyzers: Roslyn analyzers for Kiln mods (KILN1xx, docs/kiln/modding/analyzers.md). Compiler-only
+       references (netstandard2.0, Microsoft.CodeAnalysis.CSharp); the code fixes live in CodeFixes/ (a second
+       assembly that also needs Workspaces, so the command-line compiler never has to load Workspaces). Shipped inside
+       the Kiln.Sdk package (analyzers/dotnet/cs/) and wired by managed/Kiln.Sdk/Sdk/Kiln.Analyzers.targets.
+       KilnApis.g.cs is generated from Kiln's sources by ../../tools/gen-apis.sh. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>Kiln.Analyzers</AssemblyName>
+    <RootNamespace>Kiln.Analyzers</RootNamespace>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DefaultItemExcludes>$(DefaultItemExcludes);CodeFixes/**</DefaultItemExcludes>
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+    <InternalsVisibleTo Include="Kiln.Analyzers.CodeFixes" />
+    <InternalsVisibleTo Include="Kiln.Analyzers.Tests" />
+  </ItemGroup>
+</Project>

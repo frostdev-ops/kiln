@@ -1,0 +1,207 @@
+{
+ "format": 1,
+ "comment": "SkillTreeSample. gameTree: two nodes in the game's own tree, after the Mage Intelligence node 0xcfa5985b at the tree's right edge (its program's AttributeReference is Intelligence; Ember Ward copies it and raises the amount to 2). trees: a Kiln talent tree. Fixed GUIDs and ids: saved unlocks keep them; never change a released one.",
+ "gameTree": {
+  "nodes": [
+   {
+    "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+    "name": "skilltreesample_ember_ward",
+    "type": "Attribute",
+    "class": "Mage",
+    "like": "0xcfa5985b",
+    "from": [
+     "0xcfa5985b"
+    ],
+    "offset": [
+     170,
+     -40
+    ],
+    "cost": 1,
+    "configs": {
+     "0x0a0c87e7": 2
+    },
+    "texts": {
+     "en": {
+      "name": "Ember Ward",
+      "description": "+2 Intelligence."
+     },
+     "de": {
+      "name": "Glutwehr",
+      "description": "+2 Intelligenz."
+     }
+    }
+   },
+   {
+    "guid": "4f307b2c-8d59-4ea6-b2f4-6cad1e8f9032",
+    "name": "skilltreesample_emberheart",
+    "class": "Mage",
+    "like": "0xa598792e",
+    "maxLevel": 3,
+    "from": [
+     "skilltreesample_ember_ward"
+    ],
+    "offset": [
+     150,
+     0
+    ],
+    "cost": 1,
+    "texts": {
+     "en": {
+      "name": "Emberheart",
+      "description": "The embers answer you.",
+      "perLevel": "More with every level."
+     },
+     "de": {
+      "name": "Glutherz",
+      "description": "Die Glut antwortet dir.",
+      "perLevel": "Mehr mit jeder Stufe."
+     }
+    }
+   }
+  ]
+ },
+ "trees": [
+  {
+   "id": "skilltreesample:ember",
+   "name": {
+    "en": "Ember Arts",
+    "de": "Glutkünste"
+   },
+   "description": {
+    "en": "Talents of the flame. 1 point, and 1 more per level.",
+    "de": "Talente der Flamme. 1 Punkt, und 1 mehr pro Stufe."
+   },
+   "points": {
+    "start": 1,
+    "perLevel": 1
+   },
+   "menu": {
+    "en": "Ember Arts",
+    "de": "Glutkünste"
+   },
+   "key": "K",
+   "nodes": [
+    {
+     "id": "kindle",
+     "name": {
+      "en": "Kindle",
+      "de": "Entfachen"
+     },
+     "description": {
+      "en": "+1 Intelligence per level.",
+      "de": "+1 Intelligenz pro Stufe."
+     },
+     "col": 1,
+     "row": 0,
+     "cost": 1,
+     "maxLevel": 3,
+     "icon": "icons/kindle.png",
+     "effects": [
+      {
+       "attribute": "Intelligence",
+       "amount": 1
+      }
+     ]
+    },
+    {
+     "id": "hearth",
+     "name": {
+      "en": "Hearth",
+      "de": "Herd"
+     },
+     "description": {
+      "en": "+2 Spirit.",
+      "de": "+2 Willenskraft."
+     },
+     "col": 0,
+     "row": 1,
+     "cost": 1,
+     "requires": [
+      "kindle"
+     ],
+     "icon": "icons/hearth.png",
+     "effects": [
+      {
+       "attribute": "Spirit",
+       "amount": 2
+      }
+     ]
+    },
+    {
+     "id": "skin",
+     "name": {
+      "en": "Ember Skin",
+      "de": "Gluthaut"
+     },
+     "description": {
+      "en": "The game's Spirit-scaled passive (a node of its own tree), for this tree.",
+      "de": "Die passive Fähigkeit des Spiels (ein Knoten seines Baums), für diesen Baum."
+     },
+     "col": 2,
+     "row": 1,
+     "cost": 2,
+     "requires": [
+      "kindle"
+     ],
+     "icon": "icons/skin.png",
+     "effects": [
+      {
+       "gameNode": "0xa598792e"
+      }
+     ]
+    },
+    {
+     "id": "step",
+     "name": {
+      "en": "Flame Step",
+      "de": "Flammenschritt"
+     },
+     "description": {
+      "en": "+1 Dexterity. Needs 3 points in this tree.",
+      "de": "+1 Geschick. Braucht 3 Punkte in diesem Baum."
+     },
+     "col": 1,
+     "row": 2,
+     "cost": 1,
+     "requires": [
+      "hearth",
+      "skin"
+     ],
+     "pointsSpent": 3,
+     "icon": "icons/step.png",
+     "effects": [
+      {
+       "attribute": "Dexterity",
+       "amount": 1
+      }
+     ]
+    },
+    {
+     "id": "core",
+     "name": {
+      "en": "Ember Core",
+      "de": "Glutkern"
+     },
+     "description": {
+      "en": "+2 Constitution. Needs character level 10.",
+      "de": "+2 Konstitution. Braucht Stufe 10."
+     },
+     "col": 1,
+     "row": 3,
+     "cost": 2,
+     "requires": [
+      "step"
+     ],
+     "level": 10,
+     "icon": "icons/core.png",
+     "effects": [
+      {
+       "attribute": "Constitution",
+       "amount": 2
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b",
+  "installed": "2026-11-04T12:00:00Z",
+  "installer": "kiln-launcher 0.2.0-dev",
+  "runtime": { "version": "0.2.0-dev+20261104.0f1ffa6", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "components": ["core", "emf"] },
+  "side": "client",
+  "platform": "proton",
+  "game": { "exe": "enshrouded.exe", "sha256": "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618", "steamBuild": "26404966" },
+  "files": [
+    { "path": "dinput8.dll", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "size": 18944, "component": "core" },
+    { "path": "kiln/kiln-core.dll", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "size": 912384, "component": "core" }
+  ],
+  "replaced": [
+    { "path": "dinput8.dll", "sha256": "7777777777777777777777777777777777777777777777777777777777777777", "size": 241664, "class": "emf", "action": "chained", "chainPath": "kiln/chain/emf-dinput8.dll", "backup": "kiln/backups/install-20261104T120000Z/dinput8.dll" }
+  ]
+}

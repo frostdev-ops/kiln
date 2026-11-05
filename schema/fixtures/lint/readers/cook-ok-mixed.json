@@ -1,0 +1,26 @@
+{
+ "format": 1,
+ "inputs": {
+  "m": {
+   "guid": "c1d2e3f4-0000-4000-8000-000000000001",
+   "type": "keen::RenderModel"
+  }
+ },
+ "guidNamespace": "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
+ "steps": [
+  {
+   "op": "model",
+   "gltf": "src/x.gltf",
+   "base": "m",
+   "guid": "@m",
+   "mode": "override",
+   "stem": "x"
+  },
+  {
+   "tool": "soundcook",
+   "op": "sound",
+   "name": "s",
+   "src": "s.wav"
+  }
+ ]
+}

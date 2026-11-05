@@ -1,0 +1,114 @@
+[I 00:00:00,027] 
+[I 00:03:40,787] [online] Session accepted with peer (steamid:76561190000000001)
+[I 00:03:40,787] [online] Added peer 0(1) (steamid:76561190000000001)
+[E 00:03:41,053] [online] Begin auth session with peer 0(1)
+[I 00:03:42,266] [online] Client '76561190000000001' authenticated by steam
+[W 00:03:42,550] [session] Unable to find machine for peer 0(1).
+[W 00:03:42,550] [session] Unable to find machine for peer 0(1).
+[I 00:03:42,551] [session] Add remote machine index 1 (id: 3170973623).
+[I 00:03:42,551] [SessionPlayer] started transition from 'Free' to 'Remote_InSession' (current='<invalid>')!
+[I 00:03:42,551] [session] Remote player added. Player handle: 0(0)
+[I 00:03:42,551] [SessionPlayer] 'Reserve' (up)!
+[I 00:03:42,551] [SessionPlayer] 'WaitForJoin' (up)!
+[I 00:03:42,551] [SessionPlayer] finished transition from 'Free' to 'Remote_InSession' (current='Remote_InSession')!
+[I 00:03:42,571] [session] Setting block mask of client 0(0) to 00000001:00000000
+[I 00:03:42,571] [session] Sending new communication allowed mask 00000001 to player 0(0)
+[I 00:03:42,642] [Server] Creating player knowledge replication state for player index 0
+[I 00:03:47,632] [server] Machine '1': Player '0(0)' logged in
+[I 00:03:47,634] [server] Player 'Alder' logged in with Permissions:
+[I 00:03:47,634] 	 - CanKickBan
+[I 00:03:47,634] 	 - CanAccessInventories
+[I 00:03:47,634] 	 - CanEditBase
+[I 00:03:47,634] 	 - CanEditWorld
+[I 00:03:47,634] 	 - CanExtendBase
+[I 00:03:47,634] 	 - CanReceiveEXP
+[I 00:03:47,634] 
+[I 00:03:47,665] [ecss] Replication Checkpoint 1 Set for Player 0 in Tick 13,626
+[I 00:03:48,364] [ecss] Replication Checkpoint 2 Set for Player 0 in Tick 13,668
+[I 00:03:48,512] [ecss] Replication Checkpoint Reached for Player 0 in Tick 13,677
+[I 00:04:19,379] [ecss] Replication Checkpoint 1 Set for Player 0 in Tick 15,529
+[I 00:04:19,393] Player EntityId 1 teleported From (3551.475830, 933.999939, 4283.511719) to (3203.713867, 2556.000000, 4575.930664)
+[I 00:04:19,981] [ecss] Replication Checkpoint 2 Set for Player 0 in Tick 15,565
+[I 00:04:20,116] [ecss] Replication Checkpoint Reached for Player 0 in Tick 15,573
+[I 00:04:51,445] [ecss] Replication Checkpoint 1 Set for Player 0 in Tick 17,453
+[I 00:04:51,462] Player EntityId 1 teleported From (3213.280762, 2261.775146, 4587.896484) to (3203.713867, 897.049988, 4575.930664)
+[I 00:04:51,996] [ecss] Replication Checkpoint 2 Set for Player 0 in Tick 17,486
+[I 00:04:52,115] [ecss] Replication Checkpoint Reached for Player 0 in Tick 17,493
+[I 00:12:49,023] [online] Session accepted with peer (steamid:76561190000000002)
+[I 00:12:49,023] [online] Added peer 1(1) (steamid:76561190000000002)
+[E 00:12:49,256] [online] Begin auth session with peer 1(1)
+[I 00:12:50,452] [online] Client '76561190000000002' authenticated by steam
+[W 00:12:50,750] [session] Unable to find machine for peer 1(1).
+[W 00:12:50,750] [session] Unable to find machine for peer 1(1).
+[I 00:12:50,750] [session] Add remote machine index 2 (id: 1828841281).
+[I 00:12:50,750] [SessionPlayer] started transition from 'Free' to 'Remote_InSession' (current='<invalid>')!
+[I 00:12:50,750] [session] Remote player added. Player handle: 1(1)
+[I 00:12:50,750] [SessionPlayer] 'Reserve' (up)!
+[I 00:12:50,750] [SessionPlayer] 'WaitForJoin' (up)!
+[I 00:12:50,750] [SessionPlayer] finished transition from 'Free' to 'Remote_InSession' (current='Remote_InSession')!
+[I 00:12:50,770] [session] Setting block mask of client 1(1) to 00000003:00000000
+[I 00:12:50,770] [session] Sending new communication allowed mask 00000002 to player 1(1)
+[I 00:12:50,775] [session] Setting block mask of client 0(0) to 00000003:00000000
+[I 00:12:50,775] [session] Sending new communication allowed mask 00000003 to player 0(0)
+[I 00:12:50,775] [session] Sending new communication allowed mask 00000003 to player 1(1)
+[I 00:12:50,827] [Server] Creating player knowledge replication state for player index 1
+[I 00:12:55,447] [server] Machine '2': Player '1(1)' logged in
+[I 00:12:55,449] [server] Player 'Birch' logged in with Permissions:
+[I 00:12:55,449] 	 - CanKickBan
+[I 00:12:55,449] 	 - CanAccessInventories
+[I 00:12:55,449] 	 - CanEditBase
+[I 00:12:55,449] 	 - CanEditWorld
+[I 00:12:55,449] 	 - CanExtendBase
+[I 00:12:55,449] 	 - CanReceiveEXP
+[I 00:12:55,449] 
+[I 00:12:55,481] [ecss] Replication Checkpoint 1 Set for Player 1 in Tick 46,495
+[I 00:12:56,264] [ecss] Replication Checkpoint 2 Set for Player 1 in Tick 46,542
+[I 00:12:56,397] [ecss] Replication Checkpoint Reached for Player 1 in Tick 46,550
+[I 00:13:44,880] [ecss] Replication Checkpoint 1 Set for Player 1 in Tick 49,459
+[I 00:13:44,894] Player EntityId 2 teleported From (3532.938232, 932.077759, 4271.059570) to (3214.615479, 2556.000000, 4576.770508)
+[I 00:13:45,447] [ecss] Replication Checkpoint 2 Set for Player 1 in Tick 49,493
+[I 00:13:45,597] [ecss] Replication Checkpoint Reached for Player 1 in Tick 49,502
+[I 00:14:16,945] [ecss] Replication Checkpoint 1 Set for Player 1 in Tick 51,383
+[I 00:14:16,960] Player EntityId 2 teleported From (3214.615479, 2262.608887, 4576.770508) to (3214.615479, 900.753906, 4576.770508)
+[I 00:14:17,496] [ecss] Replication Checkpoint 2 Set for Player 1 in Tick 51,416
+[I 00:14:17,612] [ecss] Replication Checkpoint Reached for Player 1 in Tick 51,423
+[I 00:22:23,167] [save2] Server sent final client save for 0(0).
+[I 00:22:23,197] [save2] Received final savegame ack from 0(0)
+[I 00:22:23,199] [server] Remove Entity for Player 'Alder'
+[I 00:22:23,200] [server] Remove Player 'Alder'
+[I 00:22:23,200] [Server] Destroying player knowledge replication state for player index 0
+[I 00:22:23,275] [online] Disconnecting peer 0(1)
+[I 00:22:23,275] [online] Removed peer 0(1)
+[W 00:22:23,280] [session] Remove player from session. Not found in online game info. Player Handle: 0(0) 
+[I 00:22:23,280] [SessionPlayer] started transition from 'Remote_InSession' to 'Free' (current='<invalid>')!
+[I 00:22:23,280] [SessionPlayer] 'WaitForJoin' (down)!
+[I 00:22:23,280] [session] Player removed. Player handle: 0(0)
+[I 00:22:23,280] [SessionPlayer] 'Reserve' (down)!
+[I 00:22:23,280] [SessionPlayer] finished transition from 'Remote_InSession' to 'Free' (current='Free')!
+[I 00:22:23,300] [session] Setting block mask of client 1(1) to 00000002:00000000
+[I 00:22:23,300] [session] Sending new communication allowed mask 00000002 to player 1(1)
+[I 00:23:22,356] [game_server] Switching state from Run to Shutdown after 1390.81 s
+[I 00:23:22,367] [save2] Server sent final client save for 1(1).
+[I 00:23:22,385] [save2] Received final savegame ack from 1(1)
+[I 00:23:22,386] [server] Remove Entity for Player 'Birch'
+[I 00:23:22,386] [server] Send Shutdown Message to Player 'Birch'
+[I 00:23:22,387] [server] Remove Player 'Birch'
+[I 00:23:22,387] [Server] Destroying player knowledge replication state for player index 1
+[I 00:23:22,706] [Session] started transition from 'Host_Online' to 'Lobby' (current='<invalid>')!
+[I 00:23:22,706] [online] Removing all peers
+[I 00:23:22,706] [online] Removed peer 1(1)
+[I 00:23:22,706] [online] Removing all peers
+[I 00:23:22,713] [SessionPlayer] started transition from 'Remote_InSession' to 'Free' (current='<invalid>')!
+[I 00:23:22,722] 
+[I 00:23:22,723] 
+[I 00:23:22,725] 
+[I 00:23:22,725] 
+[I 00:23:22,727] 
+[I 00:23:22,727] 
+[I 00:23:22,729] 
+[I 00:23:22,730] 
+[I 00:23:22,730] [SessionPlayer] 'WaitForJoin' (down)!
+[I 00:23:22,730] [session] Player removed. Player handle: 1(1)
+[I 00:23:22,730] [SessionPlayer] 'Reserve' (down)!
+[I 00:23:22,730] [SessionPlayer] finished transition from 'Remote_InSession' to 'Free' (current='Free')!
+[I 00:23:22,836] [online] Removing all peers

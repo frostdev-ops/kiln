@@ -1,0 +1,9 @@
+{
+  "id": "skills-slot-test",
+  "name": "Kiln test: one small mod that takes a native slot from a bigger one",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SkillsSlotTest.dll",
+  "side": "both",
+  "clients": "mod"
+}

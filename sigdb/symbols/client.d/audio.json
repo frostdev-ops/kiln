@@ -1,0 +1,261 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.audio on the game client (enshrouded.exe 26430625 / svn 1287369). Evidence: docs/re/audio.md section 3, docs/kiln/services/audio.md. Keen's sound system (SoundSystem at app+0x21f80) plays a SoundContainerResource GUID in a scene: SoundStart(sys, 0, scene, &guid, &PlayParams{u64 0, i64 x/y/z 32.32 m, f32 volume, u8, u8 flags}) -> u32 instance id (index 20 bits, generation 12 bits; 0 = failed); SoundStop(sys, inst, fadeNs), SoundSetVolume(sys, inst, f32 0..1, fadeNs), SoundSetPosition(sys, inst, const i64[3]*), SoundIsPlaying(sys, inst) = the instance still exists (all four go through the instance lookup InstanceLookup(sys, inst)). SoundScenesInit(table, sys, reverb) runs once at start-up from the client state machine and fills table u32 scene[7] (keen::SoundSceneType Music, Ui, Game, Ambience, CharacterCreation, GlobalVoicechat, LoreVoiceover) and listener[7] at +0x1c. The voice-over manager (one per client game): VoiceoverRequest(mgr, &voGuid, speakerEntity, languageHint) sets the pending line (+vo.pending GUID, +vo.speaker, +vo.start); VoiceoverUpdate(mgr) (every frame, main thread) stops the old line and starts the new one in scene +vo.scene at +vo.position with volume +vo.volume, picking languages[slot of +vo.language]; VoiceoverSetPosition(mgr, const i64[3]*); VoiceoverLorePush(mgr, &voGuid, nameLoca, descriptionLoca, u16 version) is the lore (narration) queue push of the LoreVoiceover program (queue of 0x48-byte entries at +0x60, count byte +vo.lore_count, mode byte +vo.lore_mode: 0 play now, 1 queue, else drop; the head entry plays in scene +vo.lore_scene). SoundIsPlaying has no unique body (four 0x14-byte twins), so it is captured from its callers.",
+  "constants": {
+    "audio/vo.language": {
+      "min_votes": 2
+    },
+    "audio/vo.start": {
+      "min_votes": 1
+    },
+    "audio/vo.speaker": {
+      "min_votes": 1
+    },
+    "audio/vo.pending": {
+      "min_votes": 1
+    },
+    "audio/vo.playing": {
+      "min_votes": 1
+    },
+    "audio/vo.instance": {
+      "min_votes": 1
+    },
+    "audio/vo.sys": {
+      "min_votes": 2
+    },
+    "audio/vo.scene": {
+      "min_votes": 1
+    },
+    "audio/vo.volume": {
+      "min_votes": 2
+    },
+    "audio/vo.position": {
+      "min_votes": 1
+    },
+    "audio/vo.lore_count": {
+      "min_votes": 1
+    },
+    "audio/vo.lore_mode": {
+      "min_votes": 1
+    },
+    "audio/vo.lore_stride": {
+      "value": 72
+    },
+    "audio/vo.lore_max": {
+      "value": 16
+    },
+    "audio/vo.lore_scene": {
+      "min_votes": 1
+    },
+    "audio/vo.lore_head_playing": {
+      "min_votes": 1
+    },
+    "audio/vo.lore_head_instance": {
+      "min_votes": 1
+    }
+  },
+  "symbols": {
+    "audio/SoundStart": {
+      "find": [
+        {
+          "pattern": "44 89 44 24 18 55 57 41 56 48 81 EC 80 00 00 00 41 8B D0 49 8B F9 48 8B E9 E8 ?? ?? ?? ?? 48 85 C0 75"
+        }
+      ]
+    },
+    "@audio/SoundStart.resolve": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "audio/SoundStart",
+            "size": 768
+          },
+          "pattern": "48 8B 95 18 01 00 00 C7 44 24 38 0C 64 57 F2 0F 11 44 24 48"
+        }
+      ]
+    },
+    "audio/SoundStop": {
+      "find": [
+        {
+          "pattern": "48 89 74 24 20 55 57 41 56 48 8D AC 24 40 FE FF FF 48 81 EC C0 02 00 00 49 8B F8 4C 8B F1 E8 {audio/InstanceLookup:rel32} 48 8B F0 48 85 C0"
+        }
+      ]
+    },
+    "audio/SoundSetVolume": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 20 4D 8B D9 48 8B D9 E8 {audio/InstanceLookup:rel32} 48 85 C0 74 ?? 83 78 ?? 00 F3 0F 11 50 ?? 74 ?? F3 0F 59 50"
+        }
+      ]
+    },
+    "audio/SoundSetPosition": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 49 8B F0 48 8B F9 E8 {audio/InstanceLookup:rel32} 48 8B D8 48 85 C0 74 ?? 0F 10 06 8B 50 ?? 4C 8B C6 48 8B CF 0F 11 40 ?? F2 0F 10 4E 10 F2 0F 11 48"
+        }
+      ]
+    },
+    "@audio/fx.is_playing": {
+      "find": [
+        {
+          "pattern": "41 8B 97 ?? ?? 00 00 49 8B 4D 10 E8 {audio/SoundIsPlaying:rel32} 84 C0 75 ?? 41 38 B7"
+        }
+      ]
+    },
+    "audio/SoundScenesInit": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 56 41 57 48 81 EC ?? 00 00 00 48 8B EA 0F 29 70 ?? 41 B9 08 00 00 00 0F 29 78 ?? 41 8B D8 4C 8B F1 45 33 FF 45 8B C1 48 8B CD 44 89 7C 24 20 33 D2 E8 ?? ?? ?? ?? 41 B9 80 00 00 00 41 89 06"
+        }
+      ]
+    },
+    "audio/VoiceoverRequest": {
+      "find": [
+        {
+          "pattern": "4C 8B D1 45 84 C9 74 ?? 8B 81 {audio/vo.language:d32} 83 F8 01 75 ?? 44 3A C8 74"
+        }
+      ]
+    },
+    "@audio/VoiceoverRequest.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "audio/VoiceoverRequest",
+            "size": 128
+          },
+          "pattern": "48 33 4A 08 48 33 02 48 0B C8 74 ?? 0F 10 02 41 C6 42 {audio/vo.start:d8} 01 45 89 42 {audio/vo.speaker:d8} 41 0F 11 42 {audio/vo.pending:d8} C3"
+        }
+      ]
+    },
+    "audio/VoiceoverSetPosition": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "audio/VoiceoverRequest",
+            "size": 4096
+          },
+          "pattern": "0F 10 02 0F 11 41 {audio/vo.position:d8} F2 0F 10 4A 10 F2 0F 11 49 ?? C3"
+        }
+      ]
+    },
+    "audio/VoiceoverUpdate": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 80 79 {audio/vo.playing:d8} 00 48 8B F9 74 ?? 8B 51 {audio/vo.instance:d8} 48 8B 49 {audio/vo.sys:d8} E8 {audio/SoundIsPlaying:rel32} 84 C0 75"
+        }
+      ]
+    },
+    "@audio/VoiceoverUpdate.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "audio/VoiceoverUpdate",
+            "size": 320
+          },
+          "pattern": "41 B8 00 2D 31 01 48 8B 4F ?? E8 {audio/SoundStop:rel32} 4C 8D 47 ?? 48 8B D7"
+        },
+        {
+          "scope": {
+            "symbol": "audio/VoiceoverUpdate",
+            "size": 320
+          },
+          "pattern": "F3 0F 10 97 {audio/vo.volume:d32} 41 B9 00 2D 31 01 8B 57 ?? 48 8B 4F ?? E8 {audio/SoundSetVolume:rel32}"
+        }
+      ]
+    },
+    "@audio/VoiceoverStart.fields": {
+      "find": [
+        {
+          "pattern": "41 8B 8F {audio/vo.language:d32} 83 E9 01 74 ?? 83 E9 02 74 ?? 83 E9 02 74 ?? 83 E9 02 74 ?? 83 F9 0D"
+        },
+        {
+          "pattern": "45 8B 47 {audio/vo.scene:d8} F2 41 0F 10 4D 10 4C 8D 4D ?? 49 8B 4F {audio/vo.sys:d8} 33 D2 0F 11 45 ?? 48 C7 45 ?? 00 00 00 00 F3 41 0F 10 87 {audio/vo.volume:d32} F3 0F 11 45 ?? F2 0F 11 4D ?? 66 C7 45 ?? 00 00 48 89 44 24 20 E8 {audio/SoundStart:rel32}"
+        }
+      ]
+    },
+    "audio/VoiceoverLorePush": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 60 20 55 41 56 41 57 48 8D 68 ?? 48 81 EC ?? 00 00 00 0F 29 70 ?? 41 8B D9 0F 29 78 ?? 41 8B F8 0F B7 45 ?? 4C 8B E2 4C 8B F1 66 85 C0"
+        }
+      ]
+    },
+    "@audio/VoiceoverLore.fields": {
+      "find": [
+        {
+          "pattern": "66 44 89 64 24 20 E8 {audio/VoiceoverLorePush:rel32} 41 8B 46 18"
+        },
+        {
+          "scope": {
+            "symbol": "audio/VoiceoverLorePush",
+            "size": 768
+          },
+          "pattern": "41 0F B6 8E {audio/vo.lore_mode:d32} 33 C0 89 5D ?? 0F 57 FF"
+        },
+        {
+          "pattern": "4C 8D A1 {audio/vo.lore_count:d32} 48 8B F1 41 0F B6 0C 24 48 8B FA 84 C9"
+        },
+        {
+          "pattern": "45 8B 45 {audio/vo.lore_scene:d8} 48 8D 45 ?? 49 8B 4D {audio/vo.sys:d8} 4C 8D 4D ?? 0F 57 C0 48 C7 45 ?? 00 00 00 00 F3 0F 7F 45 ?? 33 D2"
+        },
+        {
+          "pattern": "44 38 6E {audio/vo.lore_head_playing:d8} 75 ?? 44 38 AE ?? 00 00 00 0F 85 ?? ?? ?? ?? E9 ?? ?? ?? ?? 8B 5E {audio/vo.lore_head_instance:d8} 8B D3 48 8B 4E {audio/vo.sys:d8} E8 {audio/SoundIsPlaying:rel32}"
+        }
+      ]
+    }
+  },
+  "features": {
+    "audio.play": {
+      "symbols": [
+        "audio/SoundStart",
+        "@audio/SoundStart.resolve",
+        "audio/SoundStop",
+        "audio/SoundSetVolume",
+        "audio/SoundSetPosition",
+        "audio/SoundIsPlaying",
+        "audio/InstanceLookup",
+        "audio/SoundScenesInit"
+      ]
+    },
+    "audio.voiceover": {
+      "symbols": [
+        "audio/VoiceoverRequest",
+        "@audio/VoiceoverRequest.fields",
+        "audio/VoiceoverSetPosition",
+        "audio/VoiceoverUpdate",
+        "@audio/VoiceoverUpdate.calls",
+        "@audio/VoiceoverStart.fields"
+      ],
+      "constants": [
+        "audio/vo.language",
+        "audio/vo.start",
+        "audio/vo.speaker",
+        "audio/vo.pending",
+        "audio/vo.playing",
+        "audio/vo.instance",
+        "audio/vo.sys",
+        "audio/vo.scene",
+        "audio/vo.volume",
+        "audio/vo.position"
+      ]
+    },
+    "audio.narration": {
+      "symbols": [
+        "audio/VoiceoverUpdate",
+        "audio/VoiceoverLorePush",
+        "@audio/VoiceoverLore.fields"
+      ],
+      "constants": [
+        "audio/vo.lore_count",
+        "audio/vo.lore_mode",
+        "audio/vo.lore_stride",
+        "audio/vo.lore_max",
+        "audio/vo.pending",
+        "audio/vo.sys",
+        "audio/vo.lore_scene",
+        "audio/vo.lore_head_playing",
+        "audio/vo.lore_head_instance"
+      ]
+    }
+  }
+}

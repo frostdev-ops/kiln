@@ -1,0 +1,9 @@
+{
+  "id": "uisample",
+  "name": "UI sample",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "UiSample.dll",
+  "side": "client",
+  "description": "Kiln.Ui sample: an FPS line on the HUD, a window (F8) with widgets, toasts."
+}

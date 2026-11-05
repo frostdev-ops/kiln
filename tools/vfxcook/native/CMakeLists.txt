@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# kiln-vfxcook: the VFX builder of kiln-vfx.dll as a command line, for lint and offline tests (docs/kiln/services/vfx-cook.md).
+# Host build:     tools/vfxcook/native/build.sh            -> $KILN_OUT/vfxcook/bin/kiln-vfxcook
+# Windows build:  tools/vfxcook/native/build.sh --windows  (clang-cl + xwin, native/cmake/clang-cl-xwin.cmake)
+# Third-party code (native/third_party): nlohmann/json (MIT), stb_image (MIT/public domain), bc7enc (MIT/Unlicense). No game code or data.
+cmake_minimum_required(VERSION 3.20)
+project(kiln-vfxcook LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(KILN_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../../native")
+set(COOK "${KILN_NATIVE}/services/vfx/cook")
+include("${COOK}/sources.cmake")
+add_executable(kiln-vfxcook src/main.cpp ${KILN_VFX_COOK_SOURCES})
+target_include_directories(kiln-vfxcook PRIVATE "${COOK}" "${KILN_NATIVE}/third_party")
+kiln_vfx_cook_properties(kiln-vfxcook)
+if(MSVC)
+    target_compile_options(kiln-vfxcook PRIVATE /O2 /EHsc /clang:-ffp-contract=off)
+    target_compile_definitions(kiln-vfxcook PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    set_property(TARGET kiln-vfxcook PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+else()
+    target_compile_options(kiln-vfxcook PRIVATE -O2 -ffp-contract=off -fno-fast-math -Wall -Wextra)
+    find_package(Threads REQUIRED)
+    target_link_libraries(kiln-vfxcook PRIVATE Threads::Threads)
+endif()
+set_target_properties(kiln-vfxcook PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

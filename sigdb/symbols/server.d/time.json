@@ -1,0 +1,121 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.time: day/night (g38_daytime::Daytime) and weather (WeatherSystem) on the server world. Sources: EMF 0.3.3 docs re_time_spawn_weather.md / world_building_daytime.md (MIT), re-derived on svn 1285601; see docs/re/time.md.",
+  "symbols": {
+    "time/SetTimeOfDay": {
+      "find": [
+        {"pattern": "40 53 48 83 EC 20 48 8B D9 4C 89 41 {time/daytime.anchor_ecs:d8} E8 {time/TodToGameTime:rel32} FF 43 {time/daytime.counter:d8} 48 89 43 {time/daytime.anchor_game:d8} 48 83 C4 20 5B C3"}
+      ]
+    },
+    "time/TodToGameTime": {
+      "find": [
+        {"pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 10 4C 8B 51 {time/daytime.night_start:d8} 48 BE FF FF FF FF FF FF FF 7F 4C 8B 49 {time/daytime.day_start:d8}"}
+      ]
+    },
+    "time/GameTimeToTod": {
+      "find": [
+        {"pattern": "48 89 5C 24 18 55 48 83 EC 10 4C 8B 59 {time/daytime.day_length:d8} 48 BD FF FF FF FF FF FF FF 7F"}
+      ]
+    },
+    "time/GetGameTime": {
+      "find": [
+        {"pattern": "4C 8B 51 {time/daytime.anchor_ecs:d8} 49 B8 FF FF FF FF FF FF FF 7F 45 33 C9 4C 8B D9"}
+      ]
+    },
+    "time/DaytimeUpdate": {
+      "find": [
+        {"pattern": "40 53 57 48 81 EC B8 00 00 00 48 8B"}
+      ]
+    },
+    "@time.daytime_update": {
+      "find": [
+        {"scope": {"symbol": "time/DaytimeUpdate", "size": 1024}, "pattern": "E8 {time/GetGameTime:rel32} 48 8B D0 48 8B CF E8 {time/GameTimeToTod:rel32} 48 89 47 {time/daytime.tod:d8} 49 3B 07"}
+      ]
+    },
+    "@time.daytime_fields": {
+      "find": [
+        {"pattern": "48 8B 41 {time/daytime.tod:d8} 48 3B 41 {time/daytime.day_start:d8} 7C 09 48 3B 41 {time/daytime.night_start:d8} 7D 03 B0 01 C3"},
+        {"scope": {"symbol": "time/TodToGameTime", "size": 256}, "pattern": "4C 8B 5B {time/daytime.day_length:d8} 0F 57 C9 F2 0F 10 25 ?? ?? ?? ?? F2 49 0F 2A C8 F2 49 0F 2A C3 F2 0F 59 CB F2 0F 59 C3 66 0F 5A F0 0F 57 C0 F2 48 0F 2A C1 48 8B 4B {time/daytime.night_length:d8}"},
+        {"scope": {"symbol": "time/GetGameTime", "size": 256}, "pattern": "F3 0F 59 41 {time/daytime.scale:d8} 0F 5A C8"}
+      ]
+    },
+    "time/WeatherUpdate": {
+      "find": [
+        {"pattern": "48 8B C4 55 57 41 56 48 81 EC 80 00 00 00 48 8B 29 45 33 F6 48 89 58 08"}
+      ]
+    },
+    "@time.weather_update": {
+      "find": [
+        {"scope": {"symbol": "time/WeatherUpdate", "size": 512}, "pattern": "83 7B {time/weather.mode:d8} 00 75 ?? 44 3B FE"},
+        {"scope": {"symbol": "time/WeatherUpdate", "size": 512}, "pattern": "4D 8B CD 48 8B D7 48 8B CB E8 {time/WeatherUpdateLayers:rel32} 4C 8B 7C 24"}
+      ]
+    },
+    "time/WeatherUpdateLayers": {
+      "find": [
+        {"pattern": "48 8B C4 4C 89 48 20 48 89 48 08 53 55 57 41 57"}
+      ]
+    },
+    "@time.weather_layers": {
+      "find": [
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1024}, "pattern": "48 39 A9 {time/weather.layer_count:d32} 0F 86"},
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1024}, "pattern": "49 8B B7 {time/weather.layers:d32} 85 C0 75"},
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1024}, "pattern": "8B 54 ?? {time/weather.layer_prev:d8} 49 8B CF E8 {time/WeatherRemoveInstance:rel32} ?? 89 6C"},
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1024}, "pattern": "8B 44 ?? {time/weather.layer_cur:d8} 45 32 C9 ?? 89 44 ?? {time/weather.layer_prev:d8}"},
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1280}, "pattern": "49 83 C4 {time/weather.layer_stride:d8} 48 FF C1 49 81 C6"}
+      ]
+    },
+    "time/WeatherRemoveInstance": {
+      "find": [
+        {"pattern": "85 D2 0F 84 ?? ?? ?? ?? 89 54 24 10 53 57 48 83"}
+      ]
+    },
+    "time/SendServerInfo": {
+      "find": [
+        {"pattern": "48 8B C4 55 53 41 54 41 55 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00"}
+      ]
+    },
+    "@time.server_info": {
+      "find": [
+        {"scope": {"symbol": "time/SendServerInfo", "size": 256}, "pattern": "8B 83 {time/gs.daytime_synced:d32} 48 8D 95 ?? ?? ?? ?? 4C 8B 83 {time/gs.server_game:d32} 48 8D 4D ?? 89 85 ?? ?? ?? ?? E8 {time/ServerGameDaytimeSync:rel32}"}
+      ]
+    },
+    "time/ServerGameDaytimeSync": {
+      "find": [
+        {"pattern": "4D 8B 80 {time/sg.daytime:d32} E9 {time/DaytimeSyncIfChanged:rel32} CC"}
+      ]
+    },
+    "time/DaytimeSyncIfChanged": {
+      "find": [
+        {"pattern": "41 8B 40 {time/daytime.counter:d8} 39 02 75 03 32 C0 C3 89 02 49 8B 40 {time/daytime.anchor_ecs:d8} 48 89 01 49 8B 40 {time/daytime.anchor_game:d8} 48 89 41 08 41 8B 40 {time/daytime.scale:d8} 89 41 10 B0 01 C3"}
+      ]
+    }
+  },
+  "constants": {
+    "time/daytime.anchor_ecs": {"min_votes": 3},
+    "time/daytime.anchor_game": {"min_votes": 2},
+    "time/daytime.counter": {"min_votes": 2},
+    "time/daytime.tod": {"min_votes": 2},
+    "time/daytime.day_start": {"min_votes": 2},
+    "time/daytime.night_start": {"min_votes": 2},
+    "time/daytime.day_length": {"min_votes": 2},
+    "time/daytime.night_length": {"min_votes": 1},
+    "time/daytime.scale": {"min_votes": 2},
+    "time/daytime.is_day": {"value": 88},
+    "time/weather.mode": {"min_votes": 1},
+    "time/weather.layers": {"min_votes": 1},
+    "time/weather.layer_count": {"min_votes": 1},
+    "time/weather.layer_stride": {"min_votes": 1},
+    "time/weather.layer_cur": {"min_votes": 1},
+    "time/weather.layer_prev": {"min_votes": 2},
+    "time/gs.daytime_synced": {"min_votes": 1},
+    "time/gs.server_game": {"min_votes": 1},
+    "time/sg.daytime": {"min_votes": 1}
+  },
+  "features": {
+    "time.read": {"symbols": ["time/SetTimeOfDay", "time/GetGameTime", "time/GameTimeToTod", "@time.daytime_fields", "@time.daytime_update"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.tod", "time/daytime.day_start", "time/daytime.night_start", "time/daytime.day_length", "time/daytime.night_length", "time/daytime.scale", "time/daytime.is_day"]},
+    "time.set": {"symbols": ["time/SetTimeOfDay", "time/TodToGameTime", "time/GetGameTime"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.day_length", "time/daytime.night_length"]},
+    "time.weather": {"symbols": ["time/WeatherUpdate", "time/WeatherRemoveInstance", "@time.weather_update", "@time.weather_layers"], "constants": ["time/weather.mode", "time/weather.layers", "time/weather.layer_count", "time/weather.layer_stride", "time/weather.layer_cur", "time/weather.layer_prev"]},
+    "time.sync_probe": {"symbols": ["time/SendServerInfo", "@time.server_info", "time/ServerGameDaytimeSync", "time/DaytimeSyncIfChanged"], "constants": ["time/gs.daytime_synced", "time/gs.server_game", "time/sg.daytime"]}
+  }
+}

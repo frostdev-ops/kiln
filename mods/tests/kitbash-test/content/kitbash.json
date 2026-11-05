@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "comment": "kitbash-test: the data-pack form of kitbash references and texts per language, and a reference rule on a game item (opt-in with \"@refs\").",
+  "items": {
+    "add": [
+      {
+        "guid": "6a1c0f0e-3c7d-4b55-9a51-2f6a1e0b9d41",
+        "name": "Kiln_Kitbash_PackChest",
+        "base": "Armor_T1_Warrior_DPS_Chest",
+        "model": "item:Armor_T2_Warrior_Tank_Chest",
+        "texts": {
+          "en": {
+            "name": "Kitbash Mail",
+            "description": "A fighter's mail with a tank's looks."
+          },
+          "de": {
+            "name": "Flickwerk-Kettenhemd",
+            "description": "Ein Kämpferhemd im Aussehen eines Tanks."
+          }
+        },
+        "fields": {
+          "armorSetup.distribution.physical": 2.0
+        }
+      }
+    ],
+    "Weapon_T2_1H_Sword_01": {
+      "@refs": true,
+      "visual": "item:Weapon_T3_1H_Sword_01"
+    },
+    "Weapon_T2_1H_Sword_02_NoSuch": {
+      "visual": "none"
+    },
+    "Weapon_T2_1H_SwordEpic_01": {
+      "visual": "item:Weapon_T3_1H_Sword_01"
+    }
+  },
+  "drops": {
+    "a20e8eae-7833-462e-9ea9-59d1e17a1b98": {
+      "items": {
+        "Kiln_Kitbash_Coin": {
+          "countMax": 5
+        }
+      }
+    }
+  }
+}

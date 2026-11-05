@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"one\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: version 'one' is not a semantic version (e.g. 1.2.0)"
+  }
+}

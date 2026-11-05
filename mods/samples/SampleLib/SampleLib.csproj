@@ -1,0 +1,20 @@
+<Project>
+  <!-- Sample library mod: exports SampleLib.Api.dll to mods that depend on it, answers IMC "echo", and logs the
+       lifecycle events. Built with Kiln.Sdk in repository mode (mods/samples/build.sh). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>sample-lib</KilnModId>
+    <KilnModName>Sample library mod</KilnModName>
+    <Version>1.2.0</Version>
+    <Authors>Kiln contributors</Authors>
+    <Description>Exports an API assembly to its dependents; answers IMC echo requests.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnExports>SampleLib.Api.dll</KilnExports>
+    <KilnFeatures>tick</KilnFeatures>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SampleLib.Api/SampleLib.Api.csproj" />
+    <KilnDependency Include="kiln" Version=">=0.1" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

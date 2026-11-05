@@ -1,0 +1,9 @@
+{
+  "id": "netsample",
+  "name": "Network sample",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NetSample.dll",
+  "side": "both",
+  "description": "Kiln.Network sample: F9 on the client pings the server over netsample:main; the server answers and announces Kiln clients to everyone."
+}

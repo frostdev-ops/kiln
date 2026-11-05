@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "items": {
+    "add": [
+      { "guid": "6a7d4c1e-0000-4000-8000-000000000001", "name": "Frost_Mod_Lantern", "base": "Test_Frost_Blade", "displayName": "Lantern" }
+    ],
+    "Test_Ice_Shard": { "maxStack": 50 }
+  },
+  "recipes": {
+    "add": [
+      { "name": "Frost_Mod_Lantern_Recipe", "inputs": [ { "item": "", "count": 1 } ], "outputs": [ { "item": "Frost_Mod_Lantern", "count": 1 } ] }
+    ]
+  }
+}

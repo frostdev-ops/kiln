@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "source": "kiln",
+  "file": "big-stacks.json",
+  "valueFormat": "jsonc",
+  "id": "big-stacks",
+  "mod": "big-stacks",
+  "modVersion": "0.3.1",
+  "kind": "server",
+  "written": "2026-11-04T12:00:00Z",
+  "kiln": "0.2.0-dev",
+  "sections": [ { "path": "limits", "comment": "Stack limits", "synced": true } ],
+  "entries": [
+    { "path": "limits.multiplier", "type": "float", "comment": "Stack size multiplier", "default": 2.0, "requiresRestart": false, "synced": true, "min": 1, "max": 100 },
+    { "path": "limits.mode", "type": "enum", "comment": null, "default": "all", "options": ["all", "materials", "food"] },
+    { "path": "autosave", "type": "duration", "default": "5m", "requiresRestart": true },
+    { "path": "excluded", "type": "list<string>", "default": [] }
+  ]
+}

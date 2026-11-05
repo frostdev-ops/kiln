@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.schema.json",
+  "title": "Kiln native mod manifest (native.json), format 1",
+  "description": "One per native mod folder (library/native/<id>/<version>+<hash8>/, kiln/native/<id>/ on a server or as a drop-in). Describes DLL mods Kiln loads with LoadLibrary: plain DLL mods (no init) and Kiln-aware ones (init export, native/core/abi/kiln_native.h). Comments and trailing commas are allowed. Unknown keys are kept and warned about.",
+  "type": "object",
+  "required": ["id", "version", "dlls"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1, "default": 1 },
+    "id": { "$ref": "common.schema.json#/$defs/modId" },
+    "name": { "type": "string" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "description": { "type": "string" },
+    "authors": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string", "minLength": 1 } }] },
+    "license": { "type": "string" },
+    "url": { "type": "string" },
+    "side": { "$ref": "common.schema.json#/$defs/side", "default": "client", "description": "Where it loads. Default client (most DLL mods are client mods; a hosting client runs the world)." },
+    "clients": { "$ref": "common.schema.json#/$defs/clients", "description": "Default from side: server -> none, client/both -> mod." },
+    "dlls": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "allOf": [{ "$ref": "common.schema.json#/$defs/relPath" }, { "pattern": "\\.[dD][lL][lL]$" }] },
+      "uniqueItems": true,
+      "description": "DLLs in the folder (subfolders allowed), loaded in this order."
+    },
+    "phase": { "enum": ["early", "boot", "world", "dllmain"], "default": "early", "description": "kiln_native.h: early (start of kiln_boot, also in safe idle), boot (after Kiln plugins, no hooks needed), world (first world step, needs hooks), dllmain (loaded by the proxy in DllMain; chain.ini [profile])." },
+    "init": {
+      "oneOf": [{ "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_@?$]*$" }, { "type": "null" }],
+      "default": null,
+      "description": "Export of dlls[0] called as int init(const KilnNativeContext*) right after it loads. null: only loaded. Not allowed with phase dllmain."
+    },
+    "after": { "$ref": "common.schema.json#/$defs/ids", "description": "Native mods to load before this one, when present (ordering only)." },
+    "before": { "$ref": "common.schema.json#/$defs/ids", "description": "Native mods to load after this one, when present." },
+    "requires": { "$ref": "common.schema.json#/$defs/ids", "description": "Native mods that must be present and load first; else this one fails." },
+    "incompatible": { "$ref": "common.schema.json#/$defs/incompatible" },
+    "enabled": { "type": "boolean", "default": true, "description": "Default state; <configDir>/native.json and the profile entry override it." },
+    "kiln": { "$ref": "common.schema.json#/$defs/range", "description": "Kiln versions this mod works with (checked like a 'kiln' dependency)." },
+    "builds": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/sha256" },
+      "description": "Game exe sha256s the mod was made for. When given and the running exe is not listed, the mod still loads with a warning (status note 'untested build')."
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "phase": { "const": "dllmain" } }, "required": ["phase"] }, "then": { "properties": { "init": { "type": "null" } } } }
+  ],
+  "additionalProperties": true
+}

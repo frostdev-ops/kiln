@@ -1,0 +1,30 @@
+{
+  // New items and recipes as data (kiln.content "add"). The GUIDs were made for this project by dotnet new: keep them.
+  // "base" is the game item the new one is a clone of (`kiln catalog search resin` lists the names).
+  "format": 1,
+  "items": {
+    "add": [
+      {
+        "guid": "3f7d9a21-6c4b-4e8f-a2d1-9b5e0c7f1a36",
+        "name": "KilnItems1_Shard",
+        "base": "Material_T1_Resin",
+        "icon": "icons/shard.png",
+        "texts": {
+          "en": { "name": "KilnItems1 Shard", "description": "A shard of something new. Added by KilnItems1." },
+          "de": { "name": "KilnItems1-Splitter", "description": "Ein Splitter von etwas Neuem." }
+        }
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "c51e8b07-2a9d-4f63-b8e4-7d0a3c6f2e91",
+        "name": "KilnItems1_Shard_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 2 } ],
+        "outputs": [ { "item": "KilnItems1_Shard", "count": 1 } ]
+      }
+    ]
+  }
+}

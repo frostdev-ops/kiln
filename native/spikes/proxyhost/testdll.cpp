@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: MIT
+// A chained test DLL (see CMakeLists.txt). Logs "dll <name> attach" from DllMain.
+//   TEST_ENTRY_PATCH  also overwrites the exe's entry point with a 14-byte jump to its own gate, which logs
+//                     "gate <name>", puts the saved bytes back and calls the entry: what a loader that holds the
+//                     game's start does (EMF on a server). With two of these and Kiln, the gates must run in reverse
+//                     order of patching: Kiln, then the last patcher, then the first, then the real entry.
+//   TEST_FAIL         DllMain returns FALSE (LoadLibrary fails with ERROR_DLL_INIT_FAILED, 1114)
+//   TEST_SHROUDFORGE  carries ShroudForge's marker text: the proxy must refuse it without loading it
+#include <cstring>
+
+#include "harness.h"
+
+#ifndef TEST_NAME
+#define TEST_NAME L"test"
+#endif
+
+namespace {
+char g_name[64];
+
+#ifdef TEST_SHROUDFORGE
+extern "C" __declspec(dllexport) const char proxyhost_marker[] = "shroudforge/shroudforge-runtime.dll";
+#endif
+
+#ifdef TEST_ENTRY_PATCH
+unsigned char* g_entry = nullptr;
+unsigned char g_saved[14];
+
+bool write_entry(const unsigned char* bytes) {
+    DWORD protection = 0;
+    if (!VirtualProtect(g_entry, 14, PAGE_EXECUTE_READWRITE, &protection)) return false;
+    memcpy(g_entry, bytes, 14);
+    DWORD ignored = 0;
+    VirtualProtect(g_entry, 14, protection, &ignored);
+    return FlushInstructionCache(GetCurrentProcess(), g_entry, 14) != 0;
+}
+
+int __cdecl gate() {
+    ph_log("gate %s (entry bytes restored)", g_name);
+    if (!write_entry(g_saved)) ExitProcess(91);
+    return reinterpret_cast<int(__cdecl*)()>(g_entry)();
+}
+
+void patch() {
+    g_entry = ph_entry();
+    memcpy(g_saved, g_entry, 14);
+    unsigned char jump[14]{0xff, 0x25, 0, 0, 0, 0};
+    auto target = &gate;
+    memcpy(jump + 6, &target, sizeof target);
+    const bool ok = write_entry(jump);
+    ph_log("patch %s: entry %s (saved %02x %02x)", g_name, ok ? "patched" : "NOT patched", g_saved[0], g_saved[1]);
+}
+#endif
+}  // namespace
+
+extern "C" __declspec(dllexport) const wchar_t* proxyhost_test_name() { return TEST_NAME; }
+
+BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void*) {
+    if (reason != DLL_PROCESS_ATTACH) return TRUE;
+    DisableThreadLibraryCalls(inst);
+    WideCharToMultiByte(CP_UTF8, 0, TEST_NAME, -1, g_name, sizeof g_name, nullptr, nullptr);
+    ph_log("dll %s attach", g_name);
+#ifdef TEST_ENTRY_PATCH
+    patch();
+#endif
+#ifdef TEST_SHROUDFORGE
+    ph_log("dll %s: ShroudForge marker %s", g_name, proxyhost_marker);
+#endif
+#ifdef TEST_FAIL
+    return FALSE;
+#else
+    return TRUE;
+#endif
+}

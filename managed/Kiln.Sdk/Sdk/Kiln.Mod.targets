@@ -1,0 +1,198 @@
+<Project>
+  <!--
+    Kiln mod build logic (imported last by Sdk.targets).
+
+    Properties (all optional):
+      KilnModId          mod id (default: lower-case AssemblyName, other characters as '-')
+      KilnModName        display name (default: AssemblyName)
+      Version            the mod's version (semver; Microsoft.NET.Sdk default 1.0.0)
+      Authors, Description, PackageLicenseExpression (license), PackageProjectUrl (url)
+      KilnApiVersion     Kiln API the mod needs (default: the SDK's, e.g. 0.2 = "0.2 or a later 0.x")
+      KilnSide           server (default) | client | both
+      KilnClients        what joining players need: none | kiln | mod (default from the side: server none, else mod)
+      KilnEntryType      full name of the Mod subclass (default: the only public one)
+      KilnAdvanced       true: opt into the advanced tier (hooks, symbols)
+      KilnFeatures       ;-list of required Kiln features (Game.HasFeature), e.g. tick;log.mirror
+      KilnExports        ;-list of assembly file names other mods compile against (e.g. MyMod.Api.dll)
+      KilnServices       ;-list of Kiln service assemblies to reference: Players;Chat;World;Items;Spawn;Time;Settings;...
+                         plus Testing (Kiln.Testing, for [KilnTest] methods)
+      KilnTestsAutoRun   true: run the mod's [KilnTest] methods when the server has started
+      KilnTestTimeoutSeconds
+      KilnServer         a server folder (with enshrouded_server.exe) for KilnDeploy, or KilnModsDir (its kiln/mods)
+      KilnReload         true: KilnDeploy also asks the running server to hot-reload the mod (kiln/control)
+      KilnPackageOutputPath  where KilnPack writes <id>-<version>.zip (default: next to the output folder)
+      KilnModFolders     ;-list of data folders copied into the mod folder (default content;assets;skills;quests;blocks;icons;impact;audio)
+      KilnIncludeModFolders  false: copy none of them automatically
+      KilnPackExclude    ;-list of globs (relative to the mod folder) KilnPack leaves out (default assets/cooked/**)
+      KilnAnalyzers      false: no Kiln analyzers (KILN1xx; Kiln.Analyzers.targets)
+      KilnGameIds        game-id constants from the local catalog (Kiln.GameIds.targets, docs/kiln/modding/catalogs.md)
+    Items:
+      <KilnDependency Include="other-mod" Version="^1.2" Optional="false" />
+      <KilnLoadBefore Include="id" />  <KilnLoadAfter Include="id" />  <KilnIncompatible Include="id" Version="*" />
+    A kiln.mod.json in the project folder is validated (same rules as the loader) and copied instead of generated.
+    Targets: Build (output folder = deployable mod folder), KilnDeploy, KilnPack.
+  -->
+  <PropertyGroup>
+    <KilnModId Condition="'$(KilnModId)' == ''">$([System.Text.RegularExpressions.Regex]::Replace($(AssemblyName.ToLowerInvariant()), '[^a-z0-9._-]', '-'))</KilnModId>
+    <KilnModName Condition="'$(KilnModName)' == ''">$(AssemblyName)</KilnModName>
+    <KilnApiVersion Condition="'$(KilnApiVersion)' == ''">$(KilnModApiVersion)</KilnApiVersion>
+    <!-- Blocks make new items, spells and statuses, which a player's game must know: run on both sides. What clients need follows from
+         the blocks (the manifest task reads it from the built assembly); a mod with blocks only in data files gets "kiln". Set either
+         property to say otherwise. -->
+    <KilnSide Condition="'$(KilnSide)' == '' and $(KilnServices.Contains('Blocks'))">both</KilnSide>
+    <_KilnClientsFallback Condition="$(KilnServices.Contains('Blocks'))">kiln</_KilnClientsFallback>
+    <KilnSide Condition="'$(KilnSide)' == ''">server</KilnSide>
+    <KilnAdvanced Condition="'$(KilnAdvanced)' == ''">false</KilnAdvanced>
+    <KilnManifestSource Condition="'$(KilnManifestSource)' == ''">$(MSBuildProjectDirectory)/kiln.mod.json</KilnManifestSource>
+    <KilnPackageOutputPath Condition="'$(KilnPackageOutputPath)' == ''">$([MSBuild]::NormalizeDirectory('$(OutDir)', '..'))</KilnPackageOutputPath>
+    <!-- Microsoft.NET.Sdk defaults Authors to the assembly name: not an author. -->
+    <_KilnAuthors Condition="'$(Authors)' != '$(AssemblyName)'">$(Authors)</_KilnAuthors>
+    <_KilnServiceList>;$(KilnServices.Replace(' ', '').Replace(',', ';'));</_KilnServiceList>
+    <_KilnWantsTesting>$(_KilnServiceList.Contains(';Testing;'))</_KilnWantsTesting>
+    <!-- The build task: from the package, or (repository mode) built by the Kiln.Sdk project reference into a fixed
+         folder and run out of process, so a rebuilt task is never stale in a reused MSBuild node. -->
+    <_KilnTasksDir Condition="'$(KilnRepoMode)' != 'true'">$(MSBuildThisFileDirectory)../tasks/net10.0/</_KilnTasksDir>
+    <_KilnTasksDir Condition="'$(KilnRepoMode)' == 'true' and '$(KILN_OUT)' != ''">$([MSBuild]::NormalizeDirectory('$(KILN_OUT)', 'sdk-tasks'))</_KilnTasksDir>
+    <_KilnTasksDir Condition="'$(KilnRepoMode)' == 'true' and '$(KILN_OUT)' == ''">$([MSBuild]::NormalizeDirectory('$(KilnRepoRoot)', '.out', 'sdk-tasks'))</_KilnTasksDir>
+  </PropertyGroup>
+
+  <!-- Mod data folders: copied into the mod folder (= the output folder) as they are. content/ (kiln.content and
+       kiln.gamedata data packs), assets/ (kiln.assets: assets.json, cook recipes, sources, cooked/), skills/
+       (Kiln.Skills trees), quests/ (quest chains, NPCs), icons/, impact/ (Impact sources + recipe), audio/ (sound sources). KilnModFolders replaces
+       the list; KilnIncludeModFolders=false turns it off (then add None items with CopyToOutputDirectory yourself).
+       KilnPack leaves out KilnPackExclude (default assets/cooked/**: files cooked from the player's own game are made
+       on each player's machine and never shipped; docs/kiln/modding/models.md). -->
+  <PropertyGroup>
+    <KilnModFolders Condition="'$(KilnModFolders)' == ''">content;assets;skills;quests;blocks;icons;impact;audio</KilnModFolders>
+    <KilnPackExclude Condition="'$(KilnPackExclude)' == ''">assets/cooked/**</KilnPackExclude>
+    <_KilnModFolderGlobs>$([MSBuild]::Unescape($(KilnModFolders.Replace(' ', '').Replace(',', ';').Replace(';', '/**;'))))/**</_KilnModFolderGlobs>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(KilnIncludeModFolders)' != 'false'">
+    <None Update="$(_KilnModFolderGlobs)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <UsingTask TaskName="Kiln.Sdk.KilnManifest" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" Condition="'$(KilnRepoMode)' != 'true'" />
+  <UsingTask TaskName="Kiln.Sdk.KilnManifest" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" TaskFactory="TaskHostFactory" Condition="'$(KilnRepoMode)' == 'true'" />
+
+  <ItemGroup>
+    <!-- Unescape: a property function's result is escaped, so its ';' would not split the list. -->
+    <_KilnService Include="$([MSBuild]::Unescape($(KilnServices.Replace(',', ';'))))" Exclude="Testing" />
+  </ItemGroup>
+
+  <!-- Kiln.Api and the services come from kiln/host at run time: compile against them, never ship them. -->
+  <ItemGroup Condition="'$(KilnRepoMode)' == 'true'">
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="@(_KilnService->'$(KilnRepoRoot)managed/services/Kiln.%(Identity)/Kiln.%(Identity).csproj')" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" Condition="'$(_KilnWantsTesting)' == 'true'" />
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Sdk/Kiln.Sdk.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(KilnRepoMode)' != 'true'">
+    <PackageReference Include="Kiln.Api" Version="$(KilnSdkVersion)" ExcludeAssets="runtime" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(KilnRepoMode)' != 'true' and '$(PkgKiln_Api)' != ''">
+    <Reference Include="@(_KilnService->'$(PkgKiln_Api)/kiln/lib/Kiln.%(Identity).dll')" Private="false" />
+    <Reference Include="$(PkgKiln_Api)/kiln/lib/Kiln.Testing.dll" Private="false" Condition="'$(_KilnWantsTesting)' == 'true'" />
+  </ItemGroup>
+
+  <!-- A service compiles against other services (Content: Items, Network, Client, Saves): reference that closure too,
+       compile only (kiln/lib/Kiln.Services.props in the Kiln.Api package lists each service's own references). In
+       repository mode project references carry it. -->
+  <Import Project="$(PkgKiln_Api)/kiln/lib/Kiln.Services.props" Condition="'$(KilnRepoMode)' != 'true' and '$(PkgKiln_Api)' != '' and Exists('$(PkgKiln_Api)/kiln/lib/Kiln.Services.props')" />
+  <Target Name="_KilnServiceClosure" BeforeTargets="ResolveAssemblyReferences" Condition="'$(KilnRepoMode)' != 'true' and '$(PkgKiln_Api)' != '' and '@(_KilnService)' != '' and '@(_KilnServiceDep)' != ''">
+    <PropertyGroup>
+      <_KilnClosure>;@(_KilnService);</_KilnClosure>
+    </PropertyGroup>
+    <!-- four rounds cover the deepest chain today (Skills -> Content -> Network -> Players) -->
+    <ItemGroup>
+      <_KilnClosureAdd Include="@(_KilnServiceDep)" Condition="$(_KilnClosure.Contains(';%(_KilnServiceDep.Service);'))" />
+    </ItemGroup>
+    <PropertyGroup><_KilnClosure>$(_KilnClosure);@(_KilnClosureAdd);</_KilnClosure></PropertyGroup>
+    <ItemGroup>
+      <_KilnClosureAdd Include="@(_KilnServiceDep)" Condition="$(_KilnClosure.Contains(';%(_KilnServiceDep.Service);'))" />
+    </ItemGroup>
+    <PropertyGroup><_KilnClosure>$(_KilnClosure);@(_KilnClosureAdd);</_KilnClosure></PropertyGroup>
+    <ItemGroup>
+      <_KilnClosureAdd Include="@(_KilnServiceDep)" Condition="$(_KilnClosure.Contains(';%(_KilnServiceDep.Service);'))" />
+    </ItemGroup>
+    <PropertyGroup><_KilnClosure>$(_KilnClosure);@(_KilnClosureAdd);</_KilnClosure></PropertyGroup>
+    <ItemGroup>
+      <_KilnClosureAdd Include="@(_KilnServiceDep)" Condition="$(_KilnClosure.Contains(';%(_KilnServiceDep.Service);'))" />
+      <_KilnClosureAdd Remove="@(_KilnService)" />
+      <_KilnClosureRef Include="@(_KilnClosureAdd->Distinct()->'$(PkgKiln_Api)/kiln/lib/Kiln.%(Identity).dll')" />
+      <Reference Include="@(_KilnClosureRef)" Condition="Exists('%(FullPath)')" Private="false" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_KilnCheckServices" BeforeTargets="ResolveAssemblyReferences" Condition="'$(KilnRepoMode)' != 'true' and '$(PkgKiln_Api)' != '' and '@(_KilnService)' != ''">
+    <Error Condition="!Exists('$(PkgKiln_Api)/kiln/lib/Kiln.%(_KilnService.Identity).dll')" Code="KILN004"
+           Text="KilnServices: no Kiln service assembly 'Kiln.%(_KilnService.Identity).dll' in Kiln.Api $(KilnSdkVersion)" />
+  </Target>
+
+  <!-- kiln.mod.json: generated from the properties above, or validated when the project has its own. -->
+  <Target Name="KilnManifest" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(KilnManifest)' != 'false'">
+    <KilnManifest Source="$(KilnManifestSource)" Output="$(IntermediateOutputPath)kiln.mod.json"
+                  Id="$(KilnModId)" Name="$(KilnModName)" Version="$(Version)" ApiVersion="$(KilnApiVersion)" Side="$(KilnSide)" Clients="$(KilnClients)" ClientsFallback="$(_KilnClientsFallback)" AssemblyPath="$(TargetPath)"
+                  Authors="$(_KilnAuthors)" Description="$(Description)" License="$(PackageLicenseExpression)" Url="$(PackageProjectUrl)"
+                  EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Advanced="$(KilnAdvanced)"
+                  Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"
+                  LoadBefore="@(KilnLoadBefore)" LoadAfter="@(KilnLoadAfter)" Incompatible="@(KilnIncompatible)"
+                  TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)">
+      <Output TaskParameter="ModId" PropertyName="KilnResolvedModId" />
+      <Output TaskParameter="ModVersion" PropertyName="KilnResolvedModVersion" />
+    </KilnManifest>
+    <Copy SourceFiles="$(IntermediateOutputPath)kiln.mod.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)kiln.mod.json;$(OutDir)kiln.mod.json" />
+    </ItemGroup>
+  </Target>
+
+  <!-- The files of the mod folder: the output folder without what kiln/host provides or the loader ignores. -->
+  <Target Name="_KilnModFiles" DependsOnTargets="KilnManifest">
+    <ItemGroup>
+      <_KilnModFile Include="$(OutDir)**/*"
+                    Exclude="$(OutDir)**/*.deps.json;$(OutDir)**/*.runtimeconfig.json;$(OutDir)Kiln.Api.*;$(OutDir)Kiln.Host.*;$(OutDir)Kiln.Testing.*;@(_KilnService->'$(OutDir)Kiln.%(Identity).*')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- dotnet build -t:KilnDeploy -p:KilnServer=<server folder> [-p:KilnReload=true] -->
+  <Target Name="KilnDeploy" DependsOnTargets="Build;_KilnModFiles">
+    <PropertyGroup>
+      <_KilnModsDir Condition="'$(KilnModsDir)' != ''">$(KilnModsDir)</_KilnModsDir>
+      <_KilnModsDir Condition="'$(KilnModsDir)' == '' and '$(KilnServer)' != ''">$(KilnServer)/kiln/mods</_KilnModsDir>
+      <_KilnControl Condition="'$(KilnServer)' != ''">$(KilnServer)/kiln/control</_KilnControl>
+      <_KilnControl Condition="'$(KilnServer)' == '' and '$(_KilnModsDir)' != ''">$(_KilnModsDir)/../control</_KilnControl>
+      <_KilnDeployDir>$(_KilnModsDir)/$(KilnResolvedModId)</_KilnDeployDir>
+    </PropertyGroup>
+    <Error Condition="'$(_KilnModsDir)' == ''" Code="KILN010"
+           Text="KilnDeploy needs -p:KilnServer=&lt;server folder with enshrouded_server.exe&gt; or -p:KilnModsDir=&lt;its kiln/mods folder&gt;" />
+    <Error Condition="'$(KilnServer)' != '' and !Exists('$(KilnServer)/kiln')" Code="KILN011"
+           Text="$(KilnServer) has no kiln folder: deploy Kiln to that server first (tools/deploy-server.sh)" />
+    <ItemGroup>
+      <_KilnStale Include="$(_KilnDeployDir)/*.dll;$(_KilnDeployDir)/*.pdb;$(_KilnDeployDir)/kiln.mod.json" />
+    </ItemGroup>
+    <Delete Files="@(_KilnStale)" />
+    <Copy SourceFiles="@(_KilnModFile)" DestinationFiles="@(_KilnModFile->'$(_KilnDeployDir)/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <WriteLinesToFile Condition="'$(KilnReload)' == 'true'" File="$(_KilnControl)/deploy-$(KilnResolvedModId).cmd"
+                      Lines="reload $(KilnResolvedModId)" Overwrite="true" />
+    <Message Importance="high" Text="$(MSBuildProjectName) -> $(_KilnDeployDir) (mod $(KilnResolvedModId) $(KilnResolvedModVersion))" />
+  </Target>
+
+  <!-- dotnet build -t:KilnPack: <id>-<version>.zip holding <id>/ (unzip into kiln/mods). -->
+  <Target Name="KilnPack" DependsOnTargets="Build;_KilnModFiles">
+    <PropertyGroup>
+      <_KilnPackStage>$(IntermediateOutputPath)kilnpack/</_KilnPackStage>
+      <_KilnPackFile>$(KilnPackageOutputPath)$(KilnResolvedModId)-$(KilnResolvedModVersion).zip</_KilnPackFile>
+    </PropertyGroup>
+    <PropertyGroup>
+      <_KilnPackExcludeAbs>$(OutDir)$(KilnPackExclude.Replace(' ', '').Replace(',', ';').Replace(';', ';$(OutDir)'))</_KilnPackExcludeAbs>
+    </PropertyGroup>
+    <ItemGroup>
+      <_KilnPackFile Include="@(_KilnModFile)" Exclude="$([MSBuild]::Unescape($(_KilnPackExcludeAbs)))" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_KilnPackStage)" />
+    <Copy SourceFiles="@(_KilnPackFile)" DestinationFiles="@(_KilnPackFile->'$(_KilnPackStage)$(KilnResolvedModId)/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <MakeDir Directories="$(KilnPackageOutputPath)" />
+    <ZipDirectory SourceDirectory="$(_KilnPackStage)" DestinationFile="$(_KilnPackFile)" Overwrite="true" />
+    <Message Importance="high" Text="$(MSBuildProjectName) -> $(_KilnPackFile)" />
+  </Target>
+</Project>

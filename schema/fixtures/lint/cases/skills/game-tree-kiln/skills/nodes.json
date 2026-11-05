@@ -1,0 +1,12 @@
+{
+  // "gameTree" as the list itself, and every alternative form the native reader takes
+  "format": 1,
+  "gameTree": [
+    { "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21", "name": "fx_forms", "type": "Active", "class": "None", "from": "fx_other",
+      "position": { "x": 2000, "y": 3000 }, "configs": { "0x0a0c87e7": true, "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f29": 2 }, "scales": { "0X0A0C87E7": 1.5 } },
+    { "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f22", "name": "fx_other", "type": "Passive", "to": ["fx_forms"], "offset": [10, 20] },
+    { "name": "fx_no_guid", "from": ["fx_forms"] },
+    { "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f23", "name": "fx_no_link", "from": [] },
+    { "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f24", "name": "fx_missing_ref", "from": ["fx_nope"], "cost": 1001 }
+  ]
+}

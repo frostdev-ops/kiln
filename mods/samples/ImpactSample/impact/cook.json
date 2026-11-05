@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "comment": "ImpactSample's programs (tools/impact cook). Sources: *.kimp / *.kpatch written for this mod; the vanilla programs it clones are read from the player's own game. Outputs: ../assets/cooked/impact (never committed), served by kiln.assets through ../assets/assets.json.",
+  "tool": "impact",
+  "out": "../assets/cooked/impact",
+  "manifest": "../assets/assets.json",
+  "natives": ["natives.json"],
+  "game": { "side": "server", "madeOn": "1285601" },
+  "inputs": {
+    "fireball_explosion": { "guid": "80a2448f-945c-45f6-8fce-9b09ed61620c", "type": "keen::ImpactProgram",
+                            "comment": "Explosion_Player_Spell_Fireball_1's program (generic AoE: damage, debuffs, pre/post spawns)" },
+    "fireball_projectile": { "guid": "bae6dc9c-1fa1-422f-9dfd-b42e204f6826", "type": "keen::ImpactProgram",
+                             "comment": "Projectile_Player_Staff_Fireball_1's program (on collision: spawn the explosion, noise, destroy)" }
+  },
+  "steps": [
+    { "op": "assemble", "src": "heal_over_time.kimp", "stem": "heal_over_time" },
+    { "op": "clone", "base": "fireball_explosion", "guid": "7e24a487-bff5-4bae-aefc-b273059dc90f", "stem": "chain_explosion",
+      "comment": "Fireball explosion that chains to a second enemy within 8 m",
+      "edits": [
+        { "var": "var $Chain.entity ecs.EntityId" },
+        { "var": "var $Chain.transform WorldTransform" },
+        { "var": "var $Chain.index uint32" },
+        { "var": "var $Chain.spawned ecs.EntityId" },
+        { "var": "var $Chain.factions FactionMask config \"impactsample.ChainFactions\" = [Fogger, Vukah, Scavenger, Wildlife, WildBeast, HitOthers, Skeleton, Cyclops, Drak, Ancients]" },
+        { "var": "var $Chain.range float32 config \"impactsample.ChainRange\" = 8.0" },
+        { "var": "var $Chain.template ecs.TemplateReference config \"impactsample.ChainTemplate\" = 31e7c423-2c04-44ef-81ff-584d72fe6c28" },
+        { "var": "var $Chain.breakHierarchy bool = false" },
+        { "var": "var $Chain.despawnLink bool = false" },
+        { "var": "var $Chain.copyLevel bool = true" },
+        { "var": "var $Chain.copyFaction bool = true" },
+        { "insert": { "file": "chain.kpatch" }, "before": { "pc": 134 } }
+      ] },
+    { "op": "clone", "base": "fireball_explosion", "guid": "3db38d34-9ac2-4ebb-8a49-a3774d25b7cd", "stem": "signal_explosion",
+      "comment": "player-free lab proof: on spawn the explosion program signals its own entity (kiln.Signal) and calls the mod native impactsample.Ping (the opening code runs without a player)",
+      "edits": [
+        { "insert": "ecall kiln.Signal($impact_nodes.GetSelf::entityId, 0x5A11)\npop\necall impactsample.Ping($impact_nodes.GetSelf::entityId)\npop", "after": { "native": "getSelf", "nth": 0 } }
+      ] },
+    { "op": "clone", "base": "fireball_projectile", "guid": "3fb2242d-e7b7-4ee2-aed7-b4c8a4c4595e", "stem": "signal_projectile",
+      "comment": "client checklist: the Fireball projectile signals its impact position instead of making AI noise",
+      "edits": [
+        { "replace": { "native": "triggerNoise", "nth": 0 }, "code": "ecall kiln.Signal($ForEach::position, 0x4E01)\npop" }
+      ] }
+  ]
+}

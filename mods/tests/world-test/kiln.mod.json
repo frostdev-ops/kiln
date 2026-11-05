@@ -1,0 +1,8 @@
+{
+  "id": "world-test",
+  "name": "kiln.world test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "WorldTest.dll",
+  "side": "server"
+}

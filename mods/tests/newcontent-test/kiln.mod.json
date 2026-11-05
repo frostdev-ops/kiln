@@ -1,0 +1,9 @@
+{
+  "id": "newcontent-test",
+  "name": "kiln.content new items / recipes lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NewContentTest.dll",
+  "side": "server",
+  "clients": "kiln"
+}

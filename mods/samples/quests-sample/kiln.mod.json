@@ -1,0 +1,11 @@
+{
+  "id": "quests-sample",
+  "name": "Quests Sample",
+  "version": "2.0.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "QuestsSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "A quest chain in the game's own UI, written once: quests/sample.json is the whole definition. The Warden is a new NPC in the game's roster with his topics and voice lines in the game's NPC menu; the quests are in the game's journal with its notifications, tracked-quest HUD, step counters and map markers; progress is kept per character on the world. He and the Vukah find their own places on the ground, outside every base, near the first player. The code adds one more quest in C#, the same way. Install on the server and on every player's game: a client builds its journal from these files at boot."
+}

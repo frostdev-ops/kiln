@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "entries": [
+    { "kind": "icon", "guid": "4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "file": "icons/blade.png" },
+    { "kind": "blob", "file": "built/blade.blob" },
+    { "kind": "resource", "guid": "00011001-0000-4000-8000-000000000001", "type": "keen::RenderModel", "part": 0, "mode": "override",
+      "file": "built/blade.bin", "patch": [ { "offset": 272, "blob": "built/blade.blob" } ] }
+  ]
+}

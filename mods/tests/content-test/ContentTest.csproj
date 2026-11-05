@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test for kiln.content: prints PASS / FAIL lines into kiln.log. Player-free: needs a world with a container
+       that has a free slot (a copy of a real save). Restores the container; leaves its content changes in place so
+       the companion mod content-observer (Observer/) can watch them come off on unload / reload. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Observer/**" />
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- Drop-table probe: spawns an enemy loot container (skipped when kiln.spawn is absent). -->
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="content/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(KILN_EXPECTED_ITEMS)" Link="expected-items.json" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(KILN_EXPECTED_ITEMS)' != '' And Exists('$(KILN_EXPECTED_ITEMS)')" />
+  </ItemGroup>
+</Project>

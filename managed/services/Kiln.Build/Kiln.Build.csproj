@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/build (kiln.build): voxels, props, schematics (.kschem), the paste journal,
+       PlaceOnce (recorded in WorldData) and the /build commands. Deployed to kiln/host/ and shared by every mod (mods
+       reference it with Private="false" ExcludeAssets="runtime"). Uses Kiln.Saves (WorldData), Kiln.Chat (commands),
+       Kiln.World (player positions) and Kiln.Spawn (templates). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS0419;CS1574</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "comment": "A new item (Kiln_Asset_Emberseal) cloned from Resin, given a custom PNG icon by assets/assets.json. The icon is keyed by this GUID; its bytes come from kiln.assets, not from any game file.",
+  "items": {
+    "add": [
+      { "guid": "7b7c5f14-2a9c-4b7e-9a3f-10e2bb6e12c9", "name": "Kiln_Asset_Emberseal",
+        "base": "Material_T1_Resin", "displayName": "Emberseal", "description": "A frost-quenched ember sigil.",
+        "fields": { "maxStackSize": 50, "rarity": "Rare" } }
+    ]
+  },
+  "recipes": {
+    "add": [
+      { "guid": "9d2e4a81-7c33-4f20-8b55-2bfcc7883601", "name": "Kiln_Asset_Emberseal_Recipe",
+        "station": "hand", "inputs": [ { "item": "Material_T1_Twigs", "count": 2 } ],
+        "outputs": [ { "item": "Kiln_Asset_Emberseal", "count": 1 } ] }
+    ]
+  }
+}

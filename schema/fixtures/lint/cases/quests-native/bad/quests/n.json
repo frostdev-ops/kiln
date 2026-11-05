@@ -1,0 +1,16 @@
+{ "format": 1,
+  "npcs": {
+    "notemplate": { "dialogue": "d" },
+    "placed": { "template": "NPC_Workshop_Fisher_Trader", "place": { "near": "nobody", "distance": [5, 10] } },
+    "vanilla": { "template": "NPC_Workshop_Fisher_Trader", "roster": { "unlock": "nope" } },
+    "c": { "template": "NPC_Workshop_Fisher_Trader", "clone": true, "dialogue": "d", "roster": { "unlock": "nope" } } },
+  "quests": { "q": { "journal": "native", "steps": [ { "id": "s", "voice": "gone", "objective": { "custom": "x" } } ] },
+              "plain": { "name": "P", "rewards": [ { "toast": "Done!" } ],
+                         "steps": [ { "id": "s", "text": "T", "objective": { "reach": { "site": true } }, "spawn": { "template": "Enemy_Vukah_Melee", "near": "nobody" } } ] },
+              "narrow": { "name": "N", "steps": [ { "id": "s", "text": "T", "site": { "near": "nobody" }, "objective": { "reach": { "site": true } }, "onEnter": [ { "talk": "d" } ] } ] } },
+  "dialogues": {
+    "d": { "native": true, "start": "gone", "nodes": {
+      "a": { "text": "t", "voice": "gone", "options": [
+        { "text": "x", "if": { "level": 3 } },
+        { "text": "y", "if": { "quest": "plain", "is": "done" } },
+        { "text": "z", "if": { "quest": "q", "is": "failed" }, "once": true } ] } } } } }

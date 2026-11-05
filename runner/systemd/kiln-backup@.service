@@ -1,0 +1,9 @@
+# Savegame backup of kilnctl instance %i (a timestamped tar.gz in its backup_dir). Started by kiln-backup@.timer.
+# The game saves on its own schedule; kilnctl retries when the save changes while it is read.
+[Unit]
+Description=Back up the savegame of Kiln instance %i
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/kilnctl backup %i
+SyslogIdentifier=kiln-backup@%i

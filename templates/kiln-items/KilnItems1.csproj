@@ -1,0 +1,21 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- New items and recipes (kiln.content): content/items.json defines them as data; KilnItems1Mod.cs shows the same
+       from code. Every new item is a clone of a game item ("base") under a GUID of its own: dotnet new picked fresh
+       GUIDs for this project; never change them (the GUID gives the item id that saves store).
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Docs: docs/kiln/services/content.md ("New items and recipes", "Kitbash", "Texts per language"). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnItems1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnItems1: new items and recipes.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <!-- both: the server owns the items; players' games need the mod for icons and texts. With "kiln" instead, the
+         server sends the definitions to Kiln clients (no icon files then). -->
+    <KilnSide>both</KilnSide>
+    <KilnServices>Content</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,30 @@
+{
+  "raw": "{\"id\":\"hello\",\"name\":\"Hello Kiln\",\"version\":\"0.1.0\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"Hello.dll\",\"side\":\"server\"}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "hello",
+      "name": "Hello Kiln",
+      "version": "0.1.0",
+      "parsedVersion": "0.1.0",
+      "apiVersion": "0.1",
+      "entryAssembly": "Hello.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "warnings": []
+    }
+  }
+}

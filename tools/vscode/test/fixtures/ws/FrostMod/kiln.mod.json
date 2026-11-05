@@ -1,0 +1,9 @@
+{
+  // synthetic manifest for the integration tests
+  "id": "frost-mod",
+  "name": "Frøst Mod 🔥",
+  "version": "0.3.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "FrostMod.dll",
+  "dependecies": { "sample-lib": "^1.2" },
+}

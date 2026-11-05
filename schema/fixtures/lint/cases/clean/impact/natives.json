@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "natives": [
+    { "name": "fixture-clean.Ping", "hash": "0x68117a60", "argc": 1, "suspends": true,
+      "args": [ { "name": "entity", "types": ["ecs.EntityId"], "dir": "in" } ] }
+  ]
+}

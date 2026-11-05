@@ -1,0 +1,301 @@
+{
+ "format": 1,
+ "evidence": "sigport benchmarks",
+ "date": "2026-11-04",
+ "tool": "tools/sigport/port.py v1 (bench.py)",
+ "exes": {
+  "server_1273043": "d7baa768eb00aa895d9f5a1cd8747ccf66858c7b542f50983092b2e3261588ee",
+  "server_1285601": "c5c9fe50c6398d2adedd98923c2d04bf9d9b4af64c1447ac167cdf8f874ff84f",
+  "client_26404966": "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618"
+ },
+ "default_min_confidence": 0.8,
+ "blind_replay_1273043_to_1285601": {
+  "how": "derive a 1273043-only sigdb (the current sigdb ported backwards, every pattern regenerated from 1273043 bytes), then port it forward seeing only the 1273043 exe, that sigdb and the 1285601 exe; truth = the hand-verified sigdb resolved on 1285601 (its build record is lab-verified)",
+  "hand_check_of_derived_sigdb": {
+   "vs_todays_sigdb_on_1273043": {
+    "symbols": {
+     "precision": 0.976,
+     "recall": 1.0,
+     "tp": 122,
+     "fp": 3,
+     "fn": 0,
+     "misses": {
+      "gameplay/DismantleBlock": {
+       "status": "FP",
+       "truth": null,
+       "port": "0x2208b0",
+       "confidence": 0.938,
+       "method": "captured",
+       "old": "0x226440"
+      },
+      "gameplay/DismantleBlock2": {
+       "status": "FP",
+       "truth": null,
+       "port": "0x221430",
+       "confidence": 0.938,
+       "method": "captured",
+       "old": "0x226fd0"
+      },
+      "gameplay/PickUpProp": {
+       "status": "FP",
+       "truth": null,
+       "port": "0x222440",
+       "confidence": 0.938,
+       "method": "captured",
+       "old": "0x227f50"
+      }
+     }
+    },
+    "constants": {
+     "precision": 1.0,
+     "recall": 1.0,
+     "tp": 314,
+     "fp": 0,
+     "fn": 0,
+     "misses": {}
+    }
+   },
+   "vs_emf_0.3.3_server_1273043_rvas": "44/44 agree",
+   "the_3_extra_symbols": "gameplay/DismantleBlock 0x2208b0, DismantleBlock2 0x221430, PickUpProp 0x222440 on 1273043: today's @gameplay/Dismantle.calls patterns carry 1285601 stack offsets and match nothing on 1273043; the tool found the call sites in the matched caller. Checked by hand: PickUpProp is byte-identical (normalised), DismantleBlock/DismantleBlock2 have 0.86/0.81 instruction-sequence similarity, are bound by the identical caller's call sites and keep link order (0x2208b0 < 0x221430 < 0x222440 like 0x226440 < 0x226fd0 < 0x227f50)."
+  },
+  "blind": {
+   "symbols": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 125,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "constants": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 314,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "methods": {
+    "exact": 253,
+    "mapped": 9
+   },
+   "matcher": {
+    "identical": 16456,
+    "callsite": 7309,
+    "anchor": 465,
+    "propagated": 3643,
+    "neighbourhood": 849
+   }
+  },
+  "blind_without_exact_hits": {
+   "symbols": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 125,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "constants": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 314,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "methods": {
+    "mapped": 261,
+    "relaxed": 1
+   }
+  },
+  "layout_moves_found": {
+   "+0x1c00": "15 world-struct constants (world.storage 0xe15dc0 -> 0xe179c0, world.jobs, program count/table, gameplay event map, ...): the program table grew (docs/re/emf-core.md)",
+   "+0x8": "6: program stride 0x1f20 -> 0x1f28 and the program-context slice fields (job.entity_list/count, other_count, other_tpl_count)",
+   "-0x700000": "3: gameplay/storage.pending 0xeb9ef0 -> 0x7b9ef0, pending_count, queues: the world storage shrank by 7 MB in front of the pending-event buffer between the builds (12 corroborating sites)"
+  }
+ },
+ "server_to_client_same_build": {
+  "how": "server.json + server.d ported from the 1285601 server exe to the client exe (Steam 26404966); truth = client.json + composed client.d (hand-ported overlays) on the client; only names in the input",
+  "result": {
+   "symbols": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 124,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "constants": {
+    "precision": 0.9968,
+    "recall": 0.9968,
+    "tp": 312,
+    "fp": 1,
+    "fn": 1,
+    "misses": {
+     "net/after_sync.gs_register": {
+      "status": "FP",
+      "truth": "0xf",
+      "port": "0xd",
+      "confidence": 0.8,
+      "method": null,
+      "old": "0xd"
+     },
+     "time/weather.mode": {
+      "status": "FN",
+      "truth": "0x8",
+      "port": null,
+      "confidence": 0.0,
+      "method": null,
+      "old": "0x8"
+     }
+    }
+   },
+   "methods": {
+    "exact": 248,
+    "mapped": 13
+   }
+  },
+  "without_exact_hits": {
+   "symbols": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 124,
+    "fp": 0,
+    "fn": 0,
+    "misses": {}
+   },
+   "constants": {
+    "precision": 0.9968,
+    "recall": 0.9968,
+    "tp": 312,
+    "fp": 1,
+    "fn": 1,
+    "misses": {
+     "net/after_sync.gs_register": {
+      "status": "FP",
+      "truth": "0xf",
+      "port": "0xd",
+      "confidence": 0.8,
+      "method": null,
+      "old": "0xd"
+     },
+     "time/weather.mode": {
+      "status": "FN",
+      "truth": "0x8",
+      "port": null,
+      "confidence": 0.0,
+      "method": null,
+      "old": "0x8"
+     }
+    }
+   }
+  },
+  "notes": {
+   "net/after_sync.gs_register": "FP: a fixed value (13 on the server, 15 on the client) that no pattern captures; the tool carries fixed values over unverified (listed as unverified_fixed) and the gate's tests have to catch them. Making it a typed hole would make it portable.",
+   "time/weather.mode": "FN at the default threshold: the client's WeatherUpdate is a different, larger function (client.d/time.json re-cuts it); the tool found the site with the right value (8) but at confidence 0.69, so it is left for a human. Correct behaviour."
+  }
+ },
+ "server_1273043_to_client": {
+  "result": {
+   "symbols": {
+    "precision": 1.0,
+    "recall": 0.9758,
+    "tp": 121,
+    "fp": 0,
+    "fn": 3,
+    "misses": {
+     "gameplay/DismantleBlock": {
+      "status": "FN",
+      "truth": "0x48ee40",
+      "port": "0x48ee40",
+      "confidence": 0.0,
+      "method": "captured",
+      "old": null
+     },
+     "gameplay/DismantleBlock2": {
+      "status": "FN",
+      "truth": "0x48f9d0",
+      "port": "0x48f9d0",
+      "confidence": 0.0,
+      "method": "captured",
+      "old": null
+     },
+     "gameplay/PickUpProp": {
+      "status": "FN",
+      "truth": "0x490950",
+      "port": "0x490950",
+      "confidence": 0.0,
+      "method": "captured",
+      "old": null
+     }
+    }
+   },
+   "constants": {
+    "precision": 0.9968,
+    "recall": 0.9968,
+    "tp": 312,
+    "fp": 1,
+    "fn": 1,
+    "misses": {
+     "net/after_sync.gs_register": {
+      "status": "FP",
+      "truth": "0xf",
+      "port": "0xd",
+      "confidence": 0.8,
+      "method": null,
+      "old": "0xd"
+     },
+     "time/weather.mode": {
+      "status": "FN",
+      "truth": "0x8",
+      "port": null,
+      "confidence": 0.0,
+      "method": null,
+      "old": "0x8"
+     }
+    }
+   }
+  },
+  "notes": "build and side change at once; the 3 FN are the Dismantle trio, which the input (today's sigdb on 1273043) does not resolve, so there was nothing to port"
+ },
+ "emf_0.3.3_signatures": {
+  "how": "EMF's 41 server signatures that resolve on 1273043 (plain bytes, no holes) ported to 1285601; truth = the RVAs in emf-0.3.3-signatures.json and server-26404334-hand-ports.json",
+  "broken_on_1285601": [
+   "emf/GetComponent",
+   "emf/GetEntityTransform",
+   "emf/IterNext",
+   "emf/CurrentEntityId",
+   "emf/SpawnWrapper",
+   "emf/GetTemplateComponent",
+   "emf/WaitWorldJobs",
+   "emf/AllocPendingHit"
+  ],
+  "result": {
+   "precision": 1.0,
+   "recall": 1.0,
+   "tp": 41,
+   "fp": 0,
+   "fn": 0,
+   "misses": {}
+  },
+  "broken_ones": {
+   "emf/GetComponent": "TP",
+   "emf/GetEntityTransform": "TP",
+   "emf/IterNext": "TP",
+   "emf/CurrentEntityId": "TP",
+   "emf/SpawnWrapper": "TP",
+   "emf/GetTemplateComponent": "TP",
+   "emf/WaitWorldJobs": "TP",
+   "emf/AllocPendingHit": "TP"
+  },
+  "without_exact_hits": {
+   "precision": 1.0,
+   "recall": 1.0,
+   "tp": 41,
+   "fp": 0,
+   "fn": 0,
+   "misses": {}
+  }
+ }
+}

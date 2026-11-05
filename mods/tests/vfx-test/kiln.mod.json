@@ -1,0 +1,10 @@
+{
+  "id": "vfx-test",
+  "name": "Kiln.Vfx test (play, guard, relay)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "VfxTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "PASS/FAIL lines for kiln.vfx in kiln.log. On a real client each case is on a key (docs/kiln/services/vfx.md); no game art."
+}

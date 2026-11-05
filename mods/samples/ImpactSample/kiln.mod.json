@@ -1,0 +1,10 @@
+{
+  "id": "impactsample",
+  "name": "Impact Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ImpactSample.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "Sample for Impact programs (tools/impact + kiln.abilities, docs/kiln/modding/impact.md): a buff program that heals over time (written from scratch), a Fireball explosion that chains to a second enemy (a clone of the vanilla program, built from a recipe), and two signal variants for tests, plus one managed Kiln native (impactsample.Ping). Build the programs first: build-assets.sh (reads the installed game, writes assets/cooked/)."
+}

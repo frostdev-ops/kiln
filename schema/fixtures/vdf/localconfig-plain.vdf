@@ -1,0 +1,23 @@
+"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"1203620"
+					{
+						"LaunchOptions"		"gamemoderun %command%"
+					}
+					"2278520"
+					{
+						"LaunchOptions"		""
+					}
+				}
+			}
+		}
+	}
+}

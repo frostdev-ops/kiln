@@ -1,0 +1,10 @@
+{
+  "id": "schematics",
+  "name": "Schematics (kiln.build sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "Schematics.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "/build admin commands (selection, capture, paste with rotation, shapes, props, undo) and outposts placed once per world. Vanilla clients see everything: the edits go through the game's own voxel writer and save."
+}

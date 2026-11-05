@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/gameplay.json",
+  "comment": "Client build 26404966: after the BuildFinished-style EmitEvent call the client does not reload rsi from the stack (server: mov rsi,[rsp+0x58]) and its local is at rsp+0x40, so the op.player probe is re-cut. op.player is +0x14C on the client. Evidence: docs/re/client.md.",
+  "symbols": {
+    "@gameplay/BuildFinish.fields": {
+      "find": [
+        {"pattern": "BA F7 BA AE BB 41 B8 18 00 00 00 48 8B C8 E8 {gameplay/EmitEvent:rel32} 48 8B D8 48 85 C0 74 ?? 0F 57 C0 48 8D 54 24 ?? 0F 11 03 33 C0 48 89 43 10 49 8B 0E E8 {gameplay/ProgramTime:rel32} 48 8B 08 48 89 0B 41 8B 86 {gameplay/op.player:d32} 89 43 08"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+ "format": 1,
+ "natives": [
+  {
+   "name": "mymod.Ping",
+   "argc": 2,
+   "args": [
+    {
+     "name": "a"
+    }
+   ]
+  }
+ ]
+}

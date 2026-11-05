@@ -1,0 +1,23 @@
+// no findings: comments and trailing commas are this reader's dialect. A mod vanilla clients join: chat quests, chat conversations.
+{ "format": 1,
+  "npcs": { "ilse": { "template": "Townsfolk_Male_villager_04_AntonGodwin", "dialogue": "ilse", "names": { "en": "Ilse" }, "place": { "at": [1, 2, 3] } } },
+  "quests": {
+    "one": {
+      "name": { "en": "One", "de": "Eins" }, "giver": "ilse", "scope": "party", "journal": "chat",
+      "requires": [ { "level": 2 }, { "not": { "quest": "two", "is": "done" } } ],
+      "steps": [
+        { "id": "a", "text": "Kill", "objective": { "kill": { "family": "Vukah", "count": 2, "near": [0, 0, 0], "radius": 50 } }, "marker": { "at": [0, 0, 0], "radius": 5 } },
+        { "id": "b", "text": "Bring", "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "ilse" } } },
+      ],
+      "rewards": [ { "xp": 100 }, { "item": "Material_T1_Wood_Logs" }, { "knowledge": "npc:NPC_Workshop_Bard01.unlock" } ],
+    },
+    "two": { "journal": "chat", "steps": [ { "id": "x", "objectives": [ { "custom": "sig" }, { "reach": { "offset": [5, 0, 0], "radius": 2 } } ] } ], "rewards": [ { "start": "one", "force": true }, { "waypoint": true, "offset": [1, 0, 0] }, { "waypoint": false } ] },
+  },
+  "dialogues": {
+    "ilse": { "native": false, "start": "hi", "nodes": {
+      "hi": { "text": "Hi", "voice": "00a3c13d-c08e-403b-8ef6-1925007416f7",
+              "options": [ { "text": "Go", "if": { "quest": "one", "is": "available" }, "do": [ { "start": "one" } ], "goto": "end" },
+                           { "text": "Done", "if": { "step": "one.b", "is": "active" }, "do": [ { "advance": "one.b" } ], "goto": "bye" } ] },
+      "bye": { "text": "Bye", "goto": "end" } } },
+  },
+}

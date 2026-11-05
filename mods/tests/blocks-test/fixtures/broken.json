@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "spells": {
+    "no-cast": { "name": "No Cast", "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "ice": 1 } } ] } } ] } },
+    "typo": { "name": "Typo", "cast": { "manaCost": 1, "manacosts": 2 }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "ice": 1 } } ] } } ] } },
+    "no-target": { "name": "No Target", "cast": { "manaCost": 1 }, "delivery": { "type": "projectile", "onImpact": [ { "damage": { "ice": 1 } } ] } },
+    "bad-ref": { "name": "Bad Ref", "cast": { "manaCost": 1 }, "delivery": { "type": "projectile", "onImpact": [ "no-such-effect" ] } },
+    "bad-anim": { "name": "Bad Anim", "cast": { "manaCost": 1, "animation": "sideways" }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "ice": 1 } } ] } } ] } }
+  }
+}

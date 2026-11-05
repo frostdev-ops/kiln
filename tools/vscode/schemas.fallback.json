@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "comment": "Used by scripts/sync.mjs only while schema/schemas.json (the linter's mapping) does not exist yet.",
+  "schemas": [
+    { "schema": "kiln.mod.schema.json", "name": "Kiln mod manifest", "fileMatch": ["**/kiln.mod.json"],
+      "dialect": { "comments": true, "trailingCommas": true } },
+    { "schema": "native.schema.json", "name": "Kiln native mod manifest", "fileMatch": ["**/native.json", "!**/kiln/config/native.json", "!**/kiln/state/native.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "native-state.schema.json", "name": "Native mod user state", "fileMatch": ["**/kiln/config/native.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "kiln-modpack.schema.json", "name": "Kiln server modpack", "fileMatch": ["**/kiln-modpack.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "kiln-runtime.schema.json", "name": "Kiln runtime bundle", "fileMatch": ["**/kiln-runtime.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "admin-endpoint.schema.json", "name": "KAP/1 endpoint", "fileMatch": ["**/kiln/data/kiln-admin/endpoint.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "install-receipt.schema.json", "name": "Kiln install receipt", "fileMatch": ["**/kiln/.install.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "profile.schema.json", "name": "Kiln profile", "fileMatch": ["**/kiln/profile.json", "**/kiln/profile.once.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "config-schema.schema.json", "name": "Config schema snapshot", "fileMatch": ["**/kiln/config/.schema/*.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "state-boot.schema.json", "name": "Boot report", "fileMatch": ["**/kiln/state/boot.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "state-last-server.schema.json", "name": "Last server", "fileMatch": ["**/kiln/state/last-server.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "state-mods.schema.json", "name": "Managed mod state", "fileMatch": ["**/kiln/state/mods.json"],
+      "dialect": { "comments": false, "trailingCommas": false } },
+    { "schema": "state-native.schema.json", "name": "Native mod state", "fileMatch": ["**/kiln/state/native.json"],
+      "dialect": { "comments": false, "trailingCommas": false } }
+  ]
+}

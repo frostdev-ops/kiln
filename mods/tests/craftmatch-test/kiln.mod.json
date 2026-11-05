@@ -1,0 +1,9 @@
+{
+  "id": "craftmatch-test",
+  "name": "crafted gear matches its recipe tooltip: lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "CraftMatchTest.dll",
+  "side": "server",
+  "clients": "kiln"
+}

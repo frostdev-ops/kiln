@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test for kiln.items: prints PASS / FAIL lines into kiln.log. Needs a world with at least one container that
+       holds items (a copy of a real save) and no player. Restores everything it changes. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- Optional cross-check of the gear's item entity through kiln.world (skipped when that service is absent). -->
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Optional test fixture ($KILN_EXPECTED_ITEMS, a JSON item list), to cross-check the game's registry (skipped when absent). -->
+    <None Include="$(KILN_EXPECTED_ITEMS)" Link="expected-items.json" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(KILN_EXPECTED_ITEMS)' != '' And Exists('$(KILN_EXPECTED_ITEMS)')" />
+  </ItemGroup>
+</Project>

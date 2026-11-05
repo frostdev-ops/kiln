@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"native\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: id 'native' is reserved"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "raw": "{\"id\":\"x\",\"version\":\"2\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"X.dll\",\"author\":\"solo\",\"tests\":true}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "x",
+      "name": "x",
+      "version": "2",
+      "parsedVersion": "2.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "X.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [
+        "solo"
+      ],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": {
+        "autoRun": true,
+        "timeoutSeconds": 0,
+        "filter": null
+      },
+      "warnings": []
+    }
+  }
+}

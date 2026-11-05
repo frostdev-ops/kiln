@@ -1,0 +1,9 @@
+{
+  "id": "placeholder-items",
+  "name": "placeholder-test: the items (remove to test missing content)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "PlaceholderItems.dll",
+  "side": "server",
+  "clients": "kiln"
+}

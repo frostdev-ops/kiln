@@ -1,0 +1,7 @@
+{
+  "raw": "[1, 2]",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: the file must contain one JSON object"
+  }
+}

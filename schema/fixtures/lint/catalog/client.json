@@ -1,0 +1,136 @@
+{
+  "format": 1,
+  "kind": "kiln.catalog",
+  "generator": "schema/fixtures/lint (synthetic: invented names and GUIDs)",
+  "generated": "2026-11-04T12:00:00Z",
+  "game": {
+    "side": "client",
+    "steamBuild": "10000001",
+    "build": "10000001"
+  },
+  "languages": [
+    "en-us",
+    "de-de",
+    "pt-br"
+  ],
+  "sections": {
+    "items": [
+      {
+        "name": "Material_Fixture_Logs",
+        "id": "0x0a000001",
+        "guid": "0000a001-0000-4000-8000-000000000001"
+      },
+      {
+        "name": "Material_Fixture_Twigs",
+        "id": "0x0a000002",
+        "guid": "0000a001-0000-4000-8000-000000000002"
+      },
+      {
+        "name": "Weapon_Fixture_Sword",
+        "id": "0x0a000003",
+        "guid": "0000a001-0000-4000-8000-000000000003"
+      },
+      {
+        "name": "Weapon_Fixture_Loot",
+        "id": "0x0a0000f1",
+        "guid": "0000a001-0000-4000-8000-0000000000f1",
+        "generateRarity": true
+      }
+    ],
+    "recipes": [
+      {
+        "name": "Weapon_Fixture_Sword",
+        "id": "0x0b000001",
+        "guid": "0000b001-0000-4000-8000-000000000001"
+      }
+    ],
+    "loot": [
+      {
+        "name": "Material_Fixture_Logs",
+        "id": "0x0a000001"
+      }
+    ],
+    "drops": [
+      {
+        "guid": "0000c001-0000-4000-8000-000000000001"
+      }
+    ],
+    "templates": [
+      {
+        "name": "Enemy_Fixture_Wolf",
+        "id": "0x0d000001",
+        "guid": "0000d001-0000-4000-8000-000000000001",
+        "components": [
+          "Health",
+          "Faction",
+          "Enemy01BehaviorState"
+        ]
+      }
+    ],
+    "perks": [
+      {
+        "name": "Perk_Fixture_Ice",
+        "id": "0x0e000001",
+        "guid": "0000e001-0000-4000-8000-000000000001"
+      }
+    ],
+    "buffs": [
+      {
+        "name": "buff_0f000001",
+        "id": "0x0f000001"
+      }
+    ],
+    "skills": [
+      {
+        "name": "skill_10000001",
+        "id": "0x10000001",
+        "item": "Weapon_Fixture_Sword"
+      }
+    ],
+    "resources": [
+      {
+        "guid": "00011001-0000-4000-8000-000000000001",
+        "type": "keen::RenderModel"
+      },
+      {
+        "guid": "00011001-0000-4000-8000-000000000002",
+        "type": "keen::UiTextureResource"
+      }
+    ]
+  },
+  "fields": {
+    "items": [
+      {
+        "path": "maxStackSize",
+        "type": "uint16"
+      },
+      {
+        "path": "rarity",
+        "type": "ItemRarity",
+        "enum": [
+          "Common",
+          "Uncommon",
+          "Rare",
+          "Epic",
+          "Legendary"
+        ]
+      },
+      {
+        "path": "damageSetup.dmgMod",
+        "type": "float32"
+      },
+      {
+        "path": "generateRarity",
+        "type": "bool"
+      },
+      {
+        "path": "itemLevelRange.minLevel",
+        "type": "uint32"
+      },
+      {
+        "path": "itemLevelRange.maxLevel",
+        "type": "uint32"
+      }
+    ]
+  }
+}

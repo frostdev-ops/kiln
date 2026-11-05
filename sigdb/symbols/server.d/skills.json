@@ -1,0 +1,162 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.skills (kiln-skills.dll): the game's skill tree. TreeLoad (server 0x96ea80 / client 0xec6be0 on svn 1287369) is the per-world loader of g38_skilltree::SkillTree: once the tree's data pointer (+skills/tree.data) is 0 it asks the resource service for the SkillTreeResource and fills the node map (+0x48), link map (+0xa0), id -> index map (+0xf8), the id list by index (+0x150) and the root list (+0x178). Kiln serves the expanded resource (kiln.assets override) right before the original runs, so the game builds every map itself. LoginCheck (0xe00b0 / 0x2f4110) is player_skilltree's check of a player's UnlockedSkillNodes when its initialized flag is 0 (each join): SkillUiRebuild fails on an id the tree does not know, and a failed check makes the game reset the whole tree (free respec); Kiln strips only the unknown ids first. The other symbols are the game's own skill functions, used for diagnostics (simulate) and the strip. Evidence: docs/re/abilities.md section 4 (\"Expanding the skill tree\"). Shadow table (nodes past the game's caps: index >= 256 or no level byte left, docs/kiln/services/skills.md): IsUnlocked (0x94c480 / 0xea5230: id -> index -> mask bit; 50 call sites in 23 functions on the server, 53 in 25 on the client, every IsSkillUnlocked native and item-sequence requiredSkill check), NodeSet, Reachable, PointsSpent and Reset (0xb9a00 / 0x2ce370: the respec, also the login reset) are hooked; the client overlay adds the skill-tree screen's per-frame update.",
+  "symbols": {
+    "skills/TreeLoad": {
+      "find": [
+        {
+          "pattern": "48 85 C9 0F 84 ?? ?? ?? ?? 41 56 48 81 EC 80 00 00 00 48 83 79 {skills/tree.data:d8} 00 4C 8B F1 48 89 7C 24 68 0F 85 ?? ?? ?? ?? 48 8B 51 08 44 8B 41 10 48 89 51 18 44 89 41 30"
+        }
+      ]
+    },
+    "skills/LoginCheck": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 41 56 41 57 48 83 EC 50 48 8B AA {skills/login.tree:d32} 4C 8D B2 {skills/login.unlocked:d32} 48 8B F9 48 8B F2"
+        }
+      ]
+    },
+    "@skills/LoginCheck.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "skills/LoginCheck",
+            "size": 640
+          },
+          "pattern": "48 8B 4E {skills/login.ui:d8} 4C 8B C5 48 8B D3 E8 {skills/UiRebuild:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "skills/LoginCheck",
+            "size": 640
+          },
+          "pattern": "48 8B CD E8 {skills/TreeConnected:rel32} 84 C0 0F 84 ?? ?? ?? ?? 48 8B 9E D0 00 00 00 49 8B CE E8 {skills/WriteAccess:rel32} 4C 8B C3 48 8B D5 48 8B C8 E8 {skills/LevelsValid:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "skills/LoginCheck",
+            "size": 640
+          },
+          "pattern": "48 8D 55 20 8B 5C 24 38 48 8B CD E8 {skills/PointsSpent:rel32}"
+        }
+      ]
+    },
+    "@skills/Unlock.calls": {
+      "find": [
+        {
+          "pattern": "8B CB 4C 89 BC 24 80 00 00 00 E8 {skills/Reachable:rel32} 84 C0 74 ?? 48 8B 96 ?? ?? ?? ?? 8B CB E8 {skills/NodeById:rel32}"
+        },
+        {
+          "pattern": "48 8B 96 ?? 00 00 00 4C 8B CB 41 8B 0F 41 B0 01 E8 {skills/NodeSet:rel32} 84 C0"
+        }
+      ]
+    },
+    "skills/IsUnlocked": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 20 48 8B DA 89 4C 24 30 49 8D 88 {skills/tree.index_map:d32} 48 8D 54 24 30 E8 ?? ?? ?? ?? 48 85 C0 74 35 48 8B 08 45 33"
+        }
+      ]
+    },
+    "skills/Reset": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 83 EC 30 4C 8D B1 {skills/login.tree:d32} 48 8B D9 48 8B 49 48 0F B6 F2 49 8B 2E 48 85 C9 74 29 0F B6 43 42 4C"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "skills/tree.data": {
+      "min_votes": 1
+    },
+    "skills/login.tree": {
+      "min_votes": 1
+    },
+    "skills/login.unlocked": {
+      "min_votes": 1
+    },
+    "skills/login.ui": {
+      "min_votes": 1
+    },
+    "skills/tree.node_map": {
+      "value": 72
+    },
+    "skills/tree.link_map": {
+      "value": 160
+    },
+    "skills/tree.index_map": {
+      "value": 248
+    },
+    "skills/tree.ids": {
+      "value": 336
+    },
+    "skills/tree.roots": {
+      "value": 376
+    },
+    "skills/tree.guid": {
+      "value": 56
+    },
+    "skills/input.unlock": {
+      "value": 384
+    }
+  },
+  "features": {
+    "skills.tree_load": {
+      "symbols": [
+        "skills/TreeLoad"
+      ],
+      "constants": [
+        "skills/tree.data",
+        "skills/tree.guid"
+      ]
+    },
+    "skills.login_guard": {
+      "symbols": [
+        "skills/LoginCheck",
+        "skills/NodeById",
+        "skills/WriteAccess"
+      ],
+      "constants": [
+        "skills/login.tree",
+        "skills/login.unlocked"
+      ]
+    },
+    "skills.functions": {
+      "symbols": [
+        "skills/NodeById",
+        "skills/NodeSet",
+        "skills/Reachable",
+        "skills/UiRebuild",
+        "skills/TreeConnected",
+        "skills/LevelsValid",
+        "skills/PointsSpent"
+      ],
+      "constants": [
+        "skills/tree.node_map",
+        "skills/tree.link_map",
+        "skills/tree.index_map",
+        "skills/tree.ids",
+        "skills/tree.roots"
+      ]
+    },
+    "skills.shadow": {
+      "symbols": [
+        "skills/IsUnlocked",
+        "skills/NodeSet",
+        "skills/Reachable",
+        "skills/PointsSpent",
+        "skills/Reset",
+        "skills/NodeById",
+        "skills/LoginCheck",
+        "skills/WriteAccess"
+      ],
+      "constants": [
+        "skills/login.tree",
+        "skills/login.unlocked",
+        "skills/tree.index_map"
+      ]
+    }
+  }
+}

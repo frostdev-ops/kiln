@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "impact-natives.schema.json",
+  "title": "Kiln natives a mod's Impact programs call (impact/natives.json), format 1",
+  "description": "Declares the mod's Kiln natives (\"<modid>.<Name>\") for tools/impact (the cook's argc check) and kiln.abilities (the verifier). Read with Python's json module (tools/impact/impact/catalog.py): plain JSON, no comments, no trailing commas. Docs: docs/kiln/services/abilities.md#impact-program-and-native-contract-runtime-side, docs/kiln/modding/impact.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/abilities.md#impact-program-and-native-contract-runtime-side",
+  "properties": {
+    "format": { "const": 1, "default": 1 },
+    "comment": {},
+    "natives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "comment": {},
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_]+$",
+            "x-kiln-message": "a Kiln native name is '<modid>.<Name>' with Name [A-Za-z0-9_]",
+            "x-kiln-def-name": "natives"
+          },
+          "hash": {
+            "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 4294967295 }, { "type": "string", "pattern": "^(0[xX][0-9a-fA-F]{1,8}|[0-9]+)$" }],
+            "description": "FNV-1a-32 over the full UTF-8 name (computed when omitted)."
+          },
+          "node": { "type": "string", "description": "Vanilla natives only: the node name the hash is taken of." },
+          "argc": { "type": "integer", "minimum": 0, "maximum": 31, "description": "Values the ECALL pops (default: the length of args)." },
+          "returns": { "type": "string" },
+          "suspends": { "type": "boolean", "default": false, "description": "true for managed (C#) natives: the ECALL re-runs next step and then pushes the handler's value." },
+          "doc": { "type": "string" },
+          "query": { "type": "boolean" },
+          "args": {
+            "type": "array",
+            "maxItems": 31,
+            "description": "In args[] index order: args[0] is the LAST value pushed before the ECALL.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "types": { "type": "array", "items": { "type": "string" } },
+                "dir": { "enum": ["in", "out", "inout"], "default": "in" },
+                "doc": { "type": "string" },
+                "optional": { "type": "boolean" },
+                "raw": { "type": "boolean", "description": "Accepts a raw integer (not only a variable handle)." }
+              },
+              "x-kiln-unknownKeys": "warning"
+            }
+          }
+        },
+        "x-kiln-unknownKeys": "info",
+        "x-kiln-unknownKeysMessage": "unknown key in a native (kept as extra data)"
+      }
+    }
+  },
+  "x-kiln-unknownKeys": "warning"
+}

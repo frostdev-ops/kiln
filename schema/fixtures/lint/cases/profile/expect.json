@@ -1,0 +1,38 @@
+{
+  "catalog": true,
+  "description": "cross-mod checks of mods linted together: the same GUID (KL302) and name (KL307) in two mods, a rule on another mod's item without a dependency (KL206), two mods with one id (KL308)",
+  "diagnostics": [
+    {
+      "code": "KL302",
+      "col": 33,
+      "file": "b/content/b.json",
+      "line": 2,
+      "message": "GUID aa6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 is also defined by mod fixture-a: one definition replaces the other",
+      "severity": "error"
+    },
+    {
+      "code": "KL307",
+      "col": 81,
+      "file": "b/content/b.json",
+      "line": 2,
+      "message": "item name \"FixtureA_Ore\" is also defined by mod fixture-a",
+      "severity": "error"
+    },
+    {
+      "code": "KL206",
+      "col": 14,
+      "file": "b/content/b.json",
+      "line": 3,
+      "message": "FixtureA_Gem comes from mod fixture-a, which this mod does not depend on (rules apply in load order: add \"fixture-a\" to dependencies or loadAfter)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL308",
+      "col": 9,
+      "file": "c/kiln.mod.json",
+      "line": 1,
+      "message": "mod id \"fixture-a\" is also used by <case>/a: Kiln loads only one of them (the first folder in name order)",
+      "severity": "error"
+    }
+  ]
+}

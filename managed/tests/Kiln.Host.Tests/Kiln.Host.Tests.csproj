@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Host/Kiln.Host.csproj" />
+    <!-- Shared service assemblies live next to Kiln.Host (kiln/host on a server): Hello uses Kiln.Example. -->
+    <ProjectReference Include="../../services/Kiln.Example/Kiln.Example.csproj" />
+    <!-- Sample mods the tests install into a temporary kiln/mods (built, never referenced). -->
+    <KilnSample Include="../../../mods/samples/Hello/Hello.csproj" />
+    <KilnSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
+    <KilnSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
+    <KilnSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
+    <KilnSample Include="../../../mods/samples/SampleFaulty/SampleFaulty.csproj" />
+    <ProjectReference Include="@(KilnSample)" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <!-- samples.txt: the output assembly of each sample, so tests find them under any configuration/artifacts path. -->
+  <Target Name="WriteSamplePaths" AfterTargets="Build">
+    <MSBuild Projects="@(KilnSample)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnSampleTarget" />
+    </MSBuild>
+    <WriteLinesToFile File="$(OutDir)samples.txt" Lines="@(_KilnSampleTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

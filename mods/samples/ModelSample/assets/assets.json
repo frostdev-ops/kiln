@@ -1,0 +1,59 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "blob",
+      "file": "cooked/bronze_sword_cube.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "9c38c7f0-fd0a-41a6-b91e-9a16287b8f59",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/bronze_sword_cube.bin",
+      "mode": "override",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/bronze_sword_cube.blob"
+        }
+      ]
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/tower_sword.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "08525f9a-f6f9-46f4-8c3e-003e481d740d",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/tower_sword.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/tower_sword.blob"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "699ccb5f-97a5-4f31-b257-f13c61952589",
+      "type": "keen::ecs::TemplateResource",
+      "part": 0,
+      "file": "cooked/tower_sword_visual.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "icon",
+      "guid": "1d622bd9-8170-41b1-822e-d3984b386d95",
+      "file": "icons/cube_sword.png"
+    },
+    {
+      "kind": "icon",
+      "guid": "56f83e52-ac3b-4f15-ada8-67702ce8e9e6",
+      "file": "icons/tower_sword.png"
+    }
+  ]
+}

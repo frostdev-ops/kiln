@@ -1,0 +1,9 @@
+{
+  // Copy to kiln/data/schematics/schematics.json. Each outpost is placed once per world (Build.PlaceOnce, recorded
+  // in the world's mod data): a restart or a mod reload does not place it again. "schematic" is a file in
+  // kiln/data/kiln.build/schematics/ (without .kschem); "kiln-outpost" is the built-in one this mod writes there.
+  // "at" is the ground point under the schematic's anchor (its floor centre), in world metres.
+  "outposts": [
+    { "key": "outpost-1", "schematic": "kiln-outpost", "at": [3024.0, 902.6, 1552.0], "rotation": 90 }
+  ]
+}

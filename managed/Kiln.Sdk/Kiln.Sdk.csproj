@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Sdk: the MSBuild SDK package for Kiln mods (Sdk/ props + targets) and its build task, Kiln.Sdk.Tasks.dll
+       (tasks/net10.0/), which generates/validates kiln.mod.json with the loader's own parser (linked from Kiln.Host).
+       Pack: managed/Kiln.Sdk/pack.sh. Inside the repository, mods using Sdk/ reference this project, which copies
+       the task to $(KILN_OUT)/sdk-tasks/ (or .out/sdk-tasks/). -->
+  <Import Project="Sdk/Kiln.Version.props" />
+  <PropertyGroup>
+    <AssemblyName>Kiln.Sdk.Tasks</AssemblyName>
+    <RootNamespace>Kiln.Sdk</RootNamespace>
+    <PackageId>Kiln.Sdk</PackageId>
+    <Version>$(KilnSdkVersion)</Version>
+    <PackageType>MSBuildSdk</PackageType>
+    <Description>MSBuild SDK for Kiln (Enshrouded) mods: references Kiln.Api and services, generates and validates kiln.mod.json, KilnDeploy and KilnPack targets.</Description>
+    <PackageTags>kiln;enshrouded;mod;msbuild-sdk</PackageTags>
+    <BuildOutputTargetFolder>tasks</BuildOutputTargetFolder>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <IncludeSymbols>false</IncludeSymbols>
+    <NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DefaultItemExcludes>$(DefaultItemExcludes);packages/**;Sdk/**;native/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Kiln.Host/Manifest.cs" Link="Shared/Manifest.cs" />
+    <Compile Include="../Kiln.Host/SemVer.cs" Link="Shared/SemVer.cs" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" PrivateAssets="all" ExcludeAssets="runtime" />
+    <None Include="Sdk/*.props;Sdk/*.targets" Pack="true" PackagePath="Sdk/" />
+  </ItemGroup>
+  <!-- Roslyn components (pack.sh builds them into KilnAnalyzersStage): Kiln.Analyzers + Kiln.Analyzers.CodeFixes
+       (KILN1xx, wired by Sdk/Kiln.Analyzers.targets) and Kiln.GameIds (Sdk/Kiln.GameIds.targets), under
+       analyzers/dotnet/cs/. -->
+  <ItemGroup Condition="'$(KilnAnalyzersStage)' != ''">
+    <None Include="$(KilnAnalyzersStage)/Kiln.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs/" Visible="false" />
+    <None Include="$(KilnAnalyzersStage)/Kiln.Analyzers.CodeFixes.dll" Pack="true" PackagePath="analyzers/dotnet/cs/" Visible="false" />
+    <None Include="$(KilnAnalyzersStage)/Kiln.GameIds.dll" Condition="Exists('$(KilnAnalyzersStage)/Kiln.GameIds.dll')"
+          Pack="true" PackagePath="analyzers/dotnet/cs/" Visible="false" />
+  </ItemGroup>
+  <!-- The native SDK (native/ in the package; KILN_SDK_DIR for kiln_plugin, docs/kiln/modding/mdk.md "Native mods"):
+       KilnPlugin.cmake, the C ABI headers and the real Linux toolchain. The repository's native/cmake/clang-cl-xwin.cmake
+       replaces the wrapper of the same name that managed/Kiln.Sdk/native/cmake has for in-repository builds. -->
+  <ItemGroup>
+    <None Include="native/cmake/KilnPlugin.cmake" Pack="true" PackagePath="native/cmake/" />
+    <None Include="../../native/cmake/clang-cl-xwin.cmake" Pack="true" PackagePath="native/cmake/" Visible="false" />
+    <None Include="../../native/core/abi/**/*.h" Pack="true" PackagePath="native/include/" Visible="false" />
+  </ItemGroup>
+  <!-- Repository mode: a fixed task location the mods' UsingTask can name at evaluation time. -->
+  <PropertyGroup>
+    <KilnSdkTasksDir Condition="'$(KILN_OUT)' != ''">$([MSBuild]::NormalizeDirectory('$(KILN_OUT)', 'sdk-tasks'))</KilnSdkTasksDir>
+    <KilnSdkTasksDir Condition="'$(KILN_OUT)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', '.out', 'sdk-tasks'))</KilnSdkTasksDir>
+  </PropertyGroup>
+  <Target Name="KilnCopyTasks" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(KilnSdkTasksDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

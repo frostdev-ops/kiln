@@ -1,0 +1,10 @@
+<Project>
+  <!-- Fault policy demo: while kiln/data/sample-faulty/fault exists, every tick throws; after fault_limit faults in
+       fault_window_s the mod is disabled and a crash report is written. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>sample-faulty</KilnModId>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

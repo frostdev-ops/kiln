@@ -1,0 +1,431 @@
+{
+ "format": 1,
+ "comment": "Verifier test vectors (synthetic programs, no game data) for kiln.abilities' C++ verifier and for tests.",
+ "maxStack": 31,
+ "vectors": [
+  {
+   "file": "ok_minimal.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": 0
+   },
+   "sha256": "0050fcbdf62be89f850bcccfb164d964d2cd0060ea69b10f5e286782e1e82f2e",
+   "natives": []
+  },
+  {
+   "file": "ok_wait_loop.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 3,
+    "shutdown": 0
+   },
+   "sha256": "92ef55971a2f34e6a3d656bb7e0378c8b5d41c329384fa95a5c2124a2462d06f",
+   "natives": []
+  },
+  {
+   "file": "ok_depth31.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 31,
+    "shutdown": 0
+   },
+   "sha256": "23dbf774c21b590679ddb94b19710e4c42e4e53d3a4694ebffd137a0801f57cb",
+   "natives": [
+    {
+     "hash": "0xb04d0e7a",
+     "argc": 25
+    }
+   ]
+  },
+  {
+   "file": "bad_overflow32.bin",
+   "ok": false,
+   "errors": [
+    "E_OVERFLOW"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_OVERFLOW"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "3a0bfaf28c2a7f33d27458207e93a4b49694a497a5362bdbcac1deb7a3275db2",
+   "natives": [
+    {
+     "hash": "0xb04d0e7a",
+     "argc": 25
+    }
+   ]
+  },
+  {
+   "file": "bad_underflow.bin",
+   "ok": false,
+   "errors": [
+    "E_UNDERFLOW"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_UNDERFLOW"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "17f52b7d9f7747b7fa8e0fbb2de0cbecbc5d6a9918251cda0115951d45ffbe84",
+   "natives": []
+  },
+  {
+   "file": "bad_depth_mismatch.bin",
+   "ok": false,
+   "errors": [
+    "E_DEPTH"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_DEPTH"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "44fdc2c1f9c77ab0eac5fcc74a80b1afb19819b3374adc56db5d9f6306381493",
+   "natives": []
+  },
+  {
+   "file": "bad_falloff.bin",
+   "ok": false,
+   "errors": [
+    "E_END",
+    "E_FALLOFF"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_END",
+    "E_FALLOFF"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "c7791935df1801d0133023b4a9a65919e0691368950e0ac0d6d5914239fbd457",
+   "natives": []
+  },
+  {
+   "file": "bad_no_halt.bin",
+   "ok": false,
+   "errors": [
+    "E_END"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_END"
+   ],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": 0
+   },
+   "sha256": "73d9d849ff1b92d15f679c03511d27e74042d435ef2a24dc62a50e31989e8047",
+   "natives": []
+  },
+  {
+   "file": "bad_target.bin",
+   "ok": false,
+   "errors": [
+    "E_TARGET"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_TARGET"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "60d488c5973b38ef6836f8284427bff540f2f6091c52fedcbe166837b5ac2c49",
+   "natives": []
+  },
+  {
+   "file": "bad_opcode.bin",
+   "ok": false,
+   "errors": [
+    "E_OPCODE"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_OPCODE"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "d7d3b3ab307c1453657ad4ebcf4b36e48657755d78a38fddee9b1eeb350a4f3d",
+   "natives": []
+  },
+  {
+   "file": "bad_trunc.bin",
+   "ok": false,
+   "errors": [
+    "E_TRUNC"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_TRUNC"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "dbde43e350e734d6a3a82af3b0194e94b20c81ef9a76f4e62d8bae45f6c0a17a",
+   "natives": []
+  },
+  {
+   "file": "bad_frame.bin",
+   "ok": false,
+   "errors": [
+    "E_END",
+    "E_FRAME"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_END",
+    "E_FRAME"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "d287b5780b2500814eef37655792bbb055ff16343ab2abbe9e66820b6c05fc05",
+   "natives": []
+  },
+  {
+   "file": "bad_handle.bin",
+   "ok": false,
+   "errors": [
+    "E_HANDLE"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_HANDLE"
+   ],
+   "maxDepth": {
+    "code": 1,
+    "shutdown": 0
+   },
+   "sha256": "42ba56f07a20589f09a01bcd59f88650495f219a25276009ad3c6058b85bd017",
+   "natives": []
+  },
+  {
+   "file": "bad_loadtype.bin",
+   "ok": false,
+   "errors": [
+    "E_LOADTYPE"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_LOADTYPE"
+   ],
+   "maxDepth": {
+    "code": 1,
+    "shutdown": 0
+   },
+   "sha256": "02e284e288ba6cf20b1ccf13ec4df861aeb425fb86e5ae43b63dc034455f6f94",
+   "natives": []
+  },
+  {
+   "file": "ok_copy.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": 0
+   },
+   "sha256": "df29f66f157b0978c6ca7f8626dd326aacfd2d7a4f1969744004451d970f161c",
+   "natives": []
+  },
+  {
+   "file": "bad_copy_type.bin",
+   "ok": false,
+   "errors": [
+    "E_COPY"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_COPY"
+   ],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": 0
+   },
+   "sha256": "cc090cba845b2ed2108206b98e055221063b2805f89b7bd38c060a94396dde71",
+   "natives": []
+  },
+  {
+   "file": "bad_native.bin",
+   "ok": false,
+   "errors": [
+    "E_NATIVE"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_NATIVE"
+   ],
+   "maxDepth": {
+    "code": null,
+    "shutdown": 0
+   },
+   "sha256": "6d56a1f96f6e2b58a2bab11723fedea88758ae28b2efd476e091c63425c6da0a",
+   "natives": []
+  },
+  {
+   "file": "ok_kiln_signal.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 2,
+    "shutdown": 0
+   },
+   "sha256": "a62818af299d6347415658b793636027b4195b10ab3b952018c9787a56458906",
+   "natives": [
+    {
+     "hash": "0x01d09759",
+     "argc": 1
+    },
+    {
+     "hash": "0x38b05baf",
+     "argc": 2
+    }
+   ]
+  },
+  {
+   "file": "bad_query_missing.bin",
+   "ok": false,
+   "errors": [
+    "E_QUERY"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_QUERY"
+   ],
+   "maxDepth": {
+    "code": 6,
+    "shutdown": 0
+   },
+   "sha256": "6e9fce99aa95faca809164569a1ce2925eb242d06d7ee4df36798c9a7f174393",
+   "natives": [
+    {
+     "hash": "0x19143416",
+     "argc": 6
+    }
+   ]
+  },
+  {
+   "file": "ok_query.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 6,
+    "shutdown": 6
+   },
+   "sha256": "475c7daa34a99ba5e7478dfa3e74a66812673a2ace837c110ec6666510d38424",
+   "natives": [
+    {
+     "hash": "0x19143416",
+     "argc": 6
+    },
+    {
+     "hash": "0x93e40aa9",
+     "argc": 6
+    }
+   ]
+  },
+  {
+   "file": "bad_shutdown_falloff.bin",
+   "ok": false,
+   "errors": [
+    "E_END",
+    "E_FALLOFF"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_END",
+    "E_FALLOFF"
+   ],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": null
+   },
+   "sha256": "5d3ce13e83ed393e041c55b838515da8aeea25a78a5d6b5e6ed398bf71d921ae",
+   "natives": []
+  },
+  {
+   "file": "ok_counter_loop.bin",
+   "ok": true,
+   "errors": [],
+   "lintOk": true,
+   "lintErrors": [],
+   "maxDepth": {
+    "code": 2,
+    "shutdown": 0
+   },
+   "sha256": "8449d6dee3570ccc990b053dbb1764b709f5ee911b406265fb8a61517481074d",
+   "natives": []
+  },
+  {
+   "file": "bad_unconnected.bin",
+   "ok": false,
+   "errors": [
+    "E_UNCONNECTED"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_UNCONNECTED"
+   ],
+   "maxDepth": {
+    "code": 3,
+    "shutdown": 0
+   },
+   "sha256": "2133e569e3b399db628c5d52bb04c76ca0b56d6a821decad21ab8846a30d192f",
+   "natives": [
+    {
+     "hash": "0x2d3e3e5f",
+     "argc": 3
+    }
+   ]
+  },
+  {
+   "file": "bad_id.bin",
+   "ok": false,
+   "errors": [
+    "E_ID"
+   ],
+   "lintOk": false,
+   "lintErrors": [
+    "E_ID"
+   ],
+   "maxDepth": {
+    "code": 0,
+    "shutdown": 0
+   },
+   "sha256": "18a0f431f82e2a66098c1f2db0160fd6bb42b49f919e25240ae01019c140d8e5",
+   "natives": []
+  }
+ ]
+}

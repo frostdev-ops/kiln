@@ -1,0 +1,38 @@
+{
+  "build": {
+    "steam_build": 26404334,
+    "svn": 1285601,
+    "exe_sha256_prefix": "c5c9fe50"
+  },
+  "source": "hand port from EMF 0.3.3 server_1273043 signatures",
+  "ports": [
+    {
+      "name": "SpawnWrapper",
+      "pattern": "48 83 EC 58 0F 10 02 8B 15 ?? ?? ?? ?? 33 C0 41 0F 10 08 48 81 C1 C0 79 E1 00",
+      "why": "EMF's pattern cut the world.storage displacement after two bytes (C0 5D); rebased 0xE15DC0 -> 0xE179C0",
+      "rva": "0x620d00",
+      "unique": true
+    },
+    {
+      "name": "IterNext",
+      "pattern": "40 57 48 83 EC 20 4C 8B 01 48 8B FA 8B 41 08 4C 8B C9 49 3B 80 38 08 00 00",
+      "why": "program-context slice entity count +0x830 -> +0x838",
+      "rva": "0x65e610",
+      "unique": true
+    },
+    {
+      "name": "CurrentEntityId",
+      "pattern": "8B 41 08 4C 8B C2 85 C0 75 06 89 02 48 8B C2 C3 8D 50 FF 48 8B 01 48 03 D2 48 8B 88 30 08 00 00 8B 04 D1 41",
+      "why": "program-context slice entity list +0x828 -> +0x830",
+      "rva": "0x65b870",
+      "unique": true
+    },
+    {
+      "name": "AllocPendingHit",
+      "pattern": "48 89 5C 24 08 57 48 83 EC 40 48 8B D9 0F B6 FA 48 81 C1 10 01 00 00 E8",
+      "why": "same logic (pool +0x110, fallback pool +0x138, flag byte +0x144); frame grew 0x20 -> 0x40 for a new 'both pools empty' log call",
+      "rva": "0x98c040",
+      "unique": true
+    }
+  ]
+}

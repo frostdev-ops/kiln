@@ -1,0 +1,515 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.world: ECS program registration, program-update helpers, entity maps, teleport. Sources: EMF 0.3.3 signature table (MIT; sigs 3, 15, 16, 17, 18, 22, 32, 49) and docs/engine_parts/re_custom_programs.md + re_teleport.md, re-verified and generalised for svn 1285601 (exe c5c9fe50...) with typed holes; evidence in docs/re/world.md.",
+  "symbols": {
+    "world/RegisterAllPrograms": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 40 41 B8 24"
+        }
+      ]
+    },
+    "world/RegisterProgram": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00 00 00 F6 82 {world/desc.flags:d32} 02"
+        }
+      ]
+    },
+    "@world/RegisterProgram.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/RegisterProgram",
+            "size": 1024
+          },
+          "pattern": "33 FF 8B DF 66 3B B9 {world/programs.count:d32} 73 ?? 4C 8D B1 {world/programs.names:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/RegisterProgram",
+            "size": 1024
+          },
+          "pattern": "0F B7 86 {world/programs.count:d32} 41 BE {world/programs.max:d32} 66 41 3B C6"
+        },
+        {
+          "scope": {
+            "symbol": "world/RegisterProgram",
+            "size": 1024
+          },
+          "pattern": "48 69 D8 {world/programs.stride:d32} 33 D2 41 B8 {world/programs.stride:d32} 48 81 C3 {world/programs.table:d32} 48 03 DE"
+        },
+        {
+          "scope": {
+            "symbol": "world/RegisterProgram",
+            "size": 1024
+          },
+          "pattern": "41 8B 8F {world/desc.flags:d32} 89 4B {world/entry.flags:d8} 41 8B 87 {world/desc.interval:d32} 89 43 {world/entry.interval:d8}"
+        },
+        {
+          "scope": {
+            "symbol": "world/RegisterProgram",
+            "size": 1024
+          },
+          "pattern": "0F B7 96 {world/programs.count:d32} 66 89 53 {world/entry.id:d8} F6 C1 08"
+        }
+      ]
+    },
+    "world/FinalizePrograms": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 48 08 41 56 48 81 EC ?? ?? 00 00 80 39 00 4C 8B F1 0F 85 ?? ?? ?? ?? 80 B9 {world/world.may_finalize:d32} 00"
+        }
+      ]
+    },
+    "world/ResolveAccess": {
+      "find": [
+        {
+          "pattern": "48 8B C4 41 54 41 56 41 57 48 81 EC ?? ?? 00 00 48 89 58 10 41 B1 01 48 89 68 E0 49 8B D8 48 89 70 D8 49 83 C0 38"
+        }
+      ]
+    },
+    "@world/ResolveAccess.maps": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/ResolveAccess",
+            "size": 1536
+          },
+          "pattern": "48 8D 8F ?? ?? ?? ?? 4C 8B CE 45 33 C0 E8 {world/ResolveSingletons:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveAccess",
+            "size": 1536
+          },
+          "pattern": "E8 ?? ?? ?? ?? 48 8D 94 24 ?? ?? ?? ?? 89 84 24 ?? ?? ?? ?? 48 8D 4E {world/registry.templates:d8} E8 ?? ?? ?? ?? 48 85 C0"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveAccess",
+            "size": 1536
+          },
+          "pattern": "4C 8D 83 60 01 00 00 48 8B D6 48 8D 8F ?? ?? ?? ?? E8 {world/ResolveEvents:rel32}"
+        }
+      ]
+    },
+    "world/ResolveSingletons": {
+      "find": [
+        {
+          "pattern": "40 53 55 57 41 56 41 57 48 83 EC 30 4C 8B B4 24 80 00 00 00 33 FF"
+        }
+      ]
+    },
+    "@world/ResolveSingletons.map": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/ResolveSingletons",
+            "size": 512
+          },
+          "pattern": "83 BB {world/registry.singletons.count:d32} 00 4C 8B 9B {world/registry.singletons.cap:d32} 0F 84 ?? ?? ?? ?? 48 8B B3 {world/registry.singletons.bits:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveSingletons",
+            "size": 512
+          },
+          "pattern": "4C 8B 93 {world/registry.singletons.keys:d32} 0F 1F 40 00 43 39 04 8A"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveSingletons",
+            "size": 512
+          },
+          "pattern": "48 8B 83 {world/registry.singletons.values:d32} 4A 8D 0C 48"
+        }
+      ]
+    },
+    "world/ResolveEvents": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC F0 00 00 00"
+        }
+      ]
+    },
+    "@world/ResolveEvents.map": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/ResolveEvents",
+            "size": 1024
+          },
+          "pattern": "41 83 BE {world/registry.events.count:d32} 00 4D 8B 9E {world/registry.events.cap:d32} 74 ?? 49 8B 9E {world/registry.events.bits:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveEvents",
+            "size": 1024
+          },
+          "pattern": "4D 8B 96 {world/registry.events.keys:d32} 0F 1F 84 00 00 00 00 00 41 39 04 92"
+        },
+        {
+          "scope": {
+            "symbol": "world/ResolveEvents",
+            "size": 1024
+          },
+          "pattern": "49 8B 86 {world/registry.events.values:d32} 48 8D 0C 50"
+        }
+      ]
+    },
+    "world/IterBegin": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48 8B D9 48 8B FA 41 0F B6 81 {world/job.tpl_count:d32}"
+        }
+      ]
+    },
+    "@world/IterBegin.counts": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/IterBegin",
+            "size": 256
+          },
+          "pattern": "41 0F B7 81 {world/job.read_count:d32} 49 8D 50 08"
+        },
+        {
+          "scope": {
+            "symbol": "world/IterBegin",
+            "size": 256
+          },
+          "pattern": "41 0F B7 81 {world/job.write_count:d32} 48 8D 34 40 49 8B 81 {world/job.singletons:d32} 48 C1 E6 04 0F B6 88 {world/singletons.count:d32} 41 0F B6 81 {world/job.other_tpl_count:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/IterBegin",
+            "size": 256
+          },
+          "pattern": "41 0F B6 81 {world/job.other_count:d32} 4C 8D 24 C5 00 00 00 00 49 8B 81 {world/job.events_in_count:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "world/IterBegin",
+            "size": 256
+          },
+          "pattern": "41 8B 81 {world/job.events_out_count:d32} 48 89 4C 24 48 48 89 1F 48 8D 04 C1"
+        }
+      ]
+    },
+    "world/IterNext": {
+      "find": [
+        {
+          "pattern": "40 57 48 83 EC 20 4C 8B 01 48 8B FA 8B 41 {world/ctx.index:d8} 4C 8B C9 49 3B 80 {world/job.entity_count:d32}"
+        }
+      ]
+    },
+    "world/CurrentEntityId": {
+      "find": [
+        {
+          "pattern": "8B 41 08 4C 8B C2 85 C0 75 06 89 02 48 8B C2 C3 8D 50 FF 48 8B 01 48 03 D2 48 8B 88 {world/job.entity_list:d32} 8B 04 D1 41"
+        }
+      ]
+    },
+    "world/MarkWritten": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 54 41 56 41 57 48 83 EC 30 48 8B B1 90 02 00 00 49 8B D9"
+        }
+      ]
+    },
+    "world/QueuePush": {
+      "find": [
+        {
+          "pattern": "48 89 74 24 10 57 48 83 EC 20 44 8B 52 10 48 8B FA 41 8B C2 83 E0 0F 74 07 44 2B D0 41 83 C2 10"
+        }
+      ]
+    },
+    "@world/teleport.remove": {
+      "find": [
+        {
+          "pattern": "E8 {world/JobCmdBuf:rel32} 48 8D 95 ?? ?? ?? ?? 48 8B CE 48 8B D8 E8 {world/CurrentEntityId:rel32} 48 8D 53 {world/cmdbuf.queue:d8} 41 B9 {world/record.remove_size:d32} 41 B0 04 8B 08 89 4C 24 20 48 8B CB E8 {world/QueuePush:rel32} 48 85 C0 0F 84 ?? ?? ?? ?? C7 40 {world/record.hashes:d8} 40 4D 38 23"
+        },
+        {
+          "pattern": "48 8B 9D ?? ?? ?? ?? 80 7B {world/teleport.applied:d8} 00 74 ?? 48 8B CE E8 {world/JobCmdBuf:rel32} 48 8D 95"
+        },
+        {
+          "pattern": "48 8B 9D ?? ?? ?? ?? 48 8B 0E 8B 5B {world/teleport.target_entity:d8} 48 8B BD ?? ?? ?? ?? E8 {world/JobStorage:rel32} 48 8B D0 48 8D 8D ?? ?? ?? ?? 44 8B CB 4C 8B C7 E8 {world/ReadOther:rel32}"
+        },
+        {
+          "pattern": "48 8B 85 ?? ?? ?? ?? 80 78 {world/teleport.find_ground:d8} 00 0F 84 ?? ?? ?? ?? 45 0F 57 C0"
+        }
+      ]
+    },
+    "@world/teleport.add": {
+      "find": [
+        {
+          "pattern": "48 8D 53 {world/cmdbuf.queue:d8} 41 B9 {world/record.teleport_size:d32} 41 B0 03 8B 08 89 4C 24 20 48 8B CB E8 {world/QueuePush:rel32} 48 85 C0 74 ?? 0F 10 45 ?? C7 40 {world/record.hashes:d8} 40 4D 38 23 0F 10 4D ?? 66 C7 40 {world/record.sizes:d8} 50 00 0F 11 40 {world/record.data:d8}"
+        }
+      ]
+    },
+    "world/JobCmdBuf": {
+      "find": [
+        {
+          "pattern": "48 8B 01 48 8B 40 08 C3 CC CC CC CC CC CC CC CC"
+        }
+      ]
+    },
+    "world/ReadOther": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 20 48 8B D9 E8 {world/GetComponentByType:rel32} 48 8B C3 48 83 C4 20 5B C3 CC CC CC CC CC CC CC"
+        }
+      ]
+    },
+    "@world/GetComponent.maps": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "GetComponent",
+            "size": 96
+          },
+          "pattern": "48 8B 0F 41 8B D9 48 81 C1 {world/registry.components:d32} E8 ?? ?? ?? ?? 4C 8B C0 44 8B CB 48 8B D7 48 8B CE E8 {world/GetComponentByType:rel32}"
+        }
+      ]
+    },
+    "world/GetComponentByType": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 44 89 4C 24 20 57 48 83 EC 20 48 8D BA {world/storage.entities:d32} 48 8B D9 48 8B CF"
+        }
+      ]
+    },
+    "@world/GetComponentByType.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "world/GetComponentByType",
+            "size": 256
+          },
+          "pattern": "4D 8B 50 {world/entity.layout:d8} 41 8B C1 48 C1 E8 06"
+        },
+        {
+          "scope": {
+            "symbol": "world/GetComponentByType",
+            "size": 256
+          },
+          "pattern": "43 0F B7 94 4A {world/layout.strides:d32} 41 8B 40 {world/entity.index:d8} 43 0F B7 8C 4A {world/layout.offsets:d32} 48 0F AF C2 48 03 C8 48 8B C3 49 03 48 {world/entity.chunk:d8}"
+        }
+      ]
+    },
+    "@world/GetEntityTransform.map": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "GetEntityTransform",
+            "size": 96
+          },
+          "pattern": "48 8D 8F {world/storage.entities:d32} 48 8D 54 24 38 E8 ?? ?? ?? ?? 48 3B 87 {world/storage.entities.cap:d32} 73 ?? 48 8B 97 {world/storage.entities.values:d32}"
+        }
+      ]
+    },
+    "@world/death.state": {
+      "find": [
+        {
+          "pattern": "E8 ?? ?? ?? ?? 48 8B 44 24 48 48 81 88 {world/actor.state:d32} 80 00 00 00 48 8B 4C 24 70 48 85 C9"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "world/programs.count": {
+      "min_votes": 3
+    },
+    "world/programs.max": {
+      "min_votes": 1
+    },
+    "world/programs.stride": {
+      "min_votes": 2
+    },
+    "world/programs.table": {
+      "min_votes": 1
+    },
+    "world/desc.flags": {
+      "min_votes": 2
+    },
+    "world/job.entity_count": {
+      "min_votes": 1
+    },
+    "world/job.entity_list": {
+      "min_votes": 1
+    },
+    "world/ctx.index": {
+      "value": 8
+    },
+    "world/job.cmdbuf": {
+      "value": 8
+    },
+    "world/cmdbuf.queue": {
+      "min_votes": 2
+    },
+    "world/record.hashes": {
+      "min_votes": 2
+    },
+    "world/storage.entities": {
+      "min_votes": 2
+    },
+    "world/teleport.applied": {
+      "value": 72
+    },
+    "world/teleport.find_ground": {
+      "value": 73
+    },
+    "world/teleport.target_entity": {
+      "value": 56
+    },
+    "world/record.teleport_size": {
+      "value": 188
+    },
+    "world/record.remove_size": {
+      "value": 76
+    },
+    "world/record.sizes": {
+      "value": 76
+    },
+    "world/record.data": {
+      "value": 108
+    },
+    "world/job.storage": {
+      "value": 48
+    }
+  },
+  "features": {
+    "world.programs": {
+      "symbols": [
+        "world/RegisterAllPrograms",
+        "world/RegisterProgram",
+        "world/IterBegin",
+        "world/IterNext",
+        "world/CurrentEntityId"
+      ],
+      "constants": [
+        "world.storage",
+        "storage.kind",
+        "world/programs.count",
+        "world/programs.max",
+        "world/programs.table",
+        "world/programs.stride",
+        "world/desc.flags",
+        "world/job.entity_count",
+        "world/job.entity_list",
+        "world/ctx.index",
+        "world/job.tpl_count",
+        "world/job.read_count",
+        "world/job.write_count",
+        "world/job.singletons",
+        "world/singletons.count",
+        "world/job.other_tpl_count",
+        "world/job.other_count",
+        "world/job.events_in_count",
+        "world/job.events_out_count"
+      ]
+    },
+    "world.names": {
+      "constants": [
+        "world/registry.components",
+        "world/registry.templates",
+        "world/storage.entities",
+        "world/storage.entities.cap",
+        "world/storage.entities.values",
+        "world/registry.singletons.count",
+        "world/registry.singletons.cap",
+        "world/registry.singletons.bits",
+        "world/registry.singletons.keys",
+        "world/registry.singletons.values"
+      ]
+    },
+    "world.names.singletons": {
+      "constants": [
+        "world/registry.singletons.count",
+        "world/registry.singletons.cap",
+        "world/registry.singletons.bits",
+        "world/registry.singletons.keys",
+        "world/registry.singletons.values"
+      ]
+    },
+    "world.names.events": {
+      "constants": [
+        "world/registry.events.count",
+        "world/registry.events.cap",
+        "world/registry.events.bits",
+        "world/registry.events.keys",
+        "world/registry.events.values"
+      ]
+    },
+    "world.queue": {
+      "symbols": [
+        "world/QueuePush",
+        "world/JobCmdBuf"
+      ],
+      "constants": [
+        "world/job.cmdbuf",
+        "world/cmdbuf.queue",
+        "world/record.hashes",
+        "world/record.sizes",
+        "world/record.data"
+      ]
+    },
+    "world.write": {
+      "symbols": [
+        "world/MarkWritten"
+      ]
+    },
+    "world.read_other": {
+      "symbols": [
+        "world/ReadOther",
+        "world/JobStorage"
+      ],
+      "constants": [
+        "world/job.storage"
+      ]
+    },
+    "world.entities": {
+      "symbols": [
+        "GetComponent",
+        "GetEntityTransform"
+      ],
+      "constants": [
+        "world.storage"
+      ]
+    },
+    "world.find": {
+      "constants": [
+        "world/storage.entities",
+        "world/storage.entities.cap",
+        "world/storage.entities.values",
+        "world/registry.singletons.count",
+        "world/registry.singletons.cap",
+        "world/registry.singletons.bits",
+        "world/registry.singletons.keys",
+        "world/registry.singletons.values",
+        "world/entity.layout",
+        "world/registry.components"
+      ]
+    },
+    "world.teleport": {
+      "symbols": [
+        "world/QueuePush",
+        "GetComponent"
+      ],
+      "constants": [
+        "world/teleport.applied",
+        "world/teleport.find_ground",
+        "world/teleport.target_entity",
+        "world/record.teleport_size",
+        "world/record.remove_size"
+      ]
+    },
+    "world.dead_check": {
+      "constants": [
+        "world/actor.state"
+      ]
+    }
+  }
+}

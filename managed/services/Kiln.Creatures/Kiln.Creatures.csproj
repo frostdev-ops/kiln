@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/creatures (kiln.creatures): catalog, per-creature values and private AI copies,
+       variants, natural-spawn rules, AI events and commands, the /creature command tree. Deployed to kiln/host/ and
+       shared by every mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Creatures</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Time/Kiln.Time.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
+  </ItemGroup>
+</Project>

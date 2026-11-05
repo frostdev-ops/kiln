@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Generated, stable bindings for the game's ECS component types (tools/typegen). Explicit-layout structs + type
+       hash constants, plus a typed read API over kiln.world. Deployed to kiln/host/ and shared by every mod
+       (referenced with Private="false" ExcludeAssets="runtime"). Regenerate Generated.cs with tools/typegen.py from a
+       reflection dump (tools/typegen/probe). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln.GameTypes</RootNamespace>
+    <AssemblyName>Kiln.Game</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../services/Kiln.World/Kiln.World.csproj" Private="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(KilnLocalGameTypes)' != ''">
+    <Compile Remove="Generated.cs" />
+    <Compile Include="$(KilnLocalGameTypes)" Link="Generated.cs" />
+  </ItemGroup>
+</Project>

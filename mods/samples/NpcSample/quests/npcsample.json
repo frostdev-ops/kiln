@@ -1,0 +1,130 @@
+{
+  "format": 1,
+  "comment": "Tobin: a new NPC (a clone of the fisher trader), one per world, in the game's roster, with a short voiced quest in the game's journal. docs/kiln/services/npcs.md.",
+  "knowledge": {
+    "tobin_met": { "scope": "world", "comment": "his unlock: without it the game destroys him (a roster NPC whose unlock does not hold)" }
+  },
+  "npcs": {
+    "tobin": {
+      "template": "NPC_Workshop_Fisher_Trader",
+      "clone": { "guid": "299d68c5-10b9-4af9-91e0-194b308ee461", "name": "Kiln_NpcSample_Tobin" },
+      "names": { "en": "Tobin the Wanderer", "de": "Tobin der Wanderer" },
+      "description": {
+        "en": "Tobin the Wanderer trades a little and keeps a fire going for anyone who brings him kindling.",
+        "de": "Tobin der Wanderer handelt ein wenig und hält ein Feuer am Brennen für alle, die ihm Anzünder bringen."
+      },
+      "dialogue": "tobin",
+      "roster": {
+        "unlock": "tobin_met",
+        "roamingRange": 10,
+        "summonItem": {
+          "guid": "83ff4ce1-f84a-4ac7-8ee9-886ab16f280e",
+          "name": "Kiln_NpcSample_TobinTool",
+          "base": "NPC_Townsfolk_Male_Villager_08_fisher_Trader",
+          "comment": "named after him, as every tool of the game: the Survivors list shows this item's name and description, so they come from the NPC above",
+          "texts": {
+            "en": { "caption": "Tobin's Whistle", "primaryAction": "Call Tobin here, or send him to a bed" },
+            "de": { "caption": "Tobins Pfeife", "primaryAction": "Tobin hierher rufen oder zu einem Bett schicken" }
+          },
+          "refs": { "equipment.placedEntity": "299d68c5-10b9-4af9-91e0-194b308ee461" }
+        }
+      },
+      "vendor": {
+        "comment": "a clone shares its base's workshop: this trade also shows at the fisher trader",
+        "recipes": [
+          {
+            "guid": "7797ab3a-e9e8-4781-bfa5-7898de575c74",
+            "name": "Kiln_NpcSample_TobinTrade",
+            "station": "0xc4acc104",
+            "inputs": [ { "item": "Material_T1_Twigs", "count": 2 } ],
+            "outputs": [ { "item": "Material_T1_Plant_Fibre", "count": 1 } ],
+            "duration": 1,
+            "unlock": "always",
+            "displayName": "Tobin's Trade"
+          }
+        ]
+      }
+    },
+    "balthazar": {
+      "comment": "a game NPC: one more topic in his menu, the game's own lines stay",
+      "template": "NPC_Workshop_Alchemist01",
+      "dialogue": "balthazar_tobin"
+    }
+  },
+  "quests": {
+    "tobin_kindling": {
+      "name": { "en": "Kindling for Tobin", "de": "Anzünder für Tobin" },
+      "giver": "tobin",
+      "scope": "player",
+      "source": "Fisher",
+      "steps": [
+        {
+          "id": "gather",
+          "text": { "en": "Gather 3 Twigs for Tobin", "de": "Sammle 3 Zweige für Tobin" },
+          "objective": { "collect": { "item": "Material_T1_Twigs", "count": 3 } },
+          "site": { "near": "tobin", "distance": [30, 50] },
+          "marker": { "name": { "en": "Tobin's Kindling", "de": "Tobins Anzünder" } }
+        },
+        {
+          "id": "return",
+          "text": { "en": "Bring the Twigs to Tobin", "de": "Bring Tobin die Zweige" },
+          "objective": { "deliver": { "item": "Material_T1_Twigs", "count": 3, "to": "tobin" } }
+        }
+      ],
+      "rewards": [ { "xp": 100 }, { "item": "Kiln_NpcSample_TobinTool", "count": 1 } ]
+    }
+  },
+  "dialogues": {
+    "balthazar_tobin": {
+      "start": "topic",
+      "nodes": {
+        "topic": {
+          "options": [
+            {
+              "text": { "en": "Have you met Tobin?", "de": "Kennst du Tobin?" },
+              "reply": { "en": "The wanderer? He trades with anyone who has twigs to spare.", "de": "Den Wanderer? Er handelt mit jedem, der Zweige übrig hat." },
+              "voice": "tobin_thanks",
+              "goto": "end"
+            }
+          ]
+        }
+      }
+    },
+    "tobin": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": { "en": "Well met, Flameborn. The night is cold and my fire is dying.", "de": "Sei gegrüßt, Flammengeborener. Die Nacht ist kalt und mein Feuer geht aus." },
+          "voice": "tobin_hello",
+          "options": [
+            {
+              "text": { "en": "I can find you some kindling.", "de": "Ich kann dir Anzünder suchen." },
+              "if": { "quest": "tobin_kindling", "is": "available" },
+              "do": [ { "start": "tobin_kindling" } ],
+              "reply": { "en": "Three twigs would do. Bless you.", "de": "Drei Zweige genügen. Sei gesegnet." },
+              "voice": "tobin_thanks",
+              "hint": "Attention",
+              "goto": "end"
+            },
+            {
+              "text": { "en": "Here are your twigs.", "de": "Hier sind deine Zweige." },
+              "if": { "step": "tobin_kindling.return", "is": "active" },
+              "do": [ { "advance": "tobin_kindling.return" } ],
+              "reply": { "en": "Bless you. Take this whistle, and call on me whenever you like.", "de": "Sei gesegnet. Nimm diese Pfeife und ruf mich, wann immer du willst." },
+              "voice": "tobin_thanks",
+              "hint": "Attention",
+              "goto": "end"
+            },
+            {
+              "text": { "en": "Who are you?", "de": "Wer bist du?" },
+              "reply": { "en": "Just a wanderer. I trade a little, if you have twigs to spare.", "de": "Nur ein Wanderer. Ich handle ein wenig, wenn du Zweige übrig hast." },
+              "goto": "end"
+            }
+          ]
+        }
+      },
+      "farewell": [ { "text": { "en": "Keep warm.", "de": "Bleib warm." } } ],
+      "transition": [ { "text": { "en": "Anything else?", "de": "Sonst noch etwas?" } } ]
+    }
+  }
+}

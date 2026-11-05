@@ -1,0 +1,11 @@
+{
+  // a mod that uses every file kind, cleanly
+  "id": "fixture-clean",
+  "name": "Fixture: clean",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "license": "MIT",
+  "entryAssembly": "FixtureClean.dll",
+}

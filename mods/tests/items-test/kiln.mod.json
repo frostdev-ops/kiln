@@ -1,0 +1,8 @@
+{
+  "id": "items-test",
+  "name": "kiln.items lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ItemsTest.dll",
+  "side": "server"
+}

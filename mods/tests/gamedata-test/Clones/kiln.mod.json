@@ -1,0 +1,9 @@
+{
+  "id": "gamedata-clones",
+  "name": "gamedata-test: perk and buff clones (disable it to test placeholders)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "GamedataClones.dll",
+  "side": "server",
+  "clients": "kiln"
+}

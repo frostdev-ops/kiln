@@ -1,0 +1,22 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A custom 3D model (docs/kiln/modding/models.md): assets/src/blade.gltf (yours; Blender exports glTF 2.0) is cooked
+       into the game's format on each machine from the player's own installed game:
+         kiln cook        (runs tools/modelcook recipe on assets/cook.json)
+       writes assets/cooked/ (never shipped: KilnPack leaves it out) and the entries of assets/assets.json; kiln.assets
+       serves them at boot. content/items.json adds a new sword that uses the new model and visual template.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<game or server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Models are drawn by every player's client: install the mod on clients too (side both, clients mod). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnModel1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnModel1: a new sword with its own 3D model.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+    <KilnServices>Content;Assets</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

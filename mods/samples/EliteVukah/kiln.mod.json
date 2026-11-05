@@ -1,0 +1,9 @@
+{
+  "id": "elite-vukah",
+  "name": "Elite Vukah",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "EliteVukah.dll",
+  "side": "server",
+  "description": "Elite Vukahs: level 20, bigger, a longer view and aggro range, fire resistance, no fleeing home, more loot and XP. A share of natural Vukah spawns become elites; /creature spawn elite_vukah makes one. Vanilla clients see them (same template). Sample for kiln.creatures."
+}

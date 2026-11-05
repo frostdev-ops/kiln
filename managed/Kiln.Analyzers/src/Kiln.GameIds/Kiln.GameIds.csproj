@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.GameIds: a C# source generator (IIncrementalGenerator) that turns the local game-data catalog
+       (<data>/catalog/{client,server}.json, made from the user's own game by `kiln catalog build`) into constants:
+       Kiln.GameIds.GameItems.Weapon_T1_1H_SwordEpic_01 = "Weapon_T1_1H_SwordEpic_01", with the game's display name and
+       description as XML docs (IntelliSense); typed paths on request (GameFields); and the analyzer that checks string
+       paths against the same catalog. Compiler-only references (netstandard2.0), no runtime dependencies.
+       Shipped in the Kiln.Sdk package (analyzers/dotnet/cs/) and wired by managed/Kiln.Sdk/Sdk/Kiln.GameIds.targets.
+       Docs: docs/kiln/modding/catalogs.md. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>Kiln.GameIds</AssemblyName>
+    <RootNamespace>Kiln.GameIds</RootNamespace>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+    <InternalsVisibleTo Include="Kiln.GameIds.Tests" />
+  </ItemGroup>
+</Project>

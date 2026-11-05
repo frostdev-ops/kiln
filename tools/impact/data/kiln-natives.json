@@ -1,0 +1,29 @@
+{
+ "format": 1,
+ "comment": "Kiln's built-in Impact natives, registered by kiln.abilities (docs/kiln/services/abilities.md). Mod id 'kiln' is reserved. hash = FNV-1a-32 of the name. Agreed with abilities-runtime on 2026-11-04.",
+ "natives": [
+  {
+   "name": "kiln.Log",
+   "hash": "0xc0b137a7",
+   "argc": 1,
+   "returns": "1 (pop it)",
+   "suspends": false,
+   "doc": "Writes one kiln.log line with the program id, impact id, self entity, site and args[0]: a variable logged by its type (uint32/sint32/float32/bool/Time, ecs.EntityId as an entity, float3, other sizes as hex up to 64 bytes) or a raw integer. Errors (>= 4) only on a bad handle.",
+   "args": [
+    {"name": "value", "types": ["any"], "dir": "in", "raw": true, "doc": "a variable handle of any type, or a raw integer"}
+   ]
+  },
+  {
+   "name": "kiln.Signal",
+   "hash": "0x38b05baf",
+   "argc": 2,
+   "returns": "1 at once (pop it)",
+   "suspends": false,
+   "doc": "Posts ImpactSignalEvent { Tag, Value (typed), ImpactId, Program, Self, Root, Site } to managed mods in the next Pre. A drop-in for triggerNoise's arity (argc 2).",
+   "args": [
+    {"name": "value", "types": ["any"], "dir": "in", "raw": true, "doc": "a variable handle (its type hash and up to 64 bytes are copied) or a raw u32"},
+    {"name": "tag", "types": ["uint32", "sint32"], "dir": "in", "raw": true, "doc": "a raw u32, or a handle to a uint32/sint32 variable"}
+   ]
+  }
+ ]
+}

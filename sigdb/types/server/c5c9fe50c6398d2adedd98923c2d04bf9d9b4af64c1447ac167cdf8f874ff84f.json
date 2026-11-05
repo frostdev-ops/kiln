@@ -1,0 +1,388 @@
+{
+  "comment": "Reflection dump of ECS component types, walked live from content/TypeByHash via kiln.hooks.",
+  "side": "server",
+  "types": [
+    {
+      "name": "NetworkHealth",
+      "qualifiedName": "keen::ecs::NetworkHealth",
+      "hash": "0x216EB5F9",
+      "size": 8,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "health",
+          "offset": 0,
+          "type": "keen::uint32",
+          "size": 4,
+          "kind": 6
+        },
+        {
+          "name": "healthMax",
+          "offset": 4,
+          "type": "keen::uint32",
+          "size": 4,
+          "kind": 6
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "qualifiedName": "keen::ecs::Health",
+      "hash": "0xDC101091",
+      "size": 40,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "dataStorage",
+          "offset": 8,
+          "type": "keen::StaticArray\u003Ckeen::sint32,8\u003E",
+          "size": 32,
+          "kind": 19
+        }
+      ]
+    },
+    {
+      "name": "Mana",
+      "qualifiedName": "keen::ecs::Mana",
+      "hash": "0x4D7229A8",
+      "size": 40,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "dataStorage",
+          "offset": 8,
+          "type": "keen::StaticArray\u003Ckeen::sint32,8\u003E",
+          "size": 32,
+          "kind": 19
+        }
+      ]
+    },
+    {
+      "name": "Stamina",
+      "qualifiedName": "keen::ecs::Stamina",
+      "hash": "0x92410664",
+      "size": 40,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "dataStorage",
+          "offset": 8,
+          "type": "keen::StaticArray\u003Ckeen::sint32,8\u003E",
+          "size": 32,
+          "kind": 19
+        }
+      ]
+    },
+    {
+      "name": "CurrentTransform",
+      "qualifiedName": "keen::ecs::CurrentTransform",
+      "hash": "0x027AC564",
+      "size": 56,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "transform",
+          "offset": 0,
+          "type": "keen::WorldTransform",
+          "size": 56,
+          "kind": 18
+        }
+      ]
+    },
+    {
+      "name": "LastTransform",
+      "qualifiedName": "keen::ecs::LastTransform",
+      "hash": "0x4B6ABCF9",
+      "size": 72,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "transform",
+          "offset": 0,
+          "type": "keen::WorldTransform",
+          "size": 56,
+          "kind": 18
+        },
+        {
+          "name": "velocity",
+          "offset": 56,
+          "type": "keen::float3",
+          "size": 12,
+          "kind": 18
+        }
+      ]
+    },
+    {
+      "name": "Velocity",
+      "qualifiedName": "keen::ecs::Velocity",
+      "hash": "0xFB332100",
+      "size": 12,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "velocity",
+          "offset": 0,
+          "type": "keen::float3",
+          "size": 12,
+          "kind": 18
+        }
+      ]
+    },
+    {
+      "name": "TeleportCount",
+      "qualifiedName": "keen::ecs::TeleportCount",
+      "hash": "0xBFFE34EF",
+      "size": 16,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "counter",
+          "offset": 0,
+          "type": "keen::uint8",
+          "size": 1,
+          "kind": 2
+        },
+        {
+          "name": "lastTeleportTime",
+          "offset": 8,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        }
+      ]
+    },
+    {
+      "name": "NpcCommon",
+      "qualifiedName": "keen::ecs::NpcCommon",
+      "hash": "0x072DBDB7",
+      "size": 1688,
+      "kind": 18,
+      "fields": [
+        {
+          "name": "interactionStates",
+          "offset": 0,
+          "type": "keen::ecs::NpcInteractionStates",
+          "size": 1,
+          "kind": 17
+        },
+        {
+          "name": "targetSearchStates",
+          "offset": 1,
+          "type": "keen::ecs::TargetSearchStates",
+          "size": 1,
+          "kind": 17
+        },
+        {
+          "name": "movementMode",
+          "offset": 2,
+          "type": "keen::ecs::MovementMode",
+          "size": 1,
+          "kind": 12
+        },
+        {
+          "name": "lastStateChange",
+          "offset": 8,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "stateTimer",
+          "offset": 16,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "currentStateDuration",
+          "offset": 24,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "stuckTime",
+          "offset": 32,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "stuckTimeOut",
+          "offset": 40,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "resumeUpdateTimeOffset",
+          "offset": 48,
+          "type": "keen::Time",
+          "size": 8,
+          "kind": 18
+        },
+        {
+          "name": "queryId",
+          "offset": 56,
+          "type": "keen::ecs::RangeQueryId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "closestPlayerId",
+          "offset": 60,
+          "type": "keen::ecs::EntityId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "currentTargetId",
+          "offset": 64,
+          "type": "keen::ecs::EntityId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "closestBuildingCursorId",
+          "offset": 68,
+          "type": "keen::ecs::EntityId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "bedId",
+          "offset": 72,
+          "type": "keen::ecs::EntityId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "previousTargetId",
+          "offset": 76,
+          "type": "keen::ecs::EntityId",
+          "size": 4,
+          "kind": 18
+        },
+        {
+          "name": "sleepTime",
+          "offset": 80,
+          "type": "keen::float",
+          "size": 4,
+          "kind": 17
+        },
+        {
+          "name": "wakeUpTime",
+          "offset": 84,
+          "type": "keen::float",
+          "size": 4,
+          "kind": 17
+        },
+        {
+          "name": "closestPlayerDistance",
+          "offset": 88,
+          "type": "keen::float",
+          "size": 4,
+          "kind": 17
+        },
+        {
+          "name": "squaredDistanceToTarget",
+          "offset": 92,
+          "type": "keen::float",
+          "size": 4,
+          "kind": 17
+        },
+        {
+          "name": "yDistanceToTarget",
+          "offset": 96,
+          "type": "keen::float",
+          "size": 4,
+          "kind": 17
+        },
+        {
+          "name": "currentTargetPosition",
+          "offset": 100,
+          "type": "keen::float3",
+          "size": 12,
+          "kind": 18
+        },
+        {
+          "name": "closestPlayerPosition",
+          "offset": 112,
+          "type": "keen::WorldPosition",
+          "size": 24,
+          "kind": 18
+        },
+        {
+          "name": "interactionTarget",
+          "offset": 136,
+          "type": "keen::ecs::NpcInteractionTarget",
+          "size": 64,
+          "kind": 18
+        },
+        {
+          "name": "avoidWaterData",
+          "offset": 200,
+          "type": "keen::ecs::AvoidWaterData",
+          "size": 16,
+          "kind": 18
+        },
+        {
+          "name": "history",
+          "offset": 216,
+          "type": "keen::StaticArray\u003Ckeen::ecs::NPCMovement,60\u003E",
+          "size": 1440,
+          "kind": 19
+        },
+        {
+          "name": "historyIndex",
+          "offset": 1656,
+          "type": "keen::uint8",
+          "size": 1,
+          "kind": 2
+        },
+        {
+          "name": "currentSequenceId",
+          "offset": 1660,
+          "type": "keen::Guid",
+          "size": 16,
+          "kind": 29
+        },
+        {
+          "name": "useReducedRoamingSpace",
+          "offset": 1676,
+          "type": "keen::bool",
+          "size": 1,
+          "kind": 1
+        },
+        {
+          "name": "shouldBeMoving",
+          "offset": 1677,
+          "type": "keen::bool",
+          "size": 1,
+          "kind": 1
+        },
+        {
+          "name": "taskFailures",
+          "offset": 1678,
+          "type": "keen::uint8",
+          "size": 1,
+          "kind": 2
+        },
+        {
+          "name": "unstuckTries",
+          "offset": 1679,
+          "type": "keen::uint8",
+          "size": 1,
+          "kind": 2
+        },
+        {
+          "name": "goToTargetTries",
+          "offset": 1680,
+          "type": "keen::uint8",
+          "size": 1,
+          "kind": 2
+        }
+      ]
+    }
+  ]
+}

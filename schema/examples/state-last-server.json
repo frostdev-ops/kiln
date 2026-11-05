@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "written": "2026-11-04T12:30:00Z",
+  "outcome": "rejected",
+  "reason": "this server needs mods you do not have: isle-icons",
+  "server": { "id": "srv-4b8e2c", "name": "Ember Isles", "address": "203.0.113.7:15636", "kiln": "0.2.0-dev" },
+  "modpack": { "url": "https://example.org/ember-isles-3.zip", "sha256": "9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b", "name": "Ember Isles", "version": "3", "size": 1048576 },
+  "required": [ { "id": "isle-icons", "version": "1.1.0", "hash": "kdh1:aa00bb11cc22dd33ee44ff5566778899aabbccddeeff00112233445566778899", "kind": "kiln" } ],
+  "truncated": false,
+  "missing": ["isle-icons"],
+  "history": [
+    { "format": 1, "written": "2026-11-03T20:00:00Z", "outcome": "welcome", "server": { "id": "srv-lab", "name": "Lab", "address": "127.0.0.1:26090", "kiln": "0.2.0-dev" }, "modpack": null, "required": [] }
+  ]
+}

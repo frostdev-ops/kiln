@@ -1,0 +1,10 @@
+{
+  "id": "soundsample",
+  "name": "Sound Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SoundSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Sample for mod sounds (tools/soundcook + kiln.assets): distinct synthetic test tones as a UI chime, a streamed stereo tone, a 3-take positional cue, a positional loop, a looped 2D ambience, a music track, an override of the vanilla dialogue-confirm cue, a voiced dialogue line (en + de, English fallback for fr/es/zh) and an English-only narration line. Sounds play on Kiln clients through Kiln.Audio; the cooked index is assets/cooked/audio.json. Build the assets first: build-assets.sh (cooks the sources in audio/; only the override reads the installed client)."
+}

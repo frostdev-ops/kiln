@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "entries": [
+    { "kind": "resource", "guid": "1f6ab3c4-7d21-4c08-9e55-3a1b2c4d6e70", "type": "keen::ImpactProgram", "part": 0, "mode": "new", "file": "swing.bin" },
+    { "kind": "resource", "guid": "5a0f6c91-2c1e-4f77-8a02-7b1d3e9c1001", "type": "keen::ImpactProgram", "part": 0, "mode": "new", "file": "probe-int.bin" },
+    { "kind": "resource", "guid": "5a0f6c91-2c1e-4f77-8a02-7b1d3e9c1002", "type": "keen::ImpactProgram", "part": 0, "mode": "new", "file": "probe-float.bin" }
+  ]
+}

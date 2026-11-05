@@ -1,0 +1,53 @@
+<Project>
+  <!--
+    Kiln.GameIds: game ids as C# constants (Kiln.GameIds.Items.Weapon_T1_1H_SwordEpic_01, ...) from the local game-data
+    catalog, which `kiln catalog build` makes from your own installed game (docs/kiln/modding/catalogs.md). Imported by
+    Sdk.targets after Kiln.Mod.targets.
+
+    Properties (all optional):
+      KilnGameIds        sections to generate: Items;Perks;Buffs;Skills;Workshops (default), any of those plus
+                         Recipes, Templates, Sequences, Sounds; All; None (off)
+      KilnCatalog        the catalog: a file (client.json / server.json) or the folder holding them
+                         (default: env KILN_CATALOG, else <launcher data dir>/catalog)
+      KilnCatalogSide    client | server: which file of a folder to use first (default: server for KilnSide server,
+                         else client; the other one when the first is missing)
+    No catalog: nothing is generated and the build shows info KILN190.
+  -->
+  <PropertyGroup>
+    <KilnGameIds Condition="'$(KilnGameIds)' == ''">Items;Perks;Buffs;Skills;Workshops</KilnGameIds>
+    <!-- the launcher's data dir, as kiln_manage::paths::DataDirs::locate() -->
+    <_KilnDataDir Condition="'$(KILN_DATA_DIR)' != ''">$(KILN_DATA_DIR)</_KilnDataDir>
+    <_KilnDataDir Condition="'$(_KilnDataDir)' == '' and '$(OS)' == 'Windows_NT' and '$(LOCALAPPDATA)' != ''">$(LOCALAPPDATA)\Kiln</_KilnDataDir>
+    <_KilnDataDir Condition="'$(_KilnDataDir)' == '' and '$(OS)' != 'Windows_NT' and '$(XDG_DATA_HOME)' != ''">$(XDG_DATA_HOME)/kiln</_KilnDataDir>
+    <_KilnDataDir Condition="'$(_KilnDataDir)' == '' and '$(OS)' != 'Windows_NT' and '$(HOME)' != ''">$(HOME)/.local/share/kiln</_KilnDataDir>
+    <_KilnCatalogRoot Condition="'$(KilnCatalog)' != ''">$(KilnCatalog)</_KilnCatalogRoot>
+    <_KilnCatalogRoot Condition="'$(_KilnCatalogRoot)' == '' and '$(KILN_CATALOG)' != ''">$(KILN_CATALOG)</_KilnCatalogRoot>
+    <_KilnCatalogRoot Condition="'$(_KilnCatalogRoot)' == '' and '$(_KilnDataDir)' != ''">$([System.IO.Path]::Combine('$(_KilnDataDir)', 'catalog'))</_KilnCatalogRoot>
+    <KilnCatalogSide Condition="'$(KilnCatalogSide)' == '' and '$(KilnSide)' == 'server'">server</KilnCatalogSide>
+    <KilnCatalogSide Condition="'$(KilnCatalogSide)' == ''">client</KilnCatalogSide>
+    <_KilnCatalogOther Condition="'$(KilnCatalogSide)' == 'server'">client</_KilnCatalogOther>
+    <_KilnCatalogOther Condition="'$(KilnCatalogSide)' != 'server'">server</_KilnCatalogOther>
+    <!-- a file, else <root>/<side>.json, else <root>/<other side>.json -->
+    <_KilnCatalogFile Condition="'$(_KilnCatalogRoot)' != '' and $(_KilnCatalogRoot.EndsWith('.json')) and Exists('$(_KilnCatalogRoot)')">$(_KilnCatalogRoot)</_KilnCatalogFile>
+    <_KilnCatalogFile Condition="'$(_KilnCatalogFile)' == '' and '$(_KilnCatalogRoot)' != '' and Exists('$(_KilnCatalogRoot)/$(KilnCatalogSide).json')">$(_KilnCatalogRoot)/$(KilnCatalogSide).json</_KilnCatalogFile>
+    <_KilnCatalogFile Condition="'$(_KilnCatalogFile)' == '' and '$(_KilnCatalogRoot)' != '' and Exists('$(_KilnCatalogRoot)/$(_KilnCatalogOther).json')">$(_KilnCatalogRoot)/$(_KilnCatalogOther).json</_KilnCatalogFile>
+    <KilnCatalogFile>$(_KilnCatalogFile)</KilnCatalogFile>
+    <!-- the generator reads it through .editorconfig, where ';' starts a comment: pass a ','-list -->
+    <KilnGameIdsList>$(KilnGameIds.Replace(';', ','))</KilnGameIdsList>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(KilnGameIds)' != 'None' and '$(KilnGameIds)' != 'none' and '$(KilnGameIds)' != 'false'">
+    <CompilerVisibleProperty Include="KilnGameIdsList" />
+    <CompilerVisibleProperty Include="UsingKilnSdk" />
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="KilnCatalog" />
+    <AdditionalFiles Include="$(_KilnCatalogFile)" KilnCatalog="true" Visible="false" Condition="'$(_KilnCatalogFile)' != ''" />
+
+    <!-- the generator: repository mode builds it from source; package mode takes it from analyzers/dotnet/cs (unless
+         Kiln.Analyzers.targets already added every dll of that folder) -->
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Analyzers/src/Kiln.GameIds/Kiln.GameIds.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" Private="false"
+                      Condition="'$(KilnRepoMode)' == 'true' and Exists('$(KilnRepoRoot)managed/Kiln.Analyzers/src/Kiln.GameIds/Kiln.GameIds.csproj')" />
+    <Analyzer Include="$(MSBuildThisFileDirectory)../analyzers/dotnet/cs/Kiln.GameIds.dll"
+              Condition="'$(KilnRepoMode)' != 'true' and Exists('$(MSBuildThisFileDirectory)../analyzers/dotnet/cs/Kiln.GameIds.dll') and '@(Analyzer->WithMetadataValue('Filename', 'Kiln.GameIds'))' == ''" />
+  </ItemGroup>
+</Project>

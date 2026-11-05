@@ -1,0 +1,32 @@
+# Build output
+.out/
+.cache/
+target/
+dist/
+**/bin/
+**/obj/
+native/build/
+**/__pycache__/
+*.pyc
+
+# Local RE inputs (game binaries, third-party DLLs): never committed
+re/inputs/
+
+# Launcher
+launcher/node_modules/
+launcher/dist/
+launcher/src-tauri/gen/
+launcher/assets-local/
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.swp
+.DS_Store
+Thumbs.db
+
+# Playwright
+launcher/test-results/
+launcher/playwright-report/

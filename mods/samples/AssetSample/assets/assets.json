@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "comment": "B2: a PNG icon for the new item Kiln_Asset_Emberseal (keyed by its item GUID; the UI cache learns the key and kiln.content aliases nothing while it is SERVED). B3: a retexture of the vanilla Powder Ball grenade inventory icon (keen::UiTextureResource, BC7, 256x256, 9 mips): ember_overlay.png is resized and re-encoded to BC7 and served as an override of the texture's content blob.",
+  "entries": [
+    { "kind": "icon", "guid": "7b7c5f14-2a9c-4b7e-9a3f-10e2bb6e12c9", "file": "emberseal_icon.png" },
+    { "kind": "texture", "guid": "010932d7-557d-4dd5-9960-e538ff6e1c9e", "type": "keen::UiTextureResource", "part": 0,
+      "file": "ember_overlay.png" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "skills-test",
+  "name": "kiln.skills lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "SkillsTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "description": "PASS/FAIL lines for kiln.skills: the game's tree expanded (native and shadow nodes), the game's own skill functions and unlock input on them, the login guard's strip, the shadow table's hooks, and a Kiln talent tree (state in Kiln.Saves, effects on a player-template entity, refusals). Player-free."
+}

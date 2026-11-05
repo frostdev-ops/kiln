@@ -1,0 +1,9 @@
+{
+ "format": 1,
+ "natives": [
+  {
+   "name": "mymod.Ping",
+   "hash": 12345
+  }
+ ]
+}

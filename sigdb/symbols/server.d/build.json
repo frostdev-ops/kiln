@@ -1,0 +1,324 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.build: the voxel world (the engine's ecs::VoxelGrid interface the VoxelWorld publishes, its exact-cell block writer and the store commit every building/terraforming kernel ends in) and the building core's prop helpers. Evidence: docs/re/build.md (svn 1285601).",
+  "symbols": {
+    "build/VoxelGridRead": {
+      "find": [
+        {
+          "pattern": "48 83 EC 38 48 8B 52 {build/wrapper.world:d8} 48 89 4C 24 20 48 8D 4C 24 20 48 C7 44 24 28 01 00 00 00 E8 {build/VoxelReadBatch:rel32} 48 83 C4 38 C3"
+        }
+      ]
+    },
+    "build/SetVoxelInterface": {
+      "find": [
+        {
+          "pattern": "48 8B 81 ?? ?? ?? ?? 48 85 C0 74 ?? 0F 10 02 48 8B 80 ?? ?? ?? ?? 0F 11 80"
+        }
+      ]
+    },
+    "build/StoreCommit": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4D 8B 19 48 89 58 10 4C 89 60 20 45 8B E0"
+        }
+      ]
+    },
+    "build/VoxelWrite": {
+      "find": [
+        {
+          "pattern": "4C 8B DC 4D 89 4B 20 4D 89 43 18 49 89 53 10 49 89 4B 08 41 54 48 81 EC ?? ?? 00 00 45 33 E4 49 8B C1 45 39 60 08 0F 86"
+        }
+      ]
+    },
+    "@build/VoxelInterface.build": {
+      "find": [
+        {
+          "pattern": "48 8D 05 {build/VoxelGridRead:rel32} 48 89 45 ?? 48 8D 05 {build/VoxelGridRegion:rel32} 48 89 45 ?? 48 8B 87 ?? ?? ?? ?? 48 05 ?? ?? ?? ?? 48 C7 45 ?? 00 01 00 00 48 89 45 ?? 48 8D 05 {build/VoxelGridOrigin:rel32} 48 89 45 ?? 48 8D 05 {build/VoxelGridReady:rel32} 48 89 45 ?? 48 8D 05 {build/VoxelGridOccupied:rel32} 48 89 45 ?? 48 8D 05 {build/VoxelGridSlot4:rel32} 48 89 45 ?? E8 {build/SetVoxelInterface:rel32} 48 83 BF ?? ?? ?? ?? 00 4C 8D BF"
+        }
+      ]
+    },
+    "@build/SetVoxelInterface.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/SetVoxelInterface",
+            "size": 128
+          },
+          "pattern": "48 8B 81 ?? ?? ?? ?? 48 85 C0 74 ?? 0F 10 02 0F 11 40 {build/grid.interface:d8} 0F 10 4A 10"
+        }
+      ]
+    },
+    "@build/VoxelGridReady.tile": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/VoxelGridReady",
+            "size": 40
+          },
+          "pattern": "48 83 EC 38 0F 28 02 41 B8 {build/voxel.level:d8} 00 00 00 48 8B 49 08 48 8D 54 24 20 66 0F 7F 44 24 20 E8 {build/VoxelTileReady:rel32} 48 83 C4 38 C3"
+        }
+      ]
+    },
+    "@build/VoxelTileReady.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/VoxelTileReady",
+            "size": 64
+          },
+          "pattern": "48 8D A9 {build/world.lock:d32} 48 89 74 24 ?? 48 8B F1"
+        },
+        {
+          "scope": {
+            "symbol": "build/VoxelTileReady",
+            "size": 160
+          },
+          "pattern": "83 7E {build/world.initialized:d8} 00 4C 89 74 24 ?? 0F 84 ?? ?? ?? ?? 83 BE {build/world.global_task:d32} 00 74 ?? 8B 96 ?? ?? ?? ?? 48 8B 8E {build/world.resources:d32} E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? 48 8B 86 {build/world.store:d32} 80 B8 {build/store.unavailable:d32} 00 0F 85 ?? ?? ?? ?? 0F 28 56 {build/world.origin:d8} 4C 8D 34 9B"
+        },
+        {
+          "scope": {
+            "symbol": "build/VoxelTileReady",
+            "size": 256
+          },
+          "pattern": "4A 8B 7C F6 {build/world.levels:d8} D3 E0 0F 29 74 24 ?? 0F 29 7C 24 ?? F3 0F 10 3D {build/voxel.base_size:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "build/VoxelTileReady",
+            "size": 256
+          },
+          "pattern": "0F 28 56 {build/world.origin:d8} 4C 8D 34 9B F3 41 0F 10 4F 08"
+        }
+      ]
+    },
+    "@build/VoxelWrite.commit": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/VoxelWrite",
+            "size": 640
+          },
+          "pattern": "48 C7 44 24 ?? 00 02 00 00 48 89 44 24 ?? 4C 8D 4C 24 ?? 8B 44 24 ?? 48 8D 54 24 ?? 03 C5 41 B8 {build/voxel.write_level:d8} 00 00 00 89 44 24 ?? 48 8B 44 24 ?? 89 44 24 ?? 8B 44 24 ?? 89 44 24 ?? 48 8B 84 24 ?? ?? 00 00 48 8B 88 {build/world.store:d32} 0F B6 81 {build/store.layer:d32} 88 44 24 20 E8 {build/StoreCommit:rel32}"
+        }
+      ]
+    },
+    "@build/StoreCommit.lock": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/StoreCommit",
+            "size": 256
+          },
+          "pattern": "49 8D BD {build/store.lock:d32} F0 81 07 00 00 01 00"
+        }
+      ]
+    },
+    "@build/PlaceBlueprint.items": {
+      "find": [
+        {
+          "pattern": "48 8B 56 28 41 8B 4F 1C E8 {build/ItemFind:rel32} 4C 8B F0 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 0B 88 {build/item.material_ref:d32} 0F 84"
+        },
+        {
+          "pattern": "E8 ?? ?? ?? ?? 41 0F B6 86 {build/item.material_id:d32} 33 FF 88 85"
+        }
+      ]
+    },
+    "@build/PlacedEntity.read": {
+      "find": [
+        {
+          "pattern": "49 8B 56 28 8B 09 E8 {build/ItemFind:rel32} 48 8B D0 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 0B 88 {build/item.placed_entity:d32} 0F 84"
+        }
+      ]
+    },
+    "@build/BuildZoneAdd.lists": {
+      "find": [
+        {
+          "pattern": "84 D2 74 ?? 83 E9 01 74 ?? 83 F9 01 75 ?? 49 8D 4A {build/bzs.dynamic:d8} 48 8D 54 24 20 E8 {build/BuildZoneAppend:rel32} 48 83 C4 78 C3 49 8D 4A {build/bzs.nobuild:d8} 48 8D 54 24 20 E8 ?? ?? ?? ?? 48 83 C4 78 C3 41 80 F8 01 74 ?? 49 8D 4A {build/bzs.bases:d8} 48 8D 54 24 20 E8"
+        }
+      ]
+    },
+    "@build/BuildZoneAppend.stride": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/BuildZoneAppend",
+            "size": 160
+          },
+          "pattern": "48 8B 43 08 0F 10 07 48 8D 0C C0 48 8B 03 0F 11 04 C8 0F 10 4F 10 0F 11 4C C8 10 0F 10 47 20 0F 11 44 C8 20 0F 10 4F 30 0F 11 4C C8 30 F2 0F 10 47 {build/zone.entity:d8} F2 0F 11 44 C8"
+        }
+      ]
+    },
+    "build/SaveRegions": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 56 41 57 48 81 EC 80 00 00 00 0F 29 70 D8 33 F6 0F 29 78 C8 4D 8B F0 48 C7 42 08 00 00 00 00 48 8B DA 4C 8B F9"
+        }
+      ]
+    },
+    "@build/SaveRegions.call": {
+      "find": [
+        {
+          "pattern": "4C 8B 47 {build/save.zones:d8} 48 8D 05 ?? ?? ?? ?? 48 8D 55 C0 48 89 45 D8 48 8D 8D ?? ?? ?? ?? E8 {build/SaveRegions:rel32}"
+        }
+      ]
+    },
+    "@build/SaveRegions.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "build/SaveRegions",
+            "size": 192
+          },
+          "pattern": "49 8B 6E {build/bzs.bases_data:d8} 80 7C 2F {build/zone.abandoned:d8} 00 0F 85"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "build/grid.interface": {
+      "min_votes": 1
+    },
+    "build/wrapper.world": {
+      "min_votes": 1
+    },
+    "build/voxel.level": {
+      "min_votes": 1
+    },
+    "build/voxel.write_level": {
+      "min_votes": 1
+    },
+    "build/world.lock": {
+      "min_votes": 1
+    },
+    "build/world.initialized": {
+      "min_votes": 1
+    },
+    "build/world.global_task": {
+      "min_votes": 1
+    },
+    "build/world.resources": {
+      "min_votes": 1
+    },
+    "build/world.store": {
+      "min_votes": 2
+    },
+    "build/store.unavailable": {
+      "min_votes": 1
+    },
+    "build/store.layer": {
+      "min_votes": 1
+    },
+    "build/store.lock": {
+      "min_votes": 1
+    },
+    "build/world.origin": {
+      "min_votes": 1
+    },
+    "build/world.levels": {
+      "min_votes": 1
+    },
+    "build/level.stride": {
+      "value": 40
+    },
+    "build/item.material_ref": {
+      "min_votes": 1
+    },
+    "build/item.material_id": {
+      "min_votes": 1
+    },
+    "build/item.placed_entity": {
+      "min_votes": 1
+    },
+    "build/bzs.dynamic": {
+      "min_votes": 1
+    },
+    "build/bzs.nobuild": {
+      "min_votes": 1
+    },
+    "build/bzs.bases": {
+      "min_votes": 1
+    },
+    "build/zone.entity": {
+      "min_votes": 1
+    },
+    "build/zone.stride": {
+      "value": 72
+    },
+    "build/save.zones": {
+      "min_votes": 1
+    },
+    "build/bzs.bases_data": {
+      "min_votes": 1
+    },
+    "build/zone.abandoned": {
+      "min_votes": 1
+    },
+    "build/region.size": {
+      "value": 48
+    }
+  },
+  "features": {
+    "build.read": {
+      "symbols": [
+        "build/VoxelGridRead",
+        "build/VoxelGridReady",
+        "build/VoxelTileReady",
+        "build/voxel.base_size"
+      ],
+      "constants": [
+        "build/grid.interface",
+        "build/wrapper.world",
+        "build/voxel.level",
+        "build/world.lock",
+        "build/world.initialized",
+        "build/world.store",
+        "build/store.unavailable",
+        "build/world.origin",
+        "build/world.levels",
+        "build/level.stride"
+      ]
+    },
+    "build.write": {
+      "symbols": [
+        "build/VoxelWrite",
+        "build/StoreCommit"
+      ],
+      "constants": [
+        "build/voxel.write_level",
+        "build/world.store",
+        "build/store.layer",
+        "build/store.lock"
+      ]
+    },
+    "build.items": {
+      "symbols": [
+        "build/ItemFind"
+      ],
+      "constants": [
+        "build/item.material_ref",
+        "build/item.material_id",
+        "build/item.placed_entity"
+      ]
+    },
+    "build.zones": {
+      "symbols": [
+        "build/BuildZoneAppend"
+      ],
+      "constants": [
+        "build/bzs.bases",
+        "build/zone.entity",
+        "build/zone.stride"
+      ]
+    },
+    "build.persist": {
+      "symbols": [
+        "build/SaveRegions"
+      ],
+      "constants": [
+        "build/region.size",
+        "build/bzs.bases_data"
+      ]
+    }
+  }
+}

@@ -1,0 +1,238 @@
+{
+  "catalog": true,
+  "description": "schema findings: unknown keys with did-you-mean (KL103), keys a format forbids (KL102), types (KL101), required keys (KL104), enums and case (KL105, KL112), patterns (KL106), ranges and sizes (KL107, KL108), alternatives (KL109), format versions (KL111)",
+  "diagnostics": [
+    {
+      "code": "KL104",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "missing \"file\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL401",
+      "col": 55,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "no item with GUID 4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 in the game or the mods",
+      "severity": "warning"
+    },
+    {
+      "code": "KL106",
+      "col": 204,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "\"../outside.bin\": a path relative to assets/ (subfolders allowed; no absolute path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 204,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "../outside.bin: no such file (<case>/outside.bin)",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 230,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "mode is \"override\" or \"new\" (anything else is read as either)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL105",
+      "col": 253,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "\"sprite\" is not one of \"icon\", \"texture\", \"resource\", \"blob\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 3,
+      "file": "content/items.json",
+      "line": 3,
+      "message": "\"itemz\": unknown section (kiln.content ignores it unless a service registers it with Content.RegisterSection); did you mean \"items\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL106",
+      "col": 17,
+      "file": "content/items.json",
+      "line": 6,
+      "message": "\"not-a-guid\" does not have the expected form (^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 39,
+      "file": "content/items.json",
+      "line": 6,
+      "message": "\"Fixture Schema Blade\": a debug name is 1..200 of A-Z a-z 0-9 _ - .",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 95,
+      "file": "content/items.json",
+      "line": 6,
+      "message": "\"displayNmae\": unknown key in an item definition (kiln.content ignores it); did you mean \"displayName\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL102",
+      "col": 28,
+      "file": "content/items.json",
+      "line": 7,
+      "message": "\"nmae\" is not allowed here; did you mean \"name\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 119,
+      "file": "content/items.json",
+      "line": 7,
+      "message": "0 is below the minimum 1",
+      "severity": "error"
+    },
+    {
+      "code": "KL109",
+      "col": 17,
+      "file": "content/items.json",
+      "line": 8,
+      "message": "the zero GUID cannot be a definition (the game maps it to id 0)",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 7,
+      "file": "content/items.json",
+      "line": 9,
+      "message": "missing \"guid\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL109",
+      "col": 73,
+      "file": "content/items.json",
+      "line": 9,
+      "message": "\"placeholder\" is written by Kiln for missing content; a mod's definition should not carry it",
+      "severity": "warning"
+    },
+    {
+      "code": "KL101",
+      "col": 48,
+      "file": "content/items.json",
+      "line": 11,
+      "message": "maxStackSize is a uint16: expected a number (or an op like {\"mul\": 2}), found \"lots\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL109",
+      "col": 64,
+      "file": "content/items.json",
+      "line": 11,
+      "message": "icons are definition-only (an \"add\" entry or assets/assets.json)",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 7,
+      "file": "content/items.json",
+      "line": 15,
+      "message": "a recipe needs \"base\" (a recipe to copy) or \"station\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL108",
+      "col": 99,
+      "file": "content/items.json",
+      "line": 15,
+      "message": "an empty list: give at least one entry",
+      "severity": "error"
+    },
+    {
+      "code": "KL109",
+      "col": 116,
+      "file": "content/items.json",
+      "line": 15,
+      "message": "outputs cannot be categories",
+      "severity": "error"
+    },
+    {
+      "code": "KL112",
+      "col": 151,
+      "file": "content/items.json",
+      "line": 15,
+      "message": "\"Base\" matches \"base\" (Kiln ignores case); write it as the game names it",
+      "severity": "hint"
+    },
+    {
+      "code": "KL109",
+      "col": 24,
+      "file": "content/items.json",
+      "line": 18,
+      "message": "arsenals cannot be cloned (templates, sequences, perks, buffs can)",
+      "severity": "error"
+    },
+    {
+      "code": "KL112",
+      "col": 86,
+      "file": "content/items.json",
+      "line": 19,
+      "message": "\"vukah\" matches \"Vukah\" (Kiln ignores case); write it as the game names it",
+      "severity": "hint"
+    },
+    {
+      "code": "KL106",
+      "col": 108,
+      "file": "content/items.json",
+      "line": 19,
+      "message": "\"-Fleehome\": an enemy feature: [+|-]UseTaunt, Move, Patrol, Roaming, ReturnHome, FleeHome, Combat, Run, Sleep, Awareness, Investigate, ... (EnemyFeatures)",
+      "severity": "error"
+    },
+    {
+      "code": "KL101",
+      "col": 30,
+      "file": "content/items.json",
+      "line": 20,
+      "message": "expected true or false, found a string",
+      "severity": "error"
+    },
+    {
+      "code": "KL111",
+      "col": 13,
+      "file": "impact/cook.json",
+      "line": 1,
+      "message": "format 2 is not supported (this Kiln reads 1)",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 45,
+      "file": "impact/cook.json",
+      "line": 1,
+      "message": "missing \"src\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL512",
+      "col": 73,
+      "file": "impact/cook.json",
+      "line": 1,
+      "message": "this step writes cooked/impact/x.bin, which assets/assets.json does not list: kiln.assets will not serve it (cook with --update-manifest)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL103",
+      "col": 158,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "\"dependecies\": unknown key (Kiln.Host ignores it and logs a warning); did you mean \"dependencies\"?",
+      "severity": "warning"
+    }
+  ]
+}

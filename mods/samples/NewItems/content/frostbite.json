@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "comment": "NewItems: a perk and a buff of its own (kiln.gamedata clones). Frostbite is a copy of the Poisoned debuff (0x5f425faf) with its own name, description and a longer duration; Frostbite Edge is a copy of the T2 'poison on hit' perk (its 5% chance, its tooltip) that applies Frostbite instead and runs this mod's own program (impact/frostbite_edge.kimp): the vanilla program's weapon check only lets daggers through, so on a sword it never fires. A perk works once it is unlocked: Items.Give's Epic Glacier has all its enhancements, a crafted one unlocks them at the upgrade table. Glacier carries the perk in its third slot (set in NewItemsMod.cs, where both exist). Fixed GUIDs: ids (FNV-1a of the GUID) stay the same across restarts, so saved items and buffs keep them; if the mod goes away they become inert '[Missing: ...]' placeholders.",
+  "buffs": {
+    "add": [
+      {
+        "guid": "c7a1e5d2-49b6-4f80-a3d1-2e6b9f0c4a58",
+        "name": "Kiln_Sample_Frostbite",
+        "base": "0x5f425faf",
+        "displayName": "Frostbite",
+        "description": "Bitter cold gnaws at you.",
+        "texts": {
+          "de": { "name": "Frostbiss", "description": "Beißende Kälte nagt an dir." },
+          "fr": { "name": "Engelure", "description": "Un froid mordant vous ronge." }
+        },
+        "fields": { "defaultLifeTime": 8 }
+      }
+    ]
+  },
+  "perks": {
+    "add": [
+      {
+        "guid": "3b8f0d6e-15c2-4a97-8e4b-d1f6a2c97e03",
+        "name": "Kiln_Sample_FrostbiteEdge",
+        "base": "Perk_OnDamage_Dealt_Debuff_Poisoned_T2",
+        "displayName": "Frostbite Edge",
+        "description": "Hits inflict Frostbite.",
+        "texts": {
+          "de": { "name": "Frostbiss-Klinge", "description": "Treffer verursachen Frostbiss." },
+          "fr": { "name": "Lame d'engelure", "description": "Les coups infligent une engelure." }
+        },
+        "fields": { "impactValues.BuffType": "Kiln_Sample_Frostbite", "impact": "c40bd1c7-48dd-44a5-8d6b-8222e62acb84" }
+      }
+    ]
+  }
+}

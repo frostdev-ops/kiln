@@ -1,0 +1,67 @@
+{
+  "raw": "{\n  // comments and trailing commas are fine\n  \"id\": \"my-mod\", \"name\": \"My Mod\", \"version\": \"1.4.0-beta.2\", \"description\": \"d\", \"authors\": [\"a\", \"b\"],\n  \"license\": \"MIT\", \"url\": \"https://example.org\", \"apiVersion\": \">=0.2 <1\", \"side\": \"both\", \"clients\": \"kiln\",\n  \"dependencies\": { \"lib\": \"^1.2\", \"kiln\": \">=0.1\", \"extra\": { \"version\": \"~2.0\", \"optional\": true } },\n  \"loadBefore\": [\"late\"], \"loadAfter\": [\"early\"], \"incompatible\": { \"rival\": \"<3\" },\n  \"features\": [\"tick\", \"log.mirror\"], \"entryAssembly\": \"MyMod.dll\", \"entryType\": \"My.ModClass\",\n  \"exports\": [\"MyMod.Api.dll\"], \"advanced\": true, \"tests\": { \"autoRun\": true, \"timeoutSeconds\": 5 },\n}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "my-mod",
+      "name": "My Mod",
+      "version": "1.4.0-beta.2",
+      "parsedVersion": "1.4.0-beta.2",
+      "apiVersion": ">=0.2 <1",
+      "entryAssembly": "MyMod.dll",
+      "entryType": "My.ModClass",
+      "side": "both",
+      "clients": "kiln",
+      "authors": [
+        "a",
+        "b"
+      ],
+      "description": "d",
+      "license": "MIT",
+      "url": "https://example.org",
+      "dependencies": [
+        {
+          "id": "lib",
+          "range": "^1.2",
+          "optional": false
+        },
+        {
+          "id": "kiln",
+          "range": ">=0.1",
+          "optional": false
+        },
+        {
+          "id": "extra",
+          "range": "~2.0",
+          "optional": true
+        }
+      ],
+      "loadBefore": [
+        "late"
+      ],
+      "loadAfter": [
+        "early"
+      ],
+      "incompatible": [
+        {
+          "id": "rival",
+          "range": "<3"
+        }
+      ],
+      "features": [
+        "tick",
+        "log.mirror"
+      ],
+      "exports": [
+        "MyMod.Api.dll"
+      ],
+      "advanced": true,
+      "tests": {
+        "autoRun": true,
+        "timeoutSeconds": 5,
+        "filter": null
+      },
+      "warnings": []
+    }
+  }
+}

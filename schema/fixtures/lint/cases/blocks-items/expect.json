@@ -1,0 +1,182 @@
+{
+  "catalog": true,
+  "description": "blocks-items: the item blocks' sections: schema (KL102, KL104 ...), KL201 for clients none and a PNG look, KL314 for names that are nothing or the wrong kind (premades and game items are fine), KL406 for a rolled item with a recipe.",
+  "diagnostics": [
+    {
+      "code": "KL314",
+      "col": 78,
+      "file": "blocks/items.json",
+      "line": 5,
+      "message": "no item \"Weapon_No_Such\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL102",
+      "col": 33,
+      "file": "blocks/items.json",
+      "line": 9,
+      "message": "\"stacks\" is not allowed here; did you mean \"stack\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 40,
+      "file": "blocks/items.json",
+      "line": 10,
+      "message": "\"gem\" is not one of \"material\", \"consumable\", \"food\", \"ammo\", \"tool\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 55,
+      "file": "blocks/items.json",
+      "line": 12,
+      "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 74,
+      "file": "blocks/items.json",
+      "line": 12,
+      "message": "\"burst\" is an effect block; this field takes an item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 41,
+      "file": "blocks/items.json",
+      "line": 13,
+      "message": "\"burst\" is an effect block; this field takes a status",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 58,
+      "file": "blocks/items.json",
+      "line": 15,
+      "message": "no station block \"anvil\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:anvil\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL105",
+      "col": 54,
+      "file": "blocks/items.json",
+      "line": 19,
+      "message": "\"gold\" is not one of \"wood\", \"stone\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 50,
+      "file": "blocks/items.json",
+      "line": 20,
+      "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 42,
+      "file": "blocks/items.json",
+      "line": 24,
+      "message": "no weapon class block \"spear\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:spear\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 62,
+      "file": "blocks/items.json",
+      "line": 25,
+      "message": "\"strong\" is a weapon stats block; this field takes a look",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 81,
+      "file": "blocks/items.json",
+      "line": 25,
+      "message": "\"warm\" is a status block; this field takes an effect or an on-hit",
+      "severity": "warning"
+    },
+    {
+      "code": "KL406",
+      "col": 68,
+      "file": "blocks/items.json",
+      "line": 26,
+      "message": "block \"rolled\" has a recipe and \"rolled\": true: a craft comes out as the lowest allowed rarity or a random level while the recipe tooltip shows its rarity and lowest level; Kiln.Blocks refuses it. Give it a recipe or roll it, not both",
+      "severity": "warning"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "blocks/items.json",
+      "line": 29,
+      "message": "missing \"primary\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 265,
+      "file": "blocks/items.json",
+      "line": 30,
+      "message": "no effect block \"gone\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:gone\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "blocks/items.json",
+      "line": 33,
+      "message": "missing \"slot\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 40,
+      "file": "blocks/items.json",
+      "line": 35,
+      "message": "no armor slot block \"neck\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:neck\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 55,
+      "file": "blocks/items.json",
+      "line": 35,
+      "message": "no armor set block \"pirate\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:pirate\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL105",
+      "col": 71,
+      "file": "blocks/items.json",
+      "line": 36,
+      "message": "key \"luck\" is not one of \"health\", \"stamina\", \"mana\", \"health-regen\", \"stamina-regen\", \"mana-regen\", \"melee-damage\", \"ranged-damage\", \"magic-damage\", \"crit-chance\", \"crit-damage\", \"frost-resist\", ... (13 values)",
+      "severity": "error"
+    },
+    {
+      "code": "KL203",
+      "col": 82,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "a PNG item icon is drawn by clients, but side \"server\" mods do not load on a joined client (only when a player hosts); use side \"both\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL201",
+      "col": 103,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod adds a new weapon (and maybe more) but says \"clients\": \"none\": vanilla clients cannot show it (\"[Invalid Item Stack]\"); declare \"clients\": \"kiln\" (the server sends the definitions to Kiln clients and refuses vanilla ones) or \"mod\" (players install the mod)",
+      "severity": "error"
+    },
+    {
+      "code": "KL202",
+      "col": 103,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod ships a PNG item icon but says \"clients\": \"none\": players without the mod never see them; declare \"clients\": \"mod\" so the server's modpack delivers it",
+      "severity": "warning"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "skilltreesample",
+  "name": "Skill Tree Sample",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "SkillTreeSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "kiln.skills sample. The game's own skill tree gets two Mage nodes past the Spirit branch (Ember Ward: +2 Spirit; Emberheart: three levels of the game's Spirit-scaled passive), drawn by the game's skill-tree screen with their own names, unlocked with the game's skill points. A Kiln talent tree 'Ember Arts' (pause menu, key K): five nodes on a grid with icons, its own points (1 + 1 per level), effects through the game's own programs (attributes, a game node's passive) and code (a toast). skills/sample.json is the whole definition; the code only listens. Players need the mod (both trees must be the same on both sides: the game's skill tree by index)."
+}

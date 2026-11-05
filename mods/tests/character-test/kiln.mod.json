@@ -1,0 +1,11 @@
+{
+  "id": "character-test",
+  "name": "Character data test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "CharacterTest.dll",
+  "side": "both",
+  "clients": "none",
+  "description": "Drives kiln.characters, CharacterData, the migration from account-keyed data and the channel kiln:character without a player. Prints PASS/FAIL lines to kiln.log; charnet.py is the fake client."
+}

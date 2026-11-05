@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "admin-endpoint.schema.json",
+  "title": "KAP/1 endpoint (<server>/kiln/data/kiln-admin/endpoint.json), format 1",
+  "description": "Written by Kiln.Admin when its TCP listener is up; deleted on unload (a stale file has a dead pid). The token is in admin-token next to it (64 hex chars = 32 bytes). Protocol: docs/kiln/launcher/admin-protocol.md.",
+  "type": "object",
+  "required": ["format", "protocol", "host", "port", "pid", "started"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "protocol": { "const": "kap/1" },
+    "host": { "const": "127.0.0.1" },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "started": { "$ref": "common.schema.json#/$defs/time" },
+    "kiln": { "type": "string" },
+    "admin": { "type": "string", "description": "Kiln.Admin version." },
+    "server": {
+      "type": "object",
+      "properties": { "id": { "type": ["string", "null"] }, "name": { "type": ["string", "null"] } }
+    },
+    "token": { "type": "string", "default": "admin-token", "description": "Token file name, relative to this file's folder." },
+    "bridge": { "type": "string", "description": "The file bridge folder (fallback transport)." }
+  },
+  "additionalProperties": true
+}

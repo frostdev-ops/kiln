@@ -1,0 +1,2 @@
+{ "format": 1, "tool": "soundcook", "out": "cooked", "guidNamespace": "4d833311-1c5b-463f-9c99-f41fd512de57",
+  "steps": [ { "op": "voiceover", "name": "hi", "fallback": null, "languages": { "en": ["../audio/hi.wav"] } } ] }

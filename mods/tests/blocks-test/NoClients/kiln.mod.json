@@ -1,0 +1,10 @@
+{
+  "id": "blocks-noclients",
+  "name": "blocks: a mod that says vanilla clients can join",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksNoClients.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "Part of blocks-test: a new spell on a mod with clients none is refused, and the message says what to set."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "world-switch-test",
+  "name": "Kiln test: one world after another in a process (a hosted game's order, on a lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "WorldSwitchTest.dll",
+  "side": "both",
+  "clients": "mod"
+}

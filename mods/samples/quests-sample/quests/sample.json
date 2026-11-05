@@ -1,0 +1,126 @@
+// The Warden's chain, written once: the game's journal, tracked-quest HUD, notifications, map markers and NPC menu show it, and
+// the engine runs it, per character on this world. No flag asks for any of that. The Warden and the Vukah find their own places:
+// on the ground, outside every base, near where the first player stands. docs/kiln/modding/quests.md.
+{ "format": 1,
+  "knowledge": {
+    "warden_met": { "scope": "world", "comment": "his roster unlock: \"place\" grants it, because the game destroys a locked roster NPC" }
+  },
+  "npcs": {
+    "warden": {
+      "template": "Townsfolk_Male_villager_01_GuntherGaleforth",
+      "clone": { "guid": "d8512f2e-21b5-42c2-aff7-0ae5f3d63ed9", "name": "Kiln_QuestsSample_Warden" },
+      "names": { "en": "The Warden", "de": "Der Wächter" },
+      "dialogue": "warden",
+      "roster": { "unlock": "warden_met", "roamingRange": 6 },
+      "place": { "near": "player", "distance": [25, 45], "yaw": 180, "once": true, "unlock": true }
+    }
+  },
+  "quests": {
+    "ember_errand": {
+      "name": { "en": "The Warden's Errand", "de": "Der Auftrag des Wächters" },
+      "main": true, "auto": true, "source": "Grassland",
+      "steps": [
+        { "id": "meet",
+          "title": { "en": "Find the Warden", "de": "Finde den Wächter" },
+          "text": { "en": "Someone is keeping watch out here. The map shows where.", "de": "Jemand hält hier draußen Wache. Die Karte zeigt, wo." },
+          "objective": { "talk": { "npc": "warden" } },
+          "marker": { "name": { "en": "The Warden", "de": "Der Wächter" } } },
+        { "id": "hunt",
+          "title": { "en": "Kill the two Vukah", "de": "Töte die zwei Vukah" },
+          "text": { "en": "Two Vukah came down from the ridge. The map shows where they are.", "de": "Zwei Vukah kamen vom Kamm herunter. Die Karte zeigt, wo sie sind." },
+          "objective": { "kill": { "tag": "warden-hunt", "count": 2 } },
+          "spawn": { "template": "Enemy_Vukah_Melee", "count": 2, "tag": "warden-hunt", "near": "warden", "distance": [50, 90] },
+          "marker": { "name": { "en": "Vukah on the Ridge", "de": "Vukah auf dem Kamm" } } },
+        { "id": "logs",
+          "title": { "en": "Take the Warden's logs", "de": "Nimm die Stämme des Wächters" },
+          "text": { "en": "The Warden left three logs for you to carry.", "de": "Der Wächter hat dir drei Stämme zum Tragen dagelassen." },
+          "objective": { "collect": { "item": "Material_T1_Wood_Logs", "count": 3 } },
+          "onEnter": [ { "item": "Material_T1_Wood_Logs", "count": 3 } ] },
+        { "id": "turnin",
+          "title": { "en": "Give the Warden three logs", "de": "Gib dem Wächter drei Stämme" },
+          "text": { "en": "Bring the logs back to the Warden.", "de": "Bring die Stämme zum Wächter zurück." },
+          "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "warden" } } }
+      ],
+      "rewards": [ { "xp": 500 }, { "item": "Material_T1_Wood_Logs", "count": 5 } ]
+    },
+    "second_errand": {
+      "name": { "en": "One More Walk", "de": "Noch ein Weg" },
+      "giver": "warden", "source": "Grassland",
+      "requires": [ { "quest": "ember_errand", "is": "done" } ],
+      "steps": [
+        { "id": "walk",
+          "text": { "en": "Walk to the place the Warden marked on your map", "de": "Geh zu dem Ort, den der Wächter auf deiner Karte markiert hat" },
+          "site": { "near": "warden", "distance": [30, 45] },
+          "objective": { "reach": { "site": true, "radius": 8 } },
+          "marker": { "name": { "en": "The Warden's Mark", "de": "Das Zeichen des Wächters" } } }
+      ],
+      "rewards": [ { "xp": 100 } ]
+    },
+    "world_watch": {
+      "name": { "en": "The World Watch", "de": "Die Weltwache" },
+      "scope": "world", "auto": true, "source": "Grassland",
+      "steps": [
+        { "id": "vukah", "text": { "en": "Together, kill two Vukah", "de": "Tötet gemeinsam zwei Vukah" },
+          "objective": { "kill": { "family": "Vukah", "count": 2 } } }
+      ]
+    }
+  },
+  "dialogues": {
+    "warden": {
+      "start": "hello",
+      "greetings": [
+        { "if": { "step": "ember_errand.hunt", "is": "active" }, "hint": "MainQuest",
+          "text": { "en": "They are still out there, Flameborn.", "de": "Sie sind noch da draußen, Flammenträger." } }
+      ],
+      "nodes": {
+        "hello": {
+          "text": { "en": "Flameborn. Good to see someone awake out here.", "de": "Flammenträger. Schön, hier draußen jemanden wach zu sehen." },
+          "voice": "00a3c13d-c08e-403b-8ef6-1925007416f7",
+          "options": [
+            { "comment": "a topic with one knowledge check",
+              "text": { "en": "What do you need?", "de": "Was brauchst du?" },
+              "if": { "step": "ember_errand.hunt", "is": "active" }, "hint": "MainQuest",
+              "reply": { "en": "Two Vukah came down from the ridge. Drive them off, then come back.", "de": "Zwei Vukah kamen vom Kamm herunter. Vertreibe sie und komm zurück." } },
+            { "comment": "a hand-in: the game's menu offers it only while you hold the logs",
+              "text": { "en": "Here are your logs.", "de": "Hier sind deine Stämme." },
+              "if": { "step": "ember_errand.turnin", "is": "active" }, "hint": "MainQuest",
+              "do": [ { "advance": "ember_errand.turnin" } ],
+              "reply": { "en": "Good timber. Here is something for your trouble.", "de": "Gutes Holz. Hier, für deine Mühe." } },
+            { "comment": "available means its requirement holds: the engine keeps that in a knowledge object of its own",
+              "text": { "en": "Any more work?", "de": "Noch mehr Arbeit?" },
+              "if": { "quest": "second_errand", "is": "available" }, "hint": "Attention",
+              "do": [ { "start": "second_errand" } ],
+              "reply": { "en": "One more walk, then we are even. I marked the place.", "de": "Noch ein Weg, dann sind wir quitt. Ich habe den Ort markiert." } },
+            { "comment": "the game's journal has no give-up button: an NPC can take a quest back",
+              "text": { "en": "I will not make that walk.", "de": "Diesen Weg mache ich nicht." },
+              "if": { "quest": "second_errand", "is": "active" },
+              "do": [ { "reset": "second_errand" } ],
+              "reply": { "en": "Then the offer stands for when you change your mind.", "de": "Dann gilt das Angebot, bis du es dir anders überlegst." } },
+            { "comment": "a quest defined in C# (QuestsSampleMod.cs), in the same menu and the same journal",
+              "text": { "en": "Shall I count the logs at camp?", "de": "Soll ich die Stämme im Lager zählen?" },
+              "if": { "quest": "warden_tally", "is": "available" },
+              "do": [ { "start": "warden_tally" } ],
+              "reply": { "en": "Ten logs would settle my mind.", "de": "Zehn Stämme würden mich beruhigen." } },
+            { "comment": "goes to a node with options of its own: the game's menu is one flat list, so those topics join it after this one",
+              "text": { "en": "Tell me an old story.", "de": "Erzähl mir eine alte Geschichte." },
+              "goto": "story" },
+            { "comment": "one knowledge check cannot ask for a level: the engine keeps this true or false for each player",
+              "text": { "en": "You look like a veteran's friend.", "de": "Du siehst aus wie ein Freund von Veteranen." },
+              "if": { "level": 50 },
+              "reply": { "en": "Only level 50 players ever see this line.", "de": "Nur Spieler mit Stufe 50 sehen diese Zeile." } }
+          ]
+        },
+        "story": {
+          "text": { "en": "Listen. This one is the game's own lore line.", "de": "Hör zu. Das ist eine Lore-Zeile des Spiels." },
+          "voice": "00391188-81e1-433b-8c6c-1f053c7d0793",
+          "options": [
+            { "text": { "en": "And what came after?", "de": "Und was kam danach?" }, "once": true,
+              "reply": { "en": "The Shroud came after. It always does.", "de": "Danach kam der Schleier. Das tut er immer." } }
+          ]
+        }
+      },
+      "farewell": [ { "text": { "en": "Keep your flame lit.", "de": "Halte deine Flamme am Brennen." } } ],
+      "transition": [ { "text": { "en": "Anything else?", "de": "Sonst noch etwas?" } } ]
+    }
+  }
+}

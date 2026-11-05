@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  // The effects kiln-vfxcook's tests build: a burst with a light, a looping trail, a light alone.
+  "vfx": {
+    "frost_burst": {
+      "particles": [ {
+        "burst": 24, "lifetime": [0.4, 0.9], "speed": [2, 5],
+        "spread": { "cone": 35 }, "gravity": -4,
+        "size": { "linear": [0.15, 0] },
+        "color": ["#ffffff", "#7fd4ff"], "alpha": { "linear": [1, 0] },
+        "texture": "vfx/shard.png", "blend": "additive"
+      } ],
+      "light": { "color": "#7fd4ff", "radius": 6, "brightness": 4, "lifetime": 0.6, "fadeOut": 0.5 },
+      "sound": "frost_hit"
+    },
+    "frost_trail": {
+      "particles": [ {
+        "rate": 40, "lifetime": 1.2, "speed": 0.3, "spread": "sphere", "drag": 1.5,
+        "size": { "keys": [[0, 0.05], [0.2, 0.2], [1, 0]] },
+        "color": "#a0e0ff", "intensity": 2, "alpha": { "linear": [0.8, 0] },
+        "flipbook": { "columns": 2, "rows": 2, "fps": 8 },
+        "texture": "vfx/puff_2x2.png", "sampler": "clampToZero", "lit": true
+      } ],
+      "cullDistance": [60, 90]
+    },
+    "cold_glow": {
+      "light": { "color": "#5080ff", "radius": 3, "brightness": 2, "fadeIn": 0.2, "fadeOut": 0.4, "flicker": 0.5, "offset": [0, 0.5, 0] },
+    },
+  },
+}

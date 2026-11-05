@@ -1,0 +1,122 @@
+{
+  "format": 1,
+  "comment": "Lab data of quest-native-test: new knowledge objects of every scope and type, one native quest, a clone NPC with a roster entry and its own dialogue, a line appended to Balthazar, a vanilla giver placed once.",
+  "knowledge": {
+    "lab_world_bool": { "scope": "world" },
+    "lab_player_bool": { "scope": "player" },
+    "lab_both_bool": { "scope": "both" },
+    "lab_world_counter": { "scope": "world", "type": "counter" },
+    "lab_world_flags": { "scope": "world", "type": "flags", "expectedFlags": 7 },
+    "lab_clone_unlock": { "scope": "world" }
+  },
+  "npcs": {
+    "lab_clone": {
+      "template": "Townsfolk_Female_villager_01_HannahReed",
+      "clone": { "guid": "5d2c0a1e-6b57-4c3f-9c11-7f1a2e3b4c5d", "name": "Kiln_Test_LabClone" },
+      "names": { "en": "Lab Clone", "de": "Labor-Klon" },
+      "dialogue": "lab_clone",
+      "roster": { "unlock": "lab_clone_unlock", "roamingRange": 8 }
+    },
+    "lab_free_clone": {
+      "template": "Townsfolk_Male_villager_01_GuntherGaleforth",
+      "clone": { "guid": "8e4f1b2a-3c6d-4e7f-a0b1-2c3d4e5f6a7b", "name": "Kiln_Test_FreeClone" },
+      "names": { "en": "Free Clone" },
+      "dialogue": "lab_free"
+    },
+    "lab_placed": {
+      "comment": "asks for the middle of the lab's base: it must end up on the ground outside it",
+      "template": "Townsfolk_Male_villager_02_RamoneJones",
+      "clone": { "guid": "b6b4d35e-6d0f-4d8b-9a53-7c2a8e1f4d60", "name": "Kiln_Test_Placed" },
+      "names": { "en": "Placed Clone" },
+      "place": { "at": [3800, 832, 1434], "once": true }
+    },
+    "balthazar": { "template": "NPC_Workshop_Alchemist01", "dialogue": "balthazar_extra", "names": { "en": "Balthazar (lab)" } },
+    "lab_giver": { "template": "Townsfolk_Male_villager_04_AntonGodwin", "place": { "at": [3870, 834, 1470], "yaw": 90, "once": true } }
+  },
+  "quests": {
+    "lab_quest": {
+      "name": { "en": "Lab Quest", "de": "Labor-Aufgabe" },
+      "giver": "lab_clone", "scope": "player", "journal": "native", "source": "Farmer",
+      "steps": [
+        { "id": "first", "text": { "en": "Do the first thing" }, "objective": { "custom": "lab_signal" },
+          "marker": { "at": [3880, 834, 1480], "name": { "en": "Lab Marker" } } },
+        { "id": "second", "text": { "en": "Do the second thing" }, "objective": { "custom": "lab_signal" } }
+      ]
+    },
+    "lab_world_quest": {
+      "name": "World Lab Quest", "scope": "world", "journal": "native",
+      "steps": [ { "id": "only", "text": "Do it", "objective": { "custom": "lab_signal" } } ]
+    },
+    "lab_option_quest": {
+      "comment": "no journal key: the game's journal is the default. Finished by a line of the game's menu, after an action that waits on another thread",
+      "name": "Option Quest", "scope": "world",
+      "steps": [ { "id": "only", "text": "Pick the line", "objective": { "custom": "lab_option" } } ]
+    },
+    "lab_count_quest": {
+      "name": "Counter Quest", "scope": "world",
+      "steps": [
+        { "id": "three", "text": "Three things", "objective": { "custom": { "signal": "lab_count", "count": 3 } } },
+        { "id": "after", "text": "And after", "objective": { "custom": "lab_count_after" } }
+      ]
+    },
+    "lab_handin": {
+      "name": "Hand-in Quest",
+      "steps": [ { "id": "give", "text": "Give two logs", "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 2, "to": "lab_free_clone" } } } ]
+    },
+    "lab_after_handin": {
+      "name": "After the Hand-in", "requires": [ { "quest": "lab_handin", "is": "done" } ],
+      "steps": [ { "id": "a", "text": "Then this", "objective": { "custom": "lab_never" } } ]
+    },
+    "lab_hunt": {
+      "comment": "asks for creatures in the middle of the lab's base: they must end up on the ground outside it, with the marker on them",
+      "name": "Lab Hunt", "scope": "world",
+      "steps": [
+        { "id": "kill", "text": "Kill two Vukah", "objective": { "kill": { "tag": "lab-hunt", "count": 2 } },
+          "spawn": { "template": "Enemy_Vukah_Melee", "count": 2, "tag": "lab-hunt", "near": [3800, 832, 1434], "distance": [20, 40], "retries": 2 },
+          "marker": { "name": { "en": "Lab Hunt" }, "waypoint": false } }
+      ]
+    }
+  },
+  "dialogues": {
+    "lab_clone": {
+      "native": true, "start": "hello",
+      "nodes": {
+        "hello": { "text": { "en": "Hello from the lab." },
+          "options": [
+            { "text": { "en": "Start the quest." }, "if": { "quest": "lab_quest", "is": "available" }, "do": [ { "start": "lab_quest" } ], "goto": "more", "hint": "Attention" },
+            { "text": { "en": "Tell me about the quest." }, "if": { "quest": "lab_quest", "is": "active" }, "goto": "more" },
+            { "text": { "en": "Bye." }, "goto": "end" }
+          ] },
+        "more": { "text": { "en": "There is more." },
+          "options": [ { "text": { "en": "One more thing." }, "reply": { "en": "Yes?" }, "goto": "end" } ] }
+      },
+      "farewell": [ { "text": { "en": "Goodbye from the lab." } } ],
+      "transition": [ { "text": { "en": "Anything else?" } } ]
+    },
+    "lab_free": {
+      "start": "hi",
+      "nodes": {
+        "hi": { "text": { "en": "A free clone." },
+          "options": [
+            { "text": { "en": "Finish the option quest." }, "if": { "step": "lab_option_quest.only", "is": "active" },
+              "do": [ { "call": "lab.off_tick" }, { "advance": "lab_option_quest.only" } ], "reply": { "en": "Done." } },
+            { "text": { "en": "Here are two logs." }, "if": { "step": "lab_handin.give", "is": "active" },
+              "do": [ { "advance": "lab_handin.give" } ], "reply": { "en": "Thanks." } },
+            { "text": { "en": "Level five and no logs?" }, "if": { "all": [ { "level": 5 }, { "not": { "item": "Material_T1_Wood_Logs", "count": 1 } } ] },
+              "reply": { "en": "Two conditions, one knowledge object." } },
+            { "text": { "en": "After the hand-in?" }, "if": { "quest": "lab_after_handin", "is": "available" },
+              "do": [ { "start": "lab_after_handin" } ], "reply": { "en": "Then this." } },
+            { "text": { "en": "More." }, "goto": "more" }
+          ] },
+        "more": { "text": { "en": "More." },
+          "options": [ { "text": { "en": "Gated, with a condition." }, "if": { "level": 5 }, "reply": { "en": "Both." } } ] }
+      }
+    },
+    "balthazar_extra": {
+      "native": true, "start": "hi", "greet": true,
+      "nodes": {
+        "hi": { "text": { "en": "My friend, the lab says hello." },
+          "options": [ { "text": { "en": "About the lab." }, "reply": { "en": "It works." }, "goto": "end", "once": true } ] } }
+    }
+  }
+}

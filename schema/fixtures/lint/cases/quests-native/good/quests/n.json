@@ -1,0 +1,23 @@
+{ "format": 1,
+  "knowledge": { "met": { "scope": "world" }, "count": { "type": "counter" }, "bits": { "type": "flags", "expectedFlags": 3 } },
+  "npcs": {
+    "tobin": { "template": "NPC_Workshop_Fisher_Trader", "clone": { "guid": "299d68c5-10b9-4af9-91e0-194b308ee461", "name": "Kiln_Lint_Tobin" },
+               "names": { "en": "T" }, "dialogue": "tobin", "place": { "near": "player", "distance": [25, 45], "unlock": true },
+               "roster": { "unlock": "met", "roamingRange": 5, "summonItem": "83ff4ce1-f84a-4ac7-8ee9-886ab16f280e" } } },
+  "quests": {
+    "q": { "name": "Q", "source": "Fisher", "giver": "tobin", "priority": 60,
+           "steps": [ { "id": "s", "title": "T", "text": "S", "objective": { "custom": "x" }, "marker": { "at": [1, 2, 3], "name": "M" } },
+                      { "id": "hunt", "text": "Kill", "objective": { "kill": { "tag": "t", "count": 2 } },
+                        "spawn": { "template": "Enemy_Vukah_Melee", "count": 2, "tag": "t", "near": "tobin", "distance": [40, 80], "retries": 3 }, "marker": { "name": "There" } },
+                      { "id": "go", "text": "Go", "site": { "near": "player", "distance": 30, "margin": 10 }, "objective": { "reach": { "site": true, "radius": 8 } }, "marker": false } ] },
+    "t": { "name": "T", "journal": "native", "steps": [ { "id": "s", "text": "S", "objective": { "custom": "x" } } ] } },
+  "dialogues": {
+    "tobin": { "native": true, "start": "hello", "hint": "Attention",
+      "greetings": [ { "if": { "quest": "q", "is": "active" }, "text": "again", "voice": "hi" } ],
+      "nodes": {
+        "hello": { "text": "hi", "voice": "hi", "options": [
+          { "text": "a", "if": { "quest": "q", "is": "available" }, "do": [ { "start": "q" } ], "reply": "b", "voice": "hi", "goto": "more", "hint": "Attention" },
+          { "text": "e", "if": { "all": [ { "level": 3 }, { "not": { "item": "Material_T1_Wood_Logs" } } ] }, "once": true },
+          { "text": "c", "once": true, "set": ["met"], "close": true } ] },
+        "more": { "text": "m", "options": [ { "text": "d", "goto": "end", "if": { "quest": "q", "is": "failed" } } ] } },
+      "farewell": [ "bye", { "text": "bye2", "voice": "hi" } ], "transition": [ "else?" ] } } }

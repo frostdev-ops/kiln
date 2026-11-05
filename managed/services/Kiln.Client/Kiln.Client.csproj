@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of the in-core service kiln.client (native/core/src/services/client.cpp): side, session state,
+       local player and the client world's tick. Deployed to kiln/host/ and shared by every mod (mods reference it
+       with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+  </ItemGroup>
+</Project>

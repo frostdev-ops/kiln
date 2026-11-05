@@ -1,0 +1,87 @@
+{
+  // The sample's C# in data: each block here lowers to what the C# one with the name before "-json" does (mods/tests/blocks-items-test).
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "statuses": {
+    "burn-json": { "name": "Burn", "description": "It keeps burning.", "seconds": 6, "tickEvery": 2, "onTick": [ { "damage": { "fire": 2 }, "flinch": "none" } ] },
+    "warmth-json": { "name": "Warmth", "kind": "buff", "seconds": 600, "modifies": { "move-speed": 0.05 } }
+  },
+  "effects": {
+    "sear-json": { "damage": { "fire": 12 }, "flinch": "light", "applies": "burn-json" }
+  },
+  "looks": {
+    "ember-look-json": { "like": "Weapon_T4_1H_SwordEpic_02" }
+  },
+  "weaponStats": {
+    "veteran-json": { "level": 10, "power": 60, "rarity": "rare" }
+  },
+  "armorStats": {
+    "embersteel-json": { "level": 5, "physical": 16, "magical": 8, "rarity": "uncommon" }
+  },
+  "onHits": {
+    "searing-json": { "effects": [ "sear-json" ] }
+  },
+  "weaponClasses": {
+    "ember-blade-json": { "like": "sword", "visual": "ember-look-json", "stats": "veteran-json" }
+  },
+  "items": {
+    "ember-shard-json": { "name": "Ember Shard", "description": "Still warm.", "stack": 100, "fuel": 120, "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 1 } } },
+    "ember-charm-json": { "name": "Ember Charm", "comfort": 2, "was": "ember-token-json" },
+    "healing-draught-json": { "name": "Healing Draught", "heals": 150, "stack": 10, "recipe": { "makes": 2, "needs": { "ember-shard-json": 1 } } },
+    "ember-tonic-json": { "name": "Ember Tonic", "onUse": [ { "heal": 40 } ], "recipe": { "needs": { "ember-shard-json": 2 } } },
+    "ember-stew-json": { "name": "Ember Stew", "feeds": "warmth-json", "recipe": { "needs": { "ember-shard-json": 1, "Material_T1_Twigs": 2 } } },
+    "ember-arrow-json": { "name": "Ember Arrow", "level": 5, "stack": 200, "ammo": { "damage": { "pierce": 8, "fire": 4 } }, "recipe": { "makes": 20, "needs": { "ember-shard-json": 1, "Material_T1_Twigs": 5 } } },
+    "ember-axe-json": { "name": "Ember Axe", "level": 10, "rarity": "uncommon", "tool": { "harvests": "wood", "power": 30, "staminaCost": 2 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
+    "ember-pick-json": { "name": "Ember Pick", "level": 10, "tool": { "harvests": "stone", "power": 18 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
+    "ember-gem-json": {
+      "name": "Ember Gem", "rarity": "rare", "stack": 20,
+      "texts": { "de": { "name": "Glutstein", "description": "Noch warm." } },
+      "visual": { "icon": "item:Material_T1_Metal_Scraps", "dropped": "Material_T1_Metal_Scraps", "tint": "#ff6600" },
+      "recipe": { "station": "ember-bench-json", "needs": { "ember-shard-json": 5 }, "seconds": 4 },
+      "loot": { "like": "Material_T1_Metal_Scraps", "stackMin": 1, "stackMax": 2, "tables": [ { "dropsLike": "Material_T1_Metal_Scraps", "countMin": 1, "countMax": 2, "chance": 0.25 } ] }
+    }
+  },
+  "weapons": {
+    "sword-json": { "name": "Ember Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" }, "recipe": { "needs": { "ember-shard-json": 4 } } },
+    "ember-guard-json": { "name": "Ember Guard", "class": "shield", "stats": { "level": 5, "block": 0.3, "rarity": "uncommon" }, "recipe": { "needs": { "ember-shard-json": 4 } } },
+    "ember-relic-json": { "name": "Ember Relic", "class": "sword", "loot": { "rolled": true, "like": "Weapon_T1_1H_Sword_01" } },
+    "ember-edge-json": {
+      "name": "Ember Edge", "description": "Every blow sears.", "class": "ember-blade-json", "onHit": "searing-json",
+      "onKill": [ { "area": { "radius": 4, "effects": [ "sear-json" ] } } ],
+      "perks": [ "Perk_Damage_Fire" ],
+      "recipe": { "needs": { "ember-shard-json": 6 } }
+    }
+  },
+  "wands": {
+    "ember-wand-json": {
+      "name": "Ember Wand",
+      "stats": { "level": 5, "rarity": "uncommon" },
+      "primary": {
+        "cast": { "manaCost": 6 },
+        "delivery": { "type": "projectile", "speed": 40, "look": "fireball", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 25 } } ] } } ] }
+      },
+      "heavy": {
+        "cast": { "manaCost": 20 },
+        "delivery": { "type": "projectile", "speed": 25, "gravity": 0.5, "look": "fireball", "onImpact": [ { "area": { "radius": 4, "effects": [ { "damage": { "fire": 70 } }, "sear-json" ] } } ] }
+      },
+      "special": {
+        "cast": { "manaCost": 0, "releaseAt": 0.4 },
+        "delivery": { "type": "projectile", "speed": 60, "gravity": 0, "look": "fireball", "onImpact": [ { "area": { "radius": 3, "effects": [ { "damage": { "fire": 40 }, "knockback": "big" } ] } } ] }
+      },
+      "recipe": { "needs": { "ember-shard-json": 5 } }
+    }
+  },
+  "armor": {
+    "ember-helm-json": { "name": "Ember Helm", "slot": "head", "set": "warrior", "stats": "embersteel-json", "recipe": { "needs": { "ember-shard-json": 3 } } },
+    "ember-mail-json": {
+      "name": "Ember Mail", "slot": "chest", "set": "warrior",
+      "stats": { "level": 5, "physical": 30, "magical": 12, "resist": { "fire": 6 }, "bonus": { "health": 60 }, "rarity": "rare" },
+      "onHitTaken": [ { "damage": { "fire": 5 }, "flinch": "none" } ],
+      "recipe": { "needs": { "ember-shard-json": 6 } }
+    },
+    "ember-band-json": { "name": "Ember Band", "slot": "ring", "stats": { "level": 5, "bonus": { "mana": 30, "magic-damage": 0.05 } }, "recipe": { "needs": { "ember-shard-json": 2 } } }
+  },
+  "stations": {
+    "ember-bench-json": { "name": "Ember Bench", "description": "A workbench that never cools.", "recipe": { "needs": { "ember-shard-json": 10 } } }
+  }
+}

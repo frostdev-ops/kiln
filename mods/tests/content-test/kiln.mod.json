@@ -1,0 +1,8 @@
+{
+  "id": "content-test",
+  "name": "kiln.content lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ContentTest.dll",
+  "side": "server"
+}

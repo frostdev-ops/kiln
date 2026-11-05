@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/time.json",
+  "comment": "Client build 26404966: (1) the ServerGameDaytimeSync tail (mov r8,[r8+0x2D0]; jmp DaytimeSyncIfChanged) occurs a second time in the client, so the pattern is anchored on the int3 padding before it. (2) Weather: the client's WeatherSystem update (0xaac5a0) is a larger function than the server's (client-side phenomena after the layer update, when the system's mode field is 1; WeatherRemoveInstance indexes instances with stride 0x50 instead of 0x48), so WeatherUpdate and its probe are re-cut; the mode field (+8) and the layer layout (time/weather.layer_*, captured from WeatherUpdateLayers, unchanged) are the same. kiln.time only takes a WeatherSystem of mode 0 that is the server world's own singleton. Evidence: docs/re/client.md.",
+  "symbols": {
+    "time/ServerGameDaytimeSync": {
+      "find": [
+        {
+          "pattern": "CC 4D 8B 80 {time/sg.daytime:d32} E9 {time/DaytimeSyncIfChanged:rel32} CC",
+          "offset": 1
+        }
+      ]
+    },
+    "time/WeatherUpdate": {
+      "find": [
+        {
+          "pattern": "48 8B C4 4C 89 40 18 56 41 54 41 55 48 81 EC 80 00 00 00 4C 8B 21 45 33 ED 48 89 58 08"
+        }
+      ]
+    },
+    "@time.weather_update": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "time/WeatherUpdate",
+            "size": 512
+          },
+          "pattern": "39 6F {time/weather.mode:d8} 75 ?? 44 3B FB"
+        },
+        {
+          "scope": {
+            "symbol": "time/WeatherUpdate",
+            "size": 512
+          },
+          "pattern": "4C 8B 8C 24 B0 00 00 00 48 8B D6 4D 8B 06 48 8B CF E8 {time/WeatherUpdateLayers:rel32}"
+        }
+      ]
+    }
+  }
+}

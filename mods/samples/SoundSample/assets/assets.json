@@ -1,0 +1,285 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "resource",
+      "guid": "b5688bc0-249a-53e2-a704-1ac989fd4d14",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/ui_chime.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "3462f114-307b-567c-aa32-d4cdc5ac81e6",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/ui_chime.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/stereo_tone.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "fd5a87d9-02ca-536a-bbef-7c4d6a319ad7",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/stereo_tone.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/stereo_tone.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "3fe355f3-8b9a-5626-b590-0dba6e8e2521",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/stereo_tone.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "6f926100-bff9-5914-8416-dcc4bf1c8bc3",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/blip_a.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "90be1506-b451-5a33-a8bc-3b0e40e257d6",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/blip_b.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "f91fda0d-8353-5b32-8599-84040c5172b4",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/blip_c.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "47879425-dc21-5a5d-a2a9-f4f0100d3bda",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/blip_3d.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/hum_loop.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "b018ec3e-034a-5531-8e2b-72a0e219301a",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/hum_loop.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/hum_loop.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "e6c68f2c-1a5f-5419-a2f6-c26f9dcdde35",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/hum_loop.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/ambience_loop.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "5b36d19a-b5bd-583e-b8e5-16479139c3fd",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/ambience_loop.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/ambience_loop.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "89de1c83-ff24-5bce-ac1f-70f7c0f6d3cd",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/ambience_loop.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/music_track.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "e76e873d-80c0-5c9d-a394-ee2a4b09255b",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/music_track.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/music_track.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "e6eb1f8b-c0df-5ff8-b14d-9fbe758571ac",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/music_track.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "687c4136-7af4-549a-be32-0a86d9f4ec13",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/confirm_tone.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "b096387a-cc73-475a-bacd-69ce8cad9fc9",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/dialog_confirm.cue.bin",
+      "mode": "override",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "216f51f5-2fa9-5d4f-9aa8-831863b89408",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/greeting.en.0.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/greeting.de.0.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "897bd008-47b9-51e7-8304-c2bdc218e654",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/greeting.de.0.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/greeting.de.0.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "d4c844a7-2d09-5da8-8e10-103ef137ee58",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/greeting.en.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "fb68a187-4c65-56d1-8ffb-2cae08dc2be3",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/greeting.de.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "9836eeac-9929-59d7-b130-446f22974d6a",
+      "type": "keen::VoiceoverResource",
+      "part": 0,
+      "file": "cooked/sound/greeting.vo.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/narration_intro.en.0.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "7241244c-5482-53d8-b9a5-fe95fa2b2266",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/narration_intro.en.0.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/narration_intro.en.0.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "7bf66011-6c9f-518a-94eb-128ac380b05f",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/narration_intro.en.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "456c9946-bae3-5d09-8d1f-5aa8e30b82d4",
+      "type": "keen::VoiceoverResource",
+      "part": 0,
+      "file": "cooked/sound/narration_intro.vo.bin",
+      "mode": "new"
+    }
+  ]
+}

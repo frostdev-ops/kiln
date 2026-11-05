@@ -1,0 +1,48 @@
+{
+  "raw": "{\"id\":\"x\",\"version\":\"1.0.0\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"X.dll\",\"dependecies\":{},\"dependencies\":[{\"id\":\"a\",\"version\":\"^1\"},{\"id\":\"b\",\"optional\":true}],\"incompatible\":[\"c\"]}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "x",
+      "name": "x",
+      "version": "1.0.0",
+      "parsedVersion": "1.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "X.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [
+        {
+          "id": "a",
+          "range": "^1",
+          "optional": false
+        },
+        {
+          "id": "b",
+          "range": "*",
+          "optional": true
+        }
+      ],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [
+        {
+          "id": "c",
+          "range": "*"
+        }
+      ],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "warnings": [
+        "unknown key 'dependecies' (ignored)"
+      ]
+    }
+  }
+}

@@ -1,0 +1,174 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.items: the game's inventory transaction (EMF 0.3.3 signatures 26-33, MIT, verified on svn 1285601), program registration for the service's own ECS program, and the item registry. Typed holes cross-check every call target and layout constant the service relies on; see docs/re/items.md.",
+  "symbols": {
+    "items/InventoryTxCtor": {
+      "find": [
+        { "pattern": "33 D2 33 C0 48 89 11 48 89 51 08 48 89 51 10 48 89 51 18 48 89 51 20 48 89 51 28 48 89 51 30 48 89 51 38 48 89 51 40 48 89 51 48 48 89 51 50 48 89 51 58 48 89 51 60 48 89 51 68 48 89 51 70 48 89 51 78 48" }
+      ]
+    },
+    "items/RecipeApply": {
+      "find": [
+        { "pattern": "48 89 5C 24 20 55 56 41 56 48 81 EC 90 00 00 00 4C 8B F2 49 8B F0 4C 8B 84 24 D0 00 00 00 48 8B E9 48 8B 94 24 D8 00 00 00 49 8B CE 49 8B D9 E8" }
+      ]
+    },
+    "@items/InventoryTxCtor.fields": {
+      "find": [
+        { "scope": { "symbol": "items/InventoryTxCtor", "size": 512 }, "pattern": "48 89 81 {items/tx.ops:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 ?? ?? 00 00 48 8D 81 {items/tx.remap_inline:d32} 48 89 81 {items/tx.remap:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 ?? ?? 00 00 48 8D 81 {items/tx.touched_inline:d32}" },
+        { "scope": { "symbol": "items/InventoryTxCtor", "size": 512 }, "pattern": "48 8D 81 {items/tx.touched_inline:d32} 48 89 81 {items/tx.touched:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 ?? ?? 00 00 48 8B C1" },
+        { "scope": { "symbol": "items/InventoryTxCtor", "size": 512 }, "pattern": "48 C7 81 ?? ?? 00 00 {items/tx.touched_capacity:d32} 88 91 {items/tx.result:d32} C3" }
+      ]
+    },
+    "items/InventoryTxInit": {
+      "find": [
+        { "pattern": "C6 81 {items/tx.result:d32} 00 48 8B 42 08 48 89 01 48 8B 42 10 48 89 41 08" }
+      ]
+    },
+    "@items/InventoryTxInit.fields": {
+      "find": [
+        { "scope": { "symbol": "items/InventoryTxInit", "size": 384 }, "pattern": "8B 82 {items/setup.operator:d32} 89 81 {items/tx.operator:d32} 8B 82 ?? ?? 00 00 89 81 ?? ?? 00 00 C3" }
+      ]
+    },
+    "items/InventoryAddItems": {
+      "find": [
+        { "pattern": "4C 89 4C 24 20 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 48 8D AC 24 60 FF FF" }
+      ]
+    },
+    "@items/InventoryAddItems.fields": {
+      "find": [
+        { "scope": { "symbol": "items/InventoryAddItems", "size": 128 }, "pattern": "8B 8D 00 01 00 00 41 8B F8 E8 {items/ItemRegistryFind:rel32} 4C 8B F0 48 85 C0" },
+        { "scope": { "symbol": "items/InventoryAddItems", "size": 160 }, "pattern": "49 8B 4D 00 49 8B 75 18 48 8B 09 E8 {items/JobStorage:rel32} 48 8B D0 48 8D 4C 24 50 44 8B CF 4C 8B C6 E8 {items/ReadOther:rel32} 48 8B 30 48 85 F6 0F 84 ?? ?? ?? ?? 80 7E {items/setup_c.initialized:d8} 00" },
+        { "scope": { "symbol": "items/InventoryAddItems", "size": 512 }, "pattern": "85 F6 0F 84 ?? ?? ?? ?? 41 F6 86 {items/item.flags:d32} 02 75 ?? 41 F6 85 {items/tx.flags:d32} 80" },
+        { "scope": { "symbol": "items/InventoryAddItems", "size": 768 }, "pattern": "45 39 0C 88 75 0C 41 0F B7 46 {items/item.max_stack:d8} 41 39 44 88 04" },
+        { "scope": { "symbol": "items/InventoryAddItems", "size": 2048 }, "pattern": "41 80 8D {items/tx.result:d32} 10" }
+      ]
+    },
+    "items/InventoryCommit": {
+      "find": [
+        { "pattern": "40 55 53 41 55 48 8D AC 24 30 FC FF" }
+      ]
+    },
+    "items/InventoryRollback": {
+      "find": [
+        { "pattern": "4C 8B DC 55 56 41 55 41 56 41 57 49" }
+      ]
+    },
+    "items/InventoryFreeArrays": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9 45 33 C0 48 81 C1 40 71 00 00" }
+      ]
+    },
+    "items/ReadOther": {
+      "find": [
+        { "pattern": "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC CC CC CC CC CC CC 4C 8B D1 4D" }
+      ]
+    },
+    "items/InventoryRemoveItems": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 18 48 89 7C 24 20 48 89 54 24 10 55 41 54 41 55 41 56 41 57 48 8D AC 24 20 FF FF" }
+      ]
+    },
+    "@items/InventoryRemoveItems.fields": {
+      "find": [
+        { "scope": { "symbol": "items/InventoryRemoveItems", "size": 160 }, "pattern": "48 8B 09 E8 {items/JobStorage:rel32} 48 8B D0 48 8D 4D 98 44 8B CE 4C 8B C3 E8 {items/ReadOther:rel32}" }
+      ]
+    },
+    "items/ItemRegistryFind": {
+      "find": [
+        { "pattern": "89 4C 24 08 48 83 EC 28 85 C9 74 1B 48 8D 4A {items/registry.items:d8} 48 8D 54 24 30 E8" }
+      ]
+    },
+    "items/GuidToItemId": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 8B 01 4C 8B D1 8B D0" }
+      ]
+    },
+    "items/RegisterProgram": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00" }
+      ]
+    },
+    "@items/RegisterProgram.fields": {
+      "find": [
+        { "scope": { "symbol": "items/RegisterProgram", "size": 160 }, "pattern": "66 3B B9 {items/world.program_count:d32}" },
+        { "scope": { "symbol": "items/RegisterProgram", "size": 512 }, "pattern": "48 69 ?? {items/world.program_stride:d32}" }
+      ]
+    },
+    "items/RegisterAllPrograms": {
+      "find": [
+        { "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 40 41 B8 24" }
+      ]
+    },
+    "items/IterBegin": {
+      "find": [
+        { "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48" }
+      ]
+    },
+    "@items/GetComponent.fields": {
+      "find": [
+        { "scope": { "symbol": "GetComponent", "size": 96 }, "pattern": "48 8B 0F 41 8B D9 48 81 C1 {items/registry.components:d32} E8 {items/ComponentMapFind:rel32} 4C 8B C0 44 8B CB 48 8B D7 48 8B CE E8 {items/ReadOtherImpl:rel32}" }
+      ]
+    },
+    "items/ReadOtherImpl": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 44 89 4C 24 20 57 48 83 EC 20 48 8D BA {items/storage.entities:d32} 48 8B D9" }
+      ]
+    },
+    "@items/ReadOtherImpl.fields": {
+      "find": [
+        { "scope": { "symbol": "items/ReadOtherImpl", "size": 64 }, "pattern": "48 8D BA {items/storage.entities:d32} 48 8B D9 48 8B CF 48 8D 54 24 48 49 8B F0 E8 {items/HashMapFindEntity:rel32} 48 3B 47 {items/hmap.capacity:d8} 0F 83 ?? ?? ?? ?? 48 8B 57 {items/hmap.values:d8}" }
+      ]
+    }
+  },
+  "constants": {
+    "items/tx.result": { "min_votes": 3 },
+    "items/tx.touched": { "value": 28992 },
+    "items/tx.ops": { "value": 240 },
+    "items/tx.ops_inline": { "value": 280 },
+    "items/tx.operator": { "value": 224 },
+    "items/setup.operator": { "value": 200 },
+    "items/tx.flags": { "value": 176 },
+    "items/setup_c.initialized": { "value": 83 },
+    "items/item.flags": { "value": 1496 },
+    "items/item.max_stack": { "value": 20 },
+    "items/registry.items": { "value": 56 },
+    "items/registry.components": { "value": 136 },
+    "items/storage.entities": { "value": 328 },
+    "items/hmap.capacity": { "value": 16 },
+    "items/hmap.values": { "value": 64 },
+    "items/hmap.count": { "value": 84 },
+    "items/hmap.bits": { "value": 8 },
+    "items/hmap.keys": { "value": 40 }
+  },
+  "features": {
+    "items.transaction": {
+      "symbols": ["items/InventoryTxCtor", "items/InventoryTxInit", "items/InventoryAddItems", "items/InventoryCommit",
+                  "items/InventoryRollback", "items/InventoryFreeArrays", "items/ReadOther", "items/InventoryRemoveItems",
+                  "items/ItemRegistryFind", "items/JobStorage", "@items/InventoryTxCtor.fields",
+                  "@items/InventoryTxInit.fields", "@items/InventoryAddItems.fields", "@items/InventoryRemoveItems.fields"],
+      "constants": ["items/tx.result", "items/tx.touched", "items/tx.ops", "items/tx.operator", "items/setup.operator",
+                    "items/tx.flags", "items/item.flags", "items/item.max_stack", "items/setup_c.initialized"]
+    },
+    "items.program": {
+      "symbols": ["items/RegisterProgram", "items/RegisterAllPrograms", "items/IterBegin", "@items/RegisterProgram.fields",
+                  "GetComponent", "items/ComponentMapFind", "@items/GetComponent.fields"],
+      "constants": ["items/world.program_count", "items/world.program_stride", "items/registry.components", "world.storage"]
+    },
+    "items.read": {
+      "symbols": ["GetComponent"],
+      "constants": ["world.storage"]
+    },
+    "items.catalog": {
+      "symbols": ["items/ItemRegistryFind"],
+      "constants": ["items/registry.items", "items/item.max_stack", "items/item.flags"]
+    },
+    "items.recipe": {
+      "symbols": ["items/RecipeApply", "content/RecipeFind"]
+    },
+    "items.scan": {
+      "symbols": ["GetComponent", "items/ReadOtherImpl", "items/HashMapFindEntity", "@items/ReadOtherImpl.fields"],
+      "constants": ["items/storage.entities", "items/hmap.capacity", "items/hmap.count", "items/hmap.bits", "items/hmap.keys", "world.storage"]
+    }
+  }
+}

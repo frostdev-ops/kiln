@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "effects": { "burst": { "heal": 1 } },
+  "statuses": { "warm": { "name": "Warm", "seconds": 5, "kind": "buff" } },
+  "looks": { "bright": { "like": "Weapon_Fixture_Sword" }, "lost": { "like": "Weapon_No_Such" } },
+  "weaponStats": { "strong": { "level": 5, "power": 30 } },
+  "items": {
+    "shard": { "name": "Shard", "stack": 100 },
+    "bad-field": { "name": "x", "stacks": 5 },
+    "bad-kind": { "name": "x", "kind": "gem" },
+    "draught": { "name": "x", "heals": 5, "recipe": { "needs": { "shard": 1, "Weapon_Fixture_Sword": 1 } } },
+    "bad-need": { "name": "x", "recipe": { "needs": { "No_Such_Item": 1, "burst": 1 } } },
+    "bad-feed": { "name": "x", "feeds": "burst" },
+    "good-feed": { "name": "x", "feeds": "warm" },
+    "bad-station": { "name": "x", "recipe": { "station": "anvil", "needs": { "shard": 1 } } },
+    "good-station": { "name": "x", "recipe": { "station": "bench", "needs": { "shard": 1 } } },
+    "workshop-station": { "name": "x", "recipe": { "station": "0x4da88f73", "needs": { "shard": 1 } } },
+    "tool": { "name": "x", "tool": { "harvests": "wood" } },
+    "bad-tool": { "name": "x", "tool": { "harvests": "gold" } },
+    "bad-loot": { "name": "x", "loot": { "like": "No_Such_Item", "tables": [ { "dropsLike": "shard" } ] } }
+  },
+  "weapons": {
+    "premade": { "name": "x", "class": "greatsword", "stats": "strong", "visual": "bright" },
+    "bad-class": { "name": "x", "class": "spear" },
+    "wrong-look": { "name": "x", "class": "sword", "visual": "strong", "onHit": "warm" },
+    "rolled": { "name": "x", "class": "sword", "loot": { "rolled": true }, "recipe": { "needs": { "shard": 1 } } }
+  },
+  "wands": {
+    "no-primary": { "name": "x" },
+    "wand": { "name": "x", "primary": { "cast": { "manaCost": 1 }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 2, "effects": [ "burst" ] } } ] } }, "heavy": { "cast": { "manaCost": 1 }, "delivery": { "type": "projectile", "onImpact": [ "gone" ] } } }
+  },
+  "armor": {
+    "no-slot": { "name": "x" },
+    "mail": { "name": "x", "slot": "chest", "set": "warrior", "stats": { "bonus": { "health": 5 } } },
+    "bad-slot": { "name": "x", "slot": "neck", "set": "pirate" },
+    "bad-bonus": { "name": "x", "slot": "ring", "stats": { "bonus": { "luck": 1 } } },
+    "png": { "name": "x", "slot": "ring", "visual": { "icon": "icons/x.png" } }
+  },
+  "stations": { "bench": { "name": "x", "kind": "workbench" } }
+}

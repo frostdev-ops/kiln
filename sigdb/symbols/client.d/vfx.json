@@ -1,0 +1,215 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.vfx on the game client (enshrouded.exe 26430625 / svn 1287369). Evidence: docs/re/vfx.md section 4, docs/kiln/services/vfx.md. VfxCreateInstance(out, scene, &guid, &WorldTransform, &params) resolves the GUID in the VFX system's map (scene+scene.sys = VfxSystem; VfxResolve probes map.bits/map.keys, capacity map.cap, count map.count, slot = low 32 bits of the GUID & (cap-1), linear) and aborts on an unknown one: the guard detours it. The EcsFxController: FxUpdate(fxc, now, slotMask) is the update of the client program client_update_fx_controller (fxc+fxc.render = the renderer, render+render.holder+holder.scene = the VFX scene, fxc+fxc.world = the world); FxPlayAt(fxc, now, &guid, &WorldTransform 56 B, &params 72 B, &{i64 ns, bool has} 16 B) and FxPlayAttached(fxc, now, &guid, &attach 52 B {u32 entity, u8 slot, ecs::Offset 40 B at +8, u8 follow at +0x30}, &params, &timing) return a generation-checked FX handle; FxStop(fxc, &handle, now, &fade 16 B); FxLookup(fxc+fxc.pool, handle) -> entry or 0. An entry: u8 type at +0 (0 sound, 1 VFX), GUID +fx.guid, VFX instance +fx.vfx_handle, end time +fx.end_time with flag +fx.has_end, finish time +fx.finish_time with flag +fx.has_finish. FxStart(fxc, entry, now, &timing) with an empty GUID finishes the entry at once; a create that returns 0 retries every frame for ever, so the guard empties unknown GUIDs there. VfxSetParameter(scene, instance, nameHash, typeId, &{ptr, size}). The game has no finished signal, so Kiln stops a one-shot after the length its VfxResource gives: slot -> map.vals[slot] -> sys.vfx_table[value * 0xc0] + vfx_slot.resource = the VfxResource, with killTimeInSeconds at res.kill_time, the parameter descriptions (BlobArray of 12 B) at res.params and the default block at res.defaults.",
+  "constants": {
+    "vfx/map.count": { "min_votes": 1 },
+    "vfx/map.cap": { "min_votes": 1 },
+    "vfx/map.bits": { "min_votes": 1 },
+    "vfx/map.keys": { "min_votes": 1 },
+    "vfx/map.vals": { "min_votes": 1 },
+    "vfx/sys.vfx_table": { "min_votes": 3 },
+    "vfx/vfx_slot.resource": { "min_votes": 3 },
+    "vfx/res.kill_time": { "min_votes": 1 },
+    "vfx/res.params": { "min_votes": 2 },
+    "vfx/res.defaults": { "min_votes": 1 },
+    "vfx/scene.sys": { "min_votes": 1 },
+    "vfx/render.holder": { "min_votes": 1 },
+    "vfx/holder.scene": { "min_votes": 1 },
+    "vfx/fxc.render": { "min_votes": 1 },
+    "vfx/fxc.world": { "min_votes": 1 },
+    "vfx/fxc.pool": { "min_votes": 3 },
+    "vfx/fx.guid": { "min_votes": 2 },
+    "vfx/fx.vfx_handle": { "min_votes": 1 },
+    "vfx/fx.has_end": { "min_votes": 1 },
+    "vfx/fx.end_time": { "min_votes": 2 },
+    "vfx/fx.has_finish": { "min_votes": 1 },
+    "vfx/fx.finish_time": { "min_votes": 1 }
+  },
+  "symbols": {
+    "vfx/CreateInstance": {
+      "find": [
+        {
+          "pattern": "48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 48 8B 6A {vfx/scene.sys:d8} 48 8B FA 48 8B 52 28 49 8B F1 4D 8B D8 4C 8B F1 48 85 D2 0F 84"
+        }
+      ]
+    },
+    "vfx/Resolve": {
+      "find": [
+        {
+          "pattern": "40 57 48 83 EC 20 4C 8B 5A 08 48 8B FA 4C 8B 12 49 8B C3 49 0B C2 4C 8B C9 0F 84 ?? ?? ?? ?? 83 B9 {vfx/map.count:d32} 00 48 89 5C 24 30 48 8B 99 {vfx/map.cap:d32} 48 89 74 24 38 4C 89 74 24 40 0F 84 ?? ?? ?? ?? 4C 8B B1 {vfx/map.bits:d32} 4C 8D 43 FF 41 8B C2 4C 23 C0 49 8B C0 41 0F B6 C8 48 C1 E8 06 49 8B 14 C6 48 D3 EA F6 C2 01 0F 84 ?? ?? ?? ?? 49 8B B1 {vfx/map.keys:d32}"
+        }
+      ]
+    },
+    "@vfx/Resolve.values": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/Resolve", "size": 256 },
+          "pattern": "49 8B 81 {vfx/map.vals:d32} 4A 8D 0C 80 48 85 C9 0F 84 ?? ?? ?? ?? 8B 19 49 8B B9 {vfx/sys.vfx_table:d32} 48 8D 0C 5B 48 C1 E1 06"
+        }
+      ]
+    },
+    "@vfx/CreateInstance.resource": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/CreateInstance", "size": 512 },
+          "pattern": "E8 {vfx/Resolve:rel32} 8B C0 89 43 ?? 48 8D 0C 40 48 8B 85 {vfx/sys.vfx_table:d32} 48 C1 E1 06 80 7E 40 00 48 8B 54 01 {vfx/vfx_slot.resource:d8} 74"
+        },
+        {
+          "scope": { "symbol": "vfx/CreateInstance", "size": 512 },
+          "pattern": "48 85 D2 0F 84 ?? ?? ?? ?? 0F 10 42 {vfx/res.defaults:d8} 0F 11 43 74 0F 10 8A 84 00 00 00"
+        }
+      ]
+    },
+    "@vfx/Destroy.resource": {
+      "find": [
+        {
+          "pattern": "85 D2 0F 84 ?? ?? ?? ?? 57 48 83 EC 20 48 8B F9 0F B7 CA 48 3B 4F 58 0F 83 ?? ?? ?? ?? 48 89 5C 24 30 48 8D 1C 49 48 C1 E3 06 48 03 5F 50 39 53 08 0F 85 ?? ?? ?? ?? 83 BB ?? ?? ?? ?? 00 74 ?? 8B 43 70 4C 8D 04 40 48 8B 47 08 49 C1 E0 06 48 8B 88 {vfx/sys.vfx_table:d32} 49 8B 44 08 {vfx/vfx_slot.resource:d8} 8B 48 {vfx/res.kill_time:d8} 85 C9"
+        }
+      ]
+    },
+    "@vfx/SetParameter.resource": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/SetParameter", "size": 256 },
+          "pattern": "48 8D 0C 40 48 C1 E1 06 49 8B 85 ?? ?? ?? ?? 48 8B 54 01 {vfx/vfx_slot.resource:d8} 48 63 4A {vfx/res.params:d8} 48 83 C2 {vfx/res.params:d8} 85 C9"
+        }
+      ]
+    },
+    "vfx/FxStart": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 55 57 41 57 48 83 EC 70 48 8B 82 ?? ?? ?? ?? 49 8B F9 48 0B 82 {vfx/fx.guid:d32} 48 8B DA 4C 8B 79 {vfx/fxc.world:d8} 48 8B E9 75 ?? 38 82 {vfx/fx.has_end:d32} 75 07 C6 82 ?? ?? ?? ?? 01 4C 89 82 {vfx/fx.end_time:d32} 80 BA {vfx/fx.has_finish:d32} 00 75 07 C6 82 ?? ?? ?? ?? 01 4C 89 82 {vfx/fx.finish_time:d32}"
+        }
+      ]
+    },
+    "@vfx/FxStart.vfx": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/FxStart", "size": 768 },
+          "pattern": "0F B6 0B 85 C9 0F 84 ?? ?? ?? ?? 83 F9 01 0F 85 ?? ?? ?? ?? 0F B6 83 ?? ?? ?? ?? 4C 8D 43 04 41 88 40 44 4C 8D 4B 50 0F 10 83 {vfx/fx.guid:d32} 48 8B 4D {vfx/fxc.render:d8} 48 8D 54 24 30 0F 11 44 24 30 E8 {vfx/RenderCreateVfx:rel32} 89 83 {vfx/fx.vfx_handle:d32}"
+        }
+      ]
+    },
+    "@vfx/RenderCreateVfx.thunk": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/RenderCreateVfx", "size": 12 },
+          "pattern": "48 8B 89 {vfx/render.holder:d32} E9 {vfx/HolderCreateVfx:rel32}"
+        }
+      ]
+    },
+    "@vfx/HolderCreateVfx.body": {
+      "find": [
+        {
+          "scope": { "symbol": "vfx/HolderCreateVfx", "size": 64 },
+          "pattern": "48 83 EC 38 48 8B C2 48 8B 91 {vfx/holder.scene:d32} 48 85 D2 74 ?? 4C 89 44 24 20 48 8D 4C 24 40 4C 8B C0 E8 {vfx/CreateInstance:rel32}"
+        }
+      ]
+    },
+    "vfx/FxUpdate": {
+      "find": [
+        {
+          "pattern": "40 55 53 56 57 41 55 41 56 48 8D 6C 24 D1 48 81 EC F8 00 00 00 48 8B FA 4C 8B E9 8B 51 38 41 0F B7 D8 48 8B 49 30 45 32 F6 E8"
+        }
+      ]
+    },
+    "@vfx/FxUpdate.caller": {
+      "find": [
+        {
+          "pattern": "48 8D 54 24 78 49 8B CE E8 ?? ?? ?? ?? 48 8B 4C 24 38 44 0F B7 C6 48 8B 10 E8 {vfx/FxUpdate:rel32}"
+        }
+      ]
+    },
+    "vfx/FxPlayAt": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 70 49 8B 40 08 49 8B E9 49 0B 00 49 8B F0 48 8B DA 48 8B F9 74 ?? 48 81 C1 {vfx/fxc.pool:d32} 48 8D 54 24 20 E8 ?? ?? ?? ?? 48 8B 54 24 28 48 85 D2 75 ?? 48 8B CF E8 ?? ?? ?? ?? 33 C0 E9 ?? ?? ?? ?? 48 8B 84 24 A0 00 00 00 4C 8D 4C 24 30"
+        }
+      ]
+    },
+    "vfx/FxPlayAttached": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 70 49 8B 40 08 49 8B F9 49 0B 00 49 8B E8 48 8B DA 48 8B F1 74 ?? 48 81 C1 {vfx/fxc.pool:d32} 48 8D 54 24 20 E8 ?? ?? ?? ?? 48 8B 54 24 28 48 85 D2 75 ?? 48 8B CE E8 ?? ?? ?? ?? 33 C0 E9 ?? ?? ?? ?? C6 02 01 8B 07 89 82 88 00 00 00 0F B6 47 04 88 82 C0 00 00 00 0F 10 47 08 0F 11 82 8C 00 00 00 0F 10 4F 18 0F 11 8A 9C 00 00 00 F2 0F 10 47 28 F2 0F 11 82 AC 00 00 00 80 7F 30 00 74 07 80 8A C1 00 00 00 01 80 8A C1 00 00 00 04 4C 8D 4C 24 30"
+        }
+      ]
+    },
+    "vfx/FxStop": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B C2 49 8B F9 8B 12 49 8B D8 85 D2 74 ?? 48 81 C1 {vfx/fxc.pool:d32} C7 00 00 00 00 00 E8 {vfx/FxLookup:rel32} 48 85 C0 74 ?? 80 B8 ?? ?? ?? ?? 00 75 07 C6 80 ?? ?? ?? ?? 01 48 89 98 {vfx/fx.end_time:d32}"
+        }
+      ]
+    },
+    "vfx/SetParameter": {
+      "find": [
+        {
+          "pattern": "85 D2 0F 84 ?? ?? ?? ?? 55 48 83 EC 30 44 0F B7 D2 48 8B E9 4C 3B 51 58 0F 83 ?? ?? ?? ?? 48 89 74 24 48 4B 8D 34 52 48 C1 E6 06 48 03 71 50 39"
+        }
+      ]
+    }
+  },
+  "features": {
+    "vfx.guard": {
+      "symbols": [
+        "vfx/CreateInstance",
+        "vfx/Resolve"
+      ],
+      "constants": [
+        "vfx/scene.sys",
+        "vfx/map.count",
+        "vfx/map.cap",
+        "vfx/map.bits",
+        "vfx/map.keys"
+      ]
+    },
+    "vfx.play": {
+      "symbols": [
+        "vfx/CreateInstance",
+        "vfx/Resolve",
+        "vfx/FxStart",
+        "@vfx/FxStart.vfx",
+        "vfx/RenderCreateVfx",
+        "@vfx/RenderCreateVfx.thunk",
+        "vfx/HolderCreateVfx",
+        "@vfx/HolderCreateVfx.body",
+        "vfx/FxUpdate",
+        "@vfx/FxUpdate.caller",
+        "vfx/FxPlayAt",
+        "vfx/FxPlayAttached",
+        "vfx/FxStop",
+        "vfx/FxLookup",
+        "vfx/SetParameter",
+        "@vfx/Resolve.values",
+        "@vfx/CreateInstance.resource",
+        "@vfx/Destroy.resource",
+        "@vfx/SetParameter.resource"
+      ],
+      "constants": [
+        "vfx/scene.sys",
+        "vfx/map.count",
+        "vfx/map.cap",
+        "vfx/map.bits",
+        "vfx/map.keys",
+        "vfx/render.holder",
+        "vfx/holder.scene",
+        "vfx/fxc.render",
+        "vfx/fxc.world",
+        "vfx/fxc.pool",
+        "vfx/fx.guid",
+        "vfx/fx.vfx_handle",
+        "vfx/fx.has_end",
+        "vfx/fx.end_time",
+        "vfx/fx.has_finish",
+        "vfx/fx.finish_time",
+        "vfx/map.vals",
+        "vfx/sys.vfx_table",
+        "vfx/vfx_slot.resource",
+        "vfx/res.kill_time",
+        "vfx/res.params",
+        "vfx/res.defaults"
+      ]
+    }
+  }
+}

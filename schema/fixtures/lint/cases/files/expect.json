@@ -1,0 +1,190 @@
+{
+  "catalog": true,
+  "description": "files: missing files (KL501), cooked files not made yet (KL502), a fake PNG (KL503), blob hash size (KL504), patch offset (KL505), cook bases and inputs (KL510, KL511), unlisted outputs (KL512), stems and names used twice (KL513), native hashes and argc (KL514), native names (KL208)",
+  "diagnostics": [
+    {
+      "code": "KL401",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 2,
+      "message": "no item with GUID 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 in the game or the mods",
+      "severity": "warning"
+    },
+    {
+      "code": "KL501",
+      "col": 77,
+      "file": "assets/assets.json",
+      "line": 2,
+      "message": "icons/missing.png: no such file (<case>/assets/icons/missing.png)",
+      "severity": "error"
+    },
+    {
+      "code": "KL309",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 3,
+      "message": "icon 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 is served twice in this file (the later entry wins)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL401",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 3,
+      "message": "no item with GUID 9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 in the game or the mods",
+      "severity": "warning"
+    },
+    {
+      "code": "KL504",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 4,
+      "message": "the hash says 12 bytes, built/m.blob has 10: kiln.assets refuses the override",
+      "severity": "error"
+    },
+    {
+      "code": "KL505",
+      "col": 148,
+      "file": "assets/assets.json",
+      "line": 5,
+      "message": "offset 96 + 16 bytes runs past the end of built/m.bin (100 bytes)",
+      "severity": "error"
+    },
+    {
+      "code": "KL502",
+      "col": 110,
+      "file": "assets/assets.json",
+      "line": 6,
+      "message": "built/two.bin is made by the cook and is not there yet: run the mod's cook recipe (tools/modelcook, tools/impact, or the launcher at install)",
+      "severity": "info"
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "file": "assets/cook.json",
+      "line": 8,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
+      "code": "KL510",
+      "col": 55,
+      "file": "assets/cook.json",
+      "line": 8,
+      "message": "step 0 (model): base cue is a keen::SoundContainerResource, needs keen::RenderModel",
+      "severity": "error"
+    },
+    {
+      "code": "KL511",
+      "col": 70,
+      "file": "assets/cook.json",
+      "line": 8,
+      "message": "@modle: no such input; did you mean @model?",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 30,
+      "file": "assets/cook.json",
+      "line": 9,
+      "message": "src/none.gltf: no such file (<case>/assets/src/none.gltf)",
+      "severity": "error"
+    },
+    {
+      "code": "KL513",
+      "col": 72,
+      "file": "assets/cook.json",
+      "line": 9,
+      "message": "stem \"two\" is used by an earlier step too: the outputs overwrite each other",
+      "severity": "error"
+    },
+    {
+      "code": "KL510",
+      "col": 31,
+      "file": "assets/cook.json",
+      "line": 10,
+      "message": "step 2 (visual): base \"nope\" is not an input (the cook stops)",
+      "severity": "error"
+    },
+    {
+      "code": "KL512",
+      "col": 114,
+      "file": "assets/cook.json",
+      "line": 10,
+      "message": "this step writes built/unlisted.bin, which assets/assets.json does not list: kiln.assets will not serve it (cook with --update-manifest)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL109",
+      "col": 5,
+      "file": "assets/cook.json",
+      "line": 11,
+      "message": "gain and normalize exclude each other",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 67,
+      "file": "assets/cook.json",
+      "line": 11,
+      "message": "src/chime.wav: no such file (<case>/assets/src/chime.wav)",
+      "severity": "error"
+    },
+    {
+      "code": "KL511",
+      "col": 69,
+      "file": "assets/cook.json",
+      "line": 12,
+      "message": "take \"chmie\" is not a sound of this recipe, an @input or a GUID; did you mean \"chime\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL510",
+      "col": 87,
+      "file": "assets/cook.json",
+      "line": 12,
+      "message": "step 4 (cue): base model is a keen::RenderModel, needs keen::SoundContainerResource",
+      "severity": "error"
+    },
+    {
+      "code": "KL513",
+      "col": 49,
+      "file": "assets/cook.json",
+      "line": 13,
+      "message": "cue \"chime\" is defined twice in this recipe (soundcook stops)",
+      "severity": "error"
+    },
+    {
+      "code": "KL514",
+      "col": 69,
+      "file": "impact/natives.json",
+      "line": 1,
+      "message": "hash 0x12345678 is not FNV-1a(\"fixture-files.Ping\") = 0x8807b1ea: the ECALLs would call nothing",
+      "severity": "error"
+    },
+    {
+      "code": "KL514",
+      "col": 91,
+      "file": "impact/natives.json",
+      "line": 1,
+      "message": "argc 2 but 1 args are listed",
+      "severity": "error"
+    },
+    {
+      "code": "KL208",
+      "col": 135,
+      "file": "impact/natives.json",
+      "line": 1,
+      "message": "a Kiln native is named \"<modid>.<Name>\": this mod's id is \"fixture-files\", not \"other\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL208",
+      "col": 161,
+      "file": "impact/natives.json",
+      "line": 1,
+      "message": "mod id \"kiln\" is reserved for Kiln's built-in natives",
+      "severity": "error"
+    }
+  ]
+}

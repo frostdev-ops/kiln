@@ -1,0 +1,307 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.net on the game client (enshrouded.exe): the GameClient's session sockets toward the server machine (game channel 12, reliable + large), and the in-process GameServer of a hosted world (same session code as the dedicated server). Evidence: docs/re/network.md (client build 26404966).",
+  "symbols": {
+    "net/CreateTemplateCall": {
+      "find": [
+        {"offset": 24, "pattern": "4C 89 75 B0 48 8D 55 A0 48 89 45 A0 48 8D 4D 10 44 88 6D B8 4C 89 7D A8 E8 ?? ?? ?? ?? 4C 8B 08 4D 85 C9 0F 85 ?? ?? ?? ?? 48 8B 4C 24 40 0F 57 F6"}
+      ]
+    },
+    "@net.create_fields": {
+      "find": [
+        {"pattern": "8B 01 89 85 ?? ?? ?? ?? 8B 41 04 89 85 {net/create.entity:d32} 8B 41 08 4C 8B 3B 0F 10 71 0C 89 85 {net/create.parent:d32}"}
+      ]
+    },
+    "@net.player_state_map": {
+      "find": [
+        {"pattern": "49 8B 45 28 48 8D 8F {net/player.state_map:d32} 49 8B 57 18 41 8B 5D 10"}
+      ]
+    },
+    "@net.state_in_heap": {
+      "find": [
+        {"scope": {"symbol": "net/ReplicationEnqueue", "size": 256}, "pattern": "80 CA 08 41 88 50 01"}
+      ]
+    },
+    "net/MachineLogin": {
+      "find": [
+        {"pattern": "89 54 24 10 55 53 57 48 8D AC 24 70 FF FF FF 48 81 EC 90 01 00 00 48 8B F9 85 D2 0F 84"}
+      ]
+    },
+    "net/ReplicationEnqueue": {
+      "find": [
+        {"pattern": "44 89 4C 24 20 55 57 41 56 48 83 EC 50 44 8B 99 DC 04 00 00 4C 8D B2 00 09 00 00 49 8B 06 48 8B FA 41 0F B6 50 01"}
+      ]
+    },
+    "net/ClientGameplayReady": {
+      "find": [
+        {"pattern": "40 55 57 41 56 48 8D AC 24 D0 FE FF FF 48 81 EC 30 02 00 00 48 8B 81 D8 00 00 00 48 8B FA 4C 8B F1 80 78 40 02"}
+      ]
+    },
+    "net/ClientReceive": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B F9 48 8B 89 {net/gc.sockets:d32} 48 85 C9 0F 84"
+        }
+      ]
+    },
+    "@net.client_read": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "net/ClientReceive",
+            "size": 256
+          },
+          "pattern": "49 8B 97 {net/gc.sockets:d32} 48 8D 4D ?? 8B F7 48 89 75 ?? 4C 8B 42 {net/client.server_sockets:d8} 48 8B 12 4D 8B 04 F0 E8 {net/SessionRead:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "net/ClientReceive",
+            "size": 8192
+          },
+          "pattern": "49 8B 8F {net/gc.sockets:d32} 48 8D 55 ?? 48 8B 09 E8 {net/SessionFree:rel32} 49 8B 97"
+        }
+      ]
+    },
+    "net/SessionRead": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 40 0F 10 05 ?? ?? ?? ?? 33 FF 48 8B D9 4D 85 C0 75 20 48 89 79 08 48"
+        }
+      ]
+    },
+    "net/SessionAlloc": {
+      "find": [
+        {
+          "pattern": "40 55 53 57 41 56 48 8D 6C 24 C1 48 81 EC C8 00 00 00 49 8B F9 4D 8B F0 48 8B D9 4D 85 C0 75 32 0F 10 05"
+        }
+      ]
+    },
+    "net/SessionCommit": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 44 8B 42 18 4C 8B F1 48 8B 42 08 41 8B E8"
+        }
+      ]
+    },
+    "net/SendLoginResult": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 48 8D AC 24 00 FF FF FF 48 81 EC 00 02 00 00 33 F6 C6 44 24 30 00 48 8B D9 48 8B 49 30 41 0F B6"
+        }
+      ]
+    },
+    "@net.abort_call": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "net/SendLoginResult",
+            "size": 1024
+          },
+          "pattern": "48 8B 4B 30 48 8D 54 24 ?? 48 8B 09 E8 {net/SessionAbort:rel32}"
+        }
+      ]
+    },
+    "@net.machines": {
+      "find": [
+        {
+          "pattern": "33 FF 8B CF 41 BD {net/gs.machine_count:d32} 4C 8D B6 {net/gs.machines:d32} 45 8B 3E 45 85 FF 0F 84 ?? ?? ?? ?? 41 F6 46 04 01"
+        }
+      ]
+    },
+    "@net.channel_modes": {
+      "find": [
+        {
+          "pattern": "C6 41 01 02 C6 41 03 02 C6 41 05 02 C6 41 07 02 C6 41 09 01 C6 41 0B 01 C6 41 0D 00 C6 41 0F 00 C6 41 11 00 C6 41 13 02 C6 41 15 02 C6 41 17 02 C6 41 19 {net/channel.mode:d8} C6 41 1B 00 C6 41 1D 00 C6 41 1F 02 C6 41 21 01 C6 41 23 03 C6 41 25 02 C6 41 27 02 C6 41 29 02 C6 41 2B 02 C6 41 2D 01 C6 41 2F 01 C6 41 31 02 C3"
+        }
+      ]
+    },
+    "net/ServerReceive": {
+      "find": [
+        {
+          "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B F9 48 8B 49 {net/gs.sockets:d8} E8 {net/SyncSockets:rel32} 49 8B 57 10"
+        }
+      ]
+    },
+    "net/SyncReturn": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "net/ServerReceive",
+            "size": 64
+          },
+          "offset": 12,
+          "pattern": "4C 8B F9 48 8B 49 ?? E8 ?? ?? ?? ?? 49 8B 57 10"
+        }
+      ]
+    },
+    "net/SyncSockets": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 54 41 55 41 56 41 57 48 8D 6C 24 C9 48 81 EC B0 00 00 00 48 8B 11 48 8D 45 EF 48 89 45 C7 4C"
+        }
+      ]
+    },
+    "@net.machine_lookup": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "net/ServerReceive",
+            "size": 512
+          },
+          "pattern": "49 8B 57 {net/gs.sockets:d8} 85 C0 74 ?? 45 8B C1 41 83 E0 7F 49 C1 E0 05 4C 03 42 {net/sockets.machines:d8} 41 39 00 75 ?? 4D 85 C0 74 ?? 4D 8B 40 {net/machine.sockets:d8} 48 8D 4D ?? 48 8B 12 4F 8B 04 30 E8 {net/SessionRead:rel32}"
+        }
+      ]
+    },
+    "@net.records": {
+      "find": [
+        {
+          "pattern": "83 E0 3F 48 69 C8 {net/rec.stride:d32} 48 81 C1 {net/gs.records:d32} 48 03 CF 39 11 0F 85 ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 80 79 {net/rec.state:d8} 02 0F 85 ?? ?? ?? ?? 8B 41 {net/rec.peer:d8}"
+        },
+        {
+          "pattern": "48 69 C8 {net/rec.stride:d32} 48 81 C1 {net/gs.records:d32} 48 03 CF 39 11"
+        },
+        {
+          "pattern": "E8 ?? ?? ?? ?? 84 C0 75 ?? 48 8B 44 24 ?? 48 89 47 {net/rec.account:d8} 44 38 67 {net/rec.state:d8} 75"
+        },
+        {
+          "pattern": "49 8D 46 {net/rec.name:d8} 41 B9 01 00 00 00 F2 0F 10 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? B1 03 F2 0F 11 45 ?? C7 44 24 ?? 27 00 00 00 48 89 5C 24 ?? 48 89 44 24 ?? E8 ?? ?? ?? ?? 41 8B 56 {net/rec.entity:d8} 45 33 C0"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "net/gc.sockets": {
+      "min_votes": 3
+    },
+    "net/client.server_sockets": {
+      "min_votes": 1
+    },
+    "net/channel": {
+      "value": 12
+    },
+    "net/gs.machines": {
+      "min_votes": 1
+    },
+    "net/gs.machine_count": {
+      "min_votes": 1
+    },
+    "net/after_sync.gs_register": {
+      "value": 15
+    },
+    "net/channel.mode": {
+      "value": 3
+    },
+    "net/gs.sockets": {
+      "min_votes": 2
+    },
+    "net/sockets.machines": {
+      "min_votes": 1
+    },
+    "net/machine.stride": {
+      "value": 32
+    },
+    "net/machine.sockets": {
+      "min_votes": 1
+    },
+    "net/rec.account": {
+      "min_votes": 1
+    },
+    "net/rec.state": {
+      "min_votes": 2
+    },
+    "net/gs.records": {
+      "min_votes": 2
+    },
+    "net/rec.stride": {
+      "min_votes": 2
+    },
+    "net/rec.count": {
+      "value": 16
+    },
+    "net/rec.peer": {
+      "min_votes": 1
+    },
+    "net/rec.name": {
+      "min_votes": 1
+    },
+    "net/rec.entity": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "net.client_guard": {"symbols": ["net/CreateTemplateCall", "@net.create_fields"], "constants": ["net/create.entity", "net/create.parent"]},
+    "net.gate": {"symbols": ["net/MachineLogin"], "constants": ["net/gs.machines"]},
+    "net.withhold": {"symbols": ["net/ReplicationEnqueue", "@net.player_state_map", "@net.state_in_heap"], "constants": ["net/player.state_map", "spawn/storage.entity_map", "spawn/storage.entity_map_cap", "spawn/storage.entity_records", "spawn/record.parent", "spawn/record.template", "spawn/record.id"]},
+    "net.client_ready": {"symbols": ["net/ClientGameplayReady"], "constants": []},
+    "net.client": {
+      "symbols": [
+        "net/ClientReceive",
+        "@net.client_read",
+        "net/SessionRead",
+        "net/SessionFree",
+        "net/SessionAlloc",
+        "net/SessionCommit",
+        "net/SendLoginResult",
+        "@net.abort_call",
+        "net/SessionAbort",
+        "@net.channel_modes"
+      ],
+      "constants": [
+        "net/gc.sockets",
+        "net/client.server_sockets",
+        "net/channel",
+        "net/channel.mode"
+      ]
+    },
+    "net.host": {
+      "symbols": [
+        "@net.machines",
+        "net/ServerReceive",
+        "net/SyncReturn",
+        "net/SyncSockets",
+        "@net.machine_lookup",
+        "net/SessionRead",
+        "net/SessionFree",
+        "net/SessionAlloc",
+        "net/SessionCommit",
+        "net/SessionAbort",
+        "@net.channel_modes"
+      ],
+      "constants": [
+        "net/gs.machines",
+        "net/gs.machine_count",
+        "net/after_sync.gs_register",
+        "net/gs.sockets",
+        "net/sockets.machines",
+        "net/machine.stride",
+        "net/machine.sockets",
+        "net/channel",
+        "net/channel.mode"
+      ]
+    },
+    "net.players": {
+      "symbols": [
+        "@net.records"
+      ],
+      "constants": [
+        "net/gs.records",
+        "net/rec.stride",
+        "net/rec.count",
+        "net/rec.state",
+        "net/rec.peer",
+        "net/rec.account",
+        "net/rec.name",
+        "net/rec.entity"
+      ]
+    },
+    "net.kick": {
+      "symbols": [
+        "net/SendLoginResult"
+      ],
+      "constants": [
+        "net/gs.sockets"
+      ]
+    }
+  }
+}

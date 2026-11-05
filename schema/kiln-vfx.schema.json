@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-vfx.schema.json",
+  "title": "Kiln VFX blocks: the \"vfx\" section of blocks/*.json",
+  "description": "Effects written from nothing: particles, a light. The same shape as the C# records. No compiler, no game data.",
+  "x-kiln-docs": "docs/kiln/services/vfx-cook.md",
+  "$ref": "#/$defs/section",
+  "$defs": {
+    "section": {
+      "type": "object",
+      "description": "Effects by name. Each becomes one VFX with an id from your mod id and its name.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/block" }
+    },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$", "description": "The block's name. Ids come from your mod id and this: keep it. A rename says \"was\"." },
+    "block": {
+      "type": "object",
+      "description": "One effect. It needs particles, a light, or both.",
+      "properties": {
+        "particles": { "type": "array", "maxItems": 27, "items": { "$ref": "#/$defs/particle" }, "description": "What spawns and how it looks. At most 27 with a light, 27 without (each takes two of a VFX's 55 entries)." },
+        "light": { "$ref": "#/$defs/light" },
+        "sound": { "type": "string", "minLength": 1, "description": "A sound's name. Not played yet: counted in the budget of 10 new sounds in VFX." },
+        "cullDistance": {
+          "description": "Metres. Beyond this nothing is simulated or drawn. A number is the far distance; [near, far] gives both. Default [50, 75].",
+          "oneOf": [ { "type": "number", "exclusiveMinimum": 0 }, { "$ref": "#/$defs/positiveRange" } ]
+        },
+        "was": { "type": "string", "minLength": 1, "description": "The block's old name: the id stays the old one, so nothing that names this effect notices the rename." },
+        "gameSpriteModule": { "type": "boolean", "description": "A diagnostic: draw the particles with one of the game's own sprite modules, to tell a problem in the data from one in Kiln's module. It takes the first colour and size, the texture and the mesh; the rest is baked into that module." },
+        "comment": {}
+      },
+      "additionalProperties": false,
+      "anyOf": [ { "required": ["particles"] }, { "required": ["light"] } ]
+    },
+    "particle": {
+      "type": "object",
+      "description": "A particle emitter. It needs a burst or a rate.",
+      "properties": {
+        "burst": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Particles at the start, and at each loop." },
+        "rate": { "type": "number", "minimum": 0, "description": "Particles per second. At most 64 spawn per tick." },
+        "duration": { "type": "number", "minimum": 0, "description": "Seconds of emission. Without it a rate runs until the effect is stopped; a burst alone needs none." },
+        "delay": { "type": "number", "minimum": 0, "description": "Seconds before the first spawn." },
+        "loop": { "type": "boolean", "description": "Start again after the duration, which must be above 0." },
+        "maxCount": { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Particles alive at once. Derived when left out. The game reads it on the CPU, where the shaders can't enforce it, so it stops at 4096." },
+        "lifetime": { "$ref": "#/$defs/positiveValue", "description": "Seconds a particle lives: a number or [min, max]. Default 1." },
+        "speed": { "$ref": "#/$defs/value", "description": "Metres per second at spawn: a number or [min, max]. Default 1." },
+        "spread": {
+          "description": "Direction at spawn, around the effect's up. Default up.",
+          "oneOf": [
+            { "enum": ["up", "sphere"] },
+            { "type": "object", "properties": { "cone": { "type": "number", "minimum": 0, "maximum": 180, "description": "Half angle in degrees." } }, "required": ["cone"], "additionalProperties": false }
+          ]
+        },
+        "spawnRadius": { "type": "number", "minimum": 0, "description": "Metres: start inside a sphere this big. Default 0, at the effect's position." },
+        "gravity": { "type": "number", "description": "Metres per second squared on world y: negative falls." },
+        "acceleration": { "$ref": "#/$defs/vec3", "description": "Metres per second squared in world space, added to gravity." },
+        "drag": { "type": "number", "minimum": 0, "description": "Per second: velocity *= exp(-drag * dt)." },
+        "spin": { "$ref": "#/$defs/value", "description": "Degrees per second: a number or [min, max]." },
+        "roll": { "$ref": "#/$defs/value", "description": "Degrees at spawn: a number or [min, max]." },
+        "size": { "$ref": "#/$defs/curve", "description": "Metres over the particle's life. Default 0.25. Above 64 is clamped." },
+        "alpha": { "$ref": "#/$defs/unitCurve", "description": "0 to 1 over the particle's life. Default 1." },
+        "color": { "$ref": "#/$defs/gradient", "description": "sRGB over the particle's life. Default white." },
+        "intensity": { "type": "number", "minimum": 0, "description": "Multiplies the colour, which may then exceed 1. Default 1." },
+        "texture": {
+          "description": "A PNG in your mod, power of two on both sides, 4 to 2048. Without one the particle is white.",
+          "oneOf": [
+            { "$ref": "#/$defs/png" },
+            {
+              "type": "object",
+              "properties": {
+                "file": { "$ref": "#/$defs/png" },
+                "linear": { "type": "boolean", "description": "The image holds data, not colour: no sRGB. Default false." }
+              },
+              "required": ["file"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sampler": { "enum": ["wrap", "mirror", "clamp", "clampToZero"], "description": "How the texture repeats. Default wrap." },
+        "flipbook": {
+          "type": "object",
+          "description": "The texture is a grid of frames.",
+          "properties": {
+            "columns": { "type": "integer", "minimum": 1, "maximum": 1024 },
+            "rows": { "type": "integer", "minimum": 1, "maximum": 1024 },
+            "fps": { "type": "number", "minimum": 0, "description": "Frames per second. Without it the grid plays once over the particle's life." }
+          },
+          "additionalProperties": false
+        },
+        "blend": { "enum": ["alpha", "additive"], "description": "Default alpha." },
+        "lit": { "type": "boolean", "description": "Take ambient and sun light through the fog volume. Default false." },
+        "mesh": { "enum": ["quad", "quad-xz"], "description": "quad faces the camera; quad-xz lies flat. Default quad." },
+        "faceCamera": { "type": "boolean", "description": "Turn the mesh to the camera. Default: true for quad, false for others." },
+        "depthFade": { "type": "number", "minimum": 0, "description": "Metres of soft fade against the scene." },
+        "emissive": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much the colour follows the camera's exposure correction." },
+        "comment": {}
+      },
+      "additionalProperties": false,
+      "anyOf": [ { "required": ["burst"] }, { "required": ["rate"] } ]
+    },
+    "light": {
+      "type": "object",
+      "description": "One point light for the life of the effect.",
+      "properties": {
+        "color": { "$ref": "#/$defs/colour", "description": "sRGB. Default white." },
+        "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Metres. Default 6. Above 64 is clamped." },
+        "brightness": { "type": "number", "minimum": 0, "description": "Default 1." },
+        "lifetime": { "type": "number", "minimum": 0, "description": "Seconds. Default 0: until the effect is stopped." },
+        "fadeIn": { "type": "number", "minimum": 0, "description": "Seconds." },
+        "fadeOut": { "type": "number", "minimum": 0, "description": "Seconds, at the end of the lifetime or after the effect stops." },
+        "flicker": { "type": "number", "minimum": 0, "maximum": 1 },
+        "offset": { "$ref": "#/$defs/vec3", "description": "Metres, in the effect's space." },
+        "comment": {}
+      },
+      "additionalProperties": false
+    },
+    "png": { "type": "string", "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "description": "Relative to your mod's folder." },
+    "value": { "oneOf": [ { "type": "number" }, { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 } ] },
+    "positiveValue": { "oneOf": [ { "type": "number", "exclusiveMinimum": 0 }, { "$ref": "#/$defs/positiveRange" } ] },
+    "positiveRange": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "colour": { "type": "string", "pattern": "^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" },
+    "keys": { "type": "array", "minItems": 1, "items": { "type": "array", "minItems": 2, "maxItems": 2, "description": "[t, value], t from 0 to 1, growing." } },
+    "curve": {
+      "description": "A number; {\"linear\": [start, end]}; a list of evenly spaced values; or {\"keys\": [[t, value], ...]}. Sampled to 8 values.",
+      "oneOf": [
+        { "type": "number", "minimum": 0 },
+        { "type": "array", "minItems": 1, "items": { "type": "number", "minimum": 0 } },
+        { "type": "object", "properties": { "linear": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 } }, "required": ["linear"], "additionalProperties": false },
+        { "type": "object", "properties": { "keys": { "$ref": "#/$defs/keys" } }, "required": ["keys"], "additionalProperties": false }
+      ]
+    },
+    "unitCurve": {
+      "description": "A curve from 0 to 1.",
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "number", "minimum": 0, "maximum": 1 } },
+        { "type": "object", "properties": { "linear": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 2, "maxItems": 2 } }, "required": ["linear"], "additionalProperties": false },
+        { "type": "object", "properties": { "keys": { "$ref": "#/$defs/keys" } }, "required": ["keys"], "additionalProperties": false }
+      ]
+    },
+    "gradient": {
+      "description": "One colour; a list of evenly spaced colours; or {\"keys\": [[t, \"#rrggbb\"], ...]}.",
+      "oneOf": [
+        { "$ref": "#/$defs/colour" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/colour" } },
+        { "type": "object", "properties": { "keys": { "$ref": "#/$defs/keys" } }, "required": ["keys"], "additionalProperties": false }
+      ]
+    }
+  }
+}

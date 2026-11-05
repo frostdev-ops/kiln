@@ -1,0 +1,281 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "Kiln symbol definitions for enshrouded.exe (the game client). The core set is the server's (server.json): the client exe of the same game build carries the same engine and the same server-world code (it hosts single player and co-op games), and every core pattern matches once there; structural comparison in docs/re/client.md. Client-only: WorldDestroy (world lifecycle) and IsLocalPlayer (LocalPlayerData layout). Service definitions are server.d/*.json plus overrides from client.d/ (composed at deploy time by tools/sigport/sides.py).",
+  "symbols": {
+    "SimStep": {
+      "find": [
+        {
+          "pattern": "40 55 53 56 41 55 48 8D AC 24 F8 FF FD FF B8 08 01 02 00 E8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    "@SimStep.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "SimStep",
+            "size": 8192
+          },
+          "pattern": "48 8D 9E {storage.clock:d32} 4C 8B BC 24"
+        },
+        {
+          "scope": {
+            "symbol": "SimStep",
+            "size": 8192
+          },
+          "pattern": "48 8B 86 {storage.clock_period:d32} 48 85 D2 75 05"
+        },
+        {
+          "scope": {
+            "symbol": "SimStep",
+            "size": 8192
+          },
+          "pattern": "C6 81 {storage.step_mode:d32} 01 E8"
+        }
+      ]
+    },
+    "WaitWorldJobs": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "SimStep",
+            "size": 8192
+          },
+          "pattern": "CC 48 8B 89 {world.jobs:d32} E9 {WaitTaskGroup:rel32}",
+          "offset": 1
+        },
+        {
+          "pattern": "48 8B 89 60 79 E1 00 E9 {WaitTaskGroup:rel32}"
+        }
+      ]
+    },
+    "GetComponent": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D BA {world.storage:d32} 44 89"
+        }
+      ]
+    },
+    "GetEntityTransform": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 {world.storage:d32} 89 54 24 38 48 8D 8F"
+        }
+      ]
+    },
+    "GetTemplateComponent": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 {world.storage:d32} 89 54 24 38 48 8B 0F 48 8D 54 24 38 48 83 C1 30 41 8B D8 E8"
+        }
+      ]
+    },
+    "SpawnWrapper": {
+      "find": [
+        {
+          "pattern": "48 83 EC 58 0F 10 02 8B 15 ?? ?? ?? ?? 33 C0 41 0F 10 08 48 81 C1 {world.storage:d32}"
+        }
+      ]
+    },
+    "GameLog": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D AC 24 40 E0 FF"
+        }
+      ]
+    },
+    "AddLogListener": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 20 48 8B FA 48 8B F1 33 DB"
+        }
+      ]
+    },
+    "RegisterSingleton": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 20 55 56 57 41 54 41 55 48 83 EC 20 4C 8B 52 08 33 F6 4C 8B 1A 48 8B F9 4D 8B E9 4D 8B E0"
+        }
+      ]
+    },
+    "@RegisterSingleton.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "4C 8B 8F {world.singleton_map.capacity:d32} 39 B7 {world.singleton_map.count:d32} 74 ?? 4C 8B 9F {world.singleton_map.bits:d32} 4D 8D 41 FF"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "4C 8B 97 {world.singleton_map.keys:d32} 43 39 1C 82"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "48 8B 87 {world.singleton_map.values:d32} 4A 8D 0C 40"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "4C 8D BF {world.singletons:d32} 49 8B 57 08"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "4D 69 77 08 {singleton.stride:d32} 4D 03 37"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "4D 89 A6 {singleton.object:d32} 49 8D 4D 08 41 89 9E {singleton.hash:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "RegisterSingleton",
+            "size": 1024
+          },
+          "pattern": "48 8D 8F {world.singleton_map:d32} 49 8D 96 {singleton.hash:d32}"
+        }
+      ]
+    },
+    "WorldDestroy": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 40 80 39 03 48 8B F9 74 03 C6 01 03 4C 8D B1 {world.storage:d32} 45 33 FF 45 38 7E {storage.kind:d8} 0F 85"
+        }
+      ]
+    },
+    "IsLocalPlayer": {
+      "find": [
+        {
+          "pattern": "CC 39 4A {client.local_player.entity:d8} 0F 94 C0 C3 CC",
+          "offset": 1
+        }
+      ]
+    }
+  },
+  "constants": {
+    "world.storage": {
+      "min_votes": 2
+    },
+    "world.jobs": {
+      "min_votes": 1
+    },
+    "storage.kind": {
+      "value": 8
+    },
+    "storage.clock": {
+      "min_votes": 1
+    },
+    "storage.clock_period": {
+      "min_votes": 1
+    },
+    "world.singleton_map": {
+      "min_votes": 1
+    },
+    "world.singleton_map.bits": {
+      "min_votes": 1
+    },
+    "world.singleton_map.capacity": {
+      "min_votes": 1
+    },
+    "world.singleton_map.keys": {
+      "min_votes": 1
+    },
+    "world.singleton_map.values": {
+      "min_votes": 1
+    },
+    "world.singletons": {
+      "min_votes": 1
+    },
+    "singleton.stride": {
+      "min_votes": 1
+    },
+    "singleton.object": {
+      "min_votes": 1
+    },
+    "singleton.hash": {
+      "min_votes": 2
+    },
+    "client.local_player.entity": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "tick": {
+      "symbols": [
+        "SimStep"
+      ],
+      "constants": [
+        "world.storage",
+        "storage.kind",
+        "storage.clock"
+      ]
+    },
+    "tick.wait_jobs": {
+      "symbols": [
+        "WaitWorldJobs"
+      ],
+      "constants": [
+        "world.storage"
+      ]
+    },
+    "log.mirror": {
+      "symbols": [
+        "AddLogListener"
+      ]
+    },
+    "log.write": {
+      "symbols": [
+        "GameLog"
+      ]
+    },
+    "singletons": {
+      "symbols": [
+        "RegisterSingleton"
+      ],
+      "constants": [
+        "world.storage",
+        "world.singleton_map.bits",
+        "world.singleton_map.capacity",
+        "world.singleton_map.keys",
+        "world.singleton_map.values",
+        "world.singletons",
+        "singleton.stride",
+        "singleton.object",
+        "singleton.hash"
+      ]
+    },
+    "world.lifecycle": {
+      "symbols": [
+        "WorldDestroy"
+      ],
+      "constants": [
+        "world.storage",
+        "storage.kind"
+      ]
+    },
+    "client.local_player": {
+      "symbols": [
+        "IsLocalPlayer"
+      ],
+      "constants": [
+        "client.local_player.entity"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{ "format": 1, "trees": [ { "id": "fixture-manifest:t", "nodes": [ { "id": "a", "effects": [ { "attribute": "Spirit", "amount": 1 } ] } ] } ] }

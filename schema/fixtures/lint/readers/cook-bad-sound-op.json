@@ -1,0 +1,11 @@
+{
+ "format": 1,
+ "tool": "soundcook",
+ "guidNamespace": "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
+ "steps": [
+  {
+   "op": "music",
+   "name": "a"
+  }
+ ]
+}

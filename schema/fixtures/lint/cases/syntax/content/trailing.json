@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "items": {
+    "Material_Fixture_Logs": { "maxStackSize": 500, },
+    "Material_Fixture_Twigs": { "maxStackSize": 10, "maxStackSize": 20 }
+  }
+}

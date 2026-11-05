@@ -1,0 +1,56 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/skills.json",
+  "comment": "kiln.skills on the client: the game's skill-tree screen (skilltree_ui, client 0x318540 on 26430625) keeps one 0x44-byte record per node in G38UiPlayData (a HashMap at +skills/ui.records: id -> {.., level +0x41, level low bits +0x42, unlocked +0x43}) and a copy of the player's masks (+skills/ui.masks). Its loop sets the unlocked flag only for mask bits 0..255, so Kiln's post-hook writes the records of shadow nodes from the local player's shadow table.",
+  "symbols": {
+    "skills/TreeUi": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 53 57 48 8D 6C 24 B9 48 81 EC F0 00 00 00 41 B8 28 00 00 00 48 8D 55 87 48 8B D9 E8 ?? ?? ?? ?? 48 8B 45 9F 48 8D 55 87 48 8B"
+        }
+      ]
+    },
+    "@skills/TreeUi.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "skills/TreeUi",
+            "size": 512
+          },
+          "pattern": "48 8D B7 {skills/ui.records:d32} 48 8B D0 48 8B CE E8 ?? ?? ?? ?? 48 3B 46 10 73 ?? 4C 6B E8 44"
+        },
+        {
+          "scope": {
+            "symbol": "skills/TreeUi",
+            "size": 1792
+          },
+          "pattern": "41 0F 10 07 0F 11 87 {skills/ui.masks:d32} 41 0F 10 4F 10"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "skills/ui.records": {
+      "min_votes": 1
+    },
+    "skills/ui.masks": {
+      "min_votes": 1
+    },
+    "skills/ui.record_size": {
+      "value": 68
+    }
+  },
+  "features": {
+    "skills.shadow_ui": {
+      "symbols": [
+        "skills/TreeUi"
+      ],
+      "constants": [
+        "skills/ui.records",
+        "skills/ui.masks",
+        "skills/ui.record_size"
+      ]
+    }
+  }
+}

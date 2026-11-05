@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"side\":\"toaster\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: side 'toaster' must be server, client or both"
+  }
+}

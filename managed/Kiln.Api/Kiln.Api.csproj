@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The API mods compile against. Loaded once into the default load context and shared by every mod. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Host" />
+    <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <!-- Kiln's own service assemblies (managed/services/*) use the native service access in Services/. -->
+    <InternalsVisibleTo Include="Kiln.World" />
+    <InternalsVisibleTo Include="Kiln.Players" />
+    <InternalsVisibleTo Include="Kiln.Chat" />
+    <InternalsVisibleTo Include="Kiln.Time" />
+    <InternalsVisibleTo Include="Kiln.Items" />
+    <InternalsVisibleTo Include="Kiln.Spawn" />
+    <InternalsVisibleTo Include="Kiln.Settings" />
+    <InternalsVisibleTo Include="Kiln.Admin" />
+    <InternalsVisibleTo Include="Kiln.Example" />
+    <!-- Services -->
+    <InternalsVisibleTo Include="Kiln.Combat" />
+    <InternalsVisibleTo Include="Kiln.Gameplay" />
+    <InternalsVisibleTo Include="Kiln.Saves" />
+    <InternalsVisibleTo Include="Kiln.Data" />
+    <InternalsVisibleTo Include="Kiln.Content" />
+    <InternalsVisibleTo Include="Kiln.Hooks" />
+    <InternalsVisibleTo Include="Kiln.Game" />
+    <InternalsVisibleTo Include="Kiln.Permissions" />
+    <InternalsVisibleTo Include="Kiln.Testing" />
+    <InternalsVisibleTo Include="Kiln.Client" />
+    <InternalsVisibleTo Include="Kiln.Ui" />
+    <InternalsVisibleTo Include="Kiln.Network" />
+    <!-- More services -->
+    <InternalsVisibleTo Include="Kiln.Assets" />
+    <InternalsVisibleTo Include="Kiln.Build" />
+    <InternalsVisibleTo Include="Kiln.Emf" />
+    <InternalsVisibleTo Include="Kiln.Abilities" />
+    <InternalsVisibleTo Include="Kiln.Creatures" />
+    <InternalsVisibleTo Include="Kiln.Skills" />
+    <InternalsVisibleTo Include="Kiln.Audio" />
+    <InternalsVisibleTo Include="Kiln.Vfx" />
+    <InternalsVisibleTo Include="Kiln.Quests" />
+  </ItemGroup>
+</Project>

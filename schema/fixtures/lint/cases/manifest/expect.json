@@ -1,0 +1,70 @@
+{
+  "catalog": true,
+  "description": "manifest rules: new items with clients none (KL201), client assets without clients mod (KL202), icons in a side server mod (KL203), a missing entryAssembly in a built folder (KL205), talent trees without clients mod (KL207), a manifest Kiln.Host refuses (KL209), a non-SPDX licence (KL602)",
+  "diagnostics": [
+    {
+      "code": "KL106",
+      "col": 103,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "\"../gem.png\": a path relative to assets/ (subfolders allowed; no absolute path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL201",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod adds a new item (and maybe more) but says no \"clients\" (side \"server\" means \"none\"): vanilla clients cannot show it (\"[Invalid Item Stack]\"); declare \"clients\": \"kiln\" (the server sends the definitions to Kiln clients and refuses vanilla ones) or \"mod\" (players install the mod)",
+      "severity": "error"
+    },
+    {
+      "code": "KL202",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod ships a PNG item icon but says no \"clients\" (side \"server\" means \"none\"): players without the mod never see them; declare \"clients\": \"mod\" so the server's modpack delivers it",
+      "severity": "warning"
+    },
+    {
+      "code": "KL203",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "a PNG item icon is drawn by clients, but side \"server\" mods do not load on a joined client (only when a player hosts); use side \"both\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL207",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a talent tree but says no \"clients\" (side \"server\" means \"none\"): players without the mod can only use it through the /talents chat command; to draw its screen on their game, declare \"clients\": \"mod\" and side \"both\" (vanilla clients are then refused, unless the server's modSync is off)",
+      "severity": "info"
+    },
+    {
+      "code": "KL602",
+      "col": 14,
+      "file": "kiln.mod.json",
+      "line": 5,
+      "message": "\"MIT License\" is not an SPDX licence expression; did you mean \"MIT\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL205",
+      "col": 20,
+      "file": "kiln.mod.json",
+      "line": 6,
+      "message": "Missing.dll is not in the mod folder (Kiln.Host fails to load the mod)",
+      "severity": "error"
+    },
+    {
+      "code": "KL209",
+      "col": 3,
+      "file": "kiln.mod.json",
+      "line": 8,
+      "message": "Kiln.Host refuses this manifest: kiln.mod.json: 'other' is in both loadBefore and loadAfter",
+      "severity": "error"
+    }
+  ]
+}

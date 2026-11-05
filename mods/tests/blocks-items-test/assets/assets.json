@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "entries": [
+    { "kind": "resource", "guid": "3c5d9c52-8a7e-4f11-b9b0-2f1e0a6d7c11", "type": "keen::ImpactProgram", "part": 0, "mode": "new", "file": "swing.bin" }
+  ]
+}

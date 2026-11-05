@@ -1,0 +1,1 @@
+{ "id": "fixture-game-tree-kiln", "version": "1.0.0", "apiVersion": "0.2", "license": "MIT", "entryAssembly": "A.dll", "side": "server", "clients": "kiln" }

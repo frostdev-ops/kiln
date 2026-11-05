@@ -1,0 +1,59 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "MDK_STAGE",
+          "files": [
+            "Kiln.*.dll"
+          ],
+          "exclude": [
+            "Kiln.Sdk*.dll"
+          ]
+        }
+      ],
+      "dest": "api",
+      "outputFormat": "mref",
+      "disableGitFeatures": true
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "api/**.yml",
+          "api/index.md"
+        ]
+      },
+      {
+        "files": [
+          "*.md",
+          "toc.yml"
+        ],
+        "exclude": [
+          "README.md"
+        ]
+      },
+      {
+        "src": "modding",
+        "dest": "modding",
+        "files": [
+          "*.md",
+          "schemas/*.md"
+        ]
+      }
+    ],
+    "template": [
+      "default",
+      "modern"
+    ],
+    "output": "_site",
+    "globalMetadata": {
+      "_appName": "Kiln",
+      "_appTitle": "Kiln modding",
+      "_enableSearch": true,
+      "_disableContribution": true
+    },
+    "disableGitFeatures": true
+  }
+}

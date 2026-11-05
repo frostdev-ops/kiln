@@ -1,0 +1,10 @@
+{
+  "id": "modelsample",
+  "name": "Model Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ModelSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Sample for custom 3D models (tools/modelcook + kiln.assets): the Bronze Sword's model is replaced by a cube-blade sword, and a new item, Kiln Tower Sword, gets its own model and visual template. Both get matching icons rendered from the same glTF (tools/assets/render-icon.py): the Bronze Sword's own icon texture is retextured, the tower sword gets a new one. Every player needs it: models and icons are drawn by the client. Build the assets first: build-assets.sh (reads the installed game, writes assets/)."
+}

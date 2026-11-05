@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "gameTree": {
+    "nodes": [
+      { "guid": "4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d63", "name": "fixtureclean_node", "type": "Attribute", "class": "Mage",
+        "from": ["0x10000001"], "offset": [150, 0], "cost": 1, "iconFile": "assets/icons/node.png",
+        "texts": { "en": { "name": "Clean Node" } } }
+    ]
+  },
+  "trees": [
+    { "id": "fixture-clean:arts", "name": { "en": "Clean Arts" }, "points": { "start": 1, "perLevel": 1 },
+      "nodes": [
+        { "id": "a", "col": 0, "row": 0, "effects": [ { "attribute": "Spirit", "amount": 1 } ] },
+        { "id": "b", "col": 0, "row": 1, "requires": ["a"], "effects": [ { "gameNode": "0x10000001" } ] }
+      ] }
+  ]
+}

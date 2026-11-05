@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "comment": "Spell Tweaks (kiln.gamedata). Paths: docs/kiln/services/gamedata.md; every path and its value: Content.Templates.Get(x).Fields() or kiln.gamedata dump().",
+  "items": {
+    "Ammo_T1_Spell_Fire_Ball_lvl10": { "impactValues.ManaCost": 30 },
+    "Ability_DoubleJump": { "impactValues.StaminaCost": 5 }
+  },
+  "templates": {
+    "Explosion_Player_Spell_Fireball_1": {
+      "ColliderResourceComponent.colliders[0].dataArray[0].shape.radius": { "mul": 1.5 },
+      "ImpactConfiguration.configValues.PushBackStrength": "Big"
+    }
+  },
+  "sequences": {
+    "Attack_Player_Staff_FixedAnim_Fireball_fast": {
+      "events[VfxNotifierEvent#0].time": 0.43,
+      "events[SfxNotifierEvent#0].time": 0.45,
+      "events[SpawnEntityEvent#0].time": 0.45,
+      "events[PayUsageCost#0].time": 0.45,
+      "events[PayUsageCost#1].time": 0.45,
+      "events[CameraShakeEvent#0].time": 0.45,
+      "events[TriggerNoiseEvent#0].time": 0.45
+    }
+  }
+}

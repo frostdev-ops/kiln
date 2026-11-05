@@ -1,0 +1,4 @@
+# Cooked on each machine from the sources (kiln cook): never committed, never shipped.
+assets/cooked/
+bin/
+obj/

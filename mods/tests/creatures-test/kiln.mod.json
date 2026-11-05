@@ -1,0 +1,9 @@
+{
+  "id": "creatures-test",
+  "name": "kiln.creatures lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "CreaturesTest.dll",
+  "side": "server",
+  "advanced": true
+}

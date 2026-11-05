@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Blocks: building blocks for mods (docs/kiln/modding/blocks.md). A block says what the author means (a spell,
+       a weapon, an effect, a status); this assembly compiles it down to what the services already take: item and recipe
+       definitions (kiln.content), template, sequence and buff clones (kiln.gamedata), Impact programs (kiln.abilities through
+       kiln.assets). Deployed to kiln/host/ and shared by every mod. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Blocks</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The lab test drives what the block types do not reach yet (a wielder's program without an item). -->
+    <InternalsVisibleTo Include="BlocksTest" />
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Abilities/Kiln.Abilities.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Audio/Kiln.Audio.csproj" Private="false" />
+  </ItemGroup>
+</Project>

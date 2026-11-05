@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln.mod.schema.json",
+  "title": "Kiln mod manifest (kiln.mod.json), v2",
+  "description": "Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.Host/Manifest.cs is the reference). Comments and trailing commas are allowed. Docs: docs/kiln/modding/manifest.md.",
+  "type": "object",
+  "required": ["id", "version", "apiVersion", "entryAssembly"],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$", "not": { "enum": ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"] } },
+    "range": {
+      "type": "string",
+      "description": "Version range: * | 1.2 (= ^1.2) | ^1.2 | ~1.2 | =1.2.3 | 1.x | >=1.0 <2 | 1.0 - 2.0 | [1.0,2.0) | [1.0,) | (,2.0] | [1.2.3]; || between alternatives."
+    },
+    "dll": { "type": "string", "pattern": "^[^/\\\\:]+\\.[dD][lL][lL]$" }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "#/$defs/id", "description": "Unique mod id; also the data folder kiln/data/<id>." },
+    "name": { "type": "string", "description": "Display name (default: the id)." },
+    "version": {
+      "type": "string",
+      "pattern": "^v?(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semantic version (MAJOR.MINOR.PATCH[-pre][+build]); 1 and 1.2 are read as 1.0.0 and 1.2.0."
+    },
+    "description": { "type": "string" },
+    "authors": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string", "minLength": 1 } }] },
+    "author": { "type": "string", "description": "Shorthand for a single author." },
+    "license": { "type": "string", "description": "SPDX expression, e.g. MIT." },
+    "url": { "type": "string" },
+    "apiVersion": {
+      "type": "string",
+      "description": "Kiln mod API the mod needs. A bare version (\"0.2\") means that version or any later one with the same major (the API is additive within a major, 0.x included); anything else is a range checked against Kiln.Mods.ApiVersion."
+    },
+    "side": { "enum": ["server", "client", "both"], "default": "server", "description": "Where the mod loads; mods for the other side are skipped." },
+    "clients": {
+      "enum": ["none", "kiln", "mod"],
+      "description": "What a player's game needs to join a server running this mod: none (vanilla clients join), kiln (Kiln on the client; the server sends the mod's definitions), mod (the mod itself, delivered by the server's modpack). Default from side: server -> none, client and both -> mod."
+    },
+    "dependencies": {
+      "description": "Mods (or \"kiln\", the core version) this mod needs. Required ones load first and must match; optional ones load first when present and must match when present.",
+      "oneOf": [
+        {
+          "type": "object",
+          "propertyNames": { "anyOf": [{ "$ref": "#/$defs/id" }, { "const": "kiln" }] },
+          "additionalProperties": {
+            "oneOf": [
+              { "$ref": "#/$defs/range" },
+              {
+                "type": "object",
+                "properties": { "version": { "$ref": "#/$defs/range" }, "optional": { "type": "boolean", "default": false } },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "anyOf": [{ "$ref": "#/$defs/id" }, { "const": "kiln" }] },
+              "version": { "$ref": "#/$defs/range" },
+              "optional": { "type": "boolean", "default": false }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "loadBefore": { "type": "array", "items": { "$ref": "#/$defs/id" }, "description": "Load before these mods when they are present (no requirement)." },
+    "loadAfter": { "type": "array", "items": { "$ref": "#/$defs/id" }, "description": "Load after these mods when they are present (no requirement)." },
+    "incompatible": {
+      "description": "This mod does not load when one of these is present (in the given range).",
+      "oneOf": [
+        { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        { "type": "object", "propertyNames": { "$ref": "#/$defs/id" }, "additionalProperties": { "$ref": "#/$defs/range" } }
+      ]
+    },
+    "features": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Kiln features that must be available on this game build (Game.HasFeature), e.g. tick, log.mirror." },
+    "entryAssembly": { "$ref": "#/$defs/dll", "description": "The mod's assembly, in the mod folder." },
+    "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
+    "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
+    "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },
+    "tests": {
+      "description": "Kiln.Testing: true = autoRun.",
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "properties": {
+            "autoRun": { "type": "boolean", "default": false, "description": "Run the [KilnTest] methods when the server has started (and after each reload while it runs)." },
+            "timeoutSeconds": { "type": "integer", "minimum": 0, "description": "Per-test timeout (0 = kiln.json mods.test_timeout_s, default 30)." },
+            "filter": { "type": "string", "description": "Only tests whose name contains this." }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

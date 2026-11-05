@@ -1,0 +1,605 @@
+{
+ "skilltree": {
+  "zoomSteps": [
+   2.299999952316284,
+   1.5
+  ],
+  "bgLayers": [
+   {
+    "tex": "skilltree_bg_layer_01",
+    "size": {
+     "x": 10000.0,
+     "y": 10000.0
+    },
+    "parallax": 0.699999988079071,
+    "tint": {
+     "r": 27,
+     "g": 24,
+     "b": 73,
+     "a": 1.0,
+     "intensity": 1.0
+    }
+   },
+   {
+    "tex": "skilltree_bg_layer_01",
+    "size": {
+     "x": 7000.0,
+     "y": 7000.0
+    },
+    "parallax": 0.30000001192092896,
+    "tint": {
+     "r": 118,
+     "g": 37,
+     "b": 103,
+     "a": 0.788,
+     "intensity": 1.0
+    }
+   }
+  ],
+  "backgroundColor": {
+   "r": 0,
+   "g": 0,
+   "b": 0,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "centerRing": "skilltree_starter_ring",
+  "centerRingRadius": 837.0,
+  "classHints": [
+   {
+    "label": "Sobrevivente",
+    "color": {
+     "r": 103,
+     "g": 182,
+     "b": 44,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 225,
+    "distance": 1800.0
+   },
+   {
+    "label": "Mestre das Feras",
+    "color": {
+     "r": 103,
+     "g": 182,
+     "b": 44,
+     "a": 1.0,
+     "intensity": 1.0
+    },
+    "primary": true,
+    "angle": 255,
+    "distance": 1700.0
+   },
+   {
+    "label": "Defensor",
+    "color": {
+     "r": 103,
+     "g": 182,
+     "b": 44,
+     "a": 1.0,
+     "intensity": 1.0
+    },
+    "primary": true,
+    "angle": 285,
+    "distance": 1850.0
+   },
+   {
+    "label": "Assassino",
+    "color": {
+     "r": 103,
+     "g": 182,
+     "b": 44,
+     "a": 1.0,
+     "intensity": 1.0
+    },
+    "primary": true,
+    "angle": 315,
+    "distance": 1900.0
+   },
+   {
+    "label": "Malandragem",
+    "color": {
+     "r": 64,
+     "g": 136,
+     "b": 213,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 345,
+    "distance": 1650.0
+   },
+   {
+    "label": "Bruxaria",
+    "color": {
+     "r": 64,
+     "g": 136,
+     "b": 213,
+     "a": 1.0,
+     "intensity": 1.0
+    },
+    "primary": true,
+    "angle": 15,
+    "distance": 1900.0
+   },
+   {
+    "label": "Curandeiro",
+    "color": {
+     "r": 64,
+     "g": 136,
+     "b": 213,
+     "a": 1.0,
+     "intensity": 1.0
+    },
+    "primary": true,
+    "angle": 45,
+    "distance": 1600.0
+   },
+   {
+    "label": "Bruxaria Combatente",
+    "color": {
+     "r": 64,
+     "g": 136,
+     "b": 213,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 75,
+    "distance": 1500.0
+   },
+   {
+    "label": "Tanque",
+    "color": {
+     "r": 201,
+     "g": 76,
+     "b": 76,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 105,
+    "distance": 1750.0
+   },
+   {
+    "label": "Guerreiro",
+    "color": {
+     "r": 201,
+     "g": 76,
+     "b": 76,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 135,
+    "distance": 1850.0
+   },
+   {
+    "label": "Barbárie",
+    "color": {
+     "r": 201,
+     "g": 76,
+     "b": 76,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 165,
+    "distance": 2100.0
+   },
+   {
+    "label": "Atleta",
+    "color": {
+     "r": 201,
+     "g": 76,
+     "b": 76,
+     "a": 1.0,
+     "intensity": 0.699999988079071
+    },
+    "primary": true,
+    "angle": 195,
+    "distance": 1800.0
+   }
+  ],
+  "glow": {
+   "mage": {
+    "idle": {
+     "r": 62,
+     "g": 91,
+     "b": 121,
+     "a": 0.502,
+     "intensity": 1.0
+    },
+    "activated": {
+     "r": 64,
+     "g": 136,
+     "b": 213,
+     "a": 1.0,
+     "intensity": 1.2999999523162842
+    }
+   },
+   "warrior": {
+    "idle": {
+     "r": 136,
+     "g": 56,
+     "b": 56,
+     "a": 0.502,
+     "intensity": 1.0
+    },
+    "activated": {
+     "r": 229,
+     "g": 31,
+     "b": 31,
+     "a": 1.0,
+     "intensity": 1.399999976158142
+    }
+   },
+   "ranger": {
+    "idle": {
+     "r": 109,
+     "g": 153,
+     "b": 77,
+     "a": 0.431,
+     "intensity": 1.0
+    },
+    "activated": {
+     "r": 103,
+     "g": 182,
+     "b": 44,
+     "a": 1.0,
+     "intensity": 1.5
+    }
+   },
+   "neutral": {
+    "idle": {
+     "r": 141,
+     "g": 109,
+     "b": 39,
+     "a": 0.502,
+     "intensity": 1.0
+    },
+    "activated": {
+     "r": 255,
+     "g": 177,
+     "b": 0,
+     "a": 1.0,
+     "intensity": 1.0
+    }
+   }
+  },
+  "keyColors": {
+   "mage": {
+    "r": 64,
+    "g": 136,
+    "b": 213,
+    "a": 1.0,
+    "intensity": 1.0
+   },
+   "warrior": {
+    "r": 191,
+    "g": 47,
+    "b": 47,
+    "a": 1.0,
+    "intensity": 1.0
+   },
+   "ranger": {
+    "r": 103,
+    "g": 182,
+    "b": 44,
+    "a": 1.0,
+    "intensity": 1.0
+   },
+   "neutral": {
+    "r": 255,
+    "g": 177,
+    "b": 0,
+    "a": 1.0,
+    "intensity": 1.0
+   }
+  },
+  "skillIconScale": 0.75,
+  "nodes": {
+   "root": {
+    "width": 160.0,
+    "glowScale": 1.0,
+    "focusScale": 1.100000023841858,
+    "linkTrim": 0.0,
+    "outOfReach": null,
+    "inReach": "skillnode_starting",
+    "activated": "skillnode_starting",
+    "glow": null,
+    "mutedForEA": null
+   },
+   "simpleAttribute": {
+    "width": 50.0,
+    "glowScale": 1.399999976158142,
+    "focusScale": 1.2999999523162842,
+    "linkTrim": 0.0,
+    "outOfReach": "skillnode_attribute_outofreach",
+    "inReach": "skillnode_attribute_inreach",
+    "activated": "skillnode_attribute_activated",
+    "glow": "skillnode_activeskill_glow",
+    "mutedForEA": "skillnode_attribute_muted"
+   },
+   "passiveSkill": {
+    "width": 90.0,
+    "glowScale": 1.399999976158142,
+    "focusScale": 1.2999999523162842,
+    "linkTrim": 0.20000000298023224,
+    "outOfReach": "skillnode_passiveskill_outofreach",
+    "inReach": "skillnode_passiveskill_inreach",
+    "activated": "skillnode_passiveskill_activated",
+    "glow": "skillnode_activeskill_glow",
+    "mutedForEA": "skillnode_passiveskill_muted"
+   },
+   "activeSkill": {
+    "width": 155.0,
+    "glowScale": 1.5,
+    "focusScale": 1.2000000476837158,
+    "linkTrim": 0.20000000298023224,
+    "outOfReach": "skillnode_activeskill_outofreach",
+    "inReach": "skillnode_activeskill_inreach",
+    "activated": "skillnode_activeskill_activated",
+    "glow": "skillnode_activeskill_glow",
+    "mutedForEA": "skillnode_activeskill_muted"
+   }
+  },
+  "links": {
+   "active": {
+    "core": {
+     "x": 18.0,
+     "y": 20.0
+    },
+    "coreTex": "skillnode_connection",
+    "coreTint": {
+     "r": 255,
+     "g": 164,
+     "b": 220,
+     "a": 0.722,
+     "intensity": 1.0
+    },
+    "glow": {
+     "x": 60.0,
+     "y": 80.0
+    },
+    "glowTex": "skillnode_connection_glow",
+    "glowTint": {
+     "r": 145,
+     "g": 29,
+     "b": 78,
+     "a": 1.0,
+     "intensity": 1.2000000476837158
+    }
+   },
+   "toCandidate": {
+    "core": {
+     "x": 15.0,
+     "y": 20.0
+    },
+    "coreTex": "skillnode_connection_inactive",
+    "coreTint": {
+     "r": 246,
+     "g": 96,
+     "b": 171,
+     "a": 0.89,
+     "intensity": 1.0
+    },
+    "glow": {
+     "x": 20.0,
+     "y": 20.0
+    },
+    "glowTex": "skillnode_connection",
+    "glowTint": {
+     "r": 237,
+     "g": 59,
+     "b": 148,
+     "a": 0.89,
+     "intensity": 1.0
+    }
+   },
+   "inactive": {
+    "core": {
+     "x": 10.0,
+     "y": 15.0
+    },
+    "coreTex": "skillnode_connection_inactive",
+    "coreTint": {
+     "r": 86,
+     "g": 79,
+     "b": 132,
+     "a": 0.941,
+     "intensity": 1.0
+    },
+    "glow": {
+     "x": 30.0,
+     "y": 30.0
+    },
+    "glowTex": null,
+    "glowTint": {
+     "r": 255,
+     "g": 255,
+     "b": 255,
+     "a": 1.0,
+     "intensity": 1.0
+    }
+   }
+  }
+ },
+ "itemSlot": {
+  "shape": "itemslot_backpack",
+  "shapeSubtle": "itemslot_backpack_subtle",
+  "outline": "itemslot_backpack_outline",
+  "empty": "minimal_slot_empty",
+  "background": {
+   "r": 31,
+   "g": 28,
+   "b": 46,
+   "a": 0.278,
+   "intensity": 1.0
+  },
+  "backgroundBright": {
+   "r": 166,
+   "g": 161,
+   "b": 189,
+   "a": 0.278,
+   "intensity": 1.0
+  },
+  "count": {
+   "color": {
+    "r": 255,
+    "g": 251,
+    "b": 236,
+    "a": 1.0,
+    "intensity": 1.0
+   },
+   "outline": {
+    "r": 0,
+    "g": 0,
+    "b": 0,
+    "a": 0.318,
+    "intensity": 1.0
+   }
+  },
+  "durability": {
+   "r": 63,
+   "g": 168,
+   "b": 84,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "durabilityLow": {
+   "r": 208,
+   "g": 63,
+   "b": 50,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "water": {
+   "r": 78,
+   "g": 164,
+   "b": 189,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "gem": "itemSlotGem",
+  "pageActive": "actionbar_page_active",
+  "pageInactive": "actionbar_page_inactive"
+ },
+ "rarity": {
+  "undefined": {
+   "r": 95,
+   "g": 95,
+   "b": 95,
+   "a": 0.243,
+   "intensity": 1.0
+  },
+  "common": {
+   "r": 161,
+   "g": 174,
+   "b": 150,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "uncommon": {
+   "r": 60,
+   "g": 155,
+   "b": 90,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "rare": {
+   "r": 120,
+   "g": 161,
+   "b": 219,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "epic": {
+   "r": 156,
+   "g": 132,
+   "b": 217,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "legendary": {
+   "r": 246,
+   "g": 160,
+   "b": 44,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "vanity": {
+   "r": 255,
+   "g": 130,
+   "b": 198,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "collectible": {
+   "r": 26,
+   "g": 248,
+   "b": 199,
+   "a": 1.0,
+   "intensity": 1.0
+  }
+ },
+ "menu": {
+  "topTab": "menu_toptab_background",
+  "tabIdle": {
+   "r": 192,
+   "g": 205,
+   "b": 213,
+   "a": 0.671,
+   "intensity": 1.0
+  },
+  "tabHighlight": {
+   "r": 255,
+   "g": 255,
+   "b": 255,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "tabHighlightColor": {
+   "r": 202,
+   "g": 172,
+   "b": 84,
+   "a": 1.0,
+   "intensity": 1.0
+  },
+  "tabHighlightTex": "tab_highlight",
+  "backgroundDarkener": {
+   "r": 144,
+   "g": 144,
+   "b": 144,
+   "a": 0.439,
+   "intensity": 1.0
+  },
+  "widgetBackground": "basic_widget_background",
+  "widgetHeader": "basic_widget_header",
+  "rarityStripe": "basic_widget_rarity_stripe",
+  "fancyBox": {
+   "frame": "fancy_box_frame",
+   "frameSimple": "fancy_box_frame_simple",
+   "backgroundShape": "fancy_box_background_shape",
+   "backgroundShapeHalved": "fancy_box_background_shape_halved",
+   "backgroundShapeGlassMask": "fancy_box_background_shape_glassmask",
+   "backgroundShapeHalvedGlassMask": "fancy_box_background_shape_halved_glassmask",
+   "backgroundPattern": "fancy_box_background_pattern",
+   "backgroundPatternAncients": "fancy_box_background_pattern_ancients",
+   "frameFull": "fancy_box_frame_full",
+   "backgroundShapeFrameFull": "fancy_box_frame_full_background",
+   "backgroundShapeGradientToLeft": "fancy_box_frame_full_gradient_to_left",
+   "backgroundShapeGradientToRight": "fancy_box_frame_full_gradient_to_right",
+   "backgroundShapeGradientToTop": "fancy_box_frame_full_gradient_to_top",
+   "frameFullSimple": "fancy_box_frame_full_Simple",
+   "frameFullSimpleBold": "fancy_box_frame_full_Simple_Bold",
+   "backgroundShapeFrameFullSimple": "fancy_box_frame_full_simple_background",
+   "frameTopMinimal": "fancy_box_frame_minimal",
+   "backgroundShapeTopMinimal": "fancy_box_frame_minimal_background",
+   "frameFullDetailed": null,
+   "backgroundShapeFrameFullDetailed": null
+  }
+ }
+}

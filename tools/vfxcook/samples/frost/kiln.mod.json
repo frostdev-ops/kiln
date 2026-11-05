@@ -1,0 +1,9 @@
+{
+  "id": "frost-fx",
+  "name": "Frost FX",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "side": "both",
+  "clients": "mod"
+}

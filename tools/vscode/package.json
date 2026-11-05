@@ -1,0 +1,943 @@
+{
+  "name": "kiln-vscode",
+  "displayName": "Kiln",
+  "description": "Kiln (Enshrouded mod framework) development: manifests and data packs, lint, game-data catalog, build/deploy/reload, Kiln.Testing, kiln.log, KAP/1 console, Impact assembly.",
+  "version": "0.1.0",
+  "publisher": "kiln",
+  "license": "MIT",
+  "private": true,
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "kiln",
+    "enshrouded",
+    "modding"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/kiln.mod.json",
+    "workspaceContains:**/*.kimp",
+    "workspaceContains:**/kiln/logs/kiln.log",
+    "onLanguage:kimp",
+    "onLanguage:kiln-log",
+    "onDebugResolve:kiln",
+    "onDebugInitialConfigurations"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "kimp",
+        "aliases": [
+          "Impact assembly",
+          "kimp"
+        ],
+        "extensions": [
+          ".kimp",
+          ".kpatch"
+        ],
+        "configuration": "./syntaxes/kimp.language-configuration.json",
+        "icon": {
+          "light": "./media/kimp.svg",
+          "dark": "./media/kimp.svg"
+        }
+      },
+      {
+        "id": "kiln-log",
+        "aliases": [
+          "Kiln log"
+        ],
+        "filenamePatterns": [
+          "**/kiln/logs/*.log"
+        ]
+      },
+      {
+        "id": "jsonc",
+        "filenamePatterns": [
+          "**/kiln.mod.json",
+          "**/native.json",
+          "**/content/*.json",
+          "**/assets/assets.json",
+          "**/skills/*.json",
+          "**/quests/*.json",
+          "**/blocks/*.json"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kimp",
+        "scopeName": "source.kimp",
+        "path": "./syntaxes/kimp.tmLanguage.json"
+      },
+      {
+        "language": "kiln-log",
+        "scopeName": "text.log.kiln",
+        "path": "./syntaxes/kiln-log.tmLanguage.json"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/kiln.mod.json"
+        ],
+        "url": "./data/schemas/kiln.mod.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/native.json",
+          "!**/config/native.json",
+          "!**/state/native.json",
+          "!**/impact/natives.json"
+        ],
+        "url": "./data/schemas/native.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/content/*.json"
+        ],
+        "url": "./data/schemas/content-pack.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/assets/assets.json"
+        ],
+        "url": "./data/schemas/assets.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/assets/cook.json",
+          "**/impact/cook.json"
+        ],
+        "url": "./data/schemas/cook.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/impact/natives.json"
+        ],
+        "url": "./data/schemas/impact-natives.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/skills/*.json"
+        ],
+        "url": "./data/schemas/skills.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/quests/*.json"
+        ],
+        "url": "./data/schemas/kiln-quests.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/blocks/*.json"
+        ],
+        "url": "./data/schemas/kiln-blocks.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln-modpack.json"
+        ],
+        "url": "./data/schemas/kiln-modpack.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/*.kschem"
+        ],
+        "url": "./data/schemas/kschem-header.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/config/native.json"
+        ],
+        "url": "./data/schemas/native-state.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln-runtime.json"
+        ],
+        "url": "./data/schemas/kiln-runtime.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/data/kiln-admin/endpoint.json"
+        ],
+        "url": "./data/schemas/admin-endpoint.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/.install.json"
+        ],
+        "url": "./data/schemas/install-receipt.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/profile.json",
+          "**/kiln/profile.once.json"
+        ],
+        "url": "./data/schemas/profile.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/config/.schema/*.json"
+        ],
+        "url": "./data/schemas/config-schema.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/state/boot.json"
+        ],
+        "url": "./data/schemas/state-boot.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/state/last-server.json"
+        ],
+        "url": "./data/schemas/state-last-server.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/state/mods.json"
+        ],
+        "url": "./data/schemas/state-mods.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln/state/native.json"
+        ],
+        "url": "./data/schemas/state-native.schema.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "kimp",
+        "path": "./snippets/kimp.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "kiln.newMod",
+        "title": "New Mod…",
+        "category": "Kiln",
+        "icon": "$(add)"
+      },
+      {
+        "command": "kiln.newImpactProgram",
+        "title": "New Impact Program",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.build",
+        "title": "Build Mod",
+        "category": "Kiln",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "kiln.deploy",
+        "title": "Deploy Mod to Test Server",
+        "category": "Kiln",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "kiln.deployReload",
+        "title": "Deploy and Reload Mod",
+        "category": "Kiln",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "kiln.reload",
+        "title": "Reload Mod on Test Server",
+        "category": "Kiln",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiln.pack",
+        "title": "Pack Mod (zip)",
+        "category": "Kiln",
+        "icon": "$(package)"
+      },
+      {
+        "command": "kiln.lint",
+        "title": "Lint Mod",
+        "category": "Kiln",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "kiln.control",
+        "title": "Send Control Command…",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.selectServer",
+        "title": "Select Test Server…",
+        "category": "Kiln",
+        "icon": "$(server)"
+      },
+      {
+        "command": "kiln.addServer",
+        "title": "Add Test Server…",
+        "category": "Kiln",
+        "icon": "$(add)"
+      },
+      {
+        "command": "kiln.server.start",
+        "title": "Start Test Server",
+        "category": "Kiln",
+        "icon": "$(play)"
+      },
+      {
+        "command": "kiln.server.stop",
+        "title": "Stop Test Server",
+        "category": "Kiln",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "kiln.server.debug",
+        "title": "Attach Debugger to Test Server",
+        "category": "Kiln",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "kiln.server.refresh",
+        "title": "Refresh Test Servers",
+        "category": "Kiln",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiln.server.openFolder",
+        "title": "Reveal Server Folder",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.followLog",
+        "title": "Follow kiln.log",
+        "category": "Kiln",
+        "icon": "$(output)"
+      },
+      {
+        "command": "kiln.openConsole",
+        "title": "Open Server Console (KAP/1)",
+        "category": "Kiln",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "kiln.catalog.refresh",
+        "title": "Reload Game-Data Catalog",
+        "category": "Kiln",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiln.catalog.search",
+        "title": "Search Game Data…",
+        "category": "Kiln",
+        "icon": "$(search)"
+      },
+      {
+        "command": "kiln.catalog.build",
+        "title": "Build Game-Data Catalog (kiln catalog build)",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.catalog.copyName",
+        "title": "Copy Name",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.catalog.copyGuid",
+        "title": "Copy GUID",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.catalog.insert",
+        "title": "Insert at Cursor",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.catalog.show",
+        "title": "Show Entry",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.impact.cook",
+        "title": "Cook Impact Programs",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.impact.disassemble",
+        "title": "Disassemble Impact Program…",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.impact.hash",
+        "title": "FNV-1a Hash…",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.mods.refresh",
+        "title": "Refresh Mods",
+        "category": "Kiln",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiln.mods.open",
+        "title": "Open Manifest",
+        "category": "Kiln"
+      },
+      {
+        "command": "kiln.showOutput",
+        "title": "Show Output",
+        "category": "Kiln"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kiln",
+          "title": "Kiln",
+          "icon": "media/kiln-mono.svg"
+        }
+      ]
+    },
+    "views": {
+      "kiln": [
+        {
+          "id": "kiln.mods",
+          "name": "Mods"
+        },
+        {
+          "id": "kiln.servers",
+          "name": "Test Servers"
+        },
+        {
+          "id": "kiln.catalog",
+          "name": "Game Data"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "kiln.mods",
+        "contents": "No Kiln mod in this workspace (a folder with kiln.mod.json or a Kiln.Sdk project).\n[New Mod…](command:kiln.newMod)"
+      },
+      {
+        "view": "kiln.servers",
+        "contents": "No test server yet. Add a server folder (with enshrouded_server.exe and Kiln deployed), a kilnctl instance or a lab.\n[Add Test Server…](command:kiln.addServer)"
+      },
+      {
+        "view": "kiln.catalog",
+        "contents": "No game-data catalog found. `kiln catalog build` makes one from your installed game.\n[Build Catalog](command:kiln.catalog.build)\n[Reload](command:kiln.catalog.refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "kiln.newMod",
+          "when": "view == kiln.mods",
+          "group": "navigation"
+        },
+        {
+          "command": "kiln.mods.refresh",
+          "when": "view == kiln.mods",
+          "group": "navigation"
+        },
+        {
+          "command": "kiln.addServer",
+          "when": "view == kiln.servers",
+          "group": "navigation"
+        },
+        {
+          "command": "kiln.server.refresh",
+          "when": "view == kiln.servers",
+          "group": "navigation"
+        },
+        {
+          "command": "kiln.catalog.search",
+          "when": "view == kiln.catalog",
+          "group": "navigation"
+        },
+        {
+          "command": "kiln.catalog.refresh",
+          "when": "view == kiln.catalog",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "kiln.build",
+          "when": "view == kiln.mods && viewItem == kiln.mod.code",
+          "group": "inline@1"
+        },
+        {
+          "command": "kiln.deployReload",
+          "when": "view == kiln.mods && viewItem == kiln.mod.code",
+          "group": "inline@2"
+        },
+        {
+          "command": "kiln.deploy",
+          "when": "view == kiln.mods && viewItem =~ /^kiln\\.mod/",
+          "group": "1_mod@1"
+        },
+        {
+          "command": "kiln.reload",
+          "when": "view == kiln.mods && viewItem =~ /^kiln\\.mod/",
+          "group": "1_mod@2"
+        },
+        {
+          "command": "kiln.pack",
+          "when": "view == kiln.mods && viewItem == kiln.mod.code",
+          "group": "1_mod@3"
+        },
+        {
+          "command": "kiln.lint",
+          "when": "view == kiln.mods && viewItem =~ /^kiln\\.mod/",
+          "group": "1_mod@4"
+        },
+        {
+          "command": "kiln.server.start",
+          "when": "view == kiln.servers && viewItem == kiln.server.stopped",
+          "group": "inline@1"
+        },
+        {
+          "command": "kiln.server.stop",
+          "when": "view == kiln.servers && viewItem == kiln.server.running",
+          "group": "inline@1"
+        },
+        {
+          "command": "kiln.followLog",
+          "when": "view == kiln.servers && viewItem =~ /^kiln\\.server/",
+          "group": "inline@2"
+        },
+        {
+          "command": "kiln.openConsole",
+          "when": "view == kiln.servers && viewItem =~ /^kiln\\.server\\.(running|readonly)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "kiln.selectServer",
+          "when": "view == kiln.servers && viewItem =~ /^kiln\\.server/",
+          "group": "1_server@1"
+        },
+        {
+          "command": "kiln.server.openFolder",
+          "when": "view == kiln.servers && viewItem =~ /^kiln\\.server/",
+          "group": "1_server@2"
+        },
+        {
+          "command": "kiln.server.debug",
+          "when": "view == kiln.servers && viewItem == kiln.server.running",
+          "group": "1_server@3"
+        },
+        {
+          "command": "kiln.catalog.copyName",
+          "when": "view == kiln.catalog && viewItem == kiln.catalog.entry",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "kiln.catalog.copyGuid",
+          "when": "view == kiln.catalog && viewItem == kiln.catalog.entry",
+          "group": "1_copy@2"
+        },
+        {
+          "command": "kiln.catalog.insert",
+          "when": "view == kiln.catalog && viewItem == kiln.catalog.entry",
+          "group": "1_copy@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kiln.catalog.copyName",
+          "when": "false"
+        },
+        {
+          "command": "kiln.catalog.copyGuid",
+          "when": "false"
+        },
+        {
+          "command": "kiln.catalog.insert",
+          "when": "false"
+        },
+        {
+          "command": "kiln.catalog.show",
+          "when": "false"
+        },
+        {
+          "command": "kiln.mods.open",
+          "when": "false"
+        },
+        {
+          "command": "kiln.server.openFolder",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "kiln.deployReload",
+          "when": "resourceFilename == kiln.mod.json || resourceExtname == .cs && kiln.inMod",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Kiln",
+      "properties": {
+        "kiln.root": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Kiln checkout (holds `tools/impact`, `schema/`, `tools/lab`). Empty: the workspace folder that holds one, else none (Impact diagnostics and lab servers need it)."
+        },
+        "kiln.cli.path": {
+          "type": "string",
+          "default": "kiln",
+          "markdownDescription": "The `kiln` CLI (crates/kiln-cli). When it is missing the extension uses `dotnet` and the control folder directly."
+        },
+        "kiln.dotnet.path": {
+          "type": "string",
+          "default": "dotnet",
+          "description": "dotnet executable."
+        },
+        "kiln.dotnet.buildArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra arguments for every `dotnet build` (for example `--artifacts-path`, `-c Release`)."
+        },
+        "kiln.python.path": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python 3 for tools/impact."
+        },
+        "kiln.kilnctl.path": {
+          "type": "string",
+          "default": "kilnctl",
+          "description": "kilnctl, for kilnctl server instances."
+        },
+        "kiln.servers": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Test servers. `dir` is the server folder (with `enshrouded_server.exe`); `kind` says how to start/stop it: `kilnctl` (instance name), `lab` (`tools/lab/lab.sh`, lab name) or `folder` (no start/stop).",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "dir"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "dir": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "folder",
+                  "kilnctl",
+                  "lab"
+                ],
+                "default": "folder"
+              },
+              "instance": {
+                "type": "string",
+                "description": "kilnctl instance or lab name (default: name)"
+              }
+            }
+          }
+        },
+        "kiln.server.default": {
+          "type": "string",
+          "default": "",
+          "description": "Name of the test server that build, deploy, reload, tests and the console use."
+        },
+        "kiln.server.discover": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Also list kilnctl instances (`~/.config/kiln/instances/*.toml`)."
+        },
+        "kiln.server.discoverLabs": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Also list labs (`~/srv/enshrouded/labs/*`, Kiln repository only)."
+        },
+        "kiln.lint.onSave": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Run `kiln lint --json` when a mod file is saved."
+        },
+        "kiln.lint.onType": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Also lint unsaved buffers (`kiln lint --stdin`), debounced."
+        },
+        "kiln.catalog.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Game-data catalog: a folder with `client.json`/`server.json` or one of those files. Empty: `$KILN_CATALOG`, else `~/.local/share/kiln/catalog`."
+        },
+        "kiln.impact.diagnostics": {
+          "type": "string",
+          "enum": [
+            "off",
+            "onSave",
+            "onType"
+          ],
+          "default": "onType",
+          "description": "Assemble and lint Impact programs through tools/impact."
+        },
+        "kiln.tests.timeoutSeconds": {
+          "type": "number",
+          "default": 240,
+          "description": "How long a test run waits for the server's result."
+        },
+        "kiln.log.initialLines": {
+          "type": "number",
+          "default": 200,
+          "description": "Lines of kiln.log shown when following starts."
+        },
+        "kiln.debug.netcoredbg": {
+          "type": "string",
+          "default": "",
+          "description": "netcoredbg.exe for the kiln debug type (Windows build). Empty: $KILN_NETCOREDBG, then tools/netcoredbg/netcoredbg.exe in the Kiln data folder, then the copy bundled with this extension."
+        },
+        "kiln.debug.wine": {
+          "type": "string",
+          "default": "",
+          "description": "wine binary for the debugger. Empty: the one the running server uses, so the debugger joins its wineserver."
+        }
+      }
+    },
+    "problemMatchers": [
+      {
+        "name": "kiln-sdk",
+        "label": "Kiln SDK (KILN0xx/KILN1xx, with a location)",
+        "owner": "kiln-sdk",
+        "source": "kiln",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^\\s*(?:\\d+>)?\\s*([^\\s(][^(]*?)\\((\\d+),(\\d+)(?:,(\\d+),(\\d+))?\\)\\s*:\\s+(error|warning|info)\\s+(KILN\\d{3})\\s*:\\s*(.*?)(?:\\s+\\[[^\\]]+\\])?\\s*$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "endLine": 4,
+          "endColumn": 5,
+          "severity": 6,
+          "code": 7,
+          "message": 8
+        }
+      },
+      {
+        "name": "kiln-sdk-file",
+        "label": "Kiln SDK (KILN0xx, a file without a line)",
+        "owner": "kiln-sdk",
+        "source": "kiln",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^\\s*(?:\\d+>)?\\s*([^\\s(][^(]*?[^\\s)])\\s+:\\s+(error|warning|info)\\s+(KILN\\d{3})\\s*:\\s*(.*?)(?:\\s+\\[[^\\]]+\\])?\\s*$",
+          "kind": "file",
+          "file": 1,
+          "severity": 2,
+          "code": 3,
+          "message": 4
+        }
+      },
+      {
+        "name": "kiln-sdk-project",
+        "label": "Kiln SDK (KILN0xx without a file: reported on the project)",
+        "owner": "kiln-sdk",
+        "source": "kiln",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^\\s*(?:\\d+>)?\\s*(?:MSBUILD\\s*:\\s*)?(error|warning|info)\\s+(KILN\\d{3})\\s*:\\s*(.*?)\\s+\\[([^\\]]+?)(?:::[^\\]]*)?\\]\\s*$",
+          "kind": "file",
+          "severity": 1,
+          "code": 2,
+          "message": 3,
+          "file": 4
+        }
+      },
+      {
+        "name": "kiln-lint",
+        "label": "kiln lint (KLnnn)",
+        "owner": "kiln-lint",
+        "source": "kiln lint",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+):\\s+(error|warning|info|hint)\\s+(KL\\d{3}):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      },
+      {
+        "name": "kiln-impact",
+        "label": "tools/impact assembler",
+        "owner": "kiln-impact",
+        "source": "impact",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^impact:\\s+(.+?\\.k(?:imp|patch)):(\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "message": 3
+        }
+      },
+      {
+        "name": "kiln-dotnet",
+        "label": "dotnet build (C# and other codes, without KILN: those have their own matchers)",
+        "owner": "kiln-dotnet",
+        "source": "dotnet",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^\\s*(?:\\d+>)?\\s*([^\\s(][^(]*?)\\((\\d+),(\\d+)(?:,(\\d+),(\\d+))?\\)\\s*:\\s+(error|warning|info)\\s+((?!KILN\\d)[A-Za-z]+\\d+)\\s*:\\s*(.*?)(?:\\s+\\[[^\\]]+\\])?\\s*$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "endLine": 4,
+          "endColumn": 5,
+          "severity": 6,
+          "code": 7,
+          "message": 8
+        }
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "kiln",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "build",
+              "deploy",
+              "pack",
+              "lint",
+              "cook"
+            ],
+            "description": "What to run."
+          },
+          "project": {
+            "type": "string",
+            "description": "The mod's .csproj, kiln.mod.json folder or impact/cook.json (default: the active mod)."
+          },
+          "reload": {
+            "type": "boolean",
+            "description": "deploy: also reload the mod in the running server."
+          },
+          "server": {
+            "type": "string",
+            "description": "deploy: a test server name (default: the selected one)."
+          },
+          "configuration": {
+            "type": "string",
+            "description": "build/deploy/pack: Debug or Release."
+          }
+        }
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "kiln",
+        "label": "Kiln: attach to a test server",
+        "languages": [
+          "csharp"
+        ],
+        "configurationAttributes": {
+          "attach": {
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "Test server: a name from the Test Servers view, a lab name or a server folder (default: the selected one)."
+              },
+              "justMyCode": {
+                "type": "boolean",
+                "default": true,
+                "description": "netcoredbg: step and stop only in code with symbols that is not optimized."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "kiln",
+            "request": "attach",
+            "name": "Kiln: attach to server"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Kiln: attach to server",
+            "description": "Attach a .NET debugger to a running Kiln test server (netcoredbg in the server's Wine prefix). Disconnecting leaves the server running.",
+            "body": {
+              "type": "kiln",
+              "request": "attach",
+              "name": "Kiln: attach to server"
+            }
+          }
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "csharp"
+      }
+    ]
+  },
+  "scripts": {
+    "sync": "node scripts/sync.mjs",
+    "build": "node scripts/sync.mjs && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p . --noEmit",
+    "test:unit": "node esbuild.mjs --tests && mocha --ui tdd 'out/test/unit/**/*.test.js'",
+    "test:integration": "node esbuild.mjs --tests && xvfb-run -a -s '-screen 0 1280x800x24' node out/test/runIntegration.js",
+    "test": "npm run typecheck && npm run test:unit && npm run test:integration",
+    "package": "node scripts/package.mjs",
+    "fetch:netcoredbg": "node scripts/fetch-netcoredbg.mjs"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^11.8.0",
+    "typescript": "^7.0.2"
+  }
+}

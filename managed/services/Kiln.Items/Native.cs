@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: MIT
+// Mirror of native/core/abi/services/kiln_items.h (kiln.items v1). Blittable only; field order is the ABI (the native
+// side static_asserts the same sizes and offsets).
+using System.Runtime.InteropServices;
+
+namespace Kiln;
+
+internal static unsafe class ItemsNative
+{
+    public const string Service = "kiln.items";
+    public const uint Version = 1;
+
+    // KilnItemsRequest.flags
+    public const uint Level = 0x01, Rarity = 0x02, ExactSlot = 0x04, AllOrNothing = 0x08, Notify = 0x10, NoMerge = 0x20,
+        DryRun = 0x40, Recipe = 0x80;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Request
+    {
+        public uint Size;
+        public uint Flags;
+        public uint Entity;
+        public uint Item;
+        public uint Count;
+        public uint Level;
+        public byte Rarity;
+        public byte R0, R1, R2;
+        public uint Pide;
+        public ulong Slot;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Change
+    {
+        public ulong Slot;
+        public uint Item;
+        public uint Amount;
+        public uint Pide;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Result
+    {
+        public uint Size;
+        public int Status;
+        public ulong Ticket;
+        public uint Entity;
+        public uint Item;
+        public uint Requested;
+        public uint Done;
+        public uint GameError;
+        public uint ChangeCount;
+        public uint Flags;
+        public uint Steps;
+        public fixed byte Changes[16 * 24];
+        public fixed byte Message[160];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Slot
+    {
+        public ulong Id;
+        public uint Item;
+        public uint Count;
+        public uint Pide;
+        public ushort Level;
+        public byte Rarity;
+        public byte Flags;
+        public byte Link;
+        public byte Category;
+        public ushort State;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Inventory
+    {
+        public uint Size;
+        public uint Entity;
+        public byte Initialized;
+        public byte SetupFlags;
+        public byte GenericSlots;
+        public byte AvailableSlots;
+        public uint InventoryCount;
+        public uint SlotTotal;
+        public uint UsedSlots;
+        public fixed uint Inventories[32];
+        public fixed byte Categories[32];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ItemInfo
+    {
+        public uint Size;
+        public uint Id;
+        public fixed byte Guid[16];
+        public ushort MaxStack;
+        public byte Category;
+        public byte Rarity;
+        public uint ItemFlags;
+        public uint LevelMin;
+        public uint LevelMax;
+        public byte EquipSlot;
+        public byte Gear;
+        public byte R0, R1;
+        public NativeStr Name;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Status
+    {
+        public uint Size;
+        public byte Transactions;
+        public byte Read;
+        public byte Catalog;
+        public byte Program;
+        public uint Pending;
+        public uint Items;
+        public ulong Committed;
+        public ulong RolledBack;
+        public ulong ProgramUpdates;
+        public fixed byte Detail[160];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table
+    {
+        public ServiceHeader Header;
+        public delegate* unmanaged[Cdecl]<ulong, Request*, delegate* unmanaged[Cdecl]<Result*, void*, void>, void*, ulong*, int> Give;
+        public delegate* unmanaged[Cdecl]<ulong, Request*, delegate* unmanaged[Cdecl]<Result*, void*, void>, void*, ulong*, int> Take;
+        public delegate* unmanaged[Cdecl]<ulong, int> Cancel;
+        public delegate* unmanaged[Cdecl]<ulong, void> CancelOwner;
+        public delegate* unmanaged[Cdecl]<uint, Inventory*, Slot*, uint, uint*, int> Read;
+        public delegate* unmanaged[Cdecl]<uint, uint*, uint, uint*, int> FindInventories;
+        public delegate* unmanaged[Cdecl]<uint> ItemCount;
+        public delegate* unmanaged[Cdecl]<uint, ItemInfo*, int> ItemAt;
+        public delegate* unmanaged[Cdecl]<uint, ItemInfo*, int> ItemInfoOf;
+        public delegate* unmanaged[Cdecl]<NativeStr, uint> FindItem;
+        public delegate* unmanaged[Cdecl]<byte*, uint> IdOfGuid;
+        public delegate* unmanaged[Cdecl]<Status*, int> GetStatus;
+    }
+
+    public static string Text(byte* p, int max)
+    {
+        var n = 0;
+        while (n < max && p[n] != 0) n++;
+        return System.Text.Encoding.UTF8.GetString(p, n);
+    }
+
+    // KilnResult
+    public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, WrongThread = 4, BufferTooSmall = 5;
+}

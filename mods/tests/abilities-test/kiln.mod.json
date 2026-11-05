@@ -1,0 +1,9 @@
+{
+  "id": "abilities-test",
+  "name": "kiln.abilities lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "AbilitiesTest.dll",
+  "side": "server",
+  "advanced": true
+}

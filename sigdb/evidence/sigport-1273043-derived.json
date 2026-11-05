@@ -1,0 +1,4159 @@
+{
+ "format": 1,
+ "evidence": "sigport derived sigdb",
+ "exe": {
+  "build": 1273043,
+  "sha256": "d7baa768eb00aa895d9f5a1cd8747ccf66858c7b542f50983092b2e3261588ee",
+  "path": "enshrouded_server.exe"
+ },
+ "symbols_1273043": {
+  "AddLogListener": "0x53fdb0",
+  "GameLog": "0x56fe20",
+  "GetComponent": "0x647df0",
+  "GetEntityTransform": "0x648dc0",
+  "GetTemplateComponent": "0x648b60",
+  "RegisterSingleton": "0x677240",
+  "SimStep": "0x6c0fc0",
+  "SpawnWrapper": "0x61a490",
+  "WaitTaskGroup": "0x5d55d0",
+  "WaitWorldJobs": "0x6c2120",
+  "WorldDestroy": "0x636cb0",
+  "chat/ChatLogAdd": "0x90b330",
+  "chat/MarkSent": "0x944d90",
+  "chat/ReceiveAddLine": "0x7b50d9",
+  "chat/ServerReceive": "0x7b45b0",
+  "combat/AllocPendingHit": "0x9819c0",
+  "combat/AlreadyHit": "0x98a0e0",
+  "combat/ApplyHit": "0x18b8c0",
+  "combat/AttrAdd": "0x18b120",
+  "combat/AttrChangeRecord": "0x17bb7a",
+  "combat/AttrFind": "0x986f90",
+  "combat/ClearPendingHits": "0x983080",
+  "combat/DeathProgram": "0x85bf0",
+  "combat/FallCheck": "0x86a30",
+  "combat/FallEntityId": "0x654ab0",
+  "combat/FallStore": "0x86d23",
+  "combat/HitConclusion": "0x190670",
+  "combat/PendingPush": "0x990e70",
+  "combat/RegenAdd": "0x54131",
+  "combat/RegenProgram": "0x53ac0",
+  "combat/TriggerKnowledgeOnKill": "0x1b7c30",
+  "content/DefaultInventoryAcquire": "0x1981a0",
+  "content/ItemRegistryFind": "0x9315d0",
+  "content/ItemRegistryUpdate": "0x960790",
+  "content/LootFind": "0x925970",
+  "content/RecipeFind": "0x936a30",
+  "content/RecipeFinishLoading": "0x963ab0",
+  "content/StackClamp": "0x1b28d3",
+  "content/TypeByHash": "0x7d7ed0",
+  "gameplay/CraftRecipe": "0x20b3b0",
+  "gameplay/DeliverEvents": "0x6ba490",
+  "gameplay/DismantleBlock": "0x2208b0",
+  "gameplay/DismantleBlock2": "0x221430",
+  "gameplay/EmitEvent": "0x5f6bb0",
+  "gameplay/InventoryActions": "0x1a03f0",
+  "gameplay/InventoryTransfer": "0x1990a0",
+  "gameplay/JobEventBuffer": "0x65a3d0",
+  "gameplay/JobProgramId": "0x6586b0",
+  "gameplay/PickUpProp": "0x222440",
+  "gameplay/PlaceBlueprint": "0x220030",
+  "gameplay/PlaceProp": "0x21f7f0",
+  "gameplay/ProgramTime": "0x659e30",
+  "gameplay/QueueSpawn": "0x5f4da0",
+  "gameplay/RandomSpawnerSpawnRet": "0x101ea7",
+  "gameplay/RecipeFind": "0x936a30",
+  "gameplay/TerraformImpact": "0x1888f0",
+  "items/ComponentMapFind": "0x646ce0",
+  "items/GuidToItemId": "0x3d440",
+  "items/HashMapFindEntity": "0x649cd0",
+  "items/InventoryAddItems": "0x1ac790",
+  "items/InventoryCommit": "0x1aa0a0",
+  "items/InventoryFreeArrays": "0x3bba0",
+  "items/InventoryRemoveItems": "0x1ab5d0",
+  "items/InventoryRollback": "0x1b2b10",
+  "items/InventoryTxCtor": "0x3ba50",
+  "items/InventoryTxInit": "0x1b3aa0",
+  "items/ItemRegistryFind": "0x9315d0",
+  "items/IterBegin": "0x65cb40",
+  "items/JobStorage": "0x654c50",
+  "items/ReadOther": "0x647a80",
+  "items/ReadOtherImpl": "0x647b20",
+  "items/RegisterAllPrograms": "0x23ffc0",
+  "items/RegisterProgram": "0x6778e0",
+  "net/SendLoginResult": "0x7acc80",
+  "net/ServerReceive": "0x7b45b0",
+  "net/SessionAbort": "0x9f4aa0",
+  "net/SessionAlloc": "0x9f8a60",
+  "net/SessionCommit": "0x9efc80",
+  "net/SessionFree": "0x9efc20",
+  "net/SessionRead": "0x9f88d0",
+  "net/SyncReturn": "0x7b45d8",
+  "net/SyncSockets": "0x7b3e50",
+  "players/HandleToEntity": "0x15bb20",
+  "players/InfoHandle": "0x15dc30",
+  "players/IsAdmin": "0x160330",
+  "players/MachineLoggedIn": "0x7a6433",
+  "players/RegisterSingleton": "0x677240",
+  "players/UpdatePlayers": "0x7b58b8",
+  "saves/LoadSavegameStep": "0x7a8780",
+  "saves/RequestServerSave": "0x7afea0",
+  "saves/RetAutosave": "0x7b3904",
+  "saves/RetPlayerLeave": "0x7b4d6f",
+  "saves/RetShutdown": "0x7afbcb",
+  "saves/Save2WriteWorld": "0x724360",
+  "settings/DaytimeSetDurations": "0x95f9b0",
+  "settings/SendServerInfo": "0x7b9060",
+  "settings/TypeByHash": "0x7d7ed0",
+  "spawn/CreateEntity": "0x61d350",
+  "spawn/DestroyEntity": "0x637730",
+  "time/DaytimeSyncIfChanged": "0x965910",
+  "time/DaytimeUpdate": "0x95f650",
+  "time/GameTimeToTod": "0x9283a0",
+  "time/GetGameTime": "0x92da40",
+  "time/SendServerInfo": "0x7b9060",
+  "time/ServerGameDaytimeSync": "0x234a70",
+  "time/SetTimeOfDay": "0x94f5a0",
+  "time/TodToGameTime": "0x91d590",
+  "time/WeatherRemoveInstance": "0xa168b0",
+  "time/WeatherUpdate": "0xa18b40",
+  "time/WeatherUpdateLayers": "0xa18720",
+  "world/CurrentEntityId": "0x654ab0",
+  "world/FinalizePrograms": "0x6ba690",
+  "world/GetComponentByType": "0x647b20",
+  "world/IterBegin": "0x65cb40",
+  "world/IterNext": "0x6576e0",
+  "world/JobCmdBuf": "0x6524d0",
+  "world/JobStorage": "0x654c50",
+  "world/MarkWritten": "0x667ec0",
+  "world/QueuePush": "0x5f3bb0",
+  "world/ReadOther": "0x647a80",
+  "world/RegisterAllPrograms": "0x23ffc0",
+  "world/RegisterProgram": "0x6778e0",
+  "world/ResolveAccess": "0x696e20",
+  "world/ResolveEvents": "0x61f7c0",
+  "world/ResolveSingletons": "0x61fb10"
+ },
+ "constants_1273043": {
+  "chat/gs.chat": "0x60",
+  "chat/gs.player_stride": "0x148",
+  "chat/gs.players": "0x1e0",
+  "chat/gs.players_size": "0x1480",
+  "chat/max_text": "0x400",
+  "chat/node.account": "0x18",
+  "chat/node.handle": "0x14",
+  "chat/node.len": "0x8",
+  "chat/node.mask": "0x20",
+  "chat/node.next": "0x30",
+  "chat/node.prev": "0x28",
+  "chat/node.text": "0x40",
+  "chat/player.account": "0x48",
+  "chat/player.entity": "0x18",
+  "chat/player.name": "0x20",
+  "chat/player.peer": "0x4",
+  "chat/player.permissions": "0x10",
+  "chat/player.state": "0xa",
+  "chat/sys.inbox_count": "0x1d0",
+  "chat/sys.inbox_head": "0x1c0",
+  "chat/sys.inbox_tail": "0x1c8",
+  "chat/sys.reader_active": "0xc",
+  "chat/sys.reader_gen": "0x10",
+  "chat/sys.reader_pending": "0x14",
+  "chat/sys.reader_stride": "0xc",
+  "chat/sys.readers": "0x20",
+  "combat/actor.state": "0xbf8",
+  "combat/attr.registry_map": "0x68",
+  "combat/evq.block_shift": "0xb",
+  "combat/evq.blocks": "0x30",
+  "combat/evq.count": "0x18",
+  "combat/evq.first": "0x40",
+  "combat/evq.next": "0x2",
+  "combat/fall.frame": "0xb0",
+  "combat/fall.pct": "0xc",
+  "combat/fall.pct2": "0xc",
+  "combat/hit.flags": "0x98",
+  "combat/hit.health_change": "0xbc",
+  "combat/hit.kind": "0x144",
+  "combat/hit.size": "0x150",
+  "combat/hits.cap": "0x120",
+  "combat/hits.count": "0x118",
+  "combat/hits.pool": "0x110",
+  "content/clamp.max_stack": "0x14",
+  "content/enum.stride": "0x28",
+  "content/enum.value": "0x10",
+  "content/field.offset": "0x18",
+  "content/field.stride": "0x30",
+  "content/field.type": "0x10",
+  "content/hmap.bits": "0x8",
+  "content/hmap.capacity": "0x10",
+  "content/hmap.count": "0x54",
+  "content/hmap.keys": "0x28",
+  "content/hmap.values": "0x40",
+  "content/items.loading": "0x320",
+  "content/items.map": "0x38",
+  "content/items.map2": "0x38",
+  "content/items.started": "0x321",
+  "content/lootgen.lootreg": "0x18",
+  "content/recipes.bits": "0x50",
+  "content/recipes.cap": "0x58",
+  "content/recipes.count": "0x9c",
+  "content/recipes.keys": "0x70",
+  "content/recipes.map": "0x48",
+  "content/recipes.resource": "0x20",
+  "content/recipes.values": "0x88",
+  "content/recipes.workshops": "0xf8",
+  "content/recipes.ws_count": "0x1000",
+  "content/recipes.ws_max": "0x200",
+  "content/recipes.ws_stride": "0x1008",
+  "content/type.count": "0x48",
+  "content/type.enum_values": "0x60",
+  "content/type.fields": "0x58",
+  "content/type.hash": "0x50",
+  "content/type.inner": "0x38",
+  "content/type.kind": "0x4c",
+  "content/type.qname": "0x20",
+  "content/type.size": "0x40",
+  "gameplay/buffer.stride": "0x18",
+  "gameplay/buffer.used": "0x10",
+  "gameplay/events.map.bits": "0xe151c0",
+  "gameplay/events.map.cap": "0xe151c8",
+  "gameplay/events.map.count": "0xe1520c",
+  "gameplay/events.map.keys": "0xe151e0",
+  "gameplay/events.map.values": "0xe151f8",
+  "gameplay/impact.arg_base": "0x10",
+  "gameplay/impact.arg_offset": "0xe",
+  "gameplay/impact.arg_stride": "0x18",
+  "gameplay/op.player": "0x14c",
+  "gameplay/pi.item.slot": "0x1e4",
+  "gameplay/pi.item.type": "0x1f8",
+  "gameplay/pi.item.version": "0x1f4",
+  "gameplay/pi.transfer.slot": "0x14",
+  "gameplay/pi.transfer.type": "0x24",
+  "gameplay/pi.transfer.version": "0x8",
+  "gameplay/recipes.map.bits": "0x50",
+  "gameplay/recipes.map.cap": "0x58",
+  "gameplay/recipes.map.count": "0x9c",
+  "gameplay/recipes.workshops": "0xf8",
+  "gameplay/record.size": "0x6",
+  "gameplay/scpi.item": "0x80",
+  "gameplay/scpi.transfer": "0x20",
+  "gameplay/storage.pending": "0xeb9ef0",
+  "gameplay/storage.pending_count": "0xeb9ef8",
+  "gameplay/storage.queues": "0xeb9e58",
+  "gameplay/teleport.applied": "0x48",
+  "gameplay/teleport.find_ground": "0x49",
+  "gameplay/teleport.target_entity": "0x38",
+  "items/hmap.bits": "0x8",
+  "items/hmap.capacity": "0x10",
+  "items/hmap.count": "0x54",
+  "items/hmap.keys": "0x28",
+  "items/hmap.values": "0x40",
+  "items/item.flags": "0x5d8",
+  "items/item.max_stack": "0x14",
+  "items/registry.components": "0x88",
+  "items/registry.items": "0x38",
+  "items/setup.operator": "0xc8",
+  "items/setup_c.initialized": "0x53",
+  "items/storage.entities": "0x148",
+  "items/tx.flags": "0xb0",
+  "items/tx.operator": "0xe0",
+  "items/tx.ops": "0xf0",
+  "items/tx.ops_inline": "0x118",
+  "items/tx.remap": "0x6918",
+  "items/tx.remap_inline": "0x6940",
+  "items/tx.result": "0x71a8",
+  "items/tx.touched": "0x7140",
+  "items/tx.touched_capacity": "0x10",
+  "items/tx.touched_inline": "0x7168",
+  "items/world.program_count": "0xe15350",
+  "items/world.program_stride": "0x1f20",
+  "net/after_sync.gs_register": "0xd",
+  "net/channel": "0xc",
+  "net/channel.mode": "0x3",
+  "net/gs.machine_count": "0x11",
+  "net/gs.machines": "0x16a0",
+  "net/gs.records": "0x1e0",
+  "net/gs.sockets": "0x30",
+  "net/machine.sockets": "0x10",
+  "net/machine.stride": "0x20",
+  "net/rec.account": "0x48",
+  "net/rec.count": "0x10",
+  "net/rec.entity": "0x18",
+  "net/rec.name": "0x20",
+  "net/rec.peer": "0x4",
+  "net/rec.state": "0xa",
+  "net/rec.stride": "0x148",
+  "net/sockets.machines": "0x28",
+  "players/info.admin": "0x9d",
+  "players/info.handle": "0x4",
+  "players/info.max_index": "0x3fe",
+  "players/info.stride": "0xa0",
+  "players/rec.account": "0x48",
+  "players/rec.count": "0x10",
+  "players/rec.entity": "0x18",
+  "players/rec.group": "0xc",
+  "players/rec.group_current": "0x74",
+  "players/rec.name": "0x20",
+  "players/rec.peer": "0x4",
+  "players/rec.permissions": "0x10",
+  "players/rec.state": "0xa",
+  "players/rec.stride": "0x148",
+  "players/server.records": "0x1e0",
+  "players/server.world": "0x1d0",
+  "players/singleton.hash": "0xa0",
+  "players/singleton.object": "0xa8",
+  "players/singleton.stride": "0xe8",
+  "players/world.singleton_map": "0x7462f8",
+  "players/world.singleton_map.bits": "0x746300",
+  "players/world.singleton_map.capacity": "0x746308",
+  "players/world.singleton_map.count": "0x74634c",
+  "players/world.singleton_map.keys": "0x746320",
+  "players/world.singleton_map.values": "0x746338",
+  "players/world.singletons": "0x7462d0",
+  "saves/autosave.hi": "0x6",
+  "saves/autosave.lo": "0xfc23ac00",
+  "saves/inst.last_request": "0x17b0",
+  "saves/inst.save2": "0x1c8",
+  "saves/inst.save_block": "0x18aa",
+  "saves/inst.save_sys": "0x20",
+  "saves/inst.slot_valid": "0x1756",
+  "saves/s2.guid": "0xec",
+  "saves/s2.result": "0xe4",
+  "saves/s2.rev_rel": "0x10",
+  "saves/s2.slot": "0xdf",
+  "saves/ss.flags": "0x70",
+  "saves/ss.state": "0x78",
+  "settings/daytime.authoritative": "0x59",
+  "settings/daytime.changes": "0x24",
+  "settings/daytime.day": "0x38",
+  "settings/daytime.night": "0x40",
+  "settings/daytime.tod": "0x48",
+  "settings/enum.stride": "0x28",
+  "settings/enum.value": "0x10",
+  "settings/field.offset": "0x18",
+  "settings/field.stride": "0x30",
+  "settings/field.type": "0x10",
+  "settings/instance.preset": "0x1760",
+  "settings/instance.resend": "0x18e0",
+  "settings/instance.settings": "0x1758",
+  "settings/instance.systems": "0x1d8",
+  "settings/instance.world": "0x1d0",
+  "settings/type.count": "0x48",
+  "settings/type.enum_values": "0x60",
+  "settings/type.fields": "0x58",
+  "settings/type.hash": "0x50",
+  "settings/type.inner": "0x38",
+  "settings/type.kind": "0x4c",
+  "settings/type.qname": "0x20",
+  "settings/type.size": "0x40",
+  "singleton.hash": "0xa0",
+  "singleton.object": "0xa8",
+  "singleton.stride": "0xe8",
+  "spawn/record.id": "0x10",
+  "spawn/record.parent": "0x14",
+  "spawn/record.template": "0x28",
+  "spawn/registry.component_map": "0x88",
+  "spawn/registry.template_map": "0x745810",
+  "spawn/registry.template_map_cap": "0x745820",
+  "spawn/registry.template_map_values": "0x745850",
+  "spawn/storage.entity_map": "0x148",
+  "spawn/storage.entity_map_cap": "0x158",
+  "spawn/storage.entity_records": "0x188",
+  "spawn/template.components": "0x28",
+  "spawn/template.family": "0x20",
+  "spawn/template.name": "0x10",
+  "storage.clock": "0x4dc",
+  "storage.clock_period": "0x4c0",
+  "storage.kind": "0x8",
+  "storage.step_mode": "0x518",
+  "time/daytime.anchor_ecs": "0x10",
+  "time/daytime.anchor_game": "0x18",
+  "time/daytime.counter": "0x24",
+  "time/daytime.day_length": "0x38",
+  "time/daytime.day_start": "0x28",
+  "time/daytime.is_day": "0x58",
+  "time/daytime.night_length": "0x40",
+  "time/daytime.night_start": "0x30",
+  "time/daytime.scale": "0x20",
+  "time/daytime.tod": "0x48",
+  "time/gs.daytime_synced": "0x17c4",
+  "time/gs.server_game": "0x1d8",
+  "time/sg.daytime": "0x2d0",
+  "time/weather.layer_count": "0xd0",
+  "time/weather.layer_cur": "0x10",
+  "time/weather.layer_prev": "0x14",
+  "time/weather.layer_stride": "0x18",
+  "time/weather.layers": "0xc8",
+  "time/weather.mode": "0x8",
+  "world.jobs": "0xe15d60",
+  "world.singleton_map": "0x7462f8",
+  "world.singleton_map.bits": "0x746300",
+  "world.singleton_map.capacity": "0x746308",
+  "world.singleton_map.count": "0x74634c",
+  "world.singleton_map.keys": "0x746320",
+  "world.singleton_map.values": "0x746338",
+  "world.singletons": "0x7462d0",
+  "world.storage": "0xe15dc0",
+  "world/actor.state": "0xbf8",
+  "world/cmdbuf.queue": "0x10",
+  "world/ctx.index": "0x8",
+  "world/desc.flags": "0x180",
+  "world/desc.interval": "0x184",
+  "world/entity.chunk": "0x20",
+  "world/entity.index": "0x30",
+  "world/entity.layout": "0x18",
+  "world/entry.flags": "0x20",
+  "world/entry.id": "0x8",
+  "world/entry.interval": "0x24",
+  "world/job.cmdbuf": "0x8",
+  "world/job.entity_count": "0x830",
+  "world/job.entity_list": "0x828",
+  "world/job.events_in_count": "0x1a8",
+  "world/job.events_out_count": "0x1b0",
+  "world/job.other_count": "0x7a0",
+  "world/job.other_tpl_count": "0x7f0",
+  "world/job.read_count": "0x4b8",
+  "world/job.singletons": "0xc0",
+  "world/job.storage": "0x30",
+  "world/job.tpl_count": "0x4b0",
+  "world/job.write_count": "0x4ba",
+  "world/layout.offsets": "0x84",
+  "world/layout.strides": "0xa84",
+  "world/programs.count": "0xe15350",
+  "world/programs.max": "0x380",
+  "world/programs.names": "0x746360",
+  "world/programs.stride": "0x1f20",
+  "world/programs.table": "0x746350",
+  "world/record.data": "0x6c",
+  "world/record.hashes": "0xc",
+  "world/record.remove_size": "0x4c",
+  "world/record.sizes": "0x4c",
+  "world/record.teleport_size": "0xbc",
+  "world/registry.components": "0x88",
+  "world/registry.events.bits": "0xe151c0",
+  "world/registry.events.cap": "0xe151c8",
+  "world/registry.events.count": "0xe1520c",
+  "world/registry.events.keys": "0xe151e0",
+  "world/registry.events.values": "0xe151f8",
+  "world/registry.singletons.bits": "0x7459d8",
+  "world/registry.singletons.cap": "0x7459e0",
+  "world/registry.singletons.count": "0x745a24",
+  "world/registry.singletons.keys": "0x7459f8",
+  "world/registry.singletons.values": "0x745a10",
+  "world/registry.templates": "0x30",
+  "world/singletons.count": "0x400",
+  "world/storage.entities": "0x148",
+  "world/storage.entities.cap": "0x158",
+  "world/storage.entities.values": "0x188",
+  "world/teleport.applied": "0x48",
+  "world/teleport.find_ground": "0x49",
+  "world/teleport.target_entity": "0x38",
+  "world/world.may_finalize": "0xe15d58"
+ },
+ "doc": {
+  "format": 1,
+  "side": "server",
+  "comment": "sigport-derived sigdb for server build 1273043 only: the sigdb of that time ported backwards 1285601 -> 1273043 with port.py --regenerate-all --no-generalize, so every pattern is cut from 1273043 bytes. Hand-checked (sigport-bench-2026-11-04.json). Input of the blind replay: bench.py replay, or port.py --defs on a tree made from this doc. Not for deployment.",
+  "symbols": {
+   "SimStep": {
+    "find": [
+     {
+      "pattern": "40 55 53 56 41 55 48 8D AC 24 F8 FF"
+     }
+    ]
+   },
+   "@SimStep.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "SimStep",
+       "size": 8192
+      },
+      "pattern": "48 8D 9E {storage.clock:d32} 4C 8B BC"
+     },
+     {
+      "scope": {
+       "symbol": "SimStep",
+       "size": 8192
+      },
+      "pattern": "48 8B 86 {storage.clock_period:d32} 48 85 D2"
+     },
+     {
+      "scope": {
+       "symbol": "SimStep",
+       "size": 8192
+      },
+      "pattern": "C6 81 {storage.step_mode:d32} 01 E8 ?? ?? ?? ?? 84 DB"
+     }
+    ]
+   },
+   "WaitWorldJobs": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "SimStep",
+       "size": 8192
+      },
+      "pattern": "CC 48 8B 89 {world.jobs:d32} E9 {WaitTaskGroup:rel32} CC",
+      "offset": 1
+     },
+     {
+      "pattern": "48 8B 89 60 5D E1 00 E9 {WaitTaskGroup:rel32} CC CC CC CC"
+     }
+    ]
+   },
+   "GetComponent": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D BA {world.storage:d32} 44"
+     }
+    ]
+   },
+   "GetEntityTransform": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 {world.storage:d32} 89 54 24 38 48 8D"
+     }
+    ]
+   },
+   "GetTemplateComponent": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 {world.storage:d32} 89 54 24 38 48 8B"
+     }
+    ]
+   },
+   "SpawnWrapper": {
+    "find": [
+     {
+      "pattern": "48 83 EC 58 0F 10 02 8B 15 ?? ?? ?? ?? 33 C0 41 0F 10 08 48 81 C1 {world.storage:d32}"
+     }
+    ]
+   },
+   "GameLog": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D AC 24 40"
+     }
+    ]
+   },
+   "AddLogListener": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 20 48 8B FA 48 8B F1"
+     }
+    ]
+   },
+   "RegisterSingleton": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 20 55 56 57 41 54 41 55 48 83 EC 20 4C"
+     }
+    ]
+   },
+   "@RegisterSingleton.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8B 8F {world.singleton_map.capacity:d32} 39 B7 {world.singleton_map.count:d32} 74 ?? 4C 8B 9F {world.singleton_map.bits:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8B 97 {world.singleton_map.keys:d32} 43 39 1C"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "48 8B 87 {world.singleton_map.values:d32} 4A 8D 0C"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8D BF {world.singletons:d32} 49 8B 57"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4D 69 77 08 {singleton.stride:d32} 4D 03"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4D 89 A6 {singleton.object:d32} 49 8D 4D 08 41 89 9E {singleton.hash:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "48 8D 8F {world.singleton_map:d32} 49 8D 96 {singleton.hash:d32}"
+     }
+    ]
+   },
+   "WorldDestroy": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 40 80 39 03 48 8B F9 74 ?? C6 01 03 4C 8D B1 {world.storage:d32} 45 33 FF 45 38 7E {storage.kind:d8}"
+     }
+    ]
+   },
+   "chat/ChatLogAdd": {
+    "find": [
+     {
+      "pattern": "40 55 56 41 54 41 55 41 57 48 83 EC 30 49 8B 41 08 33 ED 4D 8B F9 45 0F B6 E0 48 8B F2 4C 8B E9 48 3D {chat/max_text:d32}"
+     }
+    ]
+   },
+   "@chat.add_fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "chat/ChatLogAdd",
+       "size": 1024
+      },
+      "pattern": "48 8B 86 {chat/sys.inbox_tail:d32} 48 85 C0 75 ?? 48 89 BE {chat/sys.inbox_head:d32} EB ?? 48 89 78 {chat/node.next:d8} 48 8B 86 C8 01 00 00 48 89 47 {chat/node.prev:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "chat/ChatLogAdd",
+       "size": 1024
+      },
+      "pattern": "48 FF 86 {chat/sys.inbox_count:d32} 44 8B 47 {chat/node.len:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "chat/ChatLogAdd",
+       "size": 1024
+      },
+      "pattern": "48 F7 DB 89 47 {chat/node.handle:d8} 1B C0 44 88 27 83 E0 3C 89 6F {chat/node.mask:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "chat/ChatLogAdd",
+       "size": 1024
+      },
+      "pattern": "48 89 47 {chat/node.account:d8} 48 8B 86"
+     }
+    ]
+   },
+   "chat/MarkSent": {
+    "find": [
+     {
+      "pattern": "8B 42 {chat/node.mask:d8} 44 0F AB C0 89 42 {chat/node.mask:d8} 41 8B C0 48 8D 14 40 44 29 4C 91 {chat/sys.reader_pending:d8}"
+     }
+    ]
+   },
+   "@chat.readers": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 41 8B C0 48 8B DA 4C 8B D9 4C 8D 14 40 42 80 7C 91 {chat/sys.reader_active:d8} 00 74 ?? 46 39 4C 91 {chat/sys.reader_gen:d8} 75 ?? 48 8D 41 {chat/sys.reader_pending:d8}"
+     },
+     {
+      "pattern": "48 8B 89 {chat/sys.inbox_head:d32} 48 85 C9 74 ?? 0F 1F 00 8B 41 {chat/node.mask:d8} 44 0F AB C0 89 41 {chat/node.mask:d8} 48 8B 49 {chat/node.next:d8}"
+     }
+    ]
+   },
+   "chat/ServerReceive": {
+    "find": [
+     {
+      "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 D8"
+     }
+    ]
+   },
+   "chat/ReceiveAddLine": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "chat/ServerReceive",
+       "size": 8192
+      },
+      "offset": 56,
+      "pattern": "49 8B 55 {chat/gs.chat:d8} 4C 8D 4D F8 48 89 44 24 40 48 8D 4D 08 8B 85 70 09 00 00 48 89 5C 24 38 89 44 24 30 8B 85 1C 09 00 00 89 44 24 28 8B 85 18 09 00 00 89 44 24 20 C6 45 20 00 E8 {chat/ChatLogAdd:rel32}"
+     }
+    ]
+   },
+   "@chat.players": {
+    "find": [
+     {
+      "pattern": "48 69 C8 {chat/gs.player_stride:d32} 48 81 C1 {chat/gs.players:d32} 48 03 CF 39 11 0F"
+     },
+     {
+      "pattern": "48 81 C7 {chat/gs.player_stride:d32} 48 81 FF {chat/gs.players_size:d32} 0F 82 ?? ?? ?? ?? 4C 8B 7C 24"
+     },
+     {
+      "pattern": "80 79 {chat/player.state:d8} 02 0F 85 ?? ?? ?? ?? 8B 41 {chat/player.peer:d8} 4C 8D 44 24 50"
+     },
+     {
+      "pattern": "41 F6 46 {chat/player.permissions:d8} 01 74 ?? 4C 8D 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 48"
+     },
+     {
+      "pattern": "49 8D 46 {chat/player.name:d8} 41 B9 01 00 00 00 F2 0F 10 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? B1 03 F2 0F 11 45 80 C7 44 24 58 27 00 00 00 48 89 5C 24 60 48 89 44 24 68 E8 ?? ?? ?? ?? 41 8B 56 {chat/player.entity:d8}"
+     },
+     {
+      "pattern": "49 8B 4E {chat/player.account:d8} 4C 8D 05 ?? ?? ?? ?? 41 8B 16 85 C0 4C"
+     }
+    ]
+   },
+   "combat/AttrFind": {
+    "find": [
+     {
+      "pattern": "89 54 24 10 53 48 83 EC 20 48 8B D9 48 8D 54 24 38 49 8D 48 {combat/attr.registry_map:d8}"
+     }
+    ]
+   },
+   "combat/ApplyHit": {
+    "find": [
+     {
+      "pattern": "4C 89 44 24 18 48 89 54 24 10 55 57 41 54 41 55 41 56 41"
+     }
+    ]
+   },
+   "@combat/ApplyHit.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/ApplyHit",
+       "size": 4096
+      },
+      "pattern": "44 8B 0D ?? ?? ?? ?? 44 8B C6 48 8B 55 A0 49 8B CE E8 {combat/AttrAdd:rel32}"
+     },
+     {
+      "scope": {
+       "symbol": "combat/ApplyHit",
+       "size": 4096
+      },
+      "pattern": "41 0F B6 85 {combat/hit.kind:d32} 89 7C"
+     },
+     {
+      "scope": {
+       "symbol": "combat/ApplyHit",
+       "size": 4096
+      },
+      "pattern": "45 8B 95 {combat/hit.flags:d32} 33 DB 45 0F B6 85 E2 00 00 00 41 8B C2 41 8B B5 {combat/hit.health_change:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "combat/ApplyHit",
+       "size": 4096
+      },
+      "pattern": "81 8B {combat/hit.flags:d32} 00 20 00 00"
+     }
+    ]
+   },
+   "combat/HitConclusion": {
+    "find": [
+     {
+      "pattern": "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 68 FC"
+     }
+    ]
+   },
+   "@combat/HitConclusion.calls": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/HitConclusion",
+       "size": 8192
+      },
+      "pattern": "4C 8D 8D 40 02 00 00 48 8B D0 4C 8D 85 70 01 00 00 4C 8B F0 48 8D 8D E8 03 00 00 E8 {combat/ApplyHit:rel32}"
+     },
+     {
+      "scope": {
+       "symbol": "combat/HitConclusion",
+       "size": 8192
+      },
+      "pattern": "8B 13 48 8B 8D A8 01 00 00 E8 {combat/AlreadyHit:rel32} 84 C0 0F 85 ?? ?? ?? ?? 44"
+     }
+    ]
+   },
+   "combat/AllocPendingHit": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B D9 0F B6 FA 48 81 C1 {combat/hits.pool:d32} E8 {combat/PendingPush:rel32}"
+     }
+    ]
+   },
+   "combat/ClearPendingHits": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 40 48 8B 91 {combat/hits.cap:d32} 4C 8D 44 24 20 8B 81 40 01 00 00 33 FF 48 89 B9 {combat/hits.count:d32}"
+     }
+    ]
+   },
+   "combat/TriggerKnowledgeOnKill": {
+    "find": [
+     {
+      "pattern": "48 89 4C 24 08 55 56 41 55 41 57 48 8D AC"
+     }
+    ]
+   },
+   "@combat/TriggerKnowledgeOnKill.queue": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/TriggerKnowledgeOnKill",
+       "size": 512
+      },
+      "pattern": "41 0F B7 40 {combat/evq.first:d8} 66 85 C0 75 ?? 45 33 ED EB ?? 44 8D 68 FF 49 C1 E5 {combat/evq.block_shift:d8} 4D 03 68 {combat/evq.blocks:d8} 41 8B 40 {combat/evq.count:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "combat/TriggerKnowledgeOnKill",
+       "size": 512
+      },
+      "pattern": "41 0F B7 45 {combat/evq.next:d8} 66 85"
+     }
+    ]
+   },
+   "combat/DeathProgram": {
+    "find": [
+     {
+      "pattern": "40 55 56 48 8D 6C 24 E8 48 81 EC 18 01 00 00 41 B8 88"
+     }
+    ]
+   },
+   "@combat/DeathProgram.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/DeathProgram",
+       "size": 2048
+      },
+      "pattern": "48 81 88 {combat/actor.state:d32} 80 00 00"
+     },
+     {
+      "scope": {
+       "symbol": "combat/DeathProgram",
+       "size": 2048
+      },
+      "pattern": "48 81 A0 {combat/actor.state:d32} 7F FF FF"
+     }
+    ]
+   },
+   "@combat/ClearPendingHits.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/ClearPendingHits",
+       "size": 512
+      },
+      "pattern": "48 69 D7 {combat/hit.size:d32} 48 2B C7 48 03 D1 4C 69 C0 {combat/hit.size:d32}"
+     }
+    ]
+   },
+   "@combat/HitConclusion.stride": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/HitConclusion",
+       "size": 4096
+      },
+      "pattern": "33 DB 49 FF C7 49 81 C4 {combat/hit.size:d32}"
+     }
+    ]
+   },
+   "combat/FallCheck": {
+    "find": [
+     {
+      "pattern": "48 8B 45 {combat/fall.frame:d8} 44 0F 2F 40 {combat/fall.pct:d8} 0F 83 ?? ?? ?? ?? 48 8B 4D"
+     }
+    ]
+   },
+   "combat/FallStore": {
+    "find": [
+     {
+      "pattern": "48 8B 45 B0 48 8D 95 20 01 00 00 F3 0F 11 70 {combat/fall.pct2:d8} 49 8B CF E8 {combat/FallEntityId:rel32}",
+      "offset": 11
+     }
+    ]
+   },
+   "combat/RegenProgram": {
+    "find": [
+     {
+      "pattern": "40 55 41 55 41 56 48 8D 6C 24 B0 48"
+     }
+    ]
+   },
+   "combat/RegenAdd": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "combat/RegenProgram",
+       "size": 2048
+      },
+      "pattern": "F3 0F 2C C6 4C 03 C3 41",
+      "offset": 7
+     }
+    ]
+   },
+   "combat/AttrChangeRecord": {
+    "find": [
+     {
+      "pattern": "81 FB 95 49 B8 8E 74 ?? 81 FB 8B AA B6 04 74 ?? 81 FB 4E 57 A2 6A 75 ?? 49 8B 4C 24 30 48 8B 89 10 01 00 00 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 45",
+      "offset": 46
+     }
+    ]
+   },
+   "content/TypeByHash": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 3D ?? ?? ?? ?? 8B"
+     }
+    ]
+   },
+   "@content/TypeByHash.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/TypeByHash",
+       "size": 256
+      },
+      "pattern": "48 8B 11 39 5A {content/type.hash:d8} 74"
+     }
+    ]
+   },
+   "content/ItemRegistryFind": {
+    "find": [
+     {
+      "pattern": "89 4C 24 08 48 83 EC 28 85 C9 74 ?? 48 8D 4A {content/items.map:d8} 48 8D 54 24 30 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48"
+     }
+    ]
+   },
+   "content/ItemRegistryUpdate": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 80 B9 {content/items.loading:d32} 00 48 8B F1 0F 84 ?? ?? ?? ?? 80 B9 {content/items.started:d32}"
+     }
+    ]
+   },
+   "content/RecipeFind": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 7C 24 10 8B C1 4C 8B D2 85 C9 74 ?? 83 BA {content/recipes.count:d32} 00 48 8B 5A {content/recipes.cap:d8} 74 ?? 48 8B 7A {content/recipes.bits:d8}"
+     }
+    ]
+   },
+   "@content/RecipeFind.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/RecipeFind",
+       "size": 128
+      },
+      "pattern": "4D 8B 5A {content/recipes.keys:d8} 43 39 04"
+     },
+     {
+      "scope": {
+       "symbol": "content/RecipeFind",
+       "size": 160
+      },
+      "pattern": "49 8B 82 {content/recipes.values:d32} 4A 8D 04"
+     }
+    ]
+   },
+   "content/RecipeFinishLoading": {
+    "find": [
+     {
+      "pattern": "40 57 48 83 EC 70 48 83 79 {content/recipes.resource:d8} 00 48 8B"
+     }
+    ]
+   },
+   "@content/RecipeFinishLoading.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/RecipeFinishLoading",
+       "size": 256
+      },
+      "pattern": "48 8D 6F {content/recipes.map:d8} 48 8B CD"
+     }
+    ]
+   },
+   "@content/LootRoll.fields": {
+    "find": [
+     {
+      "pattern": "48 8B 49 {content/lootgen.lootreg:d8} 66 0F 6E C8 0F 5B C9 F3 0F 5F C1 F3 44 0F 2C E8 E8 {content/LootFind:rel32}"
+     }
+    ]
+   },
+   "@content/LootFind.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/LootFind",
+       "size": 64
+      },
+      "pattern": "83 B9 {content/lootreg.count:d32} 00 4C 8B D1 48 8B 59 {content/lootreg.cap:d8} 74 ?? 48 8B 79 {content/lootreg.bits:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "content/LootFind",
+       "size": 96
+      },
+      "pattern": "4D 8B 5A {content/lootreg.keys:d8} 41 39 14"
+     },
+     {
+      "scope": {
+       "symbol": "content/LootFind",
+       "size": 160
+      },
+      "pattern": "49 8B 8A {content/lootreg.values:d32} 48 8D 04"
+     }
+    ]
+   },
+   "content/DefaultInventoryAcquire": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 48 8B EC 48 81 EC 80 00 00 00 33 F6 48 C7 45 C0 48"
+     }
+    ]
+   },
+   "content/StackClamp": {
+    "find": [
+     {
+      "pattern": "41 0F B7 4D {content/clamp.max_stack:d8} 41 8B 46 04 3B C1 76 ?? 0F",
+      "offset": 11
+     }
+    ]
+   },
+   "@content/RecipeFinishLoading.workshops": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/RecipeFinishLoading",
+       "size": 512
+      },
+      "pattern": "4C 8D B7 {content/recipes.workshops:d32} 49 8B CE"
+     },
+     {
+      "scope": {
+       "symbol": "content/RecipeFinishLoading",
+       "size": 768
+      },
+      "pattern": "49 69 D0 {content/recipes.ws_stride:d32} 41 83 E2"
+     },
+     {
+      "scope": {
+       "symbol": "content/RecipeFinishLoading",
+       "size": 768
+      },
+      "pattern": "0F B7 82 {content/recipes.ws_count:d32} B9 {content/recipes.ws_max:d32} 66 3B"
+     }
+    ]
+   },
+   "@content/ItemRegistryUpdate.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "content/ItemRegistryUpdate",
+       "size": 512
+      },
+      "pattern": "8B 07 48 8D 4E {content/items.map2:d8} 48"
+     }
+    ]
+   },
+   "gameplay/DeliverEvents": {
+    "find": [
+     {
+      "pattern": "40 56 41 55 41 56 48 83 EC 40 48 8B 31 45 33 ED 4C 8B F1 4C 39 A9 {gameplay/storage.pending_count:d32}"
+     }
+    ]
+   },
+   "@gameplay/DeliverEvents.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "gameplay/DeliverEvents",
+       "size": 96
+      },
+      "pattern": "4D 8B BE {gameplay/storage.pending:d32} 33 ED 4C 03 F9 41 39 6F {gameplay/buffer.used:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/DeliverEvents",
+       "size": 160
+      },
+      "pattern": "4C 8B 9E {gameplay/events.map.cap:d32} 8B FD 49 03 3F 83 BE {gameplay/events.map.count:d32} 00 44 0F B6 67 {gameplay/record.size:d8} 44 8B 0F 74 ?? 48 8B 9E {gameplay/events.map.bits:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/DeliverEvents",
+       "size": 384
+      },
+      "pattern": "48 03 93 90 51 E1 00 8B 42 10 FF C0 89 42 10 3B 42 14 76 ?? 89 42 14 8B 42 18 FF C0 89 42 18 3B 42 1C 76 ?? 89 42 1C 49 8B 96 {gameplay/storage.queues:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/DeliverEvents",
+       "size": 512
+      },
+      "pattern": "4C 8B 96 {gameplay/events.map.keys:d32} 0F 1F 80"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/DeliverEvents",
+       "size": 512
+      },
+      "pattern": "48 8B 8E {gameplay/events.map.values:d32} 48 8D 14"
+     }
+    ]
+   },
+   "@gameplay/SimStep.deliver": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "SimStep",
+       "size": 128
+      },
+      "pattern": "48 8B CE 4C 89 BC 24 F0 00 02 00 E8 {gameplay/DeliverEvents:rel32}"
+     }
+    ]
+   },
+   "gameplay/EmitEvent": {
+    "find": [
+     {
+      "pattern": "48 83 EC 28 4C 8B D9 41 81 F8 00 01"
+     }
+    ]
+   },
+   "@gameplay/PlayerCrafting.emit": {
+    "find": [
+     {
+      "pattern": "48 8B CE E8 {gameplay/JobProgramId:rel32} 48 8B CE 0F B7 D8 E8 {gameplay/JobEventBuffer:rel32} 44 0F B7 CB BA B7 6F 76 A4 41 B8 38 00 00 00 48 8B C8 E8 {gameplay/EmitEvent:rel32}"
+     }
+    ]
+   },
+   "gameplay/CraftRecipe": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 54 41 55 41 56 41 57 48 8D AC 24 A0"
+     }
+    ]
+   },
+   "gameplay/RecipeFind": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 7C 24 10 8B C1 4C 8B D2 85 C9 74 ?? 83 BA {gameplay/recipes.map.count:d32} 00 48 8B 5A {gameplay/recipes.map.cap:d8} 74 ?? 48 8B 7A {gameplay/recipes.map.bits:d8}"
+     }
+    ]
+   },
+   "gameplay/PlaceBlueprint": {
+    "find": [
+     {
+      "pattern": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D A8 88"
+     }
+    ]
+   },
+   "gameplay/PlaceProp": {
+    "find": [
+     {
+      "pattern": "48 89 74 24 18 48 89 7C 24 20 55 41 55"
+     }
+    ]
+   },
+   "@gameplay/Dismantle.calls": {
+    "find": [
+     {
+      "pattern": "F3 0F 11 54 24 78 0F 11 44 24 7C E8 {gameplay/DismantleBlock:rel32}"
+     },
+     {
+      "pattern": "48 8D 54 24 70 48 8D 4D 30 48 89 5D 88 E8 {gameplay/DismantleBlock2:rel32}"
+     },
+     {
+      "pattern": "44 88 65 AC 48 8D 55 A8 89 5D A8 48 8D 4D 30 E8 {gameplay/PickUpProp:rel32}"
+     }
+    ]
+   },
+   "@gameplay/BuildFinish.fields": {
+    "find": [
+     {
+      "pattern": "BA F7 BA AE BB 41 B8 18 00 00 00 48 8B C8 E8 {gameplay/EmitEvent:rel32} 48 8B 74 24 58 48 8B D8 48 85 C0 74 ?? 0F 57 C0 48 8D 54 24 50 0F 11 03 33 C0 48 89 43 10 49 8B 0E E8 {gameplay/ProgramTime:rel32} 48 8B 08 48 89 0B 41 8B 86 {gameplay/op.player:d32}"
+     }
+    ]
+   },
+   "gameplay/TerraformImpact": {
+    "find": [
+     {
+      "pattern": "4C 89 44 24 18 48 89 4C 24 08 55 53 56 41"
+     }
+    ]
+   },
+   "@gameplay/TerraformImpact.args": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "gameplay/TerraformImpact",
+       "size": 160
+      },
+      "pattern": "48 8D 0C 40 45 0F B7 44 C9 {gameplay/impact.arg_offset:d8} 4D 03 47 {gameplay/impact.arg_base:d8}"
+     }
+    ]
+   },
+   "gameplay/QueueSpawn": {
+    "find": [
+     {
+      "pattern": "4C 8B DC 53 48 81 EC B0 00 00 00 48 8B 84"
+     }
+    ]
+   },
+   "gameplay/RandomSpawnerSpawnRet": {
+    "find": [
+     {
+      "pattern": "F2 0F 11 85 80 03 00 00 E8 {gameplay/QueueSpawn:rel32} 48 8B 4D",
+      "offset": 13
+     }
+    ]
+   },
+   "gameplay/InventoryActions": {
+    "find": [
+     {
+      "pattern": "40 55 41 55 48 8D AC 24 28 14 FF FF"
+     }
+    ]
+   },
+   "@gameplay/InventoryActions.discard": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "gameplay/InventoryActions",
+       "size": 4096
+      },
+      "pattern": "8B 8B {gameplay/pi.item.version:d32} 39 88 {gameplay/scpi.item:d32} 0F 84 ?? ?? ?? ?? 4C 8B 55 B0 41 0F B6 8A {gameplay/pi.item.type:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/InventoryActions",
+       "size": 4096
+      },
+      "pattern": "48 8B 4D B0 48 8D 55 A0 48 81 C1 {gameplay/pi.item.slot:d32} E8 ?? ?? ?? ?? EB ?? 48 8B 4D B0 48 8D 55 A0 48 81 C1 E4 01 00 00 E8 ?? ?? ?? ?? 48"
+     },
+     {
+      "scope": {
+       "symbol": "gameplay/InventoryActions",
+       "size": 4096
+      },
+      "pattern": "48 8B 45 E8 8B 4B {gameplay/pi.transfer.version:d8} 39 48 {gameplay/scpi.transfer:d8} 0F 84 ?? ?? ?? ?? 48 8D 55 A0 49 8B CD E8 {gameplay/InventoryTransfer:rel32}"
+     }
+    ]
+   },
+   "@gameplay/InventoryTransfer.fields": {
+    "find": [
+     {
+      "pattern": "0F B6 4E {gameplay/pi.transfer.type:d8} 85 C9 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 F9 01 0F 85 ?? ?? ?? ?? 83 7E {gameplay/pi.transfer.slot:d8}"
+     }
+    ]
+   },
+   "items/InventoryTxCtor": {
+    "find": [
+     {
+      "pattern": "33 D2 33 C0 48 89 11 48 89 51 08 48 89 51 10 48 89 51 18 48 89 51 20 48 89 51 28 48 89 51 30 48 89 51 38 48 89 51 40 48 89 51 48 48 89 51 50 48 89 51 58 48 89 51 60 48 89 51 68 48 89 51 70 48 89 51 78 48"
+     }
+    ]
+   },
+   "@items/InventoryTxCtor.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/InventoryTxCtor",
+       "size": 512
+      },
+      "pattern": "48 89 81 {items/tx.ops:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 08 01 00 00 48 8D 81 {items/tx.remap_inline:d32} 48 89 81 {items/tx.remap:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 30 69 00 00 48 8D 81 {items/tx.touched_inline:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryTxCtor",
+       "size": 512
+      },
+      "pattern": "48 8D 81 {items/tx.touched_inline:d32} 48 89 81 {items/tx.touched:d32} 48 8D 05 ?? ?? ?? ?? 48 89 81 58"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryTxCtor",
+       "size": 512
+      },
+      "pattern": "48 C7 81 50 71 00 00 {items/tx.touched_capacity:d32} 88 91 {items/tx.result:d32}"
+     }
+    ]
+   },
+   "items/InventoryTxInit": {
+    "find": [
+     {
+      "pattern": "C6 81 {items/tx.result:d32} 00 48 8B 42 08 48 89 01 48 8B"
+     }
+    ]
+   },
+   "@items/InventoryTxInit.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/InventoryTxInit",
+       "size": 384
+      },
+      "pattern": "8B 82 {items/setup.operator:d32} 89 81 {items/tx.operator:d32} 8B 82"
+     }
+    ]
+   },
+   "items/InventoryAddItems": {
+    "find": [
+     {
+      "pattern": "4C 89 4C 24 20 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 48 8D AC 24 60"
+     }
+    ]
+   },
+   "@items/InventoryAddItems.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/InventoryAddItems",
+       "size": 128
+      },
+      "pattern": "8B 8D 00 01 00 00 41 8B F8 E8 {items/ItemRegistryFind:rel32}"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryAddItems",
+       "size": 160
+      },
+      "pattern": "49 8B 4D 00 49 8B 75 18 48 8B 09 E8 {items/JobStorage:rel32} 48 8B D0 48 8D 4C 24 50 44 8B CF 4C 8B C6 E8 {items/ReadOther:rel32} 48 8B 30 48 85 F6 0F 84 ?? ?? ?? ?? 80 7E {items/setup_c.initialized:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryAddItems",
+       "size": 512
+      },
+      "pattern": "85 F6 0F 84 ?? ?? ?? ?? 41 F6 86 {items/item.flags:d32} 02 75 ?? 41 F6 85 {items/tx.flags:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryAddItems",
+       "size": 768
+      },
+      "pattern": "45 39 0C 88 75 ?? 41 0F B7 46 {items/item.max_stack:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "items/InventoryAddItems",
+       "size": 2048
+      },
+      "pattern": "41 80 8D {items/tx.result:d32} 10 41 89"
+     }
+    ]
+   },
+   "items/InventoryCommit": {
+    "find": [
+     {
+      "pattern": "40 55 53 41 55 48 8D AC 24 30 FC FF"
+     }
+    ]
+   },
+   "items/InventoryRollback": {
+    "find": [
+     {
+      "pattern": "4C 8B DC 55 56 41 55 41 56 41 57 49"
+     }
+    ]
+   },
+   "items/InventoryFreeArrays": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9 45 33 C0 48 81 C1 40 71"
+     }
+    ]
+   },
+   "items/ReadOther": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC CC CC CC CC CC CC 4C 8B D1"
+     }
+    ]
+   },
+   "items/InventoryRemoveItems": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 18 48 89 7C 24 20 48 89 54 24 10 55 41 54 41 55 41 56 41 57 48 8D AC"
+     }
+    ]
+   },
+   "@items/InventoryRemoveItems.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/InventoryRemoveItems",
+       "size": 160
+      },
+      "pattern": "48 8B 09 E8 {items/JobStorage:rel32} 48 8B D0 48 8D 4D 98 44 8B CE 4C 8B C3 E8 {items/ReadOther:rel32}"
+     }
+    ]
+   },
+   "items/ItemRegistryFind": {
+    "find": [
+     {
+      "pattern": "89 4C 24 08 48 83 EC 28 85 C9 74 ?? 48 8D 4A {items/registry.items:d8} 48 8D 54 24 30 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48"
+     }
+    ]
+   },
+   "items/GuidToItemId": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 8B 01 4C 8B D1 8B D0"
+     }
+    ]
+   },
+   "items/RegisterProgram": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0"
+     }
+    ]
+   },
+   "@items/RegisterProgram.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/RegisterProgram",
+       "size": 160
+      },
+      "pattern": "66 3B B9 {items/world.program_count:d32} 73 ?? 4C 8D"
+     },
+     {
+      "scope": {
+       "symbol": "items/RegisterProgram",
+       "size": 512
+      },
+      "pattern": "48 69 D8 {items/world.program_stride:d32} 33 D2 41"
+     }
+    ]
+   },
+   "items/RegisterAllPrograms": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15"
+     }
+    ]
+   },
+   "items/IterBegin": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60"
+     }
+    ]
+   },
+   "@items/GetComponent.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "GetComponent",
+       "size": 96
+      },
+      "pattern": "48 8B 0F 41 8B D9 48 81 C1 {items/registry.components:d32} E8 {items/ComponentMapFind:rel32} 4C 8B C0 44 8B CB 48 8B D7 48 8B CE E8 {items/ReadOtherImpl:rel32}"
+     }
+    ]
+   },
+   "items/ReadOtherImpl": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 44 89 4C 24 20 57 48 83 EC 20 48 8D BA {items/storage.entities:d32}"
+     }
+    ]
+   },
+   "@items/ReadOtherImpl.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "items/ReadOtherImpl",
+       "size": 64
+      },
+      "pattern": "48 8D BA {items/storage.entities:d32} 48 8B D9 48 8B CF 48 8D 54 24 48 49 8B F0 E8 {items/HashMapFindEntity:rel32} 48 3B 47 {items/hmap.capacity:d8} 0F 83 ?? ?? ?? ?? 48 8B 57 {items/hmap.values:d8}"
+     }
+    ]
+   },
+   "net/ServerReceive": {
+    "find": [
+     {
+      "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 D8 F6 FF FF 48 81 EC 28 0A 00 00 4C 8B E9 48 8B 49 {net/gs.sockets:d8} E8 {net/SyncSockets:rel32}"
+     }
+    ]
+   },
+   "net/SyncReturn": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "net/ServerReceive",
+       "size": 64
+      },
+      "offset": 12,
+      "pattern": "4C 8B E9 48 8B 49 30 E8 ?? ?? ?? ?? 49"
+     }
+    ]
+   },
+   "net/SyncSockets": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 54 41 55 41 56 41 57 48 8D 6C 24 C9 48 81 EC B0 00 00 00 48 8B 11"
+     }
+    ]
+   },
+   "@net.machine_lookup": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "net/ServerReceive",
+       "size": 512
+      },
+      "pattern": "49 8B 55 {net/gs.sockets:d8} 85 C0 74 ?? 45 8B C1 41 83 E0 7F 49 C1 E0 05 4C 03 42 {net/sockets.machines:d8} 41 39 00 75 ?? 4D 85 C0 74 ?? 4D 8B 40 {net/machine.sockets:d8} 48 8D 4D 80 48 8B 12 4F 8B 04 30 E8 {net/SessionRead:rel32}"
+     }
+    ]
+   },
+   "net/SessionRead": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 40 0F 10 05"
+     }
+    ]
+   },
+   "@net.free_call": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "net/ServerReceive",
+       "size": 12288
+      },
+      "pattern": "E8 ?? ?? ?? ?? EB ?? 48 8D 1D ?? ?? ?? ?? 49 8B 4D 30 48 8D 55 88 48 8B 09 E8 {net/SessionFree:rel32}"
+     }
+    ]
+   },
+   "net/SessionAlloc": {
+    "find": [
+     {
+      "pattern": "40 55 53 57 41 56 48 8D 6C 24 C1 48 81 EC C8 00 00 00 49"
+     }
+    ]
+   },
+   "net/SessionCommit": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 44 8B"
+     }
+    ]
+   },
+   "@net.abort_call": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "net/SendLoginResult",
+       "size": 1024
+      },
+      "pattern": "48 8B 4B 30 48 8D 54 24 58 48 8B 09 E8 {net/SessionAbort:rel32}"
+     }
+    ]
+   },
+   "@net.machines": {
+    "find": [
+     {
+      "pattern": "33 FF 8B CF 41 BD {net/gs.machine_count:d32} 4C 8D B6 {net/gs.machines:d32} 45 8B 3E"
+     }
+    ]
+   },
+   "@net.channel_modes": {
+    "find": [
+     {
+      "pattern": "C6 41 01 02 C6 41 03 02 C6 41 05 02 C6 41 07 02 C6 41 09 01 C6 41 0B 01 C6 41 0D 00 C6 41 0F 00 C6 41 11 00 C6 41 13 02 C6 41 15 02 C6 41 17 02 C6 41 19 {net/channel.mode:d8}"
+     }
+    ]
+   },
+   "net/SendLoginResult": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 48 8D AC 24 00 FF FF FF 48 81 EC 00 02 00 00 33"
+     }
+    ]
+   },
+   "@net.records": {
+    "find": [
+     {
+      "pattern": "83 E0 3F 48 69 C8 {net/rec.stride:d32} 48 81 C1 {net/gs.records:d32} 48 03 CF 39 11 0F 85 ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 80 79 {net/rec.state:d8} 02 0F 85 ?? ?? ?? ?? 8B 41 {net/rec.peer:d8}"
+     },
+     {
+      "pattern": "48 69 C8 {net/rec.stride:d32} 48 81 C1 {net/gs.records:d32} 48 03 CF 39 11 0F"
+     },
+     {
+      "pattern": "E8 ?? ?? ?? ?? 84 C0 75 ?? 48 8B 44 24 60 48 89 47 {net/rec.account:d8} 44 38 67 {net/rec.state:d8}"
+     },
+     {
+      "pattern": "49 8D 46 {net/rec.name:d8} 41 B9 01 00 00 00 F2 0F 10 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? B1 03 F2 0F 11 45 80 C7 44 24 58 27 00 00 00 48 89 5C 24 60 48 89 44 24 68 E8 ?? ?? ?? ?? 41 8B 56 {net/rec.entity:d8}"
+     }
+    ]
+   },
+   "players/RegisterSingleton": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 20 55 56 57 41 54 41 55 48 83 EC 20 4C"
+     }
+    ]
+   },
+   "@players/RegisterSingleton.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8B 8F {players/world.singleton_map.capacity:d32} 39 B7 {players/world.singleton_map.count:d32} 74 ?? 4C 8B 9F {players/world.singleton_map.bits:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8B 97 {players/world.singleton_map.keys:d32} 43 39 1C"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "48 8B 87 {players/world.singleton_map.values:d32} 4A 8D 0C"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4C 8D BF {players/world.singletons:d32} 49 8B 57"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4D 69 77 08 {players/singleton.stride:d32} 4D 03"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "4D 89 A6 {players/singleton.object:d32} 49 8D 4D 08 41 89 9E {players/singleton.hash:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "players/RegisterSingleton",
+       "size": 1024
+      },
+      "pattern": "48 8D 8F {players/world.singleton_map:d32} 49 8D 96 {players/singleton.hash:d32}"
+     }
+    ]
+   },
+   "players/IsAdmin": {
+    "find": [
+     {
+      "pattern": "8D 41 FF 4C 8B C2 3D {players/info.max_index:d32} 77 ?? 48 8D 14 80 48 C1 E2 05 42 39 0C 02 75 ?? 42 0F B6 84 02 {players/info.admin:d32}"
+     }
+    ]
+   },
+   "players/InfoHandle": {
+    "find": [
+     {
+      "pattern": "8D 42 FF 3D FE 03 00 00 77 ?? 4C 8D 0C 80 49 C1 E1 05 43 39 14 01 75 ?? 43 8B 44 01 {players/info.handle:d8}"
+     }
+    ]
+   },
+   "players/HandleToEntity": {
+    "find": [
+     {
+      "pattern": "8B 01 85 C0 75 ?? 8B 05 ?? ?? ?? ?? C3 83 E0 3F FF"
+     }
+    ]
+   },
+   "players/MachineLoggedIn": {
+    "find": [
+     {
+      "pattern": "83 E0 3F 48 69 C8 {players/rec.stride:d32} 48 81 C1 {players/server.records:d32} 48 03 CF 39 11 0F 85 ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 80 79 {players/rec.state:d8} 02 0F 85 ?? ?? ?? ?? 8B 41 {players/rec.peer:d8}"
+     }
+    ]
+   },
+   "@players/ServerPlayersSingleton": {
+    "find": [
+     {
+      "pattern": "48 89 87 {players/server.world:d32} 48 89 4C 24 30 4C 8D 87 {players/server.records:d32} 48"
+     }
+    ]
+   },
+   "players/UpdatePlayers": {
+    "find": [
+     {
+      "pattern": "4D 69 F7 {players/rec.stride:d32} 89 44 24 50 49 81 C6 {players/server.records:d32} 4C 03"
+     }
+    ]
+   },
+   "@players/UpdatePlayers.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "players/UpdatePlayers",
+       "size": 16384
+      },
+      "pattern": "41 C6 45 04 00 E8 ?? ?? ?? ?? 49 FF C7 4C 89 7D A0 49 83 FF {players/rec.count:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "players/UpdatePlayers",
+       "size": 16384
+      },
+      "pattern": "48 8B 8E 30 18 00 00 42 8B 14 C1 41 89 56 {players/rec.group_current:d8} 48 8B 8E 30 18 00 00 42 0F B6 54 C1 04 41 88 56 {players/rec.permissions:d8} 41 89 46 {players/rec.group:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "players/UpdatePlayers",
+       "size": 16384
+      },
+      "pattern": "49 8D 46 {players/rec.name:d8} 41 B9 01 00 00 00 F2 0F 10 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? B1 03 F2 0F 11 45 80 C7 44 24 58 27 00 00 00 48 89 5C 24 60 48 89 44 24 68 E8 ?? ?? ?? ?? 41 8B 56 {players/rec.entity:d8}"
+     }
+    ]
+   },
+   "@players/AddPlayer.fields": {
+    "find": [
+     {
+      "pattern": "E8 ?? ?? ?? ?? 84 C0 75 ?? 48 8B 44 24 60 48 89 47 {players/rec.account:d8} 44 38 67 {players/rec.state:d8}"
+     }
+    ]
+   },
+   "saves/RequestServerSave": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 20 80 B9 {saves/inst.save_block:d32} 00 48 8B D9 75 ?? 48 8B 49 {saves/inst.save_sys:d8} 80 79 {saves/ss.state:d8} 00 75 ?? 0F B6 51 {saves/ss.flags:d8} 48 8B 83 B8 17 00 00 F6 C2 04 74 ?? 80 CA 01 88 51 {saves/ss.flags:d8} 48 89 81 80 00 00 00 C6 41 {saves/ss.state:d8} 01 E8 ?? ?? ?? ?? 48 89 83 {saves/inst.last_request:d32}"
+     }
+    ]
+   },
+   "saves/Save2WriteWorld": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 F0 F4"
+     }
+    ]
+   },
+   "@saves.s2_fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "saves/Save2WriteWorld",
+       "size": 256
+      },
+      "pattern": "48 8B 85 50 0B 00 00 48 89 81 {saves/s2.result:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "saves/Save2WriteWorld",
+       "size": 1536
+      },
+      "pattern": "48 8D B7 {saves/s2.guid:d32} E8 ?? ?? ?? ?? 44 0F B6 F0 48 8D 8D 50 0B 00 00 0F B7 87 {saves/s2.slot:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "saves/Save2WriteWorld",
+       "size": 1536
+      },
+      "pattern": "0F 10 06 8B 46 {saves/s2.rev_rel:d8} FF"
+     },
+     {
+      "scope": {
+       "symbol": "saves/Save2WriteWorld",
+       "size": 1536
+      },
+      "pattern": "0F B7 9F {saves/s2.slot:d32} 4C 89 6D"
+     }
+    ]
+   },
+   "saves/LoadSavegameStep": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8B"
+     }
+    ]
+   },
+   "@saves.load_fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "saves/LoadSavegameStep",
+       "size": 256
+      },
+      "pattern": "80 BB {saves/inst.slot_valid:d32} 00 48 8B 8B"
+     }
+    ]
+   },
+   "saves/RetAutosave": {
+    "find": [
+     {
+      "pattern": "48 B9 {saves/autosave.lo:d32} {saves/autosave.hi:d32} 48 3B C1 7E ?? 49 8B CE E8 {saves/RequestServerSave:rel32} 8B 15",
+      "offset": 23
+     }
+    ]
+   },
+   "saves/RetShutdown": {
+    "find": [
+     {
+      "pattern": "41 80 F8 02 74 ?? 48 8B CA E8 {saves/RequestServerSave:rel32} 4C 8D BF",
+      "offset": 14
+     }
+    ]
+   },
+   "saves/RetPlayerLeave": {
+    "find": [
+     {
+      "pattern": "42 C6 84 28 EA 01 00 00 04 E8 {saves/RequestServerSave:rel32} E9 ?? ?? ?? ?? 48",
+      "offset": 14
+     }
+    ]
+   },
+   "@saves.inst_save2": {
+    "find": [
+     {
+      "pattern": "8B 13 48 8B 8F {saves/inst.save2:d32} E8 ?? ?? ?? ?? 0F B6 43 0A 3C 03"
+     }
+    ]
+   },
+   "settings/SendServerInfo": {
+    "find": [
+     {
+      "pattern": "48 8B C4 55 53 41 54 41 55 41 57 48"
+     }
+    ]
+   },
+   "@settings/SendServerInfo.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "settings/SendServerInfo",
+       "size": 4096
+      },
+      "pattern": "80 BB {settings/instance.resend:d32} 00 74 ?? 48 8B 83 {settings/instance.settings:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "settings/SendServerInfo",
+       "size": 4096
+      },
+      "pattern": "80 7D 40 00 74 ?? C6 83 {settings/instance.resend:d32}"
+     }
+    ]
+   },
+   "@settings/InstanceTick.fields": {
+    "find": [
+     {
+      "pattern": "49 8B 8E {settings/instance.world:d32} E8 ?? ?? ?? ?? 49 8B CE E8 ?? ?? ?? ?? 44 38 BD 70 07 00 00 74 ?? 49 8B CE E8 {settings/SendServerInfo:rel32}"
+     }
+    ]
+   },
+   "@settings/ApplySettings.fields": {
+    "find": [
+     {
+      "pattern": "E8 ?? ?? ?? ?? 48 89 87 {settings/instance.systems:d32} 48 8D 8F C8 18 00 00 E8 ?? ?? ?? ?? 48 8D 8F D0 18 00 00 E8 ?? ?? ?? ?? 0F B6 9F {settings/instance.preset:d32} B9 FF C1 F2 2D C6 87 {settings/instance.resend:d32}"
+     }
+    ]
+   },
+   "settings/TypeByHash": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 3D ?? ?? ?? ?? 8B"
+     }
+    ]
+   },
+   "@settings/TypeByHash.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "settings/TypeByHash",
+       "size": 256
+      },
+      "pattern": "48 8B 11 39 5A {settings/type.hash:d8} 74"
+     },
+     {
+      "pattern": "B9 10 98 03 89 E8 {settings/TypeByHash:rel32} 48 8B F8 48 85 C0"
+     }
+    ]
+   },
+   "settings/DaytimeSetDurations": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 49 8B F9 49 8B D8 48 8B F2 48 8B E9 48 3B 51 {settings/daytime.day:d8} 75 ?? 48 3B 59 {settings/daytime.night:d8} 74 ?? 48 8B D7 E8 ?? ?? ?? ?? 48 8B D0 48 8B CD E8 ?? ?? ?? ?? 80 7D {settings/daytime.authoritative:d8} 00 48 89 75 {settings/daytime.day:d8} 48 89 5D {settings/daytime.night:d8} 74 ?? 48 8B D0 48 8B CD E8 ?? ?? ?? ?? FF 45 {settings/daytime.changes:d8}"
+     }
+    ]
+   },
+   "@settings/DaytimeIsDay": {
+    "find": [
+     {
+      "pattern": "48 8B 41 {settings/daytime.tod:d8} 48 3B 41 28 7C ?? 48 3B 41 30 7D ?? B0"
+     }
+    ]
+   },
+   "spawn/DestroyEntity": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 18 48 89 74 24 20 89 54 24 10 55 57 41 55"
+     }
+    ]
+   },
+   "spawn/CreateEntity": {
+    "find": [
+     {
+      "pattern": "4C 89 4C 24 20 4C 89 44 24 18 89 54 24 10 48 89 4C 24 08 55 56"
+     }
+    ]
+   },
+   "@spawn/SpawnWrapper.calls": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "SpawnWrapper",
+       "size": 96
+      },
+      "pattern": "4C 8D 44 24 20 88 44 24 4C 0F 11 44 24 24 0F 11 4C 24 38 E8 {spawn/CreateEntity:rel32}"
+     }
+    ]
+   },
+   "@spawn/DestroyEntity.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "spawn/DestroyEntity",
+       "size": 256
+      },
+      "pattern": "48 8D B9 {spawn/storage.entity_map:d32} 48 8B CF"
+     },
+     {
+      "scope": {
+       "symbol": "spawn/DestroyEntity",
+       "size": 256
+      },
+      "pattern": "49 8B 46 {spawn/record.template:d8} 48 8B 0E 80 78 {spawn/template.family:d8}"
+     }
+    ]
+   },
+   "@spawn/CreateEntity.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "spawn/CreateEntity",
+       "size": 1024
+      },
+      "pattern": "48 8D 8B {spawn/registry.template_map:d32} E8 ?? ?? ?? ?? 48 3B 83 {spawn/registry.template_map_cap:d32} 73 ?? 48 8B 8B {spawn/registry.template_map_values:d32}"
+     }
+    ]
+   },
+   "@spawn/GetEntityTransform.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "GetEntityTransform",
+       "size": 128
+      },
+      "pattern": "48 8D 8F {spawn/storage.entity_map:d32} 48 8D 54 24 38 E8 ?? ?? ?? ?? 48 3B 87 {spawn/storage.entity_map_cap:d32} 73 ?? 48 8B 97 {spawn/storage.entity_records:d32}"
+     }
+    ]
+   },
+   "@spawn/GetComponent.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "GetComponent",
+       "size": 64
+      },
+      "pattern": "48 8B 0F 41 8B D9 48 81 C1 {spawn/registry.component_map:d32}"
+     }
+    ]
+   },
+   "time/SetTimeOfDay": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 20 48 8B D9 4C 89 41 {time/daytime.anchor_ecs:d8} E8 {time/TodToGameTime:rel32} FF 43 {time/daytime.counter:d8} 48 89 43 {time/daytime.anchor_game:d8}"
+     }
+    ]
+   },
+   "time/TodToGameTime": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 10 4C 8B 51 {time/daytime.night_start:d8} 48 BE FF FF FF FF FF FF FF 7F 4C 8B 49 {time/daytime.day_start:d8}"
+     }
+    ]
+   },
+   "time/GameTimeToTod": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 18 55 48 83 EC 10 4C 8B 59 {time/daytime.day_length:d8}"
+     }
+    ]
+   },
+   "time/GetGameTime": {
+    "find": [
+     {
+      "pattern": "4C 8B 51 {time/daytime.anchor_ecs:d8} 49 B8 FF FF FF FF FF FF FF"
+     }
+    ]
+   },
+   "time/DaytimeUpdate": {
+    "find": [
+     {
+      "pattern": "40 53 57 48 81 EC B8 00 00 00 48 8B"
+     }
+    ]
+   },
+   "@time.daytime_update": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "time/DaytimeUpdate",
+       "size": 1024
+      },
+      "pattern": "E8 {time/GetGameTime:rel32} 48 8B D0 48 8B CF E8 {time/GameTimeToTod:rel32} 48 89 47 {time/daytime.tod:d8}"
+     }
+    ]
+   },
+   "@time.daytime_fields": {
+    "find": [
+     {
+      "pattern": "48 8B 41 {time/daytime.tod:d8} 48 3B 41 {time/daytime.day_start:d8} 7C ?? 48 3B 41 {time/daytime.night_start:d8} 7D ?? B0"
+     },
+     {
+      "scope": {
+       "symbol": "time/TodToGameTime",
+       "size": 256
+      },
+      "pattern": "4C 8B 5B {time/daytime.day_length:d8} 0F 57 C9 F2 0F 10 25 ?? ?? ?? ?? F2 49 0F 2A C8 F2 49 0F 2A C3 F2 0F 59 CB F2 0F 59 C3 66 0F 5A F0 0F 57 C0 F2 48 0F 2A C1 48 8B 4B {time/daytime.night_length:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "time/GetGameTime",
+       "size": 256
+      },
+      "pattern": "F3 0F 59 41 {time/daytime.scale:d8} 0F 5A"
+     }
+    ]
+   },
+   "time/WeatherUpdate": {
+    "find": [
+     {
+      "pattern": "48 8B C4 55 57 41 56 48 81 EC 80 00"
+     }
+    ]
+   },
+   "@time.weather_update": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdate",
+       "size": 512
+      },
+      "pattern": "83 7B {time/weather.mode:d8} 00 75 ?? 44 3B"
+     },
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdate",
+       "size": 512
+      },
+      "pattern": "4D 8B CD 48 8B D7 48 8B CB E8 {time/WeatherUpdateLayers:rel32}"
+     }
+    ]
+   },
+   "time/WeatherUpdateLayers": {
+    "find": [
+     {
+      "pattern": "48 8B C4 4C 89 48 20 48 89 48 08 53 55 57"
+     }
+    ]
+   },
+   "@time.weather_layers": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdateLayers",
+       "size": 1024
+      },
+      "pattern": "48 39 A9 {time/weather.layer_count:d32} 0F 86 ?? ?? ?? ?? 48"
+     },
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdateLayers",
+       "size": 1024
+      },
+      "pattern": "49 8B B7 {time/weather.layers:d32} 85 C0 75"
+     },
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdateLayers",
+       "size": 1024
+      },
+      "pattern": "8B 54 26 {time/weather.layer_prev:d8} 49 8B CF E8 {time/WeatherRemoveInstance:rel32} 42 89"
+     },
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdateLayers",
+       "size": 1024
+      },
+      "pattern": "8B 44 26 {time/weather.layer_cur:d8} 45 32 C9 42 89 44 26 {time/weather.layer_prev:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "time/WeatherUpdateLayers",
+       "size": 1280
+      },
+      "pattern": "49 83 C4 {time/weather.layer_stride:d8} 48 FF C1"
+     }
+    ]
+   },
+   "time/WeatherRemoveInstance": {
+    "find": [
+     {
+      "pattern": "85 D2 0F 84 ?? ?? ?? ?? 89 54 24 10 53 57 48 83"
+     }
+    ]
+   },
+   "time/SendServerInfo": {
+    "find": [
+     {
+      "pattern": "48 8B C4 55 53 41 54 41 55 41 57 48"
+     }
+    ]
+   },
+   "@time.server_info": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "time/SendServerInfo",
+       "size": 256
+      },
+      "pattern": "8B 83 {time/gs.daytime_synced:d32} 48 8D 95 88 01 00 00 4C 8B 83 {time/gs.server_game:d32} 48 8D 4D F8 89 85 88 01 00 00 E8 {time/ServerGameDaytimeSync:rel32}"
+     }
+    ]
+   },
+   "time/ServerGameDaytimeSync": {
+    "find": [
+     {
+      "pattern": "4D 8B 80 {time/sg.daytime:d32} E9 {time/DaytimeSyncIfChanged:rel32} CC CC CC CC 40 56 57 41"
+     }
+    ]
+   },
+   "time/DaytimeSyncIfChanged": {
+    "find": [
+     {
+      "pattern": "41 8B 40 {time/daytime.counter:d8} 39 02 75 ?? 32 C0 C3 89 02 49 8B 40 {time/daytime.anchor_ecs:d8} 48 89 01 49 8B 40 {time/daytime.anchor_game:d8} 48 89 41 08 41 8B 40 {time/daytime.scale:d8}"
+     }
+    ]
+   },
+   "world/RegisterAllPrograms": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15"
+     }
+    ]
+   },
+   "world/RegisterProgram": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00 00 00 F6 82 {world/desc.flags:d32}"
+     }
+    ]
+   },
+   "@world/RegisterProgram.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/RegisterProgram",
+       "size": 1024
+      },
+      "pattern": "33 FF 8B DF 66 3B B9 {world/programs.count:d32} 73 ?? 4C 8D B1 {world/programs.names:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/RegisterProgram",
+       "size": 1024
+      },
+      "pattern": "0F B7 86 {world/programs.count:d32} 41 BE {world/programs.max:d32} 66"
+     },
+     {
+      "scope": {
+       "symbol": "world/RegisterProgram",
+       "size": 1024
+      },
+      "pattern": "48 69 D8 {world/programs.stride:d32} 33 D2 41 B8 {world/programs.stride:d32} 48 81 C3 {world/programs.table:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/RegisterProgram",
+       "size": 1024
+      },
+      "pattern": "41 8B 8F {world/desc.flags:d32} 89 4B {world/entry.flags:d8} 41 8B 87 {world/desc.interval:d32} 89 43 {world/entry.interval:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "world/RegisterProgram",
+       "size": 1024
+      },
+      "pattern": "0F B7 96 {world/programs.count:d32} 66 89 53 {world/entry.id:d8}"
+     }
+    ]
+   },
+   "world/FinalizePrograms": {
+    "find": [
+     {
+      "pattern": "48 8B C4 48 89 48 08 41 56 48 81 EC B0 05 00 00 80 39 00 4C 8B F1 0F 85 ?? ?? ?? ?? 80 B9 {world/world.may_finalize:d32}"
+     }
+    ]
+   },
+   "world/ResolveAccess": {
+    "find": [
+     {
+      "pattern": "48 8B C4 41 54 41 56 41 57 48 81 EC"
+     }
+    ]
+   },
+   "@world/ResolveAccess.maps": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/ResolveAccess",
+       "size": 1536
+      },
+      "pattern": "48 8D 8F 40 01 00 00 4C 8B CE 45 33 C0 E8 {world/ResolveSingletons:rel32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveAccess",
+       "size": 1536
+      },
+      "pattern": "E8 ?? ?? ?? ?? 48 8D 94 24 E0 00 00 00 89 84 24 E0 00 00 00 48 8D 4E {world/registry.templates:d8}"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveAccess",
+       "size": 1536
+      },
+      "pattern": "4C 8D 83 60 01 00 00 48 8B D6 48 8D 8F 90 02 00 00 E8 {world/ResolveEvents:rel32}"
+     }
+    ]
+   },
+   "world/ResolveSingletons": {
+    "find": [
+     {
+      "pattern": "40 53 55 57 41 56 41 57 48 83 EC 30"
+     }
+    ]
+   },
+   "@world/ResolveSingletons.map": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/ResolveSingletons",
+       "size": 512
+      },
+      "pattern": "83 BB {world/registry.singletons.count:d32} 00 4C 8B 9B {world/registry.singletons.cap:d32} 0F 84 ?? ?? ?? ?? 48 8B B3 {world/registry.singletons.bits:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveSingletons",
+       "size": 512
+      },
+      "pattern": "4C 8B 93 {world/registry.singletons.keys:d32} 0F 1F 40"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveSingletons",
+       "size": 512
+      },
+      "pattern": "48 8B 83 {world/registry.singletons.values:d32} 4A 8D 0C"
+     }
+    ]
+   },
+   "world/ResolveEvents": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC F0"
+     }
+    ]
+   },
+   "@world/ResolveEvents.map": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/ResolveEvents",
+       "size": 1024
+      },
+      "pattern": "41 83 BE {world/registry.events.count:d32} 00 4D 8B 9E {world/registry.events.cap:d32} 74 ?? 49 8B 9E {world/registry.events.bits:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveEvents",
+       "size": 1024
+      },
+      "pattern": "4D 8B 96 {world/registry.events.keys:d32} 0F 1F 84"
+     },
+     {
+      "scope": {
+       "symbol": "world/ResolveEvents",
+       "size": 1024
+      },
+      "pattern": "49 8B 86 {world/registry.events.values:d32} 48 8D 0C"
+     }
+    ]
+   },
+   "world/IterBegin": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48 8B D9 48 8B FA 41 0F B6 81 {world/job.tpl_count:d32}"
+     }
+    ]
+   },
+   "@world/IterBegin.counts": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/IterBegin",
+       "size": 256
+      },
+      "pattern": "41 0F B7 81 {world/job.read_count:d32} 49 8D"
+     },
+     {
+      "scope": {
+       "symbol": "world/IterBegin",
+       "size": 256
+      },
+      "pattern": "41 0F B7 81 {world/job.write_count:d32} 48 8D 34 40 49 8B 81 {world/job.singletons:d32} 48 C1 E6 04 0F B6 88 {world/singletons.count:d32} 41 0F B6 81 {world/job.other_tpl_count:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/IterBegin",
+       "size": 256
+      },
+      "pattern": "41 0F B6 81 {world/job.other_count:d32} 4C 8D 24 C5 00 00 00 00 49 8B 81 {world/job.events_in_count:d32}"
+     },
+     {
+      "scope": {
+       "symbol": "world/IterBegin",
+       "size": 256
+      },
+      "pattern": "41 8B 81 {world/job.events_out_count:d32} 48 89 4C"
+     }
+    ]
+   },
+   "world/IterNext": {
+    "find": [
+     {
+      "pattern": "40 57 48 83 EC 20 4C 8B 01 48 8B FA 8B 41 {world/ctx.index:d8} 4C 8B C9 49 3B 80 {world/job.entity_count:d32}"
+     }
+    ]
+   },
+   "world/CurrentEntityId": {
+    "find": [
+     {
+      "pattern": "8B 41 08 4C 8B C2 85 C0 75 ?? 89 02 48 8B C2 C3 8D 50 FF 48 8B 01 48 03 D2 48 8B 88 {world/job.entity_list:d32} 8B 04"
+     }
+    ]
+   },
+   "world/MarkWritten": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 54 41 56 41 57 48 83 EC 30 48 8B B1"
+     }
+    ]
+   },
+   "world/QueuePush": {
+    "find": [
+     {
+      "pattern": "48 89 74 24 10 57 48 83 EC 20 44 8B 52"
+     }
+    ]
+   },
+   "@world/teleport.remove": {
+    "find": [
+     {
+      "pattern": "E8 {world/JobCmdBuf:rel32} 48 8D 95 78 02 00 00 48 8B CE 48 8B D8 E8 {world/CurrentEntityId:rel32} 48 8D 53 {world/cmdbuf.queue:d8} 41 B9 {world/record.remove_size:d32} 41 B0 04 8B 08 89 4C 24 20 48 8B CB E8 {world/QueuePush:rel32} 48 85 C0 0F 84 ?? ?? ?? ?? C7 40 {world/record.hashes:d8}"
+     },
+     {
+      "pattern": "48 8B 9D 90 00 00 00 80 7B {world/teleport.applied:d8} 00 74 ?? 48 8B CE E8 {world/JobCmdBuf:rel32}"
+     },
+     {
+      "pattern": "48 8B 9D 90 00 00 00 48 8B 0E 8B 5B {world/teleport.target_entity:d8} 48 8B BD 38 01 00 00 E8 {world/JobStorage:rel32} 48 8B D0 48 8D 8D C8 01 00 00 44 8B CB 4C 8B C7 E8 {world/ReadOther:rel32}"
+     },
+     {
+      "pattern": "48 8B 85 90 00 00 00 80 78 {world/teleport.find_ground:d8} 00 0F 84 ?? ?? ?? ?? 45"
+     }
+    ]
+   },
+   "@world/teleport.add": {
+    "find": [
+     {
+      "pattern": "48 8D 53 {world/cmdbuf.queue:d8} 41 B9 {world/record.teleport_size:d32} 41 B0 03 8B 08 89 4C 24 20 48 8B CB E8 {world/QueuePush:rel32} 48 85 C0 74 ?? 0F 10 45 C0 C7 40 {world/record.hashes:d8} 40 4D 38 23 0F 10 4D D0 66 C7 40 {world/record.sizes:d8} 50 00 0F 11 40 {world/record.data:d8}"
+     }
+    ]
+   },
+   "world/JobCmdBuf": {
+    "find": [
+     {
+      "pattern": "48 8B 01 48 8B 40 08 C3 CC CC CC CC"
+     }
+    ]
+   },
+   "world/ReadOther": {
+    "find": [
+     {
+      "pattern": "40 53 48 83 EC 20 48 8B D9 E8 {world/GetComponentByType:rel32} 48 8B C3 48 83 C4 20 5B C3 CC CC CC CC CC CC CC"
+     }
+    ]
+   },
+   "@world/GetComponent.maps": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "GetComponent",
+       "size": 96
+      },
+      "pattern": "48 8B 0F 41 8B D9 48 81 C1 {world/registry.components:d32} E8 ?? ?? ?? ?? 4C 8B C0 44 8B CB 48 8B D7 48 8B CE E8 {world/GetComponentByType:rel32}"
+     }
+    ]
+   },
+   "world/GetComponentByType": {
+    "find": [
+     {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 44 89 4C 24 20 57 48 83 EC 20 48 8D BA {world/storage.entities:d32}"
+     }
+    ]
+   },
+   "@world/GetComponentByType.fields": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "world/GetComponentByType",
+       "size": 256
+      },
+      "pattern": "4D 8B 50 {world/entity.layout:d8} 41 8B C1"
+     },
+     {
+      "scope": {
+       "symbol": "world/GetComponentByType",
+       "size": 256
+      },
+      "pattern": "43 0F B7 94 4A {world/layout.strides:d32} 41 8B 40 {world/entity.index:d8} 43 0F B7 8C 4A {world/layout.offsets:d32} 48 0F AF C2 48 03 C8 48 8B C3 49 03 48 {world/entity.chunk:d8}"
+     }
+    ]
+   },
+   "@world/GetEntityTransform.map": {
+    "find": [
+     {
+      "scope": {
+       "symbol": "GetEntityTransform",
+       "size": 96
+      },
+      "pattern": "48 8D 8F {world/storage.entities:d32} 48 8D 54 24 38 E8 ?? ?? ?? ?? 48 3B 87 {world/storage.entities.cap:d32} 73 ?? 48 8B 97 {world/storage.entities.values:d32}"
+     }
+    ]
+   },
+   "@world/death.state": {
+    "find": [
+     {
+      "pattern": "E8 ?? ?? ?? ?? 48 8B 44 24 48 48 81 88 {world/actor.state:d32} 80 00 00"
+     }
+    ]
+   }
+  },
+  "constants": {
+   "world.storage": {
+    "min_votes": 2
+   },
+   "world.jobs": {
+    "min_votes": 1
+   },
+   "storage.kind": {
+    "value": 8
+   },
+   "storage.clock": {
+    "min_votes": 1
+   },
+   "storage.clock_period": {
+    "min_votes": 1
+   },
+   "world.singleton_map": {
+    "min_votes": 1
+   },
+   "world.singleton_map.bits": {
+    "min_votes": 1
+   },
+   "world.singleton_map.capacity": {
+    "min_votes": 1
+   },
+   "world.singleton_map.keys": {
+    "min_votes": 1
+   },
+   "world.singleton_map.values": {
+    "min_votes": 1
+   },
+   "world.singletons": {
+    "min_votes": 1
+   },
+   "singleton.stride": {
+    "min_votes": 1
+   },
+   "singleton.object": {
+    "min_votes": 1
+   },
+   "singleton.hash": {
+    "min_votes": 2
+   },
+   "chat/max_text": {
+    "min_votes": 1
+   },
+   "chat/sys.inbox_head": {
+    "min_votes": 2
+   },
+   "chat/sys.inbox_tail": {
+    "min_votes": 1
+   },
+   "chat/sys.inbox_count": {
+    "min_votes": 1
+   },
+   "chat/sys.reader_active": {
+    "min_votes": 1
+   },
+   "chat/sys.reader_gen": {
+    "min_votes": 1
+   },
+   "chat/sys.reader_pending": {
+    "min_votes": 2
+   },
+   "chat/sys.reader_stride": {
+    "value": 12
+   },
+   "chat/sys.readers": {
+    "value": 32
+   },
+   "chat/node.next": {
+    "min_votes": 2
+   },
+   "chat/node.prev": {
+    "min_votes": 1
+   },
+   "chat/node.len": {
+    "min_votes": 1
+   },
+   "chat/node.handle": {
+    "min_votes": 1
+   },
+   "chat/node.account": {
+    "min_votes": 1
+   },
+   "chat/node.mask": {
+    "min_votes": 4
+   },
+   "chat/node.text": {
+    "value": 64
+   },
+   "chat/gs.chat": {
+    "min_votes": 1
+   },
+   "chat/gs.players": {
+    "min_votes": 1
+   },
+   "chat/gs.player_stride": {
+    "min_votes": 2
+   },
+   "chat/gs.players_size": {
+    "min_votes": 1
+   },
+   "chat/player.peer": {
+    "min_votes": 1
+   },
+   "chat/player.permissions": {
+    "min_votes": 1
+   },
+   "chat/player.name": {
+    "min_votes": 1
+   },
+   "chat/player.entity": {
+    "min_votes": 1
+   },
+   "chat/player.account": {
+    "min_votes": 1
+   },
+   "chat/player.state": {
+    "min_votes": 1
+   },
+   "combat/hits.pool": {},
+   "combat/hits.count": {},
+   "combat/hits.cap": {},
+   "combat/hit.size": {
+    "min_votes": 3
+   },
+   "combat/hit.kind": {},
+   "combat/hit.flags": {
+    "min_votes": 2
+   },
+   "combat/hit.health_change": {},
+   "combat/attr.registry_map": {},
+   "combat/evq.first": {},
+   "combat/evq.blocks": {},
+   "combat/evq.count": {},
+   "combat/evq.next": {},
+   "combat/evq.block_shift": {},
+   "combat/actor.state": {
+    "min_votes": 2
+   },
+   "combat/fall.frame": {
+    "min_votes": 1
+   },
+   "combat/fall.pct": {
+    "min_votes": 1
+   },
+   "combat/fall.pct2": {
+    "min_votes": 1
+   },
+   "content/type.hash": {
+    "value": 80
+   },
+   "content/type.qname": {
+    "value": 32
+   },
+   "content/type.inner": {
+    "value": 56
+   },
+   "content/type.size": {
+    "value": 64
+   },
+   "content/type.count": {
+    "value": 72
+   },
+   "content/type.kind": {
+    "value": 76
+   },
+   "content/type.fields": {
+    "value": 88
+   },
+   "content/type.enum_values": {
+    "value": 96
+   },
+   "content/field.stride": {
+    "value": 48
+   },
+   "content/field.type": {
+    "value": 16
+   },
+   "content/field.offset": {
+    "value": 24
+   },
+   "content/enum.stride": {
+    "value": 40
+   },
+   "content/enum.value": {
+    "value": 16
+   },
+   "content/items.map": {
+    "min_votes": 1
+   },
+   "content/items.loading": {
+    "min_votes": 1
+   },
+   "content/items.started": {
+    "min_votes": 1
+   },
+   "content/recipes.map": {
+    "min_votes": 1
+   },
+   "content/recipes.resource": {
+    "min_votes": 1
+   },
+   "content/recipes.count": {
+    "min_votes": 1
+   },
+   "content/recipes.cap": {
+    "min_votes": 1
+   },
+   "content/recipes.bits": {
+    "min_votes": 1
+   },
+   "content/recipes.keys": {
+    "min_votes": 1
+   },
+   "content/recipes.values": {
+    "min_votes": 1
+   },
+   "content/lootgen.lootreg": {
+    "min_votes": 1
+   },
+   "content/lootreg.count": {
+    "min_votes": 1
+   },
+   "content/lootreg.cap": {
+    "min_votes": 1
+   },
+   "content/lootreg.bits": {
+    "min_votes": 1
+   },
+   "content/lootreg.keys": {
+    "min_votes": 1
+   },
+   "content/lootreg.values": {
+    "min_votes": 1
+   },
+   "content/clamp.max_stack": {
+    "min_votes": 1
+   },
+   "content/hmap.bits": {
+    "value": 8
+   },
+   "content/hmap.capacity": {
+    "value": 16
+   },
+   "content/hmap.keys": {
+    "value": 40
+   },
+   "content/hmap.values": {
+    "value": 64
+   },
+   "content/hmap.count": {
+    "value": 84
+   },
+   "content/recipes.workshops": {
+    "min_votes": 1
+   },
+   "content/recipes.ws_stride": {
+    "min_votes": 1
+   },
+   "content/recipes.ws_count": {
+    "min_votes": 1
+   },
+   "content/recipes.ws_max": {
+    "min_votes": 1
+   },
+   "content/items.map2": {
+    "min_votes": 1
+   },
+   "gameplay/storage.pending": {
+    "min_votes": 1
+   },
+   "gameplay/storage.pending_count": {
+    "min_votes": 1
+   },
+   "gameplay/storage.queues": {
+    "min_votes": 1
+   },
+   "gameplay/buffer.used": {
+    "min_votes": 1
+   },
+   "gameplay/buffer.stride": {
+    "value": 24
+   },
+   "gameplay/record.size": {
+    "min_votes": 1
+   },
+   "gameplay/events.map.cap": {
+    "min_votes": 1
+   },
+   "gameplay/events.map.count": {
+    "min_votes": 1
+   },
+   "gameplay/events.map.bits": {
+    "min_votes": 1
+   },
+   "gameplay/events.map.keys": {
+    "min_votes": 1
+   },
+   "gameplay/events.map.values": {
+    "min_votes": 1
+   },
+   "gameplay/op.player": {
+    "min_votes": 1
+   },
+   "gameplay/impact.arg_offset": {
+    "min_votes": 1
+   },
+   "gameplay/impact.arg_base": {
+    "min_votes": 1
+   },
+   "gameplay/impact.arg_stride": {
+    "value": 24
+   },
+   "gameplay/recipes.map.count": {
+    "min_votes": 1
+   },
+   "gameplay/recipes.map.cap": {
+    "min_votes": 1
+   },
+   "gameplay/recipes.map.bits": {
+    "min_votes": 1
+   },
+   "gameplay/recipes.workshops": {
+    "value": 248
+   },
+   "gameplay/teleport.applied": {
+    "value": 72
+   },
+   "gameplay/teleport.find_ground": {
+    "value": 73
+   },
+   "gameplay/teleport.target_entity": {
+    "value": 56
+   },
+   "gameplay/pi.item.version": {
+    "min_votes": 1
+   },
+   "gameplay/scpi.item": {
+    "min_votes": 1
+   },
+   "gameplay/pi.item.type": {
+    "min_votes": 1
+   },
+   "gameplay/pi.item.slot": {
+    "min_votes": 1
+   },
+   "gameplay/pi.transfer.version": {
+    "min_votes": 1
+   },
+   "gameplay/scpi.transfer": {
+    "min_votes": 1
+   },
+   "gameplay/pi.transfer.type": {
+    "min_votes": 1
+   },
+   "gameplay/pi.transfer.slot": {
+    "min_votes": 1
+   },
+   "items/tx.result": {
+    "min_votes": 3
+   },
+   "items/tx.touched": {
+    "value": 28992
+   },
+   "items/tx.ops": {
+    "value": 240
+   },
+   "items/tx.ops_inline": {
+    "value": 280
+   },
+   "items/tx.operator": {
+    "value": 224
+   },
+   "items/setup.operator": {
+    "value": 200
+   },
+   "items/tx.flags": {
+    "value": 176
+   },
+   "items/setup_c.initialized": {
+    "value": 83
+   },
+   "items/item.flags": {
+    "value": 1496
+   },
+   "items/item.max_stack": {
+    "value": 20
+   },
+   "items/registry.items": {
+    "value": 56
+   },
+   "items/registry.components": {
+    "value": 136
+   },
+   "items/storage.entities": {
+    "value": 328
+   },
+   "items/hmap.capacity": {
+    "value": 16
+   },
+   "items/hmap.values": {
+    "value": 64
+   },
+   "items/hmap.count": {
+    "value": 84
+   },
+   "items/hmap.bits": {
+    "value": 8
+   },
+   "items/hmap.keys": {
+    "value": 40
+   },
+   "net/gs.sockets": {
+    "min_votes": 2
+   },
+   "net/sockets.machines": {
+    "min_votes": 1
+   },
+   "net/machine.stride": {
+    "value": 32
+   },
+   "net/machine.sockets": {
+    "min_votes": 1
+   },
+   "net/channel": {
+    "value": 12
+   },
+   "net/gs.machines": {
+    "min_votes": 1
+   },
+   "net/gs.machine_count": {
+    "min_votes": 1
+   },
+   "net/after_sync.gs_register": {
+    "value": 13
+   },
+   "net/channel.mode": {
+    "value": 3
+   },
+   "net/gs.records": {
+    "min_votes": 2
+   },
+   "net/rec.stride": {
+    "min_votes": 2
+   },
+   "net/rec.count": {
+    "value": 16
+   },
+   "net/rec.state": {
+    "min_votes": 2
+   },
+   "net/rec.peer": {
+    "min_votes": 1
+   },
+   "net/rec.account": {
+    "min_votes": 1
+   },
+   "net/rec.name": {
+    "min_votes": 1
+   },
+   "net/rec.entity": {
+    "min_votes": 1
+   },
+   "players/world.singleton_map": {
+    "min_votes": 1
+   },
+   "players/world.singleton_map.bits": {
+    "min_votes": 1
+   },
+   "players/world.singleton_map.capacity": {
+    "min_votes": 1
+   },
+   "players/world.singleton_map.keys": {
+    "min_votes": 1
+   },
+   "players/world.singleton_map.values": {
+    "min_votes": 1
+   },
+   "players/world.singletons": {
+    "min_votes": 1
+   },
+   "players/singleton.stride": {
+    "min_votes": 1
+   },
+   "players/singleton.object": {
+    "min_votes": 1
+   },
+   "players/singleton.hash": {
+    "min_votes": 2
+   },
+   "players/info.stride": {
+    "value": 160
+   },
+   "players/info.max_index": {
+    "min_votes": 1
+   },
+   "players/info.admin": {
+    "min_votes": 1
+   },
+   "players/info.handle": {
+    "min_votes": 1
+   },
+   "players/server.records": {
+    "min_votes": 3
+   },
+   "players/rec.stride": {
+    "min_votes": 2
+   },
+   "players/rec.count": {
+    "min_votes": 1
+   },
+   "players/rec.state": {
+    "min_votes": 2
+   },
+   "players/rec.peer": {
+    "min_votes": 1
+   },
+   "players/rec.permissions": {
+    "min_votes": 1
+   },
+   "players/rec.group": {
+    "min_votes": 1
+   },
+   "players/rec.name": {
+    "min_votes": 1
+   },
+   "players/rec.entity": {
+    "min_votes": 1
+   },
+   "players/rec.account": {
+    "min_votes": 1
+   },
+   "saves/inst.save_block": {
+    "min_votes": 1
+   },
+   "saves/inst.save_sys": {
+    "min_votes": 1
+   },
+   "saves/inst.last_request": {
+    "min_votes": 1
+   },
+   "saves/inst.slot_valid": {
+    "min_votes": 1
+   },
+   "saves/inst.save2": {
+    "min_votes": 1
+   },
+   "saves/ss.state": {
+    "min_votes": 2
+   },
+   "saves/ss.flags": {
+    "min_votes": 2
+   },
+   "saves/s2.result": {
+    "min_votes": 1
+   },
+   "saves/s2.guid": {
+    "min_votes": 1
+   },
+   "saves/s2.rev_rel": {
+    "min_votes": 1
+   },
+   "saves/s2.slot": {
+    "min_votes": 2
+   },
+   "saves/autosave.lo": {
+    "min_votes": 1
+   },
+   "saves/autosave.hi": {
+    "min_votes": 1
+   },
+   "settings/instance.settings": {
+    "min_votes": 1
+   },
+   "settings/instance.resend": {
+    "min_votes": 3
+   },
+   "settings/instance.world": {
+    "min_votes": 1
+   },
+   "settings/instance.systems": {
+    "min_votes": 1
+   },
+   "settings/instance.preset": {
+    "min_votes": 1
+   },
+   "settings/type.hash": {
+    "value": 80
+   },
+   "settings/type.qname": {
+    "value": 32
+   },
+   "settings/type.inner": {
+    "value": 56
+   },
+   "settings/type.size": {
+    "value": 64
+   },
+   "settings/type.count": {
+    "value": 72
+   },
+   "settings/type.kind": {
+    "value": 76
+   },
+   "settings/type.fields": {
+    "value": 88
+   },
+   "settings/type.enum_values": {
+    "value": 96
+   },
+   "settings/field.stride": {
+    "value": 48
+   },
+   "settings/field.type": {
+    "value": 16
+   },
+   "settings/field.offset": {
+    "value": 24
+   },
+   "settings/enum.stride": {
+    "value": 40
+   },
+   "settings/enum.value": {
+    "value": 16
+   },
+   "settings/daytime.day": {
+    "min_votes": 2
+   },
+   "settings/daytime.night": {
+    "min_votes": 2
+   },
+   "settings/daytime.changes": {
+    "min_votes": 1
+   },
+   "settings/daytime.authoritative": {
+    "min_votes": 1
+   },
+   "settings/daytime.tod": {
+    "min_votes": 1
+   },
+   "spawn/storage.entity_map": {
+    "min_votes": 2
+   },
+   "spawn/storage.entity_map_cap": {
+    "min_votes": 1
+   },
+   "spawn/storage.entity_records": {
+    "min_votes": 1
+   },
+   "spawn/record.template": {
+    "min_votes": 1
+   },
+   "spawn/template.family": {
+    "min_votes": 1
+   },
+   "spawn/registry.template_map": {
+    "min_votes": 1
+   },
+   "spawn/registry.template_map_cap": {
+    "min_votes": 1
+   },
+   "spawn/registry.template_map_values": {
+    "min_votes": 1
+   },
+   "spawn/record.id": {
+    "value": 16
+   },
+   "spawn/template.name": {
+    "value": 16
+   },
+   "spawn/registry.component_map": {
+    "min_votes": 1
+   },
+   "spawn/template.components": {
+    "value": 40
+   },
+   "spawn/record.parent": {
+    "value": 20
+   },
+   "time/daytime.anchor_ecs": {
+    "min_votes": 3
+   },
+   "time/daytime.anchor_game": {
+    "min_votes": 2
+   },
+   "time/daytime.counter": {
+    "min_votes": 2
+   },
+   "time/daytime.tod": {
+    "min_votes": 2
+   },
+   "time/daytime.day_start": {
+    "min_votes": 2
+   },
+   "time/daytime.night_start": {
+    "min_votes": 2
+   },
+   "time/daytime.day_length": {
+    "min_votes": 2
+   },
+   "time/daytime.night_length": {
+    "min_votes": 1
+   },
+   "time/daytime.scale": {
+    "min_votes": 2
+   },
+   "time/daytime.is_day": {
+    "value": 88
+   },
+   "time/weather.mode": {
+    "min_votes": 1
+   },
+   "time/weather.layers": {
+    "min_votes": 1
+   },
+   "time/weather.layer_count": {
+    "min_votes": 1
+   },
+   "time/weather.layer_stride": {
+    "min_votes": 1
+   },
+   "time/weather.layer_cur": {
+    "min_votes": 1
+   },
+   "time/weather.layer_prev": {
+    "min_votes": 2
+   },
+   "time/gs.daytime_synced": {
+    "min_votes": 1
+   },
+   "time/gs.server_game": {
+    "min_votes": 1
+   },
+   "time/sg.daytime": {
+    "min_votes": 1
+   },
+   "world/programs.count": {
+    "min_votes": 3
+   },
+   "world/programs.max": {
+    "min_votes": 1
+   },
+   "world/programs.stride": {
+    "min_votes": 2
+   },
+   "world/programs.table": {
+    "min_votes": 1
+   },
+   "world/desc.flags": {
+    "min_votes": 2
+   },
+   "world/job.entity_count": {
+    "min_votes": 1
+   },
+   "world/job.entity_list": {
+    "min_votes": 1
+   },
+   "world/ctx.index": {
+    "value": 8
+   },
+   "world/job.cmdbuf": {
+    "value": 8
+   },
+   "world/cmdbuf.queue": {
+    "min_votes": 2
+   },
+   "world/record.hashes": {
+    "min_votes": 2
+   },
+   "world/storage.entities": {
+    "min_votes": 2
+   },
+   "world/teleport.applied": {
+    "value": 72
+   },
+   "world/teleport.find_ground": {
+    "value": 73
+   },
+   "world/teleport.target_entity": {
+    "value": 56
+   },
+   "world/record.teleport_size": {
+    "value": 188
+   },
+   "world/record.remove_size": {
+    "value": 76
+   },
+   "world/record.sizes": {
+    "value": 76
+   },
+   "world/record.data": {
+    "value": 108
+   },
+   "world/job.storage": {
+    "value": 48
+   }
+  },
+  "features": {
+   "tick": {
+    "symbols": [
+     "SimStep"
+    ],
+    "constants": [
+     "world.storage",
+     "storage.kind",
+     "storage.clock"
+    ]
+   },
+   "tick.wait_jobs": {
+    "symbols": [
+     "WaitWorldJobs"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "log.mirror": {
+    "symbols": [
+     "AddLogListener"
+    ]
+   },
+   "log.write": {
+    "symbols": [
+     "GameLog"
+    ]
+   },
+   "singletons": {
+    "symbols": [
+     "RegisterSingleton"
+    ],
+    "constants": [
+     "world.storage",
+     "world.singleton_map.bits",
+     "world.singleton_map.capacity",
+     "world.singleton_map.keys",
+     "world.singleton_map.values",
+     "world.singletons",
+     "singleton.stride",
+     "singleton.object",
+     "singleton.hash"
+    ]
+   },
+   "world.lifecycle": {
+    "symbols": [
+     "WorldDestroy"
+    ],
+    "constants": [
+     "world.storage",
+     "storage.kind"
+    ]
+   },
+   "chat.receive": {
+    "symbols": [
+     "chat/ChatLogAdd",
+     "chat/ServerReceive",
+     "chat/ReceiveAddLine"
+    ],
+    "constants": [
+     "chat/gs.chat",
+     "chat/max_text"
+    ]
+   },
+   "chat.send": {
+    "symbols": [
+     "chat/ChatLogAdd",
+     "chat/MarkSent",
+     "@chat.add_fields",
+     "@chat.readers"
+    ],
+    "constants": [
+     "chat/max_text",
+     "chat/sys.inbox_tail",
+     "chat/sys.inbox_count",
+     "chat/sys.reader_active",
+     "chat/sys.reader_gen",
+     "chat/sys.reader_pending",
+     "chat/sys.reader_stride",
+     "chat/sys.readers",
+     "chat/node.len",
+     "chat/node.handle",
+     "chat/node.account",
+     "chat/node.mask",
+     "chat/node.text"
+    ]
+   },
+   "chat.players": {
+    "symbols": [
+     "chat/ServerReceive",
+     "@chat.players"
+    ],
+    "constants": [
+     "chat/gs.players",
+     "chat/gs.player_stride",
+     "chat/gs.players_size",
+     "chat/player.peer",
+     "chat/player.permissions",
+     "chat/player.name",
+     "chat/player.entity",
+     "chat/player.account",
+     "chat/player.state"
+    ]
+   },
+   "combat.health": {
+    "symbols": [
+     "combat/AttrFind",
+     "combat/AttrAdd",
+     "GetComponent"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "combat.hits": {
+    "symbols": [
+     "combat/ApplyHit",
+     "combat/HitConclusion",
+     "combat/AllocPendingHit",
+     "combat/PendingPush"
+    ],
+    "constants": [
+     "combat/hits.pool",
+     "combat/hits.count",
+     "combat/hit.size",
+     "combat/hit.kind",
+     "combat/hit.flags",
+     "combat/hit.health_change"
+    ]
+   },
+   "combat.deaths": {
+    "constants": [
+     "combat/evq.first",
+     "combat/evq.blocks",
+     "combat/evq.count",
+     "combat/evq.next",
+     "combat/evq.block_shift",
+     "combat/actor.state"
+    ]
+   },
+   "combat.falls": {
+    "symbols": [
+     "combat/FallCheck",
+     "combat/FallStore",
+     "combat/FallEntityId",
+     "world/CurrentEntityId"
+    ],
+    "constants": [
+     "combat/fall.frame",
+     "combat/fall.pct",
+     "combat/fall.pct2"
+    ]
+   },
+   "combat.regen": {
+    "symbols": [
+     "combat/RegenProgram",
+     "combat/RegenAdd",
+     "world/CurrentEntityId"
+    ]
+   },
+   "combat.attr_heals": {
+    "symbols": [
+     "combat/AttrChangeRecord"
+    ]
+   },
+   "content.reflection": {
+    "symbols": [
+     "content/TypeByHash",
+     "@content/TypeByHash.fields"
+    ],
+    "constants": [
+     "content/type.hash",
+     "content/type.qname",
+     "content/type.inner",
+     "content/type.size",
+     "content/type.count",
+     "content/type.kind",
+     "content/type.fields",
+     "content/type.enum_values",
+     "content/field.stride",
+     "content/field.type",
+     "content/field.offset",
+     "content/enum.stride",
+     "content/enum.value"
+    ]
+   },
+   "content.items": {
+    "symbols": [
+     "content/ItemRegistryFind",
+     "content/ItemRegistryUpdate"
+    ],
+    "constants": [
+     "content/items.map",
+     "content/hmap.bits",
+     "content/hmap.capacity",
+     "content/hmap.keys",
+     "content/hmap.values",
+     "content/hmap.count",
+     "content/items.loading",
+     "content/items.started"
+    ]
+   },
+   "content.recipes": {
+    "symbols": [
+     "content/RecipeFind",
+     "@content/RecipeFind.fields",
+     "content/RecipeFinishLoading",
+     "@content/RecipeFinishLoading.fields"
+    ],
+    "constants": [
+     "content/recipes.map",
+     "content/recipes.resource",
+     "content/recipes.count",
+     "content/recipes.cap",
+     "content/recipes.bits",
+     "content/recipes.keys",
+     "content/recipes.values"
+    ]
+   },
+   "content.loot": {
+    "symbols": [
+     "@content/LootRoll.fields",
+     "content/LootFind",
+     "@content/LootFind.fields"
+    ],
+    "constants": [
+     "content/lootgen.lootreg",
+     "content/lootreg.count",
+     "content/lootreg.cap",
+     "content/lootreg.bits",
+     "content/lootreg.keys",
+     "content/lootreg.values"
+    ]
+   },
+   "content.drops": {
+    "symbols": [
+     "content/DefaultInventoryAcquire"
+    ]
+   },
+   "content.stack_guard": {
+    "symbols": [
+     "content/StackClamp"
+    ],
+    "constants": [
+     "content/clamp.max_stack"
+    ]
+   },
+   "content.new": {
+    "symbols": [
+     "content/ItemRegistryFind",
+     "content/ItemRegistryUpdate",
+     "@content/ItemRegistryUpdate.fields",
+     "content/RecipeFind",
+     "content/RecipeFinishLoading",
+     "@content/RecipeFinishLoading.fields",
+     "@content/RecipeFinishLoading.workshops"
+    ],
+    "constants": [
+     "content/items.map",
+     "content/items.map2",
+     "content/recipes.map",
+     "content/recipes.resource",
+     "content/recipes.workshops",
+     "content/recipes.ws_stride",
+     "content/recipes.ws_count",
+     "content/recipes.ws_max"
+    ]
+   },
+   "gameplay.intercept": {
+    "symbols": [
+     "SimStep",
+     "gameplay/DeliverEvents"
+    ],
+    "constants": [
+     "world.storage",
+     "gameplay/storage.pending",
+     "gameplay/storage.pending_count",
+     "gameplay/buffer.used",
+     "gameplay/buffer.stride",
+     "gameplay/record.size"
+    ]
+   },
+   "gameplay.queues": {
+    "symbols": [
+     "gameplay/DeliverEvents"
+    ],
+    "constants": [
+     "gameplay/storage.queues",
+     "gameplay/events.map.cap",
+     "gameplay/events.map.count",
+     "gameplay/events.map.bits",
+     "gameplay/events.map.keys",
+     "gameplay/events.map.values"
+    ]
+   },
+   "gameplay.emit": {
+    "symbols": [
+     "gameplay/EmitEvent",
+     "gameplay/JobProgramId",
+     "gameplay/JobEventBuffer"
+    ]
+   },
+   "gameplay.craft": {
+    "symbols": [
+     "gameplay/CraftRecipe"
+    ]
+   },
+   "gameplay.recipes": {
+    "symbols": [
+     "gameplay/RecipeFind"
+    ],
+    "constants": [
+     "gameplay/recipes.map.count",
+     "gameplay/recipes.map.cap",
+     "gameplay/recipes.map.bits",
+     "gameplay/recipes.workshops"
+    ]
+   },
+   "gameplay.build": {
+    "symbols": [
+     "gameplay/PlaceBlueprint",
+     "gameplay/PlaceProp",
+     "gameplay/DismantleBlock",
+     "gameplay/DismantleBlock2",
+     "gameplay/PickUpProp"
+    ],
+    "constants": [
+     "gameplay/op.player"
+    ]
+   },
+   "gameplay.terraform": {
+    "symbols": [
+     "gameplay/TerraformImpact"
+    ],
+    "constants": [
+     "gameplay/impact.arg_offset",
+     "gameplay/impact.arg_base",
+     "gameplay/impact.arg_stride"
+    ]
+   },
+   "gameplay.spawn": {
+    "symbols": [
+     "gameplay/QueueSpawn",
+     "gameplay/RandomSpawnerSpawnRet"
+    ]
+   },
+   "gameplay.entities": {
+    "symbols": [
+     "spawn/CreateEntity",
+     "spawn/DestroyEntity",
+     "GetEntityTransform"
+    ],
+    "constants": [
+     "world.storage",
+     "spawn/storage.entity_map",
+     "spawn/storage.entity_map_cap",
+     "spawn/storage.entity_records",
+     "spawn/record.template",
+     "spawn/record.id"
+    ]
+   },
+   "gameplay.discard": {
+    "symbols": [
+     "gameplay/InventoryActions",
+     "gameplay/InventoryTransfer"
+    ],
+    "constants": [
+     "gameplay/pi.item.version",
+     "gameplay/scpi.item",
+     "gameplay/pi.item.type",
+     "gameplay/pi.item.slot",
+     "gameplay/pi.transfer.version",
+     "gameplay/scpi.transfer",
+     "gameplay/pi.transfer.type",
+     "gameplay/pi.transfer.slot"
+    ]
+   },
+   "items.transaction": {
+    "symbols": [
+     "items/InventoryTxCtor",
+     "items/InventoryTxInit",
+     "items/InventoryAddItems",
+     "items/InventoryCommit",
+     "items/InventoryRollback",
+     "items/InventoryFreeArrays",
+     "items/ReadOther",
+     "items/InventoryRemoveItems",
+     "items/ItemRegistryFind",
+     "items/JobStorage",
+     "@items/InventoryTxCtor.fields",
+     "@items/InventoryTxInit.fields",
+     "@items/InventoryAddItems.fields",
+     "@items/InventoryRemoveItems.fields"
+    ],
+    "constants": [
+     "items/tx.result",
+     "items/tx.touched",
+     "items/tx.ops",
+     "items/tx.operator",
+     "items/setup.operator",
+     "items/tx.flags",
+     "items/item.flags",
+     "items/item.max_stack",
+     "items/setup_c.initialized"
+    ]
+   },
+   "items.program": {
+    "symbols": [
+     "items/RegisterProgram",
+     "items/RegisterAllPrograms",
+     "items/IterBegin",
+     "@items/RegisterProgram.fields",
+     "GetComponent",
+     "items/ComponentMapFind",
+     "@items/GetComponent.fields"
+    ],
+    "constants": [
+     "items/world.program_count",
+     "items/world.program_stride",
+     "items/registry.components",
+     "world.storage"
+    ]
+   },
+   "items.read": {
+    "symbols": [
+     "GetComponent"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "items.catalog": {
+    "symbols": [
+     "items/ItemRegistryFind"
+    ],
+    "constants": [
+     "items/registry.items",
+     "items/item.max_stack",
+     "items/item.flags"
+    ]
+   },
+   "items.scan": {
+    "symbols": [
+     "GetComponent",
+     "items/ReadOtherImpl",
+     "items/HashMapFindEntity",
+     "@items/ReadOtherImpl.fields"
+    ],
+    "constants": [
+     "items/storage.entities",
+     "items/hmap.capacity",
+     "items/hmap.count",
+     "items/hmap.bits",
+     "items/hmap.keys",
+     "world.storage"
+    ]
+   },
+   "net.transport": {
+    "symbols": [
+     "@net.machines",
+     "net/ServerReceive",
+     "net/SyncReturn",
+     "net/SyncSockets",
+     "@net.machine_lookup",
+     "net/SessionRead",
+     "@net.free_call",
+     "net/SessionFree",
+     "net/SessionAlloc",
+     "net/SessionCommit",
+     "net/SendLoginResult",
+     "@net.abort_call",
+     "net/SessionAbort",
+     "@net.channel_modes"
+    ],
+    "constants": [
+     "net/gs.machines",
+     "net/gs.machine_count",
+     "net/after_sync.gs_register",
+     "net/gs.sockets",
+     "net/sockets.machines",
+     "net/machine.stride",
+     "net/machine.sockets",
+     "net/channel",
+     "net/channel.mode"
+    ]
+   },
+   "net.players": {
+    "symbols": [
+     "@net.records"
+    ],
+    "constants": [
+     "net/gs.records",
+     "net/rec.stride",
+     "net/rec.count",
+     "net/rec.state",
+     "net/rec.peer",
+     "net/rec.account",
+     "net/rec.name",
+     "net/rec.entity"
+    ]
+   },
+   "net.kick": {
+    "symbols": [
+     "net/SendLoginResult"
+    ],
+    "constants": [
+     "net/gs.sockets"
+    ]
+   },
+   "players.records": {
+    "symbols": [
+     "players/RegisterSingleton",
+     "players/MachineLoggedIn",
+     "players/UpdatePlayers",
+     "players/HandleToEntity"
+    ],
+    "constants": [
+     "players/server.records",
+     "players/rec.stride",
+     "players/rec.count",
+     "players/rec.state",
+     "players/rec.name",
+     "players/rec.entity",
+     "players/rec.permissions",
+     "players/rec.group",
+     "players/rec.account"
+    ]
+   },
+   "players.admin": {
+    "symbols": [
+     "players/RegisterSingleton",
+     "players/IsAdmin"
+    ],
+    "constants": [
+     "players/info.stride",
+     "players/info.max_index",
+     "players/info.admin",
+     "players/info.handle"
+    ]
+   },
+   "players.singleton_map": {
+    "symbols": [
+     "players/RegisterSingleton"
+    ],
+    "constants": [
+     "players/world.singleton_map",
+     "players/world.singleton_map.bits",
+     "players/world.singleton_map.capacity",
+     "players/world.singleton_map.keys",
+     "players/world.singleton_map.values",
+     "players/world.singletons",
+     "players/singleton.stride",
+     "players/singleton.object",
+     "players/singleton.hash"
+    ]
+   },
+   "saves.request": {
+    "symbols": [
+     "saves/RequestServerSave"
+    ],
+    "constants": [
+     "saves/inst.save_block",
+     "saves/inst.save_sys",
+     "saves/ss.state",
+     "saves/ss.flags",
+     "saves/inst.last_request"
+    ]
+   },
+   "saves.write": {
+    "symbols": [
+     "saves/Save2WriteWorld",
+     "@saves.s2_fields"
+    ],
+    "constants": [
+     "saves/s2.result",
+     "saves/s2.guid",
+     "saves/s2.rev_rel",
+     "saves/s2.slot"
+    ]
+   },
+   "saves.load": {
+    "symbols": [
+     "saves/LoadSavegameStep",
+     "@saves.load_fields",
+     "@saves.inst_save2"
+    ],
+    "constants": [
+     "saves/inst.slot_valid",
+     "saves/inst.save2"
+    ]
+   },
+   "saves.reasons": {
+    "symbols": [
+     "saves/RetAutosave",
+     "saves/RetShutdown",
+     "saves/RetPlayerLeave"
+    ],
+    "constants": [
+     "saves/autosave.lo",
+     "saves/autosave.hi"
+    ]
+   },
+   "settings.live": {
+    "symbols": [
+     "settings/SendServerInfo",
+     "settings/TypeByHash"
+    ],
+    "constants": [
+     "settings/instance.settings",
+     "settings/type.hash",
+     "settings/type.qname",
+     "settings/type.inner",
+     "settings/type.size",
+     "settings/type.count",
+     "settings/type.kind",
+     "settings/type.fields",
+     "settings/type.enum_values",
+     "settings/field.stride",
+     "settings/field.type",
+     "settings/field.offset",
+     "settings/enum.stride",
+     "settings/enum.value"
+    ]
+   },
+   "settings.resend": {
+    "symbols": [
+     "settings/SendServerInfo"
+    ],
+    "constants": [
+     "settings/instance.resend"
+    ]
+   },
+   "settings.world": {
+    "constants": [
+     "settings/instance.world"
+    ]
+   },
+   "settings.daytime": {
+    "symbols": [
+     "settings/DaytimeSetDurations"
+    ],
+    "constants": [
+     "settings/daytime.day",
+     "settings/daytime.night",
+     "settings/daytime.changes",
+     "settings/daytime.tod"
+    ]
+   },
+   "spawn.create": {
+    "symbols": [
+     "SimStep",
+     "SpawnWrapper",
+     "GetEntityTransform"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "spawn.destroy": {
+    "symbols": [
+     "spawn/DestroyEntity"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "spawn.templates": {
+    "symbols": [
+     "spawn/CreateEntity"
+    ],
+    "constants": [
+     "world.storage",
+     "spawn/registry.template_map",
+     "spawn/registry.template_map_cap",
+     "spawn/registry.template_map_values",
+     "spawn/template.name",
+     "spawn/registry.component_map",
+     "spawn/template.components"
+    ]
+   },
+   "spawn.entities": {
+    "symbols": [
+     "GetEntityTransform"
+    ],
+    "constants": [
+     "world.storage",
+     "spawn/storage.entity_map",
+     "spawn/storage.entity_map_cap",
+     "spawn/storage.entity_records",
+     "spawn/record.template",
+     "spawn/record.id"
+    ]
+   },
+   "time.read": {
+    "symbols": [
+     "time/SetTimeOfDay",
+     "time/GetGameTime",
+     "time/GameTimeToTod",
+     "@time.daytime_fields",
+     "@time.daytime_update"
+    ],
+    "constants": [
+     "time/daytime.anchor_ecs",
+     "time/daytime.anchor_game",
+     "time/daytime.counter",
+     "time/daytime.tod",
+     "time/daytime.day_start",
+     "time/daytime.night_start",
+     "time/daytime.day_length",
+     "time/daytime.night_length",
+     "time/daytime.scale",
+     "time/daytime.is_day"
+    ]
+   },
+   "time.set": {
+    "symbols": [
+     "time/SetTimeOfDay",
+     "time/TodToGameTime",
+     "time/GetGameTime"
+    ],
+    "constants": [
+     "time/daytime.anchor_ecs",
+     "time/daytime.anchor_game",
+     "time/daytime.counter",
+     "time/daytime.day_length",
+     "time/daytime.night_length"
+    ]
+   },
+   "time.weather": {
+    "symbols": [
+     "time/WeatherUpdate",
+     "time/WeatherRemoveInstance",
+     "@time.weather_update",
+     "@time.weather_layers"
+    ],
+    "constants": [
+     "time/weather.mode",
+     "time/weather.layers",
+     "time/weather.layer_count",
+     "time/weather.layer_stride",
+     "time/weather.layer_cur",
+     "time/weather.layer_prev"
+    ]
+   },
+   "time.sync_probe": {
+    "symbols": [
+     "time/SendServerInfo",
+     "@time.server_info",
+     "time/ServerGameDaytimeSync",
+     "time/DaytimeSyncIfChanged"
+    ],
+    "constants": [
+     "time/gs.daytime_synced",
+     "time/gs.server_game",
+     "time/sg.daytime"
+    ]
+   },
+   "world.programs": {
+    "symbols": [
+     "world/RegisterAllPrograms",
+     "world/RegisterProgram",
+     "world/IterBegin",
+     "world/IterNext",
+     "world/CurrentEntityId"
+    ],
+    "constants": [
+     "world.storage",
+     "storage.kind",
+     "world/programs.count",
+     "world/programs.max",
+     "world/programs.table",
+     "world/programs.stride",
+     "world/desc.flags",
+     "world/job.entity_count",
+     "world/job.entity_list",
+     "world/ctx.index",
+     "world/job.tpl_count",
+     "world/job.read_count",
+     "world/job.write_count",
+     "world/job.singletons",
+     "world/singletons.count",
+     "world/job.other_tpl_count",
+     "world/job.other_count",
+     "world/job.events_in_count",
+     "world/job.events_out_count"
+    ]
+   },
+   "world.names": {
+    "constants": [
+     "world/registry.components",
+     "world/registry.templates",
+     "world/storage.entities",
+     "world/storage.entities.cap",
+     "world/storage.entities.values",
+     "world/registry.singletons.count",
+     "world/registry.singletons.cap",
+     "world/registry.singletons.bits",
+     "world/registry.singletons.keys",
+     "world/registry.singletons.values"
+    ]
+   },
+   "world.names.singletons": {
+    "constants": [
+     "world/registry.singletons.count",
+     "world/registry.singletons.cap",
+     "world/registry.singletons.bits",
+     "world/registry.singletons.keys",
+     "world/registry.singletons.values"
+    ]
+   },
+   "world.names.events": {
+    "constants": [
+     "world/registry.events.count",
+     "world/registry.events.cap",
+     "world/registry.events.bits",
+     "world/registry.events.keys",
+     "world/registry.events.values"
+    ]
+   },
+   "world.queue": {
+    "symbols": [
+     "world/QueuePush",
+     "world/JobCmdBuf"
+    ],
+    "constants": [
+     "world/job.cmdbuf",
+     "world/cmdbuf.queue",
+     "world/record.hashes",
+     "world/record.sizes",
+     "world/record.data"
+    ]
+   },
+   "world.write": {
+    "symbols": [
+     "world/MarkWritten"
+    ]
+   },
+   "world.read_other": {
+    "symbols": [
+     "world/ReadOther",
+     "world/JobStorage"
+    ],
+    "constants": [
+     "world/job.storage"
+    ]
+   },
+   "world.entities": {
+    "symbols": [
+     "GetComponent",
+     "GetEntityTransform"
+    ],
+    "constants": [
+     "world.storage"
+    ]
+   },
+   "world.find": {
+    "constants": [
+     "world/storage.entities",
+     "world/storage.entities.cap",
+     "world/storage.entities.values",
+     "world/registry.singletons.count",
+     "world/registry.singletons.cap",
+     "world/registry.singletons.bits",
+     "world/registry.singletons.keys",
+     "world/registry.singletons.values",
+     "world/entity.layout",
+     "world/registry.components"
+    ]
+   },
+   "world.teleport": {
+    "symbols": [
+     "world/QueuePush",
+     "GetComponent"
+    ],
+    "constants": [
+     "world/teleport.applied",
+     "world/teleport.find_ground",
+     "world/teleport.target_entity",
+     "world/record.teleport_size",
+     "world/record.remove_size"
+    ]
+   },
+   "world.dead_check": {
+    "constants": [
+     "world/actor.state"
+    ]
+   }
+  }
+ }
+}

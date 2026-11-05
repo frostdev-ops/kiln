@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/vfx (kiln.vfx): play the game's VFX from code, on a position or attached to an entity and
+       slot, and the server relay over the Kiln channel kiln:vfx. Client playback only; on a dedicated server calls relay to Kiln
+       clients (vanilla clients see nothing new). Deployed to kiln/host/ and shared by every mod (mods reference it with
+       Private="false" ExcludeAssets="runtime"). Docs: docs/kiln/services/vfx.md. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Vfx</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+  </ItemGroup>
+</Project>

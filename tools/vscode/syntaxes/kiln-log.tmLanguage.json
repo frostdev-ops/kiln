@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Kiln log",
+  "scopeName": "text.log.kiln",
+  "comment": "kiln.log: [L HH:MM:SS.mmm] [tag] text. Scopes follow VS Code's built-in log grammar (log.error/log.warning/log.info) so themes color them the same way.",
+  "patterns": [
+    {
+      "name": "meta.line.error.kiln-log",
+      "match": "^(\\[E [0-9:.]+\\])\\s+(\\[[^\\]]+\\])\\s+(.*)$",
+      "captures": {
+        "1": { "name": "string.regexp strong log.error" },
+        "2": { "patterns": [{ "include": "#tag" }] },
+        "3": { "name": "string.regexp log.error", "patterns": [{ "include": "#inline" }] }
+      }
+    },
+    {
+      "name": "meta.line.warning.kiln-log",
+      "match": "^(\\[W [0-9:.]+\\])\\s+(\\[[^\\]]+\\])\\s+(.*)$",
+      "captures": {
+        "1": { "name": "markup.deleted log.warning" },
+        "2": { "patterns": [{ "include": "#tag" }] },
+        "3": { "name": "markup.deleted log.warning", "patterns": [{ "include": "#inline" }] }
+      }
+    },
+    {
+      "name": "meta.line.kiln-log",
+      "match": "^(\\[([IDT]) ([0-9:.]+)\\])\\s+(\\[[^\\]]+\\])\\s+(.*)$",
+      "captures": {
+        "1": { "name": "comment log.date" },
+        "4": { "patterns": [{ "include": "#tag" }] },
+        "5": { "patterns": [{ "include": "#inline" }] }
+      }
+    },
+    { "name": "comment log.stack", "match": "^\\s+at\\s.*$" },
+    { "include": "#inline" }
+  ],
+  "repository": {
+    "tag": {
+      "patterns": [
+        { "match": "\\[(mod):([^\\]]+)\\]", "captures": { "1": { "name": "keyword.other.kiln-log" }, "2": { "name": "entity.name.type.mod.kiln-log" } } },
+        { "match": "\\[(service):([^\\]]+)\\]", "captures": { "1": { "name": "keyword.other.kiln-log" }, "2": { "name": "entity.name.namespace.kiln-log" } } },
+        { "match": "\\[[^\\]]+\\]", "name": "entity.name.tag.kiln-log" }
+      ]
+    },
+    "inline": {
+      "patterns": [
+        { "match": "\\bPASS\\b", "name": "markup.inserted strong log.info" },
+        { "match": "\\b(FAIL|FAILED)\\b", "name": "string.regexp strong log.error" },
+        { "match": "\\bSKIP\\b", "name": "markup.changed log.debug" },
+        { "match": "\\b([A-Za-z.]*Exception)\\b", "name": "string.regexp emphasis log.exceptiontype" },
+        { "match": "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b", "name": "constant.language log.constant" },
+        { "match": "\\b0x[0-9a-fA-F]+\\b", "name": "constant.language log.constant" },
+        { "match": "\\b[0-9]+(\\.[0-9]+)?\\s?(ms|s)\\b", "name": "constant.numeric log.constant" },
+        { "match": "'[^']*'", "name": "string log.string" },
+        { "match": "\"[^\"]*\"", "name": "string log.string" }
+      ]
+    }
+  }
+}

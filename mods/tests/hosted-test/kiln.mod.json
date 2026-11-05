@@ -1,0 +1,8 @@
+{
+  "id": "hosted-test",
+  "name": "Server mod on a hosting client (test)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "HostedTest.dll",
+  "side": "server"
+}

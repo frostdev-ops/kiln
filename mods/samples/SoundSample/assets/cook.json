@@ -1,0 +1,54 @@
+{
+  "format": 1,
+  "comment": "SoundSample's cook recipe (tools/soundcook recipe; docs/kiln/modding/sounds.md). Sources: ../audio/** (synthetic test tones made by tools/soundcook/samples/tones.py, one frequency per cue). Only the override step reads the installed client (its vanilla cue's other fields). Outputs: cooked/ (never committed).",
+  "tool": "soundcook",
+  "out": "cooked",
+  "game": { "side": "client", "madeOn": "1287369" },
+  "guidNamespace": "928632ef-3270-4bc2-8657-0b6bcdeb2976",
+  "voiceoverFallback": "en",
+  "inputs": {
+    "dialog_confirm": { "guid": "b096387a-cc73-475a-bacd-69ce8cad9fc9", "type": "keen::SoundContainerResource",
+                        "comment": "the Ui cue that plays sfx_ui_dialog_confirm (0050c296-…) when a dialogue option is confirmed" }
+  },
+  "steps": [
+    { "op": "sound", "name": "ui_chime", "src": "../audio/ui/ui_chime.wav", "channels": "mono",
+      "cue": { "scene": "Ui", "volume": 0.8 }, "comment": "0.5 s 997 Hz: inline, 16-bit 48 kHz passes through exactly" },
+
+    { "op": "sound", "name": "stereo_tone", "src": "../audio/sfx/stereo_tone.flac", "channels": "stereo",
+      "comment": "4 s, 440 Hz left / 660 Hz right; FLAC at 44.1 kHz: resampled, streamed" },
+    { "op": "cue", "name": "stereo_tone", "sounds": ["stereo_tone"], "positional": { "min": 3, "max": 60 }, "volume": 0.7 },
+
+    { "op": "sound", "name": "blip_a", "src": "../audio/sfx/blip_a.wav", "channels": "mono", "comment": "1200 Hz, 24-bit WAV" },
+    { "op": "sound", "name": "blip_b", "src": "../audio/sfx/blip_b.ogg", "channels": "mono", "comment": "1500 Hz, Ogg Vorbis 44.1 kHz" },
+    { "op": "sound", "name": "blip_c", "src": "../audio/sfx/blip_c.mp3", "channels": "mono", "comment": "1800 Hz, MP3 44.1 kHz" },
+    { "op": "cue", "name": "blip_3d", "sounds": ["blip_a", "blip_b", "blip_c"], "positional": { "min": 1, "max": 40 },
+      "volume": 0.6, "maxCount": 4, "comment": "the 3D sound: three takes, picked at random, never the same twice in a row" },
+
+    { "op": "sound", "name": "hum_loop", "src": "../audio/sfx/hum_loop.wav", "channels": "mono",
+      "cue": { "loop": true, "positional": { "min": 2, "max": 30 }, "volume": 0.5 },
+      "comment": "2 s of 220 Hz, whole cycles: a seamless positional loop (an engine hum, a campfire)" },
+
+    { "op": "sound", "name": "ambience_loop", "src": "../audio/ambience/ambience_loop.ogg", "channels": "stereo",
+      "cue": { "loop": true, "volume": 0.4, "playScene": "Ambience", "priority": 100 },
+      "comment": "the looped ambience: 8 s stereo 330/331 Hz with a slow swell, 2D, played on the Ambience scene" },
+
+    { "op": "sound", "name": "music_track", "src": "../audio/music/music_track.ogg", "channels": "stereo",
+      "cue": { "scene": "Music", "volume": 0.6, "maxCount": 1 }, "comment": "12 s C major arpeggio on the Music bus" },
+
+    { "op": "sound", "name": "confirm_tone", "src": "../audio/ui/confirm_tone.wav", "channels": "mono",
+      "comment": "0.4 s 1661 Hz: the replacement take of the vanilla cue below" },
+    { "op": "cue", "name": "dialog_confirm", "base": "dialog_confirm", "guid": "@dialog_confirm", "mode": "override",
+      "sounds": ["confirm_tone"], "pitchRandomness": 0,
+      "comment": "override of a vanilla cue: its other fields (Ui scene, volume 0.375, limits) are copied from the player's game" },
+
+    { "op": "voiceover", "name": "greeting", "volume": 0.7, "normalize": -24, "fallback": "en",
+      "languages": { "en": ["../audio/vo/en/greeting.wav"], "de": ["../audio/vo/de/greeting.wav"] },
+      "subtitles": { "en": "Hello, traveller.", "de": "Hallo, Reisender." },
+      "comment": "a dialogue line: en two 523 Hz beeps, de three 784 Hz beeps; fr/es/zh players hear the English take" },
+
+    { "op": "voiceover", "name": "narration_intro", "narration": true, "fallback": null,
+      "languages": { "en": ["../audio/vo/en/narration_intro.flac"] },
+      "subtitles": { "en": "Long ago, the Flame burned bright over Embervale." },
+      "comment": "narration (no speaker): durations are written for the lore queue; English only, other voice languages stay silent (fallback null overrides the mod-wide en)" }
+  ]
+}

@@ -1,0 +1,1 @@
+{ "id": "fixture-game-tree-mod", "version": "1.0.0", "apiVersion": "0.2", "license": "MIT", "entryAssembly": "B.dll", "side": "server", "clients": "mod" }

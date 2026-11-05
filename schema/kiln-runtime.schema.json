@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-runtime.schema.json",
+  "title": "Kiln runtime bundle manifest (kiln-runtime.json in kiln-runtime-<semver>+<date.gitsha>.zip), format 1",
+  "description": "Root entry of a runtime bundle. The zip is deterministic (sorted entries, fixed times, no extra attributes); its files are laid out relative to the game folder (dinput8.dll, kiln/...). Built by tools/package + kilnctl bundle create; installed by kiln_manage::install.",
+  "type": "object",
+  "required": ["format", "version", "kiln", "abi", "components", "files"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?\\+[0-9]{8}\\.[0-9a-f]{7,40}$", "description": "<VERSION>+<yyyymmdd>.<gitsha>, also in the zip name." },
+    "kiln": { "$ref": "common.schema.json#/$defs/semver", "description": "The VERSION file." },
+    "git": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "created": { "$ref": "common.schema.json#/$defs/time", "description": "Commit time (SOURCE_DATE_EPOCH), not build time: keeps the zip deterministic." },
+    "abi": { "type": "integer", "minimum": 1, "description": "KILN_ABI_VERSION" },
+    "api": { "type": "string", "description": "Kiln.Mods.ApiVersion" },
+    "dotnet": { "type": "string", "description": "Bundled .NET runtime version (kiln/dotnet)." },
+    "components": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sides"],
+        "properties": {
+          "sides": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/runSide" }, "minItems": 1, "uniqueItems": true },
+          "default": { "type": "boolean", "default": true, "description": "Installed unless the user deselects it." },
+          "requires": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" }
+        }
+      },
+      "description": "Known names: core (proxy, core, host, dotnet, sigdb, services), admin (Kiln.Admin), emf (kiln-emf plugin), samples."
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "size", "sha256", "component"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/relPath", "description": "Relative to the game folder, '/' separators, sorted bytewise." },
+          "size": { "type": "integer", "minimum": 0 },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "component": { "type": "string" },
+          "config": { "type": "boolean", "default": false, "description": "User-editable (kiln/kiln.json): installed only when missing, never replaced or deleted." }
+        }
+      }
+    },
+    "builds": {
+      "type": "object",
+      "properties": {
+        "server": { "type": "array", "items": { "$ref": "#/$defs/build" } },
+        "client": { "type": "array", "items": { "$ref": "#/$defs/build" } }
+      },
+      "description": "Game builds this bundle's sigdb verifies (sigdb/builds/<side>/<sha256>.json with verified: true)."
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "build": {
+      "type": "object",
+      "required": ["sha256"],
+      "properties": {
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "steamBuild": { "type": "string" },
+        "svn": { "type": "integer" },
+        "verified": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

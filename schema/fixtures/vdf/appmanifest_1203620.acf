@@ -1,0 +1,16 @@
+"AppState"
+{
+	"appid"		"1203620"
+	"Universe"		"1"
+	"name"		"Enshrouded"
+	"StateFlags"		"4"
+	"installdir"		"Enshrouded"
+	"buildid"		"26404966"
+	"InstalledDepots"
+	{
+		"1203621"
+		{
+			"manifest"		"6460500204357789700"
+		}
+	}
+}

@@ -1,0 +1,10 @@
+{
+  "id": "impact-lab",
+  "name": "tools/impact lab check",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ImpactLab.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "Player-free lab check for tools/impact (not a sample): kiln.assets overrides the Fireball explosion program (80a2448f) with a tools/impact clone that also spawns a Vukah at the blast; the mod spawns the explosion far from everything and reports whether the clone's code ran. Lab only: it changes every explosion that uses that program."
+}

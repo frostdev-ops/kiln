@@ -1,0 +1,11 @@
+{
+  "id": "perkhit-test",
+  "name": "on-hit perks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "PerkHitTest.dll",
+  "side": "server",
+  "advanced": true,
+  "dependencies": { "newitems": "*" },
+  "description": "PASS/FAIL lines: why a perk's program does or does not apply its buff on a hit, through the game's own applyDamage, hit conclusion and OnHit stream, on a player-template entity. Player-free."
+}

@@ -1,0 +1,28 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A test mod (Kiln.Testing, Forge's GameTest): [KilnTest] methods that run inside the server, on the tick thread,
+       once the world is live (auto-run), and on demand:
+         kiln test kiln-mod-id [filter]         (or: echo "test kiln-mod-id" > <server>/kiln/control/t.cmd)
+       Results: <server>/kiln/logs/tests/kiln-mod-id.json and kiln.log (PASS/FAIL/SKIP lines).
+<!--#if (hasTarget)-->
+       It depends on the mod under test (KILN_DEP_ID), so it loads after it and sees its exported types.
+<!--#endif-->
+       Docs: docs/kiln/modding/testing.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnTest1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnTest1: in-server tests.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnServices>Testing</KilnServices>
+    <KilnTestsAutoRun>true</KilnTestsAutoRun>
+    <KilnTestTimeoutSeconds>30</KilnTestTimeoutSeconds>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+<!--#if (hasTarget)-->
+  <ItemGroup>
+    <KilnDependency Include="KILN_DEP_ID" Version="*" />
+  </ItemGroup>
+<!--#endif-->
+</Project>

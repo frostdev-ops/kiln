@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "itemz": {},
+  "items": {
+    "add": [
+      { "guid": "not-a-guid", "name": "Fixture Schema Blade", "base": "Weapon_Fixture_Sword", "displayNmae": "typo",
+        "texts": { "de": { "nmae": "x" } }, "drops": [ { "table": "0000c001-0000-4000-8000-000000000001", "countMin": 0 } ] },
+      { "guid": "00000000-0000-0000-0000-000000000000", "name": "FixtureSchema_Zero", "base": "Weapon_Fixture_Sword" },
+      { "name": "FixtureSchema_NoGuid", "base": "Weapon_Fixture_Sword", "placeholder": {} }
+    ],
+    "Material_Fixture_Logs": { "maxStackSize": "lots", "icon": "x.png" }
+  },
+  "recipes": {
+    "add": [
+      { "guid": "5a6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "name": "FixtureSchema_Recipe", "inputs": [], "outputs": [ { "category": "0x1" } ], "unlock": "Base" }
+    ]
+  },
+  "arsenals": { "add": [] },
+  "creatures": { "variants": [ { "id": "v", "base": "Enemy_Fixture_Wolf", "faction": "vukah", "features": ["-Fleehome"] } ] },
+  "options": { "stackGuard": "yes" }
+}

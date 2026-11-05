@@ -1,0 +1,8 @@
+{
+  "id": "fixture-typo",
+  "version": 2,
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "FixtureTypo.dll",
+  "dependecies": { "sample-lib": "^1.2" }
+}

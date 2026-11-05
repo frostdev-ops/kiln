@@ -1,0 +1,8 @@
+{
+  "id": "kiln-admin",
+  "name": "Kiln Admin (file bridge + KAP/1)",
+  "version": "0.2.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "Kiln.Admin.dll",
+  "side": "server"
+}

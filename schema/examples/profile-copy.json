@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "id": "server-ember-isles",
+  "name": "Server: Ember Isles",
+  "generation": 1,
+  "pathMode": "copy",
+  "configDir": "profiles/server-ember-isles/config",
+  "dropins": ["plugin"],
+  "server": {
+    "id": "srv-4b8e2c",
+    "name": "Ember Isles",
+    "address": "203.0.113.7:15636",
+    "modpack": { "url": "https://example.org/ember-isles-3.zip", "sha256": "9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b", "name": "Ember Isles", "version": "3" }
+  },
+  "mods": {
+    "kiln": [ { "id": "isle-icons", "version": "1.1.0", "path": "profiles/server-ember-isles/kiln/isle-icons", "hash": "kdh1:aa00bb11cc22dd33ee44ff5566778899aabbccddeeff00112233445566778899" } ]
+  }
+}

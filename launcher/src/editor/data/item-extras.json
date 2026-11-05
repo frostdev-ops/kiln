@@ -1,0 +1,408 @@
+{
+"63209182": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"72782423": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"73644530": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"100480458": {
+"flags": 1
+},
+"213476537": {
+"flags": 51,
+"maxDurability": 430,
+"maxUpgrades": 5
+},
+"246967425": {
+"flags": 19,
+"maxDurability": 600,
+"maxUpgrades": 3
+},
+"275027434": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"392185938": {
+"flags": 19,
+"maxDurability": 451,
+"maxUpgrades": 2
+},
+"397674071": {
+"flags": 17,
+"maxUpgrades": 1
+},
+"408308370": {
+"flags": 19,
+"maxDurability": 112,
+"maxUpgrades": 5
+},
+"440445803": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"459703170": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"591982940": {
+"flags": 1
+},
+"672573401": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"685713190": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"694526468": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"729789776": {
+"flags": 51,
+"maxDurability": 430,
+"maxUpgrades": 5
+},
+"881062229": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"972169946": {
+"flags": 51,
+"maxDurability": 401,
+"maxUpgrades": 5
+},
+"1024922960": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1064940291": {
+"flags": 19,
+"maxDurability": 412,
+"maxUpgrades": 2
+},
+"1065913662": {
+"flags": 51,
+"maxDurability": 333,
+"maxUpgrades": 4
+},
+"1066469057": {
+"flags": 1
+},
+"1073007208": {
+"flags": 1
+},
+"1186210583": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1203301438": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"1225142754": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1268331874": {
+"flags": 19,
+"maxDurability": 600,
+"maxUpgrades": 3
+},
+"1339461029": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1352377788": {
+"flags": 51,
+"maxDurability": 438,
+"maxUpgrades": 5
+},
+"1375984897": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"1457307757": {
+"flags": 51,
+"maxDurability": 450,
+"maxUpgrades": 5
+},
+"1467281560": {
+"flags": 19,
+"maxDurability": 85,
+"maxUpgrades": 3
+},
+"1551286900": {
+"flags": 51,
+"maxDurability": 457,
+"maxUpgrades": 5
+},
+"1590295047": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1594103631": {
+"flags": 51,
+"maxDurability": 500,
+"maxUpgrades": 5
+},
+"1594515604": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"1634845335": {
+"flags": 1
+},
+"1676088364": {
+"flags": 51,
+"maxDurability": 341,
+"maxUpgrades": 5
+},
+"1835123088": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"1848614756": {
+"flags": 51,
+"maxDurability": 410,
+"maxUpgrades": 4
+},
+"1892718642": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1899881150": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"1900300234": {
+"flags": 19,
+"maxDurability": 126,
+"maxUpgrades": 4
+},
+"1912744772": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"1947761873": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"1993216032": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"2100904811": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"2109907931": {
+"flags": 19,
+"maxDurability": 352,
+"maxUpgrades": 3
+},
+"2212802976": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"2252405199": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"2261499623": {
+"flags": 19,
+"maxDurability": 700,
+"maxUpgrades": 3
+},
+"2292265005": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"2305089639": {
+"flags": 51,
+"maxDurability": 469,
+"maxUpgrades": 5
+},
+"2337136795": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"2386596106": {
+"flags": 19,
+"maxDurability": 391,
+"maxUpgrades": 4
+},
+"2418290854": {
+"flags": 19,
+"maxDurability": 83,
+"maxUpgrades": 5
+},
+"2472292319": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"2562946422": {
+"flags": 51,
+"maxDurability": 477,
+"maxUpgrades": 5
+},
+"2574733718": {
+"flags": 3,
+"maxDurability": 500
+},
+"2688879463": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"2721789715": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"2785304766": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"2836932046": {
+"flags": 19,
+"maxDurability": 480,
+"maxUpgrades": 3
+},
+"2878804719": {
+"flags": 51,
+"maxDurability": 460,
+"maxUpgrades": 4
+},
+"2978264083": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3012114062": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3062146687": {
+"flags": 19,
+"maxDurability": 108,
+"maxUpgrades": 3
+},
+"3175293395": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3203382383": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3252787120": {
+"flags": 49,
+"maxUpgrades": 5
+},
+"3266681262": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3275567182": {
+"flags": 17,
+"maxUpgrades": 2
+},
+"3282248735": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3307405340": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3385040711": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3395268278": {
+"flags": 19,
+"maxDurability": 112,
+"maxUpgrades": 5
+},
+"3474096535": {
+"flags": 3,
+"maxDurability": 55
+},
+"3521922296": {
+"flags": 19,
+"maxDurability": 414,
+"maxUpgrades": 3
+},
+"3577032169": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"3577054019": {
+"flags": 17,
+"maxUpgrades": 4
+},
+"3583521141": {
+"flags": 51,
+"maxDurability": 589,
+"maxUpgrades": 5
+},
+"3766976818": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"3833797336": {
+"flags": 4,
+"maxLiquid": 1280
+},
+"3841156584": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"3905532315": {
+"flags": 19,
+"maxDurability": 480,
+"maxUpgrades": 3
+},
+"3913483832": {
+"flags": 3,
+"maxDurability": 110
+},
+"3960008381": {
+"flags": 51,
+"maxDurability": 356,
+"maxUpgrades": 5
+},
+"3971823801": {
+"flags": 51,
+"maxDurability": 430,
+"maxUpgrades": 5
+},
+"3982922050": {
+"flags": 17,
+"maxUpgrades": 3
+},
+"4070275753": {
+"flags": 17,
+"maxUpgrades": 5
+},
+"4131324901": {
+"flags": 19,
+"maxDurability": 380,
+"maxUpgrades": 3
+},
+"4148367690": {
+"flags": 19,
+"maxDurability": 405,
+"maxUpgrades": 3
+},
+"4217556203": {
+"flags": 51,
+"maxDurability": 456,
+"maxUpgrades": 4
+}
+}

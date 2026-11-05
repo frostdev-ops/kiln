@@ -1,0 +1,23 @@
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"@ROOT@"
+		"label"		""
+		"apps"
+		{
+			"2278520"		"8102177083"
+		}
+	}
+	"1"
+	{
+		"path"		"@LIB2@"
+		"apps"
+		{
+		}
+	}
+	"2"
+	{
+		"path"		"/nonexistent/unmounted/library"
+	}
+}

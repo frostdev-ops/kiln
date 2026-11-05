@@ -1,0 +1,8 @@
+{
+  "id": "saves-test",
+  "name": "kiln.saves lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SavesTest.dll",
+  "side": "server"
+}

@@ -1,0 +1,120 @@
+{
+  "description": "Duplicate ids, API version, features, kiln version, unreadable manifest",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/a",
+      "manifest": {
+        "id": "a",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll"
+      }
+    },
+    {
+      "dir": "/mods/copy",
+      "manifest": {
+        "id": "a",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll"
+      }
+    },
+    {
+      "dir": "/mods/api",
+      "manifest": {
+        "id": "api",
+        "version": "1",
+        "apiVersion": "1.0",
+        "entryAssembly": "M.dll"
+      }
+    },
+    {
+      "dir": "/mods/feat",
+      "manifest": {
+        "id": "feat",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "features": [
+          "tick",
+          "missing.feature"
+        ]
+      }
+    },
+    {
+      "dir": "/mods/newkiln",
+      "manifest": {
+        "id": "newkiln",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "kiln": ">=0.5"
+        }
+      }
+    },
+    {
+      "dir": "/mods/devkiln",
+      "manifest": {
+        "id": "devkiln",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "kiln": "^0.1"
+        }
+      }
+    },
+    {
+      "dir": "/mods/broken",
+      "raw": "{\"id\":\"Bad\",\"version\":\"1.0.0\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"M.dll\"}"
+    }
+  ],
+  "expect": {
+    "order": [
+      "a",
+      "devkiln"
+    ],
+    "rejected": [
+      {
+        "id": "api",
+        "dir": "/mods/api",
+        "state": "failed",
+        "reason": "needs Kiln API 1.0; this Kiln provides API 0.2.0"
+      },
+      {
+        "id": "broken",
+        "dir": "/mods/broken",
+        "state": "failed",
+        "reason": "kiln.mod.json: id 'Bad' must match ^[a-z0-9][a-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "a",
+        "dir": "/mods/copy",
+        "state": "failed",
+        "reason": "duplicate mod id 'a' (also in folder a); only the first loads"
+      },
+      {
+        "id": "feat",
+        "dir": "/mods/feat",
+        "state": "failed",
+        "reason": "needs feature missing.feature, unavailable on this game build"
+      },
+      {
+        "id": "newkiln",
+        "dir": "/mods/newkiln",
+        "state": "failed",
+        "reason": "needs Kiln >=0.5; this is Kiln 0.1.0-dev"
+      }
+    ]
+  }
+}

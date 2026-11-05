@@ -1,0 +1,7 @@
+{ "format": 1, "entries": [
+  { "kind": "icon", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "file": "icons/missing.png" },
+  { "kind": "icon", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "file": "icons/fake.png" },
+  { "kind": "blob", "hash": "12-1-2-3", "file": "built/m.blob" },
+  { "kind": "resource", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "type": "keen::RenderModel", "file": "built/m.bin", "patch": [ { "offset": 96, "blob": "built/m.blob" } ] },
+  { "kind": "resource", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d62", "type": "keen::RenderModel", "file": "built/two.bin" }
+] }

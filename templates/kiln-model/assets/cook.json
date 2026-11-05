@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "comment": "KilnModel1's cook recipe (tools/modelcook recipe). Source: src/blade.gltf (yours). Inputs: vanilla resources read from the player's own installed game by GUID + type (never copied into the mod). Output: cooked/ (made on each machine, never shipped). The new GUIDs were made for this project by dotnet new: keep them.",
+  "tool": "modelcook",
+  "out": "cooked",
+  "game": { "side": "client" },
+  "inputs": {
+    "bronze_model":  { "guid": "9c38c7f0-fd0a-41a6-b91e-9a16287b8f59", "type": "keen::RenderModel",
+                       "comment": "Weapon_T1_1H_SwordEpic_01 (Bronze Sword): every non-geometry field and the material" },
+    "bronze_visual": { "guid": "fc562683-2a8e-472b-8c37-db2dfb36d449", "type": "keen::ecs::TemplateResource",
+                       "comment": "its equipment.visualEntity" }
+  },
+  "steps": [
+    { "op": "model", "gltf": "src/blade.gltf", "base": "bronze_model", "guid": "e3a5c1d7-48b2-4f69-9a0e-6b7d2c5f8a13",
+      "mode": "new", "name": "kilnmodel1_blade", "stem": "blade" },
+    { "op": "visual", "base": "bronze_visual", "model": "e3a5c1d7-48b2-4f69-9a0e-6b7d2c5f8a13",
+      "guid": "5b8d2e4f-1c7a-4e93-b6f0-3a9c7d1e5b28", "name": "Visuals_KilnModel1_Blade", "stem": "blade_visual" }
+  ]
+}

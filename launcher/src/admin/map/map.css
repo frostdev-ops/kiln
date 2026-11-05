@@ -1,0 +1,123 @@
+/* Admin map, on the ember tokens (UI fonts; the
+   game's own map fonts are not used). */
+.ka-mapwrap-page { display: flex; flex-direction: column; min-height: 420px; }
+.ka-map-root { display: flex; flex: 1; min-height: 0; position: relative; background: #1b1a19; border-top: 1px solid var(--k-line); }
+.ka-map-root.noside .ka-map-side { display: none; }
+.ka-map-side { width: 330px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--k-line); background: var(--k-bg-1); min-height: 0; }
+.ka-map-area { flex: 1; position: relative; min-width: 0; }
+.ka-map { position: absolute; inset: 0; background: #0f0d0c; }
+.ka-map.leaflet-container { font: 13px/1.4 var(--k-font-ui); background: #0f0d0c; }
+
+.ka-map-search { position: relative; padding: 12px 12px 8px; }
+.ka-map-results { position: absolute; left: 12px; right: -260px; top: 52px; z-index: 1200; max-height: 70vh; overflow: auto; background: var(--k-bg-2);
+  border: 1px solid var(--k-line-strong); border-radius: var(--k-radius-l); box-shadow: 0 12px 32px #000b; padding: 6px; }
+.ka-map-results h4 { margin: 8px 8px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--k-text-2); }
+.ka-map-results button { display: grid; grid-template-columns: 28px 1fr; grid-template-rows: auto auto; column-gap: 9px; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 7px; padding: 6px 8px; cursor: pointer; align-items: center; color: var(--k-text-1); font: inherit; }
+.ka-map-results button:hover { background: var(--k-bg-3); }
+.ka-map-results button.on b { color: var(--k-ember-400); }
+.ka-map-results button img, .ka-map-results button .ka-dot { grid-row: span 2; width: 26px; height: 26px; object-fit: contain; justify-self: center; }
+.ka-map-results button .ka-dot { width: 12px; height: 12px; }
+.ka-map-results b { font-weight: 600; color: var(--k-text-0); }
+.ka-map-results small { color: var(--k-text-2); font-size: 12px; }
+.ka-map-tabs { display: flex; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--k-line); }
+.ka-map-tabs button { flex: 1; background: none; border: 0; border-radius: 7px; padding: 6px 4px; color: var(--k-text-2); cursor: pointer; font: inherit; }
+.ka-map-tabs button:hover { background: var(--k-bg-2); color: var(--k-text-0); }
+.ka-map-tabs button.on { background: #ff6a1a22; color: var(--k-ember-400); }
+.ka-map-panel { flex: 1; overflow: auto; padding: 10px 12px 16px; min-height: 0; }
+.ka-map-credit { font-size: 11px; color: var(--k-text-3); padding: 8px 12px 10px; border-top: 1px solid var(--k-line); line-height: 1.4; }
+.ka-map-credit b { font-weight: 600; color: var(--k-text-2); }
+.ka-map-muted { color: var(--k-text-2); font-size: 12.5px; margin: 6px 2px; }
+.ka-map-tools { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12.5px; color: var(--k-text-2); margin-bottom: 8px; }
+.ka-map-tools label, .ka-map-look label, .ka-map-inline { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--k-text-2); cursor: pointer; }
+.ka-map-tools select, .ka-map-look select { background: var(--k-bg-2); border: 1px solid var(--k-line-strong); border-radius: 5px; padding: 1px 4px; color: var(--k-text-1); }
+.ka-map-look { display: grid; gap: 7px; }
+.ka-map-look input[type=range] { flex: 1; accent-color: var(--k-ember-500); }
+.ka-map-root input[type=checkbox] { accent-color: var(--k-ember-500); }
+.ka-map-group { margin-top: 10px; }
+.ka-map-group h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--k-text-2); font-weight: 600; }
+.ka-map-group h3 > span { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.ka-map-group h3 > span:hover { color: var(--k-text-0); }
+.ka-map-group h3 small { margin-left: auto; font-weight: 500; letter-spacing: 0; color: var(--k-text-3); cursor: pointer; text-transform: none; }
+.ka-map-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.ka-map-cat { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 12.5px; min-width: 0; border: 1px solid transparent;
+  background: none; color: var(--k-text-1); text-align: left; font-family: inherit; }
+.ka-map-cat:hover { background: var(--k-bg-2); }
+.ka-map-cat img { width: 20px; height: 20px; object-fit: contain; flex: none; }
+.ka-map-cat span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ka-map-cat small { color: var(--k-text-3); font-size: 11px; }
+.ka-map-cat.off { opacity: .42; }
+.ka-map-cat:not(.off) { background: #ffffff07; border-color: #ffffff0d; }
+.ka-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid #000a; flex: none; }
+.ka-map-mine { border: 1px solid var(--k-line-strong); border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; background: #ffffff04; }
+.ka-map-mine h3 { display: flex; align-items: center; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--k-ember-400); }
+.ka-map-mrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
+.ka-map-mrow > span { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.ka-map-mrow img { width: 20px; height: 20px; }
+.ka-map-mrow small { color: var(--k-text-3); }
+.ka-map-x { background: none; border: 0; color: var(--k-text-2); cursor: pointer; padding: 0 4px; border-radius: 4px; font: inherit; }
+.ka-map-x:hover { color: var(--k-text-0); background: var(--k-bg-2); }
+.ka-map-lrow { display: flex; align-items: center; gap: 7px; padding: 4px 2px; font-size: 13px; flex-wrap: wrap; }
+.ka-map-lrow img { width: 18px; height: 18px; }
+.ka-map-lrow small { color: var(--k-text-3); font-size: 11.5px; }
+.ka-map-btns { margin-left: auto; display: flex; gap: 4px; }
+.ka-map-status { font-size: 12.5px; color: var(--k-text-2); padding: 6px 10px; border-radius: 8px; background: var(--k-bg-2); margin: 0 0 6px; }
+.ka-map-status.on { color: var(--k-ok); }
+
+.ka-map-sidetoggle { position: absolute; left: 10px; top: 10px; z-index: 1000; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--k-line-strong);
+  background: #171413e6; cursor: pointer; color: var(--k-text-1); }
+.ka-map-zoom { position: absolute; right: 12px; top: 12px; z-index: 1000; display: grid; gap: 4px; }
+.ka-map-zoom button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--k-line-strong); background: #171413e6; cursor: pointer; font-size: 16px; line-height: 1; color: var(--k-text-1); }
+.ka-map-zoom button:hover, .ka-map-sidetoggle:hover { border-color: var(--k-ember-500); }
+.ka-map-coords { position: absolute; left: 12px; bottom: 12px; z-index: 1000; display: flex; gap: 14px; font: 12px var(--k-font-mono); color: #d9d2c3;
+  background: #0e0d0cd9; border: 1px solid #6b542655; border-radius: 7px; padding: 4px 10px; pointer-events: none; }
+.ka-map-coords b { color: #f3e6c8; font-weight: 600; }
+.ka-map-loading { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 1000; font-size: 12.5px; color: var(--k-text-2);
+  background: #171413e6; border: 1px solid var(--k-line-strong); border-radius: 20px; padding: 5px 14px; }
+.ka-map-route { position: absolute; left: 56px; top: 10px; z-index: 1000; display: flex; gap: 12px; align-items: center; font-size: 13px;
+  background: #0e0d0cf0; border: 1px solid #6b5426; color: #e9e1cf; border-radius: 8px; padding: 6px 8px 6px 12px; box-shadow: 0 6px 18px #000a; }
+.ka-map-route .big { font-size: 16px; font-weight: 700; color: var(--k-gold-400); }
+.ka-map-route .up { color: #8fe08a; } .ka-map-route .down { color: #ff9d7a; }
+.ka-map-menu { position: absolute; z-index: 1100; min-width: 240px; max-width: 360px; background: #0e0d0cf5; border: 1px solid #6b5426; border-radius: 8px;
+  box-shadow: 0 10px 28px #000c; padding: 4px; color: #e9e1cf; }
+.ka-map-mh { padding: 6px 8px 7px; border-bottom: 1px solid #ffffff1a; margin-bottom: 3px; }
+.ka-map-mh b { display: block; font-size: 14px; color: #f3e6c8; }
+.ka-map-mh small { display: block; color: #a39a8a; font-size: 11.5px; font-family: var(--k-font-mono); }
+.ka-map-menu > button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 5px; cursor: pointer; font: 13px var(--k-font-ui); color: inherit; }
+.ka-map-menu > button:hover { background: #ff6a1a2e; }
+.ka-map-menu > button:disabled { opacity: .45; cursor: default; }
+.ka-map-menu hr { border: 0; border-top: 1px solid #ffffff14; margin: 3px 4px; }
+.ka-map-menu .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--k-warn); border: 1px solid #f9c74f55; border-radius: 4px; padding: 0 4px; }
+.ka-map-form { display: grid; gap: 8px; padding: 6px; }
+.ka-map-form .ka-inline { flex-wrap: nowrap; }
+.ka-map-form .ka-flags label { font-size: 12px; }
+
+.ka-gamemap { position: absolute; left: 0; top: 0; pointer-events: none; }
+.ka-map-root .leaflet-tooltip.ka-tip { background: #0e0d0cf0; border: 1px solid #6b5426; color: #e9e1cf; border-radius: 0; padding: 7px 10px; box-shadow: 0 6px 18px #000a;
+  width: max-content; max-width: 340px; white-space: normal; font-family: var(--k-font-ui); }
+.ka-map-root .ka-tip b { display: block; font-weight: 700; font-size: 14px; color: #f3e6c8; }
+.ka-map-root .ka-tip span { display: block; font-size: 12px; color: #b3a995; }
+.ka-map-root .ka-tip em { display: block; font-style: normal; font-size: 11px; color: #8a8174; margin-top: 2px; }
+.ka-map-root .ka-tip .ka-tipimg { width: 30px; height: 30px; float: left; margin: 0 8px 0 0; }
+.ka-map-root .leaflet-tooltip-top.ka-tip::before { border-top-color: #6b5426; }
+.ka-place span { display: block; transform: translate(-50%, -50%); white-space: nowrap; font-family: "KaMapHarmonique", var(--k-font-display); text-transform: uppercase;
+  letter-spacing: .22em; color: #ece2cc; font-size: 13px; text-shadow: 0 0 4px #000, 0 0 2px #000, 0 1px 2px #000; pointer-events: none; }
+.ka-place.t1 span { font-size: 16px; letter-spacing: .26em; color: #f4ecdc; }
+.ka-place.t2 span { font-size: 13.5px; }
+.ka-place.t3 span { font-size: 12px; letter-spacing: .18em; }
+.ka-map[data-ltier="0"] .ka-place, .ka-map[data-ltier="1"] .ka-place.t2, .ka-map[data-ltier="1"] .ka-place.t3, .ka-map[data-ltier="2"] .ka-place.t3 { display: none; }
+.ka-player i { position: absolute; inset: 0; border-radius: 50%; background: #7dff9b; border: 2px solid #0b0b0b; box-shadow: 0 0 10px #7dff9b; }
+.ka-player i::after { content: ''; position: absolute; inset: -9px; border-radius: 50%; border: 2px solid #7dff9b88; animation: ka-ring 2s infinite; }
+.ka-player span { position: absolute; left: 50%; top: calc(18px + var(--row, 0) * 15px); transform: translateX(-50%); white-space: nowrap; font: 700 12.5px/1 var(--k-font-ui); color: #a8ffbc;
+  text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; }
+.ka-player em { display: block; height: 3px; margin-top: 3px; border-radius: 2px; background: linear-gradient(90deg, #6fe08a var(--hp), #0009 var(--hp)); box-shadow: 0 0 0 1px #000a; }
+@keyframes ka-ring { from { transform: scale(.6); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+.ka-wp img { width: 26px; height: 26px; filter: drop-shadow(0 2px 3px #000c); }
+.ka-wp span { position: absolute; left: 50%; top: 26px; transform: translateX(-50%); white-space: nowrap; font: 600 12px/1 var(--k-font-ui); color: #6fd3ff; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.ka-grave { border-radius: 50%; background: #1d1726e6; border: 1.5px solid #b9a7d6; box-shadow: 0 0 6px #000; }
+.ka-grave svg { width: 100%; height: 100%; fill: none; stroke: #d9ccef; stroke-width: 1.8; padding: 3px; }
+.ka-zone span { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; font: 600 11.5px var(--k-font-ui); color: var(--k-ember-400); cursor: pointer;
+  text-shadow: 0 0 3px #000, 0 0 6px #000; }
+.ka-flash { animation: ka-flash 1s ease-in-out infinite; }
+@keyframes ka-flash { 50% { stroke-opacity: .25; } }
+@media (max-width: 1000px) { .ka-map-side { width: 270px; } .ka-map-results { right: 0; } }

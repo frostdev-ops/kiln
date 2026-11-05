@@ -1,0 +1,165 @@
+{
+  "format": 1,
+  "description": "Which schema validates which file a mod writes, and the JSON dialect the real Kiln reader accepts for it. fileMatch: VS Code / minimatch globs over the workspace-relative path ('!' excludes). dialect.comments: // and /* */ comments; dialect.trailingCommas: a comma before } or ]. kind: the rule set kiln lint (crates/kiln-manage/src/lint) runs on the file. container: the JSON is embedded in a binary file. Readers: kiln lint, tools/vscode.",
+  "schemas": [
+    {
+      "schema": "kiln.mod.schema.json",
+      "name": "Kiln mod manifest",
+      "kind": "manifest",
+      "fileMatch": [
+        "**/kiln.mod.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "managed/Kiln.Host/Manifest.cs (System.Text.Json, comments skipped, trailing commas allowed)",
+      "docs": "docs/kiln/modding/manifest.md"
+    },
+    {
+      "schema": "native.schema.json",
+      "name": "Kiln native mod manifest",
+      "kind": "native",
+      "fileMatch": [
+        "**/native.json",
+        "!**/config/native.json",
+        "!**/state/native.json",
+        "!**/impact/natives.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "native/core/src/native_mods (kiln-core) and kiln_manage::manifest::parse_native",
+      "docs": "docs/kiln/native-mods.md"
+    },
+    {
+      "schema": "content-pack.schema.json",
+      "name": "Kiln data pack",
+      "kind": "content",
+      "fileMatch": [
+        "**/content/*.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": false
+      },
+      "reader": "native/services/content/packs.cpp apply_pack (nlohmann::json, ignore_comments)",
+      "docs": "docs/kiln/services/content.md#data-packs"
+    },
+    {
+      "schema": "assets.schema.json",
+      "name": "kiln.assets manifest",
+      "kind": "assets",
+      "fileMatch": [
+        "**/assets/assets.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": false
+      },
+      "reader": "native/services/assets/assets.cpp load_manifest (nlohmann::json, ignore_comments)",
+      "docs": "docs/kiln/services/assets.md#mod-layout-assetsassetsjson"
+    },
+    {
+      "schema": "cook.schema.json",
+      "name": "Kiln cook recipe",
+      "kind": "cook",
+      "fileMatch": [
+        "**/assets/cook.json",
+        "**/impact/cook.json"
+      ],
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false
+      },
+      "reader": "tools/modelcook/cook/recipe.py, tools/impact/impact/cook.py (Python json)",
+      "docs": "docs/kiln/modding/models.md#cookjson-format-1"
+    },
+    {
+      "schema": "impact-natives.schema.json",
+      "name": "Kiln natives of a mod's Impact programs",
+      "kind": "natives",
+      "fileMatch": [
+        "**/impact/natives.json"
+      ],
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false
+      },
+      "reader": "tools/impact/impact/catalog.py add_natives (Python json); kiln.abilities",
+      "docs": "docs/kiln/services/abilities.md#impact-program-and-native-contract-runtime-side"
+    },
+    {
+      "schema": "skills.schema.json",
+      "name": "Kiln talent trees",
+      "kind": "skills",
+      "fileMatch": [
+        "**/skills/*.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": false
+      },
+      "reader": "native/services/skills/skills.cpp load_file (nlohmann::json, ignore_comments) and managed/services/Kiln.Skills/Trees.cs (System.Text.Json)",
+      "docs": "docs/kiln/services/skills.md"
+    },
+    {
+      "schema": "kiln-quests.schema.json",
+      "name": "Kiln quest chains",
+      "kind": "quests",
+      "fileMatch": [
+        "**/quests/*.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "managed/services/Kiln.Quests/Json.cs (System.Text.Json, comments skipped, trailing commas allowed)",
+      "docs": "docs/kiln/modding/quests.md"
+    },
+    {
+      "schema": "kiln-blocks.schema.json",
+      "name": "Kiln building blocks",
+      "kind": "blocks",
+      "fileMatch": [
+        "**/blocks/*.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "managed/services/Kiln.Blocks/BlockJson.cs (System.Text.Json, comments skipped, trailing commas allowed, unknown keys refused)",
+      "docs": "docs/kiln/modding/blocks.md"
+    },
+    {
+      "schema": "kiln-modpack.schema.json",
+      "name": "Kiln server modpack manifest",
+      "kind": "modpack",
+      "fileMatch": [
+        "**/kiln-modpack.json"
+      ],
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false
+      },
+      "reader": "kiln_manage::modpack (serde_json)",
+      "docs": "docs/kiln/launcher/modpacks.md"
+    },
+    {
+      "schema": "kschem-header.schema.json",
+      "name": "Kiln schematic header",
+      "kind": "schematic",
+      "fileMatch": [
+        "**/*.kschem"
+      ],
+      "container": "kschem",
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false
+      },
+      "reader": "managed/services/Kiln.Build/Schematic.cs (System.Text.Json JsonNode)",
+      "docs": "docs/kiln/services/build.md#the-kschem-format-version-1"
+    }
+  ]
+}

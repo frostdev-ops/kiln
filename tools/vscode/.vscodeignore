@@ -1,0 +1,12 @@
+**
+!package.json
+!README.md
+!LICENSE
+!dist/extension.js
+!dist/dapProxy.js
+!dist/netcoredbg/**
+!data/**
+!media/**
+!syntaxes/**
+!snippets/**
+!python/kimp_check.py

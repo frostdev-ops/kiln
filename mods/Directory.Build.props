@@ -1,0 +1,5 @@
+<Project>
+  <!-- Kiln's own mods (Kiln.Admin, samples, tests): $(KilnVersion) from the repository's VERSION file. Mods keep their
+       own Version (kiln.mod.json / <Version>); nothing else is set here, so the mods build as before. -->
+  <Import Project="$(MSBuildThisFileDirectory)../managed/KilnVersion.props" />
+</Project>

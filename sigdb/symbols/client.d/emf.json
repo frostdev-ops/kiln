@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/emf.json",
+  "comment": "kiln-emf: EMF 0.3.3's client-only signature names, so resolve()/hook() of unmodified EMF mods find them in enshrouded.exe. Patterns are EMF's own (MIT, sigdb/evidence/emf-0.3.3-signatures.json); each matches once on client build 26404966 (exe ce6fdba6...). PostSelectCharacter, PostSelectWorld, PostSessionArea and PostStart do not match on this build (their patterns encode a struct offset that moved): open. An overlay of server.d/emf.json: the server names (NpcWorker, ..., AttrAdd) are kept.",
+  "symbols": {
+    "emf/ClientWorldSetup": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 50 FD FF FF"
+        }
+      ]
+    },
+    "emf/QueueChatMessage": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 54 41 56 41 57 48 83 EC 20 48 8B 81 ?? ?? ?? ?? 41 8B D9 45 0F B6 F8 4C 8B E2 48 8B A8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    "emf/UiFrame": {
+      "find": [
+        {
+          "pattern": "48 89 74 24 10 57 48 83 EC 40 48 8B 0D ?? ?? ?? ??"
+        }
+      ]
+    },
+    "emf/PregameState": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 60 45 0F B6 D0 48 8B D9 0F B6 CA 84 D2 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 74 ?? 83 E9 01 74 ?? 83 F9 01 0F 85"
+        }
+      ]
+    },
+    "emf/CharacterSelected": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 20 8B 82 E8 27 00 00 4C 8B C2"
+        }
+      ]
+    }
+  },
+  "constants": {},
+  "features": {}
+}

@@ -1,0 +1,18 @@
+{
+  // native.json of a Kiln-aware DLL mod (comments are allowed)
+  "$schema": "../native.schema.json",
+  "format": 1,
+  "id": "creative-mode",
+  "name": "Creative Mode",
+  "version": "1.3.0",
+  "authors": ["someone"],
+  "license": "MIT",
+  "side": "client",
+  "dlls": ["creative.dll", "lib/creative-ui.dll"],
+  "phase": "early",
+  "init": "kiln_native_init",
+  "after": ["fps-unlock"],
+  "incompatible": ["creative-legacy"],
+  "enabled": true,
+  "kiln": ">=0.2.0-dev",
+}

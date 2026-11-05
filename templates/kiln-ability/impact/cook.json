@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "comment": "KilnAbility1's Impact programs (tools/impact cook). Sources: impact/*.kimp written for this mod. Output: ../assets/cooked/impact (made on each machine, never shipped), listed in ../assets/assets.json.",
+  "tool": "impact",
+  "out": "../assets/cooked/impact",
+  "manifest": "../assets/assets.json",
+  "game": { "side": "server" },
+  "inputs": {},
+  "steps": [
+    { "op": "assemble", "src": "regen.kimp", "stem": "regen" }
+  ]
+}

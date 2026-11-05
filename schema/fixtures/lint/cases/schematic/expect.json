@@ -1,0 +1,38 @@
+{
+  "catalog": true,
+  "description": "schematics: a clean one, one over 4 M cells (KL515) with header schema findings, and a cut-short file (KL008)",
+  "diagnostics": [
+    {
+      "code": "KL008",
+      "col": 28,
+      "file": "schematics/cut.kschem",
+      "line": 2,
+      "message": "cell data length 8 runs past the end of the file",
+      "severity": "error"
+    },
+    {
+      "code": "KL515",
+      "col": 60,
+      "file": "schematics/huge.kschem",
+      "line": 2,
+      "message": "33554432 cells: Kiln.Build reads schematics of at most 4,194,304 cells",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 87,
+      "file": "schematics/huge.kschem",
+      "line": 2,
+      "message": "missing \"template\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL108",
+      "col": 95,
+      "file": "schematics/huge.kschem",
+      "line": 2,
+      "message": "2 entries, at least 3 needed",
+      "severity": "error"
+    }
+  ]
+}

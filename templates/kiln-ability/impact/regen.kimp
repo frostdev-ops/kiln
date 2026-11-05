@@ -1,0 +1,36 @@
+; KilnAbility1: an Impact program written from scratch (no game code in it, so it is a plain mod source): it heals
+; the entity it runs on by $amount every $interval. Bind it to a buff (a kiln.gamedata buff clone whose "impact" is
+; this program's GUID) and apply the buff: the program then runs on the buff's entity for the buff's lifetime.
+; Language: docs/kiln/modding/impact.md. The program GUID was made for this project by dotnet new: keep it.
+.kimp 1
+program 0f4c7e93-2b6a-4d18-a9e5-7c3b1f8d2e40
+stack 256
+streams none
+
+var $target    ecs.EntityId                       ; the entity the buff is on (getBuffTarget writes it)
+var $health    AttributeReference = 61f22138-a061-4b3f-a15e-35953e731112   ; the game's Health attribute
+var $add       impact_nodes.ValuesMathOperator = Add
+var $old       sint32                             ; changeAttributeValue's scratch
+var $amount    sint32 config "kiln-mod-id.RegenPerTick" = 3          ; health per tick
+var $interval  Time   config "kiln-mod-id.RegenInterval" = 1s        ; time between ticks
+
+code:
+        ecall getBuffTarget($target)
+        pop
+tick:   ecall changeAttributeValue($health, $add, $old, $target, _, $amount) site regen
+        pop
+        gload $interval          ; end = now + interval, kept on the stack
+        ltime
+        iadd
+wait:   dup
+        ltime
+        ileq                     ; end <= now ?
+        brt again
+        rvm                      ; not yet: resume here next step
+        br wait
+again:  pop
+        br tick
+        halt                     ; never reached; every code array ends in halt
+
+shutdown:
+        halt

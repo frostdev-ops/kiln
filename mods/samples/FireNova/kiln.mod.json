@@ -1,0 +1,9 @@
+{
+  "id": "firenova",
+  "name": "Fire Nova (kiln.abilities sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "FireNova.dll",
+  "side": "both",
+  "description": "A keybind ability (G or /nova): 40 mana, 5 s cooldown, a ring of the game's Fireball explosions around the caster. Also doubles Fireball damage at night (a per-cast tweak of the game's own spell)."
+}

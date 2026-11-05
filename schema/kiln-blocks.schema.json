@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-blocks.schema.json",
+  "title": "Kiln building blocks (blocks/*.json), format 1",
+  "description": "A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effects and their parts, the same shape as the C# records (Kiln.Blocks). Read by managed/services/Kiln.Blocks/BlockJson.cs (System.Text.Json: comments and trailing commas allowed, unknown keys refused). A field that takes a block takes it inline, or by name: a block of this mod, or \"other-mod:name\".",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/modding/blocks.md",
+  "required": ["format"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "comment": {},
+    "statuses": { "type": "object", "description": "Buffs and debuffs, made of effects.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/status" } },
+    "effects": { "type": "object", "description": "What happens: the same effect plugs in everywhere.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/effect" } },
+    "spells": { "type": "object", "description": "Staff spells. A charge is one item in the stack.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/spell" } },
+    "weapons": { "type": "object", "description": "Weapons that are made exactly as their recipe tooltip shows.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/weapon" } },
+    "items": { "type": "object", "description": "Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/item" } },
+    "wands": { "type": "object", "description": "One-handed casters whose attacks are spells of their own: no spell item, no charges.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/wand" } },
+    "armor": { "type": "object", "description": "Things worn: made exactly as their recipe tooltip shows.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armor" } },
+    "stations": { "type": "object", "description": "Crafting stations a player builds.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/station" } },
+    "looks": { "type": "object", "description": "Parts: what an item looks like. Use one by name wherever a field takes a look.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/visual" } },
+    "vfx": { "$ref": "kiln-vfx.schema.json#/$defs/section", "description": "Effects written from nothing: particles and a light. No compiler, no game data. Built by the game client at start." },
+    "weaponStats": { "type": "object", "description": "Parts: a weapon's numbers.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/weaponStats" } },
+    "armorStats": { "type": "object", "description": "Parts: a piece of armor's numbers.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorStats" } },
+    "weaponClasses": { "type": "object", "description": "Parts: your own class of weapon, starting from a premade.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/weaponClass" } },
+    "armorSlots": { "type": "object", "description": "Parts: your own slot, starting from a premade.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorSlot" } },
+    "armorSets": { "type": "object", "description": "Parts: a family of looks, one per slot.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorSet" } },
+    "onHits": { "type": "object", "description": "Parts: what an item does to what its wearer hits.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/onHit" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$", "description": "The block's name. Ids come from your mod id and this: keep it. A rename says \"was\"." },
+    "ref": { "type": "string", "minLength": 1, "description": "A block of this mod by name, or \"other-mod:name\"." },
+    "effectRef": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/effect" } ] },
+    "effects": { "type": "array", "items": { "$ref": "#/$defs/effectRef" } },
+    "statusRef": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/status" } ] },
+    "knockback": { "enum": ["none", "small", "normal", "big", "veryBig", "verySmall", "pullSmall", "pullNormal"], "description": "How far the hit pushes the target." },
+    "flinch": { "enum": ["none", "veryLight", "light", "medium", "heavy"], "description": "How the target flinches." },
+    "damage": {
+      "type": "object",
+      "description": "Damage per kind. On a spell the first one is its main hit: the tooltip's number, and the staff's power adds to it unless flat. Elsewhere exactly this number. Armour and the attacker's stats apply after it.",
+      "properties": {
+        "cut": { "type": "number", "minimum": 0 }, "pierce": { "type": "number", "minimum": 0 }, "blunt": { "type": "number", "minimum": 0 },
+        "fire": { "type": "number", "minimum": 0 }, "ice": { "type": "number", "minimum": 0 }, "shroud": { "type": "number", "minimum": 0 },
+        "lightning": { "type": "number", "minimum": 0 }, "poison": { "type": "number", "minimum": 0 },
+        "wood": { "type": "integer", "minimum": 0 }, "stone": { "type": "integer", "minimum": 0 }, "metal": { "type": "integer", "minimum": 0 }, "explosion": { "type": "integer", "minimum": 0 },
+        "flat": { "type": "boolean", "description": "On a spell: exactly this number, with no share of the staff's power." }
+      },
+      "additionalProperties": false
+    },
+    "applies": {
+      "oneOf": [
+        { "$ref": "#/$defs/ref" },
+        { "type": "object", "required": ["status"], "properties": { "status": { "$ref": "#/$defs/statusRef" }, "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "Default: the status's own." } }, "additionalProperties": false }
+      ],
+      "description": "A status put on the target."
+    },
+    "area": {
+      "type": "object",
+      "required": ["radius", "effects"],
+      "description": "Everything around the place gets these effects; who is in it is found when it happens.",
+      "properties": {
+        "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Metres." },
+        "affects": { "enum": ["enemies", "friends"], "description": "Default enemies." },
+        "effects": { "$ref": "#/$defs/effects" }
+      },
+      "additionalProperties": false
+    },
+    "vfx": {
+      "description": "A VFX and where it shows. Not available yet: setting it is an error.",
+      "oneOf": [
+        { "$ref": "#/$defs/ref" },
+        {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "slot": { "enum": ["root", "head", "chest", "leftHand", "rightHand", "feet", "weapon"] },
+            "offset": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "Metres from the slot, in the slot's own axes." },
+            "attach": { "type": "boolean", "description": "Follows the slot while it plays (default), or stays where it started." }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "effect": {
+      "type": "object",
+      "description": "What happens. Parts run in this order: chance decides, area, spawns, vfx, sound, damage (with knockback and flinch), heal and restores, removes, applies, then.",
+      "properties": {
+        "on": { "enum": ["target", "caster"], "description": "Who it is for: what the trigger gives it (default), or the caster, whoever wields the weapon or cast the spell." },
+        "restores": {
+          "type": "object",
+          "description": "Given back to the target. Less than 0 takes it away. A target without that attribute gets nothing.",
+          "properties": { "health": { "type": "integer" }, "mana": { "type": "integer" }, "stamina": { "type": "integer" } },
+          "additionalProperties": false
+        },
+        "removes": { "type": "array", "items": { "$ref": "#/$defs/statusRef" }, "description": "Statuses taken off the target: blocks by name, or the game's by their 0x id." },
+        "spawns": { "type": "string", "minLength": 1, "description": "Spawned at the target or the place: a game template's name, or a template's GUID." },
+        "sound": { "type": "string", "minLength": 1, "description": "A sound at the target or the place: a cue of this mod (needs clients: mod), \"other-mod:name\", or a cue's GUID." },
+        "vfx": { "$ref": "#/$defs/vfx" },
+        "damage": { "$ref": "#/$defs/damage" },
+        "heal": { "type": "integer", "minimum": 1, "description": "Health given to the target." },
+        "applies": { "$ref": "#/$defs/applies" },
+        "knockback": { "$ref": "#/$defs/knockback" },
+        "flinch": { "$ref": "#/$defs/flinch" },
+        "chance": { "type": "number", "minimum": 0, "maximum": 1, "description": "The whole effect happens this often." },
+        "area": { "$ref": "#/$defs/area" },
+        "then": { "$ref": "#/$defs/effects", "description": "More effects, on the same target." }
+      },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "object",
+      "required": ["name", "seconds"],
+      "description": "A buff or debuff, shown in the game's buff bar.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "How long it lasts unless whoever applies it says otherwise." },
+        "kind": { "enum": ["debuff", "buff"] },
+        "look": { "enum": ["frost", "poison"], "description": "Its icon and body effect." },
+        "icon": { "type": "string", "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$", "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes." },
+        "refreshes": { "type": "boolean", "description": "Applied again while it runs: the timer starts over (true, the default), or the new one replaces the old." },
+        "modifies": {
+          "type": "object",
+          "description": "Stats changed for as long as it runs. Whole-number stats take whole numbers; the rest are shares, 0.1 being 10%. A GUID names any other attribute (as a share).",
+          "propertyNames": { "anyOf": [
+            { "enum": ["strength", "constitution", "dexterity", "endurance", "intelligence", "spirit", "max-health", "max-mana", "max-stamina", "health-regen", "mana-regen", "stamina-regen", "max-oxygen", "shroud-time", "move-speed", "sprint-speed", "melee-damage", "ranged-damage", "magic-damage", "crit-chance", "crit-damage", "healing", "parry", "stamina-use-climb", "stamina-use-glide", "stamina-use-sprint", "physical-armor", "magical-armor", "block", "resist-physical", "resist-magical", "resist-cut", "resist-pierce", "resist-blunt", "resist-fire", "resist-ice", "resist-lightning", "resist-shroud", "resist-poison"] },
+            { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" }
+          ] },
+          "additionalProperties": { "type": "number" }
+        },
+        "vfx": { "$ref": "#/$defs/vfx" },
+        "onApply": { "$ref": "#/$defs/effects" },
+        "onTick": { "$ref": "#/$defs/effects" },
+        "tickEvery": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds between onTick (default 1)." },
+        "onExpire": { "$ref": "#/$defs/effects" },
+        "was": { "$ref": "#/$defs/name", "description": "The name this block had before a rename. Ids come from the oldest name, so saves keep it." }
+      },
+      "additionalProperties": false
+    },
+    "cast": {
+      "type": "object",
+      "required": ["manaCost"],
+      "description": "How a spell is cast: animation, timing, costs.",
+      "properties": {
+        "manaCost": { "type": "integer", "minimum": 0 },
+        "animation": { "enum": ["fast-bolt", "lob"] },
+        "releaseAt": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds into the animation the spell leaves the staff." },
+        "vfx": { "$ref": "#/$defs/vfx" }
+      },
+      "additionalProperties": false
+    },
+    "projectile": {
+      "type": "object",
+      "required": ["type"],
+      "anyOf": [ { "required": ["onImpact"] }, { "required": ["onHit"] } ],
+      "description": "It flies. What it strikes gets onHit, and where it stops onImpact happens.",
+      "properties": {
+        "type": { "const": "projectile" },
+        "speed": { "type": "number", "exclusiveMinimum": 0, "description": "Metres per second (default 30)." },
+        "gravity": { "type": "number", "description": "0 flies straight, 1 falls like a thrown stone (default 0.1)." },
+        "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres before it fizzles (default 150)." },
+        "look": { "enum": ["ice-bolt", "fireball"] },
+        "onImpact": { "$ref": "#/$defs/effects", "description": "At the place it stops, which has no target of its own: use an area." },
+        "onHit": { "$ref": "#/$defs/effects", "description": "On the creature it strikes, if it struck one." },
+        "vfx": { "$ref": "#/$defs/vfx" }
+      },
+      "additionalProperties": false
+    },
+    "recipe": {
+      "type": "object",
+      "required": ["needs"],
+      "description": "How something is crafted.",
+      "properties": {
+        "station": { "type": "string", "description": "\"hand\" (the default): the player's own menu; a workshop's 0x id; or a station block by name." },
+        "makes": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many one craft gives. For a spell: charges." },
+        "needs": { "type": "object", "minProperties": 1, "description": "Item -> count: a game item, an item of this mod by its block name, or \"other-mod:name\".", "additionalProperties": { "type": "integer", "minimum": 1 } },
+        "seconds": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "spell": {
+      "type": "object",
+      "required": ["name", "cast", "delivery"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "cast": { "$ref": "#/$defs/cast" },
+        "delivery": { "$ref": "#/$defs/projectile" },
+        "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves the staff." },
+        "level": { "type": "integer", "minimum": 1, "maximum": 55 },
+        "maxCharges": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "Charges in one stack (default 500)." },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "rarity": { "enum": ["common", "uncommon", "rare", "epic", "legendary"], "description": "What a made item is: its colour, and how many enhancements it can have (one more than the rank)." },
+    "level": { "type": "integer", "minimum": 1, "maximum": 55, "description": "The tooltip's level; a made item has exactly this." },
+    "itemRef": { "type": "string", "minLength": 1, "description": "An item: a game item (Material_T1_Twigs), an item of this mod by its block name, or \"other-mod:name\"." },
+    "visual": {
+      "type": "object",
+      "description": "What an item looks like. Empty: its starter's look.",
+      "properties": {
+        "like": { "$ref": "#/$defs/itemRef", "description": "An item whose whole look this takes: held or worn model, dropped model, collection model and icon." },
+        "model": { "type": "string", "description": "The model alone: item:<name>, or the GUID of a model your assets/assets.json serves (then clients \"mod\")." },
+        "icon": { "type": "string", "description": "The icon alone: item:<name>, or a PNG in the mod's folder (then clients \"mod\")." },
+        "dropped": { "$ref": "#/$defs/itemRef", "description": "An item whose model this shows lying on the ground." },
+        "tint": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The colour of the parts the game lets you tint." },
+        "vfx": { "description": "Reserved for VfxBlock: an error for now." }
+      },
+      "additionalProperties": false
+    },
+    "visualRef": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/visual" } ], "description": "A look: inline, or a block of looks by name." },
+    "onHit": {
+      "type": "object",
+      "required": ["effects"],
+      "description": "What an item does to what its wearer hits.",
+      "properties": {
+        "effects": { "$ref": "#/$defs/effects" },
+        "vfx": { "description": "Reserved for VfxBlock: an error for now." }
+      },
+      "additionalProperties": false
+    },
+    "hits": {
+      "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/effects" }, { "$ref": "#/$defs/onHit" } ],
+      "description": "A list of effects, a block of onHits or an effect by name, or an onHit inline."
+    },
+    "perks": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": ["string", "null"] },
+      "description": "Enhancement slots, from the first: a game perk's name or GUID, item:<name> (that item's perk in the same slot), \"none\", or null to keep the slot's. The game's rule applies: a perk runs once its slot is unlocked."
+    },
+    "lootTable": {
+      "type": "object",
+      "description": "A place in the drop tables: table or dropsLike, one of them.",
+      "properties": {
+        "table": { "type": "string", "description": "A table's GUID or a glob over GUIDs." },
+        "dropsLike": { "$ref": "#/$defs/itemRef", "description": "Every table that drops this item, next to it." },
+        "countMin": { "type": "integer", "minimum": 1 },
+        "countMax": { "type": "integer", "minimum": 1 },
+        "chance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "weight": { "type": "number", "minimum": 0, "description": "Where the table picks one of several." }
+      },
+      "additionalProperties": false
+    },
+    "loot": {
+      "type": "object",
+      "description": "Where it can be found, besides being made.",
+      "properties": {
+        "like": { "$ref": "#/$defs/itemRef", "description": "It is rolled in chests and world pickups where this item is, with its chances." },
+        "stackMin": { "type": "integer", "minimum": 1 },
+        "stackMax": { "type": "integer", "minimum": 1 },
+        "tables": { "type": "array", "items": { "$ref": "#/$defs/lootTable" }, "description": "Drop tables: what enemies and fixed chests hold." },
+        "rolled": { "type": "boolean", "description": "Gear only: a roll gives it a level and rarity of its own. The opposite of the crafted-item rule, so it refuses a recipe (KL406)." }
+      },
+      "additionalProperties": false
+    },
+    "weaponStats": {
+      "type": "object",
+      "description": "A weapon's numbers: the tooltip's, made exactly so.",
+      "properties": {
+        "level": { "$ref": "#/$defs/level" },
+        "power": { "type": "integer", "minimum": 0, "description": "The tooltip's damage at that level. Default: what the class has, or damage's total." },
+        "rarity": { "$ref": "#/$defs/rarity" },
+        "damage": { "$ref": "#/$defs/damage", "description": "The kinds it deals: the shares of the kinds that hurt count; wood, stone and metal are exact." },
+        "block": { "type": "number", "minimum": 0, "maximum": 1, "description": "A shield's block strength." },
+        "staminaCost": { "type": "integer", "minimum": 0, "description": "Stamina each use costs; the tooltip follows." }
+      },
+      "additionalProperties": false
+    },
+    "weaponStatsRef": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/weaponStats" } ] },
+    "weaponClass": {
+      "type": "object",
+      "required": ["like"],
+      "description": "Your own class of weapon. It brings its look, stats and perks to the weapons of the class.",
+      "properties": {
+        "like": { "enum": ["sword", "axe", "mace", "greatsword", "greataxe", "hammer", "daggers", "bow", "staff", "shield", "wand"], "description": "The premade it starts from." },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stats": { "$ref": "#/$defs/weaponStatsRef" },
+        "perks": { "$ref": "#/$defs/perks" }
+      },
+      "additionalProperties": false
+    },
+    "weaponClassRef": {
+      "anyOf": [ { "enum": ["sword", "axe", "mace", "greatsword", "greataxe", "hammer", "daggers", "bow", "staff", "shield", "wand"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/weaponClass" } ],
+      "description": "How it is held and swung: a premade, a block of weaponClasses by name, or your own."
+    },
+    "weapon": {
+      "type": "object",
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "class": { "$ref": "#/$defs/weaponClassRef" },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stats": { "$ref": "#/$defs/weaponStatsRef" },
+        "perks": { "$ref": "#/$defs/perks" },
+        "onHit": { "$ref": "#/$defs/hits", "description": "What every hit the wielder lands does to the target, while it is in hand, with no unlock." },
+        "onKill": { "$ref": "#/$defs/hits", "description": "What a hit that kills does to what it killed, while it is in hand." },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "wandAttack": {
+      "type": "object",
+      "required": ["cast", "delivery"],
+      "description": "One of a wand's attacks: how it is cast and what it sends.",
+      "properties": {
+        "cast": { "$ref": "#/$defs/cast", "description": "The mana it costs and when it leaves the wand. animation is a staff's: a wand's motion is moves." },
+        "delivery": { "$ref": "#/$defs/projectile" },
+        "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves the staff." },
+        "moves": { "enum": ["bolt", "heavy", "special"], "description": "The motion. Default: the attack slot's own." }
+      },
+      "additionalProperties": false
+    },
+    "wand": {
+      "type": "object",
+      "required": ["name", "primary"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "primary": { "$ref": "#/$defs/wandAttack", "description": "Its main damage is the wand's power: the tooltip's number, and what perks and stats scale." },
+        "heavy": { "$ref": "#/$defs/wandAttack", "description": "Default: the primary again. Its damage is exactly what it says." },
+        "special": { "$ref": "#/$defs/wandAttack", "description": "Once a player has the game's skill for it. Default: the primary again. Its damage is exactly what it says." },
+        "class": { "$ref": "#/$defs/weaponClassRef" },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stats": { "$ref": "#/$defs/weaponStatsRef" },
+        "perks": { "$ref": "#/$defs/perks" },
+        "onHit": { "$ref": "#/$defs/hits" },
+        "onKill": { "$ref": "#/$defs/hits" },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "equipBonus": { "enum": ["health", "stamina", "mana", "health-regen", "stamina-regen", "mana-regen", "melee-damage", "ranged-damage", "magic-damage", "crit-chance", "crit-damage", "frost-resist", "sprint-speed"] },
+    "armorStats": {
+      "type": "object",
+      "description": "What a piece of armor gives. A number left out: what its slot has at that level.",
+      "properties": {
+        "level": { "$ref": "#/$defs/level" },
+        "rarity": { "$ref": "#/$defs/rarity" },
+        "physical": { "type": "integer", "minimum": 0, "description": "The tooltip's physical armour." },
+        "magical": { "type": "integer", "minimum": 0, "description": "The tooltip's magical armour." },
+        "resist": {
+          "type": "object",
+          "description": "Armour against one kind, on top of the two above.",
+          "properties": {
+            "cut": { "type": "integer", "minimum": 0 }, "pierce": { "type": "integer", "minimum": 0 }, "blunt": { "type": "integer", "minimum": 0 },
+            "fire": { "type": "integer", "minimum": 0 }, "ice": { "type": "integer", "minimum": 0 }, "shroud": { "type": "integer", "minimum": 0 }, "lightning": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "bonus": { "type": "object", "propertyNames": { "$ref": "#/$defs/equipBonus" }, "additionalProperties": { "type": "number" }, "description": "What wearing it adds; the tooltip follows. A share (melee-damage) is 0.05 for 5%." }
+      },
+      "additionalProperties": false
+    },
+    "armorStatsRef": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorStats" } ] },
+    "armorSlot": {
+      "type": "object",
+      "required": ["like"],
+      "description": "Your own slot: it brings its look and stats to the pieces worn there.",
+      "properties": {
+        "like": { "enum": ["head", "chest", "arms", "legs", "feet", "ring"], "description": "The premade it starts from." },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stats": { "$ref": "#/$defs/armorStatsRef" }
+      },
+      "additionalProperties": false
+    },
+    "armorSet": {
+      "type": "object",
+      "description": "A family of looks, one per slot.",
+      "properties": {
+        "head": { "$ref": "#/$defs/visualRef" }, "chest": { "$ref": "#/$defs/visualRef" }, "arms": { "$ref": "#/$defs/visualRef" }, "legs": { "$ref": "#/$defs/visualRef" }, "feet": { "$ref": "#/$defs/visualRef" }
+      },
+      "additionalProperties": false
+    },
+    "armor": {
+      "type": "object",
+      "required": ["name", "slot"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "slot": { "anyOf": [ { "enum": ["head", "chest", "arms", "legs", "feet", "ring"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorSlot" } ], "description": "Where it is worn." },
+        "set": { "anyOf": [ { "enum": ["warrior", "mage", "ranger"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorSet" } ], "description": "A family of looks: this takes the look the set has for its slot. visual wins over it." },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stats": { "$ref": "#/$defs/armorStatsRef" },
+        "perks": { "$ref": "#/$defs/perks" },
+        "onHitTaken": { "$ref": "#/$defs/hits", "description": "What every hit the wearer takes does to whoever dealt it, while it is worn, with no unlock." },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "tool": {
+      "type": "object",
+      "required": ["harvests"],
+      "description": "What a tool gets out of the world.",
+      "properties": {
+        "harvests": { "enum": ["wood", "stone"], "description": "wood: an axe. stone: a pickaxe, for stone and metal, and it digs." },
+        "power": { "type": "integer", "exclusiveMinimum": 0, "description": "How hard it bites into what it is for: an axe's wood damage, a pickaxe's stone damage. The rest of what it can do scales along." },
+        "staminaCost": { "type": "integer", "minimum": 0, "description": "Stamina each swing costs; the tooltip follows." }
+      },
+      "additionalProperties": false
+    },
+    "ammo": {
+      "type": "object",
+      "description": "What an arrow adds to the bow that shoots it.",
+      "properties": {
+        "power": { "type": "integer", "minimum": 0, "description": "The power it adds to the bow's. Default: damage's total, or an arrow's own." },
+        "damage": { "$ref": "#/$defs/damage", "description": "The kinds it deals: the shares count, as for a weapon." },
+        "delivery": { "$ref": "#/$defs/projectile", "description": "A flight of its own. Default: an arrow's." }
+      },
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "required": ["name"],
+      "description": "Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else a material.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "kind": { "enum": ["material", "consumable", "food", "ammo", "tool"] },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "stack": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many fit in a stack. Default: the kind's own. A tool does not stack." },
+        "rarity": { "$ref": "#/$defs/rarity" },
+        "level": { "$ref": "#/$defs/level" },
+        "texts": {
+          "type": "object",
+          "description": "Texts per language (en, de, pt-BR, ...).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": { "name": { "type": "string" }, "caption": { "type": "string" }, "description": { "type": "string" }, "lore": { "type": "string" }, "acquisitionHint": { "type": "string" }, "primaryAction": { "type": "string" }, "secondaryAction": { "type": "string" }, "tertiaryAction": { "type": "string" } },
+            "additionalProperties": false
+          }
+        },
+        "heals": { "type": "integer", "exclusiveMinimum": 0, "description": "Health using it gives at once; the tooltip's number." },
+        "onUse": { "$ref": "#/$defs/effects", "description": "What using it does, to whoever uses it." },
+        "feeds": { "$ref": "#/$defs/statusRef", "description": "The status eating it gives, in the game's food slots." },
+        "fuel": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds it burns in a fire." },
+        "comfort": { "type": "integer", "minimum": 0, "description": "The comfort a placed one gives." },
+        "tool": { "$ref": "#/$defs/tool" },
+        "ammo": { "$ref": "#/$defs/ammo" },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "station": {
+      "type": "object",
+      "required": ["name"],
+      "description": "A crafting station a player builds: it opens a workshop's menu, which lists that workshop's recipes and those naming this station.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "kind": { "enum": ["workbench", "carpenter", "kitchen", "forge", "oven", "alchemy"], "description": "Which menu it opens, and the build it starts from. Default workbench." },
+        "visual": { "$ref": "#/$defs/visualRef" },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

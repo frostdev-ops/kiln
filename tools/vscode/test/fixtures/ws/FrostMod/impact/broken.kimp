@@ -1,0 +1,8 @@
+.kimp 1
+program 5c0f1f3e-9a1b-4d55-8a39-2f1f6f0e7a11
+
+var $self ecs.EntityId
+
+code:
+        ecall getSelf($self, $self)
+        halt

@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "effects": { "an-effect": { "heal": 1 } },
+  "items": {
+    "no-name": { "description": "x" },
+    "typo-field": { "name": "x", "stacks": 5 },
+    "heal-material": { "name": "x", "kind": "material", "heals": 5 },
+    "big-stack": { "name": "x", "stack": 70000 },
+    "tool-stack": { "name": "x", "stack": 5, "tool": { "harvests": "wood" } },
+    "tool-rare": { "name": "x", "rarity": "epic", "tool": { "harvests": "stone" } },
+    "bad-count": { "name": "x", "recipe": { "needs": { "Material_T1_Twigs": 0 } } },
+    "no-needs": { "name": "x", "recipe": { "needs": {} } },
+    "no-such-look": { "name": "x", "visual": "gone-look" },
+    "wrong-look": { "name": "x", "visual": "an-effect" },
+    "png-icon": { "name": "x", "visual": { "icon": "icons/x.png" } },
+    "glb-model": { "name": "x", "visual": { "model": "models/x.glb" } },
+    "does-nothing": { "name": "x", "kind": "consumable" },
+    "food-nothing": { "name": "x", "kind": "food" },
+    "no-station": { "name": "x", "recipe": { "station": "anvil", "needs": { "Material_T1_Twigs": 1 } } },
+    "loot-nowhere": { "name": "x", "loot": {} },
+    "bad-chance": { "name": "x", "loot": { "tables": [ { "dropsLike": "Material_T1_Twigs", "chance": 2 } ] } },
+    "two-tables": { "name": "x", "loot": { "tables": [ { "table": "a20e8eae-7833-462e-9ea9-59d1e17a1b98", "dropsLike": "Material_T1_Twigs" } ] } }
+  },
+  "weapons": {
+    "bad-class": { "name": "x", "class": "spear" },
+    "wand-class": { "name": "x", "class": "wand" },
+    "rolled-recipe": { "name": "x", "class": "sword", "loot": { "rolled": true }, "recipe": { "needs": { "Material_T1_Twigs": 1 } } },
+    "high-level": { "name": "x", "class": "sword", "stats": { "level": 99 } },
+    "no-vfx": { "name": "x", "class": "sword", "visual": { "vfx": { "name": "fire" } } }
+  },
+  "wands": {
+    "no-primary": { "name": "x" },
+    "two-powers": { "name": "x", "stats": { "power": 99 }, "primary": { "cast": { "manaCost": 1 }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 10 } } ] } } ] } } },
+    "staff-moves": { "name": "x", "primary": { "cast": { "manaCost": 1, "animation": "lob" }, "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 10 } } ] } } ] } } }
+  },
+  "armor": {
+    "no-slot": { "name": "x" },
+    "bad-slot": { "name": "x", "slot": "neck" },
+    "half-health": { "name": "x", "slot": "ring", "stats": { "bonus": { "health": 1.5 } } },
+    "bad-bonus": { "name": "x", "slot": "ring", "stats": { "bonus": { "luck": 1 } } }
+  },
+  "stations": {
+    "bad-kind": { "name": "x", "kind": "anvil" }
+  }
+}

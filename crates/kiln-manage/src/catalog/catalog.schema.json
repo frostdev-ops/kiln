@@ -1,0 +1,818 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kiln.invalid/schema/kiln-catalog.schema.json",
+  "title": "Kiln game-data catalog (kind kiln.catalog, format 1)",
+  "description": "Made locally from the user's installed Enshrouded by kiln-manage catalog::build (docs/kiln/modding/catalogs.md). Read by the linter, the VS Code extension and the Kiln.GameIds source generator. Every section and every entry key except the listed `required` ones is optional; readers ignore unknown keys.",
+  "type": "object",
+  "required": [
+    "format",
+    "kind",
+    "game",
+    "sections"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "kind": {
+      "const": "kiln.catalog"
+    },
+    "generator": {
+      "type": "string"
+    },
+    "generated": {
+      "type": "string",
+      "description": "RFC 3339 UTC"
+    },
+    "recipe": {
+      "type": "integer",
+      "description": "extraction rules version; a catalog with an older recipe is outdated"
+    },
+    "game": {
+      "type": "object",
+      "required": [
+        "side"
+      ],
+      "properties": {
+        "side": {
+          "enum": [
+            "client",
+            "server"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "steamBuild": {
+          "type": "string"
+        },
+        "build": {
+          "type": "string"
+        },
+        "svn": {
+          "type": "string"
+        },
+        "kfcVersion": {
+          "type": "string",
+          "description": "the .kfc version string: changes with every data build"
+        },
+        "exeSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{2}-[a-z]{2}$"
+      }
+    },
+    "icons": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "folder of <icon> files (absolute, or relative to the catalog file)"
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "seconds": {
+      "type": "number"
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array"
+      },
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "keen::ItemInfo resources. name = debugName, id = ItemId, guid = objectId.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "description": "keen::ItemCategory"
+              },
+              "rarity": {
+                "type": "string"
+              },
+              "generateRarity": {
+                "type": "boolean",
+                "description": "present (true) on gear that keeps generateRarity: loot weapons; made without a requested rarity it is the lowest allowed one"
+              },
+              "tier": {
+                "type": "integer",
+                "description": "the T<n> token of the name (a naming convention)"
+              },
+              "maxStack": {
+                "type": "integer"
+              },
+              "icon": {
+                "type": "string",
+                "description": "file name in `icons`"
+              },
+              "registered": {
+                "const": false,
+                "description": "present (false) when the ItemRegistry does not list the item"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "recipes": {
+          "type": "array",
+          "description": "RecipeRegistryResource.recipes. name = debugName, id = recipeId, guid = recipeGuid.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "workshop": {
+                "$ref": "#/$defs/id"
+              },
+              "workshopName": {
+                "type": "string"
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "category": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "category": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "loot": {
+          "type": "array",
+          "description": "LootableItemsResource.items (random loot per item). name = the item's name.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "drops": {
+          "type": "array",
+          "description": "ecs::DefaultInventoryResource GUIDs (enemy loot, fixed chests).",
+          "items": {
+            "type": "object",
+            "required": [
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "templates": {
+          "type": "array",
+          "description": "ecs::TemplateResource. name = its name field (the GUID when empty), id = FNV-1a of the GUID.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "family": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "arsenals": {
+          "type": "array",
+          "description": "enemy::EnemyArsenalRegistryResource.arsenals. name = guid; templates = templates whose EnemyArsenalReference names it.",
+          "items": {
+            "type": "object",
+            "required": [
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "graphs": {
+          "type": "array",
+          "description": "anim_graph::runtime_graph::AnimationGraphResource2_0, one entry per graph: its states and what enters them. name = the shortest name among the templates that use it (the GUID when none); id = FNV-1a of the GUID.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "skeleton": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "states": {
+                "type": "array",
+                "description": "name = the state's debug name; id = the value of the graph's state input that enters it; guid when a sequence names it; clip, seconds, loop for a plain clip; blend = the float input of a blend space.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "id"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "guid": {
+                      "type": "string"
+                    },
+                    "clip": {
+                      "type": "string"
+                    },
+                    "seconds": {
+                      "type": "number"
+                    },
+                    "loop": {
+                      "type": "boolean"
+                    },
+                    "blend": {
+                      "$ref": "#/$defs/id"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "floatInputs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "slots": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "nodes": {
+                "type": "integer"
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "sequences": {
+          "type": "array",
+          "description": "actor::ActorSequenceResource sub-sequences. name = the sub-sequence name (<guid>#k when unnamed or repeated), guid = the sequence GUID, id = FNV-1a(GUID) ^ k*0x9E3779B1.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "sequence": {
+                "$ref": "#/$defs/guid"
+              },
+              "index": {
+                "type": "integer"
+              },
+              "length": {
+                "type": "number",
+                "description": "seconds"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "buffs": {
+          "type": "array",
+          "description": "BuffTypeCollectionResource.buffs. name = buff_<id>, id = buffTypeId.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "slot": {
+                "type": "string"
+              },
+              "hidden": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "perks": {
+          "type": "array",
+          "description": "keen::Perk. name = debugName, id = FNV-1a of the GUID.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "skills": {
+          "type": "array",
+          "description": "SkillTreeResource.nodes. name = skill_<id>, id = the node id, item = the ability item it unlocks.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "item": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "maxLevel": {
+                "type": "integer"
+              },
+              "costs": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "configs": {
+          "type": "array",
+          "description": "The config vocabulary: every config id the Impact programs bind (and the ones C++ reads). name = the most used name, id = config id. Paths below a configuration list take any of `names`: impactValues.ManaCost.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "shared": {
+                "const": true,
+                "description": "present when `name` also names another config id"
+              },
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "every name, most used first"
+              },
+              "programs": {
+                "type": "integer",
+                "description": "how many programs bind it"
+              },
+              "readBy": {
+                "const": "C++",
+                "description": "present when the game's code reads it"
+              },
+              "type": {
+                "type": "string",
+                "description": "the most used value type, without keen::"
+              },
+              "kind": {
+                "type": "string",
+                "description": "as a field's kind; `number` for several number types, `mixed` for several kinds"
+              },
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "enumNumbers": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "workshops": {
+          "type": "array",
+          "description": "WorkshopRegistryResource (npcs, workshops). name = the station item's name, id = workshopId.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "workshop",
+                  "npc"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "itemCategories": {
+          "type": "array",
+          "description": "RecipeRegistryResource.inputCategories (recipe inputs `{\"category\": \"0x..\"}`). id = inputCategoryId.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "resources": {
+          "type": "array",
+          "description": "Resources cook recipes and asset entries name by GUID + type (models, materials, hierarchies, UI textures, programs, sounds, voice-overs).",
+          "items": {
+            "type": "object",
+            "required": [
+              "guid",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "type": {
+                "type": "string"
+              },
+              "part": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "sounds": {
+          "type": "array",
+          "description": "SoundContainerResource (sound cues, client only). name = the first sound's debugName (the GUID when none), id = FNV-1a of the GUID.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "guid"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "scene": {
+                "type": "string"
+              },
+              "positional": {
+                "type": "boolean"
+              },
+              "entries": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "loca": {
+          "type": "array",
+          "description": "en-us loca texts. id = the tag id (FNV-1a of the tag GUID); text with the game's markup.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "guid": {
+                "$ref": "#/$defs/guid"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "fields": {
+      "type": "object",
+      "description": "per section: the paths data packs can name, from the exe's reflection. templates: the template's own fields and every component's, with the component's name as the first segment",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "path",
+            "type"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "writable": {
+              "type": "boolean"
+            },
+            "enum": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "enumNumbers": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "the numbers of `enum`, when they are not 0, 1, 2, ... (flags: the bit)"
+            },
+            "kind": {
+              "type": "string",
+              "description": "what the value is: a scalar's name (float32, uint16, bool), time, enum, flags, ref, guid, string, list, variant, optional, configs, struct"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{8}$"
+    },
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  }
+}

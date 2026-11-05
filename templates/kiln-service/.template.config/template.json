@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Kiln contributors",
+  "classifications": [
+    "Kiln",
+    "Enshrouded",
+    "Service"
+  ],
+  "identity": "Kiln.Templates.Service",
+  "groupIdentity": "Kiln.Templates.Service",
+  "name": "Kiln service (native + managed, in the Kiln repository)",
+  "description": "A Kiln service like kiln.example: native/services/<name>/ (DLL service), its C header, and the managed wrapper managed/services/Kiln.<Name>/. Run at the repository root: dotnet new kiln-service -n Weather -o .",
+  "shortName": "kiln-service",
+  "sourceName": "Example",
+  "preferNameDirectory": false,
+  "tags": {
+    "language": "C#",
+    "type": "item",
+    "kiln.kind": "service"
+  },
+  "forms": {
+    "lower": {
+      "identifier": "lowerCaseInvariant"
+    },
+    "upper": {
+      "identifier": "upperCaseInvariant"
+    }
+  },
+  "symbols": {
+    "lowerName": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "lower",
+      "replaces": "example",
+      "fileRename": "example"
+    },
+    "upperName": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "upper",
+      "replaces": "EXAMPLE"
+    },
+    "kilnSdkVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.2.0",
+      "description": "unused; kept in step with Kiln.Sdk"
+    }
+  }
+}

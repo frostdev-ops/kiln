@@ -1,0 +1,9 @@
+{
+  "id": "typegen-probe",
+  "name": "Typegen reflection probe",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "TypegenProbe.dll",
+  "side": "server",
+  "advanced": true
+}

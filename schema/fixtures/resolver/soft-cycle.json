@@ -1,0 +1,55 @@
+{
+  "description": "A loadAfter cycle fails both",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/x",
+      "manifest": {
+        "id": "x",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "loadAfter": [
+          "y"
+        ]
+      }
+    },
+    {
+      "dir": "/mods/y",
+      "manifest": {
+        "id": "y",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "loadAfter": [
+          "x"
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "order": [],
+    "rejected": [
+      {
+        "id": "x",
+        "dir": "/mods/x",
+        "state": "failed",
+        "reason": "dependency cycle: x -> y -> x (each must load after the next)"
+      },
+      {
+        "id": "y",
+        "dir": "/mods/y",
+        "state": "failed",
+        "reason": "dependency cycle: x -> y -> x (each must load after the next)"
+      }
+    ]
+  }
+}

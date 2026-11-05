@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-mods.schema.json",
+  "title": "Managed mod state (<game>/kiln/state/mods.json), format 1",
+  "description": "Written atomically by Kiln.Host after each resolve/load/unload/reload (the same data as the control command 'mods' and logs/mods.txt). 'generation' grows with every write while the process runs.",
+  "type": "object",
+  "required": ["format", "pid", "written", "generation", "mods"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "generation": { "type": "integer", "minimum": 1 },
+    "side": { "$ref": "common.schema.json#/$defs/runSide" },
+    "api": { "type": "string", "description": "Kiln.Mods.ApiVersion" },
+    "profile": {
+      "type": "object",
+      "properties": { "id": { "type": ["string", "null"] }, "generation": { "type": "integer" }, "mode": { "type": "string" } }
+    },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "state"],
+        "properties": {
+          "id": { "type": "string", "description": "Manifest id, or folder:<name> when the manifest is unreadable." },
+          "version": { "type": ["string", "null"] },
+          "name": { "type": ["string", "null"] },
+          "folder": { "type": "string", "description": "Game-side mod folder." },
+          "source": { "enum": ["profile", "dropin"] },
+          "state": { "enum": ["pending", "loaded", "disabled", "failed", "skipped", "unloaded"] },
+          "reason": { "type": ["string", "null"], "description": "Resolver / load error text (Resolver.cs messages)." },
+          "loadIndex": { "type": ["integer", "null"] },
+          "side": { "$ref": "common.schema.json#/$defs/side" },
+          "clients": { "$ref": "common.schema.json#/$defs/clients" },
+          "faults": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

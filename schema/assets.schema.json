@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assets.schema.json",
+  "title": "kiln.assets mod manifest (assets/assets.json), format 1",
+  "description": "Icons, retextures, resources and content blobs a mod serves (native/services/assets/assets.cpp load_manifest; nlohmann::json, comments allowed, no trailing commas). Paths are relative to the assets/ folder; absolute paths and '..' are refused. Wrong value types stop the whole manifest. Docs: docs/kiln/services/assets.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/assets.md#mod-layout-assetsassetsjson",
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1, "description": "1 (not checked by Kiln today; keep it for later readers)." },
+    "comment": {},
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } }
+  },
+  "x-kiln-unknownKeys": "warning",
+  "$defs": {
+    "guid": {
+      "type": "string",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$",
+      "description": "A resource GUID in .NET Guid text form (the bytes of Guid.ToByteArray() = the game's resource-id order)."
+    },
+    "file": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![\\\\/])(?![A-Za-z]:)[\\s\\S]+$",
+      "x-kiln-message": "a path relative to assets/ (subfolders allowed; no absolute path, no '..')",
+      "x-kiln-file": "assets"
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A qualified reflection name (keen::UiTextureResource), hashed FNV-1a-32, or \"0x<hash>\".",
+      "examples": ["keen::RenderModel", "keen::ecs::TemplateResource", "keen::ImpactProgram", "keen::UiTextureResource", "keen::ItemInfo"]
+    },
+    "entry": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["icon", "texture", "resource", "blob"] },
+        "comment": {}
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "icon" } }, "required": ["kind"] },
+          "then": {
+            "description": "A PNG icon for an item, keyed by the item's GUID (client only; skipped on a dedicated server).",
+            "required": ["guid", "file"],
+            "properties": {
+              "kind": {},
+              "comment": {},
+              "guid": { "$ref": "#/$defs/guid", "x-kiln-ref": "items", "x-kiln-ref-forms": ["guid"] },
+              "file": { "$ref": "#/$defs/file", "pattern": "\\.[pP][nN][gG]$", "x-kiln-file-kind": "png" }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in an icon entry (ignored)"
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "texture" } }, "required": ["kind"] },
+          "then": {
+            "description": "Retexture: a PNG re-encoded to a vanilla texture's own format (client only).",
+            "required": ["guid", "file"],
+            "properties": {
+              "kind": {},
+              "comment": {},
+              "guid": { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"] },
+              "type": { "$ref": "#/$defs/type", "default": "keen::UiTextureResource" },
+              "part": { "type": "integer", "minimum": 0, "default": 0 },
+              "file": { "$ref": "#/$defs/file", "x-kiln-file-kind": "png" }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a texture entry (ignored)"
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "resource" } }, "required": ["kind"] },
+          "then": {
+            "description": "A new resource or an override of a vanilla one's bytes (both sides where the game loads the type).",
+            "required": ["guid", "type", "file"],
+            "properties": {
+              "kind": {},
+              "comment": {},
+              "guid": { "$ref": "#/$defs/guid" },
+              "type": { "$ref": "#/$defs/type" },
+              "part": { "type": "integer", "minimum": 0, "default": 0 },
+              "side": { "enum": ["client", "both"], "default": "both", "description": "client: load on clients only (a dedicated server skips the entry and counts it as for clients only)." },
+              "mode": { "enum": ["override", "new"], "description": "override: the key must exist in the game; new: it must not; omitted: either.", "x-kiln-severity": "warning", "x-kiln-message": "mode is \"override\" or \"new\" (anything else is read as either)" },
+              "file": { "$ref": "#/$defs/file" },
+              "patch": {
+                "type": "array",
+                "description": "Writes a referenced blob's 16-byte ContentHash at offset in the resource bytes before serving.",
+                "items": {
+                  "type": "object",
+                  "required": ["offset", "blob"],
+                  "properties": {
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "blob": { "$ref": "#/$defs/file" }
+                  },
+                  "x-kiln-unknownKeys": "warning"
+                }
+              }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a resource entry (ignored)"
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "blob" } }, "required": ["kind"] },
+          "then": {
+            "description": "Content blob bytes: a new blob (hash from the bytes), or with \"hash\" an override of that game blob (the file length must equal the hash's size).",
+            "required": ["file"],
+            "properties": {
+              "kind": {},
+              "comment": {},
+              "file": { "$ref": "#/$defs/file" },
+              "side": { "enum": ["client", "both"], "default": "both", "description": "client: load on clients only (a dedicated server skips the entry and counts it as for clients only)." },
+              "hash": { "type": "string", "pattern": "^[0-9]+-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}$", "description": "<size>-<h0>-<h1>-<h2> (decimal size, hex words)." }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a blob entry (ignored)"
+          }
+        }
+      ]
+    }
+  }
+}

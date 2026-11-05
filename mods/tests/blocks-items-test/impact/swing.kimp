@@ -1,0 +1,33 @@
+.kimp 1
+; blocks-items-test: one hit through the game's applyDamage, as a weapon's swing does it: from the root (the attacker) to a target.
+; The game's hit conclusion turns it into a HitEvent, which is what a weapon's OnHit program reads. (As perkhit-test's hit.kimp.)
+program 3c5d9c52-8a7e-4f11-b9b0-2f1e0a6d7c11
+stack 256
+streams none
+
+var $attacker  ecs.EntityId
+var $target    ecs.EntityId config "blocksitems.Target"
+var $weapon    WeaponCategoryReference
+var $damage    impact.DamageSetup = {physicalCutDamage: 5.0}
+var $blocked   bool
+var $at        float3 config "blocksitems.At"
+var $normal    float3
+var $direction impact.MajorDirection
+var $attackMod float32 = 1.0
+var $stamina   float32 = 1.0
+var $noise     float32 = 0.0
+var $push      impact.PushBackForce = Small
+var $reaction  impact.HitReactionType = Light
+var $category  impact.AttackCategoryMask = [Melee]
+var $material  MaterialFeedbackId
+var $canBlock  bool = false
+var $gain      sint32 = 0
+var $scale     AttributeReference
+var $repeat    bool = true
+
+code:
+        ecall getRoot($attacker)
+        pop
+        ecall applyDamage($blocked, $attacker, $target, $at, $normal, $direction, $attackMod, $stamina, $noise, _, $gain, $scale, $push, $reaction, $damage, $category, $weapon, $material, _, $canBlock, _, _, _, $repeat, _)
+        pop
+        halt

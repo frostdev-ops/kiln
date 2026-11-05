@@ -1,0 +1,30 @@
+{
+  // A Kiln.Skills tree. Node ids are local to the tree; "requires" = any of (add "requireAll": true for all of).
+  // Effects: {"attribute": "<name or GUID>", "amount": n per level}, {"buff": "<buff GUID or clone name>", "refresh": s},
+  // {"gameNode": "0x<the game's skill node id>"}, {"program": "<ImpactProgram GUID>", "configs": {...}},
+  // {"ability": "<mod>:<ability id>"}.
+  "format": 1,
+  "trees": [
+    {
+      "id": "kiln-mod-id:talents",
+      "name": { "en": "KilnTalents1", "de": "KilnTalents1" },
+      "points": { "start": 1, "perLevel": 1 },
+      "menu": true,
+      "key": "K",
+      "nodes": [
+        {
+          "id": "might", "col": 0, "row": 0, "cost": 1, "maxLevel": 3, "icon": "icons/node.png",
+          "name": { "en": "Might", "de": "Macht" },
+          "description": { "en": "+1 Strength per level.", "de": "+1 Stärke pro Stufe." },
+          "effects": [ { "attribute": "Strength", "amount": 1 } ]
+        },
+        {
+          "id": "focus", "col": 1, "row": 1, "cost": 1, "maxLevel": 2, "requires": ["might"], "icon": "icons/node.png",
+          "name": { "en": "Focus", "de": "Fokus" },
+          "description": { "en": "+1 Intelligence per level. Needs Might.", "de": "+1 Intelligenz pro Stufe. Braucht Macht." },
+          "effects": [ { "attribute": "Intelligence", "amount": 1 } ]
+        }
+      ]
+    }
+  ]
+}

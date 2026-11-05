@@ -1,0 +1,59 @@
+{
+ "format": 1,
+ "kind": "kiln.catalog",
+ "generated": "2026-11-04T00:00:00Z",
+ "game": {
+  "side": "client",
+  "steamBuild": "1",
+  "svn": "1"
+ },
+ "icons": "icons",
+ "languages": [
+  "en"
+ ],
+ "sections": {
+  "items": [
+   {
+    "name": "Test_Sword_T2",
+    "id": "0x0000beef",
+    "guid": "11111111-2222-4333-8444-555555555555",
+    "displayName": "Test Sword T2",
+    "description": "An invented sword for tests.",
+    "kind": "weapon",
+    "tier": 2,
+    "maxStack": 1,
+    "icon": "Test_Sword_T2_icon.webp"
+   },
+   {
+    "name": "Material_Test_Resin",
+    "id": "0x00c0ffee",
+    "guid": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "displayName": "Test Resin",
+    "kind": "material",
+    "tier": 1,
+    "maxStack": 100
+   },
+   {
+    "name": "Material_Test_Twigs",
+    "id": "0x00000042",
+    "displayName": "Test Twigs",
+    "kind": "material",
+    "tier": 1
+   }
+  ],
+  "templates": [
+   {
+    "name": "Explosion_Test_1",
+    "guid": "31e7c423-0000-4000-8000-000000000001",
+    "id": "0x12345678"
+   }
+  ],
+  "buffs": [
+   {
+    "name": "buff_0x0000abcd",
+    "id": "0x0000abcd",
+    "displayName": "Test Buff"
+   }
+  ]
+ }
+}

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.skills sample (both sides): skills/sample.json expands the game's skill tree and defines a Kiln talent tree;
+       the code logs changes and shows a toast on a Kiln client. Output folder = a deployable mod folder. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Ui/Kiln.Ui.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="skills/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="skills" />
+    <None Include="icons/*.png" CopyToOutputDirectory="PreserveNewest" LinkBase="icons" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skills.schema.json",
+  "title": "Kiln talent trees (skills/*.json), format 1",
+  "description": "A mod's additions to the game's skill tree (\"gameTree\", read natively at boot by native/services/skills on every side: nlohmann::json, comments allowed, no trailing commas) and its own talent trees (\"trees\", read by Kiln.Skills: System.Text.Json). The same file goes through both readers: comments are fine, trailing commas are not. Beyond the schema, kiln lint checks what Kiln.Skills' Validate refuses (a node id twice, requires of an unknown node, two nodes in one cell). Owner of the format: skilltree. Docs: docs/kiln/services/skills.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/skills.md",
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "comment": {},
+    "gameTree": {
+      "$comment": "if/then/else, not anyOf: an anyOf drops the annotations of a failing alternative, so one bad node would hide the references of the others.",
+      "description": "{\"nodes\": [...]}, or the list of nodes itself.",
+      "if": { "type": "array" },
+      "then": { "items": { "$ref": "#/$defs/gameNode" } },
+      "else": {
+        "type": "object",
+        "properties": { "comment": {}, "nodes": { "type": "array", "items": { "$ref": "#/$defs/gameNode" } } },
+        "x-kiln-unknownKeys": "warning"
+      }
+    },
+    "trees": { "type": "array", "items": { "$ref": "#/$defs/tree" } }
+  },
+  "x-kiln-unknownKeys": "warning",
+  "$defs": {
+    "guid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", "x-kiln-message": "a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" },
+    "hexId": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]{1,8}$" },
+    "nodeRef": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A game node \"0x<id>\", a node GUID, or a Kiln node's name.",
+      "anyOf": [
+        { "$ref": "#/$defs/hexId", "x-kiln-ref": "skills", "x-kiln-ref-forms": ["id"], "x-kiln-ref-missing": "error" },
+        { "$ref": "#/$defs/guid", "x-kiln-ref": "skills", "x-kiln-ref-forms": ["guid"], "x-kiln-ref-missing": "error" },
+        { "x-kiln-ref": "skillNodes", "x-kiln-ref-forms": ["name"], "x-kiln-ref-missing": "error" }
+      ]
+    },
+    "nodeRefs": {
+      "description": "One node or a list of nodes.",
+      "anyOf": [{ "$ref": "#/$defs/nodeRef" }, { "type": "array", "items": { "$ref": "#/$defs/nodeRef" } }]
+    },
+    "pair": {
+      "description": "[a, b] or {\"x\": a, \"y\": b}.",
+      "anyOf": [
+        { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
+        { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
+      ]
+    },
+    "configMap": {
+      "type": "object",
+      "description": "{\"0x<configId>\" or a config GUID: number}; true and false count as 1 and 0.",
+      "propertyNames": { "anyOf": [{ "$ref": "#/$defs/hexId" }, { "$ref": "#/$defs/guid" }], "x-kiln-message": "a config id (\"0x<id>\") or a config GUID" },
+      "additionalProperties": { "type": ["number", "boolean"] }
+    },
+    "programConfigs": {
+      "type": "object",
+      "description": "A running program's config values, by name (any case) or id: numbers, booleans, GUIDs or other strings.",
+      "additionalProperties": { "type": ["number", "boolean", "string"] }
+    },
+    "nodeTexts": {
+      "type": "object",
+      "propertyNames": { "pattern": "^(\\*|[A-Za-z0-9][A-Za-z0-9_-]{1,11})$", "x-kiln-ref": "languages", "x-kiln-ref-forms": ["lang"] },
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "perLevel": { "type": "string" } },
+        "x-kiln-unknownKeys": "warning"
+      }
+    },
+    "gameNode": {
+      "type": "object",
+      "description": "A node added to the game's own skill tree: a fixed GUID (its id is FNV-1a of the 16 bytes), a unique name, and where it hangs (from / to).",
+      "required": ["guid", "name"],
+      "allOf": [
+        {
+          "anyOf": [
+            { "required": ["from"], "properties": { "from": { "not": { "type": "array", "maxItems": 0 }, "x-kiln-message": "an empty list: a node needs a link, \"from\" (the nodes that lead to it) or \"to\"" } } },
+            { "required": ["to"], "properties": { "to": { "not": { "type": "array", "maxItems": 0 }, "x-kiln-message": "an empty list: a node needs a link, \"from\" (the nodes that lead to it) or \"to\"" } } }
+          ],
+          "x-kiln-message": "a node needs a link: \"from\" (the nodes that lead to it) or \"to\""
+        }
+      ],
+      "properties": {
+        "comment": {},
+        "guid": {
+          "allOf": [{ "$ref": "#/$defs/guid" }, { "not": { "type": "string", "pattern": "^0{8}-0{4}-0{4}-0{4}-0{12}$" }, "x-kiln-severity": "warning", "x-kiln-message": "the zero GUID: pick a fixed GUID of your own" }],
+          "x-kiln-def": "skills"
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 96, "x-kiln-def-name": "skillNodes" },
+        "type": { "enum": ["PassiveSkill", "Passive", "Attribute", "ActiveSkill", "Active"], "x-kiln-message": "\"type\" must be PassiveSkill, Attribute or ActiveSkill (new roots are not allowed)" },
+        "class": { "enum": ["Warrior", "Mage", "Ranger", "Neutral", "None"], "description": "The screen's colour; None is Neutral." },
+        "cost": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Skill points (per level for nodes with levels)." },
+        "maxLevel": { "type": "integer", "minimum": 0, "maximum": 7, "description": "0: one unlock; 1..7 (the game keeps a level in 3 bits)." },
+        "position": { "$ref": "#/$defs/pair", "description": "[x, y] in the game's tree units." },
+        "near": { "$ref": "#/$defs/nodeRef" },
+        "offset": { "$ref": "#/$defs/pair", "description": "[dx, dy] from \"near\" (or the first \"from\")." },
+        "from": { "$ref": "#/$defs/nodeRefs" },
+        "to": { "$ref": "#/$defs/nodeRefs" },
+        "bidirectional": { "type": "boolean" },
+        "like": { "$ref": "#/$defs/nodeRef", "description": "A node to copy (type, look, configs)." },
+        "program": { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"], "description": "An ImpactProgram GUID." },
+        "configs": { "$ref": "#/$defs/configMap" },
+        "scales": { "$ref": "#/$defs/configMap" },
+        "icon": { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"], "description": "A UiTexture GUID (\"iconFile\" takes a PNG)." },
+        "iconFile": { "type": "string", "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" },
+        "texts": { "$ref": "#/$defs/nodeTexts" },
+        "displayName": { "type": "string" },
+        "description": { "type": "string" },
+        "perLevel": { "type": "string" },
+        "unlocksAbility": { "$ref": "#/$defs/guid", "x-kiln-ref": "items", "x-kiln-ref-forms": ["guid"], "description": "The ability item's GUID (its ItemId is FNV-1a of it)." }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in a game-tree node (ignored)"
+    },
+    "text": {
+      "description": "A text: a string (every language) or {\"<language>\": \"text\"}.",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "object", "propertyNames": { "pattern": "^(\\*|[A-Za-z0-9][A-Za-z0-9_-]{1,11})$", "x-kiln-ref": "languages", "x-kiln-ref-forms": ["lang"] }, "additionalProperties": { "type": "string" } }
+      ]
+    },
+    "attribute": {
+      "anyOf": [{ "enum": ["Strength", "Constitution", "Intelligence", "Spirit", "Dexterity", "Endurance"], "x-kiln-caseInsensitive": true }, { "$ref": "#/$defs/guid" }],
+      "x-kiln-message": "an attribute: Strength, Constitution, Intelligence, Spirit, Dexterity, Endurance, or an attribute GUID"
+    },
+    "effect": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["attribute"], "properties": { "attribute": { "$ref": "#/$defs/attribute" }, "amount": { "type": "integer" } } },
+        { "required": ["gameNode"], "properties": { "gameNode": { "$ref": "#/$defs/hexId", "x-kiln-ref": "skills", "x-kiln-ref-forms": ["id"], "x-kiln-ref-missing": "error" } } },
+        { "required": ["buff"], "properties": { "buff": { "type": "string", "minLength": 1, "x-kiln-ref": "buffs", "x-kiln-ref-forms": ["guid", "name"] }, "refresh": { "type": "number", "exclusiveMinimum": 0, "default": 30 } } },
+        { "required": ["program"], "properties": { "program": { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"] }, "configs": { "$ref": "#/$defs/programConfigs" } } },
+        { "required": ["ability"], "properties": { "ability": { "type": "string", "minLength": 1 } } }
+      ],
+      "x-kiln-message": "an effect is one of {attribute, amount}, {gameNode}, {buff, refresh}, {program, configs}, {ability}",
+      "properties": { "comment": {}, "attribute": {}, "amount": {}, "gameNode": {}, "buff": {}, "refresh": {}, "program": {}, "configs": {}, "ability": {} },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "treeNode": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "comment": {},
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text" },
+        "col": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "row": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "position": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 0, "maximum": 31 }, { "type": "integer", "minimum": 0, "maximum": 31 }], "minItems": 2, "maxItems": 2 },
+        "cost": { "type": "integer", "minimum": 0, "default": 1 },
+        "maxLevel": { "type": "integer", "minimum": 1, "maximum": 99, "default": 1 },
+        "requires": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }], "description": "Ids of nodes of the same tree." },
+        "requireAll": { "type": "boolean", "default": false },
+        "pointsSpent": { "type": "integer", "minimum": 0 },
+        "level": { "type": "integer", "minimum": 0 },
+        "icon": { "type": "string", "x-kiln-file": "mod", "x-kiln-file-kind": "png" },
+        "effects": { "type": "array", "items": { "$ref": "#/$defs/effect" } }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in a talent node (ignored)"
+    },
+    "tree": {
+      "type": "object",
+      "description": "A Kiln talent tree (Kiln.Skills): its id is the save key (convention <mod>:<name>), unique across mods.",
+      "required": ["id"],
+      "properties": {
+        "comment": {},
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]+$", "x-kiln-def-name": "talentTrees" },
+        "name": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text" },
+        "points": {
+          "type": "object",
+          "oneOf": [
+            { "required": ["share"], "properties": { "share": { "type": "number", "minimum": 0 } }, "not": { "anyOf": [{ "required": ["start"] }, { "required": ["perLevel"] }] } },
+            { "properties": { "start": { "type": "integer", "minimum": 0 }, "perLevel": { "type": "integer", "minimum": 0 } }, "not": { "required": ["share"] } }
+          ],
+          "x-kiln-message": "points: {start, perLevel} (its own points) or {share} (a share of the game's)"
+        },
+        "menu": { "anyOf": [{ "type": "boolean" }, { "$ref": "#/$defs/text" }] },
+        "key": { "type": "string" },
+        "respec": { "type": "boolean", "default": true },
+        "icon": { "type": "string", "x-kiln-file": "mod", "x-kiln-file-kind": "png" },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/treeNode" } }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in a talent tree (ignored)"
+    }
+  }
+}

@@ -1,0 +1,174 @@
+{
+  "catalog": false,
+  "description": "Quests, dialogue and NPCs in the game's UI, the default (docs/kiln/services/npcs.md): good uses every key in a clean mod with its cook recipe, with what one knowledge check cannot say taken by the engine; bad is what the boot build refuses, what has no form in the game's UI, and the clients rule.",
+  "diagnostics": [
+    {
+      "code": "KL601",
+      "col": 1,
+      "file": "bad/kiln.mod.json",
+      "line": 1,
+      "message": "no \"license\": say how others may use the mod (an SPDX expression, e.g. MIT)",
+      "severity": "info"
+    },
+    {
+      "code": "KL901",
+      "col": 1,
+      "file": "bad/kiln.mod.json",
+      "line": 1,
+      "message": "no game-data catalog: 7 reference(s) to the game's items, templates, ... were not checked (make one with `kiln catalog`, or pass --catalog)",
+      "severity": "info"
+    },
+    {
+      "code": "KL202",
+      "col": 126,
+      "file": "bad/kiln.mod.json",
+      "line": 1,
+      "message": "a conversation names a voice-over from this mod's cooked audio but the mod says \"clients\": \"none\": only players with the mod's files hear it; declare \"clients\": \"mod\" and side \"both\", or use a game line's GUID",
+      "severity": "warning"
+    },
+    {
+      "code": "KL210",
+      "col": 126,
+      "file": "bad/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a quest in the game's journal (the default), dialogue in the game's NPC menu or an NPC clone but says \"clients\": \"none\": a client builds them at boot from the mod's files, so a player without those sees nothing; declare \"clients\": \"mod\" and side \"both\" (servers then refuse players without it). For a mod vanilla clients join, every quest says \"journal\": \"chat\" and every dialogue \"native\": false",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "bad/quests/n.json",
+      "line": 3,
+      "message": "npc notemplate: its dialogue is in the game's menu, which belongs to an NPC's template: name one in \"template\" (or say \"native\": false on the dialogue)",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 78,
+      "file": "bad/quests/n.json",
+      "line": 4,
+      "message": "npc placed: \"near\": no NPC \"nobody\" in this mod's quest files (\"player\", an id of npcs, or a place)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 60,
+      "file": "bad/quests/n.json",
+      "line": 5,
+      "message": "npc vanilla: \"roster\" needs \"clone\": the game's own NPCs are in the roster already",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 82,
+      "file": "bad/quests/n.json",
+      "line": 5,
+      "message": "npc vanilla: unknown knowledge \"nope\" (declare it in \"knowledge\", or use 0x... or npc:<debugName>.unlock)",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 108,
+      "file": "bad/quests/n.json",
+      "line": 6,
+      "message": "npc c: unknown knowledge \"nope\" (declare it in \"knowledge\", or use 0x... or npc:<debugName>.unlock)",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 15,
+      "file": "bad/quests/n.json",
+      "line": 7,
+      "message": "quest q: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 54,
+      "file": "bad/quests/n.json",
+      "line": 7,
+      "message": "quest q: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 76,
+      "file": "bad/quests/n.json",
+      "line": 7,
+      "message": "quest q: no voice-over \"gone\" in this mod's assets/cook.json",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 54,
+      "file": "bad/quests/n.json",
+      "line": 8,
+      "message": "quest plain: \"toast\" is a chat line now: the game has no free-text notification. Put it in a step's text or an NPC's reply",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 89,
+      "file": "bad/quests/n.json",
+      "line": 9,
+      "message": "quest plain: \"reach\": \"site\" needs the step's \"site\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 159,
+      "file": "bad/quests/n.json",
+      "line": 9,
+      "message": "quest plain: \"near\": no NPC \"nobody\" in this mod's quest files (\"player\", an id of npcs, or a place)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL311",
+      "col": 95,
+      "file": "bad/quests/n.json",
+      "line": 10,
+      "message": "quest narrow: \"near\": no NPC \"nobody\" in this mod's quest files (\"player\", an id of npcs, or a place)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 166,
+      "file": "bad/quests/n.json",
+      "line": 10,
+      "message": "quest narrow: \"talk\" opens a chat conversation: the game's menu opens only when a player talks to the NPC. Give the NPC a marker and a hint instead",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "bad/quests/n.json",
+      "line": 12,
+      "message": "dialogue d: \"start\" must name a node (default \"start\")",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 37,
+      "file": "bad/quests/n.json",
+      "line": 12,
+      "message": "no node \"gone\" in this mod's quest files",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 36,
+      "file": "bad/quests/n.json",
+      "line": 13,
+      "message": "dialogue d: no voice-over \"gone\" in this mod's assets/cook.json",
+      "severity": "error"
+    },
+    {
+      "code": "KL601",
+      "col": 1,
+      "file": "good/kiln.mod.json",
+      "line": 1,
+      "message": "no \"license\": say how others may use the mod (an SPDX expression, e.g. MIT)",
+      "severity": "info"
+    }
+  ]
+}

@@ -1,0 +1,423 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.content: the game's registries (items, recipes, random-loot items, default-inventory drop tables), the game's own reflection (TypeByHash) for their layouts, and the inventory stack-size clamp. Typed holes capture every registry offset the service relies on; see docs/re/content.md. New content (content.new): the item map insert as ItemRegistryUpdate phase 1 does it (items.map2 = the map it inserts into), the recipe registry's workshop map (+recipes.workshops, values SmallDynamicArray<RecipeInfo*, ws_max> of ws_stride bytes, u16 count at +ws_count). New items in random loot (content.loot_new): every roll builds its candidate list from the LootableItemsResource items array, read through the getter LootItems ({data, count} of lootRegistry+lootreg.data -> +loot.items); kiln.content hooks it to append new items' LootableItemInfo copies and inserts them into the loot map (LootFind), docs/re/content.md 8.4.",
+  "symbols": {
+    "content/TypeByHash": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 3D ?? ?? ?? ?? 8B D9 48 85 FF 74 ?? 89 4C 24 38 48 8D 54 24 38 48 8D 4F ?? E8"
+        }
+      ]
+    },
+    "@content/TypeByHash.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/TypeByHash",
+            "size": 256
+          },
+          "pattern": "48 8B 11 39 5A {content/type.hash:d8} 74"
+        }
+      ]
+    },
+    "content/ItemRegistryFind": {
+      "find": [
+        {
+          "pattern": "89 4C 24 08 48 83 EC 28 85 C9 74 1B 48 8D 4A {content/items.map:d8} 48 8D 54 24 30 E8"
+        }
+      ]
+    },
+    "content/ItemRegistryUpdate": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 80 B9 {content/items.loading:d32} 00 48 8B F1 0F 84 ?? ?? ?? ?? 80 B9 {content/items.started:d32} 00 0F 84"
+        }
+      ]
+    },
+    "content/RecipeFind": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 7C 24 10 8B C1 4C 8B D2 85 C9 74 ?? 83 BA {content/recipes.count:d32} 00 48 8B 5A {content/recipes.cap:d8} 74 ?? 48 8B 7A {content/recipes.bits:d8} 4C 8D 43 FF"
+        }
+      ]
+    },
+    "@content/RecipeFind.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/RecipeFind",
+            "size": 128
+          },
+          "pattern": "4D 8B 5A {content/recipes.keys:d8} 43 39 04 83"
+        },
+        {
+          "scope": {
+            "symbol": "content/RecipeFind",
+            "size": 160
+          },
+          "pattern": "49 8B 82 {content/recipes.values:d32} 4A 8D 04 C0"
+        }
+      ]
+    },
+    "content/RecipeFinishLoading": {
+      "find": [
+        {
+          "pattern": "40 57 48 83 EC 70 48 83 79 {content/recipes.resource:d8} 00 48 8B F9 0F 85"
+        }
+      ]
+    },
+    "@content/RecipeFinishLoading.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/RecipeFinishLoading",
+            "size": 256
+          },
+          "pattern": "48 8D 6F {content/recipes.map:d8} 48 8B CD"
+        }
+      ]
+    },
+    "@content/LootRoll.fields": {
+      "find": [
+        {
+          "pattern": "48 8B 49 {content/lootgen.lootreg:d8} 66 0F 6E C8 0F 5B C9 F3 0F 5F C1 F3 44 0F 2C E8 E8 {content/LootFind:rel32}"
+        }
+      ]
+    },
+    "@content/LootFind.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/LootFind",
+            "size": 64
+          },
+          "pattern": "83 B9 {content/lootreg.count:d32} 00 4C 8B D1 48 8B 59 {content/lootreg.cap:d8} 74 ?? 48 8B 79 {content/lootreg.bits:d8}"
+        },
+        {
+          "scope": {
+            "symbol": "content/LootFind",
+            "size": 96
+          },
+          "pattern": "4D 8B 5A {content/lootreg.keys:d8} 41 39 14 83"
+        },
+        {
+          "scope": {
+            "symbol": "content/LootFind",
+            "size": 160
+          },
+          "pattern": "49 8B 8A {content/lootreg.values:d32} 48 8D 04 C1"
+        }
+      ]
+    },
+    "content/DefaultInventoryAcquire": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 48 8B EC 48 81 EC 80 00 00 00 33 F6 48 C7 45 C0 48 BC B1 3E"
+        }
+      ]
+    },
+    "content/StackClamp": {
+      "find": [
+        {
+          "pattern": "41 0F B7 4D {content/clamp.max_stack:d8} 41 8B 46 04 3B C1 76 ?? 0F 10 05",
+          "offset": 11
+        }
+      ]
+    },
+    "@content/RecipeFinishLoading.workshops": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/RecipeFinishLoading",
+            "size": 512
+          },
+          "pattern": "4C 8D B7 {content/recipes.workshops:d32} 49 8B CE"
+        },
+        {
+          "scope": {
+            "symbol": "content/RecipeFinishLoading",
+            "size": 768
+          },
+          "pattern": "49 69 D0 {content/recipes.ws_stride:d32} 41 83 E2 3F"
+        },
+        {
+          "scope": {
+            "symbol": "content/RecipeFinishLoading",
+            "size": 768
+          },
+          "pattern": "0F B7 82 {content/recipes.ws_count:d32} B9 {content/recipes.ws_max:d32} 66 3B C1"
+        }
+      ]
+    },
+    "@content/ItemRegistryUpdate.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/ItemRegistryUpdate",
+            "size": 512
+          },
+          "pattern": "8B 07 48 8D 4E {content/items.map2:d8} 48 8B D7 41 89 46 28 E8"
+        }
+      ]
+    },
+    "content/LootItems": {
+      "find": [
+        {
+          "pattern": "48 8B 52 {content/lootreg.data:d8} 48 85 D2 75 0D 33 C0 48 89 41 08 48 89 01 48 8B C1 C3 48 63 42 {content/loot.items:d8} 48 83 C2 14 44 8B 42 04 85 C0 75 0D 33 C0 4C 89 41 08 48 89 01 48 8B C1 C3 48 03 C2"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "content/type.hash": {
+      "value": 80
+    },
+    "content/type.qname": {
+      "value": 32
+    },
+    "content/type.inner": {
+      "value": 56
+    },
+    "content/type.size": {
+      "value": 64
+    },
+    "content/type.count": {
+      "value": 72
+    },
+    "content/type.kind": {
+      "value": 76
+    },
+    "content/type.fields": {
+      "value": 88
+    },
+    "content/type.enum_values": {
+      "value": 96
+    },
+    "content/field.stride": {
+      "value": 48
+    },
+    "content/field.type": {
+      "value": 16
+    },
+    "content/field.offset": {
+      "value": 24
+    },
+    "content/enum.stride": {
+      "value": 40
+    },
+    "content/enum.value": {
+      "value": 16
+    },
+    "content/items.map": {
+      "min_votes": 1
+    },
+    "content/items.loading": {
+      "min_votes": 1
+    },
+    "content/items.started": {
+      "min_votes": 1
+    },
+    "content/recipes.map": {
+      "min_votes": 1
+    },
+    "content/recipes.resource": {
+      "min_votes": 1
+    },
+    "content/recipes.count": {
+      "min_votes": 1
+    },
+    "content/recipes.cap": {
+      "min_votes": 1
+    },
+    "content/recipes.bits": {
+      "min_votes": 1
+    },
+    "content/recipes.keys": {
+      "min_votes": 1
+    },
+    "content/recipes.values": {
+      "min_votes": 1
+    },
+    "content/lootgen.lootreg": {
+      "min_votes": 1
+    },
+    "content/lootreg.count": {
+      "min_votes": 1
+    },
+    "content/lootreg.cap": {
+      "min_votes": 1
+    },
+    "content/lootreg.bits": {
+      "min_votes": 1
+    },
+    "content/lootreg.keys": {
+      "min_votes": 1
+    },
+    "content/lootreg.values": {
+      "min_votes": 1
+    },
+    "content/clamp.max_stack": {
+      "min_votes": 1
+    },
+    "content/hmap.bits": {
+      "value": 8
+    },
+    "content/hmap.capacity": {
+      "value": 16
+    },
+    "content/hmap.keys": {
+      "value": 40
+    },
+    "content/hmap.values": {
+      "value": 64
+    },
+    "content/hmap.count": {
+      "value": 84
+    },
+    "content/recipes.workshops": {
+      "min_votes": 1
+    },
+    "content/recipes.ws_stride": {
+      "min_votes": 1
+    },
+    "content/recipes.ws_count": {
+      "min_votes": 1
+    },
+    "content/recipes.ws_max": {
+      "min_votes": 1
+    },
+    "content/items.map2": {
+      "min_votes": 1
+    },
+    "content/lootreg.data": {
+      "min_votes": 1
+    },
+    "content/loot.items": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "content.reflection": {
+      "symbols": [
+        "content/TypeByHash",
+        "@content/TypeByHash.fields"
+      ],
+      "constants": [
+        "content/type.hash",
+        "content/type.qname",
+        "content/type.inner",
+        "content/type.size",
+        "content/type.count",
+        "content/type.kind",
+        "content/type.fields",
+        "content/type.enum_values",
+        "content/field.stride",
+        "content/field.type",
+        "content/field.offset",
+        "content/enum.stride",
+        "content/enum.value"
+      ]
+    },
+    "content.items": {
+      "symbols": [
+        "content/ItemRegistryFind",
+        "content/ItemRegistryUpdate"
+      ],
+      "constants": [
+        "content/items.map",
+        "content/hmap.bits",
+        "content/hmap.capacity",
+        "content/hmap.keys",
+        "content/hmap.values",
+        "content/hmap.count",
+        "content/items.loading",
+        "content/items.started"
+      ]
+    },
+    "content.recipes": {
+      "symbols": [
+        "content/RecipeFind",
+        "@content/RecipeFind.fields",
+        "content/RecipeFinishLoading",
+        "@content/RecipeFinishLoading.fields"
+      ],
+      "constants": [
+        "content/recipes.map",
+        "content/recipes.resource",
+        "content/recipes.count",
+        "content/recipes.cap",
+        "content/recipes.bits",
+        "content/recipes.keys",
+        "content/recipes.values"
+      ]
+    },
+    "content.loot": {
+      "symbols": [
+        "@content/LootRoll.fields",
+        "content/LootFind",
+        "@content/LootFind.fields"
+      ],
+      "constants": [
+        "content/lootgen.lootreg",
+        "content/lootreg.count",
+        "content/lootreg.cap",
+        "content/lootreg.bits",
+        "content/lootreg.keys",
+        "content/lootreg.values"
+      ]
+    },
+    "content.drops": {
+      "symbols": [
+        "content/DefaultInventoryAcquire"
+      ]
+    },
+    "content.stack_guard": {
+      "symbols": [
+        "content/StackClamp"
+      ],
+      "constants": [
+        "content/clamp.max_stack"
+      ]
+    },
+    "content.new": {
+      "symbols": [
+        "content/ItemRegistryFind",
+        "content/ItemRegistryUpdate",
+        "@content/ItemRegistryUpdate.fields",
+        "content/RecipeFind",
+        "content/RecipeFinishLoading",
+        "@content/RecipeFinishLoading.fields",
+        "@content/RecipeFinishLoading.workshops"
+      ],
+      "constants": [
+        "content/items.map",
+        "content/items.map2",
+        "content/recipes.map",
+        "content/recipes.resource",
+        "content/recipes.workshops",
+        "content/recipes.ws_stride",
+        "content/recipes.ws_count",
+        "content/recipes.ws_max"
+      ]
+    },
+    "content.loot_new": {
+      "symbols": [
+        "content/LootItems",
+        "@content/LootRoll.fields",
+        "content/LootFind",
+        "@content/LootFind.fields"
+      ],
+      "constants": [
+        "content/lootreg.data",
+        "content/loot.items",
+        "content/lootgen.lootreg",
+        "content/lootreg.count",
+        "content/lootreg.cap",
+        "content/lootreg.bits",
+        "content/lootreg.keys",
+        "content/lootreg.values"
+      ]
+    }
+  }
+}

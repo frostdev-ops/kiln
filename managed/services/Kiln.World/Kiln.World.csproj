@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/world (kiln.world): entity access and teleport for mods. Deployed to kiln/host/
+       and shared by every mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.World</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+  </ItemGroup>
+</Project>

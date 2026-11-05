@@ -1,0 +1,9 @@
+{
+  "id": "newitems",
+  "name": "New Items (sample)",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NewItems.dll",
+  "side": "both",
+  "description": "Sample for kiln.content's new items and recipes (Forge's DeferredRegister): a Frost Edge sword and Frost Shards with two hand-crafting recipes, from code, plus a Frost Lantern from a data pack, and a perk and a buff of its own (kiln.gamedata clones: Frostbite Edge on Glacier applies Frostbite; /frostbite tries the buff). Install it on the server and on every player's game (side both): ids come from fixed GUIDs, so both sides agree, and the client shows the names, icons and recipes."
+}

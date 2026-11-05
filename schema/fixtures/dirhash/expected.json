@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "cases": {
+    "binary": "kdh1:d1518aab96ea8d83f48c77ca723581770ab3f57d785e81e607ca99012f3f6fef",
+    "dotfiles": "kdh1:1b5bf2d070edbf8d7712f38d51d31d6128017644dde6031f5d0855867958da85",
+    "empty": "kdh1:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "nested": "kdh1:aa1caaf0ff3683eca72397a445c1eba8461dd7c1764ffc8c338f10b4857fd676",
+    "order": "kdh1:e228c5b261dbf6e711706010acb68ae0a2bc9c174d3c3756fdeff11198f34cd7",
+    "single": "kdh1:3a3c358c76246b312e6435d19bbc87bb5f99a3cafeec7c00e22be64def3cdd66",
+    "unicode": "kdh1:a758a9d92fd0ab3a4eb1765f68ffbfdc404506415bf637d632135eac472f3531"
+  }
+}

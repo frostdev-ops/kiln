@@ -1,0 +1,5 @@
+[I 00:50:14.447] [kiln] Kiln 0.1.0-dev starting (pid 252)
+[I 00:50:16.874] [mod:frost-mod] PASS FrostTests.Blade_is_cold (1.2 ms)
+[E 00:50:16.900] [mod:frost-mod] FAIL FrostTests.Shard_melts: it did not melt
+   at FrostMod.FrostTests.Shard_melts(TestContext t) in WSDIR/FrostMod/FrostModTests.cs:line 14
+[W 00:50:29.449] [mod:frost-mod] config frost-mod: "maxHomes" = 99 is outside 1..50; using 50

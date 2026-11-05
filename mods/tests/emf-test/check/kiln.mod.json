@@ -1,0 +1,8 @@
+{
+  "id": "emf-check",
+  "name": "kiln-emf lab cross-check",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "EmfCheck.dll",
+  "side": "server"
+}

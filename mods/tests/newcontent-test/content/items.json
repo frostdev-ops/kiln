@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "comment": "newcontent-test: a new item from a data pack (the \"add\" list), and a rule on it in the same pack.",
+  "items": {
+    "add": [
+      {
+        "guid": "0639a2c3-178a-47d4-80f7-fc116023e115",
+        "name": "Kiln_Test_PackGem",
+        "base": "Material_T1_Resin",
+        "displayName": "Kiln Test Gem",
+        "description": "Defined by newcontent-test's data pack.",
+        "fields": { "maxStackSize": 40 }
+      }
+    ],
+    "Kiln_Test_PackGem": { "maxStackSize": 77 }
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "f7c40d4f-c79c-4dc6-8ad3-218244091c70",
+        "name": "Kiln_Test_PackGem_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Resin", "count": 2 } ],
+        "outputs": [ { "item": "Kiln_Test_PackGem", "count": 1 } ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+.kimp 1
+; perkhit-test: one hit through the game's applyDamage, as a weapon's program does it: from the root (the attacker) to a
+; target, with a weapon category. The game's hit conclusion turns it into a HitEvent, which is what a perk's OnHit stream reads.
+program 6ec4a48d-0d7b-4f8f-a831-17ee57be9d0e
+stack 256
+streams none
+
+var $attacker  ecs.EntityId
+var $target    ecs.EntityId config "perkhit.Target"
+var $weapon    WeaponCategoryReference config "perkhit.Weapon"
+var $damage    impact.DamageSetup = {physicalCutDamage: 5.0}
+var $blocked   bool
+var $at        float3 config "perkhit.At"
+var $normal    float3
+var $direction impact.MajorDirection
+var $attackMod float32 = 1.0
+var $stamina   float32 = 1.0
+var $noise     float32 = 0.0
+var $push      impact.PushBackForce = Small
+var $reaction  impact.HitReactionType = Light
+var $category  impact.AttackCategoryMask = [Melee]
+var $material  MaterialFeedbackId
+var $canBlock  bool = false
+var $gain      sint32 = 0
+var $scale     AttributeReference
+var $repeat    bool = true
+
+code:
+        ecall getRoot($attacker)
+        pop
+        ecall applyDamage($blocked, $attacker, $target, $at, $normal, $direction, $attackMod, $stamina, $noise, _, $gain, $scale, $push, $reaction, $damage, $category, $weapon, $material, _, $canBlock, _, _, _, $repeat, _)
+        brt landed
+        ecall kiln.Signal($attacker, 0x700)
+        pop
+        halt
+landed: ecall kiln.Signal($attacker, 0x701)
+        pop
+        ; (the test destroys it)
+        halt

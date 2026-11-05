@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "pid": 412,
+  "written": "2026-11-04T12:01:40Z",
+  "generation": 1,
+  "side": "client",
+  "api": "0.2.0",
+  "profile": { "id": "ember-run", "generation": 7, "mode": "active" },
+  "mods": [
+    { "id": "new-items", "version": "1.0.0", "name": "New Items", "folder": "Z:\\home\\user\\.local\\share\\kiln\\library\\kiln\\new-items\\1.0.0+3f2a9c1d", "source": "profile", "state": "loaded", "reason": null, "loadIndex": 0, "side": "both", "clients": "kiln", "faults": 0 },
+    { "id": "sample-missing-dep", "version": "1.0.0", "folder": "Z:\\games\\Enshrouded\\kiln\\mods\\sample-missing-dep", "source": "dropin", "state": "failed", "reason": "missing dependency sample-nowhere ^1.0", "loadIndex": null, "side": "server", "clients": "none" }
+  ]
+}

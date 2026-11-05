@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.gamedata (in kiln-content.dll): template clones. RegisterTemplateInfo (server 0x6671d0, client 0x9cb140) is the function the per-world template-info init (0x667c10 / 0x9cbb80) calls for every TemplateResource: (storage holder = world + world.storage, const TemplateResource* data, const Guid*, bool force) -> TemplateInfo*. Its TemplateInfo array is inline in the storage (tmpl.array: {data, count +tarr.count, cap +tarr.cap, grow callback}); growing it moves the array, so Kiln only appends while count < cap. Everything else (resource lookups) uses the assets.resources feature or kiln.assets. Evidence: docs/re/gamedata.md (clones). Buff clones: GetBuffType (server 0x933700 / client 0xe8c5c0 on svn 1287369) is getBuffType(u32 buffTypeId, BuffRegistry*) -> BuffType*: it reads the collection through BuffRegistry+buffreg.collection (the static hash map and the records); Kiln finds that slot at run time (the qword that holds the collection resource) and checks it against this constant when the sigdb has it; the symbol itself is only used for the self-check that the game's own lookup finds a clone (feature gamedata.buff_lookup, optional).",
+  "symbols": {
+    "gamedata/RegisterTemplateInfo": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 48 89 54 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 B0 F7 FF FF 48 81 EC 50 09 00 00 48 8B 39"
+        }
+      ]
+    },
+    "@gamedata/RegisterTemplateInfo.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "gamedata/RegisterTemplateInfo",
+            "size": 512
+          },
+          "pattern": "48 8D 9F {gamedata/tmpl.array:d32} FF 87 ?? ?? ?? ?? 41 B7 01 48 8B 87 ?? ?? ?? ?? 0F 10 06 42 0F 11 04 C0 33 C0 4C 8D 43 {gamedata/tarr.cap:d8} 49 89 06 48 8B 53 {gamedata/tarr.count:d8}"
+        }
+      ]
+    },
+    "gamedata/GetBuffType": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 20 57 85 C9 74 ?? 4C 8B 5A {gamedata/buffreg.collection:d8} 4D 85 DB 74 ?? 41 8B 53 04"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "gamedata/tmpl.array": {
+      "min_votes": 1
+    },
+    "gamedata/tarr.cap": {
+      "min_votes": 1
+    },
+    "gamedata/tarr.count": {
+      "min_votes": 1
+    },
+    "gamedata/buffreg.collection": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "gamedata.template_clones": {
+      "symbols": [
+        "gamedata/RegisterTemplateInfo"
+      ],
+      "constants": [
+        "world.storage",
+        "gamedata/tmpl.array",
+        "gamedata/tarr.cap",
+        "gamedata/tarr.count"
+      ]
+    },
+    "gamedata.buff_lookup": {
+      "symbols": [
+        "gamedata/GetBuffType"
+      ],
+      "constants": [
+        "gamedata/buffreg.collection"
+      ]
+    }
+  }
+}

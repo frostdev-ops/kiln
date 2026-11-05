@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "comment": "NpcSample's voice lines (tools/soundcook recipe; docs/kiln/modding/sounds.md). The clips are SoundSample's synthetic test tones (tools/soundcook/samples/tones.py), no game audio. Outputs: cooked/ (never committed).",
+  "tool": "soundcook",
+  "out": "cooked",
+  "guidNamespace": "4d833311-1c5b-463f-9c99-f41fd512de57",
+  "voiceoverFallback": "en",
+  "steps": [
+    { "op": "voiceover", "name": "tobin_hello", "volume": 0.7, "normalize": -24, "fallback": "en",
+      "languages": { "en": ["../audio/vo/en/greeting.wav"], "de": ["../audio/vo/de/greeting.wav"] },
+      "subtitles": { "en": "Well met, Flameborn.", "de": "Sei gegrüßt, Flammengeborener." },
+      "comment": "en two 523 Hz beeps, de three 784 Hz beeps; other voice languages the English take" },
+    { "op": "voiceover", "name": "tobin_thanks", "volume": 0.7, "normalize": -24, "fallback": "en",
+      "languages": { "en": ["../audio/vo/en/thanks.wav"] },
+      "subtitles": { "en": "Bless you." },
+      "comment": "a 0.5 s 997 Hz chime in every voice language" }
+  ]
+}

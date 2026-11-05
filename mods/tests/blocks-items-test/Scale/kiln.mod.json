@@ -1,0 +1,10 @@
+{
+  "id": "blocks-scale",
+  "name": "item blocks at scale",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksScale.dll",
+  "side": "server",
+  "clients": "kiln",
+  "description": "Defines the number of items, weapons, armor and wands in <kiln>/data/blocks-scale/count, then logs how many came through and what the rest were told."
+}

@@ -1,0 +1,17 @@
+{
+  "file": "once",
+  "expect": {
+    "profile": [
+      {
+        "path": "Z:\\mods\\once-a.dll",
+        "relative": false,
+        "status": "ok"
+      },
+      {
+        "path": "once-b.dll",
+        "relative": true,
+        "status": "ok"
+      }
+    ]
+  }
+}

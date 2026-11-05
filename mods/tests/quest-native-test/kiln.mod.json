@@ -1,0 +1,9 @@
+{
+  "id": "quest-native-test",
+  "name": "Kiln.Quests test (native journal, dialogue, NPCs)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "QuestNativeTest.dll",
+  "side": "both",
+  "clients": "mod"
+}

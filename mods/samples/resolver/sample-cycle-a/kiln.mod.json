@@ -1,0 +1,2 @@
+{ "id": "sample-cycle-a", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "Never.dll",
+  "description": "resolver fixture: a -> b -> a", "dependencies": { "sample-cycle-b": "*" } }

@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "items": {
+    "add": [
+      {
+        "guid": "d3b0a4f1-7c2e-4e19-8a65-1f0b9c7e2d84",
+        "name": "Kiln_PH_Gem",
+        "base": "Material_T1_Resin",
+        "displayName": "Placeholder Test Gem",
+        "fields": { "maxStackSize": 300 }
+      }
+    ]
+  }
+}

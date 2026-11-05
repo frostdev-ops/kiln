@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "resource",
+      "guid": "c40bd1c7-48dd-44a5-8d6b-8222e62acb84",
+      "type": "keen::ImpactProgram",
+      "part": 0,
+      "mode": "new",
+      "file": "impact/frostbite_edge.bin"
+    }
+  ]
+}

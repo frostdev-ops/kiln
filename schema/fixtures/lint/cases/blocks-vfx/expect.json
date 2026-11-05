@@ -1,0 +1,77 @@
+{
+  "description": "VFX blocks: the section is checked against kiln-vfx.schema.json: maxCount stops at 4096, unknown fields, a missing PNG, wrong kinds of value. A block needs particles or a light, and particles a burst or a rate.",
+  "diagnostics": [
+    {
+      "code": "KL107",
+      "col": 60,
+      "file": "blocks/vfx.json",
+      "line": 13,
+      "message": "4097 is above the maximum 4096",
+      "severity": "error"
+    },
+    {
+      "code": "KL102",
+      "col": 44,
+      "file": "blocks/vfx.json",
+      "line": 14,
+      "message": "\"lifetimes\" is not allowed here; did you mean \"lifetime\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 57,
+      "file": "blocks/vfx.json",
+      "line": 15,
+      "message": "vfx/missing.png: no such file (<case>/vfx/missing.png)",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 58,
+      "file": "blocks/vfx.json",
+      "line": 16,
+      "message": "\"vfx/dot.tga\" does not have the expected form (\\.[pP][nN][gG]$)",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "blocks/vfx.json",
+      "line": 17,
+      "message": "missing \"particles\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 40,
+      "file": "blocks/vfx.json",
+      "line": 18,
+      "message": "missing \"burst\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 58,
+      "file": "blocks/vfx.json",
+      "line": 19,
+      "message": "\"multiply\" is not one of \"alpha\", \"additive\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 58,
+      "file": "blocks/vfx.json",
+      "line": 20,
+      "message": "2 is above the maximum 1",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 42,
+      "file": "blocks/vfx.json",
+      "line": 21,
+      "message": "0 must be greater than 0",
+      "severity": "error"
+    }
+  ]
+}

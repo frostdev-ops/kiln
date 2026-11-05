@@ -1,0 +1,45 @@
+{
+  "description": "clients does not change resolving",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/a",
+      "manifest": {
+        "id": "a",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "clients": "mod"
+      }
+    },
+    {
+      "dir": "/mods/b",
+      "manifest": {
+        "id": "b",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "side": "both",
+        "clients": "none",
+        "dependencies": {
+          "a": "*"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "order": [
+      "a",
+      "b"
+    ],
+    "rejected": []
+  }
+}

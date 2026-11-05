@@ -1,0 +1,9 @@
+{
+  "id": "quests-test",
+  "name": "Kiln.Quests test (knowledge)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "QuestsTest.dll",
+  "side": "both",
+  "clients": "none"
+}

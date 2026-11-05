@@ -1,0 +1,102 @@
+{
+  "description": "Cycles fail every member and their dependents, not bystanders",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/a",
+      "manifest": {
+        "id": "a",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "b": "*"
+        }
+      }
+    },
+    {
+      "dir": "/mods/b",
+      "manifest": {
+        "id": "b",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "c": "*"
+        }
+      }
+    },
+    {
+      "dir": "/mods/c",
+      "manifest": {
+        "id": "c",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "a": "*"
+        }
+      }
+    },
+    {
+      "dir": "/mods/after",
+      "manifest": {
+        "id": "after",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "a": "*"
+        }
+      }
+    },
+    {
+      "dir": "/mods/free",
+      "manifest": {
+        "id": "free",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll"
+      }
+    }
+  ],
+  "expect": {
+    "order": [
+      "free"
+    ],
+    "rejected": [
+      {
+        "id": "a",
+        "dir": "/mods/a",
+        "state": "failed",
+        "reason": "dependency cycle: a -> b -> c -> a (each must load after the next)"
+      },
+      {
+        "id": "after",
+        "dir": "/mods/after",
+        "state": "failed",
+        "reason": "dependency a * did not load (failed: dependency cycle: a -> b -> c -> a (each must load after the next))"
+      },
+      {
+        "id": "b",
+        "dir": "/mods/b",
+        "state": "failed",
+        "reason": "dependency cycle: a -> b -> c -> a (each must load after the next)"
+      },
+      {
+        "id": "c",
+        "dir": "/mods/c",
+        "state": "failed",
+        "reason": "dependency cycle: a -> b -> c -> a (each must load after the next)"
+      }
+    ]
+  }
+}

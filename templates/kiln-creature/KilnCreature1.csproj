@@ -1,0 +1,21 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A new creature: content/creature.json clones a game template (kiln.gamedata "templates" "add") with its own
+       level, size and senses, and a kiln.creatures spawn rule turns a share of natural spawns into it.
+       KilnCreature1Mod.cs adds an admin command that spawns one next to you.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Docs: docs/kiln/services/gamedata.md (templates, clones), docs/kiln/services/creatures.md (variants, spawn rules). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnCreature1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnCreature1: a new creature (a template clone) and a spawn rule.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>both</KilnSide>
+    <!-- A new template is something vanilla games cannot show: players need Kiln (the server sends the definition). -->
+    <KilnClients>kiln</KilnClients>
+    <KilnServices>Content;Spawn;Chat;Players;World</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

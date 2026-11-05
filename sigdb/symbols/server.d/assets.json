@@ -1,0 +1,124 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.assets: the game's resource service and its content reader (docs/re/resources.md). The resource service object S is created once at app start (creator: 'Could not create resource system!'); its function slots +0x7d0 (list by type), +0x7d8 (key -> handle), +0x7e0 (handle -> key), +0x7e8 (handle -> data) and +0x808 (content submit) hold the functions below; every caller goes through the slots (wrappers: mov rax,[rdx+slot]; call rax). The four resource functions are anchored twice: by their own prologue and by the rel32 captures of the creator's slot table (votes must agree); the slot offsets are captured from the creator and, for key/data, from the wrappers. Content: ContentSubmit's first call is the KFC reader's content-map accessor (mov rax,[rcx+0x60]; add rax,0x30; ret; the service checks those bytes); AsyncIoCreate opens the container files (enshrouded_NNN.dat) for the IOCP reader, captured from the resource init's call site too. Same bytes on server svn 1285601 and client 26404966.",
+  "symbols": {
+    "assets/ResourceInit": {
+      "find": [
+        {
+          "pattern": "48 89 54 24 10 48 89 4C 24 08 55 53 56 41 56 41 57 48 8D AC 24 F0 F5 FF FF 48 81 EC 10 0B 00 00 4C 8B 39 48 8D 5A 20 4C 8B F2 48 8B F1 4C 8B C3"
+        }
+      ]
+    },
+    "assets/ResourceByKey": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9 49 8B D8 48 8B 4A 08 E8 ?? ?? ?? ?? 48 8B D3 48 8B C8 48 8B F0 E8"
+        }
+      ]
+    },
+    "assets/ResourceData": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 48 8B F9 41 8B D8 48 8B 4A 08 48 8B F2 E8 ?? ?? ?? ?? 48 63 48 10 48 83 C0 10 85 C9 75 05 45 33 C0"
+        }
+      ]
+    },
+    "assets/ResourceKeyOf": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 41 8B D8 48 8B F9 45 85 C0 75 20 0F 57 C0 48 8B C1 0F 11 41 08 0F 11 41 18 44 89 41 04 C6 01 12"
+        }
+      ]
+    },
+    "assets/ResourcesByType": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 48 89 7C 24 20 41 56 48 83 EC 20 41 8B D8 4C 8B F2 48 8B F9 4D 85 C9 74 07 41 C7 01 01 00 00 00 48 8B 4A 08"
+        }
+      ]
+    },
+    "@assets/ResourceService.slots": {
+      "find": [
+        {
+          "pattern": "48 89 86 C0 07 00 00 48 8D 05 {assets/ResourcesByType:rel32} 48 89 86 {assets/svc.by_type:d32} 48 8D 05 {assets/ResourceByKey:rel32} 48 89 86 {assets/svc.by_key:d32} 48 8D 05 {assets/ResourceKeyOf:rel32} 48 89 86 {assets/svc.key_of:d32} 48 8D 05 {assets/ResourceData:rel32} 48 89 86 {assets/svc.data:d32} 48 8D 05 ?? ?? ?? ?? 48 89 86 F8 07 00 00 48 8D 05 ?? ?? ?? ?? 48 89 86 00 08 00 00 48 8D 05 {assets/ContentSubmit:rel32} 48 89 86 {assets/svc.submit:d32} E8 {assets/ResourceInit:rel32} 84 C0"
+        }
+      ]
+    },
+    "@assets/ResourceService.wrappers": {
+      "find": [
+        {
+          "pattern": "49 8B 40 08 48 8B D9 49 0B 00 75 0B 89 01 48 8B C1 48 83 C4 20 5B C3 48 8B 82 {assets/svc.by_key:d32} FF D0"
+        },
+        {
+          "pattern": "45 85 C0 75 15 33 C0 0F 57 C0 0F 11 01 48 89 41 10 48 8B C1 48 83 C4 40 5B C3 48 8B 82 {assets/svc.data:d32} 48 8D 4C 24 20 FF D0"
+        }
+      ]
+    },
+    "assets/ContentSubmit": {
+      "find": [
+        {
+          "pattern": "48 89 54 24 10 53 57 41 54 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 31 48 8B F9 48 8B DA 49 8B 4E 08 E8 {assets/KfcContentMap:rel32} 45 33 E4 4C 8B F8 4C 39 63 08"
+        }
+      ]
+    },
+    "assets/AsyncIoCreate": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 56 41 55 41 57 48 8D 6C 24 C1 48 81 EC D8 00 00 00 4C 8B 52 18 45 33 ED 48 8B F2 4C 8B F9 45 8B C5 4D 85 D2 74 38"
+        }
+      ]
+    },
+    "@assets/ResourceInit.io": {
+      "find": [
+        {
+          "pattern": "48 8D 55 80 48 89 45 A8 C6 45 B0 00 E8 {assets/AsyncIoCreate:rel32} 48 89 83 ?? ?? 00 00 48 85 C0 75"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "assets/svc.by_type": {
+      "min_votes": 1
+    },
+    "assets/svc.by_key": {
+      "min_votes": 2
+    },
+    "assets/svc.key_of": {
+      "min_votes": 1
+    },
+    "assets/svc.data": {
+      "min_votes": 2
+    },
+    "assets/svc.submit": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "assets.resources": {
+      "symbols": [
+        "assets/ResourceInit",
+        "assets/ResourceByKey",
+        "assets/ResourceData",
+        "assets/ResourceKeyOf",
+        "assets/ResourcesByType"
+      ],
+      "constants": [
+        "assets/svc.by_type",
+        "assets/svc.by_key",
+        "assets/svc.key_of",
+        "assets/svc.data"
+      ]
+    },
+    "assets.content": {
+      "symbols": [
+        "assets/ContentSubmit",
+        "assets/KfcContentMap",
+        "assets/AsyncIoCreate"
+      ],
+      "constants": [
+        "assets/svc.submit"
+      ]
+    }
+  }
+}

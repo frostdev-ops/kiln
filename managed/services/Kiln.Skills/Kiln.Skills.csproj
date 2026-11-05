@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/skills (kiln.skills): nodes in the game's own skill tree (GameTree, the shadow
+       table past its caps) and Kiln talent trees (Skills: definitions, per-character state in Kiln.Saves, effects,
+       network, the screen). Deployed to kiln/host/ and shared by every mod (mods reference it with Private="false"
+       ExcludeAssets="runtime"). Started by Kiln (ServiceTick.AutoStart: Kiln.SkillsStartup). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Skills</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Abilities/Kiln.Abilities.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+  </ItemGroup>
+</Project>

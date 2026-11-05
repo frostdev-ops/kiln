@@ -1,0 +1,3 @@
+{ "id": "sample-missing-dep", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "Never.dll",
+  "description": "resolver fixture: requires a mod that is not installed",
+  "dependencies": { "sample-nowhere": "^1.0" } }

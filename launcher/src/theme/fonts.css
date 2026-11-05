@@ -1,0 +1,23 @@
+/* Bundled fonts. Variable woff2 subsets (Latin + Latin Extended-A + punctuation) of the OFL
+   releases in google/fonts; licences next to the files in src/assets/fonts/. No web-font URLs. */
+@font-face {
+  font-family: "Fraunces";
+  src: url("../assets/fonts/Fraunces-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("../assets/fonts/Inter-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono-Variable.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}

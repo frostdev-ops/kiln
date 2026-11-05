@@ -1,0 +1,22 @@
+{
+  "catalog": false,
+  "description": "a misspelled key is reported (KL103 with a rename fix) even when something else makes Kiln.Host refuse the manifest (KL101): the unknown-key check must not depend on the reader succeeding",
+  "diagnostics": [
+    {
+      "code": "KL101",
+      "col": 14,
+      "file": "kiln.mod.json",
+      "line": 3,
+      "message": "expected a string, found an integer",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 3,
+      "file": "kiln.mod.json",
+      "line": 7,
+      "message": "\"dependecies\": unknown key (Kiln.Host ignores it and logs a warning); did you mean \"dependencies\"?",
+      "severity": "warning"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "description": "apiVersion bare version: VersionRange.AtLeastSameMajor(api).Satisfies(current)",
+  "cases": [
+    {
+      "api": "0.1",
+      "current": "0.1.0",
+      "satisfies": true
+    },
+    {
+      "api": "0.1",
+      "current": "0.2.0",
+      "satisfies": true
+    },
+    {
+      "api": "0.2",
+      "current": "0.1.0",
+      "satisfies": false
+    },
+    {
+      "api": "0.1",
+      "current": "1.0.0",
+      "satisfies": false
+    },
+    {
+      "api": "1.2",
+      "current": "1.9.0",
+      "satisfies": true
+    },
+    {
+      "api": "1.2",
+      "current": "2.0.0",
+      "satisfies": false
+    }
+  ]
+}

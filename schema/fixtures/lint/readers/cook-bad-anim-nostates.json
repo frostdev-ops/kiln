@@ -1,0 +1,1 @@
+{ "format": 1, "tool": "animcook", "steps": [ { "op": "graph", "name": "g", "skeleton": "g" } ] }

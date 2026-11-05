@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.items: the managed face of native/services/items (give / take / read inventories, the item catalog).
+       Deployed to kiln/host/ and shared by every mod (mods reference it with Private="false" ExcludeAssets="runtime").
+       Data/items.tsv (display names) is generated from the Enshrouded Save Editor's data/items.json, MIT, see Data/ITEMS-LICENSE.txt. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <EmbeddedResource Include="Data/items.tsv" LogicalName="Kiln.Items.items.tsv" />
+    <None Include="Data/ITEMS-LICENSE.txt" />
+  </ItemGroup>
+</Project>

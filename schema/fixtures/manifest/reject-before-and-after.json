@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"loadAfter\":[\"a\"],\"loadBefore\":[\"a\"]}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: 'a' is in both loadBefore and loadAfter"
+  }
+}

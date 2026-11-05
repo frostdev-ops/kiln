@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of Kiln.Network's plain decisions (what happens to a client without Kiln). The protocol and the gate's
+       transport half are tested by tools/nettest against a lab server. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
+    <ProjectReference Include="../../services/Kiln.Network/Kiln.Network.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,546 @@
+// SPDX-License-Identifier: MIT
+// kiln.ui: the game window's input (docs/re/client-render.md).
+//  - The game registers raw input for mouse + keyboard (usage pages 1/2 and 1/6, flags 0: no RIDEV_NOLEGACY) and reads
+//    it with GetRawInputData in its WndProc; it imports no GetAsyncKeyState/GetKeyState. Kiln subclasses the WndProc:
+//    keys (from WM_INPUT, or WM_KEYDOWN when no raw keyboard arrives) go to the menu key and the key subscribers; while
+//    Kiln captures input, WM_INPUT and the key/mouse messages are kept from the game (key releases always pass, so
+//    nothing stays held) and queued for ImGui, which reads them on the render thread before each frame.
+//  - While capturing, the game's own SetCursorPos and ClipCursor calls (its import slots) are ignored so the cursor can
+//    move freely; ImGui draws the cursor.
+#include <windows.h>
+#include <windowsx.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <deque>
+#include <mutex>
+#include <vector>
+
+#include "backends/imgui_impl_win32.h"
+#include "imgui.h"
+#include "safetyhook.hpp"
+#include "ui.h"
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+namespace kui {
+namespace {
+
+struct Msg {
+    HWND hwnd;
+    UINT msg;
+    WPARAM w;
+    LPARAM l;
+};
+
+std::mutex g_qmu;
+std::deque<Msg> g_queue;
+WNDPROC g_old_proc = nullptr;
+HWND g_attached = nullptr;
+bool g_raw_keyboard_seen = false;
+bool g_down[256] = {};
+bool g_consumed[256] = {};  // vk consumed by a binding: swallow its legacy messages too
+std::atomic<uint32_t> g_pressed_vk{0}, g_pressed_mods{0};
+bool g_was_capturing = false;
+
+// Raw mouse input as a fallback pointer: while the game has the pointer locked (mouse look), Wine may deliver only
+// relative raw motion and no WM_MOUSEMOVE; Kiln then moves its own cursor by the raw deltas.
+constexpr UINT kRawMouseMsg = WM_APP + 0x4B1;
+// Capture just started: shows the system cursor for one message. During play the game hides it, confines it and warps it,
+// and under XWayland that is a pointer lock: the compositor sends relative motion only, so a real mouse works (raw deltas,
+// below) but an absolute pointer does nothing. A visible cursor ends the lock; ImGui draws the cursor from then on.
+constexpr UINT kShowCursorMsg = WM_APP + 0x4B2;
+std::atomic<uint64_t> g_n_move{0}, g_n_raw{0}, g_n_raw_abs{0}, g_n_buttons{0};
+uint64_t g_last_legacy_move = 0, g_last_stats = 0;
+// Raw mouse buttons stand in for WM_xBUTTON* only until the window has delivered one of those: with both, every
+// click would reach ImGui twice (a Button would toggle twice; the game may drain WM_INPUT ahead of the legacy messages).
+bool g_legacy_buttons_seen = false;
+float g_vx = -1, g_vy = -1;
+
+using SetCursorPosFn = BOOL(WINAPI*)(int, int);
+using ClipCursorFn = BOOL(WINAPI*)(const RECT*);
+SetCursorPosFn g_real_set_cursor_pos = nullptr;
+ClipCursorFn g_real_clip_cursor = nullptr;
+RECT g_game_clip{};
+bool g_game_clipped = false;
+
+uint32_t current_mods() {
+    uint32_t m = 0;
+    if (GetKeyState(VK_CONTROL) & 0x8000) m |= KILN_UI_MOD_CTRL;
+    if (GetKeyState(VK_SHIFT) & 0x8000) m |= KILN_UI_MOD_SHIFT;
+    if (GetKeyState(VK_MENU) & 0x8000) m |= KILN_UI_MOD_ALT;
+    return m;
+}
+
+void enqueue(HWND h, UINT m, WPARAM w, LPARAM l) {
+    std::lock_guard<std::mutex> lk(g_qmu);
+    if (g_queue.size() >= 1024) g_queue.pop_front();
+    g_queue.push_back({h, m, w, l});
+}
+
+bool is_mouse_msg(UINT m) {
+    return (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST) || m == WM_MOUSELEAVE || m == WM_NCMOUSEMOVE;
+}
+
+bool is_key_msg(UINT m) {
+    return m == WM_KEYDOWN || m == WM_KEYUP || m == WM_SYSKEYDOWN || m == WM_SYSKEYUP || m == WM_CHAR || m == WM_SYSCHAR ||
+           m == WM_UNICHAR;
+}
+
+// One key transition: menu key + subscribers. true = keep it from the game.
+bool on_key(uint32_t vk, uint32_t scan, bool down) {
+    if (vk == 0 || vk > 255) return false;
+    const bool repeat = down && g_down[vk];
+    g_down[vk] = down;
+    KilnUiKey k{};
+    k.size = sizeof(k);
+    k.vk = vk;
+    k.scan = scan;
+    k.mods = current_mods();
+    k.down = down ? 1 : 0;
+    k.repeat = repeat ? 1 : 0;
+    k.text_input = g_text_input.load() ? 1 : 0;
+    k.captured = capturing() ? 1 : 0;
+    if (down && !repeat) {
+        g_pressed_mods.store(k.mods);
+        g_pressed_vk.store(vk);
+    }
+    const bool consumed = dispatch_key(k);
+    if (!down) {
+        g_consumed[vk] = false;
+        return false;  // releases always reach the game
+    }
+    g_consumed[vk] = consumed;
+    return consumed;
+}
+
+// A Kiln panel next to a game screen (set_hover_capture) has the mouse over it: its clicks and wheel are Kiln's.
+bool hover_capture() {
+    return g_hover_panels.load(std::memory_order_relaxed) > 0 && want_draw() && g_want_mouse.load(std::memory_order_relaxed);
+}
+
+bool is_button_up(UINT m) {
+    return m == WM_LBUTTONUP || m == WM_RBUTTONUP || m == WM_MBUTTONUP || m == WM_XBUTTONUP;
+}
+
+LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    const bool cap = capturing();
+    switch (m) {
+        case kShowCursorMsg:
+            if (cap) SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            return 0;
+        case WM_INPUT: {
+            UINT size = 0;
+            GetRawInputData(reinterpret_cast<HRAWINPUT>(l), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+            alignas(8) uint8_t buf[256];
+            if (size > 0 && size <= sizeof(buf) &&
+                GetRawInputData(reinterpret_cast<HRAWINPUT>(l), RID_INPUT, buf, &size, sizeof(RAWINPUTHEADER)) == size) {
+                const RAWINPUT* ri = reinterpret_cast<const RAWINPUT*>(buf);
+                if (ri->header.dwType == RIM_TYPEKEYBOARD) {
+                    g_raw_keyboard_seen = true;
+                    const RAWKEYBOARD& kb = ri->data.keyboard;
+                    const bool down = (kb.Flags & RI_KEY_BREAK) == 0;
+                    const uint32_t vk = kb.VKey;
+                    const bool consumed = on_key(vk, kb.MakeCode | ((kb.Flags & RI_KEY_E0) ? 0x100u : 0u), down);
+                    if ((consumed || cap) && down) {
+                        DefWindowProcW(h, m, w, l);  // lets the system clean up the raw input
+                        return 0;
+                    }
+                } else if (ri->header.dwType == RIM_TYPEMOUSE && !cap && hover_capture() &&
+                           (ri->data.mouse.usButtonFlags & (RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN |
+                                                            RI_MOUSE_MIDDLE_BUTTON_DOWN | RI_MOUSE_WHEEL)) &&
+                           !(ri->data.mouse.usButtonFlags & (RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_UP |
+                                                             RI_MOUSE_MIDDLE_BUTTON_UP))) {
+                    DefWindowProcW(h, m, w, l);  // a click / wheel over a Kiln panel: not the game's
+                    return 0;
+                } else if (ri->header.dwType == RIM_TYPEMOUSE && cap) {
+                    const RAWMOUSE& ms = ri->data.mouse;
+                    // a release the game saw the press of (e.g. the click that opened a Kiln screen) still reaches
+                    // it, like key releases: nothing stays held
+                    constexpr USHORT kUp = RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_MIDDLE_BUTTON_UP |
+                                           RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_UP;
+                    constexpr USHORT kDown = RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN | RI_MOUSE_MIDDLE_BUTTON_DOWN |
+                                             RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_5_DOWN | RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL;
+                    const bool release_only = (ms.usButtonFlags & kUp) && !(ms.usButtonFlags & kDown) && ms.lLastX == 0 && ms.lLastY == 0;
+                    g_n_raw.fetch_add(1, std::memory_order_relaxed);
+                    if (ms.usFlags & MOUSE_MOVE_ABSOLUTE) g_n_raw_abs.fetch_add(1, std::memory_order_relaxed);
+                    const WPARAM pw = static_cast<WPARAM>(static_cast<uint32_t>(ms.lLastX)) |
+                                      (static_cast<WPARAM>(static_cast<uint32_t>(ms.lLastY)) << 32);
+                    const LPARAM pl = static_cast<LPARAM>(ms.usFlags) | (static_cast<LPARAM>(ms.usButtonFlags) << 16) |
+                                      (static_cast<LPARAM>(static_cast<uint16_t>(ms.usButtonData)) << 32);
+                    enqueue(h, kRawMouseMsg, pw, pl);
+                    if (release_only) break;
+                    DefWindowProcW(h, m, w, l);
+                    return 0;
+                }
+            }
+            break;
+        }
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
+            bool consumed = false;
+            if (!g_raw_keyboard_seen) consumed = on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, true);
+            else consumed = g_consumed[vk];
+            enqueue(h, m, w, l);
+            if (cap || consumed) {
+                if (m == WM_SYSKEYDOWN && vk == VK_F4) break;  // Alt+F4 still closes the game
+                return 0;
+            }
+            break;
+        }
+        case WM_KEYUP:
+        case WM_SYSKEYUP: {
+            const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
+            if (!g_raw_keyboard_seen) on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, false);
+            enqueue(h, m, w, l);
+            break;  // releases always reach the game
+        }
+        case WM_CHAR:
+        case WM_SYSCHAR:
+        case WM_UNICHAR:
+            enqueue(h, m, w, l);
+            if (cap) return 0;
+            break;
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_DPICHANGED:
+            enqueue(h, m, w, l);
+            break;
+        case WM_SETCURSOR:
+            if (cap && LOWORD(l) == HTCLIENT) {
+                SetCursor(nullptr);  // ImGui draws the cursor
+                return TRUE;
+            }
+            break;
+        default:
+            if (is_mouse_msg(m)) {
+                if (m == WM_MOUSEMOVE) g_n_move.fetch_add(1, std::memory_order_relaxed);
+                else if (m != WM_MOUSELEAVE && m != WM_NCMOUSEMOVE) g_n_buttons.fetch_add(1, std::memory_order_relaxed);
+                enqueue(h, m, w, l);
+                if (cap && !is_button_up(m)) return 0;  // releases reach the game (see WM_INPUT)
+                // presses and the wheel over a Kiln panel are Kiln's; releases always reach the game (no stuck drag)
+                if ((m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN || m == WM_MBUTTONDOWN || m == WM_LBUTTONDBLCLK ||
+                     m == WM_RBUTTONDBLCLK || m == WM_MOUSEWHEEL || m == WM_MOUSEHWHEEL) && hover_capture())
+                    return 0;
+            }
+            break;
+    }
+    return CallWindowProcW(g_old_proc, h, m, w, l);
+}
+
+BOOL WINAPI hk_set_cursor_pos(int x, int y) {
+    if (capturing()) return TRUE;  // the game recentres the cursor for mouse look: not while Kiln has it
+    return g_real_set_cursor_pos(x, y);
+}
+
+BOOL WINAPI hk_clip_cursor(const RECT* r) {
+    if (r) {
+        g_game_clip = *r;
+        g_game_clipped = true;
+    } else {
+        g_game_clipped = false;
+    }
+    if (capturing()) return g_real_clip_cursor(nullptr);
+    return g_real_clip_cursor(r);
+}
+
+// Replaces the game's import slot user32!<name> with `hook`; returns the previous target.
+void* patch_iat(HMODULE mod, const char* dll, const char* name, void* hook) {
+    auto* base = reinterpret_cast<uint8_t*>(mod);
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress) return nullptr;
+    for (auto* imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress); imp->Name; ++imp) {
+        if (_stricmp(reinterpret_cast<const char*>(base + imp->Name), dll) != 0) continue;
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + (imp->OriginalFirstThunk ? imp->OriginalFirstThunk : imp->FirstThunk));
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + imp->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) continue;
+            auto* ibn = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (std::strcmp(reinterpret_cast<const char*>(ibn->Name), name) != 0) continue;
+            DWORD old = 0;
+            if (!VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &old)) return nullptr;
+            void* prev = reinterpret_cast<void*>(slots->u1.Function);
+            slots->u1.Function = reinterpret_cast<ULONGLONG>(hook);
+            VirtualProtect(&slots->u1.Function, sizeof(void*), old, &old);
+            return prev;
+        }
+    }
+    return nullptr;
+}
+
+
+// ---- gamepad (XInput) while Kiln has the input ----
+// The game loads XInput at run time (XInput1_4/1_3/9_1_0, XInputGetState by name) and polls it. While a Kiln screen or
+// the Kiln menu has the input, the game gets an idle pad (no buttons, sticks centred: whatever it held is released),
+// and Kiln feeds the pad to ImGui's gamepad navigation (d-pad / left stick move, A activates, LB/RB switch tabs);
+// B closes the top Kiln screen like Escape.
+struct PadState {
+    WORD buttons;
+    BYTE lt, rt;
+    SHORT lx, ly, rx, ry;
+};
+struct XState {
+    DWORD packet;
+    PadState pad;
+};
+SafetyHookInline g_xinput_hook;
+std::mutex g_pad_mu;
+PadState g_pad{};
+bool g_pad_seen = false;
+WORD g_pad_prev[4] = {};
+PadState g_pad_fed{};
+bool g_pad_fed_any = false;
+
+void synth_escape() {
+    KilnUiKey k{};
+    k.size = sizeof k;
+    k.vk = VK_ESCAPE;
+    k.scan = 0x01;
+    k.down = 1;
+    k.text_input = g_text_input.load() ? 1 : 0;
+    k.captured = 1;
+    dispatch_key(k);
+    k.down = 0;
+    dispatch_key(k);
+}
+
+DWORD WINAPI hk_xinput_get_state(DWORD user, XState* st) {
+    const DWORD r = g_xinput_hook.call<DWORD>(user, st);
+    if (r != ERROR_SUCCESS || !st || user >= 4) return r;
+    if (!capturing()) {
+        g_pad_prev[user] = st->pad.buttons;
+        return r;
+    }
+    const WORD b = st->pad.buttons;
+    const bool b_edge = (b & 0x2000) && !(g_pad_prev[user] & 0x2000);  // XINPUT_GAMEPAD_B
+    g_pad_prev[user] = b;
+    {
+        std::lock_guard<std::mutex> lk(g_pad_mu);
+        if (b || st->pad.lx > 8000 || st->pad.lx < -8000 || st->pad.ly > 8000 || st->pad.ly < -8000 || !g_pad_seen) g_pad = st->pad;
+        g_pad_seen = true;
+    }
+    std::memset(&st->pad, 0, sizeof st->pad);  // the game sees an idle pad while Kiln has the input
+    if (b_edge) synth_escape();
+    return r;
+}
+
+void feed_pad(ImGuiIO& io) {
+    PadState p{};
+    {
+        std::lock_guard<std::mutex> lk(g_pad_mu);
+        if (!g_pad_seen) return;
+        p = g_pad;
+    }
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    if (g_pad_fed_any && std::memcmp(&p, &g_pad_fed, sizeof p) == 0) return;
+    g_pad_fed = p;
+    g_pad_fed_any = true;
+    auto key = [&](ImGuiKey k, WORD mask) { io.AddKeyEvent(k, (p.buttons & mask) != 0); };
+    key(ImGuiKey_GamepadDpadUp, 0x0001);
+    key(ImGuiKey_GamepadDpadDown, 0x0002);
+    key(ImGuiKey_GamepadDpadLeft, 0x0004);
+    key(ImGuiKey_GamepadDpadRight, 0x0008);
+    key(ImGuiKey_GamepadStart, 0x0010);
+    key(ImGuiKey_GamepadBack, 0x0020);
+    key(ImGuiKey_GamepadL1, 0x0100);
+    key(ImGuiKey_GamepadR1, 0x0200);
+    key(ImGuiKey_GamepadFaceDown, 0x1000);
+    key(ImGuiKey_GamepadFaceRight, 0x2000);
+    key(ImGuiKey_GamepadFaceLeft, 0x4000);
+    key(ImGuiKey_GamepadFaceUp, 0x8000);
+    auto axis = [&](ImGuiKey k, float v) {
+        const float dz = 8000.0f / 32767.0f;
+        const float a = v < dz ? 0.0f : std::min(1.0f, (v - dz) / (1.0f - dz));
+        io.AddKeyAnalogEvent(k, a > 0.1f, a);
+    };
+    const float lx = p.lx / 32767.0f, ly = p.ly / 32767.0f;
+    axis(ImGuiKey_GamepadLStickLeft, -lx);
+    axis(ImGuiKey_GamepadLStickRight, lx);
+    axis(ImGuiKey_GamepadLStickUp, ly);
+    axis(ImGuiKey_GamepadLStickDown, -ly);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadL2, p.lt > 30, p.lt / 255.0f);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadR2, p.rt > 30, p.rt / 255.0f);
+}
+
+}  // namespace
+
+void input_hook_xinput() {
+    if (g_xinput_hook) return;
+    for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
+        HMODULE m = GetModuleHandleW(dll);
+        if (!m) continue;
+        void* fn = reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState"));
+        if (!fn) continue;
+        g_xinput_hook = safetyhook::create_inline(fn, reinterpret_cast<void*>(&hk_xinput_get_state));
+        char name[32];
+        std::snprintf(name, sizeof name, "%ls", dll);
+        logf(g_xinput_hook ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: gamepad: %s XInputGetState %s", name,
+             g_xinput_hook ? "hooked (idle for the game while Kiln has the input)" : "could not be hooked");
+        return;
+    }
+}
+
+namespace {
+}  // namespace
+
+void input_install_iat() {
+    HMODULE exe = GetModuleHandleW(nullptr);
+    g_real_set_cursor_pos = reinterpret_cast<SetCursorPosFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetCursorPos"));
+    g_real_clip_cursor = reinterpret_cast<ClipCursorFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "ClipCursor"));
+    void* a = patch_iat(exe, "USER32.dll", "SetCursorPos", reinterpret_cast<void*>(&hk_set_cursor_pos));
+    void* b = patch_iat(exe, "USER32.dll", "ClipCursor", reinterpret_cast<void*>(&hk_clip_cursor));
+    if (a) g_real_set_cursor_pos = reinterpret_cast<SetCursorPosFn>(a);
+    if (b) g_real_clip_cursor = reinterpret_cast<ClipCursorFn>(b);
+    logf(a && b ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: cursor import slots: SetCursorPos %s, ClipCursor %s", a ? "hooked" : "not found",
+         b ? "hooked" : "not found");
+}
+
+void input_attach(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return;
+    const auto current = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(hwnd, GWLP_WNDPROC));
+    if (g_attached == hwnd && current == &wndproc) return;
+    if (!current) return;
+    // first time, or the game set its WndProc again: (re)subclass. The previous procedure is stored before the swap:
+    // the window thread may call ours at once.
+    if (current != &wndproc) g_old_proc = current;
+    const auto prev = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&wndproc)));
+    if (!prev) {
+        logf(KILN_LOG_WARN, "ui: subclassing window %p failed (%lu)", reinterpret_cast<void*>(hwnd), GetLastError());
+        return;
+    }
+    if (prev != &wndproc && prev != current) g_old_proc = prev;  // changed in between
+    if (g_attached != hwnd) logf(KILN_LOG_INFO, "ui: game window %p subclassed", reinterpret_cast<void*>(hwnd));
+    g_attached = hwnd;
+}
+
+bool input_attached() { return g_attached != nullptr; }
+
+void input_replay() {
+    std::deque<Msg> q;
+    {
+        std::lock_guard<std::mutex> lk(g_qmu);
+        q.swap(g_queue);
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    const uint64_t t = now_ms();
+    if (!g_legacy_buttons_seen)
+        for (const auto& m : q)
+            if ((m.msg >= WM_LBUTTONDOWN && m.msg <= WM_MBUTTONDBLCLK) || (m.msg >= WM_XBUTTONDOWN && m.msg <= WM_XBUTTONDBLCLK)) {
+                g_legacy_buttons_seen = true;
+                logf(KILN_LOG_INFO, "ui: the game window delivers mouse button messages; raw buttons ignored");
+                break;
+            }
+    for (const auto& m : q) {
+        if (m.msg == WM_MOUSEMOVE) g_last_legacy_move = t;
+        if (m.msg != kRawMouseMsg) {
+            ImGui_ImplWin32_WndProcHandler(m.hwnd, m.msg, m.w, m.l);
+            if (m.msg == WM_MOUSEMOVE) {
+                g_vx = static_cast<float>(GET_X_LPARAM(m.l));
+                g_vy = static_cast<float>(GET_Y_LPARAM(m.l));
+            }
+            continue;
+        }
+        const int32_t dx = static_cast<int32_t>(m.w & 0xFFFFFFFF), dy = static_cast<int32_t>(m.w >> 32);
+        const uint16_t flags = static_cast<uint16_t>(m.l & 0xFFFF), buttons = static_cast<uint16_t>((m.l >> 16) & 0xFFFF);
+        const int16_t data = static_cast<int16_t>((m.l >> 32) & 0xFFFF);
+        const float W = io.DisplaySize.x > 0 ? io.DisplaySize.x : 1920, H = io.DisplaySize.y > 0 ? io.DisplaySize.y : 1080;
+        if (t - g_last_legacy_move > 250 && (dx || dy || (flags & MOUSE_MOVE_ABSOLUTE))) {
+            if (g_vx < 0) {
+                g_vx = W / 2;
+                g_vy = H / 2;
+            }
+            if (flags & MOUSE_MOVE_ABSOLUTE) {
+                const bool virt = (flags & MOUSE_VIRTUAL_DESKTOP) != 0;
+                const int sx = GetSystemMetrics(virt ? SM_XVIRTUALSCREEN : 0), sy = GetSystemMetrics(virt ? SM_YVIRTUALSCREEN : 0);
+                const int sw = GetSystemMetrics(virt ? SM_CXVIRTUALSCREEN : SM_CXSCREEN), sh = GetSystemMetrics(virt ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
+                POINT p{sx + static_cast<LONG>(dx / 65535.0 * sw), sy + static_cast<LONG>(dy / 65535.0 * sh)};
+                if (ScreenToClient(m.hwnd, &p)) {
+                    g_vx = static_cast<float>(p.x);
+                    g_vy = static_cast<float>(p.y);
+                }
+            } else {
+                g_vx = std::clamp(g_vx + static_cast<float>(dx), 0.0f, W - 1);
+                g_vy = std::clamp(g_vy + static_cast<float>(dy), 0.0f, H - 1);
+            }
+            io.AddMousePosEvent(g_vx, g_vy);
+        }
+        if (!g_legacy_buttons_seen) {
+            if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) io.AddMouseButtonEvent(0, true);
+            if (buttons & RI_MOUSE_LEFT_BUTTON_UP) io.AddMouseButtonEvent(0, false);
+            if (buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) io.AddMouseButtonEvent(1, true);
+            if (buttons & RI_MOUSE_RIGHT_BUTTON_UP) io.AddMouseButtonEvent(1, false);
+            if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) io.AddMouseButtonEvent(2, true);
+            if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) io.AddMouseButtonEvent(2, false);
+        }
+        if (buttons & RI_MOUSE_WHEEL) io.AddMouseWheelEvent(0, static_cast<float>(data) / WHEEL_DELTA);
+    }
+    if (capturing()) feed_pad(io);
+    if (capturing() && t - g_last_stats >= 2000) {
+        g_last_stats = t;
+        logf(KILN_LOG_INFO, "ui: input while capturing: %llu WM_MOUSEMOVE, %llu button msgs, %llu raw mouse (%llu absolute); cursor (%.0f, %.0f)",
+             static_cast<unsigned long long>(g_n_move.load()), static_cast<unsigned long long>(g_n_buttons.load()),
+             static_cast<unsigned long long>(g_n_raw.load()), static_cast<unsigned long long>(g_n_raw_abs.load()), io.MousePos.x, io.MousePos.y);
+    }
+}
+
+void input_capture_changed() {
+    const bool cap = capturing();
+    if (cap == g_was_capturing) return;
+    g_was_capturing = cap;
+    if (ImGui::GetCurrentContext()) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.MouseDrawCursor = cap;
+        if (!cap) {
+            io.ClearInputKeys();
+            g_pad_fed_any = false;
+        }
+    }
+    if (g_real_clip_cursor) {
+        if (cap) g_real_clip_cursor(nullptr);
+        else if (g_game_clipped) g_real_clip_cursor(&g_game_clip);
+    }
+    if (cap && g_attached) PostMessageW(g_attached, kShowCursorMsg, 0, 0);  // SetCursor belongs on the window's thread
+    logf(KILN_LOG_INFO, "ui: input capture %s", cap ? "on" : "off");
+    g_vx = g_vy = -1;
+}
+
+uint32_t input_take_pressed(uint32_t* mods) {
+    const uint32_t vk = g_pressed_vk.exchange(0);
+    if (mods) *mods = g_pressed_mods.load();
+    return vk;
+}
+
+void key_name(uint32_t vk, char* out, size_t cap) {
+    if (!out || cap == 0) return;
+    out[0] = 0;
+    static const struct {
+        uint32_t vk;
+        const char* name;
+    } names[] = {{VK_INSERT, "Insert"}, {VK_DELETE, "Delete"}, {VK_HOME, "Home"}, {VK_END, "End"}, {VK_PRIOR, "PageUp"},
+                 {VK_NEXT, "PageDown"}, {VK_LEFT, "Left"}, {VK_RIGHT, "Right"}, {VK_UP, "Up"}, {VK_DOWN, "Down"},
+                 {VK_RETURN, "Enter"}, {VK_ESCAPE, "Escape"}, {VK_TAB, "Tab"}, {VK_BACK, "Backspace"}, {VK_SPACE, "Space"},
+                 {VK_PAUSE, "Pause"}, {VK_SCROLL, "ScrollLock"}, {VK_CAPITAL, "CapsLock"}, {VK_NUMLOCK, "NumLock"},
+                 {VK_OEM_3, "Backquote"}, {VK_OEM_MINUS, "Minus"}, {VK_OEM_PLUS, "Equals"}, {VK_OEM_4, "LeftBracket"},
+                 {VK_OEM_6, "RightBracket"}, {VK_OEM_5, "Backslash"}, {VK_OEM_1, "Semicolon"}, {VK_OEM_7, "Quote"},
+                 {VK_OEM_COMMA, "Comma"}, {VK_OEM_PERIOD, "Period"}, {VK_OEM_2, "Slash"}, {VK_MULTIPLY, "NumpadMultiply"},
+                 {VK_ADD, "NumpadAdd"}, {VK_SUBTRACT, "NumpadSubtract"}, {VK_DECIMAL, "NumpadDecimal"},
+                 {VK_DIVIDE, "NumpadDivide"}, {VK_LSHIFT, "LeftShift"}, {VK_RSHIFT, "RightShift"},
+                 {VK_LCONTROL, "LeftCtrl"}, {VK_RCONTROL, "RightCtrl"}, {VK_LMENU, "LeftAlt"}, {VK_RMENU, "RightAlt"},
+                 {VK_SHIFT, "Shift"}, {VK_CONTROL, "Ctrl"}, {VK_MENU, "Alt"}, {VK_XBUTTON1, "Mouse4"}, {VK_XBUTTON2, "Mouse5"},
+                 {VK_MBUTTON, "MouseMiddle"}};
+    for (const auto& n : names)
+        if (n.vk == vk) {
+            std::snprintf(out, cap, "%s", n.name);
+            return;
+        }
+    if (vk >= VK_F1 && vk <= VK_F24) std::snprintf(out, cap, "F%u", vk - VK_F1 + 1);
+    else if ((vk >= '0' && vk <= '9') || (vk >= 'A' && vk <= 'Z')) std::snprintf(out, cap, "%c", static_cast<char>(vk));
+    else if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) std::snprintf(out, cap, "Numpad%u", vk - VK_NUMPAD0);
+    else std::snprintf(out, cap, "Key%u", vk);
+}
+
+}  // namespace kui

@@ -1,0 +1,9 @@
+{
+  "id": "progression-test",
+  "name": "kiln.progression test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ProgressionTest.dll",
+  "side": "both",
+  "clients": "none"
+}

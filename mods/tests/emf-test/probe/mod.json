@@ -1,0 +1,15 @@
+{
+  "id": "emf_probe",
+  "name": "kiln-emf conformance probe",
+  "version": "1.0.0",
+  "description": "Lab test for kiln-emf: checks the EmfApi v21 table and logs PASS / FAIL lines. Not for real servers.",
+  "authors": ["Kiln"],
+  "emf": 21,
+  "side": "server",
+  "settings": [
+    {"key": "level", "type": "int", "default": 3, "min": 0, "max": 10, "live": true, "label": "Level"},
+    {"key": "ratio", "type": "float", "default": 0.5, "min": 0, "max": 1, "label": "Ratio"},
+    {"key": "mode", "type": "select", "default": "b", "options": ["a", "b", "c"], "label": "Mode"},
+    {"key": "tint", "type": "color", "default": "#FFAA00", "label": "Tint"}
+  ]
+}

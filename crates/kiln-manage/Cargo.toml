@@ -1,0 +1,47 @@
+[package]
+name = "kiln-manage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Kiln's management library: Steam/game discovery, runtime install, profiles, mod library, configs, saves, logs, servers, the KAP/1 admin client, modpacks. Shared by kilnctl and the Kiln Launcher."
+
+# Module owners: src/lib.rs. Contracts: docs/kiln/launcher/contracts.md.
+# The default build is light (serde, sha2, unicode-normalization). Heavier pieces sit behind features.
+[features]
+default = []
+zip = ["dep:zip"]                       # bundle, modpack: read/write zips
+http = ["dep:ureq"]                     # modpack: https download
+admin = ["dep:hmac", "dep:getrandom"]   # admin: KAP/1 handshake MAC, nonces
+jsonc = ["dep:jsonc-parser"]            # config, jsonc: value edits that keep comments
+saves = ["dep:zstd"]                    # saves::editor: zstd (the save editor's format)
+server = ["dep:toml"]                   # server::instance: kilnctl instance files
+gameart = ["dep:zstd", "dep:bcdec_rs", "dep:image-webp", "dep:png", "dep:flate2"]  # gameart: read the game's KFC4 data, decode BCn, write WebP, read PNG
+full = ["zip", "http", "admin", "jsonc", "saves", "server", "gameart"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+unicode-normalization = "0.1"
+zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
+ureq = { version = "3", optional = true }
+hmac = { version = "0.13", optional = true }
+getrandom = { version = "0.4", optional = true }
+jsonc-parser = { version = "0.34", optional = true, features = ["cst", "serde"] }
+zstd = { version = "0.14", optional = true }
+toml = { version = "1", optional = true }
+# gameart: BCn block decoder (MIT), lossless WebP encoder (MIT OR Apache-2.0)
+bcdec_rs = { version = "0.2", optional = true }
+image-webp = { version = "0.2", optional = true }
+# gameart: PNG icons of mods (MIT OR Apache-2.0), gzip of the admin map's base height (MIT OR Apache-2.0, zlib-rs backend)
+png = { version = "0.18", optional = true }
+flate2 = { version = "1", optional = true, default-features = false, features = ["zlib-rs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading",
+    "Win32_Security_Cryptography", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging",
+    "Win32_Storage_FileSystem"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

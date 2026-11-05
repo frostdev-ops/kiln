@@ -1,0 +1,9 @@
+{
+  "id": "claims",
+  "name": "Claims",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "Claims.dll",
+  "side": "server",
+  "description": "Protected areas: only their owners may build, dig, open containers, loot or craft inside. Sample for kiln.gameplay."
+}

@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "comment": "Lab only: a boot-time override (kiln.assets, mode override) of the Fireball explosion program with a clone that spawns a Vukah where the blast is. Never ship an override like this: clone under a new GUID instead.",
+  "tool": "impact",
+  "out": "../assets/cooked/impact",
+  "manifest": "../assets/assets.json",
+  "game": { "side": "server", "madeOn": "1285601" },
+  "inputs": {
+    "explosion": { "guid": "80a2448f-945c-45f6-8fce-9b09ed61620c", "type": "keen::ImpactProgram" }
+  },
+  "steps": [
+    { "op": "clone", "base": "explosion", "guid": "80a2448f-945c-45f6-8fce-9b09ed61620c", "mode": "override",
+      "keepSites": true, "stem": "explosion_marker",
+      "edits": [
+        { "var": "var $Lab.template ecs.TemplateReference = d5d05217-52dc-467a-9192-26b4f661d8d9" },
+        { "var": "var $Lab.spawned ecs.EntityId" },
+        { "var": "var $Lab.no bool = false" },
+        { "var": "var $Lab.yes bool = true" },
+        { "insert": "ecall spawnEntity($Lab.spawned, $Lab.yes, $Lab.no, $Lab.yes, $Lab.no, $Lab.template, $impact_nodes.GetTransform::transform, _, _, _, _, _, _)\npop",
+          "after": { "native": "getTransform", "nth": 0 } }
+      ] }
+  ]
+}

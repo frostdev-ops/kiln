@@ -1,0 +1,10 @@
+{
+  "id": "blocks-dataonly",
+  "name": "blocks: a mod with no code",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksDataOnly.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Part of blocks-test: blocks/*.json with no assembly."
+}

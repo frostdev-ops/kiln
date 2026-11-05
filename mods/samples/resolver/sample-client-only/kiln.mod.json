@@ -1,0 +1,2 @@
+{ "id": "sample-client-only", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "Never.dll", "side": "client",
+  "description": "resolver fixture: a client mod is skipped on a server" }

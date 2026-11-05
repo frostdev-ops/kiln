@@ -1,0 +1,23 @@
+{
+  // Blocks as data: the same fields as in C#. A field that takes a block takes it inline, or by name.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "spells": {
+    "frostnova": {
+      "name": "Frost Nova",
+      "description": "Bursts around where it lands, and gives back some mana to who cast it.",
+      "cast": { "manaCost": 35, "animation": "lob" },
+      "delivery": {
+        "type": "projectile",
+        "look": "ice-bolt",
+        "speed": 25,
+        "gravity": 0.6,
+        "onImpact": [
+          { "area": { "radius": 6, "effects": [ { "damage": { "ice": 15 }, "applies": "chilled" } ] } },
+          { "on": "caster", "restores": { "mana": 5 } }
+        ]
+      },
+      "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 3 } }
+    }
+  }
+}

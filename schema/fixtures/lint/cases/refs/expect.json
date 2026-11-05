@@ -1,0 +1,118 @@
+{
+  "catalog": true,
+  "description": "references to the game (fixture catalog): unknown names with did-you-mean (KL401), case (KL112), globs that match nothing (KL403), unknown fields (KL402), language keys (KL404), resource modes (KL405), an undefined variant",
+  "diagnostics": [
+    {
+      "code": "KL405",
+      "col": 59,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "\"mode\": \"override\" but the game has no resource 00011001-0000-4000-8000-0000000000aa: kiln.assets refuses the entry",
+      "severity": "error"
+    },
+    {
+      "code": "KL405",
+      "col": 197,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "\"mode\": \"new\" but 00011001-0000-4000-8000-000000000001 is a game resource: use \"override\" or a new GUID",
+      "severity": "error"
+    },
+    {
+      "code": "KL401",
+      "col": 101,
+      "file": "content/refs.json",
+      "line": 3,
+      "message": "no item \"Weapon_Fixture_Swrod\" in the game or the mods; did you mean \"Weapon_Fixture_Sword\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL404",
+      "col": 65,
+      "file": "content/refs.json",
+      "line": 4,
+      "message": "no game language is \"xx\" (the game has en-us, de-de, pt-br): this text never shows",
+      "severity": "info"
+    },
+    {
+      "code": "KL402",
+      "col": 28,
+      "file": "content/refs.json",
+      "line": 5,
+      "message": "\"maxStackSise\": no such item field in the game's reflection (Kiln reports \"unknown field\"); did you mean \"maxStackSize\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL112",
+      "col": 5,
+      "file": "content/refs.json",
+      "line": 6,
+      "message": "\"material_fixture_logs\" matches the game's \"Material_Fixture_Logs\" (Kiln ignores case); write it as the game names it",
+      "severity": "hint"
+    },
+    {
+      "code": "KL105",
+      "col": 63,
+      "file": "content/refs.json",
+      "line": 6,
+      "message": "\"Epik\" is not a value of ItemRarity (Common, Uncommon, Rare, Epic, Legendary); did you mean \"Epic\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL403",
+      "col": 5,
+      "file": "content/refs.json",
+      "line": 7,
+      "message": "\"Food_*\" matches no item (Kiln warns \"matches nothing\")",
+      "severity": "warning"
+    },
+    {
+      "code": "KL402",
+      "col": 57,
+      "file": "content/refs.json",
+      "line": 8,
+      "message": "\"rarty\": no such item field in the game's reflection (Kiln reports \"unknown field\"); did you mean \"rarity\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL401",
+      "col": 49,
+      "file": "content/refs.json",
+      "line": 11,
+      "message": "no item \"Material_Fixture_Lgos\" in the game or the mods; did you mean \"Material_Fixture_Logs\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL401",
+      "col": 14,
+      "file": "content/refs.json",
+      "line": 12,
+      "message": "no drop table with GUID 0000c001-0000-4000-8000-0000000000ff in the game or the mods",
+      "severity": "warning"
+    },
+    {
+      "code": "KL402",
+      "col": 91,
+      "file": "content/refs.json",
+      "line": 13,
+      "message": "\"Helth.max\": no such template field in the game's reflection (Kiln reports \"unknown field\"); did you mean \"Health.max\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL401",
+      "col": 77,
+      "file": "content/refs.json",
+      "line": 14,
+      "message": "no variant \"no_such_variant\" is defined",
+      "severity": "error"
+    },
+    {
+      "code": "KL202",
+      "col": 93,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod ships assets.json resource keen::RenderModel but says \"clients\": \"kiln\": the server does not send assets (PNG icons, textures, models): Kiln clients without the mod show the base's look; declare \"clients\": \"mod\" so the server's modpack delivers it",
+      "severity": "warning"
+    }
+  ]
+}

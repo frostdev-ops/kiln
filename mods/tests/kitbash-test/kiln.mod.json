@@ -1,0 +1,9 @@
+{
+  "id": "kitbash-test",
+  "name": "kiln.content kitbash / texts / distribution lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "KitbashTest.dll",
+  "side": "server",
+  "clients": "mod"
+}

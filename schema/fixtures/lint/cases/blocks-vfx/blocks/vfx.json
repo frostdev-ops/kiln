@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "vfx": {
+    "fine": {
+      "particles": [ {
+        "burst": 24, "lifetime": [0.4, 0.9], "speed": [2, 5], "spread": { "cone": 35 }, "gravity": -4,
+        "size": { "linear": [0.15, 0] }, "color": ["#ffffff", "#7fd4ff"], "alpha": { "linear": [1, 0] },
+        "texture": "vfx/dot.png", "blend": "additive", "flipbook": { "columns": 2, "rows": 2 }
+      } ],
+      "light": { "color": "#7fd4ff", "radius": 6, "brightness": 4, "fadeOut": 0.5 },
+      "cullDistance": [50, 75]
+    },
+    "too_many": { "particles": [ { "burst": 1, "maxCount": 4097 } ] },
+    "typo": { "particles": [ { "burst": 1, "lifetimes": 2 } ] },
+    "no_png": { "particles": [ { "burst": 1, "texture": "vfx/missing.png" } ] },
+    "not_png": { "particles": [ { "burst": 1, "texture": "vfx/dot.tga" } ] },
+    "nothing": { },
+    "nothing_spawns": { "particles": [ { "lifetime": 1 } ] },
+    "bad_blend": { "particles": [ { "burst": 1, "blend": "multiply" } ] },
+    "bad_alpha": { "particles": [ { "burst": 1, "alpha": 2 } ] },
+    "bad_radius": { "light": { "radius": 0 } }
+  }
+}

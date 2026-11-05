@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/quests.json",
+  "comment": "Client 26430625 (enshrouded.exe 5d9ef2f1, svn 1287369): every kiln.knowledge pattern of server.d/quests.json matches the client's server-world code unchanged (a hosting client runs the same knowledge registry, queue apply, dialogue-line path and client-input program), except the npc_unlock_state_server anchor: the client has npc_unlock_state_server and npc_unlock_state_client as two byte-identical copies (0x45fa90, 0x45fb10), so that cross-check matches twice and is dropped here. The NPC registry functions resolve through their direct patterns (version getter 0xe97cd0, npcs getter 0xe97ce0, set-unlocks 0xec4800). Checked with tools/sigport/sigdb_check.py sigdb/symbols/client.json <client exe>: all six quests.* features on. Service: kiln.knowledge.",
+  "remove": {
+    "symbols": ["@quests/NpcUnlock.calls"]
+  }
+}

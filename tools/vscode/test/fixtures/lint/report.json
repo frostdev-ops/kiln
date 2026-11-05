@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "tool": "kiln-lint",
+  "version": "0.0.0-fixture",
+  "ok": false,
+  "checked": [
+    "/FIXTURE/kiln.mod.json"
+  ],
+  "summary": {
+    "errors": 1,
+    "warnings": 1,
+    "infos": 0,
+    "hints": 0
+  },
+  "catalog": null,
+  "diagnostics": [
+    {
+      "file": "/FIXTURE/kiln.mod.json",
+      "code": "KL103",
+      "rule": "unknown-key",
+      "severity": "warning",
+      "message": "\"dependecies\": unknown key (Kiln.Host ignores it and logs a warning); did you mean \"dependencies\"?",
+      "span": {
+        "start": 212,
+        "end": 225
+      },
+      "line": 8,
+      "col": 3,
+      "endLine": 8,
+      "endCol": 16,
+      "pointer": "/dependecies",
+      "schema": "kiln.mod.schema.json",
+      "fixes": [
+        {
+          "title": "Rename to \"dependencies\"",
+          "edits": [
+            {
+              "file": "/FIXTURE/kiln.mod.json",
+              "span": {
+                "start": 212,
+                "end": 225
+              },
+              "newText": "\"dependencies\""
+            }
+          ]
+        }
+      ],
+      "docs": "docs/kiln/modding/manifest.md"
+    },
+    {
+      "file": "/FIXTURE/kiln.mod.json",
+      "code": "KL101",
+      "rule": "type",
+      "severity": "error",
+      "message": "version must be a string",
+      "span": {
+        "start": 144,
+        "end": 145
+      },
+      "line": 5,
+      "col": 14,
+      "endLine": 5,
+      "endCol": 15,
+      "pointer": "/version"
+    }
+  ]
+}

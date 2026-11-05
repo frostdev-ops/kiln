@@ -1,0 +1,8 @@
+{
+  "id": "gamedata-observer",
+  "name": "kiln.gamedata observer (lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "GamedataObserver.dll",
+  "side": "server"
+}

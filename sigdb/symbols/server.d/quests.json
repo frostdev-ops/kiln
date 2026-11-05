@@ -1,0 +1,297 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.knowledge (native/services/quests, kiln-quests.dll): the game's knowledge registry (G38Knowledge), the KnowledgeTriggerQueue apply, the journal, the NPC registry's unlock state, the dialogue-line knowledge path and the client's knowledge input. Captured from the game's own code: the queue apply 0x9a0830 and its per-operation apply 0x9a0670 (world part) / 0x9a4a80 (player part), the player-block store 0x9a08a0, the change-list append 0x99fa50, update_knowledge_system_server 0x1bdc90, trigger_quest_rewards 0x1bd9e0 (journal getter, query evaluator), npc_unlock_state_server 0x1fa330, unlock_knowledge_from_dialog_option_input 0x1fb380 (FindDialogLine 0x1f0ef0) and handle_knowledge_trigger_input 0x1bc140. Reuses players/KnowledgeQueuePush, players/KnowledgeIndex, players/KnowledgePlayerContext and the players/know.* block layout (players.json, progression.json). Evidence: docs/re/quests.md, docs/kiln/services/knowledge.md. Service: kiln.knowledge.",
+  "symbols": {
+    "@quests/Apply.world": {
+      "find": [
+        {
+          "pattern": "48 8B 49 {quests/reg.data:d8} 4C 8B FA 41 8B 10 49 8B F0 48 8B 49 {quests/data.resource:d8} E8 {quests/StaticWorldFind:rel32} 33 FF 4C 8B E8 48 85 C0 0F 84 ?? ?? ?? ?? 80 78 {quests/static.type:d8} 02 75 ?? 8B 50 {quests/static.expected_flags:d8}"
+        },
+        {
+          "pattern": "48 8D 4D {quests/reg.world_map:d8} 66 89 44 24 55 48 8B D6 0F B6 44 24 57 4C 89 64 24 58 88 44 24 57 4C 89 74 24 68 89 7C 24 50 C6 44 24 54 FF E8 ?? ?? ?? ?? 48 3B 45 {quests/reg.world_cap:d8} 72 07 4C 8B 4C 24 50 EB 08 4C 8B 4D {quests/reg.world_values:d8} 4D 8B 0C C1"
+        },
+        {
+          "pattern": "48 8B 4D {quests/reg.world_bits:d8} 4C 8D 1C D1 41 8B C9 49 8B 13 48 8B C2 48 D3 E8 A8 01 75 ?? 4C 0F AB CA 49 89 13 FF 45 {quests/reg.world_count:d8} 48 8B 4D {quests/reg.world_keys:d8} 8B 06 42 89 04 81 49 89 1A C6 85 {quests/reg.world_dirty:d32} 02 48 8D 4D {quests/reg.world_changes:d8} 8B 16 4C 8B C3 E8 {quests/ChangeListAppend:rel32} 0F B7 95 {quests/reg.world_version:d32}"
+        }
+      ]
+    },
+    "@quests/Apply.player": {
+      "find": [
+        {
+          "pattern": "48 8B 48 {quests/data.resource:d8} 48 83 C1 {quests/data.player_map:d8} E8 {quests/StaticPlayerFind:rel32} 48 8B E8 48 85 C0 0F 84 ?? ?? ?? ?? 85 DB 0F 84 ?? ?? ?? ?? 48 8B BF {quests/reg.blocks:d32} 8D 4B FF 4C 8D 04 C9 49 C1 E0 04 49 03 F8 80 BF {quests/block.valid:d32} 00"
+        },
+        {
+          "pattern": "C6 44 24 44 FF E8 ?? ?? ?? ?? 48 3B 47 {quests/block.cap:d8} 72 07 4C 8B 4C 24 40 EB 08 4C 8B 4F {quests/block.values:d8} 4D 8B 0C C1"
+        },
+        {
+          "pattern": "4C 8D 44 24 50 48 8B D6 48 8B CF E8 {quests/BlockStore:rel32} 4C 8B 44 24 50 48 8D 4F {quests/block.changes:d8} 8B 16 E8 ?? ?? ?? ?? 0F B7 97 {quests/block.version:d32} C6 87 {quests/block.dirty:d32} 00"
+        }
+      ]
+    },
+    "@quests/BlockStore.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "quests/BlockStore",
+            "size": 160
+          },
+          "pattern": "48 8B 43 {quests/block.values:d8} 4D 8B C1 41 83 E0 3F 49 8B C9 48 C1 E9 06 4E 8D 14 C8 48 8B 43 {quests/block.bits:d8} 48 8B 14 C8"
+        },
+        {
+          "scope": {
+            "symbol": "quests/BlockStore",
+            "size": 160
+          },
+          "pattern": "49 89 13 FF 43 {quests/block.count:d8} 48 8B 4B {quests/block.keys:d8} 8B 07 42 89 04 89"
+        }
+      ]
+    },
+    "@quests/ChangeList.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "quests/ChangeListAppend",
+            "size": 64
+          },
+          "pattern": "48 8B 51 {quests/list.count:d8} 48 FF C2 4C 89 44 24 24 C6 44 24 2C 00 48 3B 51 {quests/list.capacity:d8}"
+        }
+      ]
+    },
+    "quests/KnowledgeApplyQueue": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 8B 42 {quests/queue.count:d8} 48 8D 5A {quests/queue.entries:d8} 48 8B E9 8B F8 B9 00 08 00 00 49 8B F0 3B C1"
+        }
+      ]
+    },
+    "@quests/ApplyQueue.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "quests/KnowledgeApplyQueue",
+            "size": 96
+          },
+          "pattern": "4C 8B C3 48 8B D6 48 8B CD E8 {quests/KnowledgeApplyOp:rel32} 48 83 C3 10 48 3B DF"
+        },
+        {
+          "pattern": "48 C7 44 24 40 40 00 00 00 4C 89 64 24 48 E8 {quests/KnowledgeApplyQueue:rel32} 48 8B 45 F8"
+        }
+      ]
+    },
+    "quests/DialogLineFound": {
+      "find": [
+        {
+          "pattern": "48 8D 50 {quests/npcdialog.resource:d8} 4C 8B C6 33 C9 E8 {quests/FindDialogLine:rel32} 48 8B F8 48 85 C0 0F 84 ?? ?? ?? ?? 48 8D 55 ?? C6 45 ?? 00 49 8B CE E8 {quests/ProgramEntity:rel32} 8B 08 E8",
+          "offset": 14
+        }
+      ]
+    },
+    "quests/KnowledgeInputPush": {
+      "find": [
+        {
+          "pattern": "F2 0F 10 83 {quests/input.knowledge:d32} 48 8D 55 ?? 8B 83 ?? ?? ?? ?? 48 8B CF F2 0F 11 45 ?? 89 45 ?? E8 ?? ?? ?? ?? 8B 08 E8 ?? ?? ?? ?? 48 8B 4D ?? 48 8D 55 ?? 89 45 ?? E8 ?? ?? ?? ?? 84 C0",
+          "offset": 52
+        }
+      ]
+    },
+    "@quests/QuestRewards.calls": {
+      "find": [
+        {
+          "pattern": "48 8B 4D F0 E8 {quests/JournalQuests:rel32} 48 8B F0 48 85 C0 0F 84 ?? ?? ?? ?? 83 78 04 00"
+        },
+        {
+          "pattern": "C6 45 6C 01 E8 {quests/QueryEval:rel32} 80 7C 24 58 00 0F 85 ?? ?? ?? ?? 80 7C 24 60 00"
+        }
+      ]
+    },
+    "@quests/JournalQuests.field": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "quests/JournalQuests",
+            "size": 8
+          },
+          "pattern": "48 8B 41 {quests/journal.quests:d8} C3"
+        }
+      ]
+    },
+    "quests/NpcRegistryVersion": {
+      "find": [
+        {
+          "pattern": "0F B7 81 {quests/npcreg.version:d32} C3 CC CC CC CC CC CC CC CC 4C 8B 42 {quests/npcreg.npcs:d8} 4D 85 C0 75 0D"
+        }
+      ]
+    },
+    "quests/NpcRegistryNpcs": {
+      "find": [
+        {
+          "pattern": "0F B7 81 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 4C 8B 42 ?? 4D 85 C0 75 0D",
+          "offset": 16
+        }
+      ]
+    },
+    "quests/NpcRegistrySetUnlocks": {
+      "find": [
+        {
+          "pattern": "48 83 EC 18 48 89 54 24 08 C7 44 24 04 00 00 00 00 C6 04 24 00 0F 10 04 24 66 44 89 81 {quests/npcreg.version:d32} 0F 11 81 {quests/npcreg.state:d32}"
+        }
+      ]
+    },
+    "@quests/NpcRegistry.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "quests/NpcRegistryNpcs",
+            "size": 16
+          },
+          "pattern": "4C 8B 42 {quests/npcreg.npcs:d8} 4D 85 C0"
+        }
+      ]
+    },
+    "@quests/NpcUnlock.calls": {
+      "find": [
+        {
+          "pattern": "48 8B 4C 24 60 E8 {quests/NpcRegistryVersion:rel32} 48 8B 54 24 60 48 8D 4C 24 40 66 89 84 24 88 00 00 00 E8 {quests/NpcRegistryNpcs:rel32} 48 8B 54 24 58 4C 8D 4C 24 30 4C 8D 84 24 88 00 00 00 48 8D 4C 24 20 0F 10 00 0F 29 44 24 30 E8 ?? ?? ?? ?? 80 7C 24 20 00 75 ?? 44 0F B7 84 24 88 00 00 00 48 8B 54 24 28 48 8B 4C 24 60 E8 {quests/NpcRegistrySetUnlocks:rel32}"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "quests/reg.data": {},
+    "quests/data.resource": {},
+    "quests/data.player_map": {},
+    "quests/static.type": {},
+    "quests/static.expected_flags": {},
+    "quests/reg.world_map": {},
+    "quests/reg.world_cap": {},
+    "quests/reg.world_values": {},
+    "quests/reg.world_bits": {},
+    "quests/reg.world_count": {},
+    "quests/reg.world_keys": {},
+    "quests/reg.world_dirty": {},
+    "quests/reg.world_changes": {},
+    "quests/reg.world_version": {},
+    "quests/reg.blocks": {},
+    "quests/block.valid": {},
+    "quests/block.cap": {},
+    "quests/block.values": {},
+    "quests/block.bits": {},
+    "quests/block.count": {},
+    "quests/block.keys": {},
+    "quests/block.changes": {},
+    "quests/block.version": {},
+    "quests/block.dirty": {},
+    "quests/block.stride": {
+      "value": 144
+    },
+    "quests/list.count": {},
+    "quests/list.capacity": {},
+    "quests/list.entry": {
+      "value": 16
+    },
+    "quests/queue.count": {},
+    "quests/queue.entries": {},
+    "quests/queue.capacity": {
+      "value": 2048
+    },
+    "quests/npcdialog.resource": {},
+    "quests/input.knowledge": {},
+    "quests/journal.quests": {},
+    "quests/npcreg.version": {},
+    "quests/npcreg.npcs": {},
+    "quests/npcreg.state": {}
+  },
+  "features": {
+    "quests.knowledge": {
+      "symbols": [
+        "players/KnowledgeQueuePush",
+        "players/KnowledgeIndex",
+        "players/KnowledgePlayerContext",
+        "quests/StaticWorldFind",
+        "quests/StaticPlayerFind"
+      ],
+      "constants": [
+        "players/know.system",
+        "quests/reg.data",
+        "quests/data.resource",
+        "quests/data.player_map",
+        "quests/static.type",
+        "quests/static.expected_flags",
+        "quests/reg.world_map",
+        "quests/reg.world_cap",
+        "quests/reg.world_values",
+        "quests/reg.world_bits",
+        "quests/reg.world_count",
+        "quests/reg.world_keys",
+        "quests/reg.world_version",
+        "quests/reg.blocks",
+        "quests/block.valid",
+        "quests/block.cap",
+        "quests/block.values",
+        "quests/block.bits",
+        "quests/block.count",
+        "quests/block.keys",
+        "quests/block.version",
+        "quests/block.stride",
+        "quests/queue.count",
+        "quests/queue.capacity"
+      ]
+    },
+    "quests.changes": {
+      "symbols": [
+        "quests/KnowledgeApplyQueue",
+        "quests/KnowledgeApplyOp",
+        "quests/ChangeListAppend"
+      ],
+      "constants": [
+        "quests/reg.world_changes",
+        "quests/reg.world_dirty",
+        "quests/block.changes",
+        "quests/block.dirty",
+        "quests/list.count",
+        "quests/list.capacity",
+        "quests/list.entry"
+      ]
+    },
+    "quests.journal": {
+      "symbols": [
+        "quests/JournalQuests",
+        "quests/QueryEval"
+      ],
+      "constants": [
+        "quests/journal.quests"
+      ]
+    },
+    "quests.npc": {
+      "symbols": [
+        "quests/NpcRegistryVersion",
+        "quests/NpcRegistryNpcs",
+        "quests/NpcRegistrySetUnlocks"
+      ],
+      "constants": [
+        "quests/npcreg.version",
+        "quests/npcreg.npcs",
+        "quests/npcreg.state"
+      ]
+    },
+    "quests.dialogue": {
+      "symbols": [
+        "quests/DialogLineFound",
+        "quests/FindDialogLine",
+        "quests/ProgramEntity"
+      ],
+      "constants": [
+        "quests/npcdialog.resource"
+      ]
+    },
+    "quests.client_input": {
+      "symbols": [
+        "quests/KnowledgeInputPush"
+      ],
+      "constants": [
+        "quests/input.knowledge"
+      ]
+    }
+  }
+}

@@ -1,0 +1,328 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.combat: health attributes, the hit pipeline (pending HitCandidates -> impact_hit_conclusion -> applyHitToEntity), EntityDiedEvent queue reads. Sources: EMF 0.3.3 docs (MIT) engine_parts/combat.md + re_attributes_menu.md (builds 1269579/1273043), re-found and generalised for svn 1285601 (exe c5c9fe50...) with typed holes; evidence in docs/re/combat.md. Later: fall_damage_infliction mid points, health_recharge's add, changeAttributeValue's Health record (knockback/fall/regen events).",
+  "symbols": {
+    "combat/AttrFind": {
+      "find": [
+        {
+          "pattern": "89 54 24 10 53 48 83 EC 20 48 8B D9 48 8D 54 24 38 49 8D 48 {combat/attr.registry_map:d8}"
+        }
+      ]
+    },
+    "combat/ApplyHit": {
+      "find": [
+        {
+          "pattern": "4C 89 44 24 18 48 89 54 24 10 55 57 41 54 41 55 41 56 41 57 48 8D AC 24 78 FF FF FF"
+        }
+      ]
+    },
+    "@combat/ApplyHit.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/ApplyHit",
+            "size": 4096
+          },
+          "pattern": "44 8B 0D ?? ?? ?? ?? 44 8B C6 48 8B 55 A0 49 8B CE E8 {combat/AttrAdd:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "combat/ApplyHit",
+            "size": 4096
+          },
+          "pattern": "41 0F B6 85 {combat/hit.kind:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "combat/ApplyHit",
+            "size": 4096
+          },
+          "pattern": "45 8B 95 {combat/hit.flags:d32} 33 DB 45 0F B6 85 ?? ?? ?? ?? 41 8B C2 41 8B B5 {combat/hit.health_change:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "combat/ApplyHit",
+            "size": 4096
+          },
+          "pattern": "81 8B {combat/hit.flags:d32} 00 20 00 00"
+        }
+      ]
+    },
+    "combat/HitConclusion": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 68 FC FF FF"
+        }
+      ]
+    },
+    "@combat/HitConclusion.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/HitConclusion",
+            "size": 8192
+          },
+          "pattern": "4C 8D 8D ?? ?? ?? ?? 48 8B D0 4C 8D 85 ?? ?? ?? ?? 4C 8B F0 48 8D 8D ?? ?? ?? ?? E8 {combat/ApplyHit:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "combat/HitConclusion",
+            "size": 8192
+          },
+          "pattern": "8B 13 48 8B 8D ?? ?? ?? ?? E8 {combat/AlreadyHit:rel32} 84 C0 0F 85 ?? ?? ?? ?? 44 8B 86 A0 00 00 00"
+        }
+      ]
+    },
+    "combat/AllocPendingHit": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC ?? 48 8B D9 0F B6 FA 48 81 C1 {combat/hits.pool:d32} E8 {combat/PendingPush:rel32}"
+        }
+      ]
+    },
+    "combat/ClearPendingHits": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 40 48 8B 91 {combat/hits.cap:d32} 4C 8D 44 24 20 8B 81 ?? ?? ?? ?? 33 FF 48 89 B9 {combat/hits.count:d32}"
+        }
+      ]
+    },
+    "combat/TriggerKnowledgeOnKill": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 56 41 55 41 57 48 8D AC 24 ?? ?? ?? ?? 48 81 EC ?? ?? 00 00 41 B8 38 00 00 00"
+        }
+      ]
+    },
+    "@combat/TriggerKnowledgeOnKill.queue": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/TriggerKnowledgeOnKill",
+            "size": 512
+          },
+          "pattern": "41 0F B7 40 {combat/evq.first:d8} 66 85 C0 75 05 45 33 ED EB 0C 44 8D 68 FF 49 C1 E5 {combat/evq.block_shift:d8} 4D 03 68 {combat/evq.blocks:d8} 41 8B 40 {combat/evq.count:d8}"
+        },
+        {
+          "scope": {
+            "symbol": "combat/TriggerKnowledgeOnKill",
+            "size": 512
+          },
+          "pattern": "41 0F B7 45 {combat/evq.next:d8} 66 85 C0"
+        }
+      ]
+    },
+    "combat/DeathProgram": {
+      "find": [
+        {
+          "pattern": "40 55 56 48 8D 6C 24 E8 48 81 EC ?? ?? 00 00 41 B8 88 00 00 00 48 8D 54 24 30 48 8B F1 E8"
+        }
+      ]
+    },
+    "@combat/DeathProgram.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/DeathProgram",
+            "size": 2048
+          },
+          "pattern": "48 81 88 {combat/actor.state:d32} 80 00 00 00"
+        },
+        {
+          "scope": {
+            "symbol": "combat/DeathProgram",
+            "size": 2048
+          },
+          "pattern": "48 81 A0 {combat/actor.state:d32} 7F FF FF FF"
+        },
+        {
+          "scope": {
+            "symbol": "combat/DeathProgram",
+            "size": 2048
+          },
+          "pattern": "B2 07 E8 {combat/ActorStateTest:rel32}"
+        }
+      ]
+    },
+    "combat/ActorStateTest": {
+      "find": [
+        {
+          "pattern": "4C 8B C1 0F B6 CA BA 01 00 00 00 48 D3 E2 41 F6 80 {combat/actor.state_flags:d32} 01 49 8B 80 {combat/actor.state:d32} 74 ?? 49 8B 88 {combat/actor.state_off:d32} 49 0B 80 {combat/actor.state_on:d32} 48 F7 D1 48 23 C1 48 23 C2 48 3B C2 0F 94 C0 C3"
+        }
+      ]
+    },
+    "@combat/ClearPendingHits.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/ClearPendingHits",
+            "size": 512
+          },
+          "pattern": "48 69 D7 {combat/hit.size:d32} 48 2B C7 48 03 D1 4C 69 C0 {combat/hit.size:d32}"
+        }
+      ]
+    },
+    "@combat/HitConclusion.stride": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/HitConclusion",
+            "size": 4096
+          },
+          "pattern": "33 DB 49 FF C7 49 81 C4 {combat/hit.size:d32} 4C 3B BD"
+        }
+      ]
+    },
+    "combat/FallCheck": {
+      "find": [
+        {
+          "pattern": "48 8B 45 {combat/fall.frame:d8} 44 0F 2F 40 {combat/fall.pct:d8} 0F 83 ?? ?? 00 00 48 8B 4D ?? 48 8B 7D"
+        }
+      ]
+    },
+    "combat/FallStore": {
+      "find": [
+        {
+          "pattern": "48 8B 45 ?? 48 8D 95 ?? ?? ?? ?? F3 0F 11 70 {combat/fall.pct2:d8} 49 8B CF E8 {combat/FallEntityId:rel32}",
+          "offset": 11
+        }
+      ]
+    },
+    "combat/RegenProgram": {
+      "find": [
+        {
+          "pattern": "40 55 41 55 41 56 48 8D 6C 24 ?? 48 81 EC ?? ?? 00 00 41 B8 ?? 00 00 00 48 8D 54 24 ?? 4C 8B E9 E8 ?? ?? ?? ?? 4C 8B 45 ?? 48 8D 4C 24 ?? BA 95 49 B8 8E"
+        }
+      ]
+    },
+    "combat/RegenAdd": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "combat/RegenProgram",
+            "size": 2048
+          },
+          "pattern": "F3 0F 2C C6 4C 03 C3 41 01 04 88 48 8B CB E8",
+          "offset": 7
+        }
+      ]
+    },
+    "combat/AttrChangeRecord": {
+      "find": [
+        {
+          "pattern": "81 FB 95 49 B8 8E 74 ?? 81 FB 8B AA B6 04 74 ?? 81 FB 4E 57 A2 6A 75 ?? 49 8B 4C 24 ?? 48 8B 89 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 45 2B F5 89 78 08",
+          "offset": 46
+        }
+      ]
+    }
+  },
+  "constants": {
+    "combat/hits.pool": {},
+    "combat/hits.count": {},
+    "combat/hits.cap": {},
+    "combat/hit.size": {
+      "min_votes": 3
+    },
+    "combat/hit.kind": {},
+    "combat/hit.flags": {
+      "min_votes": 2
+    },
+    "combat/hit.health_change": {},
+    "combat/attr.registry_map": {},
+    "combat/evq.first": {},
+    "combat/evq.blocks": {},
+    "combat/evq.count": {},
+    "combat/evq.next": {},
+    "combat/evq.block_shift": {},
+    "combat/actor.state": {
+      "min_votes": 2
+    },
+    "combat/actor.state_flags": {},
+    "combat/actor.state_on": {},
+    "combat/actor.state_off": {},
+    "combat/fall.frame": {
+      "min_votes": 1
+    },
+    "combat/fall.pct": {
+      "min_votes": 1
+    },
+    "combat/fall.pct2": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "combat.health": {
+      "symbols": [
+        "combat/AttrFind",
+        "combat/AttrAdd",
+        "GetComponent"
+      ],
+      "constants": [
+        "world.storage"
+      ]
+    },
+    "combat.hits": {
+      "symbols": [
+        "combat/ApplyHit",
+        "combat/HitConclusion",
+        "combat/AllocPendingHit",
+        "combat/PendingPush"
+      ],
+      "constants": [
+        "combat/hits.pool",
+        "combat/hits.count",
+        "combat/hit.size",
+        "combat/hit.kind",
+        "combat/hit.flags",
+        "combat/hit.health_change"
+      ]
+    },
+    "combat.deaths": {
+      "constants": [
+        "combat/evq.first",
+        "combat/evq.blocks",
+        "combat/evq.count",
+        "combat/evq.next",
+        "combat/evq.block_shift",
+        "combat/actor.state"
+      ]
+    },
+    "combat.actor_states": {
+      "symbols": [
+        "combat/ActorStateTest"
+      ],
+      "constants": [
+        "combat/actor.state",
+        "combat/actor.state_flags",
+        "combat/actor.state_on",
+        "combat/actor.state_off"
+      ]
+    },
+    "combat.falls": {
+      "symbols": [
+        "combat/FallCheck",
+        "combat/FallStore",
+        "combat/FallEntityId",
+        "world/CurrentEntityId"
+      ],
+      "constants": [
+        "combat/fall.frame",
+        "combat/fall.pct",
+        "combat/fall.pct2"
+      ]
+    },
+    "combat.regen": {
+      "symbols": [
+        "combat/RegenProgram",
+        "combat/RegenAdd",
+        "world/CurrentEntityId"
+      ]
+    },
+    "combat.attr_heals": {
+      "symbols": [
+        "combat/AttrChangeRecord"
+      ]
+    }
+  }
+}

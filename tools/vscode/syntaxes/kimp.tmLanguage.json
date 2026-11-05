@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Impact assembly",
+  "scopeName": "source.kimp",
+  "comment": ".kimp format 1 / .kpatch (docs/kiln/modding/impact.md)",
+  "patterns": [
+    { "include": "#comment" },
+    {
+      "match": "^\\s*(\\.kimp)\\s+(\\d+)",
+      "captures": { "1": { "name": "keyword.other.directive.kimp" }, "2": { "name": "constant.numeric.kimp" } }
+    },
+    {
+      "match": "^\\s*(program)\\s+([0-9a-fA-F-]{36})(?:\\s+(id)\\s+(0x[0-9a-fA-F]+))?",
+      "captures": {
+        "1": { "name": "keyword.other.directive.kimp" },
+        "2": { "name": "constant.other.guid.kimp" },
+        "3": { "name": "keyword.other.kimp" },
+        "4": { "name": "constant.numeric.hex.kimp" }
+      }
+    },
+    {
+      "match": "^\\s*(stack|data_size|queries|streams)\\b",
+      "captures": { "1": { "name": "keyword.other.directive.kimp" } }
+    },
+    {
+      "begin": "^\\s*(var)\\s+(\\$[^\\s]+)\\s+([^\\s;]+)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.var.kimp" },
+        "2": { "name": "variable.other.declaration.kimp" },
+        "3": { "name": "entity.name.type.kimp" }
+      },
+      "end": "(?=;)|$",
+      "patterns": [
+        { "match": "\\b(config|size|name|dbg)\\b", "name": "keyword.other.kimp" },
+        { "match": "@\\$?[\\w.:]+(?:[+-]\\d+)?|@\\d+", "name": "variable.parameter.offset.kimp" },
+        { "include": "#values" }
+      ]
+    },
+    { "match": "^\\s*(code|shutdown):", "captures": { "1": { "name": "keyword.control.section.kimp" } } },
+    {
+      "match": "^\\s*([A-Za-z_][\\w.]*)(:)(?!:)",
+      "captures": { "1": { "name": "entity.name.function.label.kimp" }, "2": { "name": "punctuation.separator.kimp" } }
+    },
+    {
+      "begin": "\\b(ecall)\\s+([^\\s(;]+)",
+      "beginCaptures": { "1": { "name": "keyword.other.ecall.kimp" }, "2": { "name": "entity.name.function.native.kimp" } },
+      "end": "(?=;)|$",
+      "patterns": [
+        { "match": "\\b(site|argc)\\b\\s+([^\\s;]+)", "captures": { "1": { "name": "keyword.other.kimp" }, "2": { "name": "string.unquoted.site.kimp" } } },
+        { "include": "#values" }
+      ]
+    },
+    { "match": "\\b(br|brt|brf)\\b\\s+([A-Za-z_][\\w.]*|@\\d+)", "captures": { "1": { "name": "keyword.control.branch.kimp" }, "2": { "name": "entity.name.function.label.reference.kimp" } } },
+    { "match": "\\b(halt|rvm|dself)\\b", "name": "keyword.control.kimp" },
+    { "match": "\\b(call|ret|load|store)\\b", "name": "invalid.deprecated.frame.kimp" },
+    { "match": "\\b(iadd|isub|imul|idiv|ilt|ieq|ileq|iconst0|iconst1|iconst|inc|dec|copy|dup|gload|gstore|ltime|timeff|pop|word)\\b", "name": "keyword.operator.instruction.kimp" },
+    { "include": "#values" }
+  ],
+  "repository": {
+    "comment": { "match": ";.*$", "name": "comment.line.semicolon.kimp" },
+    "values": {
+      "patterns": [
+        { "include": "#comment" },
+        { "match": "\\$[\\w.:]+", "name": "variable.other.kimp" },
+        { "match": "(?<![\\w$])_(?![\\w])", "name": "constant.language.unconnected.kimp" },
+        { "match": "\\b(true|false)\\b", "name": "constant.language.kimp" },
+        { "match": "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b", "name": "constant.other.guid.kimp" },
+        { "match": "\\bhex:[0-9a-fA-F]+", "name": "constant.other.bytes.kimp" },
+        { "match": "\\b0x[0-9a-fA-F]+\\b", "name": "constant.numeric.hex.kimp" },
+        { "match": "(?<![\\w.])-?\\d+(\\.\\d+)?(ms|s)?\\b", "name": "constant.numeric.kimp" },
+        { "match": "\"(?:[^\"\\\\]|\\\\.)*\"", "name": "string.quoted.double.kimp" },
+        { "match": "=", "name": "keyword.operator.assignment.kimp" }
+      ]
+    }
+  }
+}

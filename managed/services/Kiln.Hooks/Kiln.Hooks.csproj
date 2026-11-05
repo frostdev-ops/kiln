@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of the in-core kiln.hooks service (native/core/abi/services/kiln_hooks.h): detours, mid hooks,
+       memory, patches, pattern scan and sigdb lookups for advanced mods. Deployed to kiln/host/ and shared by every
+       mod (referenced with Private="false" ExcludeAssets="runtime"). Lives in the default load context, so the
+       [UnmanagedCallersOnly] dispatchers Kiln hands to native have process-lifetime function pointers; a mod's own
+       handler delegates live in its collectible context and are only ever reached by id lookup. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Hooks</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+  </ItemGroup>
+</Project>

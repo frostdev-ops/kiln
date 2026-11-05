@@ -1,0 +1,2 @@
+{ "id": "sample-needs-lib2", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "Never.dll",
+  "description": "resolver fixture: version mismatch (sample-lib is 1.2.0)", "dependencies": { "sample-lib": "[2.0,3.0)" } }

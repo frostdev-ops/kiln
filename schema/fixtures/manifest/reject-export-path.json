@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"exports\":[\"sub/x.dll\"]}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: exports: 'sub/x.dll' must be a .dll file name in the mod folder"
+  }
+}

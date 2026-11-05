@@ -1,0 +1,174 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/content.json",
+  "comment": "Client build 26404966 (enshrouded.exe ce6fdba6...): every server.d/content.json pattern matches unchanged; this overlay adds the three client-only places new content needs (docs/re/content.md section 7): the loca lookup (names / descriptions of new items), the UI texture cache (an item's icon texture is looked up by the item's own GUID: aliased to the base item's), and the recipe registry's all-recipes getter (the crafting UI's unlocked_recipes_ui iterates the RecipeRegistryResource array, not the maps). RecipeAll's resource offset (+0x20) is fixed in the pattern (three getters of this shape differ only there); the service checks it equals content/recipes.resource. unlocked_recipes_ui recomputes its lists only when its knowledge versions (G38UiPlayData +ui.version_a / +ui.version_b) change: the service resets them after it adds or removes recipes in the client world (content.recipe_ui_refresh). The UI's text getter first fetches the tag's LocaTagResource record (LocaRecord: argument counts) and shows an empty string when there is none, so both lookups are answered for new tags. The crafting menu shows only recipes named in its UI configuration (app +ui.app_config: per workshop id (BlobArray at +ui.menu_workshops) a BlobArray of categories (0x38 B; subcategories BlobArray at +0x30, 0x28 B each, recipe ids BlobArray at +0x20); fixed offsets from the code of 0xd5ade0 / 0xd5abf0 / 0xd5ee20 on 26404966): content.recipe_menu adds new recipes there, from a hook on the menu's category lookup (CraftMenuCategories): the app's UI pointer is only set while the UI builds. The LocaPool's current language (keen::LanguageId, set by 0x1216b60) sits at +loca.language (0xd8 on 26404966): LocaLookup searches the override slot +0xe0, then keenglish +0x40 when the language is 0, then the language slot +0x90, then keenglish; content.loca_language lets the hooks answer a definition's text in that language.",
+  "symbols": {
+    "content/LocaLookup": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 30 33 FF 48 8B F2 48 8B D9 45 85 C0 75 21 48 89 79 08 48 8B C1 48 89 79 10 89 79 04 C6 01 12"
+        }
+      ]
+    },
+    "@content/LocaLookup.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/LocaLookup",
+            "size": 160
+          },
+          "pattern": "44 3B 42 {content/loca.special:d8} 75 ?? 0F 10 05 ?? ?? ?? ?? 89 79 04"
+        }
+      ]
+    },
+    "content/UiTextureGet": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 83 B9 ?? ?? 00 00 00 45 0F B6 E8 4C 8B 89 ?? ?? 00 00 4C 8B FA 48 8B D9 0F 84 ?? ?? 00 00 44 8B 52 {content/uitex.key_type:d8} 44 8B 5A {content/uitex.key_part:d8}"
+        }
+      ]
+    },
+    "content/RecipeAll": {
+      "find": [
+        {
+          "pattern": "48 8B 52 20 48 85 D2 75 0D 33 C0 48 89 41 08 48 89 01 48 8B C1 C3 48 63 42 {content/recipes.all_array:d8} 48 83 C2"
+        }
+      ]
+    },
+    "@content/RecipeUi.fields": {
+      "find": [
+        {
+          "pattern": "48 8B 55 C0 0F B7 4C 24 78 39 8A {content/ui.version_b:d32} 75 ?? 44 39 AA {content/ui.version_a:d32} 0F 84"
+        }
+      ]
+    },
+    "content/LocaRecord": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 33 FF 48 8B F2 48 8B D9 45 85 C0 75 1D 48 89 79 08 48 8B C1 89 79 04 C6 01 12"
+        }
+      ]
+    },
+    "content/CraftMenuCategories": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 48 8B EA 4C 8B F1 48 8B 51 08 41 0F B6 F1 48 8B 09 41 8B D8 E8 ?? ?? ?? ?? 48 8B 05 {content/UiApp:rel32} 33 FF 49 89 7E 08 49 C7 C2 FF FF FF FF 8B D7 4C 8B 80 {content/ui.app_config:d32} 49 81 C0 {content/ui.menu_workshops:d32} 45 8B 48 04"
+        }
+      ]
+    },
+    "@content/LocaLookup.language": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "content/LocaLookup",
+            "size": 192
+          },
+          "pattern": "48 8D 6E 40 39 BE {content/loca.language:d32} 75"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "content/loca.special": {
+      "min_votes": 1
+    },
+    "content/uitex.key_type": {
+      "min_votes": 1
+    },
+    "content/uitex.key_part": {
+      "min_votes": 1
+    },
+    "content/recipes.all_array": {
+      "min_votes": 1
+    },
+    "content/ui.version_a": {
+      "min_votes": 1
+    },
+    "content/ui.version_b": {
+      "min_votes": 1
+    },
+    "content/ui.app_config": {
+      "min_votes": 1
+    },
+    "content/ui.menu_workshops": {
+      "min_votes": 1
+    },
+    "content/ui.menu_category_stride": {
+      "value": 56
+    },
+    "content/ui.menu_category_subs": {
+      "value": 48
+    },
+    "content/ui.menu_sub_stride": {
+      "value": 40
+    },
+    "content/ui.menu_sub_recipes": {
+      "value": 32
+    },
+    "content/loca.language": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "content.loca": {
+      "symbols": [
+        "content/LocaLookup",
+        "@content/LocaLookup.fields",
+        "content/LocaRecord"
+      ],
+      "constants": [
+        "content/loca.special"
+      ]
+    },
+    "content.ui_texture": {
+      "symbols": [
+        "content/UiTextureGet"
+      ],
+      "constants": [
+        "content/uitex.key_type",
+        "content/uitex.key_part"
+      ]
+    },
+    "content.recipe_ui": {
+      "symbols": [
+        "content/RecipeAll"
+      ],
+      "constants": [
+        "content/recipes.all_array",
+        "content/recipes.resource"
+      ]
+    },
+    "content.recipe_ui_refresh": {
+      "symbols": [
+        "@content/RecipeUi.fields"
+      ],
+      "constants": [
+        "content/ui.version_a",
+        "content/ui.version_b"
+      ]
+    },
+    "content.recipe_menu": {
+      "symbols": [
+        "content/CraftMenuCategories"
+      ],
+      "constants": [
+        "content/ui.app_config",
+        "content/ui.menu_workshops",
+        "content/ui.menu_category_stride",
+        "content/ui.menu_category_subs",
+        "content/ui.menu_sub_stride",
+        "content/ui.menu_sub_recipes"
+      ]
+    },
+    "content.loca_language": {
+      "symbols": [
+        "content/LocaLookup",
+        "@content/LocaLookup.language"
+      ],
+      "constants": [
+        "content/loca.language"
+      ]
+    }
+  }
+}

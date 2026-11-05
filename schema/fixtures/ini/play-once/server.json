@@ -1,0 +1,7 @@
+{
+  "now": 1762257660,
+  "server": true,
+  "expect": {
+    "status": "ignored-server"
+  }
+}

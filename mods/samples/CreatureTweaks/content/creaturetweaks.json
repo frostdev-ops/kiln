@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "comment": "Creature Tweaks (kiln.gamedata + kiln.creatures). The clone's fields are its definition; rules below may change it like any template.",
+  "templates": {
+    "add": [
+      {
+        "guid": "6b1e0c52-93a4-4f7e-b2d8-1c5a7e9f3d40",
+        "name": "Kiln_Elite_Vukah",
+        "base": "Enemy_Vukah_Melee",
+        "fields": {
+          "Level.dataStorage[0]": 20,
+          "ScaleComponent.uniformScale": 1.4,
+          "Enemy01BehaviorState.aggroSetup.viewRange": 36,
+          "Enemy01BehaviorState.aggroSetup.aggroRange": 16
+        }
+      }
+    ],
+    "Enemy_Vukah_*": {
+      "@where": { "Faction.faction": "Vukah" },
+      "Enemy01BehaviorState.aggroSetup.viewRange": { "mul": 1.5 }
+    }
+  },
+  "creatures": {
+    "variants": [ { "id": "creaturetweaks_elite", "base": "Kiln_Elite_Vukah" } ],
+    "spawnRules": [ { "replace": "Enemy_Vukah_Melee", "with": "creaturetweaks_elite", "chance": 0.15 } ]
+  }
+}

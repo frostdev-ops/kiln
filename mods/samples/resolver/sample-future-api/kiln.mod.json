@@ -1,0 +1,2 @@
+{ "id": "sample-future-api", "version": "1.0.0", "apiVersion": "1.0", "entryAssembly": "Never.dll",
+  "description": "resolver fixture: built for Kiln API 1.0" }

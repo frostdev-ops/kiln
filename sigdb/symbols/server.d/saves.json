@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.saves: world save events (request, write, load), the game's own save request, and the world identity. Sources: EMF 0.3.3 docs engine_parts/re_saves.md, plumbing.md 3.2-3.3, ENGINE_MAP.md (MIT); patterns from EMF's signature table (Save2WriteWorld, LoadSavegameStep, RequestServerSave), re-derived on svn 1285601. The dedicated server's Save2System layout differs from the client's (result +0xE4, slot +0xDF, GUID +0xEC, revision GUID+0x10). See docs/re/saves.md.",
+  "symbols": {
+    "saves/RequestServerSave": {
+      "find": [
+        {"pattern": "40 53 48 83 EC 20 80 B9 {saves/inst.save_block:d32} 00 48 8B D9 75 ?? 48 8B 49 {saves/inst.save_sys:d8} 80 79 {saves/ss.state:d8} 00 75 ?? 0F B6 51 {saves/ss.flags:d8} 48 8B 83 ?? ?? ?? ?? F6 C2 04 74 ?? 80 CA 01 88 51 {saves/ss.flags:d8} 48 89 81 ?? ?? ?? ?? C6 41 {saves/ss.state:d8} 01 E8 ?? ?? ?? ?? 48 89 83 {saves/inst.last_request:d32}"}
+      ]
+    },
+    "saves/Save2WriteWorld": {
+      "find": [
+        {"pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 F0 F4 FF FF"}
+      ]
+    },
+    "@saves.s2_fields": {
+      "find": [
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 256}, "pattern": "48 8B 85 ?? ?? ?? ?? 48 89 81 {saves/s2.result:d32} 33 C0"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "48 8D B7 {saves/s2.guid:d32} E8 ?? ?? ?? ?? 44 0F B6 F0 48 8D 8D ?? ?? ?? ?? 0F B7 87 {saves/s2.slot:d32} 66 89 85"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "0F 10 06 8B 46 {saves/s2.rev_rel:d8} FF C0"},
+        {"scope": {"symbol": "saves/Save2WriteWorld", "size": 1536}, "pattern": "0F B7 9F {saves/s2.slot:d32} 4C 89"}
+      ]
+    },
+    "saves/LoadSavegameStep": {
+      "find": [
+        {"pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8B EC 48 83 EC 70 48 8B"}
+      ]
+    },
+    "@saves.load_fields": {
+      "find": [
+        {"scope": {"symbol": "saves/LoadSavegameStep", "size": 256}, "pattern": "80 BB {saves/inst.slot_valid:d32} 00 48 8B 8B ?? ?? ?? ?? 0F 84"}
+      ]
+    },
+    "saves/RetAutosave": {
+      "find": [
+        {"pattern": "48 B9 {saves/autosave.lo:d32} {saves/autosave.hi:d32} 48 3B C1 7E 08 49 8B CE E8 {saves/RequestServerSave:rel32}", "offset": 23}
+      ]
+    },
+    "saves/RetShutdown": {
+      "find": [
+        {"pattern": "41 80 F8 02 74 08 48 8B CA E8 {saves/RequestServerSave:rel32}", "offset": 14}
+      ]
+    },
+    "saves/RetPlayerLeave": {
+      "find": [
+        {"pattern": "42 C6 84 28 ?? ?? ?? ?? 04 E8 {saves/RequestServerSave:rel32}", "offset": 14}
+      ]
+    },
+    "@saves.inst_save2": {
+      "find": [
+        {"pattern": "8B 13 48 8B 8F {saves/inst.save2:d32} E8 ?? ?? ?? ?? 0F B6 43 0A"}
+      ]
+    }
+  },
+  "constants": {
+    "saves/inst.save_block": {"min_votes": 1},
+    "saves/inst.save_sys": {"min_votes": 1},
+    "saves/inst.last_request": {"min_votes": 1},
+    "saves/inst.slot_valid": {"min_votes": 1},
+    "saves/inst.save2": {"min_votes": 1},
+    "saves/ss.state": {"min_votes": 2},
+    "saves/ss.flags": {"min_votes": 2},
+    "saves/s2.result": {"min_votes": 1},
+    "saves/s2.guid": {"min_votes": 1},
+    "saves/s2.rev_rel": {"min_votes": 1},
+    "saves/s2.slot": {"min_votes": 2},
+    "saves/autosave.lo": {"min_votes": 1},
+    "saves/autosave.hi": {"min_votes": 1}
+  },
+  "features": {
+    "saves.request": {"symbols": ["saves/RequestServerSave"], "constants": ["saves/inst.save_block", "saves/inst.save_sys", "saves/ss.state", "saves/ss.flags", "saves/inst.last_request"]},
+    "saves.write": {"symbols": ["saves/Save2WriteWorld", "@saves.s2_fields"], "constants": ["saves/s2.result", "saves/s2.guid", "saves/s2.rev_rel", "saves/s2.slot"]},
+    "saves.load": {"symbols": ["saves/LoadSavegameStep", "@saves.load_fields", "@saves.inst_save2"], "constants": ["saves/inst.slot_valid", "saves/inst.save2"]},
+    "saves.reasons": {"symbols": ["saves/RetAutosave", "saves/RetShutdown", "saves/RetPlayerLeave"], "constants": ["saves/autosave.lo", "saves/autosave.hi"]}
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "comment": "KilnSound1's sounds (tools/soundcook recipe; docs/kiln/modding/sounds.md). Sources: ../audio/ (yours). New sounds need no game install (a 48 kHz 16-bit WAV needs no C compiler either); override steps read the installed client. Output: cooked/ (made on each machine, never shipped). guidNamespace was made for this project by dotnet new: keep it (every GUID is UUIDv5(guidNamespace, \"<op>:<name>\")).",
+  "tool": "soundcook",
+  "out": "cooked",
+  "guidNamespace": "7a1e4c92-5f3b-4d68-8e2a-b9c06d3f1e57",
+  "inputs": {},
+  "steps": [
+    { "op": "sound", "name": "chime", "src": "../audio/chime.wav", "channels": "mono", "cue": { "scene": "Ui", "volume": 0.8 } }
+  ]
+}

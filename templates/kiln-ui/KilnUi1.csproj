@@ -1,0 +1,18 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- Game UI (Kiln.Ui): an entry in the game's main and pause menus that opens a screen in the game's look, a key
+       binding for it, and a toast. Client mod: it runs in the player's game (a dedicated server skips it).
+         dotnet build -t:KilnDeploy -p:KilnServer=<game folder with Kiln> [-p:KilnReload=true]
+       Docs: docs/kiln/ui.md ("The game's own UI", screens, widgets, key bindings). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnUi1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnUi1: a menu entry and a screen in the game's UI.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>client</KilnSide>
+    <KilnServices>Ui</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

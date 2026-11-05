@@ -1,0 +1,61 @@
+{
+  "Impact program": {
+    "prefix": ".kimp",
+    "description": "A new .kimp program (paste a fresh GUID: Kiln: New Impact Program makes one)",
+    "body": [
+      ".kimp 1",
+      "program ${1:00000000-0000-0000-0000-000000000000}",
+      "stack 256",
+      "streams ${2:none}",
+      "",
+      "var \\$self ecs.EntityId",
+      "",
+      "code:",
+      "        ecall getSelf(\\$self)",
+      "        pop",
+      "        $0",
+      "        halt"
+    ]
+  },
+  "wait": {
+    "prefix": "wait",
+    "description": "wait $t (a Time variable), as the game's compiler writes it",
+    "body": [
+      "        gload \\$${1:t}",
+      "        ltime",
+      "        iadd                 ; end = now + t, kept on the stack",
+      "${2:w}:      dup",
+      "        ltime",
+      "        ileq                 ; end <= now ?",
+      "        brt ${3:go}",
+      "        rvm",
+      "        br ${2:w}",
+      "${3:go}:     pop"
+    ]
+  },
+  "for each collision": {
+    "prefix": "foreachcollision",
+    "description": "loop over this step's collisions (needs streams OnCollision)",
+    "body": [
+      "        ecall onEvent(\\$${1:stream}, \\$${2:type})            ; \\$type impact.EventStreamType = OnCollision",
+      "        pop",
+      "        iconst0",
+      "        gstore \\$${3:i}",
+      "${4:next}:   ecall forEachCollisionInStream(\\$${5:other}, _, \\$${6:pos}, _, _, _, _, _, _, \\$${3:i}, \\$${1:stream})",
+      "        brf ${7:done}",
+      "        $0",
+      "        br ${4:next}",
+      "${7:done}:"
+    ]
+  },
+  "kiln.Log": {
+    "prefix": "kiln.Log",
+    "description": "write a kiln.log line with a variable's value",
+    "body": ["        ecall kiln.Log(\\$${1:value})", "        pop"]
+  },
+  "kiln.Signal": {
+    "prefix": "kiln.Signal",
+    "description": "post ImpactSignalEvent to managed mods",
+    "body": ["        ecall kiln.Signal(\\$${1:value}, ${2:0x0001})", "        pop"]
+  }
+}

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Testing: in-game tests for mods (Forge's GameTest). Shared like a service assembly: deployed to kiln/host/,
+       test mods reference it with Private="false" (Kiln.Sdk: <KilnServices>Testing</KilnServices>). The runner is
+       started by Kiln.Host (manifest "tests": {"autoRun": true}, or the control command `test <mod>`). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln.Testing</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <InternalsVisibleTo Include="Kiln.Host" />
+    <InternalsVisibleTo Include="Kiln.Host.Tests" />
+  </ItemGroup>
+</Project>

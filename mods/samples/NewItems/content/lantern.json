@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "comment": "NewItems: the data-pack form of new content. An \"add\" list defines new entries (same fields as the C# definitions); rules after it can change them like any game item.",
+  "items": {
+    "add": [
+      {
+        "guid": "04e82028-a29d-4948-925d-72741b3c206d",
+        "name": "Kiln_Sample_FrostLantern",
+        "base": "Material_T1_Resin",
+        "displayName": "Frost Lantern",
+        "description": "Cold light in a jar. Added by the NewItems sample's data pack."
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "84d38550-b3df-426d-a42d-5b1259156447",
+        "name": "Kiln_Sample_FrostLantern_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Kiln_Sample_FrostShard", "count": 1 }, { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "Kiln_Sample_FrostLantern", "count": 1 } ]
+      }
+    ]
+  }
+}

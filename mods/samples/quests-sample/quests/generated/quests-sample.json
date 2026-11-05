@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "comment": "written by Kiln from what the mod defines in code: docs/kiln/modding/quests.md, Code",
+  "quests": {
+    "warden_tally": {
+      "name": {
+        "de": "Die Zählung des Wächters",
+        "en": "The Warden's Tally"
+      },
+      "giver": "warden",
+      "source": "Grassland",
+      "requires": [
+        {
+          "quest": "ember_errand",
+          "is": "done"
+        }
+      ],
+      "steps": [
+        {
+          "id": "tally",
+          "text": {
+            "de": "Trage zehn Stämme auf einmal",
+            "en": "Carry ten logs at once"
+          },
+          "objectives": [
+            {
+              "custom": {
+                "count": 10,
+                "signal": "code"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

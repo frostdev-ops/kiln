@@ -1,0 +1,30 @@
+# Enshrouded dedicated server with Kiln: one unit per kilnctl instance (~/.config/kiln/instances/%i.toml).
+# User unit. Install (docs/kiln/kilnctl.md):
+#   install -Dm644 runner/systemd/kiln@.service ~/.config/systemd/user/kiln@.service
+#   systemctl --user daemon-reload && systemctl --user enable --now kiln@<name>
+#   loginctl enable-linger "$USER"     # only to run without a login session (boot start)
+# Expects kilnctl in ~/.local/bin (cargo install --path runner/kilnctl --root ~/.local); adjust the paths otherwise.
+
+[Unit]
+Description=Enshrouded dedicated server (Kiln instance %i)
+# A crash loop gives up after 5 failed starts in 10 minutes.
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=exec
+# Ntsync, port, prefix, exe, enshrouded_server.json, Kiln files; a failure keeps the server from starting.
+ExecStartPre=%h/.local/bin/kilnctl preflight %i
+# Foreground: SIGINT/SIGTERM become one SIGINT to the server, which saves and exits; then wineserver -w.
+ExecStart=%h/.local/bin/kilnctl run %i
+# Only kilnctl gets the stop signal (it forwards it once); whatever is left after it exits is killed.
+KillSignal=SIGINT
+KillMode=mixed
+# The save plus Wine teardown takes ~5-15 s; this is the hard limit before SIGKILL.
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=15
+SyslogIdentifier=kiln@%i
+
+[Install]
+WantedBy=default.target

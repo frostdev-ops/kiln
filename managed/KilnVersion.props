@@ -1,0 +1,11 @@
+<Project>
+  <!-- Kiln's version for MSBuild: $(KilnVersion) is the one line of the repository's VERSION file (semver, e.g.
+       0.2.0-dev). Imported by managed/Directory.Build.props (sets Version for Kiln's own assemblies) and
+       mods/Directory.Build.props (property only: mods keep their own Version). Not the SDK's version: that is
+       managed/Kiln.Sdk/Sdk/Kiln.Version.props (KilnSdkVersion), shipped inside the package. -->
+  <PropertyGroup>
+    <KilnVersionFile>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', 'VERSION'))</KilnVersionFile>
+    <KilnVersion Condition="'$(KilnVersion)' == '' and Exists('$(KilnVersionFile)')">$([System.IO.File]::ReadAllText('$(KilnVersionFile)').Trim())</KilnVersion>
+    <KilnVersion Condition="'$(KilnVersion)' == ''">0.0.0-unknown</KilnVersion>
+  </PropertyGroup>
+</Project>

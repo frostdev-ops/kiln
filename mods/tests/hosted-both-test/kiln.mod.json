@@ -1,0 +1,9 @@
+{
+  "id": "hosted-both-test",
+  "name": "Both-sides mod across hosted worlds (test)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "HostedBothTest.dll",
+  "side": "both",
+  "clients": "none"
+}

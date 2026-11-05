@@ -1,0 +1,9 @@
+{
+  // a manifest with mistakes, for the lint parser test (synthetic)
+  "id": "frost-lanterns",
+  "name": "Frøst Lantérns 🔥",
+  "version": 2,
+  "apiVersion": "0.2",
+  "entryAssembly": "FrostLanterns.dll",
+  "dependecies": { "sample-lib": "^1.2" }
+}

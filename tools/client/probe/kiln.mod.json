@@ -1,0 +1,9 @@
+{
+  "id": "kiln-client-probe",
+  "name": "Kiln client probe",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ClientProbe.dll",
+  "side": "both",
+  "description": "Read-only runtime checks for Kiln on the game client: session state, local player, world tick rates, read-only service calls in a hosted world."
+}

@@ -1,0 +1,14 @@
+/* Kiln's layer over the vendored editor. Upstream styles: src/styles.css (scoped). */
+.kiln-editor { position: absolute; inset: 0; font-family: 'Harmonique', 'NotoSerifGame', 'Fraunces', serif; }
+.kiln-editor-hint {
+  position: absolute; z-index: 30; left: 50%; top: 12px; transform: translateX(-50%);
+  font: 500 12.5px var(--k-font-ui); color: var(--k-text-1); background: #171413ee; border: 1px solid var(--k-line-strong);
+  border-radius: 999px; padding: 6px 14px; white-space: nowrap;
+  display: flex; align-items: center; gap: 10px; min-height: 22px;
+}
+.kiln-editor-hint .k-btn { height: 24px; }
+.kiln-editor-hint code { color: var(--k-gold-300); }
+/* without the game's textures the stage needs some structure */
+.kiln-editor.no-assets .slot-bg { background: #2a2421; border: 1px solid #4d413a; }
+.kiln-editor.no-assets .topbar-bg { background: linear-gradient(180deg, #1f1b19, #171413); }
+.kiln-editor :focus-visible { outline: 3px solid var(--k-ember-500); outline-offset: 3px; }

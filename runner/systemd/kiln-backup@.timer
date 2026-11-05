@@ -1,0 +1,13 @@
+# Daily savegame backup of kilnctl instance %i:
+#   systemctl --user enable --now kiln-backup@<name>.timer
+# Backups are never pruned automatically (each is a few hundred KB).
+[Unit]
+Description=Daily savegame backup of Kiln instance %i
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

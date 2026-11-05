@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "tool": "animcook",
+  "steps": [
+    { "op": "skeleton", "name": "golem", "gltf": "src/golem.glb" },
+    { "op": "clips", "skeleton": "golem", "gltf": "src/golem.glb", "clips": {
+        "idle": { "animation": "Idle", "loop": true },
+        "walk_f": { "animation": "WalkF", "loop": true }, "walk_b": { "animation": "WalkB", "loop": true },
+        "walk_l": { "animation": "WalkL", "loop": true }, "walk_r": { "animation": "WalkR", "loop": true },
+        "run": { "animation": "Run", "loop": true }, "fall": { "animation": "Fall" },
+        "slam": { "animation": "Slam", "events": [ { "at": 0.1, "foot": "left" }, { "at": 0.5, "noise": 8 } ] },
+        "step": { "animation": "Step", "rootMotion": true },
+        "flinch": { "animation": "Flinch" }, "ref": { "animation": "Ref" } } },
+    { "op": "clips", "skeleton": "golem", "gltf": "src/golem.glb", "clips": {
+        "pose00": { "animation": "Pose00" }, "pose01": { "animation": "Pose01" }, "pose02": { "animation": "Pose02" }, "pose03": { "animation": "Pose03" },
+        "pose04": { "animation": "Pose04" }, "pose05": { "animation": "Pose05" }, "pose06": { "animation": "Pose06" }, "pose07": { "animation": "Pose07" },
+        "pose08": { "animation": "Pose08" }, "pose09": { "animation": "Pose09" }, "pose10": { "animation": "Pose10" }, "pose11": { "animation": "Pose11" },
+        "pose12": { "animation": "Pose12" }, "pose13": { "animation": "Pose13" }, "pose14": { "animation": "Pose14" }, "pose15": { "animation": "Pose15" },
+        "pose16": { "animation": "Pose16" }, "pose17": { "animation": "Pose17" }, "pose18": { "animation": "Pose18" }, "pose19": { "animation": "Pose19" },
+        "pose20": { "animation": "Pose20" }, "pose21": { "animation": "Pose21" }, "pose22": { "animation": "Pose22" }, "pose23": { "animation": "Pose23" },
+        "pose24": { "animation": "Pose24" }, "pose25": { "animation": "Pose25" }, "pose26": { "animation": "Pose26" }, "pose27": { "animation": "Pose27" },
+        "pose28": { "animation": "Pose28" }, "pose29": { "animation": "Pose29" }, "pose30": { "animation": "Pose30" }, "pose31": { "animation": "Pose31" },
+        "pose32": { "animation": "Pose32" }, "pose33": { "animation": "Pose33" }, "pose34": { "animation": "Pose34" }, "pose35": { "animation": "Pose35" },
+        "pose36": { "animation": "Pose36" }, "pose37": { "animation": "Pose37" }, "pose38": { "animation": "Pose38" }, "pose39": { "animation": "Pose39" } } },
+    { "op": "graph", "name": "golem", "skeleton": "golem", "slots": { "HandR": "hand_r", "Head": "head", "Pelvis": "pelvis" },
+      "states": {
+        "idle": { "engine": "Idle", "clip": "idle" },
+        "walk": { "engine": "Walk", "blend": { "input": "moveDirection", "clips": { "-180": "walk_b", "-90": "walk_l", "0": "walk_f", "90": "walk_r", "180": "walk_b" } } },
+        "lean": { "blend": { "input": "lean", "circular": false, "smoothing": 0, "clips": { "0": "pose00", "1": "pose20", "2": "pose39" } } },
+        "run": { "engine": "Run", "clip": "run" },
+        "fall": { "engine": "Fall", "clip": "fall" },
+        "slam": { "clip": "slam", "blendIn": 0.1 },
+        "step": { "clip": "step" },
+        "chain_a": { "clip": "pose10", "loop": false, "then": "chain_b" },
+        "chain_b": { "clip": "pose30" } },
+      "layers": [ { "name": "flinch", "overlay": "hit", "clip": "flinch", "reference": "ref", "weight": 1.0, "bones": [ "arm_r", "hand_r" ] } ] },
+    { "op": "graph", "name": "nested", "skeleton": "golem", "slots": { "HandR": "hand_r" },
+      "states": {
+        "idle": { "engine": "Idle", "clip": "pose00" },
+        "s01": { "clip": "pose01" }, "s02": { "clip": "pose02" }, "s03": { "clip": "pose03" }, "s04": { "clip": "pose04" }, "s05": { "clip": "pose05" },
+        "s06": { "clip": "pose06" }, "s07": { "clip": "pose07" }, "s08": { "clip": "pose08" }, "s09": { "clip": "pose09" }, "s10": { "clip": "pose10" },
+        "s11": { "clip": "pose11" }, "s12": { "clip": "pose12" }, "s13": { "clip": "pose13" }, "s14": { "clip": "pose14" }, "s15": { "clip": "pose15" },
+        "s16": { "clip": "pose16" }, "s17": { "clip": "pose17" }, "s18": { "clip": "pose18" }, "s19": { "clip": "pose19" }, "s20": { "clip": "pose20" },
+        "s21": { "clip": "pose21" }, "s22": { "clip": "pose22" }, "s23": { "clip": "pose23" }, "s24": { "clip": "pose24" }, "s25": { "clip": "pose25" },
+        "s26": { "clip": "pose26" }, "s27": { "clip": "pose27" }, "s28": { "clip": "pose28" }, "s29": { "clip": "pose29" }, "s30": { "clip": "pose30" },
+        "s31": { "clip": "pose31" }, "s32": { "clip": "pose32" }, "s33": { "clip": "pose33" }, "s34": { "clip": "pose34" }, "s35": { "clip": "pose35" },
+        "s36": { "clip": "pose36" }, "s37": { "clip": "pose37" }, "s38": { "clip": "pose38" }, "s39": { "clip": "pose39" } } }
+  ]
+}

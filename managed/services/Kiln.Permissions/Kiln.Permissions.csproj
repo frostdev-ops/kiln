@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Permission nodes, groups and overrides (Forge PermissionAPI). Deployed to kiln/host/ and shared by every mod
+       (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Chat" />
+    <InternalsVisibleTo Include="Kiln.Api.Tests" />
+  </ItemGroup>
+</Project>

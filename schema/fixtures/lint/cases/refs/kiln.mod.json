@@ -1,0 +1,1 @@
+{ "id": "fixture-refs", "version": "1.0.0", "apiVersion": "0.2", "side": "both", "clients": "kiln", "license": "MIT", "entryAssembly": "FixtureRefs.dll" }

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/abilities (kiln.abilities): scripted abilities, per-cast tweaks of the game's
+       Impact programs, Kiln natives and runtime program registration. Deployed to kiln/host/ and shared by every mod
+       (mods reference it with Private="false" ExcludeAssets="runtime"). Lives in the default load context, so the
+       [UnmanagedCallersOnly] listener and the job-thread wrap dispatcher handed to native have process-lifetime
+       function pointers; a mod's handlers are reached only through Kiln's own tables. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Abilities</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA2255;CS0419;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+  </ItemGroup>
+</Project>

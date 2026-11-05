@@ -1,0 +1,280 @@
+# SPDX-License-Identifier: MIT
+"""cook.json: how a mod's game-derived assets are made on the player's machine (docs/kiln/modding/models.md).
+
+A mod ships its own sources (glTF, PNG, JSON) and this recipe, never game data. The cook runs locally against the
+installed game. The files it writes go to `out` (default "cooked", gitignored) next to the recipe. The mod's
+committed assets/assets.json names them.
+
+    {
+      "format": 1,
+      "tool": "modelcook",                  // the default cooker of the steps (absent: modelcook)
+      "out": "cooked",                      // relative to this file
+      "game": { "side": "client", "madeOn": "1285601" },   // informational: the build the recipe was written on
+      "inputs": {                           // vanilla inputs, by GUID + type (+ part): read from the installed game
+        "bronze_model": { "guid": "9c38c7f0-…", "type": "keen::RenderModel" }
+      },
+      "steps": [
+        { "op": "model", "gltf": "src/sword.gltf", "lods": ["src/sword_lod1.gltf"], "pixelSizes": [0, 0.02],
+          "base": "bronze_model", "guid": "@bronze_model", "mode": "override", "name": "my_sword", "stem": "sword",
+          "material": "@some_material", "materialMap": { "<glTF material name>": "<GUID or @input>" } },
+        { "op": "visual", "base": "bronze_visual", "model": "<GUID>", "guid": "<GUID>", "name": "Visuals_My_Sword",
+          "stem": "sword_visual" },
+        { "tool": "animcook", "op": "skeleton", "name": "golem", "gltf": "src/golem.glb" },
+        { "op": "model", "gltf": "src/golem.glb", "skeleton": "golem", "material": "@some_material", "name": "golem" }
+      ]
+    }
+
+"@id" means the GUID of input `id`. A step's `base` must be an input of the matching type.
+
+A model step with `skeleton` cooks a skinned model (docs/kiln/modding/models.md): `skeleton` names a `skeleton` step of this recipe, or is "@id" for one of the game's
+skeletons. A step of this recipe is read directly from its glTF, so it makes no difference which tool runs first. `base` is optional when `material` or `materialMap`
+says what to draw with; without `guid` such a model's GUID follows from <mod>:model:<name>, as the animation tools' ids do.
+
+A step may name its own cooker with `"tool"` (default: the file's `tool`), so one recipe can cook models and sounds:
+`{ "tool": "soundcook", "op": "sound", ... }` is run by tools/soundcook. modelcook runs only its own steps (a step's
+index stays its position in `steps`) and leaves the others to their tool (`modelcook.py recipe` starts them unless
+`--no-dispatch`). Each tool writes its own report: `cook-report.json` for the file's default tool,
+`cook-report.<tool>.json` for the others.
+
+The runner writes `<out>/cook-report.json`, so a launcher can decide when to cook again. It records:
+- the recipe's sha256;
+- the game's .kfc version and exe sha256;
+- each input's sha256 and type layout hash;
+- every output's sha256.
+
+Cook again when any of them differs, or when an output is missing.
+"""
+import json
+from pathlib import Path
+
+from kfc.archive import ResourceKey
+
+from . import steps as S
+
+OPS = ("model", "visual")
+TOOL = "modelcook"
+HIERARCHY = "keen::ModelHierarchyResource"
+KNOWN_TOOLS = ("modelcook", "soundcook", "animcook")
+
+
+class RecipeError(Exception):
+    pass
+
+
+def _resolve(ref, inputs):
+    if isinstance(ref, str) and ref.startswith("@"):
+        if ref[1:] not in inputs:
+            raise RecipeError(f"{ref}: no such input")
+        return inputs[ref[1:]]["guid"]
+    return ref
+
+
+def load(path):
+    p = Path(path)
+    doc = json.loads(p.read_text())
+    if doc.get("format") != 1:
+        raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
+    if doc.get("tool", TOOL) not in KNOWN_TOOLS:
+        raise RecipeError(f"{p}: tool {doc.get('tool')!r} (known: {', '.join(KNOWN_TOOLS)})")
+    for i, st in enumerate(doc.get("steps", [])):
+        tool = tool_of(doc, st)
+        if tool not in KNOWN_TOOLS:
+            raise RecipeError(f"step {i}: tool {tool!r} (known: {', '.join(KNOWN_TOOLS)})")
+        if tool == TOOL and st.get("op") not in OPS:
+            raise RecipeError(f"step {i}: op {st.get('op')!r} (known: {', '.join(OPS)})")
+        if tool == TOOL and st.get("op") == "model":
+            if "gltf" not in st:
+                raise RecipeError(f"step {i} (model): gltf missing")
+            if not any(x in st for x in ("base", "material", "materialMap")):
+                raise RecipeError(f"step {i} (model): base, material or materialMap missing: nothing says what to draw it with")
+    return doc
+
+
+def tool_of(doc, st):
+    """The cooker of a step: its own "tool", else the file's, else modelcook."""
+    return st.get("tool", doc.get("tool", TOOL))
+
+
+def own_steps(doc):
+    """(index, step) of the steps modelcook runs."""
+    return [(i, st) for i, st in enumerate(doc.get("steps", [])) if tool_of(doc, st) == TOOL]
+
+
+def other_tools(doc):
+    return sorted({tool_of(doc, st) for st in doc.get("steps", [])} - {TOOL})
+
+
+def _refs(v, out):
+    if isinstance(v, str) and v.startswith("@"):
+        out.add(v[1:])
+    elif isinstance(v, list):
+        for x in v:
+            _refs(x, out)
+    elif isinstance(v, dict):
+        for x in v.values():
+            _refs(x, out)
+    return out
+
+
+def _foreign_inputs(doc):
+    """Inputs named ("@id" or "base") only by other tools' steps."""
+    mine, theirs = set(), set()
+    for st in doc.get("steps", []):
+        s = mine if tool_of(doc, st) == TOOL else theirs
+        _refs(st, s)
+        if isinstance(st.get("base"), str):
+            s.add(st["base"])
+    return theirs - mine
+
+
+def report_name(doc):
+    return "cook-report.json" if doc.get("tool", TOOL) == TOOL else f"cook-report.{TOOL}.json"
+
+
+def needs_cook(path):
+    """True when the outputs are missing or the report does not match this recipe (no game access needed)."""
+    p = Path(path)
+    doc = load(p)
+    if not own_steps(doc):
+        return False
+    rep = p.parent / doc.get("out", "cooked") / report_name(doc)
+    if not rep.exists():
+        return True
+    r = json.loads(rep.read_text())
+    if r.get("recipe_sha256") != S.sha256(p.read_bytes()) or not r.get("ok"):
+        return True
+    for src, h in r.get("sources", {}).items():
+        f = p.parent / src
+        if not f.exists() or S.sha256(f.read_bytes()) != h:
+            return True
+    return any(not (p.parent / o["file"]).exists() or S.sha256((p.parent / o["file"]).read_bytes()) != o["sha256"]
+               for o in r.get("outputs", []))
+
+
+def _skeleton_step(doc, name):
+    for _, st in enumerate(doc.get("steps", [])):
+        if tool_of(doc, st) == "animcook" and st.get("op") == "skeleton" and st.get("name") == name:
+            return st
+    return None
+
+
+def _target(doc, st, inputs, k, t, base_dir, path):
+    """What a model step binds to: a skin.Target, or None for a rigid model."""
+    ref = st.get("skeleton")
+    if ref is None:
+        return None
+    if ref.startswith("@"):
+        guid = _resolve(ref, inputs)
+        if inputs[ref[1:]]["type"] != HIERARCHY:
+            raise RecipeError(f"skeleton {ref} is a {inputs[ref[1:]]['type']}, needs {HIERARCHY}")
+        return S.game_target(k, t, guid)
+    sk_step = _skeleton_step(doc, ref)
+    if sk_step is None:
+        raise RecipeError(f"skeleton {ref!r}: no skeleton step of that name in this recipe, and not an @input")
+    from anicook import recipe as anim_recipe, skeleton as K
+    from anicook.gltfdoc import Doc
+    from anicook.graphgen import derive
+    try:
+        sk = K.from_gltf(Doc(base_dir / sk_step["gltf"]), skin=sk_step.get("skin"), root=sk_step.get("root"))
+    except K.SkeletonError as e:
+        raise RecipeError(f"skeleton {ref}: {e}") from e
+    return S.SK.Target.from_skeleton(sk, sk_step.get("guid") or derive(anim_recipe.mod_id(doc, path), "skeleton", ref))
+
+
+def _model_guid(doc, st, inputs, path):
+    g = _resolve(st.get("guid"), inputs)
+    if g or (st.get("base") is not None and st.get("mode") != "new"):
+        return g
+    from anicook import recipe as anim_recipe
+    from anicook.graphgen import derive
+    return derive(anim_recipe.mod_id(doc, path), "model", st.get("name") or st.get("stem") or Path(st["gltf"]).stem)
+
+
+def sources_of(doc):
+    """The files a cook of this recipe's own steps reads, relative to the recipe: a change in one means a new cook."""
+    out = set()
+    for _, st in own_steps(doc):
+        if st.get("op") != "model":
+            continue
+        out.add(st["gltf"])
+        out.update(st.get("lods", []))
+        sk = _skeleton_step(doc, st.get("skeleton"))
+        if sk:
+            out.add(sk["gltf"])
+    return sorted(out)
+
+
+def run(path, k, t, exe_sha256=None, update_manifest=False):
+    p = Path(path)
+    doc = load(p)
+    base_dir = p.parent
+    out = doc.get("out", "cooked")
+    inputs, in_report = {}, {}
+    foreign = _foreign_inputs(doc)
+    for iid, spec in doc.get("inputs", {}).items():
+        if iid in foreign:
+            continue  # used only by another tool's steps (e.g. a vanilla sound cue): that tool reads it
+        tt = t.get(spec["type"])
+        if tt is None:
+            raise RecipeError(f"input {iid}: unknown type {spec['type']}")
+        key = ResourceKey(spec["guid"], tt["hash"], spec.get("part", 0))
+        if not k.has(key):
+            raise RecipeError(f"input {iid}: {key} is not in {k.path} (game update or wrong side?)")
+        bundle = k.bundles.get(tt["hash"], {})
+        if bundle.get("layout") != tt["layout"]:
+            raise RecipeError(f"input {iid}: {spec['type']} layout {tt['layout']:#x} != the data's {bundle.get('layout', 0):#x}")
+        inputs[iid] = {"guid": key.guid, "type": spec["type"], "part": key[2]}
+        in_report[iid] = dict(inputs[iid], sha256=S.sha256(k.read(key)), layout=f"0x{tt['layout']:08x}")
+
+    files, entries, reports = {}, [], []
+    for i, st in own_steps(doc):
+        op = st["op"]
+        base_id = st.get("base")
+        if base_id not in inputs and not (op == "model" and base_id is None):
+            raise RecipeError(f"step {i} ({op}): base {base_id!r} is not an input")
+        want = {"model": "keen::RenderModel", "visual": "keen::ecs::TemplateResource"}[op]
+        if base_id is not None and inputs[base_id]["type"] != want:
+            raise RecipeError(f"step {i} ({op}): base {base_id} is a {inputs[base_id]['type']}, needs {want}")
+        if op == "model":
+            gl = [str(base_dir / st["gltf"])] + [str(base_dir / x) for x in st.get("lods", [])]
+            mm = {n: _resolve(g, inputs) for n, g in st.get("materialMap", {}).items()}
+            f, e, r = S.model(k, t, gl, inputs[base_id]["guid"] if base_id else None, guid=_model_guid(doc, st, inputs, p),
+                              mode=st.get("mode"), name=st.get("name"), material=_resolve(st.get("material"), inputs),
+                              material_map=mm, pixel_sizes=st.get("pixelSizes"), stem=st.get("stem"), subdir=out,
+                              target=_target(doc, st, inputs, k, t, base_dir, p), global_scale=st.get("globalScale"))
+        else:
+            f, e, r = S.visual(k, t, inputs[base_id]["guid"], _resolve(st["model"], inputs), _resolve(st["guid"], inputs),
+                               name=st.get("name"), stem=st.get("stem"), subdir=out)
+        r["step"] = i
+        files.update(f)
+        entries.extend(e)
+        reports.append(r)
+
+    (base_dir / out).mkdir(parents=True, exist_ok=True)
+    for rel, data in files.items():
+        (base_dir / rel).write_bytes(data)
+
+    # the committed assets.json must name every output exactly as cooked
+    mp = base_dir / "assets.json"
+    man = json.loads(mp.read_text()) if mp.exists() else {"format": 1, "entries": []}
+    have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
+    missing = [e for e in entries if (e["kind"], e["file"]) not in have]
+    mismatched = [e for e in entries if (e["kind"], e["file"]) in have and have[(e["kind"], e["file"])] != e]
+    if update_manifest and (missing or mismatched):
+        keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in {(e["kind"], e["file"]) for e in entries}]
+        man["entries"] = keep + entries
+        mp.write_text(json.dumps(man, indent=2) + "\n")
+        missing, mismatched = [], []
+
+    ok = all(r.get("ok") for r in reports) and not missing and not mismatched
+    report = {
+        "recipe": str(p), "recipe_sha256": S.sha256(p.read_bytes()), "ok": ok,
+        "game": {"kfc": str(k.path), "version": k.version, "exe_sha256": exe_sha256},
+        "inputs": in_report,
+        "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc)},
+        "outputs": [{"file": rel, "size": len(d), "sha256": S.sha256(d)} for rel, d in files.items()],
+        "manifest": {"missing": missing, "mismatched": mismatched},
+        "steps": reports,
+    }
+    (base_dir / out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
+    return report

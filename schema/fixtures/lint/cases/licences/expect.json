@@ -1,0 +1,30 @@
+{
+  "catalog": true,
+  "description": "licences: no licence (KL601), a bundled third-party DLL without a notice (KL603), a game file in the mod (KL604)",
+  "diagnostics": [
+    {
+      "code": "KL604",
+      "col": 1,
+      "file": "data/enshrouded.kfc",
+      "line": 1,
+      "message": "a game file inside the mod: mods ship sources and a cook recipe, never the game's data (docs/kiln/modding/models.md)",
+      "severity": "error"
+    },
+    {
+      "code": "KL601",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "no \"license\": say how others may use the mod (an SPDX expression, e.g. MIT)",
+      "severity": "info"
+    },
+    {
+      "code": "KL603",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "the mod bundles a DLL that it does not build (Newtonsoft.Json.dll): add their licence texts (a LICENSE / THIRD-PARTY-NOTICES file or a licenses/ folder in the mod)",
+      "severity": "warning"
+    }
+  ]
+}

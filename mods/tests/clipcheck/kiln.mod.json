@@ -1,0 +1,10 @@
+{
+  "id": "clipcheck",
+  "name": "Clip check",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ClipCheck.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "A manual check that a clip cooked by tools/animcook plays in the game client. Its assets are made on your machine from your installed game by tools/animcook/samples/clip_override.py. Not for distribution."
+}

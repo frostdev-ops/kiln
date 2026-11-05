@@ -1,0 +1,7 @@
+{
+  "now": 1762257600,
+  "expect": {
+    "status": "ignored-invalid",
+    "error": "mode must be one of vanilla, no-mods, profile"
+  }
+}

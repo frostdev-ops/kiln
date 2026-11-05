@@ -1,0 +1,38 @@
+{
+  "description": "Optional dependencies are skipped when absent",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/app",
+      "manifest": {
+        "id": "app",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "dependencies": {
+          "zlib": {
+            "version": "^1",
+            "optional": true
+          },
+          "absent": {
+            "optional": true
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "order": [
+      "app"
+    ],
+    "rejected": []
+  }
+}

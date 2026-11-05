@@ -1,0 +1,4 @@
+# Cooked on each machine from the installed game by assets/cook.json (kiln cook): never committed, never shipped.
+assets/cooked/
+bin/
+obj/

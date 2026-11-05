@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "trees": [ {
+    "id": "character-test:tree", "name": { "en": "Test tree" }, "points": { "start": 5, "perLevel": 0 },
+    "nodes": [
+      { "id": "a", "name": { "en": "A" }, "col": 0, "row": 0, "cost": 1, "maxLevel": 3 },
+      { "id": "b", "name": { "en": "B" }, "col": 1, "row": 0, "cost": 1, "requires": ["a"] },
+      { "id": "c", "name": { "en": "C" }, "col": 2, "row": 0, "cost": 1, "requires": ["b"] }
+    ]
+  } ]
+}

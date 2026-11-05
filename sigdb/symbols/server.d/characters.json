@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.characters: the game's CharacterId in the player record. The record setup called by AddPlayer copies GameMessageLoginRequest.characterId (+0x10c of the login message) to record +0x50; the game's known_users code compares the same field. Evidence: docs/re/characters.md. The bytes are identical on the servers 1273043, 1285601, 1287369 and the client 26430625.",
+  "symbols": {
+    "@characters/PlayerRecordSetup": {
+      "find": [
+        { "pattern": "48 8B 84 24 ?? 00 00 00 0F 10 00 44 89 7E {players/rec.entity:d8} 0F 11 46 {characters/rec.character:d8}" }
+      ]
+    }
+  },
+  "constants": {
+    "characters/rec.character": { "min_votes": 1 }
+  },
+  "features": {
+    "characters.id": {
+      "constants": ["characters/rec.character"]
+    }
+  }
+}

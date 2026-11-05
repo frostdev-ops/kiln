@@ -1,0 +1,89 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.chat: the server's text chat (ChatMessagesSystem inbox + per-player readers) and its player connection records (ServerPlayers). Sources: EMF 0.3.3 signatures ChatReceive/ChatLogAdd and docs re_chat.md (MIT), re-derived on svn 1285601; see docs/re/chat.md.",
+  "symbols": {
+    "chat/ChatLogAdd": {
+      "find": [
+        {"pattern": "40 55 56 41 54 41 55 41 57 48 83 EC 30 49 8B 41 08 33 ED 4D 8B F9 45 0F B6 E0 48 8B F2 4C 8B E9 48 3D {chat/max_text:d32} 76"}
+      ]
+    },
+    "@chat.add_fields": {
+      "find": [
+        {"scope": {"symbol": "chat/ChatLogAdd", "size": 1024}, "pattern": "48 8B 86 {chat/sys.inbox_tail:d32} 48 85 C0 75 09 48 89 BE {chat/sys.inbox_head:d32} EB 0F 48 89 78 {chat/node.next:d8} 48 8B 86 ?? ?? ?? ?? 48 89 47 {chat/node.prev:d8}"},
+        {"scope": {"symbol": "chat/ChatLogAdd", "size": 1024}, "pattern": "48 FF 86 {chat/sys.inbox_count:d32} 44 8B 47 {chat/node.len:d8} 49 83 C0 17"},
+        {"scope": {"symbol": "chat/ChatLogAdd", "size": 1024}, "pattern": "48 F7 DB 89 47 {chat/node.handle:d8} 1B C0 44 88 27 83 E0 3C 89 6F {chat/node.mask:d8}"},
+        {"scope": {"symbol": "chat/ChatLogAdd", "size": 1024}, "pattern": "48 89 47 {chat/node.account:d8} 48 8B 86"}
+      ]
+    },
+    "chat/MarkSent": {
+      "find": [
+        {"pattern": "8B 42 {chat/node.mask:d8} 44 0F AB C0 89 42 {chat/node.mask:d8} 41 8B C0 48 8D 14 40 44 29 4C 91 {chat/sys.reader_pending:d8} C3"}
+      ]
+    },
+    "@chat.readers": {
+      "find": [
+        {"pattern": "48 89 5C 24 08 41 8B C0 48 8B DA 4C 8B D9 4C 8D 14 40 42 80 7C 91 {chat/sys.reader_active:d8} 00 74 11 46 39 4C 91 {chat/sys.reader_gen:d8} 75 0A 48 8D 41 {chat/sys.reader_pending:d8}"},
+        {"pattern": "48 8B 89 {chat/sys.inbox_head:d32} 48 85 C9 74 16 0F 1F 00 8B 41 {chat/node.mask:d8} 44 0F AB C0 89 41 {chat/node.mask:d8} 48 8B 49 {chat/node.next:d8} 48 85 C9 75 ED"}
+      ]
+    },
+    "chat/ServerReceive": {
+      "find": [
+        {"pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B ?? 48 8B 49 30 E8 ?? ?? ?? ?? 49 8B ?? 10 48 8D 85 B8 00 00 00 48 89 85 90 00 00 00"}
+      ]
+    },
+    "chat/ReceiveAddLine": {
+      "find": [
+        {"scope": {"symbol": "chat/ServerReceive", "size": 8192}, "offset": 56, "pattern": "49 8B 55 {chat/gs.chat:d8} 4C 8D 4D ?? 48 89 44 24 40 48 8D 4D ?? 8B 85 ?? ?? ?? ?? 48 89 5C 24 38 89 44 24 30 8B 85 ?? ?? ?? ?? 89 44 24 28 8B 85 ?? ?? ?? ?? 89 44 24 20 C6 45 ?? 00 E8 {chat/ChatLogAdd:rel32}"}
+      ]
+    },
+    "@chat.players": {
+      "find": [
+        {"pattern": "48 69 C8 {chat/gs.player_stride:d32} 48 81 C1 {chat/gs.players:d32} 48 03 CF 39 11"},
+        {"pattern": "48 81 C7 {chat/gs.player_stride:d32} 48 81 FF {chat/gs.players_size:d32} 0F 82"},
+        {"pattern": "80 79 {chat/player.state:d8} 02 0F 85 ?? ?? ?? ?? 8B 41 {chat/player.peer:d8} 4C 8D 44 24 50 0F 10 05 ?? ?? ?? ?? 83 E0 7F"},
+        {"pattern": "41 F6 46 {chat/player.permissions:d8} 01 74 ?? 4C 8D 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 48 8D 55 ?? 48 8D 8D ?? ?? ?? ?? E8 ?? ?? ?? ?? B9 59 96 9B 15"},
+        {"pattern": "49 8D 46 {chat/player.name:d8} 41 B9 01 00 00 00 F2 0F 10 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? B1 03 F2 0F 11 45 ?? C7 44 24 ?? 27 00 00 00 48 89 5C 24 ?? 48 89 44 24 ?? E8 ?? ?? ?? ?? 41 8B 56 {chat/player.entity:d8} 45 33 C0"},
+        {"pattern": "49 8B 4E {chat/player.account:d8} 4C 8D 05 ?? ?? ?? ?? 41 8B 16"}
+      ]
+    }
+  },
+  "constants": {
+    "chat/max_text": {"min_votes": 1},
+    "chat/sys.inbox_head": {"min_votes": 2},
+    "chat/sys.inbox_tail": {"min_votes": 1},
+    "chat/sys.inbox_count": {"min_votes": 1},
+    "chat/sys.reader_active": {"min_votes": 1},
+    "chat/sys.reader_gen": {"min_votes": 1},
+    "chat/sys.reader_pending": {"min_votes": 2},
+    "chat/sys.reader_stride": {"value": 12},
+    "chat/sys.readers": {"value": 32},
+    "chat/node.next": {"min_votes": 2},
+    "chat/node.prev": {"min_votes": 1},
+    "chat/node.len": {"min_votes": 1},
+    "chat/node.handle": {"min_votes": 1},
+    "chat/node.account": {"min_votes": 1},
+    "chat/node.mask": {"min_votes": 4},
+    "chat/node.text": {"value": 64},
+    "chat/gs.chat": {"min_votes": 1},
+    "chat/gs.players": {"min_votes": 1},
+    "chat/gs.player_stride": {"min_votes": 2},
+    "chat/gs.players_size": {"min_votes": 1},
+    "chat/player.peer": {"min_votes": 1},
+    "chat/player.permissions": {"min_votes": 1},
+    "chat/player.name": {"min_votes": 1},
+    "chat/player.entity": {"min_votes": 1},
+    "chat/player.account": {"min_votes": 1},
+    "chat/player.state": {"min_votes": 1}
+  },
+  "features": {
+    "chat.receive": {"symbols": ["chat/ChatLogAdd", "chat/ServerReceive", "chat/ReceiveAddLine"], "constants": ["chat/gs.chat", "chat/max_text"]},
+    "chat.send": {"symbols": ["chat/ChatLogAdd", "chat/MarkSent", "@chat.add_fields", "@chat.readers"],
+                  "constants": ["chat/max_text", "chat/sys.inbox_tail", "chat/sys.inbox_count", "chat/sys.reader_active",
+                                "chat/sys.reader_gen", "chat/sys.reader_pending", "chat/sys.reader_stride", "chat/sys.readers",
+                                "chat/node.len", "chat/node.handle", "chat/node.account", "chat/node.mask", "chat/node.text"]},
+    "chat.players": {"symbols": ["chat/ServerReceive", "@chat.players"],
+                     "constants": ["chat/gs.players", "chat/gs.player_stride", "chat/gs.players_size", "chat/player.peer",
+                                   "chat/player.permissions", "chat/player.name", "chat/player.entity", "chat/player.account", "chat/player.state"]}
+  }
+}

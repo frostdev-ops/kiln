@@ -1,0 +1,8 @@
+{
+  "now": 1762257660,
+  "deletable": false,
+  "server": true,
+  "expect": {
+    "status": "ignored-undeletable"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "comment": "a giver placed once: what the world's own record says about him decides whether he is placed again",
+  "npcs": {
+    "switch_giver": { "template": "Townsfolk_Male_villager_03_OscarGodwin", "place": { "at": [3900, 834, 1500], "once": true } }
+  }
+}

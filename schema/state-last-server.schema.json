@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-last-server.schema.json",
+  "title": "Last server joined (<game>/kiln/state/last-server.json), format 1",
+  "description": "Written atomically by Kiln.Network on a client when a server answers its join with REJECT or WELCOME (handshake properties: server id/name, modpack, required[]). The launcher watches this file to offer a modpack (consent modal; nothing auto-downloads). 'history' keeps up to 20 earlier entries, newest first, without their own history.",
+  "type": "object",
+  "required": ["format", "written", "outcome", "server"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "outcome": { "enum": ["rejected", "welcome", "vanilla"], "description": "vanilla: the server sent no Kiln properties (not a Kiln server, or an old one)." },
+    "reason": { "type": ["string", "null"], "description": "REJECT reason text." },
+    "server": {
+      "type": "object",
+      "properties": {
+        "id": { "oneOf": [{ "$ref": "common.schema.json#/$defs/serverId" }, { "type": "null" }] },
+        "name": { "type": ["string", "null"] },
+        "address": { "type": ["string", "null"] },
+        "kiln": { "type": ["string", "null"], "description": "Server's Kiln version." }
+      }
+    },
+    "modpack": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/modpackRef" }] },
+    "required": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/requiredMod" }, "default": [] },
+    "truncated": { "type": "boolean", "default": false, "description": "required[] was cut to keep the frame <= 7 KB." },
+    "missing": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Required ids this client lacks or has with another hash." },
+    "history": { "type": "array", "maxItems": 20, "items": { "$ref": "#" } }
+  },
+  "additionalProperties": true
+}

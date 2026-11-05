@@ -1,0 +1,328 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.creatures: the enemy01 state machine (SetState / HandleCondition, the transition table, feature masks), the per-entity template slot (GetTemplateComponent's helper: archetype template columns, entity record fields), IsReadyForGameplay (Actor state bit), the arsenal lookup, the game's runtime reflection (TypeByHash, for private AI copies). Uses kiln.gameplay's event emitter (gameplay/EmitEvent, JobEventBuffer, JobProgramId) and world/CurrentEntityId for its commands and hooks. Evidence: docs/re/creatures.md (svn 1285601; probes in mods/tests/creatures-test).",
+  "symbols": {
+    "creatures/SetState": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 58 20 55 56 57 41 55 41 56 48 81 EC 90 00 00 00 4C 89 60 10 41 B0 02 4C 89 78 18 4C 8B F1 4C 8B 79 {creatures/ctx.dyn:d8} 44 0F B6 E2 41 0F B6 17 E8"
+        }
+      ]
+    },
+    "creatures/HandleCondition": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 4C 8B 49 {creatures/ctx.dyn:d8} 48 8D 1D {creatures/TransitionTable:rel32} 0F B6 C2 48 8B F9 41 0F B6 31 4C 6B C6 {creatures/fsm.conditions:d8} 4C 03 C0"
+        }
+      ]
+    },
+    "@creatures/HandleCondition.features": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "creatures/HandleCondition",
+            "size": 128
+          },
+          "pattern": "41 F7 81 {creatures/dyn.enabled_features:d32} 00 04 00 00 75 ?? 41 F7 81 {creatures/dyn.disabled_features:d32} 00 04 00 00 75 ?? 48 8B 41 {creatures/ctx.tpl:d8} F7 80 {creatures/tpl.enabled_features:d32} 00 04 00 00"
+        }
+      ]
+    },
+    "creatures/Enemy01Update": {
+      "find": [
+        {
+          "pattern": "40 53 48 81 EC 90 06 00 00 41 B8 48 06 00 00 48 8D 54 24 40 48 8B D9 E8"
+        }
+      ]
+    },
+    "@creatures/Enemy01Update.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "creatures/Enemy01Update",
+            "size": 160
+          },
+          "pattern": "48 8D 94 24 ?? ?? 00 00 48 89 44 24 20 E8 {creatures/Enemy01Entity:rel32} 41 B8"
+        }
+      ]
+    },
+    "@creatures/GetTemplateComponent.calls": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "GetTemplateComponent",
+            "size": 96
+          },
+          "pattern": "48 8B 0F 48 8D 54 24 38 48 83 C1 {creatures/registry.tpl_map:d8} 41 8B D8 E8 {creatures/ComponentMapFind:rel32}"
+        },
+        {
+          "scope": {
+            "symbol": "GetTemplateComponent",
+            "size": 96
+          },
+          "pattern": "48 8B CF 48 8B 5C 24 30 48 83 C4 20 5F E9 {creatures/TemplateComponentAt:rel32}"
+        }
+      ]
+    },
+    "creatures/TemplateComponentAt": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 44 89 44 24 18 57 48 83 EC 20 48 8B FA 48 85 D2 74 ?? 48 8D 99 {creatures/storage.entity_map:d32} 48 8B CB"
+        }
+      ]
+    },
+    "@creatures/TemplateComponentAt.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "creatures/TemplateComponentAt",
+            "size": 160
+          },
+          "pattern": "48 8D 99 {creatures/storage.entity_map:d32} 48 8B CB 48 8D 54 24 ?? E8 {creatures/EntityMapFind:rel32} 48 3B 43 {creatures/map.cap:d8} 73 ?? 48 8B 4B {creatures/map.values:d8}"
+        },
+        {
+          "scope": {
+            "symbol": "creatures/TemplateComponentAt",
+            "size": 160
+          },
+          "pattern": "4D 8B 50 {creatures/record.archetype:d8} 41 8B C1 48 C1 E8 06 41 0F B6 C9 49 8B 14 C2 48 D3 EA F6 C2 01 74 ?? 41 8B 40 {creatures/record.index:d8} 43 0F B7 8C 4A {creatures/archetype.tpl_columns:d32} 48 8D 14 C1 49 8B 40 {creatures/record.chunk:d8}"
+        }
+      ]
+    },
+    "creatures/ReadyProgram": {
+      "find": [
+        {
+          "pattern": "40 57 48 81 EC 10 01 00 00 41 B8 58 00 00 00 48 8D 54 24 30 48 8B F9 E8 ?? ?? ?? ?? 41 B8 58 00 00 00 48 8D 54 24 30 48 8B CF E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? 48 89 AC 24 ?? ?? 00 00 48 BD 00 00 00 00 00 00 04 00"
+        }
+      ]
+    },
+    "@creatures/ReadyProgram.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "creatures/ReadyProgram",
+            "size": 400
+          },
+          "pattern": "48 8B 8B {creatures/actor.state:d32} 48 C1 E9 {creatures/actor.ready_bit:d8} 80 E1 01 3A C8 74"
+        }
+      ]
+    },
+    "creatures/TypeByHash": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 3D ?? ?? ?? ?? 8B D9 48 85 FF 74 ?? 89 4C 24 38 48 8D 54 24 38 48 8D 4F ?? E8"
+        }
+      ]
+    },
+    "@creatures/TypeByHash.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "creatures/TypeByHash",
+            "size": 256
+          },
+          "pattern": "48 8B 11 39 5A {creatures/type.hash:d8} 74"
+        }
+      ]
+    },
+    "@creatures/Enemy01Entity.calls": {
+      "find": [
+        {
+          "pattern": "49 8B 46 08 0F 10 00 0F 29 45 ?? E8 {creatures/ArsenalFind:rel32} 48 8D 55 ?? 48 89 45 ?? 49 8B CC E8 ?? ?? ?? ?? 48 8D 4D ?? E8 {creatures/BehaviorUpdate:rel32} 48 8B 5D"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "creatures/ctx.dyn": {
+      "min_votes": 2
+    },
+    "creatures/ctx.tpl": {
+      "min_votes": 1
+    },
+    "creatures/ctx.program": {
+      "value": 0
+    },
+    "creatures/fsm.conditions": {
+      "min_votes": 1
+    },
+    "creatures/fsm.states": {
+      "value": 30
+    },
+    "creatures/dyn.enabled_features": {
+      "min_votes": 1
+    },
+    "creatures/dyn.disabled_features": {
+      "min_votes": 1
+    },
+    "creatures/tpl.enabled_features": {
+      "min_votes": 1
+    },
+    "creatures/registry.tpl_map": {
+      "min_votes": 1
+    },
+    "creatures/storage.entity_map": {
+      "min_votes": 2
+    },
+    "creatures/map.cap": {
+      "min_votes": 1
+    },
+    "creatures/map.values": {
+      "min_votes": 1
+    },
+    "creatures/record.archetype": {
+      "min_votes": 1
+    },
+    "creatures/record.index": {
+      "min_votes": 1
+    },
+    "creatures/record.chunk": {
+      "min_votes": 1
+    },
+    "creatures/archetype.tpl_columns": {
+      "min_votes": 1
+    },
+    "creatures/actor.state": {
+      "min_votes": 1
+    },
+    "creatures/actor.ready_bit": {
+      "min_votes": 1
+    },
+    "creatures/arsenals.data": {
+      "value": 120
+    },
+    "creatures/type.hash": {
+      "min_votes": 1
+    },
+    "creatures/type.qname": {
+      "value": 32
+    },
+    "creatures/type.inner": {
+      "value": 56
+    },
+    "creatures/type.size": {
+      "value": 64
+    },
+    "creatures/type.count": {
+      "value": 72
+    },
+    "creatures/type.kind": {
+      "value": 76
+    },
+    "creatures/type.fields": {
+      "value": 88
+    },
+    "creatures/type.enum_values": {
+      "value": 96
+    },
+    "creatures/field.stride": {
+      "value": 48
+    },
+    "creatures/field.type": {
+      "value": 16
+    },
+    "creatures/field.offset": {
+      "value": 24
+    },
+    "creatures/enum.stride": {
+      "value": 40
+    },
+    "creatures/enum.value": {
+      "value": 16
+    }
+  },
+  "features": {
+    "creatures.slots": {
+      "symbols": [
+        "GetTemplateComponent",
+        "creatures/ComponentMapFind",
+        "creatures/TemplateComponentAt",
+        "creatures/EntityMapFind",
+        "GetComponent"
+      ],
+      "constants": [
+        "world.storage",
+        "creatures/registry.tpl_map",
+        "creatures/storage.entity_map",
+        "creatures/map.cap",
+        "creatures/map.values",
+        "creatures/record.archetype",
+        "creatures/record.index",
+        "creatures/record.chunk",
+        "creatures/archetype.tpl_columns"
+      ]
+    },
+    "creatures.ai": {
+      "symbols": [
+        "creatures/SetState",
+        "creatures/HandleCondition",
+        "creatures/BehaviorUpdate",
+        "world/CurrentEntityId"
+      ],
+      "constants": [
+        "creatures/ctx.dyn",
+        "creatures/ctx.tpl",
+        "creatures/ctx.program",
+        "creatures/fsm.conditions",
+        "creatures/fsm.states",
+        "creatures/dyn.enabled_features",
+        "creatures/dyn.disabled_features",
+        "creatures/tpl.enabled_features"
+      ]
+    },
+    "creatures.table": {
+      "symbols": [
+        "creatures/TransitionTable"
+      ],
+      "constants": [
+        "creatures/fsm.conditions",
+        "creatures/fsm.states"
+      ]
+    },
+    "creatures.ready": {
+      "symbols": [
+        "creatures/ReadyProgram"
+      ],
+      "constants": [
+        "creatures/actor.state",
+        "creatures/actor.ready_bit"
+      ]
+    },
+    "creatures.arsenals": {
+      "symbols": [
+        "creatures/ArsenalFind"
+      ],
+      "constants": [
+        "creatures/arsenals.data"
+      ]
+    },
+    "creatures.reflection": {
+      "symbols": [
+        "creatures/TypeByHash",
+        "@creatures/TypeByHash.fields"
+      ],
+      "constants": [
+        "creatures/type.hash",
+        "creatures/type.qname",
+        "creatures/type.inner",
+        "creatures/type.size",
+        "creatures/type.count",
+        "creatures/type.kind",
+        "creatures/type.fields",
+        "creatures/type.enum_values",
+        "creatures/field.stride",
+        "creatures/field.type",
+        "creatures/field.offset",
+        "creatures/enum.stride",
+        "creatures/enum.value"
+      ]
+    },
+    "creatures.commands": {
+      "symbols": [
+        "gameplay/EmitEvent",
+        "gameplay/JobEventBuffer",
+        "gameplay/JobProgramId"
+      ]
+    }
+  }
+}

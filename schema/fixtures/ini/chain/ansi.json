@@ -1,0 +1,12 @@
+{
+  "expect": {
+    "chain": [
+      {
+        "path": "chain\\café.dll",
+        "relative": true,
+        "status": "ok"
+      }
+    ],
+    "profile": []
+  }
+}

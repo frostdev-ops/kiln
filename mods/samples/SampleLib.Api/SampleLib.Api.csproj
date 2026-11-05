@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The API sample-lib exports (kiln.mod.json "exports"): dependents compile against it and, at run time, get the
+       copy loaded in sample-lib's context, so types and static state are shared. A plain library: no Kiln reference. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,8 @@
+{
+  "id": "placeholder-test",
+  "name": "kiln.content missing-content placeholders lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "PlaceholderTest.dll",
+  "side": "server"
+}

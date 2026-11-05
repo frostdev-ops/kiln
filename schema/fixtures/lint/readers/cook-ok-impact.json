@@ -1,0 +1,28 @@
+{
+ "format": 1,
+ "tool": "impact",
+ "steps": [
+  {
+   "op": "assemble",
+   "src": "a.kimp",
+   "stem": "a"
+  },
+  {
+   "op": "clone",
+   "base": "p",
+   "guid": "c1d2e3f4-0000-4000-8000-000000000002",
+   "stem": "b",
+   "edits": [
+    {
+     "var": "var $x uint32"
+    }
+   ]
+  }
+ ],
+ "inputs": {
+  "p": {
+   "guid": "c1d2e3f4-0000-4000-8000-000000000003",
+   "type": "keen::ImpactProgram"
+  }
+ }
+}

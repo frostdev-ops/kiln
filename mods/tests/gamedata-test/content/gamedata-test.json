@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "comment": "gamedata-test: one rule per section; the test reads every value back and checks the originals.",
+  "items": {
+    "Ammo_T1_Spell_Fire_Ball_lvl10": {
+      "impactValues.ManaCost": 30,
+      "sequences[0].sequence": "Kiln_Test_Fireball_Cast"
+    },
+    "Ability_DoubleJump": {
+      "impactValues.StaminaCost": 5
+    }
+  },
+  "templates": {
+    "add": [
+      {
+        "guid": "0b7f5a1e-6c2d-4e8a-9f31-5d2c7b9e4a10",
+        "name": "Kiln_Test_Elite_Vukah",
+        "base": "Enemy_Vukah_Melee",
+        "fields": {
+          "Level.dataStorage[0]": 20,
+          "ScaleComponent.uniformScale": 1.4,
+          "Enemy01BehaviorState.aggroSetup.viewRange": 40
+        }
+      }
+    ],
+    "Explosion_Player_Spell_Fireball_1": {
+      "ColliderResourceComponent.colliders[0].dataArray[0].shape.radius": {
+        "mul": 1.5
+      },
+      "ImpactConfiguration.configValues.NoiseRange": 40,
+      "ImpactConfiguration.configValues.PushBackStrength": "Big"
+    },
+    "Enemy_Vukah_*": {
+      "@where": {
+        "Faction.faction": "Vukah"
+      },
+      "Enemy01BehaviorState.aggroSetup.viewRange": {
+        "mul": 1.5
+      }
+    }
+  },
+  "sequences": {
+    "add": [
+      {
+        "guid": "2a9c4e71-0d5b-4f63-8e1a-7b3f9c2d5e88",
+        "name": "Kiln_Test_Fireball_Cast",
+        "base": "Attack_Player_Staff_FixedAnim_Fireball_fast",
+        "fields": {
+          "events[SpawnEntityEvent#0].time": 0.3
+        }
+      }
+    ],
+    "Attack_Player_Staff_FixedAnim_Fireball_fast": {
+      "events[SpawnEntityEvent#0].time": 0.45,
+      "events[PayUsageCost#0].time": 0.45
+    }
+  },
+  "arsenals": {
+    "template:Enemy_Vukah_Melee": {
+      "attacks[0].description.maxRange": 3.5
+    }
+  },
+  "skills": {
+    "item:Ability_DoubleJump": {
+      "costs": 1
+    }
+  },
+  "gdtest": {
+    "hello": 1
+  }
+}

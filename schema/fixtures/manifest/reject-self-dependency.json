@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"dependencies\":{\"ok\":\"*\"}}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: a mod cannot depend on itself"
+  }
+}

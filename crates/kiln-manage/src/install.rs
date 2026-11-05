@@ -1,0 +1,874 @@
+//! Install / upgrade / uninstall / rollback of a runtime bundle into a game folder (contracts.md, "Install").
+//! Refuses while the game runs or Steam updates it. Stages in `kiln/.staging-*`, verifies, classifies the existing
+//! `dinput8.dll` (pe::classify_proxy: Kiln -> replace; ShroudForge -> refuse unless `switch_from_shroudforge`;
+//! EMF/unknown -> `kiln/chain/` + chain.ini [chain]), backs up what it replaces to
+//! `kiln/backups/install-<yyyymmddThhmmssZ>/`, puts `dinput8.dll` last, writes the receipt `kiln/.install.json`.
+
+use crate::bundle::RuntimeManifest;
+use crate::game::GameInstall;
+use crate::manifest::RunSide;
+use crate::paths::DataDirs;
+use crate::pe::ProxyClass;
+use crate::task::Progress;
+use crate::{Error, Result};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallReceipt {
+    pub format: u32,
+    pub install_id: String,
+    pub installed: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installer: Option<String>,
+    pub runtime: ReceiptRuntime,
+    pub side: RunSide,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<crate::game::Platform>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<ReceiptGame>,
+    pub files: Vec<ReceiptFile>,
+    #[serde(default)]
+    pub replaced: Vec<ReplacedFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptRuntime {
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub components: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptGame {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steam_build: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptFile {
+    pub path: String,
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(default)]
+    pub config: bool,
+}
+
+/// `replaced[].class`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplacedClass {
+    Kiln,
+    ShroudForge,
+    Emf,
+    Unknown,
+    File,
+}
+
+/// `replaced[].action`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReplacedAction {
+    Chained,
+    BackedUp,
+    Replaced,
+    /// The path existed before the install with the bundle's exact bytes (e.g. a kiln/ folder deployed by
+    /// deploy-server.sh or client.sh): left in place and kept by uninstall. No backup needed. Becomes `replaced` (with
+    /// a backup of those bytes) when an upgrade changes the file.
+    Adopted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacedFile {
+    pub path: String,
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<ReplacedClass>,
+    pub action: ReplacedAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallOptions {
+    /// None: the bundle's default components for this side (an upgrade keeps the installed selection).
+    #[serde(default)]
+    pub components: Option<Vec<String>>,
+    /// Move ShroudForge's dinput8.dll to the backup (never chained) instead of refusing.
+    #[serde(default)]
+    pub switch_from_shroudforge: bool,
+    /// The receipt's `installer` (default `kiln-manage <VERSION>`); the launcher passes `kiln-launcher <version>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallState {
+    pub installed: bool,
+    pub receipt: Option<InstallReceipt>,
+    /// What `dinput8.dll` is now.
+    pub proxy: Option<ProxyClass>,
+    /// Receipt files whose sha256 changed since the install (game-relative paths).
+    pub modified: Vec<String>,
+    /// A newer bundle in `<data>/runtime/` (its version).
+    pub upgrade_available: Option<String>,
+}
+
+use crate::bundle::RuntimeFile;
+use crate::pe::ProxyKind;
+use crate::util::{io_at, now_unix, rfc3339, ts_compact};
+use crate::ErrorCode;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+/// ShroudForge's proxy set in a game folder (its proxy DLLs): moved to the backup together.
+pub const SHROUDFORGE_DLLS: [&str; 3] = ["dbghelp.dll", "dinput8.dll", "winmm.dll"];
+pub const PROXY: &str = "dinput8.dll";
+
+pub fn read_receipt(game_dir: &Path) -> Result<Option<InstallReceipt>> {
+    let r: Option<InstallReceipt> = crate::util::read_json(&game_dir.join(crate::paths::game::RECEIPT))?;
+    if let Some(r) = &r
+        && r.format > 1
+    {
+        return Err(Error::new(ErrorCode::Unsupported, format!("kiln/.install.json format {} (this Kiln reads format 1)", r.format)));
+    }
+    Ok(r)
+}
+
+fn side_of(install: &GameInstall) -> RunSide {
+    match install.kind {
+        crate::game::GameKind::Server => RunSide::Server,
+        crate::game::GameKind::Client => RunSide::Client,
+    }
+}
+
+/// sha256 of a file, remembered per (path, size, mtime) for this process: `status` re-hashes only files that
+/// changed since the last call (the first call hashes everything).
+fn cached_sha(p: &Path) -> Option<String> {
+    use std::sync::{Mutex, OnceLock};
+    type Key = (u64, Option<std::time::SystemTime>);
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<PathBuf, (Key, String)>>> = OnceLock::new();
+    let md = std::fs::metadata(p).ok()?;
+    let key: Key = (md.len(), md.modified().ok());
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((k, h)) = cache.lock().ok()?.get(p)
+        && *k == key
+        && key.1.is_some()
+    {
+        return Some(h.clone());
+    }
+    let (h, _) = crate::hash::sha256_file(p).ok()?;
+    if let Ok(mut c) = cache.lock() {
+        if c.len() > 100_000 {
+            c.clear();
+        }
+        c.insert(p.to_path_buf(), (key, h.clone()));
+    }
+    Some(h)
+}
+
+/// Receipt files whose content changed since the install (missing files count; config files never do). A file whose
+/// size differs from the receipt's is changed without hashing; the others are hashed (cached by size and mtime).
+pub fn modified_files(game_dir: &Path, receipt: &InstallReceipt) -> Vec<String> {
+    receipt
+        .files
+        .iter()
+        .filter(|f| !f.config)
+        .filter(|f| {
+            let p = game_dir.join(&f.path);
+            match (std::fs::metadata(&p), f.size) {
+                (Err(_), _) => true,
+                (Ok(md), Some(size)) if md.len() != size => true,
+                _ => cached_sha(&p).is_none_or(|h| h != f.sha256),
+            }
+        })
+        .map(|f| f.path.clone())
+        .collect()
+}
+
+pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
+    let receipt = read_receipt(&install.path)?;
+    let proxy = crate::pe::classify_proxy(&install.path.join(PROXY)).ok();
+    let modified = receipt.as_ref().map(|r| modified_files(&install.path, r)).unwrap_or_default();
+    let side = side_of(install);
+    let upgrade_available = receipt.as_ref().and_then(|r| {
+        let bundles = crate::bundle::list(dirs).ok()?;
+        bundles
+            .into_iter()
+            .filter(|b| b.sides.contains(&side))
+            .find(|b| crate::bundle::compare_versions(&b.version, &r.runtime.version) == std::cmp::Ordering::Greater)
+            .map(|b| b.version)
+    });
+    Ok(InstallState { installed: receipt.is_some(), receipt, proxy, modified, upgrade_available })
+}
+
+/// The components `requested` (None: defaults) for `side`, with everything they require.
+pub fn select_components(manifest: &RuntimeManifest, side: RunSide, requested: Option<&[String]>) -> Result<Vec<String>> {
+    let mut want: Vec<String> = match requested {
+        Some(list) => {
+            for c in list {
+                let comp = manifest.components.get(c).ok_or_else(|| Error::invalid(format!("the bundle has no component {c}")))?;
+                if !comp.sides.contains(&side) {
+                    return Err(Error::invalid(format!("component {c} is not for the {} side", side_name(side))));
+                }
+            }
+            list.to_vec()
+        }
+        None => manifest
+            .components
+            .iter()
+            .filter(|(_, c)| c.default && c.sides.contains(&side))
+            .map(|(n, _)| n.clone())
+            .collect(),
+    };
+    let mut i = 0;
+    while i < want.len() {
+        let c = &manifest.components[&want[i]];
+        for r in &c.requires {
+            if !want.contains(r) {
+                let rc = manifest.components.get(r).ok_or_else(|| Error::invalid(format!("component {} requires unknown {r}", want[i])))?;
+                if !rc.sides.contains(&side) {
+                    return Err(Error::invalid(format!("component {} requires {r}, which is not for the {} side", want[i], side_name(side))));
+                }
+                want.push(r.clone());
+            }
+        }
+        i += 1;
+    }
+    want.sort();
+    want.dedup();
+    Ok(want)
+}
+
+fn side_name(s: RunSide) -> &'static str {
+    match s {
+        RunSide::Server => "server",
+        RunSide::Client => "client",
+    }
+}
+
+/// The files of `manifest` for `side` and `components` (None: defaults).
+pub fn plan(manifest: &RuntimeManifest, side: RunSide, components: Option<&[String]>) -> Result<Vec<RuntimeFile>> {
+    let selected = select_components(manifest, side, components)?;
+    Ok(manifest.files.iter().filter(|f| selected.contains(&f.component)).cloned().collect())
+}
+
+/// Folders every Kiln game folder has (tools/deploy-server.sh creates the same, so a bundle install matches it).
+pub fn standard_dirs(side: RunSide) -> Vec<String> {
+    let s = side_name(side);
+    ["host", "mods", "plugins", "services", "logs", "control", "data"]
+        .iter()
+        .map(|d| format!("kiln/{d}"))
+        .chain([format!("kiln/sigdb/builds/{s}"), format!("kiln/sigdb/{s}.d")])
+        .collect()
+}
+
+fn refuse_busy(install: &GameInstall) -> Result<()> {
+    if let Some(p) = crate::proc::find_game(install)? {
+        return Err(Error::new(ErrorCode::GameRunning, format!("{} is running (pid {}); quit it first", install.exe, p.pid))
+            .with_detail(serde_json::json!({ "pid": p.pid })));
+    }
+    for lib in steam_libraries_of(install) {
+        match crate::steam::app_manifest(&lib, install.app_id) {
+            Ok(Some(m)) if m.updating => {
+                return Err(Error::new(
+                    ErrorCode::SteamUpdating,
+                    format!("Steam is updating or validating the game (StateFlags {}); wait until it is done", m.state_flags),
+                )
+                .with_detail(serde_json::json!({ "stateFlags": m.state_flags, "library": lib })));
+            }
+            Ok(_) => {}
+            Err(e) if e.code == ErrorCode::NotImplemented => {}
+            Err(_) => {} // an unreadable manifest is Steam's business; the game files are what we check
+        }
+    }
+    Ok(())
+}
+
+/// Steam libraries whose appmanifest describes this install: the recorded library, `<lib>/steamapps/common/<dir>`
+/// above the folder, and the folder itself (SteamCMD's force_install_dir keeps `steamapps/` inside).
+fn steam_libraries_of(install: &GameInstall) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = install.library.iter().cloned().collect();
+    if let Some(common) = install.path.parent()
+        && common.file_name().is_some_and(|n| n == "common")
+        && let Some(steamapps) = common.parent()
+        && steamapps.file_name().is_some_and(|n| n == "steamapps")
+        && let Some(lib) = steamapps.parent()
+    {
+        v.push(lib.to_path_buf());
+    }
+    v.push(install.path.clone());
+    v.dedup();
+    v
+}
+
+fn rand_suffix() -> Result<String> {
+    Ok(crate::hash::hex(&crate::util::random_bytes::<6>()?))
+}
+
+/// Removes `kiln/.staging-*` folders left behind by an interrupted install.
+fn clean_stale_staging(kiln: &Path) {
+    for e in std::fs::read_dir(kiln).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with(".staging-") {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
+/// What the install did so far, undone in reverse order when a later step fails.
+enum Step {
+    /// `target` was created from staging; `previous` holds the file it replaced (inside the staging folder).
+    Placed { target: PathBuf, previous: Option<PathBuf> },
+    /// A file moved away (displaced proxy, ShroudForge DLL).
+    Moved { from: PathBuf, to: PathBuf },
+    /// chain.ini got this [chain] line.
+    Chained { game_dir: PathBuf, line: String },
+}
+
+fn undo(steps: Vec<Step>) {
+    for s in steps.into_iter().rev() {
+        match s {
+            Step::Placed { target, previous } => {
+                let _ = std::fs::remove_file(&target);
+                if let Some(p) = previous {
+                    let _ = std::fs::rename(&p, &target);
+                }
+            }
+            Step::Moved { from, to } => {
+                let _ = std::fs::rename(&to, &from);
+            }
+            Step::Chained { game_dir, line } => {
+                let _ = crate::chain::remove_chain_entry(&game_dir, &line);
+            }
+        }
+    }
+}
+
+fn copy_into_backup(game_dir: &Path, backup_rel: &str, rel: &str, mirror: Option<&Path>) -> Result<String> {
+    let src = game_dir.join(rel);
+    let dst_rel = format!("{backup_rel}/{rel}");
+    let dst = game_dir.join(&dst_rel);
+    if let Some(p) = dst.parent() {
+        std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+    }
+    std::fs::copy(&src, &dst).map_err(io_at(&dst, "backing up to"))?;
+    if let Some(m) = mirror {
+        let mdst = m.join(rel);
+        if let Some(p) = mdst.parent() {
+            std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+        }
+        std::fs::copy(&src, &mdst).map_err(io_at(&mdst, "mirroring to"))?;
+    }
+    Ok(dst_rel)
+}
+
+fn file_sha(p: &Path) -> Option<(String, u64)> {
+    crate::hash::sha256_file(p).ok()
+}
+
+/// A free `kiln/chain/<kind>-dinput8.dll` (or the same name when it already holds these bytes).
+fn chain_slot(game_dir: &Path, kind: &str, sha: &str) -> String {
+    for i in 1.. {
+        let name = if i == 1 { format!("{kind}-dinput8.dll") } else { format!("{kind}-dinput8-{i}.dll") };
+        let rel = format!("{}/{name}", crate::paths::game::CHAIN_DIR);
+        match file_sha(&game_dir.join(&rel)) {
+            None => return rel,
+            Some((h, _)) if h == sha => return rel,
+            Some(_) => continue,
+        }
+    }
+    unreachable!()
+}
+
+/// `kiln/chain/x.dll` -> the chain.ini line (relative to kiln/, backslashes).
+fn chain_line(chain_rel: &str) -> String {
+    chain_rel.strip_prefix("kiln/").unwrap_or(chain_rel).replace('/', "\\")
+}
+
+/// Installs or upgrades (an existing receipt: deletes obsolete files only when unchanged).
+pub fn install(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
+               progress: &mut dyn Progress) -> Result<InstallReceipt> {
+    let game_dir = install.path.as_path();
+    let exe = game_dir.join(&install.exe);
+    if !exe.is_file() {
+        return Err(Error::not_found(format!("{} has no {}", game_dir.display(), install.exe)));
+    }
+    let side = side_of(install);
+    let expected_exe = match side {
+        RunSide::Server => "enshrouded_server.exe",
+        RunSide::Client => "enshrouded.exe",
+    };
+    if !install.exe.eq_ignore_ascii_case(expected_exe) {
+        return Err(Error::invalid(format!("a {} install runs {expected_exe}, not {}", side_name(side), install.exe)));
+    }
+    refuse_busy(install)?;
+    progress.report(Some(0.0), "verifying the bundle");
+    let manifest = crate::bundle::verify(bundle, progress)?;
+    let bundle_sha = crate::hash::sha256_file(bundle)?.0;
+    let old = read_receipt(game_dir)?;
+    if let Some(o) = &old
+        && o.side != side
+    {
+        return Err(Error::new(ErrorCode::Conflict, format!("the receipt says {} side, this is a {} install", side_name(o.side), side_name(side))));
+    }
+    let requested: Option<Vec<String>> = options.components.clone().or_else(|| {
+        old.as_ref().map(|o| o.runtime.components.iter().filter(|c| manifest.components.contains_key(*c)).cloned().collect())
+    });
+    let components = select_components(&manifest, side, requested.as_deref())?;
+    let files = plan(&manifest, side, Some(&components))?;
+    if !files.iter().any(|f| f.path == PROXY) {
+        return Err(Error::invalid(format!("the selected components have no {PROXY}; select core")));
+    }
+    let kiln = game_dir.join(crate::paths::game::KILN);
+    std::fs::create_dir_all(&kiln).map_err(io_at(&kiln, "creating"))?;
+    clean_stale_staging(&kiln);
+    let staging = kiln.join(format!(".staging-{}", rand_suffix()?));
+    let result = install_staged(dirs, install, bundle, &bundle_sha, &manifest, &components, &files, old, options, &staging, progress);
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_sha: &str, manifest: &RuntimeManifest,
+                  components: &[String], files: &[RuntimeFile], old: Option<InstallReceipt>, options: &InstallOptions,
+                  staging: &Path, progress: &mut dyn Progress) -> Result<InstallReceipt> {
+    let game_dir = install.path.as_path();
+    let side = side_of(install);
+    let new_dir = staging.join("new");
+    let prev_dir = staging.join("previous");
+    progress.report(Some(0.3), "staging");
+    crate::bundle::extract(bundle, files, &new_dir, progress)?;
+    if progress.canceled() {
+        return Err(Error::new(ErrorCode::Canceled, "canceled"));
+    }
+    let now = now_unix();
+    // the id stays what the folder had: the receipt's, else the install's path-derived UUID (game::install_id_for)
+    let install_id = match &old {
+        Some(o) => o.install_id.clone(),
+        None if crate::game::is_uuid(&install.id) => install.id.clone(),
+        None => crate::game::path_install_id(&install.path),
+    };
+    let backup_rel = format!("{}/install-{}", crate::paths::game::BACKUPS, ts_compact(now));
+    let mirror = dirs.backups().join("install").join(&install_id).join(format!("install-{}", ts_compact(now)));
+    let old_files: std::collections::BTreeMap<&str, &ReceiptFile> =
+        old.iter().flat_map(|o| o.files.iter()).map(|f| (f.path.as_str(), f)).collect();
+    let mut replaced: Vec<ReplacedFile> = old.as_ref().map(|o| o.replaced.clone()).unwrap_or_default();
+    let mut steps: Vec<Step> = Vec::new();
+
+    let outcome: Result<()> = (|| {
+        // 1. dinput8.dll: what is there now decides
+        let proxy_path = game_dir.join(PROXY);
+        let class = crate::pe::classify_proxy(&proxy_path)?;
+        let ours = class.sha256.as_deref().is_some_and(|h| old_files.get(PROXY).is_some_and(|f| f.sha256 == h));
+        match class.kind {
+            ProxyKind::None => {}
+            _ if ours => {} // our previous install: replaced below like every receipt file
+            ProxyKind::Kiln => {
+                let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
+                replaced.push(ReplacedFile {
+                    path: PROXY.into(),
+                    sha256: class.sha256.clone().unwrap_or_default(),
+                    size: class.size,
+                    class: Some(ReplacedClass::Kiln),
+                    action: ReplacedAction::Replaced,
+                    chain_path: None,
+                    backup: Some(backup),
+                });
+            }
+            ProxyKind::ShroudForge => {
+                if !options.switch_from_shroudforge {
+                    return Err(Error::new(
+                        ErrorCode::Refused,
+                        "ShroudForge's mod loader is installed (dinput8.dll); choose \"switch from ShroudForge\" to move it to a \
+                         backup (it is never chained with Kiln)",
+                    )
+                    .with_detail(serde_json::json!({ "detail": class.detail })));
+                }
+                for dll in SHROUDFORGE_DLLS {
+                    let p = game_dir.join(dll);
+                    let Some((sha, size)) = file_sha(&p) else { continue };
+                    let backup = copy_into_backup(game_dir, &backup_rel, dll, Some(&mirror))?;
+                    let hold = prev_dir.join(dll);
+                    std::fs::create_dir_all(&prev_dir).map_err(io_at(&prev_dir, "creating"))?;
+                    std::fs::rename(&p, &hold).map_err(io_at(&p, "moving"))?;
+                    steps.push(Step::Moved { from: p, to: hold });
+                    replaced.push(ReplacedFile {
+                        path: dll.into(),
+                        sha256: sha,
+                        size: Some(size),
+                        class: Some(if dll == PROXY { ReplacedClass::ShroudForge } else { ReplacedClass::File }),
+                        action: ReplacedAction::BackedUp,
+                        chain_path: None,
+                        backup: Some(backup),
+                    });
+                }
+            }
+            ProxyKind::Emf | ProxyKind::Unknown if class.detail.as_deref() != Some("Wine builtin DLL") => {
+                let kind = if class.kind == ProxyKind::Emf { "emf" } else { "unknown" };
+                let sha = class.sha256.clone().unwrap_or_default();
+                let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
+                let chain_rel = chain_slot(game_dir, kind, &sha);
+                let dst = game_dir.join(&chain_rel);
+                if let Some(p) = dst.parent() {
+                    std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+                }
+                std::fs::rename(&proxy_path, &dst).map_err(io_at(&dst, "moving the proxy to"))?;
+                steps.push(Step::Moved { from: proxy_path.clone(), to: dst });
+                let line = chain_line(&chain_rel);
+                crate::chain::add_chain_entry(game_dir, &line)?;
+                steps.push(Step::Chained { game_dir: game_dir.to_path_buf(), line });
+                replaced.push(ReplacedFile {
+                    path: PROXY.into(),
+                    sha256: sha,
+                    size: class.size,
+                    class: Some(if class.kind == ProxyKind::Emf { ReplacedClass::Emf } else { ReplacedClass::Unknown }),
+                    action: ReplacedAction::Chained,
+                    chain_path: Some(chain_rel),
+                    backup: Some(backup),
+                });
+            }
+            ProxyKind::Emf | ProxyKind::Unknown => {
+                // a Wine builtin copied into the folder: kept in the backup, never chained
+                let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
+                replaced.push(ReplacedFile {
+                    path: PROXY.into(),
+                    sha256: class.sha256.clone().unwrap_or_default(),
+                    size: class.size,
+                    class: Some(ReplacedClass::File),
+                    action: ReplacedAction::BackedUp,
+                    chain_path: None,
+                    backup: Some(backup),
+                });
+            }
+            ProxyKind::NotDll => {
+                return Err(Error::new(
+                    ErrorCode::Refused,
+                    format!("{} is not a 64-bit DLL ({}); move it away first", proxy_path.display(), class.detail.unwrap_or_default()),
+                ));
+            }
+        }
+        // 2. every other file, dinput8.dll last. Every path that existed before is recorded: identical bytes (and
+        // config files, never touched) as `adopted`, other bytes backed up as `replaced`; uninstall keeps or restores
+        // them, and removes only files that did not exist.
+        let mut order: Vec<&RuntimeFile> = files.iter().filter(|f| f.path != PROXY).collect();
+        order.extend(files.iter().filter(|f| f.path == PROXY));
+        let total = order.len().max(1);
+        for (i, f) in order.iter().enumerate() {
+            if progress.canceled() {
+                return Err(Error::new(ErrorCode::Canceled, "canceled"));
+            }
+            let target = game_dir.join(&f.path);
+            let current = file_sha(&target);
+            if let Some((h, size)) = &current {
+                // ours = the previous install brought it (it was not there before); tracked = still its bytes
+                let ours = old_files.contains_key(f.path.as_str());
+                let tracked = old_files.get(f.path.as_str()).is_some_and(|o| o.sha256 == *h);
+                let has_record = replaced.iter().any(|r| r.path == f.path);
+                if f.path == PROXY {
+                    // classified above
+                } else if ours && !tracked && !f.config && *h != f.sha256 {
+                    // one of our files, changed by hand: keep a copy of the edit, but it is no original
+                    let b = copy_into_backup(game_dir, &backup_rel, &f.path, Some(&mirror))?;
+                    progress.report(None, &format!("{} was changed since the last install; the changed file is in {b}", f.path));
+                } else if !ours {
+                    if !has_record && (f.config || *h == f.sha256) {
+                        replaced.push(ReplacedFile {
+                            path: f.path.clone(),
+                            sha256: h.clone(),
+                            size: Some(*size),
+                            class: Some(ReplacedClass::File),
+                            action: ReplacedAction::Adopted,
+                            chain_path: None,
+                            backup: None,
+                        });
+                    } else if !f.config && *h != f.sha256 {
+                        let backup = copy_into_backup(game_dir, &backup_rel, &f.path, Some(&mirror))?;
+                        replaced.push(ReplacedFile {
+                            path: f.path.clone(),
+                            sha256: h.clone(),
+                            size: Some(*size),
+                            class: Some(ReplacedClass::File),
+                            action: ReplacedAction::Replaced,
+                            chain_path: None,
+                            backup: Some(backup),
+                        });
+                    }
+                } else if *h != f.sha256 && !f.config
+                    && let Some(r) = replaced.iter_mut().find(|r| r.path == f.path && r.action == ReplacedAction::Adopted && r.sha256 == *h)
+                {
+                    // an adopted file the upgrade changes: keep its original bytes for uninstall
+                    r.backup = Some(copy_into_backup(game_dir, &backup_rel, &f.path, Some(&mirror))?);
+                    r.action = ReplacedAction::Replaced;
+                }
+            }
+            if f.config && current.is_some() {
+                continue; // user-editable: installed only when missing
+            }
+            if current.as_ref().is_some_and(|(h, _)| *h == f.sha256) {
+                continue; // already these bytes
+            }
+            if let Some(p) = target.parent() {
+                std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+            }
+            let previous = if current.is_some() {
+                let hold = prev_dir.join(&f.path);
+                if let Some(p) = hold.parent() {
+                    std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+                }
+                std::fs::rename(&target, &hold).map_err(io_at(&target, "moving aside"))?;
+                Some(hold)
+            } else {
+                None
+            };
+            let src = new_dir.join(&f.path);
+            if let Err(e) = std::fs::rename(&src, &target) {
+                if let Some(p) = &previous {
+                    let _ = std::fs::rename(p, &target);
+                }
+                return Err(io_at(&target, "installing")(e));
+            }
+            steps.push(Step::Placed { target, previous });
+            progress.report(Some(0.5 + 0.4 * (i + 1) as f32 / total as f32), &format!("installed {}", f.path));
+        }
+        Ok(())
+    })();
+    if let Err(e) = outcome {
+        undo(steps);
+        return Err(e);
+    }
+
+    // 3. upgrade: files the new bundle no longer has go when they are unchanged
+    let mut kept_obsolete = Vec::new();
+    if let Some(o) = &old {
+        let new_paths: BTreeSet<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        for f in o.files.iter().filter(|f| !new_paths.contains(f.path.as_str()) && !f.config) {
+            let p = game_dir.join(&f.path);
+            let original = replaced.iter().position(|r| r.path == f.path);
+            match file_sha(&p) {
+                Some((h, _)) if h == f.sha256 => match original.map(|i| (i, replaced[i].action)) {
+                    // it was there before the first install with these bytes: it stays the user's
+                    Some((_, ReplacedAction::Adopted)) => {}
+                    // the bundle no longer brings it: the original comes back now
+                    Some((i, ReplacedAction::Replaced)) if replaced[i].backup.is_some() => {
+                        let b = game_dir.join(replaced[i].backup.as_deref().expect("checked"));
+                        if file_sha(&b).is_some_and(|(bh, _)| bh == replaced[i].sha256) {
+                            std::fs::copy(&b, &p).map_err(io_at(&p, "restoring"))?;
+                            replaced.remove(i);
+                        } else {
+                            kept_obsolete.push(f.path.clone());
+                        }
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(&p);
+                        remove_empty_parents(game_dir, &p);
+                    }
+                },
+                Some(_) => kept_obsolete.push(f.path.clone()),
+                None => {}
+            }
+        }
+    }
+    for d in standard_dirs(side) {
+        let _ = std::fs::create_dir_all(game_dir.join(d));
+    }
+    // 4. the receipt, last
+    let exe_sha = crate::hash::sha256_file(&game_dir.join(&install.exe)).ok().map(|(h, _)| h);
+    let receipt = InstallReceipt {
+        format: 1,
+        install_id: install_id.clone(),
+        installed: old.as_ref().map(|o| o.installed.clone()).unwrap_or_else(|| rfc3339(now)),
+        updated: old.as_ref().map(|_| rfc3339(now)),
+        installer: Some(options.installer.clone().unwrap_or_else(|| format!("kiln-manage {}", crate::VERSION))),
+        runtime: ReceiptRuntime { version: manifest.version.clone(), sha256: Some(bundle_sha.to_string()), components: components.to_vec() },
+        side,
+        platform: Some(install.platform),
+        game: Some(ReceiptGame { exe: Some(install.exe.clone()), sha256: exe_sha, steam_build: install.build_id.clone() }),
+        files: files
+            .iter()
+            .map(|f| ReceiptFile { path: f.path.clone(), sha256: f.sha256.clone(), size: Some(f.size), component: Some(f.component.clone()), config: f.config })
+            .collect(),
+        replaced,
+    };
+    crate::util::write_json_atomic(&game_dir.join(crate::paths::game::RECEIPT), &receipt)?;
+    write_record(dirs, install, &receipt);
+    if !kept_obsolete.is_empty() {
+        progress.report(Some(1.0), &format!("kept {} changed file(s) the new bundle no longer has: {}", kept_obsolete.len(), kept_obsolete.join(", ")));
+    }
+    progress.report(Some(1.0), &format!("installed Kiln {} ({} files)", manifest.version, files.len()));
+    Ok(receipt)
+}
+
+/// `<data>/installs/<installId>.json` (game::write_record): the install under its receipt id, with a copy of the
+/// receipt. Best effort: the receipt in the game folder is the source of truth.
+fn write_record(dirs: &DataDirs, install: &GameInstall, receipt: &InstallReceipt) {
+    let mut gi = install.clone();
+    gi.id = receipt.install_id.clone();
+    let _ = crate::game::write_record(dirs, &gi, serde_json::to_value(receipt).ok());
+}
+
+fn remove_empty_parents(game_dir: &Path, file: &Path) {
+    let kiln = game_dir.join(crate::paths::game::KILN);
+    let mut d = file.parent();
+    while let Some(dir) = d {
+        if dir == game_dir || dir == kiln || !dir.starts_with(&kiln) {
+            break;
+        }
+        if std::fs::remove_dir(dir).is_err() {
+            break;
+        }
+        d = dir.parent();
+    }
+}
+
+/// What `uninstall` left in place (changed files are never deleted).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UninstallReport {
+    pub removed: u32,
+    pub restored: Vec<String>,
+    /// Files that existed before the install with the bundle's bytes (`adopted`): left in place.
+    #[serde(default)]
+    pub adopted: Vec<String>,
+    /// Receipt files whose content changed: left in place.
+    pub kept: Vec<String>,
+}
+
+/// Restores every `replaced` file byte-identically, removes the receipt's files (unchanged ones; `config` files
+/// stay), keeps `kiln/` (mods, configs, data, logs).
+pub fn uninstall(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Progress) -> Result<()> {
+    uninstall_report(dirs, install, progress).map(|_| ())
+}
+
+pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Progress) -> Result<UninstallReport> {
+    let game_dir = install.path.as_path();
+    refuse_busy(install)?;
+    let receipt = read_receipt(game_dir)?
+        .ok_or_else(|| Error::not_found(format!("Kiln is not installed in {} (no kiln/.install.json)", game_dir.display())))?;
+    // The oldest record per path is the original (an upgrade may add newer ones). Check every restore source first:
+    // nothing is removed when an original cannot come back.
+    let mut originals: Vec<&ReplacedFile> = Vec::new();
+    for r in &receipt.replaced {
+        if !originals.iter().any(|o| o.path == r.path) {
+            originals.push(r);
+        }
+    }
+    // adopted originals were there before with the bundle's bytes: they stay where they are
+    let adopted: BTreeSet<String> =
+        originals.iter().filter(|r| r.action == ReplacedAction::Adopted).map(|r| r.path.clone()).collect();
+    originals.retain(|r| r.action != ReplacedAction::Adopted);
+    let source = |r: &ReplacedFile| -> Option<PathBuf> {
+        let ok = |p: PathBuf| file_sha(&p).is_some_and(|(h, _)| h == r.sha256).then_some(p);
+        r.chain_path.as_ref().and_then(|c| ok(game_dir.join(c))).or_else(|| r.backup.as_ref().and_then(|b| ok(game_dir.join(b))))
+    };
+    for r in &originals {
+        if source(r).is_none() {
+            return Err(Error::new(ErrorCode::HashMismatch, format!(
+                "cannot restore the original {}: neither {} nor {} holds it (sha256 {})",
+                r.path,
+                r.chain_path.as_deref().unwrap_or("-"),
+                r.backup.as_deref().unwrap_or("-"),
+                r.sha256
+            )));
+        }
+    }
+    let mut report = UninstallReport::default();
+    let total = receipt.files.len().max(1);
+    for (i, f) in receipt.files.iter().enumerate() {
+        if f.config {
+            continue;
+        }
+        if adopted.contains(&f.path) {
+            report.adopted.push(f.path.clone());
+            continue;
+        }
+        let p = game_dir.join(&f.path);
+        match file_sha(&p) {
+            Some((h, _)) if h == f.sha256 => {
+                std::fs::remove_file(&p).map_err(io_at(&p, "removing"))?;
+                report.removed += 1;
+                remove_empty_parents(game_dir, &p);
+            }
+            Some(_) => report.kept.push(f.path.clone()),
+            None => {}
+        }
+        progress.report(Some(0.8 * (i + 1) as f32 / total as f32), &format!("removed {}", f.path));
+    }
+    for r in &receipt.replaced {
+        if let Some(c) = &r.chain_path {
+            let _ = crate::chain::remove_chain_entry(game_dir, &chain_line(c));
+        }
+    }
+    for r in originals {
+        let target = game_dir.join(&r.path);
+        let src = source(r).expect("checked above");
+        if file_sha(&target).is_some_and(|(h, _)| h != r.sha256) {
+            // something else sits there now (a changed Kiln file we kept): move it into the backup folder
+            let aside = game_dir.join(crate::paths::game::BACKUPS).join(format!("uninstall-{}", ts_compact(now_unix()))).join(&r.path);
+            if let Some(p) = aside.parent() {
+                std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+            }
+            std::fs::rename(&target, &aside).map_err(io_at(&target, "moving aside"))?;
+        }
+        if let Some(p) = target.parent() {
+            std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+        }
+        if r.chain_path.as_ref().is_some_and(|c| game_dir.join(c) == src) {
+            std::fs::rename(&src, &target).map_err(io_at(&target, "restoring"))?;
+        } else {
+            std::fs::copy(&src, &target).map_err(io_at(&target, "restoring"))?;
+        }
+        if file_sha(&target).map(|(h, _)| h) != Some(r.sha256.clone()) {
+            return Err(Error::new(ErrorCode::HashMismatch, format!("restored {} does not match its receipt sha256", r.path)));
+        }
+        report.restored.push(r.path.clone());
+    }
+    let chain_dir = game_dir.join(crate::paths::game::CHAIN_DIR);
+    let _ = std::fs::remove_dir(&chain_dir);
+    let receipt_path = game_dir.join(crate::paths::game::RECEIPT);
+    std::fs::remove_file(&receipt_path).map_err(io_at(&receipt_path, "removing"))?;
+    if let Ok(Some(rec)) = crate::game::record(dirs, &receipt.install_id) {
+        let _ = crate::game::write_record(dirs, &rec.install, None);
+    }
+    progress.report(Some(1.0), &format!(
+        "uninstalled: {} file(s) removed, {} restored, {} adopted file(s) left as they were, {} changed file(s) kept",
+        report.removed,
+        report.restored.len(),
+        report.adopted.len(),
+        report.kept.len()
+    ));
+    Ok(report)
+}
+
+/// Installs an older bundle from `<data>/runtime/` by version.
+pub fn rollback(dirs: &DataDirs, install: &GameInstall, version: &str, progress: &mut dyn Progress) -> Result<InstallReceipt> {
+    let b = crate::bundle::find(dirs, version)?;
+    let current = read_receipt(&install.path)?;
+    let options = InstallOptions {
+        components: current.map(|r| r.runtime.components),
+        switch_from_shroudforge: false,
+        installer: None,
+    };
+    self::install(dirs, install, &b.file, &options, progress)
+}

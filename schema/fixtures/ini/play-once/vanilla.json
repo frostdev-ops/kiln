@@ -1,0 +1,8 @@
+{
+  "now": 1762258200,
+  "expect": {
+    "status": "vanilla",
+    "created": 1762257600,
+    "nonce": "0123456789abcdef"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "protocol": "kap/1",
+  "host": "127.0.0.1",
+  "port": 26021,
+  "pid": 5120,
+  "started": "2026-11-04T12:00:05Z",
+  "kiln": "0.2.0-dev",
+  "admin": "0.2.0",
+  "server": { "id": "srv-4b8e2c", "name": "Ember Isles" },
+  "token": "admin-token",
+  "bridge": "Z:\\srv\\enshrouded\\ember\\shroudforge\\exports\\emberwatch"
+}

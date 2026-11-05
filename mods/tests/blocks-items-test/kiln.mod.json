@@ -1,0 +1,12 @@
+{
+  "id": "blocks-items-test",
+  "name": "item blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksItemsTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "dependencies": { "item-blocks": "*" },
+  "description": "PASS/FAIL lines: what Kiln.Blocks made of ItemBlocks' blocks, player-free. Registration, ids across a restart, stored items, stats and tooltip rows, crafted items through the recipe path, C# and JSON the same, and the errors a mistake gets."
+}

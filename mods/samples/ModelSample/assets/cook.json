@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "comment": "ModelSample's cook recipe (tools/modelcook recipe): the sources are src/*.gltf (procedural, made by tools/modelcook/samples/cube_sword.py); the vanilla inputs are read from the player's own game. Outputs: cooked/ (never committed).",
+  "tool": "modelcook",
+  "out": "cooked",
+  "game": { "side": "client", "madeOn": "1285601" },
+  "inputs": {
+    "bronze_model": { "guid": "9c38c7f0-fd0a-41a6-b91e-9a16287b8f59", "type": "keen::RenderModel",
+                      "comment": "Weapon_T1_1H_SwordEpic_01 (Bronze Sword): model + material" },
+    "bronze_visual": { "guid": "fc562683-2a8e-472b-8c37-db2dfb36d449", "type": "keen::ecs::TemplateResource",
+                       "comment": "its equipment.visualEntity (Visuals_Sword_01_Grassland01)" }
+  },
+  "steps": [
+    { "op": "model", "gltf": "src/cube_sword.gltf", "base": "bronze_model", "guid": "@bronze_model", "mode": "override",
+      "name": "kiln_cube_sword", "stem": "bronze_sword_cube" },
+    { "op": "model", "gltf": "src/tower_sword.gltf", "base": "bronze_model", "guid": "08525f9a-f6f9-46f4-8c3e-003e481d740d",
+      "mode": "new", "name": "kiln_tower_sword", "stem": "tower_sword" },
+    { "op": "visual", "base": "bronze_visual", "model": "08525f9a-f6f9-46f4-8c3e-003e481d740d",
+      "guid": "699ccb5f-97a5-4f31-b257-f13c61952589", "name": "Visuals_Kiln_TowerSword", "stem": "tower_sword_visual" }
+  ]
+}

@@ -1,0 +1,107 @@
+// The engine test's quests: every objective, condition and action kind a lab can reach without a player.
+{ "format": 1,
+  "npcs": {
+    "warden": { "template": "Qe_No_Such_Template", "dialogue": "warden_talk", "names": { "en": "Warden", "de": "Wächter" },
+                "at": [100, 0, 100], "talkRange": 10, "futureKeyOfTheNativeWorker": true },
+    "clerk": { "names": { "en": "Clerk" }, "at": [200, 0, 200] }
+  },
+  "quests": {
+    "chain": {
+      "name": { "en": "The Long Chain", "de": "Die lange Kette" },
+      "description": { "en": "Every objective, in order." },
+      "requires": [ { "level": 3 } ],
+      "steps": [
+        { "id": "hunt", "text": { "en": "Hunt two Vukah near the origin" },
+          "objective": { "kill": { "family": "Vukah", "count": 2, "near": [0, 0, 0], "radius": 500 } } },
+        { "id": "gather", "text": { "en": "Gather three logs" }, "objective": { "collect": { "item": "Material_T1_Wood_Logs", "count": 3 } } },
+        { "id": "go", "text": { "en": "Go to the old road" }, "objective": { "reach": { "at": [10, 0, 10], "radius": 5 } },
+          "marker": { "at": [10, 0, 10], "radius": 5 } },
+        { "id": "walk", "text": { "en": "Walk twenty metres on" }, "objective": { "reach": { "offset": [20, 0, 0], "radius": 3 } } },
+        { "id": "meet", "text": { "en": "Talk to the Warden" }, "objective": { "talk": { "npc": "warden" } } },
+        { "id": "signal", "text": { "en": "Ring the bell twice" }, "objective": { "custom": { "signal": "qe.bell", "count": 2 } } },
+        { "id": "make", "text": { "en": "Craft two logs" }, "objective": { "craft": { "item": "Material_T1_Wood_Logs", "count": 2 } } },
+        { "id": "place", "text": { "en": "Place a prop" }, "objective": { "build": { "prop": "Material_T1_Wood_Logs" } } },
+        { "id": "both", "text": { "en": "Two things at once" },
+          "objectives": [ { "custom": "qe.one" }, { "custom": { "signal": "qe.two", "count": 2 } } ] },
+        { "id": "turnin", "text": { "en": "Hand the logs to the Warden" },
+          "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "warden" } },
+          "onDone": [ { "signal": "qe.turned" } ] }
+      ],
+      "rewards": [ { "xp": 1500 }, { "item": "Material_T1_Wood_Logs", "count": 2 }, { "chat": { "en": "Well done." } } ]
+    },
+    "errand": {
+      "name": { "en": "An Errand" }, "giver": "warden",
+      "steps": [ { "id": "give", "text": { "en": "Bring two logs" },
+                   "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 2, "to": "warden" } } } ],
+      "rewards": [ { "call": "qe.reward" } ]
+    },
+    "from_clerk": {
+      "name": { "en": "Paperwork" }, "giver": "clerk",
+      "steps": [ { "id": "file", "text": { "en": "Bring the Clerk one log" },
+                   "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 1, "to": "clerk" } } } ]
+    },
+    "party_hunt": {
+      "name": { "en": "Hunt Together" }, "scope": "party", "partyRadius": 50,
+      "steps": [ { "id": "kill", "text": { "en": "Kill the pack" }, "objective": { "kill": { "tag": "qe-party", "count": 1 } } } ],
+      "rewards": [ { "xp": 10 } ]
+    },
+    "world_hunt": {
+      "name": { "en": "World Hunt" }, "scope": "world", "auto": true,
+      "steps": [ { "id": "kill", "text": { "en": "Clear two creatures" },
+                   "objective": { "kill": { "tag": "qe-world", "count": 2, "countDestroyed": true } } } ],
+      "rewards": [ { "knowledge": "npc:NPC_Workshop_Bard01.unlock" } ]
+    },
+    "world_know": {
+      "name": { "en": "The Bard Is Back" }, "scope": "world", "auto": true,
+      "requires": [ { "quest": "world_hunt", "is": "active" } ],
+      "steps": [ { "id": "wait", "text": { "en": "Wait for the Bard's unlock" }, "objective": { "knowledge": "npc:NPC_Workshop_Bard01.unlock" } } ],
+      "rewards": [ { "signal": "qe.bard" } ]
+    },
+    "fragile": {
+      "name": { "en": "One Chance" }, "retryable": false, "abandonable": true,
+      "steps": [ { "id": "a", "text": "Do it", "objective": { "custom": "qe.never" } } ],
+      "onFail": [ { "signal": "qe.failed" } ]
+    },
+    "again": {
+      "name": { "en": "Again And Again" }, "repeatable": true,
+      "steps": [ { "id": "a", "text": "Once more", "objective": { "custom": "qe.again" } } ],
+      "rewards": [ { "xp": 1 } ]
+    },
+    "cancel_me": {
+      "name": { "en": "Refused" },
+      "steps": [ { "id": "a", "text": "Never starts", "objective": { "custom": "qe.never" } } ]
+    },
+    "persist": {
+      "name": { "en": "Across Restarts" },
+      "steps": [ { "id": "a", "text": "Five rings", "objective": { "custom": { "signal": "qe.persist", "count": 5 } } },
+                 { "id": "b", "text": "Last ring", "objective": { "custom": "qe.persist.b" } } ]
+    },
+    "plain": {
+      "name": { "en": "Plain" },
+      "steps": [ { "id": "a", "text": "Fine", "objective": { "custom": "qe.never" } } ]
+    },
+    "hidden_one": {
+      "name": { "en": "Hidden" }, "hidden": true, "journal": "chat",
+      "steps": [ { "id": "a", "text": "Secret", "objective": { "custom": "qe.never" } } ]
+    }
+  },
+  "dialogues": {
+    "warden_talk": {
+      "native": false, "comment": "a chat conversation: the synthetic holders of this test talk through /talk's path",
+      "start": "hello",
+      "nodes": {
+        "hello": { "text": { "en": "Halt. What do you want?", "de": "Halt. Was willst du?" },
+                   "voice": "00a3c13d-c08e-403b-8ef6-1925007416f7",
+                   "options": [
+                     { "text": { "en": "Any work?" }, "if": { "quest": "errand", "is": "available" }, "do": [ { "start": "errand" } ], "goto": "started" },
+                     { "text": { "en": "Here are the logs." }, "if": { "step": "errand.give", "is": "active" }, "do": [ { "advance": "errand.give" } ], "goto": "thanks" },
+                     { "text": { "en": "Tell me a secret." }, "if": { "level": 50 }, "goto": "secret" },
+                     { "text": { "en": "Who else knows?" }, "if": { "not": { "item": "Material_T1_Wood_Logs", "count": 1 } }, "goto": "end" },
+                     { "text": { "en": "Farewell." }, "goto": "end" } ] },
+        "started": { "text": { "en": "Bring me two logs." }, "goto": "end" },
+        "thanks": { "text": { "en": "Thanks." }, "do": [ { "signal": "qe.thanked" } ] },
+        "secret": { "text": { "en": "There is none." }, "goto": "end" }
+      }
+    }
+  }
+}

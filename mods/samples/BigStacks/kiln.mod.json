@@ -1,0 +1,9 @@
+{
+  "id": "bigstacks",
+  "name": "Big Stacks",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "BigStacks.dll",
+  "side": "server",
+  "description": "Raises the max stack size of every stackable item (x4, at most 9999; kiln/config/bigstacks.json). Kiln clients get the stack sizes from the server (docs/kiln/sync.md); vanilla clients may show stacks above the normal size oddly."
+}

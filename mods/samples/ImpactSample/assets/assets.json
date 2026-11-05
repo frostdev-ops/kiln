@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "resource",
+      "guid": "aad149f6-5485-4607-875e-62722822c77f",
+      "type": "keen::ImpactProgram",
+      "part": 0,
+      "mode": "new",
+      "file": "cooked/impact/heal_over_time.bin"
+    },
+    {
+      "kind": "resource",
+      "guid": "7e24a487-bff5-4bae-aefc-b273059dc90f",
+      "type": "keen::ImpactProgram",
+      "part": 0,
+      "mode": "new",
+      "file": "cooked/impact/chain_explosion.bin"
+    },
+    {
+      "kind": "resource",
+      "guid": "3db38d34-9ac2-4ebb-8a49-a3774d25b7cd",
+      "type": "keen::ImpactProgram",
+      "part": 0,
+      "mode": "new",
+      "file": "cooked/impact/signal_explosion.bin"
+    },
+    {
+      "kind": "resource",
+      "guid": "3fb2242d-e7b7-4ee2-aed7-b4c8a4c4595e",
+      "type": "keen::ImpactProgram",
+      "part": 0,
+      "mode": "new",
+      "file": "cooked/impact/signal_projectile.bin"
+    }
+  ]
+}

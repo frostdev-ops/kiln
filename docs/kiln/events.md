@@ -1,0 +1,70 @@
+# Kiln event bus (`Kiln.Events`, like Forge's `EVENT_BUS`)
+
+`managed/Kiln.Api/Events.cs`. One bus for every mod and service. Tests: `managed/tests/Kiln.Api.Tests/EventsTests.cs`,
+lab: `mods/tests/api-test`.
+
+## Using it
+```csharp
+public sealed class MyMod : Mod
+{
+    [Subscribe]                                         // registered by Kiln before OnLoad, removed on unload
+    private void OnJoin(PlayerJoinedEvent e) => Log.Info($"{e.Player.Name} joined");
+
+    [Subscribe(EventPriority.High, ReceiveCanceled = true)]
+    private void OnChat(ChatMessageEvent e) { if (e.Text.Contains("badword")) e.Cancel(); }
+
+    public override void OnLoad()
+    {
+        var sub = Events.On<CommandExecutedEvent>(e => Log.Info($"{e.Source} ran {e.Line}"));  // sub.Dispose() to stop
+        var ev = Events.Post(new MyEvent());           // your own event class: tick thread, returns it after dispatch
+    }
+}
+```
+- `Events.On<T>(handler, priority, receiveCanceled)`, `Events.Register(obj)` (its `[Subscribe]` methods; a `Type`: static
+  ones), `Events.Unregister(obj)`, `Events.Post(ev)` (tick thread), `Events.Enqueue(ev)` (any thread, posted at the next
+  step), `Events.HasSubscribers<T>()` (lock-free: two memory reads), `Events.Subscriptions`,
+  `Events.Diagnostics.{Handlers, Posts, HandlerCalls, Queued, ResetStats}`.
+- Order: `Highest, High, Normal, Low, Lowest, Monitor`, then subscription order. A handler of a base class receives
+  derived events (a `KilnEvent` handler receives all).
+- `CancelableEvent`: `Cancel()` / `Canceled`; later handlers are skipped unless `receiveCanceled`; those may un-cancel.
+  `CanceledBy` = mod id of the handler that canceled.
+- `ResultEvent` / `CancelableResultEvent` (Forge `@HasResult`): `Result` = `Default | Allow | Deny`, `Allow()`,
+  `Deny()`, `Decide(vanilla)`.
+- Each handler runs as its mod (`await`, scheduler and service calls are attributed to it). A throwing handler is
+  logged, the others still run; after 5 faults it is removed (`Events.MaxFaults`); `HandlerFaulted` tells the loader.
+- Dispatch works on a snapshot: posting inside a handler works (up to 32 levels, `MaxDepth`); a handler subscribed
+  during dispatch sees the next post; a handler disposed during dispatch does not run any more.
+- Unload: every subscription of a mod ends when it unloads (also the bus's caches of the mod's own event types, so the
+  load context can be collected; verified by `ModLeakTests` and the lab's `gc` control command).
+- Producing an event lazily: an event class's static constructor runs when the first handler subscribes to that class
+  (`PlayerJoinedEvent` starts its pump that way). Build events only when `HasSubscribers<T>()`.
+- Per-handler timing: `EventSubscription.Stats` (calls, total/avg/max ms, faults).
+
+## The service tick (internal)
+`ServiceTick` (Events*.cs) gives Kiln's services one tick without a mod of their own: event pumps, the config and
+permission file watchers, the console folder, `Enqueue`'s queue. Kiln.Host does not drive it yet, so it rides on the
+Pre tick of the first loaded mod (moving on when that mod unloads); its time shows in that mod's tick statistics.
+Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime.Pre` and set
+`ServiceTick.HostDriven = true` (see the api worker's report).
+
+## Events Kiln posts (all on the tick thread)
+
+| Event | Assembly | When | Cancel | Handlers may change |
+|---|---|---|---|---|
+| `ChatMessageEvent` | Kiln.Chat | a player's line (or an injected one), Pre of the step after it arrived, after the `Chat.Received` handlers, before anyone sees it | drop the line: nobody sees it, no command runs | `Text`: the line is dropped and said again by the sender (`Chat.Say`, needs the sender's entity); a rewritten command line runs as the command |
+| `CommandExecutingEvent` | Kiln.Chat | a found command the source may use, before parsing | the command does not run; the source gets `CancelMessage` | `CancelMessage` |
+| `CommandExecutedEvent` | Kiln.Chat | after a command ran, failed to parse, failed or was canceled | - | - (`Result`, `ElapsedMs`) |
+| `PlayerJoinedEvent` / `PlayerLeftEvent` | Kiln.Players | start of the step after kiln.players saw it (same moment as `Players.Joined/Left`); players already in game when you subscribe raise nothing | - | - |
+| `TimeSetEvent` | Kiln.Time | right after `Time.Set` (any mod; `By` = mod id); not for in-game changes | - | - |
+| `DayStartedEvent` / `NightStartedEvent` | Kiln.Time | the day/night phase flipped (also by a set or sleeping); sampled every 12 steps while someone listens | - | - |
+| `SettingChangedEvent` | Kiln.Settings | after `Settings.Set/Reset/ResetAll` changed a value (`By` = mod), or within ~1 s for changes outside Kiln (`By` = "game", polled on the settings revision while someone listens) | - | - |
+| `EntitySpawnedEvent` | Kiln.Spawn | right after `Spawn.Entity/Group/Item` created an entity (not the game's own spawns) | - | - |
+| `EntityDestroyedEvent` | Kiln.Spawn | after `Spawn.Destroy` (`Reason` "destroy") or `Spawn.CleanupTracked` ("cleanup") | - | - |
+| `ItemsGivenEvent` / `ItemsTakenEvent` (base `ItemsTransactionEvent`) | Kiln.Items | when a Kiln.Items give/take completes with something moved (not dry runs), before the caller's task continues | - | - |
+| `ConfigChangedEvent` | Kiln.Api | a config's values changed while running (file edit or `ConfigFile.Set`), after the new values are in place | - | - |
+| `PermissionsChangedEvent` | Kiln.Permissions | permissions.json reloaded/edited or the server's user groups changed | - | - |
+
+Services add their own event classes in their assemblies (combat, gameplay, saves, content, loader): see their
+docs. Added in docs/kiln/services/combat.md and gameplay.md: `EntityKnockbackEvent`, `EntityFallEvent`,
+`EntityHealEvent.Cause` (Hit, Kiln, Regeneration, Attribute) in Kiln.Combat; `EntityJoinLevelEvent`,
+`EntityLeaveLevelEvent` (every entity, filtered by `Gameplay.WatchEntities`) and `ItemTossEvent` in Kiln.Gameplay.

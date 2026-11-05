@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"clients\":\"all\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: clients 'all' must be none, kiln or mod"
+  }
+}

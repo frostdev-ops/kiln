@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "version": "0.2.0-dev+20261104.0f1ffa6",
+  "kiln": "0.2.0-dev",
+  "git": "0f1ffa6",
+  "created": "2026-11-04T10:10:00Z",
+  "abi": 1,
+  "api": "0.2.0",
+  "dotnet": "10.0.0",
+  "components": {
+    "core": { "sides": ["server", "client"], "default": true, "description": "proxy, kiln-core, services, host, .NET, sigdb" },
+    "admin": { "sides": ["server"], "default": true, "requires": ["core"] },
+    "emf": { "sides": ["server", "client"], "default": false, "requires": ["core"] },
+    "samples": { "sides": ["server"], "default": false, "requires": ["core"] }
+  },
+  "files": [
+    { "path": "dinput8.dll", "size": 18944, "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "component": "core" },
+    { "path": "kiln/kiln-core.dll", "size": 912384, "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "component": "core" },
+    { "path": "kiln/kiln.json", "size": 120, "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "component": "core", "config": true },
+    { "path": "kiln/mods/kiln-admin/Kiln.Admin.dll", "size": 102400, "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "component": "admin" },
+    { "path": "kiln/plugins/kiln-emf.dll", "size": 204800, "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "component": "emf" }
+  ],
+  "builds": {
+    "server": [ { "sha256": "c5c9fe50c6398d2adedd98923c2d04bf9d9b4af64c1447ac167cdf8f874ff84f", "svn": 1285601, "verified": true } ],
+    "client": [ { "sha256": "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618", "steamBuild": "26404966", "verified": true } ]
+  }
+}

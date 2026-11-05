@@ -1,0 +1,31 @@
+{
+  // A new sword that wears the new model: its references point at the GUIDs kiln.assets serves (assets/cook.json).
+  "format": 1,
+  "items": {
+    "add": [
+      {
+        "guid": "8c4f1a6e-3d2b-4b7c-a95e-0f6d8b2c4e71",
+        "name": "KilnModel1_Blade",
+        "base": "Weapon_T1_1H_SwordEpic_01",
+        "displayName": "KilnModel1 Blade",
+        "description": "A sword with a model of its own, cooked from glTF.",
+        "refs": {
+          "equipment.visualEntity": "5b8d2e4f-1c7a-4e93-b6f0-3a9c7d1e5b28",
+          "equipment.equipmentEntityModelSetup.model": "e3a5c1d7-48b2-4f69-9a0e-6b7d2c5f8a13",
+          "iconModel": "e3a5c1d7-48b2-4f69-9a0e-6b7d2c5f8a13"
+        }
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "2e7b9d13-5a4c-4f8e-b1d6-9c3a7e5f0b84",
+        "name": "KilnModel1_Blade_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "KilnModel1_Blade", "count": 1 } ]
+      }
+    ]
+  }
+}

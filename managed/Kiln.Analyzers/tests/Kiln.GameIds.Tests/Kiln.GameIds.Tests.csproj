@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tests of the Kiln.GameIds source generator and the path analyzer: the committed synthetic catalog fixture
+       (crates/kiln-manage/src/catalog/testdata/client.json) through a CSharpGeneratorDriver, the generated code compiled
+       against the real Kiln.Content.
+       KILN_CATALOG_TEST=<a real client.json> adds runs over a real catalog (timing, compile, every path in mods/). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Kiln.GameIds/Kiln.GameIds.csproj" />
+    <ProjectReference Include="../../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../../services/Kiln.Content/Kiln.Content.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../../../crates/kiln-manage/src/catalog/testdata/client.json" Link="testdata/client.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

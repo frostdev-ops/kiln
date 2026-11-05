@@ -1,0 +1,9 @@
+{
+  "id": "sync-test",
+  "name": "Kiln sync test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SyncTest.dll",
+  "side": "both",
+  "description": "Server-to-client sync test (docs/kiln/sync.md). Dedicated server: content changes only the server has, [Synced] server/common configs, a control channel for mods/tests/sync-test/synctest.py. Client: checks what arrived (PASS/FAIL lines, a HUD line) and that it goes away on leave."
+}

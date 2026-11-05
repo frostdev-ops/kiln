@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Quests: the managed face of native/services/quests (kiln.knowledge: the game's knowledge, the vanilla journal,
+       dialogue events, the client-knowledge veto; Knowledge*.cs), the quest engine (Engine*, Objectives, Actions, Places, Json,
+       Commands; docs/kiln/services/quests.md) and what it drives in the game's own journal, dialogue menu and map (Native/).
+       Started by Kiln (ServiceTick.AutoStart: Kiln.QuestsStartup). Deployed to kiln/host/ and shared by every mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Quests</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+    <!-- quest engine (Engine*, Objectives*, Actions*, Places*, Json*, Commands*) -->
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Build/Kiln.Build.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+  </ItemGroup>
+</Project>

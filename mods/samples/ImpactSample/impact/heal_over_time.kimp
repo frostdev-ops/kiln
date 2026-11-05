@@ -1,0 +1,35 @@
+; ImpactSample: a buff that heals its target over time. Written from scratch (no vanilla code), so it is a plain
+; mod source. Bind it to a BuffType (gamedata: a buff clone whose `impact` is this program) and apply the buff with
+; applyBuff / an ApplyBuffEvent: the program runs on the buff's own entity for the buff's lifetime.
+.kimp 1
+program aad149f6-5485-4607-875e-62722822c77f
+stack 256
+streams none
+
+var $target    ecs.EntityId                       ; the entity the buff is on (getBuffTarget writes it)
+var $health    AttributeReference = 61f22138-a061-4b3f-a15e-35953e731112   ; Health (attribute id 0x8eb84995)
+var $add       impact_nodes.ValuesMathOperator = Add
+var $old       sint32                             ; changeAttributeValue's scratch (same type as the value)
+var $amount    sint32 config "impactsample.HealPerTick" = 4          ; health per tick
+var $interval  Time   config "impactsample.HealInterval" = 1s        ; time between ticks
+
+code:
+        ecall getBuffTarget($target)
+        pop
+tick:   ecall changeAttributeValue($health, $add, $old, $target, _, $amount) site heal
+        pop
+        gload $interval          ; end = now + interval, kept on the stack
+        ltime
+        iadd
+wait:   dup
+        ltime
+        ileq                     ; end <= now ?
+        brt again
+        rvm                      ; not yet: resume here next step
+        br wait
+again:  pop
+        br tick
+        halt                     ; never reached; every code array ends in halt
+
+shutdown:
+        halt

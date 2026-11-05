@@ -1,0 +1,11 @@
+{
+  "id": "quest-engine-test",
+  "name": "Kiln.Quests test (engine)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "QuestEngineTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Drives the quest engine without a player: synthetic holders through QuestInput for every objective, conversations, events, the sidecar over restarts, reloads; real deaths and destroys for a world quest with a world knowledge reward. Prints PASS/FAIL lines to kiln.log."
+}

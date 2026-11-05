@@ -1,0 +1,16 @@
+.kimp 1
+program 5c0f1f3e-9a1b-4d55-8a39-2f1f6f0e7a10
+stack 256
+streams none
+
+var $self    ecs.EntityId
+var $secs    float32 config "frost-mod.ChillSeconds" = 2.5
+
+code:
+        ecall getSelf($self)
+        pop
+        ecall frost-mod.Chill($self, $secs)
+        pop
+loop:   rvm
+        br loop
+        halt

@@ -1,0 +1,96 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev",
+  "abi": 1,
+  "pid": 412,
+  "written": "2026-11-04T12:01:02Z",
+  "bootMs": 96.4,
+  "side": "client",
+  "exe": {
+    "name": "enshrouded.exe",
+    "sha256": "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618",
+    "verified": true
+  },
+  "policy": "verified-only",
+  "hooks": true,
+  "safeIdle": null,
+  "playOnce": {
+    "mode": "none",
+    "nonce": null
+  },
+  "profile": {
+    "mode": "active",
+    "id": "ember-run",
+    "name": "Ember run",
+    "generation": 7,
+    "file": "Z:\\games\\Enshrouded\\kiln\\profile.json",
+    "error": null,
+    "configDir": "Z:\\home\\user\\.local\\share\\kiln\\profiles\\ember-run\\config",
+    "dataDir": "Z:\\games\\Enshrouded\\kiln\\data",
+    "counts": {
+      "kiln": 2,
+      "native": 1,
+      "plugin": 0,
+      "emf": 1
+    }
+  },
+  "paths": {
+    "game": "Z:\\games\\Enshrouded",
+    "kiln": "Z:\\games\\Enshrouded\\kiln",
+    "mods": "Z:\\games\\Enshrouded\\kiln\\mods",
+    "logs": "Z:\\games\\Enshrouded\\kiln\\logs",
+    "data": "Z:\\games\\Enshrouded\\kiln\\data",
+    "control": "Z:\\games\\Enshrouded\\kiln\\control",
+    "config": "Z:\\home\\user\\.local\\share\\kiln\\profiles\\ember-run\\config",
+    "state": "Z:\\games\\Enshrouded\\kiln\\state"
+  },
+  "chain": [
+    {
+      "path": "Z:\\games\\Enshrouded\\kiln\\chain\\emf-dinput8.dll",
+      "source": "chain",
+      "status": "loaded",
+      "detail": null
+    },
+    {
+      "path": "Z:\\games\\Enshrouded\\creative.dll",
+      "source": "emf",
+      "status": "loaded",
+      "detail": null
+    },
+    {
+      "path": "Z:\\games\\Enshrouded\\kiln\\chain\\shroudforge-dinput8.dll",
+      "source": "chain",
+      "status": "refused",
+      "detail": "shroudforge"
+    },
+    {
+      "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\native\\fps-unlock\\2.0.0+00000000\\fpsunlock.dll",
+      "source": "profile",
+      "status": "loaded",
+      "detail": null
+    }
+  ],
+  "services": [
+    "kiln.example@1",
+    "kiln.profile@1"
+  ],
+  "plugins": [
+    {
+      "file": "kiln-emf.dll",
+      "id": "kiln-emf",
+      "version": "0.2.0-dev",
+      "status": "loaded",
+      "error": null
+    }
+  ],
+  "native": {
+    "loaded": 1,
+    "failed": 0,
+    "pending": 0
+  },
+  "clr": {
+    "started": true,
+    "error": null
+  },
+  "errors": []
+}

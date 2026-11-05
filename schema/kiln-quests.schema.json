@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-quests.schema.json",
+  "title": "Kiln quest chains (quests/*.json), format 1",
+  "description": "A mod's quests, dialogue and quest NPCs, read by Kiln.Quests (managed/services/Kiln.Quests/Json.cs, System.Text.Json: comments and trailing commas allowed) and by the boot build of the game's journal, NPC menu and map markers (native/services/quests/questpack.cpp). A quest and a dialogue are in the game's own UI unless they say otherwise. Beyond the schema, kiln lint checks references across the mod's files: step ids, nodes, goto targets, givers, quests named by conditions and actions, and that the mod says \"clients\": \"mod\". Docs: docs/kiln/modding/quests.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/modding/quests.md",
+  "required": ["format"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "comment": {},
+    "knowledge": {
+      "type": "object",
+      "description": "New knowledge objects of this mod: added to the game's GameKnowledgeResource at boot on the server and on clients with the mod (docs/kiln/services/npcs.md). Name them \"<mod>:<name>\" elsewhere, or by name inside this mod's native lines.",
+      "propertyNames": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/knowledgeObject" }
+    },
+    "npcs": { "type": "object", "propertyNames": { "$ref": "#/$defs/id" }, "additionalProperties": { "$ref": "#/$defs/npc" } },
+    "quests": { "type": "object", "propertyNames": { "$ref": "#/$defs/id" }, "additionalProperties": { "$ref": "#/$defs/quest" } },
+    "dialogues": { "type": "object", "propertyNames": { "$ref": "#/$defs/id" }, "additionalProperties": { "$ref": "#/$defs/dialogue" } }
+  },
+  "x-kiln-unknownKeys": "warning",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "x-kiln-message": "an id: letters, digits, '_' and '-'"
+    },
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "x-kiln-message": "a GUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    },
+    "text": {
+      "description": "A string, or a text per language ({\"en\": \"...\", \"de\": \"...\"}; the game's language keys).",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "object", "propertyNames": { "x-kiln-ref": "languages", "x-kiln-ref-forms": ["name"] }, "additionalProperties": { "type": "string" } }
+      ]
+    },
+    "position": {
+      "description": "Metres: [x, y, z] or {\"x\": x, \"y\": y, \"z\": z}. x east, y up, z north.",
+      "anyOf": [
+        { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }], "minItems": 3, "maxItems": 3 },
+        { "type": "object", "required": ["x", "y", "z"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } } }
+      ]
+    },
+    "item": { "type": "string", "minLength": 1, "description": "An item's name.", "x-kiln-ref": "items", "x-kiln-ref-forms": ["name"] },
+    "template": { "type": "string", "minLength": 1, "description": "A template's name.", "x-kiln-ref": "templates", "x-kiln-ref-forms": ["name"] },
+    "count": { "type": "integer", "minimum": 1 },
+    "near": {
+      "description": "What to search around: \"player\" (who gets there first), an id of npcs, or a place.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/position" } ]
+    },
+    "distance": {
+      "description": "Metres from what it is near: one number, or [min, max]. It widens by itself until a good spot is found.",
+      "anyOf": [ { "type": "number", "minimum": 0 }, { "type": "array", "prefixItems": [{ "type": "number", "minimum": 0 }, { "type": "number", "minimum": 0 }], "minItems": 2, "maxItems": 2 } ]
+    },
+    "site": {
+      "type": "object",
+      "description": "A place found at run time: on real ground (the voxel surface), outside every base, not too steep; one per world.",
+      "properties": {
+        "comment": {},
+        "at": { "$ref": "#/$defs/position" },
+        "near": { "$ref": "#/$defs/near" },
+        "distance": { "$ref": "#/$defs/distance" },
+        "margin": { "type": "number", "minimum": 0, "description": "Metres to keep from a base's build zone (default 20)." },
+        "inBase": { "type": "boolean", "description": "A base is fine (never for enemies: the game pacifies them there and may remove them)." },
+        "exact": { "type": "boolean", "description": "Exactly at: no ground, no base check." }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "stepSpawn": {
+      "type": "object",
+      "required": ["template"],
+      "description": "Creatures the step brings into the world: on real ground outside every base, never saved, checked every second, spawned again when the game removes them, and after a restart or rejoin as many as are still owed.",
+      "properties": {
+        "comment": {},
+        "template": { "$ref": "#/$defs/template" },
+        "count": { "$ref": "#/$defs/count" },
+        "tag": { "type": "string", "minLength": 1, "description": "The Kiln.Spawn tag: a kill objective can name it." },
+        "at": { "$ref": "#/$defs/position" },
+        "near": { "$ref": "#/$defs/near" },
+        "distance": { "$ref": "#/$defs/distance" },
+        "margin": { "type": "number", "minimum": 0 },
+        "spread": { "type": "number", "minimum": 0, "description": "Metres between them (default 4)." },
+        "level": { "type": "integer", "minimum": 0, "description": "The level to spawn at (0: the template's)." },
+        "retries": { "type": "integer", "minimum": 0, "description": "How many times they come back when the game removes them (default 5). Then kiln.log has an error." }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "knowledgeObject": {
+      "type": "object",
+      "properties": {
+        "comment": {},
+        "scope": { "enum": ["world", "player", "both"], "description": "world: shared progress. player (default): per character. both: a world object with a player twin (a player grant also sets the world's)." },
+        "type": { "enum": ["bool", "counter", "flags"], "description": "bool (default), counter, flags." },
+        "expectedFlags": { "type": "integer", "minimum": 0, "description": "Flags: the mask of flags that exist; a grant of another flag is dropped by the game." }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "dialogueLineText": {
+      "description": "A text, or {\"text\": ..., \"voice\": ...}.",
+      "anyOf": [
+        { "$ref": "#/$defs/text" },
+        { "type": "object", "required": ["text"], "properties": { "comment": {}, "text": { "$ref": "#/$defs/text" }, "voice": { "type": "string", "minLength": 1 } }, "x-kiln-unknownKeys": "warning" }
+      ]
+    },
+    "npc": {
+      "type": "object",
+      "description": "An NPC quests and dialogue refer to: a game NPC, or a new one (clone). In the world by itself, or put there by place.",
+      "properties": {
+        "comment": {},
+        "template": { "$ref": "#/$defs/template" },
+        "dialogue": { "type": "string", "description": "The conversation it opens (id of dialogues, or mod:id)." },
+        "names": { "$ref": "#/$defs/text" },
+        "name": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text", "description": "A roster NPC's line on the game's Survivors page: its summon tool's description." },
+        "place": {
+          "type": "object",
+          "description": "Where Kiln puts it, on real ground and outside every base. It checks that the game keeps it there, and says so in kiln.log when not.",
+          "properties": {
+            "comment": {},
+            "at": { "$ref": "#/$defs/position" },
+            "near": { "$ref": "#/$defs/near" },
+            "distance": { "$ref": "#/$defs/distance" },
+            "margin": { "type": "number", "minimum": 0, "description": "Metres to keep from a base's build zone (default 20)." },
+            "inBase": { "type": "boolean", "description": "A base is fine: an NPC that belongs in one." },
+            "exact": { "type": "boolean", "description": "Exactly at: no ground, no base check." },
+            "yaw": { "type": "number" },
+            "once": { "type": "boolean" },
+            "unlock": { "type": "boolean", "description": "The game destroys a roster NPC whose unlock does not hold. true: grant it for this world before placing. false: wait until it holds. Default: true for a game NPC, false for a clone." }
+          },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "at": { "$ref": "#/$defs/position" },
+        "talkRange": { "type": "number", "exclusiveMinimum": 0, "description": "How close a player must be to talk (metres, default 8)." },
+        "clone": {
+          "description": "A new NPC: a copy of template under its own GUID (NpcId = FNV-1a of the GUID), one per world. true: GUID and name derived from the mod and this id. Needs \"clients\": \"mod\".",
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "object", "properties": { "comment": {}, "guid": { "$ref": "#/$defs/guid" }, "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$" } }, "x-kiln-unknownKeys": "warning" }
+          ]
+        },
+        "roster": {
+          "type": "object",
+          "description": "An entry in the game's NPC roster (NpcCollection): the NPC directory, the unlock rule, recruiting and beds. Needs clone. At most 64 roster NPCs in all (the game's 35 included).",
+          "properties": {
+            "comment": {},
+            "unlock": { "type": "string", "minLength": 1, "description": "The knowledge that unlocks it: a name of this mod's knowledge, 0x..., or npc:<debugName>.unlock. None: always unlocked. Locked, the game destroys it." },
+            "roamingRange": { "type": "number", "minimum": 0 },
+            "workshop": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$", "description": "An existing workshop's 0x id: its stock and crafting menu. Default: the base NPC's. A new id has no menu." },
+            "assistant": { "type": "boolean", "description": "isCraftingAssistant." },
+            "summonItem": {
+              "description": "The tool that places or moves it and sends it to a bed: an item's GUID, or an item definition (kiln.content's \"add\" entry: guid, name, base = an NPC tool item; \"refs\": {\"equipment.placedEntity\": <the clone's GUID>}). The game's Survivors list shows this item's name and description for the NPC, so a definition takes both from the NPC's names and description; say what the tool is in its caption or lore.",
+              "anyOf": [ { "$ref": "#/$defs/guid" }, { "type": "object", "required": ["guid", "name", "base"] } ]
+            }
+          },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "vendor": {
+          "type": "object",
+          "description": "Its stock: kiln.content recipes (\"add\" entries), with station = its workshop's 0x id. A clone shares its base's workshop, so the stock shows at the base's NPC too.",
+          "properties": { "comment": {}, "recipes": { "type": "array", "items": { "type": "object", "required": ["guid", "name"] } } },
+          "x-kiln-unknownKeys": "warning"
+        }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "quest": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "comment": {},
+        "name": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text" },
+        "giver": { "type": "string", "description": "The NPC who offers it. A quest with a giver starts through that NPC, an action or code." },
+        "scope": { "enum": ["player", "party", "world"], "description": "player (default), party (players within partyRadius share credit, each gets rewards), world (one shared state)." },
+        "partyRadius": { "type": "number", "exclusiveMinimum": 0 },
+        "main": { "type": "boolean" },
+        "auto": { "type": "boolean", "description": "Starts by itself as soon as it is available." },
+        "repeatable": { "type": "boolean" },
+        "retryable": { "type": "boolean", "description": "Can start again after it failed or was given up (default true)." },
+        "abandonable": { "type": "boolean", "description": "Players may give it up (default true; never a world quest)." },
+        "hidden": { "type": "boolean", "description": "Not listed until it is active." },
+        "source": { "enum": ["None", "Flame", "Blacksmith", "Alchemist", "Huntress", "Farmer", "Carpenter", "CryptKeeper", "Bard", "ChineseNewYearTrader", "Barber", "Fisher", "AncientResearcher", "Grassland", "Deepforest", "Steppes", "Desert", "ColdHeights", "Wetlands", "AncientLands"], "description": "The journal's portrait (keen::QuestSourceType). Default None." },
+        "priority": { "type": "integer", "minimum": 0, "description": "Its order in the journal (the game uses 40..100; default 50)." },
+        "journal": { "enum": ["native", "chat"], "description": "native (the default): the game's own journal, notifications and map markers; the mod says \"clients\": \"mod\", because clients build them from the mod's files. chat: chat lines and /quests, for a mod vanilla clients join, whom the game's UI cannot reach." },
+        "requires": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } },
+        "rewards": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "onStart": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "onFail": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "step": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "comment": {},
+        "id": { "$ref": "#/$defs/id" },
+        "text": { "$ref": "#/$defs/text" },
+        "title": { "$ref": "#/$defs/text", "description": "The step's short name in the journal; default its text." },
+        "voice": { "type": "string", "minLength": 1, "description": "A voice-over line of the step in the journal." },
+        "recommendedLevel": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "objective": { "$ref": "#/$defs/objective" },
+        "objectives": { "type": "array", "items": { "$ref": "#/$defs/objective" } },
+        "marker": {
+          "description": "The step's map marker. A step with a place (site, spawn, a reach or kill place, an NPC to talk to or deliver to) has one by itself; this names it or moves it. false: none.",
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "object",
+              "properties": {
+                "comment": {},
+                "at": { "$ref": "#/$defs/position" },
+                "radius": { "type": "number", "minimum": 0 },
+                "waypoint": { "type": "boolean", "description": "Also write the player's waypoint, the game's own map and compass pin (default true)." },
+                "name": { "$ref": "#/$defs/text", "description": "The map marker's name; default the step's text." },
+                "base": { "$ref": "#/$defs/template", "description": "The marker template to copy (default a search-area label)." }
+              },
+              "x-kiln-unknownKeys": "warning"
+            }
+          ]
+        },
+        "site": { "$ref": "#/$defs/site" },
+        "spawn": {
+          "description": "Creatures the step brings into the world: one or a list.",
+          "anyOf": [ { "$ref": "#/$defs/stepSpawn" }, { "type": "array", "items": { "$ref": "#/$defs/stepSpawn" } } ]
+        },
+        "onEnter": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "onDone": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "objective": {
+      "type": "object",
+      "description": "One of kill, collect, deliver, reach, talk, craft, build, knowledge, custom.",
+      "anyOf": [
+        { "required": ["kill"] }, { "required": ["collect"] }, { "required": ["deliver"] }, { "required": ["reach"] }, { "required": ["talk"] },
+        { "required": ["craft"] }, { "required": ["build"] }, { "required": ["knowledge"] }, { "required": ["custom"] }
+      ],
+      "x-kiln-message": "an objective needs one of kill, collect, deliver, reach, talk, craft, build, knowledge, custom",
+      "properties": {
+        "comment": {},
+        "text": { "$ref": "#/$defs/text" },
+        "count": { "$ref": "#/$defs/count" },
+        "kill": {
+          "type": "object",
+          "anyOf": [{ "required": ["template"] }, { "required": ["family"] }, { "required": ["tag"] }],
+          "x-kiln-message": "kill needs template, family or tag",
+          "properties": {
+            "comment": {},
+            "template": { "$ref": "#/$defs/template" },
+            "family": { "type": "string", "minLength": 1, "description": "Part of the template's name." },
+            "tag": { "type": "string", "minLength": 1, "description": "The Kiln.Spawn tag." },
+            "count": { "$ref": "#/$defs/count" },
+            "near": { "$ref": "#/$defs/position" },
+            "radius": { "type": "number", "exclusiveMinimum": 0 },
+            "countDestroyed": { "type": "boolean", "description": "Kiln.Spawn destroying a match counts too." }
+          },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "collect": {
+          "type": "object",
+          "required": ["item"],
+          "properties": { "comment": {}, "item": { "$ref": "#/$defs/item" }, "count": { "$ref": "#/$defs/count" } },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "deliver": {
+          "type": "object",
+          "required": ["item"],
+          "properties": { "comment": {}, "item": { "$ref": "#/$defs/item" }, "count": { "$ref": "#/$defs/count" }, "to": { "type": "string", "description": "The NPC who takes the items." } },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "reach": {
+          "type": "object",
+          "anyOf": [{ "required": ["at"] }, { "required": ["position"] }, { "required": ["offset"] }, { "required": ["marker"] }, { "required": ["site"] }],
+          "x-kiln-message": "reach needs at, offset, marker or site",
+          "properties": {
+            "comment": {},
+            "at": { "$ref": "#/$defs/position" },
+            "position": { "$ref": "#/$defs/position" },
+            "site": { "type": "boolean", "description": "The step's site is the place." },
+            "offset": { "$ref": "#/$defs/position", "description": "From where the player stood when the step started." },
+            "marker": { "$ref": "#/$defs/template", "description": "A template's name: the nearest entity of it is the place." },
+            "radius": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "talk": {
+          "type": "object",
+          "required": ["npc"],
+          "properties": {
+            "comment": {},
+            "npc": { "type": "string", "description": "An id of npcs, a template's name, or npc:<debugName>." },
+            "line": { "type": "string", "description": "A dialogue line: line:..., 0x..., or <dialogue>.<node>.<option> of this mod." },
+            "node": { "type": "string", "description": "A node of a chat conversation that must be reached." }
+          },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "craft": {
+          "type": "object",
+          "anyOf": [{ "required": ["item"] }, { "required": ["recipe"] }],
+          "x-kiln-message": "craft needs item or recipe",
+          "properties": { "comment": {}, "item": { "$ref": "#/$defs/item" }, "recipe": { "type": "string", "pattern": "^(0[xX])?[0-9a-fA-F]+$", "x-kiln-ref": "recipes", "x-kiln-ref-forms": ["id"] }, "count": { "$ref": "#/$defs/count" } },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "build": {
+          "type": "object",
+          "required": ["prop"],
+          "properties": { "comment": {}, "prop": { "$ref": "#/$defs/item" }, "count": { "$ref": "#/$defs/count" } },
+          "x-kiln-unknownKeys": "warning"
+        },
+        "knowledge": {
+          "description": "A knowledge name that must hold: npc:..., quest:..., query:..., line:..., 0x... .",
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "object", "required": ["id"], "properties": { "comment": {}, "id": { "type": "string", "minLength": 1 } }, "x-kiln-unknownKeys": "warning" }
+          ]
+        },
+        "custom": {
+          "description": "A signal's name (Quests.Signal, the signal action).",
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "object", "required": ["signal"], "properties": { "comment": {}, "signal": { "type": "string", "minLength": 1 }, "count": { "$ref": "#/$defs/count" } }, "x-kiln-unknownKeys": "warning" }
+          ]
+        }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "condition": {
+      "type": "object",
+      "description": "One of knowledge, level, quest, step, item, predicate, all, any, not. Checked on the server.",
+      "anyOf": [
+        { "required": ["knowledge"] }, { "required": ["level"] }, { "required": ["quest"] }, { "required": ["step"] }, { "required": ["item"] },
+        { "required": ["predicate"] }, { "required": ["all"] }, { "required": ["any"] }, { "required": ["not"] }
+      ],
+      "x-kiln-message": "a condition needs one of knowledge, level, quest, step, item, predicate, all, any, not",
+      "properties": {
+        "comment": {},
+        "knowledge": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1 },
+        "quest": { "type": "string", "minLength": 1 },
+        "step": { "type": "string", "pattern": "\\.", "x-kiln-message": "a step is quest.step" },
+        "is": { "enum": ["locked", "available", "active", "done", "failed", "started", "pending", true, false], "description": "Quest: locked, available, active, done, failed, started. Step: pending, active, done. Default done. Knowledge: true (the default) or false." },
+        "item": { "$ref": "#/$defs/item" },
+        "count": { "$ref": "#/$defs/count" },
+        "predicate": { "type": "string", "minLength": 1, "description": "A name registered with Quests.RegisterPredicate." },
+        "all": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "any": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "not": { "$ref": "#/$defs/condition" }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "action": {
+      "type": "object",
+      "description": "One of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, toast, waypoint, talk, signal, call.",
+      "anyOf": [
+        { "required": ["xp"] }, { "required": ["item"] }, { "required": ["take"] }, { "required": ["knowledge"] }, { "required": ["revoke"] }, { "required": ["start"] },
+        { "required": ["complete"] }, { "required": ["fail"] }, { "required": ["advance"] }, { "required": ["reset"] }, { "required": ["spawn"] }, { "required": ["despawn"] },
+        { "required": ["teleport"] }, { "required": ["chat"] }, { "required": ["toast"] }, { "required": ["waypoint"] }, { "required": ["talk"] }, { "required": ["signal"] }, { "required": ["call"] }
+      ],
+      "x-kiln-message": "an action needs one of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, toast, waypoint, talk, signal, call",
+      "properties": {
+        "comment": {},
+        "xp": { "type": "number", "minimum": 0, "description": "Experience through kiln.progression (as a quest reward)." },
+        "item": { "$ref": "#/$defs/item" },
+        "take": { "$ref": "#/$defs/item" },
+        "count": { "$ref": "#/$defs/count" },
+        "knowledge": { "type": "string", "minLength": 1, "description": "Grants it: npc:....unlock, quest:..., 0x... ." },
+        "value": { "type": "integer", "minimum": 0, "description": "knowledge: a counter's amount or a flag's number." },
+        "revoke": { "type": "string", "minLength": 1, "description": "Clears that id only: what the game already did because of it stays." },
+        "flag": { "type": "integer", "minimum": -1, "maximum": 31, "description": "revoke: one flag of a Flags object (-1: all)." },
+        "target": { "enum": ["world", "player"], "description": "knowledge, revoke: default the player's object if the id has one, else the world's." },
+        "start": { "type": "string", "minLength": 1 },
+        "force": { "type": "boolean" },
+        "complete": { "type": "string", "minLength": 1 },
+        "fail": { "type": "string", "minLength": 1 },
+        "advance": { "type": "string", "minLength": 1, "description": "quest or quest.step: finishes the current step (a deliver objective takes its items now)." },
+        "reset": { "type": "string", "minLength": 1 },
+        "spawn": { "$ref": "#/$defs/template" },
+        "at": { "$ref": "#/$defs/position" },
+        "offset": { "$ref": "#/$defs/position", "description": "spawn, teleport, waypoint: from the player." },
+        "yaw": { "type": "number" },
+        "tag": { "type": "string", "minLength": 1 },
+        "bindNpc": { "type": "string", "minLength": 1, "description": "spawn: the entity becomes this NPC of npcs." },
+        "transient": { "type": "boolean", "description": "spawn: never written to the save." },
+        "exact": { "type": "boolean", "description": "spawn: exactly at the place given. Otherwise on real ground, outside every base." },
+        "despawn": { "type": "string", "minLength": 1, "description": "Destroys the entities Kiln spawned with this tag." },
+        "teleport": { "$ref": "#/$defs/position" },
+        "chat": { "$ref": "#/$defs/text" },
+        "toast": { "$ref": "#/$defs/text", "description": "A chat line: Kiln has no toasts of its own any more. The game's notifications follow the journal." },
+        "kind": { "enum": ["info", "success", "warning", "error"] },
+        "waypoint": {
+          "description": "[x, y, z] sets the player's waypoint, false clears it, true with offset is relative to the player.",
+          "anyOf": [{ "type": "boolean" }, { "$ref": "#/$defs/position" }]
+        },
+        "talk": { "type": "string", "minLength": 1, "description": "Opens this dialogue as a chat conversation. The game's own menu opens only when a player talks to the NPC." },
+        "node": { "type": "string", "minLength": 1 },
+        "signal": { "type": "string", "minLength": 1 },
+        "amount": { "$ref": "#/$defs/count" },
+        "call": { "type": "string", "minLength": 1, "description": "A name registered with Quests.RegisterAction." }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "dialogue": {
+      "type": "object",
+      "required": ["nodes"],
+      "properties": {
+        "comment": {},
+        "start": { "type": "string", "minLength": 1, "description": "The first node (default \"start\")." },
+        "nodes": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/node" } },
+        "greet": { "type": "boolean", "description": "The start node's text is a greeting. Default: true on a clone, false on a game NPC (its own greetings stay)." },
+        "native": { "type": "boolean", "description": "true (the default): lines in the game's own NPC menu, with the game's voice playback (needs \"clients\": \"mod\"): the start node's text is the greeting, each option a topic whose reply is the target node's text. false: a chat conversation through /talk, for a mod vanilla clients join. docs/kiln/services/npcs.md." },
+        "hint": { "enum": ["None", "Hint", "Attention", "MainQuest"], "description": "The marker over the NPC's head on the greeting." },
+        "greetings": {
+          "type": "array",
+          "description": "More greetings; shown before the plain one while their condition holds.",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": { "comment": {}, "if": { "$ref": "#/$defs/condition" }, "text": { "$ref": "#/$defs/text" }, "voice": { "type": "string", "minLength": 1 }, "hint": { "enum": ["None", "Hint", "Attention", "MainQuest"] } },
+            "x-kiln-unknownKeys": "warning"
+          }
+        },
+        "farewell": { "type": "array", "description": "Replaces the NPC's farewell lines.", "items": { "$ref": "#/$defs/dialogueLineText" } },
+        "transition": { "type": "array", "description": "Replaces the line between topics.", "items": { "$ref": "#/$defs/dialogueLineText" } }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "node": {
+      "type": "object",
+      "properties": {
+        "comment": {},
+        "speaker": { "$ref": "#/$defs/text" },
+        "text": { "$ref": "#/$defs/text" },
+        "voice": { "type": "string", "minLength": 1, "description": "A voice-over line, played by the game's dialogue: a name in the mod's cooked audio or a GUID of the game's." },
+        "hint": { "enum": ["None", "Hint", "Attention", "MainQuest"], "description": "The marker over the NPC's head on this node's greeting." },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/option" } },
+        "goto": { "type": "string", "minLength": 1, "description": "A chat conversation's node without options: where it goes on; \"end\" or none ends it." },
+        "do": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+      },
+      "x-kiln-unknownKeys": "warning"
+    },
+    "option": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "comment": {},
+        "text": { "$ref": "#/$defs/text" },
+        "if": { "$ref": "#/$defs/condition" },
+        "do": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "goto": { "type": "string", "minLength": 1, "description": "The next node: its text is the reply, and its options join the NPC's topics from then on. \"end\" or none: nothing more." },
+        "reply": { "$ref": "#/$defs/text", "description": "What the NPC answers; default the target node's text, else the option's own text." },
+        "voice": { "type": "string", "minLength": 1, "description": "The reply's voice-over; default the target node's." },
+        "set": { "type": "array", "description": "Knowledge the game itself sets when the line runs (at most 8 operations with the node gate).", "items": { "type": "string", "minLength": 1 } },
+        "once": { "type": "boolean", "description": "The topic goes away once heard." },
+        "close": { "type": "boolean", "description": "The NPC plays its outro after the reply." },
+        "hint": { "enum": ["None", "Hint", "Attention", "MainQuest"], "description": "The topic's marker." }
+      },
+      "x-kiln-unknownKeys": "warning"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[package]
+name = "kilnctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Runs Enshrouded dedicated servers with Kiln under Wine on Linux (SteamCMD, no Steam client)"
+publish.workspace = true
+
+[dependencies]
+kiln-manage = { path = "../../crates/kiln-manage", features = ["server", "zip"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+
+# A member of the root workspace (../../Cargo.toml); release profile and version come from there.

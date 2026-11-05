@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of the mod-facing API backbone: event bus, config, typed commands, permissions, console folder. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Permissions/Kiln.Permissions.csproj" />
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
+    <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
+    <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <!-- Built first so the leak test can load it into a collectible context. -->
+    <ProjectReference Include="../../../mods/tests/api-test/ApiTest.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

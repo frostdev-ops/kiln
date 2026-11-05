@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "name": "Ember Isles",
+  "version": "3",
+  "created": "2026-11-04T12:00:00Z",
+  "server": { "id": "srv-4b8e2c", "name": "Ember Isles" },
+  "kiln": ">=0.2.0-dev",
+  "mods": [
+    { "kind": "kiln", "id": "isle-icons", "version": "1.1.0", "path": "kiln/isle-icons", "hash": "kdh1:aa00bb11cc22dd33ee44ff5566778899aabbccddeeff00112233445566778899", "clients": "mod", "side": "both" }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.abilities: the Impact VM. registerNative (native registry capture + Kiln natives), getProgram (ImpactRegistry map), createImpactInstance (new instances), runImpact (first-run overrides, hold, the instance lookup). Found on svn 1285601 (exe c5c9fe50...) from the interpreter/runImpact/impact_initialize decompiles of docs/re/abilities.md; layouts as typed holes. Instance data (+0x18) and data size (+0x20) are fixed values the service checks against the program at run time. TriggerSequence (0x369d0) is the game's own helper that 80 programs (death, fall damage, player actions) use to start an action sequence through ActorInput.triggerContext.",
+  "symbols": {
+    "abilities/RegisterNative": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 48 89 74 24 20 89 54 24 10 55 57 41 56 48 8B EC 48 83 EC 70 49 8B 79 08 48 8D 45 D8 41 0F 10 09 45 33 F6 48 89 45 B8 48 C7 45 C8 {abilities/natives.name_cap:d32} 8B DA 4C 89 75 D0 48 8D 71 {abilities/natives.map:d8}"
+        }
+      ]
+    },
+    "abilities/GetProgram": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 7C 24 10 83 B9 {abilities/programs.count:d32} 00 4C 8B D1 48 8B 59 {abilities/programs.cap:d8} 74 ?? 48 8B 79 {abilities/programs.bits:d8} 48 8D 43 FF 44 8B C2 49 23 C0 4C 8B C0 0F B6 C8 49 C1 E8 06 4E 8B 0C C7 49 D3 E9 41 F6 C1 01 74 ?? 4D 8B 9A {abilities/programs.keys:d32} 41 39 14 83 74 ?? 48 8D 48 01 33 C0 48 3B CB 48 0F 42 C1 4C 8B C0 0F B6 C8 49 C1 E8 06 4E 8B 0C C7 49 D3 E9 41 F6 C1 01 75 ?? 33 C0 48 8B 5C 24 08 48 8B 7C 24 10 C3 48 3B C3 73 ?? 49 8B 8A {abilities/programs.values:d32} 48 8D 04 C1"
+        }
+      ]
+    },
+    "abilities/CreateInstance": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 53 57 41 54 41 55 48 8B EC 48 83 EC 50 4C 8B E9 41 8B F8 48 8B 49 {abilities/system.registry:d8} 8B DA E8 ?? ?? ?? ?? 4C 8B E0 48 85 C0"
+        }
+      ]
+    },
+    "@abilities/CreateInstance.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "abilities/CreateInstance",
+            "size": 256
+          },
+          "pattern": "41 89 5E {abilities/inst.program:d8} 41 89 7E {abilities/inst.entity:d8} 66 41 C7 86 {abilities/inst.sp:d32} FF FF"
+        }
+      ]
+    },
+    "abilities/RunImpact": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 40 49 8B F8 4C 8B D1 E8 {abilities/InstanceLookup:rel32} 48 8B D8 48 85 C0 0F 84 ?? ?? ?? ?? 8B 50 {abilities/inst.program:d8} 49 8B 4A {abilities/system.registry:d8} E8"
+        }
+      ]
+    },
+    "@abilities/RunImpact.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "abilities/RunImpact",
+            "size": 160
+          },
+          "pattern": "E8 ?? ?? ?? ?? 0F B6 83 {abilities/inst.flags:d32} 0C 02"
+        }
+      ]
+    },
+    "abilities/TriggerSequence": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B EA 49 8B F8 4C 8B F1 33 D2 41 B8 {abilities/actor.trigger_size:d32} 41 8B D9 48 8D 4D {abilities/actor.trigger_context:d8} E8 ?? ?? ?? ?? 8B 07 48 8B 74 24 60 89 44 24 30 48 8B 47 08 48 8B 7C 24 68 48 89 44 24 28 0F B6 85 {abilities/actor.trigger_counter:d32} 88 44 24 34 0F B7 44 24 70 F2 0F 10 4C 24 30 66 89 45 {abilities/actor.trigger_type:d8} 0F B6 44 24 78 89 5C 24 20 0F 10 54 24 20 48 8B 5C 24 50 88 45 22 49 8B C6"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "abilities/natives.name_cap": {},
+    "abilities/natives.map": {},
+    "abilities/programs.count": {},
+    "abilities/programs.cap": {},
+    "abilities/programs.bits": {},
+    "abilities/programs.keys": {},
+    "abilities/programs.values": {},
+    "abilities/system.registry": {
+      "min_votes": 2
+    },
+    "abilities/inst.program": {
+      "min_votes": 2
+    },
+    "abilities/inst.entity": {},
+    "abilities/inst.sp": {},
+    "abilities/inst.flags": {},
+    "abilities/actor.trigger_size": {},
+    "abilities/actor.trigger_context": {},
+    "abilities/actor.trigger_counter": {},
+    "abilities/actor.trigger_type": {}
+  },
+  "features": {
+    "abilities.natives": {
+      "symbols": [
+        "abilities/RegisterNative"
+      ],
+      "constants": [
+        "abilities/natives.name_cap",
+        "abilities/natives.map"
+      ]
+    },
+    "abilities.programs": {
+      "symbols": [
+        "abilities/GetProgram"
+      ],
+      "constants": [
+        "abilities/programs.count",
+        "abilities/programs.cap",
+        "abilities/programs.bits",
+        "abilities/programs.keys",
+        "abilities/programs.values",
+        "abilities/system.registry"
+      ]
+    },
+    "abilities.instances": {
+      "symbols": [
+        "abilities/CreateInstance",
+        "abilities/RunImpact",
+        "abilities/InstanceLookup",
+        "abilities/GetProgram"
+      ],
+      "constants": [
+        "abilities/inst.program",
+        "abilities/inst.entity",
+        "abilities/inst.flags",
+        "abilities/system.registry"
+      ]
+    },
+    "abilities.attributes": {
+      "symbols": [
+        "combat/AttrFind",
+        "combat/AttrAdd",
+        "GetComponent"
+      ]
+    },
+    "abilities.sequences": {
+      "symbols": [
+        "abilities/TriggerSequence",
+        "GetComponent"
+      ],
+      "constants": [
+        "abilities/actor.trigger_size",
+        "abilities/actor.trigger_context",
+        "abilities/actor.trigger_counter",
+        "abilities/actor.trigger_type",
+        "storage.clock",
+        "storage.clock_period",
+        "world.storage"
+      ]
+    }
+  }
+}

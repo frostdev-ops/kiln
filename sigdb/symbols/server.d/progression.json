@@ -1,0 +1,248 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.players progression (kiln.progression): level, experience, skill tree, skill-point knowledge. Calls into the game's own code captured from its own call sites: player_level (0xd3bf0), the skill unlock/unlearn handlers of player_skilltree (0xbbc60, 0xbbab0), the skill-point total (0xaa810), the knowledge points sum (0x99e500) and the knowledge trigger input (0x1bc140). Evidence in docs/re/progression.md. Service: kiln.players.",
+  "symbols": {
+    "@players/PlayerLevel.attr": {
+      "find": [
+        {
+          "pattern": "48 8D 4D 00 BA {players/attr.level:d32} E8 {players/AttrFind:rel32} 44 0F B6 65 00 45 84 E4"
+        }
+      ]
+    },
+    "@players/PlayerLevel.cap": {
+      "find": [
+        {
+          "pattern": "48 8B 4D ?? E8 {players/LevelCap:rel32} 8B B5 ?? ?? 00 00 3B F0 0F 82 ?? ?? 00 00"
+        }
+      ]
+    },
+    "@players/PlayerLevel.pending": {
+      "find": [
+        {
+          "pattern": "4C 8B C7 BA {players/attr.pending:d32} E8 ?? ?? ?? ?? 0F B6 4D 40 45 33 FF 84 C9 74 09 41 0F B7 C7 E9 ?? ?? ?? ?? 48 8B 45 48 0F B7 40 0C 0F B7 C8 48 85 DB 0F 84 ?? ?? ?? ?? F6 43 06 01 0F 84 ?? ?? ?? ?? 44 0F B7 43 04 48 8B D7 4C 03 C3 45 89 3C 88 48 8B CB E8 {players/AttrRecompute:rel32}"
+        }
+      ]
+    },
+    "@players/PlayerLevel.need": {
+      "find": [
+        {
+          "pattern": "83 FE 01 0F 85 ?? ?? ?? ?? 48 8B 55 ?? 8B CE E8 {players/XpForLevel:rel32}"
+        },
+        {
+          "pattern": "4C 8B C7 BA {players/attr.need:d32} E8 ?? ?? ?? ?? 0F B6 8D 80 00 00 00 84 C9 74 09 41 0F B7 C7 E9 ?? ?? ?? ?? 48 8B 85 88 00 00 00 0F B7 40 0C 0F B7 C8 48 85 DB 0F 84 ?? ?? ?? ?? F6 43 06 01 0F 84 ?? ?? ?? ?? 44 0F B7 43 04 48 8B D7 4C 03 C3 41 89 34 88 48 8B CB E8 {players/AttrRecomputeNeed:rel32}"
+        }
+      ]
+    },
+    "@players/PlayerLevel.event": {
+      "find": [
+        {
+          "pattern": "48 8B CF E8 {players/JobProgramId:rel32} 48 8B CF 0F B7 D8 E8 {players/JobEventBuffer:rel32} 44 0F B7 CB BA 5E 78 83 41 41 B8 {players/event.level_up_size:d32} 48 8B C8 E8 {players/EmitEvent:rel32}"
+        },
+        {
+          "pattern": "48 8B D8 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 8D ?? ?? 00 00 48 8D 95 ?? ?? 00 00 E8 {players/ProgramTime:rel32} 48 8D 95 ?? ?? 00 00 48 8B 08 48 89 0B"
+        }
+      ]
+    },
+    "@players/SkillUnlock.calls": {
+      "find": [
+        {
+          "pattern": "8B CB 4C 89 BC 24 80 00 00 00 E8 {players/SkillReachable:rel32} 84 C0 74 ?? 48 8B 96 {players/skill.iter_tree:d32} 8B CB E8 {players/SkillNodeById:rel32}"
+        },
+        {
+          "pattern": "48 8B 96 ?? 00 00 00 44 8B CB 8B 00 89 44 24 20 E8 {players/SkillPointsTotal:rel32} 48 8B BE ?? 00 00 00 48 8D 4E 20 E8 ?? ?? ?? ?? 48 8D 4E 20 48 8D 58 20 E8 ?? ?? ?? ?? 4C 8B C7 48 8B D3 48 8B C8 E8 {players/SkillPointsSpent:rel32} 41 0F B7 8F {players/skill.node_costs:d32}"
+        },
+        {
+          "pattern": "48 8B 96 ?? 00 00 00 4C 8B CB 41 8B 0F 41 B0 01 E8 {players/SkillNodeSet:rel32} 84 C0"
+        }
+      ]
+    },
+    "@players/SkillUnlearn.calls": {
+      "find": [
+        {
+          "pattern": "48 8B 4F 20 4D 8B C7 49 8B D6 E8 {players/SkillUiRebuild:rel32} 84 C0"
+        },
+        {
+          "pattern": "48 8B 4F 20 48 8B D5 E8 {players/SkillTreeConnected:rel32} 84 C0"
+        }
+      ]
+    },
+    "@players/SkillPoints.parts": {
+      "find": [
+        {
+          "pattern": "4C 8D 44 24 60 48 8D 4C 24 20 E8 {players/KnowledgePointsOf:rel32} 48 8B CE E8 {players/SkillPointsPerLevel:rel32} 8B D0 8D 4F FF 0F AF D1"
+        }
+      ]
+    },
+    "@players/KnowledgePoints.index": {
+      "find": [
+        {
+          "pattern": "48 8B D3 44 89 64 24 58 48 8B CE C6 44 24 5C FF E8 {players/KnowledgeIndex:rel32} 48 8B C8 49 3B C7"
+        }
+      ]
+    },
+    "@players/KnowledgeInput.push": {
+      "find": [
+        {
+          "pattern": "8B 08 E8 {players/KnowledgePlayerContext:rel32} 48 8B 4D ?? 48 8D 55 ?? 89 45 ?? E8 {players/KnowledgeQueuePush:rel32} 84 C0"
+        }
+      ]
+    },
+    "@players/KnowledgePoints.layout": {
+      "find": [
+        {
+          "pattern": "40 38 AA {players/know.single:d32} 74 05 41 8B C4 EB 05 41 8B 00 FF C8 48 8D 34 C0 48 C1 E6 04 48 03 B2 {players/know.blocks:d32} 40 38 AE {players/know.block_valid:d32}"
+        },
+        {
+          "pattern": "48 8B 42 {players/know.data:d8} 48 8B 40 {players/know.data_resource:d8} 48 85 C0 0F 84 ?? ?? ?? ?? 48 63 48 {players/know.skill_points:d8} 48 83 C0 ?? 48 89 5C 24 50"
+        },
+        {
+          "pattern": "4C 8B 7E {players/know.block_capacity:d8} 66 66 66 0F 1F 84 00 00 00 00 00 48 8B D3 44 89 64 24 58"
+        },
+        {
+          "pattern": "48 8B 46 {players/know.block_values:d8} 48 8B 04 C8 85 C0 74 04"
+        }
+      ]
+    },
+    "@players/KnowledgePointsOf.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "players/KnowledgePointsOf",
+            "size": 32
+          },
+          "pattern": "48 8B 52 {players/know.system:d8} 48 8B D9 E8 {players/KnowledgePoints:rel32}"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "players/attr.level": {
+      "value": 1917580648
+    },
+    "players/attr.pending": {
+      "value": 494784770
+    },
+    "players/attr.need": {
+      "value": 74596194
+    },
+    "players/attr.xp": {
+      "value": 2379078388
+    },
+    "players/event.level_up": {
+      "value": 1099135070
+    },
+    "players/event.xp_gained": {
+      "value": 1565618651
+    },
+    "players/skill.iter_tree": {
+      "min_votes": 1
+    },
+    "players/skill.node_costs": {
+      "value": 132
+    },
+    "players/event.level_up_size": {
+      "value": 56
+    },
+    "players/event.xp_gained_size": {
+      "value": 24
+    },
+    "players/know.single": {
+      "min_votes": 1
+    },
+    "players/know.blocks": {
+      "min_votes": 1
+    },
+    "players/know.block_valid": {
+      "min_votes": 1
+    },
+    "players/know.data": {
+      "min_votes": 1
+    },
+    "players/know.data_resource": {
+      "min_votes": 1
+    },
+    "players/know.skill_points": {
+      "min_votes": 1
+    },
+    "players/know.block_capacity": {
+      "min_votes": 1
+    },
+    "players/know.block_values": {
+      "min_votes": 1
+    },
+    "players/know.block_stride": {
+      "value": 144
+    },
+    "players/know.system": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "players.progression": {
+      "symbols": [
+        "players/AttrFind",
+        "players/LevelCap",
+        "players/XpForLevel",
+        "players/AttrRecompute",
+        "players/AttrRecomputeNeed"
+      ],
+      "constants": [
+        "players/attr.level",
+        "players/attr.pending",
+        "players/attr.need",
+        "players/attr.xp"
+      ]
+    },
+    "players.progression_events": {
+      "symbols": [
+        "players/JobProgramId",
+        "players/JobEventBuffer",
+        "players/EmitEvent",
+        "players/ProgramTime"
+      ],
+      "constants": [
+        "players/event.level_up",
+        "players/event.level_up_size",
+        "players/event.xp_gained",
+        "players/event.xp_gained_size"
+      ]
+    },
+    "players.skills": {
+      "symbols": [
+        "players/SkillReachable",
+        "players/SkillNodeById",
+        "players/SkillPointsTotal",
+        "players/SkillPointsSpent",
+        "players/SkillNodeSet",
+        "players/SkillUiRebuild",
+        "players/SkillTreeConnected",
+        "players/SkillPointsPerLevel"
+      ],
+      "constants": [
+        "players/skill.node_costs"
+      ]
+    },
+    "players.skill_knowledge": {
+      "symbols": [
+        "players/KnowledgePointsOf",
+        "players/KnowledgePoints",
+        "players/KnowledgeIndex",
+        "players/KnowledgePlayerContext",
+        "players/KnowledgeQueuePush"
+      ],
+      "constants": [
+        "players/know.system",
+        "players/know.single",
+        "players/know.blocks",
+        "players/know.block_valid",
+        "players/know.data",
+        "players/know.data_resource",
+        "players/know.skill_points",
+        "players/know.block_capacity",
+        "players/know.block_values",
+        "players/know.block_stride"
+      ]
+    }
+  }
+}

@@ -1,0 +1,3939 @@
+{
+ "format": 1,
+ "comment": "Config vocabulary of the vanilla programs: configId -> value-node names (aliases usable in .kimp `config <alias>`), variable types, number of programs.",
+ "build": {
+  "kfc": "1285601|^/game38/branches/release_1.0|2026-11-03T10:13:01.005543Z"
+ },
+ "programs": 571,
+ "configs": [
+  {
+   "id": "0xe5254945",
+   "aliases": [
+    "PushBackStrength",
+    "PushBack",
+    "Pushback",
+    "PushbackValueNONE",
+    "PushBackForceValueNode",
+    "PushBackStrength_SKILL"
+   ],
+   "types": [
+    "impact.PushBackForce"
+   ],
+   "programs": 144,
+   "source": "program"
+  },
+  {
+   "id": "0xbf09083f",
+   "aliases": [
+    "Material",
+    "material",
+    "material1",
+    "MaterialValueNode",
+    "mat",
+    "Material1"
+   ],
+   "types": [
+    "MaterialFeedbackId"
+   ],
+   "programs": 137,
+   "source": "program"
+  },
+  {
+   "id": "0xad3ce69b",
+   "aliases": [
+    "HitDirection",
+    "MajortDirection",
+    "MajorDirectionValueNode",
+    "HitDirection1"
+   ],
+   "types": [
+    "impact.MajorDirection"
+   ],
+   "programs": 129,
+   "source": "program"
+  },
+  {
+   "id": "0x81dae9e7",
+   "aliases": [
+    "hitReactionType",
+    "HitReactionType",
+    "HitReactionNONE",
+    "hitReactionType_Normal",
+    "HitReactionTypeValueNode",
+    "hitReaction"
+   ],
+   "types": [
+    "impact.HitReactionType"
+   ],
+   "programs": 126,
+   "source": "program"
+  },
+  {
+   "id": "0xae79ac62",
+   "aliases": [
+    "CanBeBlocked",
+    "False",
+    "BoolValueNode"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 116,
+   "source": "program"
+  },
+  {
+   "id": "0x242c6bbe",
+   "aliases": [
+    "AttackCategory"
+   ],
+   "types": [
+    "impact.AttackCategoryMask"
+   ],
+   "programs": 104,
+   "source": "program"
+  },
+  {
+   "id": "0xa19409b2",
+   "aliases": [
+    "NoiseRange",
+    "noiseRange"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 102,
+   "source": "program"
+  },
+  {
+   "id": "0x72864524",
+   "aliases": [
+    "Damage",
+    "DamageSetup",
+    "DamageSetupValueNode",
+    "Damage1",
+    "FireDamage",
+    "FogDamage"
+   ],
+   "types": [
+    "impact.DamageSetup",
+    "sint32"
+   ],
+   "programs": 100,
+   "source": "program"
+  },
+  {
+   "id": "0xf6a785cd",
+   "aliases": [
+    "SpawnTemplate",
+    "SpawnImpact",
+    "TemplateValueNode",
+    "Template",
+    "SpawnTemplate_Pre",
+    "GroundHitTemplate"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 94,
+   "source": "program"
+  },
+  {
+   "id": "0x854ea8fa",
+   "aliases": [
+    "AttackMod",
+    "mod",
+    "impact_nodes2.FloatValueNode",
+    "FloatValueNode",
+    "attackMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 90,
+   "source": "program"
+  },
+  {
+   "id": "0x5333fdf6",
+   "aliases": [
+    "DamageScaleAttribute"
+   ],
+   "types": [
+    "AttributeReference"
+   ],
+   "programs": 77,
+   "source": "program"
+  },
+  {
+   "id": "0xf6b26932",
+   "aliases": [
+    "WeaponCategory",
+    "WeaponCategoryValueNode"
+   ],
+   "types": [
+    "WeaponCategoryReference"
+   ],
+   "programs": 74,
+   "source": "program"
+  },
+  {
+   "id": "0x5adb2644",
+   "aliases": [
+    "BuffType",
+    "DebuffType",
+    "Buff1",
+    "Buff",
+    "BuffTypeID",
+    "BuffValueNode"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 64,
+   "source": "program"
+  },
+  {
+   "id": "0x2692e2d8",
+   "aliases": [
+    "canCrit",
+    "impact_nodes1.BoolValueNode",
+    "CanCrit"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 63,
+   "source": "program"
+  },
+  {
+   "id": "0xe21b4b72",
+   "aliases": [
+    "WaitTime",
+    "Interval",
+    "TimeValueNode",
+    "WaitTime2",
+    "wait",
+    "Duration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 55,
+   "source": "program"
+  },
+  {
+   "id": "0x6c2fad6d",
+   "aliases": [
+    "Range",
+    "range",
+    "TriggerRange"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 53,
+   "source": "program"
+  },
+  {
+   "id": "0x952ec6b4",
+   "aliases": [
+    "WaitDuration",
+    "ResetRate",
+    "TimeValueNodedelay_reset"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 48,
+   "source": "program"
+  },
+  {
+   "id": "0x49aeed9a",
+   "aliases": [
+    "SpecialAbilityGain",
+    "Sint32ValueNode"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 45,
+   "source": "program"
+  },
+  {
+   "id": "0xde1695c2",
+   "aliases": [
+    "ChanceValue",
+    "Chance",
+    "chance",
+    "TotalSpawnChance",
+    "ChanceValue1",
+    "ChanceValueWhenBuffed1"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 43,
+   "source": "program"
+  },
+  {
+   "id": "0x9f0ed751",
+   "aliases": [
+    "staminaMod",
+    "StaminaMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 36,
+   "source": "program"
+  },
+  {
+   "id": "0x0a0c87e7",
+   "aliases": [
+    "Value",
+    "Value1",
+    "mulfloast"
+   ],
+   "types": [
+    "float32",
+    "sint32",
+    "uint32"
+   ],
+   "programs": 35,
+   "source": "program"
+  },
+  {
+   "id": "0x81456618",
+   "aliases": [
+    "Debuff1",
+    "Debuff",
+    "DeBuffType"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 33,
+   "source": "program"
+  },
+  {
+   "id": "0x4baa194c",
+   "aliases": [
+    "Ammunition"
+   ],
+   "types": [
+    "ItemId"
+   ],
+   "programs": 31,
+   "source": "program"
+  },
+  {
+   "id": "0x374644c0",
+   "aliases": [
+    "Offset",
+    "Offset1"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 30,
+   "source": "program"
+  },
+  {
+   "id": "0x0b9b7299",
+   "aliases": [
+    "Normal"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 27,
+   "source": "program"
+  },
+  {
+   "id": "0x130a0ef2",
+   "aliases": [
+    "DebuffDuration",
+    "BuffDuration",
+    "TimeValue"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 25,
+   "source": "program"
+  },
+  {
+   "id": "0x43c916cd",
+   "aliases": [
+    "Buff4",
+    "Buff2",
+    "Buff3",
+    "Buff5",
+    "Buff6"
+   ],
+   "types": [
+    "BuffTypeReference",
+    "ecs.TemplateReference"
+   ],
+   "programs": 21,
+   "source": "program"
+  },
+  {
+   "id": "0xefd367d7",
+   "aliases": [
+    "SpawnOffset",
+    "Float3ValueNode",
+    "offset",
+    "OffsetMultiplier"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 20,
+   "source": "program"
+  },
+  {
+   "id": "0x765574f2",
+   "aliases": [
+    "InitialWaitTime",
+    "InitialWaitDuration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 19,
+   "source": "program"
+  },
+  {
+   "id": "0xaa1f9d8c",
+   "aliases": [
+    "PostWaitTime",
+    "SpawnDelay",
+    "Max_AddtionalTime"
+   ],
+   "types": [
+    "Time",
+    "float32"
+   ],
+   "programs": 19,
+   "source": "program"
+  },
+  {
+   "id": "0xbc34a504",
+   "aliases": [
+    "AttackVariation"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 18,
+   "source": "program"
+  },
+  {
+   "id": "0xb1058d3c",
+   "aliases": [
+    "HitReaction",
+    "HitReaction_SKILL"
+   ],
+   "types": [
+    "impact.HitReactionType"
+   ],
+   "programs": 18,
+   "source": "program"
+  },
+  {
+   "id": "0x928ebfe3",
+   "aliases": [
+    "DamageTerraformingSetup",
+    "DamageTerraformingSetup1"
+   ],
+   "types": [
+    "impact.DamageTerraformingSetup"
+   ],
+   "programs": 18,
+   "source": "program"
+  },
+  {
+   "id": "0x5258131e",
+   "aliases": [
+    "RangeTerraforming",
+    "RangeTerraformingDefault"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 18,
+   "source": "program"
+  },
+  {
+   "id": "0xd6bba431",
+   "aliases": [
+    "IgnoreConsecutiveHits",
+    "ignoreConcec",
+    "ingnoreConsecutiveHits",
+    "Bool"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 17,
+   "source": "program"
+  },
+  {
+   "id": "0x36f0ee47",
+   "aliases": [
+    "Attribute",
+    "AttributeBuff"
+   ],
+   "types": [
+    "AttributeReference",
+    "float32"
+   ],
+   "programs": 17,
+   "source": "program"
+  },
+  {
+   "id": "0x220e6b10",
+   "aliases": [
+    "UsedItem",
+    "UsedItem",
+    "Ammunition1"
+   ],
+   "types": [
+    "ItemId"
+   ],
+   "programs": 17,
+   "source": "program"
+  },
+  {
+   "id": "0x29aa2976",
+   "aliases": [
+    "SpawnTemplate_Post",
+    "SpawnTemplate2",
+    "impactVFXtemplate",
+    "SpawnTemplate_EXPLOSION_VFX",
+    "SpecialSpawnTemplate"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 16,
+   "source": "program"
+  },
+  {
+   "id": "0x5e34f09b",
+   "aliases": [
+    "Scaled_Damage_Cut",
+    "Scaled_Damage_Fire",
+    "Scaled_Damage_Fog",
+    "Scaled_Damage_Poison",
+    "ScaledValue_CutDamage",
+    "Scaled_Damage_Pierce_OnPunctured"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 16,
+   "source": "program"
+  },
+  {
+   "id": "0xf76e2e08",
+   "aliases": [
+    "AdditionalTimeValue",
+    "VFXWaitDuration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 16,
+   "source": "program"
+  },
+  {
+   "id": "0x6bbe50b9",
+   "aliases": [
+    "TerraformingType"
+   ],
+   "types": [
+    "TerraformingType"
+   ],
+   "programs": 15,
+   "source": "program"
+  },
+  {
+   "id": "0x663d391d",
+   "aliases": [
+    "TimeValues",
+    "LifeTime",
+    "TiemValues",
+    "time"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 15,
+   "source": "program"
+  },
+  {
+   "id": "0x65d4559d",
+   "aliases": [
+    "MovementMod",
+    "MovementPushbackMod",
+    "MovementRotationMod",
+    "Float",
+    "DepletionMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 15,
+   "source": "program"
+  },
+  {
+   "id": "0x521cf707",
+   "aliases": [
+    "Direction"
+   ],
+   "types": [
+    "impact.MajorDirection"
+   ],
+   "programs": 14,
+   "source": "program"
+  },
+  {
+   "id": "0xec54a581",
+   "aliases": [
+    "ManaGain",
+    "ManaVfx",
+    "Int",
+    "SpawnEntityTemplate"
+   ],
+   "types": [
+    "sint32",
+    "ecs.TemplateReference",
+    "float32"
+   ],
+   "programs": 14,
+   "source": "program"
+  },
+  {
+   "id": "0x842dd732",
+   "aliases": [
+    "canBeBlocked"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 13,
+   "source": "program"
+  },
+  {
+   "id": "0xb0921c70",
+   "aliases": [],
+   "types": [
+    "impact.DamageSetup"
+   ],
+   "programs": 12,
+   "source": "program"
+  },
+  {
+   "id": "0xbee6d4a9",
+   "aliases": [
+    "PrimerBuffDuration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 12,
+   "source": "program"
+  },
+  {
+   "id": "0xa92ea7be",
+   "aliases": [
+    "SpawnEntityOnTick"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 12,
+   "source": "program"
+  },
+  {
+   "id": "0x4683e0c2",
+   "aliases": [
+    "DebuffType2"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 11,
+   "source": "program"
+  },
+  {
+   "id": "0x279d8671",
+   "aliases": [],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 11,
+   "source": "program"
+  },
+  {
+   "id": "0xf62f45c7",
+   "aliases": [
+    "BaseDamge"
+   ],
+   "types": [
+    "uint32",
+    "sint32"
+   ],
+   "programs": 10,
+   "source": "program"
+  },
+  {
+   "id": "0xa22ca171",
+   "aliases": [
+    "Stamina_Recharge",
+    "StaminaRecharge_Value",
+    "Stamina_Recharge_Increase"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 10,
+   "source": "program"
+  },
+  {
+   "id": "0xc24ecbbb",
+   "aliases": [
+    "Health_Recharge",
+    "Sint33",
+    "Sint",
+    "RegenAmount"
+   ],
+   "types": [
+    "sint32",
+    "float32"
+   ],
+   "programs": 9,
+   "source": "program"
+  },
+  {
+   "id": "0xa1e86444",
+   "aliases": [
+    "Entity",
+    "OrbTemplate"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 9,
+   "source": "program"
+  },
+  {
+   "id": "0x04a4c1ab",
+   "aliases": [
+    "localOffset",
+    "Offset3"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 9,
+   "source": "program"
+  },
+  {
+   "id": "0x43101755",
+   "aliases": [
+    "Debuff2",
+    "BuffValueNode_heavy"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 8,
+   "source": "program"
+  },
+  {
+   "id": "0xe6ddff32",
+   "aliases": [
+    "Scaling_ChanceValue",
+    "ChanceValueWhenBuffed"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 8,
+   "source": "program"
+  },
+  {
+   "id": "0x6fd2639a",
+   "aliases": [
+    "SpawnOnHeal"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 8,
+   "source": "program"
+  },
+  {
+   "id": "0x4684c4f4",
+   "aliases": [
+    "PrimedBuffType"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0x6fcbc14e",
+   "aliases": [
+    "Stamina_Max_Adder",
+    "Stamina_Max_Base"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xb38cdad3",
+   "aliases": [
+    "VFXDebuffInhibitor"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xe1f53c39",
+   "aliases": [
+    "FactionMaskValueNode"
+   ],
+   "types": [
+    "FactionMask"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xc043837c",
+   "aliases": [
+    "worldOffset"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xa33ec42c",
+   "aliases": [],
+   "types": [
+    "impact.PushBackForce"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xdb1d0ec9",
+   "aliases": [],
+   "types": [
+    "impact.HitReactionType"
+   ],
+   "programs": 7,
+   "source": "program"
+  },
+  {
+   "id": "0xff08435f",
+   "aliases": [
+    "mulValue",
+    "StamDamageMul"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x3ac0d6b8",
+   "aliases": [
+    "addValue",
+    "BaseStamDamage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x424ee99c",
+   "aliases": [
+    "Freezing_Resistance_Value",
+    "FreezingResistanceValue"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x4e133b42",
+   "aliases": [
+    "Mana_Recharge"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0xcdfaf8a5",
+   "aliases": [
+    "Mana_Max_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x9d74c0c0",
+   "aliases": [
+    "Health_Max_Adder",
+    "Constitution_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0xf99ee229",
+   "aliases": [
+    "FogResistanceGain"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x02c40c87",
+   "aliases": [
+    "count",
+    "c",
+    "Count"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0xe4c8a5bb",
+   "aliases": [
+    "Template1"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0x38bf447e",
+   "aliases": [
+    "StaminaDamageImpactTemplate",
+    "VfxTemplateTrail",
+    "SpawnOnTargetTemplate"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 6,
+   "source": "program"
+  },
+  {
+   "id": "0xe781e1d2",
+   "aliases": [
+    "Speed",
+    "Speed1",
+    "Speed2"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0xda684468",
+   "aliases": [
+    "PrimerBuffType",
+    "BuffType1"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0xc1ba3f52",
+   "aliases": [
+    "FogResistance_MaxAdder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0xd71ceb33",
+   "aliases": [
+    "Oxygen_Max_Adder",
+    "OxygenMaxAdder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x632632f4",
+   "aliases": [
+    "Endurance_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x99da0000",
+   "aliases": [
+    "Dexterity_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x284fe87e",
+   "aliases": [
+    "Strenght_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x119ae9db",
+   "aliases": [
+    "Intelligence_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x70d3dbd8",
+   "aliases": [
+    "Spirit_Adder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x3ff81f2b",
+   "aliases": [],
+   "types": [
+    "Time"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x5c6c2085",
+   "aliases": [
+    "PushbackDirectionOverride"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x3e51395f",
+   "aliases": [
+    "Projectile",
+    "tem"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0xe4c0dcc6",
+   "aliases": [
+    "DamageSusceptibility_Ice",
+    "DamageSusceptibility_Ice_Value",
+    "IceSusceptibility_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x3a2e2067",
+   "aliases": [],
+   "types": [
+    "Time"
+   ],
+   "programs": 5,
+   "source": "program"
+  },
+  {
+   "id": "0x7dc0d093",
+   "aliases": [
+    "HealPercentage",
+    "HealthPercentage",
+    "HealthThresholdPercentage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x0a45cc65",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xd8f493f3",
+   "aliases": [
+    "Volume"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xe9263470",
+   "aliases": [
+    "RangeTerraformingAdd"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x55a957cc",
+   "aliases": [
+    "RangeTerraformingFlatten"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xade471a0",
+   "aliases": [
+    "Up",
+    "StartAngle"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x3fa36403",
+   "aliases": [
+    "VFXWaitDuration1"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x2c5a3379",
+   "aliases": [
+    "DaggerDamageMultiplier",
+    "WeaponCategoryDamageMod_Daggers_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x8a9684ff",
+   "aliases": [
+    "DamageMod_Vs_Wildbeast_Wildlife",
+    "DamageMod_Vs_Wildlife_Wildbeast"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xc0d6755c",
+   "aliases": [
+    "RangedDamageMultiplier"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x4bf0438d",
+   "aliases": [
+    "MagicDamageMultiplier"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x0f614860",
+   "aliases": [
+    "MeleeDamageMuliplier",
+    "MeleeDamageMultiplier"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x17920fcc",
+   "aliases": [
+    "PushBackStrength_Overpowering",
+    "PushBackStrengthOverpowering"
+   ],
+   "types": [
+    "impact.PushBackForce"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xc106d384",
+   "aliases": [
+    "SusceptabilityValue",
+    "DamageMod",
+    "DamageMod_Against_Fogger_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x81e34683",
+   "aliases": [
+    "impact_nodes4.FloatValueNode"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x0c7e1ddd",
+   "aliases": [
+    "DebuffType1"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0xb482fc33",
+   "aliases": [
+    "TemplateValue"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 4,
+   "source": "program"
+  },
+  {
+   "id": "0x47602e4b",
+   "aliases": [
+    "SpecialSpawnChance"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x536ed7da",
+   "aliases": [
+    "StandardSpawnTemplate",
+    "SpawnTemplate_Post2"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xf45d1ad5",
+   "aliases": [
+    "OrbMultiplier_Mana",
+    "OrbMultiplier_Mana1"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x1ef169b2",
+   "aliases": [
+    "Scaled_LevelOverwrite",
+    "ScaledValue_SpawnLevel"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xb4b12090",
+   "aliases": [
+    "Skill"
+   ],
+   "types": [
+    "SkillNodeId"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x00ee8e92",
+   "aliases": [
+    "Scaled_Damage_Heal",
+    "HealthDevider",
+    "HealthGain"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xe609ad5f",
+   "aliases": [
+    "DamageMod_Fire_All_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x8ebd4150",
+   "aliases": [
+    "StaminaGain",
+    "Gain"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x361fd150",
+   "aliases": [
+    "StaminaChange",
+    "HealthPercentageToStaminaPercentageMultiplier"
+   ],
+   "types": [
+    "sint32",
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x6c5a64fb",
+   "aliases": [
+    "ManaChange"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xbbe4bf53",
+   "aliases": [
+    "HealthChange"
+   ],
+   "types": [
+    "sint32",
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x2e6d56ea",
+   "aliases": [
+    "Sint32",
+    "Health"
+   ],
+   "types": [
+    "sint32",
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x5d8dc70d",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x8da96747",
+   "aliases": [
+    "DamageBuff"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xc9c2d7f1",
+   "aliases": [
+    "ScaledValue_BuffDuration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x8d21777b",
+   "aliases": [
+    "regmod",
+    "StaminaReduction"
+   ],
+   "types": [
+    "float32",
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x9106dde8",
+   "aliases": [
+    "ScaledValue_HealthGain"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x6489a096",
+   "aliases": [
+    "BoolValueNode_DebuffCanBeBlocked"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x5bc6cb10",
+   "aliases": [],
+   "types": [
+    "bool"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xcec0a96e",
+   "aliases": [
+    "BuffTypeTier3",
+    "BuffTypeTier"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x541dea90",
+   "aliases": [
+    "BuffTypeTier2"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xb93c6a85",
+   "aliases": [
+    "BuffTypeTier1"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x71c6311b",
+   "aliases": [
+    "DamageMod_Vs_Fogger"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x952443da",
+   "aliases": [
+    "DamageSusceptibility_Poison_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x44a1db58",
+   "aliases": [
+    "IgnoreSameRoot"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x45f1fc62",
+   "aliases": [
+    "Duration1"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x1f3f6379",
+   "aliases": [
+    "AttackMod1"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xb677e38b",
+   "aliases": [
+    "DoOverpower"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x2c9f18a9",
+   "aliases": [
+    "SpawnTemplate_OnHit"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x0ec62178",
+   "aliases": [
+    "EntityTagValueNode",
+    "EntityTagValueNode_heavy",
+    "tag"
+   ],
+   "types": [
+    "ecs.EntityTagReference"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xfdb5598b",
+   "aliases": [
+    "EntityIdValueNode"
+   ],
+   "types": [
+    "ecs.EntityId"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0x41f97f36",
+   "aliases": [
+    "Value2"
+   ],
+   "types": [
+    "float32",
+    "sint32"
+   ],
+   "programs": 3,
+   "source": "program"
+  },
+  {
+   "id": "0xe395f2c8",
+   "aliases": [
+    "ScaledValue_ManaGain"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x9fa40585",
+   "aliases": [
+    "Value3"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x590f73b2",
+   "aliases": [
+    "OrbMultiplier_Stanima1",
+    "OrbMultiplier_Stanima"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x2cb66809",
+   "aliases": [
+    "Constitution"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x27128c79",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x28d1fa88",
+   "aliases": [],
+   "types": [
+    "float32",
+    "float3"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x550cd550",
+   "aliases": [
+    "ManaPercentage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xcea1d67e",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xcbf6e0f8",
+   "aliases": [
+    "DamageSusceptibility_Physical_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x227b4be8",
+   "aliases": [
+    "SimultanousDamagePreventerBuffValueNode"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xb70e7d4d",
+   "aliases": [],
+   "types": [
+    "Time"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xebb0bfd0",
+   "aliases": [],
+   "types": [
+    "sint32",
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x98999ba2",
+   "aliases": [
+    "speed_remap1.min"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x27786445",
+   "aliases": [
+    "speed_remap.max"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x88a3f957",
+   "aliases": [
+    "wait_min"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x8f20bef8",
+   "aliases": [
+    "wait_max"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xb318264a",
+   "aliases": [
+    "impact_nodes5.FloatValueNode"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x3fe8cd82",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xefeb803a",
+   "aliases": [
+    "DamageMod_Vs_Scavenger",
+    "DamageMod_Against_Scavenger_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xac8c19b0",
+   "aliases": [
+    "DamageMod_Lightning_All_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x0fc00cf7",
+   "aliases": [
+    "DamageMod_Fog_All_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x23a293ea",
+   "aliases": [
+    "DamageMod_Ice_All_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xccd66550",
+   "aliases": [
+    "DamageSusceptibility_Lightning_Value",
+    "LightningSusceptibility_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x380afcfb",
+   "aliases": [
+    "DamageSusceptibility_Magical_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x36ad2b3f",
+   "aliases": [
+    "DamageSusceptibility_Fire_Value",
+    "IceSusceptibility_Value1"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xbc3567e0",
+   "aliases": [
+    "FogResistance_Max"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xd6b512ea",
+   "aliases": [
+    "Velocity"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x709c7c9d",
+   "aliases": [
+    "Template2",
+    "NoTargetSpawnEntity"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x2fd280c2",
+   "aliases": [
+    "CooldownDebuffDuration",
+    "CoodownDebuffDuration"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xfdfe0945",
+   "aliases": [
+    "Attribute2"
+   ],
+   "types": [
+    "AttributeReference"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x23ba5d4a",
+   "aliases": [
+    "ExperienceGain"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x6e279a98",
+   "aliases": [
+    "DamageTerraformingSetup2"
+   ],
+   "types": [
+    "impact.DamageTerraformingSetup"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x51504ff5",
+   "aliases": [],
+   "types": [
+    "MaterialFeedbackId"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x8d145b41",
+   "aliases": [],
+   "types": [
+    "impact.AttackCategoryMask"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x49d7c77a",
+   "aliases": [
+    "Debuff2Duration",
+    "DebuffDuration1"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xceaa0c91",
+   "aliases": [
+    "OrbMultiplier_Health_SKILL",
+    "OrbMultiplier_Health"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0xaa9dd7b5",
+   "aliases": [
+    "Uint32ValueNode"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x703d61ca",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x79f6d3f1",
+   "aliases": [
+    "hp"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x5653316e",
+   "aliases": [
+    "TemplateMartyr"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 2,
+   "source": "program"
+  },
+  {
+   "id": "0x963ebe20",
+   "aliases": [
+    "BashSkillDmg"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xfaf3b41b",
+   "aliases": [
+    "ScaledValue_Damage_Fire"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xcc845864",
+   "aliases": [
+    "Value4"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xd4b64e19",
+   "aliases": [
+    "AddAsSphere"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x867736f3",
+   "aliases": [
+    "ScaledUint_StaminaRechargeIncrease"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb58d778a",
+   "aliases": [
+    "ScaledUint_HealthRechargeIncrease"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x62acdc61",
+   "aliases": [
+    "ScaledUint_ManaRechargeIncrease"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x581f75ff",
+   "aliases": [
+    "HealthRegenTimeout"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xa8338df8",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x85141bbc",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x65c04eb8",
+   "aliases": [],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x8fbfcd98",
+   "aliases": [],
+   "types": [
+    "Time"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xf163cccc",
+   "aliases": [
+    "Dmg_V_Skeleton"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2b9400b4",
+   "aliases": [
+    "PhysicalArmorAdder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2ec994d1",
+   "aliases": [
+    "MagicalArmorAdder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb80394a0",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x6f307db7",
+   "aliases": [
+    "AttackModTier1",
+    "AttackModTier"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb8f00949",
+   "aliases": [
+    "AttackModTier2"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x0dd9e684",
+   "aliases": [
+    "AttackModTier3"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x792c9656",
+   "aliases": [
+    "ToolDamageMod_Stone_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x4f131323",
+   "aliases": [
+    "ToolDamageMod_Metal_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xf1b836e7",
+   "aliases": [
+    "StaminaDepletionMod_SwimDive_Sprint"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xed8fb868",
+   "aliases": [
+    "CritDamageMod_Vs_Soaked_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2449e993",
+   "aliases": [
+    "CritChance_Adder_Vs_Soaked_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xdd78acc9",
+   "aliases": [
+    "WetDurationReduction_Value"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x89b23603",
+   "aliases": [
+    "DamageMod_Vs_Vukah1",
+    "DamageMod_Vs_Vukah"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xf1d0d1fb",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x872b0f6e",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueGreatSword"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7d0c6890",
+   "aliases": [
+    "SwimDive_SprintSpeed"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x774a1f25",
+   "aliases": [
+    "DamageModSneakAttack_Base"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xd7d954a7",
+   "aliases": [
+    "DamageMod_Vs_Drak"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xcf6f6645",
+   "aliases": [
+    "ToolDamageMod_Wood_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xa15f443a",
+   "aliases": [
+    "StaminaDamageMod_Ranged_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x4eaf813a",
+   "aliases": [
+    "StaminaDamageMod_Melee_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x45956b2e",
+   "aliases": [
+    "StaminaDamageMod_Magic_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x56345f65",
+   "aliases": [
+    "DamageSusceptibility_Cut_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x3b81eac7",
+   "aliases": [
+    "DamageSusceptibility_Blunt_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x65cb1473",
+   "aliases": [
+    "DamageSusceptibility_Fog_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xab37e63c",
+   "aliases": [
+    "DamageSusceptibility_Pierce_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x3a7fc1f1",
+   "aliases": [
+    "Armor_Physical_Blowthrough_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xf3ff4c70",
+   "aliases": [
+    "Armor_Physical_Mod_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x41aeb679",
+   "aliases": [
+    "Armor_Magical_Mod_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x0c7b1679",
+   "aliases": [
+    "Armor_Magical_Blowthrough_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x26a98c21",
+   "aliases": [
+    "ArmorPoints_Magical_Value"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x44e356cd",
+   "aliases": [
+    "Revive_Healing_Percentage_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x90047da6",
+   "aliases": [
+    "StaminaDepletionMod_Glider_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe3b0c9ec",
+   "aliases": [
+    "ArmorPoints_Physical_Value"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe20db1ed",
+   "aliases": [
+    "StaminaDepletionMod_Sprint_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x145deed5",
+   "aliases": [
+    "StaminaDepletionMod_Climb_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x960fdcb4",
+   "aliases": [
+    "MeleeDamageMultiplier_Lightning"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x166a1f53",
+   "aliases": [
+    "MeleeDamageMultiplier_Blunt"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x9232a9b3",
+   "aliases": [
+    "MeleeDamageMultiplier_Cut"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xf84a1961",
+   "aliases": [
+    "MeleeDamageMultiplier_Pierce"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x963f9b0b",
+   "aliases": [
+    "MagicDamageMultiplier_Fire"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x515d2b39",
+   "aliases": [
+    "MagicDamageMultiplier_Fog"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x519f172a",
+   "aliases": [
+    "MagicDamageMultiplier_Ice"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x111dfd04",
+   "aliases": [
+    "MagicDamageMultiplier_Lightning"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x20af1101",
+   "aliases": [
+    "MagicDamageMultiplier_Blunt"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x8b0a1510",
+   "aliases": [
+    "MagicDamageMultiplier_Cut"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x8fa2f504",
+   "aliases": [
+    "MagicDamageMultiplier_Pierce"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xeebeb083",
+   "aliases": [
+    "MeleeDamageMultiplier_Ice"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xaa7e7632",
+   "aliases": [
+    "CritChance_Adder_Ranged_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7a1297c6",
+   "aliases": [
+    "CritChance_Adder_Melee_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7c9920e6",
+   "aliases": [
+    "CritChance_Adder_Magic_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb203df4a",
+   "aliases": [
+    "Change_Movement_Sneak_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xca0e9bcc",
+   "aliases": [
+    "Stamina_RechargeRampup_Value",
+    "Stamina_RechargeTimeout_Value"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7fbc6a4a",
+   "aliases": [
+    "RangedDamageMultiplier_Fire"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x4c9aaf4e",
+   "aliases": [
+    "RangedDamageMultiplier_Fog"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x89cc39e4",
+   "aliases": [
+    "RangedDamageMultiplier_Ice"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x880e24a2",
+   "aliases": [
+    "RangedDamageMultiplier_Lightning"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x74241680",
+   "aliases": [
+    "RangedDamageMultiplier_Blunt"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2efc334a",
+   "aliases": [
+    "RangedDamageMultiplier_Cut"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x95203b41",
+   "aliases": [
+    "RangedDamageMultiplier_Pierce"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2489b49b",
+   "aliases": [
+    "MeleeDamageMultiplier_Fire"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x3ebfe2f4",
+   "aliases": [
+    "MeleeDamageMultiplier_Fog"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x09498b8a",
+   "aliases": [
+    "Rested_MinDuration_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x0168b2a4",
+   "aliases": [
+    "Revive_Delay_Base_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7f13ef3f",
+   "aliases": [
+    "Mana_RechargeTimeout_Value"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb434cf2f",
+   "aliases": [
+    "Health_RechargeTimeout_Value"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb9885b24",
+   "aliases": [
+    "DamageModSkillshot_Adder_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x4d34a4d1",
+   "aliases": [
+    "DamageModAgainst_Melee_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x19d84127",
+   "aliases": [
+    "DamageModAgainst_Ranged_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xcc1b3fde",
+   "aliases": [
+    "DamageModAgainst_Mage_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x79b1c78d",
+   "aliases": [
+    "DamageModAgainst_Flying_Value"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb761b5f4",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueWand"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7bd16a55",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueStaff"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x7ba1af15",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueTwoHand"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xac06eca7",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueSingle"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x1067b2fc",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueUnarmed"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x9efc67e4",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueBow"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xa26ab77d",
+   "aliases": [
+    "WeaponCategoryDamageMod_ValueThrowable"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x453cdd47",
+   "aliases": [
+    "HealingMod_Multiplier"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xce5c4457",
+   "aliases": [
+    "DamageModBackstab_Adder"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xeb9596e9",
+   "aliases": [
+    "Block"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x6ece68e0",
+   "aliases": [
+    "RangedCombat_ChargeDurationMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xaa358015",
+   "aliases": [
+    "RangedCombat_FireDurationMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xd98a69f9",
+   "aliases": [
+    "CritChance_Base"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xfbf8f864",
+   "aliases": [
+    "CritDamageMod_Base"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x109a7610",
+   "aliases": [
+    "DamageModMerciless_Base"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x735fbce8",
+   "aliases": [
+    "ParryProficiency_Base"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x1492386b",
+   "aliases": [
+    "Sprint"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xfec5815f",
+   "aliases": [
+    "CollisionRange"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x52dedc29",
+   "aliases": [
+    "CollisionOffset"
+   ],
+   "types": [
+    "float3"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb20c7aa1",
+   "aliases": [
+    "BuffTypeTier5"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x6fc73919",
+   "aliases": [
+    "BuffTypeTier4"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x790f1033",
+   "aliases": [],
+   "types": [
+    "AttributeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x8c622a97",
+   "aliases": [
+    "StaminaDamageValue"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x605ac73b",
+   "aliases": [
+    "ThreatBonusMax"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x11396be1",
+   "aliases": [
+    "ThreatBonusRecharge"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x072e0abd",
+   "aliases": [
+    "ChanceValue2"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x05bc44e0",
+   "aliases": [
+    "ChanceValue3"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x051c659f",
+   "aliases": [
+    "ChanceValue4"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb2b38b16",
+   "aliases": [
+    "ChanceValue5"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x4d3cfcb5",
+   "aliases": [],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x727d7f78",
+   "aliases": [
+    "StaminaCost",
+    "StaminaCost"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x87ae5f1f",
+   "aliases": [
+    "Zero"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xaf236ece",
+   "aliases": [
+    "ManaCost",
+    "ManaCost"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x08585146",
+   "aliases": [
+    "SpawnOnHand"
+   ],
+   "types": [
+    "ecs.TemplateReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe5855b7a",
+   "aliases": [
+    "Attribute3"
+   ],
+   "types": [
+    "AttributeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb9b9e5cc",
+   "aliases": [
+    "QueryRange"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xfe2ff8bc",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x1c307d25",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xab529417",
+   "aliases": [
+    "FlamePowerCost"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb4b1a2a1",
+   "aliases": [
+    "FogPower_Gain"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xc057bcd0",
+   "aliases": [
+    "IceMeltRangeMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x1a5748ac",
+   "aliases": [
+    "CanRetrigger"
+   ],
+   "types": [
+    "bool"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xbe21194f",
+   "aliases": [
+    "Anticipation"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x951389d2",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xae0cde78",
+   "aliases": [
+    "BodyHeatPercentage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xa0447981",
+   "aliases": [
+    "SpawnFogResistanceValue"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x53159e96",
+   "aliases": [
+    "StaminaPercentage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xbdda99dd",
+   "aliases": [
+    "CooldownBuff"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x56c7b279",
+   "aliases": [
+    "CooldownDelayBuff"
+   ],
+   "types": [
+    "BuffTypeReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x955055b2",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x6fa87280",
+   "aliases": [
+    "FishingEndurance"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x18d2df63",
+   "aliases": [
+    "FishingStrength"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x958958bc",
+   "aliases": [
+    "ScaledValue_DamageMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x3548f806",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x766757f5",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe38f6439",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe99aaff8",
+   "aliases": [
+    "FuelCharges"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x33e4fe6a",
+   "aliases": [
+    "MeleeDamageMod"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x50c9b633",
+   "aliases": [],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x69d633de",
+   "aliases": [
+    "Cost"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x62c1262b",
+   "aliases": [
+    "EntityCountLimit"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x5dc5e6d7",
+   "aliases": [
+    "EntityTagValue"
+   ],
+   "types": [
+    "ecs.EntityTagReference"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2904adf8",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x5bbb66c1",
+   "aliases": [
+    "StaminaAdder"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x63d242a0",
+   "aliases": [
+    "hitReactionType_Stun"
+   ],
+   "types": [
+    "impact.HitReactionType"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xd824dec7",
+   "aliases": [
+    "Quality"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x93eadbeb",
+   "aliases": [
+    "VisceralAttackType"
+   ],
+   "types": [
+    "VisceralAttackType"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xc591adc5",
+   "aliases": [
+    "Percentage"
+   ],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x3f80a690",
+   "aliases": [
+    "SpawnDelay1"
+   ],
+   "types": [
+    "Time"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xdda61333",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xbc6606ce",
+   "aliases": [
+    "2"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xe4ee9d2c",
+   "aliases": [
+    "5"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x5d52a09f",
+   "aliases": [],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xdd6978ce",
+   "aliases": [
+    "Stamina_Max_Increase"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xde60ff50",
+   "aliases": [
+    "GliderTier"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xb99b8f09",
+   "aliases": [
+    "maxAmountOfEntities"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x9c371827",
+   "aliases": [
+    "1"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0xdc5cad47",
+   "aliases": [
+    "HealPerIntelligence"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x67811456",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x6fd0dcf1",
+   "aliases": [
+    "FogResistance"
+   ],
+   "types": [
+    "uint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x55335456",
+   "aliases": [
+    "DamageFogResistance"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x434bf3a9",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x12221574",
+   "aliases": [],
+   "types": [
+    "float32"
+   ],
+   "programs": 1,
+   "source": "program"
+  },
+  {
+   "id": "0x2de5f1f5",
+   "aliases": [
+    "SpecialAbilityCost",
+    "SpecialAbilityCost"
+   ],
+   "types": [
+    "sint32"
+   ],
+   "programs": 0,
+   "source": "c++ (docs/re/abilities.md)"
+  },
+  {
+   "id": "0xc8492400",
+   "aliases": [
+    "FuelAmount",
+    "FuelAmount"
+   ],
+   "types": [],
+   "programs": 0,
+   "source": "c++ (docs/re/abilities.md)"
+  }
+ ]
+}

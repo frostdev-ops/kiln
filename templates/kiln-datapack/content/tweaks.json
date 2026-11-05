@@ -1,0 +1,23 @@
+{
+  // A kiln.content + kiln.gamedata data pack. Keys are the game's debug names (`kiln catalog search <text>` finds
+  // them in your installed game), 0x ids or globs. Values: a number/enum/bool, or an op on the game's value
+  // ({"mul": 2, "max": 9999, "raiseOnly": true}). Problems are logged per entry and never stop the others.
+  "format": 1,
+  // Within a pack later entries win: the general rule first, the exceptions after it.
+  "items": {
+    "*": { "@where": { "maxStackSize": ">1", "category": "Materials" },
+           "maxStackSize": { "mul": 2, "max": 9999, "raiseOnly": true } },
+    "Material_T1_Wood_Logs": { "maxStackSize": 1000 }
+  },
+  "recipes": {
+    "Ammo_Arrow_T1_Flint": { "outputs": { "mul": 2 } }
+  },
+  "loot": {
+    "Material_T1_Wood_Logs": { "stackSizeMin": 5, "stackSizeMax": 20 }
+  },
+  // kiln.gamedata sections in the same file: templates, sequences, arsenals, buffs, perks, skills
+  // (docs/kiln/services/gamedata.md). The double jump's skill node costs 1 point:
+  "skills": {
+    "item:Ability_DoubleJump": { "costs": 1 }
+  }
+}

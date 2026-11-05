@@ -1,0 +1,196 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.ui's game-UI integration on the client (enshrouded.exe 26404966). Evidence: docs/re/game-ui.md. The game's UI is immediate mode: GameUiSystem calls its update fn (GameUiFrame, registered at app start) once per UI frame on the UI thread; the frame context sits in the global UiApp only while that call runs. GameUiFrame's first argument is the GameUiSystem+0x10; its +sys.data is the persistent GameUiData (first field: the GameUi state, whose byte +state.ui_state is keen::UiState and +state.play the play data, whose byte +play.hud_screen is keen::HudScreenType and +play.interaction the entity the player interacts with). Menu entries are drawn by two entry renderers: MainMenuEntry(state, {text, len, fnv64, 8 option bytes}) in the main menu builder and SystemMenuEntry({text, len, fnv64}, 1, attention) in the system (pause) menu and a few other lists; both return true on activation and take part in the frame's focus/gamepad navigation. kiln.ui draws its entries through them right before the Settings entry (main menu: both layout branches, ShroudForge 1.7.6's insertion point; system menu: the Settings entry), identified by the call's return address. CraftingMenu is the crafting menu builder (every frame while one is open); its last selected recipe id is stored at data+data.craft_recipe (the player's own menu) or *(data+data.station_recipe) (a station).",
+  "symbols": {
+    "ui/PlayStateUi": {
+      "find": [
+        {
+          "pattern": "4C 8B DC 55 49 8D AB ?? ?? FF FF 48 81 EC ?? ?? 00 00 48 8B 05 {ui/UiApp:rel32} 48 8B 88 {ui/ui.data:d32} 48 8B 01 48 85 C0 0F 84 ?? ?? ?? ?? 4D 89 73 ?? 4C 8B 70 {ui/state.play:d8} 4C 89 B5 ?? ?? ?? ?? 4D 85 F6 0F 84 ?? ?? ?? ?? 4D 89 63 ?? 4D 8D A6 {ui/play.hud_screen:d32} 41 0F B6 04 24 4C 89 65 ?? 3C {ui/hud.no_ui:d8} 0F 84"
+        }
+      ]
+    },
+    "@ui/PlayStateUi.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "ui/PlayStateUi",
+            "size": 2048
+          },
+          "pattern": "41 8B 86 {ui/play.interaction:d32} 85 C0 74 ?? 48 8B 4D ?? 4C 8D 0D ?? ?? ?? ?? 8B D0 C7 44 24 20 01 00 00 00 41 B8 04 00 00 00 E8"
+        }
+      ]
+    },
+    "ui/GameUiFrame": {
+      "find": [
+        {
+          "pattern": "40 55 53 57 41 54 48 8D 6C 24 88 48 81 EC 78 01 00 00 0F 29 BC 24 50 01 00 00 48 8B FA 48 8B D9 E8 ?? ?? ?? ?? 4C 8B C7 48 8D 4C 24 60 48 8B D3 E8 ?? ?? ?? ?? 48 8D 54 24 20 48 8D 4C 24 60 E8 {ui/GameUiDataGet:rel32}"
+        }
+      ]
+    },
+    "@ui/GameUiFrame.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "ui/GameUiFrame",
+            "size": 4096
+          },
+          "pattern": "41 0F B6 47 {ui/state.ui_state:d8} FF C8 83 F8 06 0F 87"
+        }
+      ]
+    },
+    "ui/GameUiDataGet": {
+      "find": [
+        {
+          "pattern": "48 8B 41 10 0F 10 40 {ui/sys.data:d8} 48 8B C2 0F 11 02 C3 CC 48 8B 41 10 48 05 ?? ?? 00 00 C3"
+        }
+      ]
+    },
+    "@ui/TextGet.fields": {
+      "find": [
+        {
+          "pattern": "48 8B 05 {ui/UiApp:rel32} 48 89 BD ?? ?? 00 00 48 8B 88 {ui/ui.data:d32} 48 8B 89 {ui/data.loca_pool:d32} E8"
+        }
+      ]
+    },
+    "ui/MainMenuEntry": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 0F 29 70 B8 48 8B FA 0F 29 78 A8 4C 8B F1 44 0F 29 40 98"
+        }
+      ]
+    },
+    "ui/MainMenuSettingsA": {
+      "find": [
+        {
+          "pattern": "E8 {ui/MainMenuEntry:rel32} 84 C0 74 0D BA 05 00 00 00 48 8B CF E8 {ui/PreGameGoTo:rel32} 48 8D 8D ?? ?? 00 00 E8",
+          "offset": 5
+        }
+      ]
+    },
+    "ui/MainMenuSettingsB": {
+      "find": [
+        {
+          "pattern": "E8 {ui/MainMenuEntry:rel32} 84 C0 74 0D BA 05 00 00 00 48 8B CF E8 {ui/PreGameGoTo:rel32} 40 84 F6 74",
+          "offset": 5
+        }
+      ]
+    },
+    "ui/SystemMenuEntry": {
+      "find": [
+        {
+          "pattern": "48 8B C4 44 88 40 18 88 50 10 48 89 48 08 55 56 57 41 54 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 0F 29 70 A8 44 0F B6 FA 48 8B F9"
+        }
+      ]
+    },
+    "ui/SystemMenuSettings": {
+      "find": [
+        {
+          "pattern": "B2 01 F2 0F 11 4C 24 ?? 48 8D 4C 24 ?? E8 {ui/SystemMenuEntry:rel32} 84 C0 74 08 41 C7 04 24 01 00 00 00 48 8B 05",
+          "offset": 18
+        }
+      ]
+    },
+    "ui/CraftingMenu": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 48 C1 E9 08 8B F2 0F B6 D1 B9 10 00 00 00"
+        }
+      ]
+    },
+    "@ui/CraftingMenu.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "ui/CraftingMenu",
+            "size": 2048
+          },
+          "pattern": "39 9D ?? ?? 00 00 75 1B 48 05 {ui/data.craft_recipe:d32} BF ?? ?? ?? ?? 48 39 5C 24 ?? 48 0F 45 F8 48 89 7C 24 ?? EB 1C 48 05 {ui/data.station_recipe:d32} B9"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "ui/ui.data": {
+      "min_votes": 2
+    },
+    "ui/state.play": {
+      "min_votes": 1
+    },
+    "ui/play.hud_screen": {
+      "min_votes": 1
+    },
+    "ui/hud.no_ui": {
+      "min_votes": 1
+    },
+    "ui/play.interaction": {
+      "min_votes": 1
+    },
+    "ui/state.ui_state": {
+      "min_votes": 1
+    },
+    "ui/sys.data": {
+      "min_votes": 1
+    },
+    "ui/data.loca_pool": {
+      "min_votes": 1
+    },
+    "ui/data.craft_recipe": {
+      "min_votes": 1
+    },
+    "ui/data.station_recipe": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "ui.screens": {
+      "symbols": [
+        "ui/GameUiFrame",
+        "ui/GameUiDataGet",
+        "ui/PlayStateUi"
+      ],
+      "constants": [
+        "ui/sys.data",
+        "ui/state.ui_state",
+        "ui/state.play",
+        "ui/play.hud_screen",
+        "ui/play.interaction"
+      ]
+    },
+    "ui.main_menu": {
+      "symbols": [
+        "ui/GameUiFrame",
+        "ui/MainMenuEntry",
+        "ui/MainMenuSettingsA",
+        "ui/MainMenuSettingsB"
+      ],
+      "constants": []
+    },
+    "ui.system_menu": {
+      "symbols": [
+        "ui/GameUiFrame",
+        "ui/SystemMenuEntry",
+        "ui/SystemMenuSettings"
+      ],
+      "constants": []
+    },
+    "ui.crafting": {
+      "symbols": [
+        "ui/CraftingMenu",
+        "ui/GameUiFrame"
+      ],
+      "constants": [
+        "ui/sys.data",
+        "ui/data.craft_recipe",
+        "ui/data.station_recipe"
+      ]
+    },
+    "ui.language": {
+      "symbols": [],
+      "constants": [
+        "ui/sys.data",
+        "ui/data.loca_pool"
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{ "format": 1,
+  "items": { "add": [
+    { "guid": "7c6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "name": "FixtureIds_Blade", "base": "Weapon_Fixture_Sword" },
+    { "guid": "0000a001-0000-4000-8000-000000000001", "name": "Material_Fixture_Twigs", "base": "Weapon_Fixture_Sword" } ] },
+  "perks": { "add": [ { "guid": "7c6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "name": "FixtureIds_Perk", "base": "Perk_Fixture_Ice" } ] },
+  "creatures": { "variants": [ { "id": "dup", "base": "Enemy_Fixture_Wolf" }, { "id": "dup", "base": "Enemy_Fixture_Wolf" } ] }
+}

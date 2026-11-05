@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Templates: dotnet new kiln-<kind>, one per mod kind (docs/kiln/modding/mdk.md "Templates"; `kiln new` lists them),
+       and kiln-service (a native + managed service inside the Kiln repository). Packed by managed/Kiln.Sdk/pack.sh. -->
+  <Import Project="../managed/Kiln.Sdk/Sdk/Kiln.Version.props" />
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>Kiln.Templates</PackageId>
+    <Version>$(KilnSdkVersion)</Version>
+    <Title>Kiln templates</Title>
+    <Authors>Kiln contributors</Authors>
+    <Description>dotnet new templates for Kiln (Enshrouded) mods: kiln-mod, kiln-datapack, kiln-spell, kiln-items, kiln-creature, kiln-ability, kiln-ui, kiln-native, kiln-model, kiln-sound, kiln-talents, kiln-test, kiln-service.</Description>
+    <PackageTags>kiln;enshrouded;mod;dotnet-new;templates</PackageTags>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="kiln-*/**/*" Exclude="**/bin/**;**/obj/**;**/build/**" />
+    <Compile Remove="**/*" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "comment": "One node. Next to skills-test and the sample it takes a native slot, so skills-test's last native node (skilltest_bulk_7) becomes a shadow node; without this mod it goes back. A character with that node unlocked keeps it both ways: docs/kiln/services/skills.md \"When the mod list moves a node\".",
+  "gameTree": {
+    "nodes": [
+      {
+        "guid": "9d1c3a70-52e4-4b6e-8f1a-7c2e4d6b8a10",
+        "name": "skillsslot_one",
+        "like": "0xcfa5985b",
+        "from": ["0x8efcc472"],
+        "offset": [0, -120],
+        "cost": 0,
+        "texts": { "en": { "name": "Slot test", "description": "Takes a native slot." }, "de": { "name": "Platztest", "description": "Belegt einen nativen Platz." } }
+      }
+    ]
+  }
+}

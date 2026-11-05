@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: item blocks (docs/kiln/modding/item-blocks.md). A material, a potion, food, an arrow, tools, a weapon of every class, a wand, armor, a station and loot, with no GUIDs
+       and no base items. blocks/twins.json is the same in data. The side and the clients follow from using Blocks (both, kiln). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>item-blocks</KilnModId>
+    <KilnModName>Item blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Everything item blocks can make: a material, a potion, food, an arrow, tools, a weapon of every class, a wand, armor, a station and loot. blocks/twins.json is the same in data.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

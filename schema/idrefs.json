@@ -1,0 +1,2771 @@
+{
+  "description": "Where mod files name game entries (generated from the x-kiln-ref annotations of schema/*.schema.json by kiln_manage::lint::docs::idrefs; do not edit: the lint tests regenerate it with KILN_LINT_WRITE=1). pointer: JSON pointer, * = any key or index, a trailing ~ = the key itself. section: the game-data catalog section (or a mod-defined namespace: variants, skillNodes, talentTrees, natives). forms: name, id (0x / decimal), guid, glob, item:, like:, template:, buff_, skill_, guid#k, lang, displayName.",
+  "format": 1,
+  "refs": [
+    {
+      "files": [
+        "**/assets/assets.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/entries/*/guid",
+      "schema": "assets.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/assets/assets.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/entries/*/guid",
+      "schema": "assets.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/arsenals/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/arsenals/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "glob"
+      ],
+      "pointer": "/arsenals/*~",
+      "schema": "content-pack.schema.json",
+      "section": "arsenals"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/arsenals/*~",
+      "schema": "content-pack.schema.json",
+      "section": "arsenals"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "template:"
+      ],
+      "pointer": "/arsenals/*~",
+      "schema": "content-pack.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/buffs/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/buffs/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id",
+        "buff_",
+        "guid",
+        "name",
+        "glob"
+      ],
+      "pointer": "/buffs/*~",
+      "schema": "content-pack.schema.json",
+      "section": "buffs"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id",
+        "buff_",
+        "guid",
+        "name"
+      ],
+      "pointer": "/buffs/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "buffs"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/buffs/add/*/texts/*~",
+      "schema": "content-pack.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "guid",
+        "displayName"
+      ],
+      "pointer": "/creatures/spawnRules/*/replace",
+      "schema": "content-pack.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/creatures/spawnRules/*/with",
+      "schema": "content-pack.schema.json",
+      "section": "variants"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "guid",
+        "displayName"
+      ],
+      "pointer": "/creatures/variants/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/drops/*/items/*~",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "glob"
+      ],
+      "pointer": "/drops/*~",
+      "schema": "content-pack.schema.json",
+      "section": "drops"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/drops/*~",
+      "schema": "content-pack.schema.json",
+      "section": "drops"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/itemdata/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/itemdata/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/itemdata/*~",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/items/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/items/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/animation",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/animation",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/collectionModel",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/collectionModel",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/iconModel",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/iconModel",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/impact",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/impact",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/model",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/model",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/perks",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/items/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/program",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/program",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/refs/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/refs/*",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/visual",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/visual",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/*/weaponType",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/*/weaponType",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/items/*~",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/animation",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/animation",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/items/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/collectionModel",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/collectionModel",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "glob"
+      ],
+      "pointer": "/items/add/*/drops/*/table",
+      "schema": "content-pack.schema.json",
+      "section": "drops"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/drops/*/table",
+      "schema": "content-pack.schema.json",
+      "section": "drops"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "like:"
+      ],
+      "pointer": "/items/add/*/drops/*/table",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/icon",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/icon",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/iconModel",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/iconModel",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/impact",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/impact",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/items/add/*/loot/like",
+      "schema": "content-pack.schema.json",
+      "section": "loot"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/model",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/model",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/perks",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/items/add/*/perks/*",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/program",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/program",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/refs/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/refs/*",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/items/add/*/texts/*~",
+      "schema": "content-pack.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/visual",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/visual",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/items/add/*/weaponType",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/items/add/*/weaponType",
+      "schema": "content-pack.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/loot/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/loot/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/loot/*~",
+      "schema": "content-pack.schema.json",
+      "section": "loot"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/perks/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/perks/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/perks/*~",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/perks/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "perks"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/perks/add/*/texts/*~",
+      "schema": "content-pack.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/recipes/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/recipes/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/recipes/*/inputs/*/category",
+      "schema": "content-pack.schema.json",
+      "section": "itemCategories"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/*/inputs/*/item",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/recipes/*/outputs/*/category",
+      "schema": "content-pack.schema.json",
+      "section": "itemCategories"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/*/outputs/*/item",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/recipes/*~",
+      "schema": "content-pack.schema.json",
+      "section": "recipes"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "recipes"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/inputs/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/recipes/add/*/inputs/*/category",
+      "schema": "content-pack.schema.json",
+      "section": "itemCategories"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/inputs/*/item",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/outputs/*",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/recipes/add/*/outputs/*/category",
+      "schema": "content-pack.schema.json",
+      "section": "itemCategories"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/outputs/*/item",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "guid"
+      ],
+      "pointer": "/recipes/add/*/station",
+      "schema": "content-pack.schema.json",
+      "section": "recipes"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/recipes/add/*/station",
+      "schema": "content-pack.schema.json",
+      "section": "workshops"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/sequences/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/sequences/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "guid",
+        "guid#k",
+        "glob"
+      ],
+      "pointer": "/sequences/*~",
+      "schema": "content-pack.schema.json",
+      "section": "sequences"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "guid"
+      ],
+      "pointer": "/sequences/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "sequences"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/sequences/add/*/texts/*~",
+      "schema": "content-pack.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/skills/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/skills/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/skills/*~",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/skills/*~",
+      "schema": "content-pack.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "skill_"
+      ],
+      "pointer": "/skills/*~",
+      "schema": "content-pack.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/templates/*/@where/input",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "glob"
+      ],
+      "pointer": "/templates/*/@where/output",
+      "schema": "content-pack.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid",
+        "glob"
+      ],
+      "pointer": "/templates/*~",
+      "schema": "content-pack.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "name",
+        "id",
+        "guid"
+      ],
+      "pointer": "/templates/add/*/base",
+      "schema": "content-pack.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/content/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/templates/add/*/texts/*~",
+      "schema": "content-pack.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/assets/cook.json",
+        "**/impact/cook.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/inputs/*/guid",
+      "schema": "cook.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/farewell/*/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/farewell/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/greetings/*/if/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/greetings/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/if/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/reply/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/speaker/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/transition/*/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/transition/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/npcs/*/description/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/npcs/*/name/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/npcs/*/names/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/npcs/*/template",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/description/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/name/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/requires/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/rewards/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/rewards/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/rewards/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/rewards/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/rewards/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/marker/base",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/marker/name/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/build/prop",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/collect/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/craft/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/quests/*/steps/*/objective/craft/recipe",
+      "schema": "kiln-quests.schema.json",
+      "section": "recipes"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/deliver/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/kill/template",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/reach/marker",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/build/prop",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/collect/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/craft/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/craft/recipe",
+      "schema": "kiln-quests.schema.json",
+      "section": "recipes"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/deliver/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/kill/template",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/reach/marker",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/chat/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/item",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/spawn",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/take",
+      "schema": "kiln-quests.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/toast/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/spawn/*/template",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/spawn/template",
+      "schema": "kiln-quests.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/text/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/quests/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/title/*~",
+      "schema": "kiln-quests.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/*.kschem"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/props/*/template",
+      "schema": "kschem-header.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/from",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/from",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/from",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/icon",
+      "schema": "skills.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/like",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/like",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/like",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/near",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/near",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/near",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/program",
+      "schema": "skills.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/gameTree/*/texts/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/to",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/to",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/to",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/*/unlocksAbility",
+      "schema": "skills.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/from",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/from",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/from",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/from/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/icon",
+      "schema": "skills.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/like",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/like",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/like",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/near",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/near",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/near",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/program",
+      "schema": "skills.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/gameTree/nodes/*/texts/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/to",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/to",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/to",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/gameTree/nodes/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skillNodes"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/gameTree/nodes/*/to/*",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/gameTree/nodes/*/unlocksAbility",
+      "schema": "skills.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/trees/*/description/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/trees/*/menu/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/trees/*/name/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/trees/*/nodes/*/description/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid",
+        "name"
+      ],
+      "pointer": "/trees/*/nodes/*/effects/*/buff",
+      "schema": "skills.schema.json",
+      "section": "buffs"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "id"
+      ],
+      "pointer": "/trees/*/nodes/*/effects/*/gameNode",
+      "schema": "skills.schema.json",
+      "section": "skills"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "guid"
+      ],
+      "pointer": "/trees/*/nodes/*/effects/*/program",
+      "schema": "skills.schema.json",
+      "section": "resources"
+    },
+    {
+      "files": [
+        "**/skills/*.json"
+      ],
+      "forms": [
+        "lang"
+      ],
+      "pointer": "/trees/*/nodes/*/name/*~",
+      "schema": "skills.schema.json",
+      "section": "languages"
+    }
+  ]
+}

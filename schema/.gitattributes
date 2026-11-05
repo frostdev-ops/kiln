@@ -1,0 +1,3 @@
+# Fixture bytes are part of the contracts (kdh1 hashes, CRLF INI cases): never convert line endings.
+fixtures/** -text
+examples/*.ini -text

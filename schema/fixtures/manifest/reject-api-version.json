@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"^^1\",\"entryAssembly\":\"a.dll\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: apiVersion: version range '^^1': '^^1' is not a version or comparator"
+  }
+}

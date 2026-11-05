@@ -1,0 +1,16 @@
+{
+ "format": 1,
+ "tool": "animcook",
+ "mod": "m",
+ "steps": [
+  { "op": "skeleton", "name": "g", "gltf": "src/g.glb" },
+  { "op": "clips", "skeleton": "g", "gltf": "src/g.glb", "tolerance": { "rotation": 0.001 },
+    "clips": { "idle": { "animation": "Idle", "loop": true },
+               "slam": { "rootMotion": { "axes": "xz" }, "events": [ { "at": 0.5, "noise": 8 }, { "at": 0.1, "foot": "left" } ] } } },
+  { "op": "graph", "name": "g", "skeleton": "g", "slots": { "HandR": "hand_r" },
+    "states": { "idle": { "engine": "Idle", "clip": "idle" },
+                "walk": { "blend": { "input": "moveDirection", "clips": { "0": "idle", "90": "slam" } } },
+                "slam": { "clip": "slam", "blendIn": 0.1, "then": "idle" } },
+    "layers": [ { "name": "flinch", "overlay": "hit", "clip": "slam", "reference": "idle", "bones": [ "arm_r" ] } ] }
+ ]
+}

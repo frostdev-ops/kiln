@@ -1,0 +1,8 @@
+{
+  "id": "api-test",
+  "name": "Kiln API backbone test (events, config, commands, permissions, console)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "ApiTest.dll",
+  "side": "server"
+}

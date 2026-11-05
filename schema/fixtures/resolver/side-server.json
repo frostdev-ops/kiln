@@ -1,0 +1,57 @@
+{
+  "description": "Client mods are skipped on a server",
+  "env": {
+    "kiln": "0.1.0-dev",
+    "api": "0.2.0",
+    "side": "server",
+    "unavailableFeatures": [
+      "missing.feature"
+    ],
+    "loaded": []
+  },
+  "mods": [
+    {
+      "dir": "/mods/s",
+      "manifest": {
+        "id": "s",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll"
+      }
+    },
+    {
+      "dir": "/mods/c",
+      "manifest": {
+        "id": "c",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "side": "client"
+      }
+    },
+    {
+      "dir": "/mods/b",
+      "manifest": {
+        "id": "b",
+        "version": "1.0.0",
+        "apiVersion": "0.2",
+        "entryAssembly": "M.dll",
+        "side": "both"
+      }
+    }
+  ],
+  "expect": {
+    "order": [
+      "b",
+      "s"
+    ],
+    "rejected": [
+      {
+        "id": "c",
+        "dir": "/mods/c",
+        "state": "skipped",
+        "reason": "side 'client': not loaded on a server"
+      }
+    ]
+  }
+}

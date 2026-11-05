@@ -1,0 +1,9 @@
+{
+  "id": "menubuttons",
+  "name": "Menu buttons sample",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "MenuButtons.dll",
+  "side": "client",
+  "description": "Kiln.Ui game-UI sample: a Kiln entry in the main menu and the pause menu opening a custom screen (F7 too), a crafting info panel, a Kiln subcategory and tab in the player's own crafting menu."
+}

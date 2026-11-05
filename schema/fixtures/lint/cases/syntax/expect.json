@@ -1,0 +1,54 @@
+{
+  "catalog": true,
+  "description": "the JSON dialect each reader accepts: trailing commas (KL003) in a data pack, a duplicate key (KL004), broken JSON (KL001), a BOM (KL005) and a comment (KL002) in a cook recipe, single quotes",
+  "diagnostics": [
+    {
+      "code": "KL001",
+      "col": 103,
+      "file": "assets/assets.json",
+      "line": 1,
+      "message": "strings use double quotes \" in JSON",
+      "severity": "error"
+    },
+    {
+      "code": "KL005",
+      "col": 1,
+      "file": "assets/cook.json",
+      "line": 1,
+      "message": "a UTF-8 byte-order mark: this file's reader (Python's json) refuses it",
+      "severity": "error"
+    },
+    {
+      "code": "KL002",
+      "col": 3,
+      "file": "assets/cook.json",
+      "line": 2,
+      "message": "comments are not allowed: the cook tools read this file with Python's json module (plain JSON)",
+      "severity": "error"
+    },
+    {
+      "code": "KL001",
+      "col": 25,
+      "file": "content/broken.json",
+      "line": 1,
+      "message": "unclosed object: '}' expected",
+      "severity": "error"
+    },
+    {
+      "code": "KL003",
+      "col": 51,
+      "file": "content/trailing.json",
+      "line": 4,
+      "message": "trailing comma: kiln.content / kiln.assets read this file with nlohmann::json, which allows comments but not trailing commas",
+      "severity": "error"
+    },
+    {
+      "code": "KL004",
+      "col": 53,
+      "file": "content/trailing.json",
+      "line": 5,
+      "message": "duplicate key \"maxStackSize\": the later value is the one Kiln reads",
+      "severity": "warning"
+    }
+  ]
+}

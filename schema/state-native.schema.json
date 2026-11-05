@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-native.schema.json",
+  "title": "Native mod state (<game>/kiln/state/native.json), format 1",
+  "description": "Written atomically by kiln-core's native loader after each phase (dllmain results come from the proxy's chain entries).",
+  "type": "object",
+  "required": ["format", "pid", "written", "policy", "mods"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "policy": { "enum": ["always", "verified-only", "never"], "description": "kiln.json native.policy" },
+    "phase": { "enum": ["dllmain", "early", "boot", "world"], "description": "The last phase that ran." },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "state"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": ["string", "null"] },
+          "folder": { "type": "string" },
+          "source": { "enum": ["profile", "dropin"] },
+          "phase": { "enum": ["dllmain", "early", "boot", "world"] },
+          "state": {
+            "enum": ["pending", "loaded", "failed", "disabled", "skipped", "policy", "unsupported"],
+            "description": "pending: its phase has not run yet; disabled: switched off; skipped: other side / no-mods / not on this phase's conditions (hooks off for world); policy: kiln.json native policy refused it; unsupported: init returned KILN_NATIVE_INIT_UNSUPPORTED."
+          },
+          "reason": { "type": ["string", "null"] },
+          "notes": { "type": "array", "items": { "type": "string" }, "description": "Warnings, e.g. 'untested build'." },
+          "loadIndex": { "type": ["integer", "null"] },
+          "dlls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["file", "status"],
+              "properties": {
+                "file": { "type": "string" },
+                "status": { "enum": ["loaded", "failed", "missing", "refused", "duplicate", "skipped"] },
+                "error": { "type": "integer", "description": "Win32 error code, 0 when none." },
+                "ms": { "type": "number" }
+              }
+            }
+          },
+          "init": {
+            "type": ["object", "null"],
+            "properties": {
+              "export": { "type": "string" },
+              "result": { "type": ["integer", "null"], "description": "Return value; null when it faulted." },
+              "fault": { "type": ["string", "null"], "description": "SEH exception code (0x...) when it faulted." },
+              "ms": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

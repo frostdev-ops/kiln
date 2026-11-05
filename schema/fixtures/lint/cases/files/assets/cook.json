@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "out": "built",
+  "guidNamespace": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d6f",
+  "inputs": { "model": { "guid": "00011001-0000-4000-8000-000000000001", "type": "keen::RenderModel" },
+              "cue": { "guid": "00011001-0000-4000-8000-000000000002", "type": "keen::SoundContainerResource" } },
+  "steps": [
+    { "op": "model", "gltf": "src/none.gltf", "base": "cue", "guid": "@modle", "stem": "two" },
+    { "op": "model", "gltf": "src/none.gltf", "base": "model", "stem": "two" },
+    { "op": "visual", "base": "nope", "model": "@model", "guid": "9e6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d63", "stem": "unlisted" },
+    { "tool": "soundcook", "op": "sound", "name": "chime", "src": "src/chime.wav", "gain": 1, "normalize": -24 },
+    { "tool": "soundcook", "op": "cue", "name": "chime", "sounds": ["chmie"], "base": "model" },
+    { "tool": "soundcook", "op": "cue", "name": "chime", "sounds": ["chime"] }
+  ]
+}

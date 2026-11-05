@@ -1,0 +1,8 @@
+{
+  "now": 1762257600,
+  "expect": {
+    "status": "no-mods",
+    "created": 1762257600,
+    "nonce": "utf16nonce"
+  }
+}

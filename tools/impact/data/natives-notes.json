@@ -1,0 +1,2458 @@
+{
+ "format": 1,
+ "comment": "Hand-written semantics for tools/impact/data/natives.json (merged by `impact.py survey`). Evidence: dis = Kiln's decompile of the native (server build 1285601), data = its use in the 571 vanilla programs, hyp = inferred from names.",
+ "errors": {
+  "0": "Ok",
+  "1": "Temporary_TimeOut (suspend)",
+  "2": "Temporary_OutOfMemory (suspend)",
+  "3": "Temporary_StillRunning (suspend)",
+  "6": "Canceled",
+  "17": "Internal",
+  "18": "InvalidArgument",
+  "22": "InvalidValue",
+  "24": "NoConnection (an input is _)",
+  "31": "NotFound",
+  "44": "TypeMismatch",
+  "71": "OutOfRange"
+ },
+ "notes": {
+  "0x59edd145": {
+   "doc": "Starts a sphere collision query of `range` around origin (+offset) and writes its QueryId; read it with getQueryResultCount / fetchQueryResult.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "queryId"
+    },
+    "1": {
+     "name": "colliderFlags",
+     "doc": "which colliders (ecs.ColliderFlags)"
+    },
+    "2": {
+     "name": "sortByDistance"
+    },
+    "3": {
+     "name": "origin"
+    },
+    "4": {
+     "name": "range"
+    },
+    "5": {
+     "name": "offset"
+    }
+   }
+  },
+  "0xe27c52c3": {
+   "doc": "Ends a query started with startQuery.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "queryId"
+    }
+   }
+  },
+  "0xa18f5959": {
+   "doc": "Writes the entity's world transform and/or its position (either output may be _).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "1": {
+     "name": "position",
+     "dir": "out"
+    },
+    "2": {
+     "name": "entity"
+    }
+   }
+  },
+  "0xc24cb9bb": {
+   "doc": "Writes the entity the running buff is applied to (a buff program runs on the buff's own entity).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "target",
+     "dir": "out"
+    }
+   }
+  },
+  "0x01d09759": {
+   "doc": "Writes the entity that runs this program (the impact entity: projectile, AoE volume, buff).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "self",
+     "dir": "out"
+    }
+   }
+  },
+  "0xb8329a37": {
+   "doc": "Writes the parent in the impact hierarchy (the entity that spawned this one); NoConnection (0x18) without an output.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "parent",
+     "dir": "out"
+    }
+   }
+  },
+  "0xaf655170": {
+   "doc": "Writes the hierarchy parent of `entity`.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "parent",
+     "dir": "out"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0xbf5ad13b": {
+   "doc": "Writes the root of the impact hierarchy: the caster (player or NPC) at the top of the spawn chain. Hits and XP are credited to it.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "root",
+     "dir": "out"
+    }
+   }
+  },
+  "0x0d3c48b1": {
+   "doc": "Writes the hit target of `entity` [hyp].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "target",
+     "dir": "out"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x1f5adf94": {
+   "doc": "Writes `entity`'s current target of the given ecs.TargetType (Combat = the lock-on / combat target).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "target",
+     "dir": "out"
+    },
+    "1": {
+     "name": "type"
+    },
+    "2": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x265d26d5": {
+   "doc": "Sets the grappling-hook target of `entity` [hyp from the name].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity"
+    },
+    "1": {
+     "name": "target"
+    }
+   }
+  },
+  "0xf39c6af3": {
+   "doc": "Writes the number of results of a query.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "count",
+     "dir": "out"
+    },
+    "1": {
+     "name": "queryId",
+     "unchecked": true
+    }
+   }
+  },
+  "0x1b467fe0": {
+   "doc": "Writes result #index of a query: entity, hit position and normal, whether it hit and whether it is new.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "position",
+     "dir": "out"
+    },
+    "2": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "3": {
+     "name": "hit",
+     "dir": "out"
+    },
+    "4": {
+     "name": "isNew",
+     "dir": "out"
+    },
+    "6": {
+     "name": "queryId"
+    },
+    "7": {
+     "name": "index"
+    }
+   }
+  },
+  "0x8469973d": {
+   "doc": "Writes the number of OnCollision events this step.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "count",
+     "dir": "out"
+    }
+   }
+  },
+  "0xda5e432a": {
+   "doc": "Fetches OnCollision event #index with its other entity, root, collider kind, position, normal, material and whether it is a combat target.",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "otherEntity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "otherRoot",
+     "dir": "out"
+    },
+    "2": {
+     "name": "combatCollider",
+     "dir": "out"
+    },
+    "3": {
+     "name": "position",
+     "dir": "out"
+    },
+    "4": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "5": {
+     "name": "material",
+     "dir": "out"
+    },
+    "6": {
+     "name": "isCombatTarget",
+     "dir": "out"
+    },
+    "8": {
+     "name": "index"
+    },
+    "9": {
+     "name": "ignoreSameRoot"
+    }
+   }
+  },
+  "0xcf3810a6": {
+   "doc": "Whether the entity id refers to a live entity.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0x530b5054": {
+   "doc": "Whether two entity ids are the same entity.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "a",
+     "unchecked": true
+    },
+    "1": {
+     "name": "b",
+     "unchecked": true
+    }
+   }
+  },
+  "0x79b5a97b": {
+   "doc": "Whether b is an enemy of a (faction relations).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "a"
+    },
+    "1": {
+     "name": "b",
+     "unchecked": true
+    }
+   }
+  },
+  "0xac31b17d": {
+   "doc": "Whether b is a friend of a (unused by vanilla programs).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "a"
+    },
+    "1": {
+     "name": "b"
+    }
+   }
+  },
+  "0x52de54cc": {
+   "doc": "Whether it is day in the world.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false
+  },
+  "0xdb41ca5b": {
+   "doc": "Whether the actor sprints.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0x1c9ae6cf": {
+   "doc": "Picks the override template when `entity` is in building fly mode, else `template` [hyp].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "overrideTemplate"
+    },
+    "2": {
+     "name": "template"
+    },
+    "3": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x194ae077": {
+   "doc": "Writes the base damage of the used weapon at its level.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "damage",
+     "dir": "out"
+    }
+   }
+  },
+  "0x947a6bd5": {
+   "doc": "Builds an impact.DamageSetup from 13 values in its field order (cut, pierce, blunt, fire, ice, fog, lightning, healing, poison, wood, stone, metal, explosion); unconnected = 0.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "damage",
+     "dir": "out"
+    },
+    "1": {
+     "name": "cut"
+    },
+    "2": {
+     "name": "pierce"
+    },
+    "3": {
+     "name": "blunt"
+    },
+    "4": {
+     "name": "fire"
+    },
+    "5": {
+     "name": "ice"
+    },
+    "6": {
+     "name": "fog"
+    },
+    "7": {
+     "name": "lightning"
+    },
+    "8": {
+     "name": "healing"
+    },
+    "9": {
+     "name": "poison"
+    },
+    "10": {
+     "name": "wood"
+    },
+    "11": {
+     "name": "stone"
+    },
+    "12": {
+     "name": "metal"
+    },
+    "13": {
+     "name": "explosion"
+    }
+   }
+  },
+  "0xb04d0e7a": {
+   "doc": "Deals `damage` from attacker to target: elements, the attacker's attributes (damageScaleAttribute), armour, block and crit (docs/re/combat.md), hit reaction, push-back and noise. The result is the hit landing; wasBlocked tells whether it was blocked.",
+   "returns": "1 when the hit landed (vanilla branches to its debuff code on it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "wasBlocked",
+     "dir": "out"
+    },
+    "1": {
+     "name": "attacker",
+     "unchecked": true
+    },
+    "2": {
+     "name": "target",
+     "unchecked": true
+    },
+    "3": {
+     "name": "position",
+     "unchecked": true
+    },
+    "4": {
+     "name": "normal",
+     "unchecked": true
+    },
+    "5": {
+     "name": "hitDirection",
+     "unchecked": true
+    },
+    "6": {
+     "name": "attackMod"
+    },
+    "7": {
+     "name": "staminaMod"
+    },
+    "8": {
+     "name": "noiseRange"
+    },
+    "10": {
+     "name": "specialAbilityGain"
+    },
+    "11": {
+     "name": "damageScaleAttribute"
+    },
+    "12": {
+     "name": "pushBackStrength"
+    },
+    "13": {
+     "name": "hitReactionType"
+    },
+    "14": {
+     "name": "damage"
+    },
+    "15": {
+     "name": "attackCategory"
+    },
+    "16": {
+     "name": "weaponCategory"
+    },
+    "17": {
+     "name": "material"
+    },
+    "19": {
+     "name": "canBeBlocked"
+    },
+    "20": {
+     "name": "canCrit"
+    },
+    "21": {
+     "name": "forceInterrupt",
+     "doc": "[hyp from value-node names ForceInterrupt/ForceStun]"
+    },
+    "22": {
+     "name": "visceralAttackType"
+    },
+    "23": {
+     "name": "ignoreConsecutiveHits"
+    },
+    "24": {
+     "name": "pushbackDirectionOverride"
+    }
+   }
+  },
+  "0x93853d29": {
+   "doc": "Sets an attribute of `entity` to value.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "attribute"
+    },
+    "1": {
+     "name": "entity"
+    },
+    "2": {
+     "name": "value"
+    }
+   }
+  },
+  "0x798388df": {
+   "doc": "Applies a lasting modifier to an attribute (attribute op value) and keeps it per call site; RevertChange at the same site (in shutdown) removes it. Perks, buffs and skill nodes use the pair.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "attribute"
+    },
+    "1": {
+     "name": "operation"
+    },
+    "2": {
+     "name": "valueStorage",
+     "doc": "scratch of the value's type"
+    },
+    "3": {
+     "name": "valueStorageSign"
+    },
+    "4": {
+     "name": "entity"
+    },
+    "5": {
+     "name": "attributeOverride",
+     "doc": "used instead of `attribute` when connected"
+    },
+    "6": {
+     "name": "value"
+    }
+   }
+  },
+  "0x044e4187": {
+   "doc": "One-off change: attribute := attribute op value on `entity` (op = impact_nodes.ValuesMathOperator). Health (0x8eb84995), Stamina (0x04b6aa8b) and Mana (0x6aa2574e) changes are also reported as change events. Health is sint32.",
+   "returns": "1 on success, 0 when the entity has no such attribute",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "attribute",
+     "doc": "AttributeReference; the attribute id is FNV-1a of its GUID"
+    },
+    "1": {
+     "name": "operation",
+     "doc": "Add/Sub/Mul/Div"
+    },
+    "2": {
+     "name": "scratch",
+     "doc": "receives the old value; same type as value"
+    },
+    "3": {
+     "name": "entity"
+    },
+    "4": {
+     "name": "attributeOverride",
+     "doc": "used instead of `attribute` when connected"
+    },
+    "5": {
+     "name": "value"
+    }
+   }
+  },
+  "0xe41652a7": {
+   "doc": "Removes the modifier ApplyChange added at the same call site (same arguments).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "attribute"
+    },
+    "1": {
+     "name": "operation"
+    },
+    "2": {
+     "name": "valueStorage"
+    },
+    "3": {
+     "name": "valueStorageSign"
+    },
+    "4": {
+     "name": "entity"
+    },
+    "5": {
+     "name": "attributeOverride"
+    },
+    "6": {
+     "name": "value"
+    }
+   }
+  },
+  "0xdb35d7c9": {
+   "doc": "Writes the entity's current attribute value (NotFound 0x11 when it has none).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "value",
+     "dir": "out"
+    },
+    "1": {
+     "name": "attribute"
+    },
+    "2": {
+     "name": "entity"
+    }
+   }
+  },
+  "0xa385dcb9": {
+   "doc": "Like fetchAttribute, without an error when the attribute is missing.",
+   "returns": "1 when the entity has the attribute",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "value",
+     "dir": "out"
+    },
+    "1": {
+     "name": "attribute"
+    },
+    "2": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x53f7fdba": {
+   "doc": "result = a op b, typed by the variables (float32, sint32, Time, float3, ...). The four math natives share one function (0x190600): the op variable (impact_nodes.ValuesMathOperator: Add/Sub/Mul/Div) decides, so keep it matching the name (add).",
+   "returns": "0 (pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "op"
+    },
+    "2": {
+     "name": "a"
+    },
+    "3": {
+     "name": "b"
+    }
+   }
+  },
+  "0xd367cdeb": {
+   "doc": "result = a op b, typed by the variables (float32, sint32, Time, float3, ...). The four math natives share one function (0x190600): the op variable (impact_nodes.ValuesMathOperator: Add/Sub/Mul/Div) decides, so keep it matching the name (sub).",
+   "returns": "0 (pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "op"
+    },
+    "2": {
+     "name": "a"
+    },
+    "3": {
+     "name": "b"
+    }
+   }
+  },
+  "0xc19163a7": {
+   "doc": "result = a op b, typed by the variables (float32, sint32, Time, float3, ...). The four math natives share one function (0x190600): the op variable (impact_nodes.ValuesMathOperator: Add/Sub/Mul/Div) decides, so keep it matching the name (mul).",
+   "returns": "0 (pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "op"
+    },
+    "2": {
+     "name": "a"
+    },
+    "3": {
+     "name": "b"
+    }
+   }
+  },
+  "0x67eed8fe": {
+   "doc": "result = a op b, typed by the variables (float32, sint32, Time, float3, ...). The four math natives share one function (0x190600): the op variable (impact_nodes.ValuesMathOperator: Add/Sub/Mul/Div) decides, so keep it matching the name (div).",
+   "returns": "0 (pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "op"
+    },
+    "2": {
+     "name": "a"
+    },
+    "3": {
+     "name": "b"
+    }
+   }
+  },
+  "0x7f11f072": {
+   "doc": "result = value clamped to [min, max] [hyp: argument order from two vanilla uses].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "min"
+    },
+    "2": {
+     "name": "max"
+    },
+    "3": {
+     "name": "value"
+    }
+   }
+  },
+  "0x0294c6df": {
+   "doc": "Compares a and b (typed by the variables). Shares its function with isLess: the op variable (ValuesCompareOperator Equal/Less) decides.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "op",
+     "unchecked": true
+    },
+    "1": {
+     "name": "a"
+    },
+    "2": {
+     "name": "b"
+    }
+   }
+  },
+  "0x69190348": {
+   "doc": "a < b (typed). Shares its function with isEqual: the op variable decides.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "op",
+     "unchecked": true
+    },
+    "1": {
+     "name": "a"
+    },
+    "2": {
+     "name": "b"
+    }
+   }
+  },
+  "0x44396293": {
+   "doc": "Whether the actor has the state flag (actor.StateFlag: Grounded, Blocking, Dodging, InCombat, ...).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "state"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x695e7565": {
+   "doc": "Whether the entity's faction is in the mask (optional second mask).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "factions"
+    },
+    "1": {
+     "name": "entity"
+    },
+    "2": {
+     "name": "factionsAlt"
+    }
+   }
+  },
+  "0x2d3e3e5f": {
+   "doc": "Whether value has the categories of `contains` (all of them when matchAll).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "contains"
+    },
+    "1": {
+     "name": "matchAll",
+     "unchecked": true
+    },
+    "2": {
+     "name": "value"
+    }
+   }
+  },
+  "0x42c15437": {
+   "doc": "Whether the weapon category is `required`.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "required"
+    },
+    "1": {
+     "name": "weaponCategory"
+    }
+   }
+  },
+  "0xb67b054f": {
+   "doc": "Whether the weapon category's type is in the allowed mask.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "allowed"
+    },
+    "1": {
+     "name": "weaponCategory"
+    }
+   }
+  },
+  "0x84891ee2": {
+   "doc": "Whether value has the damage types of `contains` (all of them when matchAll).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "contains"
+    },
+    "1": {
+     "name": "matchAll",
+     "unchecked": true
+    },
+    "2": {
+     "name": "value"
+    }
+   }
+  },
+  "0xa0209dda": {
+   "doc": "Consumes an item [hyp; unused by vanilla programs].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "item"
+    }
+   }
+  },
+  "0x90cf9818": {
+   "doc": "result = transform moved by a local offset (in its orientation) and a world offset.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform"
+    },
+    "2": {
+     "name": "localOffset"
+    },
+    "3": {
+     "name": "worldOffset"
+    }
+   }
+  },
+  "0x61b11b03": {
+   "doc": "Spawns `template` at transform (or position) with velocity, under this program's impact hierarchy (owner/target/level/faction optional). The new entity runs its own Impact program: this is how projectiles spawn their explosions.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "doc": "the spawned entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "breakImpactHierarchy"
+    },
+    "2": {
+     "name": "addDespawnLink",
+     "unchecked": true
+    },
+    "3": {
+     "name": "copyParentLevel"
+    },
+    "4": {
+     "name": "copyParentFaction"
+    },
+    "5": {
+     "name": "template"
+    },
+    "6": {
+     "name": "transform"
+    },
+    "7": {
+     "name": "position"
+    },
+    "8": {
+     "name": "velocity"
+    },
+    "9": {
+     "name": "owner"
+    },
+    "10": {
+     "name": "target"
+    },
+    "11": {
+     "name": "level"
+    },
+    "12": {
+     "name": "faction"
+    }
+   }
+  },
+  "0x91f30b26": {
+   "doc": "Applies a BuffType to target for `lifetime` (unconnected: the buff's defaultLifeTime), optionally with a DamageSetup and an item. The buff is its own entity running the BuffType's program.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "buffType"
+    },
+    "1": {
+     "name": "target"
+    },
+    "2": {
+     "name": "damage"
+    },
+    "3": {
+     "name": "item"
+    },
+    "4": {
+     "name": "lifetime"
+    }
+   }
+  },
+  "0x9866d55a": {
+   "doc": "Whether the entity has the buff.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "buffType"
+    },
+    "1": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0xca687904": {
+   "doc": "Removes the buff from the entity.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "wasRemoved",
+     "dir": "out"
+    },
+    "1": {
+     "name": "buffType",
+     "unchecked": true
+    },
+    "2": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0x9dcb0a66": {
+   "doc": "Random branch: true with probability `chance` (0..1).",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "chance"
+    }
+   }
+  },
+  "0x92bf9f5b": {
+   "doc": "Writes a random float [hyp: 0..1].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "value",
+     "dir": "out"
+    }
+   }
+  },
+  "0xf976c136": {
+   "doc": "Writes a random index below count [hyp; unused by vanilla].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "index",
+     "dir": "out"
+    },
+    "1": {
+     "name": "count"
+    }
+   }
+  },
+  "0xd471249f": {
+   "doc": "Emits an AI noise event (type 0xd079d101) at position with range, from the program's entity; NoConnection (0x18) when an input is unconnected.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "position"
+    },
+    "1": {
+     "name": "range"
+    }
+   }
+  },
+  "0x39ee6f5d": {
+   "doc": "Pacifies a faction [hyp from the name].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "faction"
+    }
+   }
+  },
+  "0x283aba15": {
+   "doc": "Makes the faction call for help [hyp from the name].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "faction"
+    }
+   }
+  },
+  "0x9f34f4ea": {
+   "doc": "Iterates the OnHit events this step (index = a uint32 the program zeroes first) and writes each hit's flags and entities.",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "wasParried",
+     "dir": "out"
+    },
+    "1": {
+     "name": "wasBlocked",
+     "dir": "out"
+    },
+    "2": {
+     "name": "wasBlockBroken",
+     "dir": "out"
+    },
+    "3": {
+     "name": "wasBackstab",
+     "dir": "out"
+    },
+    "4": {
+     "name": "wasCrit",
+     "dir": "out"
+    },
+    "6": {
+     "name": "wasKillingBlow",
+     "dir": "out"
+    },
+    "7": {
+     "name": "wasVisceral",
+     "dir": "out"
+    },
+    "9": {
+     "name": "wasSkillShot",
+     "dir": "out"
+    },
+    "11": {
+     "name": "attackCategory",
+     "dir": "out"
+    },
+    "12": {
+     "name": "weaponCategory",
+     "dir": "out"
+    },
+    "13": {
+     "name": "damageTypes",
+     "dir": "out"
+    },
+    "14": {
+     "name": "rootEntity",
+     "dir": "out"
+    },
+    "15": {
+     "name": "sourceEntity",
+     "dir": "out"
+    },
+    "16": {
+     "name": "targetRootEntity",
+     "dir": "out"
+    },
+    "17": {
+     "name": "targetEntity",
+     "dir": "out"
+    },
+    "18": {
+     "name": "weaponEntity",
+     "dir": "out"
+    },
+    "19": {
+     "name": "position",
+     "dir": "out"
+    },
+    "20": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "21": {
+     "name": "healthChange",
+     "dir": "out"
+    },
+    "23": {
+     "name": "index",
+     "unchecked": true
+    },
+    "24": {
+     "name": "tick"
+    }
+   }
+  },
+  "0x6b4da871": {
+   "doc": "Sends a basic hit event (target, position, normal, materials) without damage [hyp].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "target"
+    },
+    "1": {
+     "name": "position",
+     "unchecked": true
+    },
+    "2": {
+     "name": "normal",
+     "unchecked": true
+    },
+    "3": {
+     "name": "material"
+    },
+    "4": {
+     "name": "inMaterial",
+     "unchecked": true
+    }
+   }
+  },
+  "0xbe0e869d": {
+   "doc": "Reports a revive (target revived by reviver).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "target",
+     "unchecked": true
+    },
+    "1": {
+     "name": "reviver",
+     "unchecked": true
+    }
+   }
+  },
+  "0xad415283": {
+   "doc": "Material feedback for a hit (sound/VFX by material, used item and ammunition).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "inMaterial",
+     "unchecked": true
+    },
+    "1": {
+     "name": "position",
+     "unchecked": true
+    },
+    "2": {
+     "name": "normal",
+     "unchecked": true
+    },
+    "3": {
+     "name": "material",
+     "unchecked": true
+    },
+    "4": {
+     "name": "flag"
+    },
+    "5": {
+     "name": "ammunition"
+    },
+    "6": {
+     "name": "usedItem"
+    },
+    "7": {
+     "name": "outMaterial",
+     "unchecked": true
+    }
+   }
+  },
+  "0xc5453cfb": {
+   "doc": "Iterates parry events (blocker, attacker).",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "blocker",
+     "dir": "out"
+    },
+    "1": {
+     "name": "attacker",
+     "dir": "out"
+    },
+    "3": {
+     "name": "index",
+     "unchecked": true
+    },
+    "4": {
+     "name": "tick"
+    }
+   }
+  },
+  "0x9aabd181": {
+   "doc": "Changes voxels at transform (remove/add/flatten, by impact.DamageTerraformingSetup per hardness). Canceled (6) when it does nothing.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "root"
+    },
+    "1": {
+     "name": "transform"
+    },
+    "2": {
+     "name": "type",
+     "unchecked": true
+    },
+    "3": {
+     "name": "damage"
+    },
+    "4": {
+     "name": "material"
+    },
+    "5": {
+     "name": "range"
+    },
+    "6": {
+     "name": "rangeAdd"
+    },
+    "7": {
+     "name": "rangeFlatten"
+    },
+    "8": {
+     "name": "specialAbilityGain"
+    }
+   }
+  },
+  "0xbb6e8623": {
+   "doc": "Adds water at transform.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "changed",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform"
+    },
+    "2": {
+     "name": "amount"
+    },
+    "3": {
+     "name": "range"
+    },
+    "4": {
+     "name": "asSphere"
+    }
+   }
+  },
+  "0x79fb429b": {
+   "doc": "Writes the player's cursor (aim) transform.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x5fdbd8ee": {
+   "doc": "Clears the consecutive-hit memory after an interval [hyp].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "interval"
+    }
+   }
+  },
+  "0x7fca1b56": {
+   "doc": "Whether the entity was hit before by this impact [hyp].",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity"
+    }
+   }
+  },
+  "0xe56d6397": {
+   "doc": "Writes the consecutive-hit count [hyp; unused by vanilla].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "count",
+     "dir": "out"
+    }
+   }
+  },
+  "0xe8912af0": {
+   "doc": "Writes the number of enemies near the entity.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "count",
+     "dir": "out"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x4b131213": {
+   "doc": "Whether the player has the skill node.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "skill"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x236b6555": {
+   "doc": "Moves the program's entity to transform.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "transform",
+     "unchecked": true
+    }
+   }
+  },
+  "0x4adde30c": {
+   "doc": "Normalises a vector [hyp; unused by vanilla].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "vector"
+    }
+   }
+  },
+  "0xa5ff238b": {
+   "doc": "result = vector scaled to length.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "vector",
+     "unchecked": true
+    },
+    "2": {
+     "name": "length",
+     "unchecked": true
+    }
+   }
+  },
+  "0xd8e52c57": {
+   "doc": "result = length of vector.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "result",
+     "dir": "out"
+    },
+    "1": {
+     "name": "vector",
+     "unchecked": true
+    }
+   }
+  },
+  "0x3e1c0b5d": {
+   "doc": "Writes the transform/position of an attachment slot (HandR, Head, ...) of the entity.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "1": {
+     "name": "position",
+     "dir": "out"
+    },
+    "2": {
+     "name": "slot",
+     "unchecked": true
+    },
+    "3": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0x31fb9991": {
+   "doc": "Sets an enemy AI variable (enemy01.EnemyVariableReference) on the entity.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "variable"
+    },
+    "1": {
+     "name": "value"
+    },
+    "2": {
+     "name": "entity"
+    }
+   }
+  },
+  "0x45dbf538": {
+   "doc": "Opens an event stream of the given type (OnCollision, OnHit, OnParry): writes eventStream {callId 0, type}. The program must allocate the stream (usedStreams).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "eventStream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "eventType",
+     "unchecked": true
+    }
+   }
+  },
+  "0x61946152": {
+   "doc": "Opens an EntityInRange stream of entities with the factions within range of origin.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "query": true,
+   "args": {
+    "0": {
+     "name": "eventStream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "origin",
+     "unchecked": true
+    },
+    "2": {
+     "name": "range",
+     "unchecked": true
+    },
+    "3": {
+     "name": "factions",
+     "unchecked": true
+    }
+   }
+  },
+  "0xbe4ece89": {
+   "doc": "Iterates the entities of a stream.",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "2": {
+     "name": "index"
+    },
+    "3": {
+     "name": "stream"
+    }
+   }
+  },
+  "0x72fdd0f5": {
+   "doc": "forEachHitEvent over a filtered stream (same outputs; the last argument is the stream).",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "wasParried",
+     "dir": "out"
+    },
+    "1": {
+     "name": "wasBlocked",
+     "dir": "out"
+    },
+    "2": {
+     "name": "wasBlockBroken",
+     "dir": "out"
+    },
+    "3": {
+     "name": "wasBackstab",
+     "dir": "out"
+    },
+    "4": {
+     "name": "wasCrit",
+     "dir": "out"
+    },
+    "6": {
+     "name": "wasKillingBlow",
+     "dir": "out"
+    },
+    "7": {
+     "name": "wasVisceral",
+     "dir": "out"
+    },
+    "9": {
+     "name": "wasSkillShot",
+     "dir": "out"
+    },
+    "11": {
+     "name": "attackCategory",
+     "dir": "out"
+    },
+    "12": {
+     "name": "weaponCategory",
+     "dir": "out"
+    },
+    "13": {
+     "name": "damageTypes",
+     "dir": "out"
+    },
+    "14": {
+     "name": "rootEntity",
+     "dir": "out"
+    },
+    "15": {
+     "name": "sourceEntity",
+     "dir": "out"
+    },
+    "16": {
+     "name": "targetRootEntity",
+     "dir": "out"
+    },
+    "17": {
+     "name": "targetEntity",
+     "dir": "out"
+    },
+    "18": {
+     "name": "weaponEntity",
+     "dir": "out"
+    },
+    "19": {
+     "name": "position",
+     "dir": "out"
+    },
+    "20": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "21": {
+     "name": "healthChange",
+     "dir": "out"
+    },
+    "23": {
+     "name": "index"
+    },
+    "24": {
+     "name": "stream",
+     "unchecked": true
+    }
+   }
+  },
+  "0x640f8053": {
+   "doc": "Empties a stream.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "unchecked": true
+    }
+   }
+  },
+  "0xec2558de": {
+   "doc": "Whether a stream has no events.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "unchecked": true
+    }
+   }
+  },
+  "0xd0a532b0": {
+   "doc": "Iterates the collision events of a stream (index = a uint32 the program zeroes first): other entity and root, position, normal, transform, material, combat-target flag.",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "otherEntity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "otherRoot",
+     "dir": "out"
+    },
+    "2": {
+     "name": "position",
+     "dir": "out"
+    },
+    "3": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "4": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "5": {
+     "name": "material",
+     "dir": "out"
+    },
+    "7": {
+     "name": "isCombatTarget",
+     "dir": "out"
+    },
+    "9": {
+     "name": "index"
+    },
+    "10": {
+     "name": "stream"
+    }
+   }
+  },
+  "0xa5e145f8": {
+   "doc": "Writes a stream with the events of `input` that pass the Random filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "input",
+     "unchecked": true
+    },
+    "3": {
+     "name": "count",
+     "unchecked": true
+    }
+   }
+  },
+  "0xd6bb2b78": {
+   "doc": "Writes a stream with the events of `input` that pass the Friends filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "invert",
+     "unchecked": true
+    },
+    "2": {
+     "name": "input",
+     "unchecked": true
+    },
+    "3": {
+     "name": "alsoNeutral"
+    }
+   }
+  },
+  "0xf52a5619": {
+   "doc": "Writes a stream with the events of `input` that pass the SameRoot filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "invert",
+     "unchecked": true
+    },
+    "2": {
+     "name": "input",
+     "unchecked": true
+    }
+   }
+  },
+  "0xdb4bf324": {
+   "doc": "Writes a stream with the events of `input` that pass the RootEntity filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "invert",
+     "unchecked": true
+    },
+    "2": {
+     "name": "input",
+     "unchecked": true
+    }
+   }
+  },
+  "0xf56c44f1": {
+   "doc": "Writes a stream with the events of `input` that pass the Faction filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "factions",
+     "unchecked": true
+    },
+    "2": {
+     "name": "input",
+     "unchecked": true
+    },
+    "4": {
+     "name": "factionsAlt"
+    }
+   }
+  },
+  "0x55d4c71d": {
+   "doc": "Writes a stream with the events of `input` that pass the IsInState filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "states",
+     "unchecked": true
+    },
+    "2": {
+     "name": "invert",
+     "unchecked": true
+    },
+    "3": {
+     "name": "input",
+     "unchecked": true
+    }
+   }
+  },
+  "0x6e453d91": {
+   "doc": "Writes a stream with the events of `input` that pass the ConsecutiveHits filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "input",
+     "unchecked": true
+    }
+   }
+  },
+  "0xbd6aa1d0": {
+   "doc": "Writes a stream with the events of `input` that pass the EntityTag filter (invert flips it).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "stream",
+     "dir": "out"
+    },
+    "1": {
+     "name": "invert",
+     "unchecked": true
+    },
+    "2": {
+     "name": "input",
+     "unchecked": true
+    },
+    "4": {
+     "name": "tag",
+     "unchecked": true
+    }
+   }
+  },
+  "0x9870a3b4": {
+   "doc": "Writes a stream's event count.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "streamOut",
+     "dir": "out"
+    },
+    "1": {
+     "name": "count",
+     "dir": "out"
+    },
+    "2": {
+     "name": "stream",
+     "unchecked": true
+    }
+   }
+  },
+  "0x19143416": {
+   "doc": "Iterates the entities with the factions within range of origin. The query lives per call site (queryCallIds) and is released when the loop ends; destroyFactionQuery at the same site releases it early (vanilla calls it in shutdown). A range of 0 returns 0 at once.",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": false,
+   "query": true,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "2": {
+     "name": "index",
+     "doc": "uint32 counter, zero it before the loop",
+     "unchecked": true
+    },
+    "3": {
+     "name": "factions",
+     "unchecked": true
+    },
+    "4": {
+     "name": "origin",
+     "unchecked": true
+    },
+    "5": {
+     "name": "range",
+     "unchecked": true
+    }
+   }
+  },
+  "0x93e40aa9": {
+   "doc": "Releases the query of forEachEntityWithFactionInRange at the same site (same arguments).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "query": true,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "2": {
+     "name": "index"
+    },
+    "3": {
+     "name": "factions"
+    },
+    "4": {
+     "name": "origin"
+    },
+    "5": {
+     "name": "range"
+    }
+   }
+  },
+  "0xa8787e70": {
+   "doc": "Iterates the players within range of origin (a per-site query like forEachEntityWithFactionInRange).",
+   "returns": "1 while an element was fetched (the index variable is advanced), 0 at the end",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "query": true,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "2": {
+     "name": "index",
+     "unchecked": true
+    },
+    "3": {
+     "name": "origin",
+     "unchecked": true
+    },
+    "4": {
+     "name": "range",
+     "unchecked": true
+    }
+   }
+  },
+  "0x22a62ea4": {
+   "doc": "Releases the query of forEachPlayerInRange at the same site.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "query": true,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    },
+    "1": {
+     "name": "transform",
+     "dir": "out"
+    },
+    "2": {
+     "name": "index"
+    },
+    "3": {
+     "name": "origin"
+    },
+    "4": {
+     "name": "range"
+    }
+   }
+  },
+  "0x78244a69": {
+   "doc": "Writes the used weapon's visual entity.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "dir": "out"
+    }
+   }
+  },
+  "0x0afc5954": {
+   "doc": "Whether the entity has the tag.",
+   "returns": "1 = true, 0 = false (branch on it with brt/brf)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity",
+     "unchecked": true
+    },
+    "1": {
+     "name": "tag",
+     "unchecked": true
+    }
+   }
+  },
+  "0x0f150d49": {
+   "doc": "Unlocks knowledge (journal/recipes) for the entity's player.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "knowledge"
+    },
+    "1": {
+     "name": "entity"
+    }
+   }
+  },
+  "0xd2d5826e": {
+   "doc": "Writes the curse modifier [hyp from the name].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "value",
+     "dir": "out"
+    }
+   }
+  },
+  "0xc691c4da": {
+   "doc": "Destroys an entity. When the destroy request fails it returns Temporary_TimeOut (1): the ECALL suspends and runs again next step.",
+   "returns": "1 when destroyed",
+   "evidence": [
+    "dis",
+    "data"
+   ],
+   "suspends": true,
+   "args": {
+    "0": {
+     "name": "entity",
+     "unchecked": true
+    }
+   }
+  },
+  "0x63b0d4c7": {
+   "doc": "Writes the water charge size [hyp from the name].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "value",
+     "dir": "out"
+    }
+   }
+  },
+  "0x866dfbeb": {
+   "doc": "Decomposes a transform relative to a reference (position, normal) [hyp].",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "position",
+     "dir": "out"
+    },
+    "3": {
+     "name": "normal",
+     "dir": "out"
+    },
+    "4": {
+     "name": "transform",
+     "unchecked": true
+    },
+    "5": {
+     "name": "reference"
+    }
+   }
+  },
+  "0xee3b6ad1": {
+   "doc": "Adds a level of a skill node to the player; RevertAddSkillLevel at the same site removes it.",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity"
+    },
+    "1": {
+     "name": "skill"
+    }
+   }
+  },
+  "0x1bed77df": {
+   "doc": "Reverts addSkillLevel (same site).",
+   "returns": "1 (always; pop it)",
+   "evidence": [
+    "data"
+   ],
+   "suspends": false,
+   "args": {
+    "0": {
+     "name": "entity"
+    },
+    "1": {
+     "name": "skill"
+    }
+   }
+  },
+  "0x9127757a": {
+   "doc": "Registered with a null function: the interpreter pushes 1 and does nothing (debug builds only).",
+   "returns": "1",
+   "evidence": [
+    "dis"
+   ],
+   "suspends": false
+  },
+  "0xe7397efa": {
+   "doc": "Registered with a null function: the interpreter pushes 1 and does nothing (debug builds only).",
+   "returns": "1",
+   "evidence": [
+    "dis"
+   ],
+   "suspends": false
+  },
+  "0xe8573fe7": {
+   "doc": "Registered with a null function: the interpreter pushes 1 and does nothing (debug builds only).",
+   "returns": "1",
+   "evidence": [
+    "dis"
+   ],
+   "suspends": false
+  }
+ }
+}

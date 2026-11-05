@@ -1,0 +1,30 @@
+[package]
+name = "kiln-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "kiln: the modder's command line for Kiln (Enshrouded mods): new, build, cook, run, deploy, reload, test, debug, lint, pack, logs, catalog. Built on kiln-manage."
+
+# Docs: docs/kiln/modding/cli.md. A member of the root workspace (../../Cargo.toml).
+[[bin]]
+name = "kiln"
+path = "src/main.rs"
+
+[features]
+default = ["catalog", "lint", "catalog-build"]
+# kiln catalog build: reads the installed game (kiln-manage's gameart reader); off = status/path/search only
+catalog-build = ["kiln-manage/gameart"]
+# kiln catalog status|path|search (kiln_manage::catalog) and kiln lint (kiln_manage::lint): on once those modules exist
+catalog = []
+lint = []
+
+[dependencies]
+kiln-manage = { path = "../kiln-manage", features = ["server"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

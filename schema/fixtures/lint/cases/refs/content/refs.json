@@ -1,0 +1,15 @@
+{ "format": 1,
+  "items": {
+    "add": [ { "guid": "8d6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "name": "FixtureRefs_Blade", "base": "Weapon_Fixture_Swrod",
+               "model": "item:Weapon_Fixture_Sword", "texts": { "xx": { "name": "?" }, "pt-BR": { "name": "Lâmina" } },
+               "fields": { "maxStackSise": 2 } } ],
+    "material_fixture_logs": { "maxStackSize": 500, "rarity": "Epik" },
+    "Food_*": { "maxStackSize": 10 },
+    "Material_Fixture_Logs": { "damageSetup.dmgMod": 2, "rarty": "Epic" }
+  },
+  "recipes": { "add": [ { "guid": "8d6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "name": "FixtureRefs_Recipe", "station": "hand",
+                          "inputs": [ { "item": "Material_Fixture_Lgos", "count": 2 } ], "outputs": [ "FixtureRefs_Blade" ] } ] },
+  "drops": { "0000c001-0000-4000-8000-0000000000ff": { "count": { "mul": 2 } } },
+  "templates": { "Enemy_Fixture_Wolf": { "Enemy01BehaviorState.aggroSetup.viewRange": 20, "Helth.max": 3 } },
+  "creatures": { "spawnRules": [ { "replace": "Enemy_Fixture_Wolf", "with": "no_such_variant" } ] }
+}

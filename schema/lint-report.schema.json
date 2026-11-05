@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lint-report.schema.json",
+  "title": "kiln lint report (kiln lint --json, Tauri library_lint), format 1",
+  "description": "What kiln_manage::lint::LintReport::to_json writes. Consumers: tools/vscode (problems), the launcher's library page, CI scripts. Codes and rule names are stable; docs/kiln/modding/lint.md documents each. Example: schema/fixtures/lint/output.json.",
+  "type": "object",
+  "required": ["format", "tool", "version", "ok", "checked", "summary", "catalog", "diagnostics"],
+  "properties": {
+    "format": { "const": 1 },
+    "tool": { "const": "kiln-lint" },
+    "version": { "type": "string", "description": "kiln-manage's version." },
+    "ok": { "type": "boolean", "description": "No error-severity finding." },
+    "checked": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths of the files linted." },
+    "summary": {
+      "type": "object",
+      "required": ["errors", "warnings", "infos", "hints"],
+      "properties": {
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 },
+        "infos": { "type": "integer", "minimum": 0 },
+        "hints": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "catalog": {
+      "description": "The game-data catalog used for the reference checks (null: none, see KL901).",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" }, "side": { "type": ["string", "null"] }, "build": { "type": ["string", "null"] } } }
+      ]
+    },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" }, "description": "Sorted by file, then position." }
+  },
+  "$defs": {
+    "span": {
+      "type": "object",
+      "required": ["start", "end"],
+      "description": "UTF-8 byte offsets into the file; end exclusive (start = end: a point).",
+      "properties": { "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 0 } }
+    },
+    "edit": {
+      "type": "object",
+      "required": ["file", "span", "newText"],
+      "properties": { "file": { "type": "string" }, "span": { "$ref": "#/$defs/span" }, "newText": { "type": "string" } }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["file", "code", "severity", "rule", "message", "span", "line", "col", "endLine", "endCol", "fixes", "related"],
+      "properties": {
+        "file": { "type": "string", "description": "Absolute path." },
+        "code": { "type": "string", "pattern": "^KL[0-9]{3}$" },
+        "severity": { "enum": ["error", "warning", "info", "hint"] },
+        "rule": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "message": { "type": "string" },
+        "span": { "$ref": "#/$defs/span" },
+        "line": { "type": "integer", "minimum": 1 },
+        "col": { "type": "integer", "minimum": 1, "description": "1-based, in Unicode scalar values." },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endCol": { "type": "integer", "minimum": 1 },
+        "pointer": { "type": "string", "description": "JSON pointer of the value the finding is about (schema findings)." },
+        "schema": { "type": "string", "description": "The schema file that found it." },
+        "fixes": {
+          "type": "array",
+          "items": { "type": "object", "required": ["title", "edits"], "properties": { "title": { "type": "string" }, "edits": { "type": "array", "items": { "$ref": "#/$defs/edit" } } } }
+        },
+        "related": {
+          "type": "array",
+          "items": { "type": "object", "required": ["file", "span", "message"], "properties": { "file": { "type": "string" }, "span": { "$ref": "#/$defs/span" }, "message": { "type": "string" } } }
+        },
+        "docs": { "type": "string", "description": "A docs path, optionally with an #anchor (repository-relative)." }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "catalog": false,
+  "description": "skills/*.json: what the native reader and Kiln.Skills accept (gameTree as a list, one node instead of a list, {x, y}, Active / Passive / None, GUID config keys, true / false values, program configs by name); a missing \"guid\" keeps its own message (KL104); no link (KL109), cost out of range (KL107), a link to no node (KL401); Kiln.Skills' Validate: a node id twice (KL305), requires of an unknown node (KL401 error, did you mean), two nodes in one cell (KL310); game-tree nodes without clients mod (KL207 error), with clients mod on a server mod (no KL204), a talent tree without it (KL207 info)",
+  "diagnostics": [
+    {
+      "code": "KL901",
+      "col": 1,
+      "file": "game-tree-kiln/kiln.mod.json",
+      "line": 1,
+      "message": "no game-data catalog: 1 reference(s) to the game's items, templates, ... were not checked (make one with `kiln catalog`, or pass --catalog)",
+      "severity": "info"
+    },
+    {
+      "code": "KL207",
+      "col": 149,
+      "file": "game-tree-kiln/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has nodes in the game's skill tree but says \"clients\": \"kiln\": every client must build the same tree from the mod's own files (the server sends no tree definitions); declare \"clients\": \"mod\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "game-tree-kiln/skills/nodes.json",
+      "line": 8,
+      "message": "missing \"guid\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL109",
+      "col": 85,
+      "file": "game-tree-kiln/skills/nodes.json",
+      "line": 9,
+      "message": "an empty list: a node needs a link, \"from\" (the nodes that lead to it) or \"to\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL401",
+      "col": 90,
+      "file": "game-tree-kiln/skills/nodes.json",
+      "line": 10,
+      "message": "no skill-tree node \"fx_nope\" is defined",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 110,
+      "file": "game-tree-kiln/skills/nodes.json",
+      "line": 10,
+      "message": "1001 is above the maximum 1000",
+      "severity": "error"
+    },
+    {
+      "code": "KL207",
+      "col": 111,
+      "file": "trees/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a talent tree but says no \"clients\" (side \"server\" means \"none\"): players without the mod can only use it through the /talents chat command; to draw its screen on their game, declare \"clients\": \"mod\" and side \"both\" (vanilla clients are then refused, unless the server's modSync is off)",
+      "severity": "info"
+    },
+    {
+      "code": "KL401",
+      "col": 48,
+      "file": "trees/skills/trees.json",
+      "line": 10,
+      "message": "tree fixture:bad: requires unknown node \"frist\" (Kiln.Skills refuses the tree); did you mean \"first\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL305",
+      "col": 15,
+      "file": "trees/skills/trees.json",
+      "line": 11,
+      "message": "tree fixture:bad: node \"first\" twice (Kiln.Skills refuses the tree)",
+      "severity": "error"
+    },
+    {
+      "code": "KL310",
+      "col": 7,
+      "file": "trees/skills/trees.json",
+      "line": 12,
+      "message": "tree fixture:bad: two nodes at column 0, row 0 (Kiln.Skills refuses the tree; a node without \"col\" and \"row\" sits at 0, 0)",
+      "severity": "error"
+    }
+  ]
+}

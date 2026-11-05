@@ -1,0 +1,1 @@
+{ "format": 1, "natives": [ { "name": "fixture-files.Ping", "hash": "0x12345678", "argc": 2, "args": [ { "name": "a" } ] }, { "name": "other.Pong" }, { "name": "kiln.Mine" } ] }

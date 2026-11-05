@@ -1,0 +1,643 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content-pack.schema.json",
+  "title": "Kiln data pack (content/*.json), format 1",
+  "description": "kiln.content's and kiln.gamedata's data packs: rules over the game's registries (items, recipes, loot, drops, templates, arsenals, sequences, buffs, perks, skills, itemdata), new items / recipes and gamedata clones (\"add\" lists), and sections of other services (creatures). Read by native/services/content (nlohmann::json with comments allowed; trailing commas are NOT allowed). Field paths come from the game's reflection at run time, so this schema checks the document's shape; `kiln lint` checks names and paths against the game-data catalog. Docs: docs/kiln/services/content.md, gamedata.md, creatures.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/content.md#data-packs",
+  "properties": {
+    "format": { "const": 1, "type": "integer", "description": "1 (optional). Another value refuses the whole file." },
+    "comment": { "description": "Free text, ignored." },
+    "items": { "$ref": "#/$defs/itemsSection" },
+    "recipes": { "$ref": "#/$defs/recipesSection" },
+    "loot": { "$ref": "#/$defs/lootSection" },
+    "drops": { "$ref": "#/$defs/dropsSection" },
+    "options": { "$ref": "#/$defs/options" },
+    "templates": { "$ref": "#/$defs/templatesSection" },
+    "arsenals": { "$ref": "#/$defs/arsenalsSection" },
+    "sequences": { "$ref": "#/$defs/sequencesSection" },
+    "buffs": { "$ref": "#/$defs/buffsSection" },
+    "perks": { "$ref": "#/$defs/perksSection" },
+    "skills": { "$ref": "#/$defs/skillsSection" },
+    "itemdata": { "$ref": "#/$defs/itemdataSection" },
+    "creatures": { "$ref": "#/$defs/creaturesSection" },
+    "abilities": { "description": "Reserved for Kiln.Abilities (a known section name; no service reads it yet).", "x-kiln-docs": "docs/kiln/services/gamedata.md#pack-sections-of-other-services" }
+  },
+  "patternProperties": { "^@": { "description": "Keys starting with @ are skipped (the content sync's @fields, @definitions)." } },
+  "additionalProperties": true,
+  "x-kiln-unknownKeys": "warning",
+  "x-kiln-unknownKeysMessage": "unknown section (kiln.content ignores it unless a service registers it with Content.RegisterSection)",
+  "$defs": {
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "description": "A GUID in .NET text form (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)."
+    },
+    "fixedGuid": {
+      "allOf": [
+        { "$ref": "#/$defs/guid" },
+        { "not": { "type": "string", "pattern": "^0{8}-0{4}-0{4}-0{4}-0{12}$" }, "x-kiln-message": "the zero GUID cannot be a definition (the game maps it to id 0)" }
+      ],
+      "description": "A definition's fixed GUID: pick it once (uuid4) and never change it; the id is FNV-1a of its 16 bytes and saves store the id."
+    },
+    "hexId": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]{1,8}$" },
+    "itemName": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,200}$", "x-kiln-message": "a debug name is 1..200 of A-Z a-z 0-9 _ - ." },
+    "cloneName": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$", "x-kiln-message": "a clone's name is 1..128 of letters, digits, _ - ." },
+    "lang": {
+      "type": "string",
+      "pattern": "^(\\*|[A-Za-z0-9][A-Za-z0-9_-]{1,11})$",
+      "description": "A language key: en, de, pt-BR, zh-CN, or * (every language). Kiln normalizes _ to - and ignores case; lookups fall back to the primary language, then en, then *."
+    },
+    "op": {
+      "type": "object",
+      "description": "An operation relative to the game's original value.",
+      "properties": {
+        "mul": { "type": "number" },
+        "add": { "type": "number" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "raiseOnly": { "type": "boolean" },
+        "lowerOnly": { "type": "boolean" },
+        "set": { "description": "Sets this value (any value form)." },
+        "reset": { "type": "boolean", "description": "kiln.gamedata: takes this owner's layer off." }
+      },
+      "minProperties": 1
+    },
+    "value": {
+      "description": "A field value: a number, true / false, an enum name, \"0x...\", a GUID or name for a reference, a flag-name list ([\"Magic\"], [\"+Run\", \"-FleeHome\"]), seconds for times; an op ({\"mul\": 2}, {\"set\": v}); in gamedata sections also an object that sets a struct's fields.",
+      "type": ["number", "boolean", "string", "array", "object"],
+      "properties": {
+        "mul": { "type": "number" },
+        "add": { "type": "number" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "raiseOnly": { "type": "boolean" },
+        "lowerOnly": { "type": "boolean" },
+        "reset": { "type": "boolean" }
+      }
+    },
+    "where": {
+      "type": "object",
+      "description": "Conditions on the game's ORIGINAL values: field path -> a number / bool / enum name for equality, \">1\", \">=\", \"<\", \"<=\", \"!=\", \"!Name\"; a list = any of. \"name\": a glob over the entry name; recipes also \"output\" / \"input\" (an item name or glob in the list).",
+      "properties": {
+        "name": { "type": "string" },
+        "output": { "type": "string", "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "glob"] },
+        "input": { "type": "string", "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "glob"] }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          { "type": ["number", "boolean", "string"] },
+          { "type": "array", "items": { "type": ["number", "boolean", "string"] } }
+        ]
+      }
+    },
+    "itemRef": {
+      "type": "string",
+      "description": "item:<name> (that item's value), item:<name>.<field path>, a GUID, or none.",
+      "anyOf": [
+        { "pattern": "^item:[^.]+(\\..+)?$", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] },
+        { "$ref": "#/$defs/guid", "x-kiln-ref": "resources", "x-kiln-ref-forms": ["guid"] },
+        { "const": "none" }
+      ]
+    },
+    "kitbash": {
+      "description": "Kitbash references (docs/kiln/services/content.md#kitbash-new-items-made-of-loaded-resources-v4).",
+      "properties": {
+        "model": { "$ref": "#/$defs/itemRef", "description": "item:<name>: that item's whole visual setup; a model GUID: just the model." },
+        "visual": { "$ref": "#/$defs/itemRef", "description": "equipment.visualEntity" },
+        "impact": { "$ref": "#/$defs/itemRef", "description": "equipment.impactEntity" },
+        "program": { "$ref": "#/$defs/itemRef", "description": "equipment.program" },
+        "animation": { "$ref": "#/$defs/itemRef", "description": "equipment.equipmentEntityModelSetup.animation" },
+        "collectionModel": { "$ref": "#/$defs/itemRef", "description": "collectionInfo.overrideModel" },
+        "iconModel": { "$ref": "#/$defs/itemRef", "description": "iconModel" },
+        "weaponType": { "$ref": "#/$defs/itemRef", "description": "weaponCategoryReference" },
+        "perks": {
+          "description": "perkReferences[i] / perkIds[i]: a list of up to 5 (perk GUID, item:<name>, item:<name>.perkReferences[k], none, null = keep), or \"item:<name>\" for all five.",
+          "oneOf": [
+            { "type": "string", "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] },
+            {
+              "type": "array",
+              "maxItems": 5,
+              "items": {
+                "anyOf": [
+                  { "type": "null" },
+                  { "const": "none" },
+                  { "type": "string", "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] },
+                  { "$ref": "#/$defs/guid", "x-kiln-ref": "perks", "x-kiln-ref-forms": ["guid"] },
+                  { "type": "string", "x-kiln-ref": "perks", "x-kiln-ref-forms": ["name"] }
+                ]
+              }
+            }
+          ]
+        },
+        "refs": {
+          "type": "object",
+          "description": "Any reference field by path: item:<name>, item:<name>.<path>, a GUID (also one kiln.assets serves), or none.",
+          "x-kiln-fields": "items",
+          "additionalProperties": { "$ref": "#/$defs/itemRef" }
+        }
+      }
+    },
+    "texts": {
+      "type": "object",
+      "description": "Texts per language: { \"<language>\": { \"name\", \"caption\", \"description\", \"lore\", \"acquisitionHint\", \"primaryAction\", \"secondaryAction\", \"tertiaryAction\" } }. Texts not given stay the base item's.",
+      "propertyNames": { "$ref": "#/$defs/lang", "x-kiln-ref": "languages", "x-kiln-ref-forms": ["lang"] },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "displayName": { "type": "string", "description": "Same as name." },
+          "caption": { "type": "string" },
+          "description": { "type": "string" },
+          "lore": { "type": "string" },
+          "acquisitionHint": { "type": "string" },
+          "primaryAction": { "type": "string" },
+          "secondaryAction": { "type": "string" },
+          "tertiaryAction": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fields": {
+      "type": "object",
+      "description": "Field values: paths of the registry's reflection (Content.Dump() lists them).",
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "itemDefinition": {
+      "type": "object",
+      "description": "A new item: a clone of `base` with its own fixed GUID, debug name, texts and values (docs/kiln/services/content.md#new-items-and-recipes-forges-deferredregister).",
+      "x-kiln-docs": "docs/kiln/services/content.md#data-packs-add",
+      "required": ["guid", "name", "base"],
+      "allOf": [{ "$ref": "#/$defs/kitbash" }],
+      "properties": {
+        "comment": {},
+        "guid": { "$ref": "#/$defs/fixedGuid", "x-kiln-def": "items" },
+        "name": { "$ref": "#/$defs/itemName", "x-kiln-def-name": "items" },
+        "base": { "type": "string", "minLength": 1, "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error", "description": "The item it is cloned from (debug name, 0x id or GUID)." },
+        "displayName": { "type": "string", "description": "The name players see (every language)." },
+        "description": { "type": "string" },
+        "lore": { "type": "string" },
+        "texts": { "$ref": "#/$defs/texts" },
+        "fields": { "$ref": "#/$defs/fields", "x-kiln-fields": "items" },
+        "rolledLoot": { "type": "boolean", "description": "Opt-in for a rolled loot item: keeps the base's generateRarity and level range. Default false: a fixed rarity and one level, as the recipe tooltip shows." },
+        "icon": {
+          "description": "item:<name> / an item GUID (that item's icon), or a PNG file relative to the mod folder (registered with kiln.assets; Kiln clients only).",
+          "type": "string",
+          "anyOf": [
+            { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod" },
+            { "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] },
+            { "$ref": "#/$defs/guid", "x-kiln-ref": "items", "x-kiln-ref-forms": ["guid"] },
+            { "const": "none" }
+          ]
+        },
+        "loot": {
+          "description": "Random loot: true = like the base, or {like, stackSizeMin, stackSizeMax, stackSizeMaxScaled, fields}.",
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "properties": {
+                "like": { "type": "string", "x-kiln-ref": "loot", "x-kiln-ref-forms": ["name", "id", "guid"], "description": "An item with a random-loot entry." },
+                "stackSizeMin": { "type": "number", "minimum": 0 },
+                "stackSizeMax": { "type": "number", "minimum": 0 },
+                "stackSizeMaxScaled": { "type": "number", "minimum": 0 },
+                "fields": { "$ref": "#/$defs/fields" }
+              },
+              "x-kiln-unknownKeys": "warning"
+            }
+          ]
+        },
+        "drops": {
+          "type": "array",
+          "description": "Drop-table stacks: {table: <table GUID | glob over GUIDs | like:<item>>, countMin, countMax, chance, weight}.",
+          "items": {
+            "type": "object",
+            "required": ["table"],
+            "properties": {
+              "table": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "^like:.+$", "x-kiln-ref": "items", "x-kiln-ref-forms": ["like:"] },
+                  { "$ref": "#/$defs/guid", "x-kiln-ref": "drops", "x-kiln-ref-forms": ["guid"] },
+                  { "pattern": "[*?]", "x-kiln-ref": "drops", "x-kiln-ref-forms": ["glob"] }
+                ]
+              },
+              "countMin": { "type": "integer", "minimum": 1, "maximum": 100000 },
+              "countMax": { "type": "integer", "minimum": 1, "maximum": 100000 },
+              "chance": { "type": "number", "minimum": 0, "maximum": 1 },
+              "weight": { "type": "number", "minimum": 0 }
+            },
+            "x-kiln-unknownKeys": "warning"
+          }
+        },
+        "placeholder": { "type": "object", "description": "Kiln's own (missing content): mods do not write it.", "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "\"placeholder\" is written by Kiln for missing content; a mod's definition should not carry it" }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in an item definition (kiln.content ignores it)"
+    },
+    "definitionStack": {
+      "description": "An item name, or {item, count} / {category: \"0x...\", count} (inputs only).",
+      "oneOf": [
+        { "type": "string", "minLength": 1, "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" },
+        {
+          "type": "object",
+          "properties": {
+            "item": { "type": "string", "minLength": 1, "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" },
+            "category": { "type": "string", "pattern": "^(0[xX])?[0-9a-fA-F]*[1-9a-fA-F][0-9a-fA-F]*$", "x-kiln-ref": "itemCategories", "x-kiln-ref-forms": ["id"] },
+            "count": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1 }
+          },
+          "oneOf": [{ "required": ["item"] }, { "required": ["category"], "not": { "required": ["item"] } }],
+          "x-kiln-unknownKeys": "warning"
+        }
+      ]
+    },
+    "recipeDefinition": {
+      "type": "object",
+      "description": "A new recipe: base (a recipe to copy) and/or station (hand, 0x<workshop id>, or a recipe whose station to use).",
+      "x-kiln-docs": "docs/kiln/services/content.md#data-packs-add",
+      "required": ["guid", "name", "inputs", "outputs"],
+      "anyOf": [{ "required": ["base"] }, { "required": ["station"] }],
+      "x-kiln-message": "a recipe needs \"base\" (a recipe to copy) or \"station\"",
+      "properties": {
+        "comment": {},
+        "guid": { "$ref": "#/$defs/fixedGuid", "x-kiln-def": "recipes" },
+        "name": { "$ref": "#/$defs/itemName", "x-kiln-def-name": "recipes" },
+        "base": { "type": "string", "minLength": 1, "x-kiln-ref": "recipes", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" },
+        "station": {
+          "type": "string",
+          "minLength": 1,
+          "anyOf": [
+            { "const": "hand" },
+            { "$ref": "#/$defs/hexId", "x-kiln-ref": "workshops", "x-kiln-ref-forms": ["id"] },
+            { "x-kiln-ref": "recipes", "x-kiln-ref-forms": ["name", "guid"] }
+          ]
+        },
+        "displayName": { "type": "string", "description": "A recipe name (most recipes show their result's)." },
+        "inputs": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/definitionStack" } },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/definitionStack", "not": { "type": "object", "required": ["category"] }, "x-kiln-message": "outputs cannot be categories" }
+        },
+        "duration": { "type": "number", "minimum": 0, "maximum": 1000000, "description": "Crafting time in seconds (default: the template's)." },
+        "unlock": { "enum": ["always", "base"], "x-kiln-caseInsensitive": true, "description": "always (default): no knowledge requirement; base: the base recipe's requirement." },
+        "fields": { "$ref": "#/$defs/fields", "x-kiln-fields": "recipes" },
+        "placeholder": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "\"placeholder\" is written by Kiln for missing content" }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in a recipe definition (kiln.content ignores it)"
+    },
+    "itemRule": {
+      "type": "object",
+      "description": "Field changes of every item the selector matches.",
+      "allOf": [{ "$ref": "#/$defs/kitbash" }],
+      "properties": {
+        "@where": { "$ref": "#/$defs/where", "x-kiln-fields": "items", "properties": { "output": { "not": {}, "x-kiln-message": "output / input conditions are for recipes" }, "input": { "not": {}, "x-kiln-message": "output / input conditions are for recipes" } } },
+        "@refs": { "type": "boolean", "description": "Opt in to changing references of game items (kitbash keys, refs)." },
+        "icon": { "not": {}, "x-kiln-message": "icons are definition-only (an \"add\" entry or assets/assets.json)" }
+      },
+      "x-kiln-fields": "items",
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "ruleStack": {
+      "type": "object",
+      "properties": {
+        "item": { "type": "string", "minLength": 1, "x-kiln-ref": "items", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" },
+        "category": { "type": ["string", "integer"], "x-kiln-ref": "itemCategories", "x-kiln-ref-forms": ["id"] },
+        "count": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1 }
+      },
+      "anyOf": [{ "required": ["item"] }, { "required": ["category"] }],
+      "x-kiln-message": "a stack needs \"item\" (or \"category\" for inputs)"
+    },
+    "stackList": {
+      "description": "The whole new list (1..32 stacks), or {\"mul\": x, \"min\": 1} to scale the original amounts.",
+      "oneOf": [
+        { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/ruleStack" } },
+        { "type": "object", "properties": { "mul": { "type": "number" }, "add": { "type": "number" }, "min": { "type": "number" }, "max": { "type": "number" } }, "additionalProperties": false }
+      ]
+    },
+    "recipeRule": {
+      "type": "object",
+      "properties": {
+        "@where": { "$ref": "#/$defs/where", "x-kiln-fields": "recipes" },
+        "inputs": { "$ref": "#/$defs/stackList" },
+        "outputs": {
+          "$ref": "#/$defs/stackList",
+          "not": { "type": "array", "contains": { "type": "object", "required": ["category"], "not": { "required": ["item"] } } },
+          "x-kiln-message": "outputs cannot be categories"
+        }
+      },
+      "x-kiln-fields": "recipes",
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "itemSelector": {
+      "type": "string",
+      "minLength": 1,
+      "x-kiln-ref": "items",
+      "x-kiln-ref-forms": ["name", "id", "guid", "glob"],
+      "description": "A debug name, \"0x...\" / decimal id, a GUID, or a case-insensitive glob (Material_*, *)."
+    },
+    "itemsSection": {
+      "type": "object",
+      "description": "Rules over the item registry (\"<selector>\": {fields}) and new items (\"add\": [...]).",
+      "x-kiln-docs": "docs/kiln/services/content.md#data-packs",
+      "properties": { "add": { "type": "array", "items": { "$ref": "#/$defs/itemDefinition" } } },
+      "propertyNames": { "$ref": "#/$defs/itemSelector" },
+      "additionalProperties": { "$ref": "#/$defs/itemRule" }
+    },
+    "recipesSection": {
+      "type": "object",
+      "properties": { "add": { "type": "array", "items": { "$ref": "#/$defs/recipeDefinition" } } },
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "recipes", "x-kiln-ref-forms": ["name", "id", "guid", "glob"] },
+      "additionalProperties": { "$ref": "#/$defs/recipeRule" }
+    },
+    "lootSection": {
+      "type": "object",
+      "description": "Random loot of containers and world pickups, per item: { \"<item selector>\": { \"stackSizeMin\": 5, ... } }.",
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "loot", "x-kiln-ref-forms": ["name", "id", "guid", "glob"] },
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "@where": { "$ref": "#/$defs/where", "x-kiln-fields": "loot" } },
+        "x-kiln-fields": "loot",
+        "additionalProperties": { "$ref": "#/$defs/value" }
+      }
+    },
+    "dropsSection": {
+      "type": "object",
+      "description": "Default-inventory tables (enemy loot, fixed chests): { \"<table GUID | glob>\": { \"count\": op, \"chance\": op, \"items\": { \"<item>\": { \"countMin\": ... } } } }.",
+      "propertyNames": {
+        "type": "string",
+        "anyOf": [
+          { "$ref": "#/$defs/guid", "x-kiln-ref": "drops", "x-kiln-ref-forms": ["guid"] },
+          { "pattern": "[*?]", "x-kiln-ref": "drops", "x-kiln-ref-forms": ["glob"] }
+        ],
+        "x-kiln-message": "a drop-table selector is a table GUID or a glob over GUIDs"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "count": { "$ref": "#/$defs/value", "description": "Scales countMin and countMax." },
+          "chance": { "$ref": "#/$defs/value", "description": "spawnProbability (kept within 0..1)." },
+          "items": {
+            "type": "object",
+            "propertyNames": { "$ref": "#/$defs/itemSelector" },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "countMin": { "$ref": "#/$defs/value" },
+                "countMax": { "$ref": "#/$defs/value" },
+                "spawnProbability": { "$ref": "#/$defs/value" },
+                "weight": { "$ref": "#/$defs/value" }
+              },
+              "x-kiln-fields": "drops",
+              "additionalProperties": { "$ref": "#/$defs/value" }
+            }
+          }
+        },
+        "x-kiln-unknownKeys": "warning",
+        "x-kiln-unknownKeysMessage": "unknown key in a drop rule (only count, chance and items are read)"
+      }
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "stackGuard": { "type": "boolean", "description": "Keep the stack guard on (see content.md: Stack guard)." },
+        "refs": { "type": "boolean", "description": "This document may change references of game items (kitbash opt-in for every rule)." }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown option (ignored)"
+    },
+    "gdRule": {
+      "type": "object",
+      "description": "Paths of the game's reflection -> values. @where: conditions on original values (any path) and name (a glob).",
+      "properties": { "@where": { "$ref": "#/$defs/where" }, "@refs": { "type": "boolean" } },
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "cloneDefinition": {
+      "type": "object",
+      "description": "A clone with a fixed GUID (never change a released one), a name and a base of the same section; fields are layers of the \"gamedata definitions\" owner.",
+      "x-kiln-docs": "docs/kiln/services/gamedata.md#clones-add",
+      "required": ["guid", "name", "base"],
+      "properties": {
+        "comment": {},
+        "guid": { "$ref": "#/$defs/fixedGuid" },
+        "name": { "$ref": "#/$defs/cloneName" },
+        "base": { "type": "string", "minLength": 1 },
+        "fields": { "type": "object", "additionalProperties": { "$ref": "#/$defs/value" } },
+        "displayName": { "type": "string" },
+        "description": { "type": "string" },
+        "texts": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/lang", "x-kiln-ref": "languages", "x-kiln-ref-forms": ["lang"] },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "object", "properties": { "name": { "type": "string" }, "description": { "type": "string" } }, "additionalProperties": false, "x-kiln-message": "a perk or buff has a name and a description" }
+            ]
+          }
+        },
+        "placeholder": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "\"placeholder\" is written by Kiln for missing gamedata" }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in a clone definition (ignored)"
+    },
+    "templatesSection": {
+      "type": "object",
+      "description": "keen::ecs::TemplateResource: paths start with a component type name (Enemy01BehaviorState.aggroSetup.viewRange).",
+      "x-kiln-docs": "docs/kiln/services/gamedata.md#sections",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cloneDefinition",
+            "properties": {
+              "guid": { "x-kiln-def": "templates" },
+              "name": { "x-kiln-def-name": "templates" },
+              "base": { "x-kiln-ref": "templates", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" },
+              "texts": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "texts are for perks and buffs (ignored on templates)" },
+              "displayName": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "texts are for perks and buffs (ignored on templates)" },
+              "description": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "texts are for perks and buffs (ignored on templates)" }
+            }
+          }
+        }
+      },
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "templates", "x-kiln-ref-forms": ["name", "id", "guid", "glob"] },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "templates" }
+    },
+    "arsenalsSection": {
+      "type": "object",
+      "description": "keen::enemy::EnemyArsenalResource (guid, attacks[], behaviors[]); selectors: an arsenal GUID or template:<template name>.",
+      "properties": { "add": { "not": {}, "x-kiln-message": "arsenals cannot be cloned (templates, sequences, perks, buffs can)" } },
+      "propertyNames": {
+        "type": "string",
+        "anyOf": [
+          { "$ref": "#/$defs/guid", "x-kiln-ref": "arsenals", "x-kiln-ref-forms": ["guid"] },
+          { "pattern": "^template:.+$", "x-kiln-ref": "templates", "x-kiln-ref-forms": ["template:"] },
+          { "pattern": "[*?]", "x-kiln-ref": "arsenals", "x-kiln-ref-forms": ["glob"] },
+          { "const": "add" }
+        ],
+        "x-kiln-message": "an arsenal selector is an arsenal GUID or template:<template name>"
+      },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "arsenals" }
+    },
+    "sequencesSection": {
+      "type": "object",
+      "description": "keen::actor::ActorSubSequenceResource (events, length, loop, mask); selectors: a sub-sequence name, a sequence GUID, <guid>#k, a glob.",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cloneDefinition",
+            "properties": {
+              "guid": { "x-kiln-def": "sequences" },
+              "name": { "x-kiln-def-name": "sequences" },
+              "base": { "x-kiln-ref": "sequences", "x-kiln-ref-forms": ["name", "guid"], "x-kiln-ref-missing": "error" },
+              "texts": { "x-kiln-severity": "warning", "not": {}, "x-kiln-message": "texts are for perks and buffs (ignored on sequences)" }
+            }
+          }
+        }
+      },
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "sequences", "x-kiln-ref-forms": ["name", "guid", "guid#k", "glob"] },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "sequences" }
+    },
+    "buffsSection": {
+      "type": "object",
+      "description": "keen::BuffType (defaultLifeTime, slot, applyType, impact, impactValues, uiValues); selectors: 0x<buff type id>, buff_<id>, a clone's name or GUID.",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cloneDefinition",
+            "properties": {
+              "guid": { "x-kiln-def": "buffs" },
+              "name": { "x-kiln-def-name": "buffs" },
+              "base": { "x-kiln-ref": "buffs", "x-kiln-ref-forms": ["id", "buff_", "guid", "name"], "x-kiln-ref-missing": "error" }
+            }
+          }
+        }
+      },
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "buffs", "x-kiln-ref-forms": ["id", "buff_", "guid", "name", "glob"] },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "buffs" }
+    },
+    "perksSection": {
+      "type": "object",
+      "description": "keen::Perk (impactValues, damageModifier, perkArmorSetup, uiValues); selectors: a debug name, a GUID, 0x id, a glob.",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cloneDefinition",
+            "properties": {
+              "guid": { "x-kiln-def": "perks" },
+              "name": { "x-kiln-def-name": "perks" },
+              "base": { "x-kiln-ref": "perks", "x-kiln-ref-forms": ["name", "id", "guid"], "x-kiln-ref-missing": "error" }
+            }
+          }
+        }
+      },
+      "propertyNames": { "type": "string", "minLength": 1, "x-kiln-ref": "perks", "x-kiln-ref-forms": ["name", "id", "guid", "glob"] },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "perks" }
+    },
+    "skillsSection": {
+      "type": "object",
+      "description": "keen::SkillTreeNode (costs, maxLevel, configValues, uiPosition); selectors: 0x<node id>, skill_<id>, item:<ability item> (the node that unlocks it).",
+      "properties": { "add": { "not": {}, "x-kiln-message": "skill nodes cannot be cloned here (talent trees: Kiln.Skills)" } },
+      "propertyNames": {
+        "type": "string",
+        "anyOf": [
+          { "$ref": "#/$defs/hexId", "x-kiln-ref": "skills", "x-kiln-ref-forms": ["id"] },
+          { "pattern": "^skill_", "x-kiln-ref": "skills", "x-kiln-ref-forms": ["skill_"] },
+          { "pattern": "^item:.+$", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] },
+          { "pattern": "[*?]" },
+          { "const": "add" }
+        ],
+        "x-kiln-message": "a skill selector is 0x<node id>, skill_<id> or item:<ability item>"
+      },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "skills" }
+    },
+    "itemdataSection": {
+      "type": "object",
+      "description": "Items through kiln.gamedata's paths (references, configs, lists): the paths Content.ItemData takes. Mods normally use \"items\"; a game item's references need \"@refs\": true in the rule.",
+      "properties": { "add": { "not": {}, "x-kiln-message": "new items go in items.add" } },
+      "propertyNames": { "$ref": "#/$defs/itemSelector" },
+      "additionalProperties": { "$ref": "#/$defs/gdRule", "x-kiln-fields": "items" }
+    },
+    "faction": {
+      "enum": ["Environment", "HitAll", "Fogger", "Vukah", "Scavenger", "Wildlife", "WildBeast", "Player", "AutomatedPlayer", "HitOthers", "Skeleton", "PlayerAlly", "FarmAnimal", "Cyclops", "Drak", "Ancients", "None"],
+      "x-kiln-caseInsensitive": true
+    },
+    "damageKind": {
+      "enum": ["All", "Physical", "Cut", "Pierce", "Blunt", "Wood", "Stone", "Metal", "Poison", "Explosion", "SkillShot", "Magical", "MagicalBase", "MagicalAdder", "MagicalMultiplier", "Fire", "Fog", "Ice", "Lightning"],
+      "x-kiln-caseInsensitive": true
+    },
+    "enemyFeature": {
+      "type": "string",
+      "pattern": "^[+-]?(UseTaunt|UseThreatSystem|UseBlocking|Move|Prowl|Rotate|RotateWhileStanding|Patrol|Roaming|ShowSpawnSequence|ReturnHome|FleeHome|Combat|Interact|TriggerAlarm|CallForHelp|Run|IdleTurn|BlockProjectiles|SearchForCover|MoveToMarker|Sleep|RunAround|Circling|StunnedState|Awareness|Investigate)$",
+      "x-kiln-caseInsensitive": true,
+      "x-kiln-message": "an enemy feature: [+|-]UseTaunt, Move, Patrol, Roaming, ReturnHome, FleeHome, Combat, Run, Sleep, Awareness, Investigate, ... (EnemyFeatures)"
+    },
+    "creaturesSection": {
+      "type": "object",
+      "description": "kiln.creatures' variants and natural-spawn rules (Creatures.ApplyJson). Docs: docs/kiln/services/creatures.md#data-packs-the-creatures-section.",
+      "x-kiln-docs": "docs/kiln/services/creatures.md#data-packs-the-creatures-section",
+      "properties": {
+        "format": {},
+        "comment": {},
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "base"],
+            "properties": {
+              "comment": {},
+              "id": { "type": "string", "minLength": 1, "x-kiln-def-name": "variants" },
+              "base": { "type": "string", "minLength": 1, "x-kiln-ref": "templates", "x-kiln-ref-forms": ["name", "guid", "displayName"], "x-kiln-ref-missing": "error", "description": "A vanilla template or a kiln.content clone (name, display name or GUID)." },
+              "name": { "type": "string" },
+              "level": { "type": "integer", "minimum": 1 },
+              "faction": { "anyOf": [{ "$ref": "#/$defs/faction" }, { "type": "integer", "minimum": 0, "maximum": 255 }] },
+              "scale": { "type": "number", "exclusiveMinimum": 0 },
+              "xp": { "type": "number", "minimum": 0 },
+              "speed": { "type": "number", "minimum": 0 },
+              "damage": { "type": "number", "minimum": 0 },
+              "resistances": { "type": "object", "propertyNames": { "$ref": "#/$defs/damageKind" }, "additionalProperties": { "type": "number" } },
+              "loot": {
+                "type": "object",
+                "properties": {
+                  "labels": { "$ref": "#/$defs/guid" },
+                  "slots": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }], "minItems": 2, "maxItems": 2 },
+                  "disabled": { "type": "boolean" }
+                },
+                "x-kiln-unknownKeys": "warning"
+              },
+              "features": { "type": "array", "items": { "$ref": "#/$defs/enemyFeature" } },
+              "ai": { "type": "object", "description": "Private AI settings: Enemy01BehaviorState paths, or Component.path.", "additionalProperties": { "type": ["string", "number", "boolean"] } },
+              "persist": { "type": "boolean" }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a creature variant (ignored)"
+          }
+        },
+        "spawnRules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["replace", "with"],
+            "properties": {
+              "comment": {},
+              "replace": { "type": "string", "minLength": 1, "x-kiln-ref": "templates", "x-kiln-ref-forms": ["name", "guid", "displayName"] },
+              "with": { "type": "string", "minLength": 1, "x-kiln-ref": "variants", "x-kiln-ref-forms": ["name"], "x-kiln-ref-missing": "error" },
+              "chance": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+              "night": { "type": "boolean" },
+              "day": { "type": "boolean" }
+            },
+            "not": { "required": ["night", "day"], "properties": { "night": { "const": true }, "day": { "const": true } } },
+            "x-kiln-message": "a rule cannot be both night-only and day-only"
+          }
+        }
+      },
+      "x-kiln-unknownKeys": "warning",
+      "x-kiln-unknownKeysMessage": "unknown key in the creatures section (ignored)"
+    }
+  }
+}

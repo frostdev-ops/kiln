@@ -1,0 +1,30 @@
+{
+  // comments are fine in data packs (trailing commas are not)
+  "format": 1,
+  "items": {
+    "add": [
+      { "guid": "4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60", "name": "FixtureClean_Blade", "base": "Weapon_Fixture_Sword",
+        "displayName": "Clean Blade", "icon": "assets/icons/blade.png",
+        "texts": { "de": { "name": "Saubere Klinge" } },
+        "fields": { "maxStackSize": 1, "damageSetup.dmgMod": 1.25 },
+        "drops": [ { "table": "0000c001-0000-4000-8000-000000000001", "countMin": 1, "countMax": 2, "chance": 0.5 } ] }
+    ],
+    "Material_Fixture_*": { "@where": { "maxStackSize": ">1" }, "maxStackSize": { "mul": 2, "max": 9999 } }
+  },
+  "recipes": {
+    "add": [
+      { "guid": "4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "name": "FixtureClean_Blade_Recipe", "station": "hand",
+        "inputs": [ { "item": "Material_Fixture_Logs", "count": 3 }, "Material_Fixture_Twigs" ],
+        "outputs": [ { "item": "FixtureClean_Blade", "count": 1 } ], "unlock": "always" }
+    ]
+  },
+  "templates": {
+    "add": [ { "guid": "4f6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d62", "name": "FixtureClean_Elite_Wolf", "base": "Enemy_Fixture_Wolf",
+               "fields": { "Enemy01BehaviorState.aggroSetup.viewRange": 30 } } ]
+  },
+  "creatures": {
+    "variants": [ { "id": "fixtureclean_elite", "base": "FixtureClean_Elite_Wolf", "level": 20, "faction": "Fogger",
+                    "resistances": { "Fire": 0.5 }, "features": ["-FleeHome"] } ],
+    "spawnRules": [ { "replace": "Enemy_Fixture_Wolf", "with": "fixtureclean_elite", "chance": 0.2, "night": true } ]
+  }
+}

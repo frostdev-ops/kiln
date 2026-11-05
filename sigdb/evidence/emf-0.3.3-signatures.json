@@ -1,0 +1,876 @@
+[
+ {
+  "index": 0,
+  "name": "SimStep",
+  "pattern": "40 55 53 56 41 55 48 8D AC 24 F8 FF FD FF B8 08 01 02 00 E8 ?? ?? ?? ??",
+  "client_1269579": 10609376,
+  "client_1273043": 10616336,
+  "server_1273043": 7081920,
+  "flags": 1,
+  "extra": 4294967295,
+  "old": [
+   "0x6c0fc0"
+  ],
+  "new": [
+   "0x6c8f10"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 1,
+  "name": "GetComponent",
+  "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D BA C0 5D E1 00 44 89",
+  "client_1269579": 10117520,
+  "client_1273043": 10122608,
+  "server_1273043": 6585840,
+  "flags": 1,
+  "extra": 4294967295,
+  "old": [
+   "0x647df0"
+  ],
+  "new": [],
+  "new_rebased": [
+   "0x64ed50"
+  ],
+  "rebased_pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D BA C0 79 E1 00 44 89"
+ },
+ {
+  "index": 2,
+  "name": "RegisterSingleton",
+  "pattern": "48 89 5C 24 20 55 56 57 41 54 41 55 48 83 EC 20 4C 8B 52 08 33 F6 4C 8B",
+  "client_1269579": 10309840,
+  "client_1273043": 10315968,
+  "server_1273043": 6779456,
+  "flags": 1,
+  "extra": 4294967295,
+  "old": [
+   "0x677240"
+  ],
+  "new": [
+   "0x67e720"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 3,
+  "name": "RegisterProgram",
+  "pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00",
+  "client_1269579": 10311536,
+  "client_1273043": 10317664,
+  "server_1273043": 6781152,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x6778e0"
+  ],
+  "new": [
+   "0x67ede0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D 6C 24 C9 48 81 08 A1 00"
+ },
+ {
+  "index": 4,
+  "name": "CreateEntity",
+  "pattern": "4C 89 4C 24 20 4C 89 44 24 18 89 54 24 10 48 89 4C 24 08 55 56 41 54 41",
+  "client_1269579": 9942928,
+  "client_1273043": 9947856,
+  "server_1273043": 6411088,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x61d350"
+  ],
+  "new": [
+   "0x623ce0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 5,
+  "name": "DestroyEntity",
+  "pattern": "48 89 5C 24 18 48 89 74 24 20 89 54 24 10 55 57 41 55 41 56 41 57 48 8D",
+  "client_1269579": 10050256,
+  "client_1273043": 10055344,
+  "server_1273043": 6518576,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x637730"
+  ],
+  "new": [
+   "0x63e8a0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 6,
+  "name": "NpcWorker",
+  "pattern": "40 53 48 83 EC 60 48 83 B9 60 01 00 00 00 48 8B D9 74 0E 48 83 B9 78 01",
+  "client_1269579": 4543168,
+  "client_1273043": 4544064,
+  "server_1273043": 2039184,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1f1d90"
+  ],
+  "new": [
+   "0x1f7850"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 7,
+  "name": "NpcSetState",
+  "pattern": "48 89 5C 24 10 48 89 6C 24 18 57 48 83 EC 30 48 8D B9 B0 01 00 00 48 8B",
+  "client_1269579": 4537584,
+  "client_1273043": 4538480,
+  "server_1273043": 2036448,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1f12e0"
+  ],
+  "new": [
+   "0x1f6da0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 8,
+  "name": "NpcSetDecision",
+  "pattern": "48 89 5C 24 08 57 48 83 EC 30 48 8B D9 0F B6 FA 48 8B 89 28 03 00 00 48",
+  "client_1269579": 4534944,
+  "client_1273043": 4535840,
+  "server_1273043": 2034512,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1f0b50"
+  ],
+  "new": [
+   "0x1f65b0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 9,
+  "name": "SetTimeOfDay",
+  "pattern": "40 53 48 83 EC 20 48 8B D9 4C 89 41 10 E8 ?? ?? ?? ?? FF 43 24 48 89 43",
+  "client_1269579": 15304240,
+  "client_1273043": 15315440,
+  "server_1273043": 9762208,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x94f5a0"
+  ],
+  "new": [
+   "0x959820"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 10,
+  "name": "GameLog",
+  "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D AC 24 40 E0 FF",
+  "client_1269579": 9083120,
+  "client_1273043": 9087840,
+  "server_1273043": 5701152,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x56fe20"
+  ],
+  "new": [
+   "0x575890"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 11,
+  "name": "AddLogListener",
+  "pattern": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 20 48 8B FA 48 8B F1 33 DB",
+  "client_1269579": 8889088,
+  "client_1273043": 8893808,
+  "server_1273043": 5504432,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x53fdb0"
+  ],
+  "new": [
+   "0x545890"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 12,
+  "name": "ClientWorldSetup",
+  "pattern": "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 50 FD FF FF",
+  "client_1269579": 3799984,
+  "client_1273043": 3800400,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 13,
+  "name": "ServerWorldSetup",
+  "pattern": "48 89 5C 24 20 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 20 E3 FF",
+  "client_1269579": 4802992,
+  "client_1273043": 4803888,
+  "server_1273043": 2287232,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x22e680"
+  ],
+  "new": [
+   "0x233ee0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 14,
+  "name": "GetEntityTransform",
+  "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 C0 5D E1 00 89 54 24 38 48 8D 8F",
+  "client_1269579": 10121568,
+  "client_1273043": 10126656,
+  "server_1273043": 6589888,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x648dc0"
+  ],
+  "new": [],
+  "new_rebased": [
+   "0x64fd40"
+  ],
+  "rebased_pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 C0 79 E1 00 89 54 24 38 48 8D 8F"
+ },
+ {
+  "index": 15,
+  "name": "IterBegin",
+  "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48",
+  "client_1269579": 10201952,
+  "client_1273043": 10207648,
+  "server_1273043": 6671168,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x65cb40"
+  ],
+  "new": [
+   "0x663b30"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 16,
+  "name": "IterNext",
+  "pattern": "40 57 48 83 EC 20 4C 8B 01 48 8B FA 8B 41 08 4C 8B C9 49 3B 80 30 08 00",
+  "client_1269579": 10181200,
+  "client_1273043": 10186336,
+  "server_1273043": 6649568,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x6576e0"
+  ],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 17,
+  "name": "CurrentEntityId",
+  "pattern": "8B 41 08 4C 8B C2 85 C0 75 06 89 02 48 8B C2 C3 8D 50 FF 48 8B 01 48 03 D2 48 8B 88 28 08 00 00 8B 04 D1 41",
+  "client_1269579": 10169920,
+  "client_1273043": 10175024,
+  "server_1273043": 6638256,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x654ab0"
+  ],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 18,
+  "name": "RegisterAllPrograms",
+  "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 40 41 B8 24",
+  "client_1269579": 4872752,
+  "client_1273043": 4873648,
+  "server_1273043": 2359232,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x23ffc0"
+  ],
+  "new": [
+   "0x245960"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 19,
+  "name": "SpawnWrapper",
+  "pattern": "48 83 EC 58 0F 10 02 8B 15 ?? ?? ?? ?? 33 C0 41 0F 10 08 48 81 C1 C0 5D",
+  "client_1269579": 9930960,
+  "client_1273043": 9935888,
+  "server_1273043": 6399120,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x61a490"
+  ],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 20,
+  "name": "Save2WriteWorld",
+  "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 F0 F4 FF FF",
+  "client_1269579": 14692576,
+  "client_1273043": 14702192,
+  "server_1273043": 7488352,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x724360"
+  ],
+  "new": [
+   "0x72cb30"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 21,
+  "name": "LoadSavegameStep",
+  "pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8B EC 48 83 EC 70 48 8B",
+  "client_1269579": 14927168,
+  "client_1273043": 14938160,
+  "server_1273043": 8030080,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x7a8780"
+  ],
+  "new": [
+   "0x7b1a10"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 22,
+  "name": "MarkWritten",
+  "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 54 41 56 41 57 48 83 EC 30 48 8B B1 90 02 00",
+  "client_1269579": 10247664,
+  "client_1273043": 10253792,
+  "server_1273043": 6717120,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x667ec0"
+  ],
+  "new": [
+   "0x66f040"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 23,
+  "name": "EmitEvent",
+  "pattern": "48 83 EC 28 4C 8B D9 41 81 F8 00 01",
+  "client_1269579": 9786368,
+  "client_1273043": 9791088,
+  "server_1273043": 6253488,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x5f6bb0"
+  ],
+  "new": [
+   "0x5fcfc0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": "48 83 EC 28 4C 8B D9 41 9D F8 00 01"
+ },
+ {
+  "index": 24,
+  "name": "GetTemplateComponent",
+  "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 C0 5D E1 00 89 54 24 38 48 8B 0F 48 8D 54 24 38 48 83 C1 30 41 8B D8 E8",
+  "client_1269579": 10120960,
+  "client_1273043": 10126048,
+  "server_1273043": 6589280,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x648b60"
+  ],
+  "new": [],
+  "new_rebased": [
+   "0x64fae0"
+  ],
+  "rebased_pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D B9 C0 79 E1 00 89 54 24 38 48 8B 0F 48 8D 54 24 38 48 83 C1 30 41 8B D8 E8"
+ },
+ {
+  "index": 25,
+  "name": "QueueChatMessage",
+  "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 54 41 56 41 57 48 83 EC 20 48 8B 81 ?? ?? ?? ?? 41 8B D9 45 0F B6 F8 4C 8B E2 48 8B A8 ?? ?? ?? ??",
+  "client_1269579": 14012016,
+  "client_1273043": 14018800,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 26,
+  "name": "InventoryTxCtor",
+  "pattern": "33 D2 33 C0 48 89 11 48 89 51 08 48 89 51 10 48 89 51 18 48 89 51 20 48 89 51 28 48 89 51 30 48 89 51 38 48 89 51 40 48 89 51 48 48 89 51 50 48 89 51 58 48 89 51 60 48 89 51 68 48 89 51 70 48 89 51 78 48",
+  "client_1269579": 2219264,
+  "client_1273043": 2219680,
+  "server_1273043": 244304,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x3ba50"
+  ],
+  "new": [
+   "0x3ed10"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 27,
+  "name": "InventoryTxInit",
+  "pattern": "C6 81 A8 71 00 00 00 48 8B 42 08 48",
+  "client_1269579": 4267504,
+  "client_1273043": 4268400,
+  "server_1273043": 1784480,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1b3aa0"
+  ],
+  "new": [
+   "0x1b9300"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 28,
+  "name": "InventoryAddItems",
+  "pattern": "4C 89 4C 24 20 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 48 8D AC 24 60 FF FF",
+  "client_1269579": 4239728,
+  "client_1273043": 4240624,
+  "server_1273043": 1755024,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1ac790"
+  ],
+  "new": [
+   "0x1b1f60"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 29,
+  "name": "InventoryCommit",
+  "pattern": "40 55 53 41 55 48 8D AC 24 30 FC FF",
+  "client_1269579": 4229968,
+  "client_1273043": 4230864,
+  "server_1273043": 1745056,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1aa0a0"
+  ],
+  "new": [
+   "0x1af860"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 30,
+  "name": "InventoryRollback",
+  "pattern": "4C 8B DC 55 56 41 55 41 56 41 57 49",
+  "client_1269579": 4263520,
+  "client_1273043": 4264416,
+  "server_1273043": 1780496,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1b2b10"
+  ],
+  "new": [
+   "0x1b8310"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 31,
+  "name": "InventoryFreeArrays",
+  "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9 45 33 C0 48 81 C1 40 71 00 00",
+  "client_1269579": 2219600,
+  "client_1273043": 2220016,
+  "server_1273043": 244640,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x3bba0"
+  ],
+  "new": [
+   "0x3ee60"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 32,
+  "name": "ReadOther",
+  "pattern": "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC CC CC CC CC CC CC 4C 8B D1 4D",
+  "client_1269579": 10116640,
+  "client_1273043": 10121728,
+  "server_1273043": 6584960,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x647a80"
+  ],
+  "new": [
+   "0x64e9e0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 33,
+  "name": "InventoryRemoveItems",
+  "pattern": "48 89 5C 24 08 48 89 74 24 18 48 89 7C 24 20 48 89 54 24 10 55 41 54 41 55 41 56 41 57 48 8D AC 24 20 FF FF",
+  "client_1269579": 4235392,
+  "client_1273043": 4236288,
+  "server_1273043": 1750480,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x1ab5d0"
+  ],
+  "new": [
+   "0x1b0d90"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 34,
+  "name": "ChatReceive",
+  "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B ?? 48 8B 49 30 E8 ?? ?? ?? ?? 49 8B ?? 10 48 8D 85 B8 00 00 00 48 89 85 90 00 00 00",
+  "client_1269579": 14973984,
+  "client_1273043": 14984976,
+  "server_1273043": 8078768,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x7b45b0"
+  ],
+  "new": [
+   "0x7bdb20"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B ?? 48 8B 49 30 E8 ?? ?? ?? ?? 49 8B ?? 10 48 8D A1 B8 00 00 00 48 89 A1 90 00 00 00"
+ },
+ {
+  "index": 35,
+  "name": "ChatLogAdd",
+  "pattern": "40 55 56 41 54 41 55 41 57 48 83 EC 30 49 8B 41 08 33 ED 4D 8B F9 45 0F B6 E0 48 8B F2 4C 8B E9 48 3D 00 04 00 00 76 ??",
+  "client_1269579": 15025888,
+  "client_1273043": 15037088,
+  "server_1273043": 9483056,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x90b330"
+  ],
+  "new": [
+   "0x915200"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 36,
+  "name": "WriteOther",
+  "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 49 8B E9 4D 8B F0 48 8B F2 48 8B D9 4D 85 C9 0F 84",
+  "client_1269579": 10116096,
+  "client_1273043": 10121184,
+  "server_1273043": 6584416,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x647860"
+  ],
+  "new": [
+   "0x64e7c0"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 37,
+  "name": "WaitWorldJobs",
+  "pattern": "48 8B 89 60 5D E1 00 E9 ?? ?? ?? ??",
+  "client_1269579": 10613824,
+  "client_1273043": 10620784,
+  "server_1273043": 7086368,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x6c2120"
+  ],
+  "new": [],
+  "new_rebased": [
+   "0x6ca080"
+  ],
+  "rebased_pattern": "48 8B 89 60 79 E1 00 E9 ?? ?? ?? ??"
+ },
+ {
+  "index": 38,
+  "name": "AttrFind",
+  "pattern": "89 54 24 10 53 48 83 EC 20 48 8B D9 48 8D 54 24 38 49 8D 48 68",
+  "client_1269579": 4294967295,
+  "client_1273043": 18997584,
+  "server_1273043": 9990032,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x986f90"
+  ],
+  "new": [
+   "0x991820"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 39,
+  "name": "AttrAdd",
+  "pattern": "44 8B 0D ?? ?? ?? ?? 44 8B C6 48 8B 55 A0 49 8B CE E8 ?? ?? ?? ??",
+  "client_1269579": 4294967295,
+  "client_1273043": 4097824,
+  "server_1273043": 1618208,
+  "flags": 0,
+  "extra": 17,
+  "old": [
+   "0x18be31"
+  ],
+  "new": [
+   "0x191521"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 40,
+  "name": "AllocPendingHit",
+  "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B D9 0F B6 FA 48 81 C1 10 01 00 00",
+  "client_1269579": 4294967295,
+  "client_1273043": 18975696,
+  "server_1273043": 9968064,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x9819c0"
+  ],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 41,
+  "name": "UiFrame",
+  "pattern": "48 89 74 24 10 57 48 83 EC 40 48 8B 0D ?? ?? ?? ??",
+  "client_1269579": 4294967295,
+  "client_1273043": 14208320,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 42,
+  "name": "PregameState",
+  "pattern": "40 53 48 83 EC 60 45 0F B6 D0 48 8B D9 0F B6 CA 84 D2 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 74 ?? 83 E9 01 74 ?? 83 F9 01 0F 85",
+  "client_1269579": 4294967295,
+  "client_1273043": 8815376,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 43,
+  "name": "PostSelectCharacter",
+  "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 48 8B 81 D0 00 00 00 41 0F B7 D8 8B FA 48 8B B0 C0 3C 03 00 4C 8D 46 18 8B 46 10 49 3B 00 74 78 8B 56 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 4C 8B 76 30 33 C0 8B CA 4C 03 F1 49 89 06 41 89 46 08 8D 42 0C 41 C6 06 11",
+  "client_1269579": 4294967295,
+  "client_1273043": 14017296,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 48 8B 9D D0 00 00 00 41 0F B7 D8 8B FA 48 8B B0 C0 3C 03 00 4C 8D 46 18 8B 46 10 49 3B 00 74 78 8B 56 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 4C 8B 76 30 33 C0 8B CA 4C 03 F1 49 89 06 41 89 46 08 8D 42 0C 41 C6 06 11"
+ },
+ {
+  "index": 44,
+  "name": "PostSelectWorld",
+  "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 81 D0 00 00 00 0F B7 DA 48 8B B8 C0 3C 03 00 4C 8D 47 18 8B 47 10 49 3B 00 74 7D 8B 57 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 48 8B 77 30 8D 42 03 8B CA 48 03 F1 66 C7 06 16 00",
+  "client_1269579": 4294967295,
+  "client_1273043": 14018064,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 9D D0 00 00 00 0F B7 DA 48 8B B8 C0 3C 03 00 4C 8D 47 18 8B 47 10 49 3B 00 74 7D 8B 57 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 48 8B 77 30 8D 42 03 8B CA 48 03 F1 66 C7 06 16 00"
+ },
+ {
+  "index": 45,
+  "name": "PostSessionArea",
+  "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 81 D0 00 00 00 0F B6 F2 48 8B 98 C0 3C 03 00 8B 43 10 48 3B 43 18 74 7F 44 8B 43 40 41 8B C0 83 E0 0F 74 07 44 2B C0 41 83 C0 10 48 8B 7B 30 41 8D 40 02 41 8B C8 48 03 F9 66 C7 07 27 00",
+  "client_1269579": 4294967295,
+  "client_1273043": 14017616,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 9D D0 00 00 00 0F B6 F2 48 8B 98 C0 3C 03 00 8B 43 10 48 3B 43 18 74 7F 44 8B 43 40 41 8B C0 83 E0 0F 74 07 44 2B C0 41 83 C0 10 48 8B 7B 30 41 8D 40 02 41 8B C8 48 03 F9 66 C7 07 27 00"
+ },
+ {
+  "index": 46,
+  "name": "PostStart",
+  "pattern": "48 89 5C 24 10 57 48 83 EC 20 48 8B 81 D0 00 00 00 48 8B 98 C0 3C 03 00 4C 8D 43 18 8B 43 10 49 3B 00 75 13 33 FF 48 85 FF 0F 95 C0 48 8B 5C 24 38 48 83 C4 20 5F C3 8B 53 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 48 8B 7B 30 8D 42 01 8B CA 48 03 F9 C6 07 28",
+  "client_1269579": 4294967295,
+  "client_1273043": 14007408,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": "48 89 5C 24 10 57 48 83 EC 20 48 8B 9D D0 00 00 00 48 8B 98 C0 3C 03 00 4C 8D 43 18 8B 43 10 49 3B 00 75 13 33 FF 48 85 FF 0F 95 C0 48 8B 5C 24 38 48 83 C4 20 5F C3 8B 53 40 8B C2 83 E0 0F 74 05 2B D0 83 C2 10 48 8B 7B 30 8D 42 01 8B CA 48 03 F9 C6 07 28"
+ },
+ {
+  "index": 47,
+  "name": "CharacterSelected",
+  "pattern": "40 53 48 83 EC 20 8B 82 E8 27 00 00 4C 8B C2",
+  "client_1269579": 4294967295,
+  "client_1273043": 14501296,
+  "server_1273043": 0,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [],
+  "new": [],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 48,
+  "name": "RequestServerSave",
+  "pattern": "40 53 48 83 EC 20 80 B9 AA 18 00 00",
+  "client_1269579": 14956784,
+  "client_1273043": 14967776,
+  "server_1273043": 8060576,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x7afea0"
+  ],
+  "new": [
+   "0x7b9390"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 49,
+  "name": "QueuePush",
+  "pattern": "48 89 74 24 10 57 48 83 EC 20 44 8B 52 10 48 8B FA 41 8B C2 83 E0 0F 74 07 44 2B D0 41 83 C2 10",
+  "client_1269579": 4294967295,
+  "client_1273043": 9778800,
+  "server_1273043": 6241200,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x5f3bb0"
+  ],
+  "new": [
+   "0x5f9f60"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ },
+ {
+  "index": 50,
+  "name": "SendServerInfo",
+  "pattern": "48 8B C4 55 53 41 54 41 55 41 57 48",
+  "client_1269579": 4294967295,
+  "client_1273043": 15003920,
+  "server_1273043": 8097888,
+  "flags": 0,
+  "extra": 4294967295,
+  "old": [
+   "0x7b9060"
+  ],
+  "new": [
+   "0x7c2610"
+  ],
+  "new_rebased": [],
+  "rebased_pattern": null
+ }
+]

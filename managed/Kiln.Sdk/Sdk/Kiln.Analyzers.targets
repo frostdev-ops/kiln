@@ -1,0 +1,38 @@
+<Project>
+  <!--
+    Kiln.Analyzers (KILN1xx, docs/kiln/modding/analyzers.md): Roslyn analyzers + code fixes for every Kiln.Sdk mod.
+    Imported by Sdk.targets after Kiln.Mod.targets, so the Kiln properties below already have their defaults.
+      KilnAnalyzers=false   turn them off (or tune single rules in .editorconfig: dotnet_diagnostic.KILN105.severity)
+    Package mode: the dlls ship in the Kiln.Sdk package (analyzers/dotnet/cs/Kiln.Analyzers*.dll).
+    Repository mode: project references with OutputItemType=Analyzer (the compiler loads analyzers itself, so a rebuilt
+    analyzer is never stale in a reused MSBuild node; only MSBuild tasks need the sdk-tasks copy).
+  -->
+  <PropertyGroup>
+    <KilnAnalyzers Condition="'$(KilnAnalyzers)' == ''">true</KilnAnalyzers>
+    <!-- .editorconfig (how the compiler sees build properties) cuts a value at ';' (a comment): pass a comma list. -->
+    <KilnServicesList>$(KilnServices.Replace(';', ',').Replace(' ', ''))</KilnServicesList>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(KilnAnalyzers)' == 'true' and '$(KilnRepoMode)' != 'true'">
+    <Analyzer Include="$(MSBuildThisFileDirectory)../analyzers/dotnet/cs/Kiln.Analyzers*.dll" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(KilnAnalyzers)' == 'true' and '$(KilnRepoMode)' == 'true'">
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Analyzers/src/Kiln.Analyzers/Kiln.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Analyzers/src/Kiln.Analyzers/CodeFixes/Kiln.Analyzers.CodeFixes.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+  <!-- What the rules read: build_property.KilnServicesList (KILN108), KilnAdvanced (KILN107), and the project's own
+       kiln.mod.json, which wins over KilnAdvanced as it does in the manifest task. -->
+  <ItemGroup Condition="'$(KilnAnalyzers)' == 'true'">
+    <CompilerVisibleProperty Include="KilnServicesList" />
+    <CompilerVisibleProperty Include="KilnAdvanced" />
+    <CompilerVisibleProperty Include="KilnSide" />
+    <CompilerVisibleProperty Include="KilnClients" />
+    <AdditionalFiles Include="$(MSBuildProjectDirectory)/blocks/*.json" />
+    <CompilerVisibleProperty Include="KilnModId" />
+    <CompilerVisibleProperty Include="KilnApiVersion" />
+    <AdditionalFiles Include="$(KilnManifestSource)" Condition="'$(KilnManifestSource)' != '' and Exists('$(KilnManifestSource)')" />
+  </ItemGroup>
+</Project>

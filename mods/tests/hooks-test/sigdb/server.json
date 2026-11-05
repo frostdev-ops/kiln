@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "hooks-test's own symbol fragment (prefix 'hooks-test/'); must resolve to the same address as the core GetComponent. Loaded in OnLoad before this mod detours GetComponent, so the prologue is still pristine.",
+  "symbols": {
+    "hooks-test/GetComponent": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D BA {hooks-test/world.storage:d32} 44 89" }
+      ]
+    }
+  },
+  "constants": { "hooks-test/world.storage": { "min_votes": 1 } }
+}

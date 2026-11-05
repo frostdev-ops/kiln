@@ -1,0 +1,10 @@
+{
+  "id": "gamedata-test",
+  "name": "kiln.gamedata lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "GamedataTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true
+}

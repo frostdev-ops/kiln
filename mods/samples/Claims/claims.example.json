@@ -1,0 +1,19 @@
+{
+  "message": "{name} belongs to {owner}: you cannot {action} here.",
+  "cooldownSeconds": 3,
+  "claims": [
+    {
+      "name": "Main base",
+      "owner": "Alder",
+      "shape": "cylinder",
+      "center": [3800.0, 835.0, 1430.0],
+      "radius": 40,
+      "minY": 700,
+      "maxY": 1200,
+      "owners": ["76561198000000000"],
+      "deny": ["build", "break", "terraform", "interact", "loot", "craft"],
+      "noSpawns": true,
+      "allowAdmins": true
+    }
+  ]
+}

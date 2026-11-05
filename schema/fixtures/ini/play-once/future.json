@@ -1,0 +1,7 @@
+{
+  "now": 1762257539,
+  "expect": {
+    "status": "ignored-expired",
+    "nonce": "0123456789abcdef"
+  }
+}

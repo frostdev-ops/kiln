@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-modpack.schema.json",
+  "title": "Kiln server modpack manifest (kiln-modpack.json at the zip root), format 1",
+  "description": "A modpack is a deterministic zip: kiln-modpack.json plus one folder per mod at <kind>/<id>/ (kiln/<id>/, native/<id>/, emf/<id>/) or plugin/<file>.dll. The launcher checks the zip's sha256 (from the server's network.json / last-server.json), then this file, then each mod folder's kdh1 before it imports anything. Contains the mods players need (manifest clients: mod).",
+  "type": "object",
+  "required": ["format", "name", "version", "server", "mods"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Free-form (the server admin's modpack version)." },
+    "created": { "$ref": "common.schema.json#/$defs/time" },
+    "server": {
+      "type": "object",
+      "required": ["id"],
+      "properties": { "id": { "$ref": "common.schema.json#/$defs/serverId" }, "name": { "type": "string" } }
+    },
+    "kiln": { "$ref": "common.schema.json#/$defs/range", "description": "Kiln versions players need (default: any)." },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "id", "version", "path", "hash"],
+        "properties": {
+          "kind": { "$ref": "common.schema.json#/$defs/kind" },
+          "id": { "$ref": "common.schema.json#/$defs/modId" },
+          "version": { "$ref": "common.schema.json#/$defs/semver" },
+          "name": { "type": "string" },
+          "path": { "$ref": "common.schema.json#/$defs/relPath", "description": "Folder (or plugin DLL) inside the zip, e.g. kiln/isle-icons" },
+          "hash": { "oneOf": [{ "$ref": "common.schema.json#/$defs/kdh1" }, { "$ref": "common.schema.json#/$defs/sha256" }], "description": "kdh1 of the folder; sha256 for a plugin DLL." },
+          "clients": { "$ref": "common.schema.json#/$defs/clients" },
+          "side": { "$ref": "common.schema.json#/$defs/side" }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

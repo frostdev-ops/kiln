@@ -1,0 +1,11 @@
+{
+ "format": 1,
+ "tool": "soundcook",
+ "steps": [
+  {
+   "op": "sound",
+   "name": "a",
+   "src": "a.wav"
+  }
+ ]
+}

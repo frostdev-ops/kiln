@@ -1,0 +1,12 @@
+{ "format": 2,
+  "quests": {
+    "bad id": { "steps": [ { "id": "a", "objective": { "custom": "x" } } ] },
+    "no_steps": { "name": "x" },
+    "empty_steps": { "steps": [] },
+    "bad": { "scope": "galaxy", "journal": "game", "steps": [
+      { "objective": { "custom": "x" } },
+      { "id": "o", "objective": { "dance": {} } },
+      { "id": "k", "objective": { "kill": { "count": 2 } } },
+      { "id": "r", "objective": { "reach": { "at": [1, 2], "radius": 0 } } } ],
+      "rewards": [ { "bribe": 5 }, { "xp": -1 } ], "requires": [ { "is": "done" } ], "typoKey": true }
+  } }

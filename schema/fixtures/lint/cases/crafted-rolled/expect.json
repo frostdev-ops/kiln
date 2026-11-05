@@ -1,0 +1,46 @@
+{
+  "catalog": true,
+  "description": "crafted-rolled: KL406 on recipes (added, and a rule on a game recipe) that make an opt-in item or a game loot weapon; none on fixed items or on a rolled item without a recipe.",
+  "diagnostics": [
+    {
+      "code": "KL406",
+      "col": 185,
+      "file": "content/items.json",
+      "line": 17,
+      "message": "recipe \"Fx_Rolled_R\" makes \"Fx_Rolled\", which rolls (\"rolledLoot\": true): a craft comes out as the lowest allowed rarity or a random level while the recipe tooltip shows its rarity and lowest level; remove that for a fixed item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL406",
+      "col": 182,
+      "file": "content/items.json",
+      "line": 18,
+      "message": "recipe \"Fx_Gen_R\" makes \"Fx_Gen\", which rolls (\"generateRarity\": true): a craft comes out as the lowest allowed rarity or a random level while the recipe tooltip shows its rarity and lowest level; remove that for a fixed item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL406",
+      "col": 184,
+      "file": "content/items.json",
+      "line": 19,
+      "message": "recipe \"Fx_Range_R\" makes \"Fx_Range\", which rolls (a level range): a craft comes out as the lowest allowed rarity or a random level while the recipe tooltip shows its rarity and lowest level; remove that for a fixed item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL406",
+      "col": 183,
+      "file": "content/items.json",
+      "line": 20,
+      "message": "recipe \"Fx_Game_R\" makes the game's loot item \"Weapon_Fixture_Loot\", which keeps generateRarity: a craft comes out as the lowest allowed rarity at a random level; add a new item based on it (fixed by default), or a rule with \"generateRarity\": false and one level",
+      "severity": "warning"
+    },
+    {
+      "code": "KL406",
+      "col": 54,
+      "file": "content/items.json",
+      "line": 22,
+      "message": "recipe \"Weapon_Fixture_Sword\" makes \"Fx_Rolled\", which rolls (\"rolledLoot\": true): a craft comes out as the lowest allowed rarity or a random level while the recipe tooltip shows its rarity and lowest level; remove that for a fixed item",
+      "severity": "warning"
+    }
+  ]
+}

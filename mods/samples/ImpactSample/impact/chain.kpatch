@@ -1,0 +1,19 @@
+; ImpactSample chain: inserted into a clone of the Fireball explosion program (80a2448f), right after its damage
+; loop (before the post-wait at base pc 134). It looks for another enemy of the caster within $Chain.range of the
+; explosion, skips the target the explosion hit last, spawns $Chain.template (by default the vanilla Fireball I
+; explosion, whose program does not chain again) on that enemy, and stops. kiln.Signal reports the chain.
+        iconst0
+        gstore $Chain.index
+next:   ecall forEachEntityWithFactionInRange($Chain.entity, $Chain.transform, $Chain.index, $Chain.factions, $impact_nodes.GetTransform::transform, $Chain.range) site chain
+        brf none                 ; no (more) candidates
+        ecall isSameEntity($Chain.entity, $impact_nodes.ForEachCollisionInStream::otherEntity)
+        brt next                 ; the target this explosion just hit
+        ecall isEnemy($impact_nodes.GetRoot::entityId, $Chain.entity)
+        brf next                 ; not an enemy of the caster
+        ecall spawnEntity($Chain.spawned, $Chain.breakHierarchy, $Chain.despawnLink, $Chain.copyLevel, $Chain.copyFaction, $Chain.template, $Chain.transform, _, _, _, _, _, _)
+        pop
+        ecall kiln.Signal($Chain.entity, 0xC4A1)
+        pop
+        ecall destroyFactionQuery($Chain.entity, $Chain.transform, $Chain.index, $Chain.factions, $impact_nodes.GetTransform::transform, $Chain.range) site chain
+        pop
+none:

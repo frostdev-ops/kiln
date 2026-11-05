@@ -1,0 +1,10 @@
+{
+  "id": "audio-test",
+  "name": "Kiln.Audio test (sounds, music, voice-over, narration, relay)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "AudioTest.dll",
+  "side": "both",
+  "clients": "none",
+  "description": "PASS/FAIL lines for kiln.audio in kiln.log. Its own test tones come from fixtures/make_tones.py (build.sh)."
+}

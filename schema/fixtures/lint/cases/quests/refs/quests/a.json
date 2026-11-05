@@ -1,0 +1,13 @@
+{ "format": 1,
+  "npcs": { "ilse": { "dialogue": "ilze" } },
+  "quests": {
+    "one": { "giver": "ilsa",
+      "steps": [ { "id": "a", "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "to": "ilsa" } } }, { "id": "a", "objective": { "custom": "x" } } ],
+      "rewards": [ { "start": "too" }, { "advance": "one.c" }, { "complete": "other-mod:quest" } ] },
+    "two": { "requires": [ { "step": "onee.a", "is": "done" } ], "steps": [ { "id": "s", "objective": { "custom": "x" } } ] }
+  },
+  "dialogues": {
+    "ilse": { "start": "hi", "nodes": { "hi": { "text": "x", "goto": "bey", "options": [ { "text": "y", "goto": "hello" } ] } } },
+    "nostart": { "nodes": { "a": { "text": "x" } } },
+    "two_starts": { "start": "nope", "nodes": { "a": { "text": "x" } } }
+  } }

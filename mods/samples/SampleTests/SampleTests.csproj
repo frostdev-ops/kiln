@@ -1,0 +1,19 @@
+<Project>
+  <!-- Kiln.Testing sample: [KilnTest] methods run on the tick thread once the server has started (tests.autoRun),
+       or on demand: echo "test sample-tests" > kiln/control/t.cmd. Results: kiln/logs/tests/sample-tests.json. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>sample-tests</KilnModId>
+    <KilnModName>Sample in-game tests</KilnModName>
+    <Version>0.1.0</Version>
+    <KilnServices>Testing</KilnServices>
+    <KilnTestsAutoRun>true</KilnTestsAutoRun>
+    <KilnTestTimeoutSeconds>20</KilnTestTimeoutSeconds>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SampleLib.Api/SampleLib.Api.csproj" Private="false" />
+    <KilnDependency Include="sample-lib" Version="^1.2" />
+    <KilnDependency Include="sample-consumer" Version=">=0.1 &lt;1" Optional="true" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

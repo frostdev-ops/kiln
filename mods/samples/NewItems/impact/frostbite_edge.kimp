@@ -1,0 +1,45 @@
+.kimp 1
+; Frostbite Edge: each hit its wearer lands on an enemy has a chance to apply a buff. The buff and the chance are the perk's
+; config values (impactValues.BuffType, impactValues.ChanceValue in content/frostbite.json).
+; Written for this mod because the game has no general "buff on hit" program: its only on-hit perk program (the Poisoned
+; perks' 4abf7534-...) has a weapon check that lets daggers through, so a clone of it never fires on a sword.
+; Assemble (no game files needed): python3 tools/impact/impact.py asm impact/frostbite_edge.kimp -o assets/impact/frostbite_edge.bin
+program c40bd1c7-48dd-44a5-8d6b-8222e62acb84
+stack 256
+streams OnHit
+
+var $root      ecs.EntityId
+var $stream    impact.EventStream
+var $onHit     impact.EventStreamType = OnHit
+var $i         uint32
+var $by        ecs.EntityId
+var $target    ecs.EntityId
+var $health    sint32
+var $poison    impact.DamageSetup
+var $enemies   FactionMask = [Fogger, Vukah, Scavenger, Wildlife, WildBeast, HitOthers, Skeleton, Cyclops, Drak, Ancients]
+var $chance    float32 config 0xde1695c2 = 0.05
+var $buff      BuffTypeReference config 0x5adb2644
+
+code:
+step:   ecall getRoot($root)
+        pop
+        ecall onEvent($stream, $onHit)
+        pop
+        iconst0
+        gstore $i
+next:   ecall forEachHitEventInStream(_, _, _, _, _, _, _, _, _, _, _, _, _, _, $by, _, $target, _, _, _, _, $health, _, $i, $stream)
+        brt hit
+        rvm
+        br step
+hit:    ecall isSameEntity($by, $root)
+        brf next
+        ecall hasFaction($enemies, $target, _)
+        brf next
+        ecall randomBranchNode($chance)
+        brf next
+        ecall createDamageSetup($poison, _, _, _, _, _, _, _, _, $health, _, _, _, _)
+        pop
+        ecall applyBuff($buff, $target, $poison, _, _)
+        pop
+        br next
+        halt

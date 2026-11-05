@@ -1,0 +1,10 @@
+{
+  "id": "creaturetweaks",
+  "name": "Creature Tweaks",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "CreatureTweaks.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Every Vukah notices players from 1.5x further away (18 -> 27 m for the melee Vukah), and a new template Kiln_Elite_Vukah: a clone of Enemy_Vukah_Melee at level 20, 1.4x bigger, with its own view (36 m) and aggro (16 m) ranges. A share of natural melee Vukah spawns become Elite Vukahs (kiln.creatures spawn rule). A kiln.gamedata data pack (content/creaturetweaks.json). The clone is a new template, so players need Kiln: the server sends them the definition; vanilla clients are refused."
+}

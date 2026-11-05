@@ -1,0 +1,1 @@
+{ "id": "fixture-schema", "version": "1.0.0", "apiVersion": "0.2", "side": "both", "clients": "mod", "license": "MIT", "entryAssembly": "FixtureSchema.dll", "dependecies": {} }

@@ -1,0 +1,780 @@
+{
+"exe_sha256": "5d9ef2f140b8ed49e30dbee655841b89d08baec20f799a1817e171a18a850c77",
+"image_base": 5368709120,
+"count": 35,
+"types": [
+{
+"name": "keen::BlobArray<keen::BlobVariant<keen::SoundContainerResourceEntry>>",
+"hash": 57019564,
+"layout": 3878384435,
+"size": 8,
+"align": 4,
+"kind": 24,
+"flags": 2,
+"count": 0,
+"inner": "keen::BlobVariant<keen::SoundContainerResourceEntry>",
+"rva": 29100288
+},
+{
+"name": "keen::BlobArray<keen::uint8>",
+"hash": 893830463,
+"layout": 1665142157,
+"size": 8,
+"align": 4,
+"kind": 24,
+"flags": 2,
+"count": 0,
+"inner": "keen::uint8",
+"rva": 25318528
+},
+{
+"name": "keen::BlobOptional<keen::SoundContainerResourceRumbleEntry>",
+"hash": 3348986197,
+"layout": 1931438301,
+"size": 4,
+"align": 4,
+"kind": 26,
+"flags": 8,
+"count": 0,
+"inner": "keen::SoundContainerResourceRumbleEntry",
+"rva": 29104064
+},
+{
+"name": "keen::BlobString",
+"hash": 2086352384,
+"layout": 1615808600,
+"size": 8,
+"align": 4,
+"kind": 25,
+"flags": 4,
+"count": 0,
+"inner": null,
+"rva": 28339568
+},
+{
+"name": "keen::BlobVariant<keen::SoundContainerResourceEntry>",
+"hash": 543387245,
+"layout": 1989204185,
+"size": 12,
+"align": 4,
+"kind": 27,
+"flags": 16,
+"count": 2,
+"inner": "keen::SoundContainerResourceEntry",
+"rva": 29098640
+},
+{
+"name": "keen::ContentHash",
+"hash": 2543063895,
+"layout": 2999359784,
+"size": 16,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 4,
+"inner": null,
+"rva": 24842160,
+"fields": [
+{
+"name": "size",
+"type": "keen::uint32",
+"offset": 0
+},
+{
+"name": "hash0",
+"type": "keen::uint32",
+"offset": 4
+},
+{
+"name": "hash1",
+"type": "keen::uint32",
+"offset": 8
+},
+{
+"name": "hash2",
+"type": "keen::uint32",
+"offset": 12
+}
+]
+},
+{
+"name": "keen::HashKey32",
+"hash": 3462721580,
+"layout": 979410249,
+"size": 4,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 1,
+"inner": null,
+"rva": 28412288,
+"fields": [
+{
+"name": "value",
+"type": "keen::uint32",
+"offset": 0
+}
+]
+},
+{
+"name": "keen::ObjectReference<keen::SoundContainerResource>",
+"hash": 2297180759,
+"layout": 491680028,
+"size": 16,
+"align": 4,
+"kind": 28,
+"flags": 0,
+"count": 0,
+"inner": "keen::SoundContainerResource",
+"rva": 25261360
+},
+{
+"name": "keen::ObjectReference<keen::SoundResource>",
+"hash": 1862751230,
+"layout": 1014023611,
+"size": 16,
+"align": 4,
+"kind": 28,
+"flags": 0,
+"count": 0,
+"inner": "keen::SoundResource",
+"rva": 25234976
+},
+{
+"name": "keen::ResourceContentReference",
+"hash": 1635746476,
+"layout": 2259425310,
+"size": 32,
+"align": 8,
+"kind": 18,
+"flags": 0,
+"count": 4,
+"inner": null,
+"rva": 24869360,
+"fields": [
+{
+"name": "hash",
+"type": "keen::ContentHash",
+"offset": 0
+},
+{
+"name": "category",
+"type": "keen::HashKey32",
+"offset": 16
+},
+{
+"name": "bundleId",
+"type": "keen::uint32",
+"offset": 20
+},
+{
+"name": "sortKey",
+"type": "keen::uint64",
+"offset": 24
+}
+]
+},
+{
+"name": "keen::SoundChannelConfiguration",
+"hash": 722582686,
+"layout": 1994003611,
+"size": 1,
+"align": 1,
+"kind": 12,
+"flags": 0,
+"count": 5,
+"inner": "keen::uint8",
+"rva": 29155328,
+"values": [
+{
+"name": "Mono",
+"value": 0
+},
+{
+"name": "Stereo",
+"value": 1
+},
+{
+"name": "Quadrophonic",
+"value": 2
+},
+{
+"name": "FiveDotOne",
+"value": 3
+},
+{
+"name": "SevenDotOne",
+"value": 4
+}
+]
+},
+{
+"name": "keen::SoundContainerEntryShared",
+"hash": 2252768793,
+"layout": 4061420768,
+"size": 4,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 1,
+"inner": null,
+"rva": 29077152,
+"fields": [
+{
+"name": "chance",
+"type": "keen::float32",
+"offset": 0
+}
+]
+},
+{
+"name": "keen::SoundContainerMode",
+"hash": 390480987,
+"layout": 5498097,
+"size": 1,
+"align": 1,
+"kind": 12,
+"flags": 0,
+"count": 1,
+"inner": "keen::uint8",
+"rva": 29038560,
+"values": [
+{
+"name": "Random",
+"value": 0
+}
+]
+},
+{
+"name": "keen::SoundContainerResource",
+"hash": 4065813516,
+"layout": 407228481,
+"size": 112,
+"align": 8,
+"kind": 18,
+"flags": 10,
+"count": 2,
+"inner": "keen::SoundContainerShared",
+"rva": 25260656,
+"fields": [
+{
+"name": "entries",
+"type": "keen::BlobArray<keen::BlobVariant<keen::SoundContainerResourceEntry>>",
+"offset": 96
+},
+{
+"name": "extraRumble",
+"type": "keen::BlobOptional<keen::SoundContainerResourceRumbleEntry>",
+"offset": 104
+}
+]
+},
+{
+"name": "keen::SoundContainerResourceEntry",
+"hash": 2981032832,
+"layout": 352523155,
+"size": 4,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 0,
+"inner": "keen::SoundContainerEntryShared",
+"rva": 29096416
+},
+{
+"name": "keen::SoundContainerResourceRumbleEntry",
+"hash": 2408641727,
+"layout": 1945721740,
+"size": 16,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 1,
+"inner": null,
+"rva": 29103760,
+"fields": [
+{
+"name": "rumble",
+"type": "keen::SoundResourceReference",
+"offset": 0
+}
+]
+},
+{
+"name": "keen::SoundContainerResourceSoundEntry",
+"hash": 230879949,
+"layout": 2789281766,
+"size": 20,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 1,
+"inner": "keen::SoundContainerResourceEntry",
+"rva": 29097216,
+"fields": [
+{
+"name": "sound",
+"type": "keen::SoundResourceReference",
+"offset": 4
+}
+]
+},
+{
+"name": "keen::SoundContainerScene",
+"hash": 4189032944,
+"layout": 1095480084,
+"size": 1,
+"align": 1,
+"kind": 12,
+"flags": 0,
+"count": 4,
+"inner": "keen::uint8",
+"rva": 29042000,
+"values": [
+{
+"name": "Sfx",
+"value": 0
+},
+{
+"name": "Music",
+"value": 1
+},
+{
+"name": "Ui",
+"value": 2
+},
+{
+"name": "Voice",
+"value": 3
+}
+]
+},
+{
+"name": "keen::SoundContainerShared",
+"hash": 1319852629,
+"layout": 2559867183,
+"size": 96,
+"align": 8,
+"kind": 18,
+"flags": 0,
+"count": 26,
+"inner": null,
+"rva": 29068688,
+"fields": [
+{
+"name": "mode",
+"type": "keen::SoundContainerMode",
+"offset": 0
+},
+{
+"name": "scene",
+"type": "keen::SoundContainerScene",
+"offset": 1
+},
+{
+"name": "loop",
+"type": "keen::bool",
+"offset": 2
+},
+{
+"name": "loopSameChosenEntry",
+"type": "keen::bool",
+"offset": 3
+},
+{
+"name": "avoidRepeatingLastX",
+"type": "keen::uint32",
+"offset": 4
+},
+{
+"name": "volume",
+"type": "keen::float32",
+"offset": 8
+},
+{
+"name": "volumeRandomness",
+"type": "keen::float32",
+"offset": 12
+},
+{
+"name": "pitch",
+"type": "keen::float32",
+"offset": 16
+},
+{
+"name": "pitchRandomness",
+"type": "keen::float32",
+"offset": 20
+},
+{
+"name": "sleep",
+"type": "keen::Time",
+"offset": 24
+},
+{
+"name": "sleepRandomness",
+"type": "keen::Time",
+"offset": 32
+},
+{
+"name": "hasPosition",
+"type": "keen::bool",
+"offset": 40
+},
+{
+"name": "minDistance",
+"type": "keen::float32",
+"offset": 44
+},
+{
+"name": "maxDistance",
+"type": "keen::float32",
+"offset": 48
+},
+{
+"name": "hasRandomPosition",
+"type": "keen::bool",
+"offset": 52
+},
+{
+"name": "randomLeftRight",
+"type": "keen::float32",
+"offset": 56
+},
+{
+"name": "randomFrontBack",
+"type": "keen::float32",
+"offset": 60
+},
+{
+"name": "muteOnMain",
+"type": "keen::bool",
+"offset": 64
+},
+{
+"name": "gamepadSpeaker",
+"type": "keen::bool",
+"offset": 65
+},
+{
+"name": "gamepadSpeakerVolume",
+"type": "keen::float32",
+"offset": 68
+},
+{
+"name": "gamepadVibration",
+"type": "keen::bool",
+"offset": 72
+},
+{
+"name": "gamepadVibrationIntensity",
+"type": "keen::float32",
+"offset": 76
+},
+{
+"name": "useMaxCountLimiting",
+"type": "keen::bool",
+"offset": 80
+},
+{
+"name": "maxCount",
+"type": "keen::uint32",
+"offset": 84
+},
+{
+"name": "stealingMode",
+"type": "keen::SoundContainerStealingMode",
+"offset": 88
+},
+{
+"name": "priority",
+"type": "keen::uint16",
+"offset": 90
+}
+]
+},
+{
+"name": "keen::SoundContainerStealingMode",
+"hash": 4235430642,
+"layout": 539569121,
+"size": 1,
+"align": 1,
+"kind": 12,
+"flags": 0,
+"count": 3,
+"inner": "keen::uint8",
+"rva": 29046048,
+"values": [
+{
+"name": "Oldest",
+"value": 0
+},
+{
+"name": "Furthest",
+"value": 1
+},
+{
+"name": "Ignore",
+"value": 2
+}
+]
+},
+{
+"name": "keen::SoundDataFormat",
+"hash": 2985444226,
+"layout": 1780725970,
+"size": 1,
+"align": 1,
+"kind": 12,
+"flags": 0,
+"count": 2,
+"inner": "keen::uint8",
+"rva": 29157392,
+"values": [
+{
+"name": "Uncompressed",
+"value": 0
+},
+{
+"name": "FramelessQOA",
+"value": 1
+}
+]
+},
+{
+"name": "keen::SoundResource",
+"hash": 3748979845,
+"layout": 1832310052,
+"size": 64,
+"align": 8,
+"kind": 18,
+"flags": 6,
+"count": 8,
+"inner": null,
+"rva": 25234480,
+"fields": [
+{
+"name": "channelConfiguration",
+"type": "keen::SoundChannelConfiguration",
+"offset": 0
+},
+{
+"name": "format",
+"type": "keen::SoundDataFormat",
+"offset": 1
+},
+{
+"name": "framesPerSecond",
+"type": "keen::uint16",
+"offset": 2
+},
+{
+"name": "frameCount",
+"type": "keen::uint32",
+"offset": 4
+},
+{
+"name": "duration",
+"type": "keen::Time",
+"offset": 8
+},
+{
+"name": "data",
+"type": "keen::BlobArray<keen::uint8>",
+"offset": 16
+},
+{
+"name": "streamedData",
+"type": "keen::ResourceContentReference",
+"offset": 24
+},
+{
+"name": "debugName",
+"type": "keen::string",
+"offset": 56
+}
+]
+},
+{
+"name": "keen::SoundResourceReference",
+"hash": 967371002,
+"layout": 2858726641,
+"size": 16,
+"align": 4,
+"kind": 17,
+"flags": 0,
+"count": 0,
+"inner": "keen::ObjectReference<keen::SoundResource>",
+"rva": 25235808
+},
+{
+"name": "keen::StaticArray<keen::ObjectReference<keen::SoundContainerResource>,5>",
+"hash": 3195930408,
+"layout": 12147216,
+"size": 80,
+"align": 4,
+"kind": 19,
+"flags": 0,
+"count": 5,
+"inner": "keen::ObjectReference<keen::SoundContainerResource>",
+"rva": 24229584
+},
+{
+"name": "keen::StaticArray<keen::uint16,5>",
+"hash": 3067990966,
+"layout": 3913114387,
+"size": 10,
+"align": 2,
+"kind": 19,
+"flags": 0,
+"count": 5,
+"inner": "keen::uint16",
+"rva": 24232032
+},
+{
+"name": "keen::Time",
+"hash": 3289532223,
+"layout": 1525276579,
+"size": 8,
+"align": 8,
+"kind": 18,
+"flags": 0,
+"count": 1,
+"inner": null,
+"rva": 29210480,
+"fields": [
+{
+"name": "value",
+"type": "keen::sint64",
+"offset": 0
+}
+]
+},
+{
+"name": "keen::VoiceoverResource",
+"hash": 1407831946,
+"layout": 1658460154,
+"size": 92,
+"align": 4,
+"kind": 18,
+"flags": 0,
+"count": 2,
+"inner": null,
+"rva": 26983344,
+"fields": [
+{
+"name": "languages",
+"type": "keen::StaticArray<keen::ObjectReference<keen::SoundContainerResource>,5>",
+"offset": 0
+},
+{
+"name": "durations",
+"type": "keen::StaticArray<keen::uint16,5>",
+"offset": 80
+}
+]
+},
+{
+"name": "keen::bool",
+"hash": 1988030794,
+"layout": 3365180733,
+"size": 1,
+"align": 1,
+"kind": 1,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 28781184
+},
+{
+"name": "keen::float32",
+"hash": 1911297837,
+"layout": 3902764048,
+"size": 4,
+"align": 4,
+"kind": 10,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 29398464
+},
+{
+"name": "keen::sint64",
+"hash": 3434124194,
+"layout": 275114233,
+"size": 8,
+"align": 8,
+"kind": 9,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 29204896
+},
+{
+"name": "keen::string",
+"hash": 779033687,
+"layout": 3625431854,
+"size": 8,
+"align": 4,
+"kind": 17,
+"flags": 4,
+"count": 0,
+"inner": "keen::BlobString",
+"rva": 28917456
+},
+{
+"name": "keen::uint16",
+"hash": 1993756229,
+"layout": 2928590578,
+"size": 2,
+"align": 2,
+"kind": 4,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 25271136
+},
+{
+"name": "keen::uint32",
+"hash": 2194793467,
+"layout": 848563180,
+"size": 4,
+"align": 4,
+"kind": 6,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 28359408
+},
+{
+"name": "keen::uint64",
+"hash": 4074328080,
+"layout": 2929723411,
+"size": 8,
+"align": 8,
+"kind": 8,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 24447712
+},
+{
+"name": "keen::uint8",
+"hash": 3533154758,
+"layout": 429781723,
+"size": 1,
+"align": 1,
+"kind": 2,
+"flags": 0,
+"count": 0,
+"inner": null,
+"rva": 28417600
+}
+],
+"closure_of": [
+"keen::SoundResource",
+"keen::SoundContainerResource",
+"keen::VoiceoverResource",
+"keen::SoundContainerResourceSoundEntry"
+]
+}

@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: MIT
+// The face of Kiln.Blocks: Blocks.Define in C#, blocks/*.json in data, both the same objects. Compiling is in Compiler.cs.
+using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
+
+namespace Kiln;
+
+/// <summary>A block is wrong: which block, which field and why. Thrown by <see cref="Blocks.Define{T}"/>; a data file logs it.</summary>
+public sealed class BlockError(string block, string? field, string problem)
+    : ArgumentException($"block {block}{(string.IsNullOrEmpty(field) ? "" : $", {field}")}: {problem}")
+{
+    public string Block { get; } = block;
+    public string? Field { get; } = field;
+    public string Problem { get; } = problem;
+}
+
+/// <summary>
+/// Building blocks: say what you mean, Kiln makes the game's resources. Call in <c>OnLoad</c>:
+/// <code>
+/// var chilled = Blocks.Define("chilled", new StatusBlock { Name = "Chilled", Seconds = 8 });
+/// var burst = Blocks.Define("frost-burst", new EffectBlock { Damage = Damage.Ice(40), Applies = chilled });
+/// Blocks.Define("frostbolt", new SpellBlock
+/// {
+///     Name = "Frostbolt",
+///     Cast = new CastBlock { ManaCost = 30 },
+///     Delivery = new ProjectileBlock { OnImpact = [new EffectBlock { Area = new AreaBlock { Radius = 3, Effects = [burst] } }] },
+///     Recipe = new RecipeBlock { Makes = 10, Needs = { [GameItems.Material_T1_Twigs] = 2 } },
+/// });
+/// Blocks.Define("frost-edge", new WeaponBlock { Name = "Frost Edge", Class = WeaponClass.Sword, OnHit = [burst] });
+/// </code>
+/// The ids come from your mod id and the block's name: never write a GUID, and keep the names (a rename says <c>Was</c>).
+/// docs/kiln/modding/blocks.md.
+/// </summary>
+public static class Blocks
+{
+    private static readonly ConcurrentDictionary<string, ModBlocks> Mods_ = new();
+
+    /// <summary>The services blocks compile to are there on this build.</summary>
+    public static bool Available => NewContent.Available && Content.GameDataAvailable && Assets.Available;
+
+    /// <summary>Defines a block as the calling mod's. Compiling happens now: what is wrong throws <see cref="BlockError"/> here,
+    /// and the mod does not load with a half-defined block.</summary>
+    public static BlockHandle<T> Define<T>(string name, T block) where T : class, IBlock
+    {
+        ArgumentNullException.ThrowIfNull(block);
+        var mod = CallerMod();
+        return Compiler.Define(mod, name, block);
+    }
+
+    /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
+    public static BlockHandle? Find(string name, string? mod = null)
+    {
+        var id = mod ?? BlocksBridge.CallerModId;
+        return id != null && Mods_.TryGetValue(id, out var m) && m.Handles.TryGetValue(name, out var h) ? h : null;
+    }
+
+    /// <summary>What a block became, as JSON: the items, recipes, templates, buffs and programs, with the values given to them.
+    /// The same document whichever way the block was written.</summary>
+    public static string? Lowered(string name, string? mod = null)
+    {
+        var id = mod ?? BlocksBridge.CallerModId;
+        return id != null && Mods_.TryGetValue(id, out var m) && m.Lowered.TryGetValue(name, out var j) ? j.ToJsonString(new() { WriteIndented = true }) : null;
+    }
+
+    /// <summary>The mods with blocks, each with its block names and the errors of its data files.</summary>
+    public static IReadOnlyDictionary<string, (IReadOnlyList<string> Blocks, IReadOnlyList<string> Errors)> Report() =>
+        Mods_.ToDictionary(m => m.Key, m => ((IReadOnlyList<string>)m.Value.Handles.Keys.OrderBy(x => x, StringComparer.Ordinal).ToList(), (IReadOnlyList<string>)m.Value.Errors.ToList()));
+
+    /// <summary>What is not wrong but may not be what was meant: a block renamed without <c>Was</c>.</summary>
+    public static IReadOnlyList<string> Warnings(string? mod = null)
+    {
+        var id = mod ?? BlocksBridge.CallerModId;
+        if (id == null || !Mods_.TryGetValue(id, out var m)) return [];
+        lock (m.Warnings) return m.Warnings.ToList();
+    }
+
+    /// <summary>Writes every program blocks made to <paramref name="directory"/> (<c>&lt;guid&gt;.bin</c> + <c>.txt</c>, for
+    /// <c>tools/impact/impact.py dis</c> and <c>lint</c>). Returns how many.</summary>
+    public static int DumpPrograms(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var n = 0;
+        foreach (var m in Mods_.Values)
+            foreach (var (guid, (key, blob, listing)) in m.Programs)
+            {
+                File.WriteAllBytes(Path.Combine(directory, $"{guid}.bin"), blob);
+                File.WriteAllText(Path.Combine(directory, $"{guid}.txt"), $"{m.Id} {key}\n{listing}");
+                n++;
+            }
+        return n;
+    }
+
+    internal static IEnumerable<ModBlocks> AllMods => Mods_.Values;
+
+    internal static ModBlocks ModFor(string id, Func<ulong> owner)
+    {
+        var m = Mods_.GetOrAdd(id, i => new ModBlocks(i, owner()));
+        return m;
+    }
+
+    private static ModBlocks CallerMod()
+    {
+        var id = BlocksBridge.CallerModId ?? throw new InvalidOperationException("Blocks.Define must be called from mod code");
+        BlocksStartup.Touch();
+        var m = ModFor(id, BlocksBridge.CallerOwner);
+        m.Owner = BlocksBridge.CallerOwner();     // a reload has a new owner
+        return m;
+    }
+}
+
+/// <summary>What one mod defined.</summary>
+internal sealed class ModBlocks(string id, ulong owner)
+{
+    public string Id { get; } = id;
+    public ulong Owner { get; set; } = owner;
+    public readonly ConcurrentDictionary<string, BlockHandle> Handles = new();
+    public readonly ConcurrentDictionary<string, JsonObject> Lowered = new();
+    public readonly ConcurrentDictionary<Guid, (string Key, byte[] Blob, string Listing)> Programs = new();
+    public readonly List<string> Errors = new();
+    public readonly List<string> Warnings = new();
+    /// <summary>Blocks of this mod's data files not compiled yet: a reference by name compiles them first.</summary>
+    public readonly Dictionary<string, Func<BlockHandle>> Pending = new();
+    public readonly HashSet<string> Compiling = new();
+    public string? ManifestClients;
+    /// <summary>Something changed since the report for <c>kiln blocks</c> was written.</summary>
+    public volatile bool ReportDirty;
+    /// <summary>Programs that wait for values only the running game knows, by GUID.</summary>
+    public readonly ConcurrentDictionary<Guid, ProgramBuilder> LateBuilders = new();
+    public readonly List<Guid> LatePending = new();
+    public readonly HashSet<Guid> LateFailed = new();
+    public readonly List<(string Section, string Entry, string Path, Guid Program)> LateRules = new();
+    public readonly List<(string Buff, string Source, string Block)> Icons = new();
+    public bool ReadyHooked;
+    public readonly List<(string Section, string Entry, JsonObject Rules)> ReadyRules = new();
+}

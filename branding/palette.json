@@ -1,0 +1,45 @@
+{
+  "name": "Kiln ember",
+  "version": 1,
+  "colors": {
+    "bg-0": "#0f0d0c",
+    "bg-1": "#171413",
+    "bg-2": "#1f1b19",
+    "bg-3": "#2a2421",
+    "line": "#3a312c",
+    "line-strong": "#4d413a",
+    "text-0": "#f4ece6",
+    "text-1": "#cdbfb5",
+    "text-2": "#94857a",
+    "text-3": "#6b5e55",
+    "ember-300": "#ffa56b",
+    "ember-400": "#ff8540",
+    "ember-500": "#ff6a1a",
+    "ember-600": "#e5530a",
+    "ember-700": "#b83f05",
+    "gold-300": "#ffe08a",
+    "gold-400": "#f9c74f",
+    "gold-500": "#e9a91c",
+    "gold-600": "#c4860c",
+    "ok": "#7cc47f",
+    "warn": "#f9c74f",
+    "err": "#ff4d3d",
+    "info": "#6cb4d9"
+  },
+  "gradients": {
+    "molten": { "angle": 135, "stops": [["#ff6a1a", 0], ["#f9c74f", 1]] }
+  },
+  "effects": {
+    "glow": "0 0 0 1px #ff6a1a73, 0 0 18px #ff6a1a40"
+  },
+  "radii": { "s": 4, "m": 8, "l": 12 },
+  "fonts": {
+    "display": "Fraunces",
+    "ui": "Inter",
+    "mono": "JetBrains Mono"
+  },
+  "rules": {
+    "textOnEmber": "#0f0d0c",
+    "emberTextOnLight": "#b83f05"
+  }
+}

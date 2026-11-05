@@ -1,0 +1,4 @@
+{
+  "id": "fixture-syntax", "version": "1.0.0", "apiVersion": "0.2", "license": "MIT",
+  "entryAssembly": "FixtureSyntax.dll", // trailing commas and comments are fine in a manifest
+}

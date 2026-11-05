@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Kiln's Rust workspace: kiln-manage (shared library), kilnctl (Linux server runner), the launcher backend.
+# Build dirs for parallel builds: CARGO_TARGET_DIR=$KILN_OUT/cargo; default ./target.
+[workspace]
+resolver = "3"
+members = ["crates/kiln-manage", "crates/kiln-cli", "runner/kilnctl", "launcher/src-tauri"]
+
+[workspace.package]
+# Keep equal to the repository's VERSION file (kiln-manage's tests check it).
+version = "0.2.0-dev"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[profile.release]
+strip = true
+
+# gameart: the texture decoders and the WebP encoder are ~20x slower unoptimized; keep debug builds' "Extract from
+# game" fast (release 1 s, plain debug 24 s).
+[profile.dev.package.bcdec_rs]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3

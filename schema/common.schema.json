@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "Shared definitions of Kiln's launcher formats",
+  "description": "Referenced by the other schemas in schema/. Rules: docs/kiln/launcher/contracts.md.",
+  "$defs": {
+    "modId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "A mod id (managed, native or EMF): the manifest id rule of kiln.mod.json."
+    },
+    "profileId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$", "description": "Launcher profile id (folder name under profiles/)." },
+    "serverId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", "description": "Stable server id (network.json server-id)." },
+    "semver": {
+      "type": "string",
+      "pattern": "^v?(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semantic version; 1 and 1.2 read as 1.0.0 and 1.2.0 (SemVer.cs)."
+    },
+    "range": { "type": "string", "description": "Version range in the kiln.mod.json grammar (docs/kiln/modding/manifest.md)." },
+    "time": { "type": "string", "format": "date-time", "description": "RFC 3339 UTC time, e.g. 2026-11-04T12:00:00Z." },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Lower-case hex SHA-256." },
+    "kdh1": { "type": "string", "pattern": "^kdh1:[0-9a-f]{64}$", "description": "Directory hash (contracts.md, kdh1)." },
+    "fingerprint": { "type": "string", "pattern": "^kms1:[0-9a-f]{64}$", "description": "Mod-set fingerprint (contracts.md, kms1)." },
+    "side": { "enum": ["server", "client", "both"] },
+    "runSide": { "enum": ["server", "client"], "description": "The side a process runs as." },
+    "clients": { "enum": ["none", "kiln", "mod"], "description": "What joining players need (manifest 'clients')." },
+    "kind": { "enum": ["kiln", "native", "plugin", "emf"], "description": "Library / profile mod kind." },
+    "gamePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*(^|[\\\\/])\\.\\.([\\\\/]|$))",
+      "description": "A path as the game process sees it: absolute Windows form (Z:\\home\\..., C:\\..., \\\\server\\share) or relative to <game>/kiln/ (copy mode). '/' and '\\' are both separators; '..' components are refused."
+    },
+    "relPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*(^|/)\\.\\.(/|$))(?!/)[^\\\\:*?\"<>|]+$",
+      "description": "A relative path with '/' separators, no '..', no Windows-invalid characters."
+    },
+    "dllName": { "type": "string", "pattern": "^[^/\\\\:]+\\.[dD][lL][lL]$" },
+    "ids": { "type": "array", "items": { "$ref": "#/$defs/modId" }, "uniqueItems": true },
+    "incompatible": {
+      "oneOf": [
+        { "$ref": "#/$defs/ids" },
+        { "type": "object", "propertyNames": { "$ref": "#/$defs/modId" }, "additionalProperties": { "$ref": "#/$defs/range" } }
+      ]
+    },
+    "requiredMod": {
+      "type": "object",
+      "required": ["id", "version", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/modId" },
+        "version": { "$ref": "#/$defs/semver" },
+        "hash": { "$ref": "#/$defs/kdh1" },
+        "kind": { "$ref": "#/$defs/kind", "default": "kiln" },
+        "name": { "type": "string" }
+      }
+    },
+    "modpackRef": {
+      "type": "object",
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^(https?|file)://" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "boundServer": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/serverId" },
+        "name": { "type": "string" },
+        "address": { "type": "string", "description": "host:port the player joins (informational)." },
+        "modpack": { "$ref": "#/$defs/modpackRef" }
+      }
+    }
+  }
+}

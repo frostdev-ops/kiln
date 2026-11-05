@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "trees": [
+    { "id": "fixture:ok", "points": { "share": 0.5 }, "menu": true, "nodes": [
+      { "id": "a", "col": 0, "row": 0, "effects": [ { "program": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f27", "configs": { "Amount": 2, "Flag": true, "Other": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f28" } } ] },
+      { "id": "b", "position": [1, 0], "requires": "a", "effects": [ { "attribute": "Strength", "amount": 1 } ] }
+    ] },
+    { "id": "fixture:bad", "nodes": [
+      { "id": "first" },
+      { "id": "second", "col": 1, "requires": ["frist"] },
+      { "id": "first", "col": 2 },
+      { "id": "same-cell" }
+    ] }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "expect": {
+    "chain": [],
+    "profile": [
+      {
+        "path": "Z:\\mods\\日本.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ]
+  }
+}

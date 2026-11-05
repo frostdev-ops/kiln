@@ -1,0 +1,16 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A staff spell from building blocks (KilnSpell1Mod.cs, and the same blocks as data in blocks/). No game data to read and no GUIDs to
+       write: what players' games need follows from the blocks.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Then `kiln blocks show frostshard` says what it became. Docs: docs/kiln/modding/blocks.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnSpell1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnSpell1: a new spell.</Description>
+    <KilnServices>Blocks</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

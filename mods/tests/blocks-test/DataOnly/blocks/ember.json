@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "spells": {
+    "ember": {
+      "name": "Ember",
+      "cast": { "manaCost": 5 },
+      "delivery": {
+        "type": "projectile",
+        "look": "fireball",
+        "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 12 } } ] } } ]
+      },
+      "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 1 } }
+    }
+  }
+}

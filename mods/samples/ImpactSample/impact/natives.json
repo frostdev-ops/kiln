@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "comment": "Kiln natives ImpactSample's programs call. ImpactSampleMod registers them (Abilities.Natives.Register(\"Ping\", 1, ...)); the cook and kiln.abilities read this file for the argc check. hash = FNV-1a-32 of the name.",
+  "natives": [
+    {
+      "name": "impactsample.Ping",
+      "argc": 1,
+      "returns": "1 (pop it)",
+      "suspends": true,
+      "doc": "Logs the entity and counts the call (a managed native: it runs on the tick thread one step after the ECALL).",
+      "args": [ { "name": "entity", "types": ["ecs.EntityId"], "dir": "in" } ]
+    }
+  ]
+}

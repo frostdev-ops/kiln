@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.saves' managed face (native/services/saves, native/core/abi/services/kiln_saves.h): save events, "save now",
+       backups, and persistent mod data (WorldData, PlayerData, CharacterData, EntityData). Deployed to kiln/host/ and shared by every
+       mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <!-- CharacterSync: the channel "kiln:character" (Kiln.Network brings Kiln.Players and Kiln.Client along). The rest of
+         this assembly still reads other services through their native tables (Foreign.cs). -->
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+  </ItemGroup>
+</Project>

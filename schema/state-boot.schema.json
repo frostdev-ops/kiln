@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-boot.schema.json",
+  "title": "Boot report (<game>/kiln/state/boot.json), format 1",
+  "description": "Written atomically (tmp + rename) by kiln-core at the end of kiln_boot, before the game's entry point runs, on servers and clients. A file whose pid is not a live process is stale. Managed mods load later: see state/mods.json.",
+  "type": "object",
+  "required": [
+    "format",
+    "kiln",
+    "pid",
+    "written",
+    "side",
+    "hooks",
+    "profile"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "const": 1
+    },
+    "kiln": {
+      "type": "string",
+      "description": "Core version (KILN_VERSION)."
+    },
+    "abi": {
+      "type": "integer"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Windows pid of the game process (as Wine reports it)."
+    },
+    "written": {
+      "$ref": "common.schema.json#/$defs/time"
+    },
+    "bootMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "side": {
+      "$ref": "common.schema.json#/$defs/runSide"
+    },
+    "exe": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      }
+    },
+    "policy": {
+      "enum": [
+        "verified-only",
+        "any"
+      ]
+    },
+    "hooks": {
+      "type": "boolean",
+      "description": "false = safe idle."
+    },
+    "safeIdle": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Why hooks are off (unverified build, no definitions), null when on."
+    },
+    "playOnce": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "no-mods",
+            "profile",
+            "ignored-expired",
+            "ignored-undeletable",
+            "ignored-server",
+            "ignored-invalid"
+          ]
+        },
+        "nonce": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "legacy",
+            "active",
+            "once",
+            "no-mods",
+            "invalid"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The profile file read (game-side path)."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "mode invalid: why."
+        },
+        "configDir": {
+          "type": "string"
+        },
+        "dataDir": {
+          "type": "string"
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "kiln": {
+              "type": "integer"
+            },
+            "native": {
+              "type": "integer"
+            },
+            "plugin": {
+              "type": "integer"
+            },
+            "emf": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "description": "KILN_PATH_* as the core resolved them (game-side).",
+      "properties": {
+        "game": {
+          "type": "string"
+        },
+        "kiln": {
+          "type": "string"
+        },
+        "mods": {
+          "type": "string"
+        },
+        "logs": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "config": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      }
+    },
+    "chain": {
+      "type": "array",
+      "description": "What the proxy did with each chained DLL (KilnBootInfo v2 chain[]), in load order: kiln/chain.ini [chain], <game>/dinput8-chain.ini, then kiln/chain.ini [profile] (or kiln/chain/once.ini).",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "source",
+          "status"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Canonical full path as the proxy resolved it."
+          },
+          "source": {
+            "enum": [
+              "chain",
+              "emf",
+              "profile"
+            ]
+          },
+          "status": {
+            "enum": [
+              "loaded",
+              "failed",
+              "missing",
+              "refused",
+              "duplicate",
+              "skipped"
+            ]
+          },
+          "detail": {
+            "enum": [
+              null,
+              "self",
+              "system",
+              "kiln",
+              "shroudforge",
+              "not-dll",
+              "outside",
+              "too-many"
+            ],
+            "description": "status refused: KILN_CHAIN_REFUSED_* (self, system = system dinput8 / Wine builtin, kiln = a Kiln proxy or kiln-core.dll, shroudforge, not-dll = not a 64-bit PE DLL, outside = a dinput8-chain.ini entry outside the game folder, too-many = past 256 in its section)."
+          },
+          "error": {
+            "type": "integer",
+            "description": "status failed: the Win32 error code."
+          }
+        }
+      },
+      "default": []
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Registered service names (with version, e.g. kiln.profile@1)."
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "status"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "loaded",
+              "failed",
+              "skipped"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "native": {
+      "type": "object",
+      "description": "Summary; details in state/native.json.",
+      "properties": {
+        "loaded": {
+          "type": "integer"
+        },
+        "failed": {
+          "type": "integer"
+        },
+        "pending": {
+          "type": "integer"
+        }
+      }
+    },
+    "clr": {
+      "type": "object",
+      "properties": {
+        "started": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Boot errors worth showing to the player."
+    }
+  },
+  "additionalProperties": true
+}

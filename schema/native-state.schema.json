@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native-state.schema.json",
+  "title": "Native mod user state (<configDir>/native.json), format 1",
+  "description": "The player's switches for native mods, written by the launcher (and by an in-game UI later). Precedence for 'enabled': the profile entry's enabled=false wins, then this file, then native.json 'enabled'.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "mods": {
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/modId" },
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "enabled": { "type": "boolean" } },
+        "additionalProperties": true
+      },
+      "default": {}
+    }
+  },
+  "additionalProperties": true
+}

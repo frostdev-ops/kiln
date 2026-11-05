@@ -1,0 +1,8 @@
+{
+  "id": "spawn-test",
+  "name": "kiln.spawn lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SpawnTest.dll",
+  "side": "server"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "settings-test",
+  "name": "kiln.settings lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SettingsTest.dll",
+  "side": "server"
+}

@@ -1,0 +1,566 @@
+{
+  "format": 1,
+  "kind": "kiln.catalog",
+  "generator": "kiln-manage 0.2.0-dev catalog (synthetic fixture)",
+  "generated": "2026-11-04T12:00:00Z",
+  "recipe": 3,
+  "game": {
+    "side": "client",
+    "dir": "/invented/Enshrouded",
+    "steamBuild": "10000001",
+    "build": "10000001",
+    "svn": "1000001",
+    "kfcVersion": "1000001|^/test/fixture|2026-11-04T00:00:00Z",
+    "exeSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "languages": [
+    "en-us",
+    "de-de"
+  ],
+  "icons": "icons",
+  "counts": {
+    "arsenals": 1,
+    "buffs": 1,
+    "drops": 1,
+    "itemCategories": 1,
+    "items": 4,
+    "loca": 2,
+    "loot": 1,
+    "perks": 1,
+    "recipes": 2,
+    "resources": 2,
+    "sequences": 2,
+    "skills": 1,
+    "sounds": 2,
+    "templates": 2,
+    "workshops": 1,
+    "graphs": 1,
+    "configs": 6
+  },
+  "sections": {
+    "items": [
+      {
+        "name": "Test_Frost_Blade",
+        "id": "0x0a11b1ad",
+        "guid": "00000001-7e57-4a11-9c00-000000000001",
+        "displayName": "Frost Blade",
+        "description": "A test sword that is always cold.",
+        "kind": "Weapons",
+        "rarity": "Rare",
+        "tier": 2,
+        "maxStack": 1,
+        "icon": "Test_Frost_Blade_icon.webp"
+      },
+      {
+        "name": "Test_Ice_Shard",
+        "id": "0x0a11b1ae",
+        "guid": "00000002-7e57-4a11-9c00-000000000002",
+        "displayName": "Ice Shard",
+        "description": "A shard of test ice.",
+        "kind": "Materials",
+        "rarity": "Common",
+        "tier": 1,
+        "maxStack": 100,
+        "icon": "Test_Ice_Shard_icon.webp"
+      },
+      {
+        "name": "Test_Ability_Blink",
+        "id": "0x0a11b1af",
+        "guid": "00000003-7e57-4a11-9c00-000000000003",
+        "displayName": "Blink",
+        "kind": "Customization",
+        "maxStack": 1
+      },
+      {
+        "name": "Test_Old_Lantern",
+        "id": "0x0a11b1b0",
+        "guid": "00000004-7e57-4a11-9c00-000000000004",
+        "displayName": "Old Lantern",
+        "kind": "Tools",
+        "maxStack": 1,
+        "registered": false
+      }
+    ],
+    "recipes": [
+      {
+        "name": "Test_Frost_Blade",
+        "id": "0x0b0b0001",
+        "guid": "00000065-7e57-4a11-9c00-000000000065",
+        "workshop": "0x0c0c0001",
+        "workshopName": "Test_Workshop_Forge",
+        "inputs": [
+          {
+            "item": "Test_Ice_Shard",
+            "count": 3
+          },
+          {
+            "category": "0x0d0d0001",
+            "count": 1
+          }
+        ],
+        "outputs": [
+          {
+            "item": "Test_Frost_Blade",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "name": "Test_Ice_Shard_Hand",
+        "id": "0x0b0b0002",
+        "guid": "00000066-7e57-4a11-9c00-000000000066",
+        "inputs": [],
+        "outputs": [
+          {
+            "item": "Test_Ice_Shard",
+            "count": 2
+          }
+        ]
+      }
+    ],
+    "loot": [
+      {
+        "name": "Test_Ice_Shard",
+        "id": "0x0a11b1ae"
+      }
+    ],
+    "drops": [
+      {
+        "guid": "000000c9-7e57-4a11-9c00-0000000000c9"
+      }
+    ],
+    "templates": [
+      {
+        "name": "Enemy_Test_Frostling",
+        "id": "0x6690059f",
+        "guid": "0000012d-7e57-4a11-9c00-00000000012d",
+        "family": "Npc",
+        "components": [
+          "Health",
+          "Faction",
+          "EnemyArsenalReference"
+        ]
+      },
+      {
+        "name": "Projectile_Test_Snowball",
+        "id": "0x32b93a15",
+        "guid": "0000012e-7e57-4a11-9c00-00000000012e",
+        "components": [
+          "LifeTime"
+        ]
+      }
+    ],
+    "arsenals": [
+      {
+        "name": "00000191-7e57-4a11-9c00-000000000191",
+        "id": "0x5f95a70f",
+        "guid": "00000191-7e57-4a11-9c00-000000000191",
+        "templates": [
+          "Enemy_Test_Frostling"
+        ]
+      }
+    ],
+    "sequences": [
+      {
+        "name": "Attack_Test_Frostling_Slash",
+        "id": "0x524c281f",
+        "guid": "000001f5-7e57-4a11-9c00-0000000001f5",
+        "sequence": "000001f5-7e57-4a11-9c00-0000000001f5",
+        "length": 1.25
+      },
+      {
+        "name": "000001f5-7e57-4a11-9c00-0000000001f5#1",
+        "id": "0x2f8e7c44",
+        "guid": "000001f5-7e57-4a11-9c00-0000000001f5",
+        "sequence": "000001f5-7e57-4a11-9c00-0000000001f5",
+        "index": 1,
+        "length": 0.5
+      }
+    ],
+    "buffs": [
+      {
+        "name": "buff_0e0e0001",
+        "id": "0x0e0e0001",
+        "displayName": "Chilled",
+        "description": "Slower for a while.",
+        "slot": "Debuff"
+      }
+    ],
+    "perks": [
+      {
+        "name": "Perk_Test_Frost_Damage",
+        "id": "0x85efe315",
+        "guid": "00000259-7e57-4a11-9c00-000000000259",
+        "displayName": "Frost Damage",
+        "description": "+10 % frost damage."
+      }
+    ],
+    "skills": [
+      {
+        "name": "skill_0f0f0001",
+        "id": "0x0f0f0001",
+        "displayName": "Blink",
+        "item": "Test_Ability_Blink",
+        "type": "Active",
+        "maxLevel": 1,
+        "costs": 1
+      }
+    ],
+    "workshops": [
+      {
+        "name": "Test_Workshop_Forge",
+        "id": "0x0c0c0001",
+        "guid": "000002bd-7e57-4a11-9c00-0000000002bd",
+        "displayName": "Test Forge",
+        "kind": "workshop"
+      }
+    ],
+    "itemCategories": [
+      {
+        "id": "0x0d0d0001",
+        "items": [
+          "Test_Ice_Shard"
+        ]
+      }
+    ],
+    "resources": [
+      {
+        "guid": "00000321-7e57-4a11-9c00-000000000321",
+        "type": "keen::RenderModel"
+      },
+      {
+        "name": "Test_Frost_Blade_icon",
+        "guid": "00000322-7e57-4a11-9c00-000000000322",
+        "type": "keen::UiTextureResource"
+      }
+    ],
+    "sounds": [
+      {
+        "name": "sfx_test_frost_chime",
+        "id": "0xf9625377",
+        "guid": "00000385-7e57-4a11-9c00-000000000385",
+        "scene": "Ui",
+        "entries": 1
+      },
+      {
+        "name": "sfx_test_frostling_hit_01",
+        "id": "0xb9ae2241",
+        "guid": "00000386-7e57-4a11-9c00-000000000386",
+        "scene": "Sfx",
+        "positional": true,
+        "entries": 3
+      }
+    ],
+    "loca": [
+      {
+        "id": "0x10101001",
+        "text": "Frost Blade"
+      },
+      {
+        "id": "0x10101002",
+        "text": "The <b>frost</b> bites."
+      }
+    ],
+    "graphs": [
+      {
+        "name": "Enemy_Test_Frostling",
+        "id": "0x51d2a60f",
+        "guid": "00000191-7e57-4a11-9c00-000000000192",
+        "skeleton": "00000191-7e57-4a11-9c00-000000000193",
+        "states": [
+          {
+            "name": "Idle",
+            "id": "0x1a2b3c4d",
+            "guid": "00000191-7e57-4a11-9c00-000000000195",
+            "clip": "00000191-7e57-4a11-9c00-000000000194",
+            "seconds": 2.0,
+            "loop": true
+          },
+          {
+            "name": "Walk",
+            "id": "0x2b3c4d5e",
+            "blend": "0x3c4d5e6f"
+          }
+        ],
+        "floatInputs": [
+          "0x3c4d5e6f"
+        ],
+        "slots": {
+          "Head": 3,
+          "HandR": 5
+        },
+        "nodes": 12,
+        "templates": [
+          "Enemy_Test_Frostling"
+        ]
+      }
+    ],
+    "configs": [
+      {
+        "name": "ManaCost",
+        "id": "0xaf236ece",
+        "names": [
+          "ManaCost"
+        ],
+        "programs": 2,
+        "readBy": "C++",
+        "type": "sint32",
+        "kind": "sint32"
+      },
+      {
+        "name": "SpawnThing",
+        "id": "0x0d0d0001",
+        "shared": true,
+        "names": [
+          "SpawnThing",
+          "OtherSpawn"
+        ],
+        "programs": 9,
+        "type": "ecs::TemplateReference",
+        "kind": "ref"
+      },
+      {
+        "name": "SpawnThing",
+        "id": "0x0d0d0002",
+        "shared": true,
+        "names": [
+          "SpawnThing"
+        ],
+        "programs": 1,
+        "type": "ecs::TemplateReference",
+        "kind": "ref"
+      },
+      {
+        "name": "Push",
+        "id": "0x0d0d0003",
+        "names": [
+          "Push"
+        ],
+        "programs": 3,
+        "type": "impact::PushForce",
+        "kind": "enum",
+        "enum": [
+          "None",
+          "Small",
+          "Big"
+        ]
+      },
+      {
+        "id": "0x0d0d0004",
+        "names": [],
+        "programs": 1,
+        "type": "float32",
+        "kind": "float32"
+      },
+      {
+        "name": "Mixed",
+        "id": "0x0d0d0005",
+        "names": [
+          "Mixed"
+        ],
+        "programs": 2,
+        "type": "sint32",
+        "kind": "number"
+      }
+    ]
+  },
+  "fields": {
+    "items": [
+      {
+        "path": "itemId",
+        "type": "ItemId",
+        "writable": false,
+        "kind": "uint32"
+      },
+      {
+        "path": "maxStackSize",
+        "type": "uint16",
+        "kind": "uint16"
+      },
+      {
+        "path": "rarity",
+        "type": "ItemRarity",
+        "enum": [
+          "Common",
+          "Uncommon",
+          "Rare",
+          "Epic",
+          "Legendary"
+        ],
+        "kind": "enum"
+      },
+      {
+        "path": "damageSetup.dmgMod",
+        "type": "float32",
+        "kind": "float32"
+      },
+      {
+        "path": "perkIds[0]",
+        "type": "PerkId",
+        "kind": "uint32"
+      },
+      {
+        "path": "tags",
+        "type": "BlobArray<ItemTagWeight>",
+        "kind": "list"
+      },
+      {
+        "path": "tags[*].tag",
+        "type": "Guid",
+        "kind": "guid"
+      },
+      {
+        "path": "itemLevelRange.minLevel",
+        "type": "uint16",
+        "kind": "uint16"
+      },
+      {
+        "path": "perkIds[1]",
+        "type": "PerkId",
+        "kind": "uint32"
+      },
+      {
+        "path": "tags[*].weight",
+        "type": "float32",
+        "kind": "float32"
+      },
+      {
+        "path": "disableRarityGeneration",
+        "type": "ItemRarityMask",
+        "kind": "flags",
+        "enum": [
+          "Common",
+          "Uncommon",
+          "Rare",
+          "Epic",
+          "Legendary"
+        ]
+      },
+      {
+        "path": "equipment.placedEntity",
+        "type": "ecs::TemplateReference",
+        "kind": "ref"
+      },
+      {
+        "path": "impactValues",
+        "type": "impact::Configurations",
+        "kind": "configs"
+      },
+      {
+        "path": "impactValues.simple",
+        "type": "impact::ConfigurationArray",
+        "kind": "list"
+      },
+      {
+        "path": "impactValues.simple[*]",
+        "type": "BlobVariant<impact::ImpactConfig>",
+        "kind": "variant"
+      },
+      {
+        "path": "debugName",
+        "type": "BlobString",
+        "kind": "string",
+        "writable": false
+      }
+    ],
+    "recipes": [
+      {
+        "path": "craftingDuration",
+        "type": "Time",
+        "kind": "time"
+      }
+    ],
+    "buffs": [
+      {
+        "path": "defaultLifeTime",
+        "type": "Time",
+        "kind": "time"
+      }
+    ],
+    "perks": [
+      {
+        "path": "damageModifier.distribution.magicalIceDamage",
+        "type": "float32",
+        "kind": "float32"
+      }
+    ],
+    "skills": [
+      {
+        "path": "costs",
+        "type": "uint16",
+        "kind": "uint16"
+      },
+      {
+        "path": "id",
+        "type": "SkillNodeId",
+        "writable": false,
+        "kind": "uint32"
+      }
+    ],
+    "templates": [
+      {
+        "path": "family",
+        "type": "ecs::TemplateFamily",
+        "kind": "enum",
+        "enum": [
+          "None",
+          "Npc"
+        ]
+      },
+      {
+        "path": "Faction.faction",
+        "type": "FactionType",
+        "kind": "enum",
+        "enum": [
+          "Neutral",
+          "Test_Frostlings"
+        ]
+      },
+      {
+        "path": "Health.healthMax",
+        "type": "uint32",
+        "kind": "uint32"
+      },
+      {
+        "path": "EnemyArsenalReference.arsenal",
+        "type": "ObjectReference<enemy::EnemyArsenal>",
+        "kind": "ref"
+      },
+      {
+        "path": "ImpactConfiguration.configValues",
+        "type": "impact::Configurations",
+        "kind": "configs"
+      },
+      {
+        "path": "ImpactConfiguration.configValues.simple",
+        "type": "impact::ConfigurationArray",
+        "kind": "list"
+      },
+      {
+        "path": "ImpactConfiguration.configValues.simple[*]",
+        "type": "BlobVariant<impact::ImpactConfig>",
+        "kind": "variant"
+      },
+      {
+        "path": "LifeTime.lifeTime",
+        "type": "Time",
+        "kind": "time"
+      },
+      {
+        "path": "Colliders.shapes",
+        "type": "BlobArray<BlobVariant<ecs::ColliderData>>",
+        "kind": "list"
+      },
+      {
+        "path": "Colliders.shapes[*]",
+        "type": "BlobVariant<ecs::ColliderData>",
+        "kind": "variant"
+      },
+      {
+        "path": "DoNotSave",
+        "type": "ecs::DoNotSave",
+        "kind": "struct"
+      }
+    ]
+  }
+}

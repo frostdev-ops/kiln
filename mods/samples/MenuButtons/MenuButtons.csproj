@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Ui game-UI sample (client): a "Kiln" entry in the game's main menu and pause menu that opens a custom screen,
+       a crafting-menu info panel, a Kiln subcategory and tab in the player's own crafting menu. Output folder = a
+       deployable mod folder. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Ui/Kiln.Ui.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Kiln's own mark (branding/logo/png/app-icon-64.png), shown in the screen -->
+    <None Include="kiln-mark.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

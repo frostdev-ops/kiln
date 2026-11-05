@@ -1,0 +1,16 @@
+<Project>
+  <!-- Shared settings for Kiln's managed projects (MIT). -->
+  <Import Project="$(MSBuildThisFileDirectory)KilnVersion.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- From VERSION: 0.2.0-dev gives AssemblyVersion 0.2.0.0, InformationalVersion 0.2.0-dev -->
+    <Version>$(KilnVersion)</Version>
+    <Authors>Kiln contributors</Authors>
+    <Copyright>MIT licence</Copyright>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+</Project>

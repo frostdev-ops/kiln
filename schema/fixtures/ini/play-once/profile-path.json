@@ -1,0 +1,12 @@
+{
+  "now": 1793793630,
+  "expect": {
+    "status": "profile",
+    "created": 1793793600,
+    "nonce": "a1b2c3d4",
+    "profile": {
+      "path": "Z:\\home\\user\\.local\\share\\kiln\\profiles\\test\\profile.json",
+      "relative": false
+    }
+  }
+}

@@ -1,0 +1,4232 @@
+{
+ "description": "Synthetic Kiln.Admin results for the mocks (tools/launcher/mock-admin.py synthesize): Kiln's own results from a capture; game content invented (Test items, Creature A..N, content fields). Safe to commit.",
+ "synthesized": "2026-11-04T17:15:07Z",
+ "server": {
+  "id": "srv-94276d6b4ac8",
+  "name": "Kiln lab mylab"
+ },
+ "ops": [
+  "ping",
+  "status",
+  "players",
+  "teleport",
+  "teleport_to_player",
+  "enemies",
+  "inventory",
+  "give_item",
+  "item_search",
+  "spawn",
+  "despawn_spawned",
+  "spawn_item",
+  "settings_get",
+  "settings_set",
+  "settings_save",
+  "time_get",
+  "time_set",
+  "weather_reset",
+  "broadcast",
+  "tell",
+  "command",
+  "command_run",
+  "commands",
+  "health",
+  "heal",
+  "god",
+  "kill",
+  "damage",
+  "save_status",
+  "save_now",
+  "backup_list",
+  "backup_create",
+  "backup_restore",
+  "backup_cancel_restore",
+  "gameplay_status",
+  "zones_list",
+  "zones_add",
+  "zones_remove",
+  "content_status",
+  "content_get",
+  "content_fields",
+  "content_search",
+  "content_entry",
+  "content_set",
+  "content_reset",
+  "content_recipe",
+  "content_definitions",
+  "sync_status",
+  "content_report",
+  "content_dump",
+  "content_reload",
+  "config_list",
+  "config_get",
+  "config_set",
+  "config_reload",
+  "permissions_get",
+  "permissions_check",
+  "permissions_player_node",
+  "permissions_player_group",
+  "permissions_group",
+  "permissions_group_remove",
+  "permissions_map_user_group",
+  "permissions_reload",
+  "commands_describe",
+  "command_complete",
+  "events_stats",
+  "mods",
+  "mod_reload",
+  "mod_unload",
+  "mod_load",
+  "mod_test",
+  "crash_reports",
+  "admin_info",
+  "network_status",
+  "network_reload",
+  "native_status",
+  "log_tail",
+  "admin_token_rotate"
+ ],
+ "limits": {
+  "maxFrame": 16777216,
+  "maxClientFrame": 1048576,
+  "inflight": 64,
+  "pingS": 15,
+  "idleS": 45
+ },
+ "results": {
+  "status": {
+   "kiln": "0.2.0-dev",
+   "features": {
+    "tick": true,
+    "tick.wait_jobs": true,
+    "log.mirror": true
+   },
+   "ops": [
+    "ping",
+    "status",
+    "players",
+    "teleport",
+    "teleport_to_player",
+    "enemies",
+    "inventory",
+    "give_item",
+    "item_search",
+    "spawn",
+    "despawn_spawned",
+    "spawn_item",
+    "settings_get",
+    "settings_set",
+    "settings_save",
+    "time_get",
+    "time_set",
+    "weather_reset",
+    "broadcast",
+    "tell",
+    "command",
+    "command_run",
+    "commands",
+    "health",
+    "heal",
+    "god",
+    "kill",
+    "damage",
+    "save_status",
+    "save_now",
+    "backup_list",
+    "backup_create",
+    "backup_restore",
+    "backup_cancel_restore",
+    "gameplay_status",
+    "zones_list",
+    "zones_add",
+    "zones_remove",
+    "content_status",
+    "content_get",
+    "content_fields",
+    "content_search",
+    "content_entry",
+    "content_set",
+    "content_reset",
+    "content_recipe",
+    "content_definitions",
+    "sync_status",
+    "content_report",
+    "content_dump",
+    "content_reload",
+    "config_list",
+    "config_get",
+    "config_set",
+    "config_reload",
+    "permissions_get",
+    "permissions_check",
+    "permissions_player_node",
+    "permissions_player_group",
+    "permissions_group",
+    "permissions_group_remove",
+    "permissions_map_user_group",
+    "permissions_reload",
+    "commands_describe",
+    "command_complete",
+    "events_stats",
+    "mods",
+    "mod_reload",
+    "mod_unload",
+    "mod_load",
+    "mod_test",
+    "crash_reports",
+    "admin_info",
+    "network_status",
+    "network_reload",
+    "native_status",
+    "log_tail",
+    "admin_token_rotate"
+   ]
+  },
+  "admin_info": {
+   "admin": "0.2.0",
+   "kiln": "0.2.0-dev",
+   "api": "0.2.0",
+   "protocol": "kap/1",
+   "transports": [
+    "file",
+    "tcp"
+   ],
+   "endpoint": {
+    "host": "127.0.0.1",
+    "port": 26020
+   },
+   "server": {
+    "id": "srv-94276d6b4ac8",
+    "name": "Kiln lab mylab"
+   },
+   "uptimeS": 262.9,
+   "connections": 1,
+   "bridge": "Z:\\srv\\enshrouded\\lab\\shroudforge\\exports\\emberwatch",
+   "ops": [
+    "ping",
+    "status",
+    "players",
+    "teleport",
+    "teleport_to_player",
+    "enemies",
+    "inventory",
+    "give_item",
+    "item_search",
+    "spawn",
+    "despawn_spawned",
+    "spawn_item",
+    "settings_get",
+    "settings_set",
+    "settings_save",
+    "time_get",
+    "time_set",
+    "weather_reset",
+    "broadcast",
+    "tell",
+    "command",
+    "command_run",
+    "commands",
+    "health",
+    "heal",
+    "god",
+    "kill",
+    "damage",
+    "save_status",
+    "save_now",
+    "backup_list",
+    "backup_create",
+    "backup_restore",
+    "backup_cancel_restore",
+    "gameplay_status",
+    "zones_list",
+    "zones_add",
+    "zones_remove",
+    "content_status",
+    "content_get",
+    "content_fields",
+    "content_search",
+    "content_entry",
+    "content_set",
+    "content_reset",
+    "content_recipe",
+    "content_definitions",
+    "sync_status",
+    "content_report",
+    "content_dump",
+    "content_reload",
+    "config_list",
+    "config_get",
+    "config_set",
+    "config_reload",
+    "permissions_get",
+    "permissions_check",
+    "permissions_player_node",
+    "permissions_player_group",
+    "permissions_group",
+    "permissions_group_remove",
+    "permissions_map_user_group",
+    "permissions_reload",
+    "commands_describe",
+    "command_complete",
+    "events_stats",
+    "mods",
+    "mod_reload",
+    "mod_unload",
+    "mod_load",
+    "mod_test",
+    "crash_reports",
+    "admin_info",
+    "network_status",
+    "network_reload",
+    "native_status",
+    "log_tail",
+    "admin_token_rotate"
+   ],
+   "topics": [
+    "state",
+    "log"
+   ]
+  },
+  "players": [],
+  "enemies": {
+   "near": [],
+   "catalog": [],
+   "total": 0
+  },
+  "settings_get": {
+   "values": {
+    "playerHealthFactor": 1,
+    "playerManaFactor": 1,
+    "playerStaminaFactor": 4,
+    "playerBodyHeatFactor": 2,
+    "playerDivingTimeFactor": 1,
+    "enableDurability": true,
+    "enableStarvingDebuff": false,
+    "foodBuffDurationFactor": 1,
+    "fromHungerToStarving": 600000000000,
+    "shroudTimeFactor": 1,
+    "tombstoneMode": "AddBackpackMaterials",
+    "enableGliderTurbulences": true,
+    "weatherFrequency": "Normal",
+    "fishingDifficulty": "Normal",
+    "miningDamageFactor": 2,
+    "plantGrowthSpeedFactor": 2,
+    "resourceDropStackAmountFactor": 2,
+    "factoryProductionSpeedFactor": 1,
+    "perkUpgradeRecyclingFactor": 0.5,
+    "perkCostFactor": 0.25,
+    "experienceCombatFactor": 2,
+    "experienceMiningFactor": 2,
+    "experienceExplorationQuestsFactor": 2,
+    "randomSpawnerAmount": "Automatic",
+    "aggroPoolAmount": "Normal",
+    "enemyDamageFactor": 1,
+    "enemyHealthFactor": 1,
+    "enemyStaminaFactor": 1,
+    "enemyPerceptionRangeFactor": 1,
+    "bossDamageFactor": 1,
+    "bossHealthFactor": 1,
+    "threatBonus": 1,
+    "pacifyAllEnemies": false,
+    "tamingStartleRepercussion": "LoseSomeProgress",
+    "dayTimeDuration": 3600000000000,
+    "nightTimeDuration": 600000000000,
+    "curseModifier": "Normal",
+    "flameLevelFogRemoval": 11
+   },
+   "write_supported": true
+  },
+  "time_get": {
+   "hours": 16.674041883680555,
+   "clock": "16:40",
+   "day": true,
+   "dayMinutes": 60,
+   "nightMinutes": 10,
+   "weather": true
+  },
+  "commands": [
+   {
+    "name": "claim",
+    "usage": "/claim list | here <name> [radius] | trust <name> <player> | remove <name> | reload",
+    "description": "Protected areas (Claims sample)"
+   },
+   {
+    "name": "help",
+    "usage": "[command] [sub]",
+    "description": "lists the commands you can use, or explains one"
+   }
+  ],
+  "commands_describe": [
+   {
+    "name": "claim",
+    "aliases": [],
+    "usage": "/claim list | here <name> [radius] | trust <name> <player> | remove <name> | reload",
+    "description": "Protected areas (Claims sample)",
+    "permission": "everyone",
+    "node": "claims.command.claim",
+    "owner": "claims",
+    "typed": false,
+    "usageLines": [
+     "/claim /claim list | here <name> [radius] | trust <name> <player> | remove <name> | reload"
+    ]
+   },
+   {
+    "name": "help",
+    "aliases": [
+     "?"
+    ],
+    "usage": "[command] [sub]",
+    "description": "lists the commands you can use, or explains one",
+    "permission": "everyone",
+    "node": "kiln.command.help",
+    "owner": "kiln",
+    "typed": true,
+    "usageLines": [
+     "/help [command] [sub]"
+    ],
+    "tree": {
+     "kind": "literal",
+     "name": "help",
+     "executable": true,
+     "description": "lists the commands you can use, or explains one",
+     "children": [
+      {
+       "kind": "argument",
+       "name": "command",
+       "executable": true,
+       "children": [
+        {
+         "kind": "argument",
+         "name": "sub",
+         "executable": true,
+         "type": "greedy",
+         "describe": "text to the end of the line"
+        }
+       ],
+       "type": "word",
+       "describe": "one word"
+      }
+     ],
+     "aliases": [
+      "?"
+     ]
+    }
+   }
+  ],
+  "backup_list": [],
+  "gameplay_status": {
+   "available": true,
+   "intercept": true,
+   "craftHook": true,
+   "buildHooks": true,
+   "terraformHook": true,
+   "spawnHook": true,
+   "zones": 0,
+   "denied": 0,
+   "canceled": 0
+  },
+  "zones_list": [],
+  "content_status": {
+   "ready": true,
+   "items": 4218,
+   "recipes": 2547,
+   "loot": 4213,
+   "drops": 0,
+   "packs": 1,
+   "errors": 0,
+   "conflicts": 0,
+   "changed": 2254,
+   "stackGuard": true,
+   "generation": 1,
+   "detail": "ready"
+  },
+  "content_report": {
+   "report": "{\n \"generation\": 1,\n \"packs\": [\n  {\n   \"file\": \"newitems/content/lantern.json\",\n   \"applied\": 2,\n   \"errors\": [],\n   \"warnings\": []\n  }\n ],\n \"skipped\": [],\n \"conflicts\": []\n}"
+  },
+  "sync_status": {
+   "content": null
+  },
+  "config_list": [
+   {
+    "id": "bigstacks",
+    "mod": "bigstacks",
+    "kind": "common",
+    "file": "Z:\\srv\\enshrouded\\lab\\kiln\\config\\bigstacks.json",
+    "loadedAt": "2026-11-04T16:16:18.9356374Z",
+    "error": null,
+    "warnings": [],
+    "sections": [],
+    "entries": [
+     {
+      "path": "multiplier",
+      "type": "float",
+      "comment": "Max stack size multiplier for every item that stacks (max stack > 1).",
+      "default": 4,
+      "value": 4,
+      "requiresRestart": false,
+      "synced": false,
+      "min": 1,
+      "max": 1000
+     },
+     {
+      "path": "max",
+      "type": "int",
+      "comment": "Largest stack size (the game stores it as 16 bits: at most 65535).",
+      "default": 9999,
+      "value": 9999,
+      "requiresRestart": false,
+      "synced": false,
+      "min": 2,
+      "max": 65535
+     }
+    ]
+   },
+   {
+    "id": "sync",
+    "mod": "kiln",
+    "kind": "common",
+    "file": "Z:\\srv\\enshrouded\\lab\\kiln\\config\\sync.json",
+    "loadedAt": "2026-11-04T16:16:19.3181403Z",
+    "error": null,
+    "warnings": [],
+    "sections": [],
+    "entries": [
+     {
+      "path": "sendContent",
+      "type": "bool",
+      "comment": "Server: send this server's content changes (items and recipes: data packs and mods' code changes) to Kiln\nclients when they join and whenever they change.",
+      "default": true,
+      "value": true,
+      "requiresRestart": false,
+      "synced": false
+     },
+     {
+      "path": "sendConfigs",
+      "type": "bool",
+      "comment": "Server: send the [Synced] entries of server and common configs to Kiln clients.",
+      "default": true,
+      "value": true,
+      "requiresRestart": false,
+      "synced": false
+     },
+     {
+      "path": "acceptContent",
+      "type": "bool",
+      "comment": "Client: apply a server's content changes while connected (taken off again on leave).",
+      "default": true,
+      "value": true,
+      "requiresRestart": false,
+      "synced": false
+     },
+     {
+      "path": "acceptConfigs",
+      "type": "bool",
+      "comment": "Client: use a server's [Synced] config values while connected (local values come back on leave).",
+      "default": true,
+      "value": true,
+      "requiresRestart": false,
+      "synced": false
+     },
+     {
+      "path": "matchServer",
+      "type": "bool",
+      "comment": "Client: while connected, also put back what this game changed on its own (local mods and data packs) where\nthe server has the game's original value, so the registries match the server's exactly.",
+      "default": true,
+      "value": true,
+      "requiresRestart": false,
+      "synced": false
+     },
+     {
+      "path": "maxContentKiB",
+      "type": "int",
+      "comment": "Largest content document (uncompressed JSON, KiB) a server sends or a client accepts.",
+      "default": 8192,
+      "value": 8192,
+      "requiresRestart": false,
+      "synced": false,
+      "min": 16,
+      "max": 65536
+     }
+    ]
+   }
+  ],
+  "permissions_get": {
+   "kickBanIsAdmin": true,
+   "defaultGroup": "default",
+   "groups": {
+    "admin": {
+     "admin": true,
+     "inherits": [],
+     "nodes": [
+      "*"
+     ]
+    },
+    "default": {
+     "admin": false,
+     "inherits": [],
+     "nodes": []
+    }
+   },
+   "userGroups": {
+    "Admins": [
+     "admin"
+    ]
+   },
+   "userGroupIds": {},
+   "players": {},
+   "serverUserGroups": [
+    {
+     "name": "Admins",
+     "rights": "KickBan, AccessInventories, EditBase, EditWorld, ExtendBase"
+    },
+    {
+     "name": "Builders",
+     "rights": "AccessInventories, EditBase, EditWorld"
+    },
+    {
+     "name": "Guests",
+     "rights": "EditWorld"
+    },
+    {
+     "name": "Visitors",
+     "rights": "None"
+    }
+   ],
+   "file": "Z:\\srv\\enshrouded\\lab\\kiln\\config\\permissions.json",
+   "nodes": [
+    {
+     "node": "claims.command.claim",
+     "level": "everyone",
+     "description": "/claim",
+     "owner": "claims"
+    },
+    {
+     "node": "kiln.command.help",
+     "level": "everyone",
+     "description": "/help",
+     "owner": "claims"
+    }
+   ]
+  },
+  "events_stats": [
+   {
+    "event": "ConfigChangedEvent",
+    "handlers": 1
+   },
+   {
+    "event": "BuildEvent",
+    "handlers": 1
+   },
+   {
+    "event": "InteractEvent",
+    "handlers": 1
+   },
+   {
+    "event": "LootEvent",
+    "handlers": 1
+   },
+   {
+    "event": "CraftEvent",
+    "handlers": 1
+   },
+   {
+    "event": "EntityDeathEvent",
+    "handlers": 1
+   },
+   {
+    "event": "ServerStoppingEvent",
+    "handlers": 1
+   }
+  ],
+  "mods": [
+   {
+    "id": "bigstacks",
+    "name": "Big Stacks",
+    "version": "1.0.0",
+    "side": "Server",
+    "state": "Loaded",
+    "error": null,
+    "loadIndex": 0,
+    "advanced": false,
+    "folder": "bigstacks",
+    "description": "Raises the max stack size of every stackable item (x4, at most 9999; kiln/config/bigstacks.json). Kiln clients get the stack sizes from the server (docs/kiln/sync.md); vanilla clients may show stacks above the normal size oddly.",
+    "authors": [],
+    "dependencies": [],
+    "preMsPerStep": 0.0006,
+    "postMsPerStep": 0,
+    "maxMs": 0.26,
+    "faults": 0,
+    "lastFault": null
+   },
+   {
+    "id": "claims",
+    "name": "Claims",
+    "version": "0.1.0",
+    "side": "Server",
+    "state": "Loaded",
+    "error": null,
+    "loadIndex": 1,
+    "advanced": false,
+    "folder": "claims",
+    "description": "Protected areas: only their owners may build, dig, open containers, loot or craft inside. Sample for kiln.gameplay.",
+    "authors": [],
+    "dependencies": [],
+    "preMsPerStep": 0.0003,
+    "postMsPerStep": 0,
+    "maxMs": 0.02,
+    "faults": 0,
+    "lastFault": null
+   },
+   {
+    "id": "hello",
+    "name": "Hello Kiln",
+    "version": "0.1.0",
+    "side": "Server",
+    "state": "Loaded",
+    "error": null,
+    "loadIndex": 2,
+    "advanced": false,
+    "folder": "hello",
+    "description": "",
+    "authors": [],
+    "dependencies": [],
+    "preMsPerStep": 0.0018,
+    "postMsPerStep": 0,
+    "maxMs": 2.59,
+    "faults": 0,
+    "lastFault": null
+   },
+   {
+    "id": "kiln-admin",
+    "name": "Kiln Admin (file bridge + KAP/1)",
+    "version": "0.2.0",
+    "side": "Server",
+    "state": "Loaded",
+    "error": null,
+    "loadIndex": 3,
+    "advanced": false,
+    "folder": "kiln-admin",
+    "description": "",
+    "authors": [],
+    "dependencies": [],
+    "preMsPerStep": 0.4451,
+    "postMsPerStep": 0,
+    "maxMs": 1351.84,
+    "faults": 0,
+    "lastFault": null
+   },
+   {
+    "id": "newitems",
+    "name": "New Items (sample)",
+    "version": "1.0.0",
+    "side": "Both",
+    "state": "Loaded",
+    "error": null,
+    "loadIndex": 4,
+    "advanced": false,
+    "folder": "newitems",
+    "description": "Sample for kiln.content's new items and recipes (Forge's DeferredRegister): a Frost Edge sword and Frost Shards with two hand-crafting recipes, from code, plus a Frost Lantern from a data pack. Install it on the server and on every player's game (side both): ids come from fixed GUIDs, so both sides agree, and the client shows the names, icons and recipes.",
+    "authors": [],
+    "dependencies": [],
+    "preMsPerStep": 0.0027,
+    "postMsPerStep": 0,
+    "maxMs": 7.85,
+    "faults": 0,
+    "lastFault": null
+   }
+  ],
+  "crash_reports": [],
+  "native_status": {
+   "format": 1,
+   "hooks": true,
+   "kiln": "0.2.0-dev",
+   "mods": [],
+   "phase": "boot",
+   "pid": 252,
+   "policy": "always",
+   "side": "server",
+   "written": "2026-11-04T16:16:16Z",
+   "present": true,
+   "chain": [],
+   "boot": {
+    "kiln": "0.2.0-dev",
+    "pid": 252,
+    "written": "2026-11-04T16:16:16Z",
+    "policy": "any",
+    "hooks": true,
+    "safeIdle": null,
+    "native": {
+     "failed": 0,
+     "loaded": 0,
+     "pending": 0
+    },
+    "profile": {
+     "configDir": "Z:\\srv\\enshrouded\\lab\\kiln\\config",
+     "counts": {
+      "emf": 0,
+      "kiln": 0,
+      "native": 0,
+      "plugin": 0
+     },
+     "dataDir": "Z:\\srv\\enshrouded\\lab\\kiln\\data",
+     "dropins": [
+      "kiln",
+      "native",
+      "plugin",
+      "emf"
+     ],
+     "error": null,
+     "file": null,
+     "generation": 0,
+     "id": null,
+     "missing": [],
+     "mode": "legacy",
+     "name": null
+    }
+   }
+  },
+  "network_status": {
+   "config": {
+    "modSync": "warn",
+    "versionMatch": "exact",
+    "requireKiln": false,
+    "optionalMods": [],
+    "kickReason": 1,
+    "handshakeTimeoutSeconds": 20,
+    "maxMessageBytes": 262144,
+    "messagesPerSecond": 200,
+    "bytesPerSecond": 524288,
+    "floodKickDrops": 2000,
+    "labPort": 0,
+    "serverId": null,
+    "serverName": null,
+    "modpack": null,
+    "advertise": true
+   },
+   "configFile": "Z:\\srv\\enshrouded\\lab\\kiln\\config\\network.json",
+   "configError": null,
+   "serverId": "srv-94276d6b4ac8",
+   "serverName": "Kiln lab mylab",
+   "kiln": "0.2.0-dev",
+   "modpack": null,
+   "advertise": true,
+   "pending": false,
+   "required": [
+    {
+     "id": "newitems",
+     "version": "1.0.0",
+     "hash": "kdh1:af521d2712fd5a34f9c8b88de7aef0aecd0385130593a75a5fcea39637d04a1c",
+     "kind": "kiln",
+     "name": "New Items (sample)"
+    }
+   ],
+   "clients": [
+    {
+     "entity": null,
+     "name": "",
+     "state": "connecting",
+     "kiln": null,
+     "version": null,
+     "lab": false,
+     "mods": [],
+     "missing": [],
+     "warnings": 0,
+     "roundTripMs": null
+    }
+   ],
+   "transport": {
+    "available": true,
+    "server": true,
+    "lab": false,
+    "peers": 1,
+    "ready": 0,
+    "channels": 2,
+    "maxFrame": 8000,
+    "framesIn": 0,
+    "framesOut": 0,
+    "dropped": 0
+   }
+  },
+  "save_status": {
+   "state": "running",
+   "world": "a4ddcb0c-cc64-4a87-a419-43c660d61ba8",
+   "revision": 3014,
+   "lastSaved": "2026-11-04T16:20:30.7690000+00:00",
+   "autosaveSeconds": 30,
+   "lastReason": "Autosave",
+   "written": 8,
+   "failed": 0,
+   "dataGeneration": 3014,
+   "dataMatch": "Exact",
+   "pendingRestore": null
+  },
+  "content_definitions": [
+   {
+    "kind": "item",
+    "guid": "3f07fdd3-ce9c-4b0f-ad2f-74cfb4096ea9",
+    "id": "0x3f07fdd3",
+    "name": "Kiln_Sample_TestShard",
+    "base": "Test_Material_Resin_T1",
+    "owner": "mod newitems",
+    "source": "",
+    "state": "registered",
+    "worlds": [
+     "server"
+    ],
+    "version": 0,
+    "mod": "newitems",
+    "displayName": "Test Shard",
+    "languages": [
+     "*"
+    ],
+    "definition": {
+     "guid": "3f07fdd3-ce9c-4b0f-ad2f-74cfb4096ea9",
+     "name": "Kiln_Sample_TestShard",
+     "base": "Test_Material_Resin_T1",
+     "displayName": "Test Shard",
+     "description": "A synthetic item for the mock."
+    }
+   },
+   {
+    "kind": "item",
+    "guid": "1b1840b0-7565-444f-af12-ae356db90306",
+    "id": "0x1b1840b0",
+    "name": "Kiln_Sample_TestEdge",
+    "base": "Test_Weapon_Sword_T2",
+    "owner": "mod newitems",
+    "source": "",
+    "state": "registered",
+    "worlds": [
+     "server"
+    ],
+    "version": 0,
+    "mod": "newitems",
+    "displayName": "Test Edge",
+    "languages": [
+     "*"
+    ],
+    "definition": {
+     "guid": "1b1840b0-7565-444f-af12-ae356db90306",
+     "name": "Kiln_Sample_TestEdge",
+     "base": "Test_Weapon_Sword_T2",
+     "displayName": "Test Edge",
+     "description": "A synthetic item for the mock.",
+     "fields": {
+      "damage.base": 40,
+      "rarity": "Rare"
+     }
+    }
+   },
+   {
+    "kind": "item",
+    "guid": "8a03a387-ac79-4fc6-a186-580fa1848ef5",
+    "id": "0x9a03a387",
+    "name": "Kiln_Sample_TestLantern",
+    "base": "Test_Tool_Lantern_T1",
+    "owner": "mod newitems",
+    "source": "",
+    "state": "registered",
+    "worlds": [
+     "server"
+    ],
+    "version": 0,
+    "mod": "newitems",
+    "displayName": "Test Lantern",
+    "languages": [
+     "*",
+     "de"
+    ],
+    "definition": {
+     "guid": "8a03a387-ac79-4fc6-a186-580fa1848ef5",
+     "name": "Kiln_Sample_TestLantern",
+     "base": "Test_Tool_Lantern_T1",
+     "displayName": "Test Lantern",
+     "description": "A synthetic item for the mock.",
+     "texts": {
+      "de": {
+       "name": "Testlaterne"
+      }
+     }
+    }
+   },
+   {
+    "kind": "recipe",
+    "guid": "84852f6f-f5ba-426c-a46c-f82b449e2e1a",
+    "id": "0x94852f6f",
+    "name": "Kiln_Sample_TestEdge_Recipe",
+    "base": "Recipe_Test_Weapon_Sword_T2",
+    "owner": "mod newitems",
+    "source": "",
+    "state": "registered",
+    "worlds": [
+     "server"
+    ],
+    "version": 0,
+    "mod": "newitems",
+    "displayName": "Test Edge",
+    "languages": [
+     "*"
+    ],
+    "definition": {
+     "guid": "84852f6f-f5ba-426c-a46c-f82b449e2e1a",
+     "name": "Kiln_Sample_TestEdge_Recipe",
+     "base": "Recipe_Test_Weapon_Sword_T2",
+     "displayName": "Test Edge",
+     "description": "A synthetic recipe for the mock.",
+     "inputs": [
+      {
+       "item": "Test_Material_Ingot_T2",
+       "count": 2
+      },
+      {
+       "item": "Kiln_Sample_TestShard",
+       "count": 3
+      }
+     ],
+     "outputs": [
+      {
+       "item": "Kiln_Sample_TestEdge",
+       "count": 1
+      }
+     ],
+     "station": "hand"
+    }
+   }
+  ],
+  "content_fields": {
+   "items": [
+    {
+     "path": "itemId",
+     "type": "uint32",
+     "valueType": "int",
+     "writable": false,
+     "enumKind": "plain"
+    },
+    {
+     "path": "objectId",
+     "type": "Guid",
+     "valueType": "guid",
+     "writable": false,
+     "enumKind": "plain"
+    },
+    {
+     "path": "maxStackSize",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "generateRarity",
+     "type": "bool",
+     "valueType": "bool",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "rarity",
+     "type": "ItemRarity",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "Common",
+      "Uncommon",
+      "Rare",
+      "Epic",
+      "Legendary"
+     ]
+    },
+    {
+     "path": "disableRarityGeneration",
+     "type": "ItemRarityMask",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "flags",
+     "options": [
+      "Common",
+      "Uncommon",
+      "Rare",
+      "Epic",
+      "Legendary"
+     ]
+    },
+    {
+     "path": "category",
+     "type": "ItemCategory",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "Ammunition",
+      "Consumables",
+      "Equipment",
+      "Food",
+      "Materials",
+      "Seeds",
+      "Tools",
+      "Weapons"
+     ]
+    },
+    {
+     "path": "weight",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "sellValue",
+     "type": "uint32",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "durability.max",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "durability.lossPerUse",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "damage.base",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "damage.element",
+     "type": "DamageElement",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "None",
+      "Fire",
+      "Frost",
+      "Shock",
+      "Poison"
+     ]
+    },
+    {
+     "path": "damage.critMultiplier",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "equipment.slot",
+     "type": "EquipmentSlot",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "None",
+      "Head",
+      "Chest",
+      "Hands",
+      "Legs",
+      "Feet",
+      "MainHand",
+      "OffHand",
+      "Ring"
+     ]
+    },
+    {
+     "path": "equipment.hideMask",
+     "type": "HideMask",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "flags",
+     "options": [
+      "Hair",
+      "Beard",
+      "Ears",
+      "Body"
+     ]
+    },
+    {
+     "path": "equipment.allowInWater",
+     "type": "bool",
+     "valueType": "bool",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "uiActionHints.alwaysShow",
+     "type": "bool",
+     "valueType": "bool",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "useCooldown",
+     "type": "Time",
+     "valueType": "time",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "description",
+     "type": "LocaTagId",
+     "valueType": "string",
+     "writable": false,
+     "enumKind": "plain"
+    }
+   ],
+   "recipes": [
+    {
+     "path": "craftingDuration",
+     "type": "Time",
+     "valueType": "time",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "station",
+     "type": "CraftingStation",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "Hand",
+      "Workbench",
+      "Forge",
+      "Alchemy"
+     ]
+    },
+    {
+     "path": "unlocked",
+     "type": "bool",
+     "valueType": "bool",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "outputs[0].count",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "inputs[0].count",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "inputs[1].count",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    }
+   ],
+   "loot": [
+    {
+     "path": "rolls",
+     "type": "uint8",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "chanceEmpty",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "tier",
+     "type": "LootTier",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "enum",
+     "options": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5"
+     ]
+    }
+   ],
+   "drops": [
+    {
+     "path": "stacks[0].chance",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "stacks[0].countMin",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "stacks[0].countMax",
+     "type": "uint16",
+     "valueType": "int",
+     "writable": true,
+     "enumKind": "plain"
+    },
+    {
+     "path": "stacks[1].chance",
+     "type": "float32",
+     "valueType": "float",
+     "writable": true,
+     "enumKind": "plain"
+    }
+   ]
+  },
+  "log_tail": {
+   "file": "kiln.log",
+   "size": 4096,
+   "lines": [
+    "[I 11:16:15.902] [kiln] Kiln 0.2.0-dev starting (server)",
+    "[I 11:16:16.123] [kiln] boot complete; handing control to the game",
+    "[I 11:16:18.935] [mod:bigstacks] stack sizes x4 (max 9999) for every stackable item",
+    "[I 11:16:19.148] [mod:kiln-admin] KAP/1 on 127.0.0.1:26020",
+    "[I 11:16:19.750] [service:kiln-content.dll] registries ready: 110 items, 30 recipes (synthetic)",
+    "[W 11:16:20.002] [mod:claims] no claims.json yet; starting empty",
+    "[I 11:16:30.771] [service:kiln-saves.dll] saves: world written: revision 3015"
+   ]
+  }
+ },
+ "content": {
+  "names": {
+   "items": [
+    {
+     "id": "0x5eaece38",
+     "name": "Test_Weapon_Sword_T1",
+     "modified": false
+    },
+    {
+     "id": "0x138dce9f",
+     "name": "Test_Weapon_Sword_T2",
+     "modified": false
+    },
+    {
+     "id": "0x960bd0d4",
+     "name": "Test_Weapon_Sword_T3",
+     "modified": false
+    },
+    {
+     "id": "0x34f552f3",
+     "name": "Test_Weapon_Sword_T4",
+     "modified": false
+    },
+    {
+     "id": "0x7eee1d37",
+     "name": "Test_Weapon_Sword_T5",
+     "modified": false
+    },
+    {
+     "id": "0x50601994",
+     "name": "Test_Weapon_Axe_T1",
+     "modified": false
+    },
+    {
+     "id": "0xb7f7e0e1",
+     "name": "Test_Weapon_Axe_T2",
+     "modified": false
+    },
+    {
+     "id": "0x724686f3",
+     "name": "Test_Weapon_Axe_T3",
+     "modified": false
+    },
+    {
+     "id": "0x5a9d5215",
+     "name": "Test_Weapon_Axe_T4",
+     "modified": false
+    },
+    {
+     "id": "0x38ab17d1",
+     "name": "Test_Weapon_Axe_T5",
+     "modified": false
+    },
+    {
+     "id": "0x95661421",
+     "name": "Test_Weapon_Bow_T1",
+     "modified": false
+    },
+    {
+     "id": "0x90008d7d",
+     "name": "Test_Weapon_Bow_T2",
+     "modified": false
+    },
+    {
+     "id": "0xbe19ac3a",
+     "name": "Test_Weapon_Bow_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf6fe6140",
+     "name": "Test_Weapon_Bow_T4",
+     "modified": false
+    },
+    {
+     "id": "0x3d6eb42b",
+     "name": "Test_Weapon_Bow_T5",
+     "modified": false
+    },
+    {
+     "id": "0xdd103e70",
+     "name": "Test_Weapon_Staff_T1",
+     "modified": false
+    },
+    {
+     "id": "0xd0c95701",
+     "name": "Test_Weapon_Staff_T2",
+     "modified": false
+    },
+    {
+     "id": "0xfa2c2ed3",
+     "name": "Test_Weapon_Staff_T3",
+     "modified": false
+    },
+    {
+     "id": "0xbb96d1d1",
+     "name": "Test_Weapon_Staff_T4",
+     "modified": false
+    },
+    {
+     "id": "0xf29985f8",
+     "name": "Test_Weapon_Staff_T5",
+     "modified": false
+    },
+    {
+     "id": "0x76a998dc",
+     "name": "Test_Equipment_Shield_T1",
+     "modified": false
+    },
+    {
+     "id": "0xb9290afe",
+     "name": "Test_Equipment_Shield_T2",
+     "modified": false
+    },
+    {
+     "id": "0xfbb1a80b",
+     "name": "Test_Equipment_Shield_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf93b108c",
+     "name": "Test_Equipment_Shield_T4",
+     "modified": false
+    },
+    {
+     "id": "0xf3942f10",
+     "name": "Test_Equipment_Shield_T5",
+     "modified": false
+    },
+    {
+     "id": "0x7985b5fa",
+     "name": "Test_Equipment_Helmet_T1",
+     "modified": false
+    },
+    {
+     "id": "0x17dca5b2",
+     "name": "Test_Equipment_Helmet_T2",
+     "modified": false
+    },
+    {
+     "id": "0x7c18f508",
+     "name": "Test_Equipment_Helmet_T3",
+     "modified": false
+    },
+    {
+     "id": "0x9a3c9bf3",
+     "name": "Test_Equipment_Helmet_T4",
+     "modified": false
+    },
+    {
+     "id": "0xb1fa64f0",
+     "name": "Test_Equipment_Helmet_T5",
+     "modified": false
+    },
+    {
+     "id": "0x3554906b",
+     "name": "Test_Equipment_ChestArmor_T1",
+     "modified": false
+    },
+    {
+     "id": "0x56ab9287",
+     "name": "Test_Equipment_ChestArmor_T2",
+     "modified": false
+    },
+    {
+     "id": "0x3269347b",
+     "name": "Test_Equipment_ChestArmor_T3",
+     "modified": false
+    },
+    {
+     "id": "0xde2f9162",
+     "name": "Test_Equipment_ChestArmor_T4",
+     "modified": false
+    },
+    {
+     "id": "0x35238a9a",
+     "name": "Test_Equipment_ChestArmor_T5",
+     "modified": false
+    },
+    {
+     "id": "0x7329c90b",
+     "name": "Test_Tool_Pickaxe_T1",
+     "modified": false
+    },
+    {
+     "id": "0x3688b1c4",
+     "name": "Test_Tool_Pickaxe_T2",
+     "modified": false
+    },
+    {
+     "id": "0xfcb0c2a7",
+     "name": "Test_Tool_Pickaxe_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf21f28e9",
+     "name": "Test_Tool_Pickaxe_T4",
+     "modified": false
+    },
+    {
+     "id": "0x5cf8257d",
+     "name": "Test_Tool_Pickaxe_T5",
+     "modified": false
+    },
+    {
+     "id": "0x7ff9efd8",
+     "name": "Test_Material_Logs_T1",
+     "modified": false
+    },
+    {
+     "id": "0xbeee9148",
+     "name": "Test_Material_Logs_T2",
+     "modified": false
+    },
+    {
+     "id": "0x3a61882e",
+     "name": "Test_Material_Logs_T3",
+     "modified": false
+    },
+    {
+     "id": "0xd2e0b331",
+     "name": "Test_Material_Logs_T4",
+     "modified": false
+    },
+    {
+     "id": "0x71989118",
+     "name": "Test_Material_Logs_T5",
+     "modified": false
+    },
+    {
+     "id": "0x9f8ecb26",
+     "name": "Test_Material_Stone_T1",
+     "modified": false
+    },
+    {
+     "id": "0xda895ae8",
+     "name": "Test_Material_Stone_T2",
+     "modified": false
+    },
+    {
+     "id": "0xdb4e02f0",
+     "name": "Test_Material_Stone_T3",
+     "modified": false
+    },
+    {
+     "id": "0x90b962f7",
+     "name": "Test_Material_Stone_T4",
+     "modified": false
+    },
+    {
+     "id": "0xf685c256",
+     "name": "Test_Material_Stone_T5",
+     "modified": false
+    },
+    {
+     "id": "0xd2ce90b0",
+     "name": "Test_Material_Ore_T1",
+     "modified": false
+    },
+    {
+     "id": "0x3412bbeb",
+     "name": "Test_Material_Ore_T2",
+     "modified": false
+    },
+    {
+     "id": "0xb7cd2bed",
+     "name": "Test_Material_Ore_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf7f3d034",
+     "name": "Test_Material_Ore_T4",
+     "modified": false
+    },
+    {
+     "id": "0x3cdec04d",
+     "name": "Test_Material_Ore_T5",
+     "modified": false
+    },
+    {
+     "id": "0x371156c9",
+     "name": "Test_Material_Ingot_T1",
+     "modified": false
+    },
+    {
+     "id": "0xd94f79b9",
+     "name": "Test_Material_Ingot_T2",
+     "modified": false
+    },
+    {
+     "id": "0x3394852c",
+     "name": "Test_Material_Ingot_T3",
+     "modified": false
+    },
+    {
+     "id": "0x51b42227",
+     "name": "Test_Material_Ingot_T4",
+     "modified": false
+    },
+    {
+     "id": "0x1d24392e",
+     "name": "Test_Material_Ingot_T5",
+     "modified": false
+    },
+    {
+     "id": "0x3149e804",
+     "name": "Test_Material_Fiber_T1",
+     "modified": false
+    },
+    {
+     "id": "0x1e7a07b5",
+     "name": "Test_Material_Fiber_T2",
+     "modified": false
+    },
+    {
+     "id": "0xdd6a04f5",
+     "name": "Test_Material_Fiber_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf59ea366",
+     "name": "Test_Material_Fiber_T4",
+     "modified": false
+    },
+    {
+     "id": "0xfa12ec95",
+     "name": "Test_Material_Fiber_T5",
+     "modified": false
+    },
+    {
+     "id": "0x7ace3e08",
+     "name": "Test_Material_Resin_T1",
+     "modified": false
+    },
+    {
+     "id": "0xba4715d9",
+     "name": "Test_Material_Resin_T2",
+     "modified": false
+    },
+    {
+     "id": "0x946e31af",
+     "name": "Test_Material_Resin_T3",
+     "modified": false
+    },
+    {
+     "id": "0x9c5c611c",
+     "name": "Test_Material_Resin_T4",
+     "modified": false
+    },
+    {
+     "id": "0x74707ede",
+     "name": "Test_Material_Resin_T5",
+     "modified": false
+    },
+    {
+     "id": "0x5818456c",
+     "name": "Test_Ammo_Arrow_T1",
+     "modified": false
+    },
+    {
+     "id": "0x50616726",
+     "name": "Test_Ammo_Arrow_T2",
+     "modified": false
+    },
+    {
+     "id": "0x78902302",
+     "name": "Test_Ammo_Arrow_T3",
+     "modified": false
+    },
+    {
+     "id": "0x95aa3d1f",
+     "name": "Test_Ammo_Arrow_T4",
+     "modified": false
+    },
+    {
+     "id": "0x1a432d41",
+     "name": "Test_Ammo_Arrow_T5",
+     "modified": false
+    },
+    {
+     "id": "0x9adc4b86",
+     "name": "Test_Consumable_Potion_T1",
+     "modified": false
+    },
+    {
+     "id": "0xfcc4257d",
+     "name": "Test_Consumable_Potion_T2",
+     "modified": false
+    },
+    {
+     "id": "0x9ae0d7c3",
+     "name": "Test_Consumable_Potion_T3",
+     "modified": false
+    },
+    {
+     "id": "0x185caa59",
+     "name": "Test_Consumable_Potion_T4",
+     "modified": false
+    },
+    {
+     "id": "0xd4a11868",
+     "name": "Test_Consumable_Potion_T5",
+     "modified": false
+    },
+    {
+     "id": "0x128c44f2",
+     "name": "Test_Consumable_Bandage_T1",
+     "modified": false
+    },
+    {
+     "id": "0x9a10b107",
+     "name": "Test_Consumable_Bandage_T2",
+     "modified": false
+    },
+    {
+     "id": "0x7efe6bcf",
+     "name": "Test_Consumable_Bandage_T3",
+     "modified": false
+    },
+    {
+     "id": "0x118f0a33",
+     "name": "Test_Consumable_Bandage_T4",
+     "modified": false
+    },
+    {
+     "id": "0xd932da1f",
+     "name": "Test_Consumable_Bandage_T5",
+     "modified": false
+    },
+    {
+     "id": "0xf5e9a92c",
+     "name": "Test_Food_Meal_T1",
+     "modified": false
+    },
+    {
+     "id": "0xd044a114",
+     "name": "Test_Food_Meal_T2",
+     "modified": false
+    },
+    {
+     "id": "0xf944a712",
+     "name": "Test_Food_Meal_T3",
+     "modified": false
+    },
+    {
+     "id": "0x11555bf9",
+     "name": "Test_Food_Meal_T4",
+     "modified": false
+    },
+    {
+     "id": "0x32156e36",
+     "name": "Test_Food_Meal_T5",
+     "modified": false
+    },
+    {
+     "id": "0xd4dc1654",
+     "name": "Test_Seed_Seed_T1",
+     "modified": false
+    },
+    {
+     "id": "0xb49b0733",
+     "name": "Test_Seed_Seed_T2",
+     "modified": false
+    },
+    {
+     "id": "0xded97397",
+     "name": "Test_Seed_Seed_T3",
+     "modified": false
+    },
+    {
+     "id": "0xdf95cb13",
+     "name": "Test_Seed_Seed_T4",
+     "modified": false
+    },
+    {
+     "id": "0x977ede5f",
+     "name": "Test_Seed_Seed_T5",
+     "modified": false
+    },
+    {
+     "id": "0x552db059",
+     "name": "Test_Tool_Torch_T1",
+     "modified": false
+    },
+    {
+     "id": "0x373b0146",
+     "name": "Test_Tool_Torch_T2",
+     "modified": false
+    },
+    {
+     "id": "0xbb44d43e",
+     "name": "Test_Tool_Torch_T3",
+     "modified": false
+    },
+    {
+     "id": "0x919a831a",
+     "name": "Test_Tool_Torch_T4",
+     "modified": false
+    },
+    {
+     "id": "0x1dd67157",
+     "name": "Test_Tool_Torch_T5",
+     "modified": false
+    },
+    {
+     "id": "0x17a1c7b9",
+     "name": "Test_Tool_Lantern_T1",
+     "modified": false
+    },
+    {
+     "id": "0x1fe293fd",
+     "name": "Test_Tool_Lantern_T2",
+     "modified": false
+    },
+    {
+     "id": "0x9887068e",
+     "name": "Test_Tool_Lantern_T3",
+     "modified": false
+    },
+    {
+     "id": "0xff5e3918",
+     "name": "Test_Tool_Lantern_T4",
+     "modified": false
+    },
+    {
+     "id": "0x326cf03f",
+     "name": "Test_Tool_Lantern_T5",
+     "modified": false
+    },
+    {
+     "id": "0xfae253c2",
+     "name": "Test_Material_Rope_T1",
+     "modified": false
+    },
+    {
+     "id": "0xf341305b",
+     "name": "Test_Material_Rope_T2",
+     "modified": false
+    },
+    {
+     "id": "0x96a35e06",
+     "name": "Test_Material_Rope_T3",
+     "modified": false
+    },
+    {
+     "id": "0x39bd1e71",
+     "name": "Test_Material_Rope_T4",
+     "modified": false
+    },
+    {
+     "id": "0xbde87eb5",
+     "name": "Test_Material_Rope_T5",
+     "modified": false
+    }
+   ],
+   "recipes": [
+    {
+     "id": "0x9d12c556",
+     "name": "Recipe_Test_Weapon_Sword_T1",
+     "modified": false
+    },
+    {
+     "id": "0x75bed585",
+     "name": "Recipe_Test_Weapon_Sword_T2",
+     "modified": false
+    },
+    {
+     "id": "0x3bcc1e55",
+     "name": "Recipe_Test_Weapon_Sword_T3",
+     "modified": false
+    },
+    {
+     "id": "0xdb62cd00",
+     "name": "Recipe_Test_Weapon_Sword_T4",
+     "modified": false
+    },
+    {
+     "id": "0xb7addeb1",
+     "name": "Recipe_Test_Weapon_Sword_T5",
+     "modified": false
+    },
+    {
+     "id": "0x39b6615c",
+     "name": "Recipe_Test_Weapon_Axe_T1",
+     "modified": false
+    },
+    {
+     "id": "0xfb367f56",
+     "name": "Recipe_Test_Weapon_Axe_T2",
+     "modified": false
+    },
+    {
+     "id": "0x38927b8e",
+     "name": "Recipe_Test_Weapon_Axe_T3",
+     "modified": false
+    },
+    {
+     "id": "0xd7754b38",
+     "name": "Recipe_Test_Weapon_Axe_T4",
+     "modified": false
+    },
+    {
+     "id": "0x122e2dc2",
+     "name": "Recipe_Test_Weapon_Axe_T5",
+     "modified": false
+    },
+    {
+     "id": "0x7f7dd194",
+     "name": "Recipe_Test_Weapon_Bow_T1",
+     "modified": false
+    },
+    {
+     "id": "0x1c60148f",
+     "name": "Recipe_Test_Weapon_Bow_T2",
+     "modified": false
+    },
+    {
+     "id": "0x123329df",
+     "name": "Recipe_Test_Weapon_Bow_T3",
+     "modified": false
+    },
+    {
+     "id": "0x930f1b8a",
+     "name": "Recipe_Test_Weapon_Bow_T4",
+     "modified": false
+    },
+    {
+     "id": "0xb7059b9e",
+     "name": "Recipe_Test_Weapon_Bow_T5",
+     "modified": false
+    },
+    {
+     "id": "0x78feb0ca",
+     "name": "Recipe_Test_Weapon_Staff_T1",
+     "modified": false
+    },
+    {
+     "id": "0xb15e34a2",
+     "name": "Recipe_Test_Weapon_Staff_T2",
+     "modified": false
+    },
+    {
+     "id": "0x34c7f120",
+     "name": "Recipe_Test_Weapon_Staff_T3",
+     "modified": false
+    },
+    {
+     "id": "0x15117387",
+     "name": "Recipe_Test_Weapon_Staff_T4",
+     "modified": false
+    },
+    {
+     "id": "0xd4f085c9",
+     "name": "Recipe_Test_Weapon_Staff_T5",
+     "modified": false
+    },
+    {
+     "id": "0x3a7884f0",
+     "name": "Recipe_Test_Equipment_Shield_T1",
+     "modified": false
+    },
+    {
+     "id": "0xf1226b1b",
+     "name": "Recipe_Test_Equipment_Shield_T2",
+     "modified": false
+    },
+    {
+     "id": "0x31ea7631",
+     "name": "Recipe_Test_Equipment_Shield_T3",
+     "modified": false
+    },
+    {
+     "id": "0xf5d30d96",
+     "name": "Recipe_Test_Equipment_Shield_T4",
+     "modified": false
+    },
+    {
+     "id": "0x387b954c",
+     "name": "Recipe_Test_Equipment_Shield_T5",
+     "modified": false
+    },
+    {
+     "id": "0xd8713790",
+     "name": "Recipe_Test_Equipment_Helmet_T1",
+     "modified": false
+    },
+    {
+     "id": "0x9ec2e56f",
+     "name": "Recipe_Test_Equipment_Helmet_T2",
+     "modified": false
+    },
+    {
+     "id": "0xb8940eab",
+     "name": "Recipe_Test_Equipment_Helmet_T3",
+     "modified": false
+    },
+    {
+     "id": "0x5f0fea66",
+     "name": "Recipe_Test_Equipment_Helmet_T4",
+     "modified": false
+    },
+    {
+     "id": "0x95469575",
+     "name": "Recipe_Test_Equipment_Helmet_T5",
+     "modified": false
+    }
+   ],
+   "loot": [
+    {
+     "id": "0xb6b78b21",
+     "name": "Loot_Test_Chest_T1",
+     "modified": false
+    },
+    {
+     "id": "0xb248ecb9",
+     "name": "Loot_Test_Barrel_T1",
+     "modified": false
+    },
+    {
+     "id": "0x52e5fa03",
+     "name": "Loot_Test_Crate_T1",
+     "modified": false
+    },
+    {
+     "id": "0x9bae4187",
+     "name": "Loot_Test_Urn_T1",
+     "modified": false
+    },
+    {
+     "id": "0xf3cbbac9",
+     "name": "Loot_Test_Chest_T2",
+     "modified": false
+    },
+    {
+     "id": "0xb5e62dff",
+     "name": "Loot_Test_Barrel_T2",
+     "modified": false
+    },
+    {
+     "id": "0x1b03d2ce",
+     "name": "Loot_Test_Crate_T2",
+     "modified": false
+    },
+    {
+     "id": "0x5a386f57",
+     "name": "Loot_Test_Urn_T2",
+     "modified": false
+    },
+    {
+     "id": "0xbb947108",
+     "name": "Loot_Test_Chest_T3",
+     "modified": false
+    },
+    {
+     "id": "0xfaea6be0",
+     "name": "Loot_Test_Barrel_T3",
+     "modified": false
+    },
+    {
+     "id": "0x3f1a5799",
+     "name": "Loot_Test_Crate_T3",
+     "modified": false
+    },
+    {
+     "id": "0x948a0f26",
+     "name": "Loot_Test_Urn_T3",
+     "modified": false
+    },
+    {
+     "id": "0x3ed47ae5",
+     "name": "Loot_Test_Chest_T4",
+     "modified": false
+    },
+    {
+     "id": "0xdb0b110c",
+     "name": "Loot_Test_Barrel_T4",
+     "modified": false
+    },
+    {
+     "id": "0x997ec139",
+     "name": "Loot_Test_Crate_T4",
+     "modified": false
+    },
+    {
+     "id": "0xd2d78b56",
+     "name": "Loot_Test_Urn_T4",
+     "modified": false
+    },
+    {
+     "id": "0x5ab2dbc1",
+     "name": "Loot_Test_Chest_T5",
+     "modified": false
+    },
+    {
+     "id": "0x556953d5",
+     "name": "Loot_Test_Barrel_T5",
+     "modified": false
+    },
+    {
+     "id": "0x50f60837",
+     "name": "Loot_Test_Crate_T5",
+     "modified": false
+    },
+    {
+     "id": "0xfce71e65",
+     "name": "Loot_Test_Urn_T5",
+     "modified": false
+    }
+   ],
+   "drops": [
+    {
+     "id": "0xb7518750",
+     "name": "Drop_Test_Creature_A",
+     "modified": false
+    },
+    {
+     "id": "0xd0f73643",
+     "name": "Drop_Test_Creature_B",
+     "modified": false
+    },
+    {
+     "id": "0xbb940247",
+     "name": "Drop_Test_Creature_C",
+     "modified": false
+    },
+    {
+     "id": "0xbb37a873",
+     "name": "Drop_Test_Creature_D",
+     "modified": false
+    },
+    {
+     "id": "0x5018b30f",
+     "name": "Drop_Test_Creature_E",
+     "modified": false
+    },
+    {
+     "id": "0x14ff2d13",
+     "name": "Drop_Test_Creature_F",
+     "modified": false
+    },
+    {
+     "id": "0xffaf4aad",
+     "name": "Drop_Test_Creature_G",
+     "modified": false
+    },
+    {
+     "id": "0x7f840053",
+     "name": "Drop_Test_Creature_H",
+     "modified": false
+    },
+    {
+     "id": "0x7b5ece47",
+     "name": "Drop_Test_Creature_I",
+     "modified": false
+    },
+    {
+     "id": "0xd87f6c83",
+     "name": "Drop_Test_Creature_J",
+     "modified": false
+    }
+   ]
+  },
+  "entries": {
+   "items": [
+    {
+     "kind": "items",
+     "id": "0x138dce9f",
+     "name": "Test_Weapon_Sword_T2",
+     "guid": "038dce9f-3785-4e1e-ad15-ed0a46bab0b9",
+     "modified": false,
+     "fields": [
+      {
+       "path": "itemId",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "328060575",
+       "original": "328060575",
+       "changed": false
+      },
+      {
+       "path": "objectId",
+       "type": "Guid",
+       "valueType": "guid",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "038dce9f-3785-4e1e-ad15-ed0a46bab0b9",
+       "original": "038dce9f-3785-4e1e-ad15-ed0a46bab0b9",
+       "changed": false
+      },
+      {
+       "path": "maxStackSize",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "generateRarity",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "true",
+       "original": "true",
+       "changed": false
+      },
+      {
+       "path": "rarity",
+       "type": "ItemRarity",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Uncommon",
+       "original": "Uncommon",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "disableRarityGeneration",
+       "type": "ItemRarityMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "category",
+       "type": "ItemCategory",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Weapons",
+       "original": "Weapons",
+       "changed": false,
+       "options": [
+        "Ammunition",
+        "Consumables",
+        "Equipment",
+        "Food",
+        "Materials",
+        "Seeds",
+        "Tools",
+        "Weapons"
+       ]
+      },
+      {
+       "path": "weight",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "sellValue",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "20",
+       "original": "20",
+       "changed": false
+      },
+      {
+       "path": "durability.max",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "200",
+       "original": "200",
+       "changed": false
+      },
+      {
+       "path": "durability.lossPerUse",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.5",
+       "original": "0.5",
+       "changed": false
+      },
+      {
+       "path": "damage.base",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "25",
+       "original": "25",
+       "changed": false
+      },
+      {
+       "path": "damage.element",
+       "type": "DamageElement",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "None",
+       "original": "None",
+       "changed": false,
+       "options": [
+        "None",
+        "Fire",
+        "Frost",
+        "Shock",
+        "Poison"
+       ]
+      },
+      {
+       "path": "damage.critMultiplier",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1.5",
+       "original": "1.5",
+       "changed": false
+      },
+      {
+       "path": "equipment.slot",
+       "type": "EquipmentSlot",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "MainHand",
+       "original": "MainHand",
+       "changed": false,
+       "options": [
+        "None",
+        "Head",
+        "Chest",
+        "Hands",
+        "Legs",
+        "Feet",
+        "MainHand",
+        "OffHand",
+        "Ring"
+       ]
+      },
+      {
+       "path": "equipment.hideMask",
+       "type": "HideMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Hair",
+        "Beard",
+        "Ears",
+        "Body"
+       ]
+      },
+      {
+       "path": "equipment.allowInWater",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "true",
+       "original": "true",
+       "changed": false
+      },
+      {
+       "path": "uiActionHints.alwaysShow",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "useCooldown",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.75s",
+       "original": "0.75s",
+       "changed": false
+      },
+      {
+       "path": "description",
+       "type": "LocaTagId",
+       "valueType": "string",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "A test item (Test Sword T2)",
+       "original": "A test item (Test Sword T2)",
+       "changed": false
+      }
+     ]
+    },
+    {
+     "kind": "items",
+     "id": "0x7ff9efd8",
+     "name": "Test_Material_Logs_T1",
+     "guid": "6ff9efd8-b8f6-44b1-a5ca-36a0cd8c19f2",
+     "modified": false,
+     "fields": [
+      {
+       "path": "itemId",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "2147086296",
+       "original": "2147086296",
+       "changed": false
+      },
+      {
+       "path": "objectId",
+       "type": "Guid",
+       "valueType": "guid",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "6ff9efd8-b8f6-44b1-a5ca-36a0cd8c19f2",
+       "original": "6ff9efd8-b8f6-44b1-a5ca-36a0cd8c19f2",
+       "changed": false
+      },
+      {
+       "path": "maxStackSize",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "50",
+       "original": "50",
+       "changed": false
+      },
+      {
+       "path": "generateRarity",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "rarity",
+       "type": "ItemRarity",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Common",
+       "original": "Common",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "disableRarityGeneration",
+       "type": "ItemRarityMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "category",
+       "type": "ItemCategory",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Materials",
+       "original": "Materials",
+       "changed": false,
+       "options": [
+        "Ammunition",
+        "Consumables",
+        "Equipment",
+        "Food",
+        "Materials",
+        "Seeds",
+        "Tools",
+        "Weapons"
+       ]
+      },
+      {
+       "path": "weight",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.5",
+       "original": "0.5",
+       "changed": false
+      },
+      {
+       "path": "sellValue",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "10",
+       "original": "10",
+       "changed": false
+      },
+      {
+       "path": "durability.max",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0",
+       "original": "0",
+       "changed": false
+      },
+      {
+       "path": "durability.lossPerUse",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0",
+       "original": "0",
+       "changed": false
+      },
+      {
+       "path": "damage.base",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0",
+       "original": "0",
+       "changed": false
+      },
+      {
+       "path": "damage.element",
+       "type": "DamageElement",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "None",
+       "original": "None",
+       "changed": false,
+       "options": [
+        "None",
+        "Fire",
+        "Frost",
+        "Shock",
+        "Poison"
+       ]
+      },
+      {
+       "path": "damage.critMultiplier",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1.5",
+       "original": "1.5",
+       "changed": false
+      },
+      {
+       "path": "equipment.slot",
+       "type": "EquipmentSlot",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "None",
+       "original": "None",
+       "changed": false,
+       "options": [
+        "None",
+        "Head",
+        "Chest",
+        "Hands",
+        "Legs",
+        "Feet",
+        "MainHand",
+        "OffHand",
+        "Ring"
+       ]
+      },
+      {
+       "path": "equipment.hideMask",
+       "type": "HideMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Hair",
+        "Beard",
+        "Ears",
+        "Body"
+       ]
+      },
+      {
+       "path": "equipment.allowInWater",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "true",
+       "original": "true",
+       "changed": false
+      },
+      {
+       "path": "uiActionHints.alwaysShow",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "useCooldown",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.75s",
+       "original": "0.75s",
+       "changed": false
+      },
+      {
+       "path": "description",
+       "type": "LocaTagId",
+       "valueType": "string",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "A test item (Test Logs T1)",
+       "original": "A test item (Test Logs T1)",
+       "changed": false
+      }
+     ]
+    },
+    {
+     "kind": "items",
+     "id": "0x76a998dc",
+     "name": "Test_Equipment_Shield_T1",
+     "guid": "76a998dc-1626-4b9c-ad8b-24007527b418",
+     "modified": false,
+     "fields": [
+      {
+       "path": "itemId",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "1990826204",
+       "original": "1990826204",
+       "changed": false
+      },
+      {
+       "path": "objectId",
+       "type": "Guid",
+       "valueType": "guid",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "76a998dc-1626-4b9c-ad8b-24007527b418",
+       "original": "76a998dc-1626-4b9c-ad8b-24007527b418",
+       "changed": false
+      },
+      {
+       "path": "maxStackSize",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "generateRarity",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "true",
+       "original": "true",
+       "changed": false
+      },
+      {
+       "path": "rarity",
+       "type": "ItemRarity",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Common",
+       "original": "Common",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "disableRarityGeneration",
+       "type": "ItemRarityMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Common",
+        "Uncommon",
+        "Rare",
+        "Epic",
+        "Legendary"
+       ]
+      },
+      {
+       "path": "category",
+       "type": "ItemCategory",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Equipment",
+       "original": "Equipment",
+       "changed": false,
+       "options": [
+        "Ammunition",
+        "Consumables",
+        "Equipment",
+        "Food",
+        "Materials",
+        "Seeds",
+        "Tools",
+        "Weapons"
+       ]
+      },
+      {
+       "path": "weight",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.5",
+       "original": "0.5",
+       "changed": false
+      },
+      {
+       "path": "sellValue",
+       "type": "uint32",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "10",
+       "original": "10",
+       "changed": false
+      },
+      {
+       "path": "durability.max",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "100",
+       "original": "100",
+       "changed": false
+      },
+      {
+       "path": "durability.lossPerUse",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.5",
+       "original": "0.5",
+       "changed": false
+      },
+      {
+       "path": "damage.base",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "12.5",
+       "original": "12.5",
+       "changed": false
+      },
+      {
+       "path": "damage.element",
+       "type": "DamageElement",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "None",
+       "original": "None",
+       "changed": false,
+       "options": [
+        "None",
+        "Fire",
+        "Frost",
+        "Shock",
+        "Poison"
+       ]
+      },
+      {
+       "path": "damage.critMultiplier",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1.5",
+       "original": "1.5",
+       "changed": false
+      },
+      {
+       "path": "equipment.slot",
+       "type": "EquipmentSlot",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "MainHand",
+       "original": "MainHand",
+       "changed": false,
+       "options": [
+        "None",
+        "Head",
+        "Chest",
+        "Hands",
+        "Legs",
+        "Feet",
+        "MainHand",
+        "OffHand",
+        "Ring"
+       ]
+      },
+      {
+       "path": "equipment.hideMask",
+       "type": "HideMask",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "flags",
+       "value": "",
+       "original": "",
+       "changed": false,
+       "options": [
+        "Hair",
+        "Beard",
+        "Ears",
+        "Body"
+       ]
+      },
+      {
+       "path": "equipment.allowInWater",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "true",
+       "original": "true",
+       "changed": false
+      },
+      {
+       "path": "uiActionHints.alwaysShow",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "useCooldown",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.75s",
+       "original": "0.75s",
+       "changed": false
+      },
+      {
+       "path": "description",
+       "type": "LocaTagId",
+       "valueType": "string",
+       "writable": false,
+       "enumKind": "plain",
+       "value": "A test item (Test Shield T1)",
+       "original": "A test item (Test Shield T1)",
+       "changed": false
+      }
+     ]
+    }
+   ],
+   "recipes": [
+    {
+     "kind": "recipes",
+     "id": "0x9d12c556",
+     "name": "Recipe_Test_Weapon_Sword_T1",
+     "guid": "9d12c556-0555-4b2c-ac10-48a90f92ecb1",
+     "modified": false,
+     "fields": [
+      {
+       "path": "craftingDuration",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "4s",
+       "original": "4s",
+       "changed": false
+      },
+      {
+       "path": "station",
+       "type": "CraftingStation",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Workbench",
+       "original": "Workbench",
+       "changed": false,
+       "options": [
+        "Hand",
+        "Workbench",
+        "Forge",
+        "Alchemy"
+       ]
+      },
+      {
+       "path": "unlocked",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "outputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "inputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "6",
+       "original": "6",
+       "changed": false
+      },
+      {
+       "path": "inputs[1].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "2",
+       "original": "2",
+       "changed": false
+      }
+     ],
+     "inputs": [
+      {
+       "item": "Test_Material_Logs_T1",
+       "name": "Test_Material_Logs_T1",
+       "count": 6,
+       "category": 0
+      },
+      {
+       "item": "Test_Material_Ingot_T2",
+       "name": "Test_Material_Ingot_T2",
+       "count": 2,
+       "category": 0
+      }
+     ],
+     "outputs": [
+      {
+       "item": "Test_Weapon_Sword_T1",
+       "name": "Test_Weapon_Sword_T1",
+       "count": 1,
+       "category": 0
+      }
+     ]
+    },
+    {
+     "kind": "recipes",
+     "id": "0x75bed585",
+     "name": "Recipe_Test_Weapon_Sword_T2",
+     "guid": "75bed585-b83e-44d7-a4f4-c91e2b9bac33",
+     "modified": false,
+     "fields": [
+      {
+       "path": "craftingDuration",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "4s",
+       "original": "4s",
+       "changed": false
+      },
+      {
+       "path": "station",
+       "type": "CraftingStation",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Workbench",
+       "original": "Workbench",
+       "changed": false,
+       "options": [
+        "Hand",
+        "Workbench",
+        "Forge",
+        "Alchemy"
+       ]
+      },
+      {
+       "path": "unlocked",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "outputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "inputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "6",
+       "original": "6",
+       "changed": false
+      },
+      {
+       "path": "inputs[1].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "2",
+       "original": "2",
+       "changed": false
+      }
+     ],
+     "inputs": [
+      {
+       "item": "Test_Material_Logs_T1",
+       "name": "Test_Material_Logs_T1",
+       "count": 6,
+       "category": 0
+      },
+      {
+       "item": "Test_Material_Ingot_T2",
+       "name": "Test_Material_Ingot_T2",
+       "count": 2,
+       "category": 0
+      }
+     ],
+     "outputs": [
+      {
+       "item": "Test_Weapon_Sword_T2",
+       "name": "Test_Weapon_Sword_T2",
+       "count": 1,
+       "category": 0
+      }
+     ]
+    },
+    {
+     "kind": "recipes",
+     "id": "0x3bcc1e55",
+     "name": "Recipe_Test_Weapon_Sword_T3",
+     "guid": "2bcc1e55-9474-4949-ad3b-a4b5596c2244",
+     "modified": false,
+     "fields": [
+      {
+       "path": "craftingDuration",
+       "type": "Time",
+       "valueType": "time",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "4s",
+       "original": "4s",
+       "changed": false
+      },
+      {
+       "path": "station",
+       "type": "CraftingStation",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "Workbench",
+       "original": "Workbench",
+       "changed": false,
+       "options": [
+        "Hand",
+        "Workbench",
+        "Forge",
+        "Alchemy"
+       ]
+      },
+      {
+       "path": "unlocked",
+       "type": "bool",
+       "valueType": "bool",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "false",
+       "original": "false",
+       "changed": false
+      },
+      {
+       "path": "outputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "inputs[0].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "6",
+       "original": "6",
+       "changed": false
+      },
+      {
+       "path": "inputs[1].count",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "2",
+       "original": "2",
+       "changed": false
+      }
+     ],
+     "inputs": [
+      {
+       "item": "Test_Material_Logs_T1",
+       "name": "Test_Material_Logs_T1",
+       "count": 6,
+       "category": 0
+      },
+      {
+       "item": "Test_Material_Ingot_T2",
+       "name": "Test_Material_Ingot_T2",
+       "count": 2,
+       "category": 0
+      }
+     ],
+     "outputs": [
+      {
+       "item": "Test_Weapon_Sword_T3",
+       "name": "Test_Weapon_Sword_T3",
+       "count": 1,
+       "category": 0
+      }
+     ]
+    }
+   ],
+   "loot": [
+    {
+     "kind": "loot",
+     "id": "0xb6b78b21",
+     "name": "Loot_Test_Chest_T1",
+     "guid": "b6b78b21-cad5-4f66-a78b-10d3bd097b1f",
+     "modified": false,
+     "fields": [
+      {
+       "path": "rolls",
+       "type": "uint8",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "2",
+       "original": "2",
+       "changed": false
+      },
+      {
+       "path": "chanceEmpty",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.1",
+       "original": "0.1",
+       "changed": false
+      },
+      {
+       "path": "tier",
+       "type": "LootTier",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "T1",
+       "original": "T1",
+       "changed": false,
+       "options": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5"
+       ]
+      }
+     ]
+    },
+    {
+     "kind": "loot",
+     "id": "0xb248ecb9",
+     "name": "Loot_Test_Barrel_T1",
+     "guid": "b248ecb9-9da9-4641-ab98-1eaf09a563c5",
+     "modified": false,
+     "fields": [
+      {
+       "path": "rolls",
+       "type": "uint8",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "2",
+       "original": "2",
+       "changed": false
+      },
+      {
+       "path": "chanceEmpty",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.1",
+       "original": "0.1",
+       "changed": false
+      },
+      {
+       "path": "tier",
+       "type": "LootTier",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "enum",
+       "value": "T1",
+       "original": "T1",
+       "changed": false,
+       "options": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5"
+       ]
+      }
+     ]
+    }
+   ],
+   "drops": [
+    {
+     "kind": "drops",
+     "id": "0xb7518750",
+     "name": "Drop_Test_Creature_A",
+     "guid": "a7518750-7bea-478d-a83b-d82b96a33b8f",
+     "modified": false,
+     "fields": [
+      {
+       "path": "stacks[0].chance",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.75",
+       "original": "0.75",
+       "changed": false
+      },
+      {
+       "path": "stacks[0].countMin",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "stacks[0].countMax",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "3",
+       "original": "3",
+       "changed": false
+      },
+      {
+       "path": "stacks[1].chance",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.2",
+       "original": "0.2",
+       "changed": false
+      }
+     ],
+     "stacks": [
+      {
+       "index": 0,
+       "item": "Test_Material_Logs_T1",
+       "name": "Test_Material_Logs_T1",
+       "countMin": 1,
+       "countMax": 3,
+       "chance": 0.75,
+       "weight": 1.0,
+       "group": 0
+      },
+      {
+       "index": 1,
+       "item": "Test_Material_Ingot_T2",
+       "name": "Test_Material_Ingot_T2",
+       "countMin": 1,
+       "countMax": 1,
+       "chance": 0.2,
+       "weight": 0.5,
+       "group": 0
+      }
+     ]
+    },
+    {
+     "kind": "drops",
+     "id": "0xd0f73643",
+     "name": "Drop_Test_Creature_B",
+     "guid": "d0f73643-7d3d-4498-aca5-4e16ffd84f68",
+     "modified": false,
+     "fields": [
+      {
+       "path": "stacks[0].chance",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.75",
+       "original": "0.75",
+       "changed": false
+      },
+      {
+       "path": "stacks[0].countMin",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "1",
+       "original": "1",
+       "changed": false
+      },
+      {
+       "path": "stacks[0].countMax",
+       "type": "uint16",
+       "valueType": "int",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "3",
+       "original": "3",
+       "changed": false
+      },
+      {
+       "path": "stacks[1].chance",
+       "type": "float32",
+       "valueType": "float",
+       "writable": true,
+       "enumKind": "plain",
+       "value": "0.2",
+       "original": "0.2",
+       "changed": false
+      }
+     ],
+     "stacks": [
+      {
+       "index": 0,
+       "item": "Test_Material_Logs_T1",
+       "name": "Test_Material_Logs_T1",
+       "countMin": 1,
+       "countMax": 3,
+       "chance": 0.75,
+       "weight": 1.0,
+       "group": 0
+      },
+      {
+       "index": 1,
+       "item": "Test_Material_Ingot_T2",
+       "name": "Test_Material_Ingot_T2",
+       "countMin": 1,
+       "countMax": 1,
+       "chance": 0.2,
+       "weight": 0.5,
+       "group": 0
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "items": [
+  {
+   "id": 1588514360,
+   "name": "Test Sword T1",
+   "gear": true
+  },
+  {
+   "id": 328060575,
+   "name": "Test Sword T2",
+   "gear": true
+  },
+  {
+   "id": 2517356756,
+   "name": "Test Sword T3",
+   "gear": true
+  },
+  {
+   "id": 888492787,
+   "name": "Test Sword T4",
+   "gear": true
+  },
+  {
+   "id": 2129534263,
+   "name": "Test Sword T5",
+   "gear": true
+  },
+  {
+   "id": 1348475284,
+   "name": "Test Axe T1",
+   "gear": true
+  },
+  {
+   "id": 3086475489,
+   "name": "Test Axe T2",
+   "gear": true
+  },
+  {
+   "id": 1917224691,
+   "name": "Test Axe T3",
+   "gear": true
+  },
+  {
+   "id": 1520259605,
+   "name": "Test Axe T4",
+   "gear": true
+  },
+  {
+   "id": 950736849,
+   "name": "Test Axe T5",
+   "gear": true
+  },
+  {
+   "id": 2506495009,
+   "name": "Test Bow T1",
+   "gear": true
+  },
+  {
+   "id": 2415955325,
+   "name": "Test Bow T2",
+   "gear": true
+  },
+  {
+   "id": 3189353530,
+   "name": "Test Bow T3",
+   "gear": true
+  },
+  {
+   "id": 4143866176,
+   "name": "Test Bow T4",
+   "gear": true
+  },
+  {
+   "id": 1030665259,
+   "name": "Test Bow T5",
+   "gear": true
+  },
+  {
+   "id": 3708829296,
+   "name": "Test Staff T1",
+   "gear": true
+  },
+  {
+   "id": 3502855937,
+   "name": "Test Staff T2",
+   "gear": true
+  },
+  {
+   "id": 4197199571,
+   "name": "Test Staff T3",
+   "gear": true
+  },
+  {
+   "id": 3147223505,
+   "name": "Test Staff T4",
+   "gear": true
+  },
+  {
+   "id": 4070147576,
+   "name": "Test Staff T5",
+   "gear": true
+  },
+  {
+   "id": 1990826204,
+   "name": "Test Shield T1",
+   "gear": true
+  },
+  {
+   "id": 3106474750,
+   "name": "Test Shield T2",
+   "gear": true
+  },
+  {
+   "id": 4222724107,
+   "name": "Test Shield T3",
+   "gear": true
+  },
+  {
+   "id": 4181397644,
+   "name": "Test Shield T4",
+   "gear": true
+  },
+  {
+   "id": 4086574864,
+   "name": "Test Shield T5",
+   "gear": true
+  },
+  {
+   "id": 2038806010,
+   "name": "Test Helmet T1",
+   "gear": true
+  },
+  {
+   "id": 400336306,
+   "name": "Test Helmet T2",
+   "gear": true
+  },
+  {
+   "id": 2082010376,
+   "name": "Test Helmet T3",
+   "gear": true
+  },
+  {
+   "id": 2587663347,
+   "name": "Test Helmet T4",
+   "gear": true
+  },
+  {
+   "id": 2985977072,
+   "name": "Test Helmet T5",
+   "gear": true
+  },
+  {
+   "id": 894734443,
+   "name": "Test Chest Armor T1",
+   "gear": true
+  },
+  {
+   "id": 1454084743,
+   "name": "Test Chest Armor T2",
+   "gear": true
+  },
+  {
+   "id": 845755515,
+   "name": "Test Chest Armor T3",
+   "gear": true
+  },
+  {
+   "id": 3727659362,
+   "name": "Test Chest Armor T4",
+   "gear": true
+  },
+  {
+   "id": 891521690,
+   "name": "Test Chest Armor T5",
+   "gear": true
+  },
+  {
+   "id": 1932118283,
+   "name": "Test Pickaxe T1",
+   "gear": true
+  },
+  {
+   "id": 914928068,
+   "name": "Test Pickaxe T2",
+   "gear": true
+  },
+  {
+   "id": 4239442599,
+   "name": "Test Pickaxe T3",
+   "gear": true
+  },
+  {
+   "id": 4062128361,
+   "name": "Test Pickaxe T4",
+   "gear": true
+  },
+  {
+   "id": 1559766397,
+   "name": "Test Pickaxe T5",
+   "gear": true
+  },
+  {
+   "id": 2147086296,
+   "name": "Test Logs T1",
+   "gear": false
+  },
+  {
+   "id": 3203305800,
+   "name": "Test Logs T2",
+   "gear": false
+  },
+  {
+   "id": 979470382,
+   "name": "Test Logs T3",
+   "gear": false
+  },
+  {
+   "id": 3537941297,
+   "name": "Test Logs T4",
+   "gear": false
+  },
+  {
+   "id": 1905824024,
+   "name": "Test Logs T5",
+   "gear": false
+  },
+  {
+   "id": 2676935462,
+   "name": "Test Stone T1",
+   "gear": false
+  },
+  {
+   "id": 3666434792,
+   "name": "Test Stone T2",
+   "gear": false
+  },
+  {
+   "id": 3679322864,
+   "name": "Test Stone T3",
+   "gear": false
+  },
+  {
+   "id": 2428068599,
+   "name": "Test Stone T4",
+   "gear": false
+  },
+  {
+   "id": 4135961174,
+   "name": "Test Stone T5",
+   "gear": false
+  },
+  {
+   "id": 3536752816,
+   "name": "Test Ore T1",
+   "gear": false
+  },
+  {
+   "id": 873642987,
+   "name": "Test Ore T2",
+   "gear": false
+  },
+  {
+   "id": 3083676653,
+   "name": "Test Ore T3",
+   "gear": false
+  },
+  {
+   "id": 4159950900,
+   "name": "Test Ore T4",
+   "gear": false
+  },
+  {
+   "id": 1021231181,
+   "name": "Test Ore T5",
+   "gear": false
+  },
+  {
+   "id": 923883209,
+   "name": "Test Ingot T1",
+   "gear": false
+  },
+  {
+   "id": 3645864377,
+   "name": "Test Ingot T2",
+   "gear": false
+  },
+  {
+   "id": 865371436,
+   "name": "Test Ingot T3",
+   "gear": false
+  },
+  {
+   "id": 1370759719,
+   "name": "Test Ingot T4",
+   "gear": false
+  },
+  {
+   "id": 488913198,
+   "name": "Test Ingot T5",
+   "gear": false
+  },
+  {
+   "id": 826927108,
+   "name": "Test Fiber T1",
+   "gear": false
+  },
+  {
+   "id": 511313845,
+   "name": "Test Fiber T2",
+   "gear": false
+  },
+  {
+   "id": 3714712821,
+   "name": "Test Fiber T3",
+   "gear": false
+  },
+  {
+   "id": 4120814438,
+   "name": "Test Fiber T4",
+   "gear": false
+  },
+  {
+   "id": 4195544213,
+   "name": "Test Fiber T5",
+   "gear": false
+  },
+  {
+   "id": 2060336648,
+   "name": "Test Resin T1",
+   "gear": false
+  },
+  {
+   "id": 3125220825,
+   "name": "Test Resin T2",
+   "gear": false
+  },
+  {
+   "id": 2490249647,
+   "name": "Test Resin T3",
+   "gear": false
+  },
+  {
+   "id": 2623299868,
+   "name": "Test Resin T4",
+   "gear": false
+  },
+  {
+   "id": 1953529566,
+   "name": "Test Resin T5",
+   "gear": false
+  },
+  {
+   "id": 1477985644,
+   "name": "Test Arrow T1",
+   "gear": false
+  },
+  {
+   "id": 1348560678,
+   "name": "Test Arrow T2",
+   "gear": false
+  },
+  {
+   "id": 2022712066,
+   "name": "Test Arrow T3",
+   "gear": false
+  },
+  {
+   "id": 2510961951,
+   "name": "Test Arrow T4",
+   "gear": false
+  },
+  {
+   "id": 440610113,
+   "name": "Test Arrow T5",
+   "gear": false
+  },
+  {
+   "id": 2598128518,
+   "name": "Test Potion T1",
+   "gear": false
+  },
+  {
+   "id": 4240713085,
+   "name": "Test Potion T2",
+   "gear": false
+  },
+  {
+   "id": 2598426563,
+   "name": "Test Potion T3",
+   "gear": false
+  },
+  {
+   "id": 408726105,
+   "name": "Test Potion T4",
+   "gear": false
+  },
+  {
+   "id": 3567327336,
+   "name": "Test Potion T5",
+   "gear": false
+  },
+  {
+   "id": 311182578,
+   "name": "Test Bandage T1",
+   "gear": false
+  },
+  {
+   "id": 2584785159,
+   "name": "Test Bandage T2",
+   "gear": false
+  },
+  {
+   "id": 2130602959,
+   "name": "Test Bandage T3",
+   "gear": false
+  },
+  {
+   "id": 294586931,
+   "name": "Test Bandage T4",
+   "gear": false
+  },
+  {
+   "id": 3643988511,
+   "name": "Test Bandage T5",
+   "gear": false
+  },
+  {
+   "id": 4125731116,
+   "name": "Test Meal T1",
+   "gear": false
+  },
+  {
+   "id": 3494158612,
+   "name": "Test Meal T2",
+   "gear": false
+  },
+  {
+   "id": 4182026002,
+   "name": "Test Meal T3",
+   "gear": false
+  },
+  {
+   "id": 290806777,
+   "name": "Test Meal T4",
+   "gear": false
+  },
+  {
+   "id": 840265270,
+   "name": "Test Meal T5",
+   "gear": false
+  },
+  {
+   "id": 3571193428,
+   "name": "Test Seed T1",
+   "gear": false
+  },
+  {
+   "id": 3030058803,
+   "name": "Test Seed T2",
+   "gear": false
+  },
+  {
+   "id": 3738792855,
+   "name": "Test Seed T3",
+   "gear": false
+  },
+  {
+   "id": 3751136019,
+   "name": "Test Seed T4",
+   "gear": false
+  },
+  {
+   "id": 2541674079,
+   "name": "Test Seed T5",
+   "gear": false
+  },
+  {
+   "id": 1429057625,
+   "name": "Test Torch T1",
+   "gear": false
+  },
+  {
+   "id": 926613830,
+   "name": "Test Torch T2",
+   "gear": false
+  },
+  {
+   "id": 3141850174,
+   "name": "Test Torch T3",
+   "gear": false
+  },
+  {
+   "id": 2442822426,
+   "name": "Test Torch T4",
+   "gear": false
+  },
+  {
+   "id": 500592983,
+   "name": "Test Torch T5",
+   "gear": false
+  },
+  {
+   "id": 396478393,
+   "name": "Test Lantern T1",
+   "gear": true
+  },
+  {
+   "id": 534942717,
+   "name": "Test Lantern T2",
+   "gear": true
+  },
+  {
+   "id": 2558985870,
+   "name": "Test Lantern T3",
+   "gear": true
+  },
+  {
+   "id": 4284365080,
+   "name": "Test Lantern T4",
+   "gear": true
+  },
+  {
+   "id": 846000191,
+   "name": "Test Lantern T5",
+   "gear": true
+  },
+  {
+   "id": 4209136578,
+   "name": "Test Rope T1",
+   "gear": false
+  },
+  {
+   "id": 4081135707,
+   "name": "Test Rope T2",
+   "gear": false
+  },
+  {
+   "id": 2527288838,
+   "name": "Test Rope T3",
+   "gear": false
+  },
+  {
+   "id": 968695409,
+   "name": "Test Rope T4",
+   "gear": false
+  },
+  {
+   "id": 3186130613,
+   "name": "Test Rope T5",
+   "gear": false
+  }
+ ],
+ "creatures": [
+  {
+   "guid": "3773ea59-5374-420f-adf0-7eb22cbafa7f",
+   "template": "Enemy_Test_A_Melee",
+   "name": "Creature A"
+  },
+  {
+   "guid": "4aee896f-4c86-44b9-ac74-d2b081bb8930",
+   "template": "Enemy_Test_B_Ranged",
+   "name": "Creature B"
+  },
+  {
+   "guid": "2727b3c9-7473-4c1c-af5d-be7f6c301657",
+   "template": "Enemy_Test_C_Caster",
+   "name": "Creature C"
+  },
+  {
+   "guid": "d9d10c05-6f08-44a9-a9d4-02578eac44c3",
+   "template": "Enemy_Test_D_Brute",
+   "name": "Creature D"
+  },
+  {
+   "guid": "373ed04d-efa6-4b93-a255-eb3a42761964",
+   "template": "Enemy_Test_E_Scout",
+   "name": "Creature E"
+  },
+  {
+   "guid": "3495f400-c471-45dd-afa3-9d0618b68e89",
+   "template": "Enemy_Test_F_Swarm",
+   "name": "Creature F"
+  },
+  {
+   "guid": "c623a1a6-5f4d-4868-a5a4-41f231ebad96",
+   "template": "Enemy_Test_G_Elite",
+   "name": "Creature G"
+  },
+  {
+   "guid": "386be636-f769-4fc5-a6b3-404116092f21",
+   "template": "Enemy_Test_H_Melee",
+   "name": "Creature H"
+  },
+  {
+   "guid": "17f74dc5-9cc4-4068-a09d-fece6adb4952",
+   "template": "Enemy_Test_I_Ranged",
+   "name": "Creature I"
+  },
+  {
+   "guid": "669628ff-f991-4586-a478-1b237659b446",
+   "template": "Enemy_Test_J_Caster",
+   "name": "Creature J"
+  },
+  {
+   "guid": "d82635fa-68f0-4e53-a5be-02e1b22957a1",
+   "template": "Enemy_Test_K_Brute",
+   "name": "Creature K"
+  },
+  {
+   "guid": "129561c4-15f4-4c25-a871-d37164d8c31b",
+   "template": "Enemy_Test_L_Scout",
+   "name": "Creature L"
+  },
+  {
+   "guid": "d0d156e2-f668-4c35-af47-fe198a4ee520",
+   "template": "Enemy_Test_M_Swarm",
+   "name": "Creature M"
+  },
+  {
+   "guid": "2225c9f8-e201-4fe2-a5db-5eca98f1c420",
+   "template": "Enemy_Test_N_Elite",
+   "name": "Creature N"
+  }
+ ],
+ "crashReports": [],
+ "seed": {
+  "note": "Mock-only additions (not from the capture): the lab had no zones, backups or crash reports.",
+  "zones": [
+   {
+    "name": "Spawn village",
+    "id": 101,
+    "active": true,
+    "pos": {
+     "x": 2785.0,
+     "y": 44.0,
+     "z": 2632.0
+    },
+    "radius": 60,
+    "deny": [
+     "build",
+     "break",
+     "terraform",
+     "interact",
+     "loot"
+    ],
+    "owners": [
+     "76561198000000101"
+    ],
+    "allowAdmins": true
+   },
+   {
+    "name": "Ysolde base",
+    "id": 102,
+    "active": true,
+    "pos": {
+     "x": 3340.0,
+     "y": 88.0,
+     "z": 3010.0
+    },
+    "radius": 35,
+    "deny": [
+     "build",
+     "break",
+     "terraform"
+    ],
+    "owners": [
+     "76561198000000102"
+    ],
+    "allowAdmins": false
+   }
+  ],
+  "backups": [
+   {
+    "name": "before-patch",
+    "folder": "20261103-210455-before-patch",
+    "created": "2026-11-03T21:04:55.0000000+00:00",
+    "world": "11111111-2222-4333-8444-555555555555",
+    "revision": 2880,
+    "bytes": 6437121,
+    "files": 3,
+    "dataBundles": 2,
+    "reason": "Backup"
+   },
+   {
+    "name": "nightly",
+    "folder": "20261104-030000-nightly",
+    "created": "2026-11-04T03:00:00.0000000+00:00",
+    "world": "11111111-2222-4333-8444-555555555555",
+    "revision": 2961,
+    "bytes": 6470012,
+    "files": 3,
+    "dataBundles": 2,
+    "reason": "Backup"
+   }
+  ],
+  "crashReports": [
+   {
+    "name": "crash-20261104-101233-sample-faulty.txt",
+    "bytes": 4211,
+    "time": "2026-11-04T10:12:33.0000000Z",
+    "text": "Kiln crash report\nwhen: 2026-11-04T10:12:33Z\nmod: sample-faulty 0.1.0 (fault 3 of 3: disabled)\nexception: System.InvalidOperationException: SampleFaulty throws on purpose (fault policy demo)\n   at SampleFaulty.FaultyMod.OnTick(TickInfo& tick)\n   at Kiln.Host.ModRunner.Tick(Phase phase)\n\nmods:\n  kiln-admin 0.2.0 Loaded\n  sample-faulty 0.1.0 Disabled\n\nlog (last 20 lines):\n[W 10:12:31.004] [mod:sample-faulty] fault 2 of 3\n[E 10:12:33.020] [kiln] sample-faulty faulted 3 times: disabled\n"
+   }
+  ],
+  "players": [
+   {
+    "entity": 4101,
+    "name": "Brannoc",
+    "steamId": "76561198000000101",
+    "admin": true,
+    "permissions": "KickBan, AccessInventories, EditBase, EditWorld, ExtendBase",
+    "home": [
+     2780.0,
+     41.0,
+     2610.0
+    ],
+    "health": 1240,
+    "healthMax": 1240,
+    "god": false
+   },
+   {
+    "entity": 4102,
+    "name": "Ysolde",
+    "steamId": "76561198000000102",
+    "admin": false,
+    "permissions": "AccessInventories, EditBase, EditWorld",
+    "home": [
+     3330.0,
+     86.0,
+     3005.0
+    ],
+    "health": 610,
+    "healthMax": 905,
+    "god": false
+   }
+  ],
+  "combatDeaths": [
+   {
+    "entity": 4102,
+    "killer": 70231,
+    "origin": "Game",
+    "pos": {
+     "x": 3402.5,
+     "y": 92.1,
+     "z": 2951.0
+    },
+    "time": 1762264800,
+    "victimName": "Ysolde",
+    "killerKind": "creature",
+    "killerName": "Creature B",
+    "killerGuid": ""
+   }
+  ]
+ }
+}

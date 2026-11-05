@@ -1,0 +1,21 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A sound mod: audio/chime.wav (yours: WAV, FLAC, Ogg Vorbis or MP3, any rate) becomes a game sound and a cue named
+       "chime" through assets/cook.json:
+         kiln cook        (runs tools/soundcook recipe on assets/cook.json)
+       writes assets/cooked/ (never shipped) and the entries of assets/assets.json; kiln.assets serves them at boot.
+       Play it from code with Kiln.Audio (Sound.Play2D / PlayAt / PlayOn, SoundId.Named(Context, "chime")) or use the
+       cue from game data. Every player's game plays the sounds: install the mod on clients too (side both, clients mod).
+       Docs: docs/kiln/modding/sounds.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnSound1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnSound1: a new sound and cue.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,26 @@
+<Project>
+  <!-- Kiln.Sdk: MSBuild SDK for Kiln mods. Use it as <Project Sdk="Kiln.Sdk/0.2.0"> (NuGet), or inside the Kiln
+       repository by importing Sdk.props/Sdk.targets from managed/Kiln.Sdk/Sdk/. Docs: docs/kiln/modding/mdk.md. -->
+  <Import Project="$(MSBuildThisFileDirectory)Kiln.Version.props" />
+  <PropertyGroup>
+    <UsingKilnSdk>true</UsingKilnSdk>
+    <!-- Repository mode: Kiln.Api and services are project references; package mode: the Kiln.Api package. -->
+    <KilnRepoRoot Condition="'$(KilnRepoRoot)' == '' and Exists('$(MSBuildThisFileDirectory)../../Kiln.Api/Kiln.Api.csproj')">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../../'))</KilnRepoRoot>
+    <KilnRepoMode Condition="'$(KilnRepoRoot)' != ''">true</KilnRepoMode>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == '' and '$(TargetFrameworks)' == ''">net10.0</TargetFramework>
+    <Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
+    <ImplicitUsings Condition="'$(ImplicitUsings)' == ''">enable</ImplicitUsings>
+    <LangVersion Condition="'$(LangVersion)' == ''">latest</LangVersion>
+    <!-- A mod is a plug-in assembly: no runtimeconfig/deps files; NuGet dependencies are copied next to it. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>
+    <DebugType Condition="'$(DebugType)' == ''">portable</DebugType>
+  </PropertyGroup>
+</Project>

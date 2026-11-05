@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "install-receipt.schema.json",
+  "title": "Kiln install receipt (<game>/kiln/.install.json), format 1",
+  "description": "Written last by the installer (after dinput8.dll is in place). Upgrade deletes an obsolete file only when its sha256 still equals the receipt's; uninstall restores everything in 'replaced' byte-identically and keeps kiln/. The launcher keeps a copy in <data>/installs/<installId>.json.",
+  "type": "object",
+  "required": ["format", "installId", "installed", "runtime", "side", "files"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "installId": { "type": "string", "pattern": "^[a-z0-9-]{8,64}$" },
+    "installed": { "$ref": "common.schema.json#/$defs/time" },
+    "updated": { "$ref": "common.schema.json#/$defs/time" },
+    "installer": { "type": "string", "description": "e.g. kiln-launcher 0.2.0-dev, kilnctl 0.2.0-dev" },
+    "runtime": {
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": { "type": "string", "description": "kiln-runtime.json version" },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256", "description": "of the bundle zip" },
+        "components": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "side": { "$ref": "common.schema.json#/$defs/runSide" },
+    "platform": { "enum": ["proton", "wine", "windows"] },
+    "game": {
+      "type": "object",
+      "properties": {
+        "exe": { "type": "string" },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "steamBuild": { "type": "string" }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/relPath" },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "size": { "type": "integer", "minimum": 0 },
+          "component": { "type": "string" },
+          "config": { "type": "boolean", "default": false }
+        }
+      },
+      "description": "What this install put in place, relative to the game folder."
+    },
+    "replaced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "action"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/relPath", "description": "Where the original was (e.g. dinput8.dll)." },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "size": { "type": "integer", "minimum": 0 },
+          "class": { "enum": ["kiln", "shroudforge", "emf", "unknown", "file"], "description": "pe::classify_proxy result; file = not a proxy (any other replaced file)." },
+          "action": { "enum": ["chained", "backed-up", "replaced", "adopted"], "description": "chained: moved to kiln/chain/ and listed in chain.ini [chain]; backed-up: moved to the backup only (ShroudForge); replaced: a file with other bytes, backed up and restored by uninstall; adopted: existed before with the bundle's exact bytes (or a config file), left in place and kept by uninstall (no backup; becomes replaced when an upgrade changes it)." },
+          "chainPath": { "$ref": "common.schema.json#/$defs/relPath", "description": "action chained: its new place, e.g. kiln/chain/emf-dinput8.dll" },
+          "backup": { "$ref": "common.schema.json#/$defs/relPath", "description": "Byte-identical copy, relative to the game folder: kiln/backups/install-<yyyymmddThhmmssZ>/<path>." }
+        }
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": true
+}

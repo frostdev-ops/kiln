@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kiln Launcher",
+  "mainBinaryName": "kiln-launcher",
+  "identifier": "io.frostdev.kiln.launcher",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build:web"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Kiln",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "dragDropEnabled": true,
+        "backgroundColor": "#0f0d0c"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob: asset: http://asset.localhost kiln-asset: http://kiln-asset.localhost; font-src 'self' data: kiln-asset: http://kiln-asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost kiln-asset: http://kiln-asset.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "appimage",
+      "deb",
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "frostdev",
+    "category": "Game",
+    "shortDescription": "Mods for Enshrouded",
+    "longDescription": "Kiln Launcher: install Kiln, manage mod profiles, play, run and administer servers.",
+    "copyright": "Kiln contributors, MIT",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  }
+}

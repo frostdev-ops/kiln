@@ -1,0 +1,438 @@
+{
+  "catalog": false,
+  "description": "quests/*.json: every objective, condition and action form in a clean file (comments and trailing commas are this reader's dialect; good); references across a mod's files: giver, dialogue, deliver to, quest, step, node, a dialogue without a start, a step id twice, a quest in two files (refs, did you mean); the game's journal without clients mod is KL210, and a cooked voice-over without clients mod is KL202 (native); the format's keys and alternatives (schema)",
+  "diagnostics": [
+    {
+      "code": "KL901",
+      "col": 1,
+      "file": "good/kiln.mod.json",
+      "line": 1,
+      "message": "no game-data catalog: 4 reference(s) to the game's items, templates, ... were not checked (make one with `kiln catalog`, or pass --catalog)",
+      "severity": "info"
+    },
+    {
+      "code": "KL202",
+      "col": 111,
+      "file": "native/kiln.mod.json",
+      "line": 1,
+      "message": "a conversation names a voice-over from this mod's cooked audio but the mod says \"clients\": \"kiln\": only players with the mod's files hear it; declare \"clients\": \"mod\" and side \"both\", or use a game line's GUID",
+      "severity": "warning"
+    },
+    {
+      "code": "KL210",
+      "col": 111,
+      "file": "native/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a quest in the game's journal (the default), dialogue in the game's NPC menu or an NPC clone but says \"clients\": \"kiln\": a client builds them at boot from the mod's files, so a player without those sees nothing; declare \"clients\": \"mod\" and side \"both\" (servers then refuse players without it). For a mod vanilla clients join, every quest says \"journal\": \"chat\" and every dialogue \"native\": false",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 15,
+      "file": "native/quests/n.json",
+      "line": 2,
+      "message": "quest n: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 54,
+      "file": "native/quests/n.json",
+      "line": 2,
+      "message": "quest n: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 79,
+      "file": "native/quests/n.json",
+      "line": 3,
+      "message": "dialogue d: no voice-over \"my_cooked_line\" in this mod's assets/cook.json",
+      "severity": "error"
+    },
+    {
+      "code": "KL210",
+      "col": 109,
+      "file": "refs/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a quest in the game's journal (the default), dialogue in the game's NPC menu or an NPC clone but says \"clients\": \"none\": a client builds them at boot from the mod's files, so a player without those sees nothing; declare \"clients\": \"mod\" and side \"both\" (servers then refuse players without it). For a mod vanilla clients join, every quest says \"journal\": \"chat\" and every dialogue \"native\": false",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 35,
+      "file": "refs/quests/a.json",
+      "line": 2,
+      "message": "no dialogue \"ilze\" in this mod's quest files; did you mean \"ilse\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "refs/quests/a.json",
+      "line": 4,
+      "message": "quest one: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 23,
+      "file": "refs/quests/a.json",
+      "line": 4,
+      "message": "no NPC \"ilsa\" in this mod's quest files; did you mean \"ilse\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 18,
+      "file": "refs/quests/a.json",
+      "line": 5,
+      "message": "quest one: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 98,
+      "file": "refs/quests/a.json",
+      "line": 5,
+      "message": "no NPC \"ilsa\" in this mod's quest files; did you mean \"ilse\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 112,
+      "file": "refs/quests/a.json",
+      "line": 5,
+      "message": "quest one: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL305",
+      "col": 120,
+      "file": "refs/quests/a.json",
+      "line": 5,
+      "message": "quest one: step \"a\" twice (Kiln.Quests refuses the quest)",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 31,
+      "file": "refs/quests/a.json",
+      "line": 6,
+      "message": "no quest \"too\" in this mod's quest files; did you mean \"two\"?",
+      "severity": "warning"
+    },
+    {
+      "code": "KL311",
+      "col": 53,
+      "file": "refs/quests/a.json",
+      "line": 6,
+      "message": "quest \"one\" has no step \"c\" (it has z)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "refs/quests/a.json",
+      "line": 7,
+      "message": "quest two: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 38,
+      "file": "refs/quests/a.json",
+      "line": 7,
+      "message": "no quest \"onee.a\" in this mod's quest files",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 77,
+      "file": "refs/quests/a.json",
+      "line": 7,
+      "message": "quest two: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 70,
+      "file": "refs/quests/a.json",
+      "line": 10,
+      "message": "no node \"bey\" in this mod's quest files",
+      "severity": "warning"
+    },
+    {
+      "code": "KL311",
+      "col": 113,
+      "file": "refs/quests/a.json",
+      "line": 10,
+      "message": "no node \"hello\" in this mod's quest files",
+      "severity": "warning"
+    },
+    {
+      "code": "KL311",
+      "col": 5,
+      "file": "refs/quests/a.json",
+      "line": 11,
+      "message": "dialogue \"nostart\" has no \"start\" and no node called start",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "refs/quests/a.json",
+      "line": 11,
+      "message": "dialogue nostart: \"start\" must name a node (default \"start\")",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "refs/quests/a.json",
+      "line": 12,
+      "message": "dialogue two_starts: \"start\" must name a node (default \"start\")",
+      "severity": "error"
+    },
+    {
+      "code": "KL311",
+      "col": 30,
+      "file": "refs/quests/a.json",
+      "line": 12,
+      "message": "no node \"nope\" in this mod's quest files",
+      "severity": "warning"
+    },
+    {
+      "code": "KL305",
+      "col": 28,
+      "file": "refs/quests/b.json",
+      "line": 1,
+      "message": "quest \"one\" is defined twice in this mod (the later one replaces the earlier)",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 28,
+      "file": "refs/quests/b.json",
+      "line": 1,
+      "message": "quest one: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 48,
+      "file": "refs/quests/b.json",
+      "line": 1,
+      "message": "quest one: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL210",
+      "col": 111,
+      "file": "schema/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a quest in the game's journal (the default), dialogue in the game's NPC menu or an NPC clone but says \"clients\": \"none\": a client builds them at boot from the mod's files, so a player without those sees nothing; declare \"clients\": \"mod\" and side \"both\" (servers then refuse players without it). For a mod vanilla clients join, every quest says \"journal\": \"chat\" and every dialogue \"native\": false",
+      "severity": "error"
+    },
+    {
+      "code": "KL111",
+      "col": 13,
+      "file": "schema/quests/s.json",
+      "line": 1,
+      "message": "format 2 is not supported (this Kiln reads 1)",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 5,
+      "file": "schema/quests/s.json",
+      "line": 3,
+      "message": "key \"bad id\": an id: letters, digits, '_' and '-'",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "schema/quests/s.json",
+      "line": 3,
+      "message": "quest bad id: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 28,
+      "file": "schema/quests/s.json",
+      "line": 3,
+      "message": "quest bad id: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "schema/quests/s.json",
+      "line": 4,
+      "message": "missing \"steps\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "schema/quests/s.json",
+      "line": 5,
+      "message": "quest empty_steps: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL108",
+      "col": 31,
+      "file": "schema/quests/s.json",
+      "line": 5,
+      "message": "an empty list: give at least one entry",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 5,
+      "file": "schema/quests/s.json",
+      "line": 6,
+      "message": "quest bad: a journal entry needs \"name\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 23,
+      "file": "schema/quests/s.json",
+      "line": 6,
+      "message": "\"galaxy\" is not one of \"player\", \"party\", \"world\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 44,
+      "file": "schema/quests/s.json",
+      "line": 6,
+      "message": "\"game\" is not one of \"native\", \"chat\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 7,
+      "file": "schema/quests/s.json",
+      "line": 7,
+      "message": "missing \"id\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 7,
+      "file": "schema/quests/s.json",
+      "line": 7,
+      "message": "quest bad: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 7,
+      "file": "schema/quests/s.json",
+      "line": 8,
+      "message": "quest bad: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 20,
+      "file": "schema/quests/s.json",
+      "line": 8,
+      "message": "an objective needs one of kill, collect, deliver, reach, talk, craft, build, knowledge, custom",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 35,
+      "file": "schema/quests/s.json",
+      "line": 8,
+      "message": "\"dance\": unknown key (Kiln ignores it)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL312",
+      "col": 7,
+      "file": "schema/quests/s.json",
+      "line": 9,
+      "message": "quest bad: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 35,
+      "file": "schema/quests/s.json",
+      "line": 9,
+      "message": "kill needs template, family or tag",
+      "severity": "error"
+    },
+    {
+      "code": "KL312",
+      "col": 7,
+      "file": "schema/quests/s.json",
+      "line": 10,
+      "message": "quest bad: a step in the journal needs \"text\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL108",
+      "col": 52,
+      "file": "schema/quests/s.json",
+      "line": 10,
+      "message": "2 entries, at least 3 needed",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 70,
+      "file": "schema/quests/s.json",
+      "line": 10,
+      "message": "0 must be greater than 0",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 20,
+      "file": "schema/quests/s.json",
+      "line": 11,
+      "message": "an action needs one of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, toast, waypoint, talk, signal, call",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 22,
+      "file": "schema/quests/s.json",
+      "line": 11,
+      "message": "\"bribe\": unknown key (Kiln ignores it)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL107",
+      "col": 44,
+      "file": "schema/quests/s.json",
+      "line": 11,
+      "message": "-1 is below the minimum 0",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 66,
+      "file": "schema/quests/s.json",
+      "line": 11,
+      "message": "a condition needs one of knowledge, level, quest, step, item, predicate, all, any, not",
+      "severity": "error"
+    },
+    {
+      "code": "KL103",
+      "col": 86,
+      "file": "schema/quests/s.json",
+      "line": 11,
+      "message": "\"typoKey\": unknown key (Kiln ignores it)",
+      "severity": "warning"
+    }
+  ]
+}

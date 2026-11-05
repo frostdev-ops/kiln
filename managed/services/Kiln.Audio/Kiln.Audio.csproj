@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed face of native/services/audio (kiln.audio): sounds, music, voice-over and narration from mods (Forge:
+       SoundEvent + playSound), the server relay over the Kiln channel kiln:audio, cue overrides (over Kiln.Assets) and
+       the cooked index (assets/cooked/audio.json, written by tools/soundcook). Client playback only; on a dedicated
+       server calls relay to Kiln clients (vanilla clients hear nothing new). Deployed to kiln/host/ and shared by every
+       mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Audio</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Audio.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+{
+  "now": 1762257600,
+  "expect": {
+    "status": "profile",
+    "created": 1762257600,
+    "nonce": "x",
+    "profile": {
+      "path": "profiles\\test\\profile.json",
+      "relative": true
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{ "id": "fixture-trees", "version": "1.0.0", "apiVersion": "0.2", "license": "MIT", "entryAssembly": "C.dll", "side": "server" }

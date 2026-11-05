@@ -1,0 +1,10 @@
+{
+  "id": "spelltweaks",
+  "name": "Spell Tweaks",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SpellTweaks.dll",
+  "side": "both",
+  "clients": "none",
+  "description": "Fireball I costs 30 mana instead of 53 and leaves the staff earlier (0.45 s instead of 0.65 s); its explosion is 1.5x bigger and pushes harder (Big instead of the program's Small); the double jump costs 5 stamina instead of 10. A kiln.gamedata data pack (content/spelltweaks.json). Vanilla clients join: the server decides costs, hits and timing; their tooltips and cast animation stay vanilla. Kiln clients get the new values (tooltip 30) through the content sync."
+}

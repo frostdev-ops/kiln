@@ -1,0 +1,6 @@
+{
+  "id": "fps-unlock",
+  "version": "2.0.0",
+  "dlls": ["fpsunlock.dll"],
+  "phase": "dllmain"
+}

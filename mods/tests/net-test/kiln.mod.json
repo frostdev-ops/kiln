@@ -1,0 +1,9 @@
+{
+  "id": "net-test",
+  "name": "kiln.net + Kiln.Network test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NetTest.dll",
+  "side": "both",
+  "description": "Server half of the network tests (tools/nettest drives fake clients over the lab transport)."
+}

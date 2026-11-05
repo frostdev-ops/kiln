@@ -1,0 +1,18 @@
+<Project>
+  <!-- Depends on sample-lib (^1.0) and compiles against its exported SampleLib.Api.dll; an optional dependency on a
+       mod that is not installed (it loads anyway); IMC round trip with sample-lib. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>sample-consumer</KilnModId>
+    <KilnModName>Sample consumer mod</KilnModName>
+    <Version>0.3.0</Version>
+    <Description>Uses sample-lib's exported API and talks to it over IMC.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile against the export; never ship it (sample-lib provides it at run time). -->
+    <ProjectReference Include="../SampleLib.Api/SampleLib.Api.csproj" Private="false" />
+    <KilnDependency Include="sample-lib" Version="^1.0" />
+    <KilnDependency Include="sample-absent" Version="*" Optional="true" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

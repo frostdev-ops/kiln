@@ -1,0 +1,20 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A talent tree of your own (Kiln.Skills, which loads skills/*.json by itself): skills/talents.json defines the tree, its nodes, costs, requirements and
+       effects (attributes, buffs, the game's own skill nodes, Impact programs, abilities). The server runs the tree;
+       Kiln clients with the mod draw it (menu entry + key K); vanilla players use /talents in chat.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Docs: docs/kiln/services/skills.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnTalents1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnTalents1: a talent tree.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+    <KilnServices>Skills</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

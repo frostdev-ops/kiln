@@ -1,0 +1,311 @@
+/* Scoped copy of the Save Editor's styles.css (scripts/scope-editor-css.ts). Do not edit by hand. */
+/* Fontes do jogo: registradas em src/platform.js (o endereço depende da plataforma) */
+
+.kiln-editor { color-scheme: dark; --gold: rgb(202, 172, 84); --text: #ece6d6; --muted: rgba(192, 205, 213, 0.67); }
+.kiln-editor * { box-sizing: border-box; }
+.kiln-editor { margin: 0; height: 100%; overflow: hidden; background: #07070c; }
+.kiln-editor { color: var(--text); font-family: 'Harmonique', 'NotoSerifGame', serif; user-select: none; font-variant-numeric: lining-nums; }
+.kiln-editor .slot-count, .kiln-editor .slot-level, .kiln-editor .st-level, .kiln-editor .big, .kiln-editor .g-input { font-variant-numeric: lining-nums tabular-nums; }
+.kiln-editor button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; padding: 0; }
+
+.kiln-editor .viewport { position: absolute; inset: 0; overflow: hidden; }
+.kiln-editor .stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; font-size: 30px; }
+.kiln-editor .world-bg { position: absolute; inset: 0; background:
+  radial-gradient(ellipse at 30% 40%, rgba(120, 90, 120, 0.35), transparent 60%),
+  radial-gradient(ellipse at 70% 70%, rgba(60, 80, 120, 0.4), transparent 60%),
+  linear-gradient(180deg, #23263a 0%, #1a1a26 60%, #151520 100%); }
+.kiln-editor .screen { position: absolute; inset: 0; }
+.kiln-editor .caps { text-transform: uppercase; letter-spacing: 2px; }
+.kiln-editor .small { font-size: 24px; color: var(--muted); }
+.kiln-editor .big { font-size: 56px; font-weight: 700; line-height: 1; }
+.kiln-editor .key { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px; padding: 0 6px; margin-right: 10px;
+  background: #eee6d6; color: #1a1820; border-radius: 5px; font: 700 17px 'NotoSerifGame', serif; letter-spacing: 0; }
+
+/* barra de abas (menu_toptab_background) */
+.kiln-editor .topbar { position: absolute; left: 0; top: 0; width: 2560px; height: 116px; }
+.kiln-editor .topbar-bg { position: absolute; inset: 0; background-size: 100% 100%; opacity: .96; }
+.kiln-editor .topbar-line { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: linear-gradient(90deg, transparent, var(--gold) 15%, var(--gold) 85%, transparent); }
+.kiln-editor .tabs { position: absolute; left: 0; right: 0; top: 34px; display: flex; justify-content: center; align-items: center; gap: 70px; }
+.kiln-editor .tab { position: relative; font: 700 31px 'Harmonique', serif; letter-spacing: 2px; text-transform: uppercase; display: flex; flex-direction: column; align-items: center; }
+.kiln-editor .tab .key { position: absolute; top: -34px; margin: 0; }
+.kiln-editor .tab-mark { position: absolute; bottom: -34px; width: 22px; height: 22px; }
+.kiln-editor .who { position: absolute; left: 40px; top: 18px; display: flex; flex-direction: column; align-items: flex-start; font-size: 30px; z-index: 2; }
+.kiln-editor .who b { font-weight: 700; }
+.kiln-editor .save-menu { position: absolute; left: 30px; top: 120px; width: 620px; z-index: 20; background: rgba(20, 20, 38, 0.97); border: 2px solid var(--gold); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.kiln-editor .save-item { text-align: left; padding: 14px 18px; display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.1); }
+.kiln-editor .save-item.on, .kiln-editor .save-item:hover { border-color: var(--gold); }
+.kiln-editor .save-item span { font-size: 22px; color: var(--muted); }
+.kiln-editor .warn { color: #e2b453 !important; }
+
+/* dicas na base, como no jogo */
+.kiln-editor .hints { position: absolute; left: 0; right: 0; bottom: 18px; display: flex; justify-content: flex-end; align-items: center; gap: 48px; padding-right: 40px; font-size: 30px; z-index: 5; }
+.kiln-editor .hint-btn { display: flex; align-items: center; }
+.kiln-editor .hint-btn.off { opacity: .4; cursor: default; }
+.kiln-editor .hint-btn.primary:not(.off) { color: var(--gold); }
+.kiln-editor .game-state { color: #9fd59f; font-size: 24px; }
+.kiln-editor .game-state.on { color: #e2b453; }
+.kiln-editor .status { font-size: 22px; max-width: 900px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kiln-editor .status.ok { color: #9fd59f; } .kiln-editor .status.error { color: #e2786a; } .kiln-editor .status.warn { color: #e2b453; }
+
+/* espaços de item (itemslot_backpack tingido com a cor do jogo) */
+.kiln-editor .slot { position: absolute; cursor: pointer; }
+.kiln-editor .slot-bg, .kiln-editor .slot-rarity { position: absolute; inset: 0; }
+.kiln-editor .slot-rarity { opacity: .35; }
+.kiln-editor .slot:hover .slot-bg { filter: brightness(1.7); }
+.kiln-editor .slot-icon { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; pointer-events: none; }
+.kiln-editor .slot-empty { position: absolute; inset: 22px; width: calc(100% - 44px); opacity: .35; pointer-events: none; }
+.kiln-editor .slot-outline { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); pointer-events: none; }
+.kiln-editor .slot-count { position: absolute; right: 8px; bottom: 2px; font: 700 30px 'Harmonique', serif; color: rgb(255, 251, 236);
+  text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.9); }
+.kiln-editor .slot-level { position: absolute; right: 8px; top: 4px; font: 700 22px 'Harmonique', serif; color: rgba(255,251,236,.85); text-shadow: 0 0 3px #000; }
+.kiln-editor .slot-dur { position: absolute; left: 10px; right: 10px; bottom: 6px; height: 5px; background: rgba(0,0,0,.5); }
+.kiln-editor .slot-dur div { height: 100%; }
+.kiln-editor .slot-badge { position: absolute; left: 8px; top: -14px; min-width: 26px; height: 26px; padding: 0 6px; background: rgba(230, 226, 220, .85); color: #333; border-radius: 4px;
+  font: 700 18px 'NotoSerifGame', serif; display: flex; align-items: center; justify-content: center; }
+.kiln-editor .separator { position: absolute; height: 3px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.75) 10%, rgba(255,255,255,.75) 90%, transparent); }
+.kiln-editor .bar-label { position: absolute; display: flex; flex-direction: column; align-items: center; font-size: 22px; gap: 4px; text-align: center; }
+.kiln-editor .bar-label .key { margin: 0; }
+.kiln-editor .bar-label .caps { font-weight: 700; font-size: 20px; }
+.kiln-editor .bar-frame { position: absolute; border: 3px solid rgba(255,255,255,.35); border-radius: 14px; pointer-events: none; }
+.kiln-editor .extra-note { position: absolute; font-size: 20px; color: var(--muted); width: 1040px; }
+
+/* painel de detalhes (fancy_box_frame_full + padrão) */
+.kiln-editor .detail { position: absolute; left: 1400px; top: 150px; width: 980px; height: 1170px; }
+.kiln-editor .detail-bg, .kiln-editor .detail-pattern, .kiln-editor .detail-frame { position: absolute; inset: 0; width: 100%; height: 100%; }
+.kiln-editor .detail-pattern { background-size: 512px; opacity: .14; mix-blend-mode: screen; }
+.kiln-editor .detail-frame { pointer-events: none; }
+.kiln-editor .detail-body { position: absolute; inset: 80px 100px 70px 100px; display: flex; flex-direction: column; gap: 18px; overflow: hidden; }
+.kiln-editor .detail-empty { margin-top: 330px; text-align: center; font-size: 32px; color: rgba(236,230,214,.85); }
+.kiln-editor .detail-head { display: flex; gap: 24px; align-items: center; }
+.kiln-editor .detail-head img { width: 150px; height: 150px; object-fit: contain; }
+.kiln-editor .detail-title { font-size: 42px; font-weight: 700; }
+.kiln-editor .detail-sub { font-size: 24px; color: var(--muted); }
+.kiln-editor .stripe { height: 6px; }
+.kiln-editor .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 30px; margin-top: 10px; }
+.kiln-editor .fields label { display: flex; flex-direction: column; gap: 8px; font-size: 24px; color: var(--muted); }
+.kiln-editor .pair { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.kiln-editor .g-input { font: 400 28px 'NotoSerifGame', serif; color: var(--text); background: rgba(10, 10, 30, .55); border: 2px solid rgba(202,172,84,.45); padding: 8px 12px; width: 100%; outline: none; }
+.kiln-editor .g-input:focus { border-color: var(--gold); }
+.kiln-editor .g-input.wide { width: 100%; }
+.kiln-editor select.g-input option { background: #1c1c34; }
+.kiln-editor .big-input { font-size: 44px; width: 260px; }
+.kiln-editor .g-button { font: 700 26px 'Harmonique', serif; text-transform: uppercase; letter-spacing: 2px; padding: 12px 26px; border: 2px solid var(--gold); color: var(--gold); align-self: flex-start; }
+.kiln-editor .g-button:hover { background: rgba(202,172,84,.12); }
+.kiln-editor .g-button.danger { color: #e2786a; border-color: #a4554b; }
+.kiln-editor .hint { font-size: 21px; color: var(--muted); }
+.kiln-editor .hint.ok { color: #9fd59f; }
+.kiln-editor .debug { margin-top: auto; font: 16px monospace; color: rgba(255,255,255,.3); }
+.kiln-editor .pick-list { display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 1; }
+.kiln-editor .pick { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 16px; padding: 6px 10px; text-align: left; border: 1px solid transparent; font-size: 26px; }
+.kiln-editor .pick:hover { border-color: rgba(202,172,84,.6); background: rgba(255,255,255,.04); }
+.kiln-editor .pick img { width: 64px; height: 64px; object-fit: contain; }
+.kiln-editor .pick small { font-size: 20px; color: var(--muted); }
+
+/* personagem */
+.kiln-editor .char-center { position: absolute; display: flex; flex-direction: column; gap: 10px; }
+
+/* árvore de habilidades */
+.kiln-editor .skilltree { cursor: grab; overflow: hidden; }
+.kiln-editor .st-layer, .kiln-editor .st-canvas { position: absolute; left: 0; top: 0; width: 8000px; height: 8000px; transform-origin: 0 0; pointer-events: none; }
+.kiln-editor .st-canvas > * { pointer-events: auto; }
+.kiln-editor .st-ring { position: absolute; pointer-events: none !important; }
+.kiln-editor .st-links { position: absolute; left: 0; top: 0; pointer-events: none !important; overflow: visible; }
+.kiln-editor .st-class { position: absolute; transform: translate(-50%, -50%); font: 700 31px 'Harmonique', serif; letter-spacing: 2px; text-transform: uppercase; white-space: nowrap; padding: 10px 34px; pointer-events: none; z-index: 2; }
+.kiln-editor .st-node { position: absolute; cursor: pointer; }
+.kiln-editor .st-node > img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.kiln-editor .st-node .st-icon { position: absolute; pointer-events: none; }
+.kiln-editor .st-node:hover { filter: brightness(1.35); }
+.kiln-editor .st-glow { position: absolute; pointer-events: none; }
+.kiln-editor .st-level { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 2px); font: 700 30px 'Harmonique', serif; color: rgba(236,230,214,.8); text-shadow: 0 0 6px #000; white-space: nowrap; }
+.kiln-editor .st-points { position: absolute; left: 50px; top: 160px; display: flex; gap: 20px; align-items: center; z-index: 3; }
+.kiln-editor .st-points img { width: 130px; height: 130px; }
+.kiln-editor .st-points b { color: var(--text); }
+.kiln-editor .st-attrs { position: absolute; right: 50px; top: 160px; display: flex; flex-direction: column; align-items: flex-end; gap: 22px; z-index: 3; text-align: right; }
+.kiln-editor .st-tip { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); width: 1100px; padding: 26px 34px; background: rgba(16, 14, 34, .94); border: 2px solid rgba(202,172,84,.6); z-index: 4; pointer-events: none; }
+.kiln-editor .tip-desc { font-size: 26px; margin: 10px 0; white-space: pre-line; }
+
+/* janelas */
+.kiln-editor .modal { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 30; }
+.kiln-editor .modal-box { width: 1700px; max-height: 1100px; padding: 40px; background: rgba(20, 20, 40, .98); border: 2px solid var(--gold); display: flex; flex-direction: column; gap: 18px; }
+.kiln-editor .backup-list { overflow: auto; max-height: 640px; display: flex; flex-direction: column; gap: 8px; }
+.kiln-editor .backup-row { display: grid; grid-template-columns: 260px 300px 1fr auto; gap: 18px; align-items: center; font-size: 24px; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.kiln-editor .bk-kind { font-size: 19px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--gold); }
+.kiln-editor .bk-kind.jogo { color: #9fd59f; }
+.kiln-editor .bk-date { font-variant-numeric: lining-nums tabular-nums; }
+.kiln-editor .bk-label { font-size: 19px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kiln-editor .hint.error { color: #e2786a; }
+.kiln-editor .hint.warn { color: #e8c86a; }
+.kiln-editor .row-gap { display: flex; gap: 20px; }
+.kiln-editor .center-msg { position: absolute; left: 0; right: 0; top: 600px; text-align: center; font-size: 36px; color: var(--muted); }
+
+/* ---- componentes do jogo ---- */
+.kiln-editor .gbtn { display: inline-flex; height: 72px; align-items: stretch; font: 700 25px 'Harmonique', serif; text-transform: uppercase; letter-spacing: 2px; color: #f1e7cf; }
+.kiln-editor .gbtn.small { height: 54px; font-size: 20px; }
+.kiln-editor .gbtn-l, .kiln-editor .gbtn-r { width: 46px; background-size: 100% 100%; flex: none; }
+.kiln-editor .gbtn.small .gbtn-l, .kiln-editor .gbtn.small .gbtn-r { width: 34px; }
+.kiln-editor .gbtn-m { background-size: 100% 100%; display: flex; align-items: center; gap: 12px; padding: 0 8px; white-space: nowrap; }
+.kiln-editor .gbtn:hover:not(.off) { filter: brightness(1.25); }
+.kiln-editor .gbtn.off { opacity: .4; cursor: default; }
+.kiln-editor .btn-ico { width: 34px; height: 34px; }
+.kiln-editor .stepper { display: flex; align-items: center; gap: 6px; }
+.kiln-editor .step { min-width: 54px; height: 54px; padding: 0 10px; border: 2px solid rgba(202,172,84,.55); color: #f1e7cf; font: 700 24px 'NotoSerifGame', serif; background: rgba(10,10,30,.5); }
+.kiln-editor .step:hover { border-color: var(--gold); background: rgba(202,172,84,.12); }
+.kiln-editor .step-val { width: 150px; height: 54px; text-align: center; font: 700 30px 'NotoSerifGame', serif; color: var(--text); background: rgba(10,10,30,.55); border: 2px solid rgba(202,172,84,.35); outline: none; }
+.kiln-editor .stepper .gbtn { margin-left: 8px; }
+.kiln-editor .gems { display: flex; align-items: center; gap: 10px; }
+.kiln-editor .gem { width: 62px; height: 62px; padding: 7px; display: flex; align-items: center; justify-content: center; border: 2px solid transparent; border-radius: 8px; opacity: .45; }
+.kiln-editor .gem img, .kiln-editor .gem span { display: block; width: 100%; height: 100%; object-fit: contain; }
+.kiln-editor .gem.on { opacity: 1; border-color: rgba(255,255,255,.35); background: rgba(255,255,255,.06); }
+.kiln-editor .gem:hover { opacity: .9; }
+.kiln-editor .gem-label { margin-left: 10px; font: 700 26px 'Harmonique', serif; }
+.kiln-editor .pips { display: flex; align-items: center; gap: 14px; padding-left: 6px; }
+.kiln-editor .pip { width: 30px; height: 30px; transform: rotate(45deg); border: 3px solid rgba(202,172,84,.7); background: rgba(0,0,0,.3); }
+.kiln-editor .pip.on { background: linear-gradient(135deg, #f3d488, #b08a35); border-color: #f3d488; box-shadow: 0 0 12px rgba(243,212,136,.6); }
+.kiln-editor .pip-label { margin-left: 14px; font-size: 26px; color: var(--muted); }
+.kiln-editor .meter { position: relative; width: 330px; height: 40px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.15); cursor: pointer; }
+.kiln-editor .meter-fill { position: absolute; left: 0; top: 0; bottom: 0; }
+.kiln-editor .meter-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 22px 'NotoSerifGame', serif; text-shadow: 0 0 4px #000; }
+.kiln-editor .gsep { height: 16px; background-size: 100% 100%; opacity: .8; margin: 8px 0; }
+
+/* editor de item */
+.kiln-editor .ed-head { display: flex; gap: 28px; align-items: center; }
+.kiln-editor .ed-icon { width: 190px; height: 190px; flex: none; display: flex; align-items: center; justify-content: center; }
+.kiln-editor .ed-icon img { width: 170px; height: 170px; object-fit: contain; filter: drop-shadow(0 6px 10px rgba(0,0,0,.6)); }
+.kiln-editor .ed-icon.big { width: 300px; height: 300px; margin: 10px auto 0; }
+.kiln-editor .ed-icon.big img { width: 260px; height: 260px; }
+.kiln-editor .ed-title { display: flex; flex-direction: column; gap: 8px; }
+.kiln-editor .ed-rows { display: flex; flex-direction: column; gap: 22px; margin-top: 18px; }
+.kiln-editor .ed-row { display: grid; grid-template-columns: 220px 1fr; align-items: center; gap: 16px; }
+.kiln-editor .ed-label { font-size: 24px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+.kiln-editor .ed-ctrl { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.kiln-editor .ed-actions { margin-top: auto; display: flex; flex-direction: column; gap: 14px; }
+.kiln-editor .empty-slot { margin-top: 260px; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center; }
+.kiln-editor .empty-big { width: 200px; height: 200px; opacity: .4; }
+
+/* mochila */
+.kiln-editor .slot-pos { position: absolute; }
+.kiln-editor .slot-pos.drop-ok .slot-bg { filter: brightness(1.6); }
+.kiln-editor .slotv { position: absolute; inset: 0; cursor: pointer; }
+.kiln-editor .slotv:hover .slot-bg { filter: brightness(1.7); }
+.kiln-editor .slot-label { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 8px); font-size: 20px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; white-space: nowrap; }
+.kiln-editor .bag-tools { position: absolute; display: flex; align-items: center; gap: 30px; width: 1100px; }
+.kiln-editor .bag-tools .hint { font-size: 19px; max-width: 640px; }
+
+/* catálogo */
+.kiln-editor .catalog-wrap { position: absolute; inset: 0; background: rgba(4, 4, 14, .7); z-index: 40; display: flex; align-items: center; justify-content: center; }
+.kiln-editor .catalog { position: relative; width: 2420px; height: 1220px; display: grid; grid-template-columns: 330px 1fr 620px; gap: 24px; padding: 30px; background: rgba(18, 18, 40, .97); border: 2px solid rgba(202,172,84,.7); box-shadow: 0 0 80px rgba(0,0,0,.8); }
+.kiln-editor .catalog .detail-body { inset: 60px 50px; }
+.kiln-editor .cat-rail { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.kiln-editor .cat { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; border-left: 4px solid transparent; font-size: 24px; color: rgba(236,230,214,.8); }
+.kiln-editor .cat:hover { background: rgba(255,255,255,.04); }
+.kiln-editor .cat.on { border-left-color: var(--gold); background: rgba(202,172,84,.1); color: #f1e7cf; }
+.kiln-editor .cat-icon { width: 54px; height: 54px; }
+.kiln-editor .cat-count { font-size: 18px; color: var(--muted); }
+.kiln-editor .cat-main { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.kiln-editor .cat-top { display: flex; flex-direction: column; gap: 12px; }
+.kiln-editor .cat-search { font-size: 30px; padding: 14px 18px; }
+.kiln-editor .chips { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kiln-editor .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; font: 700 21px 'Harmonique', serif; border: 2px solid rgba(255,255,255,.12); color: #e8e0cc; }
+.kiln-editor .chip.on { border-color: var(--gold); background: rgba(202,172,84,.12); }
+.kiln-editor .chip-gem { width: 24px; height: 24px; display: inline-block; object-fit: contain; }
+.kiln-editor .chip-title { font-size: 21px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-right: 6px; }
+.kiln-editor .chip-count { margin-left: auto; font-size: 20px; color: var(--muted); }
+.kiln-editor .cat-grid { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, 124px); grid-auto-rows: 124px; gap: 12px; padding: 6px; align-content: start; }
+.kiln-editor .cat-tile { position: relative; width: 118px; height: 118px; }
+.kiln-editor .cat-close { position: absolute; right: 30px; bottom: -64px; display: flex; align-items: center; font-size: 28px; }
+
+/* personagem */
+.kiln-editor .doll-center { position: absolute; left: 400px; top: 160px; width: 640px; height: 640px; }
+.kiln-editor .doll-orn { position: absolute; inset: -60px; width: 760px; height: 760px; opacity: .55; }
+.kiln-editor .doll-medal { position: absolute; left: 70px; top: 40px; width: 500px; height: 500px; }
+.kiln-editor .doll-badge { position: absolute; left: 270px; top: 288px; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+.kiln-editor .badge-shape { position: absolute; inset: 0; }
+.kiln-editor .doll-badge span { position: relative; font: 700 44px 'Harmonique', serif; color: #1b1630; margin-top: -10px; }
+.kiln-editor .doll-name { position: absolute; left: 0; right: 0; top: 560px; text-align: center; font: 700 46px 'Harmonique', serif; letter-spacing: 2px; }
+.kiln-editor .doll-stats { position: absolute; left: 380px; top: 800px; width: 680px; display: flex; flex-direction: column; gap: 16px; }
+.kiln-editor .stat-row { display: flex; align-items: center; justify-content: space-between; }
+.kiln-editor .attr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 50px; }
+.kiln-editor .attr-grid div { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid rgba(255,255,255,.08); padding: 4px 0; }
+.kiln-editor .attr-grid b { font-size: 34px; }
+.kiln-editor .doll-slot { position: absolute; display: flex; flex-direction: column; align-items: center; }
+.kiln-editor .doll-label { margin-top: 10px; font-size: 20px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+.kiln-editor .doll-line { position: absolute; top: 170px; width: 2px; height: 1020px; background: linear-gradient(transparent, rgba(202,172,84,.4), transparent); }
+.kiln-editor .doll-line.left { left: 340px; } .kiln-editor .doll-line.right { left: 1080px; }
+.kiln-editor .st-points .big { cursor: pointer; }
+.kiln-editor .st-points .big.neg { color: #e2786a; }
+.kiln-editor .set-total { font: 700 26px 'Harmonique', serif; color: var(--gold); text-decoration: underline; margin-top: 6px; }
+.kiln-editor .total-edit { position: absolute; left: 160px; top: 150px; width: 560px; padding: 18px; background: rgba(16,14,34,.97); border: 2px solid rgba(202,172,84,.6); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; z-index: 6; }
+.kiln-editor .total-edit .g-input { width: 180px; }
+
+.kiln-editor .st-warn { position: absolute; left: 50%; top: 140px; transform: translateX(-50%); max-width: 1400px; padding: 14px 26px; background: rgba(60, 16, 16, .92); border: 2px solid #a4554b; color: #f0b0a6; font-size: 24px; z-index: 5; text-align: center; }
+.kiln-editor .status { white-space: normal; max-width: 1300px; }
+
+/* ---- servidor dedicado (cópias do guardião) ---- */
+.kiln-editor .srv-tag { font-size: 17px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--gold); border: 1px solid var(--gold); border-radius: 4px; padding: 1px 8px; margin-left: 12px; vertical-align: middle; }
+.kiln-editor .srv-tag.on { color: #9fd59f; border-color: #9fd59f; }
+.kiln-editor .srv-form { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+.kiln-editor .srv-campo { display: flex; flex-direction: column; gap: 6px; }
+.kiln-editor .srv-campo input { font: 400 24px 'NotoSerifGame', serif; color: #f1e7cf; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.18); padding: 10px 12px; }
+.kiln-editor .srv-campo input:focus { outline: none; border-color: var(--gold); }
+
+/* ---- aba Conhecimento ---- */
+.kiln-editor .know { position: absolute; left: 300px; right: 300px; top: 180px; bottom: 140px; display: flex; flex-direction: column; gap: 16px; }
+.kiln-editor .know-tools { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.kiln-editor .know-busca { flex: 1; min-width: 360px; font: 400 24px 'NotoSerifGame', serif; color: #f1e7cf; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.18); padding: 10px 14px; }
+.kiln-editor .know-busca:focus, .kiln-editor .know-campo input:focus { outline: none; border-color: var(--gold); }
+.kiln-editor .know-campo { display: flex; align-items: center; gap: 10px; }
+.kiln-editor .know-campo input { width: 130px; font: 400 24px 'NotoSerifGame', serif; color: #f1e7cf; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.18); padding: 10px; }
+.kiln-editor .know-tipos { display: flex; gap: 8px; }
+.kiln-editor .know-tipo { font: 400 20px 'NotoSerifGame', serif; color: var(--muted); border: 1px solid rgba(255,255,255,.15); padding: 8px 14px; }
+.kiln-editor .know-tipo.on { color: var(--gold); border-color: var(--gold); }
+.kiln-editor .know-lista { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.kiln-editor .know-row { display: grid; grid-template-columns: 48px 140px 1fr 110px 260px; gap: 16px; align-items: center; text-align: left; font-size: 23px; padding: 8px 12px; border: 1px solid rgba(255,255,255,.08); color: #f1e7cf; }
+.kiln-editor .know-row:hover { border-color: rgba(255,255,255,.3); }
+.kiln-editor .know-row.sel { border-color: #e2786a; background: rgba(226,120,106,.12); }
+.kiln-editor .know-check { font-size: 26px; color: #e2786a; text-align: center; }
+.kiln-editor .know-kind { font-size: 18px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+.kiln-editor .know-kind.r { color: #9fd59f; } .kiln-editor .know-kind.i { color: var(--gold); }
+.kiln-editor .know-nivel { font-variant-numeric: lining-nums tabular-nums; color: var(--muted); }
+.kiln-editor .know-estado { font-size: 19px; color: var(--muted); }
+
+/* ---- aba Servidor ---- */
+.kiln-editor .jog { position: absolute; left: 300px; right: 300px; top: 180px; bottom: 140px; display: flex; flex-direction: column; gap: 18px; }
+.kiln-editor .jog-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; }
+.kiln-editor .jog-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+.kiln-editor .jog-card { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; padding: 18px 22px; border: 1px solid rgba(255,255,255,.12); color: #f1e7cf; font-size: 30px; }
+.kiln-editor .jog-card span { font-size: 21px; color: var(--muted); }
+.kiln-editor .jog-card.on, .kiln-editor .jog-card:hover { border-color: var(--gold); }
+.kiln-editor .jog-reg { overflow: auto; max-height: 360px; display: flex; flex-direction: column; gap: 4px; }
+.kiln-editor .jog-reg-row { display: grid; grid-template-columns: 300px 260px 1fr; gap: 18px; font-size: 21px; padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+/* o motivo da recusa (ou o botão que o busca) vem abaixo, ocupando a linha toda */
+.kiln-editor .jog-reg-row > :nth-child(4) { grid-column: 1 / -1; justify-self: start; margin-top: 4px; }
+.kiln-editor .jog-motivo { background: rgba(255,255,255,.04); border-left: 3px solid var(--gold); padding: 8px 14px; }
+.kiln-editor .jog-motivo ul { margin: 4px 0 0; padding-left: 20px; }
+.kiln-editor .jog-motivo li { margin: 2px 0; }
+
+/* seletor da joia encaixada, no painel de item */
+.kiln-editor .ed-select { background: rgba(0,0,0,.35); color: #f1e7cf; border: 1px solid rgba(255,255,255,.18); padding: 6px 10px; font-size: 21px; font-family: inherit; min-width: 320px; }
+.kiln-editor .ed-select:focus { outline: none; border-color: var(--gold); }
+
+/* seletor de idioma, na barra de dicas */
+.kiln-editor .lang-select { margin-right: auto; margin-left: 40px; background: rgba(10,10,30,.55); color: var(--text); border: 2px solid rgba(202,172,84,.45); padding: 4px 10px; font: 400 24px 'NotoSerifGame', serif; outline: none; }
+.kiln-editor .lang-select:focus { border-color: var(--gold); }
+.kiln-editor .lang-select option { background: #1c1c34; }
+
+/* rótulo cuja quebra de linha vem do texto traduzido */
+.kiln-editor .linhas { white-space: pre-line; }
+
+/* atributos e melhorias do item, no formato do tooltip do jogo */
+/* O bloco rola sozinho: sem isto ele empurra os botoes de Duplicar/Remover para fora do
+   painel, que tem altura fixa. O tooltip do jogo tambem rola. */
+.kiln-editor .ed-stats { display: flex; flex-direction: column; gap: 10px; margin-top: 22px;
+            flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 10px; }
+.kiln-editor .st-linha { display: grid; grid-template-columns: 110px 1fr; align-items: baseline; gap: 12px; font-size: 24px; }
+.kiln-editor .st-valor { color: var(--gold); font-weight: 700; text-align: right; }
+.kiln-editor .st-nome { color: #ddd; }
+.kiln-editor .st-titulo { margin-top: 14px; color: var(--muted); }
+.kiln-editor .st-melhoria { display: grid; grid-template-columns: 170px 70px 1fr; align-items: baseline; gap: 12px; opacity: .45; }
+.kiln-editor .st-melhoria.aplicada { opacity: 1; }
+.kiln-editor .st-nivel { font-size: 20px; color: var(--muted); letter-spacing: 1.5px; }
+.kiln-editor .st-ganho { font-size: 20px; color: var(--muted); text-align: right; }
+.kiln-editor .st-efeitos { display: flex; flex-direction: column; gap: 2px; }

@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "comment": "content-test's data pack: checked by ContentTestMod (pack values) and logged by content-observer.",
+  "items": {
+    "Material_T1_Twigs": { "maxStackSize": 600 },
+    "Material_T1_Resin": { "maxStackSize": 400 },
+    "Material_T1_Nonexistent_Item": { "maxStackSize": 5 }
+  },
+  "recipes": {
+    "Ammo_Arrow_T1_Flint": { "outputs": { "mul": 2 } },
+    "*": { "@where": { "output": "Tool_T1_FishingRod_basic" }, "showIsImportantLabel": true }
+  },
+  "loot": {
+    "Material_T1_Twigs": { "stackSizeMax": { "mul": 3, "min": 3 } }
+  },
+  "drops": {
+    "*": { "count": { "mul": 2 } }
+  }
+}

@@ -1,0 +1,6 @@
+# Made on your machine by build-assets.py: the glTF is generated, the rest comes from the cook and the installed game. Never committed.
+assets/cooked/
+assets/src/
+assets/assets.json
+bin/
+obj/

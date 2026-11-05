@@ -1,0 +1,26 @@
+{
+  "description": "semver.org §11 precedence: each is lower than the next; build metadata is ignored",
+  "ordered": [
+    "1.0.0-alpha",
+    "1.0.0-alpha.1",
+    "1.0.0-alpha.beta",
+    "1.0.0-beta",
+    "1.0.0-beta.2",
+    "1.0.0-beta.11",
+    "1.0.0-rc.1",
+    "1.0.0",
+    "1.0.1",
+    "1.1.0",
+    "2.0.0"
+  ],
+  "equal": [
+    [
+      "1.0.0+a",
+      "1.0.0+b"
+    ],
+    [
+      "1.2",
+      "1.2.0"
+    ]
+  ]
+}

@@ -1,0 +1,16 @@
+.kimp 1
+; blocks-test: reads an attribute (a share) of an entity and reports it through kiln.Signal.
+program 5a0f6c91-2c1e-4f77-8a02-7b1d3e9c1002
+stack 256
+streams none
+
+var $target ecs.EntityId config "blockstest.Target"
+var $attr   AttributeReference config "blockstest.Attr"
+var $value  float32
+
+code:
+        ecall fetchOptionalAttribute($value, $attr, $target)
+        pop
+        ecall kiln.Signal($value, 0xB10E0001)
+        pop
+        halt

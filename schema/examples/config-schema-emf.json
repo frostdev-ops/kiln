@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "source": "emf",
+  "file": "emf/beastmaster.ini",
+  "valueFormat": "ini",
+  "id": "beastmaster",
+  "mod": "beastmaster",
+  "modVersion": "0.3.3",
+  "entries": [
+    { "path": "general.max_pets", "type": "int", "default": 3, "min": 1, "max": 8 },
+    { "path": "general.enabled", "type": "bool", "default": true }
+  ]
+}

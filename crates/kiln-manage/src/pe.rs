@@ -1,0 +1,368 @@
+//! PE files: exports, and what a `dinput8.dll` is. Markers (contracts.md, "Proxy classification"; the proxy uses the
+//! same list for its refusals):
+//! - Kiln: the export `KilnProxyInfo` (`KilnProxyInfoData.abi` = 2), or the ASCII text
+//!   `KilnProxy/2 <semver>`, or the UTF-16LE text `\kiln\kiln-core.dll` (older proxies, abi 1).
+//! - ShroudForge: ASCII `shroudforge/shroudforge-runtime.dll` or `shroudforge/config/modloader-config.json`, or the
+//!   export `ShroudforgeSetDinput8Provider`. Refused by the installer unless the user switches; never chained.
+//! - EMF's loader: the exports `emf_loader_identity` / `emf_loader_play_once`. Chained.
+//! - Anything else that is a 64-bit PE DLL: Unknown (chained). Not a 64-bit PE DLL: NotDll.
+//!
+//! The checks run in that order (a file with Kiln's markers is Kiln's, whatever else it has).
+
+use crate::{Error, ErrorCode, Result};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+pub const KILN_EXPORT: &str = "KilnProxyInfo";
+pub const KILN_MARKER_ASCII: &str = "KilnProxy/2 ";
+pub const KILN_MARKER_UTF16: &str = "\\kiln\\kiln-core.dll";
+pub const SHROUDFORGE_MARKERS: [&str; 2] = ["shroudforge/shroudforge-runtime.dll", "shroudforge/config/modloader-config.json"];
+pub const SHROUDFORGE_EXPORT: &str = "ShroudforgeSetDinput8Provider";
+pub const EMF_EXPORTS: [&str; 2] = ["emf_loader_identity", "emf_loader_play_once"];
+/// Wine writes this at offset 0x40 of its builtin PE DLLs (the proxy refuses them as `system`).
+pub const WINE_BUILTIN_MARKER: &str = "Wine builtin DLL";
+/// Exported by a Kiln plugin DLL (library import detection).
+pub const KILN_PLUGIN_EXPORT: &str = "kiln_plugin_main";
+/// Exported by an EMF mod DLL.
+pub const EMF_MOD_EXPORT: &str = "emf_mod_load";
+/// Exported by every dinput8 proxy.
+pub const DINPUT8_EXPORT: &str = "DirectInput8Create";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyKind {
+    /// No file.
+    None,
+    Kiln,
+    ShroudForge,
+    Emf,
+    /// Some other DLL mod or proxy.
+    Unknown,
+    /// Not a 64-bit PE DLL.
+    NotDll,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyClass {
+    pub kind: ProxyKind,
+    /// Kiln: the proxy's version (KilnProxyInfo / marker), when known.
+    pub version: Option<String>,
+    /// Kiln: KilnProxyInfoData.abi (1 for older proxies).
+    pub abi: Option<u32>,
+    pub sha256: Option<String>,
+    pub size: Option<u64>,
+    /// Which marker matched, or why it is Unknown / NotDll.
+    pub detail: Option<String>,
+}
+
+/// Facts from a PE header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeInfo {
+    pub machine: u16,
+    pub characteristics: u16,
+    /// 0x20b PE32+, 0x10b PE32.
+    pub magic: u16,
+    pub exports: Vec<String>,
+}
+
+const IMAGE_FILE_DLL: u16 = 0x2000;
+const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
+const PE32_PLUS: u16 = 0x20b;
+
+fn u16_at(b: &[u8], o: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+}
+
+fn u32_at(b: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+}
+
+fn parse_error(msg: &str) -> Error {
+    Error::new(ErrorCode::Parse, format!("not a PE file: {msg}"))
+}
+
+/// Parses the headers and the export names of a PE image (file layout).
+pub fn parse(b: &[u8]) -> Result<PeInfo> {
+    if b.get(0..2) != Some(b"MZ") {
+        return Err(parse_error("no MZ header"));
+    }
+    let nt = u32_at(b, 0x3c).ok_or_else(|| parse_error("truncated DOS header"))? as usize;
+    if b.get(nt..nt + 4) != Some(b"PE\0\0") {
+        return Err(parse_error("no PE signature"));
+    }
+    let coff = nt + 4;
+    let machine = u16_at(b, coff).ok_or_else(|| parse_error("truncated COFF header"))?;
+    let nsect = u16_at(b, coff + 2).ok_or_else(|| parse_error("truncated COFF header"))? as usize;
+    let opt_size = u16_at(b, coff + 16).ok_or_else(|| parse_error("truncated COFF header"))? as usize;
+    let characteristics = u16_at(b, coff + 18).ok_or_else(|| parse_error("truncated COFF header"))?;
+    let opt = coff + 20;
+    let magic = u16_at(b, opt).ok_or_else(|| parse_error("no optional header"))?;
+    let (ndirs_at, dirs_at) = if magic == PE32_PLUS { (opt + 108, opt + 112) } else { (opt + 92, opt + 96) };
+    let sections = opt + opt_size;
+    let section_list: Vec<(u32, u32, u32, u32)> = (0..nsect)
+        .filter_map(|i| {
+            let s = sections + i * 40;
+            Some((u32_at(b, s + 12)?, u32_at(b, s + 8)?, u32_at(b, s + 20)?, u32_at(b, s + 16)?))
+        })
+        .collect();
+    let to_off = |rva: u32| -> Option<usize> {
+        section_list.iter().find_map(|&(va, vsize, raw, rawsize)| {
+            let span = vsize.max(rawsize);
+            (rva >= va && rva < va.checked_add(span)?).then(|| (rva - va + raw) as usize)
+        })
+    };
+    let mut exports = Vec::new();
+    let ndirs = u32_at(b, ndirs_at).unwrap_or(0);
+    if ndirs > 0 && opt_size > dirs_at - opt {
+        let rva = u32_at(b, dirs_at).unwrap_or(0);
+        if rva != 0
+            && let Some(ed) = to_off(rva)
+        {
+            let n = u32_at(b, ed + 24).unwrap_or(0).min(65_536) as usize;
+            let names = u32_at(b, ed + 32).and_then(to_off);
+            if let Some(names) = names {
+                for i in 0..n {
+                    let Some(name_off) = u32_at(b, names + i * 4).and_then(to_off) else { continue };
+                    let Some(rest) = b.get(name_off..) else { continue };
+                    let end = rest.iter().take(1024).position(|&c| c == 0).unwrap_or(0);
+                    if end > 0 {
+                        exports.push(String::from_utf8_lossy(&rest[..end]).into_owned());
+                    }
+                }
+            }
+        }
+    }
+    Ok(PeInfo { machine, characteristics, magic, exports })
+}
+
+/// Exported names of a PE DLL.
+pub fn exports(path: &Path) -> Result<Vec<String>> {
+    let b = std::fs::read(path).map_err(crate::util::io_at(path, "reading"))?;
+    parse(&b).map(|p| p.exports).map_err(|e| Error::new(e.code, format!("{}: {}", path.display(), e.message)))
+}
+
+/// True for a PE32+ (x64) image with the DLL characteristic.
+pub fn is_pe64_dll(bytes: &[u8]) -> bool {
+    parse(bytes).is_ok_and(|p| p.magic == PE32_PLUS && p.machine == IMAGE_FILE_MACHINE_AMD64 && p.characteristics & IMAGE_FILE_DLL != 0)
+}
+
+pub(crate) fn contains(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+fn utf16le(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect()
+}
+
+/// `KilnProxy/<abi> <version>` in the bytes: (abi, version).
+fn kiln_marker(b: &[u8]) -> Option<(u32, Option<String>)> {
+    let at = contains(b, b"KilnProxy/")?;
+    let rest = &b[at + 10..];
+    let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
+    let abi: u32 = std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()?;
+    let rest = &rest[digits..];
+    let version = rest.strip_prefix(b" ").map(|v| {
+        let n = v.iter().take(64).take_while(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'+')).count();
+        String::from_utf8_lossy(&v[..n]).into_owned()
+    });
+    Some((abi, version.filter(|v| !v.is_empty())))
+}
+
+/// Classifies DLL bytes (no I/O): kind, abi/version for Kiln, the matching marker in `detail`.
+pub fn classify_bytes(b: &[u8]) -> ProxyClass {
+    let mut c = ProxyClass {
+        kind: ProxyKind::NotDll,
+        version: None,
+        abi: None,
+        sha256: Some(crate::hash::sha256_hex(b)),
+        size: Some(b.len() as u64),
+        detail: None,
+    };
+    let info = match parse(b) {
+        Ok(i) => i,
+        Err(e) => {
+            c.detail = Some(e.message);
+            return c;
+        }
+    };
+    if !(info.magic == PE32_PLUS && info.machine == IMAGE_FILE_MACHINE_AMD64 && info.characteristics & IMAGE_FILE_DLL != 0) {
+        c.detail = Some(format!(
+            "not a 64-bit DLL (machine {:#06x}, magic {:#x}, characteristics {:#06x})",
+            info.machine, info.magic, info.characteristics
+        ));
+        return c;
+    }
+    let has = |e: &str| info.exports.iter().any(|x| x == e);
+    if has(KILN_EXPORT) {
+        c.kind = ProxyKind::Kiln;
+        let m = kiln_marker(b);
+        c.abi = Some(m.as_ref().map(|m| m.0).unwrap_or(2));
+        c.version = m.and_then(|m| m.1);
+        c.detail = Some(format!("export {KILN_EXPORT}"));
+        return c;
+    }
+    if let Some((abi, version)) = kiln_marker(b) {
+        c.kind = ProxyKind::Kiln;
+        c.abi = Some(abi);
+        c.version = version;
+        c.detail = Some(format!("marker KilnProxy/{abi}"));
+        return c;
+    }
+    if contains(b, &utf16le(KILN_MARKER_UTF16)).is_some() {
+        c.kind = ProxyKind::Kiln;
+        c.abi = Some(1);
+        c.detail = Some("UTF-16 marker \\kiln\\kiln-core.dll (older proxy)".into());
+        return c;
+    }
+    if let Some(m) = SHROUDFORGE_MARKERS.iter().find(|m| contains(b, m.as_bytes()).is_some()) {
+        c.kind = ProxyKind::ShroudForge;
+        c.detail = Some(format!("marker {m}"));
+        return c;
+    }
+    if has(SHROUDFORGE_EXPORT) {
+        c.kind = ProxyKind::ShroudForge;
+        c.detail = Some(format!("export {SHROUDFORGE_EXPORT}"));
+        return c;
+    }
+    if let Some(e) = EMF_EXPORTS.iter().find(|e| has(e)) {
+        c.kind = ProxyKind::Emf;
+        c.detail = Some(format!("export {e}"));
+        return c;
+    }
+    c.kind = ProxyKind::Unknown;
+    c.detail = Some(if b.get(0x40..0x40 + WINE_BUILTIN_MARKER.len()) == Some(WINE_BUILTIN_MARKER.as_bytes()) {
+        "Wine builtin DLL".into()
+    } else if has(DINPUT8_EXPORT) {
+        "another dinput8 proxy (exports DirectInput8Create)".into()
+    } else {
+        "a 64-bit DLL without known markers".into()
+    });
+    c
+}
+
+/// What the file at `path` is (ProxyKind::None when it does not exist).
+pub fn classify_proxy(path: &Path) -> Result<ProxyClass> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(classify_bytes(&b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(ProxyClass { kind: ProxyKind::None, version: None, abi: None, sha256: None, size: None, detail: None })
+        }
+        Err(e) => Err(crate::util::io_at(path, "reading")(e)),
+    }
+}
+
+/// A minimal valid PE32+ x64 DLL image with these exports, then `extra` appended (marker texts). For tests and fake
+/// proxies (client-copy installs); it is never meant to be loaded.
+#[doc(hidden)]
+pub fn build_test_dll(exports: &[&str], extra: &[u8]) -> Vec<u8> {
+    let mut b = vec![0u8; 0x200];
+    b[0..2].copy_from_slice(b"MZ");
+    b[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+    b[0x80..0x84].copy_from_slice(b"PE\0\0");
+    let coff = 0x84;
+    b[coff..coff + 2].copy_from_slice(&IMAGE_FILE_MACHINE_AMD64.to_le_bytes());
+    b[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes());
+    b[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+    b[coff + 18..coff + 20].copy_from_slice(&(IMAGE_FILE_DLL | 0x0022).to_le_bytes());
+    let opt = coff + 20;
+    b[opt..opt + 2].copy_from_slice(&PE32_PLUS.to_le_bytes());
+    b[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+    // .edata at RVA 0x1000, file offset 0x200
+    let va = 0x1000u32;
+    let mut sec = vec![0u8; 40];
+    let n = exports.len() as u32;
+    let dir_len = 40u32;
+    let funcs = va + dir_len;
+    let names = funcs + 4 * n;
+    let ords = names + 4 * n;
+    let mut strings = ords + 2 * n;
+    let mut data = vec![0u8; 40];
+    let dll_name = strings;
+    let mut str_bytes = b"dinput8.dll\0".to_vec();
+    strings += str_bytes.len() as u32;
+    let mut name_rvas = Vec::new();
+    for e in exports {
+        name_rvas.push(strings);
+        str_bytes.extend_from_slice(e.as_bytes());
+        str_bytes.push(0);
+        strings += e.len() as u32 + 1;
+    }
+    data[12..16].copy_from_slice(&dll_name.to_le_bytes());
+    data[16..20].copy_from_slice(&1u32.to_le_bytes());
+    data[20..24].copy_from_slice(&n.to_le_bytes());
+    data[24..28].copy_from_slice(&n.to_le_bytes());
+    data[28..32].copy_from_slice(&funcs.to_le_bytes());
+    data[32..36].copy_from_slice(&names.to_le_bytes());
+    data[36..40].copy_from_slice(&ords.to_le_bytes());
+    for _ in 0..n {
+        data.extend_from_slice(&0x2000u32.to_le_bytes());
+    }
+    for r in &name_rvas {
+        data.extend_from_slice(&r.to_le_bytes());
+    }
+    for i in 0..n {
+        data.extend_from_slice(&(i as u16).to_le_bytes());
+    }
+    data.extend_from_slice(&str_bytes);
+    let size = data.len() as u32;
+    let raw = size.div_ceil(0x200) * 0x200;
+    data.resize(raw as usize, 0);
+    sec[0..6].copy_from_slice(b".edata");
+    sec[8..12].copy_from_slice(&size.to_le_bytes());
+    sec[12..16].copy_from_slice(&va.to_le_bytes());
+    sec[16..20].copy_from_slice(&raw.to_le_bytes());
+    sec[20..24].copy_from_slice(&0x200u32.to_le_bytes());
+    sec[36..40].copy_from_slice(&0x4000_0040u32.to_le_bytes());
+    let dirs = opt + 112;
+    b[dirs..dirs + 4].copy_from_slice(&va.to_le_bytes());
+    b[dirs + 4..dirs + 8].copy_from_slice(&size.to_le_bytes());
+    let sections = opt + 240;
+    b[sections..sections + 40].copy_from_slice(&sec);
+    b.extend_from_slice(&data);
+    b.extend_from_slice(extra);
+    b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exports_of_a_built_dll() {
+        let d = build_test_dll(&["DirectInput8Create", "emf_loader_identity"], b"");
+        assert!(is_pe64_dll(&d));
+        assert_eq!(parse(&d).unwrap().exports, ["DirectInput8Create", "emf_loader_identity"]);
+        assert!(!is_pe64_dll(b"MZ not really"));
+        assert!(!is_pe64_dll(b""));
+    }
+
+    #[test]
+    fn classification_follows_the_contract_table() {
+        let k = |e: &[&str], x: &[u8]| classify_bytes(&build_test_dll(e, x));
+        let c = k(&["DirectInput8Create", "KilnProxyInfo"], b"..KilnProxy/2 0.2.0-dev\0");
+        assert_eq!((c.kind, c.abi, c.version.as_deref()), (ProxyKind::Kiln, Some(2), Some("0.2.0-dev")));
+        let c = k(&["DirectInput8Create"], b"KilnProxy/2 0.3.1+abc\0");
+        assert_eq!((c.kind, c.abi, c.version.as_deref()), (ProxyKind::Kiln, Some(2), Some("0.3.1+abc")));
+        let c = k(&["DirectInput8Create"], &utf16le("Z:\\x\\kiln\\kiln-core.dll"));
+        assert_eq!((c.kind, c.abi), (ProxyKind::Kiln, Some(1)));
+        assert_eq!(k(&["DirectInput8Create"], b"shroudforge/shroudforge-runtime.dll").kind, ProxyKind::ShroudForge);
+        assert_eq!(k(&["DirectInput8Create"], b"x shroudforge/config/modloader-config.json").kind, ProxyKind::ShroudForge);
+        assert_eq!(k(&["DirectInput8Create", "ShroudforgeSetDinput8Provider"], b"").kind, ProxyKind::ShroudForge);
+        assert_eq!(k(&["DirectInput8Create", "emf_loader_identity"], b"").kind, ProxyKind::Emf);
+        assert_eq!(k(&["emf_loader_play_once"], b"").kind, ProxyKind::Emf);
+        assert_eq!(k(&["DirectInput8Create"], b"").kind, ProxyKind::Unknown);
+        // Kiln's markers win over the others
+        assert_eq!(k(&["KilnProxyInfo", "emf_loader_identity"], b"").kind, ProxyKind::Kiln);
+        // a 32-bit DLL is not a proxy for a 64-bit game
+        let mut x86 = build_test_dll(&["DirectInput8Create"], b"");
+        x86[0x84..0x86].copy_from_slice(&0x14cu16.to_le_bytes());
+        assert_eq!(classify_bytes(&x86).kind, ProxyKind::NotDll);
+        assert_eq!(classify_bytes(b"hello").kind, ProxyKind::NotDll);
+        let none = classify_proxy(Path::new("/nonexistent/dinput8.dll")).unwrap();
+        assert_eq!(none.kind, ProxyKind::None);
+    }
+}

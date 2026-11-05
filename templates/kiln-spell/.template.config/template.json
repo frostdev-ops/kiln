@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Kiln contributors",
+  "classifications": [
+    "Kiln",
+    "Enshrouded",
+    "Mod",
+    "Gameplay"
+  ],
+  "identity": "Kiln.Templates.Spell",
+  "groupIdentity": "Kiln.Templates.Spell",
+  "name": "Kiln spell",
+  "description": "A staff spell from building blocks: a status, an effect, a spell with a recipe, in C# and the same as data (blocks/*.json). No GUIDs, no game items to name but what it costs.",
+  "shortName": "kiln-spell",
+  "sourceName": "KilnSpell1",
+  "preferNameDirectory": true,
+  "forms": {
+    "kebab": {
+      "identifier": "kebabCase"
+    }
+  },
+  "tags": {
+    "language": "C#",
+    "type": "project",
+    "kiln.kind": "spell"
+  },
+  "symbols": {
+    "modId": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Mod id ([a-z0-9][a-z0-9._-]*); default: the name in kebab-case"
+    },
+    "modIdDefault": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "kebab"
+    },
+    "modIdValue": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "modId",
+        "fallbackVariableName": "modIdDefault"
+      },
+      "replaces": "kiln-mod-id"
+    },
+    "kilnSdkVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.2.0",
+      "replaces": "KILN_SDK_VERSION",
+      "description": "Kiln.Sdk version (the MDK this template came with)"
+    },
+    "feed": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "replaces": "KILN_FEED",
+      "description": "Local NuGet feed holding Kiln.Sdk/Kiln.Api (writes a nuget.config next to the project)"
+    },
+    "hasFeed": {
+      "type": "computed",
+      "value": "(feed != \"\")"
+    },
+    "server": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "replaces": "KILN_SERVER",
+      "description": "Server (or game) folder with Kiln for deploy (KilnServer)"
+    },
+    "hasServer": {
+      "type": "computed",
+      "value": "(server != \"\")"
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!hasFeed)",
+          "exclude": [
+            "nuget.config"
+          ]
+        }
+      ]
+    }
+  ],
+  "postActions": [],
+  "guids": [
+    "c81d2e57-4a6f-4b09-8d3e-1f7a9c5b6e21"
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "resource",
+      "guid": "103832e2-8900-5b56-9dba-e157cacb0b2c",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_hello.en.0.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/sound/tobin_hello.de.0.qoa",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "4cbd6f68-bafe-5b3a-a1d7-33edd18cc582",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_hello.de.0.sound.bin",
+      "mode": "new",
+      "side": "client",
+      "patch": [
+        {
+          "offset": 24,
+          "blob": "cooked/sound/tobin_hello.de.0.qoa"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "ad2352aa-e5ae-5881-b0ff-221b423de026",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_hello.en.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "bd1a414f-c035-57b1-9559-d1c74cae2173",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_hello.de.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "04400dd6-fef8-5262-830c-897e409059f7",
+      "type": "keen::VoiceoverResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_hello.vo.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "772f944d-b8aa-57f3-bd92-b5f351320db0",
+      "type": "keen::SoundResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_thanks.en.0.sound.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "63dcb4b6-387c-538a-9c42-253eccc5a395",
+      "type": "keen::SoundContainerResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_thanks.en.cue.bin",
+      "mode": "new",
+      "side": "client"
+    },
+    {
+      "kind": "resource",
+      "guid": "e714e3a7-c555-5b1f-944c-7945f139e1d7",
+      "type": "keen::VoiceoverResource",
+      "part": 0,
+      "file": "cooked/sound/tobin_thanks.vo.bin",
+      "mode": "new"
+    }
+  ]
+}

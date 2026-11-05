@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "comment": "gamedata-test's clones: a buff cloned from the Poisoned debuff (0x5f425faf) with its own lifetime and texts, a perk cloned from Perk_OnDamage_Dealt_Debuff_Poisoned_T2 that applies it, and references to them from a perk and a skill node (the item's perk slot is set in code: ClonesMod.cs).",
+  "buffs": {
+    "add": [
+      {
+        "guid": "5e1d0c3b-7a92-4c61-b8f4-2d9e6a1c3f07",
+        "name": "Kiln_Test_Frostbite",
+        "base": "0x5f425faf",
+        "displayName": "Frostbite (test)",
+        "description": "A test debuff cloned from Poisoned.",
+        "texts": { "de": { "name": "Frostbiss (Test)", "description": "Ein Test-Debuff, geklont von Vergiftet." } },
+        "fields": { "defaultLifeTime": 7 }
+      }
+    ]
+  },
+  "perks": {
+    "add": [
+      {
+        "guid": "9c4f2e81-3b6d-4a07-9e15-7f8a2c6d4b30",
+        "name": "Kiln_Test_Frostbite_Perk",
+        "base": "Perk_OnDamage_Dealt_Debuff_Poisoned_T2",
+        "displayName": "Frostbite (test)",
+        "description": "Hits apply Frostbite (test).",
+        "fields": { "impactValues.BuffType": "Kiln_Test_Frostbite" }
+      }
+    ]
+  },
+  "skills": {
+    "item:Ability_DoubleJump": { "configValues.0x5adb2644": "Kiln_Test_Frostbite" }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "config-schema.schema.json",
+  "title": "Config schema snapshot (<configDir>/.schema/<file>.json), format 1",
+  "description": "Written by Kiln.Api Config.Register (and by kiln-emf for EMF settings) whenever a mod registers a config: the config's schema without values, so the launcher can edit the file offline. Path: <configDir>/.schema/ + the config file's path relative to configDir with its extension replaced by .json (my-mod.json -> .schema/my-mod.json; emf/beastmaster.ini -> .schema/emf/beastmaster.json). The launcher caches snapshots per mod version (schema-cache/). Entry shape = the admin op config_get's entries minus value/fileValue/fromServer.",
+  "type": "object",
+  "required": ["format", "source", "file", "id", "mod", "entries"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "source": { "enum": ["kiln", "emf"], "description": "kiln: Kiln.Api Config (JSONC values file); emf: an EMF mod's settings (INI values file)." },
+    "file": { "$ref": "common.schema.json#/$defs/relPath", "description": "The values file, relative to configDir." },
+    "valueFormat": { "enum": ["jsonc", "ini"], "default": "jsonc" },
+    "id": { "type": "string", "minLength": 1, "description": "Config id: <modid>[-<name>][-server|-client] for Kiln, the EMF mod id for EMF." },
+    "mod": { "type": "string", "minLength": 1 },
+    "modVersion": { "type": "string" },
+    "kind": { "enum": ["common", "server", "client"], "default": "common" },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "kiln": { "type": "string", "description": "Kiln version that wrote the snapshot." },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": { "path": { "type": "string" }, "comment": { "type": ["string", "null"] }, "synced": { "type": "boolean" } }
+      },
+      "default": []
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "type"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "Dotted path of the value (section.key)." },
+          "type": {
+            "type": "string",
+            "pattern": "^(bool|int|float|string|enum|duration|list<(bool|int|float|string|enum|duration)>)$",
+            "description": "Kiln ConfigValueKind; duration values are strings like \"90s\", \"5m\", \"1h30m\"."
+          },
+          "comment": { "type": ["string", "null"] },
+          "default": { "description": "The default value as JSON (null allowed)." },
+          "requiresRestart": { "type": "boolean", "default": false },
+          "synced": { "type": "boolean", "default": false },
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "options": { "type": "array", "items": { "type": "string" }, "description": "enum values." }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

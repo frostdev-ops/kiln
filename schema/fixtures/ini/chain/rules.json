@@ -1,0 +1,38 @@
+{
+  "expect": {
+    "chain": [
+      {
+        "path": "before-section.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "chain\\xhl-core.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "chain\\keyed.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "..\\up.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "\\\\server\\share\\net.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ],
+    "profile": [
+      {
+        "path": "D:\\mods\\a.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ]
+  }
+}

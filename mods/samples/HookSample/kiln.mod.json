@@ -1,0 +1,9 @@
+{
+  "id": "hooksample",
+  "name": "Hook Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "HookSample.dll",
+  "side": "server",
+  "advanced": true
+}

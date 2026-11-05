@@ -1,0 +1,624 @@
+[
+ {
+  "case": "minimal",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "from: one node",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": "0x0b61f08f"
+  }
+ },
+ {
+  "case": "to only",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "to": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "empty from, a to",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [],
+   "to": [
+    "x"
+   ]
+  }
+ },
+ {
+  "case": "no link",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx"
+  }
+ },
+ {
+  "case": "both links empty",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [],
+   "to": []
+  }
+ },
+ {
+  "case": "from: a number",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": 3
+  }
+ },
+ {
+  "case": "from: a list of numbers",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    3
+   ]
+  }
+ },
+ {
+  "case": "no guid",
+  "node": {
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "bad guid",
+  "node": {
+   "guid": "nope",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "no name",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "empty name",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "name of 96",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "name of 97",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+   "from": [
+    "0x0b61f08f"
+   ]
+  }
+ },
+ {
+  "case": "type long",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": "PassiveSkill"
+  }
+ },
+ {
+  "case": "type short",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": "Passive"
+  }
+ },
+ {
+  "case": "type active",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": "Active"
+  }
+ },
+ {
+  "case": "type attribute",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": "Attribute"
+  }
+ },
+ {
+  "case": "type root",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": "Root"
+  }
+ },
+ {
+  "case": "type number",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "type": 1
+  }
+ },
+ {
+  "case": "class",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "class": "Mage"
+  }
+ },
+ {
+  "case": "class none",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "class": "None"
+  }
+ },
+ {
+  "case": "class bad",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "class": "Wizard"
+  }
+ },
+ {
+  "case": "cost 0",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "cost": 0
+  }
+ },
+ {
+  "case": "cost 1000",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "cost": 1000
+  }
+ },
+ {
+  "case": "cost 1001",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "cost": 1001
+  }
+ },
+ {
+  "case": "cost -1",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "cost": -1
+  }
+ },
+ {
+  "case": "cost 1.5",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "cost": 1.5
+  }
+ },
+ {
+  "case": "level 7",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "maxLevel": 7
+  }
+ },
+ {
+  "case": "level 8",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "maxLevel": 8
+  }
+ },
+ {
+  "case": "position list",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "position": [
+    1,
+    2
+   ]
+  }
+ },
+ {
+  "case": "position object",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "position": {
+    "x": 1,
+    "y": 2
+   }
+  }
+ },
+ {
+  "case": "position short",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "position": [
+    1
+   ]
+  }
+ },
+ {
+  "case": "position no y",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "position": {
+    "x": 1
+   }
+  }
+ },
+ {
+  "case": "position text",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "position": "here"
+  }
+ },
+ {
+  "case": "offset list",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "offset": [
+    1,
+    2
+   ]
+  }
+ },
+ {
+  "case": "offset object",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "offset": {
+    "x": 1,
+    "y": 2
+   }
+  }
+ },
+ {
+  "case": "offset short",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "offset": [
+    1
+   ]
+  }
+ },
+ {
+  "case": "configs hex",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "0x0a0c87e7": 3
+   }
+  }
+ },
+ {
+  "case": "configs guid",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f29": 3
+   }
+  }
+ },
+ {
+  "case": "configs bool",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "0x1": true
+   }
+  }
+ },
+ {
+  "case": "configs bad key",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "amount": 3
+   }
+  }
+ },
+ {
+  "case": "configs text",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "0x1": "x"
+   }
+  }
+ },
+ {
+  "case": "configs list",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": [
+    1
+   ]
+  }
+ },
+ {
+  "case": "configs long id",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "configs": {
+    "0x123456789": 1
+   }
+  }
+ },
+ {
+  "case": "scales hex",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "scales": {
+    "0x0a0c87e7": 1.5
+   }
+  }
+ },
+ {
+  "case": "scales bad key",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "scales": {
+    "x": 1
+   }
+  }
+ },
+ {
+  "case": "program",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "program": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f22"
+  }
+ },
+ {
+  "case": "program bad",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "program": "x"
+  }
+ },
+ {
+  "case": "icon",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "icon": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f23"
+  }
+ },
+ {
+  "case": "icon path",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "icon": "icons/a.png"
+  }
+ },
+ {
+  "case": "texts",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "texts": {
+    "en": {
+     "name": "x"
+    }
+   }
+  }
+ },
+ {
+  "case": "texts text",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "texts": "x"
+  }
+ },
+ {
+  "case": "ability",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "unlocksAbility": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f24"
+  }
+ },
+ {
+  "case": "ability bad",
+  "node": {
+   "guid": "3e2f6a1b-7c48-4d95-a1e3-5b9c0d7e8f21",
+   "name": "fx",
+   "from": [
+    "0x0b61f08f"
+   ],
+   "unlocksAbility": "x"
+  }
+ }
+]

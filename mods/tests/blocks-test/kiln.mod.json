@@ -1,0 +1,12 @@
+{
+  "id": "blocks-test",
+  "name": "building blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "dependencies": { "frostbolt-block": "*" },
+  "description": "PASS/FAIL lines: what Kiln.Blocks made of FrostboltBlock's blocks, player-free. The data, the ids across a restart, the same effect through a spell's area and through a sword's OnHit, the item path of a real cast, and the errors a mistake gets."
+}

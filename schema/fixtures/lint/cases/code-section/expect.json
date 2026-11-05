@@ -1,0 +1,14 @@
+{
+  "catalog": false,
+  "description": "a data-pack section the mod's code registers is not unknown; a section nobody mentions still is (KL103)",
+  "diagnostics": [
+    {
+      "code": "KL103",
+      "col": 3,
+      "file": "content/x.json",
+      "line": 4,
+      "message": "\"othersection\": unknown section (kiln.content ignores it unless a service registers it with Content.RegisterSection)",
+      "severity": "warning"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "comment": "ModelSample: a new sword with its own model. The two GUIDs are resources this mod serves through kiln.assets (assets/assets.json): 08525f9a... = the keen::RenderModel (the tower sword), 699ccb5f... = its visual template (a copy of the Bronze Sword's with the model swapped). The hand recipe costs one twig so the sword is easy to try.",
+  "items": {
+    "add": [
+      {
+        "guid": "56f83e52-ac3b-4f15-ada8-67702ce8e9e6",
+        "name": "Kiln_Sample_TowerSword",
+        "base": "Weapon_T1_1H_SwordEpic_01",
+        "displayName": "Kiln Tower Sword",
+        "description": "Three cubes and a slab. Its model was cooked from glTF by Kiln's modelcook.",
+        "refs": {
+          "equipment.visualEntity": "699ccb5f-97a5-4f31-b257-f13c61952589",
+          "equipment.equipmentEntityModelSetup.model": "08525f9a-f6f9-46f4-8c3e-003e481d740d",
+          "iconModel": "08525f9a-f6f9-46f4-8c3e-003e481d740d"
+        }
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "3d0f6a51-2c4e-4f7a-9b18-6e5d4c3b2a19",
+        "name": "Kiln_Sample_TowerSword_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "Kiln_Sample_TowerSword", "count": 1 } ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "catalog": true,
+  "description": "ids: a GUID twice (KL301, also across gamedata sections), a debug name twice (KL305), a variant id twice, a game GUID (KL303) and a game name (KL306)",
+  "diagnostics": [
+    {
+      "code": "KL303",
+      "col": 15,
+      "file": "content/a.json",
+      "line": 4,
+      "message": "GUID 0000a001-0000-4000-8000-000000000001 is the game's own item (a definition needs a new GUID)",
+      "severity": "error"
+    },
+    {
+      "code": "KL306",
+      "col": 63,
+      "file": "content/a.json",
+      "line": 4,
+      "message": "\"Material_Fixture_Twigs\" is the name of a game item: Kiln refuses the definition (use a prefix of your own, e.g. MyMod_...)",
+      "severity": "error"
+    },
+    {
+      "code": "KL305",
+      "col": 87,
+      "file": "content/a.json",
+      "line": 6,
+      "message": "variant id \"dup\" is defined twice in this mod",
+      "severity": "warning"
+    },
+    {
+      "code": "KL301",
+      "col": 33,
+      "file": "content/b.json",
+      "line": 2,
+      "message": "GUID 7c6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d60 is defined twice in this mod (the later definition replaces the earlier one)",
+      "severity": "error"
+    },
+    {
+      "code": "KL305",
+      "col": 81,
+      "file": "content/b.json",
+      "line": 2,
+      "message": "item name \"FixtureIds_Blade\" is defined twice in this mod",
+      "severity": "error"
+    },
+    {
+      "code": "KL301",
+      "col": 33,
+      "file": "content/b.json",
+      "line": 3,
+      "message": "GUID 7c6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61 is defined twice in this mod (the later definition replaces the earlier one)",
+      "severity": "error"
+    }
+  ]
+}

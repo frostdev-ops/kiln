@@ -1,0 +1,9 @@
+{
+  "id": "asset-sample",
+  "name": "Kiln asset-layer sample (icon + retexture)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "AssetSample.dll",
+  "side": "both",
+  "clients": "mod"
+}

@@ -1,0 +1,8 @@
+<Project Sdk="Kiln.Sdk/0.2.0">
+  <!-- synthetic test mod for the extension's integration tests (never built) -->
+  <PropertyGroup>
+    <KilnModId>frost-mod</KilnModId>
+    <Version>0.3.0</Version>
+    <KilnServices>Items;Testing</KilnServices>
+  </PropertyGroup>
+</Project>

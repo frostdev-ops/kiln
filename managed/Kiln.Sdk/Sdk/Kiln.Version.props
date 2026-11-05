@@ -1,0 +1,8 @@
+<Project>
+  <!-- One place for the MDK version. KilnModApiVersion must match Kiln.Mods.ApiVersion (major.minor) in
+       managed/Kiln.Api/Mods.cs; templates/*/.template.config/template.json carry the same SDK version. -->
+  <PropertyGroup>
+    <KilnSdkVersion>0.2.0</KilnSdkVersion>
+    <KilnModApiVersion>0.2</KilnModApiVersion>
+  </PropertyGroup>
+</Project>

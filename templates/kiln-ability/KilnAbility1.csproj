@@ -1,0 +1,28 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A new ability (kiln.abilities): a key on Kiln clients with this mod and a chat command for everyone, with a
+       mana cost, a cooldown and a cast time; its effect spawns game explosions (KilnAbility1Mod.cs).
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Docs: docs/kiln/services/abilities.md, docs/kiln/modding/impact.md. -->
+<!--#if (impact)-->
+  <!-- impact/ holds an Impact program written from scratch (impact/regen.kimp) and its recipe (impact/cook.json):
+         kiln cook        (runs tools/impact cook on impact/cook.json)
+       assembles it into assets/cooked/impact/ (never shipped) and lists it in assets/assets.json; kiln.abilities
+       registers it at the first server step. Bind it to gameplay through a buff, a template or a sequence
+       (docs/kiln/modding/impact.md, "Binding a program to gameplay"). -->
+<!--#endif-->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnAbility1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnAbility1: a new ability.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <!-- both: the server runs the ability; Kiln clients with the mod get the key binding. Vanilla players use the chat
+         command, so they may join (clients none). -->
+    <KilnSide>both</KilnSide>
+    <KilnClients>none</KilnClients>
+    <KilnServices>Abilities</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

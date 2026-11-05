@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "profile.schema.json",
+  "title": "Kiln profile (<game>/kiln/profile.json), format 1",
+  "description": "Written atomically by the Kiln Launcher when it activates a profile; read once by kiln-core at boot (service kiln.profile) and by Kiln.Host, the native loader and kiln-emf. Missing file: the legacy layout (kiln/mods). Unreadable or invalid file: no mods, an error in kiln.log and state/boot.json. Paths are game-side (contracts.md, path translation). Unknown keys are ignored.",
+  "type": "object",
+  "required": ["format", "id", "generation", "mods"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "id": { "$ref": "common.schema.json#/$defs/profileId" },
+    "name": { "type": "string", "maxLength": 128 },
+    "generation": { "type": "integer", "minimum": 1, "description": "Bumped by every write; kiln-core echoes it in state/boot.json." },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "writer": { "type": "string", "description": "e.g. kiln-launcher 0.2.0-dev" },
+    "pathMode": { "enum": ["z", "native", "copy"], "default": "native", "description": "z: Z:\\ paths into the launcher library (Proton); native: Windows paths; copy: mods copied under <game>/kiln/profiles/<id>/, relative paths." },
+    "configDir": { "$ref": "common.schema.json#/$defs/gamePath", "description": "Mod configs (KILN_PATH_CONFIG). Default <game>/kiln/config." },
+    "dataDir": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/gamePath" }, { "type": "null" }],
+      "default": null,
+      "description": "Per-mod data root (kiln/data/<id> by default). World data (kiln/data/worlds) never moves."
+    },
+    "dropins": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "array", "items": { "$ref": "common.schema.json#/$defs/kind" }, "uniqueItems": true }
+      ],
+      "default": false,
+      "description": "Also load the drop-in folders (kiln/mods, kiln/native, kiln/plugins, emf/mods) after the listed mods: true = every kind, or a list of kinds."
+    },
+    "fingerprint": { "$ref": "common.schema.json#/$defs/fingerprint" },
+    "server": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/boundServer" }], "default": null },
+    "mods": {
+      "type": "object",
+      "properties": {
+        "kiln": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
+        "native": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
+        "emf": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
+        "plugin": { "type": "array", "items": { "$ref": "#/$defs/pluginMod" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "folderMod": {
+      "type": "object",
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/modId" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "path": { "$ref": "common.schema.json#/$defs/gamePath", "description": "The mod folder." },
+        "hash": { "$ref": "common.schema.json#/$defs/kdh1" },
+        "enabled": { "type": "boolean", "default": true }
+      }
+    },
+    "pluginMod": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "path": { "$ref": "common.schema.json#/$defs/gamePath", "description": "The plugin DLL (exports kiln_plugin_main)." },
+        "hash": { "$ref": "common.schema.json#/$defs/sha256", "description": "sha256 of the DLL." },
+        "enabled": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "fixture-manifest",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "license": "MIT License",
+  "entryAssembly": "Missing.dll",
+  "loadAfter": ["other"],
+  "loadBefore": ["other"]
+}

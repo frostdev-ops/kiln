@@ -1,0 +1,4 @@
+{ "format": 1,
+  "items": { "add": [ { "guid": "7C6C2A10-9B1E-4C3A-8D7F-1E2A3B4C5D60", "name": "FixtureIds_Blade", "base": "Weapon_Fixture_Sword" } ] },
+  "buffs": { "add": [ { "guid": "7c6c2a10-9b1e-4c3a-8d7f-1e2a3b4c5d61", "name": "FixtureIds_Buff", "base": "0x0f000001" } ] }
+}

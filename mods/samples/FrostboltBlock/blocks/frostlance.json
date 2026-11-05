@@ -1,0 +1,35 @@
+{
+  // Frostlance: the same spell as FrostboltBlockMod.cs's, as data. Block fields take the block inline, or by name.
+  "format": 1,
+  "statuses": {
+    "chilled-json": {
+      "name": "Chilled",
+      "description": "The cold bites a little every 2 seconds.",
+      "seconds": 8,
+      "tickEvery": 2,
+      "onTick": [ { "damage": { "ice": 3 }, "flinch": "none" } ]
+    }
+  },
+  "effects": {
+    "frost-burst-json": {
+      "damage": { "ice": 40 },
+      "flinch": "medium",
+      "knockback": "small",
+      "applies": "chilled-json"
+    }
+  },
+  "spells": {
+    "frostlance": {
+      "name": "Frostbolt",
+      "description": "A shard of ice that bursts where it lands, and chills what it hits.",
+      "cast": { "manaCost": 30 },
+      "delivery": {
+        "type": "projectile",
+        "speed": 30,
+        "gravity": 0.1,
+        "onImpact": [ { "area": { "radius": 3, "effects": [ "frost-burst-json" ] } } ]
+      },
+      "recipe": { "station": "hand", "makes": 10, "needs": { "Material_T1_Twigs": 2 } }
+    }
+  }
+}

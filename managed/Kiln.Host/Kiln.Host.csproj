@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Started by kiln-core.dll through hostfxr; lives in the default load context next to Kiln.Api. -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- Workstation, concurrent GC: short pauses on the tick thread matter more than throughput. -->
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" />
+    <!-- Kiln.Testing ships next to Kiln.Host in kiln/host (shared by test mods); the host runs its test runner. -->
+    <ProjectReference Include="../Kiln.Testing/Kiln.Testing.csproj" />
+    <InternalsVisibleTo Include="Kiln.Host.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.HeapHardLimit" Value="536870912" />
+    <RuntimeHostConfigurationOption Include="System.GC.RetainVM" Value="true" />
+  </ItemGroup>
+</Project>
