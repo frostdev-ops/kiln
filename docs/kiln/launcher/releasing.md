@@ -49,6 +49,10 @@ after the release: `runtime/kiln-runtime-<release version>.zip`.
   (Windows) runs the verified installer on Restart now (passive mode: it shows progress, closes the launcher and opens
   the new one). A .deb or .rpm install, a development build or an unpacked AppImage can't replace itself: the notice
   links to the download page instead. An AppImage in a folder the user can't write to counts as unpacked.
+- **Windows temp folder:** the updater writes the installer to `%TEMP%\Kiln Launcher-<version>-updater-<random>\` and
+  exits while it runs, so the folder stays. The next start removes folders with exactly that name shape, 20 s after
+  the start and only when no update of its own is downloading or waiting; a folder still in use stays for the start
+  after (`selfupdate/cleanup.rs`).
 - **The notice** (header word Update, Updating, Restart, Updated; the notice under it is one line and its buttons):
   "Kiln <version>" Skip / Update (Download for an install that can't update itself), "Updating…" with a bar,
   "Ready to restart" Later / Restart (held, with the reason as its tooltip, while another task runs).

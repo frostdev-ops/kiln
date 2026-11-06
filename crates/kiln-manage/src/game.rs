@@ -80,6 +80,10 @@ pub struct GameStatus {
     pub id: String,
     pub running: bool,
     pub pid: Option<u32>,
+    /// When the running game's process started (RFC 3339 UTC, `proc::start_time`; the Wine process under Proton), however
+    /// it was started (the launcher, Steam, a shortcut). None while it is not running or when the time is unreadable.
+    #[serde(default)]
+    pub started: Option<String>,
     pub steam_updating: bool,
     pub runtime: crate::install::InstallState,
     pub active_profile: Option<String>,
@@ -511,7 +515,8 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
     Ok(GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
-        pid: proc.map(|p| p.pid),
+        pid: proc.as_ref().map(|p| p.pid),
+        started: proc.as_ref().and_then(|p| crate::proc::start_rfc3339(p.pid)),
         steam_updating,
         runtime,
         active_profile,

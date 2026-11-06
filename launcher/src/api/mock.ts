@@ -5,7 +5,7 @@
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
   Activation, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected,
-  EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
+  EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModsJson, NativeJson, NativePlanEntry,
   NativeUserState, Profile, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
@@ -266,7 +266,7 @@ function status(gameId: string): GameStatus {
   const g = gameOf(gameId);
   const r = running[gameId];
   return {
-    id: g.id, running: !!r, pid: r?.pid ?? null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
+    id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at).toISOString() : null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
     activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && Date.now() - r.at < 2500,
     boot: bootFor(gameId), launchOptions: { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
     newerMods: newerMods[gameId] ?? [],
@@ -294,6 +294,13 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   setTimeout(() => emitGame(gameId, "boot"), 2600);
   setTimeout(() => emitGame(gameId, "mods"), 3200);
   return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now() };
+}
+
+/** Dev/test helper: the fake game was started outside the launcher (Steam) `secondsAgo` seconds ago. */
+export function mockStartOutside(secondsAgo: number, gameId = "client-steam") {
+  if (running[gameId]) return;
+  running[gameId] = { pid: ++pidSeq, mode: "profile", nonce: null, at: Date.now() - secondsAgo * 1000, profile: activations[gameId]?.profileId ?? null };
+  emitGame(gameId, "started");
 }
 
 /** Dev/test helper: the fake game exits. */
@@ -473,10 +480,19 @@ const server: ServerInstance = {
   id: "lab", name: "Lab server", kind: "local", dir: "/home/player/srv/enshrouded/lab", port: 26090, queryPort: 26091,
   wine: "ge:GE-Proton10-3", policy: "any", source: "kilnctl", remote: null,
 };
-const serverStatus: ServerStatus = {
-  id: server.id, state: "running", pid: 5120, uptimeS: 3600, players: 0, kiln: "0.2.0-dev",
+const runningServer: ServerStatus = {
+  id: server.id, state: "running", pid: 5120, uptimeS: 3600, players: 0, kiln: "0.2.0-dev", installed: "0.2.0-dev+20261104.0f1ffa6",
   boot: { ...(bootExample as unknown as BootJson), side: "server" }, endpoint: endpointExample as unknown as AdminEndpoint,
 };
+let serverStatus: ServerStatus = runningServer;
+/** Tests (`__kilnMock.setServer`): the lab server stopped and with or without Kiln in its folder, or back to running. */
+function mockSetServer(o: { running?: boolean; installed?: string | null }) {
+  const installed = o.installed === undefined ? runningServer.installed : o.installed;
+  serverStatus = !(o.running ?? true)
+    ? { ...runningServer, state: "stopped", pid: null, uptimeS: null, players: null, kiln: null, boot: null, endpoint: null, installed }
+    : installed ? { ...runningServer, installed } : { ...runningServer, installed: null, kiln: null, boot: null, endpoint: null };
+  mockEmit("kiln://server", { serverId: server.id, status: serverStatus });
+}
 
 // ---------------------------------------------------------------- handlers
 
@@ -546,9 +562,12 @@ const handlers: Record<string, Handler> = {
       if (fail) reject("io", fail);
       if (st?.proxy?.kind === "shroudforge" && !opts.switchFromShroudforge) reject("refused", "ShroudForge is installed. Switch from ShroudForge to replace it.");
       const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components: opts.components ?? b.components } };
+      // like the backend: Kiln files changed by hand are replaced, their copies kept in the install's backup
+      const changed = st?.modified ?? [];
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };
       emitGame(g.id, "status");
-      return receipt;
+      const backup = changed.length ? `/home/player/.local/share/kiln/backups/install/${receipt.installId}/install-${now().replace(/[-:]/g, "").slice(0, 15)}Z` : null;
+      return { ...receipt, changedBackedUp: changed, backup } satisfies InstallResult;
     });
   },
   runtime_uninstall: (a) => {
@@ -750,6 +769,17 @@ const handlers: Record<string, Handler> = {
   server_list: () => [server],
   server_get: () => server,
   server_status: () => serverStatus,
+  server_deploy: (a) => {
+    const version = S(a.version);
+    const b = bundles.find((x) => x.version === version) ?? reject("not_found", `No runtime bundle ${version}.`);
+    if (serverStatus.pid) reject("conflict", "Stop the server before installing Kiln.");
+    return startTask("server_deploy", `Installing Kiln ${version} on ${server.id}`, ["Verifying the bundle", "Staging", "Placing files", "Writing receipt"], () => {
+      serverStatus = { ...serverStatus, installed: b.version };
+      mockEmit("kiln://server", { serverId: server.id, status: serverStatus });
+      const receipt: InstallReceipt = { ...baseReceipt, side: "server", installed: now(), runtime: { version: b.version, sha256: b.sha256, components: b.components } };
+      return { ...receipt, changedBackedUp: [], backup: null } satisfies InstallResult;
+    });
+  },
   admin_sessions: () => [],
   ...serverMockHandlers,
   // after the server mocks: Play's Dismiss has to stick
@@ -831,5 +861,7 @@ export function mockEmit(name: string, payload: unknown): void {
 // Playwright and the dev console reach the fake game through this (mock mode only).
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   failNextInstall: (message: string) => { failNextInstall = message; },
+  setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
+  startOutside: mockStartOutside, setServer: mockSetServer,
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

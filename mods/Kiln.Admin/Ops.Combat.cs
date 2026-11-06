@@ -83,9 +83,18 @@ internal static partial class Ops
         });
     }
 
+    /// <summary>god, and the live health (the Health attribute, the same read as the health op). A player character
+    /// has no NetworkHealth component (its replicated vitals are NetworkPlayerAttributes), so this is the read that
+    /// gives players a health.</summary>
     static partial void CombatOf(EntityId entity, JsonObject player)
     {
-        if (Combat.Available) player["god"] = Combat.IsInvulnerable(entity);
+        if (!Combat.Available) return;
+        player["god"] = Combat.IsInvulnerable(entity);
+        if (Combat.TryGetHealth(entity, out var h) && h.Max > 0)
+        {
+            player["health"] = Math.Max(0, h.Current);
+            player["healthMax"] = h.Max;
+        }
     }
 
     static partial void StateCombat(JsonObject state)

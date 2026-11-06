@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
+import { create } from "zustand";
 import * as api from "../../api/commands";
 import { mockInvoke, mockListen } from "../../api/mock";
 import type { ServerId, ServerInstance, ServerMod, ServerSettings, ServerSpec, ServerStatus } from "../../api/commands";
@@ -94,6 +95,18 @@ export function stateTone(s: ServerStatus["state"] | undefined): "ok" | "warn" |
     default: return "info";
   }
 }
+
+/** Kiln is in the server folder (installed, or running with it). Unknown (remote, no status yet) counts as yes. */
+export function hasKiln(srv: ServerInstanceX | undefined, st: ServerStatus | undefined): boolean {
+  if (!srv || !st || srv.runner === "remote" || srv.kind === "remote") return true;
+  return !!(st.installed || st.kiln);
+}
+
+/** The Install/Update Kiln dialog of the server head, opened from the head's menu or from Overview. */
+export const useDeployDialog = create<{ open: boolean; show: (open: boolean) => void }>((set) => ({
+  open: false,
+  show: (open) => set({ open }),
+}));
 
 export const runnerLabel: Record<ServerRunner, string> = {
   kilnctl: "kilnctl (Wine)",

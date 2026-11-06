@@ -130,6 +130,8 @@ export interface GameStatus {
   id: GameId;
   running: boolean;
   pid: number | null;
+  /** When the running game's process started (RFC 3339 UTC), however it was started; null when stopped or unknown. */
+  started?: string | null;
   steamUpdating: boolean;
   runtime: InstallState;
   activeProfile: ProfileId | null;
@@ -193,6 +195,13 @@ export interface InstallReceipt {
   game?: { exe?: string; sha256?: string; steamBuild?: string };
   files: ReceiptFile[];
   replaced: ReplacedFile[];
+}
+/** The result of runtime_install, runtime_rollback and server_deploy: the receipt, plus what the install backed up. */
+export interface InstallResult extends InstallReceipt {
+  /** Kiln files changed by hand that the install replaced; the changed copies are in `backup`. */
+  changedBackedUp?: string[];
+  /** The install's backup folder in the launcher's data dir (`backups/install/<installId>/install-<ts>`), or null. */
+  backup?: string | null;
 }
 export interface InstallOptions {
   components?: string[] | null;
@@ -658,6 +667,9 @@ export interface ServerStatus {
   uptimeS: number | null;
   players: number | null;
   kiln: string | null;
+  /** Kiln in the server folder, running or not: the installed runtime version ("unknown" for a Kiln put there by
+   * hand); null when it has none, and for a remote server. */
+  installed?: string | null;
   boot: BootJson | null;
   endpoint: AdminEndpoint | null;
 }

@@ -23,15 +23,22 @@ internal static partial class Ops
             if (p.Position is { } pos) o["pos"] = Pos(pos);
             HealthOf(p.Entity, o);
             CombatOf(p.Entity, o);
+            // without kiln.combat: the replicated vitals (NetworkPlayerAttributes, one step old)
+            if (o["healthMax"] is null && p.Snapshot() is { HealthMax: > 0 } snap)
+            {
+                o["health"] = Math.Max(0, snap.Health ?? 0);
+                o["healthMax"] = snap.HealthMax;
+            }
             list.Add(o);
         }
         return list;
     }
 
-    /// <summary>Adds health/healthMax when a component read is available (kiln.world).</summary>
+    /// <summary>Adds health/healthMax from the NetworkHealth component when kiln.world is available (creatures have
+    /// it; player characters don't). <see cref="CombatOf"/> runs after it and wins.</summary>
     static partial void HealthOf(EntityId entity, JsonObject player);
 
-    /// <summary>Adds god (invulnerable) when kiln.combat is available.</summary>
+    /// <summary>Adds god (invulnerable) and the live health/healthMax when kiln.combat is available.</summary>
     static partial void CombatOf(EntityId entity, JsonObject player);
 
     static partial void RegisterPlayers(Bridge bridge, Logger log)
@@ -45,7 +52,7 @@ internal static partial class Ops
     }
 
     // Deaths, like the Lua mod: a player whose health drops to 0 from above 0 gets a grave marker (last 50).
-    private static readonly Dictionary<uint, uint> LastHealth = [];
+    private static readonly Dictionary<uint, long> LastHealth = [];
     private static readonly List<JsonObject> Deaths = [];
 
     static partial void StatePlayers(JsonObject state)
@@ -58,8 +65,9 @@ internal static partial class Ops
             if (node is not JsonObject p || p["entity"] is null) continue;
             var e = p["entity"]!.GetValue<uint>();
             seen.Add(e);
-            if (p["health"] is not JsonNode h || p["pos"] is not JsonObject pos) continue;
-            var health = h.GetValue<uint>();
+            if (p["health"] is not JsonValue h || p["pos"] is not JsonObject pos) continue;
+            var health = h.TryGetValue<int>(out var hi) ? hi : h.TryGetValue<uint>(out var hu) ? (long)hu : -1;
+            if (health < 0) continue;
             if (health == 0 && LastHealth.TryGetValue(e, out var prev) && prev > 0)
             {
                 Deaths.Add(new JsonObject { ["entity"] = e, ["pos"] = pos.DeepClone(), ["clock"] = Environment.TickCount64 / 1000.0 });

@@ -124,6 +124,20 @@ pub struct InstallOptions {
     pub installer: Option<String>,
 }
 
+/// What an install did besides writing its receipt (not part of the receipt file).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallReport {
+    /// Kiln files changed by hand since the last install that this install replaced (game-relative paths). The
+    /// changed copies are in `backup` and in `kiln/backups/install-<ts>/` of the game folder.
+    #[serde(default)]
+    pub changed_backed_up: Vec<String>,
+    /// This install's backup folder in the launcher's data dir (`<data>/backups/install/<installId>/install-<ts>`),
+    /// when it backed anything up.
+    #[serde(default)]
+    pub backup: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallState {
@@ -464,6 +478,12 @@ fn chain_line(chain_rel: &str) -> String {
 /// Installs or upgrades (an existing receipt: deletes obsolete files only when unchanged).
 pub fn install(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
                progress: &mut dyn Progress) -> Result<InstallReceipt> {
+    install_report(dirs, install, bundle, options, progress).map(|(r, _)| r)
+}
+
+/// `install`, with what it backed up besides the receipt (hand-changed Kiln files).
+pub fn install_report(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
+                      progress: &mut dyn Progress) -> Result<(InstallReceipt, InstallReport)> {
     let game_dir = install.path.as_path();
     let exe = game_dir.join(&install.exe);
     if !exe.is_file() {
@@ -508,7 +528,7 @@ pub fn install(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &
 #[allow(clippy::too_many_arguments)]
 fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_sha: &str, manifest: &RuntimeManifest,
                   components: &[String], files: &[RuntimeFile], old: Option<InstallReceipt>, options: &InstallOptions,
-                  staging: &Path, progress: &mut dyn Progress) -> Result<InstallReceipt> {
+                  staging: &Path, progress: &mut dyn Progress) -> Result<(InstallReceipt, InstallReport)> {
     let game_dir = install.path.as_path();
     let side = side_of(install);
     let new_dir = staging.join("new");
@@ -531,6 +551,7 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
         old.iter().flat_map(|o| o.files.iter()).map(|f| (f.path.as_str(), f)).collect();
     let mut replaced: Vec<ReplacedFile> = old.as_ref().map(|o| o.replaced.clone()).unwrap_or_default();
     let mut steps: Vec<Step> = Vec::new();
+    let mut changed_backed_up: Vec<String> = Vec::new();
 
     let outcome: Result<()> = (|| {
         // 1. dinput8.dll: what is there now decides
@@ -647,6 +668,7 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                     // one of our files, changed by hand: keep a copy of the edit, but it is no original
                     let b = copy_into_backup(game_dir, &backup_rel, &f.path, Some(&mirror))?;
                     progress.report(None, &format!("{} was changed since the last install; the changed file is in {b}", f.path));
+                    changed_backed_up.push(f.path.clone());
                 } else if !ours {
                     if !has_record && (f.config || *h == f.sha256) {
                         replaced.push(ReplacedFile {
@@ -772,7 +794,8 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
         progress.report(Some(1.0), &format!("kept {} changed file(s) the new bundle no longer has: {}", kept_obsolete.len(), kept_obsolete.join(", ")));
     }
     progress.report(Some(1.0), &format!("installed Kiln {} ({} files)", manifest.version, files.len()));
-    Ok(receipt)
+    let backup = mirror.is_dir().then(|| mirror.to_string_lossy().into_owned());
+    Ok((receipt, InstallReport { changed_backed_up, backup }))
 }
 
 /// `<data>/installs/<installId>.json` (game::write_record): the install under its receipt id, with a copy of the

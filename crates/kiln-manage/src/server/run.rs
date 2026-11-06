@@ -64,34 +64,10 @@ fn uptime(pid: u32) -> Option<Duration> {
     {
         super::procs::uptime(pid)
     }
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     {
-        windows_uptime(pid)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = pid;
-        None
-    }
-}
-
-/// Time since the process started (GetProcessTimes; creation time in 100 ns units since 1601).
-#[cfg(windows)]
-fn windows_uptime(pid: u32) -> Option<Duration> {
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
-    use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    // SAFETY: plain Win32 calls on a handle we own; zeroed out-structs.
-    unsafe {
-        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if h.is_null() {
-            return None;
-        }
-        let (mut c, mut x, mut k, mut u): (FILETIME, FILETIME, FILETIME, FILETIME) = std::mem::zeroed();
-        let ok = GetProcessTimes(h, &mut c, &mut x, &mut k, &mut u) != 0;
-        CloseHandle(h);
-        let ticks = (u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime);
-        let unix_100ns = ticks.checked_sub(116_444_736_000_000_000).filter(|_| ok)?;
-        SystemTime::now().duration_since(std::time::UNIX_EPOCH + Duration::from_nanos(unix_100ns.saturating_mul(100))).ok()
+        // Windows: GetProcessTimes' creation time
+        SystemTime::now().duration_since(crate::proc::start_time(pid)?).ok()
     }
 }
 
@@ -102,9 +78,15 @@ pub fn status(instance: &ServerInstance) -> Result<ServerStatus> {
     let dir = instance.local_dir()?;
     let pid = pid(instance);
     // boot.json stays after the server exits (and survives an uninstall), endpoint.json after a crash: they describe
-    // this run only while the server runs, and on Windows only when their pid is the server's (both are Windows pids)
+    // this run only while the server runs, and on Windows only when their pid is the server's (both are Windows pids).
+    // boot.json must also be newer than the process (under Wine its pid says nothing): a restart shows no old boot.
     let current = |file_pid: u32| pid.is_some_and(|p| !cfg!(windows) || p == file_pid);
-    let boot = crate::state::read_boot(dir).ok().flatten().filter(|b| current(b.pid));
+    let started = pid.and_then(crate::proc::start_time);
+    let boot_written = std::fs::metadata(dir.join(crate::paths::game::BOOT_JSON)).and_then(|m| m.modified()).ok();
+    let boot = crate::state::read_boot(dir)
+        .ok()
+        .flatten()
+        .filter(|b| current(b.pid) && crate::launch::written_after_start(boot_written, started));
     let endpoint = crate::admin::discover::endpoint(dir).ok().flatten().filter(|e| current(e.pid));
     let up = pid.and_then(uptime);
     let state = match pid {
@@ -129,9 +111,20 @@ pub fn status(instance: &ServerInstance) -> Result<ServerStatus> {
         uptime_s: up.map(|d| d.as_secs()),
         players,
         kiln: boot.as_ref().map(|b| b.kiln.clone()),
+        installed: installed_kiln(dir),
         boot,
         endpoint,
     })
+}
+
+/// Kiln in a server folder: its install receipt's runtime version, else the version of a Kiln proxy put there without
+/// the installer (a deploy script; `"unknown"` when the proxy names none). None: no Kiln.
+pub fn installed_kiln(dir: &Path) -> Option<String> {
+    if let Ok(Some(r)) = crate::install::read_receipt(dir) {
+        return Some(r.runtime.version);
+    }
+    let c = crate::pe::classify_proxy(&dir.join(crate::install::PROXY)).ok()?;
+    (c.kind == crate::pe::ProxyKind::Kiln).then(|| c.version.unwrap_or_else(|| "unknown".into()))
 }
 
 fn remote_status(instance: &ServerInstance) -> Result<ServerStatus> {
@@ -144,6 +137,7 @@ fn remote_status(instance: &ServerInstance) -> Result<ServerStatus> {
         uptime_s: None,
         players: None,
         kiln: ep.as_ref().and_then(|e| e.kiln.clone()),
+        installed: None,
         boot: None,
         endpoint: ep,
     })
@@ -837,5 +831,34 @@ mod unix_runner {
             stop_at.map(|t| format!(", {:.1} s after the stop request", t.elapsed().as_secs_f64())).unwrap_or_default()
         ));
         Ok(code)
+    }
+}
+
+#[cfg(test)]
+mod installed_tests {
+    use super::installed_kiln;
+
+    #[test]
+    fn kiln_in_a_server_folder_from_the_receipt_or_the_proxy() {
+        let dir = std::env::temp_dir().join(format!("km-installed-kiln-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("kiln")).unwrap();
+        assert_eq!(installed_kiln(&dir), None, "an empty folder");
+        // another proxy is no Kiln
+        let emf = crate::pe::build_test_dll(&["DirectInput8Create", "emf_loader_identity"], b"EMF loader");
+        std::fs::write(dir.join("dinput8.dll"), emf).unwrap();
+        assert_eq!(installed_kiln(&dir), None, "EMF's proxy");
+        // a Kiln proxy put there by a deploy script, without a receipt
+        let kiln = crate::pe::build_test_dll(&["DirectInput8Create", "KilnProxyInfo"], b"KilnProxy/2 0.2.0-dev+20261106\0");
+        std::fs::write(dir.join("dinput8.dll"), kiln).unwrap();
+        assert_eq!(installed_kiln(&dir).as_deref(), Some("0.2.0-dev+20261106"));
+        // the installer's receipt wins
+        let receipt = serde_json::json!({
+            "format": 1, "installId": "4b8e2c1a-0000-4000-8000-000000000001", "installed": "2026-11-06T12:00:00Z",
+            "runtime": { "version": "0.2.1+20261106.0d9662b", "components": ["core", "admin"] }, "side": "server", "files": [],
+        });
+        std::fs::write(dir.join("kiln/.install.json"), receipt.to_string()).unwrap();
+        assert_eq!(installed_kiln(&dir).as_deref(), Some("0.2.1+20261106.0d9662b"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

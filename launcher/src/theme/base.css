@@ -221,5 +221,6 @@ p { margin: 0; }
 .k-cmd-names > *, .k-cmd-help > * { flex: none; }
 .k-ticks-top { display: flex; gap: 30px; align-items: flex-start; flex-wrap: wrap; }
 .k-overview { flex: 1; min-height: 0; display: flex; gap: 22px; padding-bottom: 18px; }
+.k-server-page > .k-banner { flex: none; margin-bottom: 14px; }
 .k-overview-aside { flex: none; width: 208px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
 .k-overview-aside .k-kv { margin-top: 6px; gap: 1px 10px; }

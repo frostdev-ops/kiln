@@ -271,7 +271,14 @@ bool build_registries(uintptr_t world, std::string* why) {
         }
         L.available = !L.entries.empty() && bad < 16;
     }
-    if (E.loot && !L.available) LOGW("random-loot items off: the loot registry is not readable");
+    if (E.loot && !L.available) {
+        // a client that joined a server has no loot registry (the server rolls the loot): expected there. A server
+        // world (a dedicated server, or a client hosting) without one has lost random-loot items.
+        if (active_kind() == KILN_WORLD_CLIENT)
+            LOGI("random-loot items off: this client joined a server, which rolls the loot");
+        else
+            LOGW("random-loot items off: the loot registry is not readable");
+    }
     D.available = E.drops;
     return true;
 }

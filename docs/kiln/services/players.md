@@ -104,7 +104,9 @@ players->list(KILN_PLAYERS_LIST_IN_GAME, list, 16, &n);
 
 ## Kiln.Admin
 
-`ops.players` -> `Players.All` (`Entity`, `Position`; health is a component read: kiln.world `NetworkHealth`),
+`ops.players` -> `Players.All` (`Entity`, `Position`; `health`/`healthMax` are the live Health attribute through
+kiln.combat, the same read as the `health` op; a player character has no `NetworkHealth` component, its replicated
+vitals are `NetworkPlayerAttributes`, the fallback without kiln.combat),
 `is_player` -> `Players.IsPlayer`, name/Steam lookups for any op that takes a player. Kick is not in v1 (see the RE
 notes).
 

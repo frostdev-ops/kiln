@@ -72,7 +72,8 @@ game's state word), the Play page in front of the stage, the sheet that rises ov
 the Play button: on Play it is `min(500, 40% of the window)` wide, 84 above the bottom and 48 from the right; on a
 sheet page it shrinks to the pilot light (36 wide, 24 from the right, 7 from the top) and is still the Play button.
 By game state: no game or no Kiln: unlit, "Add game" or "Install"; updating: embers, amber word; stopped: idle fire;
-starting: flare and cones; running: the elapsed time, dim; vanilla: cobalt word; safe idle: low fire, amber word.
+starting: flare and cones; running: the elapsed time, dim (counted from the game process's start, `GameStatus.started`,
+also when Steam started it); vanilla: cobalt word; safe idle: low fire, amber word.
 `shell/play.ts` (`usePlayControl`) shares the state and `launch_play` between the mouth and the Play page.
 The launcher update sits in the header beside the tasks (`shell/UpdateNotice.tsx`): a state word (cobalt "Update",
 ember "Updating", celadon "Restart" and "Updated") and its notice, a popover like the task list that drops open by

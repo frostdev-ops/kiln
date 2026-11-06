@@ -9,7 +9,7 @@ import type { BootJson, InstallState, RunSide, RuntimeBundle } from "../api/comm
 import { invalidateGame, qk, useGame, useGameStatus, useLaunchState, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
 import {
   Banner, Button, Card, ConfirmDanger, DropZone, EmptyState, Modal, Page, PageHeader, Skeleton, Table,
-  TaskProgress, Toggle, errorText, fmtAgo, runTask, toast, useTasks, type Column,
+  TaskProgress, Toggle, errorText, fmtAgo, installNote, runTask, toast, useTasks, type Column,
 } from "../ui";
 
 export default function RuntimePage() {
@@ -58,7 +58,7 @@ export default function RuntimePage() {
     const base: RuntimeChange = { what, version, taskId: null, state: "running", error: null, at: Date.now() };
     put(gid, base);
     try {
-      const r = await runTask<api.InstallReceipt | null>(async () => { const id = await start(); put(gid, { ...base, taskId: id }); return id; }, { done: label });
+      const r = await runTask<api.InstallResult | null>(async () => { const id = await start(); put(gid, { ...base, taskId: id }); return id; }, { done: label, detail: installNote });
       put(gid, { ...(useRuntimeChanges.getState().last[gid] ?? base), state: "done" });
       if (r?.runtime) {
         // the task checked the game folder against this receipt: show it now (re-hashing for the page's own status

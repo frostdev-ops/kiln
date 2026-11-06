@@ -66,9 +66,11 @@ export function waitTask<R = unknown>(id: TaskId): Promise<R> {
   });
 }
 
-export interface RunTaskOptions {
+export interface RunTaskOptions<R = unknown> {
   /** Success toast. */
   done?: string;
+  /** The success toast's second line, from the result (none when it returns nothing). */
+  detail?: (result: R) => string | undefined;
   /** Error toast title (the error message is the detail). */
   failed?: string;
   /** No error toast (the caller shows the error). */
@@ -76,11 +78,11 @@ export interface RunTaskOptions {
 }
 
 /** Starts a TaskId command and awaits its result; toasts on success/failure. */
-export async function runTask<R = unknown>(start: () => Promise<TaskId>, opts: RunTaskOptions = {}): Promise<R> {
+export async function runTask<R = unknown>(start: () => Promise<TaskId>, opts: RunTaskOptions<R> = {}): Promise<R> {
   try {
     const id = await start();
     const r = await waitTask<R>(id);
-    if (opts.done) toast.ok(opts.done);
+    if (opts.done) toast.ok(opts.done, opts.detail?.(r));
     return r;
   } catch (e) {
     const k = e as KilnError;

@@ -80,8 +80,14 @@ textures load).
   boot.json's pid, and boot.json is newer than kiln.prev.log); read incrementally.
 - Runtime installs end with a check of the game folder: the receipt must name the bundle's version and parts and every
   listed file must have its bytes, else the task fails. Parts the game's side cannot take are refused before the
-  bundle's verify. The page keeps the last change and its outcome until dismissed; Play shows a failed one.
-- Frontend: `useTaskFeed()` (shell) fills the store; `runTask(() => cmd(...), {done})` awaits a task's result.
+  bundle's verify. The page keeps the last change and its outcome until dismissed; Play shows a failed one. When the
+  install replaced Kiln files changed by hand (`changedBackedUp` in its result), its toast adds "N changed files kept
+  in backups".
+- Frontend: `useTaskFeed()` (shell) fills the store; `runTask(() => cmd(...), {done, detail})` awaits a task's result
+  (`detail(result)`: the success toast's second line, or none).
+- The running clock (the mouth and the header word) counts from `GameStatus.started`, the game process's own start, so
+  a game started from Steam shows its real time. Without one it counts from this launcher's launch when that was just
+  now, else from boot.json, else from when the launcher first saw the game; a stopped game ends the launch's record.
 - Watcher (1 s): process start/stop (`proc::find_game`), mtimes of `state/{boot,mods,native,last-server}.json`;
   computes the full status only when something changed. Log follows poll in the same loop.
 

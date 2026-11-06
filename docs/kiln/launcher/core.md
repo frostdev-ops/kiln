@@ -22,12 +22,14 @@ compression). kilnctl enables `server` + `zip`, the launcher `full`. Builds and 
   `libraries`, `app_manifest` (`updating` from StateFlags), `compat_tool`, `launch_options`: read-only, never written.
 - `game::detect()` finds the client (1203620) and server (2278520) in every library; `inspect(path)` describes a
   folder; `add/remove/known` keep `<data>/installs/<id>.json` = `{format, install, receipt?, added, updated}`;
-  `status` = `GameStatus` (running, Steam updating, `install::status`, active profile, play-once pending, boot.json,
-  launch options + the `WINEDLLOVERRIDES="dinput8=n,b" %command%` advice); `path_mode` (contracts.md 6).
+  `status` = `GameStatus` (running, `started`: when the game process started, whoever started it, Steam updating,
+  `install::status`, active profile, play-once pending, boot.json, launch options + the
+  `WINEDLLOVERRIDES="dinput8=n,b" %command%` advice); `path_mode` (contracts.md 6).
 - **Install ids** are stable: the receipt's `installId` when Kiln is installed, else `game::path_install_id(dir)`, a
   UUID from sha256(canonical path). The first install keeps that UUID as `installId`, so the id does not change.
 - `proc::list`, `proc::find_game(install)` (Linux: comm + argv[0] as a `Z:\` path or the cwd; Windows: the image
-  path), `proc::alive`.
+  path), `proc::alive`, `proc::start_time(pid)` (Linux: `/proc/<pid>/stat` starttime after `/proc/stat` btime, the
+  Wine process under Proton; Windows: `GetProcessTimes` with `PROCESS_QUERY_LIMITED_INFORMATION`).
 - `winpath::{unix_to_z, z_to_unix, z_drive_ok, to_game, to_host}`.
 
 ## Runtime bundles and the installer
@@ -36,7 +38,10 @@ compare_versions, sides}`; `install::{install, uninstall, uninstall_report, roll
 select_components, read_receipt, modified_files, standard_dirs}`; `pe::{classify_proxy, classify_bytes, exports,
 is_pe64_dll}` (`runtime_classify`). `InstallOptions {components, switchFromShroudforge, installer}`: pass
 `installer: "kiln-launcher <version>"`. Progress: `report(fraction, message)` for every staged/installed file and a
-final summary line; `canceled()` is polled between files (the install undoes itself).
+final summary line; `canceled()` is polled between files (the install undoes itself). `install_report` returns the
+receipt and an `InstallReport {changedBackedUp, backup}`: the Kiln files changed by hand that the install replaced
+(their copies are in `kiln/backups/install-<ts>/` and `<data>/backups/install/<installId>/install-<ts>/`), and that
+launcher-side folder.
 Error codes the UI should expect: `game_running` (detail `pid`), `steam_updating` (detail `stateFlags`), `refused`
 (ShroudForge, not a DLL, unsafe zip names), `hash_mismatch`, `conflict` (side mismatch), `not_found`.
 
@@ -77,7 +82,8 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   `profile`; a save backup (`saves`, reason `launch`) when the kms1 of what loads differs from the last launch
   (`<data>/installs/<id>.launch.json`; vanilla and no-mods are the empty set); then `steam://rungameid/<app>`
   (xdg-open / ShellExecuteW). A failure removes the flag again. `play_with` takes the save folders and the opener
-  (tests). Then `wait_started`, `read_boot_for(install, nonce)`, `boot_is_current`.
+  (tests). Then `wait_started`, `read_boot_for(install, nonce)`, `boot_is_current` (boot.json was written after the
+  running game's process started; on Windows its pid must also be that process's).
 - `playonce::{render, write, pending, clear, new_nonce, decide, decide_detail}`; `chain::{parse, parse_once, read,
   write_chain_section, write_profile_section, add_chain_entry, remove_chain_entry, write_once}`. Both match every
   `schema/fixtures/ini` case (kini.py).

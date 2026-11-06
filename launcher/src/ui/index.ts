@@ -29,4 +29,4 @@ export { Mark, Lockup, Splash, Sparkline, TickChart } from "./Brand";
 export { SortableList } from "./SortableList";
 export { Menu } from "./Menu";
 export type { MenuItem } from "./Menu";
-export { fmtBytes, fmtAgo, fmtTime, shortHash, errorText } from "./format";
+export { fmtBytes, fmtAgo, fmtTime, shortHash, errorText, installNote } from "./format";

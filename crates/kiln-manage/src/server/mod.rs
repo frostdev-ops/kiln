@@ -48,6 +48,11 @@ pub struct ServerStatus {
     pub uptime_s: Option<u64>,
     pub players: Option<u32>,
     pub kiln: Option<String>,
+    /// Kiln in the server folder, running or not: the runtime version of its install receipt (`kiln/.install.json`),
+    /// else the version of a Kiln `dinput8.dll` put there without the installer (`"unknown"` when it names none).
+    /// None when the folder has no Kiln, and for a remote server (not known).
+    #[serde(default)]
+    pub installed: Option<String>,
     pub boot: Option<BootJson>,
     pub endpoint: Option<crate::admin::protocol::Endpoint>,
 }

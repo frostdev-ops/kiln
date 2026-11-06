@@ -13,8 +13,11 @@
 //!   development builds) get the download page ([`kind`]).
 //! - `<data>/update.json` keeps the skipped version, the last check and the update just installed, so the next start
 //!   can say what changed and offer the new Kiln runtime the launcher brought.
+//! - Windows: the installer's temp folder (`%TEMP%\Kiln Launcher-<version>-updater-<random>\`) outlives the update;
+//!   the next start removes such folders ([`cleanup`]).
 //! Every state change is sent as `kiln://update` with the whole [`UpdateStatus`].
 
+pub mod cleanup;
 pub mod feed;
 pub mod kind;
 #[cfg(test)]
@@ -33,6 +36,8 @@ pub const EVENT: &str = "kiln://update";
 const FIRST_CHECK: Duration = Duration::from_secs(8);
 const INTERVAL: Duration = Duration::from_secs(6 * 3600);
 const NOTES_MAX: usize = 600;
+/// Windows: how long after the start the updater's old temp folders are removed.
+const CLEANUP_DELAY: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -264,6 +269,21 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
     ));
     if let Some(u) = &just {
         log(&format!("updated from {} to {} ({})", u.from, u.to, u.source));
+    }
+    if cfg!(windows) {
+        // the installer that started this launcher may still be finishing: give it a moment
+        let name = app.package_info().name.clone();
+        let _ = std::thread::Builder::new().name("kiln-update-cleanup".into()).spawn(move || {
+            std::thread::sleep(CLEANUP_DELAY);
+            // an update of this run on its way into the temp folder is left alone (the next start removes it)
+            if matches!(state().status.phase, Phase::Downloading | Phase::Ready) {
+                return;
+            }
+            let gone = cleanup::clean(&std::env::temp_dir(), &name);
+            if !gone.is_empty() {
+                log(&format!("removed the updater's temp folders: {}", gone.join(", ")));
+            }
+        });
     }
     let _ = std::thread::Builder::new().name("kiln-update".into()).spawn(move || {
         std::thread::sleep(FIRST_CHECK);

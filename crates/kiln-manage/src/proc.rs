@@ -88,6 +88,34 @@ pub fn alive(pid: u32) -> bool {
     imp::alive(pid)
 }
 
+/// When the process started (wall clock), None when it is gone or unreadable. Linux: `/proc/<pid>/stat` starttime after
+/// `/proc/stat` btime (a whole second's precision, the same value on every read); Windows: the creation time of
+/// GetProcessTimes. Under Wine/Proton this is the host process: the game's real start, whoever started it.
+pub fn start_time(pid: u32) -> Option<std::time::SystemTime> {
+    imp::start_time(pid)
+}
+
+/// `start_time` as RFC 3339 UTC (`2026-11-06T13:05:09Z`).
+pub fn start_rfc3339(pid: u32) -> Option<String> {
+    start_time(pid).map(|t| crate::util::rfc3339(crate::util::unix(t)))
+}
+
+/// Linux: the start from `/proc/<pid>/stat` (field 22, starttime, in clock ticks after boot) and `/proc/stat`'s btime.
+pub fn parse_start(stat: &str, proc_stat: &str, ticks_per_s: u64) -> Option<std::time::SystemTime> {
+    let ticks: u64 = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()?;
+    let btime: u64 = proc_stat.lines().find_map(|l| l.strip_prefix("btime ")?.trim().parse().ok())?;
+    let hz = ticks_per_s.max(1);
+    let since_boot = std::time::Duration::from_secs(ticks / hz) + std::time::Duration::from_nanos((ticks % hz) * 1_000_000_000 / hz);
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(btime) + since_boot)
+}
+
+/// Windows FILETIME (100 ns units since 1601-01-01) as a SystemTime; None before 1970.
+pub fn filetime_to_system(ticks: u64) -> Option<std::time::SystemTime> {
+    const UNIX_EPOCH_AS_FILETIME: u64 = 116_444_736_000_000_000;
+    let since_unix = ticks.checked_sub(UNIX_EPOCH_AS_FILETIME)?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_nanos(since_unix.checked_mul(100)?))
+}
+
 fn list_with_extra() -> Result<Vec<(ProcessInfo, Extra)>> {
     imp::list()
 }
@@ -110,6 +138,25 @@ mod imp {
             .flatten()
             .filter_map(|e| e.file_name().to_str()?.parse().ok())
             .collect()
+    }
+
+    pub fn start_time(pid: u32) -> Option<std::time::SystemTime> {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let proc_stat = fs::read_to_string("/proc/stat").ok()?;
+        super::parse_start(&stat, &proc_stat, clock_ticks())
+    }
+
+    /// USER_HZ (100 on every common Linux).
+    fn clock_ticks() -> u64 {
+        #[cfg(unix)]
+        {
+            // SAFETY: plain libc query.
+            let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+            if hz > 0 {
+                return hz as u64;
+            }
+        }
+        100
     }
 
     pub fn alive(pid: u32) -> bool {
@@ -152,13 +199,13 @@ mod imp {
     use super::{Extra, ProcessInfo};
     use crate::Result;
     use std::path::PathBuf;
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, STILL_ACTIVE, WAIT_TIMEOUT};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE, STILL_ACTIVE, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-        QueryFullProcessImageNameW, WaitForSingleObject,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW, WaitForSingleObject,
     };
 
     fn wide_to_string(w: &[u16]) -> String {
@@ -179,6 +226,25 @@ mod imp {
             CloseHandle(h);
             (ok != 0).then(|| PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
         }
+    }
+
+    /// The creation time of GetProcessTimes (PROCESS_QUERY_LIMITED_INFORMATION is enough, also for elevated games).
+    pub fn start_time(pid: u32) -> Option<std::time::SystemTime> {
+        // SAFETY: plain Win32 calls on a handle we own and close; zeroed out-structs.
+        let created = unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return None;
+            }
+            let (mut c, mut x, mut k, mut u): (FILETIME, FILETIME, FILETIME, FILETIME) = std::mem::zeroed();
+            let ok = GetProcessTimes(h, &mut c, &mut x, &mut k, &mut u) != 0;
+            CloseHandle(h);
+            if !ok {
+                return None;
+            }
+            (u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime)
+        };
+        super::filetime_to_system(created)
     }
 
     pub fn alive(pid: u32) -> bool {
@@ -247,6 +313,38 @@ mod tests {
         assert_eq!(parse_stat_state("123 (enshrouded_serv) S 1 2 3"), Some('S'));
         assert_eq!(parse_stat_state("9 (a) b) c) Z 1"), Some('Z'));
         assert_eq!(parse_stat_state("garbage"), None);
+    }
+
+    #[test]
+    fn start_from_proc_stat_and_btime() {
+        let stat = "4242 (enshrouded.exe) S 1 4242 4242 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 12345 0 0";
+        let proc_stat = "cpu  1 2 3\nbtime 1762400000\nprocesses 9\n";
+        let t = parse_start(stat, proc_stat, 100).unwrap();
+        assert_eq!(t, std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_762_400_000_000 + 123_450));
+        // a name with ") " in it does not shift the fields
+        let odd = "7 (a) b) S 1 7 7 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 250 0 0";
+        assert_eq!(parse_start(odd, proc_stat, 250).unwrap(), std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_762_400_001));
+        assert!(parse_start("garbage", proc_stat, 100).is_none());
+        assert!(parse_start(stat, "cpu 1 2 3\n", 100).is_none());
+    }
+
+    #[test]
+    fn filetime_conversion() {
+        // 2026-11-06T13:05:09.5Z = 1_793_970_309.5 s after 1970
+        let ft = 116_444_736_000_000_000u64 + 1_793_970_309 * 10_000_000 + 5_000_000;
+        assert_eq!(filetime_to_system(ft).unwrap(), std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_793_970_309_500));
+        assert!(filetime_to_system(1).is_none(), "before 1970");
+        assert_eq!(crate::util::rfc3339(crate::util::unix(filetime_to_system(ft).unwrap())), "2026-11-06T13:05:09Z");
+    }
+
+    #[test]
+    fn own_start_time_is_in_the_past_and_stable() {
+        let a = start_time(std::process::id()).expect("own start time");
+        let now = std::time::SystemTime::now();
+        assert!(a <= now + std::time::Duration::from_secs(1), "{a:?} after {now:?}");
+        assert!(now.duration_since(a).unwrap_or_default() < std::time::Duration::from_secs(3600), "started over an hour ago?");
+        assert_eq!(start_time(std::process::id()), Some(a), "the same value on every read");
+        assert!(start_time(u32::MAX - 3).is_none());
     }
 
     #[test]

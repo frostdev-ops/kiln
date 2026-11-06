@@ -111,7 +111,9 @@ Now:
 - `export_changes(kinds, buf, cap, len)` (v2) gives the document above. A recipe list that is back to the game's
   amounts, but lives in Kiln's memory, does not count as a change.
 - In a joined client the readiness log reads `registries ready at step 12 (172 ms after the client world's first
-  step): 4213 items, 2542 recipes … 0 random-loot items` (real client).
+  step): 4213 items, 2542 recipes … 0 random-loot items` (real client). The loot registry lives on the server, so a
+  joined client logs `random-loot items off: this client joined a server, which rolls the loot` at Info; a server
+  world (dedicated, or a client hosting) without it warns `random-loot items off: the loot registry is not readable`.
 - `ContentSync.CheckRoundTrip()` checks the format on this process's own registries:
   1. The exported state, applied on top, leaves the state unchanged.
   2. A vanilla server's state with `matchServer` puts every change back.

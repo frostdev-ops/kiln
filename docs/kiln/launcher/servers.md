@@ -81,10 +81,14 @@ One grouped list per server replaces the server tabs and the admin tabs (`launch
 (Overview, Logs, Tick stats), World (Players, Map, Zones, Spawn, Creatures, Combat, World), Data (Items, Game data,
 Content, Permissions), Files (Settings, Configs, Mods, Backups, Saves, Modpack, Crashes). The layout
 (`ServerLayout.tsx`) shows the server's name (a button: change server), its live sentence (state, uptime, players, the
-admin connection) and Start or Restart and Stop; Update the game, Install Kiln, the admin transport and Remove sit in
-its `···` menu. It holds the shared admin session while the server runs.
+admin connection) and Start or Restart and Stop; Update the game, Install Kiln (Update Kiln once the folder has Kiln:
+`ServerStatus.installed` or a running Kiln), the admin transport and Remove sit in its `···` menu (Install Kiln only for
+local servers). It holds the shared admin session while the server runs.
 - **overview**: the Console (above) and an aside: step p99 over the last minutes (tick stats), steps per second, max
-  step, run by, port, admin endpoint, policy, game and Kiln versions, pid.
+  step, run by, port, admin endpoint, policy, game and Kiln versions, pid. A local server without Kiln gets a banner
+  above them, "Kiln isn't installed" with Install Kiln (the same dialog as the menu; held, with "Stop the server to
+  install it.", while it runs). The install's toast adds "N changed files kept in backups" when it replaced Kiln files
+  changed by hand.
 - **logs**: the shared LogsFor (kiln.log, the game log, proxy.log, mod logs). **ticks**: the tick stats.
 - **settings**: `enshrouded_server.json`: name, slots, port, chat, preset, every difficulty setting (the game's
   ranges, minutes stored as nanoseconds), user groups (passwords unique, permissions, reserved

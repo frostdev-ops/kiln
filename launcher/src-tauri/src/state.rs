@@ -90,7 +90,8 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
     Ok(kiln_manage::game::GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
-        pid: proc.map(|p| p.pid),
+        pid: proc.as_ref().map(|p| p.pid),
+        started: proc.as_ref().and_then(|p| kiln_manage::proc::start_rfc3339(p.pid)),
         steam_updating,
         runtime,
         active_profile,

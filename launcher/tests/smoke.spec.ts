@@ -141,6 +141,65 @@ test("the mouth is the Play button and follows the game state", async ({ page })
   await expect(play).toHaveAccessibleName(/^Play /);
 });
 
+test("the running clock counts from the game's own start, also when Steam started it", async ({ page }) => {
+  type M = { __kilnMock: { stopGame: () => void; startOutside: (secondsAgo: number) => void } };
+  await open(page, "/");
+  const state = page.locator(".k-head-state");
+  await page.locator(".k-door").click();
+  await expect(state).toHaveText(/^Running/, { timeout: 8000 });
+  await page.evaluate(() => (window as unknown as M).__kilnMock.stopGame());
+  await expect(state).toHaveText("Stopped");
+  // started from Steam three minutes ago: the clock counts from then, not from this launcher's last launch
+  await page.evaluate(() => (window as unknown as M).__kilnMock.startOutside(180));
+  await expect(state).toHaveText(/^Running 03:0\d$/, { timeout: 8000 });
+  await page.evaluate(() => (window as unknown as M).__kilnMock.stopGame());
+  await expect(state).toHaveText("Stopped");
+});
+
+test("an install that replaced files changed by hand says they are kept in backups", async ({ page }) => {
+  type M = { __kilnMock: { setModified: (files: string[]) => void } };
+  await open(page, "/runtime");
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setModified(["kiln/kiln-core.dll"]));
+  await page.getByRole("row").filter({ hasText: "0.1.9+20261101.a41c2d0" }).getByRole("button", { name: "Roll back" }).click();
+  await page.getByRole("dialog", { name: "Install Kiln 0.1.9" }).getByRole("button", { name: "Install" }).click();
+  const done = page.locator(".k-toast").filter({ hasText: "Kiln 0.1.9+20261101.a41c2d0 installed" });
+  await expect(done).toBeVisible({ timeout: 8000 });
+  await expect(done.locator(".k-toast-detail")).toHaveText("1 changed file kept in backups");
+});
+
+test("a server without Kiln offers Install Kiln on Overview; one with Kiln offers Update Kiln", async ({ page }) => {
+  type M = { __kilnMock: { setServer: (o: { running?: boolean; installed?: string | null }) => void } };
+  await open(page, "/servers/lab/overview");
+  const more = page.getByRole("button", { name: "More server actions" });
+  const banner = page.locator(".k-banner").filter({ hasText: "Kiln isn't installed" });
+  // running with Kiln: no banner, the menu updates it
+  await expect(page.locator(".k-overview")).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  await more.click();
+  await expect(page.getByRole("menuitem", { name: "Update Kiln…" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // stopped, nothing of Kiln in the folder: a title and a button, nothing more
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setServer({ running: false, installed: null }));
+  await expect(banner).toBeVisible();
+  await expect(banner.locator(".k-banner-text")).toHaveCount(0);
+  await more.click();
+  await expect(page.getByRole("menuitem", { name: "Install Kiln…" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await banner.getByRole("button", { name: "Install Kiln" }).click();
+  await page.getByRole("dialog", { name: "Install Kiln" }).getByRole("button", { name: "Install" }).click();
+  const done = page.locator(".k-toast").filter({ hasText: "Kiln 0.2.0-dev+20261104.0f1ffa6 installed" });
+  await expect(done).toBeVisible({ timeout: 8000 });
+  await expect(done.locator(".k-toast-detail")).toHaveCount(0);
+  await expect(banner).toHaveCount(0);
+  await more.click();
+  await expect(page.getByRole("menuitem", { name: "Update Kiln…" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // running without Kiln: the banner says why its button waits
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setServer({ running: true, installed: null }));
+  await expect(banner.locator(".k-banner-text")).toHaveText("Stop the server to install it.");
+  await expect(banner.getByRole("button", { name: "Install Kiln" })).toBeDisabled();
+});
+
 test("the active profile is chosen from its name", async ({ page }) => {
   await open(page, "/");
   await page.getByRole("button", { name: /^Active profile: / }).click();

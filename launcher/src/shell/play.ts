@@ -1,6 +1,7 @@
 // The Play control shared by the mouth (the shell's Play button and pilot light) and the Play page: the game's state
 // as one view, whether Play can start, and launch_play. Remembers how this launcher started each game this session
-// (a vanilla start writes no boot.json) and when it was first seen running (for the elapsed time).
+// (a vanilla start writes no boot.json). The elapsed time counts from the game process's real start (game status
+// `started`), whoever started it; only without one from what this launcher saw.
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
@@ -13,7 +14,7 @@ import { gameState, type GameStateView } from "./gameState";
 interface LaunchMemo {
   at: Record<string, number>;
   mode: Record<string, LaunchMode>;
-  /** When the game was first seen running, per game. */
+  /** When the game was first seen running, per game (the clock's fallback when the status has no start time). */
   since: Record<string, number>;
 }
 export const useLaunchMemo = create<LaunchMemo>(() => ({ at: {}, mode: {}, since: {} }));
@@ -62,21 +63,30 @@ export function usePlayControl(): PlayControl {
     onError: (e) => toast.error(e),
   });
 
-  // the elapsed clock: from our launch, else from the first time the game was seen running
+  // the elapsed clock's fallback (no process start time): our launch when it was just now, else boot.json's time, else
+  // the first time the game was seen running. An older launch of ours is another run (the game was started again
+  // from Steam since).
   useEffect(() => {
     if (!id) return;
     const since = useLaunchMemo.getState().since[id];
     if (running && !since) {
       const boot = launchState.data?.boot && !launchState.data.stale ? Date.parse(launchState.data.boot.written) : NaN;
-      const at = useLaunchMemo.getState().at[id] ?? (Number.isNaN(boot) ? Date.now() : boot);
+      const ours = useLaunchMemo.getState().at[id];
+      const at = ours && Date.now() - ours < 120_000 ? ours : Number.isNaN(boot) ? Date.now() : boot;
       useLaunchMemo.setState((m) => ({ since: { ...m.since, [id]: at } }));
     } else if (!running && since) {
-      useLaunchMemo.setState((m) => { const n = { ...m.since }; delete n[id]; return { since: n }; });
+      // the run this launcher saw has ended: its launch (time, mode) is over too, so a later start from Steam is not
+      // taken for it
+      useLaunchMemo.setState((m) => {
+        const drop = <T,>(r: Record<string, T>) => { const n = { ...r }; delete n[id]; return n; };
+        return { since: drop(m.since), at: drop(m.at), mode: drop(m.mode) };
+      });
     }
   }, [id, running, launchState.data]);
   const now = useNow(running ? 1000 : 0);
   const launching = useIsMutating({ mutationKey: ["launch_play"] });
-  const since = memo.since[id];
+  const real = running && s?.started ? Date.parse(s.started) : NaN;
+  const since = Number.isNaN(real) ? memo.since[id] : real;
   const at = memo.at[id];
   const bootFresh = !!launchState.data?.boot && !launchState.data.stale;
   const starting = view.phase === "starting" || (launching > 0 && !running)

@@ -115,7 +115,8 @@ pub async fn server_deploy(app: AppHandle, server_id: String, version: String) -
             .ok_or_else(|| Error::not_found(format!("No runtime bundle {version}: import it on the Runtime page.")))?;
         let game = kiln_manage::game::inspect(inst.local_dir()?)?;
         let opts = kiln_manage::install::InstallOptions { components: None, switch_from_shroudforge: false, installer: Some(format!("kiln-launcher {}", env!("CARGO_PKG_VERSION"))) };
-        to_value(kiln_manage::install::install(&d, &game, &bundle.file, &opts, p)?)
+        let (receipt, report) = kiln_manage::install::install_report(&d, &game, &bundle.file, &opts, p)?;
+        super::runtime::install_result(&receipt, &report)
     }))
 }
 

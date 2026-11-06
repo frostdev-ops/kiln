@@ -517,13 +517,13 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | game | `game_detect` | - | `GameInstall[]` (scans Steam, adds new ones) |
 | game | `game_add` | path: string | `GameInstall` |
 | game | `game_remove` | gameId | null |
-| game | `game_status` | gameId | `GameStatus` |
+| game | `game_status` | gameId | `GameStatus` (+ `started`: RFC 3339 start of the running game's process, null when stopped) |
 | runtime | `runtime_list` | - | `RuntimeBundle[]` |
 | runtime | `runtime_import` | path: string | `RuntimeBundle` |
 | runtime | `runtime_status` | gameId | `InstallState` |
-| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` |
+| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` + `changedBackedUp: string[]` (Kiln files changed by hand that the install replaced, kept in the backup) + `backup: string \| null` (`<data>/backups/install/<installId>/install-<ts>`) |
 | runtime | `runtime_uninstall` | gameId | `TaskId` -> null |
-| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` |
+| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup` (as `runtime_install`) |
 | runtime | `runtime_classify` | path: string | `ProxyClass` |
 | profile | `profile_list` | - | `ProfileSummary[]` |
 | profile | `profile_get` | profileId | `Profile` |
@@ -577,12 +577,12 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | server | `server_create` | spec: ServerSpec | `TaskId` -> `ServerInstance` |
 | server | `server_import` | dir: string, name: string | `ServerInstance` |
 | server | `server_remove` | serverId, deleteFiles: boolean | null |
-| server | `server_status` | serverId | `ServerStatus` |
+| server | `server_status` | serverId | `ServerStatus` (+ `installed`: the Kiln runtime in the server folder from its receipt, else a hand-placed Kiln proxy's version or `"unknown"`; null without Kiln and for remote servers) |
 | server | `server_start` | serverId | `TaskId` -> `ServerStatus` |
 | server | `server_stop` | serverId | `TaskId` -> `ServerStatus` |
 | server | `server_restart` | serverId | `TaskId` -> `ServerStatus` |
 | server | `server_update` | serverId | `TaskId` -> string \| null (new build id) |
-| server | `server_deploy` | serverId, version: string | `TaskId` -> `InstallReceipt` |
+| server | `server_deploy` | serverId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup` (as `runtime_install`) |
 | server | `server_settings_get` | serverId | `ServerSettings` |
 | server | `server_settings_set` | serverId, values: unknown | `ServerSettings` |
 | server | `server_mods` | serverId | `ServerMod[]` |

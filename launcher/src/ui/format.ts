@@ -37,6 +37,13 @@ export function shortHash(h: string | null | undefined): string {
   return hex.slice(0, 8);
 }
 
+/** An install's note for its toast: "1 changed file kept in backups" when it backed up files changed by hand, else
+ * undefined. */
+export function installNote(r: { changedBackedUp?: string[] } | null | undefined): string | undefined {
+  const n = r?.changedBackedUp?.length ?? 0;
+  return n ? `${n} changed file${n === 1 ? "" : "s"} kept in backups` : undefined;
+}
+
 export function errorText(e: unknown): string {
   return toKilnError(e).message;
 }

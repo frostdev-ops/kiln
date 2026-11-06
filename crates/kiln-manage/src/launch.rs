@@ -119,36 +119,27 @@ pub fn wait_started(install: &GameInstall, timeout: Duration, poll: Duration) ->
     }
 }
 
-/// Whether `kiln/state/boot.json` belongs to the game process that runs now. On Windows its `pid` must be the pid of
-/// this install's running exe (Windows reuses pids quickly: a pid that is merely alive may be another program now).
-/// Under Wine/Proton the pid in the file is the game's Windows pid, which the host cannot see: the file counts when
-/// the game runs and the file was written after that process started.
+/// Whether `kiln/state/boot.json` belongs to the game process that runs now: the file was written after that process
+/// started (`proc::start_time`, 2 s of slack for file-time precision). On Windows its `pid` must also be the pid of this
+/// install's running exe (Windows reuses pids quickly: a pid that is merely alive may be another program now). Under
+/// Wine/Proton the pid in the file is the game's Windows pid, which the host cannot see, so the times decide alone.
 pub fn boot_is_current(install: &GameInstall, boot: &BootJson) -> bool {
-    if cfg!(windows) {
-        return crate::proc::find_game(install).ok().flatten().is_some_and(|p| p.pid == boot.pid);
-    }
     let Ok(Some(p)) = crate::proc::find_game(install) else { return false };
+    if cfg!(windows) && p.pid != boot.pid {
+        return false;
+    }
     let written = std::fs::metadata(install.path.join(crate::paths::game::BOOT_JSON)).and_then(|m| m.modified()).ok();
-    match (written, process_start(p.pid)) {
+    written_after_start(written, crate::proc::start_time(p.pid))
+}
+
+/// boot.json's write time against the process start; an unknown start counts as current (the process runs and the file
+/// is there), an unknown write time as not.
+pub(crate) fn written_after_start(written: Option<std::time::SystemTime>, started: Option<std::time::SystemTime>) -> bool {
+    match (written, started) {
         (Some(w), Some(s)) => w + Duration::from_secs(2) >= s,
         (Some(_), None) => true,
-        _ => false,
+        (None, _) => false,
     }
-}
-
-/// Start time of a Linux process (/proc/<pid>/stat starttime + /proc/stat btime; USER_HZ 100).
-#[cfg(not(windows))]
-fn process_start(pid: u32) -> Option<std::time::SystemTime> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
-    let ticks: u64 = fields.get(19)?.parse().ok()?;
-    let btime: u64 = std::fs::read_to_string("/proc/stat").ok()?.lines().find_map(|l| l.strip_prefix("btime ")?.trim().parse().ok())?;
-    Some(std::time::UNIX_EPOCH + Duration::from_secs(btime) + Duration::from_millis(ticks * 10))
-}
-
-#[cfg(windows)]
-fn process_start(_pid: u32) -> Option<std::time::SystemTime> {
-    None
 }
 
 /// `kiln/state/boot.json` of the running game: current (see `boot_is_current`) and, when `nonce` is given, with that
@@ -290,4 +281,20 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
 
 pub fn play(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest) -> Result<LaunchResult> {
     play_with(dirs, install, request, None, &desktop_open)
+}
+
+#[cfg(test)]
+mod start_tests {
+    use super::written_after_start;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn boot_json_counts_only_when_written_after_the_process_started() {
+        let start = UNIX_EPOCH + Duration::from_secs(1_793_970_000);
+        assert!(written_after_start(Some(start + Duration::from_secs(5)), Some(start)), "written during the boot");
+        assert!(written_after_start(Some(start - Duration::from_secs(1)), Some(start)), "file-time slack");
+        assert!(!written_after_start(Some(start - Duration::from_secs(600)), Some(start)), "an earlier run's file");
+        assert!(written_after_start(Some(start), None), "start unknown: the running game's file");
+        assert!(!written_after_start(None, Some(start)), "no file time");
+    }
 }

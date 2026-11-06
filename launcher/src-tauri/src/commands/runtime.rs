@@ -75,6 +75,17 @@ fn side_of(g: &GameInstall) -> RunSide {
     }
 }
 
+/// The task result of an install: the receipt, with `changedBackedUp` (the Kiln files changed by hand that the install
+/// replaced; their copies are in the backup) and `backup` (the launcher's copy of the backup folder, or null) added.
+pub(crate) fn install_result(receipt: &InstallReceipt, report: &install::InstallReport) -> Result<serde_json::Value, Error> {
+    let mut v = to_value(receipt)?;
+    if let Some(o) = v.as_object_mut() {
+        o.insert("changedBackedUp".into(), serde_json::json!(report.changed_backed_up));
+        o.insert("backup".into(), serde_json::json!(report.backup));
+    }
+    Ok(v)
+}
+
 /// An install only counts when the game folder says so afterwards: the receipt names the bundle's version and parts,
 /// and every file it lists has its bytes. Anything else fails the task with what is wrong.
 pub(crate) fn check_applied(g: &GameInstall, version: &str, receipt: &InstallReceipt, p: &mut dyn Progress) -> Result<(), Error> {
@@ -118,11 +129,11 @@ pub async fn runtime_install(app: AppHandle, game_id: String, version: String, o
         let d = dirs()?;
         let mut options = options;
         options.installer = options.installer.or_else(installer);
-        let r = install::install(&d, &g, &b.file, &options, p);
+        let r = install::install_report(&d, &g, &b.file, &options, p);
         after_change(&a, &game_id);
-        let r = r?;
+        let (r, report) = r?;
         check_applied(&g, &b.version, &r, p)?;
-        to_value(r)
+        install_result(&r, &report)
     }))
 }
 
@@ -162,11 +173,11 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
             switch_from_shroudforge: false,
             installer: installer(),
         };
-        let r = install::install(&d, &g, &b.file, &options, p);
+        let r = install::install_report(&d, &g, &b.file, &options, p);
         after_change(&a, &game_id);
-        let r = r?;
+        let (r, report) = r?;
         check_applied(&g, &b.version, &r, p)?;
-        to_value(r)
+        install_result(&r, &report)
     }))
 }
 

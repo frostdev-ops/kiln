@@ -9,10 +9,10 @@ import { NavLink, Outlet, useLocation, useNavigate, useParams } from "react-rout
 import { AdminProvider, reconnectAdmin, useAdminState } from "../../api/admin";
 import * as api from "../../api/commands";
 import type { AdminTransport } from "../../api/commands";
-import { Button, ConfirmDanger, Field, Menu, Modal, Select, Skeleton, runTask, toast, type MenuItem } from "../../ui";
+import { Button, ConfirmDanger, Field, Menu, Modal, Select, Skeleton, installNote, runTask, toast, type MenuItem } from "../../ui";
 import { SERVER_NAV, serverNavFor } from "../../shell/serverNav";
 import { ConfirmHost } from "../../admin/ui";
-import { runnerLabel, sk, useServer, useServerEvents, useServers, useServerStatus } from "./serverApi";
+import { hasKiln, runnerLabel, sk, useDeployDialog, useServer, useServerEvents, useServers, useServerStatus } from "./serverApi";
 
 export default function ServerLayout() {
   const { id = "" } = useParams();
@@ -67,15 +67,19 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
   const servers = useServers();
   const query = useQuery({ queryKey: sk.query(id), queryFn: () => api.serverQuery(id), enabled: st.data?.state === "running", refetchInterval: 15000, retry: false });
   const [busy, setBusy] = useState<string | null>(null);
-  const [deploy, setDeploy] = useState(false);
+  const { open: deploy, show: setDeploy } = useDeployDialog();
   const [removing, setRemoving] = useState(false);
   const [pick, setPick] = useState(false);
   const state = st.data?.state;
   const s = srv.data;
-  const act = (what: string, f: () => Promise<string>, done: string) => async () => {
+  const act = <R,>(what: string, f: () => Promise<string>, done: string, detail?: (r: R) => string | undefined) => async () => {
     setBusy(what);
-    try { await runTask(f, { done }); } catch { /* toasted */ } finally { setBusy(null); st.refetch(); }
+    try { await runTask<R>(f, { done, detail }); } catch { /* toasted */ } finally { setBusy(null); st.refetch(); }
   };
+  // the dialog belongs to this server: leaving it closes the dialog
+  useEffect(() => () => setDeploy(false), [id, setDeploy]);
+  const kiln = hasKiln(s, st.data);
+  const remote = s?.runner === "remote" || s?.kind === "remote";
   const players = st.data?.players ?? query.data?.players ?? null;
   const max = query.data?.maxPlayers ?? null;
   const who = players == null ? "" : players === 0 ? "Nobody online" : `${players} online`;
@@ -89,7 +93,7 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
   const running = state === "running" || state === "starting";
   const items: MenuItem[] = [
     ...(s?.runner !== "steam" ? [{ label: "Update the game (SteamCMD)", disabled: !!st.data?.pid || !!busy, onSelect: act("update", () => api.serverUpdate(id), "Server files are up to date") }] : []),
-    { label: "Install Kiln…", disabled: !!st.data?.pid || !!busy, onSelect: () => setDeploy(true) },
+    ...(!remote ? [{ label: kiln ? "Update Kiln…" : "Install Kiln…", disabled: !!st.data?.pid || !!busy, onSelect: () => setDeploy(true) }] : []),
     ...(live ? transportItems(id) : []),
     { label: "Remove from the launcher", danger: true, disabled: !!st.data?.pid, onSelect: () => setRemoving(true) },
   ];
@@ -117,7 +121,8 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
         )}
         <Menu label="More server actions" icon={<MoreHorizontal />} items={items} />
       </div>
-      <DeployModal open={deploy} onClose={() => setDeploy(false)} onDeploy={(v) => { setDeploy(false); act("deploy", () => api.serverDeploy(id, v), `Kiln ${v} installed`)(); }} />
+      <DeployModal open={deploy} update={kiln} onClose={() => setDeploy(false)}
+        onDeploy={(v) => { setDeploy(false); act<api.InstallResult>("deploy", () => api.serverDeploy(id, v), `Kiln ${v} installed`, installNote)(); }} />
       <ConfirmDanger open={removing} onClose={() => setRemoving(false)} title="Remove this server?"
         message="The launcher forgets it. Its game files, saves and backups stay on disk."
         word={id} action="Remove" onConfirm={async () => {
@@ -182,13 +187,13 @@ function ServerPicker({ current, servers, onClose, onPick }: { current: string; 
   );
 }
 
-function DeployModal({ open, onClose, onDeploy }: { open: boolean; onClose: () => void; onDeploy: (version: string) => void }) {
+function DeployModal({ open, update, onClose, onDeploy }: { open: boolean; update: boolean; onClose: () => void; onDeploy: (version: string) => void }) {
   const bundles = useQuery({ queryKey: ["runtime_list"], queryFn: api.runtimeList, enabled: open });
   const [v, setV] = useState("");
   const chosen = v || bundles.data?.[0]?.version || "";
   return (
-    <Modal open={open} onClose={onClose} title="Install Kiln" width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!chosen} onClick={() => onDeploy(chosen)}>Install</Button></>}>
+    <Modal open={open} onClose={onClose} title={update ? "Update Kiln" : "Install Kiln"} width={480}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!chosen} onClick={() => onDeploy(chosen)}>{update ? "Update" : "Install"}</Button></>}>
       <Field label="Runtime bundle" hint="The server must be stopped." htmlFor="deploy-v">
         <Select id="deploy-v" value={chosen} onChange={setV} options={(bundles.data ?? []).map((b) => ({ value: b.version, label: `${b.version} (Kiln ${b.kiln})` }))} />
       </Field>

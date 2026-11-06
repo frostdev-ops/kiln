@@ -255,6 +255,35 @@ fn install_chains_emf_backs_up_and_uninstall_restores_it() {
 }
 
 #[test]
+fn an_upgrade_reports_the_hand_changed_files_it_backed_up() {
+    let t = tmp("handchanged");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let inst = client(&game);
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let (r1, rep1) = install::install_report(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert!(rep1.changed_backed_up.is_empty() && rep1.backup.is_none(), "a first install into a clean folder backs nothing up: {rep1:?}");
+    // a Kiln file and the config are edited by hand; the next install replaces the file and never the config
+    std::fs::write(game.join("kiln/kiln-core.dll"), b"patched by hand").unwrap();
+    std::fs::write(game.join("kiln/kiln.json"), b"{\"policy\": \"any\"}").unwrap();
+    let b2 = bundle::create(&stage(&t.0, "b", false), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let (r2, rep2) = install::install_report(&dirs, &inst, &b2, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(rep2.changed_backed_up, ["kiln/kiln-core.dll"]);
+    let mirror = PathBuf::from(rep2.backup.as_deref().expect("the backup folder"));
+    assert!(mirror.starts_with(dirs.backups().join("install").join(&r1.install_id)), "{}", mirror.display());
+    assert_eq!(std::fs::read(mirror.join("kiln/kiln-core.dll")).unwrap(), b"patched by hand");
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).unwrap(), b"core b");
+    assert_eq!(r2.install_id, r1.install_id);
+    // the report is not part of the receipt file
+    let on_disk = std::fs::read_to_string(game.join("kiln/.install.json")).unwrap();
+    assert!(!on_disk.contains("changedBackedUp") && !on_disk.contains("patched"));
+    // an install over unchanged files has nothing to report
+    let (_, rep3) = install::install_report(&dirs, &inst, &b2, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert!(rep3.changed_backed_up.is_empty(), "{rep3:?}");
+}
+
+#[test]
 fn shroudforge_is_refused_unless_switching_and_never_chained() {
     let t = tmp("sf");
     let dirs = DataDirs::at(t.0.join("data"));

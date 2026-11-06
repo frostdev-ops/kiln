@@ -12,7 +12,7 @@ import * as api from "../api/commands";
 import type { UpdateStatus } from "../api/commands";
 import { invalidateGame, useGame, useGameStatus } from "../api/hooks";
 import { useUpdate, useUpdateFeed, useUpdateStore } from "../api/update";
-import { Button, IconButton, ProgressBar, runTask, toast, useTasks, waitTask } from "../ui";
+import { Button, IconButton, ProgressBar, installNote, runTask, toast, useTasks, waitTask } from "../ui";
 import "./update.css";
 
 /** A short error toast; the detail is in launcher.log. */
@@ -139,7 +139,7 @@ function JustUpdated({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
     try {
       // the parts the game has now
       const components = rt?.receipt?.runtime.components ?? null;
-      await runTask(() => api.runtimeInstall(game.id, next, components ? { components } : {}), { done: `Kiln ${next} installed`, quiet: true });
+      await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, components ? { components } : {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true });
       ack();
     } catch {
       failed("Update failed");
