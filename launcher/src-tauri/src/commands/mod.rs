@@ -14,6 +14,7 @@ pub mod editor;
 pub mod server;
 pub mod admin;
 pub mod modpack;
+pub mod update;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -124,6 +125,12 @@ pub const NAMES: &[&str] = &[
     "app_assets_import",
     "server_console_open",
     "server_console_close",
+    "update_status",
+    "update_check",
+    "update_install",
+    "update_restart",
+    "update_skip",
+    "update_ack",
 ];
 
 #[cfg(test)]

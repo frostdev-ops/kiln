@@ -97,7 +97,9 @@ either -> {"t":"bye","reason":"unload"}                  then close
   on a subscribed topic is ok (no duplicate pushes). A slow client whose send queue exceeds 4 MiB loses pushes (the
   next push has a gap in `seq`), never responses.
 - Either side sends `ping` after 15 s without sending anything; a peer silent for 45 s gets `bye{reason: "idle"}` and is
-  closed (answering the server's pings is enough to stay connected). Kiln.Admin sends `bye{reason: "unload"|"shutdown"}`
+  closed. Kiln.Admin also pings a peer that has been silent for 15 s, even while it is busy pushing, so answering its
+  pings is enough to stay connected. The launcher pings from its own thread (not from the page), and closes and
+  reconnects when the server has sent nothing for 45 s. Kiln.Admin sends `bye{reason: "unload"|"shutdown"}`
   when it unloads (mod reload, server stop) and closes every connection; a client's `bye` closes its connection.
 - Connections: at most 4 at once; the 5th gets `error{code: "busy"}` and close.
 - Reload safety: the listener runs on a background thread and stops in `OnUnload`; `reload-test kiln-admin 20` must

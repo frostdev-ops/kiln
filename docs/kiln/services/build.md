@@ -156,7 +156,10 @@ Little-endian binary:
 - `Schematic.Hash`: SHA-256 over the size, the cells and the props (what PlaceOnce records).
 
 ## Commands (`BuildCommands.Register()`, admin only)
-The Schematics sample registers them; schematics live in `kiln/data/kiln.build/schematics/`.
+`/build` belongs to Kiln. A mod that wants it calls `BuildCommands.Register()` (the Schematics sample does): the first
+call adds the command, later calls share it, and it goes when the last registration is disposed or its mod unloads.
+The handlers run as Kiln: an edit from the console is journaled under `kiln`, a player's under that player. Schematics
+live in `kiln/data/kiln.build/schematics/`.
 
 ```
 /build [status]                       what works here
@@ -171,7 +174,7 @@ The Schematics sample registers them; schematics live in `kiln/data/kiln.build/s
 /build bases | release                player bases; stop keeping Kiln's terrain in the selection
 ```
 Admin edits by hand may touch bases (`InBases` is set: the admin asked for it by position). Permission node
-`<mod>.command.build`, level Admin.
+`kiln.command.build`, level Admin.
 
 ## Admin ops (for Kiln.Admin)
 | Op | Maps to |

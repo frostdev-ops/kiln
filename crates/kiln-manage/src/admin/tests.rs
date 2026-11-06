@@ -37,32 +37,58 @@ fn recv(s: &mut TcpStream) -> Option<Value> {
 }
 
 /// A KAP/1 server: ops ping/echo/fail/slow, topic state (a push every 100 ms), drops every connection when `drop`
-/// is set, answers pings, sends one ping itself.
+/// is set, answers pings (counted), sends one ping itself; while `mute` is set it sends nothing at all.
 struct Mock {
     port: u16,
     drop: Arc<AtomicBool>,
+    mute: Arc<AtomicBool>,
     accepted: Arc<AtomicUsize>,
     pongs: Arc<AtomicUsize>,
+    pings: Arc<AtomicUsize>,
     bad_ready_mac: bool,
+}
+
+/// What a mock connection shares with the test.
+#[derive(Clone)]
+struct MockSide {
+    drop: Arc<AtomicBool>,
+    mute: Arc<AtomicBool>,
+    pongs: Arc<AtomicUsize>,
+    pings: Arc<AtomicUsize>,
+    bad_ready_mac: bool,
+    /// `ready.limits` pingS / idleS.
+    ping_s: u64,
+    idle_s: u64,
 }
 
 impl Mock {
     fn start(token: [u8; 32], bad_ready_mac: bool) -> Mock {
+        Mock::start_with(token, bad_ready_mac, 15, 45)
+    }
+
+    fn start_with(token: [u8; 32], bad_ready_mac: bool, ping_s: u64, idle_s: u64) -> Mock {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
-        let drop = Arc::new(AtomicBool::new(false));
+        let side = MockSide {
+            drop: Arc::new(AtomicBool::new(false)),
+            mute: Arc::new(AtomicBool::new(false)),
+            pongs: Arc::new(AtomicUsize::new(0)),
+            pings: Arc::new(AtomicUsize::new(0)),
+            bad_ready_mac,
+            ping_s,
+            idle_s,
+        };
         let accepted = Arc::new(AtomicUsize::new(0));
-        let pongs = Arc::new(AtomicUsize::new(0));
-        let (d, a, p) = (drop.clone(), accepted.clone(), pongs.clone());
+        let (sd, a) = (side.clone(), accepted.clone());
         std::thread::spawn(move || {
             for s in l.incoming() {
                 let Ok(s) = s else { continue };
                 a.fetch_add(1, Ordering::SeqCst);
-                let (d, p) = (d.clone(), p.clone());
-                std::thread::spawn(move || serve(s, token, d, p, bad_ready_mac));
+                let sd = sd.clone();
+                std::thread::spawn(move || serve(s, token, sd));
             }
         });
-        Mock { port, drop, accepted, pongs, bad_ready_mac }
+        Mock { port, drop: side.drop, mute: side.mute, accepted, pongs: side.pongs, pings: side.pings, bad_ready_mac }
     }
 
     /// endpoint.json + admin-token in `<dir>/kiln/data/kiln-admin/`, like Kiln.Admin writes them.
@@ -81,7 +107,8 @@ impl Mock {
     }
 }
 
-fn serve(mut s: TcpStream, token: [u8; 32], drop: Arc<AtomicBool>, pongs: Arc<AtomicUsize>, bad_ready_mac: bool) {
+fn serve(mut s: TcpStream, token: [u8; 32], side: MockSide) {
+    let MockSide { drop, mute, pongs, pings, bad_ready_mac, ping_s, idle_s } = side;
     let nonce = crate::hash::hex(&[0x11u8; 32]);
     send(&mut s, &json!({"t": "hello", "proto": "kap/1", "nonce": nonce, "kiln": "0.2.0-dev", "server": {"id": "srv-test", "name": "Test"}, "auth": ["hmac-sha256"]})).unwrap();
     let Some(auth) = recv(&mut s) else { return };
@@ -92,11 +119,11 @@ fn serve(mut s: TcpStream, token: [u8; 32], drop: Arc<AtomicBool>, pongs: Arc<At
     }
     let smac = if bad_ready_mac { "00".repeat(32) } else { protocol::mac(&token, "kap1-ready", &nonce, &cnonce) };
     send(&mut s, &json!({"t": "ready", "session": "s1", "mac": smac, "ops": ["ping", "echo", "fail", "slow"], "topics": ["state", "log"],
-        "limits": {"maxFrame": 16777216, "maxClientFrame": 1048576, "inflight": 64, "pingS": 15, "idleS": 45}})).unwrap();
+        "limits": {"maxFrame": 16777216, "maxClientFrame": 1048576, "inflight": 64, "pingS": ping_s, "idleS": idle_s}})).unwrap();
     let w = Arc::new(Mutex::new(s.try_clone().unwrap()));
     let subscribed = Arc::new(AtomicBool::new(false));
     {
-        let (w, sub, drop) = (w.clone(), subscribed.clone(), drop.clone());
+        let (w, sub, drop, mute) = (w.clone(), subscribed.clone(), drop.clone(), mute.clone());
         std::thread::spawn(move || {
             let mut seq = 0u64;
             let _ = send(&mut w.lock().unwrap(), &json!({"t": "ping", "id": 1, "ts": 5}));
@@ -106,7 +133,7 @@ fn serve(mut s: TcpStream, token: [u8; 32], drop: Arc<AtomicBool>, pongs: Arc<At
                     let _ = w.lock().unwrap().shutdown(std::net::Shutdown::Both);
                     return;
                 }
-                if sub.load(Ordering::SeqCst) {
+                if sub.load(Ordering::SeqCst) && !mute.load(Ordering::SeqCst) {
                     seq += 1;
                     if send(&mut w.lock().unwrap(), &json!({"t": "push", "topic": "state", "seq": seq, "data": {"clock": seq}})).is_err() {
                         return;
@@ -143,6 +170,13 @@ fn serve(mut s: TcpStream, token: [u8; 32], drop: Arc<AtomicBool>, pongs: Arc<At
             Some("pong") => {
                 pongs.fetch_add(1, Ordering::SeqCst);
                 continue;
+            }
+            Some("ping") => {
+                pings.fetch_add(1, Ordering::SeqCst);
+                if mute.load(Ordering::SeqCst) {
+                    continue;
+                }
+                json!({"t": "pong", "id": id, "ts": f["ts"]})
             }
             Some("bye") => return,
             _ => json!({"t": "error", "code": "bad_frame", "message": "?"}),
@@ -198,6 +232,56 @@ fn tcp_handshake_calls_pushes_and_pings() {
     }
     assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1));
     assert!(wait_for(|| m.pongs.load(Ordering::SeqCst) >= 1, 3), "the client answers the server's ping");
+    c.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The client keeps the session alive by itself (no requests from the webview, the server busy pushing state):
+/// Kiln.Admin closes a peer silent for `idleS`.
+#[test]
+fn client_pings_while_the_server_pushes() {
+    let m = Mock::start_with(TOKEN, false, 1, 45);
+    let dir = temp_dir("keepalive");
+    m.write_endpoint(&dir, &TOKEN);
+    let c = AdminClient::connect_dir(&dir, "srv-test", Transport::Tcp).unwrap();
+    c.subscribe("state").unwrap();
+    let start = Instant::now();
+    let mut pushes = 0;
+    while start.elapsed() < Duration::from_millis(3500) {
+        if let Some(AdminEvent::Push { .. }) = c.next_event(Duration::from_millis(200)).unwrap() {
+            pushes += 1;
+        }
+    }
+    assert!(pushes >= 10, "pushes kept coming ({pushes})");
+    let pings = m.pings.load(Ordering::SeqCst);
+    assert!((2..=5).contains(&pings), "about one ping per second of silence, got {pings}");
+    assert!(c.is_open());
+    // requests and pings share the writer: frames stay whole
+    let mut args = serde_json::Map::new();
+    args.insert("x".into(), json!(1));
+    assert_eq!(c.call("echo", args).unwrap(), json!({"x": 1}));
+    c.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn client_closes_a_silent_server() {
+    let m = Mock::start_with(TOKEN, false, 1, 2);
+    let dir = temp_dir("silent");
+    m.write_endpoint(&dir, &TOKEN);
+    let c = AdminClient::connect_dir(&dir, "srv-test", Transport::Tcp).unwrap();
+    c.subscribe("state").unwrap();
+    m.mute.store(true, Ordering::SeqCst);
+    let start = Instant::now();
+    let reason = loop {
+        assert!(start.elapsed() < Duration::from_secs(6), "no close after the server went silent");
+        if let Some(AdminEvent::Closed { reason, retry }) = c.next_event(Duration::from_millis(200)).unwrap() {
+            assert!(retry);
+            break reason;
+        }
+    };
+    assert!(reason.contains("silent"), "{reason}");
+    assert!(!c.is_open());
     c.shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -365,4 +449,45 @@ fn lab_ssh_tunnel() {
     std::thread::sleep(Duration::from_millis(300));
     assert!(!super::discover::probe("127.0.0.1", port, Duration::from_millis(300)), "tunnel closed");
     println!("tunnel ok via local port {port}");
+}
+
+/// Against a running lab: a hub session that only listens (subscribed to `state`, no requests: a page that polls
+/// nothing) stays connected for `KILN_SOAK_S` seconds (default 960) without a single close.
+/// `KILN_LAB=<lab dir> [KILN_SOAK_S=960] cargo test -p kiln-manage --all-features -- --ignored --nocapture lab_session_stays_open`
+#[test]
+#[ignore]
+fn lab_session_stays_open() {
+    let lab = PathBuf::from(std::env::var("KILN_LAB").expect("KILN_LAB=<lab dir>"));
+    let secs: u64 = std::env::var("KILN_SOAK_S").ok().and_then(|s| s.parse().ok()).unwrap_or(960);
+    let events: Arc<Mutex<Vec<(Duration, HubEvent)>>> = Arc::new(Mutex::new(vec![]));
+    let t0 = Instant::now();
+    let ev = events.clone();
+    let hub = AdminHub::new(move |e| ev.lock().unwrap().push((t0.elapsed(), e)));
+    let l = lab.clone();
+    let s = hub.connect("lab", Box::new(move || AdminClient::connect_dir(&l, "lab", Transport::Tcp))).unwrap();
+    hub.subscribe(&s.session, "state").unwrap();
+    let mut last = 0;
+    while t0.elapsed() < Duration::from_secs(secs) {
+        std::thread::sleep(Duration::from_secs(1));
+        let e = events.lock().unwrap();
+        for (at, x) in &e[last..] {
+            if !matches!(x.event, AdminEvent::Push { .. }) {
+                println!("{:>5} s  {:?}", at.as_secs(), x.event);
+            }
+        }
+        last = e.len();
+        if t0.elapsed().as_secs() % 60 == 0 {
+            let pushes = e.iter().filter(|(_, x)| matches!(x.event, AdminEvent::Push { .. })).count();
+            println!("{:>5} s  {pushes} state pushes so far", t0.elapsed().as_secs());
+        }
+    }
+    let (closes, pushes) = {
+        let e = events.lock().unwrap();
+        let closes: Vec<String> = e.iter().filter(|(_, x)| matches!(x.event, AdminEvent::Closed { .. })).map(|(at, x)| format!("{at:?} {:?}", x.event)).collect();
+        (closes, e.iter().filter(|(_, x)| matches!(x.event, AdminEvent::Push { .. })).count())
+    };
+    hub.shutdown();  // emits closed{retry: false} into the sink: the events lock must be free
+    println!("{secs} s: {pushes} state pushes, {} closes", closes.len());
+    assert!(closes.is_empty(), "the session closed: {closes:?}");
+    assert!(pushes as u64 >= secs / 2, "pushes kept coming ({pushes})");
 }

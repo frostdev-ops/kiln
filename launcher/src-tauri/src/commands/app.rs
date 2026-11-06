@@ -43,8 +43,13 @@ pub struct LauncherSettings {
     pub allow_http_modpacks: bool,
     #[serde(default = "ten")]
     pub saves_keep: u32,
-    #[serde(default)]
-    pub check_updates: bool,
+    /// Check for launcher updates at the start and every 6 hours (Settings, Updates). Replaces the unused
+    /// `checkUpdates`, which old files may still carry (ignored).
+    #[serde(default = "yes")]
+    pub update_check: bool,
+    /// The update channel, "stable" or "dev"; absent: the channel of the running build (a dev build follows dev).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<String>,
     /// The fire on Play (WebGL). Off: the plain Play button (Settings, Appearance).
     #[serde(default = "yes")]
     pub animated_fire: bool,
@@ -57,7 +62,8 @@ impl Default for LauncherSettings {
             default_game_id: None,
             allow_http_modpacks: false,
             saves_keep: 10,
-            check_updates: false,
+            update_check: true,
+            update_channel: None,
             animated_fire: true,
         }
     }
@@ -240,10 +246,11 @@ pub fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, Error> {
 // ---------------------------------------------------------------- commands
 
 #[tauri::command]
-pub async fn app_info() -> Result<AppInfo, Error> {
+pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
     let dirs = crate::state::dirs()?;
     Ok(AppInfo {
-        version: env!("CARGO_PKG_VERSION").into(),
+        // the release version (tools/release sets it at build time; a plain build is VERSION)
+        version: app.package_info().version.to_string(),
         kiln: kiln_manage::VERSION.into(),
         platform: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),

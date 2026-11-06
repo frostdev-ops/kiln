@@ -14,12 +14,20 @@ pub fn sdk_version() -> &'static str {
     s.split("<KilnSdkVersion>").nth(1).and_then(|r| r.split("</KilnSdkVersion>").next()).unwrap_or("0.0.0").trim()
 }
 
-/// The Kiln repository: $KILN_REPO, else the checkout this kiln was built from (if it is still there).
+/// The Kiln repository: $KILN_REPO, else the checkout this kiln was built from (if it is still there; a release build,
+/// with `KILN_RELEASE_BUILD` set while compiling, knows no checkout).
 pub fn repo() -> Option<PathBuf> {
     if let Some(r) = std::env::var_os("KILN_REPO").filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(r));
     }
-    let built = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    const TREE: &str = match option_env!("KILN_RELEASE_BUILD") {
+        Some(_) => "",
+        None => env!("CARGO_MANIFEST_DIR"),
+    };
+    if TREE.is_empty() {
+        return None;
+    }
+    let built = Path::new(TREE).join("../..");
     built.join("managed/Kiln.Sdk/Sdk/Sdk.props").is_file().then(|| built.canonicalize().unwrap_or(built))
 }
 

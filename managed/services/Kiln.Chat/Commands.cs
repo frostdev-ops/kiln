@@ -431,12 +431,25 @@ public sealed class CommandResult
     public override string ToString() => $"{(Ok ? "ok" : "failed")}: {Text}";
 }
 
-/// <summary>Disposing it unregisters the command.</summary>
+/// <summary>Disposing it unregisters the command. For a command Kiln shares between mods (such as <c>/creature</c>)
+/// it lets go of it instead: the command goes with the last registration.</summary>
 public sealed class CommandRegistration : IDisposable
 {
-    internal CommandRegistration(CommandInfo info) => Info = info;
+    private readonly Action? _release;
+
+    internal CommandRegistration(CommandInfo info, Action? release = null)
+    {
+        Info = info;
+        _release = release;
+    }
+
     public CommandInfo Info { get; }
-    public void Dispose() => Commands.Remove(Info);
+
+    public void Dispose()
+    {
+        if (_release is not null) _release();
+        else Commands.Remove(Info);
+    }
 }
 
 /// <summary>What a chat line naming an unknown command does.</summary>
@@ -466,6 +479,19 @@ public static class Commands
         public CommandInfo Info { get; } = info;
         public CommandHandler? Handler { get; } = handler;
         public ModContext? Owner { get; } = owner;
+
+        /// <summary>The registrations holding a shared Kiln command (<see cref="RegisterShared"/>); null for every
+        /// other command.</summary>
+        public List<SharedHold>? Holds { get; init; }
+
+        /// <summary>Runs once a shared command is gone.</summary>
+        public Action? Removed { get; init; }
+    }
+
+    private sealed class SharedHold(Entry entry, ModContext? mod)
+    {
+        public Entry Entry { get; } = entry;
+        public ModContext? Mod { get; } = mod;
     }
 
     private static readonly object Lock = new();
@@ -477,11 +503,19 @@ public static class Commands
     {
         ModCalls.OnRetire(mod =>
         {
+            var gone = new List<Entry>();
             lock (Lock)
             {
                 foreach (var e in All.Where(e => ReferenceEquals(e.Owner, mod)).ToList()) RemoveLocked(e);
+                foreach (var e in All.Where(e => e.Holds is not null).ToList())
+                    if (e.Holds!.RemoveAll(h => ReferenceEquals(h.Mod, mod)) > 0 && e.Holds.Count == 0)
+                    {
+                        RemoveLocked(e);
+                        gone.Add(e);
+                    }
                 if (_adminCheck is { } c && ReferenceEquals(c.Owner, mod)) _adminCheck = null;
             }
+            foreach (var e in gone) SharedGone(e);
         });
         var help = Literal("help").Alias("?").Describe("lists the commands you can use, or explains one")
             .Executes(HelpList)
@@ -549,9 +583,93 @@ public static class Commands
         return CommandMethods.RegisterAll(target);
     }
 
-    private static CommandRegistration AddTyped(LiteralNode root, CommandPermission permission, string? description, ModContext? owner)
+    /// <summary>Asks for a command that belongs to Kiln on behalf of the calling mod: a service's command tree (such as
+    /// <c>/creature</c> or <c>/build</c>) that any number of mods may want. The first call adds it as Kiln's (owner
+    /// "kiln", node <c>kiln.command.&lt;name&gt;</c>; <paramref name="build"/> makes the tree then), later calls share it.
+    /// It stays while one of the returned registrations is held and goes when the last one is disposed or its mod
+    /// unloads; <paramref name="removed"/> runs then. Handlers run as Kiln, whoever runs the line. Throws when the name or
+    /// an alias belongs to another command.</summary>
+    internal static CommandRegistration RegisterShared(string name, Func<LiteralNode> build, CommandPermission permission,
+        string? description = null, Action? removed = null)
     {
-        var ownerName = ModCalls.OwnerName(owner);
+        ArgumentNullException.ThrowIfNull(build);
+        var caller = ModCalls.Caller;
+        ModCalls.Watch(caller);
+        lock (Lock)
+            if (HoldLocked(name, caller) is { } held) return held;
+        // The tree, its permission nodes and the command are Kiln's: none of them may go with the mod that asked first.
+        ModContext.CurrentMod = null;
+        try
+        {
+            var root = build();
+            if (!string.Equals(root.Name, name, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"the tree of '{name}' is named '{root.Name}'", nameof(build));
+            var entry = new Entry(TypedInfo(root, permission, description, ModCalls.OwnerName(null)), null, null)
+            {
+                Holds = [],
+                Removed = removed,
+            };
+            CommandRegistration registration;
+            lock (Lock)
+            {
+                if (HoldLocked(name, caller) is { } meanwhile) return meanwhile;
+                foreach (var n in (string[])[root.Name, .. root.Aliases])
+                    if (ByName.TryGetValue(n, out var other))
+                        throw new InvalidOperationException($"command '{n}' is already registered by {other.Info.Owner}");
+                AddLocked(entry);
+                registration = HoldLocked(name, caller)!;
+            }
+            RegisterNode(entry.Info.PermissionNode, entry.Info.Permission, $"{Prefix}{entry.Info.Name}");
+            Backend.Current.Log(0, LogLevel.Info, $"kiln.chat: {Prefix}{entry.Info.Name} added (Kiln's, node {entry.Info.PermissionNode}) for {ModCalls.OwnerName(caller)}");
+            if (caller is not null) Chat.EnsureSubscribed();
+            return registration;
+        }
+        finally
+        {
+            ModContext.CurrentMod = caller;
+        }
+    }
+
+    // One more hold on the shared command called name; null when there is none. Under Lock.
+    private static CommandRegistration? HoldLocked(string name, ModContext? mod)
+    {
+        if (!ByName.TryGetValue(name, out var e)) return null;
+        if (e.Holds is null) throw new InvalidOperationException($"command '{name}' is already registered by {e.Info.Owner}");
+        var hold = new SharedHold(e, mod);
+        e.Holds.Add(hold);
+        return new CommandRegistration(e.Info, () => Release(hold));
+    }
+
+    private static void Release(SharedHold hold)
+    {
+        var e = hold.Entry;
+        lock (Lock)
+        {
+            if (!e.Holds!.Remove(hold) || e.Holds.Count > 0 || !All.Contains(e)) return;
+            RemoveLocked(e);
+        }
+        SharedGone(e);
+    }
+
+    private static void SharedGone(Entry e)
+    {
+        Backend.Current.Log(0, LogLevel.Info, $"kiln.chat: {Prefix}{e.Info.Name} removed (no mod asks for it any more)");
+        try
+        {
+            e.Removed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Backend.Current.Log(0, LogLevel.Error, $"kiln.chat: cleanup of {Prefix}{e.Info.Name} threw: {ex}");
+        }
+    }
+
+    private static CommandRegistration AddTyped(LiteralNode root, CommandPermission permission, string? description, ModContext? owner) =>
+        Add(new Entry(TypedInfo(root, permission, description, ModCalls.OwnerName(owner)), null, owner), [root.Name, .. root.Aliases]);
+
+    // A typed command's info; registers the permission nodes of its subcommand requirements.
+    private static CommandInfo TypedInfo(LiteralNode root, CommandPermission permission, string? description, string ownerName)
+    {
         var level = root.RequiredNode is not null ? root.RequiredLevel : permission;
         var node = root.RequiredNode is { Length: > 0 } explicitNode ? explicitNode : $"{ownerName}.command.{root.Name}";
         root.Freeze();
@@ -564,14 +682,13 @@ public static class Commands
         }
         var usage = CommandTree.Usage(root, null);
         var first = usage.Count > 0 ? usage[0] : root.Name;
-        var info = new CommandInfo(root.Name, root.Aliases.ToArray(), first.Length > root.Name.Length ? first[(root.Name.Length + 1)..] : "",
+        return new CommandInfo(root.Name, root.Aliases.ToArray(), first.Length > root.Name.Length ? first[(root.Name.Length + 1)..] : "",
             description ?? root.Description ?? "", level, ownerName)
         {
             PermissionNode = node,
             Tree = root,
             UsageLines = usage,
         };
-        return Add(new Entry(info, null, owner), [root.Name, .. root.Aliases]);
     }
 
     private static void SetRequiredNode(CommandNode n, string node)
@@ -809,7 +926,7 @@ public static class Commands
         {
             try { handler!(ctx); }
             catch (CommandException ce) { err = ce.Message; }
-        }, $"command {Prefix}{info.Name}");
+        }, $"command {Prefix}{info.Name}", asKiln: entry.Holds is not null);
         if (!invoked) err ??= $"{Prefix}{info.Name} failed (see the server log)";
         if (err is null && ctx.Pending is { } pending)
         {
@@ -934,7 +1051,7 @@ public static class Commands
     {
         lock (Lock)
         {
-            foreach (var e in All.Where(e => e.Info.Owner != "kiln" || e.Owner is not null).ToList()) RemoveLocked(e);
+            foreach (var e in All.Where(e => e.Info.Owner != "kiln" || e.Owner is not null || e.Holds is not null).ToList()) RemoveLocked(e);
             _adminCheck = null;
         }
     }

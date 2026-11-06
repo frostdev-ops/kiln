@@ -83,6 +83,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
 | `logs/launcher.log` | the launcher's own log |
+| `update.json` | the self-update's state: `{format, skipped, checked, updated: {from, to, at, source, notes}}` (releasing.md) |
 | `servers/<id>.json` | launcher records of servers that are not kilnctl instances (steam, windows, remote) and renames (`ServerInstance`) |
 | `modpacks/downloads/<sha256>.zip`, `modpacks/built/<serverId>/`, `modpacks/staging/`, `modpacks/dismissed.json` | modpack downloads (reused when the sha256 matches), built server modpacks, unpack staging, offers and refusals the user dismissed (`{gameId: {serverId: modpack sha256 | "refused <written>"}}`) |
 
@@ -606,10 +607,18 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | modpack | `modpack_inspect` | gameId, source: ModpackSource \| null (null: from last-server.json) | `ModpackPreview` |
 | modpack | `modpack_install` | gameId, request: ModpackInstallRequest {source, consent: true, allowHttp?, activate?} | `TaskId` -> `ModpackInstallResult` |
 | modpack | `modpack_dismiss` | gameId, serverId | null |
+| update | `update_status` | - | `UpdateStatus` |
+| update | `update_check` | - | `UpdateStatus` (asks the sources now) |
+| update | `update_install` | - | `TaskId` -> `UpdateStatus` (download, verify; the AppImage is put in place; `unsupported` for a .deb, .rpm or development build) |
+| update | `update_restart` | - | null (restarts into the update that is ready; Windows: runs its installer; returns only on failure) |
+| update | `update_skip` | version: string \| null | `UpdateStatus` (null: un-skips) |
+| update | `update_ack` | - | `UpdateStatus` (clears `justUpdated`) |
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
 KILN_LAUNCHER_NO_WEBGL=1 for this start), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
-allowHttpModpacks: boolean, savesKeep: number, checkUpdates: boolean, animatedFire: boolean (default true)}`,
+allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"
+(absent: the running build's channel), animatedFire: boolean (default true)}` (`checkUpdates`, never used, is gone;
+readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md)),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,
 message: string|null, started, finished: string|null, result?, error?: KilnError}`, `BootState {boot: BootJson|null,
 mods: ModsJson|null, native: NativeJson|null, stale: boolean, log: {errors: number, first: string[]}|null}` (`log`:
@@ -629,6 +638,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://last-server` | `{gameId, lastServer: LastServer}` |
 | `kiln://server` | `{serverId, status: ServerStatus}` |
 | `kiln://admin` | `{session, serverId, event: {kind: 'push', topic, seq, data} \| {kind: 'closed', reason, retry} \| {kind: 'error', message} \| {kind: 'ready', transport, ops, topics}}` (`ready` after every (re)connect; `closed.retry`: the hub reconnects) |
+| `kiln://update` | `UpdateStatus` (at every change of the self-update: check, download progress, ready, skip) |
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 
 ## 11. Errors

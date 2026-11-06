@@ -264,8 +264,8 @@ test("a mod built for a newer Kiln than the game has says Update Kiln on Play", 
   await page.evaluate(() => (window as unknown as { __kilnMock: { setNewerMods: (m: unknown) => void } }).__kilnMock.setNewerMods([
     { id: "item-blocks", version: "0.1.1", builtWith: "0.2.0-dev+20261106.0f0a3f6" },
   ]));
-  await expect(banner.getByText(/item-blocks 0\.1\.1 was built for a newer Kiln than this game has .*: it may not load until you update Kiln\./)).toBeVisible();
-  await banner.getByRole("button", { name: "Runtime" }).click();
+  await expect(banner.getByText("item-blocks needs a newer Kiln.")).toBeVisible();
+  await banner.getByRole("button", { name: "Update" }).click();
   await expect(page).toHaveURL(/\/runtime/);
 });
 
@@ -336,6 +336,28 @@ test("every main page fits 1024×640 without a window scrollbar", async ({ page 
     const right = await page.locator(".k-head-state").evaluate((el) => el.getBoundingClientRect().right);
     expect(right, r).toBeLessThanOrEqual(1024);
   }
+});
+
+test("every page reaches all of its content at 1024×640 (nothing cut off without a scrollbar)", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 640 });
+  const cut: Record<string, string[]> = {};
+  for (const r of [...CLIENT_ROUTES.filter((x) => x !== "/"), ...SERVER_ROUTES]) {
+    await open(page, r);
+    await page.waitForTimeout(500);
+    // text or a control whose nearest clipping ancestor is overflow: hidden and ends above it can never be seen
+    const lost = await page.evaluate(() => [...document.querySelectorAll(".k-sheet *")].flatMap((el) => {
+      if (el.children.length || !el.textContent?.trim() || el.closest(".k-niche, .leaflet-container, [aria-hidden='true']")) return [];
+      const r = el.getBoundingClientRect();
+      if (!r.height) return [];
+      let a = el.parentElement;
+      while (a && getComputedStyle(a).overflowY === "visible") a = a.parentElement;
+      if (!a || !["hidden", "clip"].includes(getComputedStyle(a).overflowY)) return [];
+      const box = a.getBoundingClientRect();
+      return box.height >= 60 && r.bottom > box.bottom + 2 ? [el.textContent.trim().slice(0, 40)] : [];
+    }));
+    if (lost.length) cut[r] = lost.slice(0, 3);
+  }
+  expect(cut).toEqual({});
 });
 
 test("screenshots of the main pages", async ({ page }) => {

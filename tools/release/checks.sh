@@ -1,0 +1,141 @@
+# Sourced by release.sh: the checks a release folder must pass. Each check's output goes to the release log; the
+# summary is PASS/FAIL per check. Everything runs in $work/checks with its own HOME, data dir, Wine prefix, NuGet
+# cache and dbus session, on a private X display: nothing reaches the desktop or the user's own setup.
+
+ck=""
+ck_display() { # starts Xvfb on a free display; prints the display number
+  local n=94
+  while [[ -e /tmp/.X11-unix/X$n || -e /tmp/.X$n-lock ]]; do n=$((n + 1)); done
+  Xvfb ":$n" -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+  echo "$n $!"
+}
+
+check_appimage() {
+  local d n xvfb code
+  read -r n xvfb < <(ck_display)
+  sleep 1
+  mkdir -p "$ck/appimage"/{home,data,tmp}
+  set +e
+  env -i PATH=/usr/bin:/bin HOME="$ck/appimage/home" TMPDIR="$ck/appimage/tmp" XDG_RUNTIME_DIR="$ck/appimage/tmp" DISPLAY=":$n" \
+    KILN_DATA_DIR="$ck/appimage/data" KILN_STEAM_ROOTS="$ck/appimage/steam" \
+    dbus-run-session -- "$out/linux/$A" --selftest --out "$ck/appimage/selftest.json"
+  code=$?
+  set -e
+  kill "$xvfb" 2>/dev/null || true
+  python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("\n".join(("PASS " if c["ok"] else "FAIL ")+c["name"] for c in r["checks"])); sys.exit(0 if r["ok"] else 1)' \
+    "$ck/appimage/selftest.json" && ((code == 0))
+}
+
+ck_wine() { # wine in the check prefix, on the private display $ck_n
+  env WINEPREFIX="$ck/wine-pfx" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" DISPLAY=":$ck_n" \
+    HOME="$ck/wine-home" wine "$@"
+}
+
+check_nsis() {
+  local xvfb exe report code
+  read -r ck_n xvfb < <(ck_display)
+  sleep 1
+  mkdir -p "$ck/wine-pfx" "$ck/wine-home"
+  ck_wine wineboot -i >/dev/null 2>&1
+  # tell the installer WebView2 is there, so it downloads nothing (the selftest does not use it)
+  ck_wine reg add 'HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' \
+    /v pv /t REG_SZ /d 120.0.0.0 /f >/dev/null 2>&1
+  ck_wine "$out/windows/$S" /S
+  env WINEPREFIX="$ck/wine-pfx" wineserver -w
+  exe=$(find "$ck/wine-pfx/drive_c" -iname kiln-launcher.exe -path '*Kiln*' | head -1)
+  [[ -n $exe ]] || { echo "the setup installed no kiln-launcher.exe"; kill "$xvfb"; return 1; }
+  echo "installed: ${exe#"$ck"/}"
+  report=$ck/selftest-windows.json
+  set +e
+  ck_wine "$exe" --selftest --out "$(env WINEPREFIX="$ck/wine-pfx" winepath -w "$report")"
+  code=$?
+  set -e
+  env WINEPREFIX="$ck/wine-pfx" wineserver -w
+  kill "$xvfb" 2>/dev/null || true
+  python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("\n".join(("PASS " if c["ok"] else "FAIL ")+c["name"] for c in r["checks"])); sys.exit(0 if r["ok"] else 1)' \
+    "$report" && ((code == 0))
+}
+
+check_wine_cli() {
+  local xvfb v1 v2
+  read -r ck_n xvfb < <(ck_display)
+  mkdir -p "$ck/wine-pfx" "$ck/wine-home"
+  v1=$(ck_wine "$out/runtime/kilnctl.exe" --version | tr -d '\r')
+  v2=$(ck_wine "$out/sdk/kiln.exe" --version | tr -d '\r')
+  env WINEPREFIX="$ck/wine-pfx" wineserver -w
+  kill "$xvfb" 2>/dev/null || true
+  echo "kilnctl.exe: $v1; kiln.exe: $v2"
+  [[ $v1 == kilnctl* && $v2 == kiln* ]]
+}
+
+check_rpm() {
+  local listing
+  listing=$(7z l "$out/linux/$R")
+  echo "$listing" | tail -20
+  local d; d=$(mktemp -d -p "$ck")
+  (cd "$d" && 7z x -y "$out/linux/$R" >/dev/null && 7z x -y ./*.cpio* >/dev/null 2>&1 || true)
+  find "$d" -path '*usr/bin/kiln-launcher' | grep -q .
+}
+
+check_cli_versions() {
+  local a b
+  a=$("$out/runtime/kilnctl" --version) b=$("$out/sdk/kiln" --version)
+  echo "kilnctl: $a; kiln: $b"
+  [[ $a == kilnctl* && $b == kiln* ]]
+}
+
+check_template() {
+  local d=$ck/template
+  rm -rf "$d" && mkdir -p "$d"
+  # a scratch package cache: the user's ~/.nuget/packages never sees these test packages
+  export NUGET_PACKAGES=$d/packages DOTNET_CLI_HOME=$d/home
+  dotnet new install "$out/sdk/Kiln.Templates.$sdk_version.nupkg" --debug:custom-hive "$d/hive"
+  (cd "$d" && dotnet new kiln-mod -n CheckMod --feed "$out/sdk" --debug:custom-hive "$d/hive")
+  (cd "$d/CheckMod" && dotnet build -c Release -nologo -v q)
+  local m; m=$(find "$d/CheckMod" -path '*/bin/*' -name kiln.mod.json | head -1)
+  unset NUGET_PACKAGES DOTNET_CLI_HOME
+  [[ -n $m ]] || { echo "no kiln.mod.json in the build output"; return 1; }
+  echo "built: ${m#"$d"/}"; cat "$m"
+}
+
+check_vsix() {
+  local v; v=$(ls "$out"/sdk/*.vsix)
+  unzip -l "$v"
+  unzip -l "$v" | grep -q 'extension/package.json' && unzip -l "$v" | grep -q 'extension/dist/extension.js'
+}
+
+check_authenticode() {
+  local d; d=$(mktemp -d -p "$ck")
+  local files=("$out/runtime/kilnctl.exe" "$out/sdk/kiln.exe")
+  [[ -n $setup ]] && files+=("$out/windows/$S")
+  (cd "$d" && 7z x -y "$out/windows/$S" >/dev/null 2>&1) || true
+  mapfile -t inner < <(find "$d" -iname '*.exe' -not -iname '*webview*' | sort)
+  (cd "$d" && mkdir rt && cd rt && unzip -q "$out/runtime/kiln-runtime-$version.zip")
+  mapfile -t rt < <(find "$d/rt" -type f \( -iname '*.dll' -o -iname '*.exe' \) -not -path '*/kiln/dotnet/*' | sort)
+  "$here/authenticode.sh" verify "${files[@]}" "${inner[@]}" "${rt[@]}"
+}
+
+run_checks() {
+  ck=$work/checks
+  rm -rf "$ck" && mkdir -p "$ck"
+  check "SHA256SUMS matches the folder" python3 "$lib/release.py" sums "$out" --check
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["plugins"]["updater"]["pubkey"])' \
+    "$src/launcher/src-tauri/tauri.conf.json" >"$ck/embedded.pub"
+  check "updater signatures verify against the launcher's built-in key, signed for $version" \
+    python3 "$lib/release.py" verify --pubkey "$ck/embedded.pub" --version "$version" "${updater_files[@]}"
+  check "AppImage --selftest on a private display" check_appimage
+  if [[ -n $setup ]]; then
+    check "NSIS setup installs silently under Wine and passes --selftest" check_nsis
+    check "kilnctl.exe and kiln.exe --version under Wine" check_wine_cli
+  fi
+  check "deb control and files (dpkg-deb -I/-c equivalent)" python3 "$lib/release.py" deb "$out/linux/$D" --version "$version" --need usr/bin/kiln-launcher
+  [[ -n $rpm ]] && check "rpm contains usr/bin/kiln-launcher" check_rpm
+  check "kilnctl bundle verify on the runtime zip" "$out/runtime/kilnctl" bundle verify "$out/runtime/kiln-runtime-$version.zip"
+  check "kilnctl and kiln --version (Linux)" check_cli_versions
+  check "dotnet new kiln-mod from the packed templates builds against the packed SDK (local feed)" check_template
+  check "the vsix lists its files" check_vsix
+  if ((signing)); then check "Authenticode signatures verify" check_authenticode; fi
+  check "no game data, home paths, keys, passwords or tokens in any file or archive" \
+    python3 "$lib/release.py" scan "$out" --tmp "$ck" --secret-file "$key.password" --secret-file "$key" \
+    --secret-file "$HOME/.config/kiln-release/authenticode.env"
+}

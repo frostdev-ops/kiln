@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { BuiltModpack, RequiredMod } from "../../api/commands";
-import { Banner, Button, Card, Field, KeyValue, Table, TextInput, fmtBytes, runTask, shortHash, toast, type Column } from "../../ui";
+import { Banner, Button, Card, Field, KeyValue, Page, Table, TextInput, fmtBytes, runTask, shortHash, toast, type Column } from "../../ui";
 import { sk } from "./serverApi";
 
 export default function ServerModpackPage() {
@@ -49,7 +49,7 @@ export default function ServerModpackPage() {
   ];
   const stale = built && cfg && cfg.sha256 !== built.sha256;
   return (
-    <div className="k-stack" style={{ gap: 16 }}>
+    <Page>
       <Card title="What players need" sub="Mods whose manifest says clients: &quot;mod&quot;; the server checks these hashes when a player joins." flush>
         <Table columns={cols} rows={q.data?.required ?? []} rowKey={(m) => `${m.kind}:${m.id}`} empty="Nothing: vanilla players and any Kiln client can join" aria-label="Required mods" />
       </Card>
@@ -79,6 +79,6 @@ export default function ServerModpackPage() {
         </div>
         {/^http:\/\//i.test(url.trim()) && <div className="k-hint">Players' launchers refuse http:// unless they allow it in Settings.</div>}
       </Card>
-    </div>
+    </Page>
   );
 }

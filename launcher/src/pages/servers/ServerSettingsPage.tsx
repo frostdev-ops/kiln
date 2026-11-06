@@ -6,7 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
-import { Banner, Button, Card, Field, IconButton, NumberInput, Select, Skeleton, Slider, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
+import { Banner, Button, Card, Field, IconButton, NumberInput, Page, Select, Skeleton, Slider, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
 import { sk, type GameSettingSpec, type ServerSettingsX } from "./serverApi";
 
 type Json = Record<string, unknown>;
@@ -67,12 +67,12 @@ export default function ServerSettingsPage() {
       setSaving(false);
     }
   };
-  if (q.isLoading) return <Skeleton lines={8} />;
-  if (q.error) return <Banner tone="err" title="enshrouded_server.json">{errorText(q.error)}</Banner>;
+  if (q.isLoading) return <Page><Skeleton lines={8} /></Page>;
+  if (q.error) return <Page><Banner tone="err" title="enshrouded_server.json">{errorText(q.error)}</Banner></Page>;
   const byGroup = new Map<string, GameSettingSpec[]>();
   for (const s of schema?.gameSettings ?? []) byGroup.set(s.group, [...(byGroup.get(s.group) ?? []), s]);
   return (
-    <div className="k-stack" style={{ gap: 16 }}>
+    <Page>
       {running && <Banner tone="warn" title="The server is running">The game rewrites this file while it runs: stop it to change settings.</Banner>}
       <div className="k-row" style={{ justifyContent: "space-between" }}>
         <span className="k-hint k-mono">{q.data?.path}</span>
@@ -125,6 +125,6 @@ export default function ServerSettingsPage() {
         <TextArea rows={4} value={((cur.bannedAccounts as string[]) ?? []).join("\n")} disabled={running}
           onChange={(e) => set("bannedAccounts", e.target.value.split(/\s+/).map((x) => x.trim()).filter(Boolean))} />
       </Card>
-    </div>
+    </Page>
   );
 }

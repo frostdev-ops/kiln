@@ -62,7 +62,7 @@ c.Command.Guard(player, new GuardOptions { CatchUpDistance = 40, Assist = false 
 foreach (var o in Creatures.GuardOrders) { /* o.Guard -> o.Target, o.CatchUps, o.Resent, o.ThreatsSent */ }
 c.Command.Stay(); c.Command.MoveTo(pos); c.Command.Heal(seconds: 3);
 
-// admin commands for the calling mod (see "Commands")
+// asks for Kiln's admin command /creature (see "Commands")
 CreatureAdminCommands.Register();
 ```
 
@@ -76,6 +76,8 @@ CreatureAdminCommands.Register();
   and creatures it spawned with `Creatures.Spawn` (`DespawnOnUnload`, default true) destroyed. Lab: unloading
   EliteVukah turned a level-20 elite back into a level-1 Vukah with the template's view range, 0 layers, 0 copies.
 - **Data packs** own layers under a named owner (`"pack:<mod id>"`): `Creatures.RevertJson(owner)` reverts them.
+- **`/creature`** changes are layers of its own named owner (`"kiln.creatures:command"`), not of a mod: `/creature
+  reset` drops them on one creature, and they are reverted when the command goes away (see "Commands").
 - **Despawn**: every Pre, each creature with state is checked by its engine record (the TemplateInfo pointer of its
   entity record); when it is gone (or its id now names another entity) its state is dropped without touching the world.
   Private copies are freed 250 steps (~10 s) after their slot stopped pointing at them.
@@ -453,8 +455,12 @@ So the step's own time shows no difference above run-to-run noise, which is 1 ms
 
 ## Commands (`/creature`, admins)
 
-A mod registers the tree with `CreatureAdminCommands.Register()` (EliteVukah does); it belongs to that mod. Changes made
-by commands are layers of that mod (`/creature reset` drops them).
+`/creature` belongs to Kiln (owner `kiln`, permission node `kiln.command.creature`, level Admin). A mod that wants it
+calls `CreatureAdminCommands.Register()` (EliteVukah and RuleVukah do): the first call adds the command, later calls
+share it, and it stays while one of those registrations is held. It goes when the last one is disposed or its mod
+unloads. What the commands change (values, AI overrides, attack overrides, the AI switch, held targets, guard orders)
+belongs to the command's own owner `kiln.creatures:command`, so another mod's unload never reverts it. `/creature reset`
+drops it on one creature; when `/creature` goes away, all of it is reverted.
 
 | Command | Does |
 |---|---|

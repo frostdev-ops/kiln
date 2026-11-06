@@ -1,12 +1,12 @@
 // /servers/:id/admin/items: search the server's items (item_search: names as Kiln knows them, including items added by
 // mods); the selected item's form beside the table: give it to a player (stackables 1 to 10000; gear with level and
 // rarity), or drop it into the world (spawn_item). Content (stats, recipes) is on the Content page.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAdminCall, useAdminQuery, useAdminState, useHasOp, type AdminPlayer } from "../../api/admin";
-import { CoordInputs, NeedsOp, PlayerSelect, coordText, parseCoords, playerName, withAdmin, type CoordText } from "../common";
+import { CoordInputs, NeedsOp, PlayerSelect, coordText, itemNames, parseCoords, playerName, useModItemNames, withAdmin, type CoordText } from "../common";
 import { OfflineNote } from "../ConnectionBar";
 import type { GiveResult, ItemHit } from "../types";
-import { Button, Field, NumberInput, Page, Select, SplitPage, Table, WellInput, toastError, toastOk, useDebounced } from "../ui";
+import { Button, Field, NameId, NumberInput, Page, Select, SplitPage, Table, WellInput, toastError, toastOk, useDebounced } from "../ui";
 
 const RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 
@@ -17,7 +17,8 @@ function ItemsPage() {
   const dq = useDebounced(q.trim(), 200);
   const search = useAdminQuery<ItemHit[]>("item_search", { q: dq }, { enabled: dq.length >= 2, staleTime: 60_000 });
   const [selId, setSel] = useState<number | null>(null);
-  const rows = search.data ?? [];
+  const mod = useModItemNames();
+  const rows = useMemo(() => (search.data ?? []).map((r) => ({ ...r, ...itemNames(r, mod) })), [search.data, mod]);
   const sel = rows.find((r) => r.id === selId) ?? rows[0] ?? null;
   const count = dq.length < 2 ? "" : search.isFetching ? "Searching" : `${rows.length}${rows.length === 50 ? "+" : ""} found`;
   return (
@@ -28,7 +29,7 @@ function ItemsPage() {
           <WellInput label="Search items" autoFocus value={q} onChange={(e) => setQ(e.target.value)} note={count} style={{ fontSize: 16 }} />
           <Table aria-label="Items" fill rows={rows} rowKey={(r) => String(r.id)} rowHeight={44} selectedKey={sel ? String(sel.id) : null} onRowClick={(r) => setSel(r.id)}
             columns={[
-              { key: "n", header: "Item", sort: (a, b) => a.name.localeCompare(b.name), render: (r) => <span className="k-mono" style={{ fontSize: 16, color: "var(--k-text-0)" }}>{r.name}</span> },
+              { key: "n", header: "Item", sort: (a, b) => a.name.localeCompare(b.name), render: (r) => <NameId name={r.name} id={r.debug ?? undefined} /> },
               { key: "g", header: "Kind", width: "64px", render: (r) => <span className={`k-badge k-tone-${r.gear ? "ember" : "idle"}`}>{r.gear ? "gear" : "stacks"}</span> },
               { key: "id", header: "Id", width: "110px", align: "right", render: (r) => <span className="k-mono" style={{ color: "#d0beac" }}>{r.id}</span> },
             ]}
@@ -39,7 +40,7 @@ function ItemsPage() {
   );
 }
 
-function GiveForm({ item, players }: { item: ItemHit; players: AdminPlayer[] }) {
+function GiveForm({ item, players }: { item: Omit<ItemHit, "debug"> & { debug: string | null }; players: AdminPlayer[] }) {
   const [toSel, setTo] = useState<number | null>(null);
   const to = toSel ?? players[0]?.entity ?? null;
   const [count, setCount] = useState(1);
@@ -80,8 +81,8 @@ function GiveForm({ item, players }: { item: ItemHit; players: AdminPlayer[] }) 
     <>
       <form className="k-stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); send(); }}>
         <div>
-          <span className="k-mono" style={{ fontSize: 17, color: "var(--k-text-0)", overflowWrap: "anywhere" }}>{item.name}</span>
-          <div className="k-mono k-muted" style={{ fontSize: 14.5 }}>#{item.id}, {item.gear ? "gear" : "stacks"}</div>
+          <span style={{ fontSize: 20, fontWeight: 500, color: "var(--k-text-0)", overflowWrap: "anywhere" }}>{item.name}</span>
+          <div className="k-mono k-muted" style={{ fontSize: 14.5, overflowWrap: "anywhere" }}>{item.debug ? `${item.debug}, ` : ""}#{item.id}, {item.gear ? "gear" : "stacks"}</div>
         </div>
         {hasGive ? (
           <>

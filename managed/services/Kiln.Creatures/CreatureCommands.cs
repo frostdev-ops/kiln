@@ -1,20 +1,41 @@
 // SPDX-License-Identifier: MIT
-// The /creature commands (admins). A mod registers them with CreatureAdminCommands.Register() (they belong to that mod
-// and go away when it unloads); the EliteVukah sample does. Changes made by commands are layers of that mod.
+// The /creature commands (admins). They are Kiln's, not a mod's: a mod that wants them calls
+// CreatureAdminCommands.Register() (the EliteVukah and RuleVukah samples do). The first call adds /creature (owner "kiln",
+// permission node kiln.command.creature), later calls share it, and it goes when the last mod that asked lets go of it or
+// unloads. What the commands change is a layer of the command's own owner, not of a mod: /creature reset drops it on one
+// creature, and all of it is reverted when /creature goes away.
 using System.Globalization;
 using System.Text;
 
 namespace Kiln;
 
-/// <summary>The <c>/creature</c> command tree (admins only).</summary>
+/// <summary>The <c>/creature</c> command tree (admins only; permission node <c>kiln.command.creature</c>).</summary>
 public static class CreatureAdminCommands
 {
     private static readonly string[] Fields =
         ["level", "faction", "scale", "xp", "speed", "damage", "home", "loot-labels", "loot-slots", "loot-off", "feature-on",
          "feature-off", "arsenal"];
 
-    /// <summary>Registers <c>/creature</c> for the calling mod.</summary>
-    public static CommandRegistration Register()
+    /// <summary>Who owns the layers, AI overrides, attack overrides and guard orders the commands make.</summary>
+    internal static readonly Creatures.OwnerKey Owner = Creatures.OwnerKey.Named("kiln.creatures:command");
+
+    /// <summary>Asks for <c>/creature</c> on behalf of the calling mod. The command is Kiln's and shared: it is added
+    /// once, however many mods ask, stays while one of them holds its registration, and goes when the last one is
+    /// disposed or its mod unloads. Then what it changed on creatures is reverted.</summary>
+    public static CommandRegistration Register() =>
+        Commands.RegisterShared("creature", Tree, CommandPermission.Admin, "Kiln creatures (kiln.creatures)", Released);
+
+    // The last mod that asked let go: the command's changes and guard orders end with it.
+    private static unsafe void Released()
+    {
+        Guarding.Retire(Owner);
+        var t = CreaturesNative.T;
+        if (t != null) t->ReleaseOwner(Owner.Native);
+    }
+
+    private static CreatureRef Of(EntityId e) => new(e, Owner);
+
+    private static LiteralNode Tree()
     {
         var root = Commands.Literal("creature").Describe("creatures: inspect, change, variants, AI, commands")
             .Executes(StatusCmd)
@@ -65,7 +86,7 @@ public static class CreatureAdminCommands
             .Then(Commands.Literal("target").Describe("makes another entity the creature's combat target")
                 .Then(Commands.Argument("entity", Arg.Entity())
                     .Then(Commands.Argument("target", Arg.Entity()).Executes(TargetCmd))));
-        return Commands.Register(root, CommandPermission.Admin, "Kiln creatures (kiln.creatures)");
+        return root;
     }
 
     private static void Require()
@@ -96,7 +117,7 @@ public static class CreatureAdminCommands
         var s = Arsenals.Status ?? throw new CommandException("kiln.creatures is not available on this server");
         if (c.Has("entity"))
         {
-            var cr = Creatures.Of(c.Get<EntityId>("entity"));
+            var cr = Of(c.Get<EntityId>("entity"));
             var a = Arsenals.Info(cr.Arsenal) ?? throw new CommandException($"{cr.Entity}: its arsenal {cr.Arsenal} is not in the registry");
             var text = new StringBuilder($"{cr.Entity}: arsenal {a.Id} ({(a.IsKiln ? "Kiln's" : "the game's")}), AI {(cr.AiEnabled ? "on" : "off")}, phase {cr.Phase:x8}");
             foreach (var x in a.Attacks) text.Append($"\n  attack {x.Index}: sequence {x.Sequence} ({RuleIds.Fnv(x.Sequence):x8}), style 0x{x.Style:x}");
@@ -118,7 +139,7 @@ public static class CreatureAdminCommands
         var e = c.Get<EntityId>("entity");
         var how = c.Get<string>("how");
         var which = c.GetOrDefault("which", "");
-        var a = Creatures.Of(e).Attacks;
+        var a = Of(e).Attacks;
         try
         {
             switch (how)
@@ -155,7 +176,7 @@ public static class CreatureAdminCommands
     {
         Require();
         var e = c.Get<EntityId>("entity");
-        var cr = Creatures.Of(e);
+        var cr = Of(e);
         cr.AiEnabled = c.Get<bool>("on");
         c.Reply($"{e}: AI {(cr.AiEnabled ? "on" : "off")}, state {cr.State}");
     }
@@ -165,7 +186,7 @@ public static class CreatureAdminCommands
         Require();
         var e = c.Get<EntityId>("entity");
         var t = c.Get<EntityId>("target");
-        Creatures.Of(e).PreferTarget(t, 10);
+        Of(e).PreferTarget(t, 10);
         c.Reply($"{e}: holds {t} as its target for 10 s");
     }
 
@@ -183,7 +204,7 @@ public static class CreatureAdminCommands
         var sb = new StringBuilder($"{list.Count} creature(s) within {r:0} m of {at}:");
         foreach (var e in list.Take(12))
         {
-            var i = Creatures.Of(e).Inspect();
+            var i = Of(e).Inspect();
             if (i is null) continue;
             var d = World.TryGetPosition(e, out var p) ? p.DistanceTo(at) : 0;
             sb.Append($"\n  {e} {i.TemplateName} lvl {i.Level} {i.Faction} {(i.HasAi ? i.State.ToString() : "")} {d:0} m");
@@ -195,7 +216,7 @@ public static class CreatureAdminCommands
     {
         Require();
         var e = c.Get<EntityId>("entity");
-        var i = Creatures.Of(e).Inspect() ?? throw new CommandException($"no entity {e}");
+        var i = Of(e).Inspect() ?? throw new CommandException($"no entity {e}");
         var v = CreatureVariants.Of(e);
         c.Reply($"{e} {i.TemplateName} ({i.Kind}){(v is null ? "" : $" variant {v.Id}")}: level {i.Level}/{i.LevelMax}, " +
                 $"health {i.Health}/{i.HealthMax}, faction {i.Faction}, scale {i.Scale:0.##}, xp x{i.XpFactor:0.##}, " +
@@ -213,7 +234,7 @@ public static class CreatureAdminCommands
         var e = c.Get<EntityId>("entity");
         var field = c.Get<string>("field").ToLowerInvariant();
         var value = c.Get<string>("value").Trim();
-        var cr = Creatures.Of(e);
+        var cr = Of(e);
         try
         {
             switch (field)
@@ -279,7 +300,7 @@ public static class CreatureAdminCommands
         var path = c.Get<string>("path");
         try
         {
-            var v = Creatures.Of(e).Ai.Get(path, out var priv);
+            var v = Of(e).Ai.Get(path, out var priv);
             c.Reply($"{e} {path} = {v}{(priv ? " (private copy)" : " (template)")}");
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or KeyNotFoundException)
@@ -296,7 +317,7 @@ public static class CreatureAdminCommands
         var value = c.Get<string>("value").Trim();
         try
         {
-            var ai = Creatures.Of(e).Ai;
+            var ai = Of(e).Ai;
             ai.Set(path, value);
             c.Reply($"{e} {path} = {ai.Get(path)} (private copy)");
         }
@@ -310,7 +331,7 @@ public static class CreatureAdminCommands
     {
         Require();
         var e = c.Get<EntityId>("entity");
-        c.Reply($"{e}: {Creatures.Of(e).Reset()} change(s) dropped");
+        c.Reply($"{e}: {Of(e).Reset()} change(s) dropped");
     }
 
     private static void SpawnCmd(CommandContext c)
@@ -347,7 +368,7 @@ public static class CreatureAdminCommands
         var e = c.Get<EntityId>("entity");
         var action = c.Get<string>("action");
         var rest = c.GetOrDefault("rest", "").Trim();
-        var cmd = Creatures.Of(e).Command;
+        var cmd = Of(e).Command;
         EntityId Target()
         {
             if (rest.Length == 0) return c.Source.IsPlayer ? c.Source.Player : throw new CommandException("give a target entity");
@@ -398,7 +419,7 @@ public static class CreatureAdminCommands
         var e = c.Get<EntityId>("entity");
         try
         {
-            Creatures.Of(e).ForceReady(c.Get<bool>("on"));
+            Of(e).ForceReady(c.Get<bool>("on"));
         }
         catch (NotSupportedException)
         {

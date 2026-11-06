@@ -41,6 +41,8 @@ export default function RuntimePage() {
     if (!wantInstall || !rt || !bundles.data) return;
     setParams({}, { replace: true });
     if (!rt.receipt && rt.proxy?.kind !== "shroudforge" && bundles.data[0]) setPick(bundles.data[0]);
+    // after a launcher update: the runtime it brought
+    else if (rt.receipt && rt.upgradeAvailable) { const b = bundles.data.find((x) => x.version === rt.upgradeAvailable); if (b) setPick(b); }
   }, [wantInstall, rt, bundles.data, setParams]);
 
   if (!game) return <Page><PageHeader title="Runtime" sub="No game yet. Find Enshrouded on Play first." /></Page>;

@@ -80,7 +80,7 @@ internal sealed class TcpAdmin : IDisposable
         public long SeqState, SeqLog;
         public string Session = "", Nonce = "", ClientName = "";
         public readonly long Connected = Environment.TickCount64;
-        public long LastRecv = Environment.TickCount64, LastSend = Environment.TickCount64;
+        public long LastRecv = Environment.TickCount64, LastSend = Environment.TickCount64, LastPing = Environment.TickCount64;
         public ulong PingId;
         public Thread? Reader, Writer;
         public override string ToString() => $"#{Number}{(ClientName.Length > 0 ? " (" + ClientName + ")" : "")}";
@@ -713,9 +713,12 @@ internal sealed class TcpAdmin : IDisposable
                 c.Signal.Set();
                 continue;
             }
-            if (now - c.LastSend > PingS * 1000)
+            // A ping after PingS without sending anything, and also when the peer has been silent for PingS: while
+            // pushes keep this side busy, the peer still gets a ping to answer, so answering pings is enough to stay
+            // connected (a client that sends nothing of its own would otherwise be closed as idle).
+            if (now - c.LastSend > PingS * 1000 || (now - c.LastRecv > PingS * 1000 && now - c.LastPing > PingS * 1000))
             {
-                c.LastSend = now;  // one ping per interval, even while the writer is busy
+                c.LastSend = c.LastPing = now;  // one ping per interval, even while the writer is busy
                 Send(c, new JsonObject { ["t"] = "ping", ["id"] = ++c.PingId, ["ts"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
             }
             List<(ulong Id, Flight F)>? late = null;

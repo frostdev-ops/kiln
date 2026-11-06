@@ -44,15 +44,17 @@ internal static class ModCalls
     }
 
     /// <summary>Runs <paramref name="action"/> as code of <paramref name="mod"/> (null = Kiln itself). Exceptions are
-    /// logged to the mod's log and reported as false.</summary>
-    public static bool Invoke(ModContext? mod, Action action, string what)
+    /// logged to the mod's log and reported as false. With no mod, the caller's mod context stays unless
+    /// <paramref name="asKiln"/> clears it (Kiln's shared commands).</summary>
+    public static bool Invoke(ModContext? mod, Action action, string what, bool asKiln = false)
     {
         if (mod is not null && !mod.Alive) return false;
         var previousContext = SynchronizationContext.Current;
         var previousMod = ModContext.CurrentMod;
-        if (mod is not null)
+        var swap = mod is not null || asKiln;
+        if (swap)
         {
-            SynchronizationContext.SetSynchronizationContext(mod.Scheduler.SynchronizationContext);
+            SynchronizationContext.SetSynchronizationContext(mod?.Scheduler.SynchronizationContext);
             ModContext.CurrentMod = mod;
         }
         try
@@ -68,7 +70,7 @@ internal static class ModCalls
         }
         finally
         {
-            if (mod is not null)
+            if (swap)
             {
                 ModContext.CurrentMod = previousMod;
                 SynchronizationContext.SetSynchronizationContext(previousContext);

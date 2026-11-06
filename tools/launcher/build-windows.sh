@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Cross-builds the Kiln Launcher for Windows from Linux: NSIS installer via cargo-xwin.
-#   tools/launcher/build-windows.sh [--debug] [--selftest] [--webview bootstrapper|skip] [--runtime ZIP|none]
+#   tools/launcher/build-windows.sh [--debug] [--selftest] [--webview bootstrapper|skip] [--runtime ZIP|none] [--version V]
+#                                   [--config JSON|FILE]...
+# --version: the launcher's version (a release: tools/release/version.sh). --config: more Tauri config to merge, in order
+#   (a release passes bundle.windows.signCommand when it signs with Authenticode).
 # --runtime: the Kiln runtime to ship (shipped-runtime.sh). Default: built from this tree; --selftest ships none.
 # Output: $KILN_OUT/bundles/windows/ (kiln-launcher-setup.exe, kiln-launcher.exe).
 # --webview: what the installer does about the WebView2 runtime. bootstrapper (default for releases) downloads
@@ -21,10 +24,13 @@ profile=()
 selftest=0
 webview=
 runtime=
+extra=()
 source "$here/shipped-runtime.sh"
 while (($#)); do
   case $1 in
     --debug) profile=(--debug); shift ;;
+    --version) extra+=(--config "{\"version\":\"$2\"}"); shift 2 ;;
+    --config) extra+=(--config "$2"); shift 2 ;;
     --selftest) selftest=1; shift ;;
     --webview) webview=$2; shift 2 ;;
     --runtime) runtime=$2; shift 2 ;;
@@ -42,7 +48,7 @@ case $webview in
   *) echo "--webview bootstrapper|skip" >&2; exit 2 ;;
 esac
 echo "WebView2 install mode: $webview"
-bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config"
+bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config" "${extra[@]}"
 kind=release; ((${#profile[@]})) && kind=debug
 out=$KILN_OUT/bundles/windows
 mkdir -p "$out"

@@ -5,6 +5,8 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { create } from "zustand";
 import type { KilnError } from "../../api/commands";
 import { Banner, Button, ConfirmDanger, Modal, TextInput, toast as uiToast } from "../../ui";
+// with the pieces, so admin pages mounted outside the admin routes (the server's Configs and Mods) are styled too
+import "../admin.css";
 
 export * from "../../ui";
 

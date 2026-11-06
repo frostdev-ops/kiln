@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0-dev.42",
+  "notes": "Self-update from frostdev.io with GitHub as the backup. Fixes for stations and item texts.",
+  "pub_date": "2026-11-06T12:00:00Z",
+  "platforms": {
+    "linux-x86_64-appimage": {
+      "url": "https://frostdev.io/kiln/downloads/0.2.0-dev.42/kiln-launcher_0.2.0-dev.42_amd64.AppImage",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IGV4YW1wbGU=",
+      "sha256": "9f2c6f0a1c3a0b7f0f8c9a6d1e2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "size": 183500800
+    },
+    "linux-x86_64": {
+      "url": "https://frostdev.io/kiln/downloads/0.2.0-dev.42/kiln-launcher_0.2.0-dev.42_amd64.AppImage",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IGV4YW1wbGU=",
+      "sha256": "9f2c6f0a1c3a0b7f0f8c9a6d1e2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "size": 183500800
+    },
+    "windows-x86_64-nsis": {
+      "url": "https://frostdev.io/kiln/downloads/0.2.0-dev.42/kiln-launcher_0.2.0-dev.42_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IGV4YW1wbGU=",
+      "sha256": "0b1c2d3e4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff0",
+      "size": 98566144
+    },
+    "windows-x86_64": {
+      "url": "https://frostdev.io/kiln/downloads/0.2.0-dev.42/kiln-launcher_0.2.0-dev.42_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IGV4YW1wbGU=",
+      "sha256": "0b1c2d3e4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff0",
+      "size": 98566144
+    }
+  },
+  "kiln": {
+    "format": 1,
+    "channel": "dev",
+    "page": "https://frostdev.io/kiln",
+    "runtime": "0.2.0-dev+20261106.0f1ffa6"
+  }
+}

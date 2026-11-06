@@ -1,12 +1,14 @@
 //! Kiln Launcher backend.
 //! Every command is registered here; `commands::NAMES` and launcher/src/api/commands.ts list the same names (tested).
 //! Also: the background watcher (`kiln://game`, `kiln://last-server`, `kiln://log`), the `kiln-asset` protocol that
-//! serves the save editor's local game assets, and the headless `--selftest` mode.
+//! serves the save editor's local game assets, the self-update (`kiln://update`, selfupdate/) and the headless
+//! `--selftest` mode.
 
 pub mod assets;
 pub mod commands;
 pub mod events;
 pub mod selftest;
+pub mod selfupdate;
 pub mod state;
 pub mod watch;
 
@@ -19,6 +21,7 @@ pub fn selftest() -> i32 {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
             watch::start(app.handle().clone());
@@ -26,6 +29,8 @@ pub fn run() {
             std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
             // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
             commands::modpack::watch_last_server(app.handle());
+            // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
+            selfupdate::start(app.handle().clone());
             #[cfg(any(debug_assertions, feature = "dev-eval"))]
             if let Some(dir) = std::env::var_os("KILN_DEV_EVAL_DIR").filter(|d| !d.is_empty()) {
                 dev_eval(app.handle().clone(), dir.into());
@@ -136,7 +141,13 @@ pub fn run() {
             commands::app::app_assets_status,
             commands::app::app_assets_import,
             commands::server::server_console_open,
-            commands::server::server_console_close
+            commands::server::server_console_close,
+            commands::update::update_status,
+            commands::update::update_check,
+            commands::update::update_install,
+            commands::update::update_restart,
+            commands::update::update_skip,
+            commands::update::update_ack
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Kiln Launcher");

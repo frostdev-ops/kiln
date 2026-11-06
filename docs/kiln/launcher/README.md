@@ -4,6 +4,7 @@
 |---|---|
 | [contracts.md](contracts.md) | every format, path, flow, Tauri command, event, error code and crate module (the contracts) |
 | [admin-protocol.md](admin-protocol.md) | KAP/1: Kiln.Admin over TCP (framing, handshake, ops, SSH tunnels) |
+| [releasing.md](releasing.md) | versions, the launcher's self-update (sources, channels, signatures), the release folder and the steps to publish |
 
 Machine-readable contracts:
 - `schema/`: JSON Schemas (`*.schema.json`, draft 2020-12), `examples/`, `fixtures/` (resolver, semver, manifest

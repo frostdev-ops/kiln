@@ -1,0 +1,15 @@
+/* The launcher update in the header (UpdateNotice.tsx): the word beside the tasks and the notice under it, a popover
+   like the task list (Soot 2, radius m, the strong line, no backdrop): one line and its buttons. */
+.k-upd { position: relative; display: flex; align-items: center; }
+.k-upd-btn { display: flex; align-items: flex-end; gap: 8px; border: 0; background: none; padding: 4px 2px; cursor: pointer; }
+.k-upd-btn .k-sc { font-size: 16px; white-space: nowrap; }
+.k-upd-btn:hover .k-sc { color: var(--k-text-0); }
+.k-upd-btn:focus-visible { outline: 2px solid var(--k-gold-400); outline-offset: 2px; border-radius: 2px; }
+.k-upd-pop { position: absolute; right: -6px; top: calc(100% + 10px); width: 300px; z-index: 40; padding: 8px 10px 12px 16px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--k-bg-2); border-radius: var(--k-radius-m);
+  box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 24px 60px rgba(0, 0, 0, .65); animation: k-pop .32s var(--k-spring) backwards; }
+.k-upd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; }
+.k-upd-title { font-size: 19px; font-weight: 500; color: var(--k-text-0); line-height: 1.2; overflow-wrap: anywhere; }
+.k-upd-pop .k-progress { margin: 2px 6px 4px 0; }
+.k-upd-actions { display: flex; justify-content: flex-end; gap: 8px; padding-right: 6px; }
+@media (prefers-reduced-motion: reduce) { .k-upd-pop { animation: none; } }

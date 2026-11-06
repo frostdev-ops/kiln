@@ -122,17 +122,45 @@ public static partial class Build
         return t->Ready(o, d) == BuildNative.Ok;
     }
 
-    /// <summary>Waits (on the tick thread) until the tiles under the box are loaded. False after the timeout.</summary>
+    /// <summary>Waits (on the tick thread) until the tiles under the box are loaded. False after the timeout. Mod code
+    /// waits on its mod's scheduler, Kiln's own code (such as the <c>/build</c> command) on Kiln's service tick.</summary>
     public static async Task<bool> Load(CellBox box, TimeSpan? timeout = null)
     {
-        var mod = ModContext.CurrentMod ?? throw new InvalidOperationException("Build.Load needs a mod context (call it from mod code)");
+        var mod = ModContext.CurrentMod;
         var until = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(20));
         while (true)
         {
             if (IsLoaded(box)) return true;
             if (DateTime.UtcNow > until) return false;
-            await mod.Scheduler.NextTick();
+            if (mod is not null) await mod.Scheduler.NextTick();
+            else await NextServiceTick();
         }
+    }
+
+    private static readonly object WaitLock = new();
+    private static List<TaskCompletionSource> _waiting = [];
+    private static IDisposable? _waitTick;
+
+    // Completes at the next service tick (tick thread, no mod context): Kiln's own code has no mod scheduler to wait on.
+    private static Task NextServiceTick()
+    {
+        var next = new TaskCompletionSource();
+        lock (WaitLock)
+        {
+            _waiting.Add(next);
+            _waitTick ??= ServiceTick.Add("kiln.build waits", static (in TickInfo _) =>
+            {
+                List<TaskCompletionSource> due;
+                lock (WaitLock)
+                {
+                    if (_waiting.Count == 0) return;
+                    due = _waiting;
+                    _waiting = [];
+                }
+                foreach (var w in due) w.TrySetResult();
+            });
+        }
+        return next.Task;
     }
 
     // ---- cells ----

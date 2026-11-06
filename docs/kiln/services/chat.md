@@ -69,6 +69,10 @@ Commands.Register("time", ctx =>
 - Ownership: commands, handlers and the admin check belong to the mod that registered them and are dropped when it
   unloads (hot reload included: `reload-test chat-test 5` -> 0 leaked contexts). Names are case-insensitive; another
   mod's name throws, the same mod registering again replaces it. `Register` returns a disposable registration.
+- Kiln's shared commands: a service's command tree that mods ask for (`CreatureAdminCommands.Register()`,
+  `BuildCommands.Register()`) belongs to Kiln (owner `kiln`, node `kiln.command.<name>`). It is added once, however
+  many mods ask, stays while one of their registrations is held, and goes when the last one is disposed or its mod
+  unloads. Its handlers run as Kiln.
 - Handlers run on the tick thread in their mod's context (Scheduler, `await`, services attribute work to that mod).
 
 ## C (native plugins)

@@ -12,6 +12,7 @@ import type {
 } from "./commands";
 import { adminMockHandlers } from "../admin/mock";
 import { serverMockHandlers } from "../pages/servers/mockServers";
+import { updateMockHandlers } from "./mockUpdate";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -466,7 +467,7 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 // ---------------------------------------------------------------- settings, servers
 
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
-let settings: LauncherSettings = { steamRoots: [], defaultGameId: "client-steam", allowHttpModpacks: false, savesKeep: 10, checkUpdates: true, animatedFire: true };
+let settings: LauncherSettings = { steamRoots: [], defaultGameId: "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true };
 
 const server: ServerInstance = {
   id: "lab", name: "Lab server", kind: "local", dir: "/home/player/srv/enshrouded/lab", port: 26090, queryPort: 26091,
@@ -755,6 +756,7 @@ const handlers: Record<string, Handler> = {
   modpack_dismiss: (a) => { if (lastServer && (lastServer.server.id ?? "") === S(a.serverId)) dismissedOffers[S(a.serverId)] = dismissKey(lastServer); return null; },
 };
 Object.assign(handlers, adminMockHandlers(mockEmit));
+Object.assign(handlers, updateMockHandlers(mockEmit));
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
 let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
@@ -829,4 +831,5 @@ export function mockEmit(name: string, payload: unknown): void {
 // Playwright and the dev console reach the fake game through this (mock mode only).
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   failNextInstall: (message: string) => { failNextInstall = message; },
-  setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); } };
+  setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
+  setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

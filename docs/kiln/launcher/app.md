@@ -31,7 +31,7 @@ events). Design system: [design-system.md](design-system.md).
 ## Pages
 | Route | Page | Backend |
 |---|---|---|
-| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors, the mods that failed in mods.json/native.json and the `[E` lines of kiln.log, all of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, "Update Kiln" (`GameStatus.newerMods`: the active profile's mods whose `kilnBuild` is newer than the game's runtime, with a link to Runtime), safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
+| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors, the mods that failed in mods.json/native.json and the `[E` lines of kiln.log, all of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, "Update Kiln" (`GameStatus.newerMods`: the active profile's mods whose `kilnBuild` is newer than the game's runtime: "<ids> needs a newer Kiln." with Update, which opens Runtime), safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
 | `/profiles` | list, create, duplicate, delete (typed), activate | `profile_*` |
 | `/profiles/:id/mods` | the Kiln mods as the resolver's load order (client or server side): numerals, flame toggles, why a mod stays out; add from the library, other versions, remove | `profile_save`, `profile_resolve`, `library_list` |
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
@@ -124,6 +124,15 @@ dropped there in the webview (headless checks on Xvfb drive the real app with it
   `MicrosoftEdgeUpdate.exe` in such a prefix (it phones home). A real Windows 10/11 PC is still the reference.
 - Wine test environments for servers: never `mscoree=` in `WINEDLLOVERRIDES` (the .NET host then fails with
   `0x8007007E`, linux-server.md); `mscoree=` is fine for `--selftest`, which starts no .NET.
+- Both scripts take `--version V` (a release version, [releasing.md](releasing.md)), `--config JSON|FILE` (more Tauri
+  config, merged in order) and, on Linux, `--features` (QA builds: `dev-eval`, `update-test-feeds`) and an rpm in
+  `--bundles`. A release is `tools/release/release.sh` (the whole release folder, signed and checked).
+
+## Self-update
+The launcher updates itself from frostdev.io, with GitHub Releases as the backup, signed with Kiln's updater key: a
+word in the header and a notice under it when an update is found, Settings > Updates (automatic checks, channel,
+Check now). Sources, channels, versions, keys and the release steps: [releasing.md](releasing.md). Code:
+`src-tauri/src/selfupdate/`, `src/shell/UpdateNotice.tsx`, `src/components/UpdateSettings.tsx`.
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

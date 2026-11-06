@@ -7,6 +7,7 @@ import type { ConfigDocument, Json, LauncherSettings } from "../api/commands";
 import { qk, useAppInfo, useGame, useGameStatus, useSettings } from "../api/hooks";
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
+import { UpdatesCard } from "../components/UpdateSettings";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
   Toggle, errorText, fmtAgo, fmtBytes, toast,
@@ -23,6 +24,7 @@ export default function SettingsPage() {
         <LauncherCard />
         <GamesCard />
         <AppearanceCard />
+        <UpdatesCard />
       </div>
       <KilnJsonCard />
       <AssetsCard />
@@ -54,7 +56,6 @@ function LauncherCard() {
         <NumberInput id="st-keep" integer min={1} max={100} value={v.savesKeep} onCommit={(n) => set({ savesKeep: n })} style={{ width: 120 }} />
       </Field>
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
-      <Toggle checked={v.checkUpdates} onChange={(on) => set({ checkUpdates: on })} label="Check for updates" />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">
         <div className="k-stack">
           {v.steamRoots.map((r) => (

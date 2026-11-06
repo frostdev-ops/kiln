@@ -6,11 +6,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAdminCall, useAdminQuery, useHasOp } from "../../api/admin";
 import type { Json } from "../../api/commands";
-import { FIELD, NeedsOp, useServerId, withAdmin } from "../common";
+import { FIELD, NeedsOp, definitionName, useServerId, withAdmin } from "../common";
 import { OfflineNote } from "../ConnectionBar";
 import type { ContentEntry, ContentField, ContentHit, ContentKind, ContentStatus, ContentValue, PackReport } from "../types";
 import {
-  Badge, Banner, Button, Card, EmptyState, JsonView, Page, PageHeader, Segmented, Select, Stat, Stats, SuggestInput, Table, Tabs, TextInput, Toggle,
+  Badge, Banner, Button, Card, EmptyState, JsonView, NameId, Page, PageHeader, Segmented, Select, Stat, Stats, SuggestInput, Table, Tabs, TextInput, Toggle,
   toastError, toastOk, useDebounced, type Suggestion,
 } from "../ui";
 
@@ -184,7 +184,7 @@ function FieldEditor({ f, busy, onSet, onCancel }: { f: ContentField; busy: bool
   };
   let ctl;
   if (f.enumKind === "flags")
-    ctl = <div className="ka-flags">{(f.options ?? []).map((o) => <label key={o}><input type="checkbox" checked={flags.has(o)} onChange={(e) => { const n = new Set(flags); if (e.target.checked) n.add(o); else n.delete(o); setFlags(n); }} /> {o}</label>)}</div>;
+    ctl = <div className="ka-flags">{(f.options ?? []).map((o) => <label key={o}><input type="checkbox" className="k-check" checked={flags.has(o)} onChange={(e) => { const n = new Set(flags); if (e.target.checked) n.add(o); else n.delete(o); setFlags(n); }} /> {o}</label>)}</div>;
   else if (f.enumKind === "enum") ctl = <Select aria-label={f.path} value={text} onChange={setText} options={(f.options ?? []).includes(text) ? f.options! : [text, ...(f.options ?? [])]} />;
   else if (f.valueType === "bool") ctl = <Select aria-label={f.path} value={text === "true" ? "true" : "false"} onChange={setText} options={["true", "false"]} />;
   else ctl = <TextInput aria-label={f.path} autoFocus inputMode={num ? "decimal" : undefined} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go(); if (e.key === "Escape") onCancel(); }} style={{ width: 180 }} mono />;
@@ -263,6 +263,12 @@ function Definitions() {
   const defs = useAdminQuery<Definition[]>("content_definitions", {}, { enabled: has, staleTime: 30_000 });
   const sync = useAdminQuery<{ content: { state: string; fields: number; bytes: number; parts: number } | null }>("sync_status", {}, { refetchInterval: 15_000 });
   const [open, setOpen] = useState<string | null>(null);
+  // what players see: the mod's name for it (a recipe without one: what it makes), else the debug name
+  const shown = useMemo(() => {
+    const items = new Map<string, string>();
+    for (const d of defs.data ?? []) if (d.kind === "item") { const n = definitionName(d); if (n) items.set(d.name, n); }
+    return new Map((defs.data ?? []).map((d) => [d.guid, definitionName(d, items) ?? d.name]));
+  }, [defs.data]);
   const sel = defs.data?.find((d) => d.guid === open) ?? null;
   return (
     <div className="k-stack" style={{ gap: 16 }}>
@@ -279,7 +285,7 @@ function Definitions() {
           selectedKey={open}
           onRowClick={(d) => setOpen(open === d.guid ? null : d.guid)}
           columns={[
-            { key: "n", header: "Name", render: (d) => <span><b>{d.displayName ?? d.name}</b> <span className="k-mono k-muted">{d.name}</span></span> },
+            { key: "n", header: "Name", sort: (a, b) => (shown.get(a.guid) ?? a.name).localeCompare(shown.get(b.guid) ?? b.name), render: (d) => <NameId name={shown.get(d.guid) ?? d.name} id={d.name} /> },
             { key: "k", header: "Kind", width: "80px", render: (d) => d.kind },
             { key: "b", header: "Based on", render: (d) => <span className="k-mono">{d.base ?? "-"}</span> },
             { key: "m", header: "Mod", width: "120px", render: (d) => d.mod ?? d.owner ?? "" },
@@ -288,7 +294,7 @@ function Definitions() {
           empty={<EmptyState title={has ? "No mod defines new content" : "content_definitions is not available"} />}
         />
       </Card>
-      {sel ? <Card title={sel.displayName ?? sel.name} sub={<span className="k-mono">{sel.guid} · {sel.id}</span>}><JsonView value={sel.definition ?? null} open={2} /></Card> : null}
+      {sel ? <Card title={shown.get(sel.guid) ?? sel.name} sub={<span className="k-mono">{sel.name} · {sel.guid} · {sel.id}</span>}><JsonView value={sel.definition ?? null} open={2} /></Card> : null}
     </div>
   );
 }

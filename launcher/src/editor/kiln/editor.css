@@ -124,7 +124,9 @@
 .ke-know-row.head { min-height: 32px; cursor: default; box-shadow: inset 0 -1px 0 var(--k-line-strong); font-family: var(--k-font-label); font-weight: 500; font-size: 15.5px; color: var(--k-text-2); }
 .ke-know-row:not(.head):hover { background: var(--k-warm-1); }
 .ke-know-row.on { background: var(--k-warm-2); }
-.ke-know input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--k-ember-500); cursor: pointer; }
+.ke-know-name { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ke-know-name > .k-ellipsis:first-child { flex: 0 1 auto; }
+.ke-know-name > .k-mono { flex: 1 1 0; min-width: 40px; font-size: 14px; color: var(--k-text-2); }
 .ke-kind { font-size: 16px; }
 .ke-kind.i { color: var(--k-gold-400); }
 .ke-kind.r { color: var(--k-info); }

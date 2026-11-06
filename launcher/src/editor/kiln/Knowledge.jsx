@@ -4,12 +4,29 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '../../ui';
 import { estadoTexto } from '../shared/knowledge.mjs';
 import map from '../data/conhecimento.json';
-import { nomeConhecimento } from '../src/gamedata.js';
+import { items, nomeConhecimento } from '../src/gamedata.js';
 import { t, localeAtual } from '../src/i18n.js';
 
 const KIND = { i: 'item', r: 'receita', o: 'outro' };
 const state = (v, kind) => estadoTexto(v, kind).split('+').map((p) => t(p)).join(', ');
 const SHOWN = 400;
+
+/** Words from a debug name the game never names ("VC_Hair_03_02_mid" → "Hair 03 02 mid"; VC_ = character looks). */
+const readable = (debug) => {
+  const words = debug.replace(/^VC_/, '').split(/[_\s]+/)
+    .flatMap((w) => w.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Za-z]{2,})(\d)/g, '$1 $2').replace(/(\d)([A-Za-z]{2,})/g, '$1 $2').split(' '))
+    .filter(Boolean).map((w) => w.toLowerCase());
+  if (!words.length) return debug;
+  return words[0].charAt(0).toUpperCase() + words[0].slice(1) + (words.length > 1 ? ' ' + words.slice(1).join(' ') : '');
+};
+
+/** The entry's name and, for an item the game gives no name (its debug name came back), the debug name beside it. */
+const naming = (info, id) => {
+  if (!info) return { name: null, raw: null };
+  const name = nomeConhecimento(info, id);
+  const debug = info.i !== undefined ? items[info.i]?.debug : null;
+  return debug && name === debug ? { name: readable(debug), raw: debug } : { name, raw: null };
+};
 
 export default function Knowledge({ model, setModel }) {
   const [q, setQ] = useState('');
@@ -19,9 +36,9 @@ export default function Knowledge({ model, setModel }) {
   const list = useMemo(() => {
     const n = Number(above), s = q.trim().toLowerCase();
     return (model.knowledge ?? [])
-      .map((k) => ({ ...k, info: map[k.id], name: map[k.id] ? nomeConhecimento(map[k.id], k.id) : null }))
+      .map((k) => ({ ...k, info: map[k.id], ...naming(map[k.id], k.id) }))
       .filter((k) => kinds.includes(k.info?.t ?? 'o') && (above === '' || (k.info?.l ?? 0) > n)
-        && (!s || (k.name ?? '').toLowerCase().includes(s) || String(k.id).includes(s)))
+        && (!s || (k.name ?? '').toLowerCase().includes(s) || (k.raw ?? '').toLowerCase().includes(s) || String(k.id).includes(s)))
       .sort((a, b) => (b.info?.l ?? 0) - (a.info?.l ?? 0) || (a.name ?? '').localeCompare(b.name ?? '', localeAtual()));
   }, [model.knowledge, q, above, kinds]);
   if (!model.knowledge) return <div className="ke-empty"><span className="ke-empty-word">{t('Este save não traz o bloco de conhecimento.')}</span></div>;
@@ -30,6 +47,7 @@ export default function Knowledge({ model, setModel }) {
   const unnamed = model.knowledge.filter((k) => !map[k.id]).length;
   const shown = list.slice(0, SHOWN);
   const allOn = shown.length > 0 && shown.every((k) => sel.has(k.id));
+  const someOn = !allOn && shown.some((k) => sel.has(k.id));
 
   return (
     <div className="ke-know">
@@ -47,7 +65,8 @@ export default function Knowledge({ model, setModel }) {
       </div>
       <div className="ke-know-table" role="table" aria-label={t('Conhecimento')}>
         <div className="ke-know-row head" role="row">
-          <span role="columnheader"><input type="checkbox" checked={allOn} aria-label={t('Todos')}
+          <span role="columnheader"><input type="checkbox" className="k-check" checked={allOn} aria-label={t('Todos')}
+            ref={(el) => { if (el) el.indeterminate = someOn; }}
             onChange={() => setSel((p) => { const n = new Set(p); for (const k of shown) { if (allOn) n.delete(k.id); else n.add(k.id); } return n; })} /></span>
           <span role="columnheader">{t('Tipo')}</span><span role="columnheader">{t('Nome')}</span>
           <span role="columnheader" style={{ textAlign: 'right' }}>{t('Nível')}</span><span role="columnheader">{t('Estado')}</span>
@@ -55,9 +74,12 @@ export default function Knowledge({ model, setModel }) {
         <div className="ke-know-body">
           {shown.map((k) => (
             <label key={k.id} className={'ke-know-row' + (sel.has(k.id) ? ' on' : '')} role="row">
-              <span role="cell"><input type="checkbox" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></span>
+              <span role="cell"><input type="checkbox" className="k-check" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></span>
               <span role="cell" className={`k-sc ke-kind ${k.info?.t ?? 'o'}`}>{t(KIND[k.info?.t ?? 'o'])}</span>
-              <span role="cell" className="k-ellipsis">{k.name ?? <span className="k-mono k-muted">{t('id {id}', { id: k.id })}</span>}</span>
+              <span role="cell" className="ke-know-name">
+                {k.name ? <span className="k-ellipsis">{k.name}</span> : <span className="k-mono k-muted">{t('id {id}', { id: k.id })}</span>}
+                {k.raw && <span className="k-mono k-ellipsis" title={k.raw}>{k.raw}</span>}
+              </span>
               <span role="cell" className="k-mono" style={{ textAlign: 'right' }}>{k.info?.l || ''}</span>
               <span role="cell" className="k-muted k-ellipsis">{state(k.value, k.info?.t)}</span>
             </label>

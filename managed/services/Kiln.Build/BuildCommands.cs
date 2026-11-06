@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 // The /build commands (admin): selection, capture/paste of schematics, shape edits at the player, undo, props.
-// A mod registers them with BuildCommands.Register() (they belong to that mod and go away when it unloads); the
-// Schematics sample does. Schematics live in kiln/data/kiln.build/schematics/<name>.kschem.
+// They are Kiln's, not a mod's: a mod that wants them calls BuildCommands.Register() (the Schematics sample does). The
+// first call adds /build (owner "kiln", permission node kiln.command.build), later calls share it, and it goes when the
+// last mod that asked lets go of it or unloads. The handlers run as Kiln: edits made from the console are journaled
+// under "kiln", a player's under that player. Schematics live in kiln/data/kiln.build/schematics/<name>.kschem.
 using System.Globalization;
 using System.Numerics;
 
 namespace Kiln;
 
-/// <summary>The <c>/build</c> command tree (admins only; permission node <c>&lt;mod&gt;.command.build</c>).</summary>
+/// <summary>The <c>/build</c> command tree (admins only; permission node <c>kiln.command.build</c>).</summary>
 public static class BuildCommands
 {
     private sealed class Selection
@@ -28,8 +30,13 @@ public static class BuildCommands
         return Path.Combine(SchematicDirectory, name.EndsWith(".kschem", StringComparison.OrdinalIgnoreCase) ? name : name + ".kschem");
     }
 
-    /// <summary>Registers <c>/build</c> for the calling mod.</summary>
-    public static CommandRegistration Register()
+    /// <summary>Asks for <c>/build</c> on behalf of the calling mod. The command is Kiln's and shared: it is added once,
+    /// however many mods ask, stays while one of them holds its registration, and goes when the last one is disposed or
+    /// its mod unloads.</summary>
+    public static CommandRegistration Register() =>
+        Commands.RegisterShared("build", Tree, CommandPermission.Admin, "Kiln world edits (kiln.build)");
+
+    private static LiteralNode Tree()
     {
         var root = Commands.Literal("build").Describe("world edits: selection, schematics, shapes, props, undo")
             .Executes(StatusCmd)
@@ -72,7 +79,7 @@ public static class BuildCommands
             .Then(Commands.Literal("bases").Describe("player bases (build zones)").Executes(Bases))
             .Then(Commands.Literal("release").Describe("stops keeping Kiln's terrain in the selection (it reverts at a restart)")
                 .Executes(Release));
-        return Commands.Register(root, CommandPermission.Admin, "Kiln world edits (kiln.build)");
+        return root;
     }
 
     private static string Key(CommandContext c) => c.Source.IsPlayer ? $"p{c.Source.Player.Value}" : c.Source.Name;

@@ -171,6 +171,7 @@ function LiveActions({ id, m, self, onDone }: { id: string; m: KilnMod; self: bo
   const doTest = () => run(async () => {
     const r = await test.mutateAsync({ id: m.id });
     useTests.setState((s) => ({ by: { ...s.by, [`${id}|${m.id}`]: { ...r, at: Date.now() } } }));
+    if (testCount(r) === 0) return void toast.info(`${m.name} has no tests`);
     const line = `${m.name}: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`;
     if (r.failed) toast.error({ message: line }); else toast.ok(line);
   });
@@ -184,11 +185,16 @@ function LiveActions({ id, m, self, onDone }: { id: string; m: KilnMod; self: bo
   );
 }
 
+/** How many tests a run found (the counts, or the results when a report has no counts). */
+const testCount = (t: TestReport) => Math.max(t.passed + t.failed + t.skipped, t.results.length);
+
 function Tests({ t }: { t: TestReport & { at: number } }) {
   const bad = t.results.filter((r) => r.outcome !== "Pass");
+  if (testCount(t) === 0) return <span className="k-word-sm k-tone-idle">No tests</span>;
+  const [word, tone] = t.failed ? ["Failing", "err"] : t.passed ? ["Passing", "ok"] : ["Skipped", "idle"];
   return (
     <div className="k-stack" style={{ gap: 4 }}>
-      <span><span className={`k-word-sm k-tone-${t.failed ? "err" : "ok"}`}>{t.failed ? "Failing" : "Passing"}</span> {t.passed} passed, {t.failed} failed, {t.skipped} skipped in {(t.ms / 1000).toFixed(2)} s, {fmtAgo(t.at)}.</span>
+      <span><span className={`k-word-sm k-tone-${tone}`}>{word}</span> {t.passed} passed, {t.failed} failed, {t.skipped} skipped in {(t.ms / 1000).toFixed(2)} s, {fmtAgo(t.at)}.</span>
       {bad.map((r) => <span key={r.name} className="k-hint"><span className="k-tone-err">{r.outcome}</span> {r.name}{r.message ? `: ${r.message}` : ""}</span>)}
     </div>
   );

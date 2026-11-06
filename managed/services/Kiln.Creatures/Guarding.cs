@@ -192,12 +192,17 @@ internal static unsafe class Guarding
     }
 
     /// <summary>The owner's mod unloads: its orders end and the game is told.</summary>
-    internal static void Retire(ModContext mod)
+    internal static void Retire(ModContext mod) => End(x => x.Owner.Mod == mod);
+
+    /// <summary>A named owner lets go (the /creature command went away): its orders end and the game is told.</summary>
+    internal static void Retire(Creatures.OwnerKey owner) => End(x => x.Owner == owner);
+
+    private static void End(Func<Order, bool> which)
     {
-        foreach (var o in Orders.Values.Where(x => x.Owner.Mod == mod).ToList())
+        foreach (var o in Orders.Values.Where(which).ToList())
         {
             Orders.Remove(o.Guard);
-            Unfocus(o);  // the mod's own layers (home) go with the mod's owner release
+            Unfocus(o);  // the owner's own layers (home) go with its release
             try
             {
                 Send(CreaturesNative.CmdStopGuard, o.Guard, o.Target);

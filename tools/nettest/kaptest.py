@@ -7,8 +7,9 @@
 Reads <lab>/kiln/data/kiln-admin/{endpoint.json,admin-token}, then checks: the handshake (and the test vector in
 schema/fixtures/kap/handshake.json), a wrong MAC / missing auth / wrong proto refused, framing errors, every op of
 ready.ops answering over TCP exactly as over the file bridge (<lab>/shroudforge/exports/emberwatch), state pushes about
-every second, the log topic, ping/pong, the connection and in-flight limits, admin_token_rotate. Prints PASS/FAIL lines;
-exits non-zero on any FAIL. Mutating ops are only called with arguments they refuse (no side effects).
+every second, the log topic, ping/pong (a peer that only answers pings stays connected), the connection and in-flight
+limits, admin_token_rotate. Prints PASS/FAIL lines; exits non-zero on any FAIL. Mutating ops are only called with
+arguments they refuse (no side effects).
 
 --only build (never part of the default run) edits the lab's world through the build_* ops (Kiln.Build): a box, a
 prop, a schematic capture + paste turned 90 degrees, then undoes all of it and checks the cells read as before.
@@ -409,6 +410,29 @@ class Suite:
         self.check("ping.server-pings", p is not None and 13 <= time.time() - t0 <= 18.5, f"server ping after {time.time() - t0:.1f} s: {p}")
         k.close()
 
+    def t_idle(self):
+        """A subscribed peer that sends nothing but pongs stays connected: the server pings it although it is busy
+        pushing state (admin-protocol.md section 5)."""
+        k = self.kap()
+        k.send({"t": "sub", "id": 60, "topic": "state"})
+        k.read_until(lambda f: f.get("id") == 60)
+        t0, pings, first, bye = time.time(), 0, None, None
+        while time.time() - t0 < 50:
+            f = k.read_until(lambda f: f.get("t") in ("ping", "bye"), max(0.1, 50 - (time.time() - t0)))
+            k.pending = [x for x in k.pending if x.get("t") != "push"]
+            if f is None:
+                break
+            if f["t"] == "bye":
+                bye = f
+                break
+            pings += 1
+            first = first or time.time() - t0
+            k.send({"t": "pong", "id": f["id"], "ts": f.get("ts")})
+        alive = bye is None and k.call("ping", timeout=5) is not None
+        self.check("ping.passive-peer-kept", alive and pings >= 2 and first is not None and first <= 20,
+                   f"{pings} server pings in 50 s, first after {first or 0:.1f} s, bye {bye}")
+        k.close()
+
     def t_limits(self):
         conns = [self.kap() for _ in range(4)]
         extra = Kap(self.port, self.token)
@@ -577,7 +601,7 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
     s = Suite(a.lab.expanduser(), a.verbose)
-    order = ["vector", "endpoint", "handshake", "refused", "framing", "ops", "push", "ping", "limits", "rotate"]
+    order = ["vector", "endpoint", "handshake", "refused", "framing", "ops", "push", "ping", "idle", "limits", "rotate"]
     only = [x for x in a.only.split(",") if x]
     for name in order + ["build"]:
         if name == "build" and name not in only:

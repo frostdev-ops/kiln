@@ -6,7 +6,7 @@
 # bin folder). Never touches a Steam-installed server.
 #
 #   tools/lab/lab.sh new <name> <queryPort> [--save <savegame dir to copy>]
-#   tools/lab/lab.sh start|stop|pid|status <name>
+#   tools/lab/lab.sh start|stop|pid|status <name>   start keeps the lab at the caller's priority (nice -n 19 ... start)
 #   tools/lab/lab.sh log <name> [lines]          tail the game log
 #   tools/lab/lab.sh rm <name>                   stop and delete the lab (game files, prefix, save)
 #   tools/lab/lab.sh list
@@ -34,6 +34,16 @@ pid_of() {
 }
 
 need() { [[ -n $name && -d $LABS/$name ]] || { echo "no lab '$name' (tools/lab/lab.sh list)" >&2; exit 1; }; }
+
+# Wine gives its threads nice values of its own (Windows thread priorities mapped to nice -10..10 when RLIMIT_NICE
+# allows it), whatever niceness the server was started with. Capping RLIMIT_NICE at this shell's niceness keeps every
+# process and thread of the lab at the priority it was started with (`nice -n 19 lab.sh start` stays at 19).
+keep_priority() {
+  local n want cur
+  n=$(nice); want=$((20 - n)); ((want < 1)) && want=1
+  cur=$(ulimit -H -e)
+  if [[ $cur == unlimited ]] || ((cur > want)); then ulimit -e "$want"; fi
+}
 
 case $cmd in
   new)
@@ -67,6 +77,7 @@ EOF
     [[ -n $(pid_of "$name") ]] && { echo "already running ($(pid_of "$name"))"; exit 0; }
     cd "$LABS/$name"; mkdir -p logs
     mark=$(mktemp)
+    keep_priority
     setsid "$GE/wine" ./enshrouded_server.exe > "$LABS/$name.wine.log" 2>&1 < /dev/null &
     for i in $(seq 1 360); do
       if [[ logs/enshrouded_server.log -nt $mark ]] && tr -d '\r' < logs/enshrouded_server.log | grep -q 'LoadEcsScene to Run'; then

@@ -320,8 +320,8 @@ function CommandsDialog({ onClose }: { onClose: () => void }) {
     <Modal open onClose={onClose} title="Commands" width={640} footer={<Button onClick={onClose}>Close</Button>}>
       <WellInput label="Filter" data-autofocus value={q} onChange={(e) => setQ(e.target.value)} />
       {cmds.error ? <span className="k-error-text">{cmds.error.message}</span> : (
-        <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: 18, minHeight: 0, maxHeight: "50vh" }}>
-          <div className="k-list" style={{ overflow: "auto" }}>
+        <div className="k-cmd-dialog">
+          <div className="k-list k-cmd-names">
             {list.map((c) => (
               <button key={c.name} type="button" className={"k-list-item clickable" + (c.name === cur?.name ? " selected" : "")} style={{ minHeight: 34, border: 0, background: c.name === cur?.name ? undefined : "none", color: "inherit", font: "inherit", textAlign: "left" }}
                 onClick={() => setSel(c.name)}>
@@ -352,7 +352,7 @@ function CommandHelp({ c }: { c: CommandInfo }) {
   const a = args(c.tree);
   const tone = c.permission === "everyone" ? "ok" : c.permission === "admin" ? "warn" : "err";
   return (
-    <div className="k-stack" style={{ gap: 10, overflow: "auto", minWidth: 0 }}>
+    <div className="k-stack k-cmd-help" style={{ gap: 10 }}>
       <div>
         <span className="k-mono" style={{ fontSize: 17, color: "var(--k-text-0)" }}>/{c.name}</span>
         {c.aliases?.length ? <span className="k-muted"> also {c.aliases.map((x) => "/" + x).join(", ")}</span> : null}

@@ -80,7 +80,10 @@ export interface LauncherSettings {
   defaultGameId: GameId | null;
   allowHttpModpacks: boolean;
   savesKeep: number;
-  checkUpdates: boolean;
+  /** Check for launcher updates at the start and every 6 hours (default on). */
+  updateCheck: boolean;
+  /** Absent or null: the channel of the running build (a dev build follows dev). */
+  updateChannel?: UpdateChannel | null;
   /** The WebGL fire on Play (default on); off draws the plain Play button. */
   animatedFire?: boolean;
 }
@@ -803,6 +806,45 @@ export const appAssetsStatus = () => call<AssetsStatus>("app_assets_status");
  * running task. */
 export const appAssetsImport = (kind: "editor" | "admin", from: string | null = null) => call<TaskId>("app_assets_import", { kind, from });
 
+// update.rs: the launcher's self-update (frostdev.io, then GitHub; signed). Changes arrive as kiln://update.
+export type UpdateChannel = "stable" | "dev";
+export type UpdatePhase = "idle" | "checking" | "upToDate" | "available" | "skipped" | "failed" | "downloading" | "ready";
+export type UpdateInstallKind = "appimage" | "nsis" | "msi" | "deb" | "rpm" | "unbundled";
+export interface UpdateFailure { source: string; step: "manifest" | "download" | "signature" | "hash"; message: string }
+export interface UpdateStatus {
+  /** This launcher's version. */
+  current: string;
+  channel: UpdateChannel;
+  /** Automatic checks are on. */
+  auto: boolean;
+  /** inPlace false: the launcher cannot replace itself (deb, rpm, a development build); `reason` says why. */
+  install: { kind: UpdateInstallKind; inPlace: boolean; reason: string | null };
+  /** The download page. */
+  page: string;
+  phase: UpdatePhase;
+  checked: string | null;
+  available: { version: string; notes: string | null; date: string | null; source: string; page: string; runtime: string | null } | null;
+  /** Sources that failed in the last check or download, also when the next one then worked. */
+  failures: UpdateFailure[];
+  progress: { received: number; total: number | null; source: string } | null;
+  /** installed: in place, a restart runs it (AppImage); false: "Restart now" runs the installer (Windows). */
+  ready: { version: string; source: string; installed: boolean } | null;
+  skipped: string | null;
+  /** This start follows an update the launcher installed (until updateAck). */
+  justUpdated: { from: string; to: string; at: string; source: string; notes: string | null } | null;
+  taskId: TaskId | null;
+  error: KilnError | null;
+}
+export const updateStatus = () => call<UpdateStatus>("update_status");
+export const updateCheck = () => call<UpdateStatus>("update_check");
+/** Task result: UpdateStatus. */
+export const updateInstall = () => call<TaskId>("update_install");
+/** Restarts into the update that is ready (Windows: runs its installer). Resolves only if that failed. */
+export const updateRestart = () => call<null>("update_restart");
+/** null: un-skips. */
+export const updateSkip = (version: string | null) => call<UpdateStatus>("update_skip", { version });
+export const updateAck = () => call<UpdateStatus>("update_ack");
+
 // game.rs
 export const gameList = () => call<GameInstall[]>("game_list");
 export const gameDetect = () => call<GameInstall[]>("game_detect");
@@ -975,6 +1017,7 @@ export const COMMANDS = [
   "config_kiln_read", "config_kiln_set", "config_kiln_reset",
   "app_assets_status", "app_assets_import",
   "server_console_open", "server_console_close",
+  "update_status", "update_check", "update_install", "update_restart", "update_skip", "update_ack",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -989,6 +1032,7 @@ export interface KilnEvents {
   "kiln://admin": { session: string; serverId: ServerId; event: AdminEvent };
   /** `reset`: `lines` replace everything shown (a start, a stop, a start outside the launcher). */
   "kiln://console": { subscription: string; serverId: ServerId; reset: boolean; source: ConsoleSource; path: string | null; truncated: boolean; lines: ConsoleLine[] };
+  "kiln://update": UpdateStatus;
 }
 export type KilnEventName = keyof KilnEvents;
 

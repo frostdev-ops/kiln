@@ -684,9 +684,17 @@ pub fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// The Kiln tree this crate was built from (default `kiln.source`).
+/// The Kiln tree this crate was built from (default `kiln.source`). A release build (`KILN_RELEASE_BUILD` set while
+/// compiling, tools/release) knows no tree: the build machine's path would mean nothing elsewhere.
 pub fn compiled_source() -> PathBuf {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    const TREE: &str = match option_env!("KILN_RELEASE_BUILD") {
+        Some(_) => "",
+        None => env!("CARGO_MANIFEST_DIR"),
+    };
+    if TREE.is_empty() {
+        return PathBuf::new();
+    }
+    let p = Path::new(TREE).join("../..");
     p.canonicalize().unwrap_or(p)
 }
 

@@ -53,6 +53,50 @@ export function PlayerSelect({ value, onChange, players, placeholder = "Pick a p
   return <Select id={id} value={value == null ? "" : String(value)} onChange={(v) => onChange(v ? Number(v) : null)} options={[{ value: "", label: opts.length ? placeholder : "nobody online" }, ...opts]} />;
 }
 
+// ---------------------------------------------------------------- names of what mods add (kiln.content definitions)
+
+/** A mod's item or recipe as content_definitions lists it. */
+export interface DefinitionLike {
+  kind: string;
+  name: string;
+  displayName?: string | null;
+  definition?: unknown;
+}
+
+const textOf = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+
+/** What players see: the definition's displayName, else its English (or every-language) name in texts; a recipe without
+ * a name of its own is named after the first thing it makes (`items`: display names by debug name). Null when the mod
+ * gave it no name. */
+export function definitionName(d: DefinitionLike, items?: ReadonlyMap<string, string>): string | null {
+  const body = (d.definition ?? {}) as { texts?: Record<string, { name?: unknown }>; outputs?: { item?: unknown }[] };
+  const own = textOf(d.displayName) ?? textOf(body.texts?.en?.name) ?? textOf(body.texts?.["*"]?.name);
+  if (own || d.kind !== "recipe") return own;
+  const made = textOf(body.outputs?.[0]?.item);
+  return made ? items?.get(made) ?? null : null;
+}
+
+/** Display names of the items mods add, by debug name (empty while loading or without content_definitions). */
+export function useModItemNames(): ReadonlyMap<string, string> {
+  const has = useHasOp("content_definitions");
+  const defs = useAdminQuery<DefinitionLike[]>("content_definitions", {}, { enabled: has, staleTime: 30_000 });
+  return useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of defs.data ?? []) {
+      const n = d.kind === "item" ? definitionName(d) : null;
+      if (n) m.set(d.name, n);
+    }
+    return m;
+  }, [defs.data]);
+}
+
+/** An item_search hit's name as players see it, and its debug name when that differs. */
+export function itemNames(i: ItemHit, mod: ReadonlyMap<string, string>): { name: string; debug: string | null } {
+  const debug = i.debug ?? (mod.has(i.name) ? i.name : null);
+  const name = (debug ? mod.get(debug) : undefined) ?? i.name;
+  return { name, debug: debug && debug !== name ? debug : null };
+}
+
 // ---------------------------------------------------------------- item picker (item_search over the server's items)
 
 export function ItemPicker({ value, onPick, placeholder = "Search the server's items…", id }: { value: ItemHit | null; onPick: (i: ItemHit | null) => void; placeholder?: string; id?: string }) {
@@ -60,9 +104,13 @@ export function ItemPicker({ value, onPick, placeholder = "Search the server's i
   const q = useDebounced(text.trim(), 180);
   const has = useHasOp("item_search");
   const search = useAdminQuery<ItemHit[]>("item_search", { q }, { enabled: has && q.length >= 2 && q !== value?.name, staleTime: 60_000 });
+  const mod = useModItemNames();
   const sugg = useMemo<Suggestion<ItemHit>[]>(
-    () => (search.data ?? []).map((i) => ({ key: String(i.id), label: i.name, sub: <span className="k-mono">#{i.id}{i.gear ? " · gear" : ""}</span>, value: i })),
-    [search.data],
+    () => (search.data ?? []).map((i) => {
+      const n = itemNames(i, mod);
+      return { key: String(i.id), label: n.name, sub: <span className="k-mono">{n.debug ? `${n.debug} · ` : ""}#{i.id}{i.gear ? " · gear" : ""}</span>, value: { ...i, name: n.name } };
+    }),
+    [search.data, mod],
   );
   return (
     <SuggestInput

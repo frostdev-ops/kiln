@@ -197,7 +197,8 @@ export function newEntry(itemId, slot, count, template, nivelPersonagem) {
     if (visto.flags & 0x01) e.level = level;
     if (visto.flags & 0x02) { e.maxDurability = visto.maxDurability ?? 300; e.durability = e.maxDurability; }
     if (visto.flags & 0x04) { e.maxLiquid = visto.maxLiquid ?? 1280; e.liquid = 0; }
-    if (visto.flags & 0x10) { e.maxUpgrades = visto.maxUpgrades ?? rarity; e.upgrades = 0; }
+    // Kiln: the item's own rarity (the catalog shows it), not the one instance the table was read from
+    if (visto.flags & 0x10) { e.maxUpgrades = rarity; e.upgrades = 0; }
     if (visto.flags & 0x20) e.socket = '0000000000';
     return e;
   }

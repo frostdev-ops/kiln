@@ -77,8 +77,7 @@ export function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolea
         <div className="k-list" style={{ maxHeight: 340, overflow: "auto" }}>
           {avail.map((l) => (
             <label key={l.id} className="k-list-item clickable">
-              <input type="checkbox" checked={pick.has(l.id)} onChange={(e) => { const s = new Set(pick); if (e.target.checked) s.add(l.id); else s.delete(l.id); setPick(s); }}
-                style={{ accentColor: "var(--k-ember-500)", width: 16, height: 16, flex: "none" }} />
+              <input type="checkbox" className="k-check" checked={pick.has(l.id)} onChange={(e) => { const s = new Set(pick); if (e.target.checked) s.add(l.id); else s.delete(l.id); setPick(s); }} />
               <NameId name={l.name} id={l.id} />
               <span className="k-spacer" />
               <span className="k-mono k-muted">{l.versions[0].version}</span>

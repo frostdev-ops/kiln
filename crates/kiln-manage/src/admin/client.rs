@@ -100,11 +100,44 @@ impl Shared {
 }
 
 struct TcpLink {
-    writer: Mutex<TcpStream>,
+    /// Every frame goes out through this one lock (requests, the reader's pongs, the keepalive's pings): two
+    /// writers on clones of the socket could interleave the bytes of two frames.
+    writer: Arc<Mutex<TcpStream>>,
     shared: Arc<Shared>,
-    next_id: AtomicU64,
+    next_id: Arc<AtomicU64>,
+    clock: Arc<LinkClock>,
     reader: Mutex<Option<JoinHandle<()>>>,
+    keepalive: Mutex<Option<JoinHandle<()>>>,
     _tunnel: Option<super::tunnel::SshTunnel>,
+}
+
+/// When the link last sent and last received a frame (ms since it connected).
+struct LinkClock {
+    start: Instant,
+    sent: AtomicU64,
+    received: AtomicU64,
+}
+
+impl LinkClock {
+    fn now(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    fn mark_sent(&self) {
+        self.sent.store(self.now(), Ordering::SeqCst);
+    }
+
+    fn mark_received(&self) {
+        self.received.store(self.now(), Ordering::SeqCst);
+    }
+}
+
+/// Writes one frame under the shared writer lock and notes the time.
+fn send_on(writer: &Mutex<TcpStream>, clock: &LinkClock, f: &Frame) -> Result<()> {
+    let mut w = writer.lock().unwrap();
+    protocol::write_frame(&mut *w, f)?;
+    clock.mark_sent();
+    Ok(())
 }
 
 /// Where to reach a KAP listener and how to authenticate.
@@ -167,15 +200,31 @@ impl TcpLink {
         };
         s.set_read_timeout(None)?;
         let shared = Arc::new(Shared { waiters: Mutex::new(HashMap::new()), events: Mutex::new(Some(events)), closed: AtomicBool::new(false) });
+        let clock = Arc::new(LinkClock { start: Instant::now(), sent: AtomicU64::new(0), received: AtomicU64::new(0) });
         let mut rs = s.try_clone()?;
-        let writer_for_reader = s.try_clone()?;
-        let sh = shared.clone();
+        let writer = Arc::new(Mutex::new(s));
+        let next_id = Arc::new(AtomicU64::new(1));
         let max = limits.max_frame.max(protocol::MAX_CLIENT_FRAME);
+        let (sh, w, ck) = (shared.clone(), writer.clone(), clock.clone());
         let reader = std::thread::Builder::new()
             .name(format!("kap-read {}", t.server_id))
-            .spawn(move || reader_loop(&mut rs, writer_for_reader, &sh, max))
+            .spawn(move || reader_loop(&mut rs, &w, &ck, &sh, max))
             .map_err(|e| Error::new(ErrorCode::Internal, format!("spawning the KAP reader: {e}")))?;
-        let link = TcpLink { writer: Mutex::new(s), shared, next_id: AtomicU64::new(1), reader: Mutex::new(Some(reader)), _tunnel: t.tunnel };
+        let timing = KeepaliveTiming::from_limits(&limits);
+        let (sh, w, ck, ids) = (shared.clone(), writer.clone(), clock.clone(), next_id.clone());
+        let keepalive = std::thread::Builder::new()
+            .name(format!("kap-ping {}", t.server_id))
+            .spawn(move || keepalive_loop(&w, &ck, &sh, &ids, timing))
+            .map_err(|e| Error::new(ErrorCode::Internal, format!("spawning the KAP keepalive: {e}")))?;
+        let link = TcpLink {
+            writer,
+            shared,
+            next_id,
+            clock,
+            reader: Mutex::new(Some(reader)),
+            keepalive: Mutex::new(Some(keepalive)),
+            _tunnel: t.tunnel,
+        };
         let session = AdminSession { session, server_id: t.server_id, transport: t.transport, ops, topics, kiln, server: ident };
         Ok((link, session))
     }
@@ -184,8 +233,7 @@ impl TcpLink {
         if self.shared.closed.load(Ordering::SeqCst) {
             return Err(Error::new(ErrorCode::AdminUnavailable, "the KAP connection is closed"));
         }
-        let mut w = self.writer.lock().unwrap();
-        protocol::write_frame(&mut *w, f).inspect_err(|_| self.shared.close("send failed"))
+        send_on(&self.writer, &self.clock, f).inspect_err(|_| self.shared.close("send failed"))
     }
 
     /// Sends a request-like frame (req/sub/unsub) and waits for its `res` (or an `error` with its id).
@@ -216,7 +264,55 @@ impl TcpLink {
         if let Some(h) = self.reader.lock().unwrap().take() {
             let _ = h.join();
         }
+        if let Some(h) = self.keepalive.lock().unwrap().take() {
+            h.thread().unpark();
+            let _ = h.join();
+        }
         *self.shared.events.lock().unwrap() = None;
+    }
+}
+
+/// How often the keepalive sends and how long a silent server may stay silent (`ready.limits`, admin-protocol.md
+/// section 5).
+#[derive(Debug, Clone, Copy)]
+struct KeepaliveTiming {
+    ping: Duration,
+    idle: Duration,
+    tick: Duration,
+}
+
+impl KeepaliveTiming {
+    fn from_limits(l: &protocol::Limits) -> KeepaliveTiming {
+        let ping_ms = l.ping_s.clamp(1, protocol::PING_INTERVAL_S) * 1000;
+        let idle_ms = (l.idle_s * 1000).max(ping_ms * 2);
+        KeepaliveTiming { ping: Duration::from_millis(ping_ms), idle: Duration::from_millis(idle_ms), tick: Duration::from_millis((ping_ms / 4).clamp(50, 1000)) }
+    }
+}
+
+/// The link's own heartbeat, on a native thread so it never depends on the webview's (throttled) timers or on what
+/// the open page polls. It sends a `ping` once the link has sent nothing for `t.ping`, so the server never sees a
+/// silent peer. When the server has sent nothing for `t.idle` (pushes, pongs and its own pings all count), the link is
+/// dead: it closes it, and the hub reconnects.
+fn keepalive_loop(writer: &Mutex<TcpStream>, clock: &LinkClock, sh: &Shared, ids: &AtomicU64, t: KeepaliveTiming) {
+    while !sh.closed.load(Ordering::SeqCst) {
+        std::thread::park_timeout(t.tick);
+        if sh.closed.load(Ordering::SeqCst) {
+            break;
+        }
+        let now = clock.now();
+        if now.saturating_sub(clock.received.load(Ordering::SeqCst)) > t.idle.as_millis() as u64 {
+            sh.close(&format!("the server was silent for {} s", t.idle.as_secs()));
+            let _ = writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+            break;
+        }
+        if now.saturating_sub(clock.sent.load(Ordering::SeqCst)) >= t.ping.as_millis() as u64 {
+            let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).ok();
+            let ping = Frame::Ping { id: ids.fetch_add(1, Ordering::SeqCst), ts };
+            if send_on(writer, clock, &ping).is_err() {
+                sh.close("send failed");
+                break;
+            }
+        }
     }
 }
 
@@ -233,13 +329,14 @@ fn read_frame(s: &mut TcpStream, max: u32) -> Result<Frame> {
     }
 }
 
-fn reader_loop(r: &mut TcpStream, mut w: TcpStream, sh: &Shared, max: u32) {
+fn reader_loop(r: &mut TcpStream, w: &Mutex<TcpStream>, clock: &LinkClock, sh: &Shared, max: u32) {
     let reason = loop {
         let payload = match protocol::read_payload(r, max) {
             Ok(Some(p)) => p,
             Ok(None) => break "the server closed the connection".to_string(),
             Err(e) => break if sh.closed.load(Ordering::SeqCst) { "closed".to_string() } else { e.message },
         };
+        clock.mark_received();
         let frame = match protocol::decode_known(&payload) {
             Ok(Some(f)) => f,
             Ok(None) => continue,  // a newer frame type: ignored (kap/1 rule)
@@ -259,7 +356,7 @@ fn reader_loop(r: &mut TcpStream, mut w: TcpStream, sh: &Shared, max: u32) {
             Frame::Error { code, message, .. } => sh.event(AdminEvent::Error { message: format!("{}: {message}", serde_json::to_value(code).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()) }),
             Frame::Push { topic, seq, data } => sh.event(AdminEvent::Push { topic, seq, data }),
             Frame::Ping { id, ts } => {
-                let _ = protocol::write_frame(&mut w, &Frame::Pong { id, ts });
+                let _ = send_on(w, clock, &Frame::Pong { id, ts });
             }
             Frame::Bye { reason } => break format!("bye: {reason}"),
             _ => {}

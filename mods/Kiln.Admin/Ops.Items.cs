@@ -13,6 +13,7 @@ internal static partial class Ops
         {
             var player = RequirePlayer(req);
             var c = Items.Read(player.Entity) ?? throw new AdminError("This player has no readable inventory.");
+            var mod = ModItemNames();
             var inventories = new JsonArray();
             for (var i = 0; i < c.Inventories.Count; i++)
             {
@@ -23,7 +24,7 @@ internal static partial class Ops
                     var o = new JsonObject { ["item"] = s.Item.Value, ["count"] = s.Count };
                     if (!s.ItemEntity.IsNone) o["pide"] = s.ItemEntity.Value;
                     if (s.IsGear) { o["level"] = s.Level; o["rarity"] = s.Rarity?.ToString(); o["equipped"] = s.IsEquipped; }
-                    if (Items.Get(s.Item) is { } info) o["name"] = info.Label;
+                    if (Items.Get(s.Item) is { } info) o["name"] = info.DisplayName ?? mod.GetValueOrDefault(info.Name) ?? info.Label;
                     slots.Add(o);
                 }
                 inventories.Add(new JsonObject { ["link"] = i + 1, ["entity"] = entity.Value, ["category"] = category.ToString(), ["slots"] = slots });
@@ -55,10 +56,45 @@ internal static partial class Ops
                 ["status"] = result.Status.ToString(),
             };
         });
+        // {q} -> [{id, name, debug, gear}]: name is what players see (a mod item's own display name too), debug the
+        // game's debug name; a mod item is also found by its display name.
         bridge.Register("item_search", req =>
         {
             var q = req["q"]?.GetValue<string>() ?? throw new AdminError("q required");
-            return new JsonArray([.. Items.Search(q, 50).Select(i => (JsonNode)new JsonObject { ["id"] = i.Id.Value, ["name"] = i.Label, ["gear"] = i.IsGear })]);
+            var mod = ModItemNames();
+            var hits = Items.Search(q, 50).ToList();
+            foreach (var (debug, shown) in mod)
+                if (hits.Count < 50 && shown.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase) && Items.Lookup(debug) is { } extra &&
+                    !hits.Any(h => h.Id == extra.Id))
+                    hits.Add(extra);
+            return new JsonArray([.. hits.Select(i => (JsonNode)new JsonObject
+            {
+                ["id"] = i.Id.Value, ["name"] = i.DisplayName ?? mod.GetValueOrDefault(i.Name) ?? i.Name, ["debug"] = i.Name, ["gear"] = i.IsGear,
+            })]);
         });
+    }
+
+    /// <summary>Display names of the items mods define (kiln.content definitions: displayName, else the English or
+    /// every-language name in texts), by debug name. Empty without kiln.content.</summary>
+    private static Dictionary<string, string> ModItemNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            if (!Content.Available || JsonNode.Parse(NewContent.DefinitionsJson()) is not JsonArray defs) return names;
+            foreach (var d in defs.OfType<JsonObject>())
+            {
+                if (d["kind"]?.GetValue<string>() != "item" || d["name"]?.GetValue<string>() is not { Length: > 0 } debug) continue;
+                var texts = d["definition"]?["texts"] as JsonObject;
+                var shown = Text(d["displayName"]) ?? Text(texts?["en"]?["name"]) ?? Text(texts?["*"]?["name"]);
+                if (shown != null) names[debug] = shown;
+            }
+        }
+        catch (Exception e) when (e is NotSupportedException or System.Text.Json.JsonException or InvalidOperationException or FileNotFoundException or TypeLoadException)
+        {
+        }
+        return names;
+
+        static string? Text(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var t) && t.Length > 0 ? t : null;
     }
 }

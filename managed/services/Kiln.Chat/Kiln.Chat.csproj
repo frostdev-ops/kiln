@@ -20,5 +20,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Api.Tests" />
+    <!-- Services whose command trees Kiln shares between mods (Commands.RegisterShared). -->
+    <InternalsVisibleTo Include="Kiln.Creatures" />
+    <InternalsVisibleTo Include="Kiln.Build" />
   </ItemGroup>
 </Project>

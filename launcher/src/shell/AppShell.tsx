@@ -10,6 +10,7 @@ import { qk, useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
 import { Lockup, Skeleton, Splash, TaskTray, Toaster, toast, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
+import { UpdateTray } from "./UpdateNotice";
 import { RouteErrorBoundary } from "./ErrorBoundary";
 import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
 import { clock, usePlayControl, type PlayControl } from "./play";
@@ -65,6 +66,7 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
         {active && NAV_MAIN.includes(active) && <span className="k-nav-dia" aria-hidden><i className="k-dia" /></span>}
       </nav>
       <div className="k-head-right">
+        <UpdateTray />
         <TaskTray />
         {NAV_SIDE.map((n) => (
           <NavLink key={n.to} to={n.to} className={({ isActive }) => "k-head-link" + (isActive ? " on" : "")}>{n.label}</NavLink>

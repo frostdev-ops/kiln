@@ -366,6 +366,26 @@ fn winpath(_t: &Path) -> R {
 
 // ---------------------------------------------------------------- runner
 
+/// The self-update's fixed parts: the sources are https and in order, and this binary knows what it was bundled as
+/// (Tauri patches the bundle type into each package's binary; the AppImage and NSIS builds update in place).
+fn self_update(_: &Path) -> R {
+    use crate::selfupdate::feed::{self, Channel};
+    let s = feed::release_sources();
+    let names: Vec<&str> = s.iter().map(|s| s.name.as_str()).collect();
+    if names != ["frostdev.io", "GitHub"] {
+        return Err(format!("sources {names:?}"));
+    }
+    for src in &s {
+        for ch in [Channel::Stable, Channel::Dev] {
+            if !src.url(ch).starts_with("https://") {
+                return Err(format!("{}: not https", src.url(ch)));
+            }
+        }
+    }
+    let bundle = tauri::utils::platform::bundle_type().map(|b| format!("{b:?}")).unwrap_or_else(|| "none (not a bundle)".into());
+    Ok(format!("sources frostdev.io, GitHub (https); bundled as {bundle}"))
+}
+
 pub fn run(args: &[String]) -> i32 {
     let out = args.iter().position(|a| a == "--out").and_then(|i| args.get(i + 1)).map(PathBuf::from);
     let keep = args.iter().any(|a| a == "--keep");
@@ -397,6 +417,7 @@ pub fn run(args: &[String]) -> i32 {
     run("kiln_json", &kiln_json);
     run("zstd", &zstd);
     run("play_once", &play_once);
+    run("self_update", &self_update);
     #[cfg(not(windows))]
     run("winpath", &winpath);
     #[cfg(windows)]

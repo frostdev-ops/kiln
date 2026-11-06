@@ -1,0 +1,47 @@
+Installing the Kiln runtime by hand
+===================================
+
+kiln-runtime-@VERSION@.zip is Kiln's runtime (internal version @RUNTIME_VERSION@): the dinput8.dll proxy, kiln-core,
+the services, Kiln.Host and Kiln.Api, a private .NET runtime, the symbol definitions for the game client and the
+dedicated server, Kiln.Admin, and optional parts (EMF support, samples). The Kiln Launcher installs it for you (Play >
+Install, or Runtime); use these steps for a dedicated server or when you do not use the launcher.
+
+kilnctl (Linux: kilnctl, Windows: kilnctl.exe) installs it, keeps a receipt, backs up what it replaces, and can
+uninstall it byte for byte. Check the zip first:
+
+  kilnctl bundle verify kiln-runtime-@VERSION@.zip
+
+Close the game or stop the server before installing.
+
+
+Game client
+-----------
+  Linux (Proton):  ./kilnctl bundle install kiln-runtime-@VERSION@.zip --dir "<Steam library>/steamapps/common/Enshrouded" --real
+  Windows:         kilnctl.exe bundle install kiln-runtime-@VERSION@.zip --dir "C:\Program Files (x86)\Steam\steamapps\common\Enshrouded" --real
+
+  --real confirms a folder inside a Steam library. The client parts are installed by default (core, sigdb-client).
+  On Linux, Proton may need the launch option  WINEDLLOVERRIDES="dinput8=n,b" %command%  (Steam > Enshrouded >
+  Properties > Launch options) so the game loads Kiln's dinput8.dll.
+  Remove it again:  kilnctl bundle uninstall --dir "<the same folder>" --real
+
+
+Dedicated server
+----------------
+  A kilnctl server on Linux (Wine):   ./kilnctl deploy <name> --bundle kiln-runtime-@VERSION@.zip
+  Any server folder (Linux or Windows):
+    kilnctl bundle install kiln-runtime-@VERSION@.zip --dir "<server folder>" --components core,sigdb-server,admin
+
+  The server parts are core, sigdb-server and admin (Kiln.Admin, for the launcher's server pages). Add emf for EMF
+  mods and samples for the hello sample. A folder inside a Steam library also needs --real.
+
+
+By hand, without kilnctl
+------------------------
+The zip holds the files at their place in the game folder (dinput8.dll, kiln/...) plus kiln-runtime.json, which lists
+every file with its sha256 and component. Unzipping it into the game or server folder works, but nothing is backed up
+and an existing dinput8.dll (another mod loader) is overwritten instead of chained. Prefer kilnctl.
+
+
+Where to read more
+------------------
+https://frostdev.io/kiln/wiki and docs/kiln/ in the source (kilnctl.md, launcher/bundle.md, linux-server.md).

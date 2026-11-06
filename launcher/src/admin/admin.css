@@ -50,7 +50,6 @@
 .ka-chip button:hover { color: var(--k-text-0); background: var(--k-warm-2); }
 .ka-flags { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .ka-flags label { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; cursor: pointer; }
-.ka-flags input { accent-color: var(--k-ember-500); }
 
 /* master and detail: the list, then the selected entry's form */
 .ka-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; min-height: 0; }

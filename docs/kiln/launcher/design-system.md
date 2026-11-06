@@ -74,6 +74,10 @@ sheet page it shrinks to the pilot light (36 wide, 24 from the right, 7 from the
 By game state: no game or no Kiln: unlit, "Add game" or "Install"; updating: embers, amber word; stopped: idle fire;
 starting: flare and cones; running: the elapsed time, dim; vanilla: cobalt word; safe idle: low fire, amber word.
 `shell/play.ts` (`usePlayControl`) shares the state and `launch_play` between the mouth and the Play page.
+The launcher update sits in the header beside the tasks (`shell/UpdateNotice.tsx`): a state word (cobalt "Update",
+ember "Updating", celadon "Restart" and "Updated") and its notice, a popover like the task list that drops open by
+itself when an update is found or was just installed, with no backdrop: one line and its buttons, never an
+explanation (details go to launcher.log).
 A soft warm light follows the pointer across the sheet (`--mx`, `--my`).
 
 ## Components
@@ -90,7 +94,7 @@ A soft warm light follows the pointer across the sheet (`--mx`, `--my`).
 | `Segmented` | `options`, `value`, `variant: line \| side` | words with an ember line; `side`: large small caps with a sliding gold diamond |
 | `Table<R>` | `columns`, `rows`, `rowKey`, `rowHeight` (46), `fill`, `onRowClick`, `selectedKey`, `rowClass`, `empty` | virtualized; hover 6% warm, selected 12%; a sorted head shows a gold diamond; numbers right-aligned |
 | `NameId` | `name`, `id`, `dim` | a name with its id beside it, one line |
-| `Field`, `TextInput`, `TextArea`, `Select`, `NumberInput`, `Slider`, `Toggle` | | fields sit in wells; Toggle is a switch |
+| `Field`, `TextInput`, `TextArea`, `Select`, `NumberInput`, `Slider`, `Toggle` | | fields sit in wells; Toggle is a switch (a setting); the check box for picking rows is `<input type="checkbox" className="k-check">` |
 | `WellInput` | `label`, `note`, `compact` | a well with its label inside ("Filter", "Search items") |
 | `FlameToggle` | `on`, `onChange`, `label` | light a mod or put it out (mod lists) |
 | `Modal` | `open`, `onClose`, `title`, `footer`, `width`, `locked`, `arch` | working dialog: Soot 2, Grenze 36 title, actions bottom right; `arch`: the pointed arch, warnings only |

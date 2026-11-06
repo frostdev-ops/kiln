@@ -438,6 +438,84 @@ public sealed class CommandsTests : KilnTest
     }
 
     [Fact]
+    public void Shared_command_is_Kiln_s_and_stays_while_a_mod_asks_for_it()
+    {
+        var built = 0;
+        var removed = 0;
+        var ranAs = new List<string>();
+        LiteralNode Tree()
+        {
+            built++;
+            return Commands.Literal("creature").Executes(c => ranAs.Add(HostAccess.Current?.Info.Id ?? "kiln"))
+                .Then(Commands.Literal("set").Then(Commands.Argument("value", Arg.Word()).Executes(c => c.Reply("set " + c.Get<string>("value")))));
+        }
+        CommandRegistration Ask(ModContext mod) =>
+            As(mod, () => Commands.RegisterShared("creature", Tree, CommandPermission.Admin, "creatures", () => removed++));
+
+        var elite = NewMod("elite");
+        var rules = NewMod("rules");
+        var first = Ask(elite);
+        var second = Ask(rules);
+        Assert.Equal(1, built);  // one command, however many mods ask
+        var info = Commands.Find("creature")!;
+        Assert.Equal("kiln", info.Owner);
+        Assert.Equal("kiln.command.creature", info.PermissionNode);
+        Assert.Same(info, first.Info);
+        Assert.Same(info, second.Info);
+        Assert.Equal("kiln", Permissions.Find("kiln.command.creature")!.Owner);
+        Assert.Equal(["set x"], Run("creature set x").Output);
+        As(rules, () => Run("creature"));  // run from a mod's code, the handler still runs as Kiln
+        Assert.Equal(["kiln"], ranAs);
+        Assert.False(Run("creature", CommandSource.ForPlayer(new EntityId(2))).Ok);  // Admin level
+
+        elite.Retire();  // the mod that asked first unloads: the command and its node stay for the other one
+        Assert.NotNull(Commands.Find("creature"));
+        Assert.NotNull(Permissions.Find("kiln.command.creature"));
+        Assert.Equal(0, removed);
+        first.Dispose();  // after its mod's unload: no effect
+        Assert.NotNull(Commands.Find("creature"));
+
+        second.Dispose();  // the last one lets go
+        Assert.Null(Commands.Find("creature"));
+        Assert.Equal(1, removed);
+        second.Dispose();
+        Assert.Equal(1, removed);
+
+        var again = Ask(NewMod("later"));  // asked again: added again
+        Assert.Equal(2, built);
+        Assert.NotNull(Commands.Find("creature"));
+        again.Dispose();
+        Assert.Null(Commands.Find("creature"));
+    }
+
+    [Fact]
+    public void Shared_command_counts_registrations_and_keeps_its_name()
+    {
+        var mod = NewMod("twice");
+        CommandRegistration Ask() =>
+            As(mod, () => Commands.RegisterShared("build", () => Commands.Literal("build").Executes(c => c.Reply("ok")), CommandPermission.Admin));
+        var a = Ask();
+        var b = Ask();
+        a.Dispose();
+        Assert.True(Run("build").Ok);  // one registration still holds it
+        b.Dispose();
+        Assert.False(Run("build").Found);
+
+        // another mod's command of that name: neither takes the other's
+        var other = NewMod("other");
+        As(other, () => Commands.Register("build", c => c.Reply("mine")));
+        var e = Assert.Throws<InvalidOperationException>(() => Ask());
+        Assert.Contains("already registered by other", e.Message);
+        other.Retire();
+        Ask();
+        var e2 = Assert.Throws<InvalidOperationException>(() => As(NewMod("third"), () => Commands.Register("build", c => c.Reply("theirs"))));
+        Assert.Contains("already registered by kiln", e2.Message);
+        Assert.Equal(["ok"], Run("build").Output);
+        mod.Retire();  // both of its registrations go with it
+        Assert.Null(Commands.Find("build"));
+    }
+
+    [Fact]
     public void Tokenizer_is_unchanged()
     {
         Assert.Equal(["a b", "say \"hi\"", "c\\d"], Commands.Tokenize(@"a\ b ""say \""hi\"""" c\\d"));

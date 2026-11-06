@@ -67,7 +67,10 @@ export interface GiveResult {
 }
 export interface ItemHit {
   id: number;
+  /** What players see (a mod item's display name on a current Kiln.Admin). */
   name: string;
+  /** The game's debug name (a current Kiln.Admin sends it). */
+  debug?: string;
   gear: boolean;
 }
 
