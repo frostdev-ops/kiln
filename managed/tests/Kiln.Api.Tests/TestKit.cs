@@ -50,6 +50,7 @@ public abstract class KilnTest : IDisposable
         Events.Reset();
         Config.Reset();
         Commands.ResetForTests();
+        ConsoleControl.ResetForTests();
         PermissionStore.Reset();
         Permissions.ResetForTests();
         Permissions.FindPlayer = _ => null;

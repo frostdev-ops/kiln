@@ -502,7 +502,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl} |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
 | app | `app_open_path` | path: string | null |
@@ -607,11 +607,13 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | modpack | `modpack_install` | gameId, request: ModpackInstallRequest {source, consent: true, allowHttp?, activate?} | `TaskId` -> `ModpackInstallResult` |
 | modpack | `modpack_dismiss` | gameId, serverId | null |
 
-Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo`,
-`LauncherSettings {steamRoots: string[], defaultGameId: string|null, allowHttpModpacks: boolean, savesKeep: number,
-checkUpdates: boolean}`, `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled',
-progress: number|null, message: string|null, started, finished: string|null, result?, error?: KilnError}`,
-`BootState {boot: BootJson|null, mods: ModsJson|null, native: NativeJson|null, stale: boolean}`.
+Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
+KILN_LAUNCHER_NO_WEBGL=1 for this start), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
+allowHttpModpacks: boolean, savesKeep: number, checkUpdates: boolean, animatedFire: boolean (default true)}`,
+`Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,
+message: string|null, started, finished: string|null, result?, error?: KilnError}`, `BootState {boot: BootJson|null,
+mods: ModsJson|null, native: NativeJson|null, stale: boolean, log: {errors: number, first: string[]}|null}` (`log`:
+kiln.log's `[E` lines of the run that wrote boot.json).
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
 folders) and exits 0/1; used under Wine for the NSIS build.

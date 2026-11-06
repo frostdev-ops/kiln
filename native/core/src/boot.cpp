@@ -14,6 +14,15 @@
 #include "tick.h"
 #include "services/service.h"
 
+// The build stamp ("+20261106.8d20598") native/build.sh writes; empty in a build without it. Only this file includes
+// it, so a new commit rebuilds only this file.
+#if __has_include("kiln_build.h")
+#include "kiln_build.h"
+#endif
+#ifndef KILN_BUILD
+#define KILN_BUILD ""
+#endif
+
 namespace kiln {
 namespace {
 
@@ -162,7 +171,7 @@ void boot() {
     f.started_ms = now_ms();
     f.started = utc_now();
     log::start();
-    KLOG_I("Kiln %.*s starting (pid %lu)", static_cast<int>(kVersion.size()), kVersion.data(), GetCurrentProcessId());
+    KLOG_I("Kiln %.*s%s starting (pid %lu)", static_cast<int>(kVersion.size()), kVersion.data(), KILN_BUILD, GetCurrentProcessId());
     log_proxy();
     load_config();
     profile::load();

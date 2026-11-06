@@ -279,7 +279,9 @@ Skills.Lock / Respec / Grant(tree, h, points) / Points(tree, h) / State(tree, h)
 - **Effects** start at unlock and when a taken player is seen in game (joins, restarts), end at lock, respec, leave
   and unload. Every ~2 s Kiln renews buffs and restarts effect entities that are gone.
 - **Screen** (client): `UiStyle.Game`. The nodes sit on the grid: icon buttons, gold = taken, light = available,
-  dim = not yet. Dotted links, level "n/max", a side panel with Unlock / Refund, Respec and Close. It opens from the
+  dim = not yet. Dotted links, level "n/max", a side panel with Unlock / Refund, Respec and Close. A node's tooltip is its
+  name, level, cost and description, then a line per effect a player can read (an attribute, a buff, an ability; not a
+  program or code); `ListEffects = false` leaves the effect lines out when the description says it all. It opens from the
   tree's pause-menu entry or its key. State comes from the server (channel `kiln:skills` v1, not required). A hosting
   client calls the server part directly: a mod's tree in that mod's scheduler, a data-only tree (it has no owner
   scheduler) in the "skills" service tick.

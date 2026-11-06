@@ -170,8 +170,11 @@ internal static partial class Compiler
         var (program, blob, _, listing) = EffectEmitter.FollowerProgram(ctx, $"{key}.perk", p.Modifies, 1, null, "", null, "", onHit, onKill, onHitTaken);
         low.Program(program, $"{key}.perk", blob, listing);
         var guid = BlockIds.Derive(mod, "perk", key);
-        low.Clone("perks", guid, game, PerkStarter, new JsonObject { ["impact"] = program.ToString(), ["simpleAttributeBuff"] = false }, p.Name,
-            p.Description ?? (p.Modifies.Count > 1 ? StatsText(p.Modifies) : null));
+        var description = p.Description ?? (p.Modifies.Count > 1 ? StatsText(p.Modifies) : null);
+        var fields = new JsonObject { ["impact"] = program.ToString(), ["simpleAttributeBuff"] = false };
+        // No description: none, not the starter's ("Chance to poison enemies on hit"). A loca tag no table has shows as nothing.
+        if (string.IsNullOrEmpty(description)) fields["description"] = BlockIds.Derive(mod, "text", $"{key}.perk.description").ToString();
+        low.Clone("perks", guid, game, PerkStarter, fields, p.Name, string.IsNullOrEmpty(description) ? null : description);
 
         // The number in front of its name in a tooltip, and nothing of the starter's.
         var rows = new JsonArray();
@@ -548,6 +551,8 @@ internal static partial class Compiler
             {
                 Id = save, Name = Text(t.Name, t.Texts, x => x.Name), Description = Text(TalentDescription(t), t.Texts, x => x.Description), Column = column, Row = row, Cost = t.Cost, MaxLevel = t.MaxLevel,
                 Requires = (t.Requires ?? []).Select(r => saves[r]).ToArray(), RequireAll = t.RequireAll, PointsSpentRequired = t.PointsSpent, LevelRequired = t.CharacterLevel, Icon = t.Icon, Effects = effects,
+                // the block's texts say what it does; its effects are a generated program and the ability it unlocks, nothing a player reads
+                ListEffects = false,
             });
         }
         var definition = new TalentTree

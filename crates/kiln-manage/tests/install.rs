@@ -453,3 +453,45 @@ fn adopted_files_survive_an_upgrade() {
     assert_eq!(left, fresh_before);
     assert!(!g2.join("kiln/kiln-core.dll").exists() && g2.join("kiln/kiln.json").exists());
 }
+
+#[test]
+fn builds_of_one_version_and_day_order_by_build_time_not_by_git_id() {
+    let t = tmp("order");
+    let dirs = DataDirs::at(t.0.join("data"));
+    // the same day; the later build has the git id that sorts first as text
+    let older = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "f1ad110")).unwrap();
+    let newer = bundle::create(&stage(&t.0, "b", false), &t.0.join("out"), &opts(1_793_793_600 + 3600, "8d20598")).unwrap();
+    let a = bundle::import(&dirs, &older).unwrap();
+    let b = bundle::import(&dirs, &newer).unwrap();
+    let list = bundle::list(&dirs).unwrap();
+    assert_eq!(list.iter().map(|x| x.version.as_str()).collect::<Vec<_>>(), [b.version.as_str(), a.version.as_str()], "newest first");
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    let inst = client(&game);
+    install::install(&dirs, &inst, &older, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(install::status(&dirs, &inst).unwrap().upgrade_available.as_deref(), Some(b.version.as_str()));
+    install::install(&dirs, &inst, &newer, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(install::status(&dirs, &inst).unwrap().upgrade_available, None, "the older build is no update");
+}
+
+#[test]
+fn one_install_at_a_time_per_game_folder() {
+    let t = tmp("lock");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    let lock = game.join("kiln/.install.lock");
+    // a live process holds it (this test's own): refused, nothing installed, the lock stays theirs
+    put(&game, "kiln/.install.lock", format!("{} {}", std::process::id(), kiln_manage::util::now_unix()).as_bytes());
+    let e = install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
+    assert!(install::read_receipt(&game).unwrap().is_none() && lock.exists());
+    // its process is gone: the lock is stale, taken over and removed at the end
+    put(&game, "kiln/.install.lock", format!("{} {}", u32::MAX - 1, kiln_manage::util::now_unix()).as_bytes());
+    install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert!(!lock.exists(), "released after the install");
+    install::uninstall(&dirs, &inst, &mut NoProgress).unwrap();
+    assert!(!lock.exists(), "released after the uninstall");
+}

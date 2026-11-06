@@ -102,7 +102,20 @@ nodes need a rule naming them exactly. `CommandSource.ForSteamId(id)` runs as a 
 `kiln/control/console/<name>.cmd` → `<name>.result.json` (checked every 6 steps on the service tick). One command per
 line, `//` comments; directives `#as console | #as remote <name> [admin|user] | #as steam <id> [name] | #as player
 <name>` switch the source of the following lines; `#complete <text>` returns completions. Result:
-`{ file, ok, time, results: [{ line, source, ok, found, denied, canceled, parseError, error, output[] | completions[] }] }`.
+`{ file, ok, time, results: [{ line, source, ok, found, denied, canceled, parseError, error, output[] | completions[], running? }] }`.
+
+Who the lines run as: on a dedicated server, the console. In a game that hosts its own world (single player or a
+co-op host, where the folder is the only way in when chat is off), once its local player is in the world, the console
+*acting as that player*: `source` reads `console as <name> (entity <id>)`, `CommandSource.IsHostConsole` is true,
+`Player` is the host's character, so commands that need a player (a position, `@s`, `~`) act on it, and the rights
+stay the console's. `#as console` switches back to the plain console.
+
+An async command (a handler returning a Task) gets its outcome in the result when it ends: the file is written then,
+with every line it replied and its error, or after 10 s with `"running": true`.
+
+The log line `command /<name> by <source>: <outcome>` says what the command ended with: `ok`, or its error. A refusal
+counts as an error only when the handler says so: `c.Fail("...")` or `throw new CommandException("...")`. A reply is a
+success, so a command that can't do its job should fail rather than reply.
 
 ```sh
 target/release/kilnctl cmd <instance|server dir> help apitest      # cargo build --release -p kilnctl

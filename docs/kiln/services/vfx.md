@@ -35,11 +35,18 @@ Vfx.Preload(Boom);                                                              
 - **Client:** any thread. The call returns a handle at once, and the game is called inside its next FxController update. With no world there is no controller:
   the request waits 10 s, then fails.
 - **Server** (a dedicated server, or a hosting client's server-world tick thread): `PlayAt`, `PlayOn`, `PlayFor`, `Stop` and `Set` relay to Kiln clients
-  within `radius` metres (0 = 120, negative = all), and a host's own client plays them too. The handle is remote: it can be stopped and set, not observed.
+  within `radius` metres (0 = 120, negative = all), and a host's own client plays them too, once: it drops the copy the relay sends its own player. The
+  handle is remote: it can be stopped and set, not observed.
   Vanilla clients see nothing, and a joiner doesn't see what started before. For what every player must see, start the effect from data: an entity, a
   sequence or a buff.
 - **Entity ids.** On a joined client, ids aren't proven to match the server's. `PlayOn` sends id and position, and the client attaches only if its entity of that id
   stands within 10 m of the position, otherwise plays at the position.
+
+## Parameters
+Parameters given to a play go into the block the VFX starts with, over its defaults, as the game's own templates and sequences pass them, so a burst
+that spawns at once has them. The play line then ends in `N parameter(s) in its start block`. A name or type the VFX doesn't describe goes to the
+game's setter once there is an instance, and the game ignores it. `Vfx.Set` on a running VFX also uses the setter: only what spawns or is read
+after it changes.
 
 ## How long an effect runs
 The game reports no "finished", so Kiln stops a one-shot itself. A [VFX block](vfx-cook.md) stops after its delay, duration and longest particle life. Any other

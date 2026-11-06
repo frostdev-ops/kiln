@@ -466,6 +466,8 @@ public sealed class BlocksNpcTestMod : Mod
             Check(World.Exists(j), $"and spawns and stays: {j}");
         }
 
+        await Places();
+
         // the quests' engine knows it: a talk objective to it is done by talking to it
         var q = Quests.Define(new QuestDefinition
         {
@@ -492,6 +494,28 @@ public sealed class BlocksNpcTestMod : Mod
         await Steps(80);
         Check(World.Exists(e), $"it spawns and stays (its roster entry is unlocked): {e}");
     }
+    // An NPC block's place: a spot in the lab's base, 6..10 m from it. A base is fine for a friendly NPC unless the block says no; then it keeps
+    // 20 m from every base zone, as a quest's places do.
+    private async Task Places()
+    {
+        var home = NativeQuests.Npc($"{Me}:pip-home");
+        var outside = NativeQuests.Npc($"{Me}:pip-out");
+        Check(home?.Place?.Spec is { InBase: true, MinDistance: 6, MaxDistance: 10 } && outside?.Place?.Spec is { InBase: false },
+            $"the start-up build takes an NPC block's place, a base fine unless it says no: {home?.Place?.Spec.InBase} {outside?.Place?.Spec.InBase}");
+        var spot = new WorldPosition(3800, 833, 1434);
+        WorldPosition? Where(NativeNpcInfo? n) =>
+            n != null && Spawn.Find(n.Guid).FirstOrDefault() is { IsNone: false } e && World.TryGetPosition(e, out var p) ? p : null;
+        for (var i = 0; i < 1200 && (Where(home) == null || Where(outside) == null); i++) await Steps(1);
+        var bases = Build.Bases;
+        double FromBase(WorldPosition p) => bases.Count == 0 ? double.NaN : bases.Min(b => Math.Max(Math.Abs(p.X - b.Center.X) - b.Half.X, Math.Abs(p.Z - b.Center.Z) - b.Half.Z));
+        static double Flat(WorldPosition a, WorldPosition b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Z - b.Z) * (a.Z - b.Z));
+        Check(bases.Count > 0 && FromBase(spot) < 0, $"the spot is in a base: {FromBase(spot):F0} m from the nearest zone's edge");
+        var h = Where(home);
+        Check(h is { } hp && Flat(hp, spot) is >= 5.5 and <= 10.5 && FromBase(hp) < 0, $"in a base: 6..10 m from the spot, as the block asks: {h} {(h is { } a ? Flat(a, spot) : double.NaN):F1} m");
+        var o = Where(outside);
+        Check(o is { } op && FromBase(op) >= 20, $"inBase false: 20 m outside the base zone: {o} {(o is { } b2 ? FromBase(b2) : double.NaN):F0} m from it");
+    }
+
     // ---- what the template clones take ----
 
     private static bool Absent(GameDataEntry t, string component)

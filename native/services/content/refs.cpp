@@ -215,6 +215,12 @@ bool resolve(const Schema& s, const Field& f, const std::string& spec, const Ite
     if (f.type_name == "keen::ObjectReference<keen::ItemInfo>" && p.item_guids.count(g)) return true;
     if (auto it = p.by_type.find(f.type_name); it != p.by_type.end() && it->second.count(g)) return true;
     if (f.type_name == "keen::ecs::TemplateReference" && template_loaded(out)) return true;
+#if KC_GAMEDATA
+    // A template clone of a mod: a world registers it at its load, after this item went into its registry, and before
+    // anything can place it. The item names it from the start, on every side, instead of keeping the base's template
+    // until a retry resolves it.
+    if (f.type_name == "keen::ecs::TemplateReference" && gd_template_defined(out)) return true;
+#endif
     if (asset_served(f.type_name, out)) return true;
     if (f.path == "equipment.voxelData.placeVoxelMaterial" && world_material(out)) return true;
     *why = f.path + ": " + spec + " is not a " + type_short(f.type_name) + " the game has loaded (no loaded item uses it" +

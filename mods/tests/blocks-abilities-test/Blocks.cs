@@ -45,7 +45,8 @@ public sealed partial class BlocksAbilitiesTestMod
         Blocks.Define("long-beam", new AbilityBlock { Name = "Long Beam", Delivery = new BeamBlock { Range = 20, Width = 2, Seconds = 1.5, TickEvery = 0.5, Effects = [Fire(27)] } });
         Blocks.Define("self-buff", new AbilityBlock { Name = "Self Buff", Delivery = new SelfBlock { Effects = [new EffectBlock { Applies = mark }] }, OnCast = [new EffectBlock { Heal = 1 }] });
         Blocks.Define("hunt", new AbilityBlock { Name = "Hunt", Aim = AbilityTargeting.NearestEnemy, Range = 30, Delivery = new ProjectileBlock { Speed = 20, OnHit = [new EffectBlock { Damage = Damage.Fire(28) }], Homing = new HomingBlock { TurnSpeed = 80 } } });
-        Blocks.Define("hunt-plain", new AbilityBlock { Name = "Hunt Plain", Aim = AbilityTargeting.NearestEnemy, Range = 30, Delivery = new ProjectileBlock { Speed = 20, OnHit = [new EffectBlock { Damage = Damage.Fire(28) }] } });
+        // its own number: flying straight at the same enemy, it can land too, and the homing flight's hits are counted by theirs
+        Blocks.Define("hunt-plain", new AbilityBlock { Name = "Hunt Plain", Aim = AbilityTargeting.NearestEnemy, Range = 30, Delivery = new ProjectileBlock { Speed = 20, OnHit = [new EffectBlock { Damage = Damage.Fire(37) }] } });
         Blocks.Define("staff-bolt", new AbilityBlock { Name = "Staff Bolt", Cast = new CastBlock { Animation = CastAnimation.FastBolt, ReleaseAt = 0.5 }, Delivery = new ProjectileBlock { Speed = 20, OnHit = [new EffectBlock { Damage = Damage.Fire(29) }] } });
         var gated = Blocks.Define("gated", new AbilityBlock { Name = "Gated", OnCast = [new EffectBlock { Heal = 1 }] });
         Blocks.Define("gated-game", new AbilityBlock { Name = "Gated By The Game", OnCast = [new EffectBlock { Heal = 1 }] });

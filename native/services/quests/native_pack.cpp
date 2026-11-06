@@ -181,10 +181,13 @@ qb::ojson npcs_from_blocks(const std::string& mod, const std::vector<qb::ojson>&
             if (roster.is_object() && roster.contains("description")) o["description"] = {{"en", roster["description"]}};
             if (n.contains("place") && n["place"].is_object()) {
                 const qb::ojson& p = n["place"];
-                qb::ojson po = {{"once", p.value("once", true)}, {"unlock", false}};
+                const auto flag = [&p](const char* k, bool otherwise) { return p.contains(k) && p[k].is_boolean() ? p[k].get<bool>() : otherwise; };
+                qb::ojson po = {{"once", flag("once", true)}, {"unlock", false}};
                 if (p.contains("at")) po["at"] = p["at"];
                 else po["near"] = "player";
                 if (p.contains("distance")) po["distance"] = p["distance"];
+                po["inBase"] = flag("inBase", true);  // an NPC block is friendly: a base is fine unless it says no
+                if (flag("exact", false)) po["exact"] = true;
                 o["place"] = po;
             }
             if (roster.is_object() && !b.tool.empty()) {

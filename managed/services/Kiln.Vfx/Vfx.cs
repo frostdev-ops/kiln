@@ -515,10 +515,14 @@ internal static unsafe class VfxCore
                 VfxLog.Warn("kiln.vfx is not available here (service off, or its signatures did not resolve on this game build): nothing plays");
             return VfxHandle.None;
         }
+        // Parameters go into the block the VFX starts with (kiln.vfx), so what it spawns at once has them. The play waits until they are all
+        // queued: the update that starts it may run on another thread between Play and SetParam. A play that already waits for its GUID
+        // (a name resolved at the next tick) is released later anyway.
+        var hold = parameters is { Items.Count: > 0 } && (flags & VfxNative.WaitGuid) == 0 && g != Guid.Empty;
         var p = new VfxNative.Play
         {
             Size = (uint)sizeof(VfxNative.Play),
-            Flags = flags,
+            Flags = hold ? flags | VfxNative.WaitGuid : flags,
             Position = new VfxNative.Vec3(at),
             Scale = scale,
             Entity = entity.Value,
@@ -549,7 +553,10 @@ internal static unsafe class VfxCore
         }
         var h = new VfxHandle(t->Play(Owner(), &p));
         if (!h.IsNone && parameters is not null)
+        {
             foreach (var param in parameters.Items) SetLocal(h, param);
+            if (hold) t->BindGuid(h.Value, p.Vfx);
+        }
         return h;
     }
 

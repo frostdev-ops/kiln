@@ -72,6 +72,8 @@ export interface AppInfo {
   dataDir: string;
   commit: string | null;
   mock: boolean;
+  /** KILN_LAUNCHER_NO_WEBGL=1 for this start: the plain Play button, no WebGL fire. */
+  noWebgl?: boolean;
 }
 export interface LauncherSettings {
   steamRoots: string[];
@@ -79,6 +81,8 @@ export interface LauncherSettings {
   allowHttpModpacks: boolean;
   savesKeep: number;
   checkUpdates: boolean;
+  /** The WebGL fire on Play (default on); off draws the plain Play button. */
+  animatedFire?: boolean;
 }
 export type TaskState = "queued" | "running" | "done" | "failed" | "canceled";
 export interface Task<R = unknown> {
@@ -491,6 +495,8 @@ export interface BootState {
   mods: ModsJson | null;
   native: NativeJson | null;
   stale: boolean;
+  /** kiln.log's error lines for the run that wrote boot.json (null: kiln.log is another run's or missing). */
+  log?: { errors: number; first: string[] } | null;
 }
 export interface RequiredMod {
   id: string;

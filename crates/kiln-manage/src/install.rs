@@ -3,6 +3,7 @@
 //! `dinput8.dll` (pe::classify_proxy: Kiln -> replace; ShroudForge -> refuse unless `switch_from_shroudforge`;
 //! EMF/unknown -> `kiln/chain/` + chain.ini [chain]), backs up what it replaces to
 //! `kiln/backups/install-<yyyymmddThhmmssZ>/`, puts `dinput8.dll` last, writes the receipt `kiln/.install.json`.
+//! One install or uninstall at a time per game folder (`kiln/.install.lock`).
 
 use crate::bundle::RuntimeManifest;
 use crate::game::GameInstall;
@@ -215,10 +216,16 @@ pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
     let side = side_of(install);
     let upgrade_available = receipt.as_ref().and_then(|r| {
         let bundles = crate::bundle::list(dirs).ok()?;
+        // newer than the installed bundle in the list's order (bundle::compare: version, build date, build time); a
+        // bundle no longer in the list compares by its version alone
+        let installed = bundles.iter().find(|b| b.version == r.runtime.version).cloned();
         bundles
             .into_iter()
-            .filter(|b| b.sides.contains(&side))
-            .find(|b| crate::bundle::compare_versions(&b.version, &r.runtime.version) == std::cmp::Ordering::Greater)
+            .filter(|b| b.sides.contains(&side) && b.version != r.runtime.version)
+            .find(|b| match &installed {
+                Some(i) => crate::bundle::compare(b, i) == std::cmp::Ordering::Greater,
+                None => crate::bundle::compare_versions(&b.version, &r.runtime.version) == std::cmp::Ordering::Greater,
+            })
             .map(|b| b.version)
     });
     Ok(InstallState { installed: receipt.is_some(), receipt, proxy, modified, upgrade_available })
@@ -324,6 +331,53 @@ fn steam_libraries_of(install: &GameInstall) -> Vec<PathBuf> {
     v
 }
 
+/// `kiln/.install.lock`: one install, upgrade or uninstall at a time per game folder. Two launchers (or a launcher and
+/// kilnctl) would otherwise clear each other's staging folder. The file holds `<pid> <unix time>`; a lock whose
+/// process is gone, or that is older than an hour, is stale and taken over. Removed when dropped.
+struct InstallLock(PathBuf);
+
+impl InstallLock {
+    fn take(game_dir: &Path) -> Result<Self> {
+        let kiln = game_dir.join(crate::paths::game::KILN);
+        std::fs::create_dir_all(&kiln).map_err(io_at(&kiln, "creating"))?;
+        let p = kiln.join(".install.lock");
+        for _ in 0..2 {
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+                Ok(mut f) => {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{} {}", std::process::id(), now_unix());
+                    return Ok(InstallLock(p));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let text = std::fs::read_to_string(&p).unwrap_or_default();
+                    let mut it = text.split_whitespace();
+                    let pid: Option<u32> = it.next().and_then(|s| s.parse().ok());
+                    let at: Option<i64> = it.next().and_then(|s| s.parse().ok());
+                    if let Some(pid) = pid
+                        && crate::proc::alive(pid)
+                        && at.is_some_and(|t| now_unix() - t < 3600)
+                    {
+                        return Err(Error::new(
+                            ErrorCode::Conflict,
+                            format!("another install or uninstall is running in this game folder (pid {pid}); wait for it to end, or delete {} if nothing runs", p.display()),
+                        )
+                        .with_detail(serde_json::json!({ "pid": pid, "lock": p.display().to_string() })));
+                    }
+                    let _ = std::fs::remove_file(&p); // stale: its process is gone
+                }
+                Err(e) => return Err(io_at(&p, "creating")(e)),
+            }
+        }
+        Err(Error::new(ErrorCode::Conflict, format!("{} is held by another install", p.display())))
+    }
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 fn rand_suffix() -> Result<String> {
     Ok(crate::hash::hex(&crate::util::random_bytes::<6>()?))
 }
@@ -424,6 +478,7 @@ pub fn install(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &
         return Err(Error::invalid(format!("a {} install runs {expected_exe}, not {}", side_name(side), install.exe)));
     }
     refuse_busy(install)?;
+    let _lock = InstallLock::take(game_dir)?;
     progress.report(Some(0.0), "verifying the bundle");
     let manifest = crate::bundle::verify(bundle, progress)?;
     let bundle_sha = crate::hash::sha256_file(bundle)?.0;
@@ -766,6 +821,7 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
     refuse_busy(install)?;
     let receipt = read_receipt(game_dir)?
         .ok_or_else(|| Error::not_found(format!("Kiln is not installed in {} (no kiln/.install.json)", game_dir.display())))?;
+    let _lock = InstallLock::take(game_dir)?;
     // The oldest record per path is the original (an upgrade may add newer ones). Check every restore source first:
     // nothing is removed when an original cannot come back.
     let mut originals: Vec<&ReplacedFile> = Vec::new();

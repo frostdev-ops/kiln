@@ -75,6 +75,15 @@ public delegate void ChatMessageHandler(ChatMessage message);
 public readonly record struct ChatStatus(bool ReceiveHooked, bool SendReady, int Players, int Subscribers,
     ulong Received, ulong Consumed, ulong Sent, ulong InboxCount);
 
+/// <summary>How a server line looks in players' chat.</summary>
+public enum ServerLineStyle
+{
+    /// <summary>A notice: the text alone, as the game's "Player X joined." lines.</summary>
+    Notice = 0,
+    /// <summary>A line spoken by the recipient, sent to them alone: "&lt;their name&gt;: [Server] text".</summary>
+    Spoken = 1,
+}
+
 /// <summary>The newest line in the server's chat inbox (diagnostics).</summary>
 public readonly record struct ChatLine(uint Type, uint Connection, ulong Account, uint ReaderMask, string Text);
 
@@ -82,9 +91,11 @@ public readonly record struct ChatLine(uint Type, uint Connection, ulong Account
 /// The server's text chat (service <c>kiln.chat</c>): see players' lines (and drop them), send server lines.
 /// </summary>
 /// <remarks>
-/// A server line shows on the recipient's screen as their own line ("&lt;their name&gt;: [Server] text"): the client
-/// only shows lines spoken by a known player, so Kiln makes each recipient the speaker of their copy and sends that
-/// copy to them alone. <see cref="ServerPrefix"/> marks it. Text chat must be on (<c>"enableTextChat": true</c>).
+/// A server line (<see cref="Broadcast"/>, <see cref="Tell"/>, command replies) shows as a notice: its text alone, in
+/// the style of the game's own "Player X joined." lines, with no name in front. (The client only takes lines with a
+/// known speaker, so each recipient's copy is stored with them as speaker and sent to them alone; a notice doesn't
+/// show the speaker.) <see cref="ServerPrefix"/> marks it; <see cref="ServerLines"/> = <see cref="ServerLineStyle.Spoken"/>
+/// gives the older look, "&lt;their name&gt;: [Server] text". Text chat must be on (<c>"enableTextChat": true</c>).
 /// </remarks>
 public static unsafe class Chat
 {
@@ -160,9 +171,11 @@ public static unsafe class Chat
     /// <summary>True when the native service is loaded on this game build.</summary>
     public static bool Available => T != null;
 
-    /// <summary>Text put in front of every server line (<see cref="Broadcast"/>, <see cref="Tell"/>, command replies),
-    /// because each recipient sees the line as their own.</summary>
+    /// <summary>Text put in front of every server line (<see cref="Broadcast"/>, <see cref="Tell"/>, command replies).</summary>
     public static string ServerPrefix { get; set; } = "[Server] ";
+
+    /// <summary>How server lines look in players' chat. Default: <see cref="ServerLineStyle.Notice"/>.</summary>
+    public static ServerLineStyle ServerLines { get; set; } = ServerLineStyle.Notice;
 
     /// <summary>Every line a player types, on the tick thread, before it is shown to anyone. Set
     /// <see cref="ChatMessage.Cancel"/> to drop it. Handlers are removed when the mod that added them unloads.</summary>
@@ -192,6 +205,8 @@ public static unsafe class Chat
     {
         var t = Require();
         Services.RequireTickThread("Chat.Broadcast");
+        if (ServerLines == ServerLineStyle.Spoken)
+            return Players.Count(p => !p.Entity.IsNone && Spoken(t, p.Entity, text));
         var total = 0;
         foreach (var line in Lines(ServerPrefix, text))
         {
@@ -202,12 +217,27 @@ public static unsafe class Chat
         return total;
     }
 
+    // The older look: a line spoken by the recipient, to them alone ("<their name>: [Server] text").
+    private static bool Spoken(Table* t, EntityId player, string text)
+    {
+        foreach (var line in Lines(ServerPrefix, text))
+        {
+            var bytes = Utf8(line);
+            int rc;
+            fixed (byte* p = bytes) rc = t->Say(player.Value, new NativeStr { Ptr = p, Len = (nuint)bytes.Length }, player.Value);
+            if (rc == NotFound) return false;
+            Check(rc, "Chat.Tell");
+        }
+        return true;
+    }
+
     /// <summary>Sends a server line to one player. Returns false when they are not connected. Tick thread only.</summary>
     public static bool Tell(EntityId player, string text)
     {
         var t = Require();
         Services.RequireTickThread("Chat.Tell");
         if (player.IsNone) return false;
+        if (ServerLines == ServerLineStyle.Spoken) return Spoken(t, player, text);
         var any = false;
         foreach (var line in Lines(ServerPrefix, text))
         {

@@ -17,6 +17,7 @@ namespace kvx {
 namespace {
 
 constexpr uint64_t kCapacity = 4096;
+constexpr uint32_t kSimFloatType = 0x90b5085du, kSimColorType = 0x53039620u;  // DsTypeIds: VfxEffectParameterFloat, VfxEffectParameterColor
 
 struct SimFx {
     int64_t end = 0;
@@ -36,8 +37,8 @@ public:
             sim_known_guid(i, g);
             insert(g, static_cast<uint32_t>(i));
         }
-        make_resource(res_[0], 10, -1.f, -1.f);
-        make_resource(res_[1], 0, 2.f, 1.5f);
+        make_resource(res_[0], 10, -1.f, -1.f, false);
+        make_resource(res_[1], 0, 2.f, 1.5f, true);
     }
 
     bool can_play() const override { return true; }
@@ -61,11 +62,27 @@ public:
         read_lengths(res_[v.values[slot]], ResLayout{}, out);
         return true;
     }
+    bool vfx_params(void*, const uint8_t guid[16], VfxParamLayout* out) override {
+        const MapView v = map(nullptr);
+        const int64_t slot = map_slot(v, guid);
+        if (slot < 0) return false;
+        read_params(res_[v.values[slot]], ResLayout{}, out);
+        return true;
+    }
+    bool read_resource(void*, const uint8_t guid[16], void* out, size_t n) override {
+        const MapView v = map(nullptr);
+        const int64_t slot = map_slot(v, guid);
+        if (slot < 0 || n > kResourceBytes) return false;
+        std::memcpy(out, res_[v.values[slot]], n);
+        return true;
+    }
 
-    uint32_t play_at(const Frame& f, const uint8_t guid[16], const WorldTransform&, const FxParams&, const FxTiming& d) override {
+    uint32_t play_at(const Frame& f, const uint8_t guid[16], const WorldTransform&, const FxParams& p, const FxTiming& d) override {
+        last_start = p;
         return start(f, guid, d, true);
     }
-    uint32_t play_on(const Frame& f, const uint8_t guid[16], const FxAttach& a, const FxParams&, const FxTiming& d) override {
+    uint32_t play_on(const Frame& f, const uint8_t guid[16], const FxAttach& a, const FxParams& p, const FxTiming& d) override {
+        last_start = p;
         // the game starts an attached effect when the attachment resolves
         return start(f, guid, d, a.entity != kSimEntityNoSlot);
     }
@@ -126,6 +143,7 @@ public:
     uint64_t updates_ = 0;
     uint64_t last_param_hash = 0, last_param_type = 0, last_param_instance = 0, last_param_size = 0, params_applied = 0, preloads = 0;
     uint8_t last_param[16] = {};
+    FxParams last_start{};
 
 private:
     // the game's VfxRegister: slot = low 32 bits & (capacity - 1), then linear
@@ -142,29 +160,31 @@ private:
         ++count_;
     }
 
-    // The fields of a VfxResource that read_lengths takes, at the offsets of the real one (docs/re/vfx.md section 2).
-    static void make_resource(uint8_t* r, uint32_t kill, float duration, float lifetime) {
+    // The fields of a VfxResource that read_lengths and read_params take, at the offsets of the real one (docs/re/vfx.md section 2). With a
+    // colour: a "color" parameter after the floats, magenta by default, laid out as VFX_Dummy_Impact's.
+    static void make_resource(uint8_t* r, uint32_t kill, float duration, float lifetime, bool colour) {
         std::memset(r, 0, kResourceBytes);
         const ResLayout l;
         std::memcpy(r + l.kill, &kill, 4);
         uint32_t count = 0;
         const int32_t rel = 0x100 - static_cast<int32_t>(l.params);  // the descriptions live past the fixed part
         uint8_t* p = r + 0x100;
-        auto add = [&](const char* name, float value) {
+        auto add = [&](const char* name, uint32_t type, const void* value) {
             uint32_t h = 0x811c9dc5u;
             for (const char* s = name; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 0x01000193u;
-            const uint32_t type = 0x90b5085du;
             const uint8_t start = static_cast<uint8_t>(count * 4);
             std::memcpy(p, &h, 4);
             std::memcpy(p + 4, &type, 4);
             p[8] = start;
             p[9] = 4;
-            std::memcpy(r + l.defaults + start, &value, 4);
+            std::memcpy(r + l.defaults + start, value, 4);
             p += 12;
             ++count;
         };
-        if (duration >= 0) add("duration", duration);
-        if (lifetime >= 0) add("lifetime", lifetime);
+        if (duration >= 0) add("duration", kSimFloatType, &duration);
+        if (lifetime >= 0) add("lifetime", kSimFloatType, &lifetime);
+        const uint8_t magenta[4] = {0xff, 0x00, 0xff, 0xff};
+        if (colour) add("color", kSimColorType, magenta);
         if (count) std::memcpy(r + l.params, &rel, 4);
         std::memcpy(r + l.params + 4, &count, 4);
     }
@@ -218,6 +238,7 @@ void sim_last_param(uint32_t* hash, uint32_t* type, float* first_float) {
     std::memcpy(first_float, sim()->last_param, sizeof(float));
 }
 uint64_t sim_preloads() { return sim()->preloads; }
+FxParams sim_last_start_params() { return sim()->last_start; }
 
 void sim_update() {
     static std::atomic<int64_t> t0{0};

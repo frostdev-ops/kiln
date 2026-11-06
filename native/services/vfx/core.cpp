@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -170,6 +171,21 @@ FxTiming timing_of(Game& game, void* fxc, Entry& e) {
     return d;
 }
 
+// The values the VFX describes go into the block it starts with, over its defaults, and leave the entry; the rest wait for an instance
+// and VfxSetParameter, which ignores what the VFX doesn't have. Returns how many went into the block.
+size_t start_params(Game& game, void* fxc, Entry& e, FxParams* block) {
+    if (e.params.empty()) return 0;
+    VfxParamLayout l;
+    if (!game.vfx_params(fxc, e.guid, &l) || !l.count) return 0;
+    std::memcpy(block->data, l.defaults, sizeof block->data);
+    const size_t before = e.params.size();
+    std::erase_if(e.params, [&](const ParamOp& p) { return put_start_param(l, p.hash, p.type, p.data, p.size, block); });
+    const size_t taken = before - e.params.size();
+    if (taken) block->has = 1;
+    else *block = FxParams{};
+    return taken;
+}
+
 // PENDING -> the game (update thread, g_mu held).
 void start(Game& game, const Frame& f, Entry& e) {
     const bool test = (e.flags & (KILN_VFX_TEST_FX | KILN_VFX_TEST_CREATE)) != 0;
@@ -216,7 +232,8 @@ void start(Game& game, const Frame& f, Entry& e) {
         finish(e, KILN_VFX_FAILED, KILN_VFX_END_ENTITY_GONE);
         return;
     }
-    const FxParams params{};
+    FxParams params{};
+    const size_t at_start = start_params(game, f.fxc, e, &params);
     const FxTiming timing = timing_of(game, f.fxc, e);
     uint32_t fx = 0;
     if (attach) {
@@ -253,12 +270,14 @@ void start(Game& game, const Frame& f, Entry& e) {
     if (attach) e.info_flags |= KILN_VFX_INFO_ATTACHED;
     game.lookup(f, fx, &e.instance);
     const bool info = g_logged_plays++ < kLogFirst;
+    char with[64] = "";
+    if (at_start) std::snprintf(with, sizeof with, ", %zu parameter(s) in its start block", at_start);
     if (attach)
-        vlog(info ? KILN_LOG_INFO : KILN_LOG_DEBUG, "vfx: #%u play %s on entity %u slot %u -> handle 0x%x, instance 0x%x, thread %u, %llu ms after the request",
-             e.id, g, e.entity, e.slot, fx, e.instance, e.thread, static_cast<unsigned long long>(e.started_ms - e.queued_ms));
+        vlog(info ? KILN_LOG_INFO : KILN_LOG_DEBUG, "vfx: #%u play %s on entity %u slot %u -> handle 0x%x, instance 0x%x, thread %u, %llu ms after the request%s",
+             e.id, g, e.entity, e.slot, fx, e.instance, e.thread, static_cast<unsigned long long>(e.started_ms - e.queued_ms), with);
     else
-        vlog(info ? KILN_LOG_INFO : KILN_LOG_DEBUG, "vfx: #%u play %s at %.2f,%.2f,%.2f -> handle 0x%x, instance 0x%x, thread %u, %llu ms after the request",
-             e.id, g, e.position.x, e.position.y, e.position.z, fx, e.instance, e.thread, static_cast<unsigned long long>(e.started_ms - e.queued_ms));
+        vlog(info ? KILN_LOG_INFO : KILN_LOG_DEBUG, "vfx: #%u play %s at %.2f,%.2f,%.2f -> handle 0x%x, instance 0x%x, thread %u, %llu ms after the request%s",
+             e.id, g, e.position.x, e.position.y, e.position.z, fx, e.instance, e.thread, static_cast<unsigned long long>(e.started_ms - e.queued_ms), with);
 }
 
 // PLAYING (update thread, g_mu held).
@@ -374,6 +393,35 @@ void read_lengths(const uint8_t* res, const ResLayout& l, VfxLengths* out) {
         std::memcpy(&v, res + l.defaults + start, 4);
         if (std::isfinite(v)) (hash == kDuration ? out->duration : out->lifetime) = v;
     }
+}
+
+void read_params(const uint8_t* res, const ResLayout& l, VfxParamLayout* out) {
+    *out = VfxParamLayout{};
+    std::memcpy(out->defaults, res + l.defaults, sizeof out->defaults);
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, res + l.params, 4);
+    std::memcpy(&count, res + l.params + 4, 4);
+    if (!rel) return;
+    const uint8_t* p = res + l.params + rel;  // BlobArray<VfxUserEffectParameterDescription 12 B>: hash, type, Range8, joint collection
+    for (uint32_t i = 0; i < count && i < 64 && out->count < std::size(out->slots); ++i, p += 12) {
+        VfxParamSlot s;
+        std::memcpy(&s.hash, p, 4);
+        std::memcpy(&s.type, p + 4, 4);
+        s.start = p[8];
+        s.count = p[9];
+        if (s.count && s.start + s.count <= sizeof out->defaults) out->slots[out->count++] = s;
+    }
+}
+
+bool put_start_param(const VfxParamLayout& l, uint32_t hash, uint32_t type, const void* data, size_t size, FxParams* block) {
+    for (uint32_t i = 0; i < l.count; ++i) {
+        const VfxParamSlot& s = l.slots[i];
+        if (s.hash != hash || s.type != type || s.count != size) continue;
+        std::memcpy(reinterpret_cast<uint8_t*>(block->data) + s.start, data, size);
+        return true;
+    }
+    return false;
 }
 
 int64_t one_shot_ns(const VfxLengths& v) {

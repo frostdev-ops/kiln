@@ -4,7 +4,7 @@ import { FolderPlus, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import * as api from "../api/commands";
 import type { ConfigDocument, Json, LauncherSettings } from "../api/commands";
-import { qk, useGame, useGameStatus, useSettings } from "../api/hooks";
+import { qk, useAppInfo, useGame, useGameStatus, useSettings } from "../api/hooks";
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import {
@@ -22,6 +22,7 @@ export default function SettingsPage() {
       <div className="k-grid k-grid-2" style={{ alignItems: "start" }}>
         <LauncherCard />
         <GamesCard />
+        <AppearanceCard />
       </div>
       <KilnJsonCard />
       <AssetsCard />
@@ -69,6 +70,27 @@ function LauncherCard() {
         </div>
       </Field>
       <DevCard />
+    </Card>
+  );
+}
+
+/** Appearance: the fire on Play. Off (or KILN_LAUNCHER_NO_WEBGL=1 for one start) draws the plain Play button, the same
+ *  one a machine without WebGL gets. */
+function AppearanceCard() {
+  const qc = useQueryClient();
+  const s = useSettings();
+  const info = useAppInfo();
+  const save = useMutation({
+    mutationFn: (v: LauncherSettings) => api.appSettingsSet(v),
+    onSuccess: (v) => qc.setQueryData(qk.settings, v),
+    onError: (e) => { toast.error(e); qc.invalidateQueries({ queryKey: qk.settings }); },
+  });
+  if (!s.data) return null;
+  const forced = !!info.data?.noWebgl;
+  return (
+    <Card title="Appearance">
+      <Toggle checked={!forced && s.data.animatedFire !== false} disabled={forced} onChange={(on) => save.mutate({ ...s.data!, animatedFire: on })}
+        label="Animated fire" hint={forced ? "Off for this start: KILN_LAUNCHER_NO_WEBGL is set." : "The fire on Play (WebGL). Off: a plain Play button, easier on weak GPUs."} />
     </Card>
   );
 }

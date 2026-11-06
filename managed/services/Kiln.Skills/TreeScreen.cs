@@ -222,8 +222,11 @@ internal static class TalentUi
     private static string Describe(TalentTree t, TalentNode n, int lv)
     {
         var lines = new List<string> { Frame.F(Frame.Tooltip, n.Name, lv, n.MaxLevel, n.Cost) };
-        if (n.Description is { } d) lines.Add(d.ToString());
-        foreach (var e in n.Effects) lines.Add("- " + e.Describe());
+        if (n.Description?.ToString() is { Length: > 0 } d) lines.Add(d);
+        if (n.ListEffects)
+            foreach (var e in n.Effects)
+                if (e.PlayerText is { } line)
+                    lines.Add("- " + line);
         return string.Join("\n", lines);
     }
 

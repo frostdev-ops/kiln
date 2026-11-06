@@ -260,6 +260,11 @@ BigStacks), joined through Join > Dedicated server > Search by IPv4 (`127.0.0.1:
 - New items and recipes of mods with `"clients": "kiln"` (and placeholders) travel as `@definitions`; the client
   defines them as the "server sync" owner and sets them aside on leave (kiln.content A5). Their names and texts travel
   with the definitions; PNG icons do not (the mod must be on the client for those).
+- The Impact programs a mod made at load and its clones name (a buff's `impact`, a template's `Impact.program`, a sequence's
+  `SpawnImpact`) travel as `@programs` (`{guid, data}`, base64): only programs the server serves as new, never the game's.
+  The client serves them through kiln.assets as the "server sync" owner before it applies the rest, so the clones'
+  references resolve; one its game or its own mods already have stays as it is. They come off on leave
+  (`SyncPrograms.cs`). item-blocks' 12 add about 40 KiB of JSON, under 8 KiB deflated.
 - Code that writes game memory without kiln.content (a native plugin poking ItemInfo) is invisible to the export.
 - Value-only changes reach clients within 10 s, not at once. The managed Content API could signal edits; see the
   report.

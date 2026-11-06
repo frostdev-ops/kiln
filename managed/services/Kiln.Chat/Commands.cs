@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -33,13 +34,14 @@ public sealed class CommandSource
 {
     private readonly bool _admin;
 
-    private CommandSource(CommandSourceKind kind, EntityId player, string name, bool admin, ulong steamId = 0)
+    private CommandSource(CommandSourceKind kind, EntityId player, string name, bool admin, ulong steamId = 0, bool hostConsole = false)
     {
         Kind = kind;
         Player = player;
         Name = name;
         _admin = admin;
         _steamId = steamId;
+        IsHostConsole = hostConsole;
     }
 
     private ulong _steamId;
@@ -52,6 +54,12 @@ public sealed class CommandSource
     public string Name { get; }
 
     public bool IsPlayer => Kind == CommandSourceKind.Player;
+
+    /// <summary>The console of a game that hosts its own world, acting as that game's local player: <see cref="Player"/>
+    /// is the host's character, so commands that need a player (a position, <c>@s</c>, <c>~</c>) act on it, and the
+    /// rights are the console's. The console folder runs its lines so on a hosting client; a dedicated server's console
+    /// is <see cref="Console"/>.</summary>
+    public bool IsHostConsole { get; }
 
     /// <summary>Admin rights: <see cref="Commands.IsAdmin"/>.</summary>
     public bool IsAdmin => Commands.IsAdmin(this);
@@ -83,6 +91,10 @@ public sealed class CommandSource
     /// <summary>The operator / server code. Admin.</summary>
     public static CommandSource Console { get; } = new(CommandSourceKind.Console, EntityId.None, "console", true);
 
+    /// <summary>The console of a hosting game, acting as its local player <paramref name="player"/> (<see cref="IsHostConsole"/>).</summary>
+    internal static CommandSource HostConsole(EntityId player, string? name = null) =>
+        new(CommandSourceKind.Player, player, name ?? Chat.FindPlayer(player)?.Name ?? $"player {player}", true, hostConsole: true);
+
     /// <summary>A player (admin rights come from <see cref="Commands.IsAdmin"/>).</summary>
     public static CommandSource ForPlayer(EntityId player, string? name = null) =>
         new(CommandSourceKind.Player, player, name ?? Chat.FindPlayer(player)?.Name ?? $"player {player}", false);
@@ -101,6 +113,7 @@ public sealed class CommandSource
     /// <summary>The source as Kiln.Permissions sees it.</summary>
     public PermissionSubject Subject => Kind switch
     {
+        _ when IsHostConsole => PermissionSubject.Console,
         CommandSourceKind.Console => PermissionSubject.Console,
         CommandSourceKind.Remote => PermissionSubject.Remote(Name, _admin),
         _ when SteamOnly => PermissionSubject.ForSteamId(_steamId, Name),
@@ -116,7 +129,7 @@ public sealed class CommandSource
     public bool Has(string node) => Permissions.Has(Subject, node);
 
     public override string ToString() => Kind == CommandSourceKind.Player
-        ? SteamOnly ? $"{Name} (steam {_steamId})" : $"{Name} (entity {Player})"
+        ? IsHostConsole ? $"console as {Name} (entity {Player})" : SteamOnly ? $"{Name} (steam {_steamId})" : $"{Name} (entity {Player})"
         : $"{Kind.ToString().ToLowerInvariant()} {Name}";
 }
 
@@ -346,35 +359,28 @@ public sealed class CommandContext
         }
     }
 
-    /// <summary>Ends the command with an error message.</summary>
+    /// <summary>Ends the command with an error message: a refusal ("only a player in the world can do this") or a
+    /// failure. The source is told, the log line says it, and the result is not ok; a reply alone counts as success.</summary>
     public void Fail(string message) => throw new CommandException(message);
 
     /// <summary>A <see cref="CommandException"/> with the usage line appended.</summary>
     public CommandException Usage(string? problem = null) =>
         new(problem is null ? $"usage: {Command.Syntax}" : $"{problem}; usage: {Command.Syntax}");
 
-    /// <summary>An async handler's task: its failure is told to the source and logged.</summary>
+    /// <summary>An async handler's task that had not finished when the handler returned: <see cref="Commands.Execute"/>
+    /// logs its outcome, and tells the source about a failure, when it ends.</summary>
+    internal Task? Pending { get; private set; }
+
+    /// <summary>An async handler's task. Finished already: its failure ends the command now; else it is <see cref="Pending"/>.</summary>
     internal void Observe(Task task)
     {
-        if (task.IsCompleted)
+        if (!task.IsCompleted)
         {
-            if (task.Exception?.InnerException is { } done) throw done;
+            Pending = task;
             return;
         }
-        var source = Source;
-        var name = Command.Name;
-        task.ContinueWith(t =>
-        {
-            var e = t.Exception?.InnerException;
-            if (e is null) return;
-            var msg = e is CommandException ce ? ce.Message : $"{Commands.Prefix}{name} failed: {e.Message}";
-            Backend.Current.Log(0, LogLevel.Warn, $"command {Commands.Prefix}{name} by {source}: {msg}");
-            if (source.IsPlayer && !source.Player.IsNone && Chat.Available && Game.IsTickThread)
-            {
-                try { Chat.Tell(source.Player, msg); }
-                catch (InvalidOperationException) { }
-            }
-        }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+        if (task.IsCanceled) throw new CommandException($"{Commands.Prefix}{Command.Name} was canceled");
+        if (task.Exception?.InnerException is { } done) ExceptionDispatchInfo.Capture(done).Throw();
     }
 }
 
@@ -414,6 +420,10 @@ public sealed class CommandResult
     public string? Error { get; }
     public IReadOnlyList<string> Output { get; }
     internal bool KeepLine { get; }
+
+    /// <summary>The handler's task was still running when this result was made (an async command): its final result,
+    /// with every line it sent back and its error, when it ends.</summary>
+    internal Task<CommandResult>? Completion { get; init; }
 
     /// <summary>Output lines, then the error, one per line.</summary>
     public string Text => string.Join("\n", Error is null ? Output : Output.Append(Error));
@@ -671,7 +681,7 @@ public static class Commands
     /// (default: their user group may kick and ban) or a permissions.json group with <c>"admin": true</c>.</summary>
     public static bool IsAdmin(CommandSource source)
     {
-        if (source.Kind != CommandSourceKind.Player) return source.DeclaredAdmin;
+        if (source.Kind != CommandSourceKind.Player || source.IsHostConsole) return source.DeclaredAdmin;
         var basic = BaseAdmin(source);
         if (basic == true) return true;
         try
@@ -694,7 +704,7 @@ public static class Commands
     /// then reads the right from Kiln.Players.</summary>
     internal static bool? BaseAdmin(CommandSource source)
     {
-        if (source.Kind != CommandSourceKind.Player) return source.DeclaredAdmin;
+        if (source.Kind != CommandSourceKind.Player || source.IsHostConsole) return source.DeclaredAdmin;
         if (source.SteamOnly) return null;  // no live entity: permissions.json and the online record decide
         (Func<CommandSource, bool> Check, ModContext? Owner)? custom;
         lock (Lock) custom = _adminCheck;
@@ -708,8 +718,8 @@ public static class Commands
         return null;
     }
 
-    /// <summary>Whether <paramref name="source"/> may run <paramref name="command"/>: the console always; remote tools
-    /// by their declared rights; players by the command's permission node.</summary>
+    /// <summary>Whether <paramref name="source"/> may run <paramref name="command"/>: the console always (also when it acts
+    /// as a hosting game's player); remote tools by their declared rights; players by the command's permission node.</summary>
     public static bool Allowed(CommandSource source, CommandInfo command) =>
         Allowed(source, command.PermissionNode, command.Permission);
 
@@ -717,6 +727,7 @@ public static class Commands
     /// <paramref name="level"/> (Kiln.Permissions decides for players; without it, the level does).</summary>
     internal static bool Allowed(CommandSource source, string node, CommandPermission level)
     {
+        if (source.IsHostConsole) return true;
         switch (source.Kind)
         {
             case CommandSourceKind.Console:
@@ -800,11 +811,39 @@ public static class Commands
             catch (CommandException ce) { err = ce.Message; }
         }, $"command {Prefix}{info.Name}");
         if (!invoked) err ??= $"{Prefix}{info.Name} failed (see the server log)";
-        var log = $"command {Prefix}{info.Name} by {source}: {(err is null ? "ok" : err)}";
-        Backend.Current.Log(entry.Owner?.Owner ?? 0, err is null ? LogLevel.Info : LogLevel.Warn, log);
+        if (err is null && ctx.Pending is { } pending)
+        {
+            // an async handler still running: what it ends with is logged then, not "ok" now
+            var running = new CommandResult(label, true, false, true, null, ctx.Output.ToArray(), ctx.KeepLine)
+            {
+                Completion = Finish(pending, ctx, entry.Owner?.Owner ?? 0, label),
+            };
+            return Executed(source, info, line, running, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+        Logged(entry.Owner?.Owner ?? 0, info, source, err);
         var result = new CommandResult(label, true, false, err is null, err, ctx.Output.ToArray(), ctx.KeepLine);
         return Executed(source, info, line, result, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
     }
+
+    private static void Logged(ulong owner, CommandInfo info, CommandSource source, string? err) =>
+        Backend.Current.Log(owner, err is null ? LogLevel.Info : LogLevel.Warn, $"command {Prefix}{info.Name} by {source}: {err ?? "ok"}");
+
+    // The end of an async handler: its outcome in the log line, a failure told to the source, and the final result.
+    private static Task<CommandResult> Finish(Task pending, CommandContext ctx, ulong owner, string label) =>
+        pending.ContinueWith(t =>
+        {
+            var name = ctx.Command.Name;
+            string? err = null;
+            if (t.IsCanceled) err = $"{Prefix}{name} was canceled";
+            else if (t.Exception?.InnerException is { } e) err = e is CommandException ce ? ce.Message : $"{Prefix}{name} failed: {e.Message}";
+            Logged(owner, ctx.Command, ctx.Source, err);
+            if (err is not null && ctx.Source.IsPlayer && !ctx.Source.Player.IsNone && Chat.Available && Game.IsTickThread)
+            {
+                try { Chat.Tell(ctx.Source.Player, err); }
+                catch (InvalidOperationException) { }
+            }
+            return new CommandResult(label, true, false, err is null, err, ctx.Output.ToArray(), ctx.KeepLine);
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     private static CommandResult Executed(CommandSource source, CommandInfo info, string line, CommandResult result, double ms)
     {

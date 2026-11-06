@@ -70,13 +70,33 @@ Permission bits (enum table at `.rdata 0x1115a60`: name, value): 0 CanKickBan, 1
   ```
   (mask 0xffffffff: no reader active, nobody connected.)
 - **Server lines.** A line with speaker handle 0 / account 0 is sent but not shown by clients (EMF, in game), so for
-  each recipient Kiln adds a type-0 line spoken by that recipient (their handle and account) and calls the game's
-  MarkSent for every other active reader whose bit is clear. Each recipient sees "<their name>: <text>"; Kiln.Chat puts
-  "[Server] " in front. EMF's in-game test of the same scheme on 1273043 showed "<name>: [Server] ...".
+  each recipient Kiln adds a line spoken by that recipient (their handle and account) and calls the game's MarkSent
+  for every other active reader whose bit is clear. It is a type-4 line with no loca tags: the client draws such a
+  line as its text alone (below), so each recipient sees "[Server] <text>" (Kiln.Chat's prefix). A type-0 line
+  (`say`, and server lines with `Chat.ServerLines = Spoken`) shows "<name>: <text>"; EMF's in-game test of that
+  scheme on 1273043 showed "<name>: [Server] ...".
+
+## How the client draws a line [dec client 26430625]
+The client takes every ChatMessageServerMessage into its own chat system unchanged (message 0x13 handler at
+`0x874ed0` calls ChatLogAdd `0xe6e1c0` with the message's type, text, tags, handle, account). The chat line renderer
+`0xb72890(ui, line, ...)` switches on the line's type (`line+0x180`; tags at `+0x160`/`+0x164`, speaker name `+0x10`,
+text `+0x148`):
+
+| Type | Drawn as | Game lines of this type |
+|---|---|---|
+| 0 | "<speaker>: <text>", the speaker in the self or other name style (`chatNameSelf` / `chatNameOther`) | typed lines |
+| 1 | loca(tag1) with the speaker's name for `%k` | an ECS program's line (`0x2e3deb`) |
+| 2 | loca(tag1) with the name, emote style | emotes ("%k greets") |
+| 3 | the ping texts from the UI bundle ("%k set a ping.", "%k pinged %k.") | pings |
+| 4 | tag1 = 0: **the line's text alone**; tag1 only: loca(tag1) with the name; both: loca(tag1) with the name and loca(tag2) | join and leave notices (`0xe639e2`, `0xe51d13`: tags `0x2fec0cdf` "Player <b>%k</b> joined.", `0xec53702d` "... joined as <b>%k</b>.", `0xc762ab66` "... left.") |
+| 5 | loca(tag1) with the name and loca(tag2) | |
+
+Each type has its own text style (UI data `+0x112f4`, `+0x1134c`, `+0x113a4`, `+0x113fc`, `+0x11454`, `+0x114ac`).
 - **Lines as a player** (`say`): spoken by a connected player, optionally narrowed to one reader.
 
 ## Unverified here (needs a client)
 - Display of narrowed recipient-spoken lines on 1285601, of `say`, of the "Unknown command" reply.
-- Whether a type-1/type-4 line with free text (no loca tag) would show as a system line without a speaker. Not used.
+- That a type-4 line with free text and no tag shows as its text alone in a running client (read from the renderer, not
+  seen), and how the notice style looks.
 - Real player lines through the hook (only injected ones went through the queue; the hook's address check and the
   receive call site were matched statically on both builds).

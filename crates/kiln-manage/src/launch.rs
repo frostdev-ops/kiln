@@ -227,6 +227,14 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     if install.kind != crate::game::GameKind::Client {
         return Err(Error::invalid("launch_play starts the game client; servers start through server_start"));
     }
+    // the active profile as it is now: a profile changed since its activation (kilnctl, the profile pages) is
+    // written again, or the game would load the mods of the old profile.json
+    if request.mode == LaunchMode::Profile {
+        crate::profile::refresh_active(dirs, install).map_err(|e| {
+            let msg = format!("the active profile changed and cannot be applied: {}", e.message);
+            Error { message: msg, ..e }
+        })?;
+    }
     let fingerprint = launch_fingerprint(dirs, install, request)?;
     // 1. the files the proxy reads at this start
     let now = crate::util::now_unix();

@@ -164,8 +164,9 @@ public sealed record StatusBlock : IBlock, ITweakable
     /// <summary>A player has it for as long as they are in this state: any of the game's, <c>PlayerStateId.Gliding</c>, in JSON a name such as <c>"Gliding"</c> or <c>"HangGliding"</c>.</summary>
     public PlayerStateRef? While { get; init; }
     public StatusKind Kind { get; init; } = StatusKind.Debuff;
-    /// <summary>What it looks like: its icon and body effect. A premade <see cref="StatusLook"/> today; your own with VfxBlock.</summary>
-    public StatusLook Look { get; init; } = StatusLook.Frost;
+    /// <summary>What it looks like: its icon and body effect. A premade <see cref="StatusLook"/> today; your own with VfxBlock.
+    /// Null: a debuff looks like <see cref="StatusLook.Frost"/>, a buff has a blessing's icon and no body effect.</summary>
+    public StatusLook? Look { get; init; }
     /// <summary>The icon, when it is not the look's: a <c>GameBuffs</c> constant, whose icon it takes.</summary>
     public string? Icon { get; init; }
     /// <summary>Applied again while it runs: the timer starts over (true), or the new one replaces the old (false).</summary>
@@ -209,6 +210,10 @@ public sealed record StatusLook(string Key, string Starter) : IPremade
     /// <summary>The poison icon and body effect.</summary>
     public static readonly StatusLook Poison = new("poison", "0x5f425faf");
     internal static readonly StatusLook[] All = [Frost, Poison];
+    /// <summary>A buff's look when it names none: the game's Shroud Resistance buff, a blessing's icon with no body effect, configs or follow-up.</summary>
+    internal static readonly StatusLook Blessing = new("blessing", "0xd98a51cb");
+
+    internal static StatusLook Of(StatusBlock s) => s.Look ?? (s.Kind == StatusKind.Buff ? Blessing : Frost);
 }
 
 /// <summary>A status to apply: the status, and optionally for how long.</summary>

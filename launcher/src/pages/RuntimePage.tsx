@@ -61,7 +61,7 @@ export default function RuntimePage() {
       if (r?.runtime) {
         // the task checked the game folder against this receipt: show it now (re-hashing for the page's own status
         // takes a while), the refetch below confirms it
-        const newer = (bundles.data ?? []).find((b) => b.sides.includes(game.kind) && isOlder(r.runtime.version, b.version))?.version ?? null;
+        const newer = (bundles.data ?? []).find((b) => b.sides.includes(game.kind) && isOlder(r.runtime.version, b.version, bundles.data ?? []))?.version ?? null;
         const fix = (s: InstallState | undefined) => s && { ...s, installed: true, receipt: r, modified: [], upgradeAvailable: newer };
         qc.setQueryData<InstallState>(qk.runtimeStatus(gid), fix);
         qc.setQueryData<api.GameStatus>(qk.gameStatus(gid), (s) => s && { ...s, runtime: fix(s.runtime)! });
@@ -72,7 +72,7 @@ export default function RuntimePage() {
     invalidateGame(qc, gid);
   };
   const install = (b: RuntimeBundle, opts: api.InstallOptions = {}) => {
-    const back = !!current && b.version !== current && isOlder(b.version, current);
+    const back = !!current && b.version !== current && isOlder(b.version, current, bundles.data ?? []);
     const what = !current ? `Install of ${b.version}` : back ? `Rollback to ${b.version}` : `Update to ${b.version}`;
     return go(what, b.version, `Kiln ${b.version} installed`, () => (back ? api.runtimeRollback(game.id, b.version) : api.runtimeInstall(game.id, b.version, opts)));
   };
@@ -87,7 +87,7 @@ export default function RuntimePage() {
     { key: "c", header: "Built", width: "100px", render: (b) => <span style={{ fontSize: 16, color: "#d0beac" }}>{fmtAgo(b.created)}</span> },
     { key: "comp", header: "Parts", width: "minmax(0, 1.4fr)", render: (b) => <span style={{ fontSize: 16, color: "#d0beac" }} title={b.components.join(", ")}>{b.components.join(", ")}</span> },
     { key: "act", header: <span className="k-sr-only">Action</span>, width: "112px", align: "right", render: (b) => {
-      const older = !!current && isOlder(b.version, current);
+      const older = !!current && isOlder(b.version, current, bundles.data ?? []);
       const word = b.version === current ? "Installed" : !current ? "Install" : older ? "Roll back" : "Update";
       return (
         <Button size="s" disabled={b.version === current || running || busy || !!status.data?.steamUpdating} onClick={() => (sf ? setSwitchSf(b) : setPick(b))}>{word}</Button>
@@ -213,11 +213,16 @@ function ChangeOutcome({ change, installed, onDismiss }: { change: RuntimeChange
   );
 }
 
-function isOlder(a: string, b: string): boolean {
-  const n = (v: string) => v.split(/[+-]/)[0].split(".").map(Number);
-  const [x, y] = [n(a), n(b)];
-  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
-  return a.localeCompare(b) < 0;
+/** `a` is older than `b`. runtime_list sorts newest first (the version, its build date, then when the bundle was
+ *  built), so the list decides; a version not in it compares by version and build date. Never by the git id: two
+ *  builds of one day differ only in when they were built. */
+function isOlder(a: string, b: string, list: RuntimeBundle[]): boolean {
+  const i = list.findIndex((x) => x.version === a), j = list.findIndex((x) => x.version === b);
+  if (i >= 0 && j >= 0) return i > j;
+  const key = (v: string) => { const [base, build = ""] = v.split("+"); return { n: base.split("-")[0].split(".").map(Number), date: build.split(".")[0] }; };
+  const [x, y] = [key(a), key(b)];
+  for (let k = 0; k < 3; k++) if ((x.n[k] ?? 0) !== (y.n[k] ?? 0)) return (x.n[k] ?? 0) < (y.n[k] ?? 0);
+  return x.date < y.date;
 }
 
 function ChainView({ st, boot, live, build }: { st: InstallState | undefined; boot: BootJson | null; live: boolean; build: string | null }) {

@@ -43,7 +43,7 @@ refused (`ScreenHandle.None`, one log line).
 
 - **Client:** any thread. Effects of a mod stop when it unloads.
 - **Server** (a dedicated server, or a hosting client's server-world tick thread): the effect goes over `kiln:screen` to Kiln clients, the whole effect in
-  each message, so a client needs Kiln and not the mod. A hosting client plays its own player's. A joiner doesn't see what started before; a client stops
+  each message, so a client needs Kiln and not the mod. A hosting client plays its own player's, once. A joiner doesn't see what started before; a client stops
   what a server started when it leaves that server. Vanilla clients see nothing.
 - **Blocks:** a status's screen effect plays on its player while it is applied, and an effect's on its target (or the players near the place): the
   program calls `kiln.Signal`, and the server relays. See [modding/screen-effects.md](../modding/screen-effects.md).

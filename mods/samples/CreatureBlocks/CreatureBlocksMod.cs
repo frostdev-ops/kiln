@@ -72,10 +72,7 @@ public sealed class CreatureBlocksMod : Mod
     private static async Task Near(CommandContext c, string creature)
     {
         if (c.Source.Player.IsNone || World.Position(c.Source.Player) is not { } at)
-        {
-            c.Reply("only a player in the world can do this");
-            return;
-        }
+            throw new CommandException("only a player in the world can do this");
         var e = await Blocks.Spawn(creature, new WorldPosition(at.X + 10, at.Y, at.Z), 270);
         c.Reply($"{creature}: {e}");
     }

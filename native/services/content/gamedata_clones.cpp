@@ -89,6 +89,9 @@ struct Def {
 
 std::recursive_mutex g_mu;
 std::vector<Def> g_defs;
+// Bumped whenever a template clone goes into a world's table: kiln.content then resolves the item references that named
+// it before it was there (an item's equipment.placedEntity), at once instead of at its next periodic retry.
+std::atomic<uint64_t> g_template_gen{0};
 
 // Registering many at once (a world's load): the writes, the event order and the buff collection's header are done once per turn of
 // the store lock instead of once per clone (under store_mutex).
@@ -306,6 +309,7 @@ bool ensure_info(Def& d, uintptr_t world, const std::string& base_name) {
         uint64_t after = 0;
         rdv(storage + g_tarr + g_tcount, after);
         d.worlds.insert(world);
+        g_template_gen.fetch_add(1, std::memory_order_relaxed);
         LOGI("gamedata: template %s (%s, clone of %s) registered in the %s world: TemplateInfo %p, %llu of %llu template infos",
              d.name.c_str(), guid_text(d.guid).c_str(), base_name.c_str(), wname(world),
              reinterpret_cast<void*>(info), static_cast<unsigned long long>(after), static_cast<unsigned long long>(cap));
@@ -1611,3 +1615,19 @@ void gd_pack_add(KilnOwner owner, uint32_t section, const gjson& list, const std
 }
 
 }  // namespace kc::gd
+
+namespace kc {
+
+// A template clone kiln.gamedata defines (code, a data pack's "add" list, or a server's content state) and has not
+// refused: an item may name it before the world registers it, since a world registers every clone before anything can
+// place one. (Kitbash otherwise accepts only templates already loaded.)
+bool gd_template_defined(const uint8_t guid[16]) {
+    std::lock_guard lock(gd::g_mu);
+    for (const gd::Def& d : gd::g_defs)
+        if (d.section == KILN_GD_TEMPLATES && !d.orphan && d.state != "error" && std::memcmp(d.guid, guid, 16) == 0) return true;
+    return false;
+}
+
+uint64_t gd_template_generation() { return gd::g_template_gen.load(std::memory_order_relaxed); }
+
+}  // namespace kc

@@ -15,9 +15,11 @@ Evidence and offsets: [docs/re/chat.md](../../re/chat.md).
 Server config: `"enableTextChat": true` in `enshrouded_server.json` (clients only send and show text chat then).
 
 ## How it looks in game
-The game shows a chat line only with a known speaker, as "<speaker name>: <text>". A server line is therefore added
-once per recipient, spoken by that recipient and sent only to them: each player sees **"<their own name>: [Server]
-text"**. `Chat.ServerPrefix` (default "[Server] ") is put in front of `Broadcast`, `Tell` and command replies.
+The game takes a chat line only with a known speaker. A typed line shows as "<speaker name>: <text>"; a notice (the
+type of the game's own "Player X joined." lines) shows its text alone. A server line (`Broadcast`, `Tell`, command
+replies) is added once per recipient as a notice with that recipient as speaker, sent only to them: each player sees
+**"[Server] text"**, with no name in front. `Chat.ServerPrefix` (default "[Server] ") is put in front of it.
+`Chat.ServerLines = ServerLineStyle.Spoken` gives the older look, "<their own name>: [Server] text".
 `Chat.Say(speaker, text)` adds a line spoken by a player (no prefix), as if they had typed it.
 
 ## Receiving
@@ -94,3 +96,6 @@ Lab: `tools/lab/lab.sh start chat` (port 25720, text chat on), join with the Adm
 - `client.d/chat.json` re-cuts the receive-call pattern for the client build (it also captures `chat/gs.chat`).
 - When the game closes the server world, the GameServer pointer and lines queued for that world are dropped; ChatReceive
   gives the next world's GameServer at its first call. In an Offline session the game has no text chat at all.
+- Commands then come through the console folder (`kiln/control/console/*.cmd`), whose lines run as the console acting as
+  the host's own character once it is in the world, so commands that need a player work there
+  ([commands.md](../commands.md#console-folder-and-kilnctl-cmd)).

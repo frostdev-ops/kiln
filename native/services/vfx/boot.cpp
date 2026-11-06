@@ -15,6 +15,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -39,8 +40,20 @@ std::mutex g_mu;  // the state below, after on_ready
 struct Built {
     uint64_t definition = 0;  // a hash of the block's JSON
     int64_t one_shot_ns = 0;  // 0: runs until stopped
+    std::string name;         // <mod>:<block>, for messages
+    uint64_t served = 0;      // a VFX: a hash of the VfxResource bytes kiln.assets serves
+    uint32_t served_size = 0;
 };
 std::map<kvb::Guid, Built> g_built;
+std::set<kvb::Guid> g_foreign;  // Kiln VFX whose GUID the game's table resolves to other data: refused like unknown ones
+std::atomic<int> g_own_checks{0};          // updates left to check that the game's table holds Kiln's own data for Kiln's VFX
+std::atomic<bool> g_any_foreign{false};
+
+uint64_t bytes_hash(const uint8_t* p, size_t n) {
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 1099511628211ull;
+    return h;
+}
 std::string g_status = "{}";
 kvb::GameCounts g_game;
 std::atomic<bool> g_off{false};           // the late check failed
@@ -328,9 +341,17 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         }
         {
             std::lock_guard lk(g_mu);
-            for (const kvb::BuiltBlock& b : r.blocks) g_built[b.guid] = Built{b.definition, b.loops ? 0 : static_cast<int64_t>(static_cast<double>(b.stop_after) * 1e9)};
-            for (const kvb::BuiltMaterialBlock& m : r.materials) g_built[m.guid] = Built{m.definition, 0};
+            for (const kvb::BuiltBlock& b : r.blocks)
+                g_built[b.guid] = Built{b.definition, b.loops ? 0 : static_cast<int64_t>(static_cast<double>(b.stop_after) * 1e9), b.mod + ":" + b.name};
+            for (const kvb::BuiltMaterialBlock& m : r.materials) g_built[m.guid] = Built{m.definition, 0, m.mod + ":" + m.name};
+            for (const kvb::ServedResource& s : r.resources)
+                if (s.type == kvb::kTypeVfx)
+                    if (auto it = g_built.find(s.guid); it != g_built.end()) {
+                        it->second.served = bytes_hash(s.data.data(), s.data.size());
+                        it->second.served_size = static_cast<uint32_t>(s.data.size());
+                    }
         }
+        if (!r.blocks.empty()) g_own_checks.store(600);
         set_status(fingerprint, fingerprint_detail, &r);
         const kvb::Capacity& cap = r.capacity;
         if (!r.materials.empty())
@@ -348,7 +369,67 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
     }
 }
 
+// The game resolves a VFX GUID through its own table, filled when it listed the VFX at start. That each of Kiln's resolves to the bytes Kiln
+// served is checked once the system has them: a GUID that resolves to other data would play another effect (the game's or another
+// mod's) under Kiln's name. Such a VFX is refused like an unknown one, so it shows nothing rather than something else.
+void check_own_data() {
+    if (g_own_checks.load(std::memory_order_acquire) <= 0) return;
+    kvx::Game* game = kvx::core_game();
+    if (!game || game->is_sim()) {
+        g_own_checks.store(0);
+        return;
+    }
+    std::vector<std::pair<kvb::Guid, Built>> vfx;
+    {
+        std::lock_guard lk(g_mu);
+        for (const auto& [g, b] : g_built)
+            if (b.served_size) vfx.emplace_back(g, b);
+    }
+    if (vfx.empty()) {
+        g_own_checks.store(0);
+        return;
+    }
+    if (game->is_registered(nullptr, vfx.front().first.b) != 1) {  // the game hasn't listed them yet
+        if (g_own_checks.fetch_sub(1) == 1)
+            KV_W("vfx: Kiln's VFX are not in the game's VFX table after 600 updates: whether they resolve to their own data was not checked");
+        return;
+    }
+    g_own_checks.store(0);
+    uint32_t own = 0;
+    std::string other;
+    std::vector<kvb::Guid> foreign;
+    std::vector<uint8_t> buf;
+    for (const auto& [g, b] : vfx) {
+        buf.assign(b.served_size, 0);
+        const bool read = game->read_resource(nullptr, g.b, buf.data(), buf.size());
+        if (read && bytes_hash(buf.data(), buf.size()) == b.served) {
+            ++own;
+            continue;
+        }
+        char text[40];
+        kvx::guid_text(g.b, text);
+        other += (other.empty() ? "" : ", ") + b.name + " (" + text + (read ? ")" : ", not readable)");
+        foreign.push_back(g);
+    }
+    if (foreign.empty()) {
+        KV_I("vfx: %u Kiln VFX resolve to their own data in the game's VFX table", own);
+    } else if (!own) {
+        // Not one matches: more likely this build keeps resources another way than that every VFX is wrong. Nothing is refused.
+        KV_W("vfx: none of Kiln's %zu VFX reads back as the data Kiln served (%s): the check doesn't hold on this game build, nothing refused. Send kiln.log",
+             vfx.size(), other.c_str());
+    } else {
+        {
+            std::lock_guard lk(g_mu);
+            g_foreign.insert(foreign.begin(), foreign.end());
+        }
+        g_any_foreign.store(true, std::memory_order_release);
+        KV_E("vfx: %zu Kiln VFX resolve to other data in the game's VFX table and would play another effect: %s. They are refused (they show "
+             "nothing); %u resolve to their own. Send kiln.log", foreign.size(), other.c_str(), own);
+    }
+}
+
 void build_on_update() {
+    check_own_data();
     if (g_late_done.load(std::memory_order_acquire)) return;
     bool expected = false;
     if (!g_late_done.compare_exchange_strong(expected, true)) return;
@@ -379,11 +460,12 @@ void build_on_update() {
 }
 
 bool build_refuses(const uint8_t guid[16]) {
-    if (!g_off.load(std::memory_order_acquire)) return false;
+    if (!g_off.load(std::memory_order_acquire) && !g_any_foreign.load(std::memory_order_acquire)) return false;
     kvb::Guid g;
     std::memcpy(g.b, guid, 16);
     std::lock_guard lk(g_mu);
-    return g_built.count(g) != 0;
+    if (g_foreign.count(g)) return true;
+    return g_off.load(std::memory_order_acquire) && g_built.count(g) != 0;
 }
 
 int64_t build_one_shot_ns(const uint8_t guid[16]) {

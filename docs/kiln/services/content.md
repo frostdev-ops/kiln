@@ -418,9 +418,13 @@ With `content.loca`, `content.ui_texture`, `content.recipe_ui`, `content.recipe_
   the registry maps; the service's getter hook returns the array plus the new recipes, and resets the UI's cached
   knowledge version so the lists are rebuilt after recipes are added or removed.
 - **Crafting menu**: the menu shows only recipes named in its UI configuration (per workshop: categories →
-  subcategories → recipe ids). The service adds each new recipe to the subcategory that holds its base recipe, else
-  the one with the most recipes making items of the same item category, else the workshop's last one (the copied
-  list replaces the subcategory's; the original comes back when the recipe goes). In a client: the three NewItems
+  subcategories → recipe ids). The service adds each new recipe to the subcategory that holds its base recipe; else
+  the one that lists the game's recipe for the item its result was cloned from; else, for a result placed with the
+  build cursor (a prop, a station, furniture), the first subcategory in the menu's order that lists placed things of
+  the same item category; else the one with the most recipes making items of the same item category; else the
+  workshop's last one (the copied list replaces the subcategory's; the original comes back when the recipe goes).
+  Building tools are blocks and placed things alike, so by category alone a new station at the workbench went to
+  "Blocks - Stone"; now it goes with the workbench's chests, and a new table beside the game's tables. In a client: the three NewItems
   recipes appeared under the hand menu's "Supplies — Utility".
 - **Verified in a client** (build 26404966): hosting a world with
   NewItems, the Frost Shard and Frost Edge show their names, descriptions, the base items' icons and models, Rare and
@@ -484,10 +488,13 @@ section 8.
 - **Validation**: a GUID is accepted for a field when a loaded item uses it in a field of the same reflected
   reference type (27 reference types, pools built from every ItemInfo of the world), when the engine's template list
   holds it (template references, through kiln.spawn), or when kiln.assets serves a resource of that type under it
-  (`keen::Model` references: `keen::RenderModel`; templates: `keen::ecs::TemplateResource`). `item:<name>.<path>`
+  (`keen::Model` references: `keen::RenderModel`; templates: `keen::ecs::TemplateResource`), or, for a template, when it
+  is a template clone defined in this game (a world registers its clones at its load, after its items and before anything
+  can place one, so a placeable item names its own template from the start). `item:<name>.<path>`
   must name a field of the same type. Anything else is skipped with a warning (the base's value stays; the item still
   registers): `NewContent.Definitions()` / `definitions()` list them as `warnings`, kiln.log has one line each. A
-  reference that was not loaded is tried again every ~2 s (kiln.assets may register it later).
+  reference that was not loaded is tried again every ~2 s (kiln.assets may register it later), and at once when a
+  template clone goes into a world (a joined client gets its items before the templates in the same content state).
 - **Game items**: the same keys work as layers on registered items: data-pack rules (`"Weapon_X": {"@refs": true,
   "visual": "item:Weapon_Y"}`, or the document option `"options": {"refs": true}`), C# `entry.SetRef("visual",
   "item:Weapon_Y", allowGameItem: true)` / `SetPerks([...])` / `SetRefJson(key, json)`, C `set_ref(owner, kind, id,

@@ -25,9 +25,53 @@ pub async fn profile_create(name: String, copy_from: Option<String>) -> Result<P
     blocking(move || profile::create(&dirs()?, name.trim(), copy_from.as_deref())).await
 }
 
+/// Saves, then writes the game's profile.json again in every game where this profile is active and the game is not
+/// running, so Steam's own Play button starts the profile as it is now. A profile that does not apply (a mod missing
+/// from the library) still saves; Play says why.
 #[tauri::command]
-pub async fn profile_save(profile: Profile) -> Result<Profile, Error> {
-    blocking(move || profile::save(&dirs()?, &profile)).await
+pub async fn profile_save(app: AppHandle, profile: Profile) -> Result<Profile, Error> {
+    let (saved, applied) = blocking(move || {
+        let d = dirs()?;
+        let saved = profile::save(&d, &profile)?;
+        Ok((saved.clone(), reapply_where_active(&d, &saved.id)))
+    })
+    .await?;
+    for g in applied {
+        emit_status_later(app.clone(), g);
+    }
+    Ok(saved)
+}
+
+/// The client games whose profile.json names `profile_id` (and that are not running), re-applied when it changed.
+/// Returns the ids of the games written.
+pub(crate) fn reapply_where_active(d: &kiln_manage::paths::DataDirs, profile_id: &str) -> Vec<String> {
+    let games = kiln_manage::game::known(d).unwrap_or_default();
+    let mut applied = Vec::new();
+    for g in games.iter().filter(|g| g.kind == kiln_manage::game::GameKind::Client) {
+        let active_here = profile::read_game_profile(&g.path).ok().flatten().is_some_and(|f| f.id == profile_id);
+        if active_here && reapply(d, g) {
+            applied.push(g.id.clone());
+        }
+    }
+    applied
+}
+
+/// `profile::refresh_active` for one game that is not running, logged to launcher.log. True when it wrote.
+pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> bool {
+    if kiln_manage::proc::find_game(g).ok().flatten().is_some() {
+        return false;
+    }
+    match profile::refresh_active(d, g) {
+        Ok(Some(a)) => {
+            crate::commands::app::launcher_log("profile", &format!("{} changed: written again to {} (generation {})", a.profile_id, g.path.display(), a.generation));
+            true
+        }
+        Ok(None) => false,
+        Err(e) => {
+            crate::commands::app::launcher_log("profile", &format!("the active profile of {} changed but does not apply: {}", g.path.display(), e.message));
+            false
+        }
+    }
 }
 
 #[tauri::command]

@@ -13,7 +13,10 @@
 //    original arguments, so it reaches everyone exactly as it would have.
 //  - Server lines: ChatLogAdd with the recipient's connection handle and account (a line with no speaker is sent
 //    but not shown by clients), then the line is marked as already sent (the game's own MarkSent) for every other
-//    reader, so only the recipient gets it.
+//    reader, so only the recipient gets it. They are notices (type 4, no loca tag): the client's chat shows such a
+//    line as its text alone, in the style of its own "Player X joined." notices, without a speaker's name (client
+//    26430625, the chat line renderer 0xb72890: type 4 with tag1 0 draws the line's text). Typed lines are type 0
+//    and show as "<speaker>: <text>".
 //  - Connection records (ServerPlayers, GameServer+0x1E0, 16 x 0x148 B): +0 handle (index = handle & 0x3F),
 //    +4 peer handle (reader = peer & 0x7F), +0xA state, +0x10 permission bits, +0x18 player entity, +0x20 name
 //    {ptr, len}, +0x48 account hash. The GameServer pointer comes from the ChatReceive hook (every frame).
@@ -227,15 +230,19 @@ bool find_by(uint32_t handle, KilnEntity entity, KilnChatPlayer* out) {
 }
 
 // ---- adding lines ----
-// Adds a typed (type 0) line spoken by (handle, account). only_reader >= 0 narrows it to that reader.
+// The game's chat line types Kiln writes: a player's typed line ("<speaker>: <text>"), and a notice with no loca tag
+// (its text alone, as the game's join and leave notices).
+constexpr uint8_t kLineTyped = 0, kLineNotice = 4;
+
+// Adds a line of `type` spoken by (handle, account). only_reader >= 0 narrows it to that reader.
 // Returns false when the game refused it; *addressed = the target reader will be sent the line.
-bool add_line(uint8_t* sys, uint32_t handle, uint64_t account, const char* text, size_t len, int only_reader,
+bool add_line(uint8_t* sys, uint8_t type, uint32_t handle, uint64_t account, const char* text, size_t len, int only_reader,
               bool* addressed) {
     *addressed = false;
     ChatResult r{};
     StrView v{text, len};
     OptTime none{};
-    if (!guarded_add(&r, sys, 0, &v, 0, 0, handle, account, &none) || r.code != 0) {
+    if (!guarded_add(&r, sys, type, &v, 0, 0, handle, account, &none) || r.code != 0) {
         logf(KILN_LOG_WARN, "chat: ChatLogAdd refused a line (code %u)", r.code);
         return false;
     }
@@ -443,7 +450,7 @@ KilnResult KILN_CALL send(KilnEntity to, KilnStr text, uint32_t* delivered) {
         if (to && all[i].entity != to) continue;
         ++matched;
         bool addressed = false;
-        if (add_line(sys, all[i].connection, all[i].account, text.ptr, len, static_cast<int>(all[i].reader), &addressed) &&
+        if (add_line(sys, kLineNotice, all[i].connection, all[i].account, text.ptr, len, static_cast<int>(all[i].reader), &addressed) &&
             addressed)
             ++count;
     }
@@ -465,7 +472,7 @@ KilnResult KILN_CALL say(KilnEntity speaker, KilnStr text, KilnEntity to) {
     if (to && !find_by(0, to, &t)) return KILN_ERR_NOT_FOUND;
     const size_t len = clip_utf8(text.ptr, text.len, static_cast<size_t>(C.max_text));
     bool addressed = false;
-    if (!add_line(sys, s.connection, s.account, text.ptr, len, to ? static_cast<int>(t.reader) : -1, &addressed))
+    if (!add_line(sys, kLineTyped, s.connection, s.account, text.ptr, len, to ? static_cast<int>(t.reader) : -1, &addressed))
         return KILN_ERR_INTERNAL;
     return KILN_OK;
 }

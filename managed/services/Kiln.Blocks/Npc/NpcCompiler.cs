@@ -863,10 +863,12 @@ internal static class NpcCompiler
         }
 
         // the quests' NPC, as it is: the engine finds it, and its roster entry goes to the boot build
+        if (n.Place is { Exact: true, At: null }) throw new BlockError(ctx.Block, "place.exact", "exactly where? It needs place.at");
         var place = n.Place is { } pl ? new QuestPlace
         {
             At = pl.At is { Length: 3 } at ? new WorldPosition(at[0], at[1], at[2]) : null, NearPlayer = pl.At == null,
             MinDistance = pl.Distance is { Length: 2 } d ? d[0] : 0, MaxDistance = pl.Distance is { Length: 2 } d2 ? d2[1] : 0,
+            InBase = pl.InBase, Exact = pl.Exact,
         } : null;
         var def = new QuestNpcDefinition
         {
@@ -909,6 +911,8 @@ internal static class NpcCompiler
             if (p.At is { Length: 3 } at) po["at"] = new JsonArray(at[0], at[1], at[2]);
             else po["near"] = "player";
             if (p.Distance is { Length: 2 } d) po["distance"] = new JsonArray(d[0], d[1]);
+            po["inBase"] = p.InBase;
+            if (p.Exact) po["exact"] = true;
             o["place"] = po;
         }
         if (n.Roster is { } r)

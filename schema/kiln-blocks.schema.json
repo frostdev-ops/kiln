@@ -1397,7 +1397,9 @@
           "properties": {
             "at": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
             "distance": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
-            "once": { "type": "boolean" }
+            "once": { "type": "boolean" },
+            "inBase": { "type": "boolean", "description": "A base is fine (default true): a friendly NPC comes as near as distance asks while the player is home. false: 20 m outside every base zone." },
+            "exact": { "type": "boolean", "description": "Exactly at: no ground, no base check." }
           }
         }
       }

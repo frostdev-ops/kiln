@@ -143,8 +143,9 @@ typedef struct KilnVfxApi {
     /* immediate 0: the game's stop. With killTimeInSeconds 0 the instance goes at once; otherwise it stays that many seconds at
        most, then goes whatever is alive (10 for almost every VFX). 1: the instance is destroyed at the next update. */
     KilnResult(KILN_CALL* stop)(KilnVfx vfx, int immediate);
-    /* A named parameter of the effect: name_hash = FNV-1a of the name, type_id = keen::DsTypeId, at most 16 B. Kept and applied
-       when the instance exists. A name or type the VFX does not have is ignored by the game. */
+    /* A named parameter of the effect: name_hash = FNV-1a of the name, type_id = keen::DsTypeId, at most 16 B. Set before the start
+       (KILN_VFX_WAIT_GUID holds a play until bind_guid), a value the VFX describes goes into the block it starts with; anything else
+       is applied with the game's setter once the instance exists. A name or type the VFX does not have is ignored by the game. */
     KilnResult(KILN_CALL* set_param)(KilnVfx vfx, uint32_t name_hash, uint32_t type_id, const void* data, size_t size);
     uint32_t(KILN_CALL* state)(KilnVfx vfx);
     KilnResult(KILN_CALL* info)(KilnVfx vfx, KilnVfxInfo* out);

@@ -198,7 +198,7 @@ Marks: **[dump]** read from a crash dump, **[log]** real logs, **[dis]** read in
   `rbp+0x3cb0`, `rbp+0x3cc0` (captured in `@net.create_fields`).
 - Dropping resumes at `0x961d18`, the branch the game takes when that call returns nothing: it frees what the argument set up, returns an empty result, and `0x9c70ee` discards the
   message. Hooking the miss branch itself (`0x961cc9`) would have cost nothing on a hit, but `0x961ccc` is a jump target inside the 5 bytes the hook overwrites.
-- Cost: the hook's stub plus one test per create; a second test, and a set lookup for a create with a parent, only after something was dropped on this connection.
+- Cost: the hook's stub plus one test per create, and a kiln.assets `resource_is_new` lookup for a found template (the first entity of each Kiln-only template is logged: `net: this game creates entity N of the Kiln template <guid> (TemplateInfo ...)`); a second test, and a set lookup for a create with a parent, only after something was dropped on this connection.
 - `0x987910`'s other callers: `0x990645` is the hosted server's writer, with a template it read from a live entity. `0x96256d` is an update that carries a GUID, which is only reached once the
   reader has found the entity (`0x96235e` returns early otherwise), so its template is known. Not guarded.
 

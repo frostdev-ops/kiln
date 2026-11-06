@@ -130,7 +130,8 @@ works and it's treated like the Kiln client below. Not run on a real older clien
 2. *A template it won't ever have*: a `clients: "mod"` mod it lacks, let in by a `modSync` set to `warn` or `off`. The client's guard drops the create
    and any children, along the game's own failure path. kiln.log gets one line per template:
    `net: this game has no template <guid>, which the server uses: its entities aren't created here (first: <entity>). A server mod you don't have adds it.`
-   **What the player sees:** that NPC, marker or creature isn't there, with no message at that moment. The Kiln menu's Network tab already
+   **What the player sees:** that NPC, marker or creature isn't there, with no message at that moment. An entity of a Kiln-only template the client does have
+   is logged once per template: `net: this game creates entity N of the Kiln template <guid> (TemplateInfo ...)`. The Kiln menu's Network tab already
    lists `server mod not on this client: <mod>`. Later updates of the entity are discarded without a log line.
 
 If the guard's hook doesn't resolve on a build, the client behaves as before (this crash) and kiln.log says

@@ -16,9 +16,10 @@ void sim_update();  // one simulated FxController update
 uint64_t sim_params_applied();
 void sim_last_param(uint32_t* hash, uint32_t* type, float* first_float);
 uint64_t sim_preloads();
+FxParams sim_last_start_params();  // the parameter block of the last simulated start
 
 // The GUIDs the simulated game has registered, in the game's byte order: Guid 5f5f5f5f-0000-4000-8000-00000000000<n + 1>. The first
-// has a kill time of 10 s and no parameters, the second kill time 0, duration 2 and lifetime 1.5: a 3.5 s one-shot.
+// has a kill time of 10 s and no parameters, the second kill time 0, duration 2 and lifetime 1.5 (a 3.5 s one-shot) and a "color", magenta by default.
 constexpr int kSimKnown = 2;
 void sim_known_guid(int n, uint8_t out[16]);
 

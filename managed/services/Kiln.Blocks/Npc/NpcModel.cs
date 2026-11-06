@@ -337,7 +337,7 @@ public sealed record AIBlock : INpcBlock, IPremade
     /// In JSON a name: <c>Blocks.Target("name", npc =&gt; ...)</c>.</summary>
     [JsonIgnore]
     public Func<NpcView, EntityId>? PickTarget { get; init; }
-    /// <summary>In JSON: a target picker registered by name with <see cref="Blocks.Target"/>.</summary>
+    /// <summary>In JSON: a target picker registered by name with <c>Blocks.Target</c>.</summary>
     [JsonPropertyName("pickTarget")]
     public string? PickTargetName { get; init; }
     public double? PickEvery { get; init; }
@@ -558,6 +558,13 @@ public sealed record NpcPlace
     public double[]? Distance { get; init; }
     /// <summary>Only the first time in a world.</summary>
     public bool Once { get; init; } = true;
+    /// <summary>
+    /// A base is fine (the default): a friendly NPC may stand in one, so it comes as near as <see cref="Distance"/> asks while the player is home.
+    /// false keeps it 20 m outside every base zone, as a quest's places are.
+    /// </summary>
+    public bool InBase { get; init; } = true;
+    /// <summary>Exactly <see cref="At"/>: no ground, no base check.</summary>
+    public bool Exact { get; init; }
 }
 
 /// <summary>

@@ -220,6 +220,11 @@ The FxController itself sets `targetPosition` (`0x539c5c1b`) for targeted effect
 pass a whole 64-byte block at creation (`hasVfxParameters`), as templates (`VfxParametersTemplateComponent`,
 `VfxParametersOverwriteComponent`), sequences and notifiers do.
 
+A value set after the start reaches only what reads it later **[hyp]**. `VFX_Dummy_Impact` (also named `Base_Impact_Explosion_VFX`; `color` at byte 12,
+default `#ff00ffff`) is one burst emitter whose particles keep their own `color` state member: with `color` set one FxController update after the
+start, its burst showed the default magenta in a client **[rt]**. So kiln.vfx writes the values a VFX describes into `FxParams` (the
+block, then `has` = 1) and keeps `VfxSetParameter` for later changes.
+
 ### 2.7 Textures a VFX names **[data]**
 All 145 are `bindless`, untiled, BC7 (131) or BC5 (14), with `content` category 4010512636, `bundleId` 0, `sortKey` 0 and channel mapping Identity. 136 are Texture2D,
 9 Texture3D. The blob holds the mip chain, largest level first. `mipChainContentRanges` has one range per level with more than 4 KiB left to the end of the blob, each

@@ -67,10 +67,11 @@ internal static class AudioRelay
             try
             {
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false)
-                    .Register<PlayMsg>(MsgPlay, EncodePlay, DecodePlay, OnPlay, NetDirection.ToClient)
+                    .Register<PlayMsg>(MsgPlay, EncodePlay, DecodePlay, static (m, ctx) => { if (!FromOwnServer()) OnPlay(m, ctx); }, NetDirection.ToClient)
                     .Register<StopMsg>(MsgStop, static (m, w) => w.UInt32(m.Token).Int64(m.FadeNs),
-                        static (ref NetReader r) => new StopMsg(r.UInt32(), r.Int64()), OnStop, NetDirection.ToClient)
-                    .Register<VoiceMsg>(MsgVoice, EncodeVoice, DecodeVoice, OnVoice, NetDirection.ToClient);
+                        static (ref NetReader r) => new StopMsg(r.UInt32(), r.Int64()), static (m, ctx) => { if (!FromOwnServer()) OnStop(m, ctx); },
+                        NetDirection.ToClient)
+                    .Register<VoiceMsg>(MsgVoice, EncodeVoice, DecodeVoice, static (m, ctx) => { if (!FromOwnServer()) OnVoice(m, ctx); }, NetDirection.ToClient);
             }
             catch (Exception e)
             {
@@ -123,7 +124,7 @@ internal static class AudioRelay
             };
             Interlocked.Add(ref _sent, n);
         }
-        // a hosting client hears the server's sounds itself (its player is not a network peer)
+        // a hosting client plays the server's sounds itself, at once; the copy the channel sends its own player is dropped on arrival (FromOwnServer)
         if (Client.IsHosting && AudioCore.LocalAvailable)
         {
             var local = kind switch
@@ -192,6 +193,15 @@ internal static class AudioRelay
     }
 
     // ---- client side (main thread) ----
+
+    /// <summary>A hosting client is connected only to its own server, which has already played the sound here (<see cref="Play"/>, <see cref="Voice"/>):
+    /// its own player is a network peer as well, so the message would play it a second time.</summary>
+    private static bool FromOwnServer()
+    {
+        if (!Client.IsHosting) return false;
+        Interlocked.Increment(ref _received);
+        return true;
+    }
 
     private static void OnPlay(PlayMsg m, NetContext ctx)
     {

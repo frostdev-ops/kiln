@@ -463,7 +463,7 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 // ---------------------------------------------------------------- settings, servers
 
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
-let settings: LauncherSettings = { steamRoots: [], defaultGameId: "client-steam", allowHttpModpacks: false, savesKeep: 10, checkUpdates: true };
+let settings: LauncherSettings = { steamRoots: [], defaultGameId: "client-steam", allowHttpModpacks: false, savesKeep: 10, checkUpdates: true, animatedFire: true };
 
 const server: ServerInstance = {
   id: "lab", name: "Lab server", kind: "local", dir: "/home/player/srv/enshrouded/lab", port: 26090, queryPort: 26091,
@@ -481,7 +481,7 @@ const S = (v: unknown) => String(v ?? "");
 
 const handlers: Record<string, Handler> = {
   // app
-  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true }),
+  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false }),
   app_settings_get: () => settings,
   app_settings_set: (a) => (settings = { ...(a.settings as LauncherSettings) }),
   app_open_path: () => null,
@@ -514,7 +514,10 @@ const handlers: Record<string, Handler> = {
     const m = /^kiln-runtime-(.+)\.zip$/.exec(name);
     if (!m) reject("parse", "Not a Kiln runtime bundle.", { path: a.path });
     const b: RuntimeBundle = { ...bundles[0], version: m![1], file: `runtime/${name}`, sha256: hex(name), created: now() };
-    if (!bundles.some((x) => x.version === b.version)) bundles.unshift(b);
+    if (!bundles.some((x) => x.version === b.version)) bundles.push(b);
+    // like bundle::list: newest first by version, build date, then when built (never the git id)
+    const key = (v: string) => { const [base, build = ""] = v.split("+"); return [...base.split("-")[0].split(".").map((n) => n.padStart(6, "0")), build.split(".")[0]].join("."); };
+    bundles.sort((x, y) => key(y.version).localeCompare(key(x.version)) || (y.created ?? "").localeCompare(x.created ?? ""));
     return b;
   },
   runtime_status: (a) => status(S(a.gameId)).runtime,
@@ -672,7 +675,12 @@ const handlers: Record<string, Handler> = {
   launch_state: (a): BootState => {
     const boot = bootFor(S(a.gameId));
     const r = running[S(a.gameId)];
-    return { boot, mods: boot ? (modsExample as unknown as ModsJson) : null, native: boot ? (nativeExample as unknown as NativeJson) : null, stale: !r && !!boot };
+    // the example's run logged two errors after its boot (a service tick at the menu); a run started here has none
+    const log = !boot ? null : r ? { errors: 0, first: [] } : { errors: 2, first: [
+      "[E 12:01:20.749] [kiln] kiln service tick 'kiln creature brains' threw (1x): System.InvalidOperationException: wrong thread",
+      "[E 12:01:22.073] [kiln] kiln service tick 'kiln creature brains' threw (2x): System.InvalidOperationException: wrong thread",
+    ] };
+    return { boot, mods: boot ? (modsExample as unknown as ModsJson) : null, native: boot ? (nativeExample as unknown as NativeJson) : null, stale: !r && !!boot, log };
   },
 
   // logs

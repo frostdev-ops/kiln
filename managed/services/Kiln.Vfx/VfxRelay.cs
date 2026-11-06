@@ -68,11 +68,13 @@ internal static class VfxRelay
             try
             {
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false)
-                    .Register<PlayMsg>(MsgPlay, EncodePlay, DecodePlay, OnPlay, NetDirection.ToClient)
+                    .Register<PlayMsg>(MsgPlay, EncodePlay, DecodePlay, static (m, ctx) => { if (!FromOwnServer()) OnPlay(m, ctx); }, NetDirection.ToClient)
                     .Register<StopMsg>(MsgStop, static (m, w) => w.UInt32(m.Token).Bool(m.Immediate),
-                        static (ref NetReader r) => new StopMsg(r.UInt32(), r.Bool()), OnStop, NetDirection.ToClient)
+                        static (ref NetReader r) => new StopMsg(r.UInt32(), r.Bool()), static (m, ctx) => { if (!FromOwnServer()) OnStop(m, ctx); },
+                        NetDirection.ToClient)
                     .Register<ParamMsg>(MsgParam, static (m, w) => WriteParam(w.UInt32(m.Token), m.Param),
-                        static (ref NetReader r) => new ParamMsg(r.UInt32(), ReadParam(ref r)), OnParam, NetDirection.ToClient);
+                        static (ref NetReader r) => new ParamMsg(r.UInt32(), ReadParam(ref r)), static (m, ctx) => { if (!FromOwnServer()) OnParam(m, ctx); },
+                        NetDirection.ToClient);
             }
             catch (Exception e)
             {
@@ -155,7 +157,7 @@ internal static class VfxRelay
         }
         if (lifetimeNs < 0)
             lock (Lock) Loops[token] = ModContext.CurrentMod;
-        // a hosting client sees the server's VFX itself (its player is not a network peer)
+        // a hosting client plays the server's VFX itself, at once; the copy the channel sends its own player is dropped on arrival (FromOwnServer)
         if (Client.IsHosting && VfxCore.LocalAvailable && (kind != KindFor || player == Client.LocalPlayer))
         {
             var local = PlayHere(kind, vfx, at, rotation, scale, entity, slot, offset, lifetimeNs, parameters);
@@ -226,6 +228,15 @@ internal static class VfxRelay
     }
 
     // ---- client side ----
+
+    /// <summary>A hosting client is connected only to its own server, which has already played the VFX here (<see cref="Play"/>): its own
+    /// player is a network peer as well, so the message would play it a second time.</summary>
+    private static bool FromOwnServer()
+    {
+        if (!Client.IsHosting) return false;
+        Interlocked.Increment(ref _received);
+        return true;
+    }
 
     private static void OnPlay(PlayMsg m, NetContext ctx)
     {

@@ -335,6 +335,8 @@ std::string data_dir();
 #if KC_GAMEDATA
 void gd_item_registered(uint32_t id, const std::string& name, const uint8_t guid[16], uintptr_t addr);  // an item that went in after kiln.gamedata built its list
 bool gd_own_lists(uintptr_t item, bool game_base, std::string* err);  // an item clone gets its own copy of every list; of a game item, as the game has it (gamedata_packs.cpp)
+bool gd_template_defined(const uint8_t guid[16]);  // a template clone kiln.gamedata defines and has not refused (gamedata_clones.cpp)
+uint64_t gd_template_generation();                 // changes whenever a template clone goes into a world's table
 #endif
 
 // ============================================================================================= new content =====

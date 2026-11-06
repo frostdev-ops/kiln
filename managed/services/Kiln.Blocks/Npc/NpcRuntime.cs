@@ -197,7 +197,7 @@ internal static class NpcServerSide
 
     internal static void OnTick(ulong step)
     {
-        if (!ServerRunning()) return;   // a client's own world, joined to another server: nothing of a creature's mind runs here
+        if (!Now) return;   // a client's menu, or its own world joined to another server: nothing of a creature's mind runs here
         List<(ModBlocks Mod, string Block, Action Run)> work;
         lock (Gate)
         {
@@ -434,8 +434,15 @@ internal static class NpcRuntime
 
     private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
 
-    private static void OnTick(ulong step)
+    internal static void OnTick(ulong step)
     {
+        // A creature's mind is the server's: brains run on the tick thread of a server world here (a dedicated server's, or the one a client
+        // hosts), never in a client's menu or in its world joined to another server, where the game's state is not this side's to touch.
+        if (!NpcServerSide.Now)
+        {
+            if (NpcServerSide.IsClient() && !NpcServerSide.ServerRunning()) Drop();
+            return;
+        }
         _ticks++;
         if (step % 40 == 7) Poll();
         List<(NpcControl Control, NpcBrain Brain)> list;
@@ -465,6 +472,19 @@ internal static class NpcRuntime
                 Release(ctl, brain);
             }
         }
+    }
+
+    /// <summary>The hosted world stopped, its creatures with it: their brains are let go without a Stop (nothing of that world is left to touch).</summary>
+    private static void Drop()
+    {
+        int n;
+        lock (Gate)
+        {
+            n = Driven.Count;
+            if (n == 0) return;
+            Driven.Clear();
+        }
+        BlocksBridge.Log(LogLevel.Info, $"blocks: the server world stopped: {n} creature brain(s) let go");
     }
 
     private static void Release(NpcControl ctl, NpcBrain brain)

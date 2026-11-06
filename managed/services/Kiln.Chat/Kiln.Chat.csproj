@@ -2,7 +2,7 @@
   <!-- Managed face of native/services/chat (kiln.chat) plus the command registry (typed commands, permissions, the
        console folder). Deployed to kiln/host/ and shared by every mod (mods reference it with Private="false"
        ExcludeAssets="runtime"). Typed command arguments use Kiln.Players, Kiln.Items, Kiln.Time and Kiln.Spawn (@e selectors); permissions come
-       from Kiln.Permissions. -->
+       from Kiln.Permissions; the console folder asks Kiln.Client whether this game hosts its world. -->
   <PropertyGroup>
     <RootNamespace>Kiln</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -16,6 +16,7 @@
     <ProjectReference Include="../Kiln.Time/Kiln.Time.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Permissions/Kiln.Permissions.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Api.Tests" />

@@ -7,15 +7,20 @@
 //   time [hh:mm]            sets (or prints) the time of day
 //   tp <x> <y> <z> | tp base [n] | tp back
 //   where                   position, heading, bases
-//   heal                    health to full
+//   heal [entity]           health to full
+//   hurt <n> [entity]       health down by n, never below 1
 //   stamina [n|max], mana [n|max]
+//   spawn <creature> [count] [distance] [at <x> <y> <z>]   hostile creatures in front of the player (or at a point)
+//   clear [radius]          removes the creatures this helper spawned (all, or those within radius m of the player)
 //   testhelper              which services this world offers
 //
 // Nothing here grants progress: no experience, levels, skill points, knowledge or recipes. `give` refuses gear,
-// blueprints, collectibles and any item the player has never had, because a first pickup unlocks recipes.
+// blueprints, collectibles and any item the player has never had, because a first pickup unlocks recipes. Creatures
+// from `spawn` give no experience and drop no loot when killed (their XP factor is 0 and their loot is off), bosses
+// and villagers are refused, and they are never saved: they go when the world (or this mod) unloads.
 //
-// The console answers at once, so `give` and `tp` (they finish a few steps later) reply "queued #<token>" and write
-// their outcome to kiln.log and to <data>/results.jsonl, one JSON object per line: {token, what, ok, text, time}.
+// The console answers at once, so `give`, `tp` and `spawn` (they finish a few steps later) reply "queued #<token>" and
+// write their outcome to kiln.log and to <data>/results.jsonl, one JSON object per line: {token, what, ok, text, time}.
 using System.Globalization;
 using System.Text.Json;
 using Kiln;
@@ -29,8 +34,12 @@ public sealed class KilnTestHelperMod : Mod
     private static readonly HashSet<ItemCategory> GiveCategories =
         [ItemCategory.Materials, ItemCategory.Consumables, ItemCategory.Ammunition, ItemCategory.AnimalFood];
 
+    private const int MaxSpawn = 10;
+    private const string SpawnTag = "kiln-test-helper";
+
     private string _results = "";
     private WorldPosition? _back;
+    private readonly List<EntityId> _spawned = [];
 
     public override void OnLoad()
     {
@@ -127,27 +136,111 @@ public sealed class KilnTestHelperMod : Mod
         Permission = CommandPermission.Admin)]
     private string Where(CommandContext c)
     {
+        var bases = BaseList();
+        string BaseText(WorldPosition? from) => bases.Count == 0 ? "" : "; bases: " + string.Join(", ", bases.Select((b, i) =>
+            $"{i + 1} at {Fmt(b.Center)}" + (from is { } f ? $" ({Distance(f, b.Center):F0} m{(b.Contains(f) ? ", inside" : "")})" : "")));
+        if (Players.Available && Players.All.Count == 0 && !c.Source.IsPlayer) return "no player in game" + BaseText(null);
         var p = Target(c);
         var t = World.Transform(p.Entity) ?? throw new CommandException($"{p.Name} has no position yet");
         var pos = t.Position;
-        var line = $"{p.Name} pos {pos.X.ToString("F2", CultureInfo.InvariantCulture)} {pos.Y.ToString("F2", CultureInfo.InvariantCulture)} " +
-                   $"{pos.Z.ToString("F2", CultureInfo.InvariantCulture)} yaw {t.YawDegrees.ToString("F1", CultureInfo.InvariantCulture)}";
-        var bases = BaseList();
-        if (bases.Count > 0)
-            line += "; bases: " + string.Join(", ", bases.Select((b, i) =>
-                $"{i + 1} at {Fmt(b.Center)} ({Distance(pos, b.Center):F0} m{(b.Contains(pos) ? ", inside" : "")})"));
-        return line;
+        return $"{p.Name} pos {pos.X.ToString("F2", CultureInfo.InvariantCulture)} {pos.Y.ToString("F2", CultureInfo.InvariantCulture)} " +
+               $"{pos.Z.ToString("F2", CultureInfo.InvariantCulture)} yaw {t.YawDegrees.ToString("F1", CultureInfo.InvariantCulture)}" + BaseText(pos);
     }
 
-    [Command("heal", Description = "health to full", Permission = CommandPermission.Admin)]
-    private string Heal(CommandContext c)
+    [Command("heal", Description = "health to full: the player, or [entity] (a player or a creature this helper spawned)",
+        Permission = CommandPermission.Admin)]
+    private string Heal(CommandContext c, string entity = "")
     {
         if (!Combat.Available) throw new CommandException("kiln.combat is not available");
-        var p = Target(c);
-        var h = Combat.GetHealth(p.Entity) ?? throw new CommandException($"{p.Name} has no health");
-        if (h.Dead) throw new CommandException($"{p.Name} is dead: respawn first");
-        var added = Combat.Heal(p.Entity, Math.Max(0, h.Max - h.Current));
-        return $"heal {p.Name}: {h.Current} -> {h.Current + added} of {h.Max}";
+        var (e, name) = HealthTarget(c, entity);
+        var h = Combat.GetHealth(e) ?? throw new CommandException($"{name} has no health");
+        if (h.Dead) throw new CommandException($"{name} is dead");
+        var added = Combat.Heal(e, Math.Max(0, h.Max - h.Current));
+        return $"heal {name}: {h.Current} -> {h.Current + added} of {h.Max}";
+    }
+
+    [Command("hurt", Description = "lowers health by <n>, never below 1 (no hit, no kill): the player, or [entity] (a player or a creature this helper spawned)",
+        Permission = CommandPermission.Admin)]
+    private string Hurt(CommandContext c, int amount, string entity = "")
+    {
+        if (!Combat.Available) throw new CommandException("kiln.combat is not available");
+        if (amount < 1) throw new CommandException("hurt <n>: n is 1 or more");
+        var (e, name) = HealthTarget(c, entity);
+        var h = Combat.GetHealth(e) ?? throw new CommandException($"{name} has no health");
+        if (h.Dead) throw new CommandException($"{name} is dead");
+        var now = Combat.SetHealth(e, Math.Max(1, h.Current - amount));
+        return $"hurt {name}: {h.Current} -> {now} of {h.Max}";
+    }
+
+    [Command("spawn", Description = "hostile creatures <distance> m (default 8) in front of the player: spawn <template, name, variant or mod:creature> " +
+        "[count 1..10] [distance 2..50] [at <x> <y> <z>]; they give no XP or loot", Permission = CommandPermission.Admin)]
+    private string SpawnCmd(CommandContext c, [Greedy] string text)
+    {
+        if (!Creatures.Available) throw new CommandException("kiln.creatures is not available");
+        var (what, count, distance, at) = ParseSpawn(text);
+        var (id, label, block) = ResolveCreature(what);
+
+        WorldPosition origin;
+        double yaw;
+        if (at is { } point)
+        {
+            origin = point;
+            yaw = 0;
+            distance = 0;
+        }
+        else
+        {
+            var p = Target(c);
+            var t = World.Transform(p.Entity) ?? throw new CommandException($"{p.Name} has no position yet");
+            origin = t.Position;
+            yaw = t.YawDegrees;
+        }
+        // in a row across the player's view: forward (sin, cos) in x/z (0 = north, 90 = east), right (cos, -sin)
+        var r = yaw * Math.PI / 180;
+        var spots = new List<WorldPosition>();
+        for (var i = 0; i < count; i++)
+        {
+            var side = (i - (count - 1) / 2.0) * 2.5;
+            spots.Add(new WorldPosition(origin.X + Math.Sin(r) * distance + Math.Cos(r) * side, origin.Y,
+                origin.Z + Math.Cos(r) * distance - Math.Sin(r) * side));
+        }
+        var token = NewToken();
+        var face = (float)((yaw + 180) % 360);  // facing the player
+        _ = SpawnAsync(token, id, label, block, spots, face);
+        return $"spawn {count} {label} at {Fmt(spots[0])}{(count > 1 ? " ..." : "")}: queued #{token}";
+    }
+
+    [Command("clear", Description = "removes the creatures this helper spawned: all, or those within [radius] m of the player",
+        Permission = CommandPermission.Admin)]
+    private string Clear(CommandContext c, double radius = 0)
+    {
+        WorldPosition? center = null;
+        if (radius > 0)
+        {
+            var p = Target(c);
+            center = World.Position(p.Entity) ?? throw new CommandException($"{p.Name} has no position yet");
+        }
+        int removed = 0, gone = 0, kept = 0;
+        foreach (var e in _spawned.ToList())
+        {
+            if (!World.Exists(e))
+            {
+                _spawned.Remove(e);
+                gone++;
+                continue;
+            }
+            if (center is { } at && (World.Position(e) is not { } pos || Distance(at, pos) > radius))
+            {
+                kept++;
+                continue;
+            }
+            if (Spawn.Destroy(e)) removed++;
+            _spawned.Remove(e);
+        }
+        var line = $"clear: {removed} removed, {gone} already gone (killed or despawned)" +
+                   (radius > 0 ? $", {kept} kept (farther than {radius:F0} m)" : "");
+        Log.Info("kiln-test-helper: " + line);
+        return line;
     }
 
     [Command("stamina", Description = "sets stamina: stamina max | stamina <n>; without a value it prints it", Permission = CommandPermission.Admin)]
@@ -228,6 +321,133 @@ public sealed class KilnTestHelperMod : Mod
         if (c.Source.IsPlayer && Players.Find(c.Source.Player) is { } self) return self;
         // the console has no player: the host (the first player in game)
         return Players.All.FirstOrDefault() ?? throw new CommandException("no player in game yet");
+    }
+
+    /// <summary>Whose health heal/hurt change: the player, or an entity that is a player or a creature this helper spawned.</summary>
+    private (EntityId Entity, string Name) HealthTarget(CommandContext c, string entity)
+    {
+        if (string.IsNullOrWhiteSpace(entity))
+        {
+            var p = Target(c);
+            return (p.Entity, p.Name);
+        }
+        if (!uint.TryParse(entity, NumberStyles.Integer, CultureInfo.InvariantCulture, out var raw) || raw == 0)
+            throw new CommandException($"'{entity}' is not an entity id");
+        var e = new EntityId(raw);
+        if (Players.Available && Players.Find(e) is { } player) return (e, player.Name);
+        if (_spawned.Contains(e)) return (e, $"creature {e}");
+        throw new CommandException($"entity {raw} is neither a player nor a creature this helper spawned");
+    }
+
+    /// <summary>"Vukah Brawler 3 12 at 10 20 30" -> name, count, distance, point.</summary>
+    private static (string What, int Count, double Distance, WorldPosition? At) ParseSpawn(string text)
+    {
+        var words = text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        WorldPosition? at = null;
+        var a = words.FindIndex(w => w.Equals("at", StringComparison.OrdinalIgnoreCase));
+        if (a >= 0)
+        {
+            if (words.Count != a + 4 || !TryNum(words[a + 1], out var x) || !TryNum(words[a + 2], out var y) || !TryNum(words[a + 3], out var z))
+                throw new CommandException("spawn <creature> [count] [distance] [at <x> <y> <z>]");
+            at = new WorldPosition(x, y, z);
+            words.RemoveRange(a, 4);
+        }
+        var nums = new List<double>();
+        while (words.Count > 1 && nums.Count < 2 && TryNum(words[^1], out var n))
+        {
+            nums.Insert(0, n);
+            words.RemoveAt(words.Count - 1);
+        }
+        if (words.Count == 0) throw new CommandException("spawn <creature> [count] [distance] [at <x> <y> <z>]");
+        var count = nums.Count > 0 ? (int)nums[0] : 1;
+        var distance = nums.Count > 1 ? nums[1] : 8;
+        if (count is < 1 or > MaxSpawn) throw new CommandException($"count 1..{MaxSpawn}");
+        if (distance is < 2 or > 50) throw new CommandException("distance 2..50 m");
+        return (string.Join(' ', words), count, distance, at);
+    }
+
+    /// <summary>What Creatures.Spawn / Blocks.Spawn get, a label, and whether it is a creature block ("mod:name").
+    /// Bosses (their kills can unlock achievements) and villagers are refused.</summary>
+    private static (string Id, string Label, bool Block) ResolveCreature(string what)
+    {
+        if (what.Contains(':'))
+        {
+            var i = what.IndexOf(':');
+            var handle = Blocks.Find(what[(i + 1)..], what[..i]) as CreatureHandle
+                         ?? throw new CommandException($"no creature block '{what}' (is that mod loaded here?)");
+            if (Creatures.Template(handle.Template) is { } bt && (bt.IsBoss || bt.IsVillager || BossName(bt.Name)))
+                throw new CommandException($"{what} is built on {(bt.IsBoss ? "a boss" : "a villager")} ({bt.Name}): not spawned");
+            return (what, what, true);
+        }
+        var variant = CreatureVariants.All.FirstOrDefault(v => v.Id.Equals(what, StringComparison.OrdinalIgnoreCase));
+        var t = Creatures.Template(variant?.Base ?? what);
+        if (t is null)
+        {
+            var near = Creatures.Templates.Where(x => x.Name.Contains(what, StringComparison.OrdinalIgnoreCase) ||
+                                                      x.DisplayName.Contains(what, StringComparison.OrdinalIgnoreCase))
+                .Where(x => !x.IsBoss && !x.IsVillager && !BossName(x.Name) && !x.Name.StartsWith("Base_", StringComparison.OrdinalIgnoreCase))
+                .Take(6).Select(x => x.ToString()).ToList();
+            throw new CommandException($"no creature '{what}'" + (near.Count > 0 ? $"; similar: {string.Join(", ", near)}" : ""));
+        }
+        if (t.IsBoss || BossName(t.Name)) throw new CommandException($"{t} is a boss: not spawned (boss kills can unlock achievements)");
+        if (t.IsVillager) throw new CommandException($"{t} is a villager: not spawned");
+        if (t.Name.StartsWith("Base_", StringComparison.OrdinalIgnoreCase))
+            throw new CommandException($"{t} is a base template (the parent of real creatures): not spawned");
+        return variant is not null ? (variant.Id, $"{variant.Id} ({t})", false) : (t.Name, t.ToString(), false);
+    }
+
+    private async Task SpawnAsync(string token, string id, string label, bool block, List<WorldPosition> spots, float yaw)
+    {
+        var what = $"spawn {spots.Count} {label}";
+        var made = new List<string>();
+        var ok = true;
+        foreach (var spot in spots)
+        {
+            EntityId e;
+            try
+            {
+                var options = new CreatureSpawnOptions { Tag = SpawnTag, Flags = SpawnFlags.Transient, DespawnOnUnload = true };
+                e = block ? await Blocks.Spawn(id, spot, yaw, options) : await Creatures.Spawn(id, spot, yaw, options);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                made.Add($"not spawned: {ex.Message}");
+                break;
+            }
+            // no experience and no loot from killing it; a creature that cannot be made so is removed again
+            string? error = null;
+            for (var tries = 0; tries < 20; tries++)
+            {
+                try
+                {
+                    var cr = Creatures.Of(e);
+                    cr.XpFactor = 0;
+                    cr.Loot.Disabled = true;
+                    error = null;
+                    break;
+                }
+                catch (Exception ex) when (ex is KeyNotFoundException or NotSupportedException or InvalidOperationException)
+                {
+                    error = ex.Message;
+                    await Context.Scheduler.NextTick();
+                }
+            }
+            if (error is not null)
+            {
+                try { Spawn.Destroy(e); } catch (Exception) { /* already gone */ }
+                ok = false;
+                made.Add($"{e} removed again: its XP and loot could not be turned off ({error})");
+                break;
+            }
+            _spawned.Add(e);
+            var i = Creatures.Of(e).Inspect();
+            made.Add(i is null
+                ? $"{e} at {Fmt(spot)}"
+                : $"{e} {i.TemplateName} level {i.Level}, {i.Health}/{i.HealthMax} hp, faction {i.Faction}, xp factor {i.XpFactor:0.##}, " +
+                  $"loot {(i.LootDisabled ? "off" : "on")} at {Fmt(spot)}");
+        }
+        Record(token, what, ok, string.Join("; ", made));
     }
 
     private static string SetResource(CommandContext c, AbilityResource resource, string value)
@@ -322,7 +542,10 @@ public sealed class KilnTestHelperMod : Mod
     private static string Services() =>
         $"items {Items.Available}, knowledge {Knowledge.Available}, time {Time.Available && Time.Ready}, " +
         $"teleport {Teleport.Available}, build {Build.Available}, combat {Combat.Available}, abilities {Abilities.Available}, " +
-        $"players {Players.Available}";
+        $"players {Players.Available}, creatures {Creatures.Available}, spawn {Spawn.Available}";
+
+    /// <summary>Boss templates the catalog may not flag (phases, health-bar variants, mid-bosses) carry "boss" in the name.</summary>
+    private static bool BossName(string name) => name.Contains("boss", StringComparison.OrdinalIgnoreCase);
 
     private static string NewToken() => Guid.NewGuid().ToString("N")[..8];
 

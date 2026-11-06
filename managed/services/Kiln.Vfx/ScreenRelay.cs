@@ -49,11 +49,11 @@ internal static unsafe class ScreenRelay
             {
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false)
                     .Register<PlayMsg>(MsgPlay, static (m, w) => WriteEffect(w.UInt32(m.Token), m.Effect), static (ref NetReader r) => new PlayMsg(r.UInt32(), ReadEffect(ref r)),
-                        OnPlay, NetDirection.ToClient)
-                    .Register<StopMsg>(MsgStop, static (m, w) => w.UInt32(m.Token).Bool(m.Immediate), static (ref NetReader r) => new StopMsg(r.UInt32(), r.Bool()), OnStop,
-                        NetDirection.ToClient)
+                        static (m, ctx) => { if (!FromOwnServer()) OnPlay(m, ctx); }, NetDirection.ToClient)
+                    .Register<StopMsg>(MsgStop, static (m, w) => w.UInt32(m.Token).Bool(m.Immediate), static (ref NetReader r) => new StopMsg(r.UInt32(), r.Bool()),
+                        static (m, ctx) => { if (!FromOwnServer()) OnStop(m, ctx); }, NetDirection.ToClient)
                     .Register<StrengthMsg>(MsgStrength, static (m, w) => w.UInt32(m.Token).Single(m.Strength), static (ref NetReader r) => new StrengthMsg(r.UInt32(), r.Single()),
-                        OnStrength, NetDirection.ToClient);
+                        static (m, ctx) => { if (!FromOwnServer()) OnStrength(m, ctx); }, NetDirection.ToClient);
                 _tick ??= ServiceTick.Add("kiln screen relay", static (in TickInfo t) => Sweep(t.Step));
             }
             catch (Exception e)
@@ -149,7 +149,7 @@ internal static unsafe class ScreenRelay
             };
             Interlocked.Add(ref _sent, n);
         }
-        // the host's own player is not a network peer: it plays here
+        // a hosting client plays it here, at once; the copy the channel sends its own player is dropped on arrival (FromOwnServer)
         var host = false;
         if (Client.IsHosting && Client.HasLocalPlayer)
         {
@@ -233,6 +233,15 @@ internal static unsafe class ScreenRelay
     }
 
     // ---- client side ----
+
+    /// <summary>A hosting client is connected only to its own server, which has already played the effect here when its player was meant to
+    /// see it: its own player is a network peer as well, so the message would play it a second time.</summary>
+    private static bool FromOwnServer()
+    {
+        if (!Client.IsHosting) return false;
+        Interlocked.Increment(ref _received);
+        return true;
+    }
 
     private static void OnPlay(PlayMsg m, NetContext ctx)
     {

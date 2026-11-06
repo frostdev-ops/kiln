@@ -48,6 +48,8 @@
       "name": "Tobin", "body": "fisher", "talk": "tobin-talk",
       "vendor": { "sells": { "Material_T1_Plant_Fibre": { "item": "Material_T1_Twigs", "count": 2 } } },
       "roster": { "summonTool": "Tobin's Whistle", "description": "A wanderer who trades a little." }
-    }
+    },
+    "pip-home": { "name": "Pip", "body": "villager", "place": { "at": [ 3800, 833, 1434 ], "distance": [ 6, 10 ] } },
+    "pip-out": { "name": "Pip Outside", "body": "villager", "place": { "at": [ 3800, 833, 1434 ], "distance": [ 6, 10 ], "inBase": false } }
   }
 }

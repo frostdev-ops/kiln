@@ -6,7 +6,7 @@ import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode 
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../api/commands";
-import { qk, useAppInfo, useBackendEvents } from "../api/hooks";
+import { qk, useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
 import { Lockup, Skeleton, Splash, TaskTray, Toaster, toast, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
@@ -124,6 +124,10 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
 
 export function AppShell() {
   const info = useAppInfo();
+  const settings = useSettings();
+  // the WebGL fire, unless turned off (Settings, Appearance) or KILN_LAUNCHER_NO_WEBGL=1; decided once both are known
+  // (the splash covers that), so a machine set to the plain button never starts the fire
+  const fire = info.isFetched && settings.isFetched && !info.data?.noWebgl && settings.data?.animatedFire !== false;
   const loc = useLocation();
   const outlet = useOutlet();
   useTaskFeed();
@@ -158,7 +162,7 @@ export function AppShell() {
   useEffect(() => { document.title = isPlay ? "Kiln" : `${navFor(loc.pathname)?.label ?? "Kiln"} · Kiln`; }, [isPlay, loc.pathname]);
   return (
     <div ref={root} className={"k-app" + (isPlay ? " is-play" : " is-sheet")} onMouseMove={torch}>
-      <div className="k-stage" aria-hidden><Stage root={root} /><div className="k-fall" /></div>
+      <div className="k-stage" aria-hidden><Stage root={root} key={fire ? "fire" : "plain"} enabled={fire} /><div className="k-fall" /></div>
       <Header isPlay={isPlay} ctl={ctl} />
       <div className={"k-hero-layer" + (isPlay ? " on" : "")} aria-hidden={!isPlay}>{hero}</div>
       <main className={"k-sheet" + (isPlay ? " down" : " up")} id="main" aria-hidden={isPlay}>

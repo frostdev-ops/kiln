@@ -196,6 +196,11 @@ public sealed partial class BlocksTestMod : Mod
         Check(status != null && status.Guid == BlockIds.Derive(Sample, "buff", "chilled"), $"the status is a buff of its own: 0x{status?.Id:x8}");
         Check(status!.Get("defaultLifeTime").Number == 8, $"Seconds 8: defaultLifeTime {status.Get("defaultLifeTime").Number}");
         Check(Abilities.Programs.Info(BlockIds.Fnv(status.Get("impact").Guid)) is not null, $"it runs its generated program {status.Get("impact").Guid}");
+        // a creature's health bar draws only a status with a colour, and the frost slow it looks like has none
+        var colour = (uint)status.Get("color").Integer;
+        var singed = Content.Buffs.Get($"{Sample}.singed");
+        Check(colour == 0xFFFFFFFF && (uint)(singed?.Get("color").Integer ?? 0) == 0xFFFFFFFF && Content.Buffs.Get("0x5f5d2f5c")?.Get("color").Integer == 0,
+            $"a debuff is white, so the bar of the creature that has it shows it: chilled 0x{colour:x8}, singed 0x{(uint)(singed?.Get("color").Integer ?? 0):x8}");
 
         var recipe = Content.Recipes.Get($"{Sample}.frostbolt.recipe");
         var makes = recipe?.Outputs.FirstOrDefault();

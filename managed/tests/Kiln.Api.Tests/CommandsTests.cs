@@ -47,6 +47,33 @@ public sealed class AttributeCommands
     public string All(IReadOnlyList<Player> who) => string.Join(",", who.Select(p => p.Name));
 }
 
+/// <summary>Async commands: one that waits for the test, one that refuses later, one that refuses before its first await.</summary>
+public sealed class AsyncCommands
+{
+    public readonly TaskCompletionSource Gate = new();
+
+    [Command("slow")]
+    public async Task Slow(CommandContext c)
+    {
+        await Gate.Task;
+        c.Reply("done");
+    }
+
+    [Command("slowfail")]
+    public async Task SlowFail(CommandContext c)
+    {
+        await Gate.Task;
+        throw new CommandException("refused later");
+    }
+
+    [Command("refuse")]
+    public async Task Refuse(CommandContext c)
+    {
+        if (c.Source.Player.IsNone) throw new CommandException("only a player in the world can do this");
+        await Gate.Task;
+    }
+}
+
 public sealed class CommandsTests : KilnTest
 {
     private static readonly Player Alder = new()
@@ -258,6 +285,156 @@ public sealed class CommandsTests : KilnTest
         Assert.Equal("Alder (entity 1)", results[4]!["output"]![0]!.GetValue<string>());
         Assert.Equal("whoami", results[5]!["completions"]![0]!.GetValue<string>());
         Assert.False(results[6]!["found"]!.GetValue<bool>());
+    }
+
+    // A plain command that needs a player, as the samples' world commands do. Registered by a mod, so the reset between tests removes it.
+    private void RegisterPlayerOnly() => As(NewMod("here"), () =>
+        Commands.Register("here", c =>
+        {
+            if (c.Source.Player.IsNone || Arg.PositionOf(c.Source.Player) is not { } at) throw new CommandException("only a player in the world can do this");
+            c.Reply($"{c.Source.Name} at {at.X}");
+        }));
+
+    private JsonNode RunFile(string name, string text)
+    {
+        var dir = Path.Combine(Root, "control", "console");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, name + ".cmd"), text);
+        Assert.Equal(1, ConsoleControl.Poll(dir));
+        return JsonNode.Parse(File.ReadAllText(Path.Combine(dir, name + ".result.json")))!;
+    }
+
+    [Fact]
+    public void Console_folder_acts_as_the_local_player_on_a_hosting_game()
+    {
+        RegisterPlayerOnly();
+        Commands.Register("whoami", c => c.Reply($"{c.Source} host={c.Source.IsHostConsole}"));
+        Commands.Register("secret", c => c.Reply("42"), CommandPermission.Console);
+        ConsoleControl.LocalHost = () => Alder.Entity;  // a hosting game: its local player is Alder, in the world
+        var doc = RunFile("hosted", """
+            whoami
+            here
+            secret
+            #as console
+            here
+            """);
+        var results = doc["results"]!.AsArray();
+        Assert.Equal("console as Alder (entity 1) host=True", results[0]!["output"]![0]!.GetValue<string>());
+        Assert.True(results[1]!["ok"]!.GetValue<bool>());
+        Assert.Equal("Alder at 100", results[1]!["output"]![0]!.GetValue<string>());
+        Assert.True(results[2]!["ok"]!.GetValue<bool>());  // the console's rights: a console-only command runs
+        Assert.Equal("console as Alder (entity 1)", results[2]!["source"]!.GetValue<string>());
+        Assert.False(results[3]!["ok"]!.GetValue<bool>());  // #as console: the plain console again, which has no player
+        Assert.Equal("console console", results[3]!["source"]!.GetValue<string>());
+        Assert.Equal("only a player in the world can do this", results[3]!["error"]!.GetValue<string>());
+        Assert.True(Backend.Logged("Info: command /here by console as Alder (entity 1): ok"));
+        Assert.True(Backend.Logged("Warn: command /here by console console: only a player in the world can do this"));
+    }
+
+    [Fact]
+    public void Typed_commands_see_the_hosts_player_through_selectors()
+    {
+        var target = new AttributeCommands();
+        As(NewMod("attr"), () => Commands.RegisterAll(target));
+        ConsoleControl.LocalHost = () => Alder.Entity;
+        var doc = RunFile("selectors", "all @s\nheal @s 5\n");
+        var results = doc["results"]!.AsArray();
+        Assert.Equal("Alder", results[0]!["output"]![0]!.GetValue<string>());
+        Assert.Equal("healed Alder by 5", results[1]!["output"]![0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Console_folder_stays_the_console_without_a_hosts_player_in_the_world()
+    {
+        RegisterPlayerOnly();
+        // a dedicated server (no local player), and a hosting game whose player isn't in the world yet
+        foreach (var host in new[] { EntityId.None, new EntityId(9) })
+        {
+            ConsoleControl.LocalHost = () => host;
+            var doc = RunFile($"plain{host.Value}", "here\n");
+            var r = doc["results"]![0]!;
+            Assert.Equal("console console", r["source"]!.GetValue<string>());
+            Assert.False(r["ok"]!.GetValue<bool>());
+            Assert.False(doc["ok"]!.GetValue<bool>());
+        }
+        Assert.False(CommandSource.Console.IsHostConsole);
+        Assert.True(Backend.Logged("Warn: command /here by console console: only a player in the world can do this"));
+        Assert.False(Backend.Logged("command /here by console console: ok"));
+    }
+
+    [Fact]
+    public void A_hosts_console_keeps_the_consoles_rights()
+    {
+        var host = CommandSource.HostConsole(Alan.Entity, "Alan");  // Alan is no admin as a player
+        Assert.True(host.IsPlayer && host.IsHostConsole && host.IsAdmin);
+        Assert.Equal(Alan.Entity, host.Player);
+        Assert.Equal(PermissionSubjectKind.Console, host.Subject.Kind);
+        Commands.Register("secret", c => c.Reply("42"), CommandPermission.Console);
+        Assert.True(Commands.Execute(host, "secret").Ok);
+        Assert.True(Commands.Execute(CommandSource.ForPlayer(Alan.Entity, "Alan"), "secret").Denied);
+    }
+
+    [Fact]
+    public async Task The_log_line_says_what_an_async_command_ended_with()
+    {
+        var target = new AsyncCommands();
+        Commands.RegisterAll(target);  // Kiln's own: a mod's continuations would wait for its scheduler, which the host runs
+
+        var refused = Run("refuse");
+        Assert.False(refused.Ok);
+        Assert.Equal("only a player in the world can do this", refused.Error);
+        Assert.True(Backend.Logged("Warn: command /refuse by console console: only a player in the world can do this"));
+
+        var slow = Run("slow");
+        var slowFail = Run("slowfail");
+        Assert.True(slow.Ok && slow.Completion is { IsCompleted: false });
+        Assert.False(Backend.Logged("command /slow by console console"));  // nothing said before it ends
+        target.Gate.SetResult();
+        var done = await slow.Completion!.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var failed = await slowFail.Completion!.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(done.Ok);
+        Assert.Equal(["done"], done.Output);
+        Assert.True(Backend.Logged("Info: command /slow by console console: ok"));
+        Assert.False(failed.Ok);
+        Assert.Equal("refused later", failed.Error);
+        Assert.True(Backend.Logged("Warn: command /slowfail by console console: refused later"));
+        Assert.False(Backend.Logged("command /slowfail by console console: ok"));
+    }
+
+    [Fact]
+    public async Task Console_folder_waits_for_commands_still_running()
+    {
+        var target = new AsyncCommands();
+        Commands.RegisterAll(target);  // Kiln's own: a mod's continuations would wait for its scheduler, which the host runs
+        var dir = Path.Combine(Root, "control", "console");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "w.cmd"), "slow\nslowfail\n");
+        Assert.Equal(1, ConsoleControl.Poll(dir));
+        var result = Path.Combine(dir, "w.result.json");
+        Assert.False(File.Exists(result));  // still running: no result yet
+        target.Gate.SetResult();
+        for (var i = 0; i < 500 && !File.Exists(result); i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);  // the commands' continuations run on the test's scheduler
+            ConsoleControl.Poll(dir);
+        }
+        var doc = JsonNode.Parse(File.ReadAllText(result))!;
+        var results = doc["results"]!.AsArray();
+        Assert.Equal("done", results[0]!["output"]![0]!.GetValue<string>());
+        Assert.True(results[0]!["ok"]!.GetValue<bool>());
+        Assert.False(results[1]!["ok"]!.GetValue<bool>());
+        Assert.Equal("refused later", results[1]!["error"]!.GetValue<string>());
+        Assert.False(doc["ok"]!.GetValue<bool>());
+
+        // one that doesn't end in time is written anyway, marked running
+        var stuck = new AsyncCommands();
+        Commands.ResetForTests();
+        Commands.RegisterAll(stuck);
+        ConsoleControl.WaitForRunning = TimeSpan.Zero;
+        File.WriteAllText(Path.Combine(dir, "s.cmd"), "slow\n");
+        ConsoleControl.Poll(dir);
+        var late = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "s.result.json")))!;
+        Assert.True(late["results"]![0]!["running"]!.GetValue<bool>());
     }
 
     [Fact]

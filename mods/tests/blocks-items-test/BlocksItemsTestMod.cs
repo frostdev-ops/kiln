@@ -90,6 +90,13 @@ public sealed class BlocksItemsTestMod : Mod
             if (e is ImpactDamageEvent h) _hits.Add(h);
             if (e is ImpactBuffEvent b) _buffs.Add(b);
         });
+        // What a placeable item places, the moment content is ready: its own template already, not the one of the game item it starts from until a
+        // later retry finds the template (a world registers the templates after the items)
+        Content.OnReady(e =>
+        {
+            if (e.Reload || _placedAtReady.Count > 0) return;
+            foreach (var item in PlacedItems) _placedAtReady[item] = Content.Items.Get(item)?.GetRef("equipment.placedEntity");
+        });
         _ = Run();
     }
 
@@ -361,7 +368,7 @@ public sealed class BlocksItemsTestMod : Mod
         Check(use != null && tonic.Get("sequences[0].sequence").Guid == use.Guid && (uint)N(tonic, "sequences[0].sequenceId") == BlockIds.Fnv(use.Guid), $"tonic: a use sequence of its own: {use?.Guid}, the item's {tonic.Get("sequences[0].sequence").Guid} id 0x{(uint)N(tonic, "sequences[0].sequenceId"):x8}");
         var effect = use?.Get("events[SpawnImpact#0].impact").Guid ?? default;
         Check(effect != default && Abilities.Programs.Info(BlockIds.Fnv(effect)) is not null, $"tonic: the sequence runs its generated program {effect}");
-        Check(Rows(tonic).Count == 0, $"tonic: no tooltip rows of a starter: [{RowText(tonic)}]");
+        Check(Rows(tonic) is [(0xf38b388c, 40)] && tonic.Get("uiValues[0].isSigned").Bool,$"tonic: its tooltip says what a use gives, signed as the game's potions: Health 40: [{RowText(tonic)}]");
 
         var stew = D("ember-stew");
         var warmth = Blocks.Find("warmth", Sample)!;
@@ -370,6 +377,24 @@ public sealed class BlocksItemsTestMod : Mod
         Check(Content.Buffs.Get(warmth.GameName)?.Get("slot").Name == "Food", $"food: the status sits in the food slots: {Content.Buffs.Get(warmth.GameName)?.Get("slot").Name}");
         Check(stew.Get("equipment.appliedBuff").Guid == warmth.Guid, $"food: the item's appliedBuff is the status: {stew.Get("equipment.appliedBuff").Guid}");
         Check(Rows(stew) is [(0x86a75e07, 600000)], $"food: tooltip row Duration, the status's 600 s: {RowText(stew)}");
+        // eaten, the game takes the food item's own time (config 0xbee6d4a9), which the starter (Honey) has at 60 s
+        Check(Math.Abs(N(stew, "impactValues.0xbee6d4a9") - 600) < 1e-3, $"food: the item's own food time is the status's: {N(stew, "impactValues.0xbee6d4a9")} s");
+        var buff = Content.Buffs.Get(warmth.GameName)!;
+        var slow = Content.Buffs.Get("0x5f5d2f5c")!;
+        var blessing = Content.Buffs.Get("0xd98a51cb")!;
+        Check(buff.Get("icon.image").Guid == blessing.Get("icon.image").Guid && buff.Get("icon.image").Guid != slow.Get("icon.image").Guid,
+            $"a buff with no Look has a blessing's icon, not the frost slow's snail: {buff.Get("icon.image").Guid}");
+        Check(buff.Get("description").Guid != slow.Get("description").Guid && buff.Get("description").Guid != blessing.Get("description").Guid,
+            $"and with no Description shows none, not the look's: {buff.Get("description").Guid}");
+        Check(buff.GetJson("whileApplied")?["value"] is JsonArray { Count: 0 } && buff.GetJson("impactValues")?["value"] is JsonObject { Count: 0 },
+            $"no body effect and no configs of a starter: whileApplied {buff.GetJson("whileApplied")?["value"]?.ToJsonString()}, impactValues {buff.GetJson("impactValues")?["value"]?.ToJsonString()}");
+        Check(buff.Get("hideDurationInUi").Integer == 0 && Math.Abs(N(buff, "defaultLifeTime") - 600) < 1e-3, $"it shows its time, 600 s: hideDurationInUi {buff.Get("hideDurationInUi").Integer}, {N(buff, "defaultLifeTime")} s");
+        var burn = Content.Buffs.Get(Blocks.Find("burn", Sample)!.GameName)!;
+        Check(burn.Get("icon.image").Guid == slow.Get("icon.image").Guid, "a debuff with no Look still looks like the frost slow");
+        // a creature's health bar draws only a status with a colour; the frost slow has none
+        uint Colour(GameDataEntry e) => (uint)e.Get("color").Integer;
+        Check(Colour(burn) == 0xFFFFFFFF && Colour(slow) == 0, $"and is white, so a creature's bar shows it: color 0x{Colour(burn):x8} (the frost slow's 0x{Colour(slow):x8})");
+        Check(Colour(buff) == Colour(blessing), $"a buff keeps its look's colour: 0x{Colour(buff):x8}");
 
         var arrow = D("ember-arrow");
         Check(N(arrow, "maxStackSize") == 200 && N(arrow, "itemLevelRange.minLevel") == 5, "arrow: stack 200, level 5");
@@ -436,6 +461,12 @@ public sealed class BlocksItemsTestMod : Mod
     }
 
     private static readonly StationKind[] Kinds_ = [StationKind.Workbench, StationKind.Carpenter, StationKind.Kitchen, StationKind.Forge, StationKind.Oven, StationKind.Alchemy];
+    // placeable items and their templates: the sample's bench and its JSON twin, and a station of every kind
+    private static readonly (string Item, string Template)[] Placed_ =
+        [(G("ember-bench"), G("ember-bench.station")), (G("ember-bench-json"), G("ember-bench-json.station")),
+         .. Kinds_.Select(k => ($"blocks-items-test.station-{k.Key}", $"blocks-items-test.station-{k.Key}.station"))];
+    private static IEnumerable<string> PlacedItems => Placed_.Select(x => x.Item);
+    private readonly Dictionary<string, Guid?> _placedAtReady = new();
 
     private void Station()
     {
@@ -449,6 +480,14 @@ public sealed class BlocksItemsTestMod : Mod
         var template = Content.Templates.Get(G("ember-bench.station"));
         Check(template != null && bench.GetRef("equipment.placedEntity") == template.Guid, $"station: the item places a template of its own: {bench.GetRef("equipment.placedEntity")}");
         Check((uint)(template?.Get("Crafting.workshopId").Number ?? 0) == 0x4da88f73, $"station: which opens the kind's workshop: 0x{(uint)(template?.Get("Crafting.workshopId").Number ?? 0):x8}");
+        Check(_placedAtReady.Count > 0, $"station: content was ready before the test read the placeable items ({_placedAtReady.Count})");
+        foreach (var (item, name) in Placed_)
+        {
+            var own = Content.Templates.Get(name)?.Guid;
+            var atReady = _placedAtReady.GetValueOrDefault(item);
+            Check(own != null && atReady == own,
+                $"station: {item} places its own template from the moment content is ready ({name} {own}): {(atReady?.ToString() ?? "nothing")} at ready, {Content.Items.Get(item)?.GetRef("equipment.placedEntity")} now");
+        }
         var recipe = Content.Recipes.Get(G("ember-gem.recipe"));
         Check((uint)(recipe?.Get("workshopId").Integer ?? 0) == 0x4da88f73, $"station: a recipe naming the station is at its workshop: 0x{(uint)(recipe?.Get("workshopId").Integer ?? 0):x8}");
         Check(recipe?.CraftingDuration == TimeSpan.FromSeconds(4), $"recipe: Seconds 4: {recipe?.CraftingDuration}");
@@ -655,6 +694,36 @@ public sealed class BlocksItemsTestMod : Mod
         Check(buffs.Any(b => Math.Abs(b.Seconds - 600) < 1), "for the status's 600 s");
         eat.Reset("events[ApplyBuffEvent#0].consume");
         Spawn.Destroy(user);
+        await Steps(4);
+        await Eaten(status);
+    }
+
+    // Eaten as a player eats: the stew is the used item in the trigger context, so the game reads the item's own configs, its duration among them.
+    // PlaySequence above has no used item, and the game then takes the status's own time.
+    private async Task Eaten(BlockHandle status)
+    {
+        var stew = I("ember-stew");
+        var eater = await Make("1_Player", new WorldPosition(_at.X + 4, _at.Y, _at.Z - 4));
+        Combat.SetInvulnerable(eater, true);
+        await Items.Give(eater, new ItemId(stew.Id), 2);
+        await Steps(4);
+        var slot = Items.Read(eater)?.Slots.FirstOrDefault(s => s.Item.Value == stew.Id);
+        if (!Check(slot != null, "a character with two Ember Stews")) return;
+        var sequence = Abilities.IdOf(D("ember-stew").Get("sequences[0].sequence").Guid);
+        var b0 = BuffsOf(status.Id).Select(b => b.Id).ToHashSet();
+        if (!PlayerStates.Diagnostics.LabUseItem(eater, sequence, PlayerStateId.ActionPrimary, slot.Slot.Value, stew.Id))
+        {
+            Info("KILN_PLAYERSTATE_LAB is off: the stew is not eaten as a player eats it");
+            Spawn.Destroy(eater);
+            return;
+        }
+        await Steps(60);
+        var left = Items.Read(eater)?.Count(new ItemId(stew.Id)) ?? -1;
+        var got = BuffsOf(status.Id).Where(b => !b0.Contains(b.Id)).ToList();
+        Check(left == 1, $"food eaten as a player eats it: one consumed, {left} left");
+        Check(got.Count == 1 && Math.Abs(got[0].Seconds - 600) < 1,
+            $"and the status lasts its 600 s, not the starter's food time: {string.Join(", ", got.Select(b => $"{b.Seconds:0.##} s"))}");
+        Spawn.Destroy(eater);
         await Steps(4);
     }
 

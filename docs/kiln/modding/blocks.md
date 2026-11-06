@@ -74,9 +74,13 @@ A hit an effect deals is skipped by these triggers, so an effect cannot trigger 
 **Damage numbers.** On a spell, the first `Damage` is its main hit: `Damage.Ice(40)` is the number in the tooltip, and the staff's power adds to it in a cast, as the game does. `Flat = true` makes it exactly the number written. Everything else is exactly the number written. The target's armour and the attacker's stats apply after, as for every hit.
 
 ## Statuses
-A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect), `Refreshes`, the three triggers above, `TickEvery`, `Screen` (a [screen effect](screen-effects.md) on its player while it lasts), and:
+A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect: a debuff without one looks like the frost slow, a buff has a blessing's icon and no body effect), `Refreshes`, the three triggers above, `TickEvery`, `Screen` (a [screen effect](screen-effects.md) on its player while it lasts), and:
 
-`While` puts it on a player for as long as they are in a state, and takes it off after: `While = PlayerStateId.Gliding`, in JSON `"while": "Gliding"`. It needs no `Seconds`. Any of the game's states works: [player-states.md](player-states.md).
+`Description` is yours or absent: a status never shows the text of the game status its look comes from.
+
+A debuff also shows on the health bar over a creature that has it, in white like the game's own debuffs for enemies. The bar draws only a status with a colour, and the frost slow has none. `Tweak` sets another `color`: a number with alpha, blue, green and red from the high byte down, as the game's orange Burning, `0x766b98ff`. A buff keeps its look's colour, so like the game's buffs it doesn't show there.
+
+`While` puts it on a player for as long as they are in a state, and takes it off after: `While = PlayerStateId.Gliding`, in JSON `"while": "Gliding"`. It needs no `Seconds`. Any of the game's states works: [player-states.md](player-states.md). Such a status shows no time in the buff bar, as the game's own untimed buffs do; one with `Seconds` shows what is left.
 
 `Modifies` changes stats for as long as it runs, and takes them back after. `Modifies = { [Stat.MoveSpeed] = -0.5, [Stat.Strength] = 5, [Stat.ResistIce] = 0.25 }`.
 
@@ -89,7 +93,7 @@ A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and
 JSON keys are kebab case: `"move-speed"`. `new Stat("my-key", guid, Whole: true)` names any other attribute; in JSON, a GUID key is taken as a share.
 
 ## Spells
-`Cast` (`ManaCost`, `StaminaCost`, `Charges`, `Animation`, `ReleaseAt`), `Delivery`, `OnCast`, `Level`, `MaxCharges`, `Recipe`. A cast takes its costs and `Charges` from the stack: 1 by default, 0 for a spell that is never used up. The tooltip's rows follow from the spell: mana, stamina, charge time, the first status's time, the first area's radius.
+`Cast` (`ManaCost`, `StaminaCost`, `Charges`, `Animation`, `ReleaseAt`), `Delivery`, `OnCast`, `Level`, `MaxCharges`, `Recipe`, `Description` (yours or none: never the text of the game spell it starts from). A cast takes its costs and `Charges` from the stack: 1 by default, 0 for a spell that is never used up. The tooltip's rows follow from the spell: mana, stamina, charge time, the first status's time, the first area's radius.
 
 ## Deliveries
 How a spell, a wand's attack or an ability gets there. A spell's staff and a wand place it at the hand, an ability at the caster, facing where they aim.
@@ -125,7 +129,7 @@ An enhancement in an item's `Perks`. The game's rule applies: it runs while the 
 var edge = Blocks.Define("frost-edge-perk", new PerkBlock { Name = "Frost Edge", Value = "5%", OnHit = [new EffectBlock { Chance = 0.05, Applies = chilled }] });
 Blocks.Define("glacier", new WeaponBlock { Name = "Glacier", Class = WeaponClass.Sword, Perks = [edge] });
 ```
-`Modifies`, `OnHit`, `OnKill`, `OnHitTaken`. `Value` is the number in front of its name in the tooltip (`"5%"`, `"12"`, `"2.5"`, `"8s"`); left out, it is what one `Modifies` entry or one on-hit effect's `Chance` says. `Icon` takes a game perk's icon.
+`Modifies`, `OnHit`, `OnKill`, `OnHitTaken`, `Description` (yours, what several `Modifies` entries say, or none: never the text of the game perk it starts from). `Value` is the number in front of its name in the tooltip (`"5%"`, `"12"`, `"2.5"`, `"8s"`); left out, it is what one `Modifies` entry or one on-hit effect's `Chance` says. `Icon` takes a game perk's icon.
 
 ## Talents
 A `TalentBlock` is a node: in a tree of its own, or in the game's tree with `Game`. `Cost` per level, `MaxLevel`, `Requires`, `Modifies` (per level), `OnHit`, `OnKill`, `OnHitTaken`, `Keeps` a status, `OnStart`, and `Unlocks` an ability only those with it can cast.
@@ -141,7 +145,7 @@ Blocks.Define("ember-arts", new TalentTreeBlock
 });
 Blocks.Define("ember-ward", new TalentBlock { Name = "Ember Ward", MaxLevel = 3, Modifies = { [Stat.Strength] = 1 }, Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, -40] } });
 ```
-A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`.
+A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`.
 
 ## What players do
 Any of the game's player states and actions ([player-states.md](player-states.md)) can drive effects:

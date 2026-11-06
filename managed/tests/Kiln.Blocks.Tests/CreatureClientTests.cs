@@ -82,4 +82,23 @@ public sealed class CreatureClientTests : IDisposable
         Assert.Equal(2, NpcServerSide.Waiting);   // the arsenal, then the variant
         Assert.True(mod.Lowered.ContainsKey("vukah-mind"));
     }
+
+    private sealed class StillBrain : NpcBrain
+    {
+        public override void Tick(NpcControl npc) { }
+    }
+
+    [Fact]
+    public void Brains_never_run_in_a_clients_menu_or_joined_world()
+    {
+        _client = true;
+        Compiler.Define(Mod("client-minds"), "sentinel", new CreatureBlock { Body = Bodies.Vukah, Behaviour = Behaviours.None with { Brain = () => new StillBrain() } });
+        // The menu's UI frame and a joined world's step drive Kiln's service tick (Kiln's tick thread, not the game's server world): the poll
+        // for the block's creatures would touch the game's world there, and a step of each never gets to it.
+        _tick = true;
+        for (var step = 0UL; step < 80; step++) NpcRuntime.OnTick(step);
+        // The world a client hosts, as a server's: its poll looks at the world (none in a test: the world service says it is not here).
+        _running = true;
+        Assert.Throws<NotSupportedException>(() => NpcRuntime.OnTick(7));
+    }
 }

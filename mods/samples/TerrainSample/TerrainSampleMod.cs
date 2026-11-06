@@ -48,20 +48,16 @@ public sealed class TerrainSampleMod : Mod
     // The data file's twins: they're in the tables from the first start.
     private static async Task Put(CommandContext c, string block, double radius, bool inside)
     {
+        // a refusal ends the command with an error (as c.Fail does), not a reply: the log line and the console's result then say it didn't happen
         if (c.Source.Player.IsNone || World.Position(c.Source.Player) is not { } at)
-        {
-            c.Reply("only a player in the world can do this");
-            return;
-        }
+            throw new CommandException("only a player in the world can do this");
         if (Blocks.Find(block) is not TableBlockHandle<TerrainMaterialBlock> { CellId: > 0 } m)
-        {
-            c.Reply($"{block} isn't in this game's tables yet: restart once");
-            return;
-        }
+            throw new CommandException($"{block} isn't in this game's tables yet: restart once");
         var center = new WorldPosition(at.X + 6, at.Y + (inside ? -radius : 0), at.Z);
         var shape = BuildShape.Sphere(center, radius);
         // a vein replaces the ground it's in; a mound is added on top
         var r = inside ? await Build.Paint(shape, (byte)m.CellId, new BuildOptions { Actor = c.Source.Player }) : await Build.Add(shape, (byte)m.CellId, new BuildOptions { Actor = c.Source.Player });
-        c.Reply(r.Refused ? $"{block}: refused ({r.Refusal})" : $"{block}: cell {m.CellId}, {r.CellsChanged} cells");
+        if (r.Refused) c.Fail($"{block}: refused ({r.Refusal})");
+        c.Reply($"{block}: cell {m.CellId}, {r.CellsChanged} cells");
     }
 }

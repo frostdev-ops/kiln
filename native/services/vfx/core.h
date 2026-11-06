@@ -84,6 +84,27 @@ struct VfxLengths {
 };
 // Reads a VfxResource's bytes. The real game calls it inside SEH.
 void read_lengths(const uint8_t* resource, const ResLayout& l, VfxLengths* out);
+
+// ---- user parameters at the start (docs/re/vfx.md 2.6) ----
+//
+// A parameter set with VfxSetParameter reaches an instance one update after the start, when a burst has already spawned with the
+// VFX's defaults (a colour then shows only on what spawns later). The game's own data passes them in the block it starts the VFX
+// with instead (FxParams.has): Kiln does the same with every value the VFX describes.
+
+// One VfxUserEffectParameterDescription: FNV-1a of the name, keen::DsTypeId, and where the value lives in the 64-byte block.
+struct VfxParamSlot {
+    uint32_t hash = 0, type = 0;
+    uint8_t start = 0, count = 0;
+};
+struct VfxParamLayout {
+    uint32_t defaults[16] = {};  // defaultParameterData
+    uint32_t count = 0;
+    VfxParamSlot slots[32];
+};
+// Reads a VfxResource's descriptions and defaults; a description outside the 64-byte block is left out. The real game calls it inside SEH.
+void read_params(const uint8_t* resource, const ResLayout& l, VfxParamLayout* out);
+// Writes one value into a start block that already holds the defaults, when the layout has a slot of that name, type and size.
+bool put_start_param(const VfxParamLayout& l, uint32_t hash, uint32_t type, const void* data, size_t size, FxParams* block);
 // The larger of the kill time and duration + lifetime; 10 s if the resource says nothing; 1 to 60 s.
 int64_t one_shot_ns(const VfxLengths& v);
 constexpr int64_t kOneShotFallbackNs = 10'000'000'000;
@@ -116,6 +137,10 @@ public:
     virtual MapView map(void* fxc) = 0;  // fxc may be null: the last system seen; a capacity of 0 = none
     virtual int is_registered(void* fxc, const uint8_t guid[16]) = 0;  // map_find through whatever protection it needs
     virtual bool vfx_lengths(void* fxc, const uint8_t guid[16], VfxLengths* out) = 0;  // false: not known
+    virtual bool vfx_params(void* fxc, const uint8_t guid[16], VfxParamLayout* out) = 0;  // false: not known
+    // The first n bytes of the VfxResource the system's table holds for this GUID. fxc may be null: the last system seen. false: not known
+    // or not readable.
+    virtual bool read_resource(void* fxc, const uint8_t guid[16], void* out, size_t n) = 0;
     virtual uint32_t play_at(const Frame& f, const uint8_t guid[16], const WorldTransform& t, const FxParams& p, const FxTiming& d) = 0;
     virtual uint32_t play_on(const Frame& f, const uint8_t guid[16], const FxAttach& a, const FxParams& p, const FxTiming& d) = 0;
     virtual void stop(const Frame& f, uint32_t fx, bool immediate) = 0;

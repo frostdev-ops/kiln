@@ -65,6 +65,8 @@ public sealed class TalentNode
     /// <summary>A PNG, relative to the tree's mod folder (client).</summary>
     public string? Icon { get; init; }
     public IReadOnlyList<TalentEffect> Effects { get; init; } = [];
+    /// <summary>The tooltip lists what <see cref="Effects"/> do under the description. Off when the description says it all.</summary>
+    public bool ListEffects { get; init; } = true;
 }
 
 /// <summary>Where a tree's points come from.</summary>
@@ -116,6 +118,9 @@ public readonly record struct TalentHolder(ulong SteamId, EntityId Entity)
 public abstract class TalentEffect
 {
     internal abstract string Describe();
+
+    /// <summary>Its line in a node's tooltip; null when there is nothing a player can read (a program's GUID, code).</summary>
+    internal virtual string? PlayerText => Describe();
 
     /// <summary>A buff (a game buff's or a kiln.gamedata buff clone's GUID) kept on the player: applied for
     /// <paramref name="refreshSeconds"/> + 5 s and renewed every <paramref name="refreshSeconds"/>, so it ends within
@@ -179,6 +184,7 @@ internal sealed class ProgramEffect(Guid program, IReadOnlyDictionary<string, ob
     public readonly IReadOnlyDictionary<string, object>? Configs = configs;
     public readonly string? LevelConfig = levelConfig;
     internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectProgram, ProgramGuid);
+    internal override string? PlayerText => null;
 }
 
 internal sealed class AbilityEffect(string id) : TalentEffect
@@ -192,6 +198,7 @@ internal sealed class CallbackEffect(Action<TalentContext> apply, Action<TalentC
     public readonly Action<TalentContext> ApplyFn = apply;
     public readonly Action<TalentContext>? RemoveFn = remove;
     internal override string Describe() => TalentUi.Frame.EffectCode.ToString();
+    internal override string? PlayerText => null;
 }
 
 /// <summary>The AttributeReference GUIDs the game's attribute nodes use (from its SkillTreeResource, svn 1287369; the

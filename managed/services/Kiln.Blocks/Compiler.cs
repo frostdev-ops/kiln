@@ -3,7 +3,7 @@
 //   SpellBlock    ItemInfo: the look's spell item; ActorSequenceResource: the CastAnimation's, cloned only with ReleaseAt
 //   ProjectileBlock  TemplateResource: ProjectileLook.Projectile (the game's projectile program stays unless the spell has OnHit or OnCast: on impact it spawns the next template)
 //   the impact    TemplateResource: ProjectileLook.Impact, keeping its VFX and sound, running a generated program
-//   StatusBlock   BuffType: StatusLook.Starter (icon, body effect), running a generated program
+//   StatusBlock   BuffType: the look's starter (icon, body effect; a buff without one: StatusLook.Blessing), running a generated program
 //   item blocks   Items/ItemCompiler.cs
 //   EffectBlock   no resource of its own: statements in the program of whatever triggers it (EffectEmitter)
 using System.Text.Json.Nodes;
@@ -154,6 +154,9 @@ internal static partial class Compiler
 
     // ---- statuses -----------------------------------------------------------------------------------------------
 
+    /// <summary>A debuff's <c>color</c>: white, as the game's own debuffs for enemies (Poisoned, Bleeding, the weapons' Burning) have it.</summary>
+    internal const uint DebuffColor = 0xFFFFFFFF;
+
     private static BlockHandle DefineStatus(BlockContext ctx, Lowered low, string name, StatusBlock s)
     {
         if (string.IsNullOrWhiteSpace(s.Name)) throw new BlockError(ctx.Block, "name", "a status needs a name players can read");
@@ -172,13 +175,22 @@ internal static partial class Compiler
                 throw new BlockError(ctx.Block, "icon", $"\"{icon}\" is not a game status: a GameBuffs constant");
             low.AfterCommit(() => BlockRuntime.AddIcon(ctx.Mod, game, icon, ctx.Block));
         }
-        low.Clone("buffs", guid, game, s.Look.Starter, new JsonObject
+        var fields = new JsonObject
         {
             ["defaultLifeTime"] = s.Seconds > 0 ? s.Seconds : PlayerTriggers.WhileSeconds,
             ["slot"] = s.Kind == StatusKind.Buff ? "Buff" : "Debuff",
             ["applyType"] = s.Refreshes ? "ResetTime" : "Replace",
             ["impact"] = program.ToString(),
-        }, s.Name, s.Description);
+            // a timed status shows its time in the buff bar; one held by a state has none to show
+            ["hideDurationInUi"] = s.Seconds <= 0,
+        };
+        // No description: none, not the look's (the frost slow's "Reduced Movement Speed."). A loca tag no table has shows as nothing.
+        if (string.IsNullOrEmpty(s.Description)) fields["description"] = BlockIds.Derive(ctx.Mod.Id, "text", $"{key}.description").ToString();
+        // The health bar over a creature draws a status only when its colour is set, tinted by it (client 0xba64b0 skips a BuffType whose color
+        // is 0). The game's own debuffs for players have none and its debuffs for enemies are white; the frost slow, the default look, has
+        // none, so without this a debuff was on the creature and not on its bar.
+        if (s.Kind == StatusKind.Debuff) fields["color"] = DebuffColor;
+        low.Clone("buffs", guid, game, StatusLook.Of(s).Starter, fields, s.Name, s.Description);
         StatusVfx(ctx, low, game, s);
         if (s.While is { } state) PlayerTriggers.DefineWhile(ctx, low, key, guid, state);
         return new BlockHandle<StatusBlock>(ctx.Mod.Id, name, guid, game, s);
@@ -223,7 +235,8 @@ internal static partial class Compiler
         };
         low.Item(new ItemDefinition
         {
-            Guid = itemGuid, Name = game, BaseOn = starter, DisplayName = s.Name, Description = s.Description,
+            // no description: none, not the starter's (the Fireball's): an empty one tells kiln.content to clear it
+            Guid = itemGuid, Name = game, BaseOn = starter, DisplayName = s.Name, Description = s.Description ?? "",
             Fields = fields, Refs = refs,
         });
 

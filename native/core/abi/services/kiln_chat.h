@@ -5,9 +5,10 @@
  * How lines travel (docs/re/chat.md): a client sends ChatMessageClientMessage; the server's receive loop adds it to
  * the ChatMessagesSystem inbox (ChatLogAdd); the GameServer's send step sends each inbox line to every player reader
  * whose bit in the line's mask is clear (ChatMessageServerMessage), including the sender, whose own line only appears
- * through that echo. A client shows a line as "<speaker name>: <text>", where the speaker is the connection handle and
- * account stored with the line; a line with no speaker is sent but not shown. Server lines are therefore spoken by the
- * player who receives them and narrowed to that player's reader ("<their name>: [Server] text").
+ * through that echo. A client shows a typed line as "<speaker name>: <text>", where the speaker is the connection
+ * handle and account stored with the line; a line with no speaker is sent but not shown. Server lines are notices
+ * (the type of the game's own "Player X joined." lines, with no loca tag): stored with the recipient as speaker and
+ * narrowed to that player's reader, they show as their text alone, without a name.
  * Requires "enableTextChat": true in enshrouded_server.json for clients to send and show text chat. */
 #ifndef KILN_CHAT_H
 #define KILN_CHAT_H
@@ -84,9 +85,9 @@ typedef struct KilnChatApi {
     /* Players' typed lines. Any thread; delivery on the tick thread. */
     KilnResult(KILN_CALL* subscribe)(KilnOwner owner, KilnChatReceiveFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* unsubscribe)(KilnHandle handle);
-    /* Server line to one player (to = entity) or to every connected player (to = 0). Each recipient sees it as their
-     * own line, so put a marker such as "[Server] " in the text. `delivered` (optional) = lines addressed to a
-     * reader. Tick thread only. KILN_ERR_NOT_FOUND: `to` is not a connected player. */
+    /* Server line to one player (to = entity) or to every connected player (to = 0): a notice, shown as its text
+     * alone. `delivered` (optional) = lines addressed to a reader. Tick thread only. KILN_ERR_NOT_FOUND: `to` is not
+     * a connected player. */
     KilnResult(KILN_CALL* send)(KilnEntity to, KilnStr text, uint32_t* delivered);
     /* A line spoken by player `speaker`, shown to everyone (to = 0) or to one player. Tick thread only. */
     KilnResult(KILN_CALL* say)(KilnEntity speaker, KilnStr text, KilnEntity to);

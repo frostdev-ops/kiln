@@ -87,6 +87,7 @@ public sealed class StationsTestMod : Mod
                 await Part("mistakes", () => { Mistakes(); return Task.CompletedTask; });
                 await Part("registered", () => { Registered(); return Task.CompletedTask; });
                 await Part("placement data", () => { PlacementData(); return Task.CompletedTask; });
+                await Part("places as the game's own", () => { PlacesAsTheGame(); return Task.CompletedTask; });
                 await Part("twins", () => { Twins(); return Task.CompletedTask; });
                 var at = BaseSpot();
                 Info($"working next to a station of the world's base, at {at}");
@@ -292,6 +293,93 @@ public sealed class StationsTestMod : Mod
         var rack = I("herb-rack");
         Check(rack.Get("equipment.buildZoneRequired").Integer != 0, "InBase = true");
     }
+
+    // ---- what the game's placement check reads ---------------------------------------------------------------
+
+    // Every placed thing of the block mods here (stations, props, furniture; C# and JSON): its item and its template are the game's starter's, apart from ids,
+    // texts and what the block says. The game's placement check (client_cursor / server_cursor_no_prediction) reads only the item: its box and colliders,
+    // the angles it attaches at, whether it needs a base, how it treats no-build zones, its category and flags. So a block places where its starter places.
+    private static readonly string[] ItemOwn = ["itemId", "objectId", "name", "caption", "description", "lore", "acquisitionHint", "debugName", "equipment.placedEntity", "iconModel", "iconImage", "iconScene", "iconRenderOffset", "iconRenderCookingScale", "iconRenderGlobalScale",
+        "equipment.cursorModel", "uiValues", "itemColorCombinationSetup", "rarity", "generateRarity", "itemLevelRange"];
+
+    private void PlacesAsTheGame()
+    {
+        var dir = Path.Combine(Context.DataDirectory, "as-the-game");
+        Directory.CreateDirectory(dir);
+        var mods = new[] { Sample, "item-blocks", "furniture-blocks", "stations-test" }.Where(m => Blocks.Report().ContainsKey(m)).ToList();
+        var checkedItems = 0;
+        foreach (var mod in mods)
+            foreach (var block in Blocks.Report()[mod].Blocks)
+            {
+                // a block that was refused on purpose (the mistakes part) places nothing to compare
+                if (Blocks.Report()[mod].Errors.Any(e => e.Contains($" {block} ", StringComparison.Ordinal) || e.Contains($".{block}:", StringComparison.Ordinal))) continue;
+                if (JsonNode.Parse(Blocks.Lowered(block, mod) ?? "null") is not JsonObject low || low["items"] is not JsonArray items) continue;
+                foreach (var item in items.OfType<JsonObject>())
+                {
+                    if (item["refs"]?["equipment.placedEntity"] is not { } placed || item["base"] is not { } baseNode) continue;
+                    var name = (string)item["name"]!;
+                    try
+                    {
+                    var starter = (string)baseNode!;
+                    var tmpl = low["templates"]!.AsArray().OfType<JsonObject>().First(t => (string)t["guid"]! == (string)placed!);
+                    var own = ItemOwn.Concat(Keys(item["fields"])).Concat(Keys(item["refs"])).ToList();
+                    var diff = Diff(Dump(Content.ItemData, name, dir), Dump(Content.ItemData, starter, dir), own);
+                    Check(diff.Count == 0, $"{mod}:{block}: its item is {starter}'s in every field the game's placement reads{(diff.Count > 0 ? ": differs in " + string.Join(", ", diff.Take(8)) : "")}");
+                    var reg = Content.Items.Get(name);
+                    Check(reg?.GetRef("equipment.placedEntity") == Guid.Parse((string)placed!) && Content.Templates.Get(Guid.Parse((string)placed!)) != null,
+                        $"{mod}:{block}: it places its own template, which the game has: {reg?.GetRef("equipment.placedEntity")}");
+                    var baseName = (string)tmpl["base"]!;
+                    var baseTemplate = baseName.StartsWith("item:", StringComparison.Ordinal) ? Content.Templates.Get(Content.Items.Get(baseName[5..])!.GetRef("equipment.placedEntity"))?.Name ?? baseName : baseName;
+                    var tOwn = Keys(tmpl["fields"]).Concat(tmpl["addComponents"]?.AsArray().Select(c => (string)c! + ".") ?? []).Concat(Keys(low["templateRules"])).ToList();
+                    var tDiff = Diff(Dump(Content.Templates, (string)tmpl["name"]!, dir), Dump(Content.Templates, baseTemplate, dir), tOwn);
+                    Check(tDiff.Count == 0, $"{mod}:{block}: its template is {baseTemplate}'s, colliders and all, apart from what the block sets{(tDiff.Count > 0 ? ": differs in " + string.Join(", ", tDiff.Take(8)) : "")}");
+                    checkedItems++;
+                    }
+                    catch (Exception e) when (e is InvalidOperationException or ArgumentException or NullReferenceException)
+                    {
+                        Check(false, $"{mod}:{block}: {e.Message}");
+                    }
+                }
+            }
+        Check(checkedItems >= 10, $"{checkedItems} placed things of {string.Join(", ", mods)} compared with the game's");
+    }
+
+    private static IEnumerable<string> Keys(JsonNode? o) => o is JsonObject j ? j.Select(kv => kv.Key) : [];
+
+    private static Dictionary<string, string> Dump(GameDataRegistry r, string key, string dir)
+    {
+        var file = Path.Combine(dir, Regex.Replace(key, "[^A-Za-z0-9_.-]", "_") + ".json");
+        r.Dump(key, file);
+        var entries = JsonNode.Parse(File.ReadAllText(file))!["entries"]!.AsArray();
+        if (entries.Count == 0) throw new InvalidOperationException($"kiln.gamedata has no entry {key}");
+        var e = entries[0]!;
+        var flat = new Dictionary<string, string>();
+        void Walk(JsonNode? n, string path)
+        {
+            switch (n)
+            {
+                case JsonObject o:
+                    foreach (var (k, v) in o) Walk(v, path.Length == 0 ? k : $"{path}.{k}");
+                    break;
+                case JsonArray a:
+                    for (var i = 0; i < a.Count; i++) Walk(a[i], $"{path}[{i}]");
+                    if (a.Count == 0) flat[path] = "[]";
+                    break;
+                default:
+                    flat[path] = n?.ToJsonString() ?? "null";
+                    break;
+            }
+        }
+        Walk(e["value"] ?? e["components"], "");
+        return flat;
+    }
+
+    // Paths that differ, leaving out a path the block owns (itself, or anything under it).
+    private static List<string> Diff(Dictionary<string, string> a, Dictionary<string, string> b, IReadOnlyList<string> own) =>
+        a.Keys.Union(b.Keys)
+            .Where(k => a.GetValueOrDefault(k) != b.GetValueOrDefault(k))
+            .Where(k => !own.Any(o => k == o.TrimEnd('.') || k.StartsWith(o.TrimEnd('.') + ".", StringComparison.Ordinal) || k.StartsWith(o.TrimEnd('.') + "[", StringComparison.Ordinal)))
+            .OrderBy(k => k, StringComparer.Ordinal).ToList();
 
     // JSON and C# are the same objects: what they lower to differs only in names and the ids that follow from names.
     private void Twins()

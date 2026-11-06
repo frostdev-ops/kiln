@@ -57,8 +57,8 @@ All take `Name`, `Description` and `Was` (the name before a rename: ids come fro
 
 An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arrow, `Feeds` food, `Heals` or `OnUse` a potion, anything else a material. Say `Kind` to be explicit; a field the kind has no use for is an error.
 
-- **Potion.** `Heals` is the game's own drink and the tooltip's Health row. `OnUse` runs your effects on whoever uses it, from a use sequence of its own.
-- **Food.** `Feeds` names a status. It goes in the game's food slots, and the tooltip's Duration is the status's.
+- **Potion.** `Heals` is the game's own drink and the tooltip's Health row. `OnUse` runs your effects on whoever uses it, from a use sequence of its own. Without `Heals`, its tooltip shows the Health, Mana and Stamina a use always gives (an effect with a `Chance` isn't counted).
+- **Food.** `Feeds` names a status. It goes in the game's food slots for the status's `Seconds`, which is also the tooltip's Duration. A game food sets its own time in the item, and eating it uses that time rather than the status's, so Kiln writes the status's time into the item.
 - **Arrow.** `Ammo.Damage` and `Ammo.Power` add to the bow's, as the game's arrows do.
 - **Tool.** `Harvests = Harvest.Wood` is an axe, `Harvest.Stone` a pickaxe. `Power` is its wood or stone damage; the rest of what it can do scales along.
 - **Wand.** Each attack is a `CastBlock` and a delivery, with a sequence of its own and no ammo item. `CastBlock.ManaCost` is paid by that attack alone. The primary's main damage is the wand's power and the tooltip's number. Heavy and special deal exactly what they say. An attack left out is the primary again; its motion comes from `Moves`, and the hand effect from the starter wand.
@@ -108,4 +108,4 @@ One server holds about 730 new templates (a wand attack or a spell uses two, a s
 Each block costs about the same to load however many there are: a lab server with 1,250 blocks was ready in about 6 seconds, with 5,000 in under half a minute. `kiln.log` says where the time went at each start (`load timing, ...`).
 
 ## Test
-`mods/tests/blocks-items-test` runs on a dedicated server with no player. A spawned player entity has no equipment slots set, so the test says which slot the chest is, through a test-only request of kiln.skills; it creates the switch that request needs, `<kiln>/data/skills/lab-ops`. Start it twice: the second run checks ids and stored items across the restart. It logs `blocks-items-test: PASS` and `FAIL` lines, and `blocks-items-test done: N PASS, M FAIL`.
+`mods/tests/blocks-items-test` runs on a dedicated server with no player. A spawned player entity has no equipment slots set, so the test says which slot the chest is, through a test-only request of kiln.skills; it creates the switch that request needs, `<kiln>/data/skills/lab-ops`. Start it twice: the second run checks ids and stored items across the restart. It logs `blocks-items-test: PASS` and `FAIL` lines, and `blocks-items-test done: N PASS, M FAIL`. Started with `KILN_PLAYERSTATE_LAB=1` (test labs only), it also eats an Ember Stew as a player does, with the stew as the used item, and checks the status's time. `syncitems.py --port <labPort> --lab <lab folder>` checks what a Kiln client without the mod gets: definitions with their texts, clones, and the programs they name.

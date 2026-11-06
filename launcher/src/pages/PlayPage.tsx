@@ -380,17 +380,22 @@ function bootProblems(st: BootState | undefined): { count: number; text: string;
   const mods = sameRun(st?.mods) ? st!.mods!.mods.filter((m) => m.state === "failed") : [];
   const natives = sameRun(st?.native) ? st!.native!.mods.filter((m) => m.state === "failed") : [];
   const nativeCount = natives.length || (boot.native?.failed ?? 0);
+  // kiln.log's error lines of this run (launch_state checks the run) also count what went wrong after the boot:
+  // a service tick that throws at the menu, a mod's later error. Boot errors are logged there too.
+  const logged = st?.log ?? null;
+  const errorCount = logged ? Math.max(logged.errors, errors.length) : errors.length;
   const parts = [
     mods.length ? `${mods.length} mod${mods.length > 1 ? "s" : ""} failed` : "",
     nativeCount ? `${nativeCount} native mod${nativeCount > 1 ? "s" : ""} failed` : "",
-    errors.length ? `${errors.length} error${errors.length > 1 ? "s" : ""}` : "",
+    errorCount ? `${errorCount} error${errorCount > 1 ? "s" : ""}${logged ? " since start" : ""}` : "",
   ].filter(Boolean);
   const detail = [
     ...mods.map((m) => `${m.name ?? m.id}: ${m.reason ?? "failed"}`),
     ...natives.map((m) => `${m.id}: ${m.reason ?? "failed"}`),
-    ...errors,
+    ...(logged?.first.length ? logged.first : errors),
+    ...(logged && logged.errors > logged.first.length ? [`… ${logged.errors - logged.first.length} more in kiln.log`] : []),
   ].join("\n");
-  return { count: mods.length + nativeCount + errors.length, text: parts.length ? parts.join(", ") : "no errors", detail };
+  return { count: mods.length + nativeCount + errorCount, text: parts.length ? parts.join(", ") : "no errors", detail };
 }
 
 function platform(g: GameInstall): string {

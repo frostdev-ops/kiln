@@ -502,14 +502,15 @@ bool same_view(const TextView& v, const std::string* s) {
     return v.p && v.n == s->size() && std::memcmp(v.p, s->data(), s->size()) == 0;
 }
 
-// Sets the texts of one tag (empty set: nothing). Unchanged texts keep their entry.
+// Sets the texts of one tag (empty set: nothing). Unchanged texts keep their entry. Texts in some languages only, with no "en" or "*" (a German
+// description alone): those languages get theirs and the rest are left to the game, which has no text for the tag, so they show none.
 void set_texts(uint32_t tag, const TextSet& texts) {
     if (!tag || texts.empty()) return;
     PhaseTimer pt(PH_TEXTS);
     std::lock_guard lock(g_text_mu);
     load_languages();
-    const std::string* all = pick_text(texts, "");
-    if (!all) return;
+    const std::string* all = pick_text(texts, "");  // the fallback; null: none
+    if (!all && g_lang_keys.empty()) return;        // no language table to put the others in
     std::atomic<const TextMap*>& shard = text_shard(tag);
     const TextMap* cur = shard.load();
     if (cur) {
@@ -525,11 +526,19 @@ void set_texts(uint32_t tag, const TextSet& texts) {
         }
     }
     auto* e = new TextEntry;
-    e->all = make_view(tag, *all);
+    if (all) e->all = make_view(tag, *all);
     e->by_lang.resize(g_lang_keys.size(), TextView{nullptr, 0, nullptr});
+    bool any = all != nullptr;
     for (size_t i = 0; i < g_lang_keys.size(); ++i) {
         const std::string* s = pick_text(texts, g_lang_keys[i]);
-        if (s && s != all && *s != *all) e->by_lang[i] = make_view(tag, *s);
+        if (s && s != all && (!all || *s != *all)) {
+            e->by_lang[i] = make_view(tag, *s);
+            any = true;
+        }
+    }
+    if (!any) {  // no game language picks any of these keys
+        delete e;
+        return;
     }
     auto* next = new TextMap(cur ? *cur : TextMap{});
     (*next)[tag] = e;
@@ -552,7 +561,7 @@ const TextView* text_for(uint32_t tag, const void* pool) {
         const uint32_t lang = *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(pool) + g_loca_lang_off);
         if (lang < e.by_lang.size() && e.by_lang[lang].p) return &e.by_lang[lang];
     }
-    return &e.all;
+    return e.all.p ? &e.all : nullptr;  // no text in this language and no fallback: the game's answer (none)
 }
 
 // UI texture GUID aliases: new item GUID -> base item GUID (same scheme).
@@ -2090,13 +2099,26 @@ void retry_kitbash(WorldState& ws) {
     }
 }
 
+// A template clone went into a world's table since this kind of world last looked: what named it can resolve now.
+bool templates_changed(uint32_t kind) {
+#if KC_GAMEDATA
+    static std::atomic<uint64_t> seen[KILN_WORLD_KINDS] = {};
+    const uint64_t g = gd_template_generation();
+    return seen[kind].exchange(g, std::memory_order_relaxed) != g;
+#else
+    (void)kind;
+    return false;
+#endif
+}
+
 // Every step until the definitions are in (a registry becomes usable inside a step; the sooner the insert, the less
 // can run before it), then a cheap version check.
 void world_tick(uint32_t kind, uintptr_t world, uint64_t step) {
     if (!world) return;
     sync_world(kind, world);
     if (step % 25 == 0) probe_owners(kind);
-    if (step % 50 == 7 && g_ws[kind].world == world && g_ws[kind].ireg) retry_kitbash(g_ws[kind]);
+    const bool fresh = templates_changed(kind);
+    if ((fresh || step % 50 == 7) && g_ws[kind].world == world && g_ws[kind].ireg) retry_kitbash(g_ws[kind]);
 }
 
 void KILN_CALL on_server_pre(const KilnTickInfo* t, void*) { world_tick(KILN_WORLD_SERVER, g_api->server_world(), t->step); }
@@ -2105,8 +2127,12 @@ void KILN_CALL on_server_pre(const KilnTickInfo* t, void*) { world_tick(KILN_WOR
 // <kiln>/data/content/loca-trace too, every distinct tag id the game looks up.
 // ---- the crafting menu (client): it lists only recipes named in its UI configuration ----
 // Per workshop id a list of categories, each with subcategories holding a BlobArray of recipe ids (docs/re/content.md
-// section 7). A new recipe goes into the subcategory that holds its base recipe, else one whose recipes make items of
-// the same item category as its result, else the workshop's last subcategory. The subcategory's 8-byte BlobArray
+// section 7). A new recipe goes into the subcategory that holds its base recipe; else the one that lists the game's
+// recipe for the item its result was cloned from (a new chair beside the chair it started from); else, for a result
+// that places a thing, the first subcategory in the menu's order that lists placed things of the same item category
+// (building tools are blocks and placed things alike: by category alone, a new station went to the stone blocks);
+// else one whose recipes make the most items of the same item category; else the workshop's last subcategory. The
+// subcategory's 8-byte BlobArray
 // header (read-only resource memory) is pointed at a copy with the new ids appended; the original comes back when no
 // new recipe is left in it. Main thread (client-world Pre).
 struct MenuSub {
@@ -2120,14 +2146,46 @@ std::map<uintptr_t, MenuSub> g_menu;
 uint64_t g_menu_done = 0;
 
 
-uint8_t output_category(uintptr_t ireg, uintptr_t recipe, uint32_t cat_off) {
+uint32_t output_item(uintptr_t recipe) {
     const BlobRef out = blob_at(recipe + L.r_out);
     uint32_t item = 0;
-    if (!out.count || !rdv(out.data + L.out_item, item)) return 0xFF;
+    if (!out.count || !rdv(out.data + L.out_item, item)) return 0;
+    return item;
+}
+
+uint8_t output_category(uintptr_t ireg, uintptr_t recipe, uint32_t cat_off) {
+    const uint32_t item = output_item(recipe);
+    if (!item) return 0xFF;
     const uintptr_t info = static_cast<uintptr_t>(map_get(ireg + E.items_map, item));
     uint8_t c = 0xFF;
     if (info) rdv(info + cat_off, c);
     return c;
+}
+
+// An item a player places with the build cursor (a prop, a station, furniture): its slot is the build tool's, it names
+// a template, and it isn't a building block. (A spell or an arrow names a template too: what it fires.)
+bool places_thing(uintptr_t info) {
+    static int64_t placed = -1, voxel = -1, slot = -1, build_tool = -1;  // looked up once the schema has them
+    if (placed < 0)
+        if (const Field* f = L.item.find("equipment.placedEntity")) placed = f->offset;
+    if (voxel < 0)
+        if (const Field* f = L.item.find("equipment.voxelData.isBuildingVoxel")) voxel = f->offset;
+    if (slot < 0)
+        if (const Field* f = L.item.find("equipment.slot")) slot = f->offset;
+    static bool asked = false;
+    if (build_tool < 0 && !asked) {
+        asked = true;
+        std::vector<std::pair<std::string, int64_t>> values;
+        if (enum_values("keen::EquipmentSlotType", &values))
+            for (const auto& [name, value] : values)
+                if (name == "BuildTool") build_tool = value;
+    }
+    if (!info || placed < 0 || slot < 0 || build_tool < 0) return false;
+    uint8_t s = 0xFF, block = 0;
+    uint64_t g[2] = {};
+    if (!rdv(info + static_cast<uintptr_t>(slot), s) || s != build_tool) return false;
+    if (!rd(info + static_cast<uintptr_t>(placed), g, 16) || !(g[0] | g[1])) return false;
+    return !(voxel >= 0 && rdv(info + static_cast<uintptr_t>(voxel), block) && block);
 }
 
 
@@ -2209,6 +2267,21 @@ void menu_sync(const WorldState& ws) {
             else if (const uintptr_t b = resolve_recipe(const_cast<WorldState&>(ws), def->base)) rdv(b + L.r_id, base_id);
         }
         const uint8_t my_cat = catf ? output_category(ws.ireg, info, catf->offset) : 0xFF;
+        // the item its result was cloned from, when that is a definition of ours: the game's recipes for it show where it belongs
+        const uint32_t my_item = output_item(info);
+        uint32_t like_id = 0;
+        {
+            std::string like;
+            {
+                std::lock_guard lock(store_mutex());
+                for (const DefPtr& d : g_defs)
+                    if (d->kind == KILN_CONTENT_ITEMS && d->id == my_item) like = d->base;
+            }
+            NameRec r{};
+            if (!like.empty() && resolve_item(const_cast<WorldState&>(ws), like, &r)) like_id = r.id;
+        }
+        const bool my_placed = places_thing(static_cast<uintptr_t>(map_get(ws.ireg + E.items_map, my_item)));
+        uintptr_t by_like = 0, by_placed = 0;
         for (uint32_t c = 0; c < cl.count && c < 256; ++c) {
             const uintptr_t cat = cl.data + c * static_cast<uintptr_t>(N.cat_stride);
             if (kiln_groups.count(cat)) continue;
@@ -2226,18 +2299,25 @@ void menu_sync(const WorldState& ws) {
                     uint32_t rid = 0;
                     if (!rdv(ids.data + r * 4ull, rid) || !rid) continue;
                     if (base_id && rid == base_id) by_base = hdr;
-                    if (my_cat != 0xFF && catf) {
+                    if ((like_id && !by_like) || (my_cat != 0xFF && catf)) {
                         const uintptr_t ri = static_cast<uintptr_t>(map_get(ws.rreg + E.recipes_map, rid));
-                        if (ri && output_category(ws.ireg, ri, catf->offset) == my_cat) ++same;
+                        if (!ri) continue;
+                        const uint32_t made = output_item(ri);
+                        if (like_id && !by_like && made == like_id) by_like = hdr;
+                        if (my_cat != 0xFF && catf && output_category(ws.ireg, ri, catf->offset) == my_cat) {
+                            ++same;
+                            if (my_placed && !by_placed && places_thing(static_cast<uintptr_t>(map_get(ws.ireg + E.items_map, made)))) by_placed = hdr;
+                        }
                     }
                 }
                 if (same > best) best = same, by_cat = hdr;
             }
         }
-        const uintptr_t target = by_base ? by_base : by_cat ? by_cat : last;
+        const uintptr_t target = by_base ? by_base : by_like ? by_like : by_placed ? by_placed : by_cat ? by_cat : last;
         if (target) want[target].push_back(id);
-        LOGD("new content: menu placement of 0x%08x (workshop %x, index %u): base %p, category %p, last %p", id, wid, wi,
-             reinterpret_cast<void*>(by_base), reinterpret_cast<void*>(by_cat), reinterpret_cast<void*>(last));
+        LOGD("new content: menu placement of 0x%08x (workshop %x, index %u): base %p, like %p, placed %p, category %p, last %p", id, wid, wi,
+             reinterpret_cast<void*>(by_base), reinterpret_cast<void*>(by_like), reinterpret_cast<void*>(by_placed),
+             reinterpret_cast<void*>(by_cat), reinterpret_cast<void*>(last));
     }
     // headers that had new ids but no longer do: back to the original
     for (auto& [hdr, m] : g_menu)
@@ -2716,12 +2796,40 @@ KilnResult KILN_CALL cm_describe(uint32_t workshop, char* buf, size_t cap, size_
 const KilnCraftMenuApi kCraftMenu = {{sizeof(KilnCraftMenuApi), KILN_CRAFTMENU_VERSION}, &cm_subscribe, &cm_set_add, &cm_tab_add,
                                      &cm_remove, &cm_describe};
 
+// A station's own workshop ("workshop:<guid>" recipes) is in none of the crafting menu's lists. The game's screens that ask for it, such as a
+// running station's recipe picker ("Change recipe", client 0xbb46e0), would list nothing, and that empty list can't be left. They get the
+// lists of the menu its recipes name instead (the station's kind's, where those recipes are placed). UI thread, the UI pointer valid.
+int32_t shown_workshop(int32_t workshop) {
+    if (!workshop || !N.menu) return workshop;
+    uintptr_t app = 0, cfg = 0;
+    if (!rdv(N.ui_app, app) || !app || !rdv(app + N.app_config, cfg) || !cfg) return workshop;
+    const BlobRef wss = blob_at(cfg + N.menu_ws);
+    for (uint32_t i = 0; i < wss.count && i < 256; ++i) {
+        uint32_t w = 0;
+        if (rdv(wss.data + i * 4ull, w) && w == static_cast<uint32_t>(workshop)) return workshop;  // the game's menu has it
+    }
+    std::lock_guard lock(store_mutex());
+    for (const DefPtr& d : g_defs) {
+        if (d->kind != KILN_CONTENT_RECIPES || !d->menu_workshop || d->station.rfind("workshop:", 0) != 0) continue;
+        uint8_t g[16];
+        if (guid_parse(lower(d->station.substr(9)), g) && fnv1a(g, 16) == static_cast<uint32_t>(workshop)) {
+            static std::set<int32_t> said;
+            if (said.insert(workshop).second)
+                LOGI("new content: the game's menu has no lists for workshop 0x%08x (a station's own): its screens show workshop 0x%08x's",
+                     static_cast<uint32_t>(workshop), d->menu_workshop);
+            return static_cast<int32_t>(d->menu_workshop);
+        }
+    }
+    return workshop;
+}
+
 // The menu's category lookup (UI thread = main thread, while the crafting menu builds): the UI pointer is valid here.
 SafetyHookInline g_menu_hook;
 uint64_t __fastcall hk_menu(void* lists, void* p2, int32_t workshop, uint8_t p4) {
-    cm_sync(workshop);  // kiln.craftmenu: Kiln tabs / subcategories first, then the placement of new recipes
+    const int32_t shown = shown_workshop(workshop);
+    cm_sync(shown);  // kiln.craftmenu: Kiln tabs / subcategories first, then the placement of new recipes
     menu_sync(g_ws[KILN_WORLD_CLIENT]);
-    return g_menu_hook.call<uint64_t>(lists, p2, workshop, p4);
+    return g_menu_hook.call<uint64_t>(lists, p2, shown, p4);
 }
 
 void client_diag(uintptr_t world) {
@@ -2807,7 +2915,8 @@ void KILN_CALL on_client_pre(const KilnTickInfo* t, void*) {
     if (!w) return;
     client_diag(w);
     sync_world(KILN_WORLD_CLIENT, w);
-    if (t->step % 50 == 7 && g_ws[KILN_WORLD_CLIENT].world == w && g_ws[KILN_WORLD_CLIENT].ireg) retry_kitbash(g_ws[KILN_WORLD_CLIENT]);
+    const bool fresh = templates_changed(KILN_WORLD_CLIENT);
+    if ((fresh || t->step % 50 == 7) && g_ws[KILN_WORLD_CLIENT].world == w && g_ws[KILN_WORLD_CLIENT].ireg) retry_kitbash(g_ws[KILN_WORLD_CLIENT]);
     if (t->step % 25 == 0 && !g_api->world(KILN_WORLD_SERVER)) probe_owners(KILN_WORLD_CLIENT);
 }
 

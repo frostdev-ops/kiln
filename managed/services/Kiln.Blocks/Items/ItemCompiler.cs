@@ -14,6 +14,9 @@ internal static partial class Compiler
     // The game's armour: round((gradient * level + offset) * distribution[kind]) (client 0xe6dfe0, keen::BalancingTable +0x2a0 armorSetup). Checked at ready (ItemChecks).
     internal static float ArmorOffset = 23, ArmorGradient = 15;
     private const uint ConfigLevel = 0x17147b63, RowDuration = 0x86a75e07, RowHealth = 0xf38b388c, RowItemLevel = 0x88fbd16d;
+    // A food item's own time for the status it gives (PrimerBuffDuration, a Time in seconds). Eaten, the game gives the status for this long, not for the
+    // status's defaultLifeTime; the tooltip's Duration row follows it. Every food starter has one (Honey: 60 s).
+    private const uint ConfigFoodDuration = 0xbee6d4a9;
     private const string ConfigStamina = "StaminaCost";
 
     internal static double ArmorShare(int armor, int level) => armor / (ArmorGradient * level + ArmorOffset);
@@ -613,6 +616,7 @@ internal static partial class Compiler
             var buff = $"0x{BlockIds.Fnv(status):x8}";
             seqRules["events[ApplyBuffEvent#0].buffTypeOverride"] = status.ToString();
             d.DataRules["equipment.appliedBuff"] = status.ToString();
+            d.Rules[$"impactValues.0x{ConfigFoodDuration:x8}"] = seconds > 0 ? seconds : PlayerTriggers.WhileSeconds;
             var rows = new JsonArray { Row($"0x{RowDuration:x8}", "Duration", (int)Math.Round(seconds * 1000)) };
             if (b.Heals is { } hp) rows.Add(Row($"0x{RowHealth:x8}", "Normal", hp));
             d.Rows = rows;
@@ -628,6 +632,9 @@ internal static partial class Compiler
                 var (program, blob, _, listing) = EffectEmitter.SelfProgram(ctx, $"{key}.use", effects, "onUse");
                 low.Program(program, $"{key}.use", blob, listing);
                 fields["events[SpawnImpact#0].impact"] = program.ToString();
+                // A potion that is only OnUse starts from the antidote, which has no rows: the tooltip says what a use gives, as the game's potions do.
+                // A heal potion keeps the Health row its HealthChange config fills.
+                if (kind == ItemKind.Consumable && b.Heals == null && UseRows(ctx, onUse) is { } useRows) d.Rows = useRows;
             }
             low.Clone("sequences", BlockIds.Derive(mod, "sequence", $"{key}.use"), sequence, useSequence, fields);
             if (seqRules.Count > 0) low.AfterCommit(() => BlockRuntime.AddRules(ctx.Mod, "sequences", sequence, seqRules));
@@ -638,6 +645,36 @@ internal static partial class Compiler
         PlayerTriggers.DefineForItem(ctx, low, key, d.Game, b);
         if (b.Recipe != null) DefineRecipe(ctx, low, key, d.Game, b.Recipe);
         return new BlockHandle<ItemBlock>(mod, name, d.Guid, d.Game, b);
+    }
+
+    /// <summary>The tooltip rows of what using an item always gives its user: the Health, Mana and Stamina the game's potions show (signed, as theirs).
+    /// An effect with a <see cref="EffectBlock.Chance"/> is not promised; an area's effects are for others. Null: nothing to show.</summary>
+    private static JsonArray? UseRows(BlockContext ctx, IReadOnlyList<EffectRef> onUse)
+    {
+        int health = 0, mana = 0, stamina = 0;
+        void Add(IReadOnlyList<EffectRef>? effects, string path)
+        {
+            if (effects == null) return;
+            for (var i = 0; i < effects.Count; i++)
+            {
+                var e = ctx.Effect(effects[i], $"{path}[{i}]");
+                if (e.Chance != null) continue;
+                health += (e.Heal ?? 0) + (e.Restores?.Health ?? 0);
+                mana += e.Restores?.Mana ?? 0;
+                stamina += e.Restores?.Stamina ?? 0;
+                Add(e.Then, $"{path}[{i}].then");
+            }
+        }
+        Add(onUse, "onUse");
+        var rows = new JsonArray();
+        foreach (var (bonus, value) in new[] { (EquipBonus.Health, health), (EquipBonus.Mana, mana), (EquipBonus.Stamina, stamina) })
+            if (value != 0)
+            {
+                var row = Row($"0x{bonus.Row:x8}", "Normal", value);
+                row["isSigned"] = true;
+                rows.Add(row);
+            }
+        return rows.Count > 0 ? rows : null;
     }
 
     // ---- what follows the wielder ----------------------------------------------------------------------------------

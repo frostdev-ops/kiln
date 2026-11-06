@@ -458,8 +458,75 @@ int main(int argc, char** argv) {
     uint32_t got_hash = 0, got_type = 0;
     sim_last_param(&got_hash, &got_type, &got);
     check(sim_params_applied() == params_before + 1 && got_hash == 0x11 && got_type == 0x90b5085d && got == radius2, "the update applies it once, with the last value");
+    check(sim_last_start_params().has == 0, "a VFX that describes no parameters starts without a block");
     core_stop(h15, 0);
     ticks(1);
+
+    // ---- parameters the VFX describes: in the block it starts with, so what spawns at once has them ----
+    {
+        const uint32_t kFloat = 0x90b5085du, kColor = 0x53039620u;
+        auto name = [](const char* s) {
+            uint32_t h = 0x811c9dc5u;
+            for (; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 0x01000193u;
+            return h;
+        };
+        const uint8_t blue[4] = {0x20, 0x40, 0xff, 0xff};
+        const float life = 0.25f, other = 9.f;
+        // as Kiln.Vfx plays with parameters: held for its GUID, the values, then released
+        auto p20 = at(known2, -1);
+        p20.flags |= KILN_VFX_WAIT_GUID;
+        const KilnVfx h20 = core_play(1, &p20);
+        check(core_set_param(h20, name("color"), kColor, blue, 4) == KILN_OK && core_set_param(h20, name("lifetime"), kFloat, &life, 4) == KILN_OK &&
+                  core_set_param(h20, 0x11, kFloat, &other, 4) == KILN_OK,
+              "start block: three values queued on a held play");
+        ticks(1);
+        check(core_state(h20) == KILN_VFX_PENDING, "start block: a held play doesn't start before its release");
+        check(core_bind_guid(h20, known2) == KILN_OK, "start block: released");
+        const uint64_t applied = sim_params_applied();
+        ticks(1);
+        const FxParams b = sim_last_start_params();
+        float duration = 0, lifetime = 0;
+        std::memcpy(&duration, reinterpret_cast<const uint8_t*>(b.data) + 0, 4);
+        std::memcpy(&lifetime, reinterpret_cast<const uint8_t*>(b.data) + 4, 4);
+        check(core_state(h20) == KILN_VFX_PLAYING && b.has == 1, "start block: the VFX starts with a parameter block");
+        check(std::memcmp(reinterpret_cast<const uint8_t*>(b.data) + 8, blue, 4) == 0 && lifetime == life, "start block: the colour and the lifetime are in it, where the VFX describes them");
+        check(duration == 2.f, "start block: what wasn't given keeps the VFX's default");
+        check(sim_params_applied() == applied, "start block: nothing went through VfxSetParameter at the start");
+        ticks(1);
+        uint32_t h = 0, t = 0;
+        float v = 0;
+        sim_last_param(&h, &t, &v);
+        check(sim_params_applied() == applied + 1 && h == 0x11 && v == other, "start block: a name the VFX doesn't describe still goes to VfxSetParameter, once");
+        core_stop(h20, 0);
+        ticks(1);
+
+        auto p21 = at(known2, -1);
+        const KilnVfx h21 = core_play(1, &p21);
+        core_set_param(h21, name("color"), kFloat, &life, 4);  // the right name, the wrong type
+        ticks(1);
+        check(sim_last_start_params().has == 0, "start block: a value of another type stays out of it");
+        core_stop(h21, 0);
+        ticks(1);
+
+        uint8_t res[0x200] = {};
+        const ResLayout l;
+        const int32_t rel = 0x100 - static_cast<int32_t>(l.params);
+        const uint32_t two = 2, hash = name("radius");
+        std::memcpy(res + l.params, &rel, 4);
+        std::memcpy(res + l.params + 4, &two, 4);
+        uint8_t* d = res + 0x100;
+        std::memcpy(d, &hash, 4), std::memcpy(d + 4, &kFloat, 4), d[8] = 60, d[9] = 4;            // the last word of the block
+        std::memcpy(d + 12, &hash, 4), std::memcpy(d + 16, &kFloat, 4), d[20] = 62, d[21] = 4;    // past its end
+        VfxParamLayout pl;
+        read_params(res, l, &pl);
+        check(pl.count == 1 && pl.slots[0].start == 60, "read_params: a description past the 64-byte block is left out");
+        FxParams blk{};
+        float back = 0;
+        check(put_start_param(pl, hash, kFloat, &other, 4, &blk) && !put_start_param(pl, hash, kFloat, &other, 2, &blk) && !put_start_param(pl, hash, kColor, blue, 4, &blk),
+              "put_start_param: the name, type and size must all match");
+        std::memcpy(&back, reinterpret_cast<const uint8_t*>(blk.data) + 60, 4);
+        check(back == other, "put_start_param: written where the description says");
+    }
 
     // ---- owners ----
     auto p16 = at(known, -1);

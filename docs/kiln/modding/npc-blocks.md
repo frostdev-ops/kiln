@@ -135,6 +135,8 @@ have no neutral value. A body of your own runs that creature's AI program; a fri
 A creature's arsenal, variant and spawn rules belong to the server world. A server writes them as the mod loads. A game client loads mods off the tick
 thread and has a server world only while it hosts one, so there they are written at the first step of a hosted world, before anything of it spawns; a
 client joined to another server never needs them. What a block can't take then is an error of the mod by block and field, as in a data file.
+Brains are the server's too: they run on the tick thread of a server world (a dedicated server's, or the one a client hosts), never in a client's
+menu or in its world joined to another server.
 
 ## Spawning
 `Blocks.Spawn("stoneling", position)` or the handle's `Spawn`; `/creature spawn <mod>:<name>` takes the variant. `Spawns` puts it in place of the game's
@@ -159,6 +161,11 @@ by the game at start**:
   player's game;
 - one written in C# is known only once the mod's code runs, so Kiln writes it to `kiln/data/kiln-quests/native/<mod>.blocks.json` (the data folder: a
   redeploy keeps it, and nothing is written into the mod) and it is there from the next start. Write NPCs in data files to have them at once.
+
+`Place` puts it once per world: `At` a spot, or `Distance` metres from the first player in game. A base is fine (`InBase`, default true), so it comes
+that near while the player is home; `InBase = false` keeps it 20 m outside every base zone, as a quest's places are. `Exact` takes `At` as it is. The
+world remembers the spot, so a change of `Place` shows in a new world. It then walks about its spot within the roster's `RoamingRange`, as the game's
+villagers do (the body's own when not set).
 
 A `quests/*.json` of the mod's own that names the same NPC wins over both. Players need the mod.
 

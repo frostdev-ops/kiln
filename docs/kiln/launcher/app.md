@@ -31,17 +31,17 @@ events). Design system: [design-system.md](design-system.md).
 ## Pages
 | Route | Page | Backend |
 |---|---|---|
-| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors plus the mods that failed in mods.json/native.json of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
+| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors, the mods that failed in mods.json/native.json and the `[E` lines of kiln.log, all of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
 | `/profiles` | list, create, duplicate, delete (typed), activate | `profile_*` |
 | `/profiles/:id/mods` | the Kiln mods as the resolver's load order (client or server side): numerals, flame toggles, why a mod stays out; add from the library, other versions, remove | `profile_save`, `profile_resolve`, `library_list` |
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
 | `/profiles/:id/emf`, `/configs`, `/saves` | EMF mods; the profile's config folder (SchemaForm/raw); backups made with this profile | `config_*`, `saves_*` |
 | `/library` | drop zip/folder/DLL → detection → import task; versions; remove (typed, force when used); clean up unused | `library_*` |
-| `/runtime` | install/update/rollback per bundle, uninstall (typed), proxy chain (receipt + live `boot.json` chain), switch from ShroudForge (typed), add bundle | `runtime_*` |
+| `/runtime` | install/update/rollback per bundle (bundles of one version and day are ordered by when they were built, never by the git id), uninstall (typed), proxy chain (receipt + live `boot.json` chain), switch from ShroudForge (typed), add bundle | `runtime_*` |
 | `/logs` | kiln.log, game log, proxy.log, mod logs (follow, filter), crash reports, tick stats (sparklines) | `logs_*` |
 | `/saves` | save files, backups, manual backup, restore (refused while running; Steam Cloud hint), delete | `saves_*` |
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
-| `/settings` | launcher settings, games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
+| `/settings` | launcher settings, Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
 | `/about` | versions, CREDITS.md, "Theme and design: frostdev" | `app_info` |
 | `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
 
@@ -73,6 +73,11 @@ textures load).
   (`done` + `result`, `failed` + `error`, `canceled` for `ErrorCode::Canceled`; a panic is `internal`).
   `task_cancel` makes `canceled()` true; `task_list` keeps the last 50 finished. Every task's start and outcome (with
   the error code, message and last step) are also appended to `<data>/logs/launcher.log`, which outlives the process.
+- The active profile follows its edits: Play (`launch::play_with`), `profile_save` and the watcher (an edit outside the
+  launcher, such as `kilnctl profile add`, while the game is not running) write the game's `kiln/profile.json` again
+  when the profile renders differently from it (`profile::refresh_active`), so Steam's own Play button starts it too.
+- `launch_state.log`: the `[E` lines of kiln.log when kiln.log is the run that wrote boot.json (its start line names
+  boot.json's pid, and boot.json is newer than kiln.prev.log); read incrementally.
 - Runtime installs end with a check of the game folder: the receipt must name the bundle's version and parts and every
   listed file must have its bytes, else the task fails. Parts the game's side cannot take are refused before the
   bundle's verify. The page keeps the last change and its outcome until dismissed; Play shows a failed one.
@@ -94,7 +99,8 @@ tools/launcher/fetch-editor-assets.sh   # dev: local editor game assets for the 
 ```
 Test runs against game copies: `KILN_DATA_DIR=<scratch>` and `KILN_STEAM_ROOTS=<fake Steam root>` keep the app away
 from the real launcher data and Steam libraries, and `KILN_LAUNCH_DRY_RUN=1` makes `launch_play` do everything but open
-`steam://` (which would start the real game). GUI and Wine tests run on a private Xvfb display, never the desktop's. Debug builds only: `KILN_DEV_EVAL_DIR=<dir>` runs each `*.js`
+`steam://` (which would start the real game). `KILN_LAUNCHER_NO_WEBGL=1` forces the fire's no-WebGL fallback (the plain
+Play button) for one start, without touching the saved "Animated fire" setting. GUI and Wine tests run on a private Xvfb display, never the desktop's. Debug builds only: `KILN_DEV_EVAL_DIR=<dir>` runs each `*.js`
 dropped there in the webview (headless checks on Xvfb drive the real app with it).
 
 ## Build prerequisites

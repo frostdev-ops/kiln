@@ -353,6 +353,16 @@ public sealed partial class BlocksTestMod
         var ownProgram = BlockIds.Fnv(Content.Buffs.Get(relayed.GameName)!.Get("impact").Guid);
         Check(_spawnsSeen.Count(x => x.Impact.ProgramId == ownProgram) == 0, "and spawns no carrier");
         Info($"the relay sent {Vfx.Status().RelaySent - sent} message(s) (nobody may be listening here)");
+
+        // where it plays: an impact's, where the impact is, not where its caster stands
+        var ember = Content.Templates.Get($"{Sample}.emberlance.impact")!;
+        var landed = new WorldPosition(_at.X + 10, _at.Y, _at.Z + 10);
+        _vfxCues.Clear();
+        await Abilities.RunImpact(ember.Guid, landed, new ImpactOptions { Root = caster, Tag = "blocks-test" });
+        await Steps(8);
+        var cues = string.Join("; ", _vfxCues.Select(c => $"{c.X:0.0}, {c.Z:0.0}"));
+        Check(_vfxCues.Count == 1 && Math.Abs(_vfxCues[0].X - landed.X) < 0.5 && Math.Abs(_vfxCues[0].Z - landed.Z) < 0.5,
+            $"an impact's VFX with parameters plays where it landed ({landed.X:0.0}, {landed.Z:0.0}), not at the caster ({_at.X:0.0}, {_at.Z:0.0}): [{cues}]");
         Commands.Register("blockstest", ctx =>
         {
             _ = Abilities.ApplyBuff(withParameters, relayed.Guid, source: caster);

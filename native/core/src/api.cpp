@@ -281,8 +281,12 @@ void load_one(const std::filesystem::path& file, const char* kind) {
         return;  // keep the module mapped: it may still be on a stack we cannot see
     }
     if (rc != KILN_OK) {
-        KLOG_W("%s %s: kiln_plugin_main returned %d; revoked", kind, name.c_str(), rc);
-        // KILN_ERR_UNAVAILABLE: not for this build or side, by design (boot.json "skipped", not an error)
+        // KILN_ERR_UNAVAILABLE: not for this build or side, or switched off by its config, by design (boot.json "skipped", not an
+        // error). The plugin's own line before this one says why.
+        if (rc == KILN_ERR_UNAVAILABLE)
+            KLOG_I("%s %s: not used here (off on this game build or side, or by its config); skipped", kind, name.c_str());
+        else
+            KLOG_W("%s %s: kiln_plugin_main returned %d; revoked", kind, name.c_str(), rc);
         record(kind, file, rc == KILN_ERR_UNAVAILABLE ? "skipped" : "failed",
                "kiln_plugin_main returned " + std::to_string(rc) + (rc == KILN_ERR_UNAVAILABLE ? " (unavailable)" : ""), &info);
         reg::owner_revoke(owner);

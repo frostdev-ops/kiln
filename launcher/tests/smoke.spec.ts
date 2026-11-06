@@ -155,13 +155,27 @@ test("the active profile is chosen from its name", async ({ page }) => {
   await expect(page.getByRole("row").filter({ hasText: "Vanilla plus" }).getByText("Active", { exact: true })).toBeVisible();
 });
 
-test("Last boot counts the mods that failed to load and opens the logs", async ({ page }) => {
+test("Last boot counts the mods that failed to load and later errors, and opens the logs", async ({ page }) => {
   await open(page, "/");
-  // the example state files: boot.json has no errors, mods.json of the same run has a mod that failed
-  const last = page.getByRole("button", { name: /^Last boot: .*1 mod failed\. Open the logs\.$/ });
+  // the example run: boot.json has no errors, mods.json has a mod that failed, kiln.log two errors after the boot
+  const last = page.getByRole("button", { name: /^Last boot: .*1 mod failed, 2 errors since start\. Open the logs\.$/ });
+  await expect(last).toHaveAttribute("title", /kiln creature brains' threw \(2x\)/);
   await expect(last).toBeVisible();
   await last.click();
   await expect(page).toHaveURL(/#\/logs$/);
+});
+
+test("Runtime orders builds of one version and day by when they were built, not by their git id", async ({ page }) => {
+  await open(page, "/runtime");
+  // a later build of the installed version and day, whose git id sorts before the installed one's as text
+  const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "kiln-runtime-0.2.0-dev+20261104.0000aaa.zip")); return d; });
+  await page.locator(".k-drop").dispatchEvent("drop", { dataTransfer: dt });
+  const table = page.getByRole("table", { name: "Runtime bundles" });
+  const later = table.getByRole("row").filter({ hasText: "0.2.0-dev+20261104.0000aaa" });
+  await expect(later.getByRole("button", { name: "Update" })).toBeVisible();
+  await expect(table.getByRole("row").filter({ hasText: "0.1.9+20261101.a41c2d0" }).getByRole("button", { name: "Roll back" })).toBeVisible();
+  // newest first
+  await expect(table.getByRole("row").nth(1)).toContainText("0.2.0-dev+20261104.0000aaa");
 });
 
 test("a runtime change that fails says so on Runtime and on Play until dismissed", async ({ page }) => {
@@ -187,6 +201,30 @@ test("a runtime change that fails says so on Runtime and on Play until dismissed
   await onPlay.getByRole("button", { name: "Dismiss" }).click();
   await expect(onPlay).toHaveCount(0);
   await expect(page.getByRole("button", { name: "update failed" })).toHaveCount(0);
+});
+
+test("the fire can be turned off: Play draws the plain button, as without WebGL", async ({ page }) => {
+  await open(page, "/");
+  const app = page.locator(".k-app");
+  await page.waitForTimeout(600);
+  const withGl = (await app.getAttribute("data-gl")) !== null; // the headless browser may have no WebGL at all
+  await page.locator(".k-head-link", { hasText: "Settings" }).click();
+  const fire = page.getByRole("switch", { name: /^Animated fire/ });
+  await expect(fire).toBeChecked();
+  await page.getByText("Animated fire", { exact: true }).click();
+  await expect(fire).not.toBeChecked();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
+  await expect(app).not.toHaveAttribute("data-gl");
+  await expect(page.locator(".k-stage-gl")).toBeHidden();
+  const play = page.locator(".k-door");
+  await expect(play).toBeVisible();
+  await expect(play).toHaveAccessibleName(/^Play /);
+  // on again: the fire comes back where there is WebGL
+  await page.locator(".k-head-link", { hasText: "Settings" }).click();
+  await page.getByText("Animated fire", { exact: true }).click();
+  await expect(fire).toBeChecked();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
+  if (withGl) await expect(app).toHaveAttribute("data-gl", "1");
 });
 
 test("a refusal shows on Play, with or without a modpack, until dismissed", async ({ page }) => {

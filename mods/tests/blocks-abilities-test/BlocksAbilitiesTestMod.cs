@@ -410,9 +410,36 @@ public sealed partial class BlocksAbilitiesTestMod : Mod
         TalentNode? Node(string id) => tree?.Nodes.FirstOrDefault(n => n.Id == id);
         Check(Node("kindle") is { MaxLevel: 3, Column: 0, Row: 0 } && Node("hearth") is { Row: 1 } && Node("gate") is { Row: 2, Cost: 2 }, "laid out from what leads where");
         Check(Node("kindle")?.Description?.ToString() == "+2 Strength, +10% Move Speed", $"with no description, it says what it does: \"{Node("kindle")?.Description}\"");
+        Check(tree?.Nodes.All(n => !n.ListEffects) == true, "a node's tooltip is its texts: no lines for the generated program or the ability it unlocks");
+        Texts();
         Check(GameTree.Definitions.Any(d => d.Name == $"{Me}.ward"), $"the game-tree node is defined: {GameTree.Definitions.FirstOrDefault(d => d.Name == $"{Me}.ward")?.State}");
         var report = Path.Combine(Path.GetDirectoryName(Context.DataDirectory)!, "blocks", $"{Me}.json");
         Check(File.Exists(report) && File.ReadAllText(report).Contains("\"ability\"", StringComparison.Ordinal), "kiln blocks can read what they became");
+    }
+
+    // Texts come from the block, or there are none: never the starter's. A status held by a state shows no time, a timed one does.
+    private void Texts()
+    {
+        var starter = Content.Perks.Get("Perk_OnDamage_Dealt_Debuff_Poisoned_T2")!;
+        var might = Content.Perks.Get($"{Me}.perk-might")!;
+        Check(might.Get("description").Guid != starter.Get("description").Guid && might.Get("description").Guid != Guid.Empty,
+            $"a perk with no Description shows none, not its starter's (\"poison enemies on hit\"): {might.Get("description").Guid}");
+        Check(Content.Perks.Get($"{Me}.perk-hit")?.Get("description").Guid is { } told && told != starter.Get("description").Guid && told != might.Get("description").Guid,
+            "and Description sets its own");
+        var fireball = Content.Items.Get("Ammo_T1_Spell_Fire_Ball_lvl10");
+        var spell = Content.Items.Get($"{Me}.rows-reordered")!;
+        Check(spell.GetRef("description") == Guid.Empty && fireball?.GetRef("description") is { } fd && fd != Guid.Empty,
+            $"a spell with no Description has none, not its starter's (the Fireball's {fireball?.GetRef("description")}): {spell.GetRef("description")}");
+        var held = Content.Buffs.Get($"{Me}.glide-buff")!;
+        var timed = Content.Buffs.Get($"{Me}.mark")!;
+        Check(held.Get("hideDurationInUi").Integer != 0 && timed.Get("hideDurationInUi").Integer == 0,
+            $"a status held by a state shows no time in the buff bar, a timed one does: hideDurationInUi {held.Get("hideDurationInUi").Integer} and {timed.Get("hideDurationInUi").Integer}");
+        // the sample's, when it is loaded here too
+        if (Content.Perks.Get("ability-blocks.ember-might") is not { } sampleMight) return;
+        Check(sampleMight.Get("description").Guid != starter.Get("description").Guid, $"ability-blocks: Ember Might shows no starter's text: {sampleMight.Get("description").Guid}");
+        foreach (var name in new[] { "ember-fan", "ember-seeker" })
+            Check(Content.Items.Get($"ability-blocks.{name}")?.GetRef("description") == Guid.Empty, $"ability-blocks: {name} has no Fireball text");
+        Check(Content.Buffs.Get("ability-blocks.updraft")?.Get("hideDurationInUi").Integer is { } h && h != 0, "ability-blocks: Updraft shows no time while gliding");
     }
 
     private void Ids()

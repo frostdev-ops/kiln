@@ -505,19 +505,52 @@ pub fn create(stage: &Path, out_dir: &Path, options: &CreateOptions) -> Result<P
     }
 }
 
+/// A bundle's sha256, remembered per (path, size, mtime) for this process: `list` runs on every status poll, and
+/// hashing each ~100 MB zip every time was most of a status's cost.
+fn cached_sha(zip: &Path) -> Result<String> {
+    use std::sync::{Mutex, OnceLock};
+    type Key = (u64, Option<std::time::SystemTime>);
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<std::path::PathBuf, (Key, String)>>> = OnceLock::new();
+    let md = std::fs::metadata(zip).map_err(crate::util::io_at(zip, "reading"))?;
+    let key: Key = (md.len(), md.modified().ok());
+    let cache = CACHE.get_or_init(Default::default);
+    if key.1.is_some()
+        && let Some((k, h)) = cache.lock().ok().and_then(|c| c.get(zip).cloned())
+        && k == key
+    {
+        return Ok(h);
+    }
+    let (h, _) = crate::hash::sha256_file(zip)?;
+    if let Ok(mut c) = cache.lock() {
+        c.insert(zip.to_path_buf(), (key, h.clone()));
+    }
+    Ok(h)
+}
+
 fn describe(zip: &Path, m: &RuntimeManifest) -> Result<RuntimeBundle> {
+    // when it was built: the manifest's `created`, else the zip's mtime (orders builds of one version and date)
+    let created = m.created.clone().or_else(|| {
+        let t = std::fs::metadata(zip).and_then(|md| md.modified()).ok()?;
+        Some(crate::util::rfc3339(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64))
+    });
     Ok(RuntimeBundle {
         version: m.version.clone(),
         kiln: m.kiln.clone(),
         file: zip.to_path_buf(),
-        sha256: crate::hash::sha256_file(zip)?.0,
-        created: m.created.clone(),
+        sha256: cached_sha(zip)?,
+        created,
         sides: sides(m),
         components: m.components.keys().cloned().collect(),
     })
 }
 
-/// The bundles in `<data>/runtime/` (unreadable zips are skipped), newest version first.
+/// Which bundle is newer: the version (semver, then the build date), then when it was built (`created`). Two builds
+/// of one version on one day differ only there; the git id in the version says nothing about order.
+pub fn compare(a: &RuntimeBundle, b: &RuntimeBundle) -> std::cmp::Ordering {
+    compare_versions(&a.version, &b.version).then_with(|| a.created.cmp(&b.created))
+}
+
+/// The bundles in `<data>/runtime/` (unreadable zips are skipped), newest first (`compare`).
 pub fn list(dirs: &crate::paths::DataDirs) -> Result<Vec<RuntimeBundle>> {
     let dir = dirs.runtime();
     let mut out = Vec::new();
@@ -529,7 +562,7 @@ pub fn list(dirs: &crate::paths::DataDirs) -> Result<Vec<RuntimeBundle>> {
             out.push(describe(&p, &m)?);
         }
     }
-    out.sort_by(|a, b| compare_versions(&b.version, &a.version).then_with(|| b.created.cmp(&a.created)));
+    out.sort_by(|a, b| compare(b, a));
     Ok(out)
 }
 

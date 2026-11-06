@@ -96,6 +96,9 @@ The game enumerates VFX resources once, so everything is served in `on_ready`, b
 4. **Serve** through `kiln.assets`: blobs first, each read back and re-hashed, then meshes and textures, then VFX.
 5. **Late check.** At the first FxController update, once `vfx/vfx.gpc` is resident, the binding list of `VfxUpdateDescriptorSetLayout` is compared. A
    difference makes the guard treat Kiln's VFX as unknown.
+6. **Own data.** Once the game's VFX table lists them, each Kiln VFX's GUID is looked up there and its resource read back against the bytes Kiln served:
+   `vfx: N Kiln VFX resolve to their own data in the game's VFX table`. One that resolves to other data would play another effect under its name, so the
+   guard refuses it and the log names it. If none match, the check is taken not to hold on that build and nothing is refused.
 
 ## Definitions from code
 `Blocks.Define("name", new VfxBlock { ... })` serialises the record to this shape ([blocks.md](../modding/blocks.md#vfx)). `define_json` in the `kiln.vfx` table (`native/core/abi/services/kiln_vfx.h`) takes the blocks of one mod:

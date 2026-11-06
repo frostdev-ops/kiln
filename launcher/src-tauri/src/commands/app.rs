@@ -25,6 +25,10 @@ pub struct AppInfo {
     pub commit: Option<String>,
     /// Always false here; the browser mock says true.
     pub mock: bool,
+    /// `KILN_LAUNCHER_NO_WEBGL=1` was set for this start: the page draws the plain Play button, never the WebGL fire
+    /// (the fallback a machine without WebGL gets; for tests and weak GPUs).
+    #[serde(default)]
+    pub no_webgl: bool,
 }
 
 /// `<data>/settings.json`
@@ -41,16 +45,35 @@ pub struct LauncherSettings {
     pub saves_keep: u32,
     #[serde(default)]
     pub check_updates: bool,
+    /// The fire on Play (WebGL). Off: the plain Play button (Settings, Appearance).
+    #[serde(default = "yes")]
+    pub animated_fire: bool,
 }
 
 impl Default for LauncherSettings {
     fn default() -> Self {
-        LauncherSettings { steam_roots: vec![], default_game_id: None, allow_http_modpacks: false, saves_keep: 10, check_updates: false }
+        LauncherSettings {
+            steam_roots: vec![],
+            default_game_id: None,
+            allow_http_modpacks: false,
+            saves_keep: 10,
+            check_updates: false,
+            animated_fire: true,
+        }
     }
 }
 
 fn ten() -> u32 {
     10
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// `KILN_LAUNCHER_NO_WEBGL` set to anything but empty or `0`.
+pub fn no_webgl() -> bool {
+    std::env::var("KILN_LAUNCHER_NO_WEBGL").is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +250,7 @@ pub async fn app_info() -> Result<AppInfo, Error> {
         data_dir: dirs.root.display().to_string(),
         commit: option_env!("KILN_GIT_COMMIT").filter(|c| !c.is_empty()).map(String::from),
         mock: false,
+        no_webgl: no_webgl(),
     })
 }
 

@@ -113,6 +113,32 @@ bool seh_lengths(uintptr_t sys, const MapView* v, const uint8_t* guid, VfxLength
         return false;
     }
 }
+bool seh_resource(uintptr_t sys, const MapView* v, const uint8_t* guid, void* out, size_t n) {
+    __try {
+        const int64_t slot = map_slot(*v, guid);
+        if (slot < 0 || !v->values) return false;
+        const uintptr_t table = *reinterpret_cast<const uintptr_t*>(sys + L.sys_table);
+        const uint8_t* res = *reinterpret_cast<const uint8_t* const*>(table + v->values[slot] * 0xc0ull + L.slot_resource);
+        if (!res) return false;
+        std::memcpy(out, res, n);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+bool seh_params(uintptr_t sys, const MapView* v, const uint8_t* guid, VfxParamLayout* out) {
+    __try {
+        const int64_t slot = map_slot(*v, guid);
+        if (slot < 0 || !v->values) return false;
+        const uintptr_t table = *reinterpret_cast<const uintptr_t*>(sys + L.sys_table);
+        const uint8_t* res = *reinterpret_cast<const uint8_t* const*>(table + v->values[slot] * 0xc0ull + L.slot_resource);
+        if (!res) return false;
+        read_params(res, L.res, out);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 bool seh_play_at(uintptr_t fxc, int64_t now, const uint8_t* g, const WorldTransform* t, const FxParams* p, const FxTiming* d, uint32_t* out) {
     __try {
         *out = F.play_at(fxc, now, g, t, p, d);
@@ -335,6 +361,19 @@ public:
         const uintptr_t sys = sys_of_scene(scene_of(reinterpret_cast<uintptr_t>(fxc)));
         MapView v;
         return sys && L.sys_table >= 0 && read_view(sys, &v) && seh_lengths(sys, &v, guid, out);
+    }
+
+    bool vfx_params(void* fxc, const uint8_t guid[16], VfxParamLayout* out) override {
+        const uintptr_t sys = sys_of_scene(scene_of(reinterpret_cast<uintptr_t>(fxc)));
+        MapView v;
+        return sys && L.sys_table >= 0 && read_view(sys, &v) && seh_params(sys, &v, guid, out);
+    }
+
+    bool read_resource(void* fxc, const uint8_t guid[16], void* out, size_t n) override {
+        uintptr_t sys = fxc ? sys_of_scene(scene_of(reinterpret_cast<uintptr_t>(fxc))) : 0;
+        if (!sys) sys = g_sys.load(std::memory_order_relaxed);
+        MapView v;
+        return sys && L.sys_table >= 0 && read_view(sys, &v) && seh_resource(sys, &v, guid, out, n);
     }
 
     uint32_t play_at(const Frame& f, const uint8_t guid[16], const WorldTransform& t, const FxParams& p, const FxTiming& d) override {

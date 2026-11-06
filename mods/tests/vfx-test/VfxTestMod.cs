@@ -269,9 +269,19 @@ public sealed class VfxTestMod : Mod
         var st = Vfx.Status();
         Check(st.Controller || st.Updates > 0 || st.SystemReady, $"in a world: {st}");
         Check(st.Registered >= 1500, $"the VFX system's map reads: {st.Registered} registered of capacity {st.MapCapacity}");
-        Check(Vfx.IsKnown(Burst), $"{BurstName} is {Burst.Guid}, and the game has it");
         Check(!Vfx.IsKnown(VfxId.Of(Unknown)), $"{Unknown} is not registered");
+        Start(GameNameInTheWorld);
         Info("the cases that show something are on keys: Ctrl+1, Ctrl+2, Ctrl+3, Ctrl+Shift+3, Ctrl+4, Ctrl+Shift+4");
+    }
+
+    // A game name resolves on the thread the game's data answers on, at its next tick: asked from the client's tick, it reads as no GUID until then.
+    private async Task GameNameInTheWorld()
+    {
+        var t0 = Environment.TickCount64;
+        var resolved = await Until(() => Burst.Guid != Guid.Empty, 15_000);
+        Check(resolved && Vfx.IsKnown(Burst),
+            resolved ? $"{BurstName} is {Burst.Guid} after {Environment.TickCount64 - t0} ms, and the game has it: {Vfx.IsKnown(Burst)}"
+                     : $"{BurstName} found no GUID in 15 s (no template carries it and no sequence plays it on this build)");
     }
 
     private static WorldPosition? Ahead(float metres)

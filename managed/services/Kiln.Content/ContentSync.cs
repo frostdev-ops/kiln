@@ -313,6 +313,7 @@ public static unsafe class ContentSync
             return;
         }
         json = WithDefinitions(json, out var defCount);
+        json = WithPrograms(json, out var programCount);
         var exportMs = sw.Elapsed.TotalMilliseconds;
         var raw = Encoding.UTF8.GetBytes(json);
         var settings = SyncSettings.Current;
@@ -365,7 +366,7 @@ public static unsafe class ContentSync
         };
         var compressed = parts.Sum(p => p.Length);
         Log(notSynced is null ? LogLevel.Info : LogLevel.Warn,
-            $"content state {_export.StateId:x8}: {fields} change(s), {defCount} definition(s) (generation {st.Generation}), {raw.Length / 1024.0:F1} KiB JSON -> " +
+            $"content state {_export.StateId:x8}: {fields} change(s), {defCount} definition(s), {programCount} program(s) (generation {st.Generation}), {raw.Length / 1024.0:F1} KiB JSON -> " +
             $"{compressed / 1024.0:F1} KiB deflate in {parts.Length} part(s); export {exportMs:F1} ms, total {sw.Elapsed.TotalMilliseconds:F1} ms" +
             (notSynced is null ? "" : $"; NOT SENT: {notSynced}"));
     }
@@ -426,6 +427,15 @@ public static unsafe class ContentSync
         count = arr.Count;
         doc["@definitions"] = arr;
         return doc.ToJsonString();
+    }
+
+    /// <summary>Server: adds <c>"@programs"</c>, the new Impact programs the document's definitions name (SyncPrograms).</summary>
+    private static string WithPrograms(string json, out int count)
+    {
+        count = 0;
+        if (JsonNode.Parse(json) is not JsonObject doc) return json;
+        count = SyncPrograms.Add(doc);
+        return count > 0 ? doc.ToJsonString() : json;
     }
 
     /// <summary>Client: defines the server's definitions as the sync owner (skipping GUIDs this game defines itself).</summary>
@@ -648,6 +658,12 @@ public static unsafe class ContentSync
             _appliedGeneration = generation;
             return;
         }
+        // the programs the definitions name first: kiln.gamedata checks a clone's program reference against what is served
+        var (programs, localPrograms, programErrors) = SyncPrograms.Serve(server, _owner);
+        if (programs > 0 || localPrograms > 0)
+            Log(LogLevel.Info, $"content state {stateId:x8}: {programs} program(s) from the server served here" +
+                               (localPrograms > 0 ? $" ({localPrograms} this game has itself)" : ""));
+        server.Remove("@programs");
         var (defined, localDefs, defErrors) = DefineFromServer(server);
         if (defined > 0 || localDefs > 0)
             Log(LogLevel.Info, $"content state {stateId:x8}: {defined} new item / recipe definition(s) from the server" +
@@ -657,6 +673,7 @@ public static unsafe class ContentSync
         var merged = server.ToJsonString();
         var (applied, errors, rc) = ApplyJson(merged, "server sync");
         errors.InsertRange(0, defErrors);
+        errors.InsertRange(0, programErrors);
         _appliedState = stateId;
         _appliedGeneration = Content.Status()?.Generation ?? generation;
         var ms = (uint)sw.ElapsedMilliseconds;
@@ -860,6 +877,7 @@ public static unsafe class ContentSync
             n = (int)Content.T->RevertOwner(_owner);
             if (ContentNative.Has(Content.T, 4) && Content.T->UndefineOwner != null) Content.T->UndefineOwner(_owner);
         }
+        SyncPrograms.Release(_owner);
         if (had)
         {
             Log(LogLevel.Info, $"content sync: {why ?? "a new server"}: {n} field(s) back to this game's own values");

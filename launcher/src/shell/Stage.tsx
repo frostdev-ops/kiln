@@ -2,7 +2,8 @@
 // fire, a ray-cast brick chamber with flames, the floor, the haze and embers). The mouth is also the Play button
 // (Mouth in AppShell.tsx): this loop springs it between its Play size and the pilot light in the corner and moves the
 // button with it, so the hit area always sits on the drawn arch. When WebGL is missing, fails to compile or loses its
-// context, .k-app keeps no data-gl and base.css draws the CSS mouth instead.
+// context, or the fire is turned off (Settings, Appearance; KILN_LAUNCHER_NO_WEBGL=1), .k-app keeps no data-gl and
+// base.css draws the CSS mouth instead.
 // Budget: at most 1000 px wide (0.72 of the window at 1280), ~30 fps on Play, ~9 fps behind a sheet, full rate only while
 // the mouth moves or the heat changes; nothing while the window is hidden, and a still frame while the game runs (the GPU
 // is the game's then).
@@ -80,8 +81,9 @@ const FRAG = [
 
 const UNIFORMS = ["uR", "uT", "uH", "uF", "uD", "uM", "uS", "uL", "uK"] as const;
 
-/** The canvas behind everything. `root` is .k-app: its size, its --k and --fire, data-gl, and the .k-door it moves. */
-export function Stage({ root }: { root: RefObject<HTMLDivElement> }) {
+/** The canvas behind everything. `root` is .k-app: its size, its --k and --fire, data-gl, and the .k-door it moves.
+ *  `enabled` false takes the no-WebGL path without asking for a context (give the canvas a new key to turn it back on). */
+export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement>; enabled?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const app = root.current, canvas = ref.current;
@@ -95,8 +97,9 @@ export function Stage({ root }: { root: RefObject<HTMLDivElement> }) {
       cancelAnimationFrame(raf);
       delete app.dataset.gl;
       for (const p of ["transform", "width", "height"]) app.querySelector<HTMLElement>(".k-door")?.style.removeProperty(p);
-      console.warn("Hearth fire off:", why);
+      if (why) console.warn("Hearth fire off:", why);
     };
+    if (!enabled) { off(""); return; } // turned off, or not decided yet: the CSS mouth, quietly
     try { gl = canvas.getContext("webgl", { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "low-power" }); } catch { gl = null; }
     if (!gl) { off("no WebGL"); return; }
     const mk = (type: number, src: string) => {
@@ -183,6 +186,6 @@ export function Stage({ root }: { root: RefObject<HTMLDivElement> }) {
       canvas.removeEventListener("webglcontextlost", lost);
       delete app.dataset.gl;
     };
-  }, [root]);
+  }, [root, enabled]);
   return <canvas ref={ref} className="k-stage-gl" aria-hidden />;
 }

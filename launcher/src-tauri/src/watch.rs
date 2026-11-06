@@ -57,6 +57,42 @@ fn copy_back(g: &kiln_manage::game::GameInstall) {
     }
 }
 
+/// The active profile as the watcher last saw it: profile.json's mtime, the profile it names and its meta.json's mtime.
+#[derive(Clone, PartialEq)]
+struct ProfileSeen {
+    file: Option<SystemTime>,
+    id: Option<String>,
+    meta: Option<SystemTime>,
+}
+
+fn profile_seen(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall, before: Option<&ProfileSeen>) -> ProfileSeen {
+    let file = mtime(&g.path.join(gp::PROFILE));
+    // profile.json is read again only when it changed
+    let id = match before {
+        Some(b) if b.file == file => b.id.clone(),
+        _ => kiln_manage::profile::read_game_profile(&g.path).ok().flatten().map(|f| f.id),
+    };
+    let meta = id.as_deref().and_then(|id| mtime(&d.profile(id).join("meta.json")));
+    ProfileSeen { file, id, meta }
+}
+
+/// The active profile changed outside this launcher's profile pages (kilnctl, another window) while the game is not
+/// running: write the game's profile.json again, so Steam's own Play button starts it as it is now. Once per change
+/// (and once at startup).
+fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, seen: &mut HashMap<String, ProfileSeen>) {
+    let Ok(d) = crate::state::dirs() else { return };
+    let now = profile_seen(&d, g, seen.get(&g.id));
+    if seen.get(&g.id) == Some(&now) {
+        return;
+    }
+    if now.id.is_some() && crate::commands::profile::reapply(&d, g) {
+        emit_game(app, &g.id, GameEventKind::Status, None);
+    }
+    // what it looks like after the write, so the write itself is not a change
+    let after = profile_seen(&d, g, None);
+    seen.insert(g.id.clone(), after);
+}
+
 // ---------------------------------------------------------------- log follows
 
 struct Follow {
@@ -102,6 +138,7 @@ pub fn start(app: AppHandle) {
         .name("kiln-watch".into())
         .spawn(move || {
             let mut seen: HashMap<String, Seen> = HashMap::new();
+            let mut profiles: HashMap<String, ProfileSeen> = HashMap::new();
             let mut games: Vec<kiln_manage::game::GameInstall> = Vec::new();
             let mut games_at = Instant::now() - Duration::from_secs(60);
             loop {
@@ -122,6 +159,9 @@ pub fn start(app: AppHandle) {
                         mods: mtime(&g.path.join(gp::MODS_JSON)),
                         native: mtime(&g.path.join(gp::NATIVE_JSON)),
                     };
+                    if now.pid.is_none() {
+                        follow_profile(&app, g, &mut profiles);
+                    }
                     let Some(before) = seen.insert(g.id.clone(), now.clone()) else { continue };
                     if before == now {
                         continue;

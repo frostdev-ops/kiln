@@ -1,9 +1,9 @@
 {
   "id": "kiln-test-helper",
   "name": "Test helper for hosted worlds",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "0.2",
   "entryAssembly": "KilnTestHelper.dll",
   "side": "server",
-  "description": "Console commands for manual tests in a hosted (offline) world, which has no chat: give (materials, consumables and ammunition the player has found before), time, tp, where, heal, stamina, mana. Run them through <game>/kiln/control/console/<name>.cmd. It never grants experience, levels, skill points, knowledge or recipes."
+  "description": "Console commands for manual tests in a hosted (offline) world, which has no chat: give (materials, consumables and ammunition the player has found before), time, tp, where, heal, hurt, stamina, mana, spawn (hostile creatures that give no XP or loot; no bosses) and clear. Run them through <game>/kiln/control/console/<name>.cmd. It never grants experience, levels, skill points, knowledge or recipes."
 }

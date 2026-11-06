@@ -895,6 +895,25 @@ std::string guid_text(const uint8_t g[16]) {
     return b;
 }
 
+// Diagnostics: the first entity of each Kiln-only template this game creates from the server, with the TemplateInfo it found (compare
+// kiln.content's "registered in the client world: TemplateInfo ..." line), once per template in this process: whether a
+// placed Kiln prop reached this client at all.
+std::set<std::array<uint8_t, 16>> g_kiln_created;
+void note_kiln_create(safetyhook::Context& ctx) {
+    const KilnAssetsApi* a = assets_api();
+    if (!a) return;
+    KilnAssetKey key{};
+    std::memcpy(key.guid, ctx.xmm6.u8, sizeof key.guid);
+    key.type = kTemplateType;
+    if (a->resource_is_new(&key) != 1) return;
+    std::array<uint8_t, 16> g{};
+    std::memcpy(g.data(), key.guid, g.size());
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (g_kiln_created.size() >= 4096 || !g_kiln_created.insert(g).second) return;
+    logf(KILN_LOG_INFO, "net: this game creates entity %u of the Kiln template %s (TemplateInfo %p; first of that template)",
+         *reinterpret_cast<const uint32_t*>(ctx.rbp + L.create_entity), guid_text(key.guid).c_str(), reinterpret_cast<void*>(ctx.r14));
+}
+
 // The game's create path right before it uses its template lookup (0x961d07, the only call of 0x987910 a message can make
 // fail while the entity doesn't exist yet): r14 is the TemplateInfo, 0 on a miss, and the game doesn't test it. On every
 // entity create, so the usual case is one test, or two when something was dropped on this connection.
@@ -902,6 +921,7 @@ std::string guid_text(const uint8_t g[16]) {
 // returns an empty result, and its caller then discards the message (0x9c70ee).
 void hk_create_template(safetyhook::Context& ctx) {
     const bool miss = ctx.r14 == 0;
+    if (!miss) note_kiln_create(ctx);
     if (!miss && !g_dropped_any.load(std::memory_order_relaxed)) return;
     const uint32_t entity = *reinterpret_cast<const uint32_t*>(ctx.rbp + L.create_entity);
     const uint32_t parent = *reinterpret_cast<const uint32_t*>(ctx.rbp + L.create_parent);

@@ -325,3 +325,39 @@ fn api_version_constant_matches_kiln_api() {
     let mods = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../managed/Kiln.Api/Mods.cs")).unwrap();
     assert!(mods.contains(&format!("ApiVersion = \"{}\"", profile::KILN_API)), "profile::KILN_API is stale");
 }
+
+#[test]
+fn a_changed_active_profile_is_written_again_before_play() {
+    use kiln_manage::launch::{self, LaunchMode, LaunchRequest};
+    let t = tmp("refresh");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    let r1 = library::import(&dirs, &[kiln_mod(&t.0, "frost", "0.1.0", "")], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "Frost", None).unwrap();
+    p.mods.kiln = vec![pm(&refs(&r1, ModKind::Kiln, "frost"), true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let inst = install_at(&game, None);
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert!(profile::refresh_active(&dirs, &inst).unwrap().is_none(), "current: nothing to write");
+    let written = profile::read_game_profile(&game).unwrap().unwrap().generation;
+    // the profile moves to 0.1.1 outside the game folder (kilnctl profile add, the profile pages)
+    let r2 = library::import(&dirs, &[kiln_mod(&t.0, "frost", "0.1.1", "")], &mut NoProgress).unwrap();
+    let mut p = profile::get(&dirs, &p.id).unwrap();
+    p.mods.kiln = vec![pm(&refs(&r2, ModKind::Kiln, "frost"), true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    // Play writes profile.json again before Steam starts the game
+    let req = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+    launch::play_with(&dirs, &inst, &req, Some(&[][..]), &|_: &str| Ok(())).unwrap();
+    let f = profile::read_game_profile(&game).unwrap().unwrap();
+    assert_eq!(f.mods.kiln[0].version.as_deref(), Some("0.1.1"));
+    assert_eq!(f.fingerprint.as_deref(), Some(profile::fingerprint(&p).as_str()));
+    assert_eq!(f.generation, written + 1);
+    assert!(profile::refresh_active(&dirs, &inst).unwrap().is_none(), "written once");
+    // a profile.json of a profile this data folder does not have is left alone
+    let mut other = f.clone();
+    other.id = "not-here".into();
+    std::fs::write(game.join("kiln/profile.json"), serde_json::to_string(&other).unwrap()).unwrap();
+    assert!(profile::refresh_active(&dirs, &inst).unwrap().is_none());
+}

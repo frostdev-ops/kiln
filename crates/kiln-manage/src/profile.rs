@@ -814,6 +814,28 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     Ok(a)
 }
 
+/// Re-writes the game's `kiln/profile.json` when its profile changed since it was written (edited in the launcher, by
+/// `kilnctl profile add`, in another window): the profile is rendered again and compared with the file, apart from the
+/// file's write counter, time and writer. Some(activation) when it re-activated, None when the file was current or
+/// names no profile of this data folder. Refuses while the game runs (activate).
+pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
+    let Some(file) = read_game_profile(&install.path)? else { return Ok(None) };
+    let Ok(profile) = get(dirs, &file.id) else { return Ok(None) };
+    let mode = match file.path_mode {
+        Some(m) => m,
+        None => crate::game::path_mode(install, dirs)?,
+    };
+    let same = |a: &ProfileFile, b: &ProfileFile| {
+        let norm = |f: &ProfileFile| ProfileFile { schema: None, generation: 0, written: None, writer: None, ..f.clone() };
+        norm(a) == norm(b)
+    };
+    // a profile that no longer renders (a mod gone from the library) goes to activate, which says why
+    if render(dirs, &profile, install, mode).is_ok_and(|fresh| same(&fresh, &file)) {
+        return Ok(None);
+    }
+    activate(dirs, &profile.id, install).map(Some)
+}
+
 /// Launch mode once: renders the profile into `kiln/profile.once.json` and its dllmain natives into
 /// `kiln/chain/once.ini` (play-once mode=profile then boots it for one start).
 pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<ProfileFile> {
