@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.rules: per-player rules where the game decides them (docs/re/rules.md). Every pattern matches the dedicated server and the game client once (svn 1287369), so the client uses this file unchanged.",
+  "symbols": {
+    "rules/FlyGate": {
+      "comment": "player_control_action_sequence: where 'may this player be in building fly mode' (bl) has been decided; the mid hook goes on the merge point after it",
+      "find": [
+        { "pattern": "F6 85 ?? ?? 00 00 04 74 ?? 4C 8B 85 ?? ?? 00 00 48 8B 55 ?? 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 84 C0 74 04 B3 01 EB 02 32 DB 48 8B 8D", "offset": 41 }
+      ]
+    },
+    "@rules/FlyGate.actor": {
+      "comment": "the same program tests IsNearBuildingZone (54) on its Actor slot: the slot's rbp displacement and the game's state test",
+      "find": [
+        { "pattern": "48 8B 8D {rules/fly.actor:d32} B2 36 E8 {rules/ActorStateTest:rel32} 84 C0 0F 84" }
+      ]
+    },
+    "@rules/FlyGate.entity": {
+      "comment": "the same program reads the current entity id into the frame before the gate",
+      "find": [
+        { "pattern": "48 8D 95 {rules/fly.entity:d32} 48 8B CF E8 {rules/CurrentEntityId:rel32} 4C 8B 85 ?? ?? 00 00 48 8D 8D ?? ?? 00 00 8B 10 E8" }
+      ]
+    },
+    "rules/CursorFlags": {
+      "comment": "the build cursor's refusal flags (keen::ecs::CursorFlag bits): server_cursor_no_prediction and client_cursor call it for the primary and secondary action; its context starts with the ProgramContext",
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 56 41 57 48 8D 6C 24 C0 48 81 EC 40 01 00 00 0F B6 85 88 00 00 00 4D 8B F1 88 44 24 28 49 8B F8 0F B6 85 80 00 00 00 4D 8B C8 4D 8B C6 88 44 24 20 48 8B F2 48 8B D9 E8 ?? ?? ?? ?? 48 8B 8E {rules/cursor.actor:d32} B2 07 E8 ?? ?? ?? ?? 45 33 FF 84 C0" }
+      ]
+    },
+    "rules/ApplyMaterials": {
+      "comment": "takes (r8 1) or gives (r8 0) a building action's materials list {ptr, count} of 0x18-byte entries (item +0x10, count +0x14) through the cost context's inventory transaction (+8; mode byte +0)",
+      "find": [
+        { "pattern": "40 55 56 48 83 EC 78 48 8B F2 48 8B E9 0F B6 11 85 D2 0F 84 ?? ?? 00 00 83 EA 01 74 ?? 83 FA 01 74 ?? 32 C0" }
+      ]
+    },
+    "rules/TerrainDamage": {
+      "comment": "damage of one terraforming hit on one material: setup[hardness] x the server's miningDamageFactor x the class modifier -> {u8 error; u32; float damage}",
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 0F B6 4C 24 60 49 8B F8 41 0F B6 F1 85 C9" }
+      ]
+    }
+  },
+  "constants": {
+    "rules/fly.actor": { "min_votes": 1 },
+    "rules/fly.entity": { "min_votes": 1 },
+    "rules/cursor.actor": { "min_votes": 1 }
+  },
+  "features": {
+    "rules.fly": {
+      "symbols": ["rules/FlyGate", "@rules/FlyGate.actor", "@rules/FlyGate.entity", "rules/ActorStateTest", "rules/CurrentEntityId", "items/JobStorage"],
+      "constants": ["rules/fly.actor", "rules/fly.entity", "storage.kind"]
+    },
+    "rules.cursor": {
+      "symbols": ["rules/CursorFlags", "rules/CurrentEntityId", "items/JobStorage"],
+      "constants": ["rules/cursor.actor", "storage.kind"]
+    },
+    "rules.costs": {
+      "symbols": ["rules/ApplyMaterials"],
+      "constants": ["items/tx.operator", "world/programs.table", "world/programs.stride", "world/programs.count"]
+    },
+    "rules.dig": {
+      "symbols": ["rules/TerrainDamage", "gameplay/TerraformImpact", "@gameplay/TerraformImpact.args"],
+      "constants": ["gameplay/impact.arg_offset", "gameplay/impact.arg_base", "gameplay/impact.arg_stride"]
+    }
+  }
+}

@@ -166,6 +166,8 @@ truth for each op's arguments and result: its `Ops.*.cs` file.
 | | `god` | entity, on? |
 | | `kill` (async) | entity (any entity) |
 | | `damage` (async) | entity, amount, attacker? |
+| rules (Ops.Rules.cs) | `creative` | entity, on? (toggles without it); refused for a player whose game has no Kiln with the rules channel |
+| | `rules` | entity? (the hooks, presets, active rule sets, creative players; with entity that player's rules) |
 | saves (Ops.Saves.cs) | `save_now` (async) | - |
 | | `save_status` | - |
 | | `backup_list` | - |
@@ -254,6 +256,9 @@ More ops (both transports serve them):
 | `network_reload` | - | re-reads `kiln/config/network.json`, hashes the required mods again; returns `network_status` |
 | `native_status` | - | the content of `state/native.json` (with `present: false` when there is none) plus `chain` (`state/boot.json` `chain[]`) and `boot` (its kiln, pid, written, policy, hooks, safeIdle, native, profile) |
 | `log_tail` | lines? (default 200, max 5000), file? (`kiln` = kiln/logs/kiln.log, the default; `game` = the game's enshrouded_server.log; or a file name under kiln/logs, no paths) | `{file, lines: [...], size}` |
+| `world_status` | detail? | Kiln.Quests' world progress: `{index, flame, difficulty, spires, bosses, survivors, counts, players}`; `detail` adds `shrines`, `shroudRoots`, `obelisks` (docs/kiln/services/world-progress.md) |
+| `world_status_player` | target (entity or name) | one player's progress: counts, every spire, shrine, root, obelisk and tracked boss with that player's value, started quests |
+| `world_chests` | x, y, z, radius? (default 8, max 64) | `{chests: [{lootId, template, position, loaded, entity, opened, looted}]}` |
 | `admin_token_rotate` | - | writes a new `admin-token`, returns `{rotated: true}`; every other connection gets `bye{reason: "token"}`, the calling one stays open |
 
 ## 9. Remote servers: the SSH tunnel recipe

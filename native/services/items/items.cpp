@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -38,6 +39,9 @@ static_assert(sizeof(KilnItemsSlot) == 32 && offsetof(KilnItemsSlot, state) == 2
 static_assert(sizeof(KilnItemsInventory) == 184 && offsetof(KilnItemsInventory, categories) == 152);
 static_assert(sizeof(KilnItemInfo) == 64 && offsetof(KilnItemInfo, name) == 48);
 static_assert(sizeof(KilnItemsStatus) == 200 && offsetof(KilnItemsStatus, detail) == 40);
+static_assert(sizeof(KilnItemsFuelRequest) == 24 && sizeof(KilnItemsFuelChange) == 32);
+static_assert(sizeof(KilnItemsFuelResult) == 720 && offsetof(KilnItemsFuelResult, changes) == 48 &&
+              offsetof(KilnItemsFuelResult, message) == 560);
 
 namespace {
 
@@ -99,12 +103,38 @@ struct Callback {
     KilnItemsDoneFn fn;
     void* user;
     KilnOwner owner;
+    KilnItemsFuelDoneFn fuel_fn = nullptr;  // fuel requests
+};
+struct FuelRequest {
+    uint64_t ticket;
+    KilnOwner owner;
+    FuelJob job;
+    uint64_t submitted;
+};
+struct Keep {
+    uint64_t handle;
+    KilnOwner owner;
+    FuelJob job;
+    KilnItemsFuelKeepFn on_refill = nullptr;
+    void* user = nullptr;
+    double rate = 0;   // ADD: units per second of game time
+    double acc = 0;    // ADD: units owed, carried between steps
+    std::vector<KilnItemsFuelChange> changed;  // since the last Pre (per container: first before, last after)
 };
 
-std::mutex g_mu;  // guards the three below; never held while calling the game or a callback
+constexpr uint32_t kFuelPerUpdate = 64;  // fuel requests per sim step (cheap: no transaction)
+constexpr uint32_t kMaxKeeps = 256;
+
+std::mutex g_mu;  // guards the containers below; never held while calling the game or a callback
 std::deque<Request> g_pending;
 std::vector<KilnItemsResult> g_done;
 std::unordered_map<uint64_t, Callback> g_callbacks;
+std::deque<FuelRequest> g_fuel_pending;
+std::vector<KilnItemsFuelResult> g_fuel_done;
+std::vector<Keep> g_keeps;
+std::atomic<uint64_t> g_fuel_writes{0};   // containers changed by requests and keeps
+std::atomic<uint32_t> g_keep_count{0};
+std::atomic<uint32_t> g_step_dt_bits{0};    // float seconds of game time the current step covers (Pre)
 
 uint8_t* g_tx = nullptr;  // one InventoryTx (the program is serial: it writes other entities' inventories)
 
@@ -188,6 +218,111 @@ bool resolve_world_slots() {
     return true;
 }
 
+// Fuel requests (up to kFuelPerUpdate) and every keep-full entry. They run before the give/take batch of the same
+// update; the program is appended after the game's programs that write Fuel (impact_simulation, actor_interaction),
+// so a keep-full write lands after this step's pours and fills.
+void run_fuel_jobs(const Access& a) {
+    if (!E.fuel_ok) return;
+    FuelRequest batch[kFuelPerUpdate];
+    uint32_t n = 0;
+    std::vector<Keep> keeps;
+    {
+        std::lock_guard lock(g_mu);
+        while (n < kFuelPerUpdate && !g_fuel_pending.empty()) {
+            batch[n++] = g_fuel_pending.front();
+            g_fuel_pending.pop_front();
+        }
+        if (!g_keeps.empty()) keeps = g_keeps;
+    }
+    if (n == 0 && keeps.empty()) return;
+    const uint64_t step = g_step.load();
+    std::vector<KilnItemsFuelResult> results(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        KilnItemsFuelResult& res = results[i];
+        std::memset(&res, 0, sizeof res);
+        res.size = sizeof res;
+        res.ticket = batch[i].ticket;
+        res.entity = batch[i].job.r.entity;
+        res.item = batch[i].job.r.item;
+        res.flags = batch[i].job.r.flags;
+        res.steps = static_cast<uint32_t>(step - batch[i].submitted);
+        if (g_program.load() == KILN_ITEMS_PROGRAM_BROKEN) {
+            res.status = KILN_ITEMS_UNAVAILABLE;
+            std::snprintf(res.message, sizeof res.message, "kiln.items' program was switched off (see kiln.log)");
+            continue;
+        }
+        unsigned long code = 0;
+        if (!run_fuel(a, batch[i].job, &res, &code)) {
+            res.status = KILN_ITEMS_UNAVAILABLE;
+            res.change_count = 0;
+            std::snprintf(res.message, sizeof res.message, "the Fuel write faulted (0x%08lx)", code);
+            char b[160];
+            std::snprintf(b, sizeof b, "a Fuel write faulted (0x%08lx) on entity %u", code, res.entity);
+            broken(b);
+            continue;
+        }
+        if (!(res.flags & KILN_ITEMS_FUEL_DRY_RUN)) g_fuel_writes.fetch_add(res.changed, std::memory_order_relaxed);
+    }
+    float dt;
+    {
+        const uint32_t bits = g_step_dt_bits.load(std::memory_order_relaxed);
+        std::memcpy(&dt, &bits, 4);
+    }
+    struct Done {
+        uint64_t handle;
+        double acc;
+        KilnItemsFuelResult res;
+    };
+    std::vector<Done> kept;
+    for (Keep& k : keeps) {
+        if (g_program.load() == KILN_ITEMS_PROGRAM_BROKEN) break;
+        FuelJob job = k.job;
+        double acc = k.acc;
+        if (job.r.flags & KILN_ITEMS_FUEL_ADD) {
+            acc += k.rate * dt;
+            const double whole = std::floor(acc);
+            if (whole < 1.0) {
+                kept.push_back(Done{k.handle, acc, {}});
+                continue;
+            }
+            job.r.units = whole > 1.0e9 ? 1000000000 : static_cast<int32_t>(whole);
+            acc -= whole;
+        }
+        KilnItemsFuelResult res{};
+        unsigned long code = 0;
+        if (!run_fuel(a, job, &res, &code)) {
+            char b[160];
+            std::snprintf(b, sizeof b, "a keep-full Fuel write faulted (0x%08lx) on entity %u", code, k.job.r.entity);
+            broken(b);
+            break;
+        }
+        if (res.changed == 0 && (job.r.flags & KILN_ITEMS_FUEL_ADD)) acc = 0;  // all at the level: owe nothing
+        g_fuel_writes.fetch_add(res.changed, std::memory_order_relaxed);
+        kept.push_back(Done{k.handle, acc, res});
+    }
+    std::lock_guard lock(g_mu);
+    for (auto& r : results) g_fuel_done.push_back(r);
+    for (const Done& d : kept) {
+        for (Keep& k : g_keeps) {
+            if (k.handle != d.handle) continue;
+            k.acc = d.acc;
+            if (!k.on_refill) break;
+            for (uint32_t i = 0; i < d.res.change_count; ++i) {
+                const KilnItemsFuelChange& c = d.res.changes[i];
+                bool merged = false;
+                for (auto& e : k.changed)
+                    if (e.container == c.container) {
+                        e.after = c.after;
+                        e.max = c.max;
+                        merged = true;
+                    }
+                if (!merged && k.changed.size() < 64) k.changed.push_back(c);
+            }
+            break;
+        }
+    }
+}
+
 // One update of the program: verify once, then run up to kPerUpdate queued transactions.
 void program_body(void* ctx, const uint64_t* it) {
     g_updates.fetch_add(1, std::memory_order_relaxed);
@@ -195,7 +330,7 @@ void program_body(void* ctx, const uint64_t* it) {
     if (g_program.load() == KILN_ITEMS_PROGRAM_BROKEN) return;
     if (g_verified) {  // idle steps cost one lock: nothing to check or run
         std::lock_guard lock(g_mu);
-        if (g_pending.empty()) return;
+        if (g_pending.empty() && g_fuel_pending.empty() && g_keeps.empty()) return;
     }
     unsigned long code = 0;
     Access a{};
@@ -225,6 +360,8 @@ void program_body(void* ctx, const uint64_t* it) {
         for (int i = 0; i < A_COUNT; ++i)
             if (a.acc[i] != g_access.acc[i] || a.items != g_access.items) return broken("the program's accessors changed");
     }
+
+    run_fuel_jobs(a);
 
     Request batch[kPerUpdate];
     uint32_t n = 0;
@@ -498,7 +635,79 @@ bool guarded_callback(KilnItemsDoneFn fn, const KilnItemsResult* r, void* user, 
     }
 }
 
+bool guarded_fuel_callback(KilnItemsFuelDoneFn fn, const KilnItemsFuelResult* r, void* user, unsigned long* code) {
+    __try {
+        fn(r, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool guarded_keep_callback(KilnItemsFuelKeepFn fn, uint64_t h, const KilnItemsFuelChange* c, uint32_t n, void* user,
+                           unsigned long* code) {
+    __try {
+        fn(h, c, n, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+void deliver_refills() {
+    struct Out {
+        uint64_t handle;
+        KilnItemsFuelKeepFn fn;
+        void* user;
+        std::vector<KilnItemsFuelChange> changes;
+    };
+    std::vector<Out> outs;
+    {
+        std::lock_guard lock(g_mu);
+        for (Keep& k : g_keeps)
+            if (k.on_refill && !k.changed.empty()) {
+                outs.push_back(Out{k.handle, k.on_refill, k.user, std::move(k.changed)});
+                k.changed.clear();
+            }
+    }
+    for (const Out& o : outs) {
+        unsigned long code = 0;
+        if (!guarded_keep_callback(o.fn, o.handle, o.changes.data(), static_cast<uint32_t>(o.changes.size()), o.user, &code))
+            LOGE("a refill callback (keep %llu) faulted (0x%08lx); ignored", static_cast<unsigned long long>(o.handle), code);
+    }
+}
+
+void deliver_fuel() {
+    deliver_refills();
+    std::vector<KilnItemsFuelResult> done;
+    std::vector<Callback> cbs;
+    {
+        std::lock_guard lock(g_mu);
+        if (g_fuel_done.empty()) return;
+        done.swap(g_fuel_done);
+        for (const KilnItemsFuelResult& r : done) {
+            auto it = g_callbacks.find(r.ticket);
+            if (it == g_callbacks.end()) cbs.push_back(Callback{});
+            else {
+                cbs.push_back(it->second);
+                g_callbacks.erase(it);
+            }
+        }
+    }
+    for (size_t i = 0; i < done.size(); ++i) {
+        const KilnItemsFuelResult& r = done[i];
+        LOGI("fuel ticket %llu%s: entity %u item 0x%08x flags 0x%x -> status %d, %u matched, %u changed, %u step(s)%s%s",
+             static_cast<unsigned long long>(r.ticket), (r.flags & KILN_ITEMS_FUEL_DRY_RUN) ? " (dry run)" : "",
+             r.entity, r.item, r.flags, r.status, r.matched, r.changed, r.steps, r.message[0] ? ": " : "", r.message);
+        unsigned long code = 0;
+        if (cbs[i].fuel_fn && !guarded_fuel_callback(cbs[i].fuel_fn, &r, cbs[i].user, &code))
+            LOGE("a Fuel result callback (owner %llu) faulted (0x%08lx); ignored",
+                 static_cast<unsigned long long>(cbs[i].owner), code);
+    }
+}
+
 void deliver() {
+    deliver_fuel();
     std::vector<KilnItemsResult> done;
     std::vector<Callback> cbs;
     {
@@ -527,6 +736,19 @@ void deliver() {
     }
 }
 
+KilnItemsFuelResult fuel_failure(const FuelRequest& q, int32_t status, const char* why, uint64_t step) {
+    KilnItemsFuelResult r{};
+    r.size = sizeof r;
+    r.ticket = q.ticket;
+    r.entity = q.job.r.entity;
+    r.item = q.job.r.item;
+    r.flags = q.job.r.flags;
+    r.steps = static_cast<uint32_t>(step - q.submitted);
+    r.status = status;
+    std::snprintf(r.message, sizeof r.message, "%s", why);
+    return r;
+}
+
 void expire() {
     const int state = g_program.load();
     const uint64_t step = g_step.load();
@@ -549,6 +771,17 @@ void expire() {
                       broken_now ? "give/take are off (see kiln.log)" : "the kiln_items program did not run for 10 s");
         g_done.push_back(r);
         g_pending.pop_front();
+    }
+    while (!g_fuel_pending.empty()) {
+        const FuelRequest& q = g_fuel_pending.front();
+        const bool broken_now = state == KILN_ITEMS_PROGRAM_BROKEN || state == KILN_ITEMS_PROGRAM_NONE;
+        const bool stale = step > q.submitted + kTimeoutSteps;
+        if (!broken_now && !stale) break;
+        g_fuel_done.push_back(fuel_failure(q, broken_now ? KILN_ITEMS_UNAVAILABLE : KILN_ITEMS_DROPPED,
+                                           broken_now ? "kiln.items' program is off (see kiln.log)"
+                                                      : "the kiln_items program did not run for 10 s",
+                                           step));
+        g_fuel_pending.pop_front();
     }
 }
 
@@ -592,6 +825,13 @@ void drop_world(const char* why) {
             g_done.push_back(r);
             g_pending.pop_front();
         }
+        while (!g_fuel_pending.empty()) {
+            g_fuel_done.push_back(fuel_failure(g_fuel_pending.front(), KILN_ITEMS_DROPPED, "the server world closed", step));
+            g_fuel_pending.pop_front();
+        }
+        if (!g_keeps.empty()) LOGI("server world closed: %zu keep-full entr%s ended", g_keeps.size(), g_keeps.size() == 1 ? "y" : "ies");
+        g_keeps.clear();
+        g_keep_count.store(0);
     }
     g_verified = false;
     g_world.store(0);
@@ -617,6 +857,12 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
 
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     g_step.store(tick->step);
+    {
+        float dt = tick->clock_delta > 0 && tick->clock_delta < 60 ? tick->clock_delta / 60.0f : 0.0f;  // the 60 Hz clock
+        uint32_t bits;
+        std::memcpy(&bits, &dt, 4);
+        g_step_dt_bits.store(bits, std::memory_order_relaxed);
+    }
     poll_world_program();
     expire();
     deliver();
@@ -670,6 +916,110 @@ KilnResult KILN_CALL t_take(KilnOwner owner, const KilnItemsRequest* r, KilnItem
     return submit(true, owner, r, done, user, out);
 }
 
+bool fuel_flags_ok(uint32_t f, bool keep) {
+    const uint32_t mode = f & (KILN_ITEMS_FUEL_FILL | KILN_ITEMS_FUEL_ADD);
+    if (f & ~(KILN_ITEMS_FUEL_FILL | KILN_ITEMS_FUEL_ADD | KILN_ITEMS_FUEL_INVENTORIES | KILN_ITEMS_FUEL_DRY_RUN))
+        return false;
+    if (mode == (KILN_ITEMS_FUEL_FILL | KILN_ITEMS_FUEL_ADD)) return false;
+    if (keep && (mode == 0 || (f & KILN_ITEMS_FUEL_DRY_RUN))) return false;  // a keep fills or adds
+    return true;
+}
+
+bool fuel_usable() {
+    const int state = g_program.load();
+    return E.fuel_ok && state != KILN_ITEMS_PROGRAM_NONE && state != KILN_ITEMS_PROGRAM_BROKEN;
+}
+
+KilnResult KILN_CALL t_fuel(KilnOwner owner, const KilnItemsFuelRequest* r, KilnItemsFuelDoneFn done, void* user,
+                            uint64_t* out_ticket) {
+    if (!r || r->size < sizeof(KilnItemsFuelRequest) || r->entity == 0 || r->limit < 0 ||
+        !fuel_flags_ok(r->flags, false))
+        return KILN_ERR_INVALID_ARGUMENT;
+    if (!fuel_usable()) return KILN_ERR_UNAVAILABLE;
+    FuelRequest q{};
+    q.ticket = g_next_ticket.fetch_add(1);
+    q.owner = owner;
+    q.job.r = *r;
+    q.job.r.size = sizeof(KilnItemsFuelRequest);
+    q.submitted = g_step.load();
+    {
+        std::lock_guard lock(g_mu);
+        if (g_fuel_pending.size() >= kMaxPending) return KILN_ERR_UNAVAILABLE;
+        g_fuel_pending.push_back(q);
+        if (done) {
+            Callback cb{};
+            cb.user = user;
+            cb.owner = owner;
+            cb.fuel_fn = done;
+            g_callbacks.emplace(q.ticket, cb);
+        }
+    }
+    if (out_ticket) *out_ticket = q.ticket;
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_fuel_read(KilnEntity entity, int32_t* current, int32_t* max) {
+    if (entity == 0) return KILN_ERR_INVALID_ARGUMENT;
+    if (!E.fuel_ok || !E.read_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    const uintptr_t world = g_world.load();
+    if (!world) return KILN_ERR_UNAVAILABLE;
+    void* attributes = reinterpret_cast<void*>(g_api->singleton(world, KilnStr{"impact::AttributeRegistry", 25}));
+    if (!attributes) return KILN_ERR_UNAVAILABLE;
+    int32_t cur = 0, mx = 0;
+    bool found = false;
+    unsigned long code = 0;
+    if (!read_fuel(world, attributes, entity, &cur, &mx, &found, &code)) {
+        LOGE("reading entity %u's Fuel faulted (0x%08lx)", entity, code);
+        return KILN_ERR_INTERNAL;
+    }
+    if (!found) return KILN_ERR_NOT_FOUND;
+    if (current) *current = cur;
+    if (max) *max = mx;
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_fuel_keep(KilnOwner owner, const KilnItemsFuelRequest* r, KilnItemsFuelKeepFn on_refill,
+                                 void* user, uint64_t* out_handle) {
+    if (!r || !out_handle || r->size < sizeof(KilnItemsFuelRequest) || r->entity == 0 || r->limit < 0 ||
+        !fuel_flags_ok(r->flags, true) || ((r->flags & KILN_ITEMS_FUEL_ADD) && r->units <= 0))
+        return KILN_ERR_INVALID_ARGUMENT;
+    if (!fuel_usable()) return KILN_ERR_UNAVAILABLE;
+    Keep k{};
+    k.handle = g_next_ticket.fetch_add(1);
+    k.owner = owner;
+    k.job.r = *r;
+    k.job.r.size = sizeof(KilnItemsFuelRequest);
+    k.on_refill = on_refill;
+    k.user = user;
+    k.rate = (r->flags & KILN_ITEMS_FUEL_ADD) ? r->units : 0.0;
+    {
+        std::lock_guard lock(g_mu);
+        if (g_keeps.size() >= kMaxKeeps) return KILN_ERR_UNAVAILABLE;
+        g_keeps.push_back(k);
+        g_keep_count.store(static_cast<uint32_t>(g_keeps.size()));
+    }
+    *out_handle = k.handle;
+    LOGI("refill %llu: entity %u%s item 0x%08x, %s%s (owner %llu)", static_cast<unsigned long long>(k.handle), r->entity,
+         (r->flags & KILN_ITEMS_FUEL_INVENTORIES) ? " (its inventories)" : "", r->item,
+         (r->flags & KILN_ITEMS_FUEL_ADD) ? "units per second " : "keep full",
+         (r->flags & KILN_ITEMS_FUEL_ADD) ? std::to_string(r->units).c_str() : "",
+         static_cast<unsigned long long>(owner));
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_fuel_keep_end(uint64_t handle) {
+    std::lock_guard lock(g_mu);
+    for (auto it = g_keeps.begin(); it != g_keeps.end(); ++it) {
+        if (it->handle != handle) continue;
+        g_keeps.erase(it);
+        g_keep_count.store(static_cast<uint32_t>(g_keeps.size()));
+        LOGI("refill %llu ended", static_cast<unsigned long long>(handle));
+        return KILN_OK;
+    }
+    return KILN_ERR_NOT_FOUND;
+}
+
 KilnResult KILN_CALL t_cancel(uint64_t ticket) {
     std::lock_guard lock(g_mu);
     return g_callbacks.erase(ticket) ? KILN_OK : KILN_ERR_NOT_FOUND;
@@ -679,6 +1029,12 @@ void KILN_CALL t_cancel_owner(KilnOwner owner) {
     std::lock_guard lock(g_mu);
     for (auto it = g_callbacks.begin(); it != g_callbacks.end();)
         it = it->second.owner == owner ? g_callbacks.erase(it) : std::next(it);
+    const size_t before = g_keeps.size();
+    g_keeps.erase(std::remove_if(g_keeps.begin(), g_keeps.end(), [owner](const Keep& k) { return k.owner == owner; }),
+                  g_keeps.end());
+    g_keep_count.store(static_cast<uint32_t>(g_keeps.size()));
+    if (before != g_keeps.size()) LOGI("owner %llu: %zu keep-full entr%s ended", static_cast<unsigned long long>(owner),
+                                       before - g_keeps.size(), before - g_keeps.size() == 1 ? "y" : "ies");
 }
 
 KilnResult KILN_CALL t_read(KilnEntity entity, KilnItemsInventory* info, KilnItemsSlot* slots, uint32_t capacity,
@@ -809,6 +1165,7 @@ const KilnItemsApi kTable = {
     {sizeof(KilnItemsApi), KILN_ITEMS_VERSION},
     &t_give, &t_take, &t_cancel, &t_cancel_owner, &t_read, &t_find,
     &t_item_count, &t_item_at, &t_item_info, &t_find_item, &t_id_of_guid, &t_status,
+    &t_fuel, &t_fuel_read, &t_fuel_keep, &t_fuel_keep_end,
 };
 
 // ============================================================================================= boot ============
@@ -859,15 +1216,19 @@ void resolve() {
     E.program_ok = feat("items.program") && common && sym("items/RegisterProgram", &E.register_program) &&
                    sym("items/RegisterAllPrograms", &E.register_all) && sym("items/IterBegin", &E.iter_begin) &&
                    cst("items/world.program_count", &E.program_count);
+    E.fuel_ok = E.tx_ok && feat("items.fuel") && sym("items/WriteOther", &E.write_other) &&
+                sym("items/JobTracker", &E.job_tracker) && sym("items/JobWriteFlag", &E.job_write_flag) &&
+                sym("items/AttrFind", &E.attr_find) && sym("items/AttrChanged", &E.attr_changed);
     if (E.tx_ok) {
         g_tx = static_cast<uint8_t*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(E.tx_size), MEM_COMMIT | MEM_RESERVE,
                                                   PAGE_READWRITE));
         if (!g_tx) E.tx_ok = false;
     }
-    LOGI("resolved: transaction %s (tx %lld bytes), read %s, catalog %s, scan %s, own program registration %s, recipe path %s",
+    LOGI("resolved: transaction %s (tx %lld bytes), read %s, catalog %s, scan %s, own program registration %s, recipe path %s, "
+         "tracked Fuel writes %s",
          E.tx_ok ? "on" : "OFF", static_cast<long long>(E.tx_size), E.read_ok ? "on" : "OFF",
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
-         E.recipe_apply ? "on" : "OFF");
+         E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF");
 }
 
 void KILN_CALL on_ready(void*) {
@@ -904,7 +1265,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{kName, std::strlen(kName)};
-    info->version = KilnStr{"1", 1};
+    info->version = KilnStr{"2", 1};
     info->on_ready = &on_ready;
     resolve();
     KilnHandle h = 0;

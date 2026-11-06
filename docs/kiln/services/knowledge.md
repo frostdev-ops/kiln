@@ -11,6 +11,8 @@
 | Test mod | `mods/tests/quests-test/` |
 | Evidence | `docs/re/quests.md` (Q§), `docs/re/creatures.md` §7 (dialogue) |
 
+Typed, read-only answers built on it (spires, shrines, bosses, a character's quests in one list): [world-progress.md](world-progress.md).
+
 This is the base of the quest engine (Q1): every vanilla quest step, NPC rescue, dialogue line "heard" and unlock is a
 knowledge id, so a mod that can grant, read, revoke and watch knowledge can drive vanilla quests and NPCs with vanilla
 clients, and its own quest engine can react to dialogue.

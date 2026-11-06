@@ -33,6 +33,8 @@ public sealed class AdminMod : Mod
         Ops.RegisterProgressionSafe(_bridge, Log);
         Ops.RegisterKnowledgeSafe(_bridge, Log);
         Ops.RegisterQuestsSafe(_bridge, Log);
+        Ops.RegisterWorldStatusSafe(_bridge, Log);
+        Ops.RegisterRulesSafe(_bridge, Log);
         StartTcp(config);
         Context.Tick.Pre += OnPre;
         Log.Info($"file bridge at {_bridge.Directory}; ops: {string.Join(", ", _bridge.OpNames)}");

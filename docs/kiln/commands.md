@@ -124,3 +124,20 @@ kilnctl cmd ~/srv/enshrouded/labs/api --complete "/apitest m"
 kilnctl cmd <instance> --json time set 7                                                # raw result
 ```
 Exit codes: 0 ok, 1 a line failed, 2 no answer within `--timeout` (default 15 s; the service tick needs one loaded mod).
+
+## Kiln.Admin's commands
+### `/creative [on|off] [player]`, `/creative status`
+Creative mode for one player: the `creative` rules preset (Kiln.Rules: Kiln's own, or the server's
+`<configDir>/rules/creative.json`) applied for the session. Node `kiln.command.creative`, level Admin.
+- `/creative` toggles it for yourself; `/creative on|off` sets it; a player name does it for that player;
+  `/creative status` lists who has it and which hooks work on this build.
+- What it gives (Kiln's preset): the game's building fly mode anywhere (the character lands where the flight ends),
+  building outside bases and in no-build zones, near enemies and in the Shroud, free building (dismantling gives
+  nothing back), tools that break blocks and terrain in one hit, no damage, health, stamina and mana kept full, water
+  containers kept full. Not other players' bases: the server's `rules.json` must allow that. It grants no levels, XP,
+  skill points or unlocks; it is meant for throwaway or creative worlds.
+- Refused for a player whose game has no Kiln with the rules channel (flight and building need it).
+- It ends with `/creative off`, when the player leaves, or when Kiln.Admin unloads. A flight outside a base ends at
+  once and sets the player down on the ground. Builds placed outside bases stay in the save.
+- The same for remote tools: the admin op `creative {entity, on?}`; `rules` lists the active rule sets
+  (docs/kiln/launcher/admin-protocol.md).

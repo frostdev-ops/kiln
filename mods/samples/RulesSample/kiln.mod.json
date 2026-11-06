@@ -1,0 +1,9 @@
+{
+  "id": "rules-sample",
+  "name": "Rules sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "RulesSample.dll",
+  "side": "server",
+  "description": "Kiln.Rules in three small uses: /flight gives 60 s of the building fly mode anywhere, no stamina drain inside bases, and a half-cost building weekend from a config switch. Flight needs Kiln in the player's game."
+}

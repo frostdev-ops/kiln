@@ -7,11 +7,11 @@ entity, and the change is replicated and saved like a vanilla one. Evidence and 
 
 | Layer | Where |
 |---|---|
-| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`) |
-| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v1) |
+| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`) |
+| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v2: v1 + water) |
 | Native | `native/services/items/` → `kiln/services/kiln-items.dll` |
 | Managed | `managed/services/Kiln.Items/` → `kiln/host/Kiln.Items.dll` (namespace `Kiln`, class `Items`) |
-| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log); `mods/tests/craftmatch-test/` (rarity, level, perks of made items) |
+| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots) |
 
 ## C#
 
@@ -79,6 +79,44 @@ elsewhere). Continuations of `await Items.Give(...)` come back on the tick threa
 its pending results are dropped (the transaction itself may still run). Item entity ids (`ItemEntity`) of gear are
 reassigned when the save loads: do not keep them across restarts.
 
+## Water in containers (`Items.Fuel`)
+Watering cans, water pouches, the water pump, barrels and wells hold water in the game's `Fuel` attribute, 64 units per
+charge (a can of 100 charges holds 6,400). `Items.Fuel` reads it and changes it through the game's tracked write, so
+players see the new amount and the next save keeps it, like after the game's own fill or pour. A raw write
+(`World.TryWrite`) reaches players too, but the save skips it on a container that was already saved
+(docs/re/items.md section 12).
+
+```csharp
+FuelLevel? w = Items.Fuel.Read(can);                       // (Units, Max), Charges, IsFull; null: it holds no water
+await Items.Fuel.Set(can, 3200);                           // clamped to 0..max
+await Items.Fuel.Add(can, -64);                            // one charge out
+await Items.Fuel.Fill(barrel);                             // a placed container: the entity itself
+FuelResult r = await Items.Fuel.FillAll(player, canItem);  // every can in a player's inventories (or a chest's)
+await Items.Fuel.SetAll(chest, 0);                         // every container in the chest, emptied
+using FuelKeep keep = Items.Fuel.KeepFull(player, canItem); // full every step, after the game's own pours
+using FuelKeep slow = Items.Fuel.Refill(barrel, FuelRefill.ChargesPerSecond(2, limitUnits: 3200), inventories: false);
+slow.Refilled += changes => Log.Info($"{changes.Sum(c => c.After - c.Before)} units back");   // also WaterRefilledEvent
+```
+- `Set`, `Add`, `Fill` act on one container (an item entity or a placed one). `FillAll` and `SetAll` act on every
+  container in a holder's inventories (Virtual links expanded), only those of `item` when given. Each takes `dryRun`.
+- `FuelResult`: `Status` (`Done`, also when nothing needed a change; `SlotChanged` when the entity holds no water;
+  `NoInventory` when a holder has none; `Unavailable`, `Dropped`), `Matched` (containers found), `Changed`, `Changes`
+  (container, item, slot, before, after, max; the first 16), `Message`, `Steps`, `DryRun`.
+- **Refill policies:** `Refill(entity, FuelRefill policy, item, inventories = true)`; `KeepFull(...)` is
+  `Refill(..., FuelRefill.Full)`. Every sim step, inside kiln.items' program, the containers get water back:
+  `FuelRefill.Full` keeps them full, `FuelRefill.ChargesPerSecond(n)` adds n charges per second of game time; `Limit`
+  (units) is the level kept or refilled to, and a container above it is left as it is. The program runs after the game's
+  programs that pour and fill (`impact_simulation`, `actor_interaction`), so a can poured in a step is full again at the
+  end of that step and players are sent a full can. The returned `FuelKeep` counts `UnitsAdded` and raises `Refilled`
+  (the containers it changed since the last step); `WaterRefilledEvent` is the same on the event bus. Dispose the handle
+  to stop; the mod's unload and a closing server world stop it too. It does not end when the entity goes away: a
+  player's entity id is reused by the next player who joins, so dispose it when the player leaves (Kiln.Rules' `Water`
+  rule does that: docs/kiln/services/rules.md). At most 256 at once.
+- `FillAll(holder, IEnumerable<ItemId>)`: one fill per item, the results added up.
+- Units are the game's: what players see is `NetworkFuel`, a 16-bit copy (docs/re/items.md section 11).
+- Errors throw like `Read`: `NotSupportedException` when the runtime's kiln.items has no water functions (an older
+  Kiln), `InvalidOperationException` off the tick thread.
+
 ## C (native plugins and services)
 ```c
 const KilnItemsApi* it = api->service((KilnStr){"kiln.items", 10}, 1);   /* in on_ready */
@@ -88,7 +126,10 @@ it->give(owner, &r, on_done, user, &ticket);       /* on_done(const KilnItemsRes
 ```
 `give`/`take` (any thread; refused at once with `KILN_ERR_INVALID_ARGUMENT` / `KILN_ERR_UNAVAILABLE`), `cancel`,
 `cancel_owner`, `read` / `find_inventories` (tick thread, Pre or Post), `item_count` / `item_at` / `item_info` /
-`find_item` / `item_id_of_guid`, `status`. Details and every field: the header.
+`find_item` / `item_id_of_guid`, `status`. v2 (check `header.size`): `fuel` (a `KilnItemsFuelRequest`: `SET`, `FILL` or
+`ADD`, `INVENTORIES`, `DRY_RUN`, `limit`; the callback gets a `KilnItemsFuelResult`), `fuel_read` (tick thread),
+`fuel_keep` (a refill policy: `FILL`, or `ADD` with `units` per second; an optional callback with what it refilled, once
+per Pre) / `fuel_keep_end`. Details and every field: the header.
 
 ## How it runs
 - A system ECS program `kiln_items` (other-write Inventory, InventorySetup, InventoryEmptyState, ItemState,
@@ -97,7 +138,10 @@ it->give(owner, &r, on_done, user, &ticket);       /* on_done(const KilnItemsRes
   loaded (`KILN_ITEMS_PROGRAM=auto|own|world` overrides). At its first update it checks every accessor against the
   world's component map; until then, and after any failed check or fault, give/take answer `Unavailable`.
 - Requests queue (max 1024), run 16 per step inside the program, and their callbacks run in the next Pre. A request
-  that has not run after 10 s comes back `Dropped`.
+  that has not run after 10 s comes back `Dropped`. Water requests have their own queue (64 per step) and run before
+  give/take in the same update; keep-full entries run every update while any exist.
+- Water writes: `WriteOther` on the program's other-write `Fuel` accessor with the job's tracker, the new value, then the
+  attribute's formulas (`AttrChanged`), only where the value changes.
 - Give to a player sets the operator to that player (PickupEvent receiver, knowledge unlocks); containers get neither.
 - Reads use `GetComponent` on the tick thread; `FindInventories` uses kiln.world's `find` (or the service's own scan
   of the entity map).
@@ -121,6 +165,24 @@ it->give(owner, &r, on_done, user, &ticket);       /* on_done(const KilnItemsRes
 6. `Items.Read(player)`: backpack, action bars, equipment links and categories look as in the client.
 7. Disconnect while a request is queued: the result is `NoInventory` (or `Done` if it ran first); no crash.
 8. Give to a player still loading in: `NoInventory` "not initialized yet".
+
+## Lab results: water (a lab with a copied world, no player)
+`mods/tests/fuel-test`, three boots: boot 1 30 PASS, boot 2 5 PASS, boot 3 6 PASS, 0 FAIL.
+```
+PASS Set(can, 1234): Done: 1 of 1 container(s) changed, now 1234/6400 (19.3/100 charges)
+PASS players are sent it (NetworkFuel 1234)
+PASS FillAll(chest, can) fills only cans: ...; can 6400/6400, pouch 0/1280
+PASS drained 20 times, full again at the next step 20 times
+PASS 10 charges a second for ~1 s: ... units; it stops at its limit (1000) and fills only cans
+PASS keep full up to 3200: can 3200/6400 (capped), pouch 1280/1280
+PASS after the keep is disposed a drain stays: 100/6400
+PASS written on loaded containers: can 4321 (tracked), pouch 777 (tracked), control 3000 (raw)
+PASS the can kept the tracked write: 4321/6400 (67.5/100 charges)
+PASS the pouch kept the tracked write: 777/1280 (12.1/20 charges)
+PASS the control can lost the raw write, as the game's save skips untracked writes: 1000/6400 (raw 3000, saved 1000)
+```
+A container created in the same session is saved whole at the next save, raw writes included; the control proves the
+difference only on a container a save already wrote, so the test writes in boot 2 and reads in boot 3.
 
 ## In a game client (hosted worlds)
 - The own-registration fallback (RegisterAllPrograms hook) skips worlds whose kind is not 0 (a client's client and

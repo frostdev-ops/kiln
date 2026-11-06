@@ -14,7 +14,7 @@ namespace Kiln;
 /// sim step: the returned task completes on the tick thread one or two steps later (40-80 ms on a dedicated server).
 /// Read, FindInventories and the catalog are synchronous. Call everything on the tick thread (mod code runs there).
 /// </remarks>
-public static unsafe class Items
+public static unsafe partial class Items
 {
     private static ItemsNative.Table* _table;
 

@@ -1,0 +1,9 @@
+{
+  "id": "worldstatus-test",
+  "name": "World progress test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "WorldStatusTest.dll",
+  "side": "server",
+  "clients": "none"
+}

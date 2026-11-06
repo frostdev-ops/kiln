@@ -105,6 +105,24 @@
         { "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48" }
       ]
     },
+    "@items/FuelWrite.site": {
+      "comment": "actor_interaction's TransferFuelEvent: the job's write flag, its tracker and storage, then the tracked other-entity write of Fuel (docs/re/items.md section 12)",
+      "find": [
+        { "pattern": "E8 {items/JobWriteFlag:rel32} 49 8B 4D 00 0F B6 D8 E8 {items/JobTracker:rel32} 49 8B 4D 00 48 8B F8 E8 {items/JobStorage:rel32} 4C 8B CE 88 5C 24 28 4C 8B C7 44 89 74 24 20 48 8B D0 48 8D 8D ?? ?? 00 00 E8 {items/WriteOther:rel32}" }
+      ]
+    },
+    "@items/AttrFind.site": {
+      "comment": "actor_interaction looks up Fuel_Max (0xa00e2601) in the attribute registry",
+      "find": [
+        { "pattern": "BA 01 26 0E A0 E8 {items/AttrFind:rel32} 0F B6 B5 ?? ?? 00 00 40 84 F6" }
+      ]
+    },
+    "@items/AttrChanged.site": {
+      "comment": "actor_interaction takes the moved water off the source's Fuel, then re-runs its formulas",
+      "find": [
+        { "pattern": "29 3C 8A 48 8B D6 48 8B CB E8 {items/AttrChanged:rel32}" }
+      ]
+    },
     "@items/GetComponent.fields": {
       "find": [
         { "scope": { "symbol": "GetComponent", "size": 96 }, "pattern": "48 8B 0F 41 8B D9 48 81 C1 {items/registry.components:d32} E8 {items/ComponentMapFind:rel32} 4C 8B C0 44 8B CB 48 8B D7 48 8B CE E8 {items/ReadOtherImpl:rel32}" }
@@ -165,6 +183,10 @@
     },
     "items.recipe": {
       "symbols": ["items/RecipeApply", "content/RecipeFind"]
+    },
+    "items.fuel": {
+      "symbols": ["items/WriteOther", "items/JobTracker", "items/JobWriteFlag", "items/JobStorage", "items/AttrFind",
+                  "items/AttrChanged", "@items/FuelWrite.site", "@items/AttrFind.site", "@items/AttrChanged.site"]
     },
     "items.scan": {
       "symbols": ["GetComponent", "items/ReadOtherImpl", "items/HashMapFindEntity", "@items/ReadOtherImpl.fields"],

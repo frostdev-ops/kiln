@@ -37,7 +37,7 @@ kiln catalog search "bronze sword" [--section items] [--limit 20] [--json]
 - the launcher's known games, else
 - the Steam libraries (client app 1203620, server app 2278520).
 
-A build takes about half a second (release build: client 0.5 s, server 1.0 s).
+A build takes about a second (release build: client 0.9 s, server 0.7 s).
 
 **Current or outdated.** The catalog records the game's `.kfc` version string (it changes with every data build) and
 the extraction `recipe`. `status` reads only the `.kfc` header, so the check is cheap.
@@ -99,6 +99,11 @@ where the game has them, plus the per-section fields below.
 | `sounds` | every `SoundContainerResource` (sound cues; client only) | the first sound's debugName (the GUID when none) / FNV-1a / GUID | `scene`, `positional`, `entries` | 6,951 |
 | `vfx` | every `keen::VfxResource` (client only). VFX have no names of their own, so see below | a template that carries it, a sequence that plays it, a label, or `Vfx_<guid8>` / FNV-1a of the GUID / GUID | `namedFrom`, `byName`, `names`, `usedBy`, `particles`, `emitters`, `meshes`, `textures`, `cullDistance`, `killTime`, `length`, `parameters` | 1,575 |
 | `materials` | `TerraformingEfficiencyRegistryResource`, the world's `materialGuids`, the items that place each material | from the placing item's name (`Block_T1_Wood_Rough_CRAFTING` → `WoodRough`, `Build_TerrainMaterial_T1_Stone` → `TerrainStone`), else `Cell<id>` / — / the material's GUID | `kind` (`building` / `terrain`), `cell`, `displayName`, `item`, `hardness`, `health`, `breaks`, `roof` | 201 |
+| `spires` | the global chunk's `MapMarker_Tower_<a>_FastTravel<b>` placements | `<a><b>` lower-cased / – / – | `template`, `displayName`, `position`, `unlock`, `topReached`, `beacon` (below) | 10 |
+| `shrines` | `achievement_all_FlameTemplesAndShrines_found_<NN>_<Region>` queries | see World things below | `knowledge`, `scope`, `kind` (`shrine` / `sanctum`), `template`, `displayName`, `position` | 68 |
+| `shroudRoots` | `achievement_all_shroudRoots_destroyed_<NN>_<Region>` queries | see World things below | `knowledge`, `scope`, `elixirWell`, `skillPoints`, `template`, `position` | 75 |
+| `obelisks` | `achievement_all_Obelisks_read_<NN>_<Region>` queries | see World things below | `knowledge`, `scope`, `template`, `displayName`, `position` | 13 |
+| `bosses` | world placements of a `BossHealthBar` template, or of a spawner of one | the boss template's name lower-cased, `_<n>` when placed more than once | `template`, `spawner`, `displayName`, `position`, `kill`, `scope` | 30 |
 | `loca` | `LocaTagCollectionResource`, en-us (client only) | – / tag id (FNV-1a of the tag GUID) / – | `text` (with the game's markup) | 16,740 |
 
 The names and ids follow kiln.content and kiln.gamedata exactly (`native/services/content/gamedata_res.cpp`): what the
@@ -115,6 +120,31 @@ is how long Kiln runs it as a one-shot: the larger of `killTime` and its `durati
 
 `parameters` are `{name, type, default}`, or `{hash, type, default}` where the name isn't known. The game stores only the FNV-1a of a name, so names are recovered by hashing the strings in your exe and the names of particle state members.
 That finds about a fifth of them (client 1287369: 1,541 of 8,049 uses). `type` comes from the DsTypeId, the FNV-1a of `VfxEffectParameter<Type>`.
+
+**World things.** `spires`, `shrines`, `shroudRoots`, `obelisks` and `bosses` give the world's landmarks stable
+names. The names follow fixed rules on the game's data, so code that reads the running game's data makes the same
+names without a catalog. Names are lower case; compare them case-insensitively.
+- **Shrines, roots, obelisks**: one entry per action of the region's achievement query (names starting `DEPRECATED`
+  are left out) that is a `Knowledge` action with a `SimpleBool`, `SimpleCount` or `SimpleFlag` query. The name is the
+  action name lower-cased, with `<region>_` in front unless it starts with that already: action `Well_04` of
+  `..._03_FarHills` is `farhills_well_04`. A repeat within a section gets `_2`, `_3`. `knowledge` is the action's id.
+  Shrines: `kind` is `sanctum` when the action name contains `flametemple`. Roots: `elixirWell` when it starts with
+  `well`, `skillPoints` from `GameKnowledgeResource.skillPoints`.
+- **Spires**: `unlock` is the placement's `KnowledgeQuery` (`{id, type, compareValue, scope}`); `topReached` is its
+  Bool knowledge operation that an `Achievement_Tower_*` query names in a `*topReached*` action (`{id, scope}`);
+  `beacon` is the `KnowledgeQuery` of the nearest `Prop_Tower_Beacon` in the global chunk within 64 m.
+- **Bosses**: every entity of the world scene (all chunks) whose template has a `BossHealthBar`, or a `TriggerSpawner`
+  / `RandomSpawner` that spawns one (the first boss in entry order: `template`, the placed spawner: `spawner`). A boss
+  placed more than once gets `_1`, `_2`, … on every placement, in chunk then entity order. `kill`: of the placement's
+  Bool knowledge operations with context Kill or Invalid (in slot order), the first that is a world object, else the
+  first Kill one, else the first; without any, the boss template's `KnowledgeTriggerOnKill` id (when it does not use
+  the scene's).
+- `scope` of a knowledge id: `world` (a world object), `both` (a world object with a player twin,
+  `hasOptionalPlayerProgression`), `character` (a player object only).
+- `position` is `[x, y, z]` in world metres, y up. Shrines: their map marker in the global chunk that carries the
+  knowledge operation; roots: the root plant in a regular chunk that carries it; obelisks: the first placement that
+  carries it.
+- The world scene is the `SceneEntityChunkResource` with the most parts; its last part is the global chunk.
 
 `fields` lists, per section, the paths data packs can name. They come from the exe's reflection:
 - `{path, type, kind, writable?, enum?, enumNumbers?}`; paths like `maxStackSize`, `damageSetup.dmgMod`, `perkIds[2]`,

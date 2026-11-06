@@ -577,6 +577,112 @@ void register_impl(uintptr_t world, void* desc, int* outcome, char* why) {
     *outcome = 1;
 }
 
+
+void fail_fuel(KilnItemsFuelResult* res, int32_t status, const char* fmt, uint32_t a = 0) {
+    res->status = status;
+    std::snprintf(res->message, sizeof res->message, fmt, a);
+}
+
+// ---- water: tracked Fuel writes (docs/re/items.md section 12) ----
+// A Fuel component is an attribute block: {u32 group; u16 values offset; u8 flags (bit 0: has values); u8 count;
+// s32 values[count]}. The attribute registry gives each attribute's index into the values.
+struct FuelSlots {
+    int32_t cur = -1, max = -1;  // value indices
+};
+
+bool fuel_slots(void* attributes, const uint8_t* comp, FuelSlots* fs) {
+    if (!comp || !(comp[6] & 1)) return false;
+    AttrRef r{};
+    E.attr_find(&r, kAttrFuel, attributes);
+    if (r.error || !r.desc || rd<uint32_t>(r.desc, 0) != rd<uint32_t>(comp, 0)) return false;
+    fs->cur = rd<uint16_t>(r.desc, 0xC);
+    AttrRef m{};
+    E.attr_find(&m, kAttrFuelMax, attributes);
+    if (m.error || !m.desc || rd<uint32_t>(m.desc, 0) != rd<uint32_t>(comp, 0)) return false;
+    fs->max = rd<uint16_t>(m.desc, 0xC);
+    const uint8_t count = comp[7];
+    return fs->cur < count && fs->max < count;
+}
+
+int32_t* fuel_values(uint8_t* comp) { return reinterpret_cast<int32_t*>(comp + rd<uint16_t>(comp, 4)); }
+
+int32_t fuel_target(const KilnItemsFuelRequest& r, int32_t cur, int32_t max) {
+    const int32_t top = r.limit > 0 && r.limit < max ? r.limit : max;
+    int64_t t = cur;
+    if (r.flags & KILN_ITEMS_FUEL_FILL) t = top;
+    else if (r.flags & KILN_ITEMS_FUEL_ADD) t = static_cast<int64_t>(cur) + r.units;
+    else t = r.units;
+    const bool raise = (r.flags & KILN_ITEMS_FUEL_FILL) || ((r.flags & KILN_ITEMS_FUEL_ADD) && r.units > 0);
+    if (raise && cur >= top) return cur;  // already at or above the level: left as it is
+    const int32_t upper = (r.flags & KILN_ITEMS_FUEL_ADD) && r.units < 0 ? max : top;
+    if (t < 0) t = 0;
+    if (t > upper) t = upper;
+    return static_cast<int32_t>(t);
+}
+
+// One container. Returns true when it holds water (matched).
+bool fuel_one(const Access& a, const KilnItemsFuelRequest& r, KilnEntity e, KilnItemId item, uint64_t slot,
+              KilnItemsFuelResult* res) {
+    PtrSize ps{};
+    E.read_other(&ps, a.storage, a.acc[A_FUEL], e);
+    auto* comp = static_cast<uint8_t*>(ps.ptr);
+    FuelSlots fs;
+    if (!comp || !fuel_slots(a.attributes, comp, &fs)) return false;
+    ++res->matched;
+    int32_t* v = fuel_values(comp);
+    const int32_t before = v[fs.cur], max = v[fs.max];
+    const int32_t after = fuel_target(r, before, max);
+    if (after == before) return true;
+    if (!(r.flags & KILN_ITEMS_FUEL_DRY_RUN)) {
+        // The same component through the tracked path: WriteOther marks it written for this job (replication to
+        // players, the next save), as the game's own programs do before they change another entity's Fuel.
+        PtrSize w{};
+        E.write_other(&w, a.storage, E.job_tracker(a.job), a.acc[A_FUEL], e, E.job_write_flag(a.ctx));
+        if (w.ptr != comp) return true;  // not the block we read: leave it alone
+        fuel_values(comp)[fs.cur] = after;
+        E.attr_changed(comp, a.attributes);  // the attribute's own formulas: the 0..max clamp
+    }
+    ++res->changed;
+    if (res->change_count < KILN_ITEMS_MAX_FUEL_CHANGES) {
+        KilnItemsFuelChange& c = res->changes[res->change_count++];
+        c.container = e;
+        c.item = item;
+        c.slot = slot;
+        c.before = before;
+        c.after = (r.flags & KILN_ITEMS_FUEL_DRY_RUN) ? after : fuel_values(comp)[fs.cur];
+        c.max = max;
+    }
+    return true;
+}
+
+void run_fuel_impl(const Access& a, const KilnItemsFuelRequest& r, KilnItemsFuelResult* res) {
+    if (!(r.flags & KILN_ITEMS_FUEL_INVENTORIES)) {
+        if (!fuel_one(a, r, r.entity, 0, 0, res))
+            return fail_fuel(res, KILN_ITEMS_SLOT_CHANGED, "entity %u holds no water (no Fuel)", r.entity);
+        res->status = KILN_ITEMS_DONE;
+        return;
+    }
+    const auto* setup = static_cast<const uint8_t*>(other(a, A_SETUP, r.entity));
+    if (!setup) return fail_fuel(res, KILN_ITEMS_NO_INVENTORY, "entity %u has no inventory (no InventorySetup)", r.entity);
+    if (!setup[E.setup_initialized])
+        return fail_fuel(res, KILN_ITEMS_NO_INVENTORY, "entity %u's inventory is not initialized yet", r.entity);
+    Tree t{};
+    walk(setup, &setup_via_access, &a, &t, 0, -1);
+    for (uint32_t i = 0; i < t.n; ++i) {
+        const auto* inv = static_cast<const uint8_t*>(other(a, A_INVENTORY, t.ids[i]));
+        if (!inv) continue;
+        for (uint32_t k = 0; k < 8; ++k) {
+            const uint8_t* st = inv + 12 * k;
+            const KilnItemId item = rd<uint32_t>(st, 0);
+            const KilnEntity pide = rd<uint32_t>(st, 8);
+            if (!item || !pide || rd<uint32_t>(st, 4) == 0) continue;
+            if (r.item && item != r.item) continue;
+            fuel_one(a, r, pide, item, KILN_SLOT_ID(t.ids[i], k), res);
+        }
+    }
+    res->status = KILN_ITEMS_DONE;
+}
+
 }  // namespace
 
 // ---- guarded entry points ----
@@ -596,6 +702,34 @@ bool run_job(const Access& a, const Job& job, uint8_t* tx, KilnItemsResult* res,
         if (job.take) run_take(a, job.r, tx, res);
         else if (job.r.flags & KILN_ITEMS_RECIPE) run_recipe(a, job.r, tx, res);
         else run_give(a, job.r, tx, res);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool run_fuel(const Access& a, const FuelJob& job, KilnItemsFuelResult* res, unsigned long* code) {
+    __try {
+        run_fuel_impl(a, job.r, res);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool read_fuel(uintptr_t world, void* attributes, KilnEntity entity, int32_t* current, int32_t* max, bool* found,
+               unsigned long* code) {
+    __try {
+        *found = false;
+        PtrSize ps{};
+        E.get_component(&ps, world, kHashFuel, entity);
+        auto* comp = static_cast<uint8_t*>(ps.ptr);
+        FuelSlots fs;
+        if (!comp || !fuel_slots(attributes, comp, &fs)) return true;
+        const int32_t* v = fuel_values(comp);
+        *current = v[fs.cur];
+        *max = v[fs.max];
+        *found = true;
         return true;
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         return false;

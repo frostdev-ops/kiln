@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT
- * kiln.items v1: put items into and take them out of inventories (players' backpacks, chests, villagers), gear with a
+ * kiln.items v2 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end): put items into and take them out of inventories (players' backpacks, chests, villagers), gear with a
  * level and rarity included; read an entity's inventory; the game's item catalog.
  *
  * How it works: every give/take goes through the game's own inventory transaction (the code its admin "create item",
@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define KILN_ITEMS_SERVICE "kiln.items"
-#define KILN_ITEMS_VERSION 1u
+#define KILN_ITEMS_VERSION 2u  /* v2 appends the fuel functions; check header.size before using them */
 
 typedef uint32_t KilnItemId;  /* 0 = none */
 typedef uint64_t KilnSlotId;  /* 0 = none / let the game choose */
@@ -216,6 +216,71 @@ typedef struct KilnItemsStatus {
     char detail[160];        /* the reason when transactions == 0; NUL-terminated */
 } KilnItemsStatus;
 
+/* ---------------------------------------------------------------------------------------------- water ------- */
+
+/* Water in containers ("Fuel" in the game: watering cans, pouches, the water pump, barrels, wells; docs/re/items.md
+ * sections 11 and 12). Units: 64 per charge (FuelSetup.maxFuelCharges x 64 is the max). Writes run inside the
+ * kiln_items program through the game's tracked other-entity write (WriteOther + the attribute's formulas), so the
+ * new amount reaches players and the save like the game's own changes. Feature items.fuel. */
+
+/* KilnItemsFuelRequest.flags */
+enum {
+    KILN_ITEMS_FUEL_SET = 0x0000u,         /* current := units (clamped to 0..max) */
+    KILN_ITEMS_FUEL_FILL = 0x0001u,        /* current := max (units ignored) */
+    KILN_ITEMS_FUEL_ADD = 0x0002u,         /* current += units (may be negative; clamped to 0..max) */
+    KILN_ITEMS_FUEL_INVENTORIES = 0x0010u, /* entity is a holder (player, chest, ...): every container in its
+                                              inventories (Virtual links expanded), only `item` when not 0; without
+                                              it entity is the container itself (an item entity, a barrel, a well) */
+    KILN_ITEMS_FUEL_DRY_RUN = 0x0040u,     /* say what would change, change nothing */
+};
+
+typedef struct KilnItemsFuelRequest {
+    uint32_t size;      /* sizeof(KilnItemsFuelRequest) */
+    uint32_t flags;     /* one of SET / FILL / ADD, plus INVENTORIES, DRY_RUN; other bits are refused */
+    KilnEntity entity;
+    KilnItemId item;    /* with INVENTORIES: only containers of this item (0 = every container that holds water) */
+    int32_t units;      /* SET: the new amount; ADD: the change (fuel_keep: units per second, > 0) */
+    int32_t limit;      /* no higher than this many units (0 = the container's max); a container already above it is
+                           left as it is by FILL and ADD */
+} KilnItemsFuelRequest;
+
+typedef struct KilnItemsFuelChange {
+    KilnEntity container; /* the item entity (pide) or the placed container */
+    KilnItemId item;      /* the container's item (0 = not in an inventory) */
+    KilnSlotId slot;      /* where it sits (0 = not in an inventory) */
+    int32_t before;       /* units */
+    int32_t after;        /* units (with DRY_RUN: what it would be) */
+    int32_t max;
+    uint32_t reserved;  /* 0 */
+} KilnItemsFuelChange;
+
+#define KILN_ITEMS_MAX_FUEL_CHANGES 16u
+
+typedef struct KilnItemsFuelResult {
+    uint32_t size;      /* sizeof(KilnItemsFuelResult) of kiln.items */
+    int32_t status;     /* KILN_ITEMS_DONE (also when nothing needed a change), NO_INVENTORY (no such entity / no
+                           inventory with INVENTORIES), SLOT_CHANGED (the entity holds no water: no Fuel),
+                           UNAVAILABLE, DROPPED */
+    uint64_t ticket;
+    KilnEntity entity;
+    KilnItemId item;
+    uint32_t flags;
+    uint32_t matched;   /* containers found */
+    uint32_t changed;   /* containers whose amount changed (with DRY_RUN: would change) */
+    uint32_t steps;     /* sim steps between the request and the write */
+    uint32_t change_count;
+    uint32_t reserved;
+    KilnItemsFuelChange changes[KILN_ITEMS_MAX_FUEL_CHANGES]; /* the changed containers, first 16 */
+    char message[160];  /* "" when DONE; NUL-terminated */
+} KilnItemsFuelResult;
+
+typedef void(KILN_CALL* KilnItemsFuelDoneFn)(const KilnItemsFuelResult* result, void* user);
+
+/* What a keep changed since the last call: one entry per container (before = its units before the first write, after =
+ * now). Tick thread, Pre. */
+typedef void(KILN_CALL* KilnItemsFuelKeepFn)(uint64_t handle, const KilnItemsFuelChange* changes, uint32_t count,
+                                             void* user);
+
 /* ---------------------------------------------------------------------------------------------- the table ---- */
 
 typedef struct KilnItemsApi {
@@ -232,7 +297,8 @@ typedef struct KilnItemsApi {
     /* Drops a request's callback (the transaction may still run if it already started). KILN_ERR_NOT_FOUND when its
      * callback already ran. Any thread. */
     KilnResult(KILN_CALL* cancel)(uint64_t ticket);
-    /* Drops the callbacks of every request of `owner` (call it when a plugin's owner goes away). Any thread. */
+    /* Drops the callbacks of every request of `owner` and ends its fuel_keep entries (call it when a plugin's owner
+     * goes away). Any thread. */
     void(KILN_CALL* cancel_owner)(KilnOwner owner);
 
     /* The inventory of `entity`: *info (optional) and up to `capacity` slots (every slot of every linked 8-slot
@@ -255,6 +321,26 @@ typedef struct KilnItemsApi {
     KilnItemId(KILN_CALL* item_id_of_guid)(const uint8_t guid[16]);    /* FNV-1a-32, as the game */
 
     KilnResult(KILN_CALL* status)(KilnItemsStatus* out);
+
+    /* ---- v2: water (feature items.fuel; KILN_ERR_UNAVAILABLE without it) ---- */
+
+    /* Queues a Fuel write; it runs in the next sim step inside the program, `done` (optional) in the Pre after.
+     * KILN_ERR_INVALID_ARGUMENT for entity 0, bad flags or a non-zero `reserved`. Any thread. cancel() drops the
+     * callback, cancel_owner() too. */
+    KilnResult(KILN_CALL* fuel)(KilnOwner owner, const KilnItemsFuelRequest* request, KilnItemsFuelDoneFn done,
+                                void* user, uint64_t* out_ticket);
+    /* An entity's water: *current and *max in units (optional). KILN_ERR_NOT_FOUND: it holds none (no Fuel).
+     * Tick thread (Pre / Post). */
+    KilnResult(KILN_CALL* fuel_read)(KilnEntity entity, int32_t* current, int32_t* max);
+    /* A refill policy: every sim step, inside the program after the game's fill and pour, the containers of `request`
+     * (INVENTORIES and `item` as for fuel()) are refilled: FILL keeps them at their max (or `limit`), ADD adds `units`
+     * per second of game time up to the same level. SET and DRY_RUN are refused. It runs until fuel_keep_end,
+     * cancel_owner(owner) or the server world closing. At most 256 at once. `on_refill` (optional) reports what it
+     * changed, once per Pre. *out_handle (required) identifies it. It does not stop by itself when the entity goes
+     * away: a player's entity id is reused by the next player, so end it when the player leaves. Any thread. */
+    KilnResult(KILN_CALL* fuel_keep)(KilnOwner owner, const KilnItemsFuelRequest* request, KilnItemsFuelKeepFn on_refill,
+                                     void* user, uint64_t* out_handle);
+    KilnResult(KILN_CALL* fuel_keep_end)(uint64_t handle); /* KILN_ERR_NOT_FOUND: no such keep */
 } KilnItemsApi;
 
 #ifdef __cplusplus

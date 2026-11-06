@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of Kiln.Quests that need no game: world progress's game-data readers and catalog rules, the quest log's
+       mapping of the game's journal states. KILN_WORLD_RES=<dir of resource dumps> adds checks over real game data. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- not Kiln.Quests.*: a namespace of that name would hide the Quests class -->
+    <RootNamespace>Kiln.QuestTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../services/Kiln.Quests/Kiln.Quests.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,6 @@
 //! Local game-data catalogs: the ids mods write (item, recipe, template, sequence, perk, buff, skill-node names,
-//! config aliases, GUIDs and `0x` ids, sound cues, loca texts) made from the user's **own installed game**, read-only, into the
+//! config aliases, GUIDs and `0x` ids, sound cues, loca texts, the world's spires, shrines, roots, obelisks and bosses)
+//! made from the user's **own installed game**, read-only, into the
 //! launcher's data folder. Readers: the linter (`crate::lint`), the VS Code extension, `kiln catalog search`, and the
 //! `Kiln.GameIds` source generator (IntelliSense constants for mods). The catalog is game data: it is never committed,
 //! bundled or downloaded. Docs: docs/kiln/modding/catalogs.md.
@@ -19,6 +20,8 @@ mod decode;
 mod extract;
 #[cfg(feature = "gameart")]
 pub mod types;
+#[cfg(feature = "gameart")]
+mod world;
 #[cfg(test)]
 mod tests;
 
@@ -37,13 +40,13 @@ pub const FORMAT: u32 = 1;
 pub const KIND: &str = "kiln.catalog";
 /// What gets extracted and how. Bump it when a section or field rule changes, so existing catalogs read as outdated
 /// and `build_default` remakes them.
-pub const RECIPE: u32 = 5; // 2: graphs. 3: template fields, configs, field kinds. 4: vfx. 5: materials
+pub const RECIPE: u32 = 6; // 2: graphs. 3: template fields, configs, field kinds. 4: vfx. 5: materials. 6: world things
 /// The sides, in lookup order for `side: None`.
 pub const SIDES: [&str; 2] = ["client", "server"];
 /// Every section name the format defines (all optional in a file).
-pub const SECTIONS: [&str; 19] = [
+pub const SECTIONS: [&str; 24] = [
     "items", "recipes", "loot", "drops", "templates", "arsenals", "graphs", "sequences", "buffs", "perks", "skills", "configs", "workshops",
-    "itemCategories", "resources", "sounds", "vfx", "materials", "loca",
+    "itemCategories", "resources", "sounds", "vfx", "materials", "spires", "shrines", "shroudRoots", "obelisks", "bosses", "loca",
 ];
 
 /// The game build a catalog was made from.

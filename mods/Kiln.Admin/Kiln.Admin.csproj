@@ -28,6 +28,7 @@
     <ProjectReference Include="../../managed/services/Kiln.Creatures/Kiln.Creatures.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../managed/services/Kiln.Build/Kiln.Build.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../managed/services/Kiln.Quests/Kiln.Quests.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../managed/services/Kiln.Rules/Kiln.Rules.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

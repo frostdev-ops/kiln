@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_items.h (kiln.items v1). Blittable only; field order is the ABI (the native
+// Mirror of native/core/abi/services/kiln_items.h (kiln.items v2; the v2 functions are in TableV2). Blittable only; field order is the ABI (the native
 // side static_asserts the same sizes and offsets).
 using System.Runtime.InteropServices;
 
@@ -139,6 +139,62 @@ internal static unsafe class ItemsNative
         public delegate* unmanaged[Cdecl]<NativeStr, uint> FindItem;
         public delegate* unmanaged[Cdecl]<byte*, uint> IdOfGuid;
         public delegate* unmanaged[Cdecl]<Status*, int> GetStatus;
+    }
+
+    // ---- v2: water (KilnItemsFuelRequest.flags) ----
+    public const uint FuelSet = 0x00, FuelFill = 0x01, FuelAdd = 0x02, FuelInventories = 0x10, FuelDryRun = 0x40;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FuelRequest
+    {
+        public uint Size;
+        public uint Flags;
+        public uint Entity;
+        public uint Item;
+        public int Units;
+        public int Limit;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FuelChange
+    {
+        public uint Container;
+        public uint Item;
+        public ulong Slot;
+        public int Before;
+        public int After;
+        public int Max;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FuelResult
+    {
+        public uint Size;
+        public int Status;
+        public ulong Ticket;
+        public uint Entity;
+        public uint Item;
+        public uint Flags;
+        public uint Matched;
+        public uint Changed;
+        public uint Steps;
+        public uint ChangeCount;
+        public uint Reserved;
+        public fixed byte Changes[16 * 32];
+        public fixed byte Message[160];
+    }
+
+    /// <summary>The whole v2 table: v1 followed by the water functions. Use it only when the header's size says the
+    /// native service has them (an older runtime publishes v1).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV2
+    {
+        public Table V1;
+        public delegate* unmanaged[Cdecl]<ulong, FuelRequest*, delegate* unmanaged[Cdecl]<FuelResult*, void*, void>, void*, ulong*, int> Fuel;
+        public delegate* unmanaged[Cdecl]<uint, int*, int*, int> FuelRead;
+        public delegate* unmanaged[Cdecl]<ulong, FuelRequest*, delegate* unmanaged[Cdecl]<ulong, FuelChange*, uint, void*, void>, void*, ulong*, int> FuelKeep;
+        public delegate* unmanaged[Cdecl]<ulong, int> FuelKeepEnd;
     }
 
     public static string Text(byte* p, int max)

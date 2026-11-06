@@ -59,6 +59,20 @@ using GetComponentFn = PtrSize*(__fastcall*)(PtrSize* out, uintptr_t world, uint
 using RegisterProgramFn = uint8_t(__fastcall*)(uintptr_t world, void* desc, uint8_t disabled);
 using RegisterAllFn = void(__fastcall*)(uintptr_t world);
 using IterBeginFn = void(__fastcall*)(void* ctx, uint64_t* iter, uint32_t size);
+// Tracked writes (docs/re/items.md section 12): WriteOther returns another entity's component like ReadOther and marks
+// it written in the job's tracker (replication and the save); the job's tracker and the flag come from two getters.
+using WriteOtherFn = PtrSize*(__fastcall*)(PtrSize* out, void* storage, void* tracker, uint64_t accessor,
+                                           uint32_t entity, uint8_t flag);
+using JobTrackerFn = void*(__fastcall*)(void* job);
+using JobWriteFlagFn = uint8_t(__fastcall*)(void* ctx);
+struct AttrRef {  // {u8 error (0 = found); u32 0; const AttributeDesc*}
+    uint8_t error;
+    uint8_t pad[3];
+    uint32_t zero;
+    const uint8_t* desc;  // +0 u32 attribute group (= the component's first u32), +0xC u16 index into its values
+};
+using AttrFindFn = AttrRef*(__fastcall*)(AttrRef* out, uint32_t attribute, void* registry);
+using AttrChangedFn = void(__fastcall*)(void* component, void* registry);  // re-runs the attribute's formulas (clamps)
 
 // ---- what the service resolved at boot ----
 struct Engine {
@@ -78,6 +92,11 @@ struct Engine {
     RegisterProgramFn register_program = nullptr;
     RegisterAllFn register_all = nullptr;
     IterBeginFn iter_begin = nullptr;
+    WriteOtherFn write_other = nullptr;      // feature items.fuel
+    JobTrackerFn job_tracker = nullptr;
+    JobWriteFlagFn job_write_flag = nullptr;
+    AttrFindFn attr_find = nullptr;
+    AttrChangedFn attr_changed = nullptr;
 
     int64_t world_storage = 0;      // world -> entity storage
     int64_t tx_size = 0;            // InventoryTx bytes (result flags + 8, rounded to 16)
@@ -98,6 +117,7 @@ struct Engine {
     bool read_ok = false;     // GetComponent
     bool catalog_ok = false;
     bool scan_ok = false;     // own entity-map scan
+    bool fuel_ok = false;     // tracked Fuel writes (needs tx_ok's accessors too)
 };
 extern Engine E;
 
@@ -114,6 +134,10 @@ constexpr uint32_t kRecipeWorkshopId = 0x24;  // RecipeInfo.workshopId (the reci
 constexpr uint32_t kHashInventory = 0xb19528a9u;
 constexpr uint32_t kHashInventorySetup = 0xc24df82au;
 constexpr uint32_t kHashItemState = 0x3a2fac75u;
+constexpr uint32_t kHashFuel = 0x04182abbu;
+// Attribute ids: FNV-1a of the attribute's GUID (docs/re/items.md section 11).
+constexpr uint32_t kAttrFuel = 0x05b0bf75u;
+constexpr uint32_t kAttrFuelMax = 0xa00e2601u;
 
 // The program's other-entity accessors, in the order of this enum (not the iterator's order: the service matches
 // accessors to names by their component type index).
@@ -142,6 +166,11 @@ struct Job {
     KilnItemsRequest r{};
 };
 
+// A Fuel request (set / add / fill) or one keep-full entry, as the program sees it.
+struct FuelJob {
+    KilnItemsFuelRequest r{};
+};
+
 // ---- guarded game calls (engine.cpp). Each returns false on a fault (code = exception code). ----
 
 // Checks the iterator of one program update: singletons, accessor type indices against the world's component map,
@@ -154,6 +183,14 @@ bool verify_access(const uint64_t* it, const int* singleton_slots, const int* ac
 bool run_job(const Access& a, const Job& job, uint8_t* tx, KilnItemsResult* res, unsigned long* code);
 // After a fault inside run_job: best-effort rollback + free (guarded).
 void abandon_tx(uint8_t* tx);
+
+// Runs one Fuel request inside the program update: tracked writes (WriteOther + AttrChanged), only where the value
+// changes. res->changes lists what changed (up to KILN_ITEMS_MAX_FUEL_CHANGES).
+bool run_fuel(const Access& a, const FuelJob& job, KilnItemsFuelResult* res, unsigned long* code);
+
+// Tick thread: an entity's Fuel through GetComponent (no write). found=false: it has none.
+bool read_fuel(uintptr_t world, void* attributes, KilnEntity entity, int32_t* current, int32_t* max, bool* found,
+               unsigned long* code);
 
 // Tick thread, no world job running: reads through GetComponent.
 struct ReadOut {

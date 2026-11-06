@@ -99,31 +99,31 @@ impl Src {
     }
 
     /// Every resource of a type: (index, key).
-    fn of_type(&self, name: &str) -> Result<Vec<(usize, crate::gameart::kfc::ResourceKey)>> {
+    pub(super) fn of_type(&self, name: &str) -> Result<Vec<(usize, crate::gameart::kfc::ResourceKey)>> {
         self.check_layout(name)?;
         Ok(self.kfc.resources_of_type(Self::hash(name)))
     }
 
     /// The bytes of the first resource of a type.
-    fn one(&self, name: &str) -> Result<Vec<u8>> {
+    pub(super) fn one(&self, name: &str) -> Result<Vec<u8>> {
         let r = self.of_type(name)?;
         let (ix, _) = r.first().ok_or_else(|| Error::not_found(format!("no {name} in the data")))?;
         self.kfc.read(*ix)
     }
 
-    fn enum_name(&self, type_name: &str, v: u64) -> Option<String> {
+    pub(super) fn enum_name(&self, type_name: &str, v: u64) -> Option<String> {
         self.types.enum_values(type_name)?.into_iter().find(|(_, x)| *x == v).map(|(n, _)| n)
     }
 }
 
 /// Loca: tag id -> en-us text; and the language codes.
-struct Loca {
+pub(super) struct Loca {
     en: BTreeMap<u32, String>,
     languages: Vec<String>,
 }
 
 impl Loca {
-    fn text(&self, id: u32) -> Option<String> {
+    pub(super) fn text(&self, id: u32) -> Option<String> {
         if id == 0 {
             return None;
         }
@@ -171,18 +171,18 @@ fn read_loca(s: &Src) -> Result<Loca> {
     Ok(Loca { en, languages })
 }
 
-fn e(name: Option<String>, id: Option<String>, guid: Option<String>) -> Entry {
+pub(super) fn e(name: Option<String>, id: Option<String>, guid: Option<String>) -> Entry {
     Entry { name, id, guid, extra: Map::new() }
 }
 
-fn put(e: &mut Entry, k: &str, v: impl Into<Value>) {
+pub(super) fn put(e: &mut Entry, k: &str, v: impl Into<Value>) {
     let v = v.into();
     if !v.is_null() {
         e.extra.insert(k.to_string(), v);
     }
 }
 
-fn opt<T: Into<Value>>(v: Option<T>) -> Value {
+pub(super) fn opt<T: Into<Value>>(v: Option<T>) -> Value {
     v.map_or(Value::Null, Into::into)
 }
 
@@ -1731,6 +1731,16 @@ pub fn build(game_dir: &Path, dest: &Path, opts: &BuildOptions, p: &mut dyn Prog
         match materials(&s, &loca) {
             Ok(v) => drop(sections.insert("materials".into(), v)),
             Err(e) => note("materials", e, &mut problems),
+        }
+    }
+    canceled(p)?;
+    if super::world::SECTIONS.iter().any(|n| want(n)) {
+        p.report(Some(0.8), "World things: spires, shrines, roots, obelisks, bosses");
+        for (name, r) in super::world::sections(&s, &loca, &want, &mut problems) {
+            match r {
+                Ok(v) => drop(sections.insert(name.into(), v)),
+                Err(e) => note(name, e, &mut problems),
+            }
         }
     }
     if want("loca") && !loca.en.is_empty() {

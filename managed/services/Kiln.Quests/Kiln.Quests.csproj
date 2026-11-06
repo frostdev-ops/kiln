@@ -13,6 +13,8 @@
   <ItemGroup>
     <!-- Creature and NPC blocks lower onto this service's own registries (Npc/NpcCompiler.cs in Kiln.Blocks). -->
     <InternalsVisibleTo Include="Kiln.Blocks" />
+    <!-- The game-data readers and catalog rules of world progress (GameDataReader.cs, WorldCatalog.cs) are tested without a game. -->
+    <InternalsVisibleTo Include="Kiln.Quests.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
@@ -28,5 +30,8 @@
     <ProjectReference Include="../Kiln.Build/Kiln.Build.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <!-- world progress (WorldProgress*.cs, WorldIndex.cs): the difficulty, and the game's data read through kiln.assets -->
+    <ProjectReference Include="../Kiln.Settings/Kiln.Settings.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
   </ItemGroup>
 </Project>

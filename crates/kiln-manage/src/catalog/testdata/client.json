@@ -37,7 +37,12 @@
     "graphs": 1,
     "configs": 6,
     "vfx": 3,
-    "materials": 3
+    "materials": 3,
+    "spires": 1,
+    "shrines": 2,
+    "shroudRoots": 1,
+    "obelisks": 1,
+    "bosses": 1
   },
   "sections": {
     "items": [
@@ -476,6 +481,65 @@
         "hardness": "Hard",
         "health": 5,
         "breaks": "Stone"
+      }
+    ],
+    "spires": [
+      {
+        "name": "testmeadow",
+        "template": "MapMarker_Tower_TestMeadow_FastTravel",
+        "displayName": "Test Meadow Spire",
+        "position": [1200.5, 840.0, 2210.0],
+        "unlock": { "id": "0x5e1f0001", "type": "SimpleBool", "compareValue": 1, "scope": "both" },
+        "topReached": { "id": "0x5e1f0002", "scope": "character" },
+        "beacon": { "id": "0x5e1f0003", "type": "SimpleBool", "compareValue": 1, "scope": "both" }
+      }
+    ],
+    "shrines": [
+      {
+        "name": "testmeadow_flameshrine_01",
+        "knowledge": "0x5e1f0010",
+        "scope": "character",
+        "kind": "shrine",
+        "template": "MapLabel_Test_FlameShrine_01",
+        "displayName": "Test Shrine",
+        "position": [1310.0, 812.4, 2105.5]
+      },
+      {
+        "name": "testmeadow_flametemple_01",
+        "knowledge": "0x5e1f0011",
+        "scope": "character",
+        "kind": "sanctum"
+      }
+    ],
+    "shroudRoots": [
+      {
+        "name": "testmeadow_well_01",
+        "knowledge": "0x5e1f0020",
+        "scope": "character",
+        "elixirWell": true,
+        "skillPoints": 3,
+        "template": "Test_Root_Plant",
+        "position": [1402.2, 790.0, 1990.8]
+      }
+    ],
+    "obelisks": [
+      {
+        "name": "testmeadow_obelisk_read",
+        "knowledge": "0x5e1f0030",
+        "scope": "character",
+        "template": "Prop_Test_Obelisk",
+        "position": [1150.0, 860.5, 2300.0]
+      }
+    ],
+    "bosses": [
+      {
+        "name": "enemy_test_frostling_matriarch_1",
+        "template": "Enemy_Test_Frostling_Matriarch",
+        "spawner": "Spawnpoint_Test_Frostling_Matriarch",
+        "displayName": "Frostling Matriarch",
+        "position": [1500.0, 800.0, 2400.0],
+        "kill": "0x5e1f0040",
+        "scope": "both"
       }
     ]
   },

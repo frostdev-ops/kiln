@@ -61,8 +61,23 @@ Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime
 | `EntitySpawnedEvent` | Kiln.Spawn | right after `Spawn.Entity/Group/Item` created an entity (not the game's own spawns) | - | - |
 | `EntityDestroyedEvent` | Kiln.Spawn | after `Spawn.Destroy` (`Reason` "destroy") or `Spawn.CleanupTracked` ("cleanup") | - | - |
 | `ItemsGivenEvent` / `ItemsTakenEvent` (base `ItemsTransactionEvent`) | Kiln.Items | when a Kiln.Items give/take completes with something moved (not dry runs), before the caller's task continues | - | - |
+| `WaterRefilledEvent` | Kiln.Items | Pre, at most once per step and refill policy (`Items.Fuel.Refill`), with every container it gave water back since the last one | - | - |
+| `PlayerRulesChangedEvent` | Kiln.Rules | when a player's combined rules change (a rule set applied, updated or ended; an area entered or left; a duration ran out) | - | - |
 | `ConfigChangedEvent` | Kiln.Api | a config's values changed while running (file edit or `ConfigFile.Set`), after the new values are in place | - | - |
 | `PermissionsChangedEvent` | Kiln.Permissions | permissions.json reloaded/edited or the server's user groups changed | - | - |
+
+### World progress (Kiln.Quests)
+Read-only reports of what the game already did; details: [services/world-progress.md](services/world-progress.md#events).
+
+| Event | When | Cancel |
+|---|---|---|
+| `FlameLevelChangedEvent` | the world's flame level changed (sampled every 30 steps) | - |
+| `SpireUnlockedEvent` | an Ancient Spire's unlock was set (world, or a character's twin), or a character reached its top (`TopReached`) | - |
+| `ShrineFoundEvent` | a character found a Flame Shrine or Flame Sanctum | - |
+| `ShroudRootDestroyedEvent` | a character destroyed a Shroud Root (an Elixir Well's: `Root.ElixirWell`) | - |
+| `BossKilledEvent` | a boss (a creature with a boss health bar) died; `Recorded` when its kill record changed | - |
+| `ChestLootedEvent` | a loaded chest was emptied after it was opened (sampled every 30 steps) | - |
+| `QuestStatusChangedEvent` | a player's quest (vanilla or Kiln) changed status or step | - |
 
 ### Player state and actions (Kiln.Players)
 One scan per tick, only while a handler subscribes to one of these. Details and what Cancel does: [services/player-state.md](services/player-state.md). Every state and action the game has: [modding/player-states.md](modding/player-states.md).

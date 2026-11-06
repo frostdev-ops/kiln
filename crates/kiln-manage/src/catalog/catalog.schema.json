@@ -856,6 +856,90 @@
             }
           }
         },
+        "spires": {
+          "type": "array",
+          "description": "Ancient Spires: the global chunk's MapMarker_Tower_<a>_FastTravel<b> placements. name = <a><b> lower-cased.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "template": { "type": "string" },
+              "displayName": { "type": "string" },
+              "position": { "$ref": "#/$defs/position" },
+              "unlock": { "$ref": "#/$defs/knowledgeQuery", "description": "The placement's KnowledgeQuery: what unlocks the spire." },
+              "topReached": { "$ref": "#/$defs/knowledge", "description": "Set when a player reaches the top (an Achievement_Tower_* action)." },
+              "beacon": { "$ref": "#/$defs/knowledgeQuery", "description": "The KnowledgeQuery of its beacon (the nearest Prop_Tower_Beacon within 64 m)." }
+            }
+          }
+        },
+        "shrines": {
+          "type": "array",
+          "description": "Flame Shrines and Sanctums: the actions of the achievement_all_FlameTemplesAndShrines_found_<NN>_<Region> queries. name = <region>_<action> lower-cased (the region once), _2, _3 on a repeat.",
+          "items": {
+            "type": "object",
+            "required": ["name", "knowledge"],
+            "properties": {
+              "name": { "type": "string" },
+              "knowledge": { "$ref": "#/$defs/id", "description": "Set when it is found." },
+              "scope": { "$ref": "#/$defs/scope" },
+              "kind": { "enum": ["shrine", "sanctum"] },
+              "template": { "type": "string" },
+              "displayName": { "type": "string" },
+              "position": { "$ref": "#/$defs/position" }
+            }
+          }
+        },
+        "shroudRoots": {
+          "type": "array",
+          "description": "Shroud Roots: the actions of the achievement_all_shroudRoots_destroyed_<NN>_<Region> queries. Names as shrines.",
+          "items": {
+            "type": "object",
+            "required": ["name", "knowledge"],
+            "properties": {
+              "name": { "type": "string" },
+              "knowledge": { "$ref": "#/$defs/id", "description": "Set when it is destroyed." },
+              "scope": { "$ref": "#/$defs/scope" },
+              "elixirWell": { "type": "boolean", "description": "Present (true) when the action name starts with well." },
+              "skillPoints": { "type": "integer" },
+              "template": { "type": "string" },
+              "position": { "$ref": "#/$defs/position" }
+            }
+          }
+        },
+        "obelisks": {
+          "type": "array",
+          "description": "Ancient Obelisks: the actions of the achievement_all_Obelisks_read_<NN>_<Region> queries. Names as shrines.",
+          "items": {
+            "type": "object",
+            "required": ["name", "knowledge"],
+            "properties": {
+              "name": { "type": "string" },
+              "knowledge": { "$ref": "#/$defs/id", "description": "Set when it is read." },
+              "scope": { "$ref": "#/$defs/scope" },
+              "template": { "type": "string" },
+              "displayName": { "type": "string" },
+              "position": { "$ref": "#/$defs/position" }
+            }
+          }
+        },
+        "bosses": {
+          "type": "array",
+          "description": "Placed bosses: world entities of a BossHealthBar template or of a spawner of one. name = the boss template's name lower-cased, _<n> (from 1, in scene order) on every placement of a boss placed more than once.",
+          "items": {
+            "type": "object",
+            "required": ["name", "template"],
+            "properties": {
+              "name": { "type": "string" },
+              "template": { "type": "string", "description": "The boss." },
+              "spawner": { "type": "string", "description": "The template placed, when it is a spawner." },
+              "displayName": { "type": "string" },
+              "position": { "$ref": "#/$defs/position" },
+              "kill": { "$ref": "#/$defs/id", "description": "Set when it is killed." },
+              "scope": { "$ref": "#/$defs/scope", "description": "Of kill." }
+            }
+          }
+        },
         "loca": {
           "type": "array",
           "description": "en-us loca texts. id = the tag id (FNV-1a of the tag GUID); text with the game's markup.",
@@ -928,6 +1012,35 @@
     }
   },
   "$defs": {
+    "position": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "[x, y, z] world metres, y up, 0.1 m"
+    },
+    "scope": {
+      "enum": ["world", "both", "character"],
+      "description": "Where the game keeps a knowledge id: world (a world object), both (a world object with a player twin), character (a player object only)"
+    },
+    "knowledge": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "scope": { "$ref": "#/$defs/scope" }
+      }
+    },
+    "knowledgeQuery": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "description": "A knowledge id (Simple types) or a query id (Extern)" },
+        "type": { "type": "string", "description": "KnowledgeQueryDataType: Extern, SimpleBool, SimpleCount, SimpleFlag" },
+        "compareValue": { "type": "integer" },
+        "scope": { "$ref": "#/$defs/scope" }
+      }
+    },
     "id": {
       "type": "string",
       "pattern": "^0x[0-9a-f]{8}$"

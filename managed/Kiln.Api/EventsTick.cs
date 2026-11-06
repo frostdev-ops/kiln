@@ -36,7 +36,8 @@ internal static class ServiceTick
     internal static readonly (string Assembly, string Type)[] AutoStart =
         [("Kiln.Chat", "Kiln.ConsoleControl"), ("Kiln.Content", "Kiln.Content"),
          ("Kiln.Network", "Kiln.NetworkStartup"), ("Kiln.Ui", "Kiln.UiStartup"), ("Kiln.Skills", "Kiln.SkillsStartup"),
-         ("Kiln.Audio", "Kiln.AudioStartup"), ("Kiln.Quests", "Kiln.QuestsStartup"), ("Kiln.Vfx", "Kiln.VfxStartup")];
+         ("Kiln.Audio", "Kiln.AudioStartup"), ("Kiln.Quests", "Kiln.QuestsStartup"), ("Kiln.Vfx", "Kiln.VfxStartup"),
+         ("Kiln.Rules", "Kiln.RulesStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];

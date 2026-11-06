@@ -1,0 +1,10 @@
+{
+  "id": "fuel-test",
+  "name": "water write lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "FuelTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "PASS/FAIL lines: Items.Fuel (kiln.items v2) on a dedicated server with no player: read, set, add, fill, dry run, every container of a chest, keep-full against a drain, and a tracked write kept across a restart (an untracked one is not). Start the lab three times."
+}

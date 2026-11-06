@@ -332,12 +332,42 @@ sequence data; not timed with a player (a lab has no player to hold the button, 
 **Save.** A can of 1,000 charges (64,000 units, a template clone) left full in a chest was full after a save and a restart:
 64,000 / 64,000 on the server and in `NetworkFuel` (`mods/tests/blocks-water-test`, restart phase). **[rt]**
 
+## 12. Tracked writes to another entity's component (server 26430253, exe `f0d824be…`; client 26430625) **[dis] [dec] [rt]**
+How a program changes another entity's component so that players and the save get it, as `actor_interaction` does when
+it moves water between a can and a well. Used by kiln.items' water functions (docs/kiln/services/items.md, "Water").
+
+| What | Server | Client | Notes |
+|---|---|---|---|
+| `WriteOther` | `0x64e790` (wrapper of `0x64e7c0`) | `0x9b2900` | `PtrSize* (out, storage, tracker, const u16* accessor, u32 entity, u8 flag)`: the component like `ReadOther`, and when `storage+8 == 0` (the server world) `0x66f170(storage, tracker, record, type, flag)` marks it |
+| job's tracker | `0x65b6b0` = `mov rax,[rcx+0x1c0]; ret` | `0x9bf820` | takes the job (`*ctx`) |
+| job's write flag | `0x661300` = `mov rax,[rcx]; movzx eax, byte [rax+0xbb]; ret` | `0x9c5350` | takes the program context |
+| `JobStorage` | `0x65ba10` (`mov rax,[rcx+0x30]`) | `0x9bfb80` | already `items/JobStorage` |
+| `AttrFind` | `0x991810` | `0x123a930` | `{u8 error; u32 0; desc*} (out, attribute id, AttributeRegistry*)`; desc `+0` the component's attribute group, `+0xC` u16 index into its values |
+| `AttrChanged` | `0x52700` | `0x2358c0` | `(component, AttributeRegistry*)`: re-runs the attribute's formulas (Fuel: the 0..max clamp) |
+| tick-thread variant | `0x64edb0` | | `(out, world, hash, entity)`: `WriteOther` with the world's own tracker at `world+0x15d39f0`, flag 0 (not used by Kiln) |
+
+- **The marking** (`0x66f170`): replication (`0x66f2c0`, gated on a per-component bit at `registry+0x190` and a peer
+  count at `storage+0x7bc2d0`) and the save (`0x66f360`, gated on a per-component bit at `registry+0x230`; for entity ids
+  1..1023, players, only with the entity flag `8`). **[dis]**
+- **The call site** sigdb captures all four from: `actor_interaction`'s `TransferFuelEvent` handler (`0x7cb28`): write
+  flag, tracker, storage, then `WriteOther` of Fuel; `AttrFind` from its `Fuel_Max` lookup (`0x7ce22`), `AttrChanged`
+  from the line after it takes the water off the source (`0x7cf34`). Unique on both builds' sides
+  (`sigdb/symbols/server.d/items.json`, feature `items.fuel`). **[dis]**
+- **Fuel's block** `{u32 group 0x05b0bf75; u16 values offset; u8 flags (bit 0: has values); u8 count; s32 values[]}`;
+  `actor_interaction` checks `flags & 1` and that the desc's group equals the block's first u32 before it reads a value.
+  **[dis]**
+- **Lab** (`mods/tests/fuel-test`, three boots): a write through `WriteOther` + `AttrChanged` inside kiln.items' program
+  reached `NetworkFuel` within 3 steps and was kept by a save and a restart (`4321/6400`, `777/1280`); a raw write on a
+  container a save had already written was not (`1000/6400` back, raw `3000`). A container created in the same session
+  is saved whole at its first save, raw writes included. **[rt]**
+
 ## 9. Open questions
 - Players (no client in the lab): popup and PickupEvent with `0x01`, knowledge unlocks through the queue, the
   backpack-priority setting (the game's own handlers add `0x20` when `PlayerInput+0x5b0` bit 11 is set; kiln.items does
   not), which slot new weapons land in, and take from a player's held / equipped slots (removeItems unequips and
   destroys equipped gear). See the client checklist in docs/kiln/services/items.md.
-- Fuel (`OptF32`, FuelPercentageInit): not exposed; its unit (0..1 or 0..100) was not checked. What fuel is: section 11.
+- Fuel at creation (`OptF32`, FuelPercentageInit): not exposed; its unit (0..1 or 0..100) was not checked. What fuel is:
+  section 11; writing it afterwards: section 12.
 - Water containers: the fill and pour rate with a player (section 11 derives it), and whether a can made before a capacity
   change takes the new capacity when the world next loads.
 - Moving gear without destroying it (moveStack `0x1b4550`, ops 4/5) is located but not wrapped (no "borrow/return").

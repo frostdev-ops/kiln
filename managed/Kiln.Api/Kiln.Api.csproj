@@ -42,5 +42,6 @@
     <InternalsVisibleTo Include="Kiln.Audio" />
     <InternalsVisibleTo Include="Kiln.Vfx" />
     <InternalsVisibleTo Include="Kiln.Quests" />
+    <InternalsVisibleTo Include="Kiln.Rules" />
   </ItemGroup>
 </Project>

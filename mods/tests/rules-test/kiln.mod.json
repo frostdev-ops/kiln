@@ -1,0 +1,10 @@
+{
+  "id": "rules-test",
+  "name": "player rules lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "RulesTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "PASS/FAIL lines: Kiln.Rules on a dedicated server with no player. A spawned player character driven through the game's own input: the building fly mode outside a base (refused, then allowed by a rule), the character carried with the spark, a safe landing when the rule ends mid-air and when the player leaves the mode; vitals floors and invulnerability; water refill; terraforming damage; the hooks' state."
+}
