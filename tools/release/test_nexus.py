@@ -145,7 +145,9 @@ def handler_for(mock, base):
                     return self._send(422, {"title": "upload not available"})
                 fid = f"F{len(mock.files) + 1}"
                 mock.files.append({"id": fid, "name": req["name"], "versions": 1, "req": req})
-                return self._send(201, {"data": {"id": fid, "game_scoped_id": str(len(mock.files)), "name": req["name"], "file_category": req["file_category"]}})
+                # like the real API: the created file's "id" here is not the id /mod-files/{id} takes (the page listing's is)
+                return self._send(201, {"data": {"id": f"249580549{len(mock.files):05d}", "game_scoped_id": str(len(mock.files)), "name": req["name"],
+                                                 "file_category": req["file_category"]}})
             mv = re.fullmatch(r"/mod-files/(F\d+)/versions", p)
             if m == "POST" and mv:
                 req = json.loads(body)

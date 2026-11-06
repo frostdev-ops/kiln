@@ -335,7 +335,9 @@ def run(argv=None):
         for k in kinds:
             category, name, desc = KINDS[k]
             z = make_zip(folder, k, version, work)
-            fid = state.get("files", {}).get(k) or (by_name.get(name) or {}).get("id")
+            # the page's own listing first: its ids are the ones /mod-files/{id} takes (POST /mod-files answers with
+            # another id, which 0.2.0-dev.10 stored and dev.11 then could not add a version to)
+            fid = (by_name.get(name) or {}).get("id") or state.get("files", {}).get(k)
             size = os.path.getsize(z)
             plan.append((k, category, name, desc, z, fid))
             how = "single part" if size <= a.single_part_max else "multipart"
@@ -370,7 +372,8 @@ def run(argv=None):
                 log(f"  version {r['version']['id']} added to file {fid}")
             else:
                 r = api.call("POST", "/mod-files", {**body, "mod_id": a.mod})["data"]
-                fid = r["id"]
+                listed = {f["name"]: f for f in api.call("GET", f"/mods/{a.mod}/files")["data"]["mod_files"]}
+                fid = (listed.get(name) or {}).get("id") or r["id"]
                 log(f"  file {fid} created")
             state.setdefault("files", {})[k] = fid
             save_state(a.state, state)

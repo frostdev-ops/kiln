@@ -278,6 +278,8 @@ if [[ -n $notes ]]; then cp "$notes" "$out/RELEASE-NOTES.md"; else
     echo "# Kiln $version"
     echo
     if ((worktree)); then echo "Test build of the working tree at $KILN_GIT."; else
+      # GitHub makes the v* tags when a release is published: fetch them, or every release lists the whole history
+      git -C "$repo" fetch -q --tags origin 2>/dev/null || echo "release: could not fetch tags; the notes may start too early" >&2
       prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$full^" 2>/dev/null || true)
       echo "Changes since ${prev:-the start of the project}:"
       echo
