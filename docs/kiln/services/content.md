@@ -221,6 +221,11 @@ debug name, texts and field values. Ids are FNV-1a over the GUID's 16 bytes, the
 so the server and every client that registers the same definition agree on them without any sync, and saves (which
 store item ids) find the item again after a restart. Evidence: `docs/re/content.md` section 7.
 
+A clone copies the item, not what its item entity (`pidEntity`) is made from. Some of an item's numbers live there:
+a watering can's capacity is its template's `FuelSetup.maxFuelCharges`, which every can shares, so a clone of the can
+holds 100 like the game's. For water containers use the item block (`ItemKind.WateringCan`, `Holds`, `Flow`:
+[modding/item-blocks.md](../modding/item-blocks.md#water-containers)); it clones the template too.
+
 ```csharp
 using Kiln;
 

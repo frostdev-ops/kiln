@@ -376,6 +376,13 @@ public sealed record ItemBlock : IBlock, ITweakable
     public int? Comfort { get; init; }
     public ToolBlock? Tool { get; init; }
     public AmmoBlock? Ammo { get; init; }
+    /// <summary>A <see cref="ItemKind.WateringCan"/>'s or <see cref="ItemKind.WaterPouch"/>'s capacity, in charges as the game counts them: the game's watering can holds 100,
+    /// its pouch 20 sips. 1..1023: a player's game is sent the water as charges × 64 in 16 bits. Null: the kind's own.</summary>
+    public int? Holds { get; init; }
+    /// <summary>How fast a water container fills and pours, as a multiple of the game's own: at a lake, at a well or a barrel, and onto crops and soil alike. The game
+    /// moves the item's Volume (32 for the can, 16 for the pouch: half a charge, a quarter) about 20 times a second while the button is held, and has no rate for
+    /// filling alone. 0.25..8. Null: the game's.</summary>
+    public double? Flow { get; init; }
 
     public RecipeBlock? Recipe { get; init; }
     public LootBlock? Loot { get; init; }
@@ -387,16 +394,33 @@ public sealed record ItemBlock : IBlock, ITweakable
     public FieldValues Tweak { get; init; } = new();
 }
 
-/// <summary>What sort of item it is. The premades are plain instances; <see cref="Starter"/> is the item it starts from.</summary>
+/// <summary>What sort of item it is: one of these, each checked for the fields it uses. <see cref="Starter"/> is the game item it starts from. There is no kind of
+/// your own: an item that starts from a game item you name is <c>Content.Items.Register</c>'s (docs/kiln/services/content.md).</summary>
 [JsonConverter(typeof(PremadeConverter<ItemKind>))]
-public sealed record ItemKind(string Key, string Starter) : IPremade
+public sealed record ItemKind : IPremade
 {
+    private ItemKind(string key, string starter, string? water = null, int volume = 0) => (Key, Starter, Water, Volume) = (key, starter, water, volume);
+
     public static readonly ItemKind Material = new("material", "Material_T1_Bones");
     public static readonly ItemKind Consumable = new("consumable", "Consumable_Potion_Antidote_Poison_T2");
     public static readonly ItemKind Food = new("food", "Food_T1_raw_sweets_Honey");
     public static readonly ItemKind Ammo = new("ammo", "Ammo_T1_Arrow_Flint_lvl5");
     public static readonly ItemKind Tool = new("tool", "Tool_T1_Axe_Scrap_Grassland");
-    internal static readonly ItemKind[] All = [Material, Consumable, Food, Ammo, Tool];
+    /// <summary>The game's watering can: filled at a lake or a well, poured on crops and soil. <see cref="ItemBlock.Holds"/> says how much.</summary>
+    public static readonly ItemKind WateringCan = new("watering-can", "Tool_T1_WateringCan", "Pide_Fuel_Watering_Can", 32);
+    /// <summary>The game's water pouch: filled at a lake or a well, a sip at a time to drink. <see cref="ItemBlock.Holds"/> says how many sips.</summary>
+    public static readonly ItemKind WaterPouch = new("water-pouch", "Tool_Water_Pouch_Refillable", "Pide_Fuel_Water_Pouch", 16);
+    internal static readonly ItemKind[] All = [Material, Consumable, Food, Ammo, Tool, WateringCan, WaterPouch];
+
+    /// <summary>How JSON names it.</summary>
+    public string Key { get; }
+    /// <summary>The game item it starts from.</summary>
+    public string Starter { get; }
+    /// <summary>A water container's: the template its water lives in (the item's own entity, <c>pidEntity</c>), which every item of the kind shares.</summary>
+    internal string? Water { get; }
+    /// <summary>A water container's: the water one step of filling or pouring moves, in the game's units (64 a charge): its item's Volume config.</summary>
+    internal int Volume { get; }
+    internal bool HoldsWater => Water != null;
 }
 
 /// <summary>What a tool gets out of the world.</summary>

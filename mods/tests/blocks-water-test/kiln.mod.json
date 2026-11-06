@@ -1,0 +1,11 @@
+{
+  "id": "blocks-water-test",
+  "name": "water container blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksWaterTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "description": "PASS/FAIL lines: water containers as item blocks (kind watering-can / water-pouch, holds, flow), player-free. The new can's own water template, the game's cans untouched, what a can holds on the server and what players are sent, a full can across a restart. Observer/ logs what an unload puts back."
+}

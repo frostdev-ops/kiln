@@ -101,6 +101,8 @@ date_iso=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)
 
 # ---------------------------------------------------------------- 2. environment
 export KILN_OUT=$work/out CARGO_TARGET_DIR=$work/cargo
+# the SDK packages carry the release's version (managed/Kiln.Sdk/pack.sh), and kiln (the CLI) is built knowing it
+export KILN_SDK_VERSION=$version
 rm -rf "$KILN_OUT" && mkdir -p "$KILN_OUT"
 # no build paths in the binaries: the home folder and the export become neutral prefixes; KILN_RELEASE_BUILD drops
 # the "tree this was built from" defaults of kilnctl and kiln
@@ -210,7 +212,7 @@ fi
 # ---------------------------------------------------------------- 6. SDK, VS Code, samples
 step "SDK packages"
 quiet low "$src/managed/Kiln.Sdk/pack.sh"
-sdk_version=$(sed -n 's:.*<KilnSdkVersion>\(.*\)</KilnSdkVersion>.*:\1:p' "$src/managed/Kiln.Sdk/Sdk/Kiln.Version.props")
+sdk_version=$KILN_SDK_VERSION
 step "VS Code extension"
 (cd "$src/tools/vscode" && KILN_OUT="$KILN_OUT/vscode" quiet low node scripts/package.mjs)
 vsix=$(ls -t "$KILN_OUT"/vscode/kiln-vscode-*.vsix | head -1)

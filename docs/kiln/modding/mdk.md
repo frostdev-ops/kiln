@@ -8,12 +8,22 @@ Three NuGet packages, built into a local feed by `KILN_OUT=… managed/Kiln.Sdk/
 | `Kiln.Sdk` | MSBuild SDK (`Sdk/Sdk.props`, `Sdk/Sdk.targets`, `Sdk/Kiln.Mod.targets`) and its task `tasks/net10.0/Kiln.Sdk.Tasks.dll`; the Roslyn analyzers and the game-id generator (`analyzers/dotnet/cs/`); the native SDK (`native/`) |
 | `Kiln.Templates` | `dotnet new kiln-mod` and the other kinds in [Templates](#templates) |
 
-All three carry the MDK version (`managed/Kiln.Sdk/Sdk/Kiln.Version.props`, today 0.2.0, matching the mod API
-`Kiln.Mods.ApiVersion`).
+All three carry one version, a new one every pack. `managed/Kiln.Sdk/Sdk/Kiln.Version.props` holds the base (today 0.2.0,
+matching the mod API `Kiln.Mods.ApiVersion`); `pack.sh` adds the rest:
+
+| Built by | Version | Example |
+|---|---|---|
+| `tools/release/release.sh` (sets `KILN_SDK_VERSION`) | the release's | `0.2.0-dev.12` |
+| `pack.sh` in a working tree | `<base>-dev.local.<yyyymmdd>.<hhmmss>` (UTC) | `0.2.0-dev.local.20261106.185929` |
+
+NuGet keeps a package by id and version and never fetches that version again, so a package re-packed under the same
+version would leave every project on the first one it restored (a `+build` suffix does not help: NuGet ignores it). The
+packed Kiln.Sdk's own `Kiln.Version.props` and the packed templates' `kilnSdkVersion` default say the same version, so a
+project made with `dotnet new` restores exactly the packages of that pack.
 
 ## A mod project
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.12">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -78,14 +88,14 @@ service in `KilnServices`; warning `KILN003` (unknown keys, short versions, id d
 ## Using the feed
 ```sh
 KILN_OUT=<build dir> managed/Kiln.Sdk/pack.sh
-dotnet new install Kiln.Templates::0.2.0 --add-source $KILN_OUT/nuget
+dotnet new install $KILN_OUT/nuget/Kiln.Templates.<version>.nupkg      # the version pack.sh printed
 dotnet new kiln-mod -n MyMod --feed $KILN_OUT/nuget          # writes MyMod/nuget.config pointing at the feed
 ```
 `dotnet new kiln-mod` options: `--modId`, `--services "Players;Chat"`, `--tests` (adds Kiln.Testing and a test
 class, auto-run), `--feed <dir>`, `--server <dir>` (sets `KilnServer`). `kiln new` ([cli.md](cli.md)) does the same and
 installs the templates when they are missing.
-- The NuGet cache keeps a version once restored: after re-packing **the same version**, clear
-  `~/.nuget/packages/kiln.*/0.2.0` (or build with `NUGET_PACKAGES=<fresh dir>`).
+- A project names one Kiln.Sdk version (`<Project Sdk="Kiln.Sdk/<version>">`). To build it against a newer pack, change
+  that version; the old packages in `~/.nuget/packages/kiln.*` can be deleted at any time.
 - To keep experiments out of your user setup: `dotnet new … --debug:custom-hive <dir>`.
 
 `dotnet new kiln-service -n Weather -o <repo>` (run at the Kiln repository root) creates a native + managed service

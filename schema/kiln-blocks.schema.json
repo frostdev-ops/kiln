@@ -902,13 +902,13 @@
     "item": {
       "type": "object",
       "required": ["name"],
-      "description": "Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else a material.",
+      "description": "Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else a material. A water container (watering-can, water-pouch) is named by kind.",
       "properties": {
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
         "source": { "type": "string", "description": "Where to get it, in the tooltip. Not given: nothing." },
-        "kind": { "enum": ["material", "consumable", "food", "ammo", "tool"] },
+        "kind": { "enum": ["material", "consumable", "food", "ammo", "tool", "watering-can", "water-pouch"], "description": "watering-can and water-pouch: the game's water containers; holds and flow are theirs." },
         "visual": { "$ref": "#/$defs/visualRef" },
         "stack": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many fit in a stack. Default: the kind's own. A tool does not stack." },
         "rarity": { "$ref": "#/$defs/rarity" },
@@ -946,6 +946,8 @@
         "comfort": { "type": "integer", "minimum": 0, "description": "The comfort a placed one gives." },
         "tool": { "$ref": "#/$defs/tool" },
         "ammo": { "$ref": "#/$defs/ammo" },
+        "holds": { "type": "integer", "minimum": 1, "maximum": 1023, "description": "A water container's capacity, in charges: the game's watering can holds 100, its pouch 20 sips. At most 1023: players' games are sent the water as charges x 64 in 16 bits. Default: the kind's own." },
+        "flow": { "type": "number", "minimum": 0.25, "maximum": 8, "description": "How fast a water container fills and pours (at a lake, a well or a barrel, onto crops and soil), as a multiple of the game's own: what one step moves, 32 for the can, 16 for the pouch, about 20 steps a second. The game has no rate for filling alone. Default: 1." },
         "recipe": { "$ref": "#/$defs/recipe" },
         "loot": { "$ref": "#/$defs/loot" },
         "was": { "$ref": "#/$defs/name" }

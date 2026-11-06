@@ -108,6 +108,18 @@ internal static partial class Compiler
 
     public static BlockHandle<T> Define<T>(ModBlocks mod, string name, T block) where T : class, IBlock
     {
+        var (handle, low, label) = Lower(mod, name, block);
+        low.Commit();
+        mod.Handles[name] = handle;
+        mod.Lowered[name] = low.Json;
+        mod.ReportDirty = true;
+        BlocksBridge.Log(LogLevel.Info, $"blocks: {mod.Id}: {label} -> {low.Summary()}");
+        return (BlockHandle<T>)handle;
+    }
+
+    /// <summary>What a block becomes, before anything reaches the game: <see cref="Define{T}"/> without the commit (tests read <see cref="Lowered.Json"/>).</summary>
+    internal static (BlockHandle Handle, Lowered Low, string Label) Lower<T>(ModBlocks mod, string name, T block) where T : class, IBlock
+    {
         var label = Label<T>(name);
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
@@ -129,12 +141,7 @@ internal static partial class Compiler
             _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
-        low.Commit();
-        mod.Handles[name] = handle;
-        mod.Lowered[name] = low.Json;
-        mod.ReportDirty = true;
-        BlocksBridge.Log(LogLevel.Info, $"blocks: {mod.Id}: {label} -> {low.Summary()}");
-        return (BlockHandle<T>)handle;
+        return (handle, low, label);
     }
 
     private static bool ValidName(string s) => s.Length > 0 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.');

@@ -1,0 +1,9 @@
+{
+  "id": "blocks-water-observer",
+  "name": "water container blocks observer (lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksWaterObserver.dll",
+  "side": "server",
+  "description": "Companion of blocks-water-test: logs \"OBSERVE <what>: old -> new\" whenever a watched value changes, to see what an unload of the test puts back."
+}

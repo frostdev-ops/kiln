@@ -47,7 +47,7 @@ A look cannot carry a VFX yet: `VisualBlock.Vfx` is refused with a message. `OnH
 ## Blocks
 | Block | Fields |
 |---|---|
-| `ItemBlock` | `Kind`, `Visual`, `Stack`, `Rarity`, `Level`, `Texts`, `Heals`, `OnUse`, `Feeds`, `Fuel`, `Comfort`, `Tool`, `Ammo`, `Recipe`, `Loot` |
+| `ItemBlock` | `Kind`, `Visual`, `Stack`, `Rarity`, `Level`, `Texts`, `Heals`, `OnUse`, `Feeds`, `Fuel`, `Comfort`, `Tool`, `Ammo`, `Holds`, `Flow`, `Recipe`, `Loot` |
 | `WeaponBlock` | `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
 | `WandBlock` | `Primary`, `Heavy`, `Special`, `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
 | `ArmorBlock` | `Slot`, `Set`, `Visual`, `Look`, `Stats`, `Perks`, `OnHitTaken`, `Recipe`, `Loot` |
@@ -55,12 +55,13 @@ A look cannot carry a VFX yet: `VisualBlock.Vfx` is refused with a message. `OnH
 
 All take `Name`, `Description` and `Was` (the name before a rename: ids come from the oldest name, so saves keep it).
 
-An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arrow, `Feeds` food, `Heals` or `OnUse` a potion, anything else a material. Say `Kind` to be explicit; a field the kind has no use for is an error.
+An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arrow, `Feeds` food, `Heals` or `OnUse` a potion, anything else a material. Say `Kind` to be explicit; a field the kind has no use for is an error. A water container is always named: `ItemKind.WateringCan` or `ItemKind.WaterPouch` (`"watering-can"`, `"water-pouch"`). The kinds are these premades only: an item that starts from a game item you choose is `Content.Items.Register`'s ([content.md](../services/content.md), "New items and recipes").
 
 - **Potion.** `Heals` is the game's own drink and the tooltip's Health row. `OnUse` runs your effects on whoever uses it, from a use sequence of its own. Without `Heals`, its tooltip shows the Health, Mana and Stamina a use always gives (an effect with a `Chance` isn't counted).
 - **Food.** `Feeds` names a status. It goes in the game's food slots for the status's `Seconds`, which is also the tooltip's Duration. A game food sets its own time in the item, and eating it uses that time rather than the status's, so Kiln writes the status's time into the item.
 - **Arrow.** `Ammo.Damage` and `Ammo.Power` add to the bow's, as the game's arrows do.
 - **Tool.** `Harvests = Harvest.Wood` is an axe, `Harvest.Stone` a pickaxe. `Power` is its wood or stone damage; the rest of what it can do scales along.
+- **Water container.** `Holds` is its capacity in charges, as the game counts them: its watering can holds 100, its pouch 20 sips. `Flow` is how fast it fills and pours, a multiple of the game's own. See [Water containers](#water-containers).
 - **Wand.** Each attack is a `CastBlock` and a delivery, with a sequence of its own and no ammo item. `CastBlock.ManaCost` is paid by that attack alone. The primary's main damage is the wand's power and the tooltip's number. Heavy and special deal exactly what they say. An attack left out is the primary again; its motion comes from `Moves`, and the hand effect from the starter wand.
 - **Staff spell.** A `SpellBlock`: an ammo item, one charge per item in the stack.
 - **Armor.** `Physical` and `Magical` are the tooltip's. `Bonus` is what wearing it adds, for example `[EquipBonus.Health] = 60`. Its look on the body is a game item's (`Visual = new VisualBlock { Like = ... }`) or a model of your own: `Look = new WornLook { Model = "models/mail.glb", Hides = [BodyPart.Chest, BodyPart.Waist] }`, skinned or on one joint, with a `Female` morph or file, as a cosmetic's ([cosmetics.md](cosmetics.md)). `Look` wins over `Visual` for what is worn, and `Visual` still gives the dropped model and the tint. With neither, the piece takes its set's look for its slot, which can be a worn look too. A ring has no look on the body.
@@ -78,12 +79,39 @@ An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arr
 | Damage | `power = int(int(10 × 0.15 × level + 10) × dmgMod × speedMod)`, solved for `Power`. |
 | Armour | `armour[kind] = round((15 × level + 23) × distribution[kind])`, solved for the number written. |
 | Tooltip rows | The list is written from what the block says, so a starter's rows don't show. |
-| Stack sizes | The kind's own, unless you say. A tool has an item entity and does not stack. |
+| Stack sizes | The kind's own, unless you say. A tool or a water container has an item entity and does not stack. |
+| A water container's water | Lives in the item's own entity, made from a template every can of the game shares (`Pide_Fuel_Watering_Can`). `Holds` clones that template with its `FuelSetup.maxFuelCharges` and points the new item at the clone, so the game's cans keep 100. |
 | `clients` | `kiln` for all of this. A PNG icon or a model of your own needs `mod`, and a block that needs more than the manifest says is refused at load. |
 
 Kiln checks the numbers these formulas use against the game's `keen::BalancingTable` when content is ready, and warns if an update changed them.
 
 `Loot.Rolled` opts out of the crafted-item rule, for loot gear that scales with its area. It refuses a recipe, whose tooltip would then be wrong.
+
+## Water containers
+```csharp
+Blocks.Define("big-can", new ItemBlock
+{
+    Name = "Big Watering Can",
+    Kind = ItemKind.WateringCan,
+    Holds = 1000,          // charges: the game's can holds 100
+    Flow = 4,              // fills and pours 4x as fast as the game's can
+    Recipe = new RecipeBlock { Station = "0x41bf48ce", Needs = { ["Material_T1_Metal_Scraps"] = 10, ["Material_T1_Charcoal"] = 6 } },
+});
+```
+```jsonc
+{ "format": 1, "items": { "big-pouch": { "name": "Big Water Pouch", "kind": "water-pouch", "holds": 60, "flow": 2 } } }
+```
+| Field | What | Range | Default |
+|---|---|---|---|
+| `Holds` | What a full one holds, in charges | 1..1023 | the kind's: can 100, pouch 20 |
+| `Flow` | How fast it fills and pours, as a multiple of the game's own | 0.25..8 | 1 |
+
+- **Why 1023.** The game keeps a container's water as charges × 64 (a can of 100 holds 6,400) and sends players that number in 16 bits, which stop at 65,535. At 1,023 charges a full can is 65,472 and players see exactly what the server has. At 1,024 the server holds 65,536 and players are sent 65,535: above 1,023 a can would show full until it is down to that. The block refuses anything outside 1..1023 with that reason.
+- **One rate for both ways.** Each step of filling or pouring moves the item's `Volume` (32 for the can, 16 for the pouch: half a charge, a quarter), about 20 times a second while the button is held. The game has no rate for filling alone: at a lake, at a well or barrel, onto crops and onto soil, it is the same number. So `Flow = 4` also waters 4× as fast and empties the can 4× as fast. A step never overfills: the game moves at most what the source has and the destination has room for.
+- **What it takes**, from the game's code and data (not yet timed in a game): the game's can at a lake goes from empty to full in about 10 s (100 charges at about 10 a second). `Holds = 1000, Flow = 4`: about 25 s; `Holds = 1000` alone: about 100 s. A well gives what it holds (75 to 500 charges), so a big can can empty one.
+- `clients` is `kiln`: Kiln clients get the can and its template from the server. A new `Holds` (a reload of the mod) applies to cans made after it; cans already made keep what their entity was made with at least until the world next loads (not checked further).
+- The Portable Water Pump fills the same way and has a `Volume` of its own (128), but is not a kind: change its `Volume` as data (`Content.ItemData.Get("Tool_T3_Channelled_Water_Hose_Tool")!.Config("Volume")`).
+- Lab test: `mods/tests/blocks-water-test` (and `Observer/`). Measurements and the game's code: [docs/re/items.md](../../re/items.md), "Water containers".
 
 ## Effects on items
 `OnHit`, `OnKill` and `OnHitTaken` take the same `EffectBlock` a spell or status does. They run while the item is in an equipment slot, with no unlock:
@@ -109,3 +137,5 @@ Each block costs about the same to load however many there are: a lab server wit
 
 ## Test
 `mods/tests/blocks-items-test` runs on a dedicated server with no player. A spawned player entity has no equipment slots set, so the test says which slot the chest is, through a test-only request of kiln.skills; it creates the switch that request needs, `<kiln>/data/skills/lab-ops`. Start it twice: the second run checks ids and stored items across the restart. It logs `blocks-items-test: PASS` and `FAIL` lines, and `blocks-items-test done: N PASS, M FAIL`. Started with `KILN_PLAYERSTATE_LAB=1` (test labs only), it also eats an Ember Stew as a player does, with the stew as the used item, and checks the status's time. `syncitems.py --port <labPort> --lab <lab folder>` checks what a Kiln client without the mod gets: definitions with their texts, clones, and the programs they name.
+
+`mods/tests/blocks-water-test` checks water containers, with no player: the new cans' templates (1,000, 1,023, a pouch of 60 from `blocks/water.json`), the game's can and template untouched, `Flow` as the items' `Volume`, the recipe's station, what a can holds on the server and what players are sent (a can of 1,000 is 64,000 both ways), and holds 1024 refused. Use a lab made with `--save` from a world with a base: the cans go into one of its chests, and a second start checks that a full can of 1,000 is still full. `Observer/` (mod `blocks-water-observer`) logs what an `unload blocks-water-test` puts back: the recipe off its station, the items registered until the restart, the game's can and template as they were. Lab: fresh 30 PASS, restart 4 PASS.

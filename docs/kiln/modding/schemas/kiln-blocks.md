@@ -633,7 +633,7 @@ Type: [ref](#ref) or [interaction](#interaction)
 
 ## item
 
-Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else a material.
+Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else a material. A water container (watering-can, water-pouch) is named by kind.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
@@ -642,9 +642,11 @@ Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else 
 | `comfort` | integer |  | The comfort a placed one gives. min 0 |
 | `description` | string |  |  |
 | `feeds` | [statusRef](#statusref) |  | The status eating it gives, in the game's food slots. |
+| `flow` | number |  | How fast a water container fills and pours (at a lake, a well or a barrel, onto crops and soil), as a multiple of the game's own: what one step moves, 32 for the can, 16 for the pouch, about 20 steps a second. The game has no rate for filling alone. Default: 1. min 0.25 max 8 |
 | `fuel` | number |  | Seconds it burns in a fire. |
 | `heals` | integer |  | Health using it gives at once; the tooltip's number. |
-| `kind` | `"material"` \| `"consumable"` \| `"food"` \| `"ammo"` \| `"tool"` |  |  |
+| `holds` | integer |  | A water container's capacity, in charges: the game's watering can holds 100, its pouch 20 sips. At most 1023: players' games are sent the water as charges x 64 in 16 bits. Default: the kind's own. min 1 max 1023 |
+| `kind` | `"material"` \| `"consumable"` \| `"food"` \| `"ammo"` \| `"tool"` \| `"watering-can"` \| `"water-pouch"` |  | watering-can and water-pouch: the game's water containers; holds and flow are theirs. |
 | `level` | [level](#level) |  |  |
 | `loot` | [loot](#loot) |  |  |
 | `name` | string | yes | min length 1 |

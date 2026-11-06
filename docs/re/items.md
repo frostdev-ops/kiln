@@ -268,12 +268,78 @@ MADE Kiln_Sample_Glacier via recipe: rarity Epic, level 1, perks 4 available, 0 
 Damage does not depend on rarity (dmgMod 1.6, as Glacier): level 1 Epic 17, level 1 Common 17, level 2 20, level 3 22, level 49 132, level 50 136. The client's menu said
 Damage 17 at level 1 and an instance's tooltip Cutting 22 at level 3, so server and client data agree on the damage curve.
 
+## 11. Water containers: capacity, units, fill and pour (server 26430253, exe `f0d824be…`) **[data] [dis] [rt]**
+Where the water is, what the numbers mean, and what limits a bigger can. Data decoded with `tools/kfc/kfc.py` from a lab's
+game files; disassembly of the server exe (VAs, image base `0x140000000`); runtime in labs `wcan-a`..`wcan-d` (2026-11-06,
+no player). Used by the item blocks' `Holds` and `Flow` (docs/kiln/modding/item-blocks.md, "Water containers").
+
+**Where the capacity is.** Not on the item. A water container's ItemInfo has `pidEntity` (flags `HasPIDE`, `UsesFuel`), and
+the item's own entity is made from that template: `Fuel` (attribute), `FuelSetup`, `NetworkFuel`. **[data]**
+
+| Item | `pidEntity` template | `FuelSetup.maxFuelCharges` | `Volume` config | Server `Fuel` max |
+|---|---|---|---|---|
+| `Tool_T1_WateringCan` (Watering Can) | `Pide_Fuel_Watering_Can` | 100 | 32 | 6,400 |
+| `Tool_Water_Pouch_Refillable` (Water Pouch) | `Pide_Fuel_Water_Pouch` | 20 | 16 | 1,280 |
+| `Tool_T3_Channelled_Water_Hose_Tool` (Portable Water Pump) | `Pide_Fuel_Water_Channeling_Tool` | 500 | 128 | 32,000 |
+| (template only) | `Base_Pide_Fuel` | 50 | | |
+
+Placed ones carry the same three components: the Water Barrel (`Prop_Destructible_Furniture_Barrel02_A_Wood_Water`) 150 with
+rain refill, wells 75 to 500 (`Prop_NPC_Water_Well_a` 250, starts half full), factories (oven, seedling factory) 50 to 150.
+Item rarity does not change the capacity (Common and Legendary cans: 6,400). No vanilla container holds 80. **[data] [rt]**
+
+**Units.** `FuelSetup.maxFuelCharges` (sint32) is in charges. At spawn the game sets the `Fuel` attribute (Sint32 attribute,
+hash `0x05b0bf75`; its max is the attribute `Fuel_Max` `0xa00e2601`; `dataStorage[0]` current, `[1]` max) to charges × 64.
+Lab, items given into a chest and read with `World.ReadBytes`: can 100 → 6,400, pouch 20 → 1,280, pump 500 → 32,000, well 250
+→ 16,000 (8,000 at its 50 % start), barrel 150 → 9,600. The attribute formula clamps `Fuel` to 0..`Fuel_Max` after every
+change (`[0x20000, 0x1ffff, 0x20001, 0xcffff]`, interpreter `0x14003d730`). **[rt] [dis]**
+
+**What players are sent: 16 bits.** `NetworkFuel {u16 fuel, u16 fuelMax}`, written by `fuel_network` (`0x140056dc0`) as
+min(value, 0xFFFF) (`cmovg` at `0x140056ed9`, `0x140056f28`): it saturates, it does not wrap. Lab, the can's template set to:
+
+| `maxFuelCharges` | server `Fuel` max | `NetworkFuel.fuelMax` | full can: `Fuel` / `NetworkFuel.fuel` |
+|---|---|---|---|
+| 100 | 6,400 | 6,400 | 6,400 / 6,400 |
+| 1,023 | 65,472 | 65,472 | 65,472 / 65,472 |
+| 1,024 | 65,536 | 65,535 | 65,536 / 65,535 |
+| 1,025 | 65,600 | 65,535 | 65,600 / 65,535 |
+| 1,000,000 | 64,000,000 | 65,535 | 64,000,000 / 65,535 |
+
+So 1,023 charges is the largest capacity players see exactly; above it a container shows full until it is down to 65,535
+units. The server's own math is i32 and stays right (`Fuel` holds 64,000,000). `ClientFuelChangeFx.previousFuel` is u16 too. **[rt] [dis]**
+
+**Filling and pouring: one rate, the item's `Volume`.** The can's sequences (`Tool_RemoveWater` 81314069-…, fill, Secondary;
+`Tool_AddWater_WateringCan` afc98d1b-…, pour, Primary; the pouch and the pump fill with `Tool_RemoveWater` too) are 0.5 s with a
+`LoopEvent` at 0.2 s of 0.05 s, held while the button is (the pour also needs `CanPayUsageCosts`). At 0.2 s each pass:
+- at open water, a `SpawnImpact`: fill program `ac68f1d4` does `addWater(cursor, -Volume, Range)` and adds what it took to the
+  pide's `Fuel`; pour program `408ae9a0` clamps `Volume` to the `Fuel` left, `addWater(+)`, and takes off what it placed;
+- at a prop (a well, a barrel, a crop, a seedling factory), a `TransferFuelEvent` (type hash `0x54bf4b90`), handled in program
+  `actor_interaction` (update `0x14007bd70`, branch `0x14007cb92`): the used item's `Volume` (`0x1bb380` reads ItemInfo
+  `+0x5F8` impactValues, config `0xd8f493f3`, as a raw i32) moves between the pide and `triggerContext.interactionHostId`:
+  `PideToProp` (0) `n = min(prop room, pide water, Volume)`, `PropToPide` (1) `n = min(pide room, prop water, Volume)`
+  (`0x14007cfa2`, `0x14007cda2`). It never reads `FuelAmount` or `FuelCharges`. **[data] [dis]**
+
+Which of the two runs follows the target, by entity tag (the interaction target or the cursor). Both use `Volume`, so the
+game has no fill-only rate: a bigger `Volume` fills faster everywhere and pours faster everywhere. A fill-only change would
+need extra `TransferFuelEvent`s in a copy of `Tool_RemoveWater` (props) and a copy of program `ac68f1d4` (open water), or a
+hook at `0x14007cd8c`; not built. A step can't overfill (the min above, then the clamp). `Volume` must stay a Sint32: a float
+config would be read as its bits. **[dis] [inf]**
+
+**Rate.** The loop wraps once per 0.05 s of sequence time, and the step adds the world's dt (`0x1400377a0`; at most one pass a
+step): about 20 passes a second on a dedicated server (24.5 steps a second, ~0.82 a step). The can moves 32 a pass: 640 units,
+10 charges a second, so empty to full in about 10 s at a lake or a well that has enough. Derived from the code and the
+sequence data; not timed with a player (a lab has no player to hold the button, and `Abilities.PlaySequence` has no used item). **[dis] [inf]**
+
+**Save.** A can of 1,000 charges (64,000 units, a template clone) left full in a chest was full after a save and a restart:
+64,000 / 64,000 on the server and in `NetworkFuel` (`mods/tests/blocks-water-test`, restart phase). **[rt]**
+
 ## 9. Open questions
 - Players (no client in the lab): popup and PickupEvent with `0x01`, knowledge unlocks through the queue, the
   backpack-priority setting (the game's own handlers add `0x20` when `PlayerInput+0x5b0` bit 11 is set; kiln.items does
   not), which slot new weapons land in, and take from a player's held / equipped slots (removeItems unequips and
   destroys equipped gear). See the client checklist in docs/kiln/services/items.md.
-- Fuel (`OptF32`, FuelPercentageInit): not exposed; its unit (0..1 or 0..100) was not checked.
+- Fuel (`OptF32`, FuelPercentageInit): not exposed; its unit (0..1 or 0..100) was not checked. What fuel is: section 11.
+- Water containers: the fill and pour rate with a player (section 11 derives it), and whether a can made before a capacity
+  change takes the new capacity when the world next loads.
 - Moving gear without destroying it (moveStack `0x1b4550`, ops 4/5) is located but not wrapped (no "borrow/return").
 - No inventory in this world carries the IsNpc flag; whether villagers / companions have one was not checked.
 - `tools/sigport/sigdb_check.py` counts non-overlapping matches (Python `finditer`), the core counts overlapping ones:

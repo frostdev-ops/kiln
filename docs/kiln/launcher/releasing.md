@@ -111,7 +111,7 @@ kiln-<version>/
   linux/     kiln-launcher_<v>_amd64.AppImage (+ .sig), kiln-launcher_<v>_amd64.deb, kiln-launcher-<v>.x86_64.rpm
   windows/   kiln-launcher_<v>_x64-setup.exe (+ .sig)
   runtime/   kiln-runtime-<v>.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt
-  sdk/       Kiln.Api.Ref, Kiln.Sdk, Kiln.Templates nupkgs, kiln, kiln.exe, kiln-vscode-<x>.vsix
+  sdk/       Kiln.Api, Kiln.Sdk, Kiln.Templates .<v>.nupkg (the release's version: NuGet never re-fetches a version), kiln, kiln.exe, kiln-vscode-<x>.vsix
   samples/   <mod>-<version>.zip for each sample that builds
   updates/   frostdev.io/<channel>/latest.json, github/latest.json
   source/    kiln-<v>-src.tar.gz

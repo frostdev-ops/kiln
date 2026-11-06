@@ -1,0 +1,13 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "items": {
+    "big-pouch": {
+      "name": "Big Water Pouch",
+      "description": "Holds sixty sips and fills twice as fast.",
+      "kind": "water-pouch",
+      "holds": 60,
+      "flow": 2
+    }
+  }
+}

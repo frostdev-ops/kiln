@@ -486,6 +486,15 @@ internal static partial class Compiler
 
     // ---- items --------------------------------------------------------------------------------------------------
 
+    /// <summary>The most charges a water container can hold and still show players what it has: the game sends them charges × 64 as a 16-bit number,
+    /// which stops at 65,535 (1,023 × 64 = 65,472). Lab: a can of 1,024 has 65,536 on the server and shows 65,535.</summary>
+    internal const int MaxHolds = 1023;
+    /// <summary><see cref="ItemBlock.Flow"/>'s range. At 8 a can moves 256 a step (4 charges), the fill and pour programs' own default.</summary>
+    internal const double MinFlow = 0.25, MaxFlow = 8;
+    /// <summary>Volume (0xd8f493f3), read from the used item: what one step moves, filling or pouring, at open water (programs ac68f1d4, 408ae9a0) and at a prop
+    /// (TransferFuelEvent, actor_interaction). A Sint32: the event reads it raw (docs/re/items.md, "Water containers").</summary>
+    private const uint ConfigVolume = 0xd8f493f3;
+
     private static ItemKind KindOf(ItemBlock b) => b.Kind
         ?? (b.Tool != null ? ItemKind.Tool : b.Ammo != null ? ItemKind.Ammo : b.Feeds != null ? ItemKind.Food : b.Heals != null || b.OnUse != null ? ItemKind.Consumable : ItemKind.Material);
 
@@ -506,6 +515,8 @@ internal static partial class Compiler
         Only(b.Comfort != null, "comfort", ItemKind.Material);
         Only(b.Tool != null, "tool", ItemKind.Tool);
         Only(b.Ammo != null, "ammo", ItemKind.Ammo);
+        Only(b.Holds != null, "holds", ItemKind.WateringCan, ItemKind.WaterPouch);
+        Only(b.Flow != null, "flow", ItemKind.WateringCan, ItemKind.WaterPouch);
         if (kind == ItemKind.Tool && b.Tool == null) throw new BlockError(ctx.Block, "tool", "a tool says what it harvests");
         if (kind == ItemKind.Food && b.Feeds == null) throw new BlockError(ctx.Block, "feeds", "food says what status eating it gives");
         if (kind == ItemKind.Consumable && b.Heals == null && b.OnUse == null) throw new BlockError(ctx.Block, "onUse", "using this would do nothing: give it heals or onUse");
@@ -513,7 +524,12 @@ internal static partial class Compiler
         if (b.Fuel is <= 0) throw new BlockError(ctx.Block, "fuel", $"{b.Fuel} must be more than 0");
         if (b.Comfort is < 0) throw new BlockError(ctx.Block, "comfort", $"{b.Comfort} is less than 0");
         if (b.Stack is < 1 or > 65535) throw new BlockError(ctx.Block, "stack", $"{b.Stack} is outside 1..65535");
-        if (kind == ItemKind.Tool && b.Stack is > 1) throw new BlockError(ctx.Block, "stack", "a tool has an item entity of its own: it does not stack");
+        if ((kind == ItemKind.Tool || kind.HoldsWater) && b.Stack is > 1) throw new BlockError(ctx.Block, "stack", $"a {kind.Key} has an item entity of its own: it does not stack");
+        if (b.Holds is < 1 or > MaxHolds)
+            throw new BlockError(ctx.Block, "holds", $"{b.Holds} is outside 1..{MaxHolds}: a player's game is sent a container's water as charges × 64 in 16 bits, which stop at 65,535, " +
+                                                   $"so above {MaxHolds} charges it would show the container full until it is down to {MaxHolds}");
+        if (b.Flow is { } fl && (double.IsNaN(fl) || fl < MinFlow || fl > MaxFlow))
+            throw new BlockError(ctx.Block, "flow", $"{fl} is outside {MinFlow}..{MaxFlow}: a multiple of the game's own rate");
         if (b.Level is { } level) CheckLevel(ctx, level, "level");
 
         var key = b.Was ?? name;
@@ -524,6 +540,16 @@ internal static partial class Compiler
         if (b.Stack is { } stack) d.Fields["maxStackSize"] = stack;
         ApplyVisual(d, b.Visual, "visual");
         ApplyLoot(d, b.Loot);
+        if (kind.Water is { } water && b.Holds is { } holds)
+        {
+            // The water is in the item's own entity, from a template every can (or pouch) of the game shares: a clone of it holds this much, and the
+            // game's own keep theirs. The game keeps charges × 64 (docs/re/items.md, "Water containers").
+            var holder = BlockIds.Derive(mod, "template", $"{key}.water");
+            low.Clone("templates", holder, $"{mod}.{name}.water", water, new JsonObject { ["FuelSetup.maxFuelCharges"] = holds });
+            d.Refs["pidEntity"] = holder.ToString();
+        }
+        if (kind.HoldsWater && b.Flow is { } flow)
+            d.Rules[$"impactValues.0x{ConfigVolume:x8}"] = Math.Max(1, (int)Math.Round(kind.Volume * flow));   // Volume: the fill and pour programs move this much a step
 
         if (kind == ItemKind.Tool)
         {

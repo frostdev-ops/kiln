@@ -8,10 +8,37 @@ use std::process::{Command, ExitStatus};
 
 const VERSION_PROPS: &str = include_str!("../../../managed/Kiln.Sdk/Sdk/Kiln.Version.props");
 
-/// The MDK version this kiln came with (Kiln.Sdk's KilnSdkVersion).
+/// The MDK version this kiln came with: the release's (`KILN_SDK_VERSION` when it was built, tools/release/release.sh), else
+/// Kiln.Sdk's base version (Kiln.Version.props), which a feed packed from a working tree extends (`<base>-dev.local.<date>.<time>`).
 pub fn sdk_version() -> &'static str {
+    if let Some(v) = option_env!("KILN_SDK_VERSION").filter(|v| !v.is_empty()) {
+        return v;
+    }
     let s = VERSION_PROPS;
     s.split("<KilnSdkVersion>").nth(1).and_then(|r| r.split("</KilnSdkVersion>").next()).unwrap_or("0.0.0").trim()
+}
+
+/// `<id>.<version>.nupkg` in a feed: this kiln's own version when the feed has it, else the newest package of the same base
+/// version (by file time), which is what managed/Kiln.Sdk/pack.sh made last from a working tree. The version is the second value.
+pub fn feed_package(feed: &Path, id: &str) -> Option<(PathBuf, String)> {
+    let v = sdk_version();
+    let exact = feed.join(format!("{id}.{v}.nupkg"));
+    if exact.is_file() {
+        return Some((exact, v.to_string()));
+    }
+    let base = v.split(['-', '+']).next().unwrap_or(v);
+    let prefix = format!("{id}.{base}");
+    std::fs::read_dir(feed)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let ver = name.strip_suffix(".nupkg")?.strip_prefix(&format!("{id}."))?.to_string();
+            let ok = name.starts_with(&prefix) && (ver == base || ver.starts_with(&format!("{base}-")) || ver.starts_with(&format!("{base}+")));
+            ok.then(|| (e.metadata().and_then(|m| m.modified()).ok(), e.path(), ver))
+        })
+        .max_by_key(|(t, _, _)| *t)
+        .map(|(_, p, ver)| (p, ver))
 }
 
 /// The Kiln repository: $KILN_REPO, else the checkout this kiln was built from (if it is still there; a release build,
@@ -69,22 +96,21 @@ pub fn sdk_native_dir(feed_hint: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("KILN_SDK_DIR").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(d));
     }
-    let v = sdk_version();
-    if let Some(p) = nuget_packages().map(|p| p.join("kiln.sdk").join(v).join("native")) {
+    let own = sdk_version();
+    let found = feed(feed_hint).and_then(|f| feed_package(&f, "Kiln.Sdk"));
+    let v = found.as_ref().map_or(own, |(_, v)| v.as_str());
+    if let Some(p) = nuget_packages().map(|p| p.join("kiln.sdk").join(v.to_lowercase()).join("native")) {
         if p.join("cmake/KilnPlugin.cmake").is_file() {
             return Ok(p);
         }
     }
-    if let Some(f) = feed(feed_hint) {
-        let nupkg = f.join(format!("Kiln.Sdk.{v}.nupkg"));
-        if nupkg.is_file() {
-            let dest = kiln_manage::paths::DataDirs::locate()?.root.join("sdk").join(format!("kiln.sdk-{v}"));
-            if !dest.join("native/cmake/KilnPlugin.cmake").is_file() || newer(&nupkg, &dest.join("native")) {
-                let _ = unzip_native(&nupkg, &dest); // an older package without native/: try the next source
-            }
-            if dest.join("native/cmake/KilnPlugin.cmake").is_file() {
-                return Ok(dest.join("native"));
-            }
+    if let Some((nupkg, _)) = &found {
+        let dest = kiln_manage::paths::DataDirs::locate()?.root.join("sdk").join(format!("kiln.sdk-{v}"));
+        if !dest.join("native/cmake/KilnPlugin.cmake").is_file() || newer(nupkg, &dest.join("native")) {
+            let _ = unzip_native(nupkg, &dest); // an older package without native/: try the next source
+        }
+        if dest.join("native/cmake/KilnPlugin.cmake").is_file() {
+            return Ok(dest.join("native"));
         }
     }
     if let Some(r) = repo() {

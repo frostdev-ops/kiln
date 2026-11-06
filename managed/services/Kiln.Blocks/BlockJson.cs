@@ -26,6 +26,9 @@ internal static class BlockJson
         ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), ("screenEffects", Make<ScreenEffectBlock>), .. WorldJson.Kinds, .. ItemJson.Kinds, .. AbilityJson.Kinds, .. FurnitureJson.Kinds, .. NpcJson.Kinds,
     ];
 
+    /// <summary>One block as blocks/*.json writes it (tests).</summary>
+    internal static T Parse<T>(string json) where T : class, IBlock => JsonSerializer.Deserialize<T>(json, Options) ?? throw new JsonException("null");
+
     internal static BlockHandle Make<T>(ModBlocks mod, string name, JsonElement e) where T : class, IBlock =>
         Compiler.Define(mod, name, e.Deserialize<T>(Options) ?? throw new JsonException("null"));
 

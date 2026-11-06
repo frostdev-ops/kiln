@@ -23,7 +23,7 @@
       "col": 40,
       "file": "blocks/items.json",
       "line": 10,
-      "message": "\"gem\" is not one of \"material\", \"consumable\", \"food\", \"ammo\", \"tool\"",
+      "message": "\"gem\" is not one of \"material\", \"consumable\", \"food\", \"ammo\", \"tool\", \"watering-can\", \"water-pouch\"",
       "severity": "error"
     },
     {

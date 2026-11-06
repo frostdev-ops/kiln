@@ -196,16 +196,16 @@ pub fn run(a: NewArgs, json: bool) -> Result<i32> {
 }
 
 fn install_templates(feed: Option<&Path>, hive: &[String], json: bool) -> Result<()> {
-    let v = tools::sdk_version();
     let Some(feed) = feed else {
         return Err(CliError::new("not_found", "Kiln.Templates is not installed and no MDK feed is known (--feed, KILN_FEED)").into());
     };
+    let found = tools::feed_package(feed, "Kiln.Templates");
+    let v = found.as_ref().map_or(tools::sdk_version(), |(_, v)| v.as_str());
     out::say(json, format!("installing Kiln.Templates {v} from {}", feed.display()));
-    let nupkg = feed.join(format!("Kiln.Templates.{v}.nupkg"));
     let mut cmd = Command::new("dotnet");
     cmd.arg("new").arg("install");
-    if nupkg.is_file() {
-        cmd.arg(&nupkg);
+    if let Some((nupkg, _)) = &found {
+        cmd.arg(nupkg);
     } else {
         cmd.arg(format!("Kiln.Templates::{v}")).arg("--add-source").arg(feed);
     }

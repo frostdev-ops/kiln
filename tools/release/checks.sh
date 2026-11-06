@@ -91,6 +91,8 @@ check_template() {
   export NUGET_PACKAGES=$d/packages DOTNET_CLI_HOME=$d/home
   dotnet new install "$out/sdk/Kiln.Templates.$sdk_version.nupkg" --debug:custom-hive "$d/hive"
   (cd "$d" && dotnet new kiln-mod -n CheckMod --feed "$out/sdk" --debug:custom-hive "$d/hive")
+  # the new project names this release's Kiln.Sdk, so it restores this release's packages and no cached older ones
+  grep -q "Sdk=\"Kiln.Sdk/$sdk_version\"" "$d/CheckMod/CheckMod.csproj" || { echo "CheckMod.csproj does not name Kiln.Sdk/$sdk_version"; return 1; }
   (cd "$d/CheckMod" && dotnet build -c Release -nologo -v q)
   local m; m=$(find "$d/CheckMod" -path '*/bin/*' -name kiln.mod.json | head -1)
   unset NUGET_PACKAGES DOTNET_CLI_HOME
