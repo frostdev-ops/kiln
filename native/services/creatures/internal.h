@@ -225,6 +225,10 @@ uint64_t program_marks_written();
 // ---------------------------------------------------------------------------------------------- arsenals ----
 uint32_t arsenal_count();
 KilnResult arsenal_of(KilnEntity e, uint8_t out[16], uint32_t* known);
+// The arsenal record the creature's AI reads now (the game's lookup by its EnemyArsenalReference GUID). Tick.
+// KILN_ERR_UNAVAILABLE: no EnemyArsenalReference; KILN_ERR_NOT_FOUND: the entity is gone, or its arsenal's GUID is not
+// in the registry (yet: a Kiln arsenal is installed in the next Pre).
+KilnResult arsenal_record_of(KilnEntity e, const uint8_t** out);
 
 // ---------------------------------------------------------------------------------------------- arsenal.cpp ----
 // Offsets inside the arsenal blob, from the game's reflection (arsenal_init); 0 sizes mean the writer is off.
@@ -264,6 +268,10 @@ void arsenal_init();
 void arsenal_pre();
 void arsenal_release_owner(KilnOwner owner);
 bool arsenal_writer_ready();
+// The arsenal record layout (AL) and the rule offsets, read from the reflection once. Everything that reads an arsenal's
+// records (attack overrides included) needs it; the registry map is needed only for writing.
+bool arsenal_layout_ready();
+const char* arsenal_layout_error();
 uint32_t arsenal_count_kiln();
 void arsenal_map_stats(uint32_t* capacity, uint32_t* count);
 KilnResult KILN_CALL arsenal_define_api(KilnOwner owner, KilnStr json, char* error, size_t cap, size_t* len);

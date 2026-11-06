@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds and runs kiln.worldtables' host test: ids, the handshake hash, names and the table writers, on synthetic resources. No game, no Wine.
-#   native/services/worldtables/tests/run.sh [registry.bin pools.bin blueprints.bin world.bin [voxel-model.bin]]   (KILN_TERRAIN_RES: below)
+#   native/services/worldtables/tests/run.sh [registry.bin pools.bin blueprints.bin world.bin [door-wall-model.bin [flat-roof-2m-model.bin]]]   (KILN_TERRAIN_RES: below)
 # The optional files are a game's own resources (local data, never in the repo): the test then also checks that a merge with nothing to do gives
 # the same bytes back, and that a new material reads back from them.
 set -euo pipefail

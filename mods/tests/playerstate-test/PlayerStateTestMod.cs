@@ -27,6 +27,9 @@ public sealed class PlayerStateTestMod : Mod
     private const uint Potion = 0xdcb1dded;    // Consumable_Potion_Health_T4
     private const uint Glider = 0x3d4a78dd;    // Tool_Glider_T1
     private const uint Sword = 0x4c0d3e02;     // Weapon_T1_1H_Sword_Craft
+    private const uint RingLight = 0x79442800; // Ring_T3_Ring_of_Light
+    private const uint RingShock = 0x4623bcb0; // Ring_T6_Ring_of_Shock
+    private const byte EquipRing1 = 11;        // keen::EquipmentSlot.Ring1
 
     private int _pass, _fail;
     private readonly List<EntityId> _spawned = new();
@@ -125,7 +128,8 @@ public sealed class PlayerStateTestMod : Mod
             if (_cancel == "equip" && e.Name == "changeEquipmentAction")
             {
                 e.Cancel();
-                W($"{e.Player.Entity} canceled {e.Name}");
+                W(e.CanCancel ? $"{e.Player.Entity} canceled {e.Name} v{e.Version}: the game will not run it"
+                    : $"{e.Player.Entity} canceled {e.Name} v{e.Version}, but it had already run (canCancel False): nothing changes");
             }
         });
         try
@@ -180,6 +184,7 @@ public sealed class PlayerStateTestMod : Mod
                 await TestConsume(p);
                 await TestFakeInput(p);
                 await TestEquipment(p);
+                await TestClientTiming(p);
                 await TestRealInput(p);
                 await TestCost(p);
                 await TestOtherThread(p);
@@ -199,10 +204,12 @@ public sealed class PlayerStateTestMod : Mod
     {
         try
         {
+            var hook = Hooks.Detour("GetComponent", c => { if (_world == 0) _world = (nuint)c[1]; return c.CallOriginal(); });
             while (!Spawn.WorldRunning) await Context.Scheduler.NextTick();
             await Steps(60);
+            hook.Remove();
             var s = PlayerStates.Status;
-            Info($"status on this sigdb: {s}");
+            Info($"status on this sigdb: {s}, client actions cancelable {s?.ClientActionCancel}");
             var e = await SpawnPlayer();
             _actions.Clear();
             _states.Clear();
@@ -223,9 +230,13 @@ public sealed class PlayerStateTestMod : Mod
             {
                 Check(PlayerStates.Available, "states still work");
                 var a = _actions.FirstOrDefault();
-                Check(a is { CanCancel: false }, $"the action's event says it cannot be canceled: {a}");
-                Check(Abilities.SequenceOf(e)?.Sequence == Abilities.IdOf(Greet), "a handler's Cancel changed nothing: the sequence runs");
+                if (s is { Cancel: false })
+                {
+                    Check(a is { CanCancel: false }, $"the action's event says it cannot be canceled: {a}");
+                    Check(Abilities.SequenceOf(e)?.Sequence == Abilities.IdOf(Greet), "a handler's Cancel changed nothing: the sequence runs");
+                }
                 Check(a is not null && a.SequenceName == (s?.SequenceNames == true ? "Ability_Player_Emote_Greet" : ""), $"its name: '{a?.SequenceName}'");
+                if (s is { ClientActionCancel: false }) await FailSafeClientActions(e);
             }
         }
         catch (Exception ex)
@@ -234,6 +245,34 @@ public sealed class PlayerStateTestMod : Mod
         }
         foreach (var e in _spawned) Spawn.Destroy(e);
         Log.Info($"playerstate-test done: {_pass} PASS, {_fail} FAIL");
+    }
+
+    // A build without the hold point: no client action may say it can be canceled, and a cancel changes nothing.
+    private async Task FailSafeClientActions(EntityId e)
+    {
+        var all = PlayerStates.ClientActions;
+        Check(all.Count > 0 && all.All(x => !x.CanCancel), $"no client action says it can be canceled ({all.Count(x => x.CanCancel)} of {all.Count} do)");
+        var ring = await Give(e, RingLight, 1);
+        if (_world == 0 || ring is null)
+        {
+            Check(false, "client action fail-safe: a world pointer and a ring");
+            return;
+        }
+        var pi = Raw.Component(_world, "PlayerInput", e);
+        const int action = 0x08 + 0x1c0;  // PlayerInput.fromClient.changeEquipmentAction {slot, version, equipment slot, type}
+        _client.Clear();
+        _equip.Clear();
+        _cancelClientIf = c => c.Name == "changeEquipmentAction";
+        Raw.Set64(pi + action, ring.Slot.Value);
+        Raw.Set8(pi + action + 0xc, EquipRing1);
+        Raw.Set8(pi + action + 0xd, 0);
+        Raw.Set32(pi + action + 8, Raw.Get32(pi + action + 8) + 1);
+        await Steps(12);
+        _cancelClientIf = null;
+        var ev = _client.FirstOrDefault(c => c.Name == "changeEquipmentAction");
+        var now = PlayerStates.EquipmentOf(e);
+        Check(ev is { CanCancel: false, Canceled: true }, $"the equip's event says it cannot be canceled, and a handler's Cancel was taken: {ev} canCancel {ev?.CanCancel}");
+        Check(now is not null && now[PlayerEquipSlot.Ring1] == RingLight, $"as promised, the cancel changed nothing: Ring1 {now?[PlayerEquipSlot.Ring1]}");
     }
 
     private async Task<EntityId> SpawnPlayer()
@@ -714,6 +753,108 @@ public sealed class PlayerStateTestMod : Mod
         Check(h?.HotbarIndex != before, $"the game's action bar action moved the selection ({before} -> {h?.HotbarIndex})");
         Check(_hotbar.Count > 0, "PlayerHotbarChangedEvent");
         Check(_client.Any(c => c.Name == "actionbarSelectionAction"), "PlayerClientActionEvent for the action bar");
+    }
+
+    // ---- a client action at the point where a joined client's arrives ----
+    // The game copies a client's input into PlayerInput inside the sim step (players/InputApply), after Pre and before
+    // any program. TestEquipment writes its action in Pre, which Kiln always sees in time; this writes it right after the
+    // game's own copy, from a detour on it, so the action reaches the game's program exactly as a joined client's does.
+    private Action? _afterInput;
+
+    private void EquipInStep(EntityId e, ulong slot, byte equipmentSlot, Action<uint> sent)
+    {
+        _afterInput = () =>
+        {
+            var pi = Raw.Component(_world, "PlayerInput", e);
+            const int action = 0x08 + 0x1c0;  // PlayerInput.fromClient.changeEquipmentAction {slot, version, equipment slot, type}
+            var v = Raw.Get32(pi + action + 8) + 1;
+            Raw.Set64(pi + action, slot);
+            Raw.Set8(pi + action + 0xc, equipmentSlot);
+            Raw.Set8(pi + action + 0xd, 0);
+            Raw.Set32(pi + action + 8, v);
+            sent(v);
+        };
+    }
+
+    private async Task TestClientTiming(EntityId e)
+    {
+        if (_world == 0 || !Symbols.TryGet("players/InputApply", out var apply))
+        {
+            Info("client timing skipped: no world pointer or no players/InputApply on this build");
+            return;
+        }
+        var a = await Give(e, RingLight, 1);
+        var b = await Give(e, RingShock, 1);
+        await Steps(8);
+        var start = PlayerStates.EquipmentOf(e);
+        Info($"rings given: ring0 {start?[PlayerEquipSlot.Ring0]}, ring1 {start?[PlayerEquipSlot.Ring1]}");
+        if (a is null || b is null || start is null)
+        {
+            Check(false, "the character takes two rings");
+            return;
+        }
+        // first the ring that is not in Ring1, so every step below changes Ring1 when the game runs it
+        var (first, second) = start[PlayerEquipSlot.Ring1] == RingLight ? (b, a) : (a, b);
+        var hook = Hooks.Detour(apply, c =>
+        {
+            var r = c.CallOriginal();
+            var f = _afterInput;
+            _afterInput = null;
+            f?.Invoke();
+            return r;
+        });
+        try
+        {
+            uint ConsumedEquip() => BitConverter.ToUInt32(World.ReadBytes(e, "ServerConsumedPlayerInput")!, 0x78);
+
+            // not canceled: the game's program runs it (the control for the cancel below)
+            _equip.Clear();
+            _client.Clear();
+            uint v1 = 0;
+            EquipInStep(e, first.Slot.Value, EquipRing1, v => v1 = v);
+            await Steps(12);
+            var ev1 = _client.FirstOrDefault(c => c.Name == "changeEquipmentAction");
+            var now = PlayerStates.EquipmentOf(e);
+            Info($"client timing, not canceled: sent v{v1}, event {ev1} canCancel {ev1?.CanCancel}, ring1 {now?[PlayerEquipSlot.Ring1]}; events [{string.Join(",", _equip.Select(x => $"{x.Slot}:{x.Before}->{x.Now}"))}]");
+            Check(v1 != 0 && ev1 is not null && ev1.Version == v1, $"client timing: PlayerClientActionEvent for an action that arrives inside the step (v{v1}): {ev1}");
+            Check(now is not null && now[PlayerEquipSlot.Ring1] == first.Item.Value, $"client timing, not canceled: the game equips the ring ({now?[PlayerEquipSlot.Ring1]})");
+            Check(ev1 is { CanCancel: true }, "client timing: the event says it can be canceled");
+
+            // canceled: a mod refusing an equip, as `/pst cancel equip` does in watch mode
+            _equip.Clear();
+            _client.Clear();
+            uint v2 = 0;
+            _cancelClientIf = c => c.Name == "changeEquipmentAction";
+            EquipInStep(e, second.Slot.Value, EquipRing1, v => v2 = v);
+            await Steps(12);
+            _cancelClientIf = null;
+            var ev2 = _client.FirstOrDefault(c => c.Name == "changeEquipmentAction");
+            now = PlayerStates.EquipmentOf(e);
+            Info($"client timing, canceled: sent v{v2}, event {ev2} canceled {ev2?.Canceled}, ring1 {now?[PlayerEquipSlot.Ring1]}, consumed v{ConsumedEquip()}; events [{string.Join(",", _equip.Select(x => $"{x.Slot}:{x.Before}->{x.Now}"))}]");
+            Check(ev2 is { Canceled: true, CanCancel: true } && ev2.Version == v2, $"client timing: a handler canceled the equip v{v2}: {ev2}");
+            Check(now is not null && now[PlayerEquipSlot.Ring1] == first.Item.Value, $"client timing, canceled: Ring1 keeps {first.Item} on the server ({now?[PlayerEquipSlot.Ring1]})");
+            Check(!_equip.Any(x => x.Slot == PlayerEquipSlot.Ring1), "client timing, canceled: no PlayerEquipmentChangedEvent for Ring1");
+            Check(ConsumedEquip() == v2, $"client timing, canceled: the game counts v{v2} as consumed, so it never runs it later (consumed v{ConsumedEquip()})");
+            await Steps(30);
+            now = PlayerStates.EquipmentOf(e);
+            Check(now is not null && now[PlayerEquipSlot.Ring1] == first.Item.Value, $"client timing, canceled: still {first.Item} 30 steps later ({now?[PlayerEquipSlot.Ring1]})");
+
+            // the next action after a cancel runs as usual
+            _equip.Clear();
+            _client.Clear();
+            uint v3 = 0;
+            EquipInStep(e, second.Slot.Value, EquipRing1, v => v3 = v);
+            await Steps(12);
+            now = PlayerStates.EquipmentOf(e);
+            Check(now is not null && now[PlayerEquipSlot.Ring1] == second.Item.Value, $"client timing: the next equip (v{v3}) runs ({now?[PlayerEquipSlot.Ring1]})");
+            Check(_client.Count(c => c.Name == "changeEquipmentAction") == 1, $"client timing: one event per action ({_client.Count(c => c.Name == "changeEquipmentAction")})");
+        }
+        finally
+        {
+            _afterInput = null;
+            _cancelClientIf = null;
+            hook.Remove();
+        }
     }
 
     // ---- from another thread: the last tick's copy ----

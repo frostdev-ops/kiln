@@ -389,7 +389,9 @@ typedef struct KilnCreaturesApi {
     KilnResult(KILN_CALL* rules_job_handler)(KilnOwner owner, uint32_t id, KilnRuleJobFn fn, void* user);
 
     /* Attack override of `owner` for one creature; the newest owner's wins. override NULL drops owner's. A forced attack is
-     * what the creature starts next whenever the game decides to attack, on every start path. Tick. */
+     * what the creature starts next whenever the game decides to attack, on every start path. Tick.
+     * KILN_ERR_INVALID_ARGUMENT: `forced` is not an attack index of the arsenal the creature reads now;
+     * KILN_ERR_UNAVAILABLE: overrides are off on this build, or (forced) the creature has no arsenal. */
     KilnResult(KILN_CALL* attack_override)(KilnOwner owner, KilnEntity entity, const KilnAttackOverride* override);
     /* Marks an arsenal as "picked by code": until a creature using it has an override (even an empty one), its attack
      * selection answers "nothing available" and asks the tick side (KILN_RULE_WORK_PICK). Tick. */

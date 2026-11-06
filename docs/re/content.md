@@ -239,6 +239,28 @@ docs/kiln/services/content.md "New items and recipes".
   category list(s); workshops: 0 56d94f8 …" → "the crafting menu lists 3 new recipe(s) (1 of 1 subcategory list(s)
   rewritten)".
 
+### Client: a station's screens and a workshop of a mod's own **[dec client 26430625]**
+- A factory station's screen (`0xb9d0f0`) offers, while the station has no recipe chosen, the first entry of the unlocked
+  list (G38UiPlayData `+0x2238`, a 0x818-byte u32 list) of the workshop in the station's `ClientCraftingInteraction`
+  (`+0xc`, copied from the template's `CraftingInteraction.workshopId`). Its recipe picker ("Change recipe", `0xbb46e0`)
+  calls CraftMenuCategories with the workshop at `+4` of G38UiPlayData `+0x2cc0` (the station's own) and titles the list
+  with the name (`+0x18`) of that workshop's record in `workshop::WorkshopRegistry` (lookup `0xe89c90`), else with a
+  fallback that shows "[INVALID UI STRING]".
+- `workshop::WorkshopRegistry`: a game hash map at `+0x40` (bits `+0x48`, capacity `+0x50`, keys `+0x68`, values `+0x80`,
+  count `+0x94`) of inline `keen::WorkshopResource` records (0x38 B). **[rt]** lab server 26430253: capacity 256, 51
+  records; Kiln's records go in at 52.. and the server runs on.
+- `unlocked_recipes_ui` (`0x31b730`) skips a recipe whose workshop has no registry record; with one, the recipe goes into a
+  per-workshop list in a growable map (`+0x2240`, `0x2febb0`).
+- So kiln.content gives a station's own workshop a registry record (a copy of its menu workshop's, named after the station's
+  item) and an entry of its own in the menu configuration's workshops and trees (copied arrays; the tree takes the tabs and
+  subcategories of the menu workshop that its recipes are placed in), and the station's template points
+  `CraftingInteraction.workshopId` at it.
+- "Special item acquired!" (`hudStrings.messages.specialLootAcquired`, FbUiBundle `+0x4380`): the pickup notice
+  (`0xc22c80`) shows it for an item with item tag `dbb7fc02-04c8-43ad-acc3-0fa22233d71d` (`0xd53370` walks
+  `ItemInfo.tags`, `+0x5e0`) when the stack's flag at `+0x39` is set, and for a Legendary weapon or gem. 151 game items
+  carry the tag: production stations made at NPCs (Drying Rack, Charcoal Kiln, Smelter, Alchemy Station, ...), gems,
+  the glider and grappling hooks, Shroud cores, NPC items. The Forge doesn't.
+
 ### Client: names and icons **[dis client]**
 - LocaPool_lookup `0x12168e0` (EMF's pattern; absent on the dedicated server) `Result* (Result* out, LocaPool*, u32
   id)`: `Result = {u8 error; u32 @+4; const char* text @+8; u64 len @+0x10}`; id 0 → error 0x12, id == `pool+0x18`

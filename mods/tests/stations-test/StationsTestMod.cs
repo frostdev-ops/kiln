@@ -223,14 +223,20 @@ public sealed class StationsTestMod : Mod
         }
         var rack = T(G("herb-rack") + ".station");
         var forge = T(G("cold-forge") + ".station");
-        Check((uint)rack.Get("CraftingInteraction.workshopId").Number == RackWorkshop, $"herb-rack: opens the game's rack's menu: 0x{(uint)rack.Get("CraftingInteraction.workshopId").Number:x8}");
-        Check((uint)forge.Get("CraftingInteraction.workshopId").Number == ForgeWorkshop, $"cold-forge: opens the game's forge's menu: 0x{(uint)forge.Get("CraftingInteraction.workshopId").Number:x8}");
+        // a workshop of its own is also what its screens show: in a player's game a menu of its own, laid out as its kind's
+        Check((uint)rack.Get("CraftingInteraction.workshopId").Number == Workshop(rack), $"herb-rack: its screens show its own workshop: 0x{(uint)rack.Get("CraftingInteraction.workshopId").Number:x8}");
+        Check((uint)forge.Get("CraftingInteraction.workshopId").Number == Workshop(forge), $"cold-forge: the same: 0x{(uint)forge.Get("CraftingInteraction.workshopId").Number:x8}");
         Check(I("herb-rack").Get("flags").Name?.Contains("IsFactoryEntity") != false, "a station's item counts against the world's factory budget, as the game's do");
 
         var berry = Content.Recipes.Get(G("herb-rack.makes.Food_T1_processed_fruit_Dried_RedBerry"));
         Check(berry?.CraftingDuration == TimeSpan.FromSeconds(300) && (uint)(berry?.Get("workshopId").Integer ?? 0) == Workshop(rack), $"a recipe in the list: at the block's workshop, its time: {berry?.CraftingDuration}, 0x{(uint)(berry?.Get("workshopId").Integer ?? 0):x8}");
         var def = NewContent.Definitions().FirstOrDefault(d => d.Name == G("herb-rack.makes.Material_T1_Wood_Logs"));
-        Check(def?.DefinitionJson is { } dj && dj.Contains("0x6b95dc33", StringComparison.Ordinal) && dj.Contains("workshop:", StringComparison.Ordinal), $"and it asks for a place in the rack's menu: {def?.DefinitionJson}");
+        Check(def?.DefinitionJson is { } dj && dj.Contains("0x6b95dc33", StringComparison.Ordinal) && dj.Contains("workshop:", StringComparison.Ordinal), $"and its menu takes the rack's tabs: {def?.DefinitionJson}");
+        Check(def?.DefinitionJson is { } dj2 && dj2.Contains($"\"stationItem\":\"{G("herb-rack")}\"", StringComparison.Ordinal), $"and is named after the item that places the station: {def?.DefinitionJson}");
+        var ingotDef = NewContent.Definitions().FirstOrDefault(d => d.Name == G("frost-ingot.recipe"));
+        Check(ingotDef?.DefinitionJson is { } dj3 && dj3.Contains($"\"stationItem\":\"{G("cold-forge")}\"", StringComparison.Ordinal), $"an item's recipe that names the station too: {ingotDef?.DefinitionJson}");
+        var resinDef = NewContent.Definitions().FirstOrDefault(d => d.Name == G("fine-bench.makes.Material_T1_Resin"));
+        Check(resinDef?.DefinitionJson is { } dj4 && !dj4.Contains("stationItem", StringComparison.Ordinal), $"a bench that shares its kind's workshop names none: {resinDef?.DefinitionJson}");
         var ingot = Content.Recipes.Get(G("frost-ingot.recipe"));
         Check(ingot != null && (uint)ingot.Get("workshopId").Integer == Workshop(forge) && ingot.CraftingDuration == TimeSpan.FromSeconds(2), $"an item that names the station is at its workshop: 0x{(uint)(ingot?.Get("workshopId").Integer ?? 0):x8}");
         Check(ingot?.Inputs.Any(i => i.Item.Value == Id(Charcoal).Value && i.Count == 1) == true && ingot.Inputs.Count == 2, $"and what it burns is an input: {string.Join(", ", ingot?.Inputs ?? [])}");
@@ -243,7 +249,10 @@ public sealed class StationsTestMod : Mod
         var shared = T("stations-test.shared-forge.station");
         Check(Workshop(shared) == ForgeWorkshop, $"OwnWorkshop = false: the kind's: 0x{Workshop(shared):x8}");
         var other = T("stations-test.other-menu.station");
-        Check((uint)other.Get("CraftingInteraction.workshopId").Number == RackWorkshop && Workshop(other) != ForgeWorkshop && Workshop(other) != RackWorkshop, $"a Menu of another station: runs its own, shows that one's: 0x{Workshop(other):x8}, 0x{(uint)other.Get("CraftingInteraction.workshopId").Number:x8}");
+        var otherDef = NewContent.Definitions().FirstOrDefault(d => d.Name == "stations-test.other-menu.makes.Material_T1_Resin");
+        Check((uint)other.Get("CraftingInteraction.workshopId").Number == Workshop(other) && Workshop(other) != ForgeWorkshop && Workshop(other) != RackWorkshop
+              && otherDef?.DefinitionJson?.Contains("\"menu\":\"0x6b95dc33\"", StringComparison.Ordinal) == true,
+            $"a Menu of another station: runs its own, its menu takes that one's tabs: 0x{Workshop(other):x8}, 0x{(uint)other.Get("CraftingInteraction.workshopId").Number:x8}, {otherDef?.DefinitionJson}");
         var running = T("stations-test.running-rack.station");
         Check(Math.Abs(running.Get("Extinguish.extinguishAboveRainAmount").Number - 1e9) < 1 && forge.Get("Extinguish.extinguishAboveRainAmount").Number > 1e8, $"GoesOutInRain = false: above any rain: {running.Get("Extinguish.extinguishAboveRainAmount").Number}");
         Check(running.Get("FactoryStationClient.soundLoopRunning").Guid == Guid.Parse("633cc47d-51a7-446c-b980-63333e58231c"), $"Running.Sound: the template's loop, carried by a server with no sound: {running.Get("FactoryStationClient.soundLoopRunning").Guid}");
@@ -312,7 +321,7 @@ public sealed class StationsTestMod : Mod
             foreach (var block in Blocks.Report()[mod].Blocks)
             {
                 // a block that was refused on purpose (the mistakes part) places nothing to compare
-                if (Blocks.Report()[mod].Errors.Any(e => e.Contains($" {block} ", StringComparison.Ordinal) || e.Contains($".{block}:", StringComparison.Ordinal))) continue;
+                if (Blocks.Report()[mod].Errors.Any(e => e.Contains($" {block} ", StringComparison.Ordinal) || e.Contains($".{block}:", StringComparison.Ordinal) || e.Contains($".{block}.prop:", StringComparison.Ordinal))) continue;
                 if (JsonNode.Parse(Blocks.Lowered(block, mod) ?? "null") is not JsonObject low || low["items"] is not JsonArray items) continue;
                 foreach (var item in items.OfType<JsonObject>())
                 {
@@ -384,7 +393,7 @@ public sealed class StationsTestMod : Mod
     // JSON and C# are the same objects: what they lower to differs only in names and the ids that follow from names.
     private void Twins()
     {
-        static string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "-json|0x[0-9a-f]{8}|(?<=\"Crafting\\.workshopId\": )[0-9]+", m => m.Value == "-json" ? "" : m.Value is "0x6b95dc33" or "0x8dca2c49" or "0x4da88f73" ? m.Value : "0xID");
+        static string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "-json|0x[0-9a-f]{8}|(?<=\"(Crafting|CraftingInteraction)\\.workshopId\": )[0-9]+", m => m.Value == "-json" ? "" : m.Value is "0x6b95dc33" or "0x8dca2c49" or "0x4da88f73" ? m.Value : "0xID");
         foreach (var n in new[] { "warm-hearth", "herb-rack", "cold-forge", "frost-ingot", "fine-bench", "old-table", "lucky-banner" })
         {
             var cs = Normal(Blocks.Lowered(n, Sample));

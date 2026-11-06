@@ -10,7 +10,8 @@ namespace CreatureTweaks;
 
 public sealed class CreatureTweaksMod : Mod
 {
-    private const string ViewRange = "Enemy01BehaviorState.aggroSetup.viewRange";
+    // how far it sees a target by day: the field the game's sight check reads (aggroSetup.viewRange is only the radius of its search for candidates)
+    private const string ViewRange = "Enemy01BehaviorState.combatCommitmentSetup.view.range";
 
     private IDisposable? _command;
 

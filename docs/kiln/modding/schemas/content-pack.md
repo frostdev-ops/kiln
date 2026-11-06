@@ -316,7 +316,7 @@ Type: array of [ruleStack](#rulestack) or object
 
 ## templatesSection
 
-keen::ecs::TemplateResource: paths start with a component type name (Enemy01BehaviorState.aggroSetup.viewRange).
+keen::ecs::TemplateResource: paths start with a component type name (Enemy01BehaviorState.combatCommitmentSetup.view.range).
 
 | Key | Type | Required | Notes |
 |---|---|---|---|

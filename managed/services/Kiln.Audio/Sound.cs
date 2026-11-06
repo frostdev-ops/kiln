@@ -71,7 +71,8 @@ public enum SoundState
     None = 0,
     /// <summary>Queued: starts on the game's main thread within a frame (FOLLOW waits for a client step).</summary>
     Pending = 1,
-    /// <summary>The game's instance exists. Looping cues stay here until <see cref="Sound.Stop"/>.</summary>
+    /// <summary>The game's instance exists. Looping cues stay here until <see cref="Sound.Stop"/>; a one-shot of a mod's cooked
+    /// audio leaves it at its cooked length at the latest.</summary>
     Playing = 2,
     /// <summary>Ended, stopped or silent (see <see cref="SoundInfo.Reason"/>).</summary>
     Stopped = 3,
@@ -87,7 +88,9 @@ public enum SoundEndReason
     Silent = 8,
     /// <summary>Narration: the lore queue did not take it (auto-play "never", queue full).</summary>
     Refused = 9,
-    WorldEnded = 10, NotFound = 11,
+    WorldEnded = 10,
+    /// <summary>No such cue or voice-over line: neither the game nor a loaded mod has a resource with that GUID.</summary>
+    NotFound = 11,
     /// <summary>A server-relayed handle: no state comes back from clients.</summary>
     Remote = 100,
 }
@@ -243,7 +246,9 @@ public static unsafe class Sound
         if (t == null || h.IsNone || h.IsRemote) return null;
         var i = new AudioNative.Info { Size = (uint)sizeof(AudioNative.Info) };
         if (t->GetInfo(h.Value, &i) != AudioNative.Ok) return null;
-        return new SoundInfo(h, (SoundState)i.State, (SoundEndReason)i.Reason, (SoundScene)i.Scene, i.Instance,
+        var reason = (SoundEndReason)i.Reason;
+        if ((SoundState)i.State == SoundState.Stopped && reason == SoundEndReason.Stopped && Lengths.EndedByLength(h)) reason = SoundEndReason.Finished;
+        return new SoundInfo(h, (SoundState)i.State, reason, (SoundScene)i.Scene, i.Instance,
             (int)i.Thread, new EntityId(i.Entity), (i.Flags & 1) != 0, (i.Flags & 2) != 0,
             i.LanguageSlot < 5 ? CookIndex.Slots[i.LanguageSlot] : null,
             i.StartedMs != 0 ? TimeSpan.FromMilliseconds(i.StartedMs - i.QueuedMs) : null,
@@ -396,7 +401,9 @@ internal static unsafe class AudioCore
             FadeInNs = fadeNs,
         };
         AudioNative.WriteGuid(cue.Cue, p.Cue);
-        return new SoundHandle(t->Play(Owner(), &p));
+        var h = new SoundHandle(t->Play(Owner(), &p));
+        if (!h.IsNone && CookIndex.Cue(cue.Cue) is { Loop: false, DurationMs: > 0 } c) Lengths.Track(h, c.DurationMs, null);
+        return h;
     }
 
     public static string LanguageKey(uint languageId) => languageId switch
@@ -408,4 +415,94 @@ internal static unsafe class AudioCore
         20 => "zh",
         _ => "en",
     };
+}
+
+/// <summary>
+/// One-shots of a mod's cooked audio end at their cooked length. kiln.audio reads a sound as playing while the game's instance
+/// exists, and the game keeps the instance of a streamed take (over 1 s) alive after its audio has ended, for seconds or until
+/// the world ends (seen in a client: a 2 s streamed tone read Playing 11 s, 15 s and 74 s; a 2.4 s narration held the head of
+/// the lore queue 14.7 s, so the game kept ducking music and the next lore line waited). A cooked take's length is known, so a
+/// sound, voice-over line or narration still playing past its length plus a margin is stopped (a 30 ms fade: the audio is over),
+/// which frees the instance and lets the lore queue move on, and it reads Stopped/Finished. Looping cues and the game's own
+/// cues (no cooked length) keep the instance rule.
+/// </summary>
+internal static unsafe class Lengths
+{
+    private sealed record Tracked(SoundHandle Handle, int DurationMs, VoiceoverInfo? Line);
+
+    private static readonly object Lock = new();
+    private static readonly Dictionary<uint, Tracked> Live = new();
+    private static readonly Dictionary<uint, long> Ended = new();  // handle -> when it was ended at its length
+    private static Timer? _timer;
+    private static int _logged;
+
+    /// <summary>The margin past the cooked length: a streamed take may start a little after its instance (its first read).</summary>
+    public static int MarginMs(int durationMs) => Math.Max(500, durationMs / 4);
+
+    /// <summary>Watches a handle: a sound with its cooked length, or a voice-over line / narration (length per voice language).</summary>
+    public static void Track(SoundHandle h, int durationMs, VoiceoverInfo? line)
+    {
+        if (h.IsNone || h.IsRemote || (durationMs <= 0 && line is null)) return;
+        lock (Lock)
+        {
+            Live[h.Value] = new Tracked(h, durationMs, line);
+            _timer ??= new Timer(_ => Sweep(), null, 100, 100);
+        }
+    }
+
+    public static bool EndedByLength(SoundHandle h)
+    {
+        lock (Lock) return Ended.ContainsKey(h.Value);
+    }
+
+    private static int LengthOf(Tracked x, uint languageSlot)
+    {
+        if (x.Line is null) return x.DurationMs;
+        if (languageSlot >= CookIndex.Slots.Length) return 0;
+        return x.Line.Languages.TryGetValue(CookIndex.Slots[languageSlot], out var l) && l is not null ? l.DurationMs : 0;
+    }
+
+    private static void Sweep()
+    {
+        var t = AudioNative.T;
+        if (t == null) return;
+        var now = Environment.TickCount64;
+        List<(Tracked X, int Length)> due = new();
+        lock (Lock)
+        {
+            foreach (var (id, x) in Live.ToArray())
+            {
+                var i = new AudioNative.Info { Size = (uint)sizeof(AudioNative.Info) };
+                if (t->GetInfo(id, &i) != AudioNative.Ok || (SoundState)i.State is SoundState.Stopped or SoundState.Failed or SoundState.None)
+                {
+                    Live.Remove(id);
+                    continue;
+                }
+                if ((SoundState)i.State != SoundState.Playing || i.StartedMs == 0) continue;
+                var length = LengthOf(x, i.LanguageSlot);
+                if (length <= 0)
+                {
+                    if (x.Line is not null && i.LanguageSlot < CookIndex.Slots.Length) Live.Remove(id);  // no length for this voice language
+                    continue;
+                }
+                if (now - (long)i.StartedMs < length + MarginMs(length)) continue;
+                Live.Remove(id);
+                Ended[id] = now;
+                due.Add((x, length));
+            }
+            foreach (var k in Ended.Where(kv => now - kv.Value > 120_000).Select(kv => kv.Key).ToList()) Ended.Remove(k);
+            if (Live.Count == 0)
+            {
+                _timer?.Dispose();
+                _timer = null;
+            }
+        }
+        foreach (var (x, length) in due)
+        {
+            t->Stop(x.Handle.Value, 30_000_000);
+            var text = $"{x.Handle} still playing {MarginMs(length)} ms past its cooked length ({length} ms): ended (the game kept the take's instance)";
+            if (Interlocked.Increment(ref _logged) <= 20) AudioLog.Info(text);
+            else AudioLog.Debug(text);
+        }
+    }
 }

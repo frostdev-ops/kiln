@@ -43,6 +43,11 @@ internal static class VanillaGate
     /// can bring definitions. They're sent when it acks, or when the wait runs out.</summary>
     internal static bool AwaitsDefinitions(uint kilnTemplates, bool hasContentChannel) => kilnTemplates > 0 && hasContentChannel;
 
+    /// <summary>Whether an acked content state, built when the server had <paramref name="stateTemplates"/> Kiln-only
+    /// templates, covers the <paramref name="now"/> there are now. The count only grows: a state built before a hot load
+    /// lacks what it added.</summary>
+    internal static bool StateCoversTemplates(uint stateTemplates, uint now) => stateTemplates >= now;
+
     /// <summary>Whether the wait for that ack is over.</summary>
     internal static bool DefinitionsWaitOver(DateTime? since, DateTime now, NetworkConfig config) =>
         since is { } s && (now - s).TotalSeconds >= config.DefinitionsWaitSeconds;

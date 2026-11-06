@@ -25,6 +25,7 @@ struct Config {
     bool enabled = true;
     bool sim = false;
     bool test_fail_soft = false;  // lab only: run the real game layer on a dedicated server, where no signature resolves
+    double trace = 0;             // seconds: log what the game creates after each of Kiln's plays (true = 3)
 };
 
 // kiln/config/vfx.json. Missing or broken: the defaults, and a broken file says so.
@@ -51,6 +52,7 @@ Config read_config() {
     if (auto it = j.find("enabled"); it != j.end() && it->is_boolean()) c.enabled = it->get<bool>();
     if (auto it = j.find("sim"); it != j.end() && it->is_boolean()) c.sim = it->get<bool>();
     if (auto it = j.find("testFailSoft"); it != j.end() && it->is_boolean()) c.test_fail_soft = it->get<bool>();
+    if (auto it = j.find("trace"); it != j.end()) c.trace = it->is_boolean() ? (it->get<bool>() ? 3.0 : 0.0) : it->is_number() ? it->get<double>() : 0.0;
     return c;
 }
 
@@ -121,6 +123,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
             KV_I("vfx: not a game client (the dedicated server has no VFX): kiln.vfx unavailable here; Kiln.Vfx relays server calls to Kiln clients");
             return KILN_ERR_UNAVAILABLE;
         }
+        real_game_trace(cfg.trace);
         Game* game = real_game(api);
         if (!game) return KILN_ERR_UNAVAILABLE;
         core_set_game(game);

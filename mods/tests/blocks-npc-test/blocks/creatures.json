@@ -34,7 +34,7 @@
   "creatures": {
     "stoneling-json": {
       "name": "Stoneling", "body": "stone-body", "animation": "stone-moves",
-      "ai": { "like": "vukah", "sight": 25, "faction": "Vukah" },
+      "ai": { "like": "vukah", "sight": 25, "sightAngle": 80, "aggro": 6, "faction": "Vukah" },
       "behaviour": "stone-fighter-json", "stats": { "level": 10 }
     },
     "vukah-mind-json": {

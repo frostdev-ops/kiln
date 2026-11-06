@@ -33,8 +33,10 @@
  *    otherwise Kiln.Network decides: kick (refuse) or gate_release (let in).
  *  - Withholding: a peer gets no entities of templates only Kiln has, or their children, until withhold_set clears it:
  *    never for a vanilla client (it sees the world without them), at its content sync's ack for a Kiln client, so
- *    definitions that come over the sync are in place first. What was kept back then goes out. Ids inside other data (an
- *    item in a stack) are not covered.
+ *    definitions that come over the sync are in place first. What was kept back then goes out. A clear covers the
+ *    Kiln-only templates there are at that moment: entities of a template added later (a hot load) are kept from that
+ *    peer until withhold_set clears it again, at the ack of a content state that has it. Ids inside other data (an item
+ *    in a stack) are not covered.
  *  - Client guard: a Kiln client that still gets a create of a template it lacks (a server mod it doesn't have) drops it
  *    and its children, with one log line per template, instead of faulting in the game's create path. */
 #ifndef KILN_NET_H
@@ -104,7 +106,7 @@ typedef struct KilnNetGateInfo {
     uint32_t withheld_slots;    /* bit per player slot: entities are withheld from it */
     uint64_t withheld_entities; /* times an entity was kept out of a player's replication so far */
     uint32_t missing_templates; /* client: templates of this connection the game doesn't have */
-    uint32_t reserved;
+    uint32_t newer_slots;       /* bit per player slot: cleared, with entities kept back for templates added since */
     uint64_t dropped_creates;   /* client: creates dropped on this connection, children included */
 } KilnNetGateInfo;
 
@@ -182,7 +184,8 @@ typedef struct KilnNetApi {
     /* 1 when this template GUID (game byte order) is one only Kiln has, 0 when not, -1 without kiln.assets. Any thread. */
     int32_t(KILN_CALL* template_kiln_only)(const uint8_t guid[16]);
     /* Whether Kiln-only entities are kept from this peer (`on`: a default for a new peer). Clearing sends what was kept
-     * back. Any thread. */
+     * back and takes the Kiln-only templates there are now: entities of one added later wait for the next clear. Clearing
+     * a cleared peer again does that again. Any thread. */
     KilnResult(KILN_CALL* withhold_set)(KilnPeer peer, uint32_t on);
     /* Lab transport only (else KILN_ERR_UNAVAILABLE), tick thread: drives the game's own code on the server world
      * (tools/nettest t_guard). `op` is a KILN_NET_SELFTEST_*. */
@@ -196,6 +199,9 @@ enum {
     KILN_NET_SELFTEST_SLOT = 2,   /* a = slot: out = the first byte of that player's replication object */
     KILN_NET_SELFTEST_MASK = 3,   /* a = slots forced to withhold on top of the peers' (0 = none), clearing queues re-sends */
     KILN_NET_SELFTEST_QUEUE = 4,  /* a = slot, b = entity: the game's relevance step on that slot with this entity new; out = heap size */
+    KILN_NET_SELFTEST_BIND = 5,   /* a = lab peer, b = a free slot (0xFFFFFFFF: none): that peer stands for the slot's player, so
+                                     withholding and withhold_set act on that slot as for a joined player */
+    KILN_NET_SELFTEST_HEAP = 6,   /* a = slot: out = the size of that player's replication heap */
 };
 
 #ifdef __cplusplus

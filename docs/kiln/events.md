@@ -74,7 +74,7 @@ One scan per tick, only while a handler subscribes to one of these. Details and 
 | `PlayerConsumeEvent` : `PlayerActionEvent` | eating, drinking, a potion, a scroll, before the item goes: `Item`, `Kind`, `Buffs` | item stays, no buff |
 | `PlayerConsumedEvent` | the stack really went down | - |
 | `PlayerActionEndedEvent` | an action finished or was replaced: `Duration`, `Canceled` | - |
-| `PlayerClientActionEvent` | a client sent a versioned command, by the game's field name: `changeEquipmentAction`, `inventoryTransferAction`, `teleportAction` and 43 more. `Name`, `Payload` | the game's program skips it |
+| `PlayerClientActionEvent` | a client sent a versioned command, by the game's field name: `changeEquipmentAction`, `inventoryTransferAction`, `teleportAction` and 43 more. `Name`, `Payload`. Held one step before the game runs it | where `CanCancel`: it never runs |
 | `PlayerJumpEvent` | a jump: `Type`, `Count`, `IsDoubleJump` | - |
 | `PlayerGlideEvent` | a glide started or ended: `Started`, `Glider`, `Duration` | - |
 | `PlayerEquipmentChangedEvent` | a slot's item changed, within 4 steps: `Slot`, `Before`, `Now` | - |

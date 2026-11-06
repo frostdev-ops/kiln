@@ -363,17 +363,50 @@ def scenarios(lab, c, port):
         c("forgotten.walls-gone", got is not None and got[0] == -1 and got[1] == 0 and got[2] == 0, f"{got}: what the game does without the record")
 
     def limit():
-        # Every new id, one by one, and one over: a clean refusal by name.
+        # Two limits, each a clean refusal by name. A player's game lists 64 items a pool, the game's 61 walls among them, so 3 new walls fit and the
+        # 4th is refused before it takes an id. Roofs have room for 50, so there the ids are the limit: of 47 roofs and the 3 walls, 49 take ids.
         lab.forget(FIRST)
-        over = {f"m{i:02}": {"name": f"Material {i}", "strength": {"hardness": "soft"}} for i in range(50)}
-        lab.set_mods([], extra=[("wt-over", {"format": 1, "buildingMaterials": over})])
+        lab.forget(A)  # nothing kept takes room, whichever scenarios ran before
+        mod = "wt-over"
+        walls = {f"w{i:02}": {"name": f"Wall {i}", "strength": {"hardness": "soft"}} for i in range(4)}
+        roofs = {f"r{i:02}": {"name": f"Roof {i}", "roof": True, "strength": {"hardness": "soft"}} for i in range(47)}
+        by_guid = lambda names: sorted(names, key=lambda n: material_guid(mod, n))
+        wall_fit, wall_out = by_guid(walls)[:3], by_guid(walls)[3]
+        live = by_guid(wall_fit + list(roofs))
+        lab.set_mods([], extra=[(mod, {"format": 1, "buildingMaterials": {**walls, **roofs}})])
         text, _ = lab.run("limit", "status")
-        placed = re.findall(r"table: (\d+) \S+ m\d\d \(wt-over\) live( reused)?", text)
-        c("limit.49-placed", len(placed) == 49, f"{len(placed)} placed")
-        c("limit.reused-are-the-last-6", sum(1 for _, r in placed if r) == 6, str([p for p, r in placed if r]))
+        placed = re.findall(r"table: (\d+) \S+ ([wr]\d\d) \(wt-over\) live( reused)?", text)
+        c("limit.49-placed", len(placed) == 49 and {n for _, n, _ in placed} == set(live[:49]), f"{len(placed)} placed")
+        c("limit.reused-are-the-last-6", sum(1 for *_, r in placed if r) == 6, str([p for p, _, r in placed if r]))
         refused = lines(text, r"wt: refused:")
-        c("limit.refuses-by-name", len(refused) == 1 and re.search(r"block buildingMaterial m\d\d \(mod wt-over\)", refused[0]) is not None, str(refused))
+        pool_line = f"block buildingMaterial {wall_out} (mod {mod}): refused: the game's build menu lists at most 64 wall materials and has 61 of its own: 3 new ones fit"
+        c("limit.wall-pool-refuses-by-name", any(r.startswith("refused: " + pool_line) for r in refused), str(refused))
+        c("limit.ids-refuse-by-name", any(r.startswith(f"refused: block buildingMaterial {live[49]} (mod {mod}): refused: the game has room for 49") for r in refused), str(refused))
+        c("limit.two-refused", len(refused) == 2, str(refused))
+        pools = {p["name"]: p for p in json.loads((lab.kiln / "data/worldtables/status.json").read_text()).get("pools", [])}
+        walls_in = sum(1 for n in live[:49] if n.startswith("w"))
+        want = {"BuildingDefaultMaterials": 61 + walls_in, "BuildingRoofMaterials": 14 + 49 - walls_in, "TerrainMaterials": 56}
+        got = {n: (p["game"], p["served"], p["capacity"]) for n, p in pools.items()}
+        c("limit.pools-served", all(pools.get(n, {}).get("served") == v for n, v in want.items()) and all(p["served"] <= p["capacity"] == 64 for p in pools.values()), str(got))
+        c("limit.pools-logged", re.search(rf"build menu pools: BuildingDefaultMaterials 61 \+ {walls_in} of 64, BuildingRoofMaterials 14 \+ {49 - walls_in} of 64", text) is not None,
+          str(lines(text, "build menu pools")))
         c("limit.server-runs", "wt: done status" in text)
+
+        # A wall that sorts first takes the room of one the world ran with: that one is refused by name and kept as an absent mod's, so its cells stay.
+        first_wall = next(n for n in (f"a{i:03}" for i in range(1000)) if material_guid(mod, n) < material_guid(mod, by_guid(walls)[0]))
+        pushed = wall_fit[2]
+        lab.set_mods([], extra=[(mod, {"format": 1, "buildingMaterials": {**walls, **roofs, first_wall: {"name": "First Wall", "strength": {"hardness": "soft"}}}})])
+        text, _ = lab.run("limit-held", "status")
+        refused = lines(text, r"wt: refused:")
+        said = [r for r in refused if r.startswith(f"refused: block buildingMaterial {pushed} (mod {mod}): refused: the game's build menu")]
+        c("limit.pushed-out-is-refused", bool(said) and "A world has cells of it" in said[0], str(said or refused))
+        c("limit.pushed-out-is-kept", table_id(text, material_guid(mod, pushed)) is not None and table_id(text, material_guid(mod, pushed))[1] == "kept",
+          str(table_id(text, material_guid(mod, pushed))))
+        c("limit.first-wall-live", table_id(text, material_guid(mod, first_wall)) is not None and table_id(text, material_guid(mod, first_wall))[1] == "live",
+          str(table_id(text, material_guid(mod, first_wall))))
+        pools = {p["name"]: p for p in json.loads((lab.kiln / "data/worldtables/status.json").read_text()).get("pools", [])}
+        c("limit.held-pools", all(p["served"] <= 64 for p in pools.values()) and pools.get("BuildingDefaultMaterials", {}).get("served", 99) <= 64, str({n: p["served"] for n, p in pools.items()}))
+        c("limit.held-server-runs", "wt: done status" in text)
         for f in lab.kiln.glob("data/worldtables/worlds/*.json"):
             d = json.loads(f.read_text())
             d["materials"] = {g: m for g, m in d["materials"].items() if m["mod"] != "wt-over"}
@@ -410,6 +443,22 @@ def scenarios(lab, c, port):
         c("shapes.preview-is-its-own", mine is not None and m1 is not None and mine[1] == m1[2], f"voxelObject {mine and mine[1]}")
         c("shapes.wall-pool", game is not None and mine is not None and game[2] == mine[2], f"{game and game[2]} / {mine and mine[2]}")
         c("shapes.roof", re.search(r"shape ridge: item wt-shapes\.ridge \S+ guid \S+, table entry 4x2x2 compressed 1 cells (\w+)", first) is not None, str(lines(first, "wt: shape ridge")[:2]))
+        # The game's 2 m flat roof drawn as cells: its entry and preview are the game's (a roof shape's cells are the roof pool's 0x08, not a wall's 0x12).
+        groof = re.search(r"game flat roof: table entry (4x1x4 compressed 1 cells \w+), pool (\S+), preview model 40 bytes sha256 (\w+), preview cells 08x16", first)
+        flat = re.search(r"shape flat-roof: item wt-shapes\.flat-roof \S+ guid \S+, table entry (4x1x4 compressed 1 cells \w+)", first)
+        fmodel = re.search(r"shape flat-roof: voxelObject \S+, pool (\S+), preview model 40 bytes sha256 (\w+)", first)
+        c("shapes.roof-same-bytes-as-the-game", groof is not None and flat is not None and fmodel is not None and groof[1] == flat[1] and groof[3] == fmodel[2] and groof[2] == fmodel[1],
+          f"game {groof and groof.groups()}, ours {flat and flat.groups()} {fmodel and fmodel.groups()}")
+        c("shapes.ridge-roof-cells", re.search(r"shape ridge: placement box .* preview cells 00x4 08x12$", first, re.M) is not None, str(lines(first, "wt: shape ridge: placement")[:1]))
+        # Where the game puts the cells: every one of its shapes has its snapping box the same as its placement box, no snap box offsets, and a collider over
+        # what is solid. A shape that kept a sloped roof's (4.5 m box, one-cell offsets, nine colliders) landed off its cursor.
+        for block, size, cost in (("door-wall", "4,4,0.5", 44), ("ridge", "2,1,1", 12), ("flat-roof", "2,0.5,2", 16)):
+            half = ",".join(f"{float(v) / 2:g}" for v in size.split(","))
+            m = re.search(rf"shape {block}: placement box ([\d.,]+), snapping box ([\d.,]+) from 0,0,0, snap offsets 0,0,0 0,0,0, collider at ([\d.,]+) half ([\d.,]+), "
+                          rf"a second one (\S+), ingredient count (\d+)", first)
+            c(f"shapes.{block}.boxes", m is not None and m[1] == size and m[2] == size, str(lines(first, f"wt: shape {block}: placement")[:1]))
+            c(f"shapes.{block}.collider", m is not None and m[3] == half and m[4] == half and m[5] == "?", f"{m and m.groups()}")
+            c(f"shapes.{block}.a-block-per-cell", m is not None and int(m[6]) == cost, f"{m and m[6]}, {cost} cells")
         bad = [l for l in first.splitlines() if re.match(r"\[(E|W) ", l) and "wt-shapes" in l]
         c("shapes.no-errors", not bad and "wt: error" not in first, str(bad[:2]))
 

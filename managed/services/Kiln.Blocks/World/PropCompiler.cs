@@ -243,10 +243,11 @@ internal static partial class Compiler
         var menu = own || shown.Workshop != kind.Workshop ? shown.Workshop : null;
 
         var d = new Draft(ctx, low, key, name, kind.Item);
-        // What is placed: a template of its own.
+        // What is placed: a template of its own. Crafting.workshopId is the workshop it runs, CraftingInteraction.workshopId the one its screens
+        // show: a workshop of its own has a menu of its own in a player's game, laid out as the shown station's and listing only its recipes.
         var p = new Placed(d, $"{mod}.{name}.station", BlockIds.Derive(mod, "template", $"{key}.station"), kind.Template);
         if (own) p.Fields["Crafting.workshopId"] = workshop;
-        if (shown.Workshop != kind.Workshop) p.Fields["CraftingInteraction.workshopId"] = Convert.ToUInt32(shown.Workshop, 16);
+        if (own || shown.Workshop != kind.Workshop) p.Fields["CraftingInteraction.workshopId"] = own ? workshop : Convert.ToUInt32(shown.Workshop, 16);
         if (processing != null) ApplyProcessing(p, processing);
         PlacedParts(p, s, starterIsLook: false);
         CommitPlaced(ctx, low, p, s, name, key);
@@ -265,10 +266,10 @@ internal static partial class Compiler
             for (var n = 2; !made.Add(entry); n++) entry = n == 2 ? $"{entry}.{n}" : $"{entry[..entry.LastIndexOf('.')]}.{n}";
             if (timed && r.Sheltered != null)
                 throw new BlockError(ctx.Block, $"{path}.sheltered", $"a {kind.Key} works on its own, and the game's stations that do never check a roof: rain is what puts them out (GoesOutInRain). Leave this out");
-            LowerRecipe(ctx, low, $"{key}.makes.{entry}", $"{mod}.{name}.makes.{entry}", item, r, path, (station, menu), timed && own, r.Sheltered);
+            LowerRecipe(ctx, low, $"{key}.makes.{entry}", $"{mod}.{name}.makes.{entry}", item, r, path, (station, menu, own ? d.Game : null), timed && own, r.Sheltered);
         }
         low.Json["workshop"] = new JsonObject { ["id"] = $"0x{workshop:x8}", ["station"] = station, ["menu"] = menu, ["own"] = own };
-        return new StationHandle(mod, name, d.Guid, d.Game, s, station, menu);
+        return new StationHandle(mod, name, d.Guid, d.Game, s, station, menu, own ? d.Game : null);
     }
 
     private static void ApplyProcessing(Placed p, ProcessingBlock b)
@@ -306,9 +307,10 @@ internal static partial class Compiler
 
     // ---- recipes ------------------------------------------------------------------------------------------------
 
-    /// <summary>A recipe that makes <paramref name="item"/>. <paramref name="at"/>: the station, when the block's list says it, not the recipe. <paramref name="needsTime"/>: a workshop of its own
-    /// has no recipes of the game to take a time from, and a cycle of no time would run every step. Burns are inputs: fuel is an input in the game's data too.</summary>
-    private static void LowerRecipe(BlockContext ctx, Lowered low, string key, string name, string item, RecipeBlock r, string path, (string Station, string? Menu)? at, bool needsTime, bool? sheltered)
+    /// <summary>A recipe that makes <paramref name="item"/>. <paramref name="at"/>: the station, when the block's list says it, not the recipe; with a workshop of its own, the item that
+    /// places it, which names that workshop in a player's game. <paramref name="needsTime"/>: a workshop of its own has no recipes of the game to take a time from, and a cycle of no
+    /// time would run every step. Burns are inputs: fuel is an input in the game's data too.</summary>
+    private static void LowerRecipe(BlockContext ctx, Lowered low, string key, string name, string item, RecipeBlock r, string path, (string Station, string? Menu, string? Item)? at, bool needsTime, bool? sheltered)
     {
         if (r.Makes is < 1 or > 65535) throw new BlockError(ctx.Block, $"{path}.makes", $"{r.Makes} is outside 1..65535");
         if (r.Needs.Count == 0 && r.Burns.Count == 0) throw new BlockError(ctx.Block, $"{path}.needs", "a recipe that needs nothing is not listed by the game");
@@ -326,7 +328,7 @@ internal static partial class Compiler
         }
         foreach (var (what, count) in r.Needs) Add(what, count, "needs");
         foreach (var (what, count) in r.Burns) Add(what, count, "burns");
-        var (station, menu) = at ?? ctx.StationOf(r.Station, $"{path}.station");
+        var (station, menu, stationItem) = at ?? ctx.StationOf(r.Station, $"{path}.station");
         if (r.Seconds == null && (needsTime || (at == null && station.StartsWith("workshop:", StringComparison.Ordinal))))
             throw new BlockError(ctx.Block, $"{path}.seconds", "a station of its own has no recipes of the game to take a time from: say how many seconds");
         var fields = new Dictionary<string, object>();
@@ -334,15 +336,17 @@ internal static partial class Compiler
         if (r.Comfort is { } comfort) fields["comfortLevel"] = comfort;
         low.Recipe(new RecipeDefinition
         {
-            Guid = BlockIds.Derive(ctx.Mod.Id, "recipe", key), Name = name, Station = station, Menu = menu, Inputs = inputs,
+            Guid = BlockIds.Derive(ctx.Mod.Id, "recipe", key), Name = name, Station = station, Menu = menu, StationItem = stationItem, Inputs = inputs,
             Outputs = [new RecipeIngredient(item, r.Makes)], Duration = r.Seconds is { } d ? TimeSpan.FromSeconds(d) : null, Fields = fields.Count > 0 ? fields : null,
         });
     }
 }
 
 /// <summary>A station's handle: where a recipe that names it goes.</summary>
-internal sealed class StationHandle(string mod, string name, Guid guid, string gameName, StationBlock block, string station, string? menu) : BlockHandle<StationBlock>(mod, name, guid, gameName, block)
+/// <param name="item">With a workshop of its own: the item that places it, which names that workshop in a player's game.</param>
+internal sealed class StationHandle(string mod, string name, Guid guid, string gameName, StationBlock block, string station, string? menu, string? item) : BlockHandle<StationBlock>(mod, name, guid, gameName, block)
 {
     public string Station { get; } = station;
     public string? Menu { get; } = menu;
+    public string? Item { get; } = item;
 }

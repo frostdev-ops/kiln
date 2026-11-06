@@ -41,7 +41,7 @@ c.Resistance[DamageKind.Fire] = 0.5f;            // DamageSusceptibility slot (1
 c.SpeedFactor = 0.8f; c.DamageFactor = 1.3f; c.XpFactor = 2;
 c.Loot.Slots = (2, 6); c.Loot.Labels = labelsGuid; c.Loot.Disabled = false;
 c.Features.Disable(EnemyFeatures.FleeHome | EnemyFeatures.ReturnHome);
-c.Ai.Set("aggroSetup.viewRange", 30);            // private Enemy01BehaviorState copy for this creature only
+c.Ai.Set("combatCommitmentSetup.view.range", 30); // private Enemy01BehaviorState copy for this creature only
 c.Ai.Set("Aggro.applyEnemyValue", false);        // other template components: "Component.path"
 c.Arsenal = otherArsenal;                        // private EnemyArsenalReference copy (same skeleton family!)
 CreatureInfo? i = c.Inspect();                   // state, target, guard, home, level, health, features, layers ...
@@ -50,7 +50,7 @@ c.Reset();                                       // drops everything this mod ch
 // variants and spawning
 using var v = CreatureVariants.Register(new CreatureVariant {
     Id = "frost_vukah", Base = "Enemy_Vukah_Melee", Level = 15, Scale = 1.3f,
-    Resistances = { [DamageKind.Ice] = 0 }, Ai = { ["aggroSetup.viewRange"] = "30" } });
+    Resistances = { [DamageKind.Ice] = 0 }, Ai = { ["combatCommitmentSetup.view.range"] = "30" } });
 EntityId e = await Creatures.Spawn("frost_vukah", pos);              // or a plain template name
 CreatureVariants.AddSpawnRule(new CreatureSpawnRule("Enemy_Vukah_Melee", "frost_vukah", Chance: 0.2, NightOnly: true));
 
@@ -108,11 +108,11 @@ The engine reads template components (`Enemy01BehaviorState` 2,520 B, `EnemyArse
 template bytes, applies the field, and points that creature's slot at the copy; other creatures keep the shared data.
 
 - Paths come from the game's own reflection at run time (`TypeByHash`, the same type records kiln.content reads), so
-  nothing depends on offsets compiled into Kiln: `aggroSetup.viewRange`, `combatSetup.cooldownGroups[0].cooldown`,
+  nothing depends on offsets compiled into Kiln: `combatCommitmentSetup.view.range`, `combatSetup.cooldownGroups[0].cooldown`,
   `guardSetup.canGuardPlayer`, `fleeSetup.maxFleeDuration`, `enabledFeatures`; a path that names a component first goes
   to that component (`Aggro.applyEnemyValue`, `EnemyArsenalReference.arsenal`,
   `EnemyScaling.enemyLevelScaling.health`). Same tail as kiln.content's `templates` kind
-  (`Enemy01BehaviorState.aggroSetup.viewRange`), which edits the shared template for everyone.
+  (`Enemy01BehaviorState.combatCommitmentSetup.view.range`), which edits the shared template for everyone.
 - Values are text: numbers, `true/false`, enum names (`Melee`), flags (`UseTaunt|Move` sets, `+Sleep -FleeHome`
   changes), GUIDs, `keen::Time` in seconds (`4`, `250ms`). `Creatures.AiFields("Enemy01BehaviorState")` lists every
   field (path, type, offset, bytes).
@@ -127,6 +127,18 @@ template bytes, applies the field, and points that creature's slot at the copy; 
   Kiln.Creatures rebuilds copies from the template's current bytes (keeping the overrides) on `ContentReadyEvent`, and
   `Creatures.RefreshCopies()` does it on demand.
 - Nothing of this is saved by the game: copies live as long as the entity (and the owner's layer).
+
+**Sight and aggro: the fields the game reads.** The sight check of `enemy_combat_targets` reads
+`combatCommitmentSetup`, not `aggroSetup`:
+
+| Field | Does |
+|---|---|
+| `combatCommitmentSetup.view.range` | how far it sees a target (× `nightRangeFactor` at night, × `waterRangeFactor` in water, × `knownTargetsRangeFactor` for a target it already knows); Vukah 18, night factor 0.6 |
+| `combatCommitmentSetup.view.coneHalfAngle` | the view cone (Vukah 90) |
+| `combatCommitmentSetup.gain.inRange.range`, `.rangeWhileMoving` | within this distance a seen target is engaged at once; 0 = the creature's combat distances + 0.5 m |
+| `aggroSetup.viewRange` | only the radius of the candidate query (`movement_sensor`, at least 64 m, set once when the creature first runs), so it matters only beyond 64 m |
+
+No read of `aggroSetup.aggroRange` or `aggroSetup.viewConeHalfAngle` was found in the enemy programs of this build.
 
 ## Variants
 
@@ -169,7 +181,7 @@ owner/source again replaces what it added; `RevertJson(owner, source?)` removes 
     "variants": [ { "id": "elite_vukah", "base": "Enemy_Vukah_Melee", "name": "Elite Vukah", "level": 20, "scale": 1.4,
                     "faction": "Vukah", "xp": 2.5, "speed": 1.0, "damage": 1.3,
                     "resistances": { "Fire": 0.5 }, "loot": { "labels": "<guid>", "slots": [2, 6], "disabled": false },
-                    "features": ["-FleeHome", "+Sleep"], "ai": { "aggroSetup.viewRange": 30 }, "persist": false } ],
+                    "features": ["-FleeHome", "+Sleep"], "ai": { "combatCommitmentSetup.view.range": 30 }, "persist": false } ],
     "spawnRules": [ { "replace": "Enemy_Vukah_Melee", "with": "elite_vukah", "chance": 0.2, "night": true } ] } }
 ```
 Errors (unknown base, missing id, unknown variant in a rule) and warnings (unknown keys) come back in the report.
@@ -386,6 +398,9 @@ selection, and the combo path inside AttackExecution, where a sequence's follow-
 all. An override makes the game's own selection pick the forced attack, so its use counters, cooldown group and chosen target go to that attack;
 refuses combo follow-ups; refuses a rule that plays a refused attack's sequence directly; and counts whatever reaches `SetCurrentAttack` against it
 (`StartsOffOverride`, and it corrects a forced one). An attack already running when you set an override plays to its end. A forced attack still has to reach: it starts once the creature is within the attack's `MaxRange`.
+`Force(index)` checks the index against the arsenal the creature reads now: `ArgumentOutOfRangeException` when it has no such
+attack, `NotSupportedException` when the creature has no arsenal (a villager, wildlife); `/creature attack` answers with the reason.
+If the creature's arsenal changes later and lacks the forced index, the game picks on its own.
 With `PickAttack`, a creature's first selection answers "nothing available" until the tick has asked your code, so no natural attack slips through.
 
 **AI off.** The body, sequences and damage keep running. Decisions stop, and so does target upkeep: `enemy_combat_targets` checks the same switch and
@@ -418,6 +433,7 @@ one of Kiln's: `{ "kiln": "condition", "slot": n }`, `"buff"`, `"time"`, `"phase
 - **The writer** builds a self-relative record in Kiln's memory and points the registry's GUID map at it, in Pre. A GUID the game knows becomes a composite: the game's arsenal, then each owner's additions in
   order. The game's blob is not touched. Removing an owner rebuilds; the last one puts the game's pointer back, or takes the map entry out. A creature can still hold the index of a rule that went away, so a hook on the
   behaviour update resets it, once an arsenal has shrunk. After a `kiln.content` change the composites are rebuilt (`ContentReadyEvent`, `Arsenals.Refresh()`).
+- **The record layout** (offsets of attacks and rules inside an arsenal) comes from the reflection when the service is ready. Overrides need it: without it the hooks are not installed and `Force` throws `NotSupportedException`.
 - **Hooks go in at first use and come out when nothing uses them:** `ConstraintEval` and `ActionExec` for Kiln's kinds; `SelectAttack`, `AttackAvailable`, the follow-up lookup and a mid hook on `SetCurrentAttack` for overrides. Data-only
   arsenals need none. A server without rule mods runs none of this.
 - **Fails soft.** A target that does not resolve: `Arsenals.Status` says so, and what needs it throws `NotSupportedException` with the reason. Without the dispatcher, data-only arsenals still work; without the registry map, no arsenal can be written; without the attack targets, overrides are off. The AI switch needs none of them. Creatures run on either way (lab, with each target's pattern broken in turn). With no hooks loaded Kiln's kinds in a record are harmless: the game reads them as false and no-op.
@@ -518,8 +534,9 @@ It spawns transient Vukahs 60 m from the base and destroys them; it unloads and 
 
 ## Manual test (needs a joined player)
 
-1. Aggro range: walk toward a Vukah with `/creature ai <id> aggroSetup.viewRange 40` → it notices you from much further
-   than one with 18; `aggroRange` likewise.
+1. View range: walk toward a Vukah with `/creature ai <id> combatCommitmentSetup.view.range 40` (in daylight: the
+   Vukah's night factor is 0.6) → it notices you from much further than one with 18;
+   `combatCommitmentSetup.gain.inRange.range 16` → it engages you at 16 m.
 2. Elite (EliteVukah, `/creature spawn elite_vukah`): drawn 1.4× on a vanilla client and on a Kiln client (scale
    replication), its health bar/level shows 20, it takes longer to kill (1031 HP), fire damage halved, it never flees
    home when you run; it attacks with the Vukah's moves.

@@ -73,7 +73,7 @@ public sealed class MyMod : Mod
 | `PlayerConsumeEvent` : `PlayerActionEvent` | eating, drinking, a potion, a scroll: `Kind`, `Buffs`, `IsFood`, `IsDrink`. Before the item is used up | **yes**: item stays, no buff |
 | `PlayerConsumedEvent` | the stack really went down: `Item`, `Kind`, `Buffs`, `Left` | no |
 | `PlayerActionEndedEvent` | an action finished or was replaced: `Duration`, `Canceled` | no |
-| `PlayerClientActionEvent` | a client sent a versioned command, before the game's program reads it: `Name`, `Payload`, `Version` | **yes** where `CanCancel`: the game's program skips it |
+| `PlayerClientActionEvent` | a client sent a versioned command: `Name`, `Payload`, `Version`. Held one step, so the game has not run it yet | **yes** where `CanCancel`: it never runs |
 | `PlayerJumpEvent` | `Type`, `Count`, `IsDoubleJump` | no |
 | `PlayerGlideEvent` | `Started`, `Ended`, `Glider`, `Duration` | no: cancel `ActionGlider` |
 | `PlayerEquipmentChangedEvent` | `Slot`, `Before`, `Now`, `Equipped`. Within 4 steps | no |
@@ -93,9 +93,15 @@ Use what exists for the rest: fall damage `EntityFallEvent`, death `EntityDeathE
 | An input | `InputJump`, `InputEvade`, `InputQuickUse0`... (replicated from the client) |
 
 ### What Cancel does
-A `PlayerClientActionEvent` cancel writes the action's version into `ServerConsumedPlayerInput`, what the game's program does after running it. The program then skips it. The client is not told: what it shows depends on the action.
+**A client action.** A client's input reaches the server world inside the sim step: the game copies it into `PlayerInput` after Pre, and the action's program runs it in that same step. So no Pre ever sees a client's action before it ran. While a handler subscribes to `PlayerClientActionEvent`, Kiln therefore holds each new client action for one step, right before the game's programs (the start of `DeliverEvents`), and posts it in the next Pre:
+- Not canceled, the game runs it in that step: one step late, about 17 ms with a client joined.
+- Canceled, its version is marked consumed, the way the game ignores an old version. It never runs, then or later.
 
-A `PlayerActionEvent` cancel calls the game's own reset of a running sequence, what it does when a sequence's keep-alive fails. It stops everything the sequence has not done yet. Three limits:
+The client is not told. What it shows depends on the program. An equip (`equipment_actions`) runs on the server only, so the client shows the server's equipment. An inventory move (`inventory_actions`) is predicted by the client, which has to take the server's state back. Both are manual tests.
+
+`CanCancel` is false where Kiln cannot hold: a joined client, or a build where the hold point did not resolve (`PlayerStates.Status.ClientActionCancel` false, and kiln.log says so). There a cancel changes nothing, and a client's action has already run when the event comes.
+
+**A player action.** A `PlayerActionEvent` cancel calls the game's own reset of a running sequence, what it does when a sequence's keep-alive fails. It stops everything the sequence has not done yet. Three limits:
 - **Events in its first step have run.** A sequence starts inside a step and Kiln sees it in the next Pre. Of the consumables only `UseItem_Scroll_Meteor` consumes at time 0, so that item is gone either way. Costs at time 0 (the glider's stamina) are paid too.
 - **It stops the sequence, not the input.** A held button can start the action again next step: cancel that one too.
 - **The player's own client has started the action.** It predicted the animation, and sees the server stop it. What that looks like is a manual test.
@@ -114,8 +120,10 @@ One scan per tick while a handler subscribes to any of these events, and none ot
 
 So about 1.4 us per player per step at most (lab under Wine, 16 spawned characters, no state changing), of a step that takes 16 to 40 ms. Each change adds one event object and its handlers.
 
+While a handler subscribes to `PlayerClientActionEvent`, the hold also reads `PlayerInput` and `ServerConsumedPlayerInput` of each player once per step, right before the programs, and every client action runs one step later.
+
 ## What has been run
-With no client, on spawned `1_Player` characters (`mods/tests/playerstate-test`): every read; the state table against the running game; every event; `Cancel` on an emote, on eating, on a glide from input and on an equip action; 5 mushrooms to 4 through the game's own consume code with a real used item, and drink and potion likewise; a glide, a jump and a dodge from input bits through the game's own control programs; fail-safe with the signatures broken on purpose. Item use from a key press, and everything on a real client, is a manual test: nothing here has seen a real player yet.
+With no client, on spawned `1_Player` characters (`mods/tests/playerstate-test`): every read; the state table against the running game; every event; `Cancel` on an emote, on eating, on a glide from input and on an equip action, also one written right after the game's own input copy, where a joined client's arrives (the ring stays, the same equip not canceled goes through); 5 mushrooms to 4 through the game's own consume code with a real used item, and drink and potion likewise; a glide, a jump and a dodge from input bits through the game's own control programs; fail-safe with the signatures broken on purpose. Item use from a key press, and everything on a real client, is a manual test: nothing here has seen a real player yet.
 
 ## Sides
 | Where | `Is`, `Snapshot` | Events | Players |

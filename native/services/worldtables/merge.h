@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -135,6 +136,27 @@ Allocation allocate(std::vector<Material> live, std::vector<Material> kept, cons
 std::string handshake_hash(const std::vector<Placed>& placed);
 inline const char* const kEmptyHash = "0000000000000000";
 
+// ---- the build menu's pools ---------------------------------------------------------------------------------------
+// A block item is placed with the game's shapes through its pool: walls in BuildingDefaultMaterials, roofs in BuildingRoofMaterials, placeable terrain
+// in TerrainMaterials. A client copies the pool of each item that names one into an array of 64 items, each frame (program player_ui), and a 65th
+// item stops the game ("SmallDynamicArray is out of elements 64", then an access violation). So a pool lists 64 items at most, the game's own among them.
+// The current builds have 61 walls, 14 roofs and 56 terrain items: room for 3, 50 and 8 new ones across all mods. Evidence: docs/re/building.md 1.2.
+inline constexpr uint32_t kPoolCapacity = 64;
+inline const char* const kWallPool = "BuildingDefaultMaterials";
+inline const char* const kRoofPool = "BuildingRoofMaterials";
+
+// The pool a material's item goes in; "" when it has no item, so it takes no room in any.
+std::string pool_of(const Material& m);
+// Every pool's name and how many items it lists. false + *why: the pools don't read as their layout says.
+bool pool_counts(const Bytes& pools, const Layouts& L, std::map<std::string, uint32_t>* out, std::string* why);
+// "the game's build menu lists at most 64 wall materials and has 61 of its own: 3 new ones fit across all mods"
+std::string pool_room_text(const std::string& pool, uint32_t game_count);
+// Live materials with an item take room in their pool in sorted GUID order, the order ids go in, so every game with the same mods agrees. One past
+// its pool's room leaves *live and is refused by name in *refused. When a world remembers it (`remembered`), it also goes in *held, not live and
+// without its item: kept like an absent mod's material, so that world's cells of it stay.
+void fit_pools(std::vector<Material>* live, const std::map<std::string, uint32_t>& game_counts, const std::set<Guid>& remembered, std::vector<Material>* held,
+               std::vector<std::string>* refused);
+
 // ---- reading the game's resources ------------------------------------------------------------------------------
 struct ArrayView {
     const uint8_t* base = nullptr;
@@ -166,6 +188,7 @@ struct RegistryChange {
 bool merge_registry(const Bytes& game, const Layouts& L, const std::vector<Tweak>& tweaks, const std::vector<Placed>& placed, Bytes* out,
                     std::vector<RegistryChange>* changes, std::string* why);
 bool merge_world(const Bytes& game, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::string* why);
+// Live block items after their pool's own. A pool that would list more than kPoolCapacity items is false + *why, never served.
 bool merge_pools(const Bytes& game, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::string* why);
 bool merge_blueprints(const Bytes& game, const Layouts& L, const std::vector<Placed>& placed, uint32_t template_item, Bytes* out, std::string* why);
 // The first item of the pool a block item joins: what a new block item's blueprint entry is copied from.
@@ -174,12 +197,15 @@ uint32_t first_pool_item(const Bytes& pools, const Layouts& L);
 // The shapes' entries appended to a blueprint-items table, each with its own size and cells (isDataCompressed: one bit per cell). An item id the table
 // already has is refused by name in *refused; the others go in.
 bool merge_shapes(const Bytes& table, const Layouts& L, const std::vector<Shape>& shapes, Bytes* out, std::vector<std::string>* refused, std::string* why);
-// What the client draws under the cursor: a keen::VoxelModelResource of the shape, one byte per cell (0x12 a full cell, as the game's walls).
+// What the client draws under the cursor: a keen::VoxelModelResource of the shape, one byte per cell. A byte of 3 or more is a building material
+// id less 0x7d, the one drawn until the player picks one of the pool's: 0x12 (Rough Wood Block, 143) in every wall-pool shape of the game, 0x08
+// (Tared Shingles, 133) in every roof-pool one; 0..2 draw nothing (the game's 1 marks the space under a slope or a stair). The client's model
+// builder (client 0x1df330) puts the picked material in each drawn cell.
 struct ModelLayout {
     uint32_t size = 0, size_field = 0, data = 0, terrain = 0;
 };
 Bytes voxel_model(const Shape& s, const ModelLayout& M);
-inline constexpr uint8_t kFullCell = 0x12;
+inline constexpr uint8_t kFullCell = 0x12, kRoofCell = 0x08;
 inline constexpr uint32_t kMaxShapeCells = 32;
 
 // The stable name of a game material, the one mods write: from the debug name of the item that places it.

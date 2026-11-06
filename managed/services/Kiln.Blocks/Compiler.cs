@@ -3,7 +3,7 @@
 //   SpellBlock    ItemInfo: the look's spell item; ActorSequenceResource: the CastAnimation's, cloned only with ReleaseAt
 //   ProjectileBlock  TemplateResource: ProjectileLook.Projectile (the game's projectile program stays unless the spell has OnHit or OnCast: on impact it spawns the next template)
 //   the impact    TemplateResource: ProjectileLook.Impact, keeping its VFX and sound, running a generated program
-//   StatusBlock   BuffType: the look's starter (icon, body effect; a buff without one: StatusLook.Blessing), running a generated program
+//   StatusBlock   BuffType: the look's starter (icon, body effect; without one: StatusLook.Blessing for a buff, StatusLook.Timer for a debuff), running a generated program
 //   item blocks   Items/ItemCompiler.cs
 //   EffectBlock   no resource of its own: statements in the program of whatever triggers it (EffectEmitter)
 using System.Text.Json.Nodes;
@@ -187,8 +187,8 @@ internal static partial class Compiler
         // No description: none, not the look's (the frost slow's "Reduced Movement Speed."). A loca tag no table has shows as nothing.
         if (string.IsNullOrEmpty(s.Description)) fields["description"] = BlockIds.Derive(ctx.Mod.Id, "text", $"{key}.description").ToString();
         // The health bar over a creature draws a status only when its colour is set, tinted by it (client 0xba64b0 skips a BuffType whose color
-        // is 0). The game's own debuffs for players have none and its debuffs for enemies are white; the frost slow, the default look, has
-        // none, so without this a debuff was on the creature and not on its bar.
+        // is 0). The game's own debuffs for players have none and its debuffs for enemies are white; the frost slow and the timer have none,
+        // so without this a debuff was on the creature and not on its bar.
         if (s.Kind == StatusKind.Debuff) fields["color"] = DebuffColor;
         low.Clone("buffs", guid, game, StatusLook.Of(s).Starter, fields, s.Name, s.Description);
         StatusVfx(ctx, low, game, s);
@@ -299,6 +299,7 @@ internal static partial class Compiler
     {
         var rules = new JsonObject();
         if (s.Vfx is { } vfx) rules["whileApplied"] = new JsonArray(VfxData.BuffEntry(ctx, VfxData.Lower(ctx, vfx, "vfx"), game));
+        else if (StatusLook.Of(s).Body is { } body) rules["whileApplied"] = new JsonArray(VfxData.BuffEntry(ctx, VfxData.Lower(ctx, body, "look"), game));
         var rows = new JsonArray();
         var onApply = s.OnApply ?? [];
         for (var i = 0; i < onApply.Count; i++)

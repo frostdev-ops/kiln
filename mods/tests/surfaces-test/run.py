@@ -45,8 +45,9 @@ BAD = {
         "no-side": {"name": "No Side", "surface": {"top": {"albedo": "textures/a.png"}}},
         "outside": {"name": "Outside", "surface": {"side": {"albedo": "../other-mod/a.png"}}},
         "bad-range": {"name": "Bad Range", "surface": {"side": {"albedo": "textures/a.png", "roughness": 1.5}}},
-        "fine": {"name": "Fine", "surface": {"side": {"albedo": "textures/a.png", "roughness": 0.5}}},
-        "own-block": {"name": "Own Block", "strength": {"drops": "block"}, "recipe": {"makes": 10, "needs": {"Build_TerrainMaterial_T1_Stone": 1}}},
+        # roofs: the build menu has room for 3 new walls across all mods, and the sample takes them
+        "fine": {"name": "Fine", "roof": True, "surface": {"side": {"albedo": "textures/a.png", "roughness": 0.5}}},
+        "own-block": {"name": "Own Block", "roof": True, "strength": {"drops": "block"}, "recipe": {"makes": 10, "needs": {"Build_TerrainMaterial_T1_Stone": 1}}},
         "no-such-look": {"name": "No Such Look", "surface": "nowhere"},
     },
     "materialTweaks": {
@@ -212,7 +213,8 @@ def scenarios(lab, c):
 
     def limit():
         lab.forget_mods(["sf-", SAMPLE])
-        over = {f"s{i:02}": {"name": f"Surface {i}", "surface": {"side": {"game": "StoneRough"}, "bevel": 0.1}} for i in range(50)}
+        # roofs: their pool has room for 50, so the 49 ids are what refuses the 50th (walls stop at 3: worldtables-test)
+        over = {f"s{i:02}": {"name": f"Surface {i}", "roof": True, "surface": {"side": {"game": "StoneRough"}, "bevel": 0.1}} for i in range(50)}
         lab.set_mods(sample=False, extra=[("sf-over", {"format": 1, "buildingMaterials": over})])
         text = lab.run("limit")
         t = {n: v for n, v in table(text).items() if re.fullmatch(r"s\d\d", n)}

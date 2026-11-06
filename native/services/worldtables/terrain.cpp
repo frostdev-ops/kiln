@@ -284,6 +284,11 @@ bool merge_terrain_pool(const Bytes& game, const Layouts& L, const std::vector<P
         return false;
     }
     const uint32_t count = cur.count;
+    if (size_t{count} + ids.size() > kPoolCapacity) {
+        *why = std::string("the material pool ") + kTerrainPool + " would list " + std::to_string(size_t{count} + ids.size()) + " items, past the " + std::to_string(kPoolCapacity) +
+               " a player's game holds";
+        return false;
+    }
     const size_t cur_at = cur.base ? static_cast<size_t>(cur.base - out->data()) : 0;
     pad4(out);
     const size_t at = out->size();

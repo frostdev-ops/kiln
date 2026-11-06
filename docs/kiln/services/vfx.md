@@ -96,6 +96,13 @@ mods/tests/vfx-test/fixtures/relay_client.py --port <labPort> --lab <lab dir>   
 # {"testFailSoft": true}: the real game layer on an exe where no signature resolves
 ```
 
+### What else the game draws
+`kiln/config/vfx.json` `{"trace": true}` (or a number of seconds, default 3) logs every VFX instance the game creates within that time of a play
+from Kiln, at most 400 lines:
+`vfx: trace: the game created <guid>, the VFX's own defaults, 12 ms after Kiln's last play, from +1f3c9f5 +2a1c9f …`. `Kiln` or `the game` says whose play
+it was, a parameter block shows its first 16 bytes, and the addresses are the game's code that asked for it. For telling an effect of a mod from
+something the game draws next to it. Remove the setting afterwards.
+
 ### Manual test
 `mods/tests/vfx-test` on a client; lines `vfx-test: PASS|FAIL` in `kiln.log`. Each case is on a key and on `/vfxtest <case>`:
 

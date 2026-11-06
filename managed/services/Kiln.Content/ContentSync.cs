@@ -129,11 +129,13 @@ public static unsafe class ContentSync
         public string? NotSynced;
         public int MaxKiB;
         public bool SendContent;
+        public uint KilnTemplates;      // Kiln-only templates when it was built: what a client that acks it can have
     }
 
     private static Export? _export;
     private static DateTime _exportAt;
     private static readonly Dictionary<uint, uint> Sent = new();      // peer -> state id it has completely
+    private static readonly Dictionary<uint, uint> Acked = new();     // peer -> state id it acknowledged last (under the Sent lock)
     private static readonly Dictionary<uint, (uint StateId, int Next)> Sending = new();  // peer -> parts sent so far
     private const int PartsPerTick = 48;  // per peer and server tick (~1 s): about 380 KB/s with 8 KB parts
 
@@ -239,6 +241,7 @@ public static unsafe class ContentSync
             peers = Sent.Count + Sending.Count;
             Sent.Clear();
             Sending.Clear();
+            Acked.Clear();
         }
         var had = _export != null;
         _export = null;
@@ -266,6 +269,7 @@ public static unsafe class ContentSync
             {
                 Sent.Clear();
                 Sending.Clear();
+                Acked.Clear();
             }
             return;
         }
@@ -273,14 +277,18 @@ public static unsafe class ContentSync
         var st = Content.Status();
         if (st is not { Ready: true }) return;  // the registries are not loaded yet (players cannot be in game either)
         var settings = SyncSettings.Current;
+        // A Kiln-only template added (a hot load) is due at once: until a client acks a state built after it, kiln.net keeps
+        // that template's entities from it (docs/kiln/network.md "Clients without Kiln").
+        var templates = NetEngine.KilnTemplateCount;
         // value-only changes (no new field, same generation) show up at the periodic export: every 10 s of wall time
         var due = _export is null || _export.Generation != st.Generation || _export.Changed != st.Changed ||
                   (DateTime.UtcNow - _exportAt).TotalSeconds >= 10 ||
-                  _export.MaxKiB != settings.MaxContentKiB || _export.SendContent != settings.SendContent;
+                  _export.MaxKiB != settings.MaxContentKiB || _export.SendContent != settings.SendContent ||
+                  _export.KilnTemplates != templates;
         if (due)
         {
             _exportAt = DateTime.UtcNow;
-            Build(st);
+            Build(st, templates);
         }
         var e = _export;
         if (e is null) return;
@@ -300,10 +308,11 @@ public static unsafe class ContentSync
             }
             foreach (var gone in Sent.Keys.Where(k => !peers.Any(p => p.Id == k)).ToList()) Sent.Remove(gone);
             foreach (var gone in Sending.Keys.Where(k => !peers.Any(p => p.Id == k)).ToList()) Sending.Remove(gone);
+            foreach (var gone in Acked.Keys.Where(k => !peers.Any(p => p.Id == k)).ToList()) Acked.Remove(gone);
         }
     }
 
-    private static void Build(ContentStatus st)
+    private static void Build(ContentStatus st, uint templates)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var json = ExportJson(Kinds, out var rc);
@@ -324,7 +333,11 @@ public static unsafe class ContentSync
             {
                 StateId = old.StateId, RawId = id, Generation = st.Generation, Changed = st.Changed, Fields = old.Fields,
                 RawLength = old.RawLength, Parts = old.Parts, NotSynced = old.NotSynced, MaxKiB = old.MaxKiB, SendContent = old.SendContent,
+                KilnTemplates = templates,
             };
+            // The same document with more Kiln-only templates: they came from a mod the server sends nothing of (a client has
+            // it or not). A client that acked this document has all it can get.
+            if (templates != old.KilnTemplates) ClearAcked(old.StateId, templates);
             return;
         }
         uint fields = 0;
@@ -362,7 +375,7 @@ public static unsafe class ContentSync
         {
             StateId = notSynced is null ? id : id ^ 0x5EED5EEDu, RawId = id, Generation = st.Generation, Changed = st.Changed,
             Fields = fields, RawLength = raw.Length, Parts = parts, NotSynced = notSynced, MaxKiB = settings.MaxContentKiB,
-            SendContent = settings.SendContent,
+            SendContent = settings.SendContent, KilnTemplates = templates,
         };
         var compressed = parts.Sum(p => p.Length);
         Log(notSynced is null ? LogLevel.Info : LogLevel.Warn,
@@ -509,7 +522,21 @@ public static unsafe class ContentSync
         Log(a.Result is 0 or 2 ? LogLevel.Info : LogLevel.Warn,
             $"{ctx.Sender.Name}: content state {a.StateId:x8} {what}: {a.Applied} change(s), {a.Reset} local reset, {a.Errors} error(s) in {a.Millis} ms" +
             (a.Detail.Length > 0 ? $"; {a.Detail}" : ""));
-        NetEngine.PeerHasDefinitions(ctx.Sender);  // docs/kiln/network.md "Clients without Kiln"
+        lock (Sent) Acked[ctx.Sender.Id] = a.StateId;
+        // docs/kiln/network.md "Clients without Kiln": only an ack of the state served now clears the client. An older one may
+        // lack a template added since; the current one is on its way to it.
+        if (_export is { } e && e.StateId == a.StateId) NetEngine.PeerHasDefinitions(ctx.Sender, e.KilnTemplates);
+        else Log(LogLevel.Info, $"{ctx.Sender.Name} (0x{ctx.Sender.Id:x}): content state {a.StateId:x8} is not the one served now ({(_export is { } c ? c.StateId.ToString("x8") : "none")}): its Kiln-only entities wait for that one");
+    }
+
+    /// <summary>Clears the clients whose last ack was of <paramref name="stateId"/>, now that it is known to cover
+    /// <paramref name="templates"/> Kiln-only templates. Tick thread.</summary>
+    private static void ClearAcked(uint stateId, uint templates)
+    {
+        List<uint> ids;
+        lock (Sent) ids = Acked.Where(kv => kv.Value == stateId).Select(kv => kv.Key).ToList();
+        foreach (var p in Network.Peers)
+            if (ids.Contains(p.Id) && p.State == NetPeerState.Ready) NetEngine.PeerHasDefinitions(p, templates);
     }
 
     // ------------------------------------------------------------------------------------------------- client ----

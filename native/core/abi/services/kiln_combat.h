@@ -44,6 +44,9 @@ enum {
     KILN_DAMAGE_AS_GAME_HIT = 0x04u,     /* enter the pending list like a hit the engine produced: it is held and shown
                                             to the listener as KILN_COMBAT_HURT (when hits are held) before it applies */
     KILN_DAMAGE_KILL = 0x08u,            /* amount = the target's current health (a guaranteed killing blow) */
+    KILN_DAMAGE_NO_CREDIT = 0x10u,       /* clear the target's credit first (ExperienceSource.lastHitPlayerId): the game
+                                            gives a kill's XP to the last player who hit the target, whoever lands the
+                                            killing blow. With attacker 0 the kill then credits nobody */
 };
 
 typedef struct KilnDamageRequest {

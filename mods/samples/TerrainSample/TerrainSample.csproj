@@ -6,7 +6,7 @@
   <PropertyGroup>
     <KilnModId>terrain-sample</KilnModId>
     <KilnModName>Terrain materials (sample)</KilnModName>
-    <Version>0.1.0</Version>
+    <Version>0.1.2</Version>
     <Description>Glacier ore veins and packed snow: terrain of a mod's own, dug with the game's tools.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <KilnServices>Blocks;Build;World;Chat</KilnServices>

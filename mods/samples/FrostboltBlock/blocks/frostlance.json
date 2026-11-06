@@ -27,6 +27,7 @@
     "chilled-json": {
       "name": "Chilled",
       "description": "The cold bites a little every 2 seconds.",
+      "look": "frost",
       "seconds": 8,
       "tickEvery": 2,
       "vfx": "frost_aura-json",

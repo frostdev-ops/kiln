@@ -15,6 +15,7 @@ public sealed class AbilityBlocksMod : Mod
         {
             Name = "Kindled",
             Description = "Burning a little every second.",
+            Look = StatusLook.Fire,
             Seconds = 4,
             OnTick = [new EffectBlock { Damage = Damage.Fire(3), Flinch = Flinch.None }],
         });

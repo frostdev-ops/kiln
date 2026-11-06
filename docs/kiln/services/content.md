@@ -266,7 +266,11 @@ public override void OnLoad()   // register early: the registries take them when
   workshop of the mod's own, id FNV-1a of the GUID, given a recipe list of its own when nothing has one yet; without
   `BaseOn` the recipe has no level / comfort / prop / water requirement), `Menu` (`"menu"` in a pack: the `"0x…"`
   workshop whose crafting menu lists it, when that is not its own; a station opens the menu of its
-  `CraftingInteraction.workshopId` and runs the recipes of its `Crafting.workshopId`), `Inputs` (1..32: item names, including new items, or
+  `CraftingInteraction.workshopId` and runs the recipes of its `Crafting.workshopId`. At a `"workshop:<guid>"`, a
+  player's game gives that workshop a menu of its own instead, listing only its recipes, under the tabs and subcategories
+  of this menu where they would go), `StationItem` (`"stationItem"`, with a `"workshop:<guid>"` only: the item that
+  places its station; a player's game names the workshop after it, as the title over the station's recipe list),
+  `Inputs` (1..32: item names, including new items, or
   `RecipeIngredient.OfCategory(id, n)`), `Outputs` (1..32 items), `Duration`, `DisplayName` (a recipe name; most
   recipes show their result's), `Fields` (other `RecipeInfo` paths), `Unlock`:
   - `Always` (default): no knowledge requirement. The game's crafting UI lists such a recipe once the player knows one

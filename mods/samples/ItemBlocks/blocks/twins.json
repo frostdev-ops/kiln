@@ -3,7 +3,7 @@
   "$schema": "../../../../schema/kiln-blocks.schema.json",
   "format": 1,
   "statuses": {
-    "burn-json": { "name": "Burn", "description": "It keeps burning.", "seconds": 6, "tickEvery": 2, "onTick": [ { "damage": { "fire": 2 }, "flinch": "none" } ] },
+    "burn-json": { "name": "Burn", "description": "It keeps burning.", "seconds": 6, "tickEvery": 2, "look": "fire", "onTick": [ { "damage": { "fire": 2 }, "flinch": "none" } ] },
     "warmth-json": { "name": "Warmth", "kind": "buff", "seconds": 600, "modifies": { "move-speed": 0.05 } }
   },
   "effects": {

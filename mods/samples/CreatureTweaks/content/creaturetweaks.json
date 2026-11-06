@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "comment": "Creature Tweaks (kiln.gamedata + kiln.creatures). The clone's fields are its definition; rules below may change it like any template.",
+  "comment": "Creature Tweaks (kiln.gamedata + kiln.creatures). The clone's fields are its definition; rules below may change it like any template. Sight is combatCommitmentSetup.view.range (by day; x nightRangeFactor at night), engaging at once within gain.inRange.range: the game's sight check reads these, not aggroSetup.",
   "templates": {
     "add": [
       {
@@ -10,14 +10,14 @@
         "fields": {
           "Level.dataStorage[0]": 20,
           "ScaleComponent.uniformScale": 1.4,
-          "Enemy01BehaviorState.aggroSetup.viewRange": 36,
-          "Enemy01BehaviorState.aggroSetup.aggroRange": 16
+          "Enemy01BehaviorState.combatCommitmentSetup.view.range": 36,
+          "Enemy01BehaviorState.combatCommitmentSetup.gain.inRange.range": 16
         }
       }
     ],
     "Enemy_Vukah_*": {
       "@where": { "Faction.faction": "Vukah" },
-      "Enemy01BehaviorState.aggroSetup.viewRange": { "mul": 1.5 }
+      "Enemy01BehaviorState.combatCommitmentSetup.view.range": { "mul": 1.5 }
     }
   },
   "creatures": {

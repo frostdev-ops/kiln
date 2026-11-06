@@ -38,6 +38,11 @@ public sealed class AudioTestMod : Mod
     private uint _worldSuiteSession, _worldSeenSession;
     private long _worldSeenAt;
     private int _running;  // a suite is running
+    // A world suite belongs to the world it started in: when that world ends (the player leaves mid-suite) it stops there, so
+    // its captions never show on the menus or in the next world and its checks never run against another world.
+    private volatile bool _suiteInWorld;
+    private uint _suiteSession;
+    private volatile bool _unloading;
     // The automatic suites are compact (volume at most 0.4, about 2 s per sound: they play on the user's speakers);
     // the "Kiln audio tour" menu entries play the full lengths for the human check.
     private volatile bool _full;
@@ -80,7 +85,7 @@ public sealed class AudioTestMod : Mod
             // for the manual check (docs/kiln/services/audio.md "Manual test"): the tour plays every test sound
             // again with a caption at the top of the screen naming what should be heard
             Ui.Menus.Add(MenuLocation.MainMenu, "Kiln audio tour", () => Start(MenuSuite, full: true), order: 20);
-            Ui.Menus.Add(MenuLocation.PauseMenu, "Kiln audio tour", () => Start(WorldTour, full: true), order: 20);
+            Ui.Menus.Add(MenuLocation.PauseMenu, "Kiln audio tour", () => Start(WorldTour, full: true, inWorld: true), order: 20);
             Start(() => MenuSuite(first));
         }
         else
@@ -90,7 +95,21 @@ public sealed class AudioTestMod : Mod
         if (Lifecycle.IsServerRunning) Context.Scheduler.Post(ServerPart);
     }
 
-    public override void OnUnload() => Info($"OnUnload: summary: {_pass} PASS, {_fail} FAIL");
+    public override void OnUnload()
+    {
+        _unloading = true;  // a running suite stops at its next step
+        _captionText = "";
+        try
+        {
+            _caption?.Dispose();  // created on a suite's thread-pool thread, so it has no owner mod to be removed with
+        }
+        catch (Exception)
+        {
+            // the overlay may be gone already
+        }
+        _caption = null;
+        Info($"OnUnload: summary: {_pass} PASS, {_fail} FAIL");
+    }
 
     [Subscribe]
     private void OnServerStarted(ServerStartedEvent e)
@@ -145,7 +164,7 @@ public sealed class AudioTestMod : Mod
         await OneShot(first, "vanilla UI confirm from OnLoad (main thread)", maxMs: 3000);
         if (_fixtures)
         {
-            await Task.Delay(800);
+            await Wait(800);
             Caption("audio-test: ui_beep 1320 Hz (0.3 s)");
             var beep = Sound.Play2D(_uiBeep, Vol(0.8f));  // a thread-pool thread: queued, played on the main thread
             await OneShot(beep, "fixture ui_beep (1320 Hz, kiln.assets cue) from a thread-pool thread", maxMs: 2000);
@@ -154,7 +173,7 @@ public sealed class AudioTestMod : Mod
         {
             try
             {
-                await Task.Delay(800);
+                await Wait(800);
                 Caption("SoundSample: ui_chime 997 Hz (0.5 s)");
                 await OneShot(Sound.Play2D(SoundId.Named("soundsample", "ui_chime"), Vol(0.8f)), "SoundSample ui_chime (997 Hz)", maxMs: 2000);
             }
@@ -168,20 +187,20 @@ public sealed class AudioTestMod : Mod
         if (_fixtures)
         {
             // music slot: loops, volume fade, replaced by the next track, Stop
-            await Task.Delay(800);
+            await Wait(800);
             Caption("audio-test: music chord C4+E4 (262+330 Hz) fades in, loops every 3 s, gets quieter, restarts, fades out");
             var m1 = Sound.PlayMusic(_musicChord, Vol(0.5f) * 0.6f, TimeSpan.FromSeconds(1));
             Check(await Until(() => Sound.State(m1) == SoundState.Playing, 3000), $"PlayMusic {m1} is playing (fade-in 1 s)");
-            await Task.Delay(3500);
+            await Wait(3500);
             Check(Sound.IsPlaying(m1), $"the looping music track still plays after 3.5 s (3 s loop): {Sound.State(m1)}");
             Sound.SetVolume(m1, Vol(0.5f) * 0.25f, TimeSpan.FromMilliseconds(500));
-            await Task.Delay(700);
+            await Wait(700);
             Check(Sound.IsPlaying(m1), "SetVolume (fade 500 ms) keeps it playing");
             var m2 = Sound.PlayMusic(_musicChord, Vol(0.5f) * 0.6f);
             Check(await Until(() => Sound.State(m2) == SoundState.Playing, 3000) && await Until(() => !Sound.IsPlaying(m1), 2000),
                 $"a second PlayMusic replaces the first: {Describe(m1)}; {Describe(m2)}");
             Check(Sound.Info(m1)?.Reason == SoundEndReason.Replaced, $"the first track ended as Replaced ({Sound.Info(m1)?.Reason})");
-            await Task.Delay(Hold(1000, 2000));
+            await Wait(Hold(1000, 2000));
             Sound.Stop(m2, TimeSpan.FromMilliseconds(500));
             Check(!Sound.IsPlaying(m2), "Stop: IsPlaying is false at once");
             Check(await Until(() => Sound.Info(m2)?.Reason == SoundEndReason.Stopped, 2000), $"the track ended as Stopped: {Describe(m2)}");
@@ -212,7 +231,7 @@ public sealed class AudioTestMod : Mod
         }
         if (Environment.TickCount64 - _worldSeenAt < 8000 || Volatile.Read(ref _running) != 0) return;
         _worldSuiteSession = session;
-        Start(WorldTour);
+        Start(WorldTour, inWorld: true);
     }
 
     private async Task WorldSuite()
@@ -231,12 +250,12 @@ public sealed class AudioTestMod : Mod
         Check(fi is { Following: true }, $"it follows the entity (position {fi?.Position})");
         var at = fi?.Position ?? default;
         _lastAt = at;
-        await Task.Delay(Hold(2500, 4000));
+        await Wait(Hold(2500, 4000));
         Check(Sound.State(follow) == SoundState.Playing, $"the loop (1 s) still plays after {Hold(2500, 4000) / 1000.0:F1} s: {Describe(follow)}");
         Sound.SetVolume(follow, Vol(0.3f) / 2, TimeSpan.FromMilliseconds(200));
         var moved = new WorldPosition(at.X + 5, at.Y, at.Z);
         Sound.SetPosition(follow, moved);
-        await Task.Delay(500);
+        await Wait(500);
         fi = Sound.Info(follow);
         Check(fi is { State: SoundState.Playing, Following: false } && fi.Position.DistanceTo(moved) < 0.01,
             $"SetVolume + SetPosition apply (following ends): {fi?.State}, following {fi?.Following}, at {fi?.Position}");
@@ -253,7 +272,7 @@ public sealed class AudioTestMod : Mod
         Caption($"audio-test: the game's grasshopper loop, 3 m north, for {Hold(1500, 3000) / 1000.0:F1} s");
         var grass = Sound.PlayAt(VanillaGrassLoop, new WorldPosition(at.X, at.Y, at.Z + 3), Vol(1f));
         Check(await Until(() => Sound.State(grass) == SoundState.Playing, 3000), $"a vanilla loop (grasshoppers) plays 3 m north: {Describe(grass)}");
-        await Task.Delay(Hold(1500, 3000));
+        await Wait(Hold(1500, 3000));
         Check(Sound.State(grass) == SoundState.Playing, "the vanilla loop still plays (loop of 10 s)");
         Sound.Stop(grass, TimeSpan.FromMilliseconds(100));
 
@@ -276,7 +295,7 @@ public sealed class AudioTestMod : Mod
         if (await Until(() => Sound.State(lore) == SoundState.Playing, 5000))
         {
             Check(true, $"a vanilla lore line narrates: {Describe(lore)}");
-            await Task.Delay(Hold(2000, 3000));
+            await Wait(Hold(2000, 3000));
             Sound.Stop(lore, TimeSpan.FromMilliseconds(200));
             Check(await Until(() => Sound.Info(lore)?.Reason == SoundEndReason.Stopped, 3000), $"Stop ends the narration: {Describe(lore)}");
         }
@@ -286,11 +305,11 @@ public sealed class AudioTestMod : Mod
         Caption("audio-test: loop_pulse again, stopped by StopAll after it starts");
         var tcs = new TaskCompletionSource<SoundHandle>();
         Client.Post(() => tcs.TrySetResult(Sound.PlayOn(_loopPulse, me, Vol(0.5f))));
-        var mine = await tcs.Task;
+        var mine = await Await(tcs.Task);
         await Until(() => Sound.State(mine) == SoundState.Playing, 3000);
         var stopped = new TaskCompletionSource<int>();
         Client.Post(() => stopped.TrySetResult(Sound.StopAll(TimeSpan.FromMilliseconds(50))));
-        var n = await stopped.Task;
+        var n = await Await(stopped.Task);
         Check(n >= 1 && await Until(() => !Sound.IsPlaying(mine), 1000), $"StopAll on the main thread stops this mod's sounds: {n} ({Describe(mine)})");
 
         // a run-time cue override (the game applies it when it next loads the cue)
@@ -304,11 +323,11 @@ public sealed class AudioTestMod : Mod
                 try { replaced.TrySetResult(Sound.Replace(VanillaReplaceTarget, _loopPulse)); }
                 catch (Exception e) { replaced.TrySetException(e); }  // the suite reports it instead of waiting for good
             });
-            var ok = await replaced.Task;
+            var ok = await Await(replaced.Task);
             Check(ok, "Sound.Replace serves the fixture loop for a vanilla loop cue (Kiln.Assets override)");
             var r = Sound.PlayAt(VanillaReplaceTarget, new WorldPosition(at.X, at.Y, at.Z - 4), Vol(1f));
             Check(await Until(() => Sound.State(r) == SoundState.Playing, 3000), $"the replaced cue plays 4 m south (by ear: the 330 Hz pulse): {Describe(r)}");
-            await Task.Delay(Hold(1500, 3000));
+            await Wait(Hold(1500, 3000));
             Sound.Stop(r, TimeSpan.FromMilliseconds(100));
             Client.Post(() => Sound.Restore(VanillaReplaceTarget));
         }
@@ -340,36 +359,36 @@ public sealed class AudioTestMod : Mod
 
         Caption("SoundSample 1/9: ui_chime 997 Hz (0.5 s)");
         await OneShot(Sound.Play2D(C("ui_chime"), Vol(1f)), "SoundSample ui_chime", maxMs: 2000);
-        await Task.Delay(800);
+        await Wait(800);
         Caption("SoundSample 2/9: dialog confirm override 1661 Hz (0.4 s) instead of the game's click");
         await OneShot(Sound.Play2D(VanillaUiConfirm, Vol(1f)), "SoundSample dialog_confirm override (vanilla cue b096387a)", maxMs: 2000);
-        await Task.Delay(800);
+        await Wait(800);
         Caption($"SoundSample 3/9: stereo_tone 440 Hz left / 660 Hz right, {(_full ? 4 : 1.5)} s, 8 m east (turn the camera: it pans)");
         var tone = Sound.PlayAt(C("stereo_tone"), new WorldPosition(at.X + 8, at.Y, at.Z), Vol(1f));
         if (_full) await OneShot(tone, "SoundSample stereo_tone (streamed, 4 s)", maxMs: 7000, minMs: 3500);
         else
         {
             Check(await Until(() => Sound.State(tone) == SoundState.Playing, 3000), $"SoundSample stereo_tone (streamed) plays: {Describe(tone)}");
-            await Task.Delay(1500);
+            await Wait(1500);
             Sound.Stop(tone, TimeSpan.FromMilliseconds(200));
         }
         Caption("SoundSample 4/9: blip_3d three times, 5 m west: 1200 / 1500 / 1800 Hz takes (random order, no repeat)");
         for (var i = 0; i < 3; i++)
         {
             await OneShot(Sound.PlayAt(C("blip_3d"), new WorldPosition(at.X - 5, at.Y, at.Z), Vol(1f)), $"SoundSample blip_3d #{i + 1}", maxMs: 2000);
-            await Task.Delay(500);
+            await Wait(500);
         }
         Caption($"SoundSample 5/9: hum_loop 220 Hz on you for {Hold(2500, 6000) / 1000.0:F1} s (a 2 s loop: listen for a click at each restart)");
         var hum = Sound.PlayOn(C("hum_loop"), me, Vol(0.8f));
         Check(await Until(() => Sound.State(hum) == SoundState.Playing, 3000), $"SoundSample hum_loop plays on the player: {Describe(hum)}");
-        await Task.Delay(Hold(2500, 6000));
+        await Wait(Hold(2500, 6000));
         Check(Sound.State(hum) == SoundState.Playing, $"SoundSample hum_loop (2 s) still loops after {Hold(2500, 6000) / 1000.0:F1} s: {Describe(hum)}");
         Sound.Stop(hum, TimeSpan.FromMilliseconds(200));
         Caption($"SoundSample 6/9: ambience_loop 330/331 Hz beating swell (2D, Ambience scene) for {Hold(2000, 10_000) / 1000.0:F0} s{(_full ? ": it restarts at 8 s" : "")}");
         var amb = Sound.Play2D(C("ambience_loop"), Vol(0.8f));
         Check(await Until(() => Sound.State(amb) == SoundState.Playing, 3000) && Sound.Info(amb)?.Scene == SoundScene.Ambience,
             $"SoundSample ambience_loop plays in the Ambience scene (cooked playScene): {Describe(amb)}");
-        await Task.Delay(Hold(2000, 10_000));
+        await Wait(Hold(2000, 10_000));
         Check(Sound.State(amb) == SoundState.Playing, $"SoundSample ambience_loop still plays after {Hold(2000, 10_000) / 1000.0:F0} s{(_full ? " (looped at 8 s)" : "")}");
         Sound.Stop(amb, TimeSpan.FromMilliseconds(500));
         Caption($"SoundSample 7/9: music_track C major arpeggio, fades in over 1 s, {(_full ? "12 s to its end" : "2 s then fades out")} (Music slider)");
@@ -378,14 +397,14 @@ public sealed class AudioTestMod : Mod
         else
         {
             Check(await Until(() => Sound.State(music) == SoundState.Playing, 3000), $"SoundSample music_track plays in Kiln's music slot: {Describe(music)}");
-            await Task.Delay(2000);
+            await Wait(2000);
             Sound.Stop(music, TimeSpan.FromMilliseconds(500));
             Check(await Until(() => Sound.Info(music)?.Reason == SoundEndReason.Stopped, 2000), $"SoundSample music_track stopped: {Describe(music)}");
         }
         Caption("SoundSample 8/9: greeting: en = two 523 Hz beeps, de = three 784 Hz beeps, fr/es/zh = the English beeps (fallback); subtitle");
         await Voice(Voiceover.Play(VoiceoverId.Named("soundsample", "greeting")),
             $"SoundSample greeting (voice slot {st.VoiceLanguage}; every slot has a take)", true, 5000);
-        await Task.Delay(1000);
+        await Wait(1000);
         Caption("SoundSample 9/9: narration_intro: three 392 Hz notes (English voice only, else silence); subtitle");
         await Voice(Voiceover.Narrate(VoiceoverId.Named("soundsample", "narration_intro")),
             $"SoundSample narration_intro (voice slot {st.VoiceLanguage}; en only)", st.VoiceLanguage == "en", 9000, allowRefused: true);
@@ -410,7 +429,7 @@ public sealed class AudioTestMod : Mod
     {
         if (text.Length > 0) Info($"caption: {text}");
         _captionText = text;
-        _captionInWorld = !Client.LocalPlayer.IsNone;
+        _captionInWorld = _suiteInWorld;
         try
         {
             if (!Ui.Available) return;
@@ -538,7 +557,7 @@ public sealed class AudioTestMod : Mod
 
     // ---- helpers ----
 
-    private void Start(Func<Task> suite, bool full = false)
+    private void Start(Func<Task> suite, bool full = false, bool inWorld = false)
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
@@ -546,17 +565,58 @@ public sealed class AudioTestMod : Mod
             return;
         }
         _full = full;
+        _suiteInWorld = inWorld;
+        _suiteSession = Client.ClientWorldSession;
         Info(full ? "tour: full lengths (human check)" : "suite: compact (short, quiet)");
         _ = Task.Run(async () =>
         {
             try { await suite(); }
+            catch (SuiteStopped e) { Info($"{(_suiteInWorld ? "world suite" : "suite")} stopped: {e.Message} ({_pass} PASS, {_fail} FAIL so far)"); }
             catch (Exception e) { Check(false, $"suite threw: {e}"); }
             finally
             {
                 Caption("");  // a suite that throws skips its own last Caption(""): the text would stay for good
+                _suiteInWorld = false;
                 Volatile.Write(ref _running, 0);
             }
         });
+    }
+
+    private sealed class SuiteStopped(string why) : Exception(why);
+
+    /// <summary>Why the running suite has to stop now: the mod unloads, or a world suite's world ended.</summary>
+    private string? StopReason() =>
+        _unloading ? "the mod unloads"
+        : _suiteInWorld && (Client.ClientWorldSession != _suiteSession || Client.LocalPlayer.IsNone) ? "its world ended (the player left)"
+        : null;
+
+    private void StopIfGone()
+    {
+        if (StopReason() is { } why) throw new SuiteStopped(why);
+    }
+
+    /// <summary>Task.Delay that ends the suite when its world goes.</summary>
+    private async Task Wait(int ms)
+    {
+        var t0 = Environment.TickCount64;
+        while (Environment.TickCount64 - t0 < ms)
+        {
+            StopIfGone();
+            await Task.Delay(Math.Min(50, Math.Max(1, ms - (int)(Environment.TickCount64 - t0))));
+        }
+        StopIfGone();
+    }
+
+    /// <summary>Waits for work posted to the main thread, which runs only while a world (or the menu's frames) runs.</summary>
+    private async Task<T> Await<T>(Task<T> work)
+    {
+        while (!work.IsCompleted)
+        {
+            StopIfGone();
+            await Task.WhenAny(work, Task.Delay(50));
+        }
+        StopIfGone();
+        return await work;
     }
 
     private async Task OneShot(SoundHandle h, string what, int maxMs, int minMs = 0)
@@ -570,8 +630,10 @@ public sealed class AudioTestMod : Mod
             s = Sound.State(h);
             if (s == SoundState.Playing) sawPlaying = true;
             if (s is SoundState.Stopped or SoundState.Failed or SoundState.None || Environment.TickCount64 - t0 > maxMs) break;
+            StopIfGone();
             await Task.Delay(15);
         }
+        StopIfGone();
         var i = Sound.Info(h);
         var main = Sound.Status?.MainThread ?? 0;
         Check(sawPlaying && i is { State: SoundState.Stopped, Reason: SoundEndReason.Finished } && (i.Played?.TotalMilliseconds ?? 0) >= minMs,
@@ -589,8 +651,10 @@ public sealed class AudioTestMod : Mod
             var s = Sound.State(h);
             if (s == SoundState.Playing) sawPlaying = true;
             if (s is SoundState.Stopped or SoundState.Failed) break;
+            StopIfGone();
             await Task.Delay(20);
         }
+        StopIfGone();
         var i = Sound.Info(h);
         if (allowRefused && i?.Reason == SoundEndReason.Refused)
         {
@@ -611,11 +675,12 @@ public sealed class AudioTestMod : Mod
           (i.Following ? ", following" : "") + (i.Unmatched ? ", unmatched" : "")
         : $"{h} (no info)";
 
-    private static async Task<bool> Until(Func<bool> cond, int timeoutMs)
+    private async Task<bool> Until(Func<bool> cond, int timeoutMs)
     {
         var t0 = Environment.TickCount64;
         while (true)
         {
+            StopIfGone();
             try
             {
                 if (cond()) return true;

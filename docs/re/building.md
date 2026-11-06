@@ -21,6 +21,8 @@ One client session checked the surface tables (1.4, **[rt client]**); everything
 - **A building material is one byte in a cell, and every table that describes it is data.** Cell low byte 1..127 is terrain, 128..255 is building
   material `id - 128`. 116 terrain and 85 building ids are used; 11 and 43 are free. The byte is the limit: no more than 128 building materials
   without changing the cell format. **[data] [dec]**
+- **The build menu is the tight limit: 64 items a pool.** A client stops on a pool past 64 items (1.2). The game's wall pool has 61, so 3 new wall
+  materials fit across all mods; roofs 50, placeable terrain 8. **[dec] [data]**
 - **The GPU tables already have room.** `BuildingMaterialBlendingResource` is cooked with 128 slots of 392 bytes and `GiVoxelBuildingMaterialResource` with
   128 of 180; slots 85..127 are zeros. So a new building material is an edit of existing resources; no buffer grows. **[data]**
 - **Hardness is data, on both sides.** `TerraformingEfficiencyRegistryResource` holds hardness category, health points and material class per
@@ -61,6 +63,37 @@ A wall is two items and three resources:
 - `VoxelBlueprintMaterialPoolRegistryResource.materialPools`: 4 pools, `BuildingDefaultMaterials` (61 items), `BuildingRoofMaterials` (14), `TerrainMaterials` (56), `OvergrowthMaterials` (5). A pool lists
   the items the shape cycles through. `MaterialSelection` on the player names the chosen item per pool;
 - `voxelObject` → a `VoxelModelResource` `{size, data, isTerrain}` of the same GUID: 144 items name 78 resources. Both sides have them, and only the client reads them (two functions, `0x2f82d0`, `0x2fde20`).
+
+**What a placement costs** (server 1287369, **[dec]**). `requiredCraftingIngredients` isn't it: every 4 m shape says 20 whatever its cells (the door wall's 44
+too). `player_building_blueprints` (`0xc4410`) has `0x228f30` dry-run the write: `0xa3cbc0` → `0xa309f0` → `0xa38900` adds 1.0 for each blueprint cell that
+lands on air or a replaceable terrain cell (a fill shape: the fill it adds / 255) and skips cells already built (material ≥ 128). `0x9333b0` rounds that count
+for a building material (`(int)(count + 0.5)`), `0x22e630` lists `{material item, count}`, `0x22d480` checks and takes it, then `PlaceBlueprint`
+(`0x225c10`) writes. So a placement takes one block per cell it fills: 64 for the 4 m wall in the open, 44 for its door wall. The client's number under the
+cursor is the same count (with the placement's overlap: 40 for a door wall whose bottom row sat in the floor).
+
+**The preview model's cells** (client 26430625, `0x1df330`, **[dec]**): a byte below 3 is empty; a byte b ≥ 3 is building material `b + 0x7d`, replaced by
+the player's chosen material when there is one (the override `0x2fefa0` passes). Every wall-pool shape uses `0x12` (143, Rough Wood Block), every roof-pool
+shape with a snapping config `0x08` (133, Tared Shingles); stairs and sloped roofs fill the space under them with `1` (not drawn). The cells the server
+writes come from the blueprint entry, never from the model.
+
+**Snapping.** Every shape's `snappingAABB` equals its `placementAABB`, and only the sloped roofs (one cell past their cells: 4.5 m for 4 m) have
+`voxelSnappingConfig.snapBoxOffset` set. The snapping rules (`VoxelBlueprintConfig`) place by those boxes, so a shape whose cells don't match its boxes lands off
+its cursor. `placementColliders` are boxes over the solid parts: one for a slab, three for the door wall, one per step for a slope.
+
+**In an inventory.** The client shows an `IsBlueprint` item (flag bit 3, `ItemInfo +0x5d8`) as the Construction Hammer (`Tool_Quickbuilder_Hammer`,
+`0x2950da8d`): the item view helper `0xd3e130`, the tooltip `0xb21000` (`0xb211cd`), the inventory panel `0xb1a230` (`0xb1a48b`), and two more readers of the
+hammer's id at `0x152cb30` / `0x152d148` (`0x3ff670`, `0x418660`). The game's own shapes are never in an inventory: no recipe makes one.
+
+**A pool lists 64 items at most** (client, **[dec] [data]**, and a crash on a client). The client program `player_ui` (`0x2b8430`, from the program table at
+`0x1e25a90`) calls `0x3cca80` on every update of the local player. It builds a cache at `player_ui + 0x1f50`, keyed by item id, of entries of `0x610` bytes:
+64 records of 24 bytes `{material item id, how many of it the inventories it gathered hold, ...}` (the count from `0xe93080`), a count byte at `+0x600` and the shape's cell count at `+0x608`
+(`0xe9f9b0`, a popcount over the blueprint entry's bits). For each item (`0xe94470`) that has a blueprint entry (`0xe89bf0`), `0xe9eba0` hashes the item's
+`equipment.voxelBlueprintMaterialPool` GUID (`ItemInfo +0x104 +0x3a0 = +0x4a4`) and returns that pool's `materials` (`VoxelBlueprintMaterialPool +0x8`). Each
+material goes into a stack `SmallDynamicArray` of 64 (`rbp+0x310`, count in `sil`); `cmp sil, 0x40` / `je 0x3cd5f3` at `0x3ccd97` is the error `SmallDynamicArray
+is out of elements 64` (`[X]` in the game log), and `0x3cd60f` then writes to address 0 on purpose. `0xe9eba0` has no other caller. So no pool may list more
+than 64 items, the game's own among them. The game's pools: `BuildingDefaultMaterials` 61 (room for 3), `BuildingRoofMaterials` 14 (50), `TerrainMaterials`
+56 (8), `OvergrowthMaterials` 5. Seen on a client (26430625) that served 65 and 67 items in the wall pool: three crashes out of three when entering a hosted
+world, right after `Receive building zones`, the stack `0x3cd60f` ← `0x2bae75` (`player_ui`) ← `0x9af2e3` (the program runner). With 63 the same client played.
 
 **Unlocks.** The menu lists what a player can make: recipes, as for any item (`knowledgeRequirement`). Configs carry a `knowledgeQuery` too: `0xa2fd6b` evaluates them into two
 256-bit sets of known terrain and building ids (`update_terraforming_queries_*`). What reads those sets wasn't followed. **[dec]**

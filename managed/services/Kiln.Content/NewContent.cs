@@ -184,8 +184,14 @@ public sealed record RecipeDefinition
     /// has it yet. Without <see cref="BaseOn"/> the recipe has no level / comfort / prop needs.</summary>
     public string? Station { get; init; }
 
-    /// <summary>The workshop (<c>"0x…"</c>) whose crafting menu lists it, when that is not the one it is crafted at. Null: its own.</summary>
+    /// <summary>The workshop (<c>"0x…"</c>) whose crafting menu lists it, when that is not the one it is crafted at. Null: its own. At a
+    /// <c>"workshop:&lt;guid&gt;"</c> of a mod's own, the menu whose tabs that workshop's own menu takes: a player's game lists the recipes of such a
+    /// workshop in a menu of their own, laid out as this one.</summary>
     public string? Menu { get; init; }
+
+    /// <summary>At a <c>"workshop:&lt;guid&gt;"</c> of a mod's own: the item (name or GUID) that places its station. A player's game names the
+    /// workshop after it: the title over the station's recipe list and its screen. Null: the <see cref="Menu"/> workshop's name.</summary>
+    public string? StationItem { get; init; }
 
     public required IReadOnlyList<RecipeIngredient> Inputs { get; init; }
     public required IReadOnlyList<RecipeIngredient> Outputs { get; init; }
@@ -335,6 +341,7 @@ public static unsafe class NewContent
         if (def.BaseOn != null) j["base"] = def.BaseOn;
         if (def.Station != null) j["station"] = def.Station;
         if (def.Menu != null) j["menu"] = def.Menu;
+        if (def.StationItem != null) j["stationItem"] = def.StationItem;
         j["inputs"] = Stacks(def.Inputs);
         j["outputs"] = Stacks(def.Outputs);
         if (def.Duration is { } d) j["duration"] = d.TotalSeconds;

@@ -138,6 +138,14 @@ public sealed class VanillaGateTests
     }
 
     [Fact]
+    public void Only_a_state_built_after_the_last_new_template_clears_a_client()
+    {
+        Assert.True(VanillaGate.StateCoversTemplates(3, 3));
+        Assert.False(VanillaGate.StateCoversTemplates(2, 3));  // acked a state from before a hot load
+        Assert.True(VanillaGate.StateCoversTemplates(0, 0));
+    }
+
+    [Fact]
     public void The_wait_for_definitions_has_a_deadline()
     {
         var c = new NetworkConfig { DefinitionsWaitSeconds = 5 };

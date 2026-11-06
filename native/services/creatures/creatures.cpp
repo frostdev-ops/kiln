@@ -155,6 +155,9 @@ void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
     if (!g_ready) {
         g_ready = true;
         check_arsenals();
+        // The arsenal record layout and the rule offsets (AI switch, target hold, phases, buffs) come from the
+        // reflection; read them now, not only when an arsenal is first written.
+        if (F.reflection && !arsenal_layout_ready()) KC_W("arsenals: record layout unavailable: %s", arsenal_layout_error());
         KC_I("ready: slots %s, ai hooks %s, table %s, ready bit %s, arsenals %s (%u), reflection %s, commands %s, "
              "marks %s, lab readiness switch %s",
              F.slots ? "on" : "off", ai_hooks_on() ? "on" : "off", F.table ? "on" : "off", F.ready ? "on" : "off",
@@ -417,6 +420,18 @@ KilnResult arsenal_of(KilnEntity e, uint8_t out[16], uint32_t* known) {
         void* a = nullptr;
         if (reg && seh_arsenal_find(reinterpret_cast<void*>(reg), out, &a) && a) *known = 1;
     }
+    return KILN_OK;
+}
+
+KilnResult arsenal_record_of(KilnEntity e, const uint8_t** out) {
+    *out = nullptr;
+    uint8_t guid[16];
+    if (const KilnResult rc = arsenal_of(e, guid, nullptr); rc != KILN_OK) return rc;
+    if (!F.arsenals) return KILN_ERR_NOT_FOUND;
+    const uintptr_t reg = g_api->singleton(world(), kstr("g38_enemy::EnemyArsenalRegistry"));
+    void* a = nullptr;
+    if (!reg || !seh_arsenal_find(reinterpret_cast<void*>(reg), guid, &a) || !a) return KILN_ERR_NOT_FOUND;
+    *out = static_cast<const uint8_t*>(a);
     return KILN_OK;
 }
 

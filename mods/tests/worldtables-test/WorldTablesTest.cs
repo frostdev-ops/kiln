@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // kiln.worldtables, player free: the game's own explosions on cubes of known materials, and cells that have to survive restarts and changed mod lists. run.py picks the mode.
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Kiln;
@@ -168,8 +169,9 @@ public sealed class TestMod : Mod
         }
     }
 
-    // The game's 4 m door wall: its blueprint item, and the preview model that item names.
+    // The game's 4 m door wall and 2 m flat roof: their blueprint items, and the preview models those items name.
     static readonly Guid DoorWallItem = Guid.Parse("74cf7092-c244-49a4-87bf-7e95641037ba"), DoorWallModel = Guid.Parse("34f8d9a7-2eeb-4828-b934-0a4c8809749f");
+    static readonly Guid FlatRoofItem = Guid.Parse("7275d1f5-96cf-420d-a2dd-8c22e314aa0b"), FlatRoofModel = Guid.Parse("948ed39b-1a95-4403-8446-c3047563df31");
 
     void CheckShapes()
     {
@@ -184,11 +186,28 @@ public sealed class TestMod : Mod
             if (item == null) continue;
             var model = Assets.ReadResource(new AssetKey(guid, "keen::VoxelModelResource"));
             L($"shape {block}: voxelObject {item.GetRef("equipment.voxelObject")}, pool {item.GetRef("equipment.voxelBlueprintMaterialPool")}, preview model {(model == null ? "none" : $"{model.Length} bytes sha256 {Hash(model)}")}");
+            // Where the game puts the cells and what it checks: both boxes, the snap box offsets, the placement collider, and what a placement in the open takes.
+            var data = Content.ItemData.Get(item.Id);
+            string F(string p) { try { return item.GetNumber(p).ToString("0.###", CultureInfo.InvariantCulture); } catch (Exception) { return "?"; } }
+            string G(string p) { try { return data?.GetNumber(p).ToString("0.###", CultureInfo.InvariantCulture) ?? "?"; } catch (Exception) { return "?"; } }
+            string V(Func<string, string> f, string p) => $"{f(p + ".x")},{f(p + ".y")},{f(p + ".z")}";
+            const string col = "equipment.placementColliders[0].dataArray[0]";
+            L($"shape {block}: placement box {V(F, "equipment.placementAABBmax")}, snapping box {V(F, "equipment.snappingAABBmax")} from {V(F, "equipment.snappingAABBmin")}, " +
+              $"snap offsets {V(F, "equipment.voxelSnappingConfig.snapBoxOffsetMin")} {V(F, "equipment.voxelSnappingConfig.snapBoxOffsetMax")}, " +
+              $"collider at {V(G, col + ".offset")} half {V(G, col + ".shape.halfSize")}, a second one {G("equipment.placementColliders[0].dataArray[1].offset.x")}, " +
+              $"ingredient count {G("equipment.requiredCraftingIngredients[0].count")}, preview cells {Cells(model)}");
         }
         var game = Content.Items.Get(BlockIds.Fnv(DoorWallItem));
         var gameModel = Assets.ReadResource(new AssetKey(DoorWallModel, "keen::VoxelModelResource"));
         L($"game door wall: table entry {Entry(bps, game?.Id ?? 0)}, pool {game?.GetRef("equipment.voxelBlueprintMaterialPool")}, preview model {(gameModel == null ? "none" : $"{gameModel.Length} bytes sha256 {Hash(gameModel)}")}");
+        var roof = Content.Items.Get(BlockIds.Fnv(FlatRoofItem));
+        var roofModel = Assets.ReadResource(new AssetKey(FlatRoofModel, "keen::VoxelModelResource"));
+        L($"game flat roof: table entry {Entry(bps, roof?.Id ?? 0)}, pool {roof?.GetRef("equipment.voxelBlueprintMaterialPool")}, preview model {(roofModel == null ? "none" : $"{roofModel.Length} bytes sha256 {Hash(roofModel)}")}, preview cells {Cells(roofModel)}");
     }
+
+    // A preview model's cell bytes after its 24-byte header, counted: "12x44 00x20".
+    static string Cells(byte[]? model) =>
+        model is not { Length: > 24 } ? "none" : string.Join(" ", model.Skip(24).GroupBy(b => b).OrderBy(g => g.Key).Select(g => $"{g.Key:x2}x{g.Count()}"));
 
     static string Hash(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant()[..16];
 

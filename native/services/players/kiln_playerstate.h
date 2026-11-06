@@ -122,9 +122,21 @@ typedef struct KilnPlayerClientAction {
     uint32_t size;
     uint32_t index;
     uint32_t bytes;       /* size of the action's struct */
-    uint32_t cancelable;  /* the game's consumed version is known: writing it makes the game skip the action */
+    uint32_t cancelable;  /* Kiln can hold it for a listener on this build (client_action_hold): its consumed version is
+                             known, the action fits KilnPlayerHeldAction, and the hold point resolved */
     char name[48];        /* "changeEquipmentAction", "adminTeleport" */
 } KilnPlayerClientAction;
+
+/* A client action Kiln holds for its listener (client_action_hold). */
+typedef struct KilnPlayerHeldAction {
+    uint32_t size;        /* set to sizeof(KilnPlayerHeldAction) before calling */
+    KilnEntity entity;
+    uint32_t index;       /* client_action_info index */
+    uint32_t version;     /* the version the client sent */
+    uint32_t bytes;       /* bytes of payload used */
+    uint32_t reserved;
+    uint8_t payload[160]; /* the action's struct as the client sent it */
+} KilnPlayerHeldAction;
 
 typedef struct KilnPlayerStateStatus {
     uint32_t size;
@@ -133,7 +145,8 @@ typedef struct KilnPlayerStateStatus {
     uint8_t names;       /* sequence names can be read */
     uint8_t items;       /* item details can be read */
     uint32_t sources;    /* sources resolved */
-    uint32_t reserved;
+    uint8_t client_hold; /* client actions can be held, and so canceled, on this build (client_action_hold) */
+    uint8_t reserved[3];
     uint64_t scans, entities_read;
     uint64_t reserved2;
     char detail[160];    /* what did not resolve */
@@ -166,10 +179,30 @@ typedef struct KilnPlayerStateApi {
     KilnEntity(KILN_CALL* local_player)(void);
     /* The versioned client actions of this build, 0..n-1; KILN_ERR_NOT_FOUND past the end. */
     KilnResult(KILN_CALL* client_action_info)(uint32_t index, KilnPlayerClientAction* out);
-    /* The action's struct as the client sent it. */
+    /* The action's struct as PlayerInput holds it now. */
     KilnResult(KILN_CALL* client_action_bytes)(KilnEntity entity, uint32_t index, void* out, uint32_t capacity, uint32_t* bytes);
-    /* Marks the action's current version consumed, so the game's program skips it. Server world, Pre. */
+    /* Cancels the held action (entity, index): client_action_decide with cancel 1 for its version. KILN_ERR_NOT_FOUND
+     * when none is held: a version seen in Pre without a hold has already run. Server world, Pre. */
     KilnResult(KILN_CALL* client_action_cancel)(KilnEntity entity, uint32_t index);
+
+    /* ---- added after the first release: check header.size ----
+     * Holding client actions, so a listener can cancel them. Server world, Pre.
+     * The game copies a client's input into PlayerInput inside the sim step, after Pre and before any program, so a new
+     * version runs in the step it arrives in and Pre never sees one in time. While a hold is on, Kiln checks right
+     * before the step's programs: a cancelable action with a new version is held for one step (PlayerInput's copy shows
+     * the consumed version, so the game's program sees nothing new) and listed by client_action_held in the next Pre.
+     * client_action_decide answers it: run (the game's program runs it in that step, one step late) or cancel (its
+     * version is marked consumed: the game skips it as it skips an old version, and it never runs). A held action
+     * nobody answers runs. ServerConsumedPlayerInput, which the client gets back, only moves when the game runs an
+     * action or Kiln cancels one.
+     * hold: the players to hold for, every Pre while a listener wants it. count 0 ends it, and so do 8 steps without a
+     * call. KILN_ERR_UNAVAILABLE: the hold point did not resolve on this build (status client_hold 0). */
+    KilnResult(KILN_CALL* client_action_hold)(const KilnEntity* entities, uint32_t count);
+    /* The held actions not listed before (each out[i].size set by the caller). KILN_ERR_BUFFER_TOO_SMALL: more are
+     * left for the next call. */
+    KilnResult(KILN_CALL* client_action_held)(KilnPlayerHeldAction* out, uint32_t capacity, uint32_t* count);
+    /* cancel 0: let it run; 1: cancel it. KILN_ERR_NOT_FOUND: no such held action (already answered, or the player left). */
+    KilnResult(KILN_CALL* client_action_decide)(KilnEntity entity, uint32_t index, uint32_t version, uint32_t cancel);
 } KilnPlayerStateApi;
 
 #ifdef __cplusplus

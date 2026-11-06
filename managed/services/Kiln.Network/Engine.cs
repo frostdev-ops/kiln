@@ -501,7 +501,7 @@ internal static class NetEngine
         // A hosted world's own client (machine slot 0) shares this process's templates and gets no content state.
         var localMachine = !p.IsLab && (p.Id & 0x7F) == 0;
         if (!localMachine && VanillaGate.AwaitsDefinitions(NetNative.ReadGate().KilnTemplates, p.HasChannel(ContentChannel))) p.DefinitionsSince = DateTime.UtcNow;
-        else NetNative.WithholdSet(p.Id, false);
+        else Clear(p);
         Log(LogLevel.Info, $"{p.Name} (0x{p.Id:x}) joined with Kiln {hello.KilnVersion}: {hello.Mods.Count} mod(s), " +
                            $"{p.Channels.Count} shared channel(s){(warnings.Count > 0 ? $", {warnings.Count} warning(s): " + string.Join("; ", warnings.Take(4)) : "")}");
         if (Events.HasSubscribers<NetPeerReadyEvent>()) Events.Post(new NetPeerReadyEvent(p));
@@ -601,10 +601,17 @@ internal static class NetEngine
                 var rc = NetNative.Kick(p.Id, _config.KickReason);
                 Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
             }
+            if (p.State == NetPeerState.Ready && p.Cleared && p.DefinitionsSince == null && p.ClearedTemplates != gate.KilnTemplates)
+            {
+                // Kiln-only templates were added since its last clear (a hot load): kiln.net keeps their entities from it. A
+                // content state can bring them, and its ack clears it again; a client that can't ack gets them as before.
+                if (CanAckContent(p)) p.DefinitionsSince = now;
+                else Clear(p);
+            }
             if (p.State == NetPeerState.Ready && VanillaGate.DefinitionsWaitOver(p.DefinitionsSince, now, _config))
             {
                 Log(LogLevel.Warn, $"{p.Name} (0x{p.Id:x}): no content ack in {_config.DefinitionsWaitSeconds:0.#} s: sending its Kiln-only entities anyway");
-                PeerHasDefinitions(p);
+                Clear(p);
             }
             ExpirePartial(p, now);
             if (p.State == NetPeerState.Ready && (now - p.PingSentAt).TotalSeconds >= 10) Ping(p);
@@ -613,23 +620,49 @@ internal static class NetEngine
 
     private const string ContentChannel = "kiln:content";
 
-    /// <summary>A new content state is on its way to this Kiln client: Kiln-only entities queued from now on wait for it, as
-    /// they may be of a template it is bringing. Tick thread.</summary>
+    /// <summary>The Kiln-only templates the server has now (kiln.assets' count, which only grows). Tick thread.</summary>
+    internal static uint KilnTemplateCount => NetNative.ReadGate().KilnTemplates;
+
+    /// <summary>Whether this peer acknowledges content states: a Kiln client with the content channel, not the hosting
+    /// player's own machine (it shares this process's templates).</summary>
+    private static bool CanAckContent(NetPeer p) => p.HasChannel(ContentChannel) && (p.IsLab || (p.Id & 0x7F) != 0);
+
+    /// <summary>A content state is on its way to this Kiln client. Before its first ack kiln.net keeps every Kiln-only entity
+    /// from it; after that, only entities of templates added since its last clear. Either way they wait for the ack, or
+    /// <c>definitionsWaitSeconds</c>, which starts now. Tick thread.</summary>
     internal static void PeerAwaitsDefinitions(NetPeer p)
     {
-        if (p.DefinitionsSince != null || NetNative.ReadGate().KilnTemplates == 0) return;
+        if (p.DefinitionsSince != null || (p.Cleared && p.ClearedTemplates == NetNative.ReadGate().KilnTemplates)) return;
         p.DefinitionsSince = DateTime.UtcNow;
-        NetNative.WithholdSet(p.Id, true);
     }
 
-    /// <summary>This Kiln client acknowledged its content state, however that went: what it can have, it has. Kiln-only
-    /// entities go out now; one of a template it still lacks is dropped by its guard. Tick thread.</summary>
-    internal static void PeerHasDefinitions(NetPeer p)
+    /// <summary>This Kiln client acknowledged the content state the server serves now, however that went: what it can
+    /// have, it has. <paramref name="stateTemplates"/>: the Kiln-only templates there were when that state was built. If
+    /// none was added since, it is cleared: Kiln-only entities go out, including those kept back for templates that state
+    /// brought; one of a template it still lacks is dropped by its guard. Else a newer state follows, and its ack clears
+    /// it. Tick thread.</summary>
+    internal static void PeerHasDefinitions(NetPeer p, uint stateTemplates)
     {
+        var now = NetNative.ReadGate().KilnTemplates;
+        if (!VanillaGate.StateCoversTemplates(stateTemplates, now))
+        {
+            Log(LogLevel.Info, $"{p.Name} (0x{p.Id:x}): its content state is older than {now - stateTemplates} Kiln-only template(s): their entities wait for the next state");
+            p.DefinitionsSince ??= DateTime.UtcNow;
+            return;
+        }
         var waited = p.DefinitionsSince is { } since ? (DateTime.UtcNow - since).TotalMilliseconds : -1;
-        p.DefinitionsSince = null;
-        NetNative.WithholdSet(p.Id, false);
+        Clear(p);
         if (waited >= 0) Log(LogLevel.Info, $"{p.Name} (0x{p.Id:x}): has the server's definitions after {waited:0} ms: its Kiln-only entities go out");
+    }
+
+    /// <summary>kiln.net sends this peer every Kiln-only entity of the templates there are now (and what it kept back).
+    /// Tick thread.</summary>
+    private static void Clear(NetPeer p)
+    {
+        p.DefinitionsSince = null;
+        p.Cleared = true;
+        p.ClearedTemplates = NetNative.ReadGate().KilnTemplates;
+        NetNative.WithholdSet(p.Id, false);
     }
 
     /// <summary>Tests only (net-test): Kiln.Network stops deciding, as if it had died, so kiln.net's own limit is seen.</summary>

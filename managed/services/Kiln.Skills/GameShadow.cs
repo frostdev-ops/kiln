@@ -171,6 +171,7 @@ internal static unsafe class GameShadow
             BudgetPending.Remove(gone);
             FromSave.Remove(gone);
             ToNative.Remove(gone);
+            LastRequests.Remove(gone);
             Set(0, new EntityId(gone), new Dictionary<uint, int>());
             foreach (var k in Effects.Keys.Where(k => k.Entity == gone).ToArray()) StopEffect(k);
         }
@@ -278,16 +279,74 @@ internal static unsafe class GameShadow
 
     // ---- shadow to native: a node that is a native node in this tree, because the mod list changed ----
     // Back through the game's own rules, one level at a time, once the game has set the tree up: links and points as if the player
-    // took it again (their points came back when the table stopped counting it). A node may hang on another of the same move, so a
-    // refusal waits until a pass with no progress. What is still refused then can't be kept here, and says so.
+    // took it again (their points came back when the table stopped counting it). Anchors first: a node waits while a node it hangs on
+    // (its definition's "from", or another node's "to" into it) is still on its way, whatever order the carried data lists them in.
+    // A refusal waits until a pass with no progress (a link to a game node the move itself unlocks). What is still refused then can't
+    // be kept here, and says why, with the points or the anchor that decided it.
     private sealed class ToNativeMove(TalentHolder holder, Dictionary<uint, int> want)
     {
         public readonly TalentHolder Holder = holder;
         public readonly Dictionary<uint, int> Want = want;
         public readonly Dictionary<uint, string> Refused = new();
+        public readonly List<uint> Requests = new();  // in the order they were asked (lab: GameTree.LabNativeRequests)
         public Task<ProgressionResult>? Busy;
         public uint BusyNode;
         public bool Progress;
+    }
+
+    private static readonly Dictionary<uint, List<uint>> LastRequests = new();  // entity -> its last move's requests (lab)
+
+    internal static IReadOnlyList<uint> RequestsOf(EntityId e) =>
+        ToNative.TryGetValue(e.Value, out var m) ? m.Requests.ToArray() : LastRequests.TryGetValue(e.Value, out var l) ? l.ToArray() : [];
+
+    // Which in-tree Kiln node hangs on which (by the definitions' own links; the game unlocks along a link from either end, so a node's
+    // anchors are the nodes it links from and the nodes that link to it). Built once per definitions change.
+    private static Dictionary<uint, HashSet<uint>>? _anchors;
+    private static int _anchorsKey = -1;
+
+    private static Dictionary<uint, HashSet<uint>> Anchors()
+    {
+        var t = SkillsNative.T;
+        if (t == null) return new();
+        var text = SkillsNative.Text((b, c, l) => t->Definitions((byte*)b, c, (nuint*)l), out _);
+        var key = text.GetHashCode();
+        if (_anchors is not null && key == _anchorsKey) return _anchors;
+        var map = new Dictionary<uint, HashSet<uint>>();
+        if (JsonNode.Parse(text) is not JsonArray a) return _anchors = map;
+        var byName = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var n in a)
+            if (n?["name"]?.GetValue<string>() is { Length: > 0 } name) byName[name] = GameTree.ParseHex(n["id"]?.GetValue<string>());
+        uint Resolve(string r) =>
+            r.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? GameTree.ParseHex(r)
+            : Guid.TryParse(r, out var g) ? GameNodeDefinition.Fnv(g.ToByteArray())
+            : byName.GetValueOrDefault(r);
+        HashSet<uint> Of(uint id) => map.TryGetValue(id, out var s) ? s : map[id] = new HashSet<uint>();
+        foreach (var n in a)
+        {
+            if (n?["state"]?.GetValue<string>() != "in-tree") continue;
+            var id = GameTree.ParseHex(n["id"]?.GetValue<string>());
+            if (n["from"] is JsonArray from)
+                foreach (var f in from)
+                    if (f?.GetValue<string>() is { } r && Resolve(r) is var src and not 0 && src != id) Of(id).Add(src);
+            if (n["to"] is JsonArray to)
+                foreach (var x in to)
+                    if (x?.GetValue<string>() is { } r && Resolve(r) is var dst and not 0 && dst != id) Of(dst).Add(id);
+        }
+        _anchorsKey = key;
+        return _anchors = map;
+    }
+
+    /// <summary>The next node to ask for: one whose anchors in this move are all done (in the list or refused).</summary>
+    private static uint NextOf(ToNativeMove m, Dictionary<uint, HashSet<uint>> anchors)
+    {
+        uint fallback = 0;
+        foreach (var id in m.Want.Keys)
+        {
+            if (m.Refused.ContainsKey(id)) continue;
+            if (fallback == 0) fallback = id;
+            if (!anchors.TryGetValue(id, out var on) || !on.Any(x => x != id && m.Want.ContainsKey(x) && !m.Refused.ContainsKey(x))) return id;
+        }
+        return fallback;  // anchors that hang on each other: the game's rules decide, pass by pass
     }
 
     private static void PumpToNative()
@@ -322,10 +381,11 @@ internal static unsafe class GameShadow
                 DropEntry(m.Holder, id);
                 SkillsInternals.Info($"shadow table: entity {e}: node 0x{id:x8} is a native node in this tree: level {level} is in the character's list now");
             }
-            var next = m.Want.Keys.FirstOrDefault(id => !m.Refused.ContainsKey(id));
+            var next = m.Want.Count > 0 ? NextOf(m, Anchors()) : 0;
             if (next != 0)
             {
                 m.BusyNode = next;
+                m.Requests.Add(next);
                 m.Busy = Progression.Unlock(e, next, force: _labForceNative && e == _labPlayer);  // the lab's entity has no points to read
                 continue;
             }
@@ -336,16 +396,34 @@ internal static unsafe class GameShadow
                 continue;
             }
             GiveUpToNative(e, m, null);
+            LastRequests[key] = m.Requests;
             ToNative.Remove(key);
         }
     }
 
     private static void GiveUpToNative(EntityId e, ToNativeMove m, string? why)
     {
+        Dictionary<uint, UnlockedSkillNode>? have = null;
+        ProgressionSnapshot? points = null;
+        if (why is null && m.Want.Count > 0 && Progression.Available)
+        {
+            have = Progression.UnlockedNodes(e).ToDictionary(x => x.Id, x => x);
+            points = Progression.Get(e);
+        }
+        var anchors = m.Want.Count > 0 && why is null ? Anchors() : new();
         foreach (var (id, level) in m.Want)
         {
-            SkillsInternals.Warn($"shadow table: entity {e}: node 0x{id:x8} (level {level}) is a native node in this tree, and it can't be taken back: " +
-                                 $"{why ?? m.Refused.GetValueOrDefault(id, "?")}. Its unlock is lost here and its points are free again");
+            var reason = why ?? m.Refused.GetValueOrDefault(id, "?");
+            // say what decided it: the anchor that couldn't come back, or where the character's points are
+            if (why is null && anchors.TryGetValue(id, out var on) && on.FirstOrDefault(x => m.Want.ContainsKey(x)) is var anchor and not 0 &&
+                reason.StartsWith("not linked", StringComparison.Ordinal))
+                reason = $"it hangs on 0x{anchor:x8}, which can't be taken back either";
+            else if (points is { HasPoints: true } p && reason.Contains("skill point", StringComparison.Ordinal))
+                reason += $"; the character's tree here spends {p.SkillPointsSpent} of its {p.SkillPointsTotal} points on other nodes " +
+                          "(its save is older than its carried data, or the points went elsewhere while this node wasn't in the tree)";
+            var partial = have is not null && have.TryGetValue(id, out var cur) && cur.Level > 0 ? $" (level {cur.Level} of it came back)" : "";
+            SkillsInternals.Warn($"shadow table: entity {e}: node 0x{id:x8} (level {level}) is a native node in this tree, and it can't be taken back{partial}: " +
+                                 $"{reason}. Its unlock is lost here and its points are free again");
             DropEntry(m.Holder, id);
         }
         m.Want.Clear();
@@ -397,6 +475,7 @@ internal static unsafe class GameShadow
         BudgetPending.Clear();
         FromSave.Clear();
         ToNative.Clear();
+        LastRequests.Clear();
         Effects.Clear();  // their entities went with the world
     }
 
@@ -573,6 +652,10 @@ public static unsafe partial class GameTree
 
     /// <summary>Lab: what a character's carried copy coming in does: the table loads again from the holder's data.</summary>
     public static void LabReload(EntityId player) => GameShadow.Reload(player);
+
+    /// <summary>Lab: the unlock requests of a player's latest move of carried entries into the game's own list (nodes that are native
+    /// nodes in this tree), one per level, in the order they were asked.</summary>
+    public static IReadOnlyList<uint> LabNativeRequests(EntityId player) => GameShadow.RequestsOf(player);
 
     /// <summary>Lab: writes a node into a player entity's UnlockedSkillNodes as a character's save holds it. False unless <c>&lt;kiln&gt;/data/skills/lab-ops</c> exists.</summary>
     public static bool LabPutInSave(EntityId player, uint node, int level)

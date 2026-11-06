@@ -127,7 +127,7 @@ That finds about a fifth of them (client 1287369: 1,541 of 8,049 uses). `type` c
 - sections: items (420 paths), recipes (45), loot (29), buffs (74), perks (47), skills (35), sequences (10), templates (7,134).
 
 `templates` lists the template's own fields, then every component's, with the component's name as the first segment:
-`LifeTime.lifeTime`, `Enemy01BehaviorState.aggroSetup.viewRange`. A component with no fields of its own is listed by name. Which
+`LifeTime.lifeTime`, `Enemy01BehaviorState.combatCommitmentSetup.view.range`. A component with no fields of its own is listed by name. Which
 template has which component is in that template's `components`.
 
 Below a `configs` field (`impactValues`, `configValues`, `ImpactConfiguration.configValues`) a path takes a config by any of its

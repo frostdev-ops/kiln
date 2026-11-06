@@ -115,6 +115,8 @@ public sealed class NetPeer
     internal DateTime? InGameSince;
     internal DateTime? HeldSince;  // server role: its Gameplay Ready waits in the gate (docs/kiln/network.md)
     internal DateTime? DefinitionsSince;  // server role: Kiln-only entities wait for its content ack
+    internal bool Cleared;                // server role: kiln.net sends it Kiln-only entities (withhold_set off)
+    internal uint ClearedTemplates;       // ... of the Kiln-only templates there were at its last clear
     internal DateTime? KickAt;
     internal double TokensMsgs, TokensBytes;
     internal DateTime TokensAt = DateTime.UtcNow;

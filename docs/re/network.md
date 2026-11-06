@@ -192,6 +192,13 @@ Marks: **[dump]** read from a crash dump, **[log]** real logs, **[dis]** read in
 
 - Sending later **[dis] [lab]**: the hook remembers what it kept back, per slot. Once the slot is cleared, the next call of the hook for that player sends those ids from inside
   the player's own job: the game's thread and moment for that queue. An id with no state left in the player's map (`player+0x858`) has gone out of relevance and needs nothing; the game queues it again if it returns.
+- Templates added after a clear **[lab]**: a clear lists kiln.assets' Kiln-only templates (`resource_list`, filtered by `resource_is_new`) and keeps that set and
+  `resource_new_count` for the slot. While the count is unchanged, a cleared slot costs the hook a few loads. Once it grows, the hook walks the entity's
+  templates as for a withheld slot and keeps back those outside the set, until the next clear. The count is read at most once per step: the step number moves
+  in every server Pre and in the receive hook. Kiln adds templates on the tick thread, when no world job runs, so the first enqueue after one reads the new
+  count. Lab, CreatureTweaks hot-loaded with three fake clients bound to free slots: the elite was spawned 57 ms after its template was registered, in the
+  first step it could be. It stayed out of the slots' heaps, and went in with the next entity after the ack of the state that defines it. A game entity and an entity of an
+  older Kiln template went in meanwhile.
 
 ### The guard on a Kiln client **[dis] [lab]**
 - `net/CreateTemplateCall`, a mid hook on the reader's `call 0x987910` (`0x961d07`): `r14` is the `TemplateInfo`, 0 on a miss, the GUID is in `xmm6`, the entity and parent at
@@ -256,6 +263,10 @@ Lab with no `labPort`, real client through `play-once` mode vanilla unless noted
 12. **Kiln client without CreatureTweaks, a `Kiln_Elite_Vukah` already alive near the spawn point** (`clients: "kiln"`): no crash, no `this game has no template` line, the elite is there and fights. Lab order: `has the server's definitions after N ms`, then the entity. Join a few times.
 13. **Kiln client, all mods**: Tobin, the Warden and markers appear within about a second of the world; note `has the server's definitions after N ms` and whether anything visibly pops in. Quests still work (Q3, N2).
 14. **Kiln client, spawn the elite right after a hot reload that adds it**: no crash, the elite appears after `content state ... applied`.
+    Lab: `net: peer 0x.. (slot N): entity E of the Kiln template 6b1e0c52-..., added after its last content ack, waits for its next one`,
+    then `<player>: content state 623e3255 applied`, then `net: peer 0x.. cleared again: ... 1 kept-back entity goes out`. Client: the
+    `template Kiln_Elite_Vukah ... registered in the client world` line comes before any line about that entity, and there's no
+    `this game has no template 6b1e0c52` line.
 15. **The game's log after 11**: no flood of `processMessage UpdateEntity`, frame rate unchanged near the missing NPC.
 16. **Same client, `modSync` not set (the default)**, also with net-test on the lab (no `clients`): Kiln's toast names the server and both mods (not net-test) before the game's dialog and stays over it, then shows again at the main menu; back to the menu, no crash. kiln.log: `ui: refusal shown: ...` and `ui: refusal shown again at the main menu`, `last-server.json: rejected ... missing npcsample, quests-sample`. Lab: `refusing ... quests-sample ...`, `kick`. `kiln/state/last-server.json`: `"outcome": "rejected"`, `missing` the two mods, `required` all three. The launcher's Play page shows the Refused banner without a modpack (Dismiss hides it); with a modpack published on the lab, the banner offers it.
 

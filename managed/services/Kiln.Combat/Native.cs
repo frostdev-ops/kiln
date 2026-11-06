@@ -14,7 +14,7 @@ internal static unsafe class CombatNative
     public const byte HealHit = 0, HealKiln = 1, HealRegeneration = 2, HealAttribute = 3;
     public static uint Mask(uint kind) => 1u << (int)kind;
 
-    public const uint DamageForceInterrupt = 0x01, DamageSilent = 0x02, DamageAsGameHit = 0x04, DamageKill = 0x08;
+    public const uint DamageForceInterrupt = 0x01, DamageSilent = 0x02, DamageAsGameHit = 0x04, DamageKill = 0x08, DamageNoCredit = 0x10;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Vec3

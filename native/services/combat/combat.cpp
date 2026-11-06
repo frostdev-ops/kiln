@@ -51,6 +51,9 @@ constexpr uint32_t kMaxImpactsPerTarget = 4;      // the conclusion's per-target
 constexpr uint32_t kPlayerSlots = 16;             // dedicated server: player entities are slot + 1
 constexpr uint32_t kDestroyOnLootHash = fnv1a("keen::ecs::DestroyOnLoot");
 constexpr uint32_t kInventoryHash = fnv1a("keen::ecs::Inventory");
+// ExperienceSource {lastHitPlayerId +0, xpMod +4}: combat_experience_source sets lastHitPlayerId from each HitEvent whose
+// root source is a player (or a player's summon or guard) and gives a death's XP to it; a hit from no one leaves it.
+constexpr uint32_t kExperienceSourceHash = fnv1a("keen::ecs::ExperienceSource");
 
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
@@ -1221,6 +1224,15 @@ KilnResult t_damage(KilnOwner owner, const KilnDamageRequest* req, uint64_t* out
     if (!on_tick()) return KILN_ERR_WRONG_THREAD;
     WorldTransform tt{};
     if (!transform(world(), req->target, &tt)) return KILN_ERR_NOT_FOUND;
+    if (req->flags & KILN_DAMAGE_NO_CREDIT) {
+        // Tick thread, Pre: no job reads it now. The component is server-only (nothing to replicate).
+        uint64_t size = 0;
+        uint32_t was = 0;
+        if (void* xs = component(world(), kExperienceSourceHash, req->target, &size); xs && size >= 4 && read_u32(xs, &was) && was) {
+            const uint32_t none = 0;
+            if (copy_bytes(xs, &none, 4)) LOGI("damage(): kill credit of %u cleared (was player %u)", req->target, was);
+        }
+    }
     Request q{};
     q.owner = owner;
     q.flags = req->flags;

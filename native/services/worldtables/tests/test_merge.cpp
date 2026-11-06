@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 // kiln.worldtables' portable part on the host: see run.sh.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
 
 #include "merge.h"
+#include "terrain.h"
 
 using namespace kwt;
 
@@ -80,6 +83,30 @@ Material material(const std::string& mod, const std::string& block) {
 Bytes read(const char* path) {
     std::ifstream f(path, std::ios::binary);
     return Bytes(std::istreambuf_iterator<char>(f), {});
+}
+
+// A pool registry as the game's: each pool {slot, id, materials BlobArray<ItemId>, debugName BlobString}, the lists and names after the records.
+Bytes pool_registry(const std::vector<std::pair<std::string, uint32_t>>& pools) {
+    Bytes b(8 + pools.size() * 24, 0);
+    wr<int32_t>(b, 0, 8), wr<uint32_t>(b, 4, static_cast<uint32_t>(pools.size()));
+    for (size_t i = 0; i < pools.size(); ++i) {
+        const size_t rec = 8 + i * 24;
+        const size_t list = b.size();
+        b.resize(list + size_t{pools[i].second} * 4);
+        for (uint32_t k = 0; k < pools[i].second; ++k) wr<uint32_t>(b, list + k * 4, 0x1000u * static_cast<uint32_t>(i + 1) + k);
+        wr<int32_t>(b, rec + 8, static_cast<int32_t>(list - (rec + 8))), wr<uint32_t>(b, rec + 12, pools[i].second);
+        const size_t name = b.size();
+        b.insert(b.end(), pools[i].first.begin(), pools[i].first.end());
+        while (b.size() % 4) b.push_back(0);
+        wr<int32_t>(b, rec + 16, static_cast<int32_t>(name - (rec + 16))), wr<uint32_t>(b, rec + 20, static_cast<uint32_t>(pools[i].first.size()));
+    }
+    return b;
+}
+
+uint32_t pool_size(const Bytes& b, const std::string& name) {
+    std::map<std::string, uint32_t> n;
+    std::string why;
+    return pool_counts(b, layouts(), &n, &why) && n.count(name) ? n[name] : UINT32_MAX;
 }
 
 }  // namespace
@@ -264,15 +291,128 @@ int main(int argc, char** argv) {
         const ModelLayout M{24, 0, 12, 20};
         const Bytes model = voxel_model(sm.shapes[0], M);
         check("shape.model-cells", model.size() == 24 + 64 && model[24] == 0x12 && model[26] == 0 && model[24 + 63] == 0x12);
-        if (argc == 6) check("game.door-model-identical", model == read(argv[5]), std::to_string(model.size()) + " against " + std::to_string(read(argv[5]).size()) + " bytes");
+        if (argc >= 6) check("game.door-model-identical", model == read(argv[5]), std::to_string(model.size()) + " against " + std::to_string(read(argv[5]).size()) + " bytes");
+
+        // A roof shape's cells are the roof pool's default (0x08), as in every roof-pool shape of the game; a wall material's 0x12 there is not the game's.
+        // The game's 2 m flat roof drawn as cells gives its own model byte for byte.
+        ModFile rm;
+        rm.mod = "m", rm.file = "blocks/r.json", rm.clients = "mod";
+        read_blocks(parse_relaxed(R"({"blueprints": {
+            "flat-roof": {"name": "Flat Roof", "roof": true, "cells": [["####", "####", "####", "####"]]},
+            "ridge": {"name": "Ridge", "roof": true, "cells": [["####", "####"], [".##.", ".##."]]}}})"),
+                    &rm);
+        const Shape* flat = nullptr;
+        const Shape* ridge = nullptr;
+        for (const Shape& sh : rm.shapes) (sh.block == "flat-roof" ? flat : ridge) = &sh;
+        check("shape.roof-read", rm.errors.empty() && flat && ridge && flat->roof && flat->x == 4 && flat->y == 1 && flat->z == 4 && flat->bits == Bytes{0xff, 0xff},
+              rm.errors.empty() ? "" : rm.errors[0]);
+        if (flat && ridge) {
+            const Bytes fm = voxel_model(*flat, M), rmodel = voxel_model(*ridge, M);
+            check("shape.roof-model-cells", fm.size() == 24 + 16 && std::all_of(fm.begin() + 24, fm.end(), [](uint8_t c) { return c == 0x08; }));
+            const auto roof_cells = std::count(rmodel.begin() + 24, rmodel.end(), uint8_t{0x08});
+            const auto other = std::count_if(rmodel.begin() + 24, rmodel.end(), [](uint8_t c) { return c != 0 && c != 0x08; });
+            check("shape.ridge-model-cells", ridge->x == 4 && ridge->y == 2 && ridge->z == 2 && rmodel.size() == 24 + 16 && roof_cells == 12 && other == 0,
+                  std::to_string(roof_cells) + " roof cells, " + std::to_string(other) + " others");
+            if (argc >= 7) check("game.roof-flat-model-identical", fm == read(argv[6]), std::to_string(fm.size()) + " against " + std::to_string(read(argv[6]).size()) + " bytes");
+        }
+    }
+
+    // The build menu's pools. A player's game copies a pool into 64 items and stops at the 65th, so a pool never lists more: the game's 61 walls leave room
+    // for 3, its 14 roofs for 50, its 56 terrain items for 8, and a material past that is refused by name before it takes an id.
+    {
+        const Bytes gp = pool_registry({{"BuildingDefaultMaterials", 61}, {"BuildingRoofMaterials", 14}, {"TerrainMaterials", 56}, {"OvergrowthMaterials", 5}});
+        std::map<std::string, uint32_t> counts;
+        check("pools.counts", pool_counts(gp, L, &counts, &why) && counts["BuildingDefaultMaterials"] == 61 && counts["BuildingRoofMaterials"] == 14 && counts["TerrainMaterials"] == 56,
+              why);
+        Material roof = material("m", "slate"), ore = material("m", "ore"), snow = material("m", "snow"), plain = material("m", "plain");
+        roof.roof = true;
+        ore.terrain = true, ore.item = false;
+        snow.terrain = true;
+        plain.item = false;
+        check("pools.of", pool_of(material("m", "w")) == kWallPool && pool_of(roof) == kRoofPool && pool_of(snow) == "TerrainMaterials" && pool_of(ore).empty() && pool_of(plain).empty());
+
+        // four walls: the first three in GUID order fit, the fourth is refused by name; roofs, terrain without an item and plain ones are untouched
+        std::vector<Material> walls;
+        for (int i = 0; i < 4; ++i) walls.push_back(material("m", "w" + std::to_string(i)));
+        std::vector<Material> by_guid = walls;
+        std::sort(by_guid.begin(), by_guid.end(), [](const Material& x, const Material& y) { return x.guid.text() < y.guid.text(); });
+        const Material last = by_guid.back();
+        std::vector<Material> fit = walls;
+        fit.push_back(roof), fit.push_back(ore), fit.push_back(plain);
+        std::vector<Material> held;
+        std::vector<std::string> refused;
+        fit_pools(&fit, counts, {}, &held, &refused);
+        const bool last_out = std::none_of(fit.begin(), fit.end(), [&](const Material& m) { return m.guid == last.guid; });
+        check("pools.walls-fit-three", fit.size() == 6 && last_out && held.empty(), std::to_string(fit.size()) + " stay");
+        const std::string want = "block buildingMaterial " + last.block + " (mod m): refused: the game's build menu lists at most 64 wall materials and has 61 of its own: 3 new ones fit across all mods";
+        check("pools.refused-by-name", refused.size() == 1 && refused[0] == want, refused.empty() ? "" : refused[0]);
+
+        // a refused one a world remembers is held: no item, not live, its cells kept
+        fit = walls, held.clear(), refused.clear();
+        fit_pools(&fit, counts, {last.guid}, &held, &refused);
+        check("pools.remembered-is-held", fit.size() == 3 && held.size() == 1 && held[0].guid == last.guid && !held[0].live && !held[0].item && refused.size() == 1 &&
+                                              refused[0].find("they stay") != std::string::npos,
+              refused.empty() ? "" : refused[0]);
+        // and allocate() places it after the live ones, as an absent mod's
+        Allocation ha = allocate(fit, held, {213, 214, 215, 216, 217}, {});
+        check("pools.held-is-kept", ha.placed.size() == 4 && !ha.placed.back().m.live && ha.placed.back().m.guid == last.guid && handshake_hash(ha.placed) == handshake_hash(allocate(fit, {}, {213, 214, 215, 216, 217}, {}).placed));
+
+        // nine placeable terrain materials: eight fit
+        std::vector<Material> terrain;
+        for (int i = 0; i < 9; ++i) {
+            Material t2 = material("m", "t" + std::to_string(i));
+            t2.terrain = true;
+            terrain.push_back(t2);
+        }
+        held.clear(), refused.clear();
+        fit_pools(&terrain, counts, {}, &held, &refused);
+        check("pools.terrain-fits-eight", terrain.size() == 8 && refused.size() == 1 && refused[0].find("block terrainMaterial t") == 0 &&
+                                              refused[0].find("list at most 64 placeable terrain materials and have 56 of their own: 8 new ones fit") != std::string::npos,
+              refused.empty() ? "" : refused[0]);
+
+        // 50 roofs fit their pool, so the ids are the limit there
+        std::vector<Material> roofs;
+        for (int i = 0; i < 51; ++i) {
+            Material r2 = material("m", "r" + std::to_string(i));
+            r2.roof = true;
+            roofs.push_back(r2);
+        }
+        held.clear(), refused.clear();
+        fit_pools(&roofs, counts, {}, &held, &refused);
+        check("pools.roofs-fit-fifty", roofs.size() == 50 && refused.size() == 1 && refused[0].find("64 roof materials and has 14 of its own: 50 new ones fit") != std::string::npos,
+              refused.empty() ? "" : refused[0]);
+
+        // the writers never serve a pool past 64: three walls make it exactly 64, a fourth is refused rather than written
+        std::vector<Material> three(by_guid.begin(), by_guid.begin() + 3);
+        Allocation wa = allocate(three, {}, {213, 214, 215, 216}, {});
+        Bytes np;
+        check("pools.writer-fills-to-64", merge_pools(gp, L, wa.placed, &np, &why) && pool_size(np, "BuildingDefaultMaterials") == 64 && pool_size(np, "BuildingRoofMaterials") == 14, why);
+        why.clear();
+        Allocation over = allocate(by_guid, {}, {213, 214, 215, 216}, {});
+        check("pools.writer-refuses-65", !merge_pools(gp, L, over.placed, &np, &why) && why.find("would list 65 items, past the 64") != std::string::npos, why);
+        std::vector<Material> nine;
+        for (int i = 0; i < 9; ++i) {
+            Material t2 = material("m", "t" + std::to_string(i));
+            t2.terrain = true;
+            nine.push_back(t2);
+        }
+        why.clear();
+        Allocation ta = allocate(nine, {}, {117, 118, 119, 120, 121, 122, 123, 124, 125}, {});
+        check("pools.terrain-writer-refuses-65", !merge_terrain_pool(gp, L, ta.placed, &np, &why) && why.find("TerrainMaterials would list 65 items") != std::string::npos, why);
     }
 
     // the game's own resources, when given
+    why.clear();
     if (argc >= 5) {
         const Bytes greg = read(argv[1]), gpools = read(argv[2]), gbp = read(argv[3]), gworld = read(argv[4]);
         check("game.registry-identical", merge_registry(greg, L, {}, {}, &out, &changes, &why) && out == greg, why);
         check("game.pools-identical", merge_pools(gpools, L, {}, &out, &why) && out == gpools, why);
         check("game.blueprints-identical", merge_blueprints(gbp, L, {}, first_pool_item(gpools, L), &out, &why) && out == gbp, why);
+        std::map<std::string, uint32_t> gcounts;
+        const bool gread = pool_counts(gpools, L, &gcounts, &why);
+        check("game.pool-room", gread && gcounts[kWallPool] == 61 && gcounts[kRoofPool] == 14 && gcounts[kTerrainPool] == 56 &&
+                                    pool_room_text(kWallPool, gcounts[kWallPool]).find(": 3 new ones fit") != std::string::npos,
+              std::to_string(gcounts[kWallPool]) + " walls, " + std::to_string(gcounts[kRoofPool]) + " roofs, " + std::to_string(gcounts[kTerrainPool]) + " terrain items");
         RegistryInfo gi;
         read_registry(greg, L, &gi, &why);
         std::vector<int> f;

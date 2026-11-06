@@ -39,7 +39,11 @@ Combat.SetInvulnerable(player, false);
   `Steps`). The hit applies in the engine's next hit conclusion (the same step when called in Pre); the task completes
   in the next Pre. Damage is "true damage" (armour and resistances are applied by the engine before hits are queued,
   so they do not apply to Kiln hits). `DamageOptions`: `Reaction`, `PushBack`, `Aggro`, `ForceInterrupt`, `Silent`
-  (no HitEvent: no reaction, number or credit), `Source`, `AsGameHit` (see below).
+  (no HitEvent: no reaction, number or credit for this hit), `NoCredit`, `Source`, `AsGameHit` (see below).
+- **Kill credit.** The game gives a death's XP to the target's `ExperienceSource.lastHitPlayerId`: the last player whose
+  hit landed (or whose summon or guard hit it), not whoever lands the killing blow. A hit with no attacker leaves it as
+  it is, so `Kill(target)` alone still credits a player who hit the target earlier. `NoCredit` clears it first: with no
+  attacker, the kill credits nobody (`Kill(target, EntityId.None, new DamageOptions { NoCredit = true })`).
 - The engine applies at most 4 different impacts to one target per step; Kiln keeps further Kiln hits on a target for
   the following steps (`CombatStatus.HitsDeferred`), so many hits in one step all apply, a few steps later.
 - Dropped: canceled by a handler, the target is invulnerable, gone, or has no `CombatFlags.handleHits` (props).

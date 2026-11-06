@@ -387,7 +387,7 @@
         "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "How long it lasts unless whoever applies it says otherwise. Not needed with while." },
         "while": { "$ref": "#/$defs/state", "description": "A player has it for as long as they are in this state." },
         "kind": { "enum": ["debuff", "buff"] },
-        "look": { "enum": ["frost", "poison"], "description": "Its icon and body effect." },
+        "look": { "enum": ["frost", "poison", "fire"], "description": "Its icon and body effect. Default: a timer's icon for a debuff, a blessing's for a buff, and no body effect." },
         "icon": { "type": "string", "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$", "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes." },
         "refreshes": { "type": "boolean", "description": "Applied again while it runs: the timer starts over (true, the default), or the new one replaces the old." },
         "modifies": {
@@ -1639,7 +1639,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9999,
-          "description": "Blocks of the material one placement takes. Default: 20 for every 64 cells, as the game's walls."
+          "description": "Obsolete and not used: a placement takes one block of the chosen material per cell it fills, as the game's own shapes do."
         },
         "recipe": {
           "$ref": "#/$defs/recipe"

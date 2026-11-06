@@ -75,6 +75,7 @@ public sealed class BlocksItemsTestMod : Mod
             Recipe = new RecipeBlock { Station = Stations.Hand, Needs = { [$"{Sample}:ember-shard"] = 1 } },
         });
         foreach (var k in Kinds_) Blocks.Define($"station-{k.Key}", new StationBlock { Name = k.Key, Kind = k });
+        Blocks.Define("plain-debuff", new StatusBlock { Name = "Plain", Seconds = 5, OnTick = [new EffectBlock { Damage = Damage.Fire(1), Flinch = Flinch.None }] });
         foreach (var (name, at) in new[] { ("late-wand", 0.5), ("early-wand", 0.2) })
             Blocks.Define(name, new WandBlock
             {
@@ -389,11 +390,27 @@ public sealed class BlocksItemsTestMod : Mod
         Check(buff.GetJson("whileApplied")?["value"] is JsonArray { Count: 0 } && buff.GetJson("impactValues")?["value"] is JsonObject { Count: 0 },
             $"no body effect and no configs of a starter: whileApplied {buff.GetJson("whileApplied")?["value"]?.ToJsonString()}, impactValues {buff.GetJson("impactValues")?["value"]?.ToJsonString()}");
         Check(buff.Get("hideDurationInUi").Integer == 0 && Math.Abs(N(buff, "defaultLifeTime") - 600) < 1e-3, $"it shows its time, 600 s: hideDurationInUi {buff.Get("hideDurationInUi").Integer}, {N(buff, "defaultLifeTime")} s");
+        // a debuff with no Look: a timer's icon, nothing of the frost slow's
+        var plain = Content.Buffs.Get("blocks-items-test.plain-debuff")!;
+        var timer = Content.Buffs.Get("0xc3c07632")!;
+        Check(plain.Get("icon.image").Guid == timer.Get("icon.image").Guid && plain.Get("icon.image").Guid != slow.Get("icon.image").Guid,
+            $"a debuff with no Look has a timer's icon, not the frost slow's snail: {plain.Get("icon.image").Guid}");
+        Check(plain.GetJson("whileApplied")?["value"] is JsonArray { Count: 0 } && plain.GetJson("impactValues")?["value"] is JsonObject { Count: 0 },
+            $"and no body effect or configs of a starter: whileApplied {plain.GetJson("whileApplied")?["value"]?.ToJsonString()}, impactValues {plain.GetJson("impactValues")?["value"]?.ToJsonString()}");
+        // the sample's Burn: Look = Fire, the game's Burning on enemies with the flames its hidden companion puts on the chest
         var burn = Content.Buffs.Get(Blocks.Find("burn", Sample)!.GameName)!;
-        Check(burn.Get("icon.image").Guid == slow.Get("icon.image").Guid, "a debuff with no Look still looks like the frost slow");
-        // a creature's health bar draws only a status with a colour; the frost slow has none
+        var burning = Content.Buffs.Get("0x25e2886a")!;
+        var flames = Guid.Parse("85e60392-52e2-4488-8653-2d539c18c80c");
+        Check(burn.Get("icon.image").Guid == burning.Get("icon.image").Guid && burn.Get("icon.image").Guid != slow.Get("icon.image").Guid,
+            $"Look = Fire: the game's Burning's flame icon: {burn.Get("icon.image").Guid}");
+        Check(burn.Get("whileApplied[0].vfx").Guid == flames && burn.Get("whileApplied[0].slot").Name == "Chest" && (burn.GetJson("whileApplied")?["value"] as JsonArray)?.Count == 1,
+            $"and flames on the chest while it lasts: {burn.GetJson("whileApplied")?["value"]?.ToJsonString()}");
+        var burnJson = Content.Buffs.Get(Blocks.Find("burn-json", Sample)!.GameName)!;
+        Check(burnJson.Get("icon.image").Guid == burn.Get("icon.image").Guid && burnJson.Get("whileApplied[0].vfx").Guid == flames, "\"look\": \"fire\" in a data file: the same");
+        // a creature's health bar draws only a status with a colour; the frost slow and the timer have none
         uint Colour(GameDataEntry e) => (uint)e.Get("color").Integer;
-        Check(Colour(burn) == 0xFFFFFFFF && Colour(slow) == 0, $"and is white, so a creature's bar shows it: color 0x{Colour(burn):x8} (the frost slow's 0x{Colour(slow):x8})");
+        Check(Colour(burn) == 0xFFFFFFFF && Colour(plain) == 0xFFFFFFFF && Colour(slow) == 0 && Colour(timer) == 0,
+            $"a debuff is white, so a creature's bar shows it: color 0x{Colour(burn):x8}, 0x{Colour(plain):x8} (the frost slow's 0x{Colour(slow):x8}, the timer's 0x{Colour(timer):x8})");
         Check(Colour(buff) == Colour(blessing), $"a buff keeps its look's colour: 0x{Colour(buff):x8}");
 
         var arrow = D("ember-arrow");

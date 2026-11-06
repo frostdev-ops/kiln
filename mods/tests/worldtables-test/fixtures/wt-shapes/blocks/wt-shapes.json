@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "comment": "The game's 4 m door wall drawn as cells: its table entry and its preview have to be the game's own bytes. And a small roof shape.",
+  "comment": "The game's 4 m door wall and 2 m flat roof drawn as cells: their table entries and previews have to be the game's own bytes. And a small roof shape.",
   "blueprints": {
     "door-wall": {
       "name": "Test Door Wall",
@@ -11,6 +11,11 @@
       "name": "Test Ridge",
       "roof": true,
       "cells": [ ["####", "####"], [".##.", ".##."] ]
+    },
+    "flat-roof": {
+      "name": "Test Flat Roof",
+      "roof": true,
+      "cells": [ ["####", "####", "####", "####"] ]
     }
   }
 }

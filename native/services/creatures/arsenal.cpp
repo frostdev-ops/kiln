@@ -974,6 +974,13 @@ bool arsenal_writer_ready() {
     return g_layout_ok && g_map_ok && F.reflection;
 }
 
+bool arsenal_layout_ready() {
+    read_layout();
+    return g_layout_ok;
+}
+
+const char* arsenal_layout_error() { return g_layout_error.c_str(); }
+
 RuleUses arsenal_uses() { return g_uses; }
 
 uint32_t arsenal_count_kiln() {

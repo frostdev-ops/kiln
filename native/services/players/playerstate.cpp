@@ -8,8 +8,12 @@
 //    read is guarded, a fault makes that entity read as unknown, the server runs on.
 //  - Stopping an action calls the game's own reset (0x34040 on server 26430253), what actor_simulation_start does to a
 //    sequence whose keep-alive failed. Evidence: docs/re/player-state.md.
+//  - A client action can only be refused before the game's program runs it, and the game copies a client's input in
+//    inside the sim step, after Pre: so while a listener asks for it, new versions are held for one step at the start
+//    of DeliverEvents, the last call before the programs ("holding client actions" below).
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -26,6 +30,7 @@
 #include "kiln_api.h"
 #include "kiln_playerstate.h"
 #include "playerstate.h"
+#include "safetyhook.hpp"
 #include "services/kiln_build.h"
 #include "services/kiln_client.h"
 
@@ -292,6 +297,7 @@ std::array<int32_t, KILN_PLAYERSTATE_CLIENT_ACTIONS> g_client_action_versions{};
 std::once_flag g_once;
 std::atomic<bool> g_ready{false};
 bool g_reflection = false, g_cancel = false, g_names = false, g_items = false, g_lab = false;
+bool g_hold_ok = false;  // the hold point is hooked: client actions can be held and canceled
 uint32_t g_resolved = 0;
 std::string g_detail;
 std::atomic<uint64_t> g_scans{0}, g_entities{0};
@@ -487,8 +493,10 @@ void resolve_all() {
     }
     if (!g_names) PSW("the game's sequence lookup did not resolve on this build: action names read empty");
     if (!g_items) PSW("item details did not resolve on this build: event items carry only their id");
-    PSI("%u of %u state sources from the game's reflection, %u client actions, actions %s, sequence names %s, item details %s", g_resolved,
-        kSourceCount, static_cast<unsigned>(g_client_actions.size()), g_cancel ? "cancelable" : "observe only", g_names ? "yes" : "no", g_items ? "yes" : "no");
+    if (!g_hold_ok) PSW("the point before the game's programs did not resolve on this build: client actions can be seen but not canceled");
+    PSI("%u of %u state sources from the game's reflection, %u client actions (%s), actions %s, sequence names %s, item details %s", g_resolved,
+        kSourceCount, static_cast<unsigned>(g_client_actions.size()), g_hold_ok ? "cancelable" : "observe only", g_cancel ? "cancelable" : "observe only",
+        g_names ? "yes" : "no", g_items ? "yes" : "no");
 }
 
 void ensure() {
@@ -739,6 +747,7 @@ KilnResult KILN_CALL t_status(KilnPlayerStateStatus* out) {
     out->names = g_names;
     out->items = g_items;
     out->sources = g_resolved;
+    out->client_hold = g_hold_ok;
     out->scans = g_scans.load();
     out->entities_read = g_entities.load();
     std::snprintf(out->detail, sizeof out->detail, "%s", g_detail.c_str());
@@ -1113,6 +1122,214 @@ KilnResult KILN_CALL t_lab_use_item(KilnEntity e, uint32_t sequence, uint32_t tr
     return KILN_OK;
 }
 
+// ------------------------------------------------------------------------------- holding client actions ----
+// The game copies each player's queued client input into PlayerInput inside the sim step (players/InputApply, 0x600ff0
+// on server 26430253), after Kiln's Pre and right before DeliverEvents and every program. A new version runs in the
+// step it arrives in, so Pre only ever sees versions that already ran: marking one consumed there changes nothing.
+// While a listener holds, Kiln looks again at the start of DeliverEvents. That is after the input copy (and after a
+// version a mod writes in Pre or in a detour of the copy) and before any program. A new version of a cancelable action
+// is hidden for one step: PlayerInput's copy shows the consumed version, so the game's program sees nothing new, and
+// the action's bytes are kept. The listener answers in the next Pre. At the start of the next DeliverEvents a released
+// action gets its bytes back and the program runs it; a canceled one is marked consumed, the way the game ignores an
+// old version, and never runs. ServerConsumedPlayerInput (which the client gets back) does not move while one is held.
+constexpr uint32_t kHeldBytes = sizeof(KilnPlayerHeldAction::payload);
+constexpr uint32_t kHoldStale = 8;  // DeliverEvents calls without a hold() before holding ends by itself
+enum : uint8_t { D_WAIT, D_RUN, D_DROP };
+
+struct Held {
+    KilnEntity entity = 0;
+    uint32_t index = 0, version = 0;
+    uint32_t shown = 0;  // the version PlayerInput's copy shows when no newer input comes: the consumed one
+    uint8_t decision = D_WAIT;
+    bool listed = false;
+    std::array<uint8_t, kHeldBytes> bytes{};
+};
+struct Passed {
+    KilnEntity entity;
+    uint32_t index, version;
+};
+
+SafetyHookInline g_deliver_hook;
+std::vector<Held> g_held;            // the server world's thread only, like everything below
+std::vector<Passed> g_passed;        // released versions: one a program leaves pending for a while is not held again
+std::vector<KilnEntity> g_hold_for;  // from hold(), in Pre
+uint32_t g_hold_age = 0;
+
+bool holdable(const ClientAction& a) {
+    return g_hold_ok && a.consumed >= 0 && a.version >= a.offset && a.bytes >= a.version - a.offset + 4 && a.bytes <= kHeldBytes;
+}
+
+bool holds_for(KilnEntity e) { return std::find(g_hold_for.begin(), g_hold_for.end(), e) != g_hold_for.end(); }
+
+bool passed(KilnEntity e, uint32_t index, uint32_t version) {
+    for (const Passed& p : g_passed)
+        if (p.entity == e && p.index == index) return p.version == version;
+    return false;
+}
+
+void remember_passed(KilnEntity e, uint32_t index, uint32_t version) {
+    for (Passed& p : g_passed)
+        if (p.entity == e && p.index == index) {
+            p.version = version;
+            return;
+        }
+    g_passed.push_back({e, index, version});
+}
+
+bool held(KilnEntity e, uint32_t index, const std::vector<Held>& in) {
+    for (const Held& h : in)
+        if (h.entity == e && h.index == index) return true;
+    return false;
+}
+
+// One step after a hold: the listener's answer. A newer version that arrived meanwhile is appended to `keep`, held.
+void resolve(uintptr_t world, const Held& h, bool holding, std::vector<Held>& keep) {
+    const ClientAction& a = g_client_actions[h.index];
+    uint8_t* pi = const_cast<uint8_t*>(comp_of(world, C_PINPUT, h.entity));
+    uint8_t* sc = const_cast<uint8_t*>(comp_of(world, C_CONSUMED, h.entity));
+    if (!pi || !sc) return;  // the player is gone
+    const uint8_t d = h.decision == D_WAIT ? D_RUN : h.decision;  // nobody answered: it runs
+    Held next;
+    bool newer = false;
+    __try {
+        uint32_t v = 0, c = 0;
+        std::memcpy(&v, pi + a.version, 4);
+        std::memcpy(&c, sc + a.consumed, 4);
+        newer = v != h.version && v != h.shown && v != c;  // the client sent another one of this kind meanwhile
+        if (d == D_RUN) {
+            if (v != h.version) {
+                // PlayerInput shows the hidden version (no input came since) or a newer one: put this one back so the
+                // program runs it now; the newer one is held in turn and shows h.version until its own input returns.
+                if (newer && holding) {
+                    next.entity = h.entity;
+                    next.index = h.index;
+                    next.version = v;
+                    next.shown = h.version;
+                    std::memcpy(next.bytes.data(), pi + a.offset, a.bytes);
+                }
+                std::memcpy(pi + a.offset, h.bytes.data(), a.bytes);
+            }
+        } else {
+            std::memcpy(sc + a.consumed, &h.version, 4);
+            if (v == h.shown) std::memcpy(pi + a.version, &h.version, 4);  // the hidden copy shows its real, now consumed, version
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    if (d == D_RUN) {
+        remember_passed(h.entity, h.index, h.version);
+        if (newer && holding) keep.push_back(next);
+    }
+}
+
+// New versions of the players held for: hide each one for this step.
+void hold_new(uintptr_t world, KilnEntity e, std::vector<Held>& keep) {
+    uint8_t* pi = const_cast<uint8_t*>(comp_of(world, C_PINPUT, e));
+    const uint8_t* sc = comp_of(world, C_CONSUMED, e);
+    if (!pi || !sc) return;
+    for (uint32_t i = 0; i < g_client_actions.size(); ++i) {
+        const ClientAction& a = g_client_actions[i];
+        if (!holdable(a) || held(e, i, keep)) continue;
+        Held h;
+        __try {
+            uint32_t v = 0, c = 0;
+            std::memcpy(&v, pi + a.version, 4);
+            std::memcpy(&c, sc + a.consumed, 4);
+            if (v == c || passed(e, i, v)) continue;
+            h.entity = e;
+            h.index = i;
+            h.version = v;
+            h.shown = c;
+            std::memcpy(h.bytes.data(), pi + a.offset, a.bytes);
+            std::memcpy(pi + a.version, &c, 4);  // the game's program sees no new version in this step
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return;
+        }
+        keep.push_back(h);
+    }
+}
+
+void hold_check(uintptr_t storage) {
+    if ((g_held.empty() && g_hold_for.empty()) || g_storage < 0) return;
+    const uintptr_t world = storage - static_cast<uintptr_t>(g_storage);
+    if (world != g_api->world(KILN_WORLD_SERVER) || !g_api->on_world_thread(KILN_WORLD_SERVER)) return;
+    if (++g_hold_age > kHoldStale && !g_hold_for.empty()) {
+        PSW("client actions: no listener renewed the hold for %u steps; held actions run and holding stops", kHoldStale);
+        g_hold_for.clear();
+    }
+    const bool holding = !g_hold_for.empty();
+    std::vector<Held> keep;
+    keep.reserve(g_held.size());
+    for (const Held& h : g_held) {
+        // not offered to the listener yet (a step without Pre): it stays hidden
+        if (h.decision == D_WAIT && !h.listed && holding && holds_for(h.entity)) keep.push_back(h);
+        else resolve(world, h, holding, keep);
+    }
+    if (holding)
+        for (const KilnEntity e : g_hold_for) hold_new(world, e, keep);
+    g_held.swap(keep);
+}
+
+// DeliverEvents(storage): SimStep's call right after InputApply. Every register argument goes through untouched.
+uintptr_t __fastcall hk_deliver_events(uintptr_t storage, uintptr_t rdx, uintptr_t r8, uintptr_t r9) {
+    try {
+        hold_check(storage);
+    } catch (...) {
+        // out of memory: the game runs on unheld
+    }
+    return g_deliver_hook.call<uintptr_t>(storage, rdx, r8, r9);
+}
+
+KilnResult KILN_CALL t_client_action_hold(const KilnEntity* entities, uint32_t count) {
+    ensure();
+    if (!g_hold_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_world_thread(KILN_WORLD_SERVER)) return KILN_ERR_WRONG_THREAD;
+    if (count && !entities) return KILN_ERR_INVALID_ARGUMENT;
+    try {
+        g_hold_for.assign(entities, entities + count);
+        std::erase_if(g_passed, [](const Passed& p) { return !holds_for(p.entity); });
+    } catch (...) {
+        g_hold_for.clear();
+        return KILN_ERR_INTERNAL;
+    }
+    g_hold_age = 0;
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_client_action_held(KilnPlayerHeldAction* out, uint32_t capacity, uint32_t* count) {
+    if (!count) return KILN_ERR_INVALID_ARGUMENT;
+    *count = 0;
+    if (!g_hold_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_world_thread(KILN_WORLD_SERVER)) return KILN_ERR_WRONG_THREAD;
+    for (Held& h : g_held) {
+        if (h.listed) continue;
+        if (*count >= capacity || !out) return KILN_ERR_BUFFER_TOO_SMALL;
+        KilnPlayerHeldAction& o = out[*count];
+        if (o.size < sizeof o) return KILN_ERR_INVALID_ARGUMENT;
+        o.entity = h.entity;
+        o.index = h.index;
+        o.version = h.version;
+        o.bytes = g_client_actions[h.index].bytes;
+        o.reserved = 0;
+        std::memset(o.payload, 0, sizeof o.payload);
+        std::memcpy(o.payload, h.bytes.data(), o.bytes);
+        h.listed = true;
+        ++*count;
+    }
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_client_action_decide(KilnEntity e, uint32_t index, uint32_t version, uint32_t cancel) {
+    if (!g_hold_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_world_thread(KILN_WORLD_SERVER)) return KILN_ERR_WRONG_THREAD;
+    for (Held& h : g_held)
+        if (h.entity == e && h.index == index && h.version == version) {
+            h.decision = cancel ? D_DROP : D_RUN;
+            return KILN_OK;
+        }
+    return KILN_ERR_NOT_FOUND;
+}
+
 KilnResult KILN_CALL t_client_action_info(uint32_t index, KilnPlayerClientAction* out) {
     if (!out || out->size < sizeof *out) return KILN_ERR_INVALID_ARGUMENT;
     ensure();
@@ -1120,7 +1337,7 @@ KilnResult KILN_CALL t_client_action_info(uint32_t index, KilnPlayerClientAction
     const ClientAction& a = g_client_actions[index];
     out->index = index;
     out->bytes = a.bytes;
-    out->cancelable = a.consumed >= 0;
+    out->cancelable = holdable(a);
     std::snprintf(out->name, sizeof out->name, "%s", a.name.c_str());
     return KILN_OK;
 }
@@ -1138,20 +1355,18 @@ KilnResult KILN_CALL t_client_action_bytes(KilnEntity e, uint32_t index, void* o
     return seh_copy(pi + a.offset, out, a.bytes) ? KILN_OK : KILN_ERR_INTERNAL;
 }
 
+// A version seen in Pre without a hold has already run (see "holding client actions"): only a held one can be canceled.
 KilnResult KILN_CALL t_client_action_cancel(KilnEntity e, uint32_t index) {
     ensure();
     if (index >= g_client_actions.size()) return KILN_ERR_NOT_FOUND;
-    const ClientAction& a = g_client_actions[index];
-    if (a.consumed < 0) return KILN_ERR_UNAVAILABLE;
+    if (!holdable(g_client_actions[index])) return KILN_ERR_UNAVAILABLE;
     if (!g_api->on_world_thread(KILN_WORLD_SERVER)) return KILN_ERR_WRONG_THREAD;
-    const uintptr_t world = g_api->world(KILN_WORLD_SERVER);
-    if (!world) return KILN_ERR_UNAVAILABLE;
-    const uint8_t* pi = comp_of(world, C_PINPUT, e);
-    uint8_t* sc = const_cast<uint8_t*>(comp_of(world, C_CONSUMED, e));
-    if (!pi || !sc) return KILN_ERR_NOT_FOUND;
-    uint32_t version = 0;
-    if (!seh_copy(pi + a.version, &version, 4) || !seh_copy(&version, sc + a.consumed, 4)) return KILN_ERR_INTERNAL;
-    return KILN_OK;
+    for (Held& h : g_held)
+        if (h.entity == e && h.index == index) {
+            h.decision = D_DROP;
+            return KILN_OK;
+        }
+    return KILN_ERR_NOT_FOUND;
 }
 
 KilnEntity KILN_CALL t_local_player() {
@@ -1162,7 +1377,8 @@ KilnEntity KILN_CALL t_local_player() {
 }
 
 static_assert(sizeof(KilnPlayerSnapshot) == 544 && sizeof(KilnPlayerClientAction) == 64 && sizeof(KilnPlayerItemInfo) == 288 && sizeof(KilnPlayerEquipment) == 408 &&
-              sizeof(KilnPlayerBuff) == 40 && sizeof(KilnPlayerStateStatus) == 200 && sizeof(KilnPlayerSourceInfo) == 216);
+              sizeof(KilnPlayerBuff) == 40 && sizeof(KilnPlayerStateStatus) == 200 && sizeof(KilnPlayerSourceInfo) == 216 &&
+              sizeof(KilnPlayerHeldAction) == 184);
 
 const KilnPlayerStateApi kTable = {
     {sizeof(KilnPlayerStateApi), KILN_PLAYERSTATE_VERSION},
@@ -1182,6 +1398,9 @@ const KilnPlayerStateApi kTable = {
     &t_client_action_info,
     &t_client_action_bytes,
     &t_client_action_cancel,
+    &t_client_action_hold,
+    &t_client_action_held,
+    &t_client_action_decide,
 };
 
 template <class Fn>
@@ -1221,6 +1440,13 @@ void main(const KilnApi* api, KilnOwner owner) {
     sym("gamedata/GetBuffType", &F.buff_find);
     if (api->feature(kstr("players.action_cancel"))) sym("players/ActionReset", &F.action_reset);
     if (api->feature(kstr("players.sequence_names"))) sym("players/SubSequence", &F.sub_sequence);
+    // Client actions can be refused only before the step's programs run (see "holding client actions").
+    uintptr_t deliver = 0;
+    if (api->feature(kstr("players.client_action_hold")) && api->symbol(kstr("gameplay/DeliverEvents"), &deliver) == KILN_OK && deliver) {
+        g_deliver_hook = safetyhook::create_inline(reinterpret_cast<void*>(deliver), reinterpret_cast<void*>(&hk_deliver_events));
+        g_hold_ok = static_cast<bool>(g_deliver_hook);
+        if (!g_hold_ok) PSW("hooking DeliverEvents at %p failed: client actions can be seen but not canceled", reinterpret_cast<void*>(deliver));
+    }
     sym("abilities/TriggerSequence", &F.trigger);
     constant("world.storage", &g_storage);
     constant("storage.clock", &g_clock);

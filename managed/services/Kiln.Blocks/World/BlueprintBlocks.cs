@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // A shape of your own for the game's building materials: a wall with a round window, an arch, a stair of your own. A shape is two things in the game:
-//  - a blueprint item (category Blueprints, slot BuildTool): its cost in blocks, its placement box, the material pool it cycles through, its snapping;
+//  - a blueprint item (category Blueprints, slot BuildTool): its placement and snapping boxes, its placement colliders, the material pool it cycles through;
 //  - an entry in VoxelBlueprintItemRegistryResource, keyed by the item's id: its size in cells and one bit per cell. A single table every shape of every mod shares, so
 //    kiln.worldtables merges it at boot, as it does the block items of new materials.
 // Cells are half a metre. Bit i of the data (byte i / 8, lowest bit first) is the cell x + X * (y + Y * z), y up: the game's 4 m door wall, 8 x 8 x 1, is
-// c3 c3 c3 c3 c3 ff ff ff. docs/re/building.md 1.2.
+// c3 c3 c3 c3 c3 ff ff ff. A placement takes one block of the chosen material per cell it fills; cells already built are skipped and cost nothing. The item's
+// requiredCraftingIngredients count isn't what a placement takes (the game's door wall says 20 and takes 44). docs/re/building.md 1.2.
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
@@ -26,7 +27,9 @@ public sealed record BlueprintBlock : IBlock, ITweakable
     /// <summary>A roof shape: it cycles through the roof materials, not the walls'.</summary>
     public bool Roof { get; init; }
 
-    /// <summary>Blocks of the chosen material one placement takes. Null: as the game's walls, 20 for every 64 cells.</summary>
+    /// <summary>Not used. A placement takes one block of the chosen material per cell it fills, as the game's own shapes do, and cells already built cost nothing; a
+    /// shape's cost can't be set.</summary>
+    [Obsolete("A placement takes one block of the chosen material per cell it fills; a shape's cost can't be set.")]
     public int? Cost { get; init; }
 
     /// <summary>How the shape is made. Null: it is not crafted, as the game's own shapes aren't.</summary>
@@ -42,7 +45,9 @@ public sealed record BlueprintBlock : IBlock, ITweakable
 
 internal static partial class Compiler
 {
-    private const string ShapeStarter = "Blueprint_Voxel_Block_Wall_Straight_4m", RoofShapeStarter = "Blueprint_Voxel_Roof_Straight_4m";
+    // Starters with one placement collider and no snap box offsets, whose snapping box is their placement box: a slab of cells, as a shape of cells is. (The sloped
+    // roofs have a snapping box one cell past their cells and a collider per step: a shape that kept those landed off its cursor.)
+    private const string ShapeStarter = "Blueprint_Voxel_Block_Wall_Straight_4m", RoofShapeStarter = "Blueprint_Voxel_Roof_Flat_4m";
     private const int MaxCells = 32;
 
     /// <summary>The cells as the game keeps them: (x, y, z) in cells, and one bit per cell.</summary>
@@ -82,22 +87,38 @@ internal static partial class Compiler
         ctx.Need(ClientsLevel.Mod, null, "a new shape has to be in every player's game: each one merges its shapes' table from the mods' files at its start");
         RequireName(ctx, b.Name, "a shape");
         var (x, y, z, bits, full) = ShapeCells(ctx, b.Cells);
-        var cost = b.Cost ?? Math.Max(1, (int)Math.Round(full * 20 / 64.0));
-        if (cost is < 1 or > 9999) throw new BlockError(ctx.Block, "cost", $"{cost} is outside 1..9999");
         var key = b.Was ?? name;
         var mod = ctx.Mod.Id;
         var d = new Draft(ctx, low, key, name, b.Roof ? RoofShapeStarter : ShapeStarter);
-        // a list in the item: kiln.gamedata's item paths reach into it, kiln.content's fields don't
-        d.DataRules["equipment.requiredCraftingIngredients[0].count"] = cost;
-        d.Fields["equipment.placementAABBmin.x"] = 0.0;
-        d.Fields["equipment.placementAABBmin.y"] = 0.0;
-        d.Fields["equipment.placementAABBmin.z"] = 0.0;
-        d.Fields["equipment.placementAABBmax.x"] = x * 0.5;
-        d.Fields["equipment.placementAABBmax.y"] = y * 0.5;
-        d.Fields["equipment.placementAABBmax.z"] = z * 0.5;
+        var (sx, sy, sz) = (x * 0.5, y * 0.5, z * 0.5);
+        // The game snaps a shape by its snapping box and places its cells from the box's corner: every one of the game's shapes has the two boxes alike, so a
+        // snapping box left at the starter's size moves the cells away from the cursor.
+        foreach (var box in new[] { "placementAABB", "snappingAABB" })
+        {
+            d.Fields[$"equipment.{box}min.x"] = 0.0;
+            d.Fields[$"equipment.{box}min.y"] = 0.0;
+            d.Fields[$"equipment.{box}min.z"] = 0.0;
+            d.Fields[$"equipment.{box}max.x"] = sx;
+            d.Fields[$"equipment.{box}max.y"] = sy;
+            d.Fields[$"equipment.{box}max.z"] = sz;
+        }
+        foreach (var end in new[] { "Min", "Max" })
+            foreach (var axis in new[] { "x", "y", "z" })
+                d.Fields[$"equipment.voxelSnappingConfig.snapBoxOffset{end}.{axis}"] = 0;
+        // Lists in the item: kiln.gamedata's item paths reach into them, kiln.content's fields don't. The starter's one placement collider becomes the shape's box,
+        // as the game's slabs have it (centre and half size both half the box).
+        const string collider = "equipment.placementColliders[0].dataArray[0]";
+        d.DataRules[$"{collider}.offset.x"] = sx / 2;
+        d.DataRules[$"{collider}.offset.y"] = sy / 2;
+        d.DataRules[$"{collider}.offset.z"] = sz / 2;
+        d.DataRules[$"{collider}.shape.halfSize.x"] = sx / 2;
+        d.DataRules[$"{collider}.shape.halfSize.y"] = sy / 2;
+        d.DataRules[$"{collider}.shape.halfSize.z"] = sz / 2;
+        // What a placement in the open takes: one block per cell. The game doesn't read this count for a shape; it lists the truth where anything shows it.
+        d.DataRules["equipment.requiredCraftingIngredients[0].count"] = full;
         // what the client draws under the cursor: kiln.worldtables serves the shape's model under the item's own GUID
         d.Refs["equipment.voxelObject"] = d.Guid.ToString();
-        var shape = new JsonObject { ["size"] = new JsonArray(x, y, z), ["cells"] = Convert.ToHexString(bits).ToLowerInvariant(), ["full"] = full, ["cost"] = cost, ["roof"] = b.Roof };
+        var shape = new JsonObject { ["size"] = new JsonArray(x, y, z), ["cells"] = Convert.ToHexString(bits).ToLowerInvariant(), ["full"] = full, ["cost"] = full, ["roof"] = b.Roof };
         low.Json["blueprint"] = shape;
         var (status, _) = AskShapes(ctx, low, name, new JsonObject { ["name"] = b.Name, ["item"] = d.Guid.ToString(), ["size"] = new JsonArray(x, y, z), ["cells"] = Convert.ToBase64String(bits), ["roof"] = b.Roof });
         // A blueprint item with no entry in the shapes' table is one the game can't place: it is made once the table has it.

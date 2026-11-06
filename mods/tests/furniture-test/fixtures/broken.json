@@ -29,8 +29,7 @@
   "blueprints": {
     "no-cells": { "name": "x", "cells": [] },
     "bad-cell": { "name": "x", "cells": [ ["#x#"] ] },
-    "too-big": { "name": "x", "cells": [ ["#################################"] ] },
-    "bad-cost": { "name": "x", "cells": [ ["##"] ], "cost": 0 }
+    "too-big": { "name": "x", "cells": [ ["#################################"] ] }
   },
   "hair": {
     "hair-fits": { "name": "x", "look": { "like": "VC_Hair_04_01_pixie", "fits": "hood" } },

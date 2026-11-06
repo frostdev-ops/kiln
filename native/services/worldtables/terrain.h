@@ -39,7 +39,7 @@ Allocation allocate_terrain(std::vector<Material> live, std::vector<Material> ke
 // strength's drops is an item GUID by now. false + *why: the registry isn't what the layout says, or a like_cell has no config.
 bool merge_terrain_registry(const Bytes& reg, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::vector<RegistryChange>* changes, std::string* why);
 
-// Live placeable terrain materials' items, after the terrain pool's own.
+// Live placeable terrain materials' items, after the terrain pool's own. Past kPoolCapacity items: false + *why, never served.
 bool merge_terrain_pool(const Bytes& pools, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::string* why);
 
 // Where the per-id tables are, from the game's reflection. A table this build doesn't have stays as it is.

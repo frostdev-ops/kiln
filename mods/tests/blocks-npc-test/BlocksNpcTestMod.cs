@@ -47,7 +47,7 @@ public sealed class BlocksNpcTestMod : Mod
         _stoneling = (CreatureHandle)Blocks.Define("stoneling", new CreatureBlock
         {
             Name = "Stoneling", Body = "stone-body", Animation = "stone-moves",
-            AI = AIs.Vukah with { Sight = 25, Faction = Faction.Vukah },
+            AI = AIs.Vukah with { Sight = 25, SightAngle = 80, Aggro = 6, Faction = Faction.Vukah },
             Behaviour = "stone-fighter", Stats = new CreatureStats { Level = 10 },
         });
         _vukahMind = (CreatureHandle)Blocks.Define("vukah-mind", new CreatureBlock
@@ -213,9 +213,15 @@ public sealed class BlocksNpcTestMod : Mod
             Check(t.Get("AnimationGraphResourceComponent2.animationGraph").ToString() == graph.ToString(), $"the template plays the cooked graph: {t.Get("AnimationGraphResourceComponent2.animationGraph")}");
             Check(t.Get("ModelResource.model").ToString() == model.ToString(), $"and draws the cooked model: {t.Get("ModelResource.model")}");
             Check(t.Get("Enemy01BehaviorState.patrolSetup.patrolAnimation").ToString() == "a26eaa64-1902-496c-bc67-070c87a32303", $"a state the AI names by field is the animation's Walk: {t.Get("Enemy01BehaviorState.patrolSetup.patrolAnimation")}");
-            Info($"template: scale {t.Get("ScaleComponent.uniformScale")}, faction {t.Get("Faction.faction")}, sight {t.Get("Enemy01BehaviorState.aggroSetup.viewRange")}, path radius {t.Get("PathWalker.horizontalRadius")}, " +
+            Info($"template: scale {t.Get("ScaleComponent.uniformScale")}, faction {t.Get("Faction.faction")}, sight {t.Get("Enemy01BehaviorState.combatCommitmentSetup.view.range")} (candidates within {t.Get("Enemy01BehaviorState.aggroSetup.viewRange")}), path radius {t.Get("PathWalker.horizontalRadius")}, " +
                  $"capsule {t.GetJson("ColliderResourceComponent.colliders[0].dataArray[CapsuleColliderData#0].shape")?["value"]?.ToJsonString()}, bounds max y {t.Get("Enemy01BehaviorState.defaultLocalBoundingBoxMax.y")}");
-            Check(Math.Abs(t.GetNumber("Enemy01BehaviorState.aggroSetup.viewRange") - 25) < 0.01 && Math.Abs(t.GetNumber("ScaleComponent.uniformScale") - 1.1) < 0.01, "the AI's sight and the body's scale are the template's");
+            Check(Math.Abs(t.GetNumber("Enemy01BehaviorState.combatCommitmentSetup.view.range") - 25) < 0.01 && Math.Abs(t.GetNumber("ScaleComponent.uniformScale") - 1.1) < 0.01,
+                "the AI's sight (the view range the game's sight check reads) and the body's scale are the template's");
+            Check(Math.Abs(t.GetNumber("Enemy01BehaviorState.combatCommitmentSetup.view.coneHalfAngle") - 80) < 0.01 && Math.Abs(t.GetNumber("Enemy01BehaviorState.combatCommitmentSetup.gain.inRange.range") - 6) < 0.01,
+                $"its view cone and the distance it engages at are the fields the game reads: {t.Get("Enemy01BehaviorState.combatCommitmentSetup.view.coneHalfAngle")}, {t.Get("Enemy01BehaviorState.combatCommitmentSetup.gain.inRange.range")}");
+            var vukah = Content.Templates.Get("Enemy_Vukah_Melee");
+            Check(vukah != null && t.Get("Enemy01BehaviorState.aggroSetup.viewRange").ToString() == vukah.Get("Enemy01BehaviorState.aggroSetup.viewRange").ToString(),
+                $"a sight within 64 m leaves the search for candidates as it is: {t.Get("Enemy01BehaviorState.aggroSetup.viewRange")}");
         }
         var arsenal = _stoneling!.Arsenal!.Value;
         var info = Arsenals.Info(arsenal);

@@ -55,7 +55,16 @@ Voiceover.Stop();
 - **States** (`Sound.State`): `Pending` → `Playing` (the game's instance exists) → `Stopped` (`Finished`, `Stopped`,
   `EntityGone`, `Replaced`, `Silent`, `WorldEnded`) or `Failed` (`StartFailed`, `NoSoundSystem`, `TimedOut`,
   `NotFound`, `Refused`). `IsPlaying` = `Pending` or `Playing`; one-shots go true → false by themselves, loops stay
-  true until `Stop`. After `Stop`, `IsPlaying` is false at once. Finished handles are kept 60 s, then `None`.
+  true until `Stop`. After `Stop`, `IsPlaying` is false and `Info` reads `Stopped`/`Stopped` at once. Finished handles
+  are kept 60 s, then `None`.
+- **Cooked lengths.** The game keeps the instance of a streamed take (over 1 s) alive after its audio has ended, for
+  seconds or until the world ends; the lore queue waits for it too, so music stays ducked and the next lore line waits.
+  A one-shot of a mod's cooked audio (a cue without `loop`, a voice-over line, a narration) that still plays its cooked
+  length plus a margin (a quarter of it, at least 0.5 s) after it started is stopped with a 30 ms fade and reads
+  `Stopped`/`Finished` (kiln.log `#N still playing ... past its cooked length (... ms): ended`). The game's own cues have
+  no cooked length and keep the instance rule.
+- **Unknown cues.** `SoundStart` hands out an instance for any GUID, one that never plays and never ends. A cue that is in
+  neither the game's cue catalog nor a mod's (kiln.assets) fails at once: `Failed`/`NotFound`.
 - **Handles** are Kiln ids (never reused); the game's instance id behind one is generation-checked by the game, so a
   stale handle never touches another sound.
 - **Volume** 0..1 multiplies the cue's own volume and the player's slider for the scene. `PlayMusic` fades in (best
@@ -120,7 +129,7 @@ What holds for the mapping:
   player without that voice language still reads it). The game's own lore UI may show the narration's name and
   description loca tags (`nameLoca`, `descriptionLoca`).
 - `Voiceover.Stop` stops Kiln's dialogue line; `Sound.Stop(handle)` on a narration stops it when it is the playing head
-  of the queue (a queued one is stopped when it gets there).
+  of the queue. A queued one reads `Stopped` at once and is stopped when it gets there.
 
 ### Cooked index
 `<mod>/assets/cooked/audio.json` (written by tools/soundcook):
@@ -231,10 +240,10 @@ The deploy builds kiln-audio.dll / Kiln.Audio.dll with the tree and composes `cl
 | H3 | menu, ~1.5 s later | a short beep 1320 Hz, 0.3 s, both ears | `PASS fixture ui_beep (1320 Hz, kiln.assets cue) from a thread-pool thread` |
 | H4 | menu, ~1.5 s later | a 997 Hz chime, 0.5 s, both ears | `PASS SoundSample ui_chime (997 Hz)` |
 | H5 | menu | a soft two-note chord (C4+E4, 262+330 Hz) fading in over 1 s, steady ~3.5 s (it loops every 3 s: no gap should be heard), getting quieter, a short re-start, about 1 s more, fading out | `PASS PlayMusic … is playing`, `PASS a second PlayMusic replaces the first`, `PASS the track ended as Stopped` |
-| H6 | menu | nothing (an unknown cue) | `PASS an unknown cue fails soft` |
+| H6 | menu | nothing (an unknown cue) | `audio: #N sound ... FAILED: no such cue or voice-over line ...`, `PASS an unknown cue fails soft` |
 | H7 | Play → **LOCAL** tab → slot 1 → host offline; stand still | 8 s after spawning the captions start | `saves: world loaded: slot 0x0002 (world1.ksd)`, `audio: voice-over manager 0x… running`, `audio-test: INFO client world session 1: local player 1; the world suite starts in 8 s` |
 | H8 | in game | a 330 Hz tone pulsing twice a second, centred on the player (equal in both ears, it moves with you if you walk), 2.5 s; then quieter and 5 m to the east (turn the camera: it moves between ears); stops | `PASS PlayOn(local player 1) plays`, `PASS it follows the entity`, `PASS SetVolume + SetPosition apply`, `PASS Stop ends the loop` |
-| H9 | in game | an 880 Hz tone, 2 s, from 10 m east (louder in the ear facing east) | `PASS PlayAt at_tone (880 Hz, 2 s, streamed) 10 m east` |
+| H9 | in game | an 880 Hz tone, 2 s, from 10 m east (louder in the ear facing east) | `PASS PlayAt at_tone (880 Hz, 2 s, streamed) 10 m east ...: pending -> playing -> finished` (a streamed take: `#N still playing ... past its cooked length (2000 ms): ended` when the game keeps its instance) |
 | H10 | in game | the game's grasshopper chirping, 3 m north, 1.5 s | `PASS a vanilla loop (grasshoppers) plays 3 m north` |
 | H11 | in game | voice-over language **English**: two 600 Hz beeps; **German**: three 700 Hz beeps; French/Spanish/Chinese: silence. Subtitle at the bottom: "[audio-test] two beeps (English)" / "drei Pieptöne (Deutsch)" | `audio: #N voice-over 7412911f-… requested: speaker 0, language slot en -> cue …`, `voice-over playing`, `PASS Voiceover.Play vo_line …` (silent case: `no take for voice language id N … silent, as the cooked data says`) |
 | H12 | in game | a short male villager exclamation (the game's own voice line) | `PASS Voiceover.Play a vanilla villager line` |
@@ -256,7 +265,7 @@ The deploy builds kiln-audio.dll / Kiln.Audio.dll with the tree and composes `cl
 | H19 | Settings: voice-over language German, then Escape → **Kiln audio tour** | H11 three 700 Hz beeps, H13 silence (subtitle still shown), S8 three 784 Hz beeps, S9 silence | `language slot de`, `silent, as the cooked data says` |
 | H20 | Settings: voice-over language French, tour again | H11 silence, S8 the English beeps | `language slot fr` |
 | H21 | sliders: music to 0 → H5/S7 silent; voice-over volume to 0 → H11/S8 silent; then back | – | (states still PASS) |
-| H22 | Escape → quit to the main menu, then Quit | no Kiln sound continues into the menu except music/UI ones; the game closes normally | `audio: client world stopping: Kiln's world sounds and voice-over lines end at the next frame`, `audio-test: INFO OnUnload: summary: N PASS, 0 FAIL` |
+| H22 | Escape → quit to the main menu, then Quit | no Kiln sound continues into the menu except music/UI ones, and no audio-test caption or subtitle stays on the menu; the game closes normally | `audio: client world stopping: Kiln's world sounds and voice-over lines end at the next frame`; each suite's own summary: `audio-test: INFO world suite done: summary: N PASS, 0 FAIL`. Leaving a world mid-suite: `audio-test: INFO world suite stopped: its world ended (the player left) (...)`. A game client doesn't unload its mods when the game quits, so `OnUnload: summary` shows only when the mod is unloaded (a dedicated server's stop, a reload) |
 
 Directions: x is east, z north. "East" is to the right on the map; the 3D sounds pan as the camera turns.
 
@@ -267,6 +276,11 @@ sound (ids match) answers the remote entity-id question (C9).
 ## Limits
 - Not heard in game yet: only the boot capture, the threads and the voice-over manager hook ran in a client (passive);
   playback, voice-over and narration calls need the manual test.
+- A streamed take's end: Kiln knows it from the cooked length only, so a mod's streamed one-shot ends at most a margin
+  after its length, and a take that starts late (its first read) can lose that much of its tail. The game's own streamed
+  cues are judged by their instance.
+- Sounds played from a thread-pool thread have no owner mod (the calling mod is known on its own threads only): they don't
+  stop when the mod unloads, and `StopAll` doesn't reach them.
 - `Voiceover.Play` for a remote client's relayed line has no speaker entity (position only).
 - Narration cannot be withdrawn while queued behind another line; Stop applies when it reaches the head.
 - `fade_in` is best effort for streamed takes; `PlayParams` flag bits stay 0 (their meaning is [hyp]).

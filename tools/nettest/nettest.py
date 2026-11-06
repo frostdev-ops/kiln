@@ -235,6 +235,52 @@ class Client:
         return None
 
 
+class ContentClient(Client):
+    """A client that also keeps the content states the server sends on kiln:content (docs/kiln/sync.md "Wire format")
+    and acks them when told to, as a Kiln client does once it has applied one."""
+
+    def __init__(self, port, name, verbose=False):
+        super().__init__(port, name, verbose)
+        self.parts = {}
+        self.states = []  # complete states: dict(id, doc, at) in arrival order
+
+    def content_id(self):
+        return next((t[0] for t in (self.welcome or {}).get("table", []) if t[1] == "kiln:content"), None)
+
+    def pump(self, seconds):
+        super().pump(seconds)
+        cid, keep = self.content_id(), []
+        for m in self.messages:
+            if cid is not None and m[0] == cid and m[1] == 0:
+                self._part(m[2])
+            else:
+                keep.append(m)
+        self.messages = keep
+
+    def _part(self, body):
+        r = R(body)
+        _fmt, sid, _gen, _raw_len, _fields, part, parts, _codec = r.u16(), r.u32(), r.u64(), r.u32(), r.u32(), r.u16(), r.u16(), r.u8()
+        data = r.blob()
+        if parts == 0:
+            self.states.append(dict(id=sid, doc=None, reason=data.decode(), at=time.time()))
+            return
+        got = self.parts.setdefault(sid, {})
+        got[part] = data
+        if len(got) == parts:
+            del self.parts[sid]
+            raw = zlib.decompress(b"".join(got[i] for i in range(parts)), -15)
+            self.states.append(dict(id=sid, doc=json.loads(raw), raw=raw, at=time.time()))
+
+    def ack(self, sid, result=0):
+        self.data(self.content_id(), 1, W().u32(sid).u8(result).varu(0).varu(0).varu(0).varu(0).string("nettest").b)
+
+
+def log_time(line):
+    """Seconds of the day of a kiln.log line ("[I 04:43:52.877] ...")."""
+    m = re.match(r"\[\w (\d+):(\d+):(\d+\.\d+)\]", line)
+    return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3]) if m else None
+
+
 def advert(props):
     """The kiln.* server properties of a REJECT/WELCOME (docs/kiln/network.md "Server modpacks")."""
     req = []
@@ -969,22 +1015,30 @@ class Suite:
 
         def join(name, channels):
             m = self.log_mark()
-            c = Client(self.port, name, self.verbose)
+            c = ContentClient(self.port, name, self.verbose)
             c.hello(FULL_MODS, channels)
             c.wait(lambda: c.welcome is not None, 8)
             peer = self.peer_of(m)
             return c, m, f"({peer})"
 
-        # acks: released at once, whatever the result
+        # acks: an ack of the state it was sent releases it at once, whatever the result; any other state id doesn't
         c, m, me = join("def-ack", with_content)
-        cid = next((t[0] for t in c.welcome["table"] if t[1] == "kiln:content"), None) if c.welcome else None
+        cid = c.content_id()
         self.check("definitions.channel-shared", cid is not None, str(c.welcome and c.welcome["table"]))
         if cid is None:
             return
         time.sleep(0.5)
         mine = lambda: [l for l in self.log_since(m).splitlines() if me in l]
         self.check("definitions.ack.waits", not any("has the server's definitions" in l for l in mine()), str(mine())[-300:])
-        c.data(cid, 1, W().u32(0x1234).u8(3).varu(0).varu(0).varu(0).varu(0).string("nettest").b)
+        c.ack(0x1234, 3)
+        time.sleep(1.0)
+        self.check("definitions.ack.other-state-waits", not any("has the server's definitions" in l for l in mine()) and
+                   any("is not the one served now" in l for l in mine()), str(mine())[-300:])
+        c.wait(lambda: c.states, 5)
+        self.check("definitions.state-sent", bool(c.states), f"{len(c.states)} state(s) in 5 s")
+        if not c.states:
+            return
+        c.ack(c.states[-1]["id"], 3)
         end = time.time() + 3
         while time.time() < end and not any("has the server's definitions after" in l for l in mine()):
             time.sleep(0.1)
@@ -1001,6 +1055,173 @@ class Suite:
         c, m, me = join("def-old", without)
         time.sleep(6.5)
         self.check("definitions.no-channel.no-wait", c.welcome is not None and not any("no content ack" in l for l in mine()), str(mine())[-200:])
+
+    def t_hotload(self):
+        """A mod loaded while Kiln clients are in adds a template, and an entity of it is spawned at once. A client gets that
+        entity only after the content state that defines the template: kiln.net keeps it back until the client acks a state
+        built after the template came. Needs --lab, kiln/staged/creaturetweaks (not in kiln/mods) and no other mod adding
+        templates. Each fake client stands for the player of a free slot, where the game's own relevance step shows what
+        would go out to it."""
+        mod, guid = "creaturetweaks", "6b1e0c52-93a4-4f7e-b2d8-1c5a7e9f3d40"
+        if not self.lab:
+            print("SKIP hotload: needs --lab", flush=True)
+            return
+        staged = os.path.join(self.lab, "kiln", "staged", mod)
+        live = os.path.join(self.lab, "kiln", "mods", mod)
+        if not os.path.isdir(staged) or os.path.isdir(live):
+            print(f"SKIP hotload: needs {mod} in kiln/staged and not in kiln/mods", flush=True)
+            return
+        ctl = ready_client(self.port, "hl-ctl", self.verbose)
+        g = self.gate_status(ctl)
+        if int(g.get("caps", "0")) & 2 == 0 or "newer" not in g:
+            print(f"SKIP hotload: no withholding on this build ({g})", flush=True)
+            return
+        with_content = [c for c in CHANNELS if c[0] != "kiln:content"] + [("kiln:content", "1", False)]
+        without = [c for c in CHANNELS if c[0] != "kiln:content"]
+
+        def ctl_kv(c, cmd):
+            r = (self.control(c, cmd) or "").removeprefix("control:")
+            return dict(kv.split("=", 1) for kv in r.split()) if "=" in r else {}
+
+        def join(name, channels, slot):
+            m = self.log_mark()
+            c = ContentClient(self.port, name, self.verbose)
+            c.hello(FULL_MODS, channels)
+            c.wait(lambda: c.welcome is not None, 8)
+            b = ctl_kv(c, f"gate-bind {slot}")
+            return c, b.get("peer", "?"), m
+
+        def heap(slot, *es):
+            """The slot's heap size, then after the relevance step with each entity new in turn (one server step)."""
+            r = ctl_kv(ctl, f"gate-q {slot} " + " ".join(str(e) for e in es))
+            return [int(x) for x in r.get("heap", "-1").split(",")] if r.get("rc") == "0" else [-1] * (len(es) + 1)
+
+        def lines(mark, *texts):
+            return [l for l in self.log_since(mark).splitlines() if all(t in l for t in texts)]
+
+        # A acks every state, as a Kiln client does; B has no content sync (an older Kiln); C stops acking after the first.
+        a, pa, _ = join("hl-a", with_content, 15)
+        b, pb, _ = join("hl-b", without, 14)
+        c, pc, _ = join("hl-c", with_content, 13)
+        for x in (a, c):
+            x.wait(lambda: x.states, 8)
+            if x.states:
+                x.ack(x.states[-1]["id"])
+        b.pump(1.5)
+        g = self.gate_status(ctl)
+        self.check("hotload.before.clients-cleared", a.states and c.states and (int(g.get("slots", "0")) >> 13) & 7 == 0, str(g))
+        first = {x.name: x.states[-1]["id"] for x in (a, c) if x.states}
+        # an entity of a Kiln-only template the clients already have, when the lab has one: it keeps going out meanwhile
+        known = 0
+        audit = (self.control(ctl, "gate-audit") or "").removeprefix("control:")
+        for name in (json.loads(audit)["kiln"] if audit.startswith("{") else [])[:6]:
+            self.control(ctl, f"gate-spawn {name}")
+            for _ in range(40):
+                e = (self.control(ctl, f"gate-entity {name}") or "").removeprefix("control:")
+                if e != "pending":
+                    break
+                time.sleep(0.25)
+            if e.startswith("{") and json.loads(e)["withheld"] == 1:
+                known = json.loads(e)["id"]
+                break
+        if not known:
+            print("note: no Kiln-only entity here before the hot load: the known-template case needs a lab with one", flush=True)
+        if audit.startswith("{"):
+            time.sleep(5.5)  # the audit made kiln.spawn read the game's templates; it reads them again at most every 5 s
+        os.rename(staged, live)
+        mark = self.log_mark()
+        try:
+            r = (self.control(ctl, f"gate-hotload {mod} {guid}") or "").removeprefix("control:")
+            st = {}
+            end = time.time() + 20
+            while time.time() < end:
+                rs = (self.control(ctl, "gate-hotload-state") or "").removeprefix("control:")
+                st = json.loads(rs) if rs.startswith("{") else {}
+                if st.get("elite") and all(st.get("game", [0])):
+                    break
+                time.sleep(0.1)
+            elite = st.get("elite", 0)
+            self.check("hotload.spawned-at-once", elite != 0 and st["spawnStep"] - st["seenStep"] <= 2, f"{r}; {json.dumps(st)}")
+            if not elite:
+                return
+            v1, v2, v3 = st["game"]
+            # A, right away: a game entity goes in, the elite stays out
+            ha = heap(15, v1, elite)
+            self.check("hotload.a.kept-back", ha[0] >= 0 and ha[1] == ha[0] + 1 and ha[2] == ha[1], f"heap {ha}: the game entity goes in, the elite doesn't")
+            if known:
+                hk = heap(15, known)
+                self.check("hotload.a.known-template-goes-out", hk[0] >= 0 and hk[1] == hk[0] + 1, f"heap {hk}: entity {known} of a template it had")
+            hc = heap(13, v1, elite)
+            self.check("hotload.c.kept-back", hc[0] >= 0 and hc[1] == hc[0] + 1 and hc[2] == hc[1], f"heap {hc}")
+            time.sleep(0.3)
+            note = lines(mark, pa, "slot 15", guid, "waits for its next one")
+            self.check("hotload.a.logged", bool(note), str(lines(mark, "waits for its next one"))[-300:])
+            g = self.gate_status(ctl)
+            self.check("hotload.newer-slots", (int(g.get("newer", "0")) >> 13) & 5 == 5, str(g))
+            # A gets the state that defines the template
+            a.wait(lambda: any(x["id"] != first["hl-a"] for x in a.states), 6)
+            new = next((x for x in reversed(a.states) if x["id"] != first["hl-a"]), None)
+            has_def = new is not None and new.get("raw") is not None and (guid.encode() in new["raw"] or b"Kiln_Elite_Vukah" in new["raw"])
+            self.check("hotload.a.state-defines-it", has_def, f"{len(a.states)} state(s); new {new and hex(new['id'])}")
+            if new is None:
+                return
+            # an ack of its old state, which lacks the template, keeps the elite back
+            a.ack(first["hl-a"])
+            a.pump(0.8)
+            h2 = heap(15, v2)
+            self.check("hotload.a.old-ack-keeps-it", h2[0] >= 0 and h2[1] == h2[0] + 1 and not lines(mark, pa, "cleared again") and
+                       bool(lines(mark, pa, "is not the one served now")), f"heap {h2}: the game entity only")
+            # its ack of the new state: the elite goes out with the next entity, after the definition
+            t_ack = time.time()
+            a.ack(new["id"])
+            a.wait(lambda: bool(lines(mark, pa, "cleared again")), 3)
+            cleared = lines(mark, pa, "cleared again")
+            self.check("hotload.a.cleared-by-ack", bool(cleared) and "1 kept-back entity" in cleared[0] and not lines(mark, pa, "no content ack"),
+                       str(cleared)[-300:])
+            h3 = heap(15, v3)
+            self.check("hotload.a.sent-after-ack", h3[0] >= 0 and h3[1] == h3[0] + 2, f"heap {h3}: the game entity and the elite")
+            # order in the server's log: registered, spawned, kept back, state sent to A, A's ack, cleared, and A had the
+            # definition before it acked
+            log = self.log_since(mark).splitlines()
+            def at(*texts):
+                hit = next((l for l in log if all(t in l for t in texts)), None)
+                return log_time(hit) if hit else None
+            order = [("template registered", at("Kiln_Elite_Vukah", "registered in the server world")),
+                     ("elite spawned", at("hot load: template", "entity")),
+                     ("kept from A", at("slot 15", "waits for its next one")),
+                     ("state sent to A", at(f"content state {new['id']:08x}", "sent to")),
+                     ("A acked it", at(f"content state {new['id']:08x} applied")),
+                     ("A cleared", at(pa, "cleared again"))]
+            t = dict(order)
+            before = [("template registered", "elite spawned"), ("elite spawned", "kept from A"), ("kept from A", "A cleared"),
+                      ("state sent to A", "A acked it"), ("A acked it", "A cleared")]
+            ok = all(v is not None for v in t.values()) and all(t[x] <= t[y] for x, y in before) and new["at"] <= t_ack
+            print("hotload order: " + ", ".join(f"{n} {t:.3f}" if t is not None else f"{n} -" for n, t in order), flush=True)
+            self.check("hotload.order", ok, str(order))
+            # B can't ack: it gets the elite at once again, at kiln.net's next clear (Kiln.Network's 1 s tick)
+            end = time.time() + 3
+            while time.time() < end and not lines(mark, pb, "cleared again"):
+                time.sleep(0.2)
+            self.check("hotload.b.no-sync-cleared", bool(lines(mark, pb, "cleared again")), str(lines(mark, pb))[-300:])
+            hb = heap(14, v2, elite)
+            self.check("hotload.b.sent", hb[0] >= 0 and hb[2] == hb[0] + 2, f"heap {hb}")
+            # C never acks the new state: definitionsWaitSeconds sends it anyway
+            end = time.time() + 8
+            while time.time() < end and not lines(mark, pc, "no content ack"):
+                c.pump(0.2)
+            self.check("hotload.c.deadline", bool(lines(mark, pc, "no content ack")) and bool(lines(mark, pc, "cleared again")), str(lines(mark, pc))[-300:])
+            hc2 = heap(13, v2)
+            self.check("hotload.c.sent-at-deadline", hc2[0] >= 0 and hc2[1] == hc2[0] + 2, f"heap {hc2}: the game entity and the elite")
+        finally:
+            self.control(ctl, "gate-hotload-end")
+            self.control(ctl, "gate-cleanup")
+            for x in (a, b, c):
+                self.control(x, "gate-bind none")
+            end = time.time() + 5
+            while time.time() < end and f"{mod} unloaded" not in self.log_since(mark):
+                time.sleep(0.2)
+            if os.path.isdir(live) and not os.path.exists(staged):
+                os.rename(live, staged)
 
     def t_status(self):
         c = ready_client(self.port, "status", self.verbose)
@@ -1019,7 +1240,7 @@ def main():
     s = Suite(a.port, a.verbose, a.lab, a.game_templates)
     probe_server(a.port)
     order = ["handshake", "echo", "json", "fragments", "oversize", "garbage", "broadcast", "channel_mismatch", "ping",
-             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "withheld", "definitions", "reload", "netsample", "status"]
+             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "withheld", "definitions", "hotload", "reload", "netsample", "status"]
     only = [x for x in a.only.split(",") if x]
     for name in order:
         if only and name not in only:

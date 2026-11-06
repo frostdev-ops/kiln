@@ -5,7 +5,8 @@
       { "id": "elite_vukah", "base": "Enemy_Vukah_Melee", "name": "Elite Vukah", "level": 20, "scale": 1.4, "xp": 2.5,
         "damage": 1.3, "resistances": { "Fire": 0.5, "Pierce": 0.6 }, "loot": { "slots": [2, 6] },
         "features": ["-FleeHome"],
-        "ai": { "aggroSetup.viewRange": 30, "aggroSetup.aggroRange": 16, "aggroSetup.viewConeHalfAngle": 120 } }
+        "ai": { "combatCommitmentSetup.view.range": 30, "combatCommitmentSetup.gain.inRange.range": 16,
+                "combatCommitmentSetup.view.coneHalfAngle": 120 } }
     ],
     "spawnRules": [ { "replace": "Enemy_Vukah_Melee", "with": "elite_vukah", "chance": 0.2 } ]
   }

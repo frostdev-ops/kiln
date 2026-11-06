@@ -48,6 +48,7 @@ public sealed class StationBlocksMod : Mod
         Blocks.Define("frost-ingot", new ItemBlock
         {
             Name = "Frost Ingot", Stack = 50,
+            Visual = new VisualBlock { Like = GameItems.Material_T5_Silver_Bar },
             Recipe = new RecipeBlock { Station = forge, Seconds = 2, Burns = { [GameItems.Material_T1_Charcoal] = 1 }, Needs = { [GameItems.Material_T1_Metal_Sheets] = 1 } },
         });
 

@@ -51,6 +51,7 @@ public sealed class FrostboltBlockMod : Mod
         {
             Name = "Chilled",
             Description = "The cold bites a little every 2 seconds.",
+            Look = StatusLook.Frost,
             Seconds = 8,
             TickEvery = 2,
             Vfx = aura,

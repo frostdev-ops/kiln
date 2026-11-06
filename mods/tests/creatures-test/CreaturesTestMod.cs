@@ -24,6 +24,8 @@ namespace CreaturesTest;
 public sealed class CreaturesTestMod : Mod
 {
     private static readonly WorldPosition Pos = new(3865.8, 833.0, 1433.8);
+    // The view range the game's sight check reads (EliteVukah sets it to 30; the Vukah template has 18).
+    private const string EliteView = "combatCommitmentSetup.view.range";
     private const string Vukah = "Enemy_Vukah_Melee";
     private static readonly Guid VukahId = Guid.Parse("d5d05217-52dc-467a-9192-26b4f661d8d9");
     private static readonly Guid VukahArsenal = Guid.Parse("e30312e7-9749-4329-8bfd-469a295747b5");
@@ -676,10 +678,10 @@ public sealed class CreaturesTestMod : Mod
         {
             var c = Creatures.Of(e);
             var i = c.Inspect()!;
-            Check(i.Level == 20 && Math.Abs(i.Scale - 1.4f) < 1e-4 && c.Ai.Get("aggroSetup.viewRange") == "30" &&
-                  Creatures.Of(_mine[0]).Ai.Get("aggroSetup.viewRange") == "18" && i.HealthMax > 417 &&
+            Check(i.Level == 20 && Math.Abs(i.Scale - 1.4f) < 1e-4 && c.Ai.Get(EliteView) == "30" &&
+                  Creatures.Of(_mine[0]).Ai.Get(EliteView) == "18" && i.HealthMax > 417 &&
                   i.DisabledFeatures.HasFlag(EnemyFeatures.FleeHome) && Math.Abs(c.Resistance[DamageKind.Fire] - 0.5f) < 1e-6,
-                  $"elite {e}: level {i.Level}, health {i.Health}/{i.HealthMax}, scale {i.Scale}, own view range {c.Ai.Get("aggroSetup.viewRange")} (others 18), fire 0.5, no FleeHome");
+                  $"elite {e}: level {i.Level}, health {i.Health}/{i.HealthMax}, scale {i.Scale}, own view range {c.Ai.Get(EliteView)} (others 18), fire 0.5, no FleeHome");
         }
         var status = (await Mods.UnloadAsync("elite-vukah"));
         Info($"unload elite-vukah: {status}");
@@ -688,7 +690,7 @@ public sealed class CreaturesTestMod : Mod
         {
             var c = Creatures.Of(e);
             var i = c.Inspect()!;
-            Check(i.Level == 1 && Math.Abs(i.Scale - 1) < 1e-6 && c.Ai.Get("aggroSetup.viewRange", out var priv) == "18" && !priv &&
+            Check(i.Level == 1 && Math.Abs(i.Scale - 1) < 1e-6 && c.Ai.Get(EliteView, out var priv) == "18" && !priv &&
                   i.DisabledFeatures == EnemyFeatures.None && i.Layers == 0 && i.PrivateCopies == 0 &&
                   CreatureVariants.Get("elite_vukah") is null,
                   $"elite {e} after the unload: level {i.Level}, scale {i.Scale}, view range back to the template, no layers / copies; variant gone");

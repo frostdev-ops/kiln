@@ -313,7 +313,7 @@ A new shape on the game's building materials: beside the walls and floors in the
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `cells` | array of array of string | yes | Layers from the bottom up; in a layer, rows from the back to the front; in a row, # a cell and . or a space none. Half a metre a cell, 32 at most each way. min items 1 max items 32 |
-| `cost` | integer |  | Blocks of the material one placement takes. Default: 20 for every 64 cells, as the game's walls. min 1 max 9999 |
+| `cost` | integer |  | Obsolete and not used: a placement takes one block of the chosen material per cell it fills, as the game's own shapes do. min 1 max 9999 |
 | `description` | string |  |  |
 | `name` | string | yes | min length 1 |
 | `recipe` | [recipe](#recipe) |  |  |
@@ -1026,7 +1026,7 @@ A buff or debuff, shown in the game's buff bar. It lasts its seconds, or while a
 | `description` | string |  |  |
 | `icon` | string |  | The icon, when it is not the look's: a game status by its id, whose icon it takes. Pattern `^(0x[0-9a-fA-F]{8}\|buff_[0-9a-fA-F]{8})$`. |
 | `kind` | `"debuff"` \| `"buff"` |  |  |
-| `look` | `"frost"` \| `"poison"` |  | Its icon and body effect. |
+| `look` | `"frost"` \| `"poison"` \| `"fire"` |  | Its icon and body effect. Default: a timer's icon for a debuff, a blessing's for a buff, and no body effect. |
 | `modifies` | object |  | Stats changed for as long as it runs. Whole-number stats take whole numbers; the rest are shares, 0.1 being 10%. A GUID names any other attribute (as a share). |
 | `name` | string | yes | min length 1 |
 | `onApply` | [effects](#effects) |  |  |

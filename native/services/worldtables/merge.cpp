@@ -708,6 +708,77 @@ bool merge_world(const Bytes& game, const Layouts& L, const std::vector<Placed>&
     return true;
 }
 
+// ---- the build menu's pools ------------------------------------------------------------------------------------------
+std::string pool_of(const Material& m) {
+    if (!m.item) return "";
+    if (m.terrain) return kTerrainPool;
+    return m.roof ? kRoofPool : kWallPool;
+}
+
+bool pool_counts(const Bytes& game, const Layouts& L, std::map<std::string, uint32_t>* out, std::string* why) {
+    ArrayView pools;
+    if (!array_at(game, L.pools, L.pool_stride, &pools)) {
+        *why = "the material pools don't read as their layout says";
+        return false;
+    }
+    out->clear();
+    for (uint32_t i = 0; i < pools.count; ++i) {
+        const size_t rec = static_cast<size_t>(pools.base - game.data()) + size_t{i} * L.pool_stride;
+        const int32_t off = rd<int32_t>(game.data() + rec + L.pool_name);
+        const uint32_t len = rd<uint32_t>(game.data() + rec + L.pool_name + 4);
+        const int64_t at = int64_t(rec) + L.pool_name + off;
+        ArrayView items;
+        if (!off || at <= 0 || static_cast<uint64_t>(at) + len > game.size() || !array_at(game, static_cast<uint32_t>(rec + L.pool_materials), 4, &items)) {
+            *why = "a material pool's name or list doesn't read";
+            return false;
+        }
+        (*out)[std::string(reinterpret_cast<const char*>(game.data() + at), len)] = items.count;
+    }
+    return true;
+}
+
+std::string pool_room_text(const std::string& pool, uint32_t game_count) {
+    const uint32_t room = game_count < kPoolCapacity ? kPoolCapacity - game_count : 0;
+    const std::string cap = std::to_string(kPoolCapacity), have = std::to_string(game_count), fit = std::to_string(room);
+    if (pool == kTerrainPool)
+        return "the game's terrain shapes list at most " + cap + " placeable terrain materials and have " + have + " of their own: " + fit + " new ones fit across all mods";
+    return "the game's build menu lists at most " + cap + (pool == kRoofPool ? " roof" : " wall") + " materials and has " + have + " of its own: " + fit + " new ones fit across all mods";
+}
+
+void fit_pools(std::vector<Material>* live, const std::map<std::string, uint32_t>& game_counts, const std::set<Guid>& remembered, std::vector<Material>* held,
+               std::vector<std::string>* refused) {
+    std::vector<size_t> order(live->size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](size_t x, size_t y) { return (*live)[x].guid.text() < (*live)[y].guid.text(); });
+    std::map<std::string, uint32_t> used;
+    std::vector<bool> out(live->size(), false);
+    for (const size_t i : order) {
+        const Material& m = (*live)[i];
+        const std::string pool = pool_of(m);
+        if (pool.empty()) continue;
+        const auto it = game_counts.find(pool);
+        const uint32_t have = it == game_counts.end() ? 0 : it->second;
+        if (have < kPoolCapacity && used[pool] < kPoolCapacity - have) {
+            ++used[pool];
+            continue;
+        }
+        out[i] = true;
+        std::string text = std::string("block ") + (m.terrain ? "terrainMaterial " : "buildingMaterial ") + m.block + " (mod " + m.mod + "): refused: " + pool_room_text(pool, have);
+        if (remembered.count(m.guid)) {
+            text += ". A world has cells of it: it's kept as an absent mod's material is, so they stay";
+            Material h = m;
+            h.live = false;
+            h.item = false;
+            held->push_back(std::move(h));
+        }
+        refused->push_back(std::move(text));
+    }
+    std::vector<Material> keep;
+    for (size_t i = 0; i < live->size(); ++i)
+        if (!out[i]) keep.push_back(std::move((*live)[i]));
+    *live = std::move(keep);
+}
+
 bool merge_pools(const Bytes& game, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::string* why) {
     ArrayView pools;
     if (!array_at(game, L.pools, L.pool_stride, &pools)) {
@@ -742,6 +813,11 @@ bool merge_pools(const Bytes& game, const Layouts& L, const std::vector<Placed>&
             return false;
         }
         const uint32_t count = cur.count;
+        if (size_t{count} + ids.size() > kPoolCapacity) {
+            *why = std::string("the material pool ") + (roof ? kRoofPool : kWallPool) + " would list " + std::to_string(size_t{count} + ids.size()) + " items, past the " +
+                   std::to_string(kPoolCapacity) + " a player's game holds";
+            return false;
+        }
         const size_t cur_at = cur.base ? static_cast<size_t>(cur.base - out->data()) : 0;
         pad4(out);
         const size_t at = out->size();
@@ -917,7 +993,7 @@ Bytes voxel_model(const Shape& s, const ModelLayout& M) {
     const uint32_t n = s.x * s.y * s.z;
     b.resize(at + n, 0);
     for (uint32_t i = 0; i < n; ++i)
-        if ((s.bits[i / 8] >> (i % 8)) & 1) b[at + i] = kFullCell;
+        if ((s.bits[i / 8] >> (i % 8)) & 1) b[at + i] = s.roof ? kRoofCell : kFullCell;
     wr<int32_t>(b.data() + M.data, static_cast<int32_t>(at - M.data));
     wr<uint32_t>(b.data() + M.data + 4, n);
     return b;

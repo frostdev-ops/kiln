@@ -414,7 +414,7 @@ Generated: `python3 tools/typegen/playerstates.py --exe <enshrouded.exe> --table
 | `Hungry` | | 8 | The game's hunger marker is in a food slot: nothing eaten (program thirst_and_hunger) |
 
 ## Every client action
-Commands a client sends with a version number, by the game's field names. All raise `PlayerClientActionEvent`; `PlayerStates.ClientActions` lists them from the running game. Generated with `--actions`. "Can cancel": the game's consumed version for it is known, and writing it makes the game skip the action. Proven in a lab for `changeEquipmentAction`; the others work the same way, but a game program could also read the version elsewhere.
+Commands a client sends with a version number, by the game's field names. All raise `PlayerClientActionEvent`; `PlayerStates.ClientActions` lists them from the running game. Generated with `--actions`. "Can cancel": the game's consumed version for it is known, so Kiln can hold the action for the handlers and mark it consumed, and the game skips it. That needs the hold point on the build (`PlayerStates.Status.ClientActionCancel`); without it, and on a joined client, no client action can be canceled. Proven in a lab for `changeEquipmentAction`, written where a joined client's input arrives; the others work the same way, but a game program could also read the version elsewhere.
 
 | Action | Bytes | Can cancel |
 |---|---|---|

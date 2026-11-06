@@ -71,7 +71,8 @@ Status for displays: `ContentSync.Status` (client: state, fields, bytes), `Conte
   4. It logs the result, posts `ContentSyncedEvent` and acknowledges to the server. The server logs the ack:
      `<player>: content state … applied: N change(s), … in X ms`. That ack also releases the Kiln-only entities the server was
      holding back from this client, so an entity never arrives before its template (docs/kiln/network.md, "A Kiln client that
-     lacks a template"; `definitionsWaitSeconds` limits the wait).
+     lacks a template"; `definitionsWaitSeconds` limits the wait). Only an ack of the state the server serves now counts. A
+     Kiln-only template added during play (a hot load) makes a new state due at once; its entities wait for that state's ack.
 
   When local packs are re-applied while connected (a local mod reloads), the layer goes on top again.
 - **Leave**: on `Network.Disconnected`, or a new server's handshake, the layer comes off on the client's main

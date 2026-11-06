@@ -125,8 +125,16 @@ works and it's treated like the Kiln client below. Not run on a real older clien
    has started. So Kiln-only entities are held back from every Kiln client too, until it acknowledges its content state
    (or `definitionsWaitSeconds`, default 5, runs out). Then what was held goes out, and the entity arrives after its template.
    Why this and not asking again afterwards: nothing reaches the client early, so there's nothing to undo. Asking again would need
-   the server to forget, for one entity, that it had already sent it, and the game has no such step. A new content state
-   during play (a hot reload) holds new Kiln-only entities the same way until its ack.
+   the server to forget, for one entity, that it had already sent it, and the game has no such step.
+
+   *A template added during play* (a mod loaded or reloaded while the client is in). A client's clear covers the Kiln-only
+   templates there are at that moment. An entity of a template added later, or a child of one, is kept from it, even one
+   spawned in the first step the template exists. Entities of the templates it already had keep going out. The server builds a content state with the
+   new template within a second. Only an ack of the state it serves now clears the client again; an ack of an older state, from
+   before the template, doesn't. Then the kept entities go out. Without the content channel (an older Kiln) there's nothing to
+   wait for, and they go out at Kiln.Network's next tick. A client that doesn't ack gets them after `definitionsWaitSeconds`.
+   kiln.log: `net: peer 0x.. (slot N): entity E of the Kiln template <guid>, added after its last content ack, waits for its next
+   one`, then `net: peer 0x.. cleared again: ... 1 kept-back entity goes out`.
 2. *A template it won't ever have*: a `clients: "mod"` mod it lacks, let in by a `modSync` set to `warn` or `off`. The client's guard drops the create
    and any children, along the game's own failure path. kiln.log gets one line per template:
    `net: this game has no template <guid>, which the server uses: its entities aren't created here (first: <entity>). A server mod you don't have adds it.`
@@ -281,7 +289,14 @@ Each UDP source address is one fake client (peer `0x8000000n`, "lab-n"). The sui
   kiln.assets reports, a real entity of each Kiln-only template, their children, a template resource added and removed at run time;
 - the client guard and the held-back resend (part of `withheld`), on the game's own create reader and relevance step, which the server exe
   has too; a free player slot is used;
-- the wait for definitions (`definitions`, needs Kiln-only templates): released by an ack, by its deadline, no wait without the channel;
+- the wait for definitions (`definitions`, needs Kiln-only templates): released by an ack of the state it was sent, not by an ack of
+  another state, by its deadline, no wait without the channel;
+- a template added during play (`hotload`, needs `kiln/staged/creaturetweaks`): CreatureTweaks loaded while three fake clients are
+  in, each standing for the player of a free slot, and an Elite Vukah spawned in the step its template appears. On each slot, the
+  game's relevance step shows the elite kept back while a game entity and an entity of a known Kiln template go in. An ack of the
+  old state keeps it back, and the ack of the state that defines it sends it. A client without the content channel gets it
+  within a second. One that never acks gets it at the deadline. The server's log order is checked: registered, spawned, kept
+  back, state sent, acked, cleared;
 - server modpack properties (`advert`): WELCOME/REJECT props, the 0.1 REJECT decoder on new frames, the advertised
   kdh1 against the Python reference over the lab's mod folders, the dirhash fixtures hashed by the C# port under Wine
   (control `dirhash`), modpack in network.json, `advertise: false`.
@@ -289,7 +304,8 @@ Each UDP source address is one fake client (peer `0x8000000n`, "lab-n"). The sui
 The net-test mod also checks at load (`advert.*`, `lastserver.history` PASS lines in kiln.log): REJECT with properties
 through the 0.1 decoder, zero padding, a 300-mod required list truncated under 7 KB, and the last-server.json history.
 
-Last run: `nettest: 48 PASS, 0 FAIL` (svn 1285601).
+Last run (svn 1287369): `nettest: 111 PASS, 0 FAIL` with net-test and NetSample. With npcsample and quests-sample too
+(`modSync: warn`): `handshake,policy,missing_mod,vanilla,withheld,definitions,hotload` gave 101 PASS, 0 FAIL.
 
 With the real client: handshake in a hosted world and on the lab server, NetSample ping/pong (26-29 ms),
 the refuse path (toast + login failure, rejoin afterwards), and the Kiln menu's Network tab (server mods, clients,

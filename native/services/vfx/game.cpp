@@ -12,9 +12,11 @@
 // off and the game runs as vanilla; kiln.vfx then plays nothing, because it can't tell a safe GUID from an unsafe one.
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include "game.h"
@@ -63,6 +65,13 @@ struct Fns {
 SafetyHookInline g_create_hook, g_start_hook, g_update_hook;
 
 std::atomic<bool> g_guard_on{false};    // hooked and not found wrong
+
+// kiln/config/vfx.json "trace": for a few seconds after each of Kiln's plays, every VFX instance the game creates is logged with its GUID,
+// whether it got a parameter block, and where it was created from. For finding what else draws next to a mod's effect.
+std::atomic<uint64_t> g_trace_ms{0}, g_trace_until{0};
+std::atomic<int> g_trace_lines{0};
+thread_local bool t_kiln_play = false;
+constexpr int kTraceLines = 400;
 std::atomic<bool> g_play_on{false};     // the FxController path is hooked and nothing faulted
 std::atomic<bool> g_map_checked{false};
 std::atomic<uintptr_t> g_sys{0};        // the last VFX system seen
@@ -295,7 +304,33 @@ int guard_lookup(uintptr_t sys, const uint8_t* guid) {
 }
 
 // ---- hooks ----
+void trace_create(const uint8_t* guid, const void* params) {
+    if (g_trace_lines.fetch_add(1, std::memory_order_relaxed) >= kTraceLines) return;
+    uint8_t g[16] = {}, block[0x44] = {};
+    seh_read(reinterpret_cast<uintptr_t>(guid), g, 16);
+    const bool has_block = params && seh_read(reinterpret_cast<uintptr_t>(params), block, sizeof block) && block[0x40] != 0;
+    char text[40], data[33] = "";
+    guid_text(g, text);
+    if (has_block)
+        for (int i = 0; i < 16; ++i) std::snprintf(data + i * 2, 3, "%02x", block[i]);
+    void* frames[8] = {};
+    const USHORT n = RtlCaptureStackBackTrace(1, 8, frames, nullptr);
+    const uintptr_t exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    char from[160] = "";
+    size_t at = 0;
+    for (USHORT i = 0; i < n && at + 16 < sizeof from; ++i) {
+        const uintptr_t a = reinterpret_cast<uintptr_t>(frames[i]);
+        const bool in_exe = a > exe && a - exe < 0x10000000;  // the game's image; anything else is printed whole
+        at += std::snprintf(from + at, sizeof from - at, "%s%s%llx", i ? " " : "", in_exe ? "+" : "",
+                            static_cast<unsigned long long>(in_exe ? a - exe : a));
+    }
+    const uint64_t late = GetTickCount64() + g_trace_ms.load(std::memory_order_relaxed) - g_trace_until.load(std::memory_order_relaxed);
+    KV_I("vfx: trace: %s created %s, %s%s, %llu ms after Kiln's last play, from %s", t_kiln_play ? "Kiln" : "the game", text,
+         has_block ? "parameter block " : "the VFX's own defaults", data, static_cast<unsigned long long>(late), from);
+}
+
 uint32_t* hk_create(uint32_t* out, uintptr_t scene, const uint8_t* guid, const void* transform, const void* params) {
+    if (g_trace_ms.load(std::memory_order_relaxed) && GetTickCount64() < g_trace_until.load(std::memory_order_relaxed)) trace_create(guid, params);
     if (g_guard_on.load(std::memory_order_relaxed)) {
         const uintptr_t sys = sys_of_scene(scene);
         const int r = sys ? guard_lookup(sys, guid) : -2;
@@ -378,13 +413,19 @@ public:
 
     uint32_t play_at(const Frame& f, const uint8_t guid[16], const WorldTransform& t, const FxParams& p, const FxTiming& d) override {
         uint32_t fx = 0;
+        trace_window();
+        t_kiln_play = true;
         if (!seh_play_at(reinterpret_cast<uintptr_t>(f.fxc), f.now, guid, &t, &p, &d, &fx)) fault("FxPlayAt");
+        t_kiln_play = false;
         return fx;
     }
 
     uint32_t play_on(const Frame& f, const uint8_t guid[16], const FxAttach& a, const FxParams& p, const FxTiming& d) override {
         uint32_t fx = 0;
+        trace_window();
+        t_kiln_play = true;
         if (!seh_play_on(reinterpret_cast<uintptr_t>(f.fxc), f.now, guid, &a, &p, &d, &fx)) fault("FxPlayAttached");
+        t_kiln_play = false;
         return fx;
     }
 
@@ -447,6 +488,9 @@ public:
     }
 
 private:
+    static void trace_window() {
+        if (const uint64_t ms = g_trace_ms.load(std::memory_order_relaxed)) g_trace_until.store(GetTickCount64() + ms, std::memory_order_relaxed);
+    }
     static void fault(const char* what) {
         g_play_on.store(false);
         KV_E("vfx: %s faulted: kiln.vfx plays nothing more this session (the guard stays on)", what);
@@ -456,6 +500,12 @@ private:
 RealGame g_real;
 
 }  // namespace
+
+void real_game_trace(double seconds) {
+    const uint64_t ms = seconds > 0 ? static_cast<uint64_t>(std::min(seconds, 60.0) * 1000) : 0;
+    g_trace_ms.store(ms);
+    if (ms) KV_I("vfx: trace on (kiln/config/vfx.json): every VFX the game creates within %.1f s of a play from Kiln is logged, %d lines at most", ms / 1000.0, kTraceLines);
+}
 
 Game* real_game(const KilnApi* api) {
     g_api = api;

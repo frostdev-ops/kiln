@@ -36,21 +36,22 @@ internal static partial class Ops
             Combat.SetInvulnerable(p.Entity, on);
             return new JsonObject { ["entity"] = p.Entity.Value, ["god"] = Combat.IsInvulnerable(p.Entity) };
         });
-        // {entity} -> kill a player or an enemy (a killing blow, no credit)
+        // {entity} -> kill a player or an enemy (a killing blow, no credit: no XP for anyone who hit it before)
         bridge.RegisterAsync("kill", async req =>
         {
             var e = new EntityId(Entity(req));
             if (Combat.GetHealth(e) is null) throw new AdminError("That entity has no health.");
-            var r = await Combat.Kill(e);
+            var r = await Combat.Kill(e, EntityId.None, new DamageOptions { NoCredit = true });
             return new JsonObject { ["entity"] = e.Value, ["killed"] = r.KillingBlow, ["state"] = r.State.ToString() };
         });
-        // {entity, amount, attacker?} -> damage as a hit
+        // {entity, amount, attacker?} -> damage as a hit; credit goes to the attacker, and without one to nobody
         bridge.RegisterAsync("damage", async req =>
         {
             var e = new EntityId(Entity(req));
             var amount = (int)Math.Clamp(Number(req, "amount"), 1, 1_000_000);
             var attacker = req["attacker"] is JsonValue ? new EntityId(Entity(req, "attacker")) : EntityId.None;
-            var r = await Combat.Damage(e, amount, attacker, new DamageOptions { Reaction = HitReaction.Light });
+            var r = await Combat.Damage(e, amount, attacker,
+                new DamageOptions { Reaction = HitReaction.Light, NoCredit = attacker.IsNone });
             return new JsonObject { ["entity"] = e.Value, ["state"] = r.State.ToString(), ["health"] = r.HealthAfter, ["killed"] = r.KillingBlow };
         });
         _deathSub ??= Events.On<EntityDeathEvent>(d =>

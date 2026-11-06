@@ -823,6 +823,9 @@ KilnResult KILN_CALL t_definitions(char* buf, size_t cap, size_t* out_len) {
             if (d->shadow) e["shadow"] = true;
             if (!d->error.empty()) e["error"] = d->error;
             if (d->tag[0]) e["nameTag"] = hex32(d->tag[0]);
+            // the links as defined (a game node's "0x<id>", a node GUID or a Kiln node's name): which node hangs on which
+            if (!d->node.from.empty()) e["from"] = d->node.from;
+            if (!d->node.to.empty()) e["to"] = d->node.to;
             a.push_back(e);
         }
     }

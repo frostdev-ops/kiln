@@ -447,7 +447,7 @@
     },
     "templatesSection": {
       "type": "object",
-      "description": "keen::ecs::TemplateResource: paths start with a component type name (Enemy01BehaviorState.aggroSetup.viewRange).",
+      "description": "keen::ecs::TemplateResource: paths start with a component type name (Enemy01BehaviorState.combatCommitmentSetup.view.range).",
       "x-kiln-docs": "docs/kiln/services/gamedata.md#sections",
       "properties": {
         "add": {

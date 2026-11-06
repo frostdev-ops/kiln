@@ -32,10 +32,10 @@ order, conflicts, reload and revert rules: docs/kiln/services/content.md):
       "ColliderResourceComponent.colliders[0].dataArray[0].shape.radius": { "mul": 1.5 },
       "ImpactConfiguration.configValues.PushBackStrength": "Big" },
     "Enemy_Vukah_*": { "@where": { "Faction.faction": "Vukah" },
-                       "Enemy01BehaviorState.aggroSetup.viewRange": { "mul": 1.5 } },
+                       "Enemy01BehaviorState.combatCommitmentSetup.view.range": { "mul": 1.5 } },
     "add": [ { "guid": "6b1e0c52-93a4-4f7e-b2d8-1c5a7e9f3d40", "name": "Kiln_Elite_Vukah", "base": "Enemy_Vukah_Melee",
                "fields": { "Level.dataStorage[0]": 20, "ScaleComponent.uniformScale": 1.4,
-                           "Enemy01BehaviorState.aggroSetup.viewRange": 36 } } ] },
+                           "Enemy01BehaviorState.combatCommitmentSetup.view.range": 36 } } ] },
   "sequences": {
     "Attack_Player_Staff_FixedAnim_Fireball_fast": { "events[SpawnEntityEvent#0].time": 0.45,
                                                      "events[PayUsageCost#0].time": 0.45 } },
@@ -59,9 +59,11 @@ order, conflicts, reload and revert rules: docs/kiln/services/content.md):
 
 Other services add sections of their own (`creatures`: kiln.creatures' variants and spawn rules); see "Pack sections
 of other services".
+An enemy's sight is `combatCommitmentSetup.view.range` (the example's 1.5 makes a Vukah's 18 m by day 27 m), not `aggroSetup.viewRange`,
+which only sizes the search for candidates; see [creatures.md](creatures.md), "Sight and aggro".
 
 ### Paths
-- **The game's reflection**, read at run time: dotted field names (`aggroSetup.viewRange`), `[i]` for static arrays
+- **The game's reflection**, read at run time: dotted field names (`combatCommitmentSetup.view.range`), `[i]` for static arrays
   and BlobArrays, struct base fields included. Every leaf with its value: `entry.Fields()`, `GetJson(path)`, the dump.
 - **Templates** start with a component's type name: `Enemy01BehaviorState.…`, `LifeTime.lifeTime`,
   `ColliderResourceComponent.colliders[0].dataArray[0].shape.radius`; `Name#1` for the second component of a type. The
@@ -322,7 +324,7 @@ const KilnGamedataApi* g = api->service((KilnStr){"kiln.gamedata", 13}, 1);   /*
 KilnGdEntry e = { sizeof e };
 if (g->find(KILN_GD_TEMPLATES, (KilnStr){"Enemy_Vukah_Melee", 17}, &e) == KILN_OK) {
     const char* v = "{\"mul\": 1.5}";
-    g->set_json(owner, KILN_GD_TEMPLATES, e.id, (KilnStr){"Enemy01BehaviorState.aggroSetup.viewRange", 41},
+    g->set_json(owner, KILN_GD_TEMPLATES, e.id, (KilnStr){"Enemy01BehaviorState.combatCommitmentSetup.view.range", 53},
                 (KilnStr){v, strlen(v)}, NULL, 0, NULL);
 }
 ```

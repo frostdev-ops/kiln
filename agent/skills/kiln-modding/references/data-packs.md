@@ -76,13 +76,16 @@ into config values (`"impactValues.ManaCost": 30`).
   "items": { "Ammo_T1_Spell_Fire_Ball_lvl10": { "impactValues.ManaCost": 30 } },
   "templates": {
     "Enemy_Vukah_*": { "@where": { "Faction.faction": "Vukah" },
-                       "Enemy01BehaviorState.aggroSetup.viewRange": { "mul": 1.5 } },
+                       "Enemy01BehaviorState.combatCommitmentSetup.view.range": { "mul": 1.5 } },
     "add": [ { "guid": "…", "name": "MyMod_Elite_Vukah", "base": "Enemy_Vukah_Melee",
                "fields": { "Level.dataStorage[0]": 20, "ScaleComponent.uniformScale": 1.4 } } ] },
   "perks": { "Perk_Damage_Ice": { "damageModifier.distribution.magicalIceDamage": { "mul": 2 } } },
   "skills": { "item:Ability_DoubleJump": { "costs": 1 } } }
 ```
 - Template edits are global (every entity of the template). Per-creature changes belong to kiln.creatures.
+- An enemy's sight is `Enemy01BehaviorState.combatCommitmentSetup.view.range` (by day; times `nightRangeFactor` at night, the Vukah's 0.6),
+  its cone `.view.coneHalfAngle`, the distance it engages a seen target at once `.gain.inRange.range`. Not `aggroSetup`: its `viewRange`
+  only sizes the candidate search (never below 64 m), `aggroRange` and `viewConeHalfAngle` are not read.
 - When a change shows: template-only data at once; spawned values (level, scale) at the next spawn; configs at the
   next cast or buff; costs at the next payment. Vanilla clients may show vanilla tooltips; Kiln clients get synced
   values.
@@ -93,7 +96,7 @@ into config values (`"impactValues.ManaCost": 30`).
 { "creatures": {
     "variants": [ { "id": "elite_vukah", "base": "Enemy_Vukah_Melee", "name": "Elite Vukah", "level": 20,
                     "scale": 1.4, "resistances": { "Fire": 0.5 }, "features": ["-FleeHome"],
-                    "ai": { "aggroSetup.viewRange": 30 } } ],
+                    "ai": { "combatCommitmentSetup.view.range": 30 } } ],
     "spawnRules": [ { "replace": "Enemy_Vukah_Melee", "with": "elite_vukah", "chance": 0.2, "night": true } ] } }
 ```
 

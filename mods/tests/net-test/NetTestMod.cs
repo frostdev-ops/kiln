@@ -94,7 +94,7 @@ public sealed class NetTestMod : Mod
                 Log.Info($"shout from {ctx.Sender.Name} sent to {n} client(s)");
             }, NetDirection.ToServer)
             .RegisterJson(NetTestJson.Default.Counter, (m, ctx) => ctx.Reply(new Counter(m.Name, m.Count + 1)), NetDirection.ToServer)
-            .Register<Control>((m, ctx) => ctx.Reply(new Echo("control:" + RunControl(m.Command))), NetDirection.ToServer);
+            .Register<Control>((m, ctx) => ctx.Reply(new Echo("control:" + RunControl(m.Command, ctx.Sender))), NetDirection.ToServer);
         Network.Channel("net-test:extra", "2", required: false).OnRaw((ctx, id, body) =>
             Log.Info($"extra raw message {id} ({body.Length} bytes) from {ctx.Sender.Name}"));
         Check("channel.open", Network.Channels.Any(c => c.Name == "net-test:echo") && Network.Channels.Any(c => c.Name == "net-test:extra"),
@@ -113,7 +113,7 @@ public sealed class NetTestMod : Mod
         Context.Tick.Pre += OnTick;
     }
 
-    private string RunControl(string command)
+    private string RunControl(string command, NetPeer sender)
     {
         var parts = command.Split(' ', 2);
         if (parts[0] == "status")
@@ -127,7 +127,7 @@ public sealed class NetTestMod : Mod
             return $"id={a.ServerId} name={a.ServerName} pending={a.Pending} modpack={a.Modpack?.Url ?? "-"} required=" +
                    string.Join(",", a.Required.Select(r => $"{r.Kind}:{r.Id}@{r.Version}={r.Hash}"));
         }
-        if (parts[0].StartsWith("gate", StringComparison.Ordinal)) return RunGateControl(parts[0], parts.Length > 1 ? parts[1] : "");
+        if (parts[0].StartsWith("gate", StringComparison.Ordinal)) return RunGateControl(parts[0], parts.Length > 1 ? parts[1] : "", sender);
         if (parts.Length < 2) return "usage";
         if (parts[0] == "dirhash")
         {
@@ -157,15 +157,41 @@ public sealed class NetTestMod : Mod
 
     private readonly Dictionary<string, Task<EntityId>> _gateSpawns = new(StringComparer.Ordinal);
 
-    private string RunGateControl(string op, string arg)
+    private string RunGateControl(string op, string arg, NetPeer sender)
     {
         switch (op)
         {
             case "gate":
             {
                 var g = NetNative.ReadGate();
-                return $"mode={g.Mode} caps={g.Caps} held={g.Held} templates={g.KilnTemplates} slots={g.WithheldSlots} withheld={g.WithheldEntities}";
+                return $"mode={g.Mode} caps={g.Caps} held={g.Held} templates={g.KilnTemplates} slots={g.WithheldSlots} withheld={g.WithheldEntities} newer={g.NewerSlots}";
             }
+            case "gate-bind":
+            {
+                // The sender stands for the player of a free slot: withholding and its content acks act on that slot.
+                var slot = arg == "none" ? 0xFFFFFFFFul : ulong.Parse(arg, System.Globalization.CultureInfo.InvariantCulture);
+                return $"rc={NetNative.LabSelftest(NetNative.SelftestBind, sender.Id, slot, out _)} peer=0x{sender.Id:x}";
+            }
+            case "gate-q":
+            {
+                // "gate-q <slot> <entity>...": the slot's heap size, then the game's relevance step with each entity new in turn
+                // and the size after each, all in this step.
+                var a = arg.Split(' ').Select(x => ulong.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var rc = NetNative.LabSelftest(NetNative.SelftestHeap, a[0], 0, out var n);
+                var sizes = new List<ulong> { n };
+                foreach (var e in a.Skip(1))
+                {
+                    rc |= NetNative.LabSelftest(NetNative.SelftestQueue, a[0], e, out n);
+                    sizes.Add(n);
+                }
+                return $"rc={rc} heap={string.Join(",", sizes)}";
+            }
+            case "gate-hotload":
+                return StartHotLoad(arg);
+            case "gate-hotload-state":
+                return HotLoadState();
+            case "gate-hotload-end":
+                return EndHotLoad();
             case "gate-freeze":
                 NetEngine.TestFreezeVanillaDecisions = arg == "on";
                 return $"frozen={NetEngine.TestFreezeVanillaDecisions}";
@@ -259,10 +285,86 @@ public sealed class NetTestMod : Mod
         }
     }
 
+    // ---- a template added while Kiln clients are in, and its entity spawned at once (tools/nettest t_hotload) ----
+
+    private string _hlMod = "";
+    private Guid _hlTemplate;
+    private bool _hlArmed;
+    private ModOperationResult? _hlLoad;
+    private long _hlRequestedMs, _hlSeenMs = -1;
+    private ulong _hlSeenStep, _hlSpawnStep;
+    private int _hlAttempts;
+    private Task<EntityId>? _hlElite;
+    private readonly List<Task<EntityId>> _hlGame = [];
+
+    // "gate-hotload <mod folder> <template GUID>": game entities to compare with, then the mod's load; OnTick spawns the
+    // template in the first step it exists.
+    private string StartHotLoad(string arg)
+    {
+        var a = arg.Split(' ');
+        if (a.Length != 2 || !Guid.TryParse(a[1], out var g)) return "usage";
+        _hlMod = a[0];
+        _hlTemplate = g;
+        _hlLoad = null;
+        _hlSeenMs = -1;
+        _hlAttempts = 0;
+        _hlElite = null;
+        _hlGame.Clear();
+        for (var i = 0; i < 3; i++)
+            _hlGame.Add(Spawn.Entity("Enemy_Vukah_Melee", new WorldPosition(3805 + 3 * i, 860, 1440), 0, new SpawnOptions { Tag = "net-test", Flags = SpawnFlags.Transient }));
+        var before = NetNative.TemplateKilnOnly(g);
+        _hlRequestedMs = Environment.TickCount64;
+        _hlArmed = true;
+        Mods.Load(_hlMod, r => _hlLoad = r);
+        return $"requested kilnOnly={before} templates={NetNative.ReadGate().KilnTemplates}";
+    }
+
+    private void HotLoadTick(ulong step)
+    {
+        if (!_hlArmed) return;
+        if (_hlElite is { IsFaulted: true } && _hlAttempts < 250) _hlElite = null;  // kiln.spawn reads new templates at most every 5 s
+        if (_hlElite != null || NetNative.TemplateKilnOnly(_hlTemplate) != 1) return;
+        if (_hlSeenMs < 0)
+        {
+            _hlSeenMs = Environment.TickCount64;
+            _hlSeenStep = step;
+        }
+        _hlAttempts++;
+        _hlSpawnStep = step;
+        _hlElite = Spawn.Entity(_hlTemplate, new WorldPosition(3805, 860, 1436), 0, new SpawnOptions { Tag = "net-test", Flags = SpawnFlags.Transient });
+        Log.Info($"hot load: template {_hlTemplate} is there (step {step}); spawn {_hlAttempts}: {(_hlElite.IsCompletedSuccessfully ? "entity " + _hlElite.Result.Value : _hlElite.Status.ToString())}");
+    }
+
+    private string HotLoadState()
+    {
+        static uint Id(Task<EntityId>? t) => t is { IsCompletedSuccessfully: true } ? t.Result.Value : 0;
+        return JsonSerializer.Serialize(new
+        {
+            load = _hlLoad is { } l ? (l.Ok ? "ok" : "failed: " + l.Message) : "pending",
+            kilnOnly = NetNative.TemplateKilnOnly(_hlTemplate),
+            seenAfterMs = _hlSeenMs < 0 ? -1 : _hlSeenMs - _hlRequestedMs,
+            seenStep = _hlSeenStep, spawnStep = _hlSpawnStep, attempts = _hlAttempts,
+            elite = Id(_hlElite), eliteError = _hlElite?.Exception?.GetBaseException().Message,
+            game = _hlGame.Select(Id).ToList(),
+        });
+    }
+
+    private string EndHotLoad()
+    {
+        _hlArmed = false;
+        var n = (_hlElite is { IsCompletedSuccessfully: true } && Spawn.Destroy(_hlElite.Result) ? 1 : 0) +
+                _hlGame.Count(t => t.IsCompletedSuccessfully && Spawn.Destroy(t.Result));
+        _hlElite = null;
+        _hlGame.Clear();
+        if (_hlMod.Length > 0) Mods.Unload(_hlMod, r => Log.Info($"hot load: {_hlMod} unloaded: {r.Ok} {r.Message}"));
+        return $"destroyed={n}";
+    }
+
     private ulong _lastReport;
 
     private void OnTick(in TickInfo t)
     {
+        HotLoadTick(t.Step);
         foreach (var p in Network.Peers)
         {
             if (p.State == NetPeerState.Ready && _ready.Add(p.Id))

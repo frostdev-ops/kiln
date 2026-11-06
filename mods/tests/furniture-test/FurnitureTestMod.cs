@@ -170,11 +170,10 @@ public sealed class FurnitureTestMod : Mod
         Named("no-cells", "cells");
         Named("bad-cell", "cells[0][0]", "'x'");
         Named("too-big", "cells", "33");
-        Named("bad-cost", "cost", "0");
         Named("hair-fits", "look.fits");
         Named("hair-attach", "look.attach");
         Named("beard-hat", "variants", "hat");
-        string[] broken = ["no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "bad-cost", "hair-fits", "hair-attach", "beard-hat"];
+        string[] broken = ["no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "hair-fits", "hair-attach", "beard-hat"];
         var made = (mine.Blocks ?? []).Intersect(broken).ToList();
         Check(made.Count == 0 && Content.Items.Get($"{Me}.many-slots") == null && Content.Templates.Get($"{Me}.many-slots.prop") == null, $"none of the broken blocks became anything ({string.Join(", ", made)})");
         var late = mine.Errors?.FirstOrDefault(x => x.Contains("plain-lamp", StringComparison.Ordinal));
@@ -274,7 +273,7 @@ public sealed class FurnitureTestMod : Mod
         var wall = JsonNode.Parse(Blocks.Lowered("door-wall") ?? "{}")?["blueprint"];
         Check((string?)wall?["cells"] == "c3c3c3c3c3ffffff" && wall?["size"]?.ToJsonString() == "[8,8,1]", $"the door wall's cells are the game's own door wall's bytes: {wall?["cells"]} {wall?["size"]?.ToJsonString()}");
         var arch = JsonNode.Parse(Blocks.Lowered("arched-window", Sample) ?? "{}")?["blueprint"];
-        Check((string?)arch?["cells"] == "ffffc3c3c3e7ffff" && (int?)arch?["full"] == 50 && (int?)arch?["cost"] == 16, $"the arched window: {arch?["cells"]}, {arch?["full"]} cells, cost {arch?["cost"]} (the walls' 20 per 64)");
+        Check((string?)arch?["cells"] == "ffffc3c3c3e7ffff" && (int?)arch?["full"] == 50 && (int?)arch?["cost"] == 50, $"the arched window: {arch?["cells"]}, {arch?["full"]} cells, cost {arch?["cost"]} (a block per cell, as the game's shapes)");
         var status = (string?)JsonNode.Parse(Blocks.Lowered("arched-window", Sample) ?? "{}")?["status"];
         Info($"shape status: {status}; warnings: {string.Join(" | ", Blocks.Warnings(Sample))}");
         Check(status == "registered" ? Content.Items.Get(G("arched-window")) != null : Content.Items.Get(G("arched-window")) == null,

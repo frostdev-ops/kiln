@@ -63,13 +63,14 @@ internal static class ItemParts
         return block.Vfx == null ? block.Effects : [.. block.Effects, new EffectBlock { Vfx = block.Vfx }];
     }
 
-    /// <summary>Where a recipe is crafted: what kiln.content takes for it, and the menu that lists it when that isn't the workshop's own.</summary>
-    public static (string Station, string? Menu) StationOf(this BlockContext ctx, StationRef r, string path)
+    /// <summary>Where a recipe is crafted: what kiln.content takes for it, the menu that lists it when that isn't the workshop's own, and with a workshop of a station's own, the item
+    /// that places the station.</summary>
+    public static (string Station, string? Menu, string? Item) StationOf(this BlockContext ctx, StationRef r, string path)
     {
         var v = r.Value;
-        if (v == Stations.Hand || v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return (v, null);
+        if (v == Stations.Hand || v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return (v, null, null);
         var h = ctx.Find(v, path);
-        if (h is StationHandle s) return (s.Station, s.Menu);
+        if (h is StationHandle s) return (s.Station, s.Menu, s.Item);
         if (h != null) throw new BlockError(ctx.Block, path, $"\"{v}\" is a {KindOf(h.BlockType)}, not a station");
         var own = ctx.Mod.Handles.Where(x => x.Value is StationHandle).Select(x => x.Key).Order();
         throw new BlockError(ctx.Block, path, $"\"{v}\" is not a station: say \"hand\", a workshop's 0x id (GameWorkshops), or a station block; this mod has: {string.Join(", ", own)}");

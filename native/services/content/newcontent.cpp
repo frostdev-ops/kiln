@@ -630,6 +630,7 @@ struct Def {
     uint32_t id = 0;
     std::string guid_s, name, base, station;
     uint32_t menu_workshop = 0;  // recipes: "menu": the workshop whose crafting menu lists it, when that is not its own
+    std::string station_item;    // recipes at a workshop of a mod's own: "stationItem", the item that places its station (its name titles the workshop)
     std::string display;  // recipes: the recipe name; items: texts["*"].name
     TextSet texts[kTextSlots];  // items: per slot, language key -> text ("*" = displayName / description / lore)
     json fields = json::object();
@@ -741,6 +742,7 @@ struct WorldState {
     std::unordered_map<uint32_t, uint32_t> recipe_ws; // id -> workshop of the listed RecipeInfo
     std::unordered_map<uint32_t, std::vector<uint8_t>> categories;  // input category id -> GUID
     std::set<std::string> logged;                     // failures logged for this world
+    std::set<uint32_t> wr_done;                       // workshops of mods' own put into this world's workshop registry
     uint64_t steps = 0;
     bool early = false;          // bound while the game set the world up; session = the one its first step will start
     uint64_t bound_ms = 0;       // when (GetTickCount64)
@@ -1357,6 +1359,129 @@ void note_registered(uint32_t kind, uintptr_t world, WorldState& ws);  // early 
 void unknown_enable(WorldState& ws);
 uint32_t g_early_kind = KILN_WORLD_CLIENT;  // the kind registered at registry load (<kiln>/data/content/early-test: server)
 
+// ---- the workshop registry: a workshop of a mod's own, by name ----
+// workshop::WorkshopRegistry holds one of the game's hash maps at +0x40 (the recipe registry's layout: bits +8, capacity +0x10, keys
+// +0x28, values +0x40, count +0x54) whose values are keen::WorkshopResource records, inline: isNpc, ignoreInJournalUi, workshopGuid,
+// workshopId, name, item, itemRef, upgrade masks. The game fills it from WorkshopRegistryResource at load (client 0x95f5b0) and reads it
+// by workshop id (0xe89c90). A workshop it doesn't know has no title over a station's recipe picker (0xbb46e0 shows "[INVALID UI STRING]")
+// and no list of unlocked recipes (unlocked_recipes_ui, 0x31b730, skips its recipes), so a station's screen offers the first recipe of the
+// workshop whose menu it opens instead of its own. A copy of that workshop's record with the station's workshop id and GUID, named after
+// the item that places the station, makes it one the UI knows (docs/re/content.md 7). Client world; <kiln>/data/content/workshops-on-server
+// does the same on a server world (lab check).
+constexpr int64_t kWrMap = 0x40;
+struct WrLayout {
+    bool tried = false, ok = false;
+    int64_t npc = -1, journal = -1, guid = -1, id = -1, name = -1, item = -1, item_ref = -1;
+    uint32_t size = 0;
+} WR;
+
+void wr_layout() {
+    if (WR.tried) return;
+    WR.tried = true;
+    const char* t = "keen::WorkshopResource";
+    WR.npc = field_offset(t, "isNpc"), WR.journal = field_offset(t, "ignoreInJournalUi"), WR.guid = field_offset(t, "workshopGuid");
+    WR.id = field_offset(t, "workshopId"), WR.name = field_offset(t, "name"), WR.item = field_offset(t, "item");
+    WR.item_ref = field_offset(t, "itemRef");
+    WR.size = type_size(t);
+    WR.ok = WR.size >= 0x20 && WR.size <= 0x100 && WR.npc >= 0 && WR.journal >= 0 && WR.guid >= 0 && WR.id >= 0 && WR.name >= 0 &&
+            WR.item >= 0 && WR.item_ref >= 0 && type_size("keen::ItemReference") == 16;
+    if (!WR.ok) LOGW("new content: keen::WorkshopResource is not as expected (%u B): workshops of mods' own get no title", WR.size);
+}
+
+// The registry's map, when it reads as one: every record says the id it is filed under.
+bool wr_view(uintptr_t reg, MapView* m) {
+    if (!reg || !map_view(reg + kWrMap, m) || !m->count) return false;
+    uint32_t seen = 0;
+    __try {
+        for (uint64_t i = 0; i < m->cap; ++i) {
+            if (!((m->bits[i >> 6] >> (i & 63)) & 1)) continue;
+            uint32_t id = 0;
+            std::memcpy(&id, m->values + i * WR.size + WR.id, 4);
+            if (id != m->keys[i]) return false;
+            ++seen;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return seen == m->count;
+}
+
+bool wr_write(uintptr_t map, const MapView& m, int64_t slot, uint32_t key, const uint8_t* rec, uint32_t size) {
+    __try {
+        // the record, the key, then the bit and the count: a reader sees the slot only when it is complete
+        std::memcpy(m.values + slot * size, rec, size);
+        m.keys[slot] = key;
+        _InterlockedOr64(reinterpret_cast<volatile long long*>(&m.bits[slot >> 6]), static_cast<long long>(1ull << (slot & 63)));
+        *reinterpret_cast<volatile uint32_t*>(map + E.hm_count) = m.count + 1;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Puts workshop `wid` of recipe `d` ("workshop:<guid>", with "menu") into `world`'s workshop registry. Once per workshop and world session.
+void wr_add(WorldState& ws, uint32_t kind, uintptr_t world, uint32_t wid, const Def& d) {
+    static const bool on_server = GetFileAttributesA((data_dir() + "\\content\\workshops-on-server").c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (kind != KILN_WORLD_CLIENT && !(kind == KILN_WORLD_SERVER && on_server)) return;
+    if (!wid || !d.menu_workshop || !ws.wr_done.insert(wid).second) return;
+    wr_layout();
+    if (!WR.ok) return;
+    const uintptr_t reg = g_api->singleton(world, KilnStr{"workshop::WorkshopRegistry", 26});
+    MapView m;
+    if (!reg || !map_count(reg + kWrMap)) {
+        ws.wr_done.erase(wid);  // not loaded yet: the next listing tries again
+        return;
+    }
+    if (!wr_view(reg, &m)) {
+        if (ws.logged.insert("workshop registry").second)
+            LOGW("new content: the %s world's workshop registry (%p) is not as expected: workshops of mods' own get no title", wname(kind),
+                 reinterpret_cast<void*>(reg));
+        return;
+    }
+    bool found = false, menu_found = false;
+    const int64_t s = map_slot(m, wid, &found);
+    const int64_t ms = map_slot(m, d.menu_workshop, &menu_found);
+    if (s < 0 || found) return;  // the map is full, or the workshop is the game's
+    if (ms < 0 || !menu_found) {
+        LOGW("new content: workshop 0x%08x (%s): its menu's workshop 0x%08x is not in the %s world's workshop registry: no title", wid,
+             d.station.c_str() + 9, d.menu_workshop, wname(kind));
+        return;
+    }
+    // reserved once at load, never grown: an eighth stays free so that a lookup, which stops at the first clear bit, stays short
+    if (static_cast<uint64_t>(m.count) + 1 > m.cap - m.cap / 8) {
+        LOGW("new content: workshop 0x%08x (%s): the %s world's workshop registry holds %u of %llu: no title", wid, d.station.c_str() + 9,
+             wname(kind), m.count, static_cast<unsigned long long>(m.cap));
+        return;
+    }
+    uint8_t rec[0x100] = {};
+    uint8_t g[16];
+    if (!rd(reinterpret_cast<uintptr_t>(m.values) + static_cast<uintptr_t>(ms) * WR.size, rec, WR.size) ||
+        !guid_parse(lower(d.station.substr(9)), g))
+        return;
+    std::memcpy(rec + WR.guid, g, 16);
+    std::memcpy(rec + WR.id, &wid, 4);
+    rec[WR.npc] = 0;
+    rec[WR.journal] = 1;  // the journal's pages are the game's workshops
+    std::string named = "its menu's workshop";
+    NameRec item{};
+    if (!d.station_item.empty() && resolve_item(ws, d.station_item, &item) && item.info) {
+        uint8_t tag[16] = {}, zero[16] = {};
+        if (rd(item.info + L.i_name, tag, 16) && std::memcmp(tag, zero, 16) != 0) {
+            const uint32_t name = fnv1a(tag, 16);
+            std::memcpy(rec + WR.name, &name, 4);
+            named = d.station_item;
+        }
+        std::memcpy(rec + WR.item, &item.id, 4);
+        std::memcpy(rec + WR.item_ref, item.guid, 16);
+    }
+    if (!wr_write(reg + kWrMap, m, s, wid, rec, WR.size)) {
+        LOGW("new content: workshop 0x%08x: the %s world's workshop registry write faulted", wid, wname(kind));
+        return;
+    }
+    LOGI("new content: workshop 0x%08x (%s) is new in the %s world's workshop registry (%u of %llu), named after %s", wid,
+         d.station.c_str() + 9, wname(kind), m.count + 1, static_cast<unsigned long long>(m.cap), named.c_str());
+}
+
 // Inserts every definition into `world`'s registries (its thread). Returns true when everything is settled.
 bool sync_world(uint32_t kind, uintptr_t world) {
     if (!N.on || !world || kind >= KILN_WORLD_KINDS || kind == KILN_WORLD_PREDICTION) return false;
@@ -1540,6 +1665,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
                     fail_once(ws, kind, d, b);
                     continue;
                 }
+                if (d.station.rfind("workshop:", 0) == 0) wr_add(ws, kind, world, wid, d);
                 bool added = false;
                 {
                     PhaseTimer wt(PH_WS_ADD);
@@ -2196,6 +2322,26 @@ std::set<uintptr_t> g_cm_headers;     // entries headers of Kiln subcategories (
 std::set<uintptr_t> g_cm_groups;      // Kiln tabs (addresses in Kiln's copies)
 std::set<uint32_t> g_cm_recipes;      // recipe ids some Kiln subcategory lists
 
+// A station's own workshop in the crafting menu (own_build, below): its recipes, at the places the automatic placement found for them in
+// the menu whose tabs it takes.
+struct OwnPlace {
+    uint32_t tab = 0, sub = 0;  // in that menu's tree
+    uint32_t id = 0;            // the recipe
+    uintptr_t fallback = 0;     // that subcategory's entries header: where the recipe is listed when the station's own menu can't be made
+};
+struct OwnMenu {
+    uint32_t menu = 0;  // the workshop whose tabs it takes (the recipes' "menu")
+    std::vector<OwnPlace> places;
+};
+bool own_build(uintptr_t cfg, const std::map<uint32_t, OwnMenu>& menus);
+
+// The workshop of a mod's own a recipe is crafted at, when its definition names the menu to take tabs from; else 0.
+uint32_t own_workshop(const Def& d) {
+    if (!d.menu_workshop || d.station.rfind("workshop:", 0) != 0) return 0;
+    uint8_t g[16];
+    return guid_parse(lower(d.station.substr(9)), g) ? fnv1a(g, 16) : 0;
+}
+
 void menu_sync(const WorldState& ws) {
     if (!N.menu || !ws.rreg || !ws.ireg) return;
     const uint64_t version = g_version.load();
@@ -2227,6 +2373,7 @@ void menu_sync(const WorldState& ws) {
     if (!wss.count || cats.count < wss.count) return;
     const Field* catf = L.item.find("category");
     std::map<uintptr_t, std::vector<uint32_t>> want;  // subcategory header -> new ids
+    std::map<uint32_t, OwnMenu> own_menus;            // a station's own workshop -> its recipes and where they go
     std::set<uintptr_t> kiln_headers, kiln_groups;
     std::set<uint32_t> kiln_recipes;
     {
@@ -2282,6 +2429,7 @@ void menu_sync(const WorldState& ws) {
         }
         const bool my_placed = places_thing(static_cast<uintptr_t>(map_get(ws.ireg + E.items_map, my_item)));
         uintptr_t by_like = 0, by_placed = 0;
+        std::map<uintptr_t, std::pair<uint32_t, uint32_t>> where;  // subcategory header -> tab, subcategory
         for (uint32_t c = 0; c < cl.count && c < 256; ++c) {
             const uintptr_t cat = cl.data + c * static_cast<uintptr_t>(N.cat_stride);
             if (kiln_groups.count(cat)) continue;
@@ -2291,6 +2439,7 @@ void menu_sync(const WorldState& ws) {
                 const uintptr_t hdr = sub + N.sub_recipes;
                 if (kiln_headers.count(hdr)) continue;
                 last = hdr;
+                where[hdr] = {c, k};
                 auto it = g_menu.find(hdr);
                 const BlobRef ids = it != g_menu.end() ? BlobRef{it->second.orig_off ? hdr + it->second.orig_off : 0, it->second.orig_count}
                                                        : blob_at(hdr);
@@ -2314,11 +2463,23 @@ void menu_sync(const WorldState& ws) {
             }
         }
         const uintptr_t target = by_base ? by_base : by_like ? by_like : by_placed ? by_placed : by_cat ? by_cat : last;
-        if (target) want[target].push_back(id);
-        LOGD("new content: menu placement of 0x%08x (workshop %x, index %u): base %p, like %p, placed %p, category %p, last %p", id, wid, wi,
-             reinterpret_cast<void*>(by_base), reinterpret_cast<void*>(by_like), reinterpret_cast<void*>(by_placed),
+        // a station's own workshop: its own menu lists it, in this place of the menu it takes its tabs from, and that menu doesn't
+        const uint32_t own = def ? own_workshop(*def) : 0;
+        if (own && target) {
+            OwnMenu& om = own_menus[own];
+            om.menu = wid;
+            om.places.push_back(OwnPlace{where[target].first, where[target].second, id, target});
+        } else if (target) {
+            want[target].push_back(id);
+        }
+        LOGD("new content: menu placement of 0x%08x (workshop %x, index %u, own %x): base %p, like %p, placed %p, category %p, last %p", id, wid,
+             wi, own, reinterpret_cast<void*>(by_base), reinterpret_cast<void*>(by_like), reinterpret_cast<void*>(by_placed),
              reinterpret_cast<void*>(by_cat), reinterpret_cast<void*>(last));
     }
+    // the stations' own menus; when they can't be made, their recipes are listed in the menus they take their tabs from, as before
+    if (!own_build(cfg, own_menus))
+        for (auto& [w, om] : own_menus)
+            for (const OwnPlace& p : om.places) want[p.fallback].push_back(p.id);
     // headers that had new ids but no longer do: back to the original
     for (auto& [hdr, m] : g_menu)
         if (!want.count(hdr)) want[hdr];
@@ -2546,7 +2707,8 @@ void cm_build(uintptr_t cfg) {
         const uintptr_t tree = blob_at(coll + 8).data + wi * 8ull;
         auto known = g_cm_trees.find(wid);
         uint64_t orig = 0;
-        if (known != g_cm_trees.end()) orig = known->second.second;
+        // (a header of another trees array, which a station's own menus replaced (own_build): this one holds the game's tree, rebased)
+        if (known != g_cm_trees.end() && known->second.first == tree) orig = known->second.second;
         else if (!rdv(tree, orig)) continue;
         g_cm_trees[wid] = {tree, orig};
         // the original tabs (read through the original header: the tree header may still show Kiln's copy until the
@@ -2676,6 +2838,178 @@ void cm_build(uintptr_t cfg) {
          placed_tabs, placed_sets, placed_sets == 1 ? "y" : "ies", done, writes.size(), failed ? ", a write failed" : "", max_groups, max_sets);
 }
 
+// ---- a station's own workshop in the crafting menu ----
+// CraftMenuCategories (client 0xd5aec0) finds a workshop's index in the collection's workshops (u32 BlobArray at +0) and walks the tree at
+// that index (8-byte BlobArray headers at +8). A station's screens ask it for the station's own workshop: its recipe picker ("Change
+// recipe", 0xbb46e0) and a bench's menu. A workshop of a mod's own is in neither array, so both headers point at copies with one more entry
+// per such workshop: a tree of the tabs and subcategories of the menu its recipes name (copied, with ids of their own), each listing only
+// the station's recipes placed there. The game's entries are its own data, rebased. Rebuilt when the stations' lists change; UI thread.
+uintptr_t g_own_cfg = 0;
+uint64_t g_own_orig[2] = {};        // the collection's workshops and trees headers, as the game's data has them
+std::vector<uint64_t> g_own_trees;  // the trees' headers, as the game's data has them
+std::string g_own_sig;              // what the copies list
+bool g_own_on = false, g_own_ok = true;
+
+bool own_build(uintptr_t cfg, const std::map<uint32_t, OwnMenu>& menus) {
+    const uintptr_t coll = cfg + N.menu_ws;
+    if (cfg != g_own_cfg) {
+        // the game's data, before any of Kiln's: Kiln's own tabs (kiln.craftmenu) may have pointed a tree at a copy already
+        g_own_cfg = cfg, g_own_on = false, g_own_ok = true;
+        g_own_sig.clear();
+        g_own_trees.clear();
+        const BlobRef wss = blob_at(coll), trs = blob_at(coll + 8);
+        if (!rdv(coll, g_own_orig[0]) || !rdv(coll + 8, g_own_orig[1]) || !wss.count || trs.count < wss.count) {
+            g_own_cfg = 0;
+            return false;
+        }
+        for (uint32_t i = 0; i < trs.count; ++i) {
+            uint64_t v = 0;
+            uint32_t w = 0;
+            rdv(trs.data + i * 8ull, v);
+            if (i < wss.count) rdv(wss.data + i * 4ull, w);
+            if (auto it = g_cm_trees.find(w); it != g_cm_trees.end() && it->second.first == trs.data + i * 8ull) v = it->second.second;
+            g_own_trees.push_back(v);
+        }
+    }
+    std::string sig;
+    for (const auto& [w, om] : menus) {
+        char b[48];
+        std::snprintf(b, sizeof b, "%x<%x:", w, om.menu);
+        sig += b;
+        for (const OwnPlace& p : om.places) {
+            std::snprintf(b, sizeof b, "%u.%u.%x,", p.tab, p.sub, p.id);
+            sig += b;
+        }
+        sig += ';';
+    }
+    if (sig == g_own_sig) return g_own_ok;
+    g_own_sig = sig;
+    const auto header = [](uintptr_t field, uintptr_t data, uint32_t count, Write* w) {
+        w->addr = field;
+        w->n = 8;
+        return cm_point(w->bytes, field, data, count);
+    };
+    std::vector<Write> writes;
+    if (menus.empty()) {
+        if (g_own_on) {
+            for (int i = 0; i < 2; ++i) {
+                Write w{coll + 8ull * i, 8, {}};
+                std::memcpy(w.bytes, &g_own_orig[i], 8);
+                writes.push_back(w);
+            }
+            uintptr_t failed = 0;
+            write_batch(writes, &failed);
+            g_own_on = false;
+            if (!g_cm_trees.empty()) g_cm_version.fetch_add(1);  // Kiln's own tabs go back on the game's trees
+        }
+        return g_own_ok = true;
+    }
+    g_own_ok = false;
+    cm_layout();
+    // the game's arrays, as its data has them
+    const auto at = [](uintptr_t field, uint64_t hdr) {
+        int32_t off = 0;
+        std::memcpy(&off, &hdr, 4);
+        return BlobRef{off ? field + static_cast<intptr_t>(off) : 0, static_cast<uint32_t>(hdr >> 32)};
+    };
+    const BlobRef wss = at(coll, g_own_orig[0]), trs = at(coll + 8, g_own_orig[1]);
+    const uint32_t n = wss.count, k = static_cast<uint32_t>(menus.size()), gs = static_cast<uint32_t>(N.cat_stride),
+                   ss = static_cast<uint32_t>(N.sub_stride);
+    if (!wss.data || !trs.data || trs.count < n || g_own_trees.size() < n) return false;
+    auto* ids = static_cast<uint32_t*>(near_alloc(coll, size_t(n + k) * 4));
+    auto* trees = static_cast<uint8_t*>(near_alloc(coll, size_t(n + k) * 8));
+    if (!ids || !trees || !rd(wss.data, ids, size_t(n) * 4)) return false;
+    const uintptr_t T = reinterpret_cast<uintptr_t>(trees);
+    for (uint32_t i = 0; i < n; ++i) {
+        const BlobRef t = at(trs.data + i * 8ull, g_own_trees[i]);
+        if (!cm_point(trees + i * 8ull, T + i * 8ull, t.data, t.count)) return false;
+    }
+    std::string said;
+    uint32_t j = n;
+    for (const auto& [w, om] : menus) {
+        uint32_t mi = UINT32_MAX;
+        for (uint32_t i = 0; i < n; ++i)
+            if (ids[i] == om.menu) mi = i;
+        if (mi == UINT32_MAX) return false;
+        const BlobRef tabs = at(trs.data + mi * 8ull, g_own_trees[mi]);
+        if (!tabs.data || !tabs.count) return false;
+        // the tabs and subcategories its recipes use, in the menu's order (a place past the game's tabs, a tab of Kiln's: its last)
+        std::map<uint32_t, std::map<uint32_t, std::vector<uint32_t>>> used;
+        for (const OwnPlace& p : om.places) {
+            const uint32_t t = std::min(p.tab, tabs.count - 1);
+            const uint32_t subs = blob_at(tabs.data + t * uintptr_t(gs) + N.cat_subs).count;
+            if (!subs) continue;
+            auto& list = used[t][p.tab < tabs.count ? std::min(p.sub, subs - 1) : subs - 1];
+            if (std::find(list.begin(), list.end(), p.id) == list.end()) list.push_back(p.id);
+        }
+        if (used.empty()) return false;
+        auto* groups = static_cast<uint8_t*>(near_alloc(coll, used.size() * gs));
+        if (!groups) return false;
+        const uintptr_t G = reinterpret_cast<uintptr_t>(groups);
+        uint32_t ti = 0, listed = 0;
+        for (const auto& [t, subs] : used) {
+            const uintptr_t src = tabs.data + t * uintptr_t(gs);
+            uint8_t* tab = groups + size_t(ti) * gs;
+            if (!rd(src, tab, gs)) return false;
+            if (CL.ok) {
+                char key[48];
+                std::snprintf(key, sizeof key, "kiln.own:%x:%u", w, t);
+                cm_guid(key, tab + CL.g_id);
+            }
+            const BlobRef os = blob_at(src + N.cat_subs);
+            auto* sets = static_cast<uint8_t*>(near_alloc(coll, subs.size() * ss));
+            if (!sets) return false;
+            const uintptr_t S = reinterpret_cast<uintptr_t>(sets);
+            uint32_t si = 0;
+            for (const auto& [s, rids] : subs) {
+                uint8_t* set = sets + size_t(si) * ss;
+                auto* list = static_cast<uint32_t*>(near_alloc(coll, rids.size() * 4));
+                if (!list || !rd(os.data + s * uintptr_t(ss), set, ss)) return false;
+                if (CL.ok) {
+                    char key[48];
+                    std::snprintf(key, sizeof key, "kiln.own:%x:%u:%u", w, t, s);
+                    cm_guid(key, set + CL.s_id);
+                }
+                std::memcpy(list, rids.data(), rids.size() * 4);
+                if (!cm_point(set + N.sub_recipes, S + si * uintptr_t(ss) + N.sub_recipes, reinterpret_cast<uintptr_t>(list),
+                              static_cast<uint32_t>(rids.size())))
+                    return false;
+                listed += static_cast<uint32_t>(rids.size());
+                ++si;
+            }
+            if (!cm_point(tab + N.cat_subs, G + ti * uintptr_t(gs) + N.cat_subs, S, si)) return false;
+            ++ti;
+        }
+        ids[j] = w;
+        if (!cm_point(trees + j * 8ull, T + j * 8ull, G, ti)) return false;
+        ++j;
+        char b[96];
+        std::snprintf(b, sizeof b, "%s0x%08x (%u recipe(s) in %u tab(s) of 0x%08x's)", said.empty() ? "" : ", ", w, listed, ti, om.menu);
+        said += b;
+    }
+    Write wi{}, wt{};
+    if (!header(coll, reinterpret_cast<uintptr_t>(ids), n + k, &wi) || !header(coll + 8, T, n + k, &wt)) return false;
+    writes = {wi, wt};
+    uintptr_t failed = 0;
+    if (write_batch(writes, &failed) != 2) {
+        // one header alone is harmless (a workshop past the end of the trees has none), but both go back
+        for (int i = 0; i < 2; ++i) {
+            Write w{coll + 8ull * i, 8, {}};
+            std::memcpy(w.bytes, &g_own_orig[i], 8);
+            writes = {w};
+            write_batch(writes, nullptr);
+        }
+        LOGW("new content: the crafting menu's workshop list could not be written (%p): stations show their recipes in the menus they open",
+             reinterpret_cast<void*>(failed));
+        g_own_on = false;
+        return false;
+    }
+    g_own_on = true;
+    if (!g_cm_trees.empty()) g_cm_version.fetch_add(1);  // Kiln's own tabs move onto the new trees
+    LOGI("new content: the crafting menu has %u workshop(s) of stations' own: %s", k, said.c_str());
+    return g_own_ok = true;
+}
+
 void cm_sync(int32_t workshop) {
     uintptr_t app = 0, cfg = 0;
     if (!rdv(N.ui_app, app) || !app || !rdv(app + N.app_config, cfg) || !cfg) return;
@@ -2796,17 +3130,18 @@ KilnResult KILN_CALL cm_describe(uint32_t workshop, char* buf, size_t cap, size_
 const KilnCraftMenuApi kCraftMenu = {{sizeof(KilnCraftMenuApi), KILN_CRAFTMENU_VERSION}, &cm_subscribe, &cm_set_add, &cm_tab_add,
                                      &cm_remove, &cm_describe};
 
-// A station's own workshop ("workshop:<guid>" recipes) is in none of the crafting menu's lists. The game's screens that ask for it, such as a
-// running station's recipe picker ("Change recipe", client 0xbb46e0), would list nothing, and that empty list can't be left. They get the
-// lists of the menu its recipes name instead (the station's kind's, where those recipes are placed). UI thread, the UI pointer valid.
-int32_t shown_workshop(int32_t workshop) {
+// A station's own workshop ("workshop:<guid>" recipes) is in the crafting menu's lists once own_build has given it a menu of its own. Until
+// then, or when that fails, the game's screens that ask for it, such as a running station's recipe picker ("Change recipe", client
+// 0xbb46e0), would list nothing, and that empty list can't be left: they get the lists of the menu its recipes name instead (the station's
+// kind's, where those recipes are placed then). UI thread, the UI pointer valid.
+int32_t shown_workshop(int32_t workshop, bool say) {
     if (!workshop || !N.menu) return workshop;
     uintptr_t app = 0, cfg = 0;
     if (!rdv(N.ui_app, app) || !app || !rdv(app + N.app_config, cfg) || !cfg) return workshop;
     const BlobRef wss = blob_at(cfg + N.menu_ws);
     for (uint32_t i = 0; i < wss.count && i < 256; ++i) {
         uint32_t w = 0;
-        if (rdv(wss.data + i * 4ull, w) && w == static_cast<uint32_t>(workshop)) return workshop;  // the game's menu has it
+        if (rdv(wss.data + i * 4ull, w) && w == static_cast<uint32_t>(workshop)) return workshop;  // the menu has it
     }
     std::lock_guard lock(store_mutex());
     for (const DefPtr& d : g_defs) {
@@ -2814,7 +3149,7 @@ int32_t shown_workshop(int32_t workshop) {
         uint8_t g[16];
         if (guid_parse(lower(d->station.substr(9)), g) && fnv1a(g, 16) == static_cast<uint32_t>(workshop)) {
             static std::set<int32_t> said;
-            if (said.insert(workshop).second)
+            if (say && said.insert(workshop).second)
                 LOGI("new content: the game's menu has no lists for workshop 0x%08x (a station's own): its screens show workshop 0x%08x's",
                      static_cast<uint32_t>(workshop), d->menu_workshop);
             return static_cast<int32_t>(d->menu_workshop);
@@ -2826,10 +3161,9 @@ int32_t shown_workshop(int32_t workshop) {
 // The menu's category lookup (UI thread = main thread, while the crafting menu builds): the UI pointer is valid here.
 SafetyHookInline g_menu_hook;
 uint64_t __fastcall hk_menu(void* lists, void* p2, int32_t workshop, uint8_t p4) {
-    const int32_t shown = shown_workshop(workshop);
-    cm_sync(shown);  // kiln.craftmenu: Kiln tabs / subcategories first, then the placement of new recipes
-    menu_sync(g_ws[KILN_WORLD_CLIENT]);
-    return g_menu_hook.call<uint64_t>(lists, p2, shown, p4);
+    cm_sync(shown_workshop(workshop, false));  // kiln.craftmenu: Kiln tabs / subcategories first, then the placement of new recipes
+    menu_sync(g_ws[KILN_WORLD_CLIENT]);        // and the stations' own menus
+    return g_menu_hook.call<uint64_t>(lists, p2, shown_workshop(workshop, true), p4);
 }
 
 void client_diag(uintptr_t world) {
@@ -3403,6 +3737,9 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
                 return fail("\"menu\" must be a workshop id (\"0x...\"): the workshop whose crafting menu lists the recipe");
             d->menu_workshop = static_cast<uint32_t>(std::strtoul(menu.c_str() + 2, nullptr, 16));
         }
+        d->station_item = str_of(j, "stationItem");
+        if (!d->station_item.empty() && d->station.rfind("workshop:", 0) != 0)
+            return fail("\"stationItem\" names the item that places a workshop of a mod's own: the recipe's \"station\" is \"workshop:<guid>\"");
         std::string err;
         for (const char* k : {"inputs", "outputs"}) {
             if (!j.contains(k) || !j[k].is_array() || j[k].empty() || j[k].size() > 32)

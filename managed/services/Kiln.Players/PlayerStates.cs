@@ -207,6 +207,14 @@ public static unsafe class PlayerStates
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct HeldAction
+        {
+            public const int PayloadBytes = 160;
+            public uint Size, Entity, Index, Version, Bytes, Reserved;
+            public fixed byte Payload[PayloadBytes];
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         public struct SourceInfo
         {
             public uint Size, Id, Kind, Count, Tier, Resolved;
@@ -251,7 +259,8 @@ public static unsafe class PlayerStates
         {
             public uint Size;
             public byte Reflection, Cancel, Names, Items;
-            public uint Sources, Reserved;
+            public uint Sources;
+            public byte ClientHold, R1, R2, R3;
             public ulong Scans, EntitiesRead, ScanNs;
             public fixed byte Detail[160];
         }
@@ -276,7 +285,14 @@ public static unsafe class PlayerStates
             public delegate* unmanaged[Cdecl]<uint, ClientAction*, int> ClientActionInfo;
             public delegate* unmanaged[Cdecl]<uint, uint, void*, uint, uint*, int> ClientActionBytes;
             public delegate* unmanaged[Cdecl]<uint, uint, int> ClientActionCancel;
+            // added later: check Has()
+            public delegate* unmanaged[Cdecl]<uint*, uint, int> ClientActionHold;
+            public delegate* unmanaged[Cdecl]<HeldAction*, uint, uint*, int> ClientActionHeld;
+            public delegate* unmanaged[Cdecl]<uint, uint, uint, uint, int> ClientActionDecide;
         }
+
+        /// <summary>The native table has the function at this field (a kiln-players.dll of an older release has fewer).</summary>
+        public static bool Has(Table* t, void* field) => t != null && (byte*)field - (byte*)t + sizeof(nint) <= t->Header.Size;
 
         public const uint WantActor = 1, WantExtra = 2, WantVitals = 4, WantBaseZone = 8, WantMotion = 16, WantInput = 32;
         public const uint WantBase = WantActor | WantMotion | WantInput;
@@ -293,7 +309,7 @@ public static unsafe class PlayerStates
             if (_table != null || _looked) return _table;
             _looked = true;
             if (sizeof(Native.Snapshot) != 544 || sizeof(Native.ClientAction) != 64 || sizeof(Native.ItemInfo) != 288 || sizeof(Native.Equipment) != 408 ||
-                sizeof(Native.Buff) != 40 || sizeof(Native.Status) != 200 || sizeof(Native.SourceInfo) != 216)
+                sizeof(Native.Buff) != 40 || sizeof(Native.Status) != 200 || sizeof(Native.SourceInfo) != 216 || sizeof(Native.HeldAction) != 184)
                 return null;  // layout drift between this assembly and the header: refuse rather than misread
             _table = Services.Get<Native.Table>("kiln.playerstate", 1);
             return _table;
@@ -324,7 +340,10 @@ public static unsafe class PlayerStates
             s.Size = (uint)sizeof(Native.Status);
             if (t->GetStatus(&s) != Native.Ok) return null;
             return new PlayerStateServiceStatus(s.Reflection != 0, s.Cancel != 0, s.Names != 0, s.Items != 0, (int)s.Sources,
-                s.Scans, s.EntitiesRead, Marshal.PtrToStringUTF8((nint)s.Detail) ?? "");
+                s.Scans, s.EntitiesRead, Marshal.PtrToStringUTF8((nint)s.Detail) ?? "")
+            {
+                ClientActionCancel = s.ClientHold != 0 && Native.Has(t, &t->ClientActionDecide),
+            };
         }
     }
 
@@ -473,12 +492,13 @@ public static unsafe class PlayerStates
             var t = T;
             if (t == null) return [];
             var list = new List<PlayerClientActionInfo>();
+            var hold = Native.Has(t, &t->ClientActionDecide);  // an older kiln-players.dll marked actions cancelable it could not stop
             for (uint i = 0; i < Native.ClientActions; i++)
             {
                 Native.ClientAction a = default;
                 a.Size = (uint)sizeof(Native.ClientAction);
                 if (t->ClientActionInfo(i, &a) != Native.Ok) break;
-                list.Add(new PlayerClientActionInfo((int)i, Marshal.PtrToStringUTF8((nint)a.Name) ?? "", (int)a.Bytes, a.Cancelable != 0));
+                list.Add(new PlayerClientActionInfo((int)i, Marshal.PtrToStringUTF8((nint)a.Name) ?? "", (int)a.Bytes, hold && a.Cancelable != 0));
             }
             return _clientActions = list.ToArray();
         }
@@ -764,12 +784,19 @@ public static unsafe class PlayerStates
 /// <param name="Index">Its number on this build.</param>
 /// <param name="Name">The game's field name: "changeEquipmentAction".</param>
 /// <param name="Bytes">The size of its struct.</param>
-/// <param name="CanCancel">The game's consumed version for it is known.</param>
+/// <param name="CanCancel">A <see cref="PlayerClientActionEvent"/> for it can be canceled on this build: Kiln holds it for the
+/// handlers before the game's program runs it (server world).</param>
 public sealed record PlayerClientActionInfo(int Index, string Name, int Bytes, bool CanCancel);
 
 /// <summary>What kiln.playerstate can do on this build.</summary>
+/// <param name="Cancel">A <see cref="PlayerActionEvent"/> can be canceled (the game's reset of a running sequence resolved).</param>
 public sealed record PlayerStateServiceStatus(bool Reflection, bool Cancel, bool SequenceNames, bool ItemDetails, int Sources,
-    ulong Scans, ulong PlayersRead, string Detail);
+    ulong Scans, ulong PlayersRead, string Detail)
+{
+    /// <summary>A <see cref="PlayerClientActionEvent"/> can be canceled: the point right before the game's programs, where
+    /// Kiln holds a client's action, resolved on this build.</summary>
+    public bool ClientActionCancel { get; init; }
+}
 
 /// <summary>A slot of a player's equipment, named as the game's SlotSelection.equipment fields.</summary>
 public enum PlayerEquipSlot

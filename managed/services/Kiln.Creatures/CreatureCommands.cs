@@ -119,22 +119,34 @@ public static class CreatureAdminCommands
         var how = c.Get<string>("how");
         var which = c.GetOrDefault("which", "");
         var a = Creatures.Of(e).Attacks;
-        switch (how)
+        try
         {
-            case "force":
-                if (!int.TryParse(which, CultureInfo.InvariantCulture, out var i)) throw new CommandException("force <attack index>; /creature rules <entity> lists them");
-                a.Force(i);
-                break;
-            case "allow":
-                try { a.Allow(which.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToArray()); }
-                catch (FormatException) { throw new CommandException("allow <i,j,...>"); }
-                break;
-            case "natural":
-                a.Natural();
-                break;
-            default:
-                a.Clear();
-                break;
+            switch (how)
+            {
+                case "force":
+                    if (!int.TryParse(which, CultureInfo.InvariantCulture, out var i) || i < 0)
+                        throw new CommandException("force <attack index>; /creature rules <entity> lists them");
+                    a.Force(i);
+                    break;
+                case "allow":
+                    try { a.Allow(which.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToArray()); }
+                    catch (FormatException) { throw new CommandException("allow <i,j,...>"); }
+                    break;
+                case "natural":
+                    a.Natural();
+                    break;
+                default:
+                    a.Clear();
+                    break;
+            }
+        }
+        catch (ArgumentOutOfRangeException ex) when (how == "force")
+        {
+            throw new CommandException($"{e}: its arsenal has no attack {ex.ActualValue}; /creature rules {e} lists them");
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or KeyNotFoundException)
+        {
+            throw new CommandException(ex.Message);
         }
         c.Reply($"{e}: attack override {how} {which}");
     }

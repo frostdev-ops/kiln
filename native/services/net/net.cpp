@@ -20,7 +20,9 @@
 //  - Proof: a client sends KILN_NET_KNOCK frames while it loads and once more right before its Gameplay Ready.
 //  - Gate: a hook on the machine login holds an unproven peer's Gameplay Ready; the receive hook lets it go on.
 //  - Withholding: a hook on the function that queues an entity for a player keeps entities of Kiln-only templates
-//    from a player until Kiln.Network clears it, and sends what it kept back once cleared.
+//    from a player until Kiln.Network clears it, and sends what it kept back once cleared. Clearing records which
+//    Kiln-only templates exist at that moment (what the player's acknowledged content state covers); a template added
+//    later (a hot load) is kept from that player until it is cleared again, at its next content ack.
 //  - Client guard: a mid hook where the game's create path uses its template lookup drops a create of a template this
 //    game lacks, along the game's own failure path.
 #include <windows.h>
@@ -35,6 +37,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
@@ -103,6 +106,8 @@ void logf(int level, const char* fmt, ...) {
     g_api->log(g_owner, level, KilnStr{buf, static_cast<size_t>(std::min(n, static_cast<int>(sizeof(buf) - 1)))});
 }
 
+std::string guid_text(const uint8_t g[16]);
+
 struct Bucket {
     double frames = kPeerFrameBurst, bytes = kPeerByteBurst;
     uint64_t at = 0;
@@ -121,18 +126,25 @@ struct Bucket {
     }
 };
 
+using Guid16 = std::array<uint8_t, 16>;
+using KnownTemplates = std::set<Guid16>;  // Kiln-only template GUIDs (game byte order)
+
 struct Peer {
     KilnPeer id = 0;
     uint32_t transport = KILN_NET_TRANSPORT_GAME;
     uint64_t lab_key = 0;
     bool reported_up = false;
     bool logged_frame = false;
+    bool bound = false;  // lab only: a lab peer standing in for the player of a free slot (lab_selftest BIND)
     uint8_t slot_flags = 0;
     knet::Record rec{};
     bool has_player = false;
     uint64_t up_ms = 0, last_rx_ms = 0;
     uint64_t rx_frames = 0, rx_bytes = 0, tx_frames = 0, tx_bytes = 0, dropped = 0;
     Bucket bucket;
+    // The Kiln-only templates there were when it was last cleared (withhold_set off), and kiln.assets' count then.
+    std::shared_ptr<const KnownTemplates> known;
+    uint64_t known_count = 0;
 };
 
 struct Frame {
@@ -181,12 +193,26 @@ std::atomic<uint32_t> g_resend_slots{0};      // slots whose kept-back entities 
 std::atomic<uint64_t> g_withheld_total{0};
 uint32_t g_test_slots = 0;                    // lab_selftest: slots forced to withhold
 uintptr_t g_create_reader = 0, g_relevance_step = 0;  // lab_selftest only
-// What a player's replication job kept back. Touched only when an entity is really kept back or sent.
+// What a player's replication job kept back. Touched only when an entity is really kept back or sent, or when a new
+// Kiln-only template exists that a cleared player hasn't acknowledged yet.
 struct KeptBack {
     std::mutex mu;
     std::set<uint32_t> ids;
+    std::shared_ptr<const KnownTemplates> known;  // cleared slots: the templates its player has (its peer's `known`)
+    uint64_t newer = 0;                           // entities kept back since then for a template it hasn't acknowledged
+    uint32_t first_entity = 0;                    // the first of those, and its template: logged in the next Pre
+    Guid16 first_template{};
+    bool note = false;
 };
 KeptBack g_kept[32];
+// Cleared slots, and kiln.assets' Kiln-only template count when each one's `known` was taken. While the count now is the
+// same, nothing is new to that player and the enqueue hook looks nothing up.
+std::atomic<uint32_t> g_cleared_slots{0};
+std::atomic<uint64_t> g_known_count[32];
+// kiln.assets' Kiln-only template count, read at most once per step by the enqueue hook. Kiln adds templates on the tick
+// thread (Pre or Post), when no job of the world runs; the step number moves in every Pre and in every receive step of
+// the GameServer, so the first enqueue after a template was added reads the new count.
+std::atomic<uint64_t> g_step{1}, g_count_step{0}, g_count{0};
 constexpr size_t kMaxKeptBack = 65536;
 constexpr uint8_t kStateInHeap = 8;           // the entity state's flag byte: it is in the player's heap (0x66922c)
 std::atomic<const KilnAssetsApi*> g_assets{nullptr};
@@ -229,15 +255,75 @@ struct DrainCtx {
 
 void sink_server_impl(const uint8_t* data, uint64_t size, DrainCtx* ctx);
 
-// Which player slots get no entities of Kiln-only templates: every remote player Kiln.Network hasn't cleared.
+// A slot's player is gone (or a lab test unbinds it): the slot's next player starts over.
+void forget_slot(uint32_t slot) {
+    if (slot >= 32) return;
+    KeptBack& k = g_kept[slot];
+    std::lock_guard<std::mutex> lk(k.mu);
+    k.ids.clear();
+    k.known.reset();
+    k.newer = 0;
+    k.note = false;
+    g_known_count[slot].store(0, std::memory_order_release);
+}
+
+// Which player slots get no entities of Kiln-only templates: every remote player Kiln.Network hasn't cleared. A cleared
+// player's slot gets the templates there were when it was cleared; entities of templates added since wait for its next
+// clear (hk_enqueue).
 void recompute_withheld_locked() {
-    uint32_t mask = g_test_slots;
-    for (const auto& [id, p] : g_peers)
-        if (p.transport == KILN_NET_TRANSPORT_GAME && p.has_player && !is_local_machine(id) && p.rec.slot < 32 && !g_cleared.count(id))
-            mask |= 1u << p.rec.slot;
-    // A slot no longer withheld sends what its job kept back.
-    const uint32_t old = g_withheld_slots.exchange(mask, std::memory_order_relaxed);
-    if (const uint32_t freed = old & ~mask) g_resend_slots.fetch_or(freed, std::memory_order_relaxed);
+    uint32_t mask = g_test_slots, cleared = 0, resend = 0;
+    for (const auto& [id, p] : g_peers) {
+        if (!p.has_player || is_local_machine(id) || p.rec.slot >= 32) continue;
+        if (p.transport != KILN_NET_TRANSPORT_GAME && !p.bound) continue;
+        const uint32_t slot = p.rec.slot, bit = 1u << slot;
+        if (!g_cleared.count(id)) {
+            mask |= bit;
+            continue;
+        }
+        cleared |= bit;
+        KeptBack& k = g_kept[slot];
+        std::lock_guard<std::mutex> lk(k.mu);
+        if (k.known == p.known) continue;
+        // A newer clear: what was kept back for templates its player lacked goes out now.
+        k.known = p.known;
+        k.newer = 0;
+        k.note = false;
+        g_known_count[slot].store(p.known_count, std::memory_order_release);
+        if (!k.ids.empty()) resend |= bit;
+    }
+    cleared &= ~mask;
+    g_cleared_slots.store(cleared, std::memory_order_relaxed);
+    // A slot no longer withheld sends what its job kept back. Release: a hook that sees the new mask sees the cleared slots.
+    const uint32_t old = g_withheld_slots.exchange(mask, std::memory_order_acq_rel);
+    resend |= old & ~mask;
+    if (resend) g_resend_slots.fetch_or(resend, std::memory_order_relaxed);
+}
+
+// Every Kiln-only template there is now, and kiln.assets' count of them. nullptr when they can't be listed: the player
+// is then taken to have every template, as before this check existed.
+std::shared_ptr<const KnownTemplates> kiln_templates_now(const KilnAssetsApi* a, uint64_t* count) {
+    *count = 0;
+    if (!a) return std::make_shared<KnownTemplates>();
+    // The count first: a template added while listing then counts as new to the player, never the other way round.
+    *count = a->resource_new_count(kTemplateType);
+    if (*count == 0) return std::make_shared<KnownTemplates>();
+    size_t n = 0;
+    a->resource_list(kTemplateType, nullptr, 0, &n);
+    std::vector<KilnAssetKey> keys(n + 256);
+    size_t got = 0;
+    if (a->resource_list(kTemplateType, keys.data(), keys.size(), &got) != KILN_OK) {
+        static std::atomic<int> warned{0};
+        if (warned.fetch_add(1) == 0) logf(KILN_LOG_WARN, "net: kiln.assets didn't list the templates: a player is taken to have every Kiln-only template when it is cleared");
+        return nullptr;
+    }
+    auto set = std::make_shared<KnownTemplates>();
+    for (size_t i = 0; i < got && i < keys.size(); ++i) {
+        if (a->resource_is_new(&keys[i]) != 1) continue;
+        Guid16 g{};
+        std::memcpy(g.data(), keys[i].guid, g.size());
+        set->insert(g);
+    }
+    return set;
 }
 
 // A frame came from `peer`. Vanilla code never writes channel 12, so that peer has Kiln.
@@ -374,13 +460,66 @@ void resend_kept_back(uintptr_t storage, uintptr_t player, uint8_t slot) {
     }
 }
 
+// kiln.assets' Kiln-only template count as of this step (see g_step).
+uint64_t kiln_template_count(const KilnAssetsApi* a) {
+    const uint64_t step = g_step.load(std::memory_order_acquire);
+    if (g_count_step.load(std::memory_order_acquire) != step) {
+        g_count.store(a->resource_new_count(kTemplateType), std::memory_order_relaxed);
+        g_count_step.store(step, std::memory_order_release);
+    }
+    return g_count.load(std::memory_order_relaxed);
+}
+
+// `id`, or a parent of it, has a Kiln-only template that isn't in `known` (nullptr: every template is known). The first
+// such template goes to *guid.
+bool entity_has_unknown(uintptr_t storage, uint32_t id, const KilnAssetsApi* a, const KnownTemplates* known, Guid16* guid) {
+    if (!known) return false;
+    KilnAssetKey key{};
+    key.type = kTemplateType;
+    for (int depth = 0; depth < kMaxParents && id != 0; ++depth) {
+        uint32_t parent = 0;
+        if (!knet::entity_template(storage, id, key.guid, &parent)) return false;
+        if (a->resource_is_new(&key) == 1) {
+            std::memcpy(guid->data(), key.guid, guid->size());
+            if (!known->count(*guid)) return true;
+        }
+        id = parent;
+    }
+    return false;
+}
+
+// A cleared player's slot, after a Kiln-only template was added: keeps the entity back if its template (or a parent's)
+// came after the player's last clear. Its content ack brings that template's definition; the clear that follows sends it.
+bool keep_back_newer(uintptr_t storage, uint32_t entity, const KilnAssetsApi* a, uint8_t slot) {
+    KeptBack& k = g_kept[slot];
+    std::shared_ptr<const KnownTemplates> known;
+    {
+        std::lock_guard<std::mutex> lk(k.mu);
+        known = k.known;
+    }
+    Guid16 g{};
+    if (!entity_has_unknown(storage, entity, a, known.get(), &g)) return false;
+    std::lock_guard<std::mutex> lk(k.mu);
+    if (k.known != known) return false;  // cleared again meanwhile: what it knows now includes this template
+    g_withheld_total.fetch_add(1, std::memory_order_relaxed);
+    if (k.ids.size() < kMaxKeptBack) k.ids.insert(entity);
+    if (k.newer++ == 0) {
+        k.first_entity = entity;
+        k.first_template = g;
+        k.note = true;
+    }
+    return true;
+}
+
 // The game's only way into a player's replication queue (0x6691a0: storage, the player's replication object, the
 // entity's state for that player, the entity, options). Runs on the game's replication threads, per changed entity.
-// Once a peer is cleared this is the two loads and the call, with no lookup.
+// For a cleared peer this is a few loads and the call while no Kiln-only template was added since its clear; after one
+// was, it looks up the entity's template until the peer is cleared again.
 void __fastcall hk_enqueue(uintptr_t storage, uintptr_t player, uintptr_t state, uint32_t entity, void* options) {
-    const uint32_t slots = g_withheld_slots.load(std::memory_order_relaxed);
+    const uint32_t slots = g_withheld_slots.load(std::memory_order_acquire);
+    const uint32_t cleared = g_cleared_slots.load(std::memory_order_relaxed);
     const uint32_t resend = g_resend_slots.load(std::memory_order_relaxed);
-    if ((slots | resend) != 0) {
+    if ((slots | cleared | resend) != 0) {
         // The object's first byte is the player's slot (0x67d3e1 compares it with entity id - 1 to find the player's own entity).
         const uint8_t slot = *reinterpret_cast<const uint8_t*>(player);
         if (slot < 32) {
@@ -394,14 +533,43 @@ void __fastcall hk_enqueue(uintptr_t storage, uintptr_t player, uintptr_t state,
                     if (g_kept[slot].ids.size() < kMaxKeptBack) g_kept[slot].ids.insert(entity);
                     return;
                 }
+            } else if (((cleared >> slot) & 1) != 0) {
+                const KilnAssetsApi* a = g_assets.load(std::memory_order_acquire);
+                if (a && kiln_template_count(a) != g_known_count[slot].load(std::memory_order_acquire) && keep_back_newer(storage, entity, a, slot))
+                    return;
             }
         }
     }
     g_enqueue.unsafe_call<void>(storage, player, state, entity, options);
 }
 
+// Logs, from the tick thread, the first entity kept from a cleared player for a template added after its clear.
+void note_kept_newer() {
+    for (uint32_t slot = 0; slot < 32; ++slot) {
+        KeptBack& k = g_kept[slot];
+        uint32_t entity = 0;
+        Guid16 g{};
+        {
+            std::lock_guard<std::mutex> lk(k.mu);
+            if (!k.note) continue;
+            k.note = false;
+            entity = k.first_entity;
+            g = k.first_template;
+        }
+        KilnPeer peer = 0;
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            for (const auto& [id, p] : g_peers)
+                if (p.has_player && p.rec.slot == slot && (p.transport == KILN_NET_TRANSPORT_GAME || p.bound)) peer = id;
+        }
+        logf(KILN_LOG_INFO, "net: peer 0x%x (slot %u): entity %u of the Kiln template %s, added after its last content ack, waits for its next one",
+             peer, slot, entity, guid_text(g.data()).c_str());
+    }
+}
+
 void drain_server(uintptr_t gs) {
     if (!gs) return;
+    g_step.fetch_add(1, std::memory_order_acq_rel);  // see g_step
     g_gs.store(gs, std::memory_order_relaxed);
     if (!g_server_seen.exchange(true)) logf(KILN_LOG_INFO, "net: GameServer at %p (server role ready)", reinterpret_cast<void*>(gs));
     C.drains.fetch_add(1, std::memory_order_relaxed);
@@ -582,7 +750,10 @@ void poll_lab(std::vector<Event>& events) {
             g_proved.erase(it->first);
             g_held.erase(it->first);
             g_let_in.erase(it->first);
+            g_cleared.erase(it->first);
+            if (it->second.bound) forget_slot(it->second.rec.slot);
             it = g_peers.erase(it);
+            recompute_withheld_locked();
         } else {
             ++it;
         }
@@ -608,10 +779,7 @@ void refresh_game_peers(std::vector<Event>& events) {
             g_held.erase(it->first);
             g_let_in.erase(it->first);
             g_cleared.erase(it->first);
-            if (it->second.has_player && it->second.rec.slot < 32) {
-                std::lock_guard<std::mutex> kept(g_kept[it->second.rec.slot].mu);
-                g_kept[it->second.rec.slot].ids.clear();  // the slot's next player starts over
-            }
+            if (it->second.has_player) forget_slot(it->second.rec.slot);  // the slot's next player starts over
             it = g_peers.erase(it);
         } else {
             ++it;
@@ -727,7 +895,9 @@ const KilnAssetsApi* assets_api() {
 }
 
 void KILN_CALL on_server_pre(const KilnTickInfo*, void*) {
+    g_step.fetch_add(1, std::memory_order_acq_rel);  // see g_step
     assets_api();
+    note_kept_newer();
     std::vector<Event> events;
     {
         std::lock_guard<std::mutex> lk(g_mu);
@@ -1138,10 +1308,13 @@ KilnResult KILN_CALL t_kick(KilnPeer peer, uint32_t reason) {
         auto it = g_peers.find(peer);
         if (it == g_peers.end()) return KILN_ERR_NOT_FOUND;
         g_lab_by_key.erase(it->second.lab_key);
+        if (it->second.bound) forget_slot(it->second.rec.slot);
         g_peers.erase(it);
         g_proved.erase(peer);
         g_held.erase(peer);
         g_let_in.erase(peer);
+        g_cleared.erase(peer);
+        recompute_withheld_locked();
         g_pending_events.push_back({peer, KILN_NET_PEER_DOWN});
         logf(KILN_LOG_INFO, "net: lab peer 0x%x kicked (reason %u)", peer, reason);
         return KILN_OK;
@@ -1194,6 +1367,10 @@ KilnResult KILN_CALL t_gate_info(KilnNetGateInfo* out) {
     out->withheld_entities = g_withheld_total.load(std::memory_order_relaxed);
     out->dropped_creates = g_dropped_total.load(std::memory_order_relaxed);
     if (g_create_guard) out->caps |= KILN_NET_GATE_CAN_GUARD;
+    for (uint32_t slot = 0; slot < 32; ++slot) {
+        std::lock_guard<std::mutex> k(g_kept[slot].mu);
+        if (g_kept[slot].newer) out->newer_slots |= 1u << slot;
+    }
     std::lock_guard<std::mutex> lk(g_mu);
     out->held = static_cast<uint32_t>(g_held.size());
     out->missing_templates = static_cast<uint32_t>(g_missing.size());
@@ -1226,9 +1403,33 @@ int32_t KILN_CALL t_template_kiln_only(const uint8_t guid[16]) {
 }
 
 KilnResult KILN_CALL t_withhold_set(KilnPeer peer, uint32_t on) {
+    // Clearing takes the Kiln-only templates there are now: Kiln.Network clears a Kiln client when its content state covers
+    // them all. Each clear takes them again, and sends what was kept for templates that came after the one before.
+    uint64_t count = 0;
+    std::shared_ptr<const KnownTemplates> known;
+    if (!on) known = kiln_templates_now(assets_api(), &count);
     std::lock_guard<std::mutex> lk(g_mu);
-    if (on) g_cleared.erase(peer);
-    else g_cleared.insert(peer);
+    if (on) {
+        g_cleared.erase(peer);
+    } else {
+        g_cleared.insert(peer);
+        if (auto it = g_peers.find(peer); it != g_peers.end()) {
+            Peer& p = it->second;
+            size_t kept = 0;
+            uint64_t newer = 0;
+            if (p.has_player && p.rec.slot < 32) {
+                std::lock_guard<std::mutex> k(g_kept[p.rec.slot].mu);
+                kept = g_kept[p.rec.slot].ids.size();
+                newer = g_kept[p.rec.slot].newer;
+            }
+            if (p.known && count > p.known_count)
+                logf(KILN_LOG_INFO, "net: peer 0x%x cleared again: %llu Kiln-only template(s), %llu added since its last clear; %zu kept-back entit%s out (%llu kept for those)",
+                     peer, static_cast<unsigned long long>(count), static_cast<unsigned long long>(count - p.known_count), kept, kept == 1 ? "y goes" : "ies go",
+                     static_cast<unsigned long long>(newer));
+            p.known = known;
+            p.known_count = count;
+        }
+    }
     recompute_withheld_locked();
     return KILN_OK;
 }
@@ -1311,10 +1512,33 @@ KilnResult KILN_CALL t_lab_selftest(uint32_t op, uint64_t a, uint64_t b, uint64_
             if (!g_enqueue || !g_relevance_step) return KILN_ERR_UNAVAILABLE;
             const uintptr_t player = player_object(world, static_cast<uint32_t>(a));
             if (!player) return KILN_ERR_NOT_FOUND;
+            g_step.fetch_add(1, std::memory_order_acq_rel);  // on the tick thread, not in a step's jobs: read kiln.assets' count anew
             // A free slot's byte is 0xFF: mark it taken, as the game does when a player joins. The lab never fills this slot.
             *reinterpret_cast<uint8_t*>(player) = static_cast<uint8_t>(a);
             if (!seh_relevance_step(g_relevance_step, player, world, static_cast<uint32_t>(b))) return KILN_ERR_INTERNAL;
             knet::read_mem(player + 0x8f8, out, sizeof(*out));  // the heap's size (0x6692e0)
+            return KILN_OK;
+        }
+        case KILN_NET_SELFTEST_HEAP: {
+            const uintptr_t player = player_object(world, static_cast<uint32_t>(a));
+            if (!player || !knet::read_mem(player + 0x8f8, out, sizeof(*out))) return KILN_ERR_NOT_FOUND;
+            return KILN_OK;
+        }
+        case KILN_NET_SELFTEST_BIND: {
+            const KilnPeer peer = static_cast<KilnPeer>(a);
+            const uint32_t slot = static_cast<uint32_t>(b);
+            if (!(peer & KILN_NET_PEER_LAB) || (slot >= 32 && slot != 0xFFFFFFFFu)) return KILN_ERR_INVALID_ARGUMENT;
+            std::lock_guard<std::mutex> lk(g_mu);
+            auto it = g_peers.find(peer);
+            if (it == g_peers.end()) return KILN_ERR_NOT_FOUND;
+            Peer& p = it->second;
+            if (p.bound) forget_slot(p.rec.slot);
+            p.bound = slot < 32;
+            p.has_player = p.bound;
+            p.rec.slot = slot;
+            if (p.bound) forget_slot(slot);
+            recompute_withheld_locked();
+            logf(KILN_LOG_INFO, "net: lab peer 0x%x %s", peer, p.bound ? ("stands for the player of slot " + std::to_string(slot)).c_str() : "no longer stands for a player");
             return KILN_OK;
         }
         default:

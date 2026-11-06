@@ -562,9 +562,15 @@ internal static class NpcCompiler
     {
         var v = new SortedDictionary<string, string>(StringComparer.Ordinal);
         static string N(double d) => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-        if (ai.Sight is { } s) v["aggroSetup.viewRange"] = N(s);
-        if (ai.SightAngle is { } sa) v["aggroSetup.viewConeHalfAngle"] = N(sa);
-        if (ai.Aggro is { } ag) v["aggroSetup.aggroRange"] = N(ag);
+        // The game's sight check reads combatCommitmentSetup. aggroSetup.viewRange is only the radius of the search for candidates (never below
+        // 64 m), so it follows a sight beyond that; aggroSetup's aggroRange and viewConeHalfAngle are not read at all.
+        if (ai.Sight is { } s)
+        {
+            v["combatCommitmentSetup.view.range"] = N(s);
+            if (s > 64) v["aggroSetup.viewRange"] = N(s);
+        }
+        if (ai.SightAngle is { } sa) v["combatCommitmentSetup.view.coneHalfAngle"] = N(sa);
+        if (ai.Aggro is { } ag) v["combatCommitmentSetup.gain.inRange.range"] = N(ag);
         if (ai.Leash is { } l) v["homeZoneSetup.radius"] = N(l);
         foreach (var (k, x) in ai.Tune ?? new Dictionary<string, string>()) v[k] = x;
         return v;

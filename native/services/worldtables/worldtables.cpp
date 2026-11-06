@@ -93,6 +93,8 @@ ItemLayout g_item_layout;
 bool g_layouts_ok = false;
 Bytes g_world_game;       // a world resource as the game has it: what a name or GUID resolves against later
 size_t g_pending_new = 0; // new materials code defined this session, kept for the next start
+std::map<std::string, uint32_t> g_pool_game, g_pool_served;  // the build menu's pools: items the game lists, and what's served
+std::map<std::string, size_t> g_pending_pool;                 // pool -> new items code defined this session
 
 // Strings a caller keeps: never freed.
 const char* keep(const std::string& s) {
@@ -526,6 +528,12 @@ std::string status_text() {
     o["firstNewId"] = g_first_new_id;
     o["room"] = g_room;
     o["terrainRoom"] = g_terrain_room;
+    ojson pools = ojson::array();
+    for (const auto& [name, game] : g_pool_game) {
+        const auto it = g_pool_served.find(name);
+        pools.push_back({{"name", name}, {"game", game}, {"served", it == g_pool_served.end() ? game : it->second}, {"capacity", kPoolCapacity}});
+    }
+    o["pools"] = std::move(pools);
     ojson mats = ojson::array();
     for (const Placed& p : g_placed) {
         ojson m = ojson::object();
@@ -575,6 +583,7 @@ void go_off(const std::string& why) {
     g_state.store(KILN_WT_OFF);
     g_off_reason = why;
     g_placed.clear();
+    g_pool_served.clear();
     g_hash = kEmptyHash;
     WT_E("worldtables: %s. The game's tables are untouched: material blocks are off this session", why.c_str());
     write_status();
@@ -690,12 +699,27 @@ void merge_locked() {
             }
     }
 
+    // The build menu's pools: 64 items each in a player's game, the game's own among them. A material whose item has no room left there is refused
+    // by name before it takes an id; one a world has cells of is kept as an absent mod's is.
+    if (!pool_counts(pools.game, L, &g_pool_game, &why)) {
+        go_off(why);
+        return;
+    }
+    std::vector<Material> held;
+    std::vector<std::string> pool_refused;
+    {
+        std::set<Guid> remembered;
+        for (const Material& k : g_kept_read) remembered.insert(k.guid);
+        fit_pools(&g_live, g_pool_game, remembered, &held, &pool_refused);
+    }
     std::vector<Material> kept;
     {
         std::set<Guid> live;
         for (const Material& m : g_live) live.insert(m.guid);
+        for (const Material& h : held) live.insert(h.guid);
         for (const Material& k : g_kept_read)
             if (!live.count(k.guid)) kept.push_back(k);
+        for (Material& h : held) kept.push_back(std::move(h));
     }
     // Terrain ids are a room of their own: a cell's low byte 1..127 against 128..255.
     std::vector<Material> tlive, tkept;
@@ -717,7 +741,8 @@ void merge_locked() {
     }
     Allocation a = allocate(g_live, kept, free_ids, deprecated);
     g_room = a.room;
-    g_refused = a.refused;
+    g_refused = std::move(pool_refused);
+    g_refused.insert(g_refused.end(), a.refused.begin(), a.refused.end());
     g_placed = std::move(a.placed);
     Allocation ta = allocate_terrain(tlive, tkept, free_terrain_ids(worlds[0].game, L, info));
     g_terrain_room = ta.room;
@@ -746,6 +771,10 @@ void merge_locked() {
             return;
         }
         pools.merged = std::move(next);
+    }
+    if (!pool_counts(pools.merged, L, &g_pool_served, &why)) {
+        go_off(why);
+        return;
     }
     if (!merge_blueprints(blueprints.game, L, g_placed, first_pool_item(pools.game, L), &blueprints.merged, &why)) {
         go_off(why);
@@ -849,9 +878,16 @@ void merge_locked() {
         if (p.reused) WT_W("worldtables: material %s took the game's deprecated slot %d: a world with cells of the deprecated material now shows this one", p.m.block.c_str(), p.cell);
     size_t live_n = 0, tlive_n = 0;
     for (size_t i = 0; i < g_placed.size(); ++i) (i < building_n ? live_n : tlive_n) += g_placed[i].m.live ? 1 : 0;
-    if (any)
+    if (any) {
         WT_I("worldtables: merged: %zu tweak(s), %zu live and %zu kept material(s) of room for %zu, first new id %d, %zu table(s) served; hash %s", g_tweaks.size(), live_n, building_n - live_n, g_room, g_first_new_id,
              put.size(), g_hash.c_str());
+        std::string menu;
+        for (const char* p : {kWallPool, kRoofPool, kTerrainPool}) {
+            const uint32_t game = g_pool_game.count(p) ? g_pool_game.at(p) : 0, served = g_pool_served.count(p) ? g_pool_served.at(p) : 0;
+            menu += (menu.empty() ? "" : ", ") + std::string(p) + " " + std::to_string(game) + " + " + std::to_string(served > game ? served - game : 0) + " of " + std::to_string(kPoolCapacity);
+        }
+        WT_I("worldtables: build menu pools: %s", menu.c_str());
+    }
     if (g_placed.size() > building_n)
         WT_I("worldtables: terrain: %zu live and %zu kept material(s) of room for %zu", tlive_n, g_placed.size() - building_n - tlive_n, g_terrain_room);
     else
@@ -1129,6 +1165,21 @@ KilnResult KILN_CALL t_define(KilnStr json, char* report, size_t cap, size_t* ou
                         std::snprintf(text, sizeof text, "the game has room for %zu new %s materials across all mods, and %zu are taken", room, m.terrain ? "terrain" : "building", taken);
                         errors.push_back(std::string("code: block ") + kind + " " + m.block + ": refused: " + text);
                         continue;
+                    }
+                    // its item's room in the build menu's pool, as at the next start
+                    const std::string pool = pool_of(m);
+                    if (!pool.empty() && !g_pool_game.empty()) {
+                        const uint32_t have = g_pool_game.count(pool) ? g_pool_game.at(pool) : 0;
+                        const size_t pool_room = have < kPoolCapacity ? kPoolCapacity - have : 0;
+                        const size_t pool_taken = g_pending_pool[pool] + static_cast<size_t>(std::count_if(g_placed.begin(), g_placed.end(), [&](const Placed& p) {
+                                                      return p.m.live && pool_of(p.m) == pool;
+                                                  }));
+                        if (pool_taken >= pool_room) {
+                            errors.push_back(std::string("code: block ") + kind + " " + m.block + ": refused: " + pool_room_text(pool, have) + ", and " + std::to_string(pool_taken) +
+                                             " are taken");
+                            continue;
+                        }
+                        ++g_pending_pool[pool];
                     }
                     ++pending_n;
                     keep_block(section, m.block);

@@ -32,7 +32,7 @@
   },
   "items": {
     "frost-ingot-json": {
-      "name": "Frost Ingot", "stack": 50,
+      "name": "Frost Ingot", "stack": 50, "visual": { "like": "Material_T5_Silver_Bar" },
       "recipe": { "station": "cold-forge-json", "seconds": 2, "burns": { "Material_T1_Charcoal": 1 }, "needs": { "Material_T1_Metal_Sheets": 1 } }
     }
   },

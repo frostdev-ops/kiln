@@ -492,6 +492,8 @@ public readonly unsafe struct AttackControl
     }
 
     /// <summary>Whenever the creature attacks, it starts this one, past its style, range, cooldown and constraints.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The arsenal the creature reads now has no attack at <paramref name="index"/>.</exception>
+    /// <exception cref="NotSupportedException">The creature has no arsenal, or attack overrides are off on this build.</exception>
     [TickThreadOnly]
     public void Force(int index) => Set(index, ~0u);
 
@@ -540,7 +542,12 @@ public readonly unsafe struct AttackControl
         var t = Creatures.Tick("AttackControl");
         var o = Creatures.RequireOwner(_owner, "AttackControl");
         var v = new CreaturesNative.AttackOverride { Size = (uint)sizeof(CreaturesNative.AttackOverride), Forced = forced, Allow = allow };
-        Creatures.Check(t->SetAttackOverride(o.Native, _entity.Value, &v), $"entity {_entity}: attack override");
+        var rc = t->SetAttackOverride(o.Native, _entity.Value, &v);
+        if (forced >= 0 && rc == CreaturesNative.InvalidArgument)
+            throw new ArgumentOutOfRangeException(nameof(forced), forced, $"entity {_entity}: its arsenal has no attack {forced}");
+        if (forced >= 0 && rc == CreaturesNative.Unavailable)
+            throw new NotSupportedException($"entity {_entity}: cannot force an attack (no arsenal, or attack overrides are off here)");
+        Creatures.Check(rc, $"entity {_entity}: attack override");
     }
 }
 

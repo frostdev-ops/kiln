@@ -6,7 +6,7 @@ Impact programs and works out what players' games need. There are no GUIDs to wr
 ```csharp
 var chilled = Blocks.Define("chilled", new StatusBlock
 {
-    Name = "Chilled", Seconds = 8, TickEvery = 2,
+    Name = "Chilled", Seconds = 8, TickEvery = 2, Look = StatusLook.Frost,
     OnTick = [new EffectBlock { Damage = Damage.Ice(3), Flinch = Flinch.None }],
     Modifies = { [Stat.MoveSpeed] = -0.5 },
 });
@@ -24,7 +24,7 @@ Blocks.Define("frostbolt", new SpellBlock
 The same as data, in `blocks/*.json` (the schema gives the editor completion and errors):
 ```jsonc
 { "format": 1,
-  "statuses": { "chilled": { "name": "Chilled", "seconds": 8, "tickEvery": 2, "onTick": [ { "damage": { "ice": 3 }, "flinch": "none" } ], "modifies": { "move-speed": -0.5 } } },
+  "statuses": { "chilled": { "name": "Chilled", "seconds": 8, "tickEvery": 2, "look": "frost", "onTick": [ { "damage": { "ice": 3 }, "flinch": "none" } ], "modifies": { "move-speed": -0.5 } } },
   "effects": { "frost-burst": { "damage": { "ice": 40 }, "knockback": "small", "applies": "chilled" } },
   "spells": { "frostbolt": { "name": "Frostbolt", "cast": { "manaCost": 30 },
       "delivery": { "type": "projectile", "onImpact": [ { "area": { "radius": 3, "effects": [ "frost-burst" ] } } ] },
@@ -74,11 +74,11 @@ A hit an effect deals is skipped by these triggers, so an effect cannot trigger 
 **Damage numbers.** On a spell, the first `Damage` is its main hit: `Damage.Ice(40)` is the number in the tooltip, and the staff's power adds to it in a cast, as the game does. `Flat = true` makes it exactly the number written. Everything else is exactly the number written. The target's armour and the attacker's stats apply after, as for every hit.
 
 ## Statuses
-A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect: a debuff without one looks like the frost slow, a buff has a blessing's icon and no body effect), `Refreshes`, the three triggers above, `TickEvery`, `Screen` (a [screen effect](screen-effects.md) on its player while it lasts), and:
+A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect: `StatusLook.Frost`, the frost slow's snail; `Poison`; `Fire`, the game's Burning with flames on the chest; without one a debuff has a timer's icon and a buff a blessing's, and neither a body effect), `Refreshes`, the three triggers above, `TickEvery`, `Screen` (a [screen effect](screen-effects.md) on its player while it lasts), and:
 
 `Description` is yours or absent: a status never shows the text of the game status its look comes from.
 
-A debuff also shows on the health bar over a creature that has it, in white like the game's own debuffs for enemies. The bar draws only a status with a colour, and the frost slow has none. `Tweak` sets another `color`: a number with alpha, blue, green and red from the high byte down, as the game's orange Burning, `0x766b98ff`. A buff keeps its look's colour, so like the game's buffs it doesn't show there.
+A debuff also shows on the health bar over a creature that has it, in white like the game's own debuffs for enemies. The bar draws only a status with a colour, and the frost slow and the timer have none. `Tweak` sets another `color`: a number with alpha, blue, green and red from the high byte down, as the game's orange Burning, `0x766b98ff`. A buff keeps its look's colour, so like the game's buffs it doesn't show there.
 
 `While` puts it on a player for as long as they are in a state, and takes it off after: `While = PlayerStateId.Gliding`, in JSON `"while": "Gliding"`. It needs no `Seconds`. Any of the game's states works: [player-states.md](player-states.md). Such a status shows no time in the buff bar, as the game's own untimed buffs do; one with `Seconds` shows what is left.
 

@@ -25,6 +25,7 @@ public sealed class Settings
 public sealed class EliteVukahMod : Mod
 {
     public const string VariantId = "elite_vukah";
+    private const string ViewRangePath = "combatCommitmentSetup.view.range";
     private readonly List<IDisposable> _registrations = [];
     private Settings _s = new();
     private int _elites;
@@ -49,11 +50,14 @@ public sealed class EliteVukahMod : Mod
             Resistances = { [DamageKind.Fire] = 0.5f, [DamageKind.Pierce] = 0.6f },
             LootSlots = (2, 6),
             DisableFeatures = EnemyFeatures.FleeHome,
+            // The game's sight check reads combatCommitmentSetup: view.range (times its night and water factors),
+            // view.coneHalfAngle, and gain.inRange.range, the distance at which a seen target is engaged at once.
+            // aggroSetup.viewRange only sizes the candidate query (at least 64 m), so it matters only beyond 64 m.
             Ai =
             {
-                ["aggroSetup.viewRange"] = _s.ViewRange.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["aggroSetup.aggroRange"] = _s.AggroRange.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["aggroSetup.viewConeHalfAngle"] = "120",
+                [ViewRangePath] = _s.ViewRange.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["combatCommitmentSetup.gain.inRange.range"] = _s.AggroRange.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["combatCommitmentSetup.view.coneHalfAngle"] = "120",
             },
         }));
         if (_s.Chance > 0) _registrations.Add(CreatureVariants.AddSpawnRule(new CreatureSpawnRule("Enemy_Vukah_Melee", VariantId, _s.Chance)));
@@ -70,7 +74,7 @@ public sealed class EliteVukahMod : Mod
         _elites++;
         var i = Creatures.Of(e.Entity).Inspect();
         Log.Info($"elite-vukah: elite {e.Entity} ({(e.Natural ? "natural spawn" : "spawned")}): level {i?.Level}, " +
-                 $"scale {i?.Scale:0.##}, view range {Creatures.Of(e.Entity).Ai.Get("aggroSetup.viewRange")}");
+                 $"scale {i?.Scale:0.##}, view range {Creatures.Of(e.Entity).Ai.Get(ViewRangePath)}");
     }
 
     private async Task SpawnDemo(WorldPosition at)

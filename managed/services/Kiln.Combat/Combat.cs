@@ -33,8 +33,12 @@ public sealed record DamageOptions
     public float Aggro { get; init; } = 1f;
     /// <summary>The hit interrupts the target's current action.</summary>
     public bool ForceInterrupt { get; init; }
-    /// <summary>No HitEvent: health changes, but no reaction, no damage number for clients, no kill credit.</summary>
+    /// <summary>No HitEvent: health changes, but no reaction, no damage number for clients, no kill credit for this hit
+    /// (a player who hit the target before keeps the credit; see <see cref="NoCredit"/>).</summary>
     public bool Silent { get; init; }
+    /// <summary>Clears the target's credit before the hit. The game gives a kill's XP (and kill credit) to the last player
+    /// who hit the target, whoever lands the killing blow; with no attacker and this option, a kill credits nobody.</summary>
+    public bool NoCredit { get; init; }
     /// <summary>The direct source entity (weapon, projectile); default: the attacker.</summary>
     public EntityId Source { get; init; }
     /// <summary>Treat the hit like one the engine produced: no synchronous <see cref="EntityHurtEvent"/>; it is held and
@@ -242,7 +246,8 @@ public static unsafe class Combat
         req.PushBack = o.PushBack;
         req.Aggro = o.Aggro;
         req.Flags = (o.ForceInterrupt ? CombatNative.DamageForceInterrupt : 0) | (o.Silent ? CombatNative.DamageSilent : 0) |
-                    (o.AsGameHit ? CombatNative.DamageAsGameHit : 0) | (kill ? CombatNative.DamageKill : 0);
+                    (o.AsGameHit ? CombatNative.DamageAsGameHit : 0) | (kill ? CombatNative.DamageKill : 0) |
+                    (o.NoCredit ? CombatNative.DamageNoCredit : 0);
         ulong id = 0;
         var rc = t->Damage(Services.CallerOwner, &req, &id);
         if (rc != CombatNative.Ok)

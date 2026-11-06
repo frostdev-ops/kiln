@@ -85,7 +85,11 @@ public static unsafe class Voiceover
         var g = stackalloc byte[16];
         AudioNative.WriteGuid(line.Value, g);
         var h = new SoundHandle(t->Narrate(AudioCore.Owner(), g, nameLoca, descriptionLoca));
-        if (!h.IsNone) Subtitles.Show(h, line, subtitle);
+        if (!h.IsNone)
+        {
+            Subtitles.Show(h, line, subtitle);
+            if (CookIndex.Voiceover(line.Value) is { } info) Lengths.Track(h, 0, info);
+        }
         return h;
     }
 
@@ -115,7 +119,11 @@ public static unsafe class Voiceover
         AudioNative.WriteGuid(line.Value, g);
         AudioNative.Vec3 v = at is { } p ? new AudioNative.Vec3(p) : default;
         var h = new SoundHandle(t->VoiceoverPlay(AudioCore.Owner(), g, speaker.Value, at is null ? null : &v));
-        if (!h.IsNone) Subtitles.Show(h, line, subtitle);
+        if (!h.IsNone)
+        {
+            Subtitles.Show(h, line, subtitle);
+            if (CookIndex.Voiceover(line.Value) is { } info) Lengths.Track(h, 0, info);
+        }
         return h;
     }
 

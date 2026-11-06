@@ -460,10 +460,54 @@ public sealed class SkillsTestMod : Mod
         GameTree.LabReload(p);
         for (var i = 0; i < 60 && GameTree.LabCarried(holder).Count > 0; i++) await Steps(1);
         Check(!InSave(p, n1.Id) && GameTree.LabCarried(holder).Count == 0, $"refused by the game's rules: no unlock, the entry goes, and kiln.log says so (\"can't be taken back\" for 0x{n1.Id:x8})");
+        await TestAnchorsFirst(p, holder);
         GameTree.LabPlayer(default);
         Progression.Diagnostics.LabPlayer(default);
         await Progression.Respec(p);
         await Steps(4);
+    }
+
+    // Carried entries come back anchors first, whatever order the character's data lists them in: the sample's Emberheart hangs on
+    // Ember Ward. Only with the sample deployed and both native here.
+    private async Task TestAnchorsFirst(EntityId p, TalentHolder holder)
+    {
+        var ward = GameTree.Definitions.FirstOrDefault(d => d.Name == "skilltreesample_ember_ward" && d.State == "in-tree");
+        var heart = GameTree.Definitions.FirstOrDefault(d => d.Name == "skilltreesample_emberheart" && d.State == "in-tree");
+        if (ward is null || heart is null || GameTree.ShadowNodes.Contains(ward.Id) || GameTree.ShadowNodes.Contains(heart.Id))
+        {
+            Info("anchors first: the sample's nodes aren't native nodes here (skipped)");
+            return;
+        }
+        string Hex(IEnumerable<uint> ids) => string.Join(", ", ids.Select(x => $"0x{x:x8}"));
+        static Dictionary<uint, int> Taken(EntityId e) => Progression.UnlockedNodes(e).Where(x => x.MaxLevel == 0 || x.Level > 0).ToDictionary(x => x.Id, x => x.Level);
+        await Progression.Respec(p);
+        await Steps(3);
+        // the lab's entity has no points to read, so force stands in for the cost check; the order is Kiln's
+        GameTree.LabPlayer(p, holder, forceNative: true);
+        await Steps(2);
+        GameTree.LabSetCarried(holder, new Dictionary<string, int> { [$"0x{heart.Id:x8}"] = 2, [$"0x{ward.Id:x8}"] = 1 });
+        GameTree.LabReload(p);
+        for (var i = 0; i < 80 && GameTree.LabCarried(holder).Count > 0; i++) await Steps(1);
+        await Steps(3);
+        var asked = GameTree.LabNativeRequests(p);
+        var taken = Taken(p);
+        Check(asked.Count == 3 && asked[0] == ward.Id && asked[1] == heart.Id && asked[2] == heart.Id && taken.ContainsKey(ward.Id) &&
+              taken.GetValueOrDefault(heart.Id) == 2 && GameTree.LabCarried(holder).Count == 0,
+            $"carried as Emberheart 2 then Ember Ward 1, they come back anchor first, one level per request: {Hex(asked)}; " +
+            $"Ember Ward taken {taken.ContainsKey(ward.Id)}, Emberheart level {taken.GetValueOrDefault(heart.Id)}, carried {GameTree.LabCarried(holder).Count}");
+        await Progression.Respec(p);
+        await Steps(3);
+        // the anchor can't come back (not linked here: its own anchor, a game node, isn't unlocked): the node hanging on it isn't asked
+        // for before it, and kiln.log names the anchor ("it hangs on 0x...")
+        GameTree.LabPlayer(p, holder, forceNative: false);
+        await Steps(2);
+        GameTree.LabSetCarried(holder, new Dictionary<string, int> { [$"0x{heart.Id:x8}"] = 1, [$"0x{ward.Id:x8}"] = 1 });
+        GameTree.LabReload(p);
+        for (var i = 0; i < 80 && GameTree.LabCarried(holder).Count > 0; i++) await Steps(1);
+        asked = GameTree.LabNativeRequests(p);
+        taken = Taken(p);
+        Check(asked.Count >= 1 && asked[0] == ward.Id && !taken.ContainsKey(ward.Id) && !taken.ContainsKey(heart.Id) && GameTree.LabCarried(holder).Count == 0,
+            $"without its anchor nothing comes back, Ember Ward asked for first ({Hex(asked)}), and kiln.log says Emberheart \"hangs on 0x{ward.Id:x8}\"");
     }
 
     // ------------------------------------------------------------------------------- the client's copy of the table --

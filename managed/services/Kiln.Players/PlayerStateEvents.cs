@@ -247,9 +247,16 @@ public sealed class PlayerHotbarChangedEvent : KilnEvent
 /// <summary>A client sent a versioned action: anything the game's menus and input send as a command, named by the game's own
 /// field. <c>changeEquipmentAction</c>, <c>inventoryTransferAction</c>, <c>playerCraftingAction</c>, <c>teleportAction</c>,
 /// <c>unlockSkillAction</c>, <c>selectDialogOptionAction</c>, <c>triggerEmoteAction</c>, <c>adminSetDaytime</c>: all of them are in
-/// <see cref="PlayerStates.ClientActions"/>. Posted in Pre, before the game's program reads it.
-/// <para><see cref="CancelableEvent.Cancel"/> marks it consumed, so the game's program skips it: the way the game itself
-/// ignores an old version. The client is not told; what it shows depends on the action.</para></summary>
+/// <see cref="PlayerStates.ClientActions"/>. Posted in Pre.
+/// <para>The game takes a client's input in during the sim step and runs the action in that same step, before any Pre
+/// could see it. So while a handler listens, Kiln holds each action <see cref="CanCancel"/> covers for one step, right
+/// before the game's programs, and posts it in the next Pre: it has not run yet. Not canceled, the game runs it in that
+/// step (one step late: about 17 ms with a client joined). <see cref="CancelableEvent.Cancel"/> marks its version
+/// consumed, so the game skips it the way it ignores an old version, and it never runs. The client is not told, and
+/// what it shows depends on the action: docs/kiln/services/player-state.md.</para>
+/// <para>Where <see cref="CanCancel"/> is false a cancel does nothing, and a client's action has already run when the
+/// event comes: a joined client, or a build where Kiln's hold point did not resolve
+/// (<see cref="PlayerStateServiceStatus.ClientActionCancel"/>).</para></summary>
 public sealed class PlayerClientActionEvent : CancelableEvent
 {
     static PlayerClientActionEvent() => PlayerStateWatch.Start();
@@ -270,7 +277,8 @@ public sealed class PlayerClientActionEvent : CancelableEvent
     public uint Version { get; }
     /// <summary>The action's struct as the client sent it (layout: the game's reflection of the field's type).</summary>
     public byte[] Payload { get; }
-    /// <summary>False: a joined client, or an action whose consumed version has no known field.</summary>
+    /// <summary>True: Kiln holds the action and the game has not run it; a cancel stops it. False: a cancel does nothing
+    /// (a joined client, or a build where client actions cannot be held; a client's action has already run).</summary>
     public bool CanCancel { get; }
 
     public override string ToString() => $"{Player.Name} sent {Name} v{Version}";
@@ -371,7 +379,7 @@ internal static unsafe class PlayerStateWatch
         lock (Lock)
             foreach (var e in Extra) Add(e, null);
         var t = PlayerStates.T;
-        if (t != null && t->Header.Size >= (uint)sizeof(PlayerStates.Native.Table) && t->LocalPlayer != null)
+        if (t != null && PlayerStates.Native.Has(t, &t->LocalPlayer) && t->LocalPlayer != null)
         {
             var local = t->LocalPlayer();
             if (local != 0) Add(local, null);
@@ -391,6 +399,7 @@ internal static unsafe class PlayerStateWatch
         var equipSubs = Events.HasSubscribers<PlayerEquipmentChangedEvent>() || Events.HasSubscribers<PlayerHotbarChangedEvent>();
         var clientSubs = Events.HasSubscribers<PlayerClientActionEvent>();
         var armed = Volatile.Read(ref _armedUntil) > Environment.TickCount64;
+        if (!clientSubs) StopHolding();
         if (!stateSubs && !actionSubs && !jumpSubs && !glideSubs && !equipSubs && !clientSubs && !armed)
         {
             if (Slots.Count > 0)
@@ -427,6 +436,8 @@ internal static unsafe class PlayerStateWatch
         if (rc != PlayerStates.Native.Ok) return;
         _cancelSupported ??= PlayerStates.Status is { Cancel: true };
         var canCancel = _cancelSupported == true && _cur[0].World == 0;
+        var holding = clientSubs && Hold(t, n);
+        if (holding) PostHeldClientActions(t);
         for (var i = 0; i < n; i++)
         {
             var s = Slots[i];
@@ -435,7 +446,7 @@ internal static unsafe class PlayerStateWatch
                 s.HasPrev = false;
                 continue;
             }
-            if (clientSubs) PostClientActions(s, in _cur[i], canCancel, t);
+            if (clientSubs) PostClientActions(s, in _cur[i], holding, t);
             Process(s, ref _cur[i], want, extra, stateSubs, actionSubs, jumpSubs, glideSubs, canCancel, tick.Step, t);
         }
         if (equipSubs && _ticks % EquipEvery == 0) PumpEquipment(t);
@@ -452,7 +463,63 @@ internal static unsafe class PlayerStateWatch
         PumpRuns++;
     }
 
-    private static void PostClientActions(Slot s, in PlayerStates.Native.Snapshot cur, bool canCancel, PlayerStates.Native.Table* t)
+    // Holding: the server world only, while a handler listens, renewed every Pre (the native side lets everything run and
+    // stops holding by itself when that stops).
+    private static bool? _holdSupported;
+    private static bool _holding;
+
+    private static bool Hold(PlayerStates.Native.Table* t, int n)
+    {
+        _holdSupported ??= PlayerStates.Status is { ClientActionCancel: true };
+        if (_holdSupported != true || _cur[0].World != 0) return false;
+        int rc;
+        fixed (uint* ids = _ids)
+            rc = t->ClientActionHold(ids, (uint)n);
+        _holding = rc == PlayerStates.Native.Ok;
+        return _holding;
+    }
+
+    private static void StopHolding()
+    {
+        if (!_holding) return;
+        _holding = false;
+        var t = PlayerStates.T;
+        if (t != null) t->ClientActionHold(null, 0);  // what is held runs
+    }
+
+    // The actions held in the last step: the game has not run them. Each gets its answer before the next step.
+    private static void PostHeldClientActions(PlayerStates.Native.Table* t)
+    {
+        const int Batch = 8;
+        var all = PlayerStates.ClientActions;
+        var buf = stackalloc PlayerStates.Native.HeldAction[Batch];
+        while (true)
+        {
+            for (var k = 0; k < Batch; k++) buf[k].Size = (uint)sizeof(PlayerStates.Native.HeldAction);
+            uint count = 0;
+            var rc = t->ClientActionHeld(buf, Batch, &count);
+            for (var k = 0; k < (int)count; k++)
+            {
+                ref var h = ref buf[k];
+                var cancel = false;
+                if (h.Index < (uint)all.Count)
+                {
+                    var payload = new byte[Math.Min(h.Bytes, (uint)PlayerStates.Native.HeldAction.PayloadBytes)];
+                    fixed (byte* src = h.Payload)
+                        new ReadOnlySpan<byte>(src, payload.Length).CopyTo(payload);
+                    var entity = h.Entity;
+                    var player = Slots.Find(x => x.Entity == entity)?.Player ?? new Player { Entity = new EntityId(entity), State = PlayerState.InGame };
+                    cancel = Events.Post(new PlayerClientActionEvent(player, all[(int)h.Index], h.Version, payload, true)).Canceled;
+                }
+                t->ClientActionDecide(h.Entity, h.Index, h.Version, cancel ? 1u : 0u);
+            }
+            if (rc != PlayerStates.Native.BufferTooSmall) break;
+        }
+    }
+
+    // Versions seen in Pre. These have already run: the game took them in and ran them during the last step. While Kiln
+    // holds, the actions it can hold come from PostHeldClientActions instead, and only the others are reported here.
+    private static void PostClientActions(Slot s, in PlayerStates.Native.Snapshot cur, bool holding, PlayerStates.Native.Table* t)
     {
         var bit = 1u << PlayerStates.Native.KnownClientActions;
         if (!s.HasPrev || (cur.Known & bit) == 0 || (s.Prev.Known & bit) == 0) return;
@@ -463,16 +530,15 @@ internal static unsafe class PlayerStateWatch
             {
                 if (now[i] == was[i]) continue;
                 var info = all[i];
+                if (holding && info.CanCancel) continue;
                 var payload = new byte[info.Bytes];
                 fixed (byte* b = payload)
                 {
                     uint n = 0;
                     t->ClientActionBytes(cur.Entity, (uint)i, b, (uint)payload.Length, &n);
                 }
-                var ev = Events.Post(new PlayerClientActionEvent(s.Player!, info, now[i], payload, canCancel && info.CanCancel));
-                if (!ev.Canceled) continue;
-                if (ev.CanCancel) t->ClientActionCancel(cur.Entity, (uint)i);
-                else ModLogOnce("a handler canceled a client action where that has no effect (a joined client, or an action with no consumed version)");
+                var ev = Events.Post(new PlayerClientActionEvent(s.Player!, info, now[i], payload, false));
+                if (ev.Canceled) ModLogOnce("a handler canceled a client action that had already run (CanCancel false): nothing changed");
             }
     }
 

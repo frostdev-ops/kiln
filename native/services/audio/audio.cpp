@@ -10,6 +10,7 @@
 // sounds to their entity's CurrentTransform, applies stop/volume/position requests, and forgets finished handles
 // after 60 s. Handles are Kiln ids; the game's instance ids behind them are generation-checked by the game.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -37,6 +38,9 @@ constexpr uint64_t kKeepFinishedMs = 60000;
 constexpr int64_t kFollowGoneFadeNs = 100'000'000;  // 100 ms
 constexpr int64_t kMusicSlotMinFadeNs = 250'000'000;
 constexpr uint32_t kVoiceoverType = 0x53e9cf8au;    // FNV-1a("keen::VoiceoverResource"), the manager's resolve type
+constexpr uint32_t kContainerType = 0xf257640cu;    // FNV-1a("keen::SoundContainerResource"), what SoundStart resolves
+constexpr uint64_t kCatalogRefreshMs = 2000;
+constexpr size_t kCatalogSane = 1000;               // fewer cues than this: the catalog didn't read, so no cue is refused
 constexpr int kLogFirst = 40;                       // info lines for the first N plays/ends/failures, then debug
 
 const char* const kSceneNames[KILN_AUDIO_SCENES] = {"music", "ui", "game", "ambience", "character", "voicechat", "lore"};
@@ -133,7 +137,7 @@ const char* reason_text(uint32_t r) {
         case KILN_AUDIO_END_SILENT: return "silent (no take for the voice language)";
         case KILN_AUDIO_END_REFUSED: return "refused by the lore queue";
         case KILN_AUDIO_END_WORLD_ENDED: return "the client world ended";
-        case KILN_AUDIO_END_NOT_FOUND: return "voice-over resource not found";
+        case KILN_AUDIO_END_NOT_FOUND: return "no such cue or voice-over line (not the game's, not a mod's)";
         default: return "-";
     }
 }
@@ -156,6 +160,53 @@ void finish(Entry& e, uint32_t state, uint32_t reason) {
          "audio: #%u %s %s %s: %s%s", e.id, kind_text(e.kind), guid_text(e.guid).c_str(),
          state == KILN_SOUND_FAILED ? "FAILED" : "ended", reason_text(reason),
          e.started_ms ? (std::string(", played ") + std::to_string(e.ended_ms - e.started_ms) + " ms").c_str() : "");
+}
+
+// The game's SoundStart hands out an instance for any GUID, also one no resource has: that instance never plays and never
+// ends, so the handle would read Playing for good. The cue catalog (the game's containers plus the ones mods serve,
+// kiln.assets resource_list) tells an unknown cue from one that just isn't loaded yet. Read on the first use and again when a
+// cue is missing from it (a mod's new cue), at most every 2 s. A catalog that didn't read refuses nothing.
+std::vector<std::array<uint8_t, 16>> g_catalog;  // sorted
+uint64_t g_catalog_ms = 0;
+
+bool catalog_has(const uint8_t guid[16]) {
+    std::array<uint8_t, 16> k;
+    std::memcpy(k.data(), guid, 16);
+    return std::binary_search(g_catalog.begin(), g_catalog.end(), k);
+}
+
+// No resource answers the key either (resource_read: NOT_FOUND only when neither a mod nor the game has it).
+bool cue_missing(const uint8_t guid[16]) {
+    KilnAssetKey k{};
+    std::memcpy(k.guid, guid, 16);
+    k.type = kContainerType;
+    size_t len = 0;
+    return g_assets->resource_read(&k, nullptr, 0, &len) == KILN_ERR_NOT_FOUND;
+}
+
+// true: the cue may play (known, or the catalog can't tell). false: no resource has this GUID.
+bool cue_known(const uint8_t guid[16]) {
+    if (!g_assets || g_assets->header.size < offsetof(KilnAssetsApi, resource_list) + sizeof(void*)) return true;
+    if (g_catalog.size() >= kCatalogSane && catalog_has(guid)) return true;
+    const uint64_t now = now_ms();
+    if (g_catalog_ms && now - g_catalog_ms < kCatalogRefreshMs) return g_catalog.size() < kCatalogSane || !cue_missing(guid);
+    g_catalog_ms = now;
+    size_t n = 0;
+    g_assets->resource_list(kContainerType, nullptr, 0, &n);
+    if (n == 0 || n > 1'000'000) return true;
+    std::vector<KilnAssetKey> keys(n + 64);
+    if (g_assets->resource_list(kContainerType, keys.data(), keys.size(), &n) != KILN_OK) return true;
+    keys.resize(std::min(n, keys.size()));
+    g_catalog.clear();
+    g_catalog.reserve(keys.size());
+    for (const auto& k : keys) {
+        std::array<uint8_t, 16> g;
+        std::memcpy(g.data(), k.guid, 16);
+        g_catalog.push_back(g);
+    }
+    std::sort(g_catalog.begin(), g_catalog.end());
+    if (g_catalog.size() < kCatalogSane) return true;
+    return catalog_has(guid) || !cue_missing(guid);
 }
 
 void fixed3(const KilnVec3& v, int64_t out[3]) {
@@ -208,6 +259,11 @@ void start_sound(Entry& e, bool client_tick, uintptr_t world) {
     const uint32_t scene_id = g_scenes[e.scene].load(std::memory_order_relaxed);
     if (!scene_id) {
         finish(e, KILN_SOUND_FAILED, KILN_AUDIO_END_NO_SYSTEM);
+        return;
+    }
+    if (!cue_known(e.guid)) {
+        e.thread = GetCurrentThreadId();
+        finish(e, KILN_SOUND_FAILED, KILN_AUDIO_END_NOT_FOUND);
         return;
     }
     PlayParams p{};
@@ -537,6 +593,7 @@ void on_vo_update_pre(uintptr_t mgr) {
             KA_I("audio: #%u voice-over %s requested: speaker %u, language slot %s%s", e.id, guid_text(e.guid).c_str(),
                  e.entity, kSlotNames[slot], known ? (" -> cue " + guid_text(cue)).c_str() : " (cue not checked)");
         } else {
+            const uint32_t before = rd<uint8_t>(mgr + VL.lore_count);
             if (!g_lore_push(mgr, e.guid, e.name_loca, e.desc_loca)) {
                 KA_E("audio: #%u lore push faulted", e.id);
                 finish(e, KILN_SOUND_FAILED, KILN_AUDIO_END_START_FAILED);
@@ -544,8 +601,8 @@ void on_vo_update_pre(uintptr_t mgr) {
             }
             e.pushed = true;
             KA_I("audio: #%u narration %s pushed into the lore queue (mode %u, %u queued before), language slot %s%s",
-                 e.id, guid_text(e.guid).c_str(), g_lore_mode.load(), rd<uint8_t>(mgr + VL.lore_count),
-                 kSlotNames[slot], known ? (" -> cue " + guid_text(cue)).c_str() : " (cue not checked)");
+                 e.id, guid_text(e.guid).c_str(), g_lore_mode.load(), before, kSlotNames[slot],
+                 known ? (" -> cue " + guid_text(cue)).c_str() : " (cue not checked)");
         }
     }
 }
@@ -762,9 +819,12 @@ KilnResult KILN_CALL api_info(KilnSound h, KilnSoundInfo* out) {
     const uint32_t size = out->size;
     std::memset(out, 0, sizeof *out);
     out->size = size;
-    out->state = (!final_state(e.state) && e.stop_req) ? KILN_SOUND_STOPPED : e.state;
+    // a stop request reads as done at once (state and reason), as api_state does; a narration queued behind another line is
+    // taken off the screen and the API now and stopped by the game when it reaches the head of the lore queue
+    const bool stopping = !final_state(e.state) && e.stop_req;
+    out->state = stopping ? KILN_SOUND_STOPPED : e.state;
     out->kind = e.kind;
-    out->reason = e.reason;
+    out->reason = stopping ? KILN_AUDIO_END_STOPPED : e.reason;
     out->flags = e.info_flags;
     out->scene = e.scene;
     out->instance = e.instance;

@@ -82,7 +82,7 @@ Survey of every program that writes `Actor` (decompiles), and of `SetStateEvent`
 | Others | not traced | |
 
 ## How an action starts and ends **[dis]**
-Program order inside a step, from `RegisterAllPrograms` `0x245960`:
+Program order inside a step, from `RegisterAllPrograms` `0x245960`. Before any of them SimStep copies the clients' input into `PlayerInput` (`InputApply`, below) and delivers last step's events (`DeliverEvents`):
 ```
 37 player_control_not_predicted   emotes
 38 player_control
@@ -148,7 +148,29 @@ Being in a base is not a flag: `IsNearBuildingZone` is about the cursor (`Server
 The Shroud is `InFog` (`fog_resistance_update` `0xc1c70`), with `EnvironmentSensor.fogType` (None, NoneTemporary, Dangerous, Death) saying which. `fogResistance` is the timer in seconds: `Dangerous` takes 1 a second, `Death` 100 a second, and it recovers 25 a second outside. A level 1 character has 420. **[dis] [rt]**
 
 ## What a client sends **[refl] [dis]**
-31 versioned actions in `PlayerInput.fromClient` and 14 in `fromAdminClient`: every field whose struct has a `versionData`. A program compares it with the field of the same name in `ServerConsumedPlayerInput` (`consumedChangeEquipmentAction` ...), runs the action once when they differ, and stores it. No program writes `PlayerInput`, so a version is visible in Pre before its program runs, and writing it to the consumed field makes the program skip it. **[dis]** Lab: a fake `changeEquipmentAction` equips a glider through `equipment_actions` on a character with no client; the same action with its version marked consumed does nothing. **[rt]** Three admin ones are named differently (`adminSpawnCommand` and `consumedAdminSpawnAction`, `adminKillFaction` and `consumedAdminKillFactionAction`, `adminDebugEnemyAction` and `consumedDebugEnemyAction`).
+31 versioned actions in `PlayerInput.fromClient` and 14 in `fromAdminClient`: every field whose struct has a `versionData`. A program compares it with the field of the same name in `ServerConsumedPlayerInput` (`consumedChangeEquipmentAction` ...), runs the action once when they differ, and stores it. Writing the version to the consumed field first makes the program skip it. Three admin ones are named differently (`adminSpawnCommand` and `consumedAdminSpawnAction`, `adminKillFaction` and `consumedAdminKillFactionAction`, `adminDebugEnemyAction` and `consumedDebugEnemyAction`). **[dis]**
+
+**How a client's input gets there.** No program writes `PlayerInput`, but SimStep does, after Kiln's Pre. **[dis]**
+```
+ServerReceive 0x7bdb20, player channel 8 -> 0x2392d0: deserializes a whole PlayerInput (0x5C0 bytes) and delta-coded
+    follow-ups, each for one client tick, and queues them: 0x5fca00(world, player slot + 1, tick, PlayerInput type, data)
+    into a per-slot buffer (world+0x15F56C8, up to 64 entries {receive tick, client tick, type, data})
+SimStep 0x6c8f10(storage, ticked)
+    0x6c7c80
+    InputApply 0x600ff0(storage)       ticked steps only: for slots 1..16, the entry whose tick is the world's tick
+                                       (storage+0x4DC), else the newest older one not applied yet; memcpy into PlayerInput
+    DeliverEvents 0x6c2300(storage)
+    ... every program: equipment_actions, inventory_actions, ...
+```
+Kiln's Pre runs before SimStep, so a client's new version runs in the step it arrives in, and Pre sees it only afterwards, with the consumed version already equal. A cancel written there changes nothing. A real client showed exactly that: an equip "canceled" in Pre was applied anyway. The version a client sends is its own 60 Hz tick count, shared by all its actions. **[rt]**
+
+So kiln.playerstate holds client actions at the start of `DeliverEvents`, after the input copy and before any program. A new version is hidden for one step: `PlayerInput`'s copy shows the consumed version, and the bytes are kept. In the next Pre the handlers decide. Released, the bytes go back and the program runs it a step late; canceled, its version is marked consumed. `ServerConsumedPlayerInput` (replicated back as `NetworkConsumedPlayerInput`) only moves when the game runs an action or Kiln cancels one. **[rt]** Lab, spawned `1_Player` with no client, a `changeEquipmentAction` written from a detour right after `InputApply` (where a client's input lands):
+```
+before:  client timing, canceled: sent v4, event ... canceled True, ring1 Ring_T6_Ring_of_Shock, consumed v4; events [Ring1:Ring_T3_Ring_of_Light->Ring_T6_Ring_of_Shock]
+after:   client timing, canceled: sent v4, event ... canceled True, ring1 Ring_T3_Ring_of_Light, consumed v4; events []
+         client timing, not canceled: ... ring1 Ring_T3_Ring_of_Light; events [Ring1:(none)->Ring_T3_Ring_of_Light]
+```
+Which programs a client predicts (program descriptor `+0x180` flags; `0x10` = host only): `equipment_actions` `0x1472c0` has `0x210`, so a client does not predict an equip and shows the server's equipment; `inventory_actions` `0x1a5af0` has `0x200`, so a client predicts its own inventory moves. **[dis]**
 
 ## A character with no client **[dis] [rt]**
 `actor_is_ready_for_gameplay` sets `IsReadyForGameplay` only when `PlayerInput.fromClientIsReadyForGameplay` (+0x5B8) is set and the terrain at the character is loaded (`0x176670`). Force those two on a spawned `1_Player` and the game's own control programs act on the input bits in `fromClient.digitalInput`, so the input-to-action path runs in a lab:
@@ -167,11 +189,13 @@ The glider comes from the equipment slot, as the code says (`0x1444a0` with `Equ
 | `players/TypeByHash` | `0x7e15d0` | `0x8de860` | `players.reflection` |
 | `players/ActionReset` | `0x34040` | `0x2170a0` | `players.action_cancel` |
 | `players/SubSequence` | `0x932930` | `0xe8b7f0` | `players.sequence_names` |
+| `players/InputApply`, with SimStep's call order (`@players/SimStep.input`, `@gameplay/SimStep.deliver`) | `0x600ff0` | not ported | `players.client_action_hold` (hooks `gameplay/DeliverEvents` `0x6c2300`) |
 
 Used from other files when present: `GetComponent`, `GetEntityTransform`, `items/ItemRegistryFind`, `gamedata/GetBuffType`. Field offsets and names come from reflection at run time, so a moved field needs no signature change. A symbol that does not resolve turns that one feature off, with a line in kiln.log.
 
 ## Open questions
 - Which gate keeps item use from starting on a character with no client (`0xb1410`). A real client passes it.
 - What a client shows when the server cancels a sequence it predicted (manual test).
+- What a client shows when the server refuses a client action: an equip (not predicted) and an inventory move (predicted). Whether holding every client action one step is noticeable (manual test).
 - Whether `Actor` and `DynamicLocomotion` in a joined client's prediction world always hold the local player, and how far they run ahead of the server (manual test).
 - Which writer sets `Blocking` for players outside the four sequences (none found in the code).

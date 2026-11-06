@@ -15,7 +15,7 @@ public sealed class ItemBlocksMod : Mod
         // what happens, from the core blocks' effects
         var burn = Blocks.Define("burn", new StatusBlock
         {
-            Name = "Burn", Description = "It keeps burning.", Seconds = 6, TickEvery = 2,
+            Name = "Burn", Description = "It keeps burning.", Seconds = 6, TickEvery = 2, Look = StatusLook.Fire,
             OnTick = [new EffectBlock { Damage = Damage.Fire(2), Flinch = Flinch.None }],
         });
         var sear = Blocks.Define("sear", new EffectBlock { Damage = Damage.Fire(12), Flinch = Flinch.Light, Applies = burn });

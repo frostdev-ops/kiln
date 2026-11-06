@@ -21,6 +21,7 @@ public sealed class TestMod : Mod
     // The save's plateau, far from any base (what's written there is gone at the next start), and a place inside the base zone, where the world keeps it.
     static readonly WorldPosition Open = new(3006, 906, 1555), Base = new(3836, 800, 1478);
     const string Tnt = "Terraform_Explosion_TNT_T1";
+    const double AltarX = 3800, AltarZ = 1434;   // the save's base altar (docs/re/build.md 7)
 
     public override void OnLoad()
     {
@@ -48,6 +49,7 @@ public sealed class TestMod : Mod
                     case "read": await Read(); break;
                     case "blast": await Blasts(); break;
                     case "dump": Dump(); break;
+                    case "commands": await SampleCommands(); break;
                     default: L("unknown mode part " + part); break;
                 }
             L($"done {Mode}");
@@ -199,6 +201,73 @@ public sealed class TestMod : Mod
         await Blast("TerrainStone", 2);
         await Blast("Cell26", 26);
         foreach (var m in WorldTables.Materials.Where(m => m.Terrain)) await Blast(m.Block + (m.Live ? "" : " (kept)"), (byte)m.CellId);
+    }
+
+    // ---- the sample's commands, as a server console runs them (a position instead of a player) ------------------------------
+    // The ground's top in a column: the highest cell at least half full, from 8 m above to 32 m below.
+    async Task<double?> Ground(double x, double y, double z)
+    {
+        var col = Build.BoxBetween(new WorldPosition(x, y - 32, z), new WorldPosition(x, y + 8, z));
+        var cells = await Build.ReadAsync(col);
+        for (var j = col.SizeY - 1; j >= 0; j--)
+            if (cells[j].Material != 0 && cells[j].Fill >= 128) return Build.CornerOf(new CellPos(col.X, col.Y + j, col.Z)).Y + Build.Grid!.CellSize;
+        return null;
+    }
+
+    async Task<int> CountAround(double x, double y, double z, byte mat)
+    {
+        var box = Build.BoxAround(new WorldPosition(x, y, z), 3, 12, 3);   // tall: an earlier run's mound (kept, then turned to grass) raises the ground
+        return (await Build.ReadAsync(box)).Count(v => v.Material == mat && v.Fill > 0);
+    }
+
+    async Task Run(string line)
+    {
+        var r = Commands.Execute(CommandSource.Console, line);
+        L($"run {line}: started {r.Ok}{(r.Error is null ? "" : ": " + r.Error)}");
+        await Wait(24 * 3);   // an async command logs its outcome when it ends: "command /<name> by console: ok" or the error
+    }
+
+    async Task SampleCommands()
+    {
+        var ore = WorldTables.Materials.FirstOrDefault(m => m.Block == "glacier-ore-json" && m.Live);
+        var snow = WorldTables.Materials.FirstOrDefault(m => m.Block == "packed-snow-json" && m.Live);
+        if (ore is null || snow is null)
+        {
+            L("commands: the sample's materials aren't live");
+            return;
+        }
+        // the save's plateau: docs/re/build.md has this column's surface at 902 m
+        const double x = 3024, z = 1552;
+        // what an earlier run left (edits outside a base are kept): the ground back to grass where the vein and the mound go
+        foreach (var (cx, mat) in new[] { (x, (byte)ore.CellId), (x + 10, (byte)snow.CellId) })
+            await Build.Replace(BuildShape.Sphere(new WorldPosition(cx, 902, z), 6), mat, 1);
+        double baseTop = 0;
+        foreach (var (px, pz) in new[] { (x, z), (3016.0, 1600.0), (AltarX + 6, AltarZ) })
+        {
+            // a wide look first: where the top of the ground is in the column, if anywhere from 600 m to 1000 m
+            var col = Build.BoxBetween(new WorldPosition(px, 600, pz), new WorldPosition(px, 1000, pz));
+            var cells = await Build.ReadAsync(col);
+            var top = Enumerable.Range(0, cells.Length).Where(j => cells[j].Material != 0 && cells[j].Fill >= 128).DefaultIfEmpty(-1).Max();
+            if (px == AltarX + 6 && top >= 0) baseTop = Build.CornerOf(new CellPos(col.X, col.Y + top, col.Z)).Y;
+            L($"commands: probe ({px}, {pz}): {(top < 0 ? "no solid cell from 600 m to 1000 m" : $"top solid cell at {Build.CornerOf(new CellPos(col.X, col.Y + top, col.Z)).Y:F1} m, mat {cells[top].Material} fill {cells[top].Fill}")}");
+        }
+        if (await Ground(x, 910, z) is not { } g)
+        {
+            L($"commands: no ground at ({x}, {z})");
+            return;
+        }
+        L($"commands: ground at ({x}, {z}) is {g:F2} m; ore is cell {ore.CellId}, snow cell {snow.CellId}");
+        // what the command did before: a sphere 1.5 m across whose top is at the aimed height, painted; aimed 20 m above the ground (a ledge, a cliff's edge)
+        var old = await Build.Paint(BuildShape.Sphere(new WorldPosition(x, g + 20 - 1.5, z), 1.5), (byte)ore.CellId, new BuildOptions { Flags = BuildFlags.DryRun });
+        L($"commands: the old aim 20 m above the ground: {old.CellsChanged} cells ({old.Refusal})");
+        await Run($"/glacier-vein {x} {g + 20:F2} {z}");
+        L($"commands: ore cells after the vein: {await CountAround(x, g, z, (byte)ore.CellId)}");
+        await Run($"/glacier-vein {x} {g:F2} {z}");                       // again: the ground there is ore already
+        await Run($"/glacier-vein {x} 1500 {z}");                         // nothing within 32 m below
+        await Run($"/snow-mound {x + 10} {g:F2} {z}");
+        L($"commands: snow cells after the mound: {await CountAround(x + 10, g, z, (byte)snow.CellId)}");
+        await Run($"/glacier-vein {AltarX + 6} {baseTop + 1:F1} {AltarZ}"); // on the ground 6 m from the base's altar, without InBases
+        await Run("/glacier-vein");                                       // the console has no position
     }
 
     // ---- the served tables, for tools/kfc --------------------------------------------------------------------------------------

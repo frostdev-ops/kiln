@@ -29,11 +29,14 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
   pending comparison uses its normal form, so a block from code and its data file agree. A surface named by a block comes from the mod's `surfaces`
   sections, and a writer reads it written out in the block's definition. The pictures are kiln.surfaces' ([surfaces.md](surfaces.md)).
 - `BlueprintBlock` adds a shape: an entry in the blueprint-items table under its item's id, with its own size and one bit per half-metre cell, after
-  the game's and the block items' entries. Kiln.Blocks makes the item (a clone of the game's straight wall or roof) and points its `voxelObject` at
-  the item's own GUID, where this service serves a `keen::VoxelModelResource` of the shape: one byte per cell, `0x12` where a cell is, as the game's
-  walls; the client draws it under the cursor. The game's 4 m door wall written as cells gives its table entry and its model byte for byte (lab and
-  host test). An item id the table already has is refused by name. Shapes take no ids of their own, so they're not in the handshake hash; their mod's
-  `clients: "mod"` makes every player have them.
+  the game's and the block items' entries. Kiln.Blocks makes the item (a clone of the game's 4 m straight wall or 4 m flat roof) with its placement
+  box, snapping box and one placement collider all the shape's box, and points its `voxelObject` at the item's own GUID, where this service serves a
+  `keen::VoxelModelResource` of the shape: one byte per cell, the material it's drawn in until a player picks one, `0x12` (a wall's) or `0x08` (a
+  roof's) as in the game's own shapes; the client draws it under the cursor. The game's 4 m door wall and 2 m flat roof written as cells give their
+  table entries and models byte for byte (host test; the door wall in the lab too). An item id the table already has is refused by name. Shapes take
+  no ids of their own, so they're not in the handshake hash; their mod's `clients: "mod"` makes every player have them.
+- A placement takes one block of the chosen material per cell it fills; cells already built are skipped and cost nothing
+  ([docs/re/building.md](../../re/building.md) 1.2).
 - A table with nothing to change is served as the game has it. With no mod, every table is the game's to the byte (the lab compares them).
 
 ## When
@@ -49,12 +52,38 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
 ## Ids
 A building material is a byte in a cell, 128..255. The game uses 128..212, so 213..255 are free (43). Six of the game's ids have no item and only deprecated
 surfaces (129, 131, 134, 137, 139, 156); they come after the free ones and take their config over, with a warning in kiln.log. 49 in all, for every mod
-together.
+together. Walls have less: the build menu has room for 3 new wall materials ([below](#the-build-menus-pools-3-new-walls)).
 - Live materials (enabled mods) take ids first, in sorted GUID order. A material's GUID is `UUIDv5(<mod>:material:<name>)`, or `<was>` after a rename.
 - Kept materials (absent mods, below) come after every live one, also in GUID order.
 - Past the room, a material is refused by name: `block buildingMaterial m00 (mod x): refused: the game has room for 49 new building materials across all
   mods`. The others load. Kept materials hold room and are never dropped for a live one.
 - A save keeps a GUID per id and remaps on load, so an id may change between sessions. Never store an id; store the GUID, and ask `material_id` / `CellIdOf`.
+
+## The build menu's pools: 3 new walls
+The tighter limit is the pools, not the ids. A block item is placed with the game's shapes through its pool, and a player's game copies a pool into an array of
+64 items every frame, the game's own items among them. A 65th item stops the game the moment a player is in a world: `SmallDynamicArray is out of elements 64`
+in the game's log, then an access violation (client program `player_ui`, [docs/re/building.md](../../re/building.md) 1.2). So no pool may list more than 64:
+
+| Pool | What goes in it | The game's | New ones that fit, across all mods |
+|---|---|---|---|
+| `BuildingDefaultMaterials` | a wall material's block item | 61 | **3** |
+| `BuildingRoofMaterials` | a roof material's (`roof`) | 14 | 50 (so the 49 ids are the limit) |
+| `TerrainMaterials` | a `placeable` terrain material's item | 56 | 8 (of the 11 terrain ids) |
+
+- Live materials take pool room in sorted GUID order, the order ids go in, before they take an id, so every game with the same mods agrees. One past its pool's
+  room is refused by name, gets no id and no item:
+  `block buildingMaterial w03 (mod x): refused: the game's build menu lists at most 64 wall materials and has 61 of its own: 3 new ones fit across all mods`.
+- A refused material a world has run with is kept as an absent mod's is (an id, its config, no item), so that world's cells of it stay:
+  `... 3 new ones fit across all mods. A world has cells of it: it's kept as an absent mod's material is, so they stay`.
+- A material defined from C# is checked against the same room when it's kept for the next start: `code: block buildingMaterial w03: refused: ..., and 3 are taken`.
+- The pool writers refuse to serve a pool past 64 (the service turns off rather than stop a player's game), and kiln.log says what each pool holds:
+  `worldtables: build menu pools: BuildingDefaultMaterials 61 + 3 of 64, BuildingRoofMaterials 14 + 0 of 64, TerrainMaterials 56 + 2 of 64`. `status.json` has
+  `pools`: name, `game`, `served`, `capacity`.
+- A material without an item takes no pool room: kept materials, terrain that isn't `placeable`. A `MaterialTweakBlock` adds nothing to a pool.
+- The 64 is the client's code, not read from the game (`kPoolCapacity`, `merge.h`). After a game update, check the `cmp ..., 0x40` in front of that error in the
+  builder, and the game's pool sizes with `tests/run.sh` and the game's `pools.bin`.
+- Raising the 64 is a hook on the client (the builder at client `0x3cca80` and the readers of its 0x610-byte entries), not built: size M to L, and every reader of
+  those entries has to be found and moved with it on each game update.
 
 ## Terrain materials
 A terrain material is a cell's low byte 1..127, as the game's dirt, stone and ores are. The game uses 1..116, so 117..127 are free: 11 for every mod together,
@@ -146,7 +175,9 @@ and read back, the game's TNT by strength, the served registry decoded, restarts
 Each scenario is one server start; the save carries over: no mods (tables byte-identical to the game's files, the game's own explosion on four
 materials), a tweak that changes nothing, tweaks (Unbreakable, a softer and a harder category, health), bad blocks, a layout that doesn't resolve, a new
 material (its id, its dig, its item in the pools), a restart, a mod list that moves the id, the mod removed (walls stay) and back, the handshake with fake
-clients, a forgotten material, 50 materials (49 placed, one refused), and a tweak from C# across four starts. `kiln/config/worldtables.json`
+clients, a forgotten material, the limits (4 walls and 47 roofs: the 4th wall refused by the pool, 49 ids placed and one refused, every pool at most 64; then a
+wall that sorts first pushes out one the world ran with, which is kept), and a tweak from C# across four starts. The host test (`tests/run.sh`) checks the
+pools' room and refusals on synthetic tables, and with the game's `pools.bin` that its pools list 61 walls, 14 roofs and 56 terrain items. `kiln/config/worldtables.json`
 `{"testMissingField": "<field>"}` is a test hook: the service reads the layouts as if the game lacked that field.
 
 ## Not proven

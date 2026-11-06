@@ -74,7 +74,7 @@ decodes with `tools/kfc` and re-encodes to the same bytes, only the slots writte
 from a game material is that material's slot to the byte, and mistakes, the texture budget and the id limit refuse by name. The lab test runs on a
 server, one start per scenario: material blocks with surfaces take ids and keep them across restarts, a block from C# lowers to what its JSON twin does,
 a wrong surface is refused by name, the game's TNT digs the new materials and their loot is their recipe's main input (or their own block when asked),
-and the 50th material is refused by name.
+and the 50th material (roofs, whose pool has room for 50) is refused by name.
 
 ## After a game update
 Run the tests with the game installed. A moved layout shows in the fingerprint (kiln.log) and in `roundtrip`; update `surface_layouts()` and the offsets in

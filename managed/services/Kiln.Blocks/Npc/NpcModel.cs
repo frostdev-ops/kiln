@@ -319,11 +319,13 @@ public sealed record AIBlock : INpcBlock, IPremade
     public string? Like { get; init; }
     /// <summary>The game creature whose AI this starts from.</summary>
     public string? Template { get; init; }
-    /// <summary>How far it sees.</summary>
+    /// <summary>How far it sees a target by day (the game's <c>combatCommitmentSetup.view.range</c>): less at night and in water, by the AI's
+    /// <c>nightRangeFactor</c> (the Vukah's 0.6) and <c>waterRangeFactor</c>. A brain's own perception sees this far too.</summary>
     public double? Sight { get; init; }
-    /// <summary>Half the angle of its view, in degrees.</summary>
+    /// <summary>Half the angle of its view, in degrees (<c>combatCommitmentSetup.view.coneHalfAngle</c>).</summary>
     public double? SightAngle { get; init; }
-    /// <summary>How close something has to come before it attacks.</summary>
+    /// <summary>Within this distance a target it sees is engaged at once (<c>combatCommitmentSetup.gain.inRange.range</c>; the game's 0 is its
+    /// combat distances + 0.5 m).</summary>
     public double? Aggro { get; init; }
     /// <summary>How far from home it chases before it goes back.</summary>
     public double? Leash { get; init; }
@@ -351,7 +353,7 @@ public sealed record AIBlock : INpcBlock, IPremade
 /// <summary>The game's AI tunings.</summary>
 public static class AIs
 {
-    /// <summary>The Vukah: a melee fighter that sees 30 m or so and keeps its distance while it waits.</summary>
+    /// <summary>The Vukah: a melee fighter that sees 18 m by day (11 m at night) and keeps its distance while it waits.</summary>
     public static readonly AIBlock Vukah = new() { Key = "vukah", Template = "Enemy_Vukah_Melee" };
     /// <summary>The scavenger melee fighter.</summary>
     public static readonly AIBlock Scavenger = new() { Key = "scavenger", Template = "Enemy_Scavenger_Melee01" };

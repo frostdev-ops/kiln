@@ -168,6 +168,8 @@ def scenarios(lab, c):
 
     def first():
         lab.forget(["tt-", SAMPLE])
+        # a fresh start: an earlier run's cubes went with its "limit" scenario, which forgets these mods' materials (their cells then load as air)
+        (lab.kiln / "data/terrain-test/boxes.json").unlink(missing_ok=True)
         lab.set_mods("status+code-bad+dump", extra=[(DATA, GOOD), (BAD, WRONG)])
         text = lab.run("first")
         t = table(text)
@@ -261,6 +263,26 @@ def scenarios(lab, c):
         cells = tt(text, r"^cells of ")
         c("back.cells-follow", len(cells) == 8 and all(re.search(r"the table says (\d+), the world has mat \1 fill 255 x\d+$", x) for x in cells), str(cells))
 
+    def commands():
+        # the sample's /glacier-vein and /snow-mound from the server console, with a position: they find the ground under it, and fail when nothing changed
+        lab.set_mods("status+commands", extra=[(DATA, GOOD), (BAD, WRONG)])
+        text = lab.run("commands")
+        said = [m[2] for m in re.finditer(r"command /(glacier-vein|snow-mound) by console(?: console)?: (.*)", text)]
+        c("commands.ground-found", bool(tt(text, r"^commands: ground at ")), str(tt(text, r"^commands: ")))
+        old = re.search(r"tt: commands: the old aim 20 m above the ground: (\d+) cells", text)
+        # the old command's shape at that aim is in the air: nothing to paint
+        c("commands.old-aim-paints-air", old is not None and old[1] == "0", old[0] if old else "no line")
+        ore = re.search(r"tt: commands: ore cells after the vein: (\d+)", text)
+        snow = re.search(r"tt: commands: snow cells after the mound: (\d+)", text)
+        c("commands.vein-from-above-lands", len(said) >= 1 and said[0] == "ok" and ore is not None and int(ore[1]) > 0, f"{said[:1]} {ore and ore[0]}")
+        c("commands.again-fails-unchanged", len(said) >= 2 and "no cell changed" in said[1] and "Glacier Ore already" in said[1], said[1] if len(said) > 1 else "no line")
+        c("commands.no-ground-fails", len(said) >= 3 and "no ground under" in said[2], said[2] if len(said) > 2 else "no line")
+        c("commands.mound", len(said) >= 4 and said[3] == "ok" and snow is not None and int(snow[1]) > 0, f"{said[3:4]} {snow and snow[0]}")
+        c("commands.base-refused", len(said) >= 5 and "refused (Base)" in said[4], said[4] if len(said) > 4 else "no line")
+        c("commands.console-needs-a-position", len(said) >= 6 and "a console gives a position" in said[5], said[5] if len(said) > 5 else "no line")
+        warn = [l for l in text.splitlines() if re.search(r"\[W [^]]*\] \[mod:terrain-sample\] command /glacier-vein by console(?: console)?: glacier-ore-json: no cell changed", l)]
+        c("commands.failure-is-a-warning", len(warn) == 1, warn[0] if warn else "no warning line")
+
     def limit():
         lab.forget(["tt-", SAMPLE])
         over = {f"o{i:02}": {"name": f"Over {i}"} for i in range(12)}
@@ -273,7 +295,7 @@ def scenarios(lab, c):
         c("limit.server-runs", "tt: done " in text)
         lab.forget(["tt-over"])
 
-    return [("first", first), ("second", second), ("third", third), ("removed", removed), ("back", back), ("limit", limit)]
+    return [("first", first), ("second", second), ("third", third), ("removed", removed), ("back", back), ("commands", commands), ("limit", limit)]
 
 
 def main():

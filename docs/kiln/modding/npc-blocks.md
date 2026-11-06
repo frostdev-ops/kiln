@@ -130,6 +130,11 @@ sealed class Sentinel : NpcBrain
 `Sight`, `SightAngle`, `Aggro`, `Leash` (its home zone's radius), `Faction`, `Moves`, `Fights`, `PickTarget`, and `Tune` for any other field of the game's AI
 by path (`["combatSetup.preferedDistance"] = "3"`). It starts from a game creature's tuning (`Template`, the Vukah's by default), because hundreds of fields
 have no neutral value. A body of your own runs that creature's AI program; a friendly fighter is a creature with `Faction = Faction.PlayerAlly`.
+`Sight` is how far it sees a target by day (`combatCommitmentSetup.view.range`, the field the game's sight check reads; at night times the AI's
+`nightRangeFactor`, the Vukah's 0.6: 18 m by day, 11 m at night), `SightAngle` half its view cone (`combatCommitmentSetup.view.coneHalfAngle`), `Aggro`
+the distance within which a target it sees is engaged at once (`combatCommitmentSetup.gain.inRange.range`). `aggroSetup` is not its sight on this game
+build: `viewRange` only sizes the search for candidates (never below 64 m, so `Sight` sets it too beyond that), and `aggroRange` and
+`viewConeHalfAngle` are not read. Details: [creatures.md](../services/creatures.md).
 
 ## Server and client
 A creature's arsenal, variant and spawn rules belong to the server world. A server writes them as the mod loads. A game client loads mods off the tick

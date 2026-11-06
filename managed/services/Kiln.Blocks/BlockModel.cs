@@ -165,7 +165,7 @@ public sealed record StatusBlock : IBlock, ITweakable
     public PlayerStateRef? While { get; init; }
     public StatusKind Kind { get; init; } = StatusKind.Debuff;
     /// <summary>What it looks like: its icon and body effect. A premade <see cref="StatusLook"/> today; your own with VfxBlock.
-    /// Null: a debuff looks like <see cref="StatusLook.Frost"/>, a buff has a blessing's icon and no body effect.</summary>
+    /// Null: a debuff has a timer's icon and a buff a blessing's, and neither has a body effect.</summary>
     public StatusLook? Look { get; init; }
     /// <summary>The icon, when it is not the look's: a <c>GameBuffs</c> constant, whose icon it takes.</summary>
     public string? Icon { get; init; }
@@ -205,15 +205,22 @@ public enum StatusKind { Debuff, Buff }
 [JsonConverter(typeof(PremadeConverter<StatusLook>))]
 public sealed record StatusLook(string Key, string Starter) : IPremade
 {
-    /// <summary>The frost slow's icon and body effect.</summary>
+    /// <summary>The frost slow's icon (a snail) and body effect.</summary>
     public static readonly StatusLook Frost = new("frost", "0x5f5d2f5c");
     /// <summary>The poison icon and body effect.</summary>
     public static readonly StatusLook Poison = new("poison", "0x5f425faf");
-    internal static readonly StatusLook[] All = [Frost, Poison];
+    /// <summary>The game's Burning on enemies: its flame icon, and the flames the game puts on the chest of what burns.</summary>
+    public static readonly StatusLook Fire = new("fire", "0x25e2886a") { Body = new VfxRef("85e60392-52e2-4488-8653-2d539c18c80c") { Slot = VfxSlot.Chest } };
+    internal static readonly StatusLook[] All = [Frost, Poison, Fire];
     /// <summary>A buff's look when it names none: the game's Shroud Resistance buff, a blessing's icon with no body effect, configs or follow-up.</summary>
     internal static readonly StatusLook Blessing = new("blessing", "0xd98a51cb");
+    /// <summary>A debuff's look when it names none: the game's Blood Magic Cooldown, a timer's icon with no body effect, configs or follow-up.</summary>
+    internal static readonly StatusLook Timer = new("timer", "0xc3c07632");
 
-    internal static StatusLook Of(StatusBlock s) => s.Look ?? (s.Kind == StatusKind.Buff ? Blessing : Frost);
+    /// <summary>What shows on the body, when the starter's own isn't it: a game VFX on a slot. A status's own <see cref="StatusBlock.Vfx"/> takes its place.</summary>
+    public VfxRef? Body { get; init; }
+
+    internal static StatusLook Of(StatusBlock s) => s.Look ?? (s.Kind == StatusKind.Buff ? Blessing : Timer);
 }
 
 /// <summary>A status to apply: the status, and optionally for how long.</summary>

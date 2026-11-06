@@ -275,8 +275,10 @@ uint8_t* hk_constraint(uint8_t* out, uint8_t* ctx, uint32_t* variant, void* extr
     return out;
 }
 
+// The record of attack `index`, or null. Needs the record layout: without it AL is all zeros, and the arsenal's own
+// GUID would read as the attack list's offset and count (a wild pointer).
 inline uint8_t* attack_at(uint8_t* arsenal, uint32_t index) {
-    if (!arsenal) return nullptr;
+    if (!arsenal || !AL.attack_size) return nullptr;
     int32_t rel = 0;
     uint32_t n = 0;
     std::memcpy(&rel, arsenal + AL.attacks, 4);
@@ -732,6 +734,8 @@ bool rules_ensure_hooks() {
 bool rules_ensure_attack_hooks() {
     if (g_attack_hooks) return true;
     if (!rules_attacks_resolved()) return false;
+    // The hooks read attack records (forced pick, refused follow-ups and sequences): no layout, no hooks.
+    if (!arsenal_layout_ready()) return false;
     // The rule-played sequence check sits in the action hook.
     if (rules_dispatcher_resolved() && !rules_ensure_hooks()) return false;
     const uint64_t t0 = GetTickCount64();
@@ -1084,6 +1088,17 @@ KilnResult KILN_CALL attack_override_api(KilnOwner owner, KilnEntity e, const Ki
     if (o->size < sizeof(KilnAttackOverride) || o->forced > 254 || o->forced < -1) return KILN_ERR_INVALID_ARGUMENT;
     if (!entity_exists(e)) return KILN_ERR_NOT_FOUND;
     if (!rules_ensure_attack_hooks()) return KILN_ERR_UNAVAILABLE;
+    if (o->forced >= 0) {
+        // Refuse what cannot be forced: no arsenal at all, or an arsenal without that attack. An arsenal the registry
+        // does not have yet (written this step) is accepted; on the job thread a forced index the arsenal lacks falls
+        // back to the game's own choice, as it does after an arsenal swap.
+        const uint8_t* arsenal = nullptr;
+        const KilnResult rc = arsenal_record_of(e, &arsenal);
+        if (rc == KILN_ERR_UNAVAILABLE) return rc;
+        uint32_t n = 0;
+        if (rc == KILN_OK && seh_read(arsenal + AL.attacks + 4, &n, 4) && static_cast<uint32_t>(o->forced) >= n)
+            return KILN_ERR_INVALID_ARGUMENT;
+    }
     Track& t = g_tracks[e];
     std::erase_if(t.overrides, [&](const Owned& x) { return x.owner == owner; });
     t.overrides.push_back(Owned{owner, o->forced, o->allow});
@@ -1175,7 +1190,7 @@ KilnResult KILN_CALL target_prefer_api(KilnOwner owner, KilnEntity e, KilnEntity
 // BehaviorUpdate(ctx), armed once an arsenal got fewer rules: a creature can still hold the index of a rule that is gone,
 // and the function that continues a running rule does not check it against the list.
 void rules_behavior_guard(uint8_t* ctx) {
-    if (g_off_behavior_index < 0 || g_ctx_arsenal < 0) return;
+    if (g_off_behavior_index < 0 || g_ctx_arsenal < 0 || !AL.rule_size) return;
     uint8_t* dyn = nullptr;
     uint8_t* arsenal = nullptr;
     std::memcpy(&dyn, ctx + L.ctx_dyn, 8);
