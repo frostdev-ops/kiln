@@ -22,6 +22,16 @@ fn attach_parent_console() {
 }
 
 fn main() {
+    // `<launcher> --kiln-ctrl-c <pid>`: the short-lived helper that sends a Windows server its Ctrl-C (Stop), so the
+    // launcher itself never attaches to the server's console (kiln_manage::server::run::set_ctrl_c_helper)
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == kiln_manage::server::run::CTRL_C_HELPER_ARG) {
+        let pid = args.get(i + 1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+        std::process::exit(if pid == 0 { 1 } else { kiln_manage::server::run::ctrl_c_helper_main(pid) });
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        kiln_manage::server::run::set_ctrl_c_helper(exe);
+    }
     if std::env::args().any(|a| a == "--selftest") {
         #[cfg(windows)]
         attach_parent_console();

@@ -147,9 +147,19 @@ fn remote_status(instance: &ServerInstance) -> Result<ServerStatus> {
 fn wait_ready(instance: &ServerInstance, since: SystemTime, progress: &mut dyn Progress, exited: &mut dyn FnMut() -> Option<String>) -> Result<ServerStatus> {
     let t0 = Instant::now();
     let log = log_path(instance)?;
+    // Kiln's own line for the same moment: on Windows the game's log can reach the disk long after the world runs
+    // (a start task then ended only when Stop made the server flush it)
+    let kiln_log = instance.local_dir().ok().map(|d| d.join("kiln/logs/kiln.log"));
     loop {
         if progress.canceled() {
             return Err(Error::new(ErrorCode::Canceled, "stopped waiting (the server keeps starting)"));
+        }
+        if let Some(k) = &kiln_log
+            && std::fs::metadata(k).and_then(|m| m.modified()).is_ok_and(|m| m >= since)
+            && std::fs::read_to_string(k).is_ok_and(|t| t.lines().any(|l| l.contains("tick: server world") && l.contains(" started")))
+        {
+            progress.report(Some(1.0), &format!("{} runs ({:.0} s)", instance.id, t0.elapsed().as_secs_f64()));
+            return status(instance);
         }
         let fresh = std::fs::metadata(&log).and_then(|m| m.modified()).is_ok_and(|m| m >= since);
         if fresh {
@@ -542,13 +552,89 @@ unsafe extern "system" fn swallow_ctrl_c(event: u32) -> i32 {
     (event == 0 && now_ms() < SWALLOW_UNTIL.load(std::sync::atomic::Ordering::SeqCst)) as i32
 }
 
-/// Sends Ctrl-C to the console of `pid` (a server started with CREATE_NO_WINDOW has its own): attach to it, swallow
+/// The program that sends a Ctrl-C for this process: `<helper> --kiln-ctrl-c <pid>`. The launcher sets itself
+/// (`set_ctrl_c_helper`), so it never attaches to a server's console: in-process, the Ctrl-C it sends also reached the
+/// launcher, whose default handler ended it (exit 0xC000013A on every Stop of a Windows server, 0.2.0-dev.11).
+pub const CTRL_C_HELPER_ARG: &str = "--kiln-ctrl-c";
+
+#[cfg(windows)]
+static CTRL_C_HELPER: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Makes `ctrl_c` send through `exe --kiln-ctrl-c <pid>` (a GUI program calls this with its own path).
+pub fn set_ctrl_c_helper(exe: std::path::PathBuf) {
+    #[cfg(windows)]
+    let _ = CTRL_C_HELPER.set(exe);
+    #[cfg(not(windows))]
+    let _ = exe;
+}
+
+/// The helper's whole job, in its own short-lived process: attach to `pid`'s console, ignore Ctrl-C here (this
+/// process starts nothing, so the inherited ignore flag goes nowhere), signal the console, detach. Exit 0 = sent,
+/// 2 = cannot attach, 3 = sending failed.
+#[cfg(windows)]
+pub fn ctrl_c_helper_main(pid: u32) -> i32 {
+    const CTRL_C_EVENT: u32 = 0;
+    // SAFETY: plain kernel32 calls in a process that does nothing else.
+    unsafe {
+        FreeConsole();
+        if AttachConsole(pid) == 0 {
+            return 2;
+        }
+        SetConsoleCtrlHandler(None, 1);
+        let sent = GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+        std::thread::sleep(Duration::from_millis(300));
+        FreeConsole();
+        if sent == 0 { 3 } else { 0 }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn ctrl_c_helper_main(pid: u32) -> i32 {
+    let _ = pid;
+    1
+}
+
+#[cfg(windows)]
+fn ctrl_c_via_helper(exe: &Path, pid: u32) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut child = std::process::Command::new(exe)
+        .arg(CTRL_C_HELPER_ARG)
+        .arg(pid.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| Error::new(ErrorCode::Io, format!("starting the Ctrl-C helper {}: {e}", exe.display())))?;
+    let t0 = Instant::now();
+    loop {
+        if let Some(st) = child.try_wait().map_err(|e| Error::new(ErrorCode::Io, format!("Ctrl-C helper: {e}")))? {
+            return match st.code() {
+                Some(0) => Ok(()),
+                Some(2) => Err(Error::new(ErrorCode::Unsupported, format!("cannot attach to the console of pid {pid}"))),
+                c => Err(Error::new(ErrorCode::Io, format!("Ctrl-C to pid {pid} failed (helper exit {c:?})"))),
+            };
+        }
+        if t0.elapsed() > Duration::from_secs(10) {
+            let _ = child.kill();
+            return Err(Error::new(ErrorCode::Timeout, "the Ctrl-C helper did not finish in 10 s"));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Sends Ctrl-C to the console of `pid` (a server started with CREATE_NO_WINDOW has its own). With a helper set
+/// (`set_ctrl_c_helper`: the launcher), a helper process does it. Otherwise (kilnctl, a console program): attach to it, swallow
 /// the Ctrl-C in this process (`swallow_ctrl_c`), signal the whole console (group 0), detach. One at a time: the console a process
 /// is attached to is process-wide. The caller's standard handles are put back afterwards (AttachConsole rebinds them
 /// to the attached console and FreeConsole closes those: a redirected stdout would go dead), and a caller that had a
 /// console of its own re-attaches to its parent's (the launcher, a GUI program, has none).
 #[cfg(windows)]
 pub fn ctrl_c(pid: u32) -> Result<()> {
+    if let Some(exe) = CTRL_C_HELPER.get() {
+        return ctrl_c_via_helper(exe, pid);
+    }
     static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = ONE.lock().unwrap_or_else(|e| e.into_inner());
     const CTRL_C_EVENT: u32 = 0;
