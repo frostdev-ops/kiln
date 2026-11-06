@@ -25,10 +25,18 @@ Service: `native/services/ui` (`kiln.ui`), managed `Kiln.Ui`; usage `docs/kiln/u
   and does not interfere (`GameOverlayRenderer64.dll` is loaded in the process too; it did not get in the way).
 - **The game unloads and reloads `vulkan-1.dll` / `winevulkan.dll` during start** (same base address, fresh code), so
   hooks installed at the first load vanish. kiln.ui re-checks after every `LoadLibraryExW` whether its hooks are still
-  in place (first byte of `vkQueuePresentKHR` is a jump) and reinstalls them on pristine code.
-- On Windows (Khronos loader) the exports are trampolines the game does not use for device calls; kiln.ui wraps
-  vkGetInstanceProcAddr / vkGetDeviceProcAddr there instead (EMF warns that RTSS restores vulkan-1's code after
-  start; a layer would be more robust on Windows — not done).
+  in place (the checked export's first 16 bytes equal what its patch wrote; the loader's unload notification for
+  `vulkan-1.dll` marks them gone too) and reinstalls them on fresh code.
+- **Windows (Khronos loader 1.4.309, checked on a real PC 2026-11-06):** the same probe-then-reload happens at the same
+  base. The loader's exports are `jmp` thunks into its own image, so "the first byte is a jump" can't tell a fresh
+  image from a hooked one (0.2.0-dev.10 kept dead hooks and never saw the real device). kiln.ui hooks the loader's
+  exports (`vkCreateInstance`, `vkCreateDevice`, `vkDestroyDevice`, `vkGetDeviceQueue(2)`, the swapchain functions,
+  `vkQueuePresentKHR`, `vkCreateWin32SurfaceKHR`) and wraps `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr`, whose
+  lookups hand out Kiln's functions; those call the exports' original code, so no call passes Kiln twice. The game
+  takes its device functions from the exports. The checked export is `vkGetInstanceProcAddr` there (checking another
+  export than the hooked one re-hooked on every load and recursed until the stack overflowed: the 0.2.0-dev.10 start
+  crash). Steam's overlay is an ordinary implicit layer there and patches nothing. EMF warns that RTSS restores
+  vulkan-1's code after start; not seen yet.
 
 ### How kiln.ui draws
 1. `kiln_plugin_main` (before the game's entry point): IAT patches for `SetCursorPos` / `ClipCursor` (below), and an

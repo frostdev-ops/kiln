@@ -25,6 +25,8 @@
 #include <map>
 #include <mutex>
 #include <vector>
+#include <string>
+#include <cwctype>
 
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
@@ -853,24 +855,69 @@ bool hook(SafetyHookInline& h, void* target, void* detour, T* original, const ch
     return true;
 }
 
-// The game unloads and reloads vulkan-1.dll during its start (device enumeration, then the real device): winevulkan
-// comes back at the same address with fresh code, so the hooks are checked after every LoadLibraryExW and put back
-// when the code is pristine. Old hook objects are leaked on purpose: their destructors would write into code that may
-// belong to another mapping by now.
+// The game unloads and reloads vulkan-1.dll during its start (a probe instance, then the real one): the loader comes
+// back at the same address with fresh code (winevulkan under Wine, the Khronos loader on Windows), so the hooks are
+// checked after every LoadLibraryExW and put back when the code is no longer ours. "Ours" means the bytes our patch
+// wrote: the Windows loader's exports are jmp thunks themselves, so "starts with a jmp" can't tell a fresh image from
+// a hooked one (0.2.0-dev.10 kept the dead hooks and the overlay never saw the real device). The loader's unload
+// notification marks the hooks gone as well. Old hook objects are leaked on purpose: their destructors would write
+// into code that may belong to another mapping by now.
 std::mutex g_install_mu;
 void* g_present_target = nullptr;
 std::vector<SafetyHookInline*> g_leaked;
 int g_installs = 0;
 
-bool hooks_intact(void* present_now) {
-    if (!g_present_target || present_now != g_present_target) return false;
-    uint8_t b = 0;
+uint8_t g_hook_bytes[16] = {};  // the first bytes of the checked export right after our patch
+std::atomic<bool> g_vulkan_unloaded{false};
+
+bool read16(const void* at, uint8_t* out) {
     __try {
-        b = *static_cast<const uint8_t*>(present_now);
+        std::memcpy(out, at, 16);
+        return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
-    return b == 0xE9 || b == 0xFF;  // safetyhook's jmp rel32 / jmp [rip]
+}
+
+bool hooks_intact(void* check_now) {
+    if (!g_present_target || check_now != g_present_target || g_vulkan_unloaded.load()) return false;
+    uint8_t b[16];
+    return read16(check_now, b) && std::memcmp(b, g_hook_bytes, sizeof b) == 0;
+}
+
+struct LdrUStr {
+    USHORT Length, MaximumLength;
+    PWSTR Buffer;
+};
+struct LdrNotice {
+    ULONG Flags;
+    const LdrUStr* FullDllName;
+    const LdrUStr* BaseDllName;
+    PVOID DllBase;
+    ULONG SizeOfImage;
+};
+using LdrNoticeFn = VOID(CALLBACK*)(ULONG, const LdrNotice*, PVOID);
+using LdrRegisterFn = LONG(NTAPI*)(ULONG, LdrNoticeFn, PVOID, PVOID*);
+
+// Runs under the loader lock: only a flag, no logging, no loads.
+VOID CALLBACK on_dll_notice(ULONG reason, const LdrNotice* d, PVOID) {
+    if (reason != 2 || !d || !d->BaseDllName || !d->BaseDllName->Buffer) return;  // 2: unloaded
+    static const wchar_t want[] = L"vulkan-1.dll";
+    const size_t n = d->BaseDllName->Length / sizeof(wchar_t);
+    if (n != sizeof want / sizeof(wchar_t) - 1) return;
+    for (size_t i = 0; i < n; ++i)
+        if (towlower(d->BaseDllName->Buffer[i]) != want[i]) return;
+    g_vulkan_unloaded = true;
+}
+
+void watch_unloads() {
+    static bool registered = false;
+    if (registered) return;
+    registered = true;
+    if (auto reg = reinterpret_cast<LdrRegisterFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "LdrRegisterDllNotification"))) {
+        PVOID cookie = nullptr;
+        reg(0, &on_dll_notice, nullptr, &cookie);
+    }
 }
 
 void retire_hooks() {
@@ -885,15 +932,21 @@ bool vk_install() {
     std::lock_guard<std::mutex> lk(g_install_mu);
     g_vulkan = GetModuleHandleW(L"vulkan-1.dll");
     if (!g_vulkan) return false;
+    g_wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
     void* present_now = reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkQueuePresentKHR"));
-    if (g_installed.load() && hooks_intact(present_now)) return true;
+    // the export that carries our hook: vkQueuePresentKHR under Wine, the loader's vkGetInstanceProcAddr on Windows.
+    // Checking the other one never matches, and every LoadLibraryExW would stack a new hook on the old one until a
+    // vkGetInstanceProcAddr call recursed through its own detour (the Windows start crash of 0.2.0-dev.10).
+    void* check_now = g_wine ? present_now : reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkGetInstanceProcAddr"));
+    watch_unloads();
+    if (g_installed.load() && hooks_intact(check_now)) return true;
     if (g_installed.load()) {
-        logf(KILN_LOG_INFO, "ui: vulkan-1.dll was reloaded (present at %p, hooked %p): hooking again", present_now, g_present_target);
+        logf(KILN_LOG_INFO, "ui: vulkan-1.dll was reloaded (%s at %p, hooked %p): hooking again", g_wine ? "vkQueuePresentKHR" : "vkGetInstanceProcAddr",
+             check_now, g_present_target);
         retire_hooks();
     }
     g_installed = true;
     ++g_installs;
-    g_wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
     if (g_installs == 1) input_install_iat();
     auto P = [](const char* n) { return reinterpret_cast<void*>(GetProcAddress(g_vulkan, n)); };
     R.gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(P("vkGetInstanceProcAddr"));
@@ -914,14 +967,27 @@ bool vk_install() {
     } else {
         ok &= hook(h_gipa, reinterpret_cast<void*>(R.gipa), reinterpret_cast<void*>(&hk_gipa), static_cast<PFN_vkGetInstanceProcAddr*>(nullptr), "vkGetInstanceProcAddr");
         ok &= hook(h_gdpa, reinterpret_cast<void*>(R.gdpa), reinterpret_cast<void*>(&hk_gdpa), static_cast<PFN_vkGetDeviceProcAddr*>(nullptr), "vkGetDeviceProcAddr");
-        // instance-level calls through the loader's exports too
+        // the loader's exports too: the game can take any of them by name from vulkan-1.dll instead of asking
+        // vkGet*ProcAddr (on Windows it creates its device and presents that way: only the lookups were hooked in
+        // 0.2.0-dev.10, and the overlay never saw a device). A lookup still returns Kiln's function (swap_in), and
+        // that calls the export's original code, so a call never passes Kiln twice.
         hook(h_create_instance, P("vkCreateInstance"), reinterpret_cast<void*>(&hk_create_instance), &R.create_instance, "vkCreateInstance");
+        hook(h_destroy_instance, P("vkDestroyInstance"), reinterpret_cast<void*>(&hk_destroy_instance), &R.destroy_instance, "vkDestroyInstance");
         hook(h_create_surface, P("vkCreateWin32SurfaceKHR"), reinterpret_cast<void*>(&hk_create_surface), &R.create_surface, "vkCreateWin32SurfaceKHR");
+        ok &= hook(h_create_device, P("vkCreateDevice"), reinterpret_cast<void*>(&hk_create_device), &R.create_device, "vkCreateDevice");
+        ok &= hook(h_destroy_device, P("vkDestroyDevice"), reinterpret_cast<void*>(&hk_destroy_device), &R.destroy_device, "vkDestroyDevice");
+        ok &= hook(h_get_queue, P("vkGetDeviceQueue"), reinterpret_cast<void*>(&hk_get_queue), &R.get_queue, "vkGetDeviceQueue");
+        hook(h_get_queue2, P("vkGetDeviceQueue2"), reinterpret_cast<void*>(&hk_get_queue2), &R.get_queue2, "vkGetDeviceQueue2");
+        ok &= hook(h_create_swapchain, P("vkCreateSwapchainKHR"), reinterpret_cast<void*>(&hk_create_swapchain), &R.create_swapchain, "vkCreateSwapchainKHR");
+        ok &= hook(h_destroy_swapchain, P("vkDestroySwapchainKHR"), reinterpret_cast<void*>(&hk_destroy_swapchain), &R.destroy_swapchain, "vkDestroySwapchainKHR");
+        ok &= hook(h_present, P("vkQueuePresentKHR"), reinterpret_cast<void*>(&hk_present), &R.present, "vkQueuePresentKHR");
         R.gipa = h_gipa ? h_gipa.original<PFN_vkGetInstanceProcAddr>() : R.gipa;
         R.gdpa = h_gdpa ? h_gdpa.original<PFN_vkGetDeviceProcAddr>() : R.gdpa;
     }
     g_present_target = g_wine ? present_now : reinterpret_cast<void*>(R.gipa);
     if (!g_wine) g_present_target = reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkGetInstanceProcAddr"));
+    if (!g_present_target || !read16(g_present_target, g_hook_bytes)) std::memset(g_hook_bytes, 0, sizeof g_hook_bytes);
+    g_vulkan_unloaded = false;
     logf(ok ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: Vulkan hooks %s (%s path, vulkan-1 at %p, install #%d)", ok ? "installed" : "INCOMPLETE",
          g_wine ? "Wine: winevulkan exports" : "Windows: proc-address wrappers", reinterpret_cast<void*>(g_vulkan), g_installs);
     return ok;

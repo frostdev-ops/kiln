@@ -479,8 +479,16 @@ void input_replay() {
         if (buttons & RI_MOUSE_WHEEL) io.AddMouseWheelEvent(0, static_cast<float>(data) / WHEEL_DELTA);
     }
     if (capturing()) feed_pad(io);
-    if (capturing() && t - g_last_stats >= 2000) {
+    // one line per capture, 2 s in: which input reaches the overlay (was every 2 s while open)
+    static bool capture_was = false, stats_done = false;
+    const bool cap = capturing();
+    if (cap && !capture_was) {
         g_last_stats = t;
+        stats_done = false;
+    }
+    capture_was = cap;
+    if (cap && !stats_done && t - g_last_stats >= 2000) {
+        stats_done = true;
         logf(KILN_LOG_INFO, "ui: input while capturing: %llu WM_MOUSEMOVE, %llu button msgs, %llu raw mouse (%llu absolute); cursor (%.0f, %.0f)",
              static_cast<unsigned long long>(g_n_move.load()), static_cast<unsigned long long>(g_n_buttons.load()),
              static_cast<unsigned long long>(g_n_raw.load()), static_cast<unsigned long long>(g_n_raw_abs.load()), io.MousePos.x, io.MousePos.y);
