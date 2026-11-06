@@ -82,7 +82,11 @@ mod tests {
         assert!(i.require_ntsync);
         assert_eq!(i.stop_timeout, Duration::from_secs(90));
         assert_eq!(i.kiln.policy, Policy::VerifiedOnly);
-        assert_eq!(i.kiln.build, i.kiln.source.join("native/build"));
+        if i.kiln.source.as_os_str().is_empty() {
+            assert!(i.kiln.build.as_os_str().is_empty()); // a release build knows no source tree
+        } else {
+            assert_eq!(i.kiln.build, i.kiln.source.join("native/build"));
+        }
         assert!(!i.kiln.samples);
         assert_eq!(i.unit(), "kiln@t1.service");
     }
@@ -164,5 +168,32 @@ WINEDEBUG = "+seh"
         assert_eq!(i.query_port, 25760);
         assert_eq!(i.kiln.policy, Policy::Any);
         assert!(i.env.is_empty());
+    }
+
+    // A released launcher has no source tree: "New server" rendered `source = ""`, which parse refused
+    // ("kiln.source must be an absolute path (or ~/...), not \"\"").
+    #[test]
+    fn render_without_a_source_tree() {
+        let wine = WineSpec::GeLatest;
+        let text = render(&InitSpec {
+            name: "t1",
+            dir: Path::new("/srv/t1"),
+            prefix: Path::new("/srv/t1.pfx"),
+            wine: &wine,
+            port: 15637,
+            backup_dir: Path::new("/srv/t1.backups"),
+            source: Path::new(""),
+            build: Path::new("native/build"),
+            policy: Policy::VerifiedOnly,
+            samples: false,
+        });
+        assert!(text.contains("# source = "), "{text}");
+        assert!(text.contains("# build = "), "{text}");
+        let i = p(&text).unwrap();
+        assert!(i.kiln.source.as_os_str().is_empty() || i.kiln.source == compiled_source());
+        // files already written with empty values parse too
+        let i = p("dir = \"/srv/t1\"\n[kiln]\nsource = \"\"\nbuild = \"\"\n").unwrap();
+        assert_eq!(i.dir, PathBuf::from("/srv/t1"));
+        assert!(p("dir = \"/srv/t1\"\n[kiln]\nsource = \"rel/path\"\n").is_err());
     }
 }

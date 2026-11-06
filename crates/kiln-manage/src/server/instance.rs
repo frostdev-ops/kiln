@@ -731,12 +731,16 @@ pub fn parse(name: &str, file: &Path, text: &str, home: &Path) -> Result<Instanc
         Some(p) => abs("backup_dir", p)?,
         None => with_suffix(&dir, ".backups"),
     };
-    let source = match &raw.kiln.source {
-        Some(p) => abs("kiln.source", p)?,
+    // empty = not set: a released launcher has no source tree (compiled_source() is empty there), and only kilnctl's
+    // source-tree commands (deploy from a build, gate, sigdb check) need one
+    let set = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    let source = match set(&raw.kiln.source) {
+        Some(p) => abs("kiln.source", &p)?,
         None => compiled_source(),
     };
-    let build = match &raw.kiln.build {
-        Some(p) => abs("kiln.build", p)?,
+    let build = match set(&raw.kiln.build) {
+        Some(p) => abs("kiln.build", &p)?,
+        None if source.as_os_str().is_empty() => PathBuf::new(),
         None => source.join("native/build"),
     };
     if dir == prefix {
@@ -863,9 +867,9 @@ stop_timeout = 90
 
 [kiln]
 # Kiln source tree (tools/deploy-server.sh, sigdb/, tools/sigport/sigdb_check.py)
-source = {source}
+{source}
 # Kiln build output (KILN_OUT) that kilnctl deploy lays out
-build = {build}
+{build}
 # "verified-only": hooks only on builds with a verified record; "any": unverified builds too (labs)
 policy = "{policy}"
 # Also deploy the sample mod and native plugin
@@ -881,8 +885,14 @@ samples = {samples}
         wine = q(&s.wine.to_config()),
         port = s.port,
         backup = qp(s.backup_dir),
-        source = qp(s.source),
-        build = qp(s.build),
+        // a released launcher knows no source tree: the keys stay commented out (the launcher installs Kiln from its
+        // runtime bundles; only kilnctl's source-tree commands need them)
+        source = if s.source.as_os_str().is_empty() { "# source = \"<a Kiln source tree>\"".to_owned() } else { format!("source = {}", qp(s.source)) },
+        build = if s.source.as_os_str().is_empty() || s.build.as_os_str().is_empty() {
+            "# build = \"<its build output>\"".to_owned()
+        } else {
+            format!("build = {}", qp(s.build))
+        },
         policy = s.policy.as_str(),
         samples = s.samples,
         overrides = crate::wine::DLL_OVERRIDES,
