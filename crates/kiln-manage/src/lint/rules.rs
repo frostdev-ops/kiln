@@ -1203,6 +1203,7 @@ fn manifest_reader(out: &mut Out, m: &LMod, schema_errors: &HashSet<String>) {
     let known: Vec<&str> = vec![
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side", "clients",
         "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports", "advanced", "tests",
+        "kilnBuild",
     ];
     for mem in root.as_object().into_iter().flatten().filter(|x| !known.contains(&x.key.as_str())) {
         let key = mem.key.as_str();
@@ -1212,6 +1213,17 @@ fn manifest_reader(out: &mut Out, m: &LMod, schema_errors: &HashSet<String>) {
             d.fixes.push(Fix::new(&format!("Rename to \"{sug}\""), vec![TextEdit::new(&mf.display, mem.key_span, &quote(sug))]));
         }
         out.push(d);
+    }
+    // a kilnBuild Kiln.Host can't read: ignored with a warning, as an unknown key is (never a reason to refuse the mod)
+    if let Ok(parsed) = crate::manifest::parse_kiln(text)
+        && parsed.warnings.iter().any(|w| w.starts_with("kilnBuild"))
+        && let Some(mem) = root.as_object().into_iter().flatten().find(|x| x.key == "kilnBuild")
+    {
+        out.push(
+            Diagnostic::new(&mf.display, codes::UNKNOWN_KEY, mem.key_span,
+                "\"kilnBuild\": Kiln.Host ignores it: it is {\"version\", \"created\"} as Kiln.Sdk writes it; leave it out of a hand-written manifest")
+                .pointer("/kilnBuild"),
+        );
     }
 }
 

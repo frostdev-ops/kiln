@@ -208,7 +208,8 @@ void open_tracker() {
     if (!world_identity(key, save)) {
         key = "unknown-world";
         save = "";
-        logw("kiln.spawn: no world save found yet; tracking under '%s' (the key changes once the world is saved)",
+        // expected for a new world (and a client's hosted world before its first save): the key follows at that save
+        logi("kiln.spawn: no world save found yet; tracking under '%s' (the key changes once the world is saved)",
              key.c_str());
     }
     const std::filesystem::path file = u8p(path_of(KILN_PATH_DATA)) / "spawn" / (key + ".json");

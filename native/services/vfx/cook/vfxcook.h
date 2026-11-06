@@ -168,6 +168,7 @@ struct VfxDef {
 
 struct Diagnostics {
     std::vector<std::string> errors, warnings;
+    std::vector<std::string> notes;  // what the author chose on purpose and should still hear about once (gameSpriteModule)
 };
 
 // A JSON document as blocks/*.json and kiln.mod.json are written: // and /* */ comments, a comma before } or ]. Discarded when invalid.
@@ -414,7 +415,7 @@ struct CookResult {
     std::vector<ServedResource> resources;  // meshes and textures come before the VFX that name them
     std::vector<BuiltBlock> blocks;
     std::vector<BuiltMaterialBlock> materials;
-    std::vector<std::string> errors, warnings;
+    std::vector<std::string> errors, warnings, notes;
     std::vector<std::string> refused_mods;  // refused by the budget or a manifest rule, whole
     uint32_t mods_with_vfx = 0;
     uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0, used_materials = 0, used_streamed_textures = 0;
@@ -424,7 +425,7 @@ struct CookResult {
 };
 CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt);
 
-// The result as JSON: blocks with their GUIDs and timing, errors, warnings, refusals, the budget.
+// The result as JSON: blocks with their GUIDs and timing, errors, warnings, notes, refusals, the budget.
 ojson report_json(const CookResult& r);
 
 // ---- fingerprint ----------------------------------------------------------------------------------------------------------------

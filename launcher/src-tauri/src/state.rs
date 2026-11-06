@@ -86,6 +86,7 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
     let runtime = install_state(install, false)?;
     let active_profile = kiln_manage::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id);
     let boot = kiln_manage::state::read_boot(&install.path).ok().flatten();
+    let newer_mods = kiln_manage::game::newer_mods(&dirs()?, &runtime, active_profile.as_deref());
     Ok(kiln_manage::game::GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
@@ -96,6 +97,7 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         play_once_pending: install.path.join(kiln_manage::paths::game::PLAY_ONCE).is_file(),
         boot,
         launch_options: kiln_manage::game::launch_options_info(install, &roots),
+        newer_mods,
     })
 }
 

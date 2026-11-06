@@ -1,0 +1,33 @@
+{
+  "raw": "{\n  \"id\": \"stamped\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Stamped.dll\",\n  // never a reason to refuse the mod: ignored with a warning\n  \"kilnBuild\": \"0.2.0-dev\"\n}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "stamped",
+      "name": "stamped",
+      "version": "1.0.0",
+      "parsedVersion": "1.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "Stamped.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "kilnBuild": null,
+      "warnings": [
+        "kilnBuild must be {\"version\": \"<semver>+<build>\", \"created\": \"<UTC time>\"} (ignored)"
+      ]
+    }
+  }
+}

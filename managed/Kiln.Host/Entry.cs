@@ -255,6 +255,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             Side = CurrentSide(),
             HostedServerMods = _config.Hosted,
             KilnVersion = _version,
+            KilnBuild = KilnBuild.Of(typeof(Kiln.Mod).Assembly),
             HasFeature = HasFeature,
             Faults = new FaultPolicy { Limit = _config.FaultLimit, WindowSeconds = _config.FaultWindowSeconds },
             CrashReports = _config.CrashReports
@@ -317,7 +318,8 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         var lrc = api->SubscribeLog(host._owner, &Entry.OnGameLogLine, null, &log);
         host._logHandle = lrc == KilnAbi.Ok ? log : ulong.MaxValue;  // MaxValue: unavailable
         if (lrc != KilnAbi.Ok) host.Log(LogLevel.Warn, $"game log mirror unavailable (rc {lrc}): ServerStarted fires at the first step");
-        host.Log(LogLevel.Info, $"Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version} (mod API {Kiln.Mods.ApiVersion}) on .NET {Environment.Version}" +
+        host.Log(LogLevel.Info, $"Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version} (mod API {Kiln.Mods.ApiVersion}" +
+                                $"{(KilnBuild.Of(typeof(Kiln.Mod).Assembly) is { } build ? ", build " + build.Version : "")}) on .NET {Environment.Version}" +
                                 $"{(host._wine.Length > 0 ? ", Wine " + host._wine : "")}; side {host.CurrentSide().ToString().ToLowerInvariant()}; " +
                                 $"{host._profile}; {host._mods.Discover().Count()} mod folder(s), loading at the first server step; " +
                                 $"configs in {KilnPaths.Config}; fault policy {host._config.FaultLimit} in {host._config.FaultWindowSeconds:0.#} s");

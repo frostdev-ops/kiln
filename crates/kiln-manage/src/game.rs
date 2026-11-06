@@ -87,6 +87,10 @@ pub struct GameStatus {
     pub play_once_pending: bool,
     pub boot: Option<BootJson>,
     pub launch_options: Option<LaunchOptionsInfo>,
+    /// Kiln mods of the active profile built against a newer Kiln than the one in the game (`kilnBuild` against the
+    /// runtime's): they may fail to load until Kiln is updated on the Runtime page.
+    #[serde(default)]
+    pub newer_mods: Vec<crate::profile::NewerKilnMod>,
 }
 
 pub const CLIENT_EXE: &str = "enshrouded.exe";
@@ -484,6 +488,14 @@ fn fallback_install_state(install: &GameInstall) -> crate::install::InstallState
     }
 }
 
+/// `GameStatus.newer_mods`: the active profile's Kiln mods built against a newer Kiln than the installed runtime.
+pub fn newer_mods(dirs: &DataDirs, runtime: &crate::install::InstallState, active_profile: Option<&str>) -> Vec<crate::profile::NewerKilnMod> {
+    let Some(receipt) = runtime.receipt.as_ref() else { return Vec::new() };
+    let Some(profile) = active_profile.and_then(|id| crate::profile::get(dirs, id).ok()) else { return Vec::new() };
+    let Some(build) = crate::profile::runtime_build(dirs, receipt) else { return Vec::new() };
+    crate::profile::built_for_newer(dirs, &profile, &build)
+}
+
 /// `status` with explicit Steam roots.
 pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) -> Result<GameStatus> {
     let proc = crate::proc::find_game(install).ok().flatten();
@@ -495,6 +507,7 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
     let runtime = crate::install::status(dirs, install).unwrap_or_else(|_| fallback_install_state(install));
     let active_profile = crate::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id);
     let boot = crate::state::read_boot(&install.path).ok().flatten();
+    let newer_mods = newer_mods(dirs, &runtime, active_profile.as_deref());
     Ok(GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
@@ -505,6 +518,7 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
         play_once_pending: install.path.join(crate::paths::game::PLAY_ONCE).is_file(),
         boot,
         launch_options: launch_options_info(install, roots),
+        newer_mods,
     })
 }
 

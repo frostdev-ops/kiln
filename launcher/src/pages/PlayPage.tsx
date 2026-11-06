@@ -244,6 +244,17 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
     );
   }
   if (s?.steamUpdating) out.push(<Banner key="upd" tone="warn" title="Updating">Steam is updating Enshrouded. Play waits until it is done.</Banner>);
+  // a mod built against a newer Kiln may use something this game's Kiln doesn't have yet: it fails to load until Kiln is updated
+  const newer = s?.runtime.installed ? s.newerMods ?? [] : [];
+  if (newer.length) {
+    const has = s?.runtime.receipt?.runtime.version;
+    out.push(
+      <Banner key="newer" tone="warn" title="Update Kiln" actions={<Button size="s" onClick={() => nav("/runtime")}>Runtime</Button>}>
+        {names(newer.map((m) => `${m.id} ${m.version}`))} {newer.length === 1 ? "was" : "were"} built for a newer Kiln
+        {has ? <> than this game has (<span className="k-mono">{kilnLabel(has)}</span>)</> : null}: {newer.length === 1 ? "it" : "they"} may not load until you update Kiln.
+      </Banner>,
+    );
+  }
   const advice = s?.runtime.installed ? s.launchOptions?.advice : null;
   if (advice && (ctl.stuck || !s?.launchOptions?.hasDllOverride)) {
     out.push(

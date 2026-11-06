@@ -274,6 +274,7 @@ void apply_fields(Def& d, const GEntry& e) {
         if (const Def* b = clone_base(*chain.back())) chain.push_back(b);
         else break;
     std::vector<std::string> errs;
+    const LayerModScope as_mod(d.mod);  // the definitions' owner is shared: these layers are d's mod's
     for (auto c = chain.rbegin(); c != chain.rend(); ++c)
         for (auto& [path, v] : (*c)->fields.items()) {
             if (path.empty() || path[0] == '@') continue;

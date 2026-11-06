@@ -38,6 +38,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <unordered_set>
 
 #include "barber.h"
 #include "content.h"
@@ -1137,8 +1138,17 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
         d.warnings = ko.problems;
         d.kitbash_retry = std::any_of(ko.problems.begin(), ko.problems.end(),
                                       [](const std::string& w) { return w.find("the game has loaded") != std::string::npos; });
-        for (const std::string& w : ko.problems)
-            LOGW("new content: item %s: %s (skipped; the base's value stays)", d.name.c_str(), w.c_str());
+        if (d.placeholder && !ko.problems.empty()) {
+            // A placeholder keeps a missing mod's saved stacks: its references name that mod's own resources, which nothing
+            // serves while it isn't loaded. Expected, so one line at Info (the missing-content summary says which mods).
+            std::string fields;
+            for (const std::string& w : ko.problems) fields += (fields.empty() ? "" : ", ") + w.substr(0, w.find(": "));
+            LOGI("new content: placeholder %s: %zu reference(s) to its mod's resources stay unresolved while the mod is not loaded "
+                 "(the base's values stay): %s", d.name.c_str(), ko.problems.size(), fields.c_str());
+        } else {
+            for (const std::string& w : ko.problems)
+                LOGW("new content: item %s: %s (skipped; the base's value stays)", d.name.c_str(), w.c_str());
+        }
         if (!ko.writes.empty() || !ko.blobs.empty())
             LOGI("new content: item %s: %zu reference / visual field(s) and %zu list(s) from kitbash%s", d.name.c_str(),
                  ko.writes.size(), ko.blobs.size(), ko.icon ? ", icon of another item" : "");
@@ -3279,6 +3289,7 @@ uint64_t g_first_step_ms[KILN_WORLD_KINDS] = {};
 // yet: they come after the handshake, later than the first steps) gets NULL from the lookup, and the game derefs that.
 // A miss in the client world's registry answers a copy of Kiln_Unknown_Item carrying the asked id. Copies are never
 // freed (the game keeps the pointers); a definition that arrives later wins, because the registry map is asked first.
+// The game's own items outside its registry are not unknown: see g_game_items.
 using UnknownMap = std::unordered_map<uint32_t, uintptr_t>;
 std::atomic<const UnknownMap*> g_unknown{nullptr};  // immutable, swapped; lookups come from job threads
 std::mutex g_unknown_mu;
@@ -3287,6 +3298,53 @@ std::atomic<uintptr_t> g_unknown_tmpl{0};  // the clone copied per id
 uint32_t g_unknown_id = 0;                 // Kiln_Unknown_Item's own id
 uintptr_t g_itemfind_fn = 0;
 constexpr uint32_t kUnknownProbe = 0x4B494C4E;  // the self-check's id ("KILN"), asked once per world
+
+// The game's data holds more keen::ItemInfo resources than its registry lists (test and deprecated items: Armor_Tint_TEST
+// 0x4ef84410 and 54 more on client 26430625), and the game asks for some of them. It gets NULL and copes, so these ids get
+// NULL here too. Only an id that is no ItemInfo of the game's data is a mod's (a mod this game lacks, a server's
+// definitions that have not arrived) and gets the placeholder. Built once: the game's data does not change in a process.
+using IdSet = std::unordered_set<uint32_t>;
+std::atomic<const IdSet*> g_game_items{nullptr};  // never freed: job threads read it without a lock
+
+bool is_game_item(uint32_t id) {
+    const IdSet* s = g_game_items.load(std::memory_order_acquire);
+    return s && s->count(id);
+}
+
+// The ids of the game's ItemInfo resources, without those a mod serves through kiln.assets. false: not listable (yet).
+bool build_game_items(std::string* why) {
+    if (g_game_items.load(std::memory_order_acquire)) return true;
+    const KilnAssetsApi* a = assets_api();
+    if (!a || a->header.size < offsetof(KilnAssetsApi, resource_is_new) + sizeof(void*) || !a->resource_list || !a->resource_is_new) {
+        *why = "kiln.assets cannot list the game's resources";
+        return false;
+    }
+    size_t n = 0;
+    a->resource_list(KILN_ASSET_TYPE_ITEM_INFO, nullptr, 0, &n);
+    std::vector<KilnAssetKey> keys(n);
+    if (!n || a->resource_list(KILN_ASSET_TYPE_ITEM_INFO, keys.data(), keys.size(), &n) != KILN_OK) {
+        *why = "the game's resource list has no keen::ItemInfo";
+        return false;
+    }
+    auto set = std::make_unique<IdSet>();
+    for (const KilnAssetKey& k : keys)
+        if (k.part == 0 && !a->resource_is_new(&k)) set->insert(fnv1a(k.guid, 16));
+    if (set->empty()) {
+        *why = "the game's resource list has no keen::ItemInfo";
+        return false;
+    }
+    const IdSet* expected = nullptr;
+    if (g_game_items.compare_exchange_strong(expected, set.get(), std::memory_order_acq_rel)) set.release();
+    // answers made before the list was there (an earlier world that could not list it) stop for the game's own ids
+    std::lock_guard lock(g_unknown_mu);
+    if (const UnknownMap* cur = g_unknown.load(std::memory_order_acquire)) {
+        auto* next = new UnknownMap();
+        for (const auto& [id, p] : *cur)
+            if (!is_game_item(id)) next->emplace(id, p);
+        g_unknown.store(next, std::memory_order_release);  // the old map stays: a reader may still hold it
+    }
+    return true;
+}
 
 uintptr_t unknown_make(uint32_t id) {
     const uintptr_t tmpl = g_unknown_tmpl.load(std::memory_order_acquire);
@@ -3314,24 +3372,49 @@ uintptr_t __fastcall hk_itemfind(uint32_t id, uintptr_t reg) {
     if (r || !id || reg != g_unknown_reg.load(std::memory_order_relaxed)) return r;
     if (const UnknownMap* m = g_unknown.load(std::memory_order_acquire))
         if (auto it = m->find(id); it != m->end()) return it->second;
+    if (is_game_item(id)) return 0;  // the game's own item outside its registry: NULL, as without Kiln
     return unknown_make(id);
 }
 
-// The registry is complete here (every id of the game is in it, so a miss really is an unknown id).
+// The registry is complete here: every item of the game's registry is in it, so a miss is an item outside it.
 void unknown_enable(WorldState& ws) {
     if (!g_itemfind_hook || !g_unknown_id || g_unknown_reg.load() == ws.ireg) return;
     const auto it = ws.items.find(g_unknown_id);
     if (it == ws.items.end()) return;
+    std::string why;
+    const bool listed = build_game_items(&why);  // before the first answer in this registry
     if (g_unknown_tmpl.exchange(it->second) != it->second) {  // the base item moved: copies of the old clone go out of use
         std::lock_guard lock(g_unknown_mu);
         g_unknown.store(nullptr, std::memory_order_release);
     }
     g_unknown_reg.store(ws.ireg);
+    const auto find = reinterpret_cast<uintptr_t(__fastcall*)(uint32_t, uintptr_t)>(g_itemfind_fn);  // the hooked entry
     uint32_t back = 0;
-    const uintptr_t got = reinterpret_cast<uintptr_t(__fastcall*)(uint32_t, uintptr_t)>(g_itemfind_fn)(kUnknownProbe, ws.ireg);
+    const uintptr_t got = find(kUnknownProbe, ws.ireg);
     if (got) rdv(got + L.i_id, back);
-    if (back == kUnknownProbe) LOGI("new content: unknown item ids are answered in this registry (%p; self-check through the game's lookup: ok)", reinterpret_cast<void*>(ws.ireg));
-    else LOGW("new content: the self-check of unknown item ids failed (lookup = %p); an unknown id stays NULL", reinterpret_cast<void*>(got));
+    if (back != kUnknownProbe) {
+        LOGW("new content: the self-check of unknown item ids failed (lookup = %p); an unknown id stays NULL", reinterpret_cast<void*>(got));
+        return;
+    }
+    LOGI("new content: unknown item ids are answered in this registry (%p; self-check through the game's lookup: ok)", reinterpret_cast<void*>(ws.ireg));
+    if (!listed) {
+        LOGI("new content: the game's own items outside its registry are not known (%s): such an id would answer [Unknown item] too", why.c_str());
+        return;
+    }
+    // The game's items this registry lacks, and one of them through the game's lookup: NULL, as without Kiln.
+    const IdSet& game = *g_game_items.load(std::memory_order_acquire);
+    size_t outside = 0;
+    uint32_t sample = 0;
+    for (uint32_t id : game)
+        if (!g_itemfind_orig(id, ws.ireg) && (++outside, !sample || id < sample)) sample = id;
+    if (!outside)
+        LOGI("new content: all %zu keen::ItemInfo resources of the game are in this registry", game.size());
+    else if (const uintptr_t r = find(sample, ws.ireg); !r)
+        LOGI("new content: %zu of the game's %zu keen::ItemInfo resources are not in this registry; they stay NULL as in the game "
+             "(self-check with 0x%08x: ok)", outside, game.size(), sample);
+    else
+        LOGW("new content: the game's item 0x%08x is not in this registry and its lookup answered %p, not NULL as in the game",
+             sample, reinterpret_cast<void*>(r));
 }
 
 bool g_in_update_hook = false;  // early_sync is on the stack (the registry's thread)

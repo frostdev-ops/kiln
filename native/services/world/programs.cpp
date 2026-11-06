@@ -351,8 +351,8 @@ void register_into(uintptr_t world) {
 void on_world(uintptr_t world) {
     const uintptr_t storage = storage_of(world);
     const uint8_t kind = *reinterpret_cast<const uint8_t*>(storage + L.storage_kind);
-    if (kind != 0) {
-        KW_W("RegisterAllPrograms for a world of kind %u: not the server world; no Kiln programs there", kind);
+    if (kind != 0) {  // the client and prediction worlds of a client: expected, Kiln's programs run in the server world
+        KW_I("RegisterAllPrograms for a world of kind %u: not the server world; no Kiln programs there", kind);
         return;
     }
     if (*reinterpret_cast<const uint8_t*>(world) != 0 ||

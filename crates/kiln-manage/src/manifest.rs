@@ -91,6 +91,67 @@ pub struct TestsSpec {
     pub filter: Option<String>,
 }
 
+/// A Kiln build (port of managed/Kiln.Host/KilnBuild.cs): its version as the runtime bundle names it
+/// (`0.2.0-dev+20261106.0f0a3f6`) and, when known, the commit's time (`2026-11-06T12:12:16Z`, the bundle's `created`).
+/// A mod's kiln.mod.json has the one it compiled against (`"kilnBuild"`, written by Kiln.Sdk).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KilnBuild {
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+}
+
+impl KilnBuild {
+    /// KilnBuild.From: None when the version is not `semver[+build]`; a created time that is not `yyyy-MM-ddTHH:mm:ssZ` is dropped.
+    pub fn from_parts(version: &str, created: Option<&str>) -> Option<KilnBuild> {
+        let version = version.trim();
+        if version.is_empty() || SemVersion::try_parse(version.split('+').next().unwrap_or("")).is_none() {
+            return None;
+        }
+        let created = created.map(str::trim).filter(|c| is_utc_time(c)).map(str::to_string);
+        Some(KilnBuild { version: version.to_string(), created })
+    }
+
+    /// KilnBuild.IsNewerThan: by the semantic version, then by the commit time when both have one, else by the day in the
+    /// build part. Two builds of one day without a time can't be told apart: not newer.
+    pub fn is_newer_than(&self, other: &KilnBuild) -> bool {
+        let (a, ad) = split_build(&self.version);
+        let (b, bd) = split_build(&other.version);
+        let (Some(a), Some(b)) = (a, b) else { return false };
+        match a.compare(&b) {
+            std::cmp::Ordering::Greater => return true,
+            std::cmp::Ordering::Less => return false,
+            std::cmp::Ordering::Equal => {}
+        }
+        if let (Some(x), Some(y)) = (&self.created, &other.created) {
+            return x > y;
+        }
+        ad.len() == 8 && bd.len() == 8 && ad > bd
+    }
+}
+
+/// `yyyy-MM-ddTHH:mm:ssZ`
+fn is_utc_time(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 20
+        && b.iter().enumerate().all(|(i, &c)| match i {
+            4 | 7 => c == b'-',
+            10 => c == b'T',
+            13 | 16 => c == b':',
+            19 => c == b'Z',
+            _ => c.is_ascii_digit(),
+        })
+}
+
+/// "0.2.0-dev+20261106.0f0a3f6" -> (0.2.0-dev, "20261106")
+fn split_build(text: &str) -> (Option<SemVersion>, String) {
+    let (core, build) = text.split_once('+').unwrap_or((text, ""));
+    let day = build.split('.').next().unwrap_or("");
+    let day = if day.len() == 8 && day.bytes().all(|c| c.is_ascii_digit()) { day.to_string() } else { String::new() };
+    (SemVersion::try_parse(core), day)
+}
+
 /// A parsed, validated kiln.mod.json: the fields of schema/fixtures/manifest "expect.manifest".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +178,9 @@ pub struct KilnManifest {
     pub exports: Vec<String>,
     pub advanced: bool,
     pub tests: Option<TestsSpec>,
+    /// The Kiln build the mod was compiled against (`"kilnBuild"`); None when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kiln_build: Option<KilnBuild>,
     /// Non-fatal findings (unknown keys), same texts as Manifest.cs.
     pub warnings: Vec<String>,
 }
@@ -126,10 +190,10 @@ pub const ID_PATTERN: &str = "^[a-z0-9][a-z0-9._-]{0,63}$";
 /// The dependency id that is not a mod: the native core's version.
 pub const KILN_ID: &str = "kiln";
 const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"];
-const KNOWN: [&str; 22] = [
+const KNOWN: [&str; 23] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests",
+    "advanced", "tests", "kilnBuild",
 ];
 
 fn id_rule(s: &str) -> bool {
@@ -321,7 +385,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
     if !root.is_object() {
         return Err(bad("the file must contain one JSON object"));
     }
-    let warnings: Vec<String> = root
+    let mut warnings: Vec<String> = root
         .members()
         .iter()
         .filter(|m| !KNOWN.contains(&m.key.as_str()))
@@ -379,6 +443,18 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
     if let Some(x) = load_before.iter().find(|x| load_after.contains(x)) {
         return Err(bad(format!("'{x}' is in both loadBefore and loadAfter")));
     }
+    // never a reason to refuse a mod: a stamp Kiln can't read is ignored
+    let mut kiln_build = None;
+    if let Some(kb) = root.get("kilnBuild").filter(|n| !n.is_null()) {
+        if kb.is_object()
+            && let Some(v) = kb.get("version").and_then(Node::as_str)
+        {
+            kiln_build = KilnBuild::from_parts(v, kb.get("created").and_then(Node::as_str));
+        }
+        if kiln_build.is_none() {
+            warnings.push(r#"kilnBuild must be {"version": "<semver>+<build>", "created": "<UTC time>"} (ignored)"#.to_string());
+        }
+    }
     let advanced = match root.get("advanced") {
         None => false,
         Some(a) => a.as_bool().ok_or_else(|| bad("advanced must be true or false"))?,
@@ -415,6 +491,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
         exports,
         advanced,
         tests,
+        kiln_build,
         warnings,
     })
 }
@@ -723,6 +800,26 @@ pub fn read_native(dir: &Path) -> Result<NativeManifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn b(v: &str, c: Option<&str>) -> KilnBuild {
+        KilnBuild::from_parts(v, c).unwrap()
+    }
+
+    /// The same cases as Kiln.Host.Tests' NewerRuntimeTests.Builds_order_by_version_then_commit_time_then_day.
+    #[test]
+    fn builds_order_by_version_then_commit_time_then_day() {
+        let old = b("0.2.0-dev+20261106.10a0d37", Some("2026-11-06T10:54:02Z"));
+        let new = b("0.2.0-dev+20261106.0f0a3f6", Some("2026-11-06T12:12:16Z"));
+        assert!(new.is_newer_than(&old));
+        assert!(!old.is_newer_than(&new));
+        assert!(!new.is_newer_than(&new));
+        assert!(!b("0.2.0-dev+20261106.0f0a3f6", None).is_newer_than(&old));
+        assert!(b("0.2.0-dev+20261107.0f0a3f6", None).is_newer_than(&old));
+        assert!(b("0.2.1-dev+20261101.0f0a3f6", Some("2026-11-01T00:00:00Z")).is_newer_than(&old));
+        assert!(!b("0.2.0-dev+20261201.0f0a3f6", Some("2026-12-01T00:00:00Z")).is_newer_than(&b("0.3.0", None)));
+        assert!(KilnBuild::from_parts("not a version", None).is_none());
+        assert_eq!(b("0.2.0", Some("yesterday")).created, None);
+    }
 
     fn example(name: &str) -> String {
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/examples").join(name)).unwrap()

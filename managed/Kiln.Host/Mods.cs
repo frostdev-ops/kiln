@@ -34,6 +34,10 @@ internal sealed class ModManagerOptions
     /// <c>"mods": {"hosted": false}</c> turns it off).</summary>
     public bool HostedServerMods { get; init; } = true;
     public string KilnVersion { get; init; } = "0.0.0";
+
+    /// <summary>This runtime's build (Kiln.Api's stamp): a mod built against a newer one is named before it loads. Null: not known (a
+    /// build without git), nothing is compared.</summary>
+    public KilnBuild? KilnBuild { get; init; }
     public Func<string, bool> HasFeature { get; init; } = static _ => true;
     public FaultPolicy Faults { get; init; } = new();
     public CrashReports? CrashReports { get; init; }
@@ -136,6 +140,9 @@ internal sealed class LoadedMod
     public readonly Queue<double> FaultTimes = new();
     public DateTime? LastFault;
     public string? LastFaultMessage;
+
+    /// <summary>Set when a fault showed that this runtime lacks a Kiln member the mod uses (<see cref="NewerRuntime"/>): what to say.</summary>
+    public string? NeedsNewerRuntime;
     public string Id => Manifest.Id;
 }
 
@@ -193,6 +200,9 @@ internal sealed class ModManager : IModsBackend, IDisposable
     public IReadOnlyList<LoadedMod> Mods => _mods;
 
     public IReadOnlyList<ModRecord> Records => _records;
+
+    /// <summary>This runtime, as a player's launcher names it: the build (<c>0.2.0-dev+20261106.0f0a3f6</c>), else the version.</summary>
+    private string RuntimeName => _options.KilnBuild?.Version ?? _options.KilnVersion;
     public bool AnyPost => _mods.Exists(m => !m.Disabled && m.ModContext.Tick.HasPost);
     public bool AnyGameLog => _mods.Exists(m => !m.Disabled && m.ModContext.GameLog.HasListeners);
     public bool TestsRunning => _tests.Count > 0;
@@ -347,6 +357,9 @@ internal sealed class ModManager : IModsBackend, IDisposable
                 _host.Log(LogLevel.Error, $"mod {c} not loaded: {reason}");
                 continue;
             }
+            if (m.BuiltWith is { } built && _options.KilnBuild is { } runtime && built.IsNewerThan(runtime))
+                _host.Log(LogLevel.Warn, $"mod {m.Id} {m.Version} was built against Kiln {built.Version}, newer than this runtime ({runtime.Version}): " +
+                                         "if it fails, update Kiln on the launcher's Runtime page");
             SetRecord(c, ModState.Pending, null);
             PublishSnapshot(writeFile: false);  // a mod's OnLoad sees the mods loaded before it in Mods.All
             var sw = Stopwatch.StartNew();
@@ -459,8 +472,9 @@ internal sealed class ModManager : IModsBackend, IDisposable
             else
             {
                 var why = mod.LastFaultMessage;
+                var newer = mod.NeedsNewerRuntime;
                 Unload(mod.Id, out _);
-                error = $"mod {manifest.Id}: OnLoad failed ({why})";
+                error = newer ?? $"mod {manifest.Id}: OnLoad failed ({why})";
                 return false;
             }
             if (manifest.Tests is { AutoRun: true } && Lifecycle.IsServerRunning && !SuppressAutoTests) _autoTests.Enqueue(manifest.Id);
@@ -468,8 +482,17 @@ internal sealed class ModManager : IModsBackend, IDisposable
         }
         catch (Exception e)
         {
-            error = $"mod {manifest.Id}: {e.GetType().Name}: {e.Message}";
-            _host.Log(LogLevel.Error, error);
+            // its types reach for a Kiln member, type or assembly this runtime lacks: built against a newer Kiln
+            if (NewerRuntime.MissingKilnMember(e) is { } member)
+            {
+                error = NewerRuntime.Explain(manifest.Id, member, RuntimeName, manifest.BuiltWith);
+                _host.Log(LogLevel.Error, $"{error} ({e.GetType().Name}: {e.Message})");
+            }
+            else
+            {
+                error = $"mod {manifest.Id}: {e.GetType().Name}: {e.Message}";
+                _host.Log(LogLevel.Error, error);
+            }
             if (owner != 0) _host.OwnerRevoke(owner);
             alc.Unload();
             return false;
@@ -877,6 +900,12 @@ internal sealed class ModManager : IModsBackend, IDisposable
         _host.Log(LogLevel.Error, alreadyLogged
             ? $"mod {mod.Id} fault in {where} ({recent}/{policy.Limit}): {e.GetType().Name}: {e.Message}"
             : $"mod {mod.Id} threw in {where} ({recent}/{policy.Limit}): {e}");
+        // A Kiln member this runtime lacks (the runtime throws when it compiles the method that uses it): said once, plainly.
+        if (mod.NeedsNewerRuntime == null && NewerRuntime.MissingKilnMember(e) is { } member)
+        {
+            mod.NeedsNewerRuntime = NewerRuntime.Explain(mod.Id, member, RuntimeName, mod.Manifest.BuiltWith);
+            _host.Log(LogLevel.Error, mod.NeedsNewerRuntime);
+        }
         if (recent >= policy.Limit && !mod.Disabled) Disable(mod, where, e);
     }
 
@@ -890,7 +919,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
         if (RecordById(mod.Id) is { } r)
         {
             r.State = ModState.Disabled;
-            r.Error = $"disabled after {mod.FaultTimes.Count} faults{window}: {mod.LastFaultMessage}";
+            r.Error = $"disabled after {mod.FaultTimes.Count} faults{window}: {mod.NeedsNewerRuntime ?? mod.LastFaultMessage}";
         }
         PublishSnapshot();  // the crash report's mod list shows it disabled
         var report = _options.CrashReports?.Write("mod-disabled",

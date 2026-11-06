@@ -67,7 +67,8 @@ in mod load order and file-name order inside a mod. A pack follows its mod: unlo
 - **Order and conflicts**: within a pack, later entries win; across packs, the later mod in load order wins; changes
   made from code win over every pack (in call order). Two owners giving one field different values is a conflict:
   logged (`conflict: items Material_T1_Twigs.maxStackSize: pack … sets 600, bigstacks … sets 1000 (the later one wins: …)`)
-  and listed in `Content.PackReport()`. Problems (unknown field, value out of range, selector matching nothing) are
+  and listed in `Content.PackReport()`. A clone's definition and its own mod's later changes to it are not: the definition is
+  the clone's starting value (a block writes `none` until a game VFX's name is known, then a rule writes that VFX). Problems (unknown field, value out of range, selector matching nothing) are
   logged per file and never stop the other entries.
 
 ## C#
@@ -394,6 +395,11 @@ registering in the client world's Pre is too late: `apply_armor` faulted on a he
   copy of the internal item `Kiln_Unknown_Item` carrying that id: "[Unknown item]", a Bronze Sword's record without perks, its icon, no stack
   limit. The game cannot fault on it, the server still owns the stack, and a definition that arrives later wins because the registry is asked
   first. kiln.log: `the game asked the client world's registry for item 0x...`, once per id. Server worlds keep the game's behaviour.
+  The game's own items outside its registry are not unknown ids: its data has keen::ItemInfo resources the registry doesn't list (55 on
+  client 26430625, test and deprecated items; the catalog marks them `"registered": false`), and the game asks for some of them
+  (`Armor_Tint_TEST`, 0x4ef84410). Those get NULL, as without Kiln. Kiln lists the game's ItemInfo resources once (kiln.assets, without
+  the ones a mod serves) and checks it when it turns the answers on: `new content: 55 of the game's 4268 keen::ItemInfo resources are not
+  in this registry; they stay NULL as in the game (self-check with 0x...: ok)`.
   `Kiln_Unknown_Item` is in no definition list and not in the content sync; it does appear in `Content.Items` of a joined client.
 - **Definitions made later** cannot be there earlier: data packs' `add` lists and `OnReady` handlers run when kiln.content's registries are ready
   (hosted: long before the client world; a first joined world: ~300 ms after its first step; later worlds keep them from the first). In that
@@ -496,7 +502,8 @@ section 8.
   is a template clone defined in this game (a world registers its clones at its load, after its items and before anything
   can place one, so a placeable item names its own template from the start). `item:<name>.<path>`
   must name a field of the same type. Anything else is skipped with a warning (the base's value stays; the item still
-  registers): `NewContent.Definitions()` / `definitions()` list them as `warnings`, kiln.log has one line each. A
+  registers): `NewContent.Definitions()` / `definitions()` list them as `warnings`, kiln.log has one line each (a
+  placeholder's, whose references name its missing mod's resources, are one Info line per item instead). A
   reference that was not loaded is tried again every ~2 s (kiln.assets may register it later), and at once when a
   template clone goes into a world (a joined client gets its items before the templates in the same content state).
 - **Game items**: the same keys work as layers on registered items: data-pack rules (`"Weapon_X": {"@refs": true,
@@ -583,7 +590,10 @@ world file on disk (also after `kill -9`, Kiln.Saves' generations).
 - kiln.log: `missing content: 3 item(s) of mods that are not loaded are kept as placeholders (their saved stacks
   stay): placeholder-items:Kiln_PH_Sword (0x3f56132f), ...`. `Content.Status().Placeholders` (Kiln.Admin
   `content_status`, see the requested change), `NewContent.Placeholders()`, `info()` `placeholders`, and
-  `definitions()` (`"placeholder": true`, `mod`).
+  `definitions()` (`"placeholder": true`, `mod`). A placeholder's references to its mod's own templates and models stay
+  unresolved while the mod is away: one Info line per item, `new content: placeholder item-blocks.ember-bench: 1
+  reference(s) to its mod's resources stay unresolved while the mod is not loaded (the base's values stay):
+  equipment.placedEntity`. The same unresolved reference on an item of a loaded mod is a warning.
 - **The mod comes back**: at the next start its definition is there before the placeholders are made (none is
   made). Loaded while the world runs (`load <mod>`), its definition takes the GUID over: `state` `restored`, kiln.log
   `Kiln_PH_Sword ... is back (mod placeholder-items): it takes its id 0x3f56132f back from the placeholder`.

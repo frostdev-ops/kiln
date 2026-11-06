@@ -5,7 +5,7 @@
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
   Activation, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected,
-  EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallState, Json, KilnError, LastServer, LaunchRequest,
+  EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModsJson, NativeJson, NativePlanEntry,
   NativeUserState, Profile, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
@@ -61,6 +61,8 @@ let pidSeq = 4100;
 const ACTIVATE_MS = 1500;
 /** The next runtime install fails with this message (tests: `__kilnMock.failNextInstall`). */
 let failNextInstall: string | null = null;
+/** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
+const newerMods: Record<string, NewerKilnMod[]> = {};
 
 const bundles: RuntimeBundle[] = [
   { version: "0.2.0-dev+20261104.0f1ffa6", kiln: "0.2.0-dev", file: "runtime/kiln-runtime-0.2.0-dev+20261104.0f1ffa6.zip", sha256: hex("rt2"),
@@ -266,6 +268,7 @@ function status(gameId: string): GameStatus {
     id: g.id, running: !!r, pid: r?.pid ?? null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
     activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && Date.now() - r.at < 2500,
     boot: bootFor(gameId), launchOptions: { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
+    newerMods: newerMods[gameId] ?? [],
   };
 }
 
@@ -825,4 +828,5 @@ export function mockEmit(name: string, payload: unknown): void {
 
 // Playwright and the dev console reach the fake game through this (mock mode only).
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
-  failNextInstall: (message: string) => { failNextInstall = message; } };
+  failNextInstall: (message: string) => { failNextInstall = message; },
+  setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); } };

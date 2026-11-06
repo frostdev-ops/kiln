@@ -1,6 +1,7 @@
 <Project>
   <!-- Fault policy demo: while kiln/data/sample-faulty/fault exists, every tick throws; after fault_limit faults in
-       fault_window_s the mod is disabled and a crash report is written. -->
+       fault_window_s the mod is disabled and a crash report is written. With kiln/data/sample-faulty/missing-member, OnLoad
+       fails like a mod built against a newer Kiln than the runtime (a Kiln field it lacks). -->
   <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
   <PropertyGroup>
     <KilnModId>sample-faulty</KilnModId>

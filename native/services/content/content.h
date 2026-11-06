@@ -195,6 +195,7 @@ struct Layer {
     uint64_t seq;
     uint8_t bytes[kSlotBytes];
     std::string source;
+    std::string mod;  // the mod a shared owner put it for (a gamedata definition's layer); empty: the owner's label says ("mod <id>", "pack <id>")
 };
 struct Slot {
     uint32_t kind = 0, id = 0;
@@ -246,6 +247,18 @@ std::string timing_report(bool reset);
 std::string lock_report(bool reset);
 void timing_mark_job_thread(bool on);  // the calling thread is a game job thread (its waits for the lock are counted apart)
 
+// While one lives on this thread, the layers store_put puts are `mod`'s: a shared owner (kiln.gamedata's definitions) acting
+// for one mod. store_conflicts does not count such a layer against the same mod's other layers.
+class LayerModScope {
+public:
+    explicit LayerModScope(const std::string& mod);
+    ~LayerModScope();
+    LayerModScope(const LayerModScope&) = delete;
+    LayerModScope& operator=(const LayerModScope&) = delete;
+
+private:
+    std::string prev_;
+};
 // Adds or replaces `owner`'s layer of the slot at addr (the slot remembers the original bytes on first touch).
 bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
                uint8_t n, const uint8_t* bytes, const std::string& source);

@@ -12,6 +12,8 @@ namespace Kiln.Sdk;
 /// project has its own <see cref="Source"/> kiln.mod.json, that file after validation. Either way the result is
 /// parsed with the loader's own <c>Manifest.Parse</c>, so a manifest that builds is one Kiln accepts.
 /// Errors: KILN001 invalid manifest, KILN002 entry assembly mismatch. Warnings: KILN003.
+/// Both get <c>"kilnBuild"</c>: the Kiln build of the Kiln.Api the mod compiled against (<see cref="KilnApiPath"/>), so Kiln.Host and
+/// the launcher can say when a game's runtime is older than the mod.
 /// </summary>
 public sealed class KilnManifest : Microsoft.Build.Utilities.Task
 {
@@ -44,6 +46,8 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
     public ITaskItem[] Incompatible { get; set; } = [];
     public string TestsAutoRun { get; set; } = "";
     public string TestTimeoutSeconds { get; set; } = "";
+    /// <summary>The Kiln.Api assembly the mod compiled against (its reference): its Kiln.Build metadata becomes <c>"kilnBuild"</c>.</summary>
+    public string KilnApiPath { get; set; } = "";
 
     [Output] public string ModId { get; private set; } = "";
     [Output] public string ModVersion { get; private set; } = "";
@@ -52,9 +56,10 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
     {
         var own = Source.Length > 0 && File.Exists(Source);
         string json;
+        var stamp = StampOf(KilnApiPath);
         try
         {
-            json = own ? File.ReadAllText(Source) : Generate();
+            json = own ? WithStamp(File.ReadAllText(Source), stamp) : Generate(stamp);
         }
         catch (IOException e)
         {
@@ -91,6 +96,68 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
         if (!File.Exists(Output) || File.ReadAllText(Output) != json) File.WriteAllText(Output, json);
         Log.LogMessage(MessageImportance.Low, $"kiln.mod.json: {manifest.Id} {manifest.Version} ({(own ? "validated" : "generated")})");
         return true;
+    }
+
+    // Kiln.Api's [assembly: AssemblyMetadata("Kiln.Build", ...)] and ("Kiln.BuildCreated", ...) (managed/Directory.Build.targets).
+    // None: a Kiln.Api built without git, or no reference found; the manifest then has no stamp and nothing is compared.
+    private KilnBuild? StampOf(string path)
+    {
+        path = path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
+        if (path.Length == 0 || !File.Exists(path)) return null;
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(path));
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            string? version = null, created = null;
+            foreach (var h in md.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var ca = md.GetCustomAttribute(h);
+                if (ca.Constructor.Kind != System.Reflection.Metadata.HandleKind.MemberReference) continue;
+                var parent = md.GetMemberReference((System.Reflection.Metadata.MemberReferenceHandle)ca.Constructor).Parent;
+                if (parent.Kind != System.Reflection.Metadata.HandleKind.TypeReference ||
+                    md.GetString(md.GetTypeReference((System.Reflection.Metadata.TypeReferenceHandle)parent).Name) != "AssemblyMetadataAttribute") continue;
+                var blob = md.GetBlobReader(ca.Value);
+                if (blob.ReadUInt16() != 1) continue;  // the custom attribute prolog
+                var key = blob.ReadSerializedString();
+                var value = blob.ReadSerializedString();
+                if (key == KilnBuild.VersionKey) version = value;
+                else if (key == KilnBuild.CreatedKey) created = value;
+            }
+            return KilnBuild.From(version, created);
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException)
+        {
+            Log.LogMessage(MessageImportance.Low, $"kiln.mod.json: cannot read {path}: {e.Message}");
+            return null;
+        }
+    }
+
+    private static readonly JsonSerializerOptions Plain = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static string StampJson(KilnBuild stamp) =>
+        $"{{ \"version\": {JsonSerializer.Serialize(stamp.Version, Plain)}" +
+        (stamp.Created is { } c ? $", \"created\": {JsonSerializer.Serialize(c, Plain)}" : "") + " }";
+
+    // A project's own kiln.mod.json, with the stamp as its first key (its text otherwise as written).
+    private string WithStamp(string text, KilnBuild? stamp)
+    {
+        if (stamp == null) return text;
+        try
+        {
+            if (Manifest.Parse(text).BuiltWith is { } theirs)
+            {
+                if (theirs != stamp)
+                    Log.LogWarning(null, "KILN003", null, Source, 0, 0, 0, 0,
+                        $"kiln.mod.json says kilnBuild {theirs.Version}, but this build compiles against Kiln {stamp.Version}: leave kilnBuild out, the build writes it");
+                return text;
+            }
+        }
+        catch (InvalidDataException)
+        {
+            return text;  // the error comes from the validation that follows
+        }
+        var at = text.IndexOf('{');
+        return at < 0 ? text : text[..(at + 1)] + $"\n  \"kilnBuild\": {StampJson(stamp)}," + text[(at + 1)..];
     }
 
     // [assembly: AssemblyMetadata("Kiln.Clients", "kiln")], from Kiln.Analyzers. The manifest is written after the assembly is built.
@@ -134,7 +201,7 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
 
     private static bool Flag(string value) => value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
 
-    private string Generate()
+    private string Generate(KilnBuild? stamp)
     {
         using var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
@@ -192,6 +259,13 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
                 w.WriteStartObject("tests");
                 w.WriteBoolean("autoRun", Flag(TestsAutoRun));
                 if (int.TryParse(TestTimeoutSeconds, out var t) && t > 0) w.WriteNumber("timeoutSeconds", t);
+                w.WriteEndObject();
+            }
+            if (stamp != null)
+            {
+                w.WriteStartObject("kilnBuild");
+                w.WriteString("version", stamp.Version);
+                if (stamp.Created != null) w.WriteString("created", stamp.Created);
                 w.WriteEndObject();
             }
             w.WriteEndObject();

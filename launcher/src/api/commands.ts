@@ -133,6 +133,14 @@ export interface GameStatus {
   playOncePending: boolean;
   boot: BootJson | null;
   launchOptions: LaunchOptionsInfo | null;
+  /** Kiln mods of the active profile built against a newer Kiln than the game has: they may not load until Kiln is updated. */
+  newerMods?: NewerKilnMod[];
+}
+export interface NewerKilnMod {
+  id: string;
+  version: string;
+  /** The Kiln build it compiled against ("0.2.0-dev+20261106.0f0a3f6"). */
+  builtWith: string;
 }
 
 // runtime

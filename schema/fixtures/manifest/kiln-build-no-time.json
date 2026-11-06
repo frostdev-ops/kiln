@@ -1,0 +1,34 @@
+{
+  "raw": "{\n  \"id\": \"stamped\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\", \"entryAssembly\": \"Stamped.dll\",\n  \"kilnBuild\": { \"version\": \"0.2.0-dev+20261106.0f0a3f6\", \"created\": \"6 Nov 2026\" }\n}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "stamped",
+      "name": "stamped",
+      "version": "1.0.0",
+      "parsedVersion": "1.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "Stamped.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "kilnBuild": {
+        "version": "0.2.0-dev+20261106.0f0a3f6",
+        "created": null
+      },
+      "warnings": []
+    }
+  }
+}

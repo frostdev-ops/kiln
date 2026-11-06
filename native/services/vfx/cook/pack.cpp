@@ -232,6 +232,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         auto finish = [&] {
             for (const std::string& e : diag.errors) out.errors.push_back(e);
             for (const std::string& w : diag.warnings) out.warnings.push_back(w);
+            for (const std::string& n : diag.notes) out.notes.push_back(n);
         };
         if (blocks.empty() && material_blocks.empty()) {
             finish();
@@ -492,6 +493,7 @@ ojson report_json(const CookResult& r) {
     j["materials"] = std::move(materials);
     j["errors"] = r.errors;
     j["warnings"] = r.warnings;
+    j["notes"] = r.notes;
     j["refusedMods"] = r.refused_mods;
     ojson b = ojson::object();
     b["vfx"] = {{"game", r.game.vfx}, {"mods", r.used_vfx}, {"capacity", r.capacity.vfx}};

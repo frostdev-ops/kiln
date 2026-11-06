@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln.mod.json, manifest v2 (backward compatible with v1: id, name, version, apiVersion, entryAssembly, entryType,
-// side; "clients" added later). Self-contained (System.Text.Json + SemVer.cs): Kiln.Sdk's build task compiles this file too.
+// side; "clients" and "kilnBuild" added later). Self-contained (System.Text.Json + SemVer.cs + KilnBuild.cs): Kiln.Sdk's build
+// task compiles this file too.
 // Schema: schema/kiln.mod.schema.json. Docs: docs/kiln/modding/manifest.md.
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -46,7 +47,7 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests",
+        "advanced", "tests", "kilnBuild",
     ];
 
     public required string Id { get; init; }
@@ -73,6 +74,9 @@ internal sealed class Manifest
     public IReadOnlyList<string> Exports { get; init; } = [];
     public bool Advanced { get; init; }
     public ManifestTests? Tests { get; init; }
+
+    /// <summary>The Kiln build the mod was compiled against (<c>"kilnBuild"</c>, written by Kiln.Sdk); null when unknown.</summary>
+    public KilnBuild? BuiltWith { get; init; }
 
     /// <summary>Non-fatal findings (unknown keys, odd values).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
@@ -152,6 +156,15 @@ internal sealed class Manifest
             foreach (var x in loadBefore.Intersect(loadAfter))
                 throw Bad($"'{x}' is in both loadBefore and loadAfter");
 
+            // never a reason to refuse a mod: a stamp Kiln can't read is ignored
+            KilnBuild? builtWith = null;
+            if (root.TryGetProperty("kilnBuild", out var kb) && kb.ValueKind != JsonValueKind.Null)
+            {
+                if (kb.ValueKind == JsonValueKind.Object && kb.TryGetProperty("version", out var kv) && kv.ValueKind == JsonValueKind.String)
+                    builtWith = KilnBuild.From(kv.GetString(), kb.TryGetProperty("created", out var kc) && kc.ValueKind == JsonValueKind.String ? kc.GetString() : null);
+                if (builtWith == null) warnings.Add("kilnBuild must be {\"version\": \"<semver>+<build>\", \"created\": \"<UTC time>\"} (ignored)");
+            }
+
             var advanced = false;
             if (root.TryGetProperty("advanced", out var adv))
                 advanced = adv.ValueKind switch
@@ -185,6 +198,7 @@ internal sealed class Manifest
                 Exports = exports,
                 Advanced = advanced,
                 Tests = ParseTests(root),
+                BuiltWith = builtWith,
                 Warnings = warnings,
             };
         }

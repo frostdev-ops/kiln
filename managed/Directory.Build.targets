@@ -1,0 +1,41 @@
+<Project>
+  <!-- Kiln.Api records the Kiln build it is from, as the runtime bundle names it (tools/package/package.sh):
+         [assembly: AssemblyMetadata("Kiln.Build", "0.2.0-dev+20261106.0f0a3f6")]   VERSION + the commit's UTC day and id
+         [assembly: AssemblyMetadata("Kiln.BuildCreated", "2026-11-06T08:41:12Z")]  the commit's time (the bundle's created)
+       SOURCE_DATE_EPOCH and KILN_GIT override git, as in native/build.sh. Kiln.Sdk copies the stamp into a mod's kiln.mod.json
+       ("kilnBuild"); Kiln.Host and the launcher compare it with the runtime's, so a mod built against a newer Kiln is named
+       before it fails. A tree without git gets no stamp, and then nothing is compared. -->
+  <Target Name="_KilnBuildStamp" BeforeTargets="GetAssemblyAttributes"
+          Condition="'$(MSBuildProjectName)' == 'Kiln.Api' and '$(GenerateAssemblyInfo)' != 'false'">
+    <Exec Command="git log -1 --abbrev=7 --format=%25ct.%25h" WorkingDirectory="$(MSBuildThisFileDirectory)"
+          Condition="'$(SOURCE_DATE_EPOCH)' == '' or '$(KILN_GIT)' == ''"
+          ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" EchoOff="true"
+          StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_KilnGitLine" />
+      <Output TaskParameter="ExitCode" PropertyName="_KilnGitExit" />
+    </Exec>
+    <PropertyGroup>
+      <_KilnGitLine Condition="'$(_KilnGitExit)' != '0' or !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_KilnGitLine)', '^[0-9]+\.[0-9a-f]{7,40}$'))"></_KilnGitLine>
+      <_KilnEpoch>$(SOURCE_DATE_EPOCH)</_KilnEpoch>
+      <_KilnEpoch Condition="'$(_KilnEpoch)' == '' and '$(_KilnGitLine)' != ''">$(_KilnGitLine.Substring(0, $(_KilnGitLine.IndexOf('.'))))</_KilnEpoch>
+      <_KilnGit>$(KILN_GIT)</_KilnGit>
+      <_KilnGit Condition="'$(_KilnGit)' == '' and '$(_KilnGitLine)' != ''">$(_KilnGitLine.Substring($([MSBuild]::Add($(_KilnGitLine.IndexOf('.')), 1))))</_KilnGit>
+      <_KilnBuildOk>false</_KilnBuildOk>
+      <_KilnBuildOk Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_KilnEpoch)', '^[0-9]+$')) and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_KilnGit)', '^[0-9a-f]{7,40}$'))">true</_KilnBuildOk>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(_KilnBuildOk)' == 'true'">
+      <_KilnBuildVersion>$(KilnVersion)+$([System.DateTime]::UnixEpoch.AddSeconds($(_KilnEpoch)).ToString('yyyyMMdd')).$(_KilnGit)</_KilnBuildVersion>
+      <_KilnBuildCreated>$([System.DateTime]::UnixEpoch.AddSeconds($(_KilnEpoch)).ToString('s'))Z</_KilnBuildCreated>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_KilnBuildOk)' == 'true'">
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>Kiln.Build</_Parameter1>
+        <_Parameter2>$(_KilnBuildVersion)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>Kiln.BuildCreated</_Parameter1>
+        <_Parameter2>$(_KilnBuildCreated)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+</Project>

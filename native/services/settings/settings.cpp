@@ -363,8 +363,9 @@ void probe_daytime(uintptr_t instance) {
     g_daytime = c;
 }
 
-void unready(const char* why) {
-    if (g_ready.exchange(false)) logf(KILN_LOG_WARN, "settings: live block lost (%s); kiln.settings waits for it", why);
+// quiet: the caller says why itself (the world closing), so the loss is no news.
+void unready(const char* why, bool quiet = false) {
+    if (g_ready.exchange(false) && !quiet) logf(KILN_LOG_WARN, "settings: live block lost (%s); kiln.settings waits for it", why);
     g_block = 0;
     g_next_try = g_step + 25;
 }
@@ -480,7 +481,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
 // instance, the block and the world's original values belong to that world.
 void drop_world(const char* why) {
     g_instance.store(0, std::memory_order_release);
-    unready(why);
+    unready(why, true);  // the line below says it
     g_live_instance = 0;
     g_initial.clear();
     g_last.clear();

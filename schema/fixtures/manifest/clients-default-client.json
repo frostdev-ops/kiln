@@ -24,6 +24,7 @@
       "exports": [],
       "advanced": false,
       "tests": null,
+      "kilnBuild": null,
       "warnings": []
     }
   }

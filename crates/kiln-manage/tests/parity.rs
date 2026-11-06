@@ -107,6 +107,7 @@ fn describe(m: &KilnManifest) -> Value {
         "incompatible": m.incompatible.iter().map(|x| json!({"id": x.id, "range": x.range})).collect::<Vec<_>>(),
         "features": m.features, "exports": m.exports, "advanced": m.advanced,
         "tests": m.tests.as_ref().map(|t| json!({"autoRun": t.auto_run, "timeoutSeconds": t.timeout_seconds, "filter": t.filter})),
+        "kilnBuild": m.kiln_build.as_ref().map(|b| json!({"version": b.version, "created": b.created})),
         "warnings": m.warnings,
     })
 }

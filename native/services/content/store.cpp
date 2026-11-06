@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <set>
+#include <utility>
 
 #include "content.h"
 #if KC_GAMEDATA
@@ -166,6 +167,13 @@ void set_owner_label(KilnOwner owner, const std::string& label) {
     g_labels[owner] = label;
 }
 
+namespace {
+thread_local std::string t_layer_mod;  // LayerModScope
+}  // namespace
+
+LayerModScope::LayerModScope(const std::string& mod) : prev_(std::exchange(t_layer_mod, mod)) {}
+LayerModScope::~LayerModScope() { t_layer_mod = std::move(prev_); }
+
 bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
                uint8_t n, const uint8_t* bytes, const std::string& source) {
     if (n == 0 || n > kSlotBytes) return false;
@@ -189,6 +197,7 @@ bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_
     }
     l->seq = seq;
     l->source = source;
+    l->mod = t_layer_mod;
     std::memcpy(l->bytes, bytes, n);
     std::sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
     mark(addr, s);
@@ -374,6 +383,20 @@ std::string layer_value(const Slot& s, const Field* f, const uint8_t* bytes) {
 }
 }  // namespace
 
+// The mod a layer belongs to: the one a shared owner put it for, else its owner's ("mod <id>" code, "pack <id>" data
+// packs). Empty: Kiln's own, or not known. Under g_mu.
+static std::string layer_mod(const Layer& l) {
+    if (!l.mod.empty()) return l.mod;
+    const auto it = g_labels.find(l.owner);
+    if (it == g_labels.end()) return {};
+    for (const char* p : {"mod ", "pack "})
+        if (it->second.rfind(p, 0) == 0) return it->second.substr(std::strlen(p));
+    return {};
+}
+
+// Two layers of one slot that disagree. A clone's definition and its own mod's later layers on it are not a conflict: they
+// are one author's, the definition being the clone's starting value (a block writes none until a game VFX's name is known,
+// then a rule writes that VFX). Between other layers, a mod's own pack and code included, a disagreement is reported.
 std::vector<Conflict> store_conflicts() {
     PhaseTimer pt(PH_CONFLICTS);
     std::lock_guard lock(g_mu);
@@ -381,12 +404,14 @@ std::vector<Conflict> store_conflicts() {
     for (auto& [addr, s] : g_slots) {
         if (s.layers.size() < 2) continue;
         const Layer& win = s.layers.back();
+        const std::string win_mod = layer_mod(win);
         std::string field;
         const Field* f = nullptr;
         std::string what;
         for (size_t i = 0; i + 1 < s.layers.size(); ++i) {
             const Layer& l = s.layers[i];
             if (l.owner == win.owner || std::memcmp(l.bytes, win.bytes, s.n) == 0) continue;
+            if ((!l.mod.empty() || !win.mod.empty()) && !win_mod.empty() && layer_mod(l) == win_mod) continue;
             if (what.empty()) what = slot_what(s, &field, &f);
             out.push_back(Conflict{what, win.source, l.source, layer_value(s, f, win.bytes), layer_value(s, f, l.bytes)});
         }

@@ -82,6 +82,7 @@ public sealed class FixtureTests
         ["exports"] = Strings(m.Exports),
         ["advanced"] = m.Advanced,
         ["tests"] = m.Tests is { } t ? new JsonObject { ["autoRun"] = t.AutoRun, ["timeoutSeconds"] = t.TimeoutSeconds, ["filter"] = t.Filter } : null,
+        ["kilnBuild"] = m.BuiltWith is { } b ? new JsonObject { ["version"] = b.Version, ["created"] = b.Created } : null,
         ["warnings"] = Strings(m.Warnings),
     };
 

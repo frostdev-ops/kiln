@@ -224,6 +224,7 @@ int cmd_cook(const Args& a, bool write) {
     for (const std::string& e : r.errors) std::fprintf(stderr, "error: %s\n", e.c_str());
     for (const std::string& e : r.refused_mods) std::fprintf(stderr, "refused: %s\n", e.c_str());
     for (const std::string& w : r.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
+    for (const std::string& n : r.notes) std::fprintf(stderr, "note: %s\n", n.c_str());
     if (!write) std::cout << report.dump(1) << "\n";
     else std::printf("%zu VFX, %zu materials, %zu resources, %zu blobs -> %s\n", r.blocks.size(), r.materials.size(), r.resources.size(), r.blobs.size(), a.out.c_str());
     return r.errors.empty() && r.refused_mods.empty() ? 0 : 1;

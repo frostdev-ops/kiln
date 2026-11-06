@@ -361,3 +361,32 @@ fn a_changed_active_profile_is_written_again_before_play() {
     std::fs::write(game.join("kiln/profile.json"), serde_json::to_string(&other).unwrap()).unwrap();
     assert!(profile::refresh_active(&dirs, &inst).unwrap().is_none());
 }
+
+/// A mod built against a newer Kiln than the game's runtime is named before Play (GameStatus.newer_mods): its `kilnBuild`
+/// against the receipt's bundle version and that bundle's commit time.
+#[test]
+fn mods_built_against_a_newer_kiln_are_named() {
+    use kiln_manage::manifest::KilnBuild;
+    let t = tmp("newer");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let stamp = |v: &str, c: &str| format!(r#", "kilnBuild": {{ "version": "{v}", "created": "{c}" }}"#);
+    let newer = kiln_mod(&t.0, "item-blocks", "0.1.1", &stamp("0.2.0-dev+20261106.0f0a3f6", "2026-11-06T12:12:16Z"));
+    let same = kiln_mod(&t.0, "frostbolt-block", "0.1.2", &stamp("0.2.0-dev+20261106.10a0d37", "2026-11-06T10:54:02Z"));
+    let unstamped = kiln_mod(&t.0, "hello", "0.1.0", "");
+    let off = kiln_mod(&t.0, "off", "1.0.0", &stamp("0.3.0", "2027-01-01T00:00:00Z"));
+    let r = library::import(&dirs, &[newer, same, unstamped, off], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "Test S1 hosted", None).unwrap();
+    p.mods.kiln = ["item-blocks", "frostbolt-block", "hello"].iter().map(|id| pm(&refs(&r, ModKind::Kiln, id), true)).collect();
+    p.mods.kiln.push(pm(&refs(&r, ModKind::Kiln, "off"), false));
+    let p = profile::save(&dirs, &p).unwrap();
+    let runtime = KilnBuild::from_parts("0.2.0-dev+20261106.10a0d37", Some("2026-11-06T10:54:02Z")).unwrap();
+    let named = profile::built_for_newer(&dirs, &p, &runtime);
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert_eq!((named[0].id.as_str(), named[0].version.as_str(), named[0].built_with.as_str()), ("item-blocks", "0.1.1", "0.2.0-dev+20261106.0f0a3f6"));
+    // a runtime of the same day whose bundle is gone has no time: the order is unknown, nothing is named
+    let dayonly = KilnBuild::from_parts("0.2.0-dev+20261106.10a0d37", None).unwrap();
+    assert!(profile::built_for_newer(&dirs, &p, &dayonly).is_empty());
+    // an updated runtime names nothing
+    let updated = KilnBuild::from_parts("0.2.0-dev+20261106.0f0a3f6", Some("2026-11-06T12:12:16Z")).unwrap();
+    assert!(profile::built_for_newer(&dirs, &p, &updated).is_empty());
+}

@@ -330,6 +330,7 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         for (const std::string& e : r.errors) KV_E("vfx: %s", e.c_str());
         for (const std::string& e : r.refused_mods) KV_E("vfx: %s", e.c_str());
         for (const std::string& w : r.warnings) KV_W("vfx: %s", w.c_str());
+        for (const std::string& n : r.notes) KV_I("vfx: %s", n.c_str());  // once, here: Kiln.Blocks' define reads only the warnings
         if (r.blocks.empty() && r.materials.empty()) {
             set_status(fingerprint, fingerprint_detail, &r);
             if (r.mods_with_vfx) KV_W("vfx: no Kiln VFX or materials built from %u mod(s) with such blocks", r.mods_with_vfx);

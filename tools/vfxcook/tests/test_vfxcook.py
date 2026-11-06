@@ -920,7 +920,8 @@ class GameSpriteModule(Base):
         self.assertEqual(struct.unpack_from("<f", d, P["KE_BLOCK_SIZE"] + 44)[0], 0.5)
         self.assertNotIn("6380-" + "9281d4c8", "".join(b["hash"] for b in c.report["served"]["blobs"]), "the game's blob is not served by Kiln")
         self.assertEqual(len(c.report["served"]["blobs"]), 5, "3 starter modules, the quad, the texture")
-        self.assertIn("a diagnostic", "\n".join(c.report["warnings"]))
+        self.assertIn("a diagnostic", "\n".join(c.report["notes"]))
+        self.assertNotIn("a diagnostic", "\n".join(c.report["warnings"]))
 
 
 class Pending(Base):

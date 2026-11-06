@@ -473,6 +473,11 @@ to the server at login, and the server validates stacks (`0x1af860`: validateIte
 Kiln's placeholders are server-side records, so they never covered the client's first steps. kiln.content answers those misses itself
 (docs/kiln/services/content.md, "Client worlds").
 
+Not every miss is a mod's item **[rt]**: the game's data has 4268 keen::ItemInfo resources and its ItemRegistryResource lists 55 fewer
+(test and deprecated items), and the client world asks for one of those in every session logged since the answers went in: 0x4ef84410,
+`Armor_Tint_TEST` (`0db73baa-80e3-45a2-b8ce-36470aead35e`). Without Kiln that lookup gets NULL and the game goes on, so
+kiln.content answers only ids that are no ItemInfo of the game's data (`resource_list` of `keen::ItemInfo`, item id = FNV-1a of the GUID).
+
 ### A client without Kiln **[dump] [log]**
 Vanilla client (play-once), a character with the Epic Glacier equipped, a lab: `exe+3834a4` reading 0x658, `rdi` = 0x658, the stack through `0x387d42`, `0x9af2e3`, `0xa2c87f`, `0xa011be`,
 id 0x723a87fa in `xmm0`. No kiln.content there to answer the miss, so the "not run" row above is now run. Its neighbours in that session crashed earlier, on a template the client lacks

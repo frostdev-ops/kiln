@@ -30,6 +30,8 @@
       <KilnDependency Include="other-mod" Version="^1.2" Optional="false" />
       <KilnLoadBefore Include="id" />  <KilnLoadAfter Include="id" />  <KilnIncompatible Include="id" Version="*" />
     A kiln.mod.json in the project folder is validated (same rules as the loader) and copied instead of generated.
+    Either way it gets "kilnBuild": the Kiln build of the Kiln.Api it compiled against, so Kiln and the launcher can tell a
+    player whose Kiln is older than the mod to update it.
     Targets: Build (output folder = deployable mod folder), KilnDeploy, KilnPack.
   -->
   <PropertyGroup>
@@ -136,7 +138,8 @@
                   EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Advanced="$(KilnAdvanced)"
                   Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"
                   LoadBefore="@(KilnLoadBefore)" LoadAfter="@(KilnLoadAfter)" Incompatible="@(KilnIncompatible)"
-                  TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)">
+                  TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)"
+                  KilnApiPath="@(ReferencePath->WithMetadataValue('Filename','Kiln.Api'))">
       <Output TaskParameter="ModId" PropertyName="KilnResolvedModId" />
       <Output TaskParameter="ModVersion" PropertyName="KilnResolvedModVersion" />
     </KilnManifest>

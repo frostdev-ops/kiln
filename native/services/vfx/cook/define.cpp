@@ -27,6 +27,7 @@ public:
         ok_ = false;
     }
     void warn(const std::string& path, const std::string& msg) { d_->warnings.push_back(where_ + "." + path + ": " + msg); }
+    void note(const std::string& path, const std::string& msg) { d_->notes.push_back(where_ + "." + path + ": " + msg); }
     bool ok() const { return ok_; }
 
     bool number(const ojson& v, const std::string& path, float lo, float hi, float* out) {
@@ -693,7 +694,7 @@ bool parse_block(const ojson& value, const std::string& name, const std::string&
         if (def.cull_max <= 0) p.err("cullDistance", "must be above 0");
     }
     if ((it = value.find("gameSpriteModule")) != value.end() && p.boolean(*it, "gameSpriteModule", &def.game_sprite) && def.game_sprite)
-        p.warn("gameSpriteModule", "a diagnostic: its particles draw with a game module, which takes the first colour and size, the texture and the mesh, and bakes in the rest");
+        p.note("gameSpriteModule", "a diagnostic: its particles draw with a game module, which takes the first colour and size, the texture and the mesh, and bakes in the rest");
     if (def.particles.empty() && !def.light) p.err("particles", "nothing to draw: give it particles or a light");
     const size_t entries = def.particles.size() * 2 + (def.light ? 1 : 0);
     if (entries > kMaxEntries)

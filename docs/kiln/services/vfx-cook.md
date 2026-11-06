@@ -36,7 +36,8 @@ A `vfx` section in any `blocks/*.json`. C# blocks serialise to the same shape.
 Block: `particles` (a list), `light`, `sound`, `cullDistance` (far, or `[near, far]`; default `[50, 75]`), `was` (the old name after a rename). It needs
 particles, a light, or both. `gameSpriteModule: true` is a diagnostic: the particles draw with one of the game's own sprite modules, which tells a problem
 in the data from one in Kiln's module. That module takes the first colour and size, the texture and the mesh, and bakes in the rest. A block using it is
-refused if this game no longer has the module.
+refused if this game no longer has the module. Because it's a choice, the builder reports it as a note, not a warning: kiln.log has it once, at Info, from
+the build at start (`vfx: <mod>: blocks/<file>.json: vfx.<name>.gameSpriteModule: a diagnostic: ...`).
 
 | Particle field | Value | Default |
 |---|---|---|
@@ -118,7 +119,7 @@ The report is JSON. The result is `KILN_OK`, `KILN_ERR_INVALID_ARGUMENT` when so
   "blocks": [ { "mod": "frost-fx", "name": "frost_burst", "guid": "428f57a8-db84-5ef4-942b-32129da6d6ba",
                 "entries": 3, "emitters": 1, "killTime": 10, "loops": false, "stopAfterSeconds": 0.918,
                 "status": "registered" } ],
-  "errors": [], "warnings": [], "refusedMods": [],
+  "errors": [], "warnings": [], "notes": [], "refusedMods": [],
   "budget": { "vfx": { "game": 1575, "mods": 1, "capacity": 2048 },
               "meshes": { "game": 638, "mods": 1, "capacity": 1024 },
               "meshBytes": { "game": 17567564, "mods": 140, "capacity": 17825792, "margin": 16384 },
@@ -126,6 +127,7 @@ The report is JSON. The result is `KILN_OK`, `KILN_ERR_INVALID_ARGUMENT` when so
               "curves": { "game": 8, "mods": 0, "capacity": 16 } } }
 ```
 
+- `notes`: what a block chose on purpose and is still worth knowing (`gameSpriteModule`). Kiln.Blocks logs only the `warnings`.
 - `status`: `"registered"` means the game has this block with this definition; `"pending"` means it's there from the next start. A block with errors isn't listed.
 - `stopAfterSeconds`: how long a one-shot runs: its delay, duration and longest particle life. `Vfx.PlayAt` without a `lifetime` applies it on its own. It's absent when `loops` is true: such an effect keeps the rule for other VFX ([vfx.md](vfx.md)), so pass `Vfx.UntilStopped` to keep it going.
 - `budget`: this document alone, against the game's numbers. The boot count over all mods is what decides; `build_status` returns it in the same shape, with `"fingerprint"`.

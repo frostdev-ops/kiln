@@ -257,6 +257,18 @@ test("a refusal shows on Play, with or without a modpack, until dismissed", asyn
   await expect(refused.getByText("Kiln lab mylab: missing npcsample.")).toBeVisible();
 });
 
+test("a mod built for a newer Kiln than the game has says Update Kiln on Play", async ({ page }) => {
+  await open(page, "/");
+  const banner = page.locator(".k-hero-banner .k-banner").filter({ has: page.locator(".k-banner-title", { hasText: /^Update Kiln$/ }) });
+  await expect(banner).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __kilnMock: { setNewerMods: (m: unknown) => void } }).__kilnMock.setNewerMods([
+    { id: "item-blocks", version: "0.1.1", builtWith: "0.2.0-dev+20261106.0f0a3f6" },
+  ]));
+  await expect(banner.getByText(/item-blocks 0\.1\.1 was built for a newer Kiln than this game has .*: it may not load until you update Kiln\./)).toBeVisible();
+  await banner.getByRole("button", { name: "Runtime" }).click();
+  await expect(page).toHaveURL(/\/runtime/);
+});
+
 test("destructive actions need the typed word, in the arch", async ({ page }) => {
   await open(page, "/profiles");
   await page.getByRole("button", { name: "New profile" }).first().click();

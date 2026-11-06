@@ -26,6 +26,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `features` | array of string |  | Kiln features that must be available on this game build (Game.HasFeature), e.g. tick, log.mirror. |
 | `id` | [id](#id) | yes | Unique mod id; also the data folder kiln/data/<id>. |
 | `incompatible` | array of [id](#id) or object |  | This mod does not load when one of these is present (in the given range). |
+| `kilnBuild` |  |  | Written by Kiln.Sdk when it builds the mod: {"version", "created"}, the Kiln build of the Kiln.Api it compiled against. Kiln and the launcher compare it with the game's runtime and name a mod built against a newer Kiln (update Kiln on the Runtime page). Leave it out of a hand-written manifest: the build adds it. Never a reason to refuse a mod: a stamp Kiln can't read is ignored with a warning (KL103). |
 | `license` | string |  | SPDX expression, e.g. MIT. |
 | `loadAfter` | array of [id](#id) |  | Load after these mods when they are present (no requirement). |
 | `loadBefore` | array of [id](#id) |  | Load before these mods when they are present (no requirement). |

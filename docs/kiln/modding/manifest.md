@@ -27,10 +27,30 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "entryType": "MyMod.MyModClass",      // default: the only public Kiln.Mod subclass
   "exports": ["MyMod.Api.dll"],         // assemblies dependents compile against (shared at run time)
   "advanced": false,                    // opt into the advanced tier (ModInfo.Advanced)
-  "tests": { "autoRun": true, "timeoutSeconds": 20 }   // Kiln.Testing (testing.md)
+  "tests": { "autoRun": true, "timeoutSeconds": 20 },  // Kiln.Testing (testing.md)
+  "kilnBuild": { "version": "0.2.0-dev+20261106.0f0a3f6", "created": "2026-11-06T12:12:16Z" }  // written by the build
 }
 ```
 Unknown keys are kept but logged as warnings (`mod my-mod: unknown key 'dependecies' (ignored)`).
+
+## Built against which Kiln (`kilnBuild`)
+Kiln.Sdk writes `kilnBuild` when it builds a mod (also into a project's own kiln.mod.json): the Kiln build of the
+Kiln.Api it compiled against, named as the runtime bundle is (`<semver>+<yyyymmdd>.<git>`, the commit's time in
+`created`). Don't write it by hand. Two dev builds both say `0.2.0-dev`, so semver can't tell a mod that uses something
+newer than the player's Kiln; the stamp can:
+- **The launcher** compares the active profile's mods with the game's runtime (its receipt, and that bundle's `created`)
+  and shows "Update Kiln" on Play, naming the mods built for a newer Kiln.
+- **Kiln.Host** compares with its own Kiln.Api's stamp before the mod loads:
+  `[W] [host] mod item-blocks 0.1.1 was built against Kiln 0.2.0-dev+20261106.0f0a3f6, newer than this runtime
+  (0.2.0-dev+20261106.10a0d37): if it fails, update Kiln on the launcher's Runtime page`. It still loads: the API only
+  grows, so most such mods work.
+- **When it fails** on a Kiln member the runtime lacks (MissingFieldException, MissingMethodException, TypeLoadException
+  or a missing `Kiln.*` assembly, in `OnLoad`, as its types load, or later), kiln.log and `mods.txt` say so plainly:
+  `item-blocks needs a newer Kiln runtime (it uses Kiln.StatusLook.Fire, which runtime 0.2.0-dev+20261106.10a0d37 doesn't
+  have): update Kiln on the launcher's Runtime page`. This works for mods without a stamp too.
+
+Order: the semantic version, then `created` when both sides have it, else the day. A runtime or mod built from a tree
+without git has no stamp, and nothing is compared before the load.
 
 Reserved ids: `kiln` (the core, usable as a dependency), `kiln.api`, `game`, `enshrouded`, `native`
 and `permissions` (they would collide with the config files `<configDir>/native.json` and `permissions.json`).

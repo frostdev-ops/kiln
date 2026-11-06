@@ -245,6 +245,38 @@ pub struct ResolvePreview {
     pub warnings: Vec<String>,
 }
 
+/// A Kiln mod of a profile that was built against a newer Kiln than a game's runtime (its kiln.mod.json `kilnBuild`): it may
+/// use something that runtime doesn't have yet, and then fails to load until Kiln is updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewerKilnMod {
+    pub id: String,
+    pub version: String,
+    /// The Kiln build it compiled against (`0.2.0-dev+20261106.0f0a3f6`).
+    pub built_with: String,
+}
+
+/// The enabled Kiln mods of `profile` built against a newer Kiln than `runtime`. A mod without a stamp (built before Kiln
+/// wrote one, or by hand) is never named.
+pub fn built_for_newer(dirs: &DataDirs, profile: &Profile, runtime: &crate::manifest::KilnBuild) -> Vec<NewerKilnMod> {
+    let mut out = Vec::new();
+    for m in profile.mods.kiln.iter().filter(|m| m.enabled) {
+        let Ok(folder) = crate::library::path_of(dirs, &lref(ModKind::Kiln, m)) else { continue };
+        let Ok(man) = crate::manifest::read_kiln(&folder) else { continue };
+        if let Some(b) = man.kiln_build.filter(|b| b.is_newer_than(runtime)) {
+            out.push(NewerKilnMod { id: man.id, version: man.version, built_with: b.version });
+        }
+    }
+    out
+}
+
+/// The runtime a game has, as a stamp to compare mods with: its receipt's bundle version and, when the launcher still has
+/// that bundle, its `created` (the commit's time; without it two builds of one day can't be ordered).
+pub fn runtime_build(dirs: &DataDirs, receipt: &crate::install::InstallReceipt) -> Option<crate::manifest::KilnBuild> {
+    let created = crate::bundle::find(dirs, &receipt.runtime.version).ok().and_then(|b| b.created);
+    crate::manifest::KilnBuild::from_parts(&receipt.runtime.version, created.as_deref())
+}
+
 /// Kiln.Mods.ApiVersion of this Kiln (managed/Kiln.Api/Mods.cs; a test keeps them equal).
 pub const KILN_API: &str = "0.2.0";
 pub const META: &str = "meta.json";
@@ -469,6 +501,7 @@ fn native_as_manifest(n: &NativeManifest) -> KilnManifest {
         exports: Vec::new(),
         advanced: false,
         tests: None,
+        kiln_build: None,
         warnings: Vec::new(),
     }
 }

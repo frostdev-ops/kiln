@@ -96,6 +96,13 @@
           "additionalProperties": false
         }
       ]
+    },
+    "kilnBuild": {
+      "description": "Written by Kiln.Sdk when it builds the mod: {\"version\", \"created\"}, the Kiln build of the Kiln.Api it compiled against. Kiln and the launcher compare it with the game's runtime and name a mod built against a newer Kiln (update Kiln on the Runtime page). Leave it out of a hand-written manifest: the build adds it. Never a reason to refuse a mod: a stamp Kiln can't read is ignored with a warning (KL103).",
+      "properties": {
+        "version": { "description": "The build as the runtime bundle names it: <semver>+<yyyymmdd>.<git>, e.g. 0.2.0-dev+20261106.0f0a3f6." },
+        "created": { "description": "The commit's time, yyyy-MM-ddTHH:mm:ssZ (the runtime bundle's created): it orders two builds of one day. Another form is dropped." }
+      }
     }
   },
   "additionalProperties": true

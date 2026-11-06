@@ -40,6 +40,7 @@
       "exports": [],
       "advanced": false,
       "tests": null,
+      "kilnBuild": null,
       "warnings": [
         "unknown key 'dependecies' (ignored)"
       ]
