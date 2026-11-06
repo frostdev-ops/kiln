@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Kiln.Rules: per-player rules from several mods, layered (scopes, owners, how values combine), applied by the native
        kiln.rules hooks (flight, placement, costs, mining) and by Kiln's other services (vitals: Kiln.Abilities and
-       Kiln.Combat; water: Kiln.Items; persistence of builds: Kiln.Build). Deployed to kiln/host/ and shared by every mod. -->
+       Kiln.Combat; water: Kiln.Items; persistence of builds: Kiln.Build), and creative mode with its /creative command
+       (Kiln.Chat). Deployed to kiln/host/ and shared by every mod; started by Kiln on servers and clients. -->
   <PropertyGroup>
     <RootNamespace>Kiln</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -20,5 +21,6 @@
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Build/Kiln.Build.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
   </ItemGroup>
 </Project>

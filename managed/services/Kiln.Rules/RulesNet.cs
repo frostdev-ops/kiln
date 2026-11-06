@@ -88,7 +88,8 @@ internal static unsafe class RulesNet
     }
 }
 
-/// <summary>Started by Kiln at the first service tick on both sides, so that every Kiln game has the rules channel.</summary>
+/// <summary>Started by Kiln at the first service tick on both sides: every Kiln game has the rules channel, and every
+/// world (a dedicated server's, or one a game hosts or plays offline) has <c>/creative</c>.</summary>
 internal static class RulesStartup
 {
     static RulesStartup()
@@ -100,6 +101,14 @@ internal static class RulesStartup
         catch (Exception e)
         {
             RulesRuntime.Log(LogLevel.Warn, $"startup: {e.Message}");
+        }
+        try
+        {
+            Creative.RegisterCommand();
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or InvalidOperationException)
+        {
+            RulesRuntime.Log(LogLevel.Warn, $"/creative is not available: {e.Message}");
         }
     }
 }

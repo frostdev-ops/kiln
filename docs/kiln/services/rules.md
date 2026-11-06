@@ -3,7 +3,8 @@
 Per-player rules for things the game decides itself: where a player may fly and build, what building costs, how fast
 tools dig, and what never runs out (health, stamina, mana, water). Mods apply **rule sets** to a scope (one player,
 everyone, an area) for a while or until they stop them; Kiln combines every rule set that applies to a player and
-applies the result where the game makes each decision. `/creative` (Kiln.Admin) is one preset of these rules.
+applies the result where the game makes each decision. `/creative` is one preset of these rules; it and its command
+belong to this service, so they work wherever a world runs (a dedicated server, or a game hosting or playing offline).
 
 | Layer | Where |
 |---|---|
@@ -86,7 +87,11 @@ positions four times a second.
   `KilnWithoutRules`, `Vanilla`, `Pending`, `Unknown`. Server-side rules apply whatever the client; flight and placement
   need `Kiln` or `Host`.
 - `Rules.Preset(name)`, `Rules.Presets`, `Rules.DefinePreset(name, rules)` (as long as the mod is loaded).
-- `Rules.Simulate(character)`: a spawned player character with no client (a lab test) gets rules like a player.
+- `Rules.Simulate(character)`: a spawned player character with no client (a lab test) gets rules like a player
+  (`ClientOf` says `Simulated`).
+- **Creative mode** is this service's too: `Creative.Set(player, on)` → `CreativeResult(Ok, On, Message)`,
+  `Creative.IsOn`, `Creative.Players`, `Creative.Status()`, and the `/creative` command (docs/kiln/commands.md). It is
+  the `creative` preset as one Kiln-owned rule set per player; it ends with off, a leave, or the world closing.
 - `PlayerRulesChangedEvent` (tick thread): `Before`, `After`. `PlayerRules.FromJson` / `ToJson`, `With`, `Problems()`.
 
 ### As data
@@ -108,12 +113,14 @@ Edits apply within a second.
 ## Server and client
 | Part | Where it runs |
 |---|---|
-| Combining, scopes, vitals, water, invulnerability, moving the character, keeping builds | the server (a dedicated server, or the game hosting a world) |
+| Combining, scopes, vitals, water, invulnerability, moving the character, keeping builds, `/creative` | the server (a dedicated server, or the game hosting a world) |
 | Building costs and refunds, mining damage | the server's hooks |
 | The fly-mode gate | the server's hook **and** the player's game (its prediction runs the same decision) |
 | The build cursor | the server's hook **and** the player's game (its cursor tells the player what is allowed and starts the action) |
 
 The server sends each player's game its rules over `kiln:rules` (not required: a client without it joins as before).
+A game hosting a world (co-op or offline) is both sides in one process: the host's own rules go straight to its
+prediction and cursor hooks, with no network message. Nothing on either side needs Kiln.Admin (a server-only mod).
 A vanilla game gets only the server-side half: its own prediction refuses the flight and its cursor refuses the
 placement, so it should not be given those rules (`/creative` refuses it).
 
@@ -157,9 +164,12 @@ Not runnable without a client: the cursor (no building tool in hand: `cursor cle
 action), mining (a terraform impact spawned without a tool deals no damage the hook could scale), the client's half.
 
 ## Manual test (needs the game)
-Kiln in the game and on the server (or a hosted world), an admin character on a throwaway world.
-1. `/creative` → chat: "Creative mode is on: fly anywhere …". kiln.log (server): `kiln.rules: applied … 'creative'`;
-   client: `kiln.rules: local player's rules: flags 0x1f`.
+No server needed: Kiln in the game, a throwaway world hosted from the game (co-op, or offline). On a dedicated server
+the same works for an admin who joins with Kiln.
+1. `/creative` in chat (a world hosted offline has no chat: write the line `/creative` into
+   `kiln/control/console/creative.cmd` in the game folder; it runs as your character, and
+   `creative.result.json` next to it shows the reply) → "Creative mode is on: fly anywhere …". kiln.log:
+   `kiln.rules: applied … 'creative'` and `kiln.rules: local player's rules: flags 0x1f`.
 2. Outside any base, take the construction hammer and press the fly key: the spark mode starts (the game refuses it
    without creative). Fly 200 m away and up 50 m. The character stays at the start point, sitting, as in the game.
 3. Press the fly key again: the character appears on the ground below the spark, no damage. Note anything odd about the

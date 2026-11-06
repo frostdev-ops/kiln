@@ -52,6 +52,7 @@ public sealed class RulesTestMod : Mod
             await Water(f);
             await Digging(f);
             await Layers(f);
+            await CreativeMode(f);
         }
         finally
         {
@@ -281,6 +282,26 @@ public sealed class RulesTestMod : Mod
         Check(plain.Scaled == 0, "no damage is scaled without a rule");
         if (strong.Scaled > 0) Check(strong.Removed >= plain.Removed, $"with DigDamage 1000 the damage of the character's terraforming is scaled ({strong.Scaled} value(s)) and digs at least as much ({strong.Removed} vs {plain.Removed})");
         else Info("the impact dealt no damage the hook saw (the template's own damage config is empty without a tool): mining needs the manual test");
+    }
+
+    // ---- creative mode: Kiln.Rules' own (no Kiln.Admin needed) ----
+    private async Task CreativeMode(EntityId f)
+    {
+        var help = Commands.Execute(CommandSource.Console, "/help creative");
+        Check(help.Ok && help.Text.Contains("kiln.command.creative"), $"/creative is Kiln's command (node kiln.command.creative): {help.Text.Split('\n').FirstOrDefault()}");
+        Info($"Kiln.Admin loaded: {Mods.All.Any(m => m.Id == "kiln-admin")} (creative needs only Kiln.Rules)");
+        var r = Creative.Set(f, true);
+        await Steps(3);
+        var e = Rules.Of(f);
+        Check(r.Ok && r.On && Creative.IsOn(f) && e is { FlyAnywhere: true, BuildCost: 0, DigDamage: 1000, Invulnerable: true, MinStamina: 1 } && e.Water?.KeepsFull == true,
+            $"Creative.Set on: {r.Message}");
+        Check(Combat.IsInvulnerable(f), "creative: invulnerable");
+        Check(Creative.Status().Contains("Creative mode:"), $"status: {Creative.Status()}");
+        var off = Creative.Set(f, false);
+        await Steps(3);
+        Check(off.Ok && !off.On && !Creative.IsOn(f) && Rules.Of(f).IsDefault && !Combat.IsInvulnerable(f), $"Creative.Set off: {off.Message}; rules {Rules.Of(f)}");
+        var denied = Commands.Execute(CommandSource.ForSteamId(76561190000000099, "Visitor"), "/creative status");
+        Check(denied.Denied, $"a player who is not an admin may not use /creative: {denied.Text}");
     }
 
     // ---- several rule sets at once ----

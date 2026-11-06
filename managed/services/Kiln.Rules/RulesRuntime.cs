@@ -78,6 +78,7 @@ internal static unsafe class RulesRuntime
         RulesNet.Start();
         ServiceTick.Add("kiln rules", Tick);
         Events.On<BuildEvent>(OnBuild, EventPriority.Monitor);
+        Events.On<ServerStoppingEvent>(_ => WorldClosing(), EventPriority.Lowest);
         Events.On<NetPeerReadyEvent>(e =>
         {
             lock (Gate)
@@ -119,6 +120,23 @@ internal static unsafe class RulesRuntime
 
     public static void Dirty() => _dirty = true;
 
+    // A server world closes (shutdown, or a game's hosted session ends): its players and their own rule sets go with it.
+    // A game client may host another world next, where entity ids start over.
+    private static void WorldClosing()
+    {
+        List<RuleSet> theirs;
+        lock (Gate)
+        {
+            theirs = SetsList.Where(r => r.Scope.Player is not null).ToList();
+            PlayersByEntity.Clear();
+            Characters.Clear();
+        }
+        foreach (var r in theirs) r.Dispose();
+        Creative.Forget();
+        RulesNet.SetLocal(RulesNativePart.Default);
+        Log(LogLevel.Info, $"world closing: {theirs.Count} player rule set(s) ended");
+    }
+
     /// <summary>Treats a player character that is not a joined player (a lab's spawned <c>1_Player</c>) as a player.</summary>
     internal static void TrackCharacter(EntityId e, bool on)
     {
@@ -159,6 +177,8 @@ internal static unsafe class RulesRuntime
 
     public static RulesClient ClientOf(EntityId player)
     {
+        lock (Gate)
+            if (Characters.Contains(player)) return RulesClient.Simulated;
         try
         {
             if (Client.IsHosting && Client.LocalPlayer == player) return RulesClient.Host;
@@ -457,7 +477,7 @@ internal static unsafe class RulesRuntime
             {
                 var y = box.Y + i / layer;
                 if (y > top || cells[i].IsAir) continue;
-                return p with { Y = Build.CornerOf(new CellPos(box.X, y, box.Z)).Y + Build.Grid.CellSize };
+                return p with { Y = Build.CornerOf(new CellPos(box.X, y, box.Z)).Y + (Build.Grid?.CellSize ?? 0.5) };
             }
         }
         catch (Exception)

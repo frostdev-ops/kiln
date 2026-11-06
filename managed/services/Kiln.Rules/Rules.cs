@@ -170,6 +170,10 @@ public enum RulesClient
 
     /// <summary>The Kiln handshake has not finished yet.</summary>
     Pending,
+
+    /// <summary>A character <see cref="Rules.Simulate"/> tracks (a lab test): it has no game, so its rules apply on the
+    /// server only, and creative mode is allowed for it.</summary>
+    Simulated,
 }
 
 public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool Mining, int Players, ulong FlyAllowed,
