@@ -1,0 +1,113 @@
+// Small pieces of the Kiln editor UI (Hearth): the item slot, the stepper, rarity and upgrade diamonds, the meter.
+// Game art appears only as content (item icons); every frame, fill and word is the launcher's.
+import React from 'react';
+import { items, CATEGORY_PT } from '../src/gamedata.js';
+import { itemIcon, rarityColor, rarityOf, RARITY_PT } from '../src/ui.js';
+import { t } from '../src/i18n.js';
+
+/** "T3" from the item's debug name, or null. */
+export const tierOf = (itemId) => {
+  const m = /_T(\d)/.exec(items[itemId]?.debug || '');
+  return m ? Number(m[1]) : null;
+};
+
+/** A category's word: the translation, else the game's name spelled out ("FishingRod": "Fishing rod"). */
+export const categoryWord = (c) => {
+  if (!c) return '';
+  const w = t(CATEGORY_PT[c] || c);
+  return w !== c ? w : c.replace(/([a-z])([A-Z])/g, (_, a, b) => `${a} ${b.toLowerCase()}`);
+};
+
+/** The rarity words, 1..5 (Common .. Legendary). */
+export const rarityWord = (r) => t(RARITY_PT[r] || RARITY_PT[0]);
+
+/**
+ * One slot: a dark well, the item's icon, its count (stacks) or level, a durability line, and its rarity as a glaze
+ * line along the bottom. `n`: a small number in the corner (action bar keys).
+ */
+export function Slot({ entry, selected, onClick, onDoubleClick, drag, drop, n, size, title, dim }) {
+  const it = entry && items[entry.itemId];
+  const r = entry ? rarityOf(entry) : 0;
+  const dur = entry?.durability !== undefined && entry.maxDurability ? entry.durability / entry.maxDurability : null;
+  const name = entry ? (title ?? undefined) : undefined;
+  return (
+    <button type="button" className={'ke-slot' + (selected ? ' on' : '') + (entry ? ' full' : '') + (drop ? ' drop' : '') + (dim ? ' dim' : '')}
+      style={{ ...(size ? { '--s': `${size}px` } : null), ...(r > 0 ? { '--r': rarityColor(r) } : null) }}
+      onClick={onClick} onDoubleClick={onDoubleClick} title={name} aria-pressed={selected || undefined} {...(drag || {})}>
+      {entry && <img src={itemIcon(entry.itemId)} alt="" draggable={false} />}
+      {n !== undefined && <span className="ke-slot-n">{n}</span>}
+      {entry && it?.maxStack > 1 && <span className="ke-slot-count">{entry.count}</span>}
+      {entry && !(it?.maxStack > 1) && entry.level !== undefined && <span className="ke-slot-count lv">{entry.level}</span>}
+      {dur !== null && <i className={'ke-slot-dur' + (dur < 0.25 ? ' low' : '')} style={{ width: `calc((100% - 12px) * ${Math.max(0, Math.min(1, dur)).toFixed(3)})` }} />}
+    </button>
+  );
+}
+
+/** − value + (and ±10 when `big`), clamped; the value is typed in the middle. */
+export function Stepper({ value, onChange, min = 0, max = 65535, big, label }) {
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+  const step = (d) => onChange(clamp(value + d));
+  return (
+    <span className="ke-step" role="group" aria-label={label}>
+      {big && <button type="button" className="ke-step-b" onClick={() => step(-big)} disabled={value <= min} aria-label={`−${big}`}>−{big}</button>}
+      <button type="button" className="ke-step-b" onClick={() => step(-1)} disabled={value <= min} aria-label="−1">−</button>
+      <input className="ke-step-v" type="number" inputMode="numeric" value={value} min={min} max={max} aria-label={label}
+        onChange={(e) => onChange(clamp(Math.floor(Number(e.target.value)) || 0))} />
+      <button type="button" className="ke-step-b" onClick={() => step(1)} disabled={value >= max} aria-label="+1">+</button>
+      {big && <button type="button" className="ke-step-b" onClick={() => step(big)} disabled={value >= max} aria-label={`+${big}`}>+{big}</button>}
+    </span>
+  );
+}
+
+/** Five diamonds in the rarity glazes; the chosen one and those below it are lit. */
+export function RarityPick({ value, onChange }) {
+  return (
+    <span className="ke-dias" role="radiogroup" aria-label={t('Raridade')}>
+      {[1, 2, 3, 4, 5].map((r) => (
+        <button key={r} type="button" role="radio" aria-checked={value === r} title={rarityWord(r)} className={'ke-dia' + (r <= value ? ' on' : '')}
+          style={{ '--r': rarityColor(r) }} onClick={() => onChange(r)}><i /></button>
+      ))}
+      <span className="ke-dias-word" style={{ color: rarityColor(value) }}>{rarityWord(value)}</span>
+    </span>
+  );
+}
+
+/** Upgrade diamonds: `value` of `max` lit (gold); a click sets the count, a click on the last lit one takes it back. */
+export function UpgradePick({ value, max, onChange }) {
+  return (
+    <span className="ke-dias" role="group" aria-label={t('Melhorias')}>
+      {Array.from({ length: max }, (_, i) => (
+        <button key={i} type="button" className={'ke-dia gold' + (i < value ? ' on' : '')} aria-label={`${i + 1}`}
+          onClick={() => onChange(i + 1 === value ? i : i + 1)}><i /></button>
+      ))}
+      <span className="ke-dias-word k-num">{value}/{max}</span>
+    </span>
+  );
+}
+
+/** A thin bar to click on (durability, water) with the numbers beside it. */
+export function Meter({ value, max, tone, onChange }) {
+  const pct = max ? Math.max(0, Math.min(1, value / max)) : 0;
+  const set = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    onChange(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * max));
+  };
+  return (
+    <span className="ke-meter">
+      <span className={`ke-meter-bar ${tone || ''}`} onClick={set} title={t('Clique para definir')} role="presentation">
+        <i style={{ width: `${pct * 100}%` }} />
+      </span>
+      <span className="k-mono ke-meter-n">{value}/{max}</span>
+    </span>
+  );
+}
+
+/** A label and its control, in the inspector's two columns. */
+export function Row({ label, children, note }) {
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd>{children}{note}</dd>
+    </>
+  );
+}

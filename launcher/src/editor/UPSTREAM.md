@@ -27,13 +27,25 @@ Unchanged: `data/*`, `shared/*` except `character.mjs`, and every `src/` file no
 | `src/ui.js` | gameart: `itemIcon` uses an entry's own `icon` (mod items) when it has one |
 | `src/Catalog.jsx` | gameart: the item list is built when the catalog opens (mod items merge after the module loads) |
 | `shared/character.mjs` | gameart: when no equipment list of at least 4 pieces fits, the search accepts a shorter one (new characters wear fewer; the inventory header and the mask must still close; checked: byte-identical round trips) |
-| `src/i18n/en.json` | gameart: "Unknown item (0x{h})", the read-only note for saves with unknown items |
+| `src/i18n/en.json` | gameart: "Unknown item (0x{h})", the read-only note for saves with unknown items; Kiln's UI strings (`kiln/`) at the end |
 | `src/i18n.js` | without a saved choice, anything but Portuguese defaults to English (upstream: Portuguese) |
 | `src/styles.css` | scoped under `.kiln-editor` by `launcher/scripts/scope-editor-css.ts` (`:root`/`html`/`body`/`#root` → `.kiln-editor`, every selector prefixed, `.viewport` absolute instead of fixed). Regenerate, don't hand-edit |
 
-Added by Kiln: `KilnEditor.jsx` (scope wrapper, fonts, missing-asset placeholders, the one-line "Preparing game art…",
-the mod overlay loaded and merged before a save is read, remounts when the art or the overlay changes), `KilnEditor.d.ts`,
-`kiln-editor.css`, this file.
+Added by Kiln: `KilnEditor.jsx` (wrapper: missing-asset placeholders, the one-line "Preparing game art…", the mod
+overlay loaded and merged before a save is read, remounts when the art or the overlay changes), `KilnEditor.d.ts`,
+`kiln-editor.css`, this file, and `kiln/`: the editor's UI in the launcher's look (Hearth), which replaced upstream's
+in-game frame on 2026-11-05. `kiln/EditorApp.jsx` (page head, character switch, Save, Backups, tabs, keys),
+`Equipment.jsx`, `Inventory.jsx`, `Skills.jsx`, `Knowledge.jsx`, `Catalog.jsx` (add an item), `Inspector.jsx` (one
+item), `parts.jsx`, `editor.css`. They call upstream's data and save code unchanged (`src/platform.js`,
+`src/tauri-api.js`, `src/gamedata.js`, `src/itemstats.js`, `src/treecheck.js`, `src/i18n.js`, `shared/*`) and keep
+its rules (equipment mask order, socket bytes, level includes upgrades, the tree checks before a write). Game art
+appears only as item and skill icons. One rule differs: the level warning compares the base level (level minus
+upgrades) with the item's maxLevel, as the game writes a level-10 hat with 5 upgrades as level 15. The UI is English
+(`definirIdioma('en')`); Kiln's strings are at the end of `src/i18n/en.json`.
+
+No longer mounted, kept for a clean re-vendor: `src/App.jsx`, `src/Backpack.jsx`, `src/Character.jsx`,
+`src/SkillTree.jsx`, `src/Conhecimento.jsx`, `src/Catalog.jsx`, `src/ItemEditor.jsx`, `src/ItemStats.jsx`,
+`src/components.jsx`, `src/styles.css`, `registerFonts` in `src/platform.js`.
 
 `shared/recusa.mjs` is unused now (it served the server tab) and stays for a clean re-vendor.
 

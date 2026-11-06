@@ -38,6 +38,10 @@ p { margin: 0; }
   background: radial-gradient(150px 110px at calc(100% - 42px) 22px, rgba(255, 92, 24, .22), rgba(255, 92, 24, .05) 55%, transparent 80%); }
 .is-sheet .k-fall { opacity: 0; }
 .is-sheet .k-stage::after { opacity: 1; }
+/* the fire (shell/Stage.tsx): a WebGL canvas under everything; .k-app gets data-gl once it draws */
+.k-stage-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+.k-app[data-gl] .k-stage-gl { display: block; }
+.k-app[data-gl] .k-fall, .k-app[data-gl] .k-stage::after { display: none; }
 
 /* ---------------------------------------------------------------- header */
 .k-head { position: absolute; z-index: 5; left: 0; right: 0; top: 0; height: 76px; display: flex; align-items: center; gap: 26px;
@@ -146,6 +150,10 @@ p { margin: 0; }
 .k-door-word.long { font-size: min(72px, calc(var(--w) * .15)); }
 .k-door-sub { font-size: 16.5px; font-weight: 500; }
 .k-door.heat-unlit .k-door-sub { color: var(--k-text-1); }
+/* with the fire on, the shader draws the mouth: the button is only its hit area and label, moved by the stage's spring */
+.k-app[data-gl] .k-door { left: 0; top: 0; --w: min(500px, 40vw); transition: none; will-change: transform; }
+.k-app[data-gl] .k-door-fire { display: none; }
+.k-app[data-gl] .k-door-lab { opacity: calc(1 - var(--k, 0) * 3); transition: transform .35s var(--k-spring); }
 
 /* ---------------------------------------------------------------- editor host (the vendored Save Editor keeps its own CSS) */
 .k-editor-host { position: relative; flex: 1; min-width: 0; overflow: hidden; border-radius: 20px 20px 0 0; }

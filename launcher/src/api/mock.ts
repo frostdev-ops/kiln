@@ -679,8 +679,22 @@ const handlers: Record<string, Handler> = {
   },
   saves_delete: (a) => { backups[S(a.gameId)] = (backups[S(a.gameId)] ?? []).filter((b) => b.id !== a.backupId); return null; },
 
-  // editor (the browser has no save files; the editor shows its empty state)
-  editor_list_saves: () => [],
+  // editor: the browser has no save files (the editor shows its empty state) unless a local fixture is there
+  // (launcher/assets-local/fixtures/editor/: copies of your own saves plus their zstd blocks, never committed)
+  editor_list_saves: async () => (await editorFixture())?.saves ?? [],
+  editor_file_info: () => ({ modified: Date.now() }),
+  editor_read_file: async (a) => {
+    const r = await fetch(EDITOR_FIXTURE + S(a.path).split("/").pop());
+    if (!r.ok) reject("not_found", "No such save.");
+    return r.arrayBuffer();
+  },
+  editor_zstd_decompress: async (a) => {
+    const d = a.data as number[];
+    const key = `${d.length}:${d.slice(0, 24).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const b64 = (await editorFixture())?.blocks[key];
+    if (!b64) reject("unsupported", "The browser mock can only read the fixture's own blocks.");
+    return Uint8Array.from(atob(b64!), (c) => c.charCodeAt(0)).buffer;
+  },
   editor_game_running: () => Object.values(running).some(Boolean),
   editor_list_backups: (): EditorBackup[] => [],
   editor_open_backups: () => null,
@@ -695,6 +709,13 @@ const handlers: Record<string, Handler> = {
   ...serverMockHandlers,
 };
 Object.assign(handlers, adminMockHandlers(mockEmit));
+
+const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
+let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
+function editorFixture() {
+  editorFix ??= fetch(EDITOR_FIXTURE + "index.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return editorFix;
+}
 
 function detect(path: string): Detected {
   const name = path.split(/[\\/]/).pop() ?? path;
@@ -735,7 +756,8 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
-  return clone((await h(args)) ?? null) as T;
+  const r = (await h(args)) ?? null;
+  return (r instanceof ArrayBuffer ? r.slice(0) : clone(r)) as T;
 }
 
 type Listener = (payload: unknown) => void;

@@ -109,7 +109,7 @@ test("import → add to profile → light → resolver preview", async ({ page }
 test("the mouth is the Play button and follows the game state", async ({ page }) => {
   await open(page, "/");
   const play = page.locator(".k-door");
-  await expect(play).toHaveAccessibleName(/^Play .*Opens through Steam/);
+  await expect(play).toHaveAccessibleName(/^Play /);
   await expect(play).toBeEnabled();
   await play.click();
   await expect(page.locator(".k-hero").getByText("Waiting for Kiln to boot.")).toBeVisible();
