@@ -75,7 +75,7 @@ void encode_level(const Image& img, uint8_t* dst, uint8_t format = kFormatBc7Srg
     params.m_uber_level = 1;
     params.m_max_partitions = 16;
     const uint32_t bw = (img.w + 3) / 4, bh = (img.h + 3) / 4;
-    const uint32_t block_bytes = format == kFormatBc1Unorm ? 8 : 16;
+    const uint32_t block_bytes = format_block_bytes(format);
     std::atomic<uint32_t> next{0};
     auto work = [&] {
         for (uint32_t by; (by = next.fetch_add(1)) < bh;)
@@ -87,7 +87,8 @@ void encode_level(const Image& img, uint8_t* dst, uint8_t format = kFormatBc7Srg
                         std::memcpy(&block[(y * 4 + x) * 4], &img.px[(size_t{sy} * img.w + sx) * 4], 4);
                     }
                 uint8_t* out = dst + (size_t{by} * bw + bx) * block_bytes;
-                if (format == kFormatBc1Unorm) rgbcx::encode_bc1(10, out, block, false, false);
+                if (format == kFormatBc1Unorm || format == kFormatBc1Srgb) rgbcx::encode_bc1(10, out, block, false, false);
+                else if (format == kFormatBc4Unorm) rgbcx::encode_bc4(out, block, 4);
                 else if (format == kFormatBc5Unorm) rgbcx::encode_bc5(out, block, 0, 1, 4);
                 else bc7enc_compress_block(out, block, &params);
             }
@@ -185,7 +186,7 @@ RawImage resize_image(const RawImage& s, uint32_t w, uint32_t h) {
 }
 
 EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCache& cache) {
-    const uint32_t block = format == kFormatBc1Unorm ? 8 : 16;
+    const uint32_t block = format_block_bytes(format);
     EncodedChain c;
     c.width = image.w;
     c.height = image.h;
@@ -210,7 +211,7 @@ EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCa
         for (size_t level = 0; level < sizes.size(); ++level) {
             encode_level(img, c.data.data() + at, format);
             at += sizes[level];
-            if (level + 1 < sizes.size()) img = half(img, format == kFormatBc7Srgb);
+            if (level + 1 < sizes.size()) img = half(img, format_srgb(format));
         }
         if (cache.put) cache.put(key, c.data);
     }

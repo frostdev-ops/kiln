@@ -1,7 +1,8 @@
-// Long tasks: a store fed by `kiln://task`, <TaskProgress/>, the shell's <TaskTray/>, and
-// `runTask(start)` which awaits a TaskId command's result:
+// Long tasks: a store fed by `kiln://task`, <TaskProgress/> (the cone pack: pyrometric cones bend one per step, in
+// place of a progress bar), the header's <TaskTray/> (a label and three small cones), and `runTask(start)` which awaits
+// a TaskId command's result:
 //   const receipt = await runTask(() => runtimeInstall(gameId, version), { done: "Installed" });
-import { Activity, CircleAlert, CircleCheck, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { onKilnEvent, taskCancel, taskList, type KilnError, type Task, type TaskId } from "../api/commands";
@@ -88,42 +89,76 @@ export async function runTask<R = unknown>(start: () => Promise<TaskId>, opts: R
   }
 }
 
-export function ProgressBar({ value }: { value: number | null | undefined }) {
-  const indet = value === null || value === undefined;
+/** One cone: upright, bending (this step) or slumped (done). */
+export function Cone({ state }: { state: "" | "bend" | "done" }) {
+  return <span className={"k-cone" + (state ? ` ${state}` : "")} aria-hidden><i className="lo" /><i className="up" /></span>;
+}
+
+/** The cone pack: `count` cones, those before `step` slumped, the one at `step` bending. */
+export function Cones({ step, count = 3, small }: { step: number; count?: number; small?: boolean }) {
   return (
-    <div className={"k-progress" + (indet ? " indeterminate" : "")} role="progressbar" aria-valuemin={0} aria-valuemax={100}
-      aria-valuenow={indet ? undefined : Math.round(value * 100)}>
-      <div className="k-progress-bar" style={{ width: indet ? undefined : `${Math.max(2, value * 100)}%` }} />
+    <span className={small ? "k-cones-s" : "k-cones"} aria-hidden>
+      {Array.from({ length: count }, (_, i) => <Cone key={i} state={i < step ? "done" : i === step ? "bend" : ""} />)}
+    </span>
+  );
+}
+
+/** Which cone bends for a task: by its progress, or stepping along while it has none. */
+export function useTaskStep(t: Task | undefined): number {
+  const [tick, setTick] = useState(0);
+  const indet = !!t && !finished(t) && (t.progress === null || t.progress === undefined);
+  useEffect(() => {
+    if (!indet) return;
+    const id = setInterval(() => setTick((n) => n + 1), 900);
+    return () => clearInterval(id);
+  }, [indet]);
+  if (!t) return -1;
+  if (t.state === "done") return 3;
+  if (finished(t)) return -1;
+  if (indet) return tick % 3;
+  return Math.min(2, Math.floor((t.progress ?? 0) * 3));
+}
+
+/** A determinate bar, kept for callers outside the cone pack. */
+export function ProgressBar({ value }: { value: number | null | undefined }) {
+  const v = value ?? 0;
+  return (
+    <div className="k-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v * 100)}>
+      <div className="k-progress-bar" style={{ width: `${Math.max(2, v * 100)}%` }} />
     </div>
   );
 }
 
-/** One task: title, message, bar, cancel. Pass a task or its id. */
+/** One task: title, cones, message, cancel. Pass a task or its id. */
 export function TaskProgress({ task, taskId, cancel = true }: { task?: Task; taskId?: TaskId; cancel?: boolean }) {
   const fromStore = useTasks((s) => (taskId ? s.tasks[taskId] : undefined));
   const t = task ?? fromStore;
+  const step = useTaskStep(t);
   if (!t) return null;
   const running = !finished(t);
+  const word = t.state === "done" ? "Done" : t.state === "failed" ? "Failed" : t.state === "canceled" ? "Canceled" : null;
   return (
-    <div className="k-task">
+    <div className="k-task" role="status" aria-label={`${t.title}${word ? `: ${word}` : ""}`}>
       <div className="k-task-head">
-        {t.state === "done" ? <CircleCheck size={15} color="var(--k-ok)" /> : t.state === "failed" ? <CircleAlert size={15} color="var(--k-err)" /> : <Activity size={15} color="var(--k-ember-400)" />}
+        <Cones step={step} small />
         <span className="k-ellipsis" style={{ flex: 1 }}>{t.title}</span>
-        {running && t.progress !== null && <span className="k-muted k-num" style={{ fontSize: 12 }}>{Math.round(t.progress * 100)}%</span>}
-        {running && cancel && <IconButton label="Cancel" size="s" icon={<X />} onClick={() => taskCancel(t.id).catch((e) => toast.error(e))} />}
+        {word && <span className={`k-word-sm k-tone-${t.state === "done" ? "ok" : t.state === "failed" ? "err" : "idle"}`}>{word}</span>}
+        {running && t.progress !== null && t.progress !== undefined && <span className="k-task-pct">{Math.round(t.progress * 100)}%</span>}
+        {running && cancel && <IconButton label={`Cancel ${t.title}`} size="s" icon={<X />} onClick={() => taskCancel(t.id).catch((e) => toast.error(e))} />}
       </div>
-      {running && <ProgressBar value={t.progress} />}
       {(t.error?.message ?? t.message) && <div className="k-task-msg" title={t.error?.message ?? t.message ?? ""}>{t.error?.message ?? t.message}</div>}
     </div>
   );
 }
 
-/** The shell's task button + popover. */
+/** The header's tasks: the running task's name and three small cones; opens the list. Nothing shows while idle. */
 export function TaskTray() {
   const { tasks, order, clearFinished } = useTasks();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const running = order.filter((id) => !finished(tasks[id])).length;
+  const runningIds = order.filter((id) => !finished(tasks[id]));
+  const lead = runningIds.length ? tasks[runningIds[0]] : undefined;
+  const step = useTaskStep(lead);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
@@ -132,17 +167,22 @@ export function TaskTray() {
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
+  if (!order.length) return null;
+  const label = lead ? (runningIds.length > 1 ? `${lead.title} and ${runningIds.length - 1} more` : lead.title) : "Tasks";
   return (
     <div className="k-tray" ref={ref}>
-      <IconButton label={running ? `${running} running` : "Tasks"} icon={running ? <span className="k-spin" /> : <Activity />} onClick={() => setOpen((o) => !o)} aria-expanded={open} />
-      {running > 0 && <span className="k-tray-count">{running}</span>}
+      <button type="button" className={"k-tray-btn" + (lead ? "" : " idle")} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog"
+        aria-label={lead ? `Tasks: ${label}` : "Tasks"} title={label}>
+        <span className="k-sc">{label}</span>
+        {lead && <Cones step={step} small />}
+      </button>
       {open && (
         <div className="k-tray-pop" role="dialog" aria-label="Tasks">
-          <div className="k-row-between">
+          <div className="k-tray-head">
             <span className="k-panel-title">Tasks</span>
-            {order.length > running && <button type="button" className="k-link" style={{ fontSize: 12 }} onClick={clearFinished}>Clear</button>}
+            {order.length > runningIds.length && <button type="button" className="k-link" style={{ fontSize: 15 }} onClick={clearFinished}>Clear finished</button>}
           </div>
-          {order.length === 0 ? <div className="k-muted" style={{ fontSize: 13, padding: "8px 2px" }}>No tasks.</div> : order.map((id) => <TaskProgress key={id} task={tasks[id]} />)}
+          {order.map((id) => <TaskProgress key={id} task={tasks[id]} />)}
         </div>
       )}
     </div>

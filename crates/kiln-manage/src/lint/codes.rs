@@ -75,6 +75,10 @@ rules! {
     VFX_TEXTURE = "KL322", "vfx-texture", Error, "a VFX or material texture that is not a power of two, or outside the sizes it may have";
     VFX_REF = "KL323", "vfx-reference", Warning, "a game VFX the catalog does not have, or that only its GUID can find";
     VFX_FLIPBOOK = "KL324", "vfx-flipbook", Warning, "a flipbook grid its PNG cannot divide into";
+    MATERIAL_BUDGET = "KL330", "material-budget", Error, "more new building materials than the game has ids for";
+    MATERIAL_COUNT = "KL331", "material-count", Warning, "a mod with many building materials, which every mod shares room for";
+    MATERIAL_REF = "KL332", "material-reference", Warning, "a game material the catalog does not have";
+    SURFACE_TEXTURE = "KL333", "surface-texture", Error, "a building surface's PNG that kiln.surfaces refuses, or reads otherwise than it looks";
 
     // KL4xx: references to the game's data (needs the game-data catalog)
     UNKNOWN_REF = "KL401", "unknown-reference", Warning, "a name, id or GUID the game (and the mods) do not have";

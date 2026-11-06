@@ -92,7 +92,7 @@ PlaceOnceResult once = await Build.PlaceOnce("my-outpost", s, new WorldPosition(
 | `Read(box)` / `TryRead` / `await ReadAsync` / `ReadCell(cell)` | |
 | `Write(box, cells, options, mask)` / `await WriteAsync` | exact cells; mask: false = keep the world's cell |
 | `await Dig / Add / Flatten / Smooth / Paint / Replace(shape, …)`, `ShapeBox(op, shape)` | `BuildShape.Box/Sphere/Cylinder` in metres; a one-cell smooth edge like the game's brushes |
-| `PlaceProp(template|guid, pos, rotation, itemId)`, `RemoveProp(e)`, `Prop(e)`, `Props(min, max | box, filter)` | `PropFilter.Placed` (default: what players placed), `Saved`, `All`, `Static` |
+| `PlaceProp(template|guid, pos, rotation, itemId)`, `RemoveProp(e)`, `Prop(e)`, `Props(min, max | box, filter)` | `PropFilter.Placed` (default: what players placed), `Saved`, `All`, `Static`. A template is a game template, a clone (kiln.gamedata), or the item that places one |
 | `Bases` | `PlayerBase` (altar, build-zone centre and half size) |
 | `MaterialOf(itemId)`, `TemplateOf(itemId)` | the voxel material a block item places; the template a prop item places |
 | `Keep(box)`, `Release(box)` | Kiln's save regions |

@@ -72,7 +72,7 @@ function ConfigsPage() {
       <PageHeader title="Mod configs" sub="Settings of the Kiln mods on the server, from their config files. Each change is checked by Kiln and applied while the server runs." />
       <OfflineNote />
       <NeedsOp ops={["config_list", "config_set"]} what="Mod configs">
-        <div className="ka-split">
+        <div className="ka-split list-left">
           <Card title="Configs" flush>
             <div className="ka-pick" style={{ padding: 6 }}>
               {(list.data ?? []).map((c) => (

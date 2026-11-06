@@ -18,13 +18,13 @@ The `kiln-asset` protocol (`launcher/src-tauri/src/assets.rs`) serves both folde
 `tools/launcher/fetch-*.sh`).
 
 ## In the app (automatic, no buttons)
-- `<GameArtAuto/>` (top bar, `launcher/src/components/GameArt.tsx`) reads `app_assets_status` every 15 s and on window
+- `<GameArtAuto/>` (mounted by the shell, `launcher/src/components/GameArt.tsx`) reads `app_assets_status` every 15 s and on window
   focus, and runs the work in the background, one kind at a time, when:
   - the art is missing (first launch) and a client is found;
   - the installed game's data build changed (`current: false`: a game update) or the recipe was bumped;
   - the mods changed (`editor.modded.current: false`): active profile, library, `<game>/kiln/mods/`, or the game's
     `kiln/state/content-definitions.json` (the overlay of mod items is rebuilt; the art itself is not re-extracted).
-- While it runs: a small "Preparing game art NN%" pill in the top bar (and the task tray). Errors: a toast once per
+- While it runs: the task shows in the header's task tray (its name and three small cones). Errors: a toast once per
   state (same game build and mod set: no retry for 10 minutes; a new build or mod set retries at once;
   `steam_updating` retries at the next check) and a line in `<data>/logs/launcher.log`.
 - Settings → Game art shows status only: source, game build, counts, size, last run, mod items and their mods.

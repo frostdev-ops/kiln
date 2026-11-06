@@ -298,7 +298,7 @@ KilnResult KILN_CALL attack_override_api(KilnOwner owner, KilnEntity e, const Ki
 KilnResult KILN_CALL attack_pick_arsenal_api(KilnOwner owner, const KilnGuid* arsenal, uint32_t enabled);
 KilnResult KILN_CALL ai_switch_api(KilnOwner owner, KilnEntity e, uint32_t enabled);
 KilnResult KILN_CALL ai_switch_get_api(KilnEntity e, uint32_t* out);
-KilnResult KILN_CALL target_prefer_api(KilnEntity e);
+KilnResult KILN_CALL target_prefer_api(KilnOwner owner, KilnEntity e, KilnEntity target, float seconds);
 void ai_behavior_guard_arm();  // ai.cpp: the BehaviorUpdate hook, for rules_behavior_guard
 
 // Component hashes used across files.

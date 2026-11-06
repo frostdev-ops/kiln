@@ -1,0 +1,53 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "comforts": {
+    "warm-hearth-json": { "amount": 2, "category": "hearth", "range": 5, "warmth": 1 }
+  },
+  "stations": {
+    "herb-rack-json": {
+      "name": "Herb Rack", "description": "Hangs what you give it until it's done.",
+      "placement": { "on": "floor", "inBase": true },
+      "processing": { "slots": 12 },
+      "recipe": { "station": "0x4da88f73", "needs": { "Material_T1_Wood_Logs": 6 } },
+      "recipes": [
+        { "seconds": 4, "needs": { "Material_T1_Twigs": 2 }, "output": "Material_T1_Wood_Logs", "makes": 3 },
+        { "seconds": 300, "needs": { "Food_T1_raw_fruit_Red_Berries": 1 }, "output": "Food_T1_processed_fruit_Dried_RedBerry" }
+      ]
+    },
+    "cold-forge-json": {
+      "name": "Cold Forge", "description": "Burns charcoal without a flicker of warmth for the metal.",
+      "kind": "forge",
+      "processing": { "slots": 16, "goesOutInRain": false },
+      "comfort": "warm-hearth-json",
+      "recipe": { "station": "0x4da88f73", "needs": { "Build_TerrainMaterial_T1_Stone": 20 } },
+      "recipes": [
+        { "seconds": 3, "burns": { "Material_T1_Charcoal": 2 }, "needs": { "Material_T1_Metal_Scraps": 1 }, "output": "Material_T1_Metal_Sheets" }
+      ]
+    },
+    "fine-bench-json": {
+      "name": "Fine Bench", "kind": "workbench",
+      "recipes": [ { "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ]
+    }
+  },
+  "items": {
+    "frost-ingot-json": {
+      "name": "Frost Ingot", "stack": 50,
+      "recipe": { "station": "cold-forge-json", "seconds": 2, "burns": { "Material_T1_Charcoal": 1 }, "needs": { "Material_T1_Metal_Sheets": 1 } }
+    }
+  },
+  "props": {
+    "old-table-json": {
+      "name": "Old Table",
+      "visual": { "like": "Prop_Decoration_Comfort1_T0_Table_Medium" },
+      "comfort": { "amount": 3, "category": "table" },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 4 } }
+    },
+    "lucky-banner-json": {
+      "name": "Lucky Banner",
+      "visual": { "like": "Prop_Decoration_T4_Banner_Wall" },
+      "placement": { "fog": true, "size": [1, 3, 0.25] },
+      "comfort": "warm-hearth-json"
+    }
+  }
+}

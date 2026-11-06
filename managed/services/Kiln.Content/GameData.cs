@@ -437,10 +437,12 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
         ArgumentNullException.ThrowIfNull(definition);
         var t = Content.RequireGD("GameDataRegistry.Define");
         using var j = new ContentNative.Utf8(definition.ToJsonString());
-        var (rc, text) = GameDataNative.Json((b, c, l) => Content.GD->Define(owner, (uint)Section, j.Str, (byte*)b, c, (nuint*)l), 4096);
+        var (rc, text) = GameDataNative.Json((b, c, l) => Content.GD->Define(owner, (uint)Section, j.Str, (byte*)b, c, (nuint*)l), 1 << 16);
         var r = JsonNode.Parse(string.IsNullOrEmpty(text) ? "{}" : text) as JsonObject;
         if (rc == ContentNative.Unavailable) throw new NotSupportedException((string?)r?["error"] ?? $"{Section}: clones are not available");
         if (rc != ContentNative.Ok) throw new ArgumentException($"{Section} clone {(string?)definition["name"]}: {(string?)r?["error"] ?? ContentNative.Message(rc)}");
+        // the report carries the definition as Definitions() lists it: listing them all for each one makes defining many slow
+        if (r?["entry"] is JsonObject entry && GameDataDefinition.From(entry) is { } listed) return listed;
         var guid = Guid.TryParse((string?)definition["guid"], out var g) ? g : Guid.Empty;
         return Content.GameDataDefinitions().FirstOrDefault(d => d.Guid == guid)
                ?? throw new InvalidOperationException($"{Section} clone {guid}: defined but not listed");

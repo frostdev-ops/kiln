@@ -34,7 +34,7 @@
     "ember-axe-json": { "name": "Ember Axe", "level": 10, "rarity": "uncommon", "tool": { "harvests": "wood", "power": 30, "staminaCost": 2 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
     "ember-pick-json": { "name": "Ember Pick", "level": 10, "tool": { "harvests": "stone", "power": 18 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
     "ember-gem-json": {
-      "name": "Ember Gem", "rarity": "rare", "stack": 20,
+      "name": "Ember Gem", "source": "Pried from cooled embers", "rarity": "rare", "stack": 20,
       "texts": { "de": { "name": "Glutstein", "description": "Noch warm." } },
       "visual": { "icon": "item:Material_T1_Metal_Scraps", "dropped": "Material_T1_Metal_Scraps", "tint": "#ff6600" },
       "recipe": { "station": "ember-bench-json", "needs": { "ember-shard-json": 5 }, "seconds": 4 },

@@ -26,4 +26,8 @@
     <ProjectReference Include="../../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- what the KilnManifest task works out from a mod's data files, against Kiln.Blocks' block types (DataClientsTests) -->
+    <Compile Include="../../../Kiln.Sdk/DataClients.cs" Link="Shared/DataClients.cs" />
+  </ItemGroup>
 </Project>

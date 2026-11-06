@@ -62,14 +62,20 @@ def rest_pose(hierarchy):
     return chain(hierarchy["jointParentIndices"], ls)
 
 
-def cooked_posed(desc, blob, hierarchy, world, lod=0):
-    """A decoded RenderModel posed by `world` (a matrix per skeleton joint). -> [positions per mesh of the LOD], game space."""
+def cooked_posed(desc, blob, hierarchy, world, lod=0, shapes=None):
+    """A decoded RenderModel posed by `world` (a matrix per skeleton joint). -> [positions per mesh of the LOD], game space. shapes {keen::BlendShapeFlags name: weight}: raised blend shapes,
+    added to the vertices before skinning, as the model's vertex shader does."""
     m = kmesh.RenderModel(guid="", desc=desc, data=blob)
     skin = [mul(world[j], _matrix43(hierarchy["skinToJointMatrices"][j])) for j in desc["skinningMap"]]
     lo = desc["lods"][lod]
     out = []
     for ms in desc["meshes"][lo["meshOffset"]:lo["meshOffset"] + lo["meshCount"]]:
         pos = kmesh.decode_group(m, ms)["positions"]
+        for i, b in enumerate(desc["blendShapes"]):
+            weight = (shapes or {}).get(kmesh.BLEND_SHAPE_NAMES.get(b["id"]), 0.0)
+            deltas = kmesh.blend_of(m, ms, i) if weight else None
+            if deltas:
+                pos = [(p[0] + d[0] * weight, p[1] + d[1] * weight, p[2] + d[2] * weight) for p, d in zip(pos, deltas)]
         st = desc["skinningData"]["start"] + 8 * ms["skinVertexOffset"]
         res = []
         for v, p in enumerate(pos):

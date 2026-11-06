@@ -11,6 +11,10 @@
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Creature and NPC blocks lower onto this service's own registries (Npc/NpcCompiler.cs in Kiln.Blocks). -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
     <!-- quest engine (Engine*, Objectives*, Actions*, Places*, Json*, Commands*) -->

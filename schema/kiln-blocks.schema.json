@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kiln-blocks.schema.json",
   "title": "Kiln building blocks (blocks/*.json), format 1",
-  "description": "A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effects and their parts, the same shape as the C# records (Kiln.Blocks). Read by managed/services/Kiln.Blocks/BlockJson.cs (System.Text.Json: comments and trailing commas allowed, unknown keys refused). A field that takes a block takes it inline, or by name: a block of this mod, or \"other-mod:name\".",
+  "description": "A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effects, perks, abilities, talents, triggers and their parts, the same shape as the C# records (Kiln.Blocks). Read by managed/services/Kiln.Blocks/BlockJson.cs (System.Text.Json: comments and trailing commas allowed, unknown keys refused). A field that takes a block takes it inline, or by name: a block of this mod, or \"other-mod:name\".",
   "type": "object",
   "x-kiln-docs": "docs/kiln/modding/blocks.md",
   "required": ["format"],
@@ -17,24 +17,242 @@
     "items": { "type": "object", "description": "Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/item" } },
     "wands": { "type": "object", "description": "One-handed casters whose attacks are spells of their own: no spell item, no charges.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/wand" } },
     "armor": { "type": "object", "description": "Things worn: made exactly as their recipe tooltip shows.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armor" } },
-    "stations": { "type": "object", "description": "Crafting stations a player builds.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/station" } },
+    "stations": {
+      "type": "object",
+      "description": "Stations a player builds: a workbench, or a forge or rack that works on its own.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/station" }
+    },
     "looks": { "type": "object", "description": "Parts: what an item looks like. Use one by name wherever a field takes a look.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/visual" } },
     "vfx": { "$ref": "kiln-vfx.schema.json#/$defs/section", "description": "Effects written from nothing: particles and a light. No compiler, no game data. Built by the game client at start." },
+    "materialTweaks": {
+      "type": "object",
+      "description": "Changes to game materials: what it takes to dig them. Read at boot by kiln.worldtables; a strength change asks nothing of players' games.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/materialTweak" }
+    },
+    "buildingMaterials": {
+      "type": "object",
+      "description": "New building materials: an id and a GUID in the game's tables, and a block item. 49 fit across all mods. Needs \"clients\": \"mod\".",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/buildingMaterial" }
+    },
+    "surfaces": {
+      "type": "object",
+      "description": "Parts: how building materials look, defined once for materials of this mod to name.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/buildingSurface" }
+    },
+    "strengths": {
+      "type": "object",
+      "description": "Parts: what it takes to dig a material. Use one by name wherever a field takes a strength.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/strength" }
+    },
     "materials": { "$ref": "kiln-vfx.schema.json#/$defs/materialSection", "description": "Surfaces for models, on the game's own shaders. No base to name, no game data. Built by the game client at start." },
+    "screenEffects": {
+      "type": "object",
+      "description": "Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/screenEffect" }
+    },
     "weaponStats": { "type": "object", "description": "Parts: a weapon's numbers.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/weaponStats" } },
     "armorStats": { "type": "object", "description": "Parts: a piece of armor's numbers.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorStats" } },
     "weaponClasses": { "type": "object", "description": "Parts: your own class of weapon, starting from a premade.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/weaponClass" } },
     "armorSlots": { "type": "object", "description": "Parts: your own slot, starting from a premade.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorSlot" } },
-    "armorSets": { "type": "object", "description": "Parts: a family of looks, one per slot.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/armorSet" } },
-    "onHits": { "type": "object", "description": "Parts: what an item does to what its wearer hits.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/onHit" } }
+    "armorSets": {
+      "type": "object",
+      "description": "Parts: a family of looks, one per slot: looks or worn looks.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/armorSet" }
+    },
+    "onHits": { "type": "object", "description": "Parts: what an item does to what its wearer hits.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/onHit" } },
+    "props": {
+      "type": "object",
+      "description": "Things placed that stand there: furniture, banners, lamps.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/prop" }
+    },
+    "placements": {
+      "type": "object",
+      "description": "Parts: where and how a player can place something.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/placement" }
+    },
+    "comforts": { "type": "object", "description": "Parts: what the game's comfort counts.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/comfort" } },
+    "processing": { "type": "object", "description": "Parts: how a station works on its own.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/processing" } },
+    "menus": { "type": "object", "description": "Parts: the crafting menu a station opens.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/menu" } },
+    "cosmetics": {
+      "type": "object",
+      "description": "Pieces for the vanity slots: shown over what is worn there, with no stats. A look with files of the mod's own needs \"clients\": \"mod\".",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/cosmetic" }
+    },
+    "wornLooks": {
+      "type": "object",
+      "description": "Parts: what something looks like on the body. Use one by name wherever a field takes a worn look. The cook finds the files of every look here by itself.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/wornLook" }
+    },
+    "perks": {
+      "type": "object",
+      "description": "Enhancements for an item's perks: the game's rule applies, so one runs once a player has unlocked its slot.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/perk" }
+    },
+    "abilities": {
+      "type": "object",
+      "description": "What a character casts that is no staff's: on a key, a chat command, an item, or from code.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/ability" }
+    },
+    "talents": {
+      "type": "object",
+      "description": "Nodes of a skill tree: in the game's own tree with game, else parts for a talent tree. Needs \"clients\": \"mod\".",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/talent" }
+    },
+    "talentTrees": {
+      "type": "object",
+      "description": "Whole trees of their own, on Kiln's screen. Needs \"clients\": \"mod\".",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/talentTree" }
+    },
+    "triggers": {
+      "type": "object",
+      "description": "What a player does or is, any of the game's states and actions, driving effects.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/trigger" }
+    },
+    "creatures": {
+      "type": "object",
+      "description": "Creatures: a body, how it moves, sees and fights.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/creature" }
+    },
+    "npcs": { "type": "object", "description": "Friendly NPCs: talk, wares, a place in the roster.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/npc" } },
+    "bodies": { "type": "object", "description": "Bodies, for creatures and NPCs to name.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/body" } },
+    "animations": {
+      "type": "object",
+      "description": "Animations: clips of a glTF, cooked when the mod builds.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/animation" }
+    },
+    "ais": { "type": "object", "description": "AI tunings.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/ai" } },
+    "behaviours": { "type": "object", "description": "Behaviours: attacks, rules, a brain.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/behaviour" } },
+    "attacks": { "type": "object", "description": "Attacks, for behaviours to name.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/creatureAttack" } },
+    "rules": { "type": "object", "description": "Rules, for behaviours to name.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/rule" } },
+    "containers": {"type": "object", "description": "Things that hold items, as the game's chests do: a lid, sounds and upgrades from the game's small chest.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/container"}},
+    "doors": {"type": "object", "description": "Doors: they open and close for whoever uses them, and paths and water follow them.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/door"}},
+    "beds": {"type": "object", "description": "Beds: the game's sleep and rest, comfort of the bed category; with Kiln a spawn point and a night slept through.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/bed"}},
+    "seats": {"type": "object", "description": "Seats: the game's sitting, comfort of the chair category.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/seat"}},
+    "interactions": {"type": "object", "description": "Parts: what happens when a player uses a placed thing. Use one by name in onInteract.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/interaction"}},
+    "blueprints": {"type": "object", "description": "New shapes for the game's building materials, half a metre a cell: a table each game merges at its start, so needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/blueprint"}},
+    "hair": {"type": "object", "description": "Hair styles: worn looks on the head. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/hair"}},
+    "beards": {"type": "object", "description": "Beards: worn looks on the jaw. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/beard"}}
   },
   "additionalProperties": false,
   "$defs": {
+    "strength": {
+      "type": "object",
+      "description": "What it takes to dig a material. Cost per block = health / (the tool's damage for this hardness x the server's mining factor x the class modifier). A field left out stays what it was.",
+      "additionalProperties": false,
+      "properties": {
+        "hardness": {
+          "enum": ["soft", "slightlyHard", "moderatelyHard", "hard", "veryHard", "unbreakable"],
+          "description": "The damage column a tool or an explosion uses. Unbreakable takes no damage from anything, and can't be dismantled."
+        },
+        "health": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Health points of a block. Rough Stone is 250, an Iron Block 2000." },
+        "breaks": { "enum": ["none", "wood", "stone", "metal"], "description": "The tool's class modifier that applies. none: 1.0, whatever the tool." },
+        "itemsPerBlocks": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "How many blocks dug give one loot item." },
+        "drops": {
+          "type": "string",
+          "description": "The loot item: a game item's name or a GUID, or on a new material \"block\": its own block item. A new material that doesn't say gives back its recipe's first input at the recipe's ratio, as the game's blocks do."
+        }
+      }
+    },
+    "surfacePng": { "type": "string", "pattern": "^[^/\\\\].*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "description": "A PNG in the mod's folder, a power of two on both sides, 4 to 4096." },
+    "surfaceColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "#rrggbb, sRGB." },
+    "surfaceValue": { "description": "A PNG (its red channel) or a value 0 to 1.", "oneOf": [ { "$ref": "#/$defs/surfacePng" }, { "type": "number", "minimum": 0, "maximum": 1 } ] },
+    "surfacePart": { "enum": ["side", "top", "bottom", "edge", "edgeTop", "noise"] },
+    "surfaceLayer": {
+      "description": "One layer of a surface: maps of your own, a game material's layer (\"game\", \"layer\") with maps of yours on top, or the name of another layer of this surface.",
+      "oneOf": [ { "$ref": "#/$defs/surfacePart" }, { "type": "object", "additionalProperties": false, "properties": { "comment": { "type": "string" }, "albedo": { "$ref": "#/$defs/surfacePng", "description": "Colour, sRGB. Required unless there is a tint or a game layer." }, "tint": { "$ref": "#/$defs/surfaceColor", "description": "Multiplies the albedo. Without one it is the colour." }, "normal": { "description": "A normal map, green up as in glTF and Blender: a PNG, or { \"map\", \"strength\", \"yDown\" }.", "oneOf": [ { "$ref": "#/$defs/surfacePng" }, { "type": "object", "required": ["map"], "additionalProperties": false, "properties": { "map": { "$ref": "#/$defs/surfacePng" }, "strength": { "type": "number", "minimum": 0, "maximum": 8 }, "yDown": { "type": "boolean", "description": "A DirectX map." } } } ] }, "roughness": { "$ref": "#/$defs/surfaceValue", "description": "Perceptual roughness. Default 0.8." }, "metallic": { "$ref": "#/$defs/surfaceValue", "description": "Default 0." }, "reflectance": { "$ref": "#/$defs/surfaceValue", "description": "Non-metal specular. Default 0.5." }, "height": { "$ref": "#/$defs/surfaceValue", "description": "For displacement and for blending layers. Default 0.5." }, "ao": { "$ref": "#/$defs/surfaceValue", "description": "Ambient occlusion. Default 1." }, "emissive": { "description": "What glows: a PNG, #rrggbb, or { \"map\", \"color\", \"strength\", \"exposure\", \"gi\" }.", "oneOf": [ { "$ref": "#/$defs/surfacePng" }, { "$ref": "#/$defs/surfaceColor" }, { "type": "object", "additionalProperties": false, "properties": { "map": { "$ref": "#/$defs/surfacePng" }, "color": { "$ref": "#/$defs/surfaceColor" }, "strength": { "type": "number", "minimum": 0, "maximum": 1000, "description": "Intensity. Default 1." }, "exposure": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much it follows the camera's exposure. Default 0.75." }, "gi": { "type": "number", "minimum": 0, "maximum": 1000, "description": "How much it lights its surroundings. Default 4." } } } ] }, "tiling": { "type": "number", "exclusiveMinimum": 0, "maximum": 64, "description": "How many times the maps repeat every 4 m. Default 1." }, "displacement": { "type": "object", "additionalProperties": false, "description": "How far the height map pushes the surface, in metres. Default scale 0.1, offset -0.05 with a height map.", "properties": { "scale": { "type": "number", "minimum": 0, "maximum": 2 }, "offset": { "type": "number", "minimum": -2, "maximum": 2 } } }, "game": { "type": "string", "minLength": 1, "description": "A game material this layer starts from: a GameMaterials name." }, "layer": { "$ref": "#/$defs/surfacePart", "description": "Which of its layers. Default: the same as this one." } } } ]
+    },
+    "surface": {
+      "type": "string",
+      "pattern": "^(floor|wall|ceiling)(, ?(floor|wall|ceiling))*$",
+      "description": "What it sits on: floor, wall, ceiling, or several (\"wall, ceiling\"): the first is tried first."
+    },
+    "buildingSurface": {"type": "object", "additionalProperties": false, "description": "How a building material looks. On a new material a layer left out repeats side (edgeTop repeats edge); on a retexture it stays the game's.", "properties": {"comment": {"type": "string"}, "side": {"$ref": "#/$defs/surfaceLayer"}, "top": {"$ref": "#/$defs/surfaceLayer"}, "bottom": {"$ref": "#/$defs/surfaceLayer"}, "edge": {"$ref": "#/$defs/surfaceLayer"}, "edgeTop": {"$ref": "#/$defs/surfaceLayer"}, "noise": {"$ref": "#/$defs/surfaceLayer"}, "bevel": {"type": "number", "minimum": 0, "maximum": 1, "description": "Metres the edges are rounded by. Default 0.01."}, "edgeCurve": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "How the edge layer blends in, as the game keeps it: 1 a hard edge, 0.5 softer."}, "noiseRange": {"type": "array", "items": {"type": "number", "minimum": -4, "maximum": 4}, "minItems": 2, "maxItems": 2, "description": "[start, full]: where the noise layer starts to show and where it covers all. Default [0.33, 0.75]."}, "edgeOnlySide": {"type": "boolean", "description": "The edge layer only on the sides of a block. Default true."}, "mapping": {"enum": ["default", "wood"], "description": "How the maps lie on a block. A roof material always maps as a roof."}, "decoration": {"type": "string", "description": "A game material whose edge decoration it shows, or \"none\"."}}},
+    "buildingSurfaceRef": {"description": "A building surface, inline or by the name of one in this mod's surfaces sections.", "anyOf": [{"type": "string", "minLength": 1}, {"$ref": "#/$defs/buildingSurface"}]},
+    "strengthRef": { "description": "A strength, inline or by name.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/strength" } ] },
+    "materialTweak": {
+      "type": "object",
+      "description": "Changes a game material in place: what it takes to dig it, its pictures, or both.",
+      "required": ["material"],
+      "anyOf": [ { "required": ["strength"] }, { "required": ["surface"] } ],
+      "additionalProperties": false,
+      "properties": {
+        "comment": { "type": "string" },
+        "material": { "type": "string", "description": "The game material: a GameMaterials name, Cell<id>, or the material's GUID." },
+        "strength": { "$ref": "#/$defs/strengthRef" },
+        "surface": { "$ref": "#/$defs/buildingSurfaceRef", "description": "New pictures: a layer written here replaces the game's, the rest stays. Asks nothing of other players." }
+      }
+    },
+    "buildingMaterial": {
+      "type": "object",
+      "description": "A new building material.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "comment": { "type": "string" },
+        "name": { "type": "string", "minLength": 1, "description": "The block item's name, as players read it." },
+        "description": { "type": "string" },
+        "strength": { "$ref": "#/$defs/strengthRef" },
+        "roof": { "type": "boolean", "description": "A roof material: the roof pieces list it, not the walls." },
+        "surface": { "$ref": "#/$defs/buildingSurfaceRef", "description": "How it looks. Without one, like the game's Rough Stone." },
+        "icon": { "type": "string", "minLength": 1, "description": "The block item's picture: a PNG in the mod's folder, or item:<name>. Without one, each client draws a block of its surface." },
+        "recipe": { "$ref": "#/$defs/recipe" },
+        "was": { "type": "string", "description": "The block's old name, after a rename: the material's id comes from it, so its walls stay in every world." }
+      }
+    },
     "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$", "description": "The block's name. Ids come from your mod id and this: keep it. A rename says \"was\"." },
     "ref": { "type": "string", "minLength": 1, "description": "A block of this mod by name, or \"other-mod:name\"." },
     "effectRef": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/effect" } ] },
     "effects": { "type": "array", "items": { "$ref": "#/$defs/effectRef" } },
     "statusRef": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/status" } ] },
+    "screenRef": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/screenEffect" } ], "description": "A screen effect: its name, or one written here." },
+    "screenColor": {
+      "oneOf": [ { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }, { "type": "object", "required": ["color"], "properties": { "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }, "amount": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much of it, 0 to 1. Default 1." } }, "additionalProperties": false } ],
+      "description": "\"#rrggbb\", or { \"color\": \"#rrggbb\", \"amount\": 0.5 }."
+    },
+    "screenEffect": {
+      "type": "object",
+      "description": "A full-screen effect. Every field left out changes nothing. Graded in linear light: exposure and temperature, contrast, saturation, gamma, tint, vignette, fill; then mixed in by strength and the fades. Drawn over the frame the game presents, so over the game's UI too.",
+      "properties": {
+        "comment": {},
+        "order": { "type": "integer", "description": "Several playing at once run lower first." },
+        "strength": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much of the whole effect shows. Default 1." },
+        "fadeIn": { "type": "number", "minimum": 0, "maximum": 60, "description": "Seconds to reach full. Default 0." },
+        "seconds": { "type": "number", "minimum": 0, "maximum": 3600, "description": "Seconds at full. Left out: until stopped; an effect's screen effect needs it. 0 with a fade out is a flash." },
+        "fadeOut": { "type": "number", "minimum": 0, "maximum": 60, "description": "Seconds to fade once it ends or is stopped. Default 0." },
+        "exposure": { "type": "number", "minimum": -8, "maximum": 8, "description": "Stops: 1 is twice as bright. Default 0." },
+        "contrast": { "type": "number", "minimum": 0.05, "maximum": 4, "description": "Around mid grey. Default 1." },
+        "saturation": { "type": "number", "minimum": 0, "maximum": 4, "description": "0 is grey. Default 1." },
+        "gamma": { "type": "number", "minimum": 0.1, "maximum": 5, "description": "Above 1 lifts the mid tones. Default 1." },
+        "temperature": { "type": "number", "minimum": -1, "maximum": 1, "description": "-1 cold to 1 warm, keeping brightness. Default 0." },
+        "tint": { "$ref": "#/$defs/screenColor", "description": "A colour the picture is multiplied by." },
+        "vignette": {
+          "oneOf": [ { "type": "number", "minimum": 0, "maximum": 1 }, { "type": "object", "properties": { "amount": { "type": "number", "minimum": 0, "maximum": 1, "description": "At the corners. Default 1." }, "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Default black." }, "radius": { "type": "number", "minimum": 0, "maximum": 1, "description": "Where it starts: 0 the centre, 1 the corners. Default 0.5." }, "softness": { "type": "number", "minimum": 0.001, "maximum": 2, "description": "How far past the radius it reaches full. Default 0.5." } }, "additionalProperties": false } ],
+          "description": "Darker or coloured edges: how much (0.6), or { amount, color, radius, softness }."
+        },
+        "fill": { "$ref": "#/$defs/screenColor", "description": "The whole picture goes to this colour by its amount: a fade to black, or a flash with a fade out." },
+        "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres: when an effect plays it at a place, the players this near see it. Default 30." },
+        "was": { "$ref": "#/$defs/name", "description": "The name this block had before a rename." }
+      },
+      "additionalProperties": false
+    },
     "knockback": { "enum": ["none", "small", "normal", "big", "veryBig", "verySmall", "pullSmall", "pullNormal"], "description": "How far the hit pushes the target." },
     "flinch": { "enum": ["none", "veryLight", "light", "medium", "heavy"], "description": "How the target flinches." },
     "damage": {
@@ -117,6 +335,7 @@
         "removes": { "type": "array", "items": { "$ref": "#/$defs/statusRef" }, "description": "Statuses taken off the target: blocks by name, or the game's by their 0x id." },
         "spawns": { "type": "string", "minLength": 1, "description": "Spawned at the target or the place: a game template's name, or a template's GUID." },
         "sound": { "type": "string", "minLength": 1, "description": "A sound at the target or the place: a cue of this mod (needs clients: mod), \"other-mod:name\", or a cue's GUID." },
+        "screen": { "$ref": "#/$defs/screenRef", "description": "A full-screen effect for the target, when it is a player, or for the players near the place. It needs seconds." },
         "vfx": { "$ref": "#/$defs/vfx" },
         "damage": { "$ref": "#/$defs/damage" },
         "heal": { "type": "integer", "minimum": 1, "description": "Health given to the target." },
@@ -125,19 +344,22 @@
         "flinch": { "$ref": "#/$defs/flinch" },
         "chance": { "type": "number", "minimum": 0, "maximum": 1, "description": "The whole effect happens this often." },
         "area": { "$ref": "#/$defs/area" },
-        "then": { "$ref": "#/$defs/effects", "description": "More effects, on the same target." }
+        "then": { "$ref": "#/$defs/effects", "description": "More effects, on the same target." },
+        "casts": { "$ref": "#/$defs/ref", "description": "An ability the target casts, as from code: its costs and cooldown apply. With on: caster, whoever wields, wears or cast." }
       },
       "additionalProperties": false
     },
     "status": {
       "type": "object",
-      "required": ["name", "seconds"],
-      "description": "A buff or debuff, shown in the game's buff bar.",
+      "required": ["name"],
+      "anyOf": [ { "required": ["seconds"] }, { "required": ["while"] } ],
+      "description": "A buff or debuff, shown in the game's buff bar. It lasts its seconds, or while a player is in a state.",
       "properties": {
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
-        "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "How long it lasts unless whoever applies it says otherwise." },
+        "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "How long it lasts unless whoever applies it says otherwise. Not needed with while." },
+        "while": { "$ref": "#/$defs/state", "description": "A player has it for as long as they are in this state." },
         "kind": { "enum": ["debuff", "buff"] },
         "look": { "enum": ["frost", "poison"], "description": "Its icon and body effect." },
         "icon": { "type": "string", "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$", "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes." },
@@ -145,13 +367,13 @@
         "modifies": {
           "type": "object",
           "description": "Stats changed for as long as it runs. Whole-number stats take whole numbers; the rest are shares, 0.1 being 10%. A GUID names any other attribute (as a share).",
-          "propertyNames": { "anyOf": [
-            { "enum": ["strength", "constitution", "dexterity", "endurance", "intelligence", "spirit", "max-health", "max-mana", "max-stamina", "health-regen", "mana-regen", "stamina-regen", "max-oxygen", "shroud-time", "move-speed", "sprint-speed", "melee-damage", "ranged-damage", "magic-damage", "crit-chance", "crit-damage", "healing", "parry", "stamina-use-climb", "stamina-use-glide", "stamina-use-sprint", "physical-armor", "magical-armor", "block", "resist-physical", "resist-magical", "resist-cut", "resist-pierce", "resist-blunt", "resist-fire", "resist-ice", "resist-lightning", "resist-shroud", "resist-poison"] },
-            { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" }
-          ] },
+          "propertyNames": {
+            "anyOf": [ { "enum": ["strength", "constitution", "dexterity", "endurance", "intelligence", "spirit", "max-health", "max-mana", "max-stamina", "health-regen", "mana-regen", "stamina-regen", "max-oxygen", "shroud-time", "move-speed", "sprint-speed", "melee-damage", "ranged-damage", "magic-damage", "crit-chance", "crit-damage", "healing", "parry", "stamina-use-climb", "stamina-use-glide", "stamina-use-sprint", "physical-armor", "magical-armor", "block", "resist-physical", "resist-magical", "resist-cut", "resist-pierce", "resist-blunt", "resist-fire", "resist-ice", "resist-lightning", "resist-shroud", "resist-poison"] }, { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" } ]
+          },
           "additionalProperties": { "type": "number" }
         },
         "vfx": { "$ref": "#/$defs/vfx" },
+        "screen": { "$ref": "#/$defs/screenRef", "description": "A full-screen effect on the screen of the player who has it, while they have it." },
         "onApply": { "$ref": "#/$defs/effects" },
         "onTick": { "$ref": "#/$defs/effects" },
         "tickEvery": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds between onTick (default 1)." },
@@ -162,11 +384,12 @@
     },
     "cast": {
       "type": "object",
-      "required": ["manaCost"],
-      "description": "How a spell is cast: animation, timing, costs.",
+      "description": "How a spell or an ability is cast: animation, timing, costs.",
       "properties": {
         "manaCost": { "type": "integer", "minimum": 0 },
-        "animation": { "enum": ["fast-bolt", "lob"] },
+        "staminaCost": { "type": "integer", "minimum": 0 },
+        "charges": { "type": "integer", "minimum": 0, "description": "How many a cast takes of a spell's stack or an ability's item. 0: none, used for ever. Default 1." },
+        "animation": { "enum": ["fast-bolt", "lob"], "description": "The motion. A spell's default is fast-bolt; an ability's, none." },
         "releaseAt": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds into the animation the spell leaves the staff." },
         "vfx": { "$ref": "#/$defs/vfx" }
       },
@@ -186,19 +409,209 @@
         "look": { "enum": ["ice-bolt", "fireball"] },
         "onImpact": { "$ref": "#/$defs/effects", "description": "At the place it stops, which has no target of its own: use an area." },
         "onHit": { "$ref": "#/$defs/effects", "description": "On the creature it strikes, if it struck one." },
+        "homing": {
+          "type": "object",
+          "description": "It turns toward what it was aimed at, as the game's homing projectiles do.",
+          "properties": {
+            "turnSpeed": { "type": "number", "exclusiveMinimum": 0, "description": "How fast it turns (default 20; the game's own run from 20 to 80)." },
+            "seekRange": { "type": "number", "exclusiveMinimum": 0, "description": "Metres along its aim it looks for what to turn to, when it was given no target (default 12)." },
+            "delay": { "type": "number", "minimum": 0, "description": "Seconds it flies straight first." }
+          },
+          "additionalProperties": false
+        },
         "vfx": { "$ref": "#/$defs/vfx" }
+      },
+      "additionalProperties": false
+    },
+    "placed": {
+      "description": "What every delivery that is not a flight has: it happens where it is placed, facing where the caster aims.",
+      "properties": {
+        "look": { "enum": ["ice-bolt", "fireball"], "description": "On a spell, what shows in the hand." },
+        "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX where it happens, facing where it goes." },
+        "tweak": { "$ref": "#/$defs/tweak" },
+        "affects": { "enum": ["enemies", "friends"], "description": "Default enemies." }
+      }
+    },
+    "delivery": {
+      "description": "How it gets there: a flight, or one of the deliveries placed where the caster is.",
+      "oneOf": [ { "$ref": "#/$defs/projectile" }, { "type": "object", "required": ["type", "effects"], "description": "Only the caster.", "properties": { "type": { "const": "self" }, "effects": { "$ref": "#/$defs/effects" }, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "radius", "effects"], "description": "Everyone around the caster.", "properties": { "type": { "const": "around" }, "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Metres." }, "effects": { "$ref": "#/$defs/effects" }, "affects": {}, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "effects"], "description": "Everyone in a cone in front of the caster.", "properties": { "type": { "const": "cone" }, "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres (default 8)." }, "angle": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180, "description": "Its whole width in degrees (default 60)." }, "effects": { "$ref": "#/$defs/effects" }, "affects": {}, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "effects"], "description": "Everyone along a line in front of the caster, through walls.", "properties": { "type": { "const": "beam" }, "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres (default 20)." }, "width": { "type": "number", "exclusiveMinimum": 0, "description": "Metres across (default 1)." }, "seconds": { "type": "number", "minimum": 0, "description": "How long it keeps hitting, turning with the caster. 0 (default): one hit." }, "tickEvery": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds between hits (default 0.25)." }, "effects": { "$ref": "#/$defs/effects" }, "affects": {}, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "radius", "seconds", "effects"], "description": "A place that keeps hitting whoever is in it.", "properties": { "type": { "const": "zone" }, "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Metres." }, "seconds": { "type": "number", "exclusiveMinimum": 0 }, "tickEvery": { "type": "number", "exclusiveMinimum": 0, "description": "Default 1." }, "ahead": { "type": "number", "description": "Metres in front of the caster (default 0)." }, "effects": { "$ref": "#/$defs/effects" }, "affects": {}, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "effects"], "description": "From the first in front of the caster on to the next within reach of each, never the same twice.", "properties": { "type": { "const": "chain" }, "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres to the first (default 15)." }, "angle": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180, "description": "How wide the caster looks for the first (default 120)." }, "jumps": { "type": "integer", "minimum": 0, "maximum": 8, "description": "How many after the first (default 2)." }, "jumpRange": { "type": "number", "exclusiveMinimum": 0, "description": "Metres from one to the next (default 6)." }, "effects": { "$ref": "#/$defs/effects" }, "affects": {}, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false }, { "type": "object", "required": ["type", "template"], "description": "Something spawned in front of the caster, as its child, at its level and of its faction.", "properties": { "type": { "const": "summon" }, "template": { "type": "string", "minLength": 1, "description": "A game template's name, or a template's GUID." }, "count": { "type": "integer", "minimum": 1, "maximum": 16 }, "ahead": { "type": "number", "description": "Metres in front of the caster (default 2)." }, "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "When they are taken away. Default: they live on." }, "look": {}, "vfx": {}, "tweak": {} }, "allOf": [ { "$ref": "#/$defs/placed" } ], "additionalProperties": false } ]
+    },
+    "state": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One of the game's player states or actions, by Kiln's name or the game's own (Gliding, HangGliding, ActionPrimary, Sitting, ...): docs/kiln/modding/player-states.md. A trigger also takes eating and eaten."
+    },
+    "states": { "type": "array", "items": { "$ref": "#/$defs/state" }, "minItems": 1 },
+    "texts": {
+      "type": "object",
+      "description": "Texts per language (en, de, pt-BR, ...).",
+      "additionalProperties": { "type": "object", "properties": { "name": { "type": "string" }, "description": { "type": "string" } }, "additionalProperties": false }
+    },
+    "perk": {
+      "type": "object",
+      "required": ["name"],
+      "anyOf": [ { "required": ["modifies"] }, { "required": ["onHit"] }, { "required": ["onKill"] }, { "required": ["onHitTaken"] } ],
+      "description": "An enhancement on an item, in its perks: it runs while the item is worn or in hand, once a player has unlocked that enhancement. A weapon's onHit is the same with no unlock.",
+      "properties": {
+        "tweak": { "$ref": "#/$defs/tweak" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "value": {
+          "type": "string",
+          "pattern": "^\\s*-?[0-9]+(\\.[0-9]+)?\\s*(%|s)?\\s*$",
+          "description": "The number the tooltip shows in front of the name: \"5%\", \"12\", \"2.5\", \"8s\". Default: what one modifies entry or one on-hit effect's chance says."
+        },
+        "icon": { "type": "string", "minLength": 1, "description": "A game perk, whose icon it takes." },
+        "modifies": { "$ref": "#/$defs/status/properties/modifies" },
+        "onHit": { "$ref": "#/$defs/hits", "description": "What every hit they land does to what was hit." },
+        "onKill": { "$ref": "#/$defs/hits", "description": "What a hit that kills does to what it killed." },
+        "onHitTaken": { "$ref": "#/$defs/hits", "description": "What every hit they take does to whoever dealt it." },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "ability": {
+      "type": "object",
+      "required": ["name"],
+      "anyOf": [ { "required": ["delivery"] }, { "required": ["onCast"] } ],
+      "description": "Cast on a key, a chat command, an item, or from code. It pays its costs, keeps its cooldown, then does what its delivery says. Its id is <mod>:<name>.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "key": { "type": "string", "minLength": 1, "description": "The default key (\"G\", \"Shift+F\"). Binding it needs the mod on the player's game: \"clients\": \"mod\"." },
+        "command": { "type": "string", "minLength": 1, "description": "A chat command that casts it, without the prefix." },
+        "item": { "$ref": "#/$defs/item", "description": "An item that casts it when used. cast.charges is how many a cast takes of it." },
+        "cast": { "$ref": "#/$defs/cast" },
+        "specialCost": { "type": "integer", "minimum": 0, "description": "Special-ability charge." },
+        "cooldown": { "type": "number", "minimum": 0, "description": "Seconds, per caster." },
+        "aim": { "enum": ["self", "forward", "nearestEnemy"], "description": "Where it aims (default forward). nearestEnemy: no enemy in range, no cast." },
+        "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres, for aim (default 20)." },
+        "delivery": { "$ref": "#/$defs/delivery" },
+        "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves." },
+        "playersOnly": { "type": "boolean", "description": "Keys and commands for players only (default)." },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "talent": {
+      "type": "object",
+      "required": ["name"],
+      "description": "A node: in the game's own tree with game, or in a talent tree. It works for as long as a character has it.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "description": "Default: what modifies says." },
+        "texts": { "$ref": "#/$defs/texts" },
+        "cost": { "type": "integer", "minimum": 0, "description": "Points per level (default 1)." },
+        "maxLevel": { "type": "integer", "minimum": 1, "maximum": 99, "description": "Levels (default 1). The game's tree keeps at most 7." },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "In a tree: its node names. In the game's tree: talents of this mod by name, or game nodes by 0x id."
+        },
+        "requireAll": { "type": "boolean", "description": "In a tree: all of requires, not any one." },
+        "pointsSpent": { "type": "integer", "minimum": 0, "description": "In a tree: points spent in it first." },
+        "characterLevel": { "type": "integer", "minimum": 0, "description": "In a tree: the character level needed." },
+        "modifies": { "$ref": "#/$defs/status/properties/modifies", "description": "Stats changed, per level." },
+        "onHit": { "$ref": "#/$defs/hits" },
+        "onKill": { "$ref": "#/$defs/hits" },
+        "onHitTaken": { "$ref": "#/$defs/hits" },
+        "keeps": { "$ref": "#/$defs/statusRef", "description": "A status they have for as long as they have the talent." },
+        "onStart": { "$ref": "#/$defs/effects", "description": "On them when it starts to work: at the unlock and at each join." },
+        "unlocks": { "$ref": "#/$defs/ref", "description": "An ability only those with this talent can cast." },
+        "icon": { "type": "string", "pattern": "\\.[pP][nN][gG]$", "description": "A PNG in the mod's folder." },
+        "column": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "row": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "game": {
+          "type": "object",
+          "description": "A place in the game's own tree: its screen draws it, its skill points pay for it.",
+          "properties": {
+            "from": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Game nodes by 0x id that lead here." },
+            "to": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "class": { "enum": ["Warrior", "Mage", "Ranger", "Neutral"] },
+            "offset": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[x, y] from the node it hangs on." },
+            "position": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[x, y] in the tree's units." }
+          },
+          "additionalProperties": false
+        },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "talentTree": {
+      "type": "object",
+      "required": ["name", "nodes"],
+      "description": "A whole tree on Kiln's screen in the game's look. Kiln keeps each character's unlocks with the character.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "points": {
+          "type": "object",
+          "description": "Where its points come from (default 1, and 1 more per character level).",
+          "properties": {
+            "start": { "type": "integer", "minimum": 0 },
+            "perLevel": { "type": "integer", "minimum": 0 },
+            "shareOfGame": { "type": "number", "minimum": 0, "maximum": 1, "description": "A share of the game's skill points instead." }
+          },
+          "additionalProperties": false
+        },
+        "menu": { "type": "string", "minLength": 1, "description": "Its pause-menu entry. Default: name." },
+        "key": { "type": "string", "minLength": 1 },
+        "respec": { "type": "boolean", "description": "Everything can be given back for free (default)." },
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Node name -> a talent, inline or by name. Keep the names: saves hold them.",
+          "propertyNames": { "$ref": "#/$defs/name" },
+          "additionalProperties": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/talent" } ] }
+        },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["on"],
+      "anyOf": [ { "required": ["do"] }, { "required": ["onEnd"] }, { "required": ["stop"] } ],
+      "description": "A state entered, an action started, or a consumable eaten, driving effects on the player. Runs on the server world.",
+      "properties": {
+        "on": { "$ref": "#/$defs/state" },
+        "item": { "$ref": "#/$defs/itemRef", "description": "Only with this item: what an action uses, what is eaten, or for a state what is in hand or worn." },
+        "when": { "$ref": "#/$defs/states", "description": "Only while the player is in one of these." },
+        "unless": { "$ref": "#/$defs/states", "description": "Not while the player is in any of these." },
+        "cooldown": { "type": "number", "minimum": 0, "description": "Seconds, per player." },
+        "do": { "$ref": "#/$defs/effects" },
+        "onEnd": { "$ref": "#/$defs/effects", "description": "When they leave the state. A state only." },
+        "stop": { "type": "boolean", "description": "Stops the action, or the eating." },
+        "was": { "$ref": "#/$defs/name" }
       },
       "additionalProperties": false
     },
     "recipe": {
       "type": "object",
-      "required": ["needs"],
+      "anyOf": [ { "required": ["needs"] }, { "required": ["burns"] } ],
       "description": "How something is crafted.",
       "properties": {
-        "station": { "type": "string", "description": "\"hand\" (the default): the player's own menu; a workshop's 0x id; or a station block by name." },
+        "station": {
+          "type": "string",
+          "description": "\"hand\" (the default): the player's own menu; a workshop's 0x id; or a station block by name. In a station's list of recipes: that station, so leave it out."
+        },
         "makes": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many one craft gives. For a spell: charges." },
-        "needs": { "type": "object", "minProperties": 1, "description": "Item -> count: a game item, an item of this mod by its block name, or \"other-mod:name\".", "additionalProperties": { "type": "integer", "minimum": 1 } },
-        "seconds": { "type": "number", "exclusiveMinimum": 0 }
+        "needs": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Item -> count: a game item, an item of this mod by its block name, or \"other-mod:name\".",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "burns": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Fuel each cycle burns, item -> count. An input, as in the game's data: with none left the station stops.",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds at a station that works on its own. Needed at one with a workshop of its own." },
+        "output": { "$ref": "#/$defs/itemRef", "description": "What it makes, in a station's list of recipes. Elsewhere a recipe makes the block it is on." },
+        "sheltered": { "type": "boolean", "description": "A player crafts it only under a roof. A station that works on its own never checks a roof, so its recipes refuse it." },
+        "comfort": { "type": "integer", "minimum": 0, "description": "The comfort level it asks of whoever makes it." }
       },
       "additionalProperties": false
     },
@@ -210,7 +623,7 @@
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
         "cast": { "$ref": "#/$defs/cast" },
-        "delivery": { "$ref": "#/$defs/projectile" },
+        "delivery": { "$ref": "#/$defs/delivery" },
         "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves the staff." },
         "level": { "type": "integer", "minimum": 1, "maximum": 55 },
         "maxCharges": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "Charges in one stack (default 500)." },
@@ -318,6 +731,7 @@
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "source": { "type": "string", "description": "Where to get it, in the tooltip. Not given: nothing." },
         "class": { "$ref": "#/$defs/weaponClassRef" },
         "visual": { "$ref": "#/$defs/visualRef" },
         "stats": { "$ref": "#/$defs/weaponStatsRef" },
@@ -336,7 +750,7 @@
       "description": "One of a wand's attacks: how it is cast and what it sends.",
       "properties": {
         "cast": { "$ref": "#/$defs/cast", "description": "The mana it costs and when it leaves the wand. animation is a staff's: a wand's motion is moves." },
-        "delivery": { "$ref": "#/$defs/projectile" },
+        "delivery": { "$ref": "#/$defs/delivery" },
         "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves the staff." },
         "moves": { "enum": ["bolt", "heavy", "special"], "description": "The motion. Default: the attack slot's own." }
       },
@@ -349,6 +763,7 @@
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "source": { "type": "string", "description": "Where to get it, in the tooltip. Not given: nothing." },
         "primary": { "$ref": "#/$defs/wandAttack", "description": "Its main damage is the wand's power: the tooltip's number, and what perks and stats scale." },
         "heavy": { "$ref": "#/$defs/wandAttack", "description": "Default: the primary again. Its damage is exactly what it says." },
         "special": { "$ref": "#/$defs/wandAttack", "description": "Once a player has the game's skill for it. Default: the primary again. Its damage is exactly what it says." },
@@ -402,7 +817,11 @@
       "type": "object",
       "description": "A family of looks, one per slot.",
       "properties": {
-        "head": { "$ref": "#/$defs/visualRef" }, "chest": { "$ref": "#/$defs/visualRef" }, "arms": { "$ref": "#/$defs/visualRef" }, "legs": { "$ref": "#/$defs/visualRef" }, "feet": { "$ref": "#/$defs/visualRef" }
+        "head": { "$ref": "#/$defs/armorLook" },
+        "chest": { "$ref": "#/$defs/armorLook" },
+        "arms": { "$ref": "#/$defs/armorLook" },
+        "legs": { "$ref": "#/$defs/armorLook" },
+        "feet": { "$ref": "#/$defs/armorLook" }
       },
       "additionalProperties": false
     },
@@ -413,9 +832,17 @@
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "source": { "type": "string", "description": "Where to get it, in the tooltip. Not given: nothing." },
         "slot": { "anyOf": [ { "enum": ["head", "chest", "arms", "legs", "feet", "ring"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorSlot" } ], "description": "Where it is worn." },
-        "set": { "anyOf": [ { "enum": ["warrior", "mage", "ranger"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorSet" } ], "description": "A family of looks: this takes the look the set has for its slot. visual wins over it." },
+        "set": {
+          "anyOf": [ { "enum": ["warrior", "mage", "ranger"] }, { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/armorSet" } ],
+          "description": "A family of looks: this takes the look the set has for its slot. visual wins over it."
+        },
         "visual": { "$ref": "#/$defs/visualRef" },
+        "look": {
+          "$ref": "#/$defs/wornLookRef",
+          "description": "What it looks like on the body: a model of the mod's own. It wins over visual for what is worn; visual still gives the dropped model and the tint."
+        },
         "stats": { "$ref": "#/$defs/armorStatsRef" },
         "perks": { "$ref": "#/$defs/perks" },
         "onHitTaken": { "$ref": "#/$defs/hits", "description": "What every hit the wearer takes does to whoever dealt it, while it is worn, with no unlock." },
@@ -454,6 +881,7 @@
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "source": { "type": "string", "description": "Where to get it, in the tooltip. Not given: nothing." },
         "kind": { "enum": ["material", "consumable", "food", "ammo", "tool"] },
         "visual": { "$ref": "#/$defs/visualRef" },
         "stack": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many fit in a stack. Default: the kind's own. A tool does not stack." },
@@ -464,13 +892,30 @@
           "description": "Texts per language (en, de, pt-BR, ...).",
           "additionalProperties": {
             "type": "object",
-            "properties": { "name": { "type": "string" }, "caption": { "type": "string" }, "description": { "type": "string" }, "lore": { "type": "string" }, "acquisitionHint": { "type": "string" }, "primaryAction": { "type": "string" }, "secondaryAction": { "type": "string" }, "tertiaryAction": { "type": "string" } },
+            "properties": {
+              "name": { "type": "string" },
+              "caption": { "type": "string" },
+              "description": { "type": "string" },
+              "lore": { "type": "string" },
+              "acquisitionHint": { "type": "string" },
+              "primaryAction": { "type": "string" },
+              "secondaryAction": { "type": "string" },
+              "tertiaryAction": { "type": "string" }
+            },
             "additionalProperties": false
           }
         },
         "heals": { "type": "integer", "exclusiveMinimum": 0, "description": "Health using it gives at once; the tooltip's number." },
         "onUse": { "$ref": "#/$defs/effects", "description": "What using it does, to whoever uses it." },
         "feeds": { "$ref": "#/$defs/statusRef", "description": "The status eating it gives, in the game's food slots." },
+        "onEat": { "$ref": "#/$defs/effects", "description": "On whoever used it, once the item has really gone." },
+        "canEat": {
+          "type": "object",
+          "anyOf": [ { "required": ["when"] }, { "required": ["unless"] } ],
+          "description": "When it can be used. Refused, the item stays and gives nothing.",
+          "properties": { "when": { "$ref": "#/$defs/states" }, "unless": { "$ref": "#/$defs/states" }, "onRefused": { "$ref": "#/$defs/effects" } },
+          "additionalProperties": false
+        },
         "fuel": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds it burns in a fire." },
         "comfort": { "type": "integer", "minimum": 0, "description": "The comfort a placed one gives." },
         "tool": { "$ref": "#/$defs/tool" },
@@ -484,16 +929,1045 @@
     "station": {
       "type": "object",
       "required": ["name"],
-      "description": "A crafting station a player builds: it opens a workshop's menu, which lists that workshop's recipes and those naming this station.",
+      "description": "A station a player builds: a prop that makes things. With processing it works on its own, over time, from its own inventory, like a forge; without, a player crafts at it at once, like a workbench.",
+      "properties": {
+        "tweak": { "$ref": "#/$defs/tweak" },
+        "tweakPlaced": { "$ref": "#/$defs/tweak", "description": "The same, set on the template it places (templates section paths)." },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/placement" } ] },
+        "comfort": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/comfort" } ] },
+        "onInteract": { "$ref": "#/$defs/interactionRef", "description": "What happens when a player uses it." },
+        "light": { "$ref": "#/$defs/vfx", "description": "A VFX on it for as long as it stands: where the game's lamps have their light." },
+        "recipe": { "$ref": "#/$defs/recipe", "description": "How the item that places it is made." },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" },
+        "kind": {
+          "enum": ["workbench", "carpenter", "kitchen", "forge", "oven", "alchemy", "drying-rack", "charcoal-kiln", "kiln", "smelter", "fireplace", "grinder", "tannery", "table-saw"],
+          "description": "The game's station it starts from: model, collision, sound and the menu it opens. Default: drying-rack with processing, else workbench."
+        },
+        "ownWorkshop": { "type": "boolean", "description": "A workshop of its own, which decides which recipes it runs. Default: yes for a kind that works on its own, with processing or recipes." },
+        "menu": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/menu" } ] },
+        "processing": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/processing" } ] },
+        "recipes": { "type": "array", "items": { "$ref": "#/$defs/recipe" }, "description": "What it makes, each with output." }
+      },
+      "additionalProperties": false
+    },
+    "prop": {
+      "type": "object",
+      "required": ["name", "visual"],
+      "description": "Something placed that stands there: furniture, a banner, a lamp.",
+      "properties": {
+        "tweak": { "$ref": "#/$defs/tweak" },
+        "tweakPlaced": { "$ref": "#/$defs/tweak", "description": "The same, set on the template it places (templates section paths)." },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/placement" } ] },
+        "comfort": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/comfort" } ] },
+        "onInteract": { "$ref": "#/$defs/interactionRef", "description": "What happens when a player uses it." },
+        "light": { "$ref": "#/$defs/vfx", "description": "A VFX on it for as long as it stands: where the game's lamps have their light." },
+        "recipe": { "$ref": "#/$defs/recipe", "description": "How the item that places it is made." },
+        "loot": { "$ref": "#/$defs/loot" },
+        "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "placement": {
+      "type": "object",
+      "description": "Where and how a player can place it. A field left out: what its starter does.",
+      "properties": {
+        "on": { "$ref": "#/$defs/surface" },
+        "inBase": { "type": "boolean", "description": "Only inside a base." },
+        "size": {
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Metres, width, height, depth: the box that has to be free, standing on its floor."
+        },
+        "snap": { "type": "boolean", "description": "The cursor starts out snapping to the voxel grid." },
+        "water": { "type": "boolean", "description": "It can stand in water." },
+        "fog": { "type": "boolean", "description": "It can be placed below the Shroud's line." },
+        "consumed": { "type": "boolean", "description": "Placing it takes the item from the stack." }
+      },
+      "additionalProperties": false
+    },
+    "comfort": {
+      "type": "object",
+      "required": ["amount"],
+      "description": "What the game's comfort counts, for whoever rests within range. Only the best of a category counts.",
+      "properties": {
+        "amount": { "type": "integer", "minimum": 0 },
+        "category": {
+          "enum": ["hearth", "bed", "chair", "table", "bench", "throne", "bathtub", "sink", "toilet", "shower", "carpet", "illumination", "flame", "trophy", "stool", "kitchen", "wellness"],
+          "description": "Default hearth."
+        },
+        "range": { "type": "number", "exclusiveMinimum": 0, "description": "Metres. Default 5." },
+        "warmth": { "type": "integer", "minimum": 0, "description": "Resistance to the cold near it. Default 1." }
+      },
+      "additionalProperties": false
+    },
+    "processing": {
+      "type": "object",
+      "description": "How a station works on its own. A field left out: what its kind does.",
+      "properties": {
+        "slots": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Inventory slots, inputs and outputs in one." },
+        "goesOutInRain": { "type": "boolean", "description": "false: it never goes out." },
+        "running": {
+          "type": "object",
+          "description": "What shows while it runs.",
+          "properties": {
+            "vfx": { "$ref": "#/$defs/vfx" },
+            "sound": { "type": "string", "minLength": 1, "description": "A looping sound: a cue of this mod (then clients \"mod\"), \"other-mod:name\", or a cue's GUID." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "menu": {
+      "type": "object",
+      "description": "The crafting menu a station opens: an existing station's, which lists the station's recipes among its own.",
+      "properties": {
+        "like": {
+          "enum": ["workbench", "carpenter", "kitchen", "forge", "oven", "alchemy", "drying-rack", "charcoal-kiln", "kiln", "smelter", "fireplace", "grinder", "tannery", "table-saw"],
+          "description": "Default: the station's kind."
+        }
+      },
+      "additionalProperties": false
+    },
+    "fitName": { "enum": ["hat", "hood", "noArmor", "shield", "tight", "armsTight01", "legsBeltTight", "legsFeetTight", "legsFeetTight01"] },
+    "fits": {
+      "description": "What a look makes the rest of the character do: \"hood\" gives hair its hood cut. A name, or a list of names.",
+      "anyOf": [ { "$ref": "#/$defs/fitName" }, { "type": "array", "items": { "$ref": "#/$defs/fitName" }, "uniqueItems": true } ]
+    },
+    "bodyPart": {
+      "enum": ["head", "hair", "eyeBrow", "beard", "neck", "collar", "chest", "waist", "crotch", "upperArms", "lowerArms", "hands", "upperLegs", "lowerLegs", "feet", "armorHead", "armorUpperBody", "armorArms", "armorLowerBody", "armorFeet", "ringLeft", "ringRight", "shield", "mainHand"],
+      "description": "A body part, or what is worn in a slot. Hidden, it is not drawn."
+    },
+    "wornModel": {
+      "type": "string",
+      "anyOf": [ { "pattern": "\\.([gG][lL][bB]|[gG][lL][tT][fF])$", "x-kiln-file": "mod" }, { "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] }, { "$ref": "#/$defs/guid" } ],
+      "description": "A .glb or .gltf in the mod's folder, item:<name> for a game item's model, or the GUID of a model the mod's assets.json serves."
+    },
+    "guid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "wornLook": {
+      "type": "object",
+      "description": "What something looks like on the body: a model of your own or a game item's, what it hides and how the rest of the character fits around it.",
+      "anyOf": [ { "required": ["model"] }, { "required": ["like"] } ],
+      "properties": {
+        "like": { "$ref": "#/$defs/itemRef", "description": "A game item, or an item of this mod, whose whole look this takes. What else the look says wins." },
+        "model": { "$ref": "#/$defs/wornModel", "description": "Skinned on the player's skeleton, or a plain mesh with attach. A morph target named Female is the shape on a female body." },
+        "female": { "$ref": "#/$defs/wornModel", "description": "A second file for a female body, instead of a morph target." },
+        "variants": {
+          "type": "object",
+          "description": "Whole models for what the character wears or is: \"shield\", \"female+tight\". The most specific that applies is drawn, and model otherwise.",
+          "propertyNames": {
+            "pattern": "^(female|hat|hood|noArmor|shield|tight|armsTight01|legsBeltTight|legsFeetTight|legsFeetTight01)(\\+(female|hat|hood|noArmor|shield|tight|armsTight01|legsBeltTight|legsFeetTight|legsFeetTight01))*$"
+          },
+          "additionalProperties": { "$ref": "#/$defs/wornModel" }
+        },
+        "fits": { "$ref": "#/$defs/fits" },
+        "hides": { "type": "array", "items": { "$ref": "#/$defs/bodyPart" }, "uniqueItems": true, "description": "What is not drawn while this is worn. Nothing else is hidden." },
+        "attach": {
+          "type": "string",
+          "anyOf": [ { "enum": ["Head", "Chest", "Pelvis", "FootL", "FootR", "HandL", "HandR", "HandPalmL", "HandPalmR", "KneeL", "KneeR", "ArmL", "Block"] }, { "pattern": "^[jJ][0-9]+$" } ],
+          "description": "A rigid model: a mesh with no skin, on this slot or j<index>. Its origin is the joint."
+        },
+        "lods": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\.([gG][lL][bB]|[gG][lL][tT][fF])$", "x-kiln-file": "mod" },
+          "description": "Coarser files of model, from the next level on."
+        },
+        "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "When each level shows: one per level, 0 first, rising." },
+        "materials": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 },
+          "description": "A glTF material's name, or \"*\" for every one, to a material block's name or a game material's GUID. One it leaves out becomes a block of its own."
+        },
+        "icon": {
+          "type": "string",
+          "anyOf": [ { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" }, { "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] } ],
+          "description": "A PNG in the mod's folder, or item:<name>. Default: the game draws the model."
+        }
+      },
+      "additionalProperties": false
+    },
+    "armorLook": {
+      "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/visual" }, { "$ref": "#/$defs/wornLook" } ],
+      "description": "A set's look for a slot: a look, a worn look, or either by name."
+    },
+    "wornLookRef": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/wornLook" } ], "description": "A worn look: inline, or a block of wornLooks by name." },
+    "cosmetic": {
+      "type": "object",
+      "required": ["name", "slot", "look"],
+      "description": "A piece for a vanity slot: it shows over what is worn there, with no stats of its own and none taken away.",
       "properties": {
         "tweak": { "$ref": "#/$defs/tweak" },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
-        "kind": { "enum": ["workbench", "carpenter", "kitchen", "forge", "oven", "alchemy"], "description": "Which menu it opens, and the build it starts from. Default workbench." },
-        "visual": { "$ref": "#/$defs/visualRef" },
+        "slot": { "enum": ["head", "upperBody", "arms", "lowerBody", "feet"], "description": "Which vanity slot it goes in." },
+        "look": { "$ref": "#/$defs/wornLookRef" },
+        "dyes": { "type": "boolean", "description": "Takes the game's dyes, where its material has a tint mask. Default false." },
         "recipe": { "$ref": "#/$defs/recipe" },
         "loot": { "$ref": "#/$defs/loot" },
         "was": { "$ref": "#/$defs/name" }
+      },
+      "additionalProperties": false
+    },
+    "animClip": {
+      "description": "What a state plays: a glTF animation's name, or { \"clip\": name, ... }, or { \"blend\": ... }.",
+      "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "object", "additionalProperties": false, "anyOf": [ { "required": ["clip"] }, { "required": ["blend"] } ], "properties": { "clip": { "type": "string", "minLength": 1, "description": "The glTF animation." }, "blend": { "$ref": "#/$defs/animBlend" }, "speed": { "type": "number", "description": "Faster above 1.", "minimum": 0 }, "loop": { "type": "boolean" }, "then": { "type": "string", "description": "The state it moves on to when its clip ends." }, "rootMotion": { "type": "boolean" }, "blendIn": { "type": "number", "description": "Seconds it blends in over.", "minimum": 0 }, "reference": { "type": "string", "description": "On hit: the animation its pose is relative to." }, "bones": { "type": "array", "items": { "type": "string" } } } } ]
+    },
+    "animBlend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clips"],
+      "description": "Animations mixed by an input.",
+      "properties": {
+        "input": { "type": "string", "description": "moveDirection, hitDirection, lookYaw, ..., or a name of your own." },
+        "clips": { "type": "object", "propertyNames": { "pattern": "^-?[0-9]+(\\.[0-9]+)?$" }, "additionalProperties": { "type": "string" } },
+        "circular": { "type": "boolean" }
+      }
+    },
+    "animLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Played over the states: always, or on an overlay.",
+      "properties": {
+        "name": { "type": "string" },
+        "overlay": { "type": "string" },
+        "clip": { "type": "string" },
+        "blend": { "$ref": "#/$defs/animBlend" },
+        "speed": { "type": "number" },
+        "reference": { "type": "string" },
+        "bones": { "type": "array", "items": { "type": "string" } },
+        "weight": { "type": "number" },
+        "fadeIn": { "type": "number" },
+        "fadeOut": { "type": "number" }
+      }
+    },
+    "animation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a body moves: a glTF of the mod with its clips (cooked when the mod builds), the engine's states and your own. Or a premade: \"like\".",
+      "properties": {
+        "like": { "type": "string", "enum": ["vukah", "scavenger", "fisher", "villager"] },
+        "clips": { "type": "string", "pattern": "\\.([gG][lL][bB]|[gG][lL][tT][fF])$", "description": "The glTF file, its path in the mod's folder." },
+        "skeleton": { "type": "string" },
+        "template": { "type": "string", "description": "A game creature whose graph this is." },
+        "states": { "type": "object", "description": "States of your own, by name.", "additionalProperties": { "$ref": "#/$defs/animClip" } },
+        "layers": { "type": "array", "items": { "$ref": "#/$defs/animLayer" } },
+        "idle": { "$ref": "#/$defs/animClip" },
+        "walk": { "$ref": "#/$defs/animClip" },
+        "run": { "$ref": "#/$defs/animClip" },
+        "sprint": { "$ref": "#/$defs/animClip" },
+        "idleCombat": { "$ref": "#/$defs/animClip" },
+        "fall": { "$ref": "#/$defs/animClip" },
+        "idleSneak": { "$ref": "#/$defs/animClip" },
+        "sneak": { "$ref": "#/$defs/animClip" },
+        "dead": { "$ref": "#/$defs/animClip" },
+        "stun": { "$ref": "#/$defs/animClip" },
+        "hit": { "$ref": "#/$defs/animClip" }
+      }
+    },
+    "collider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "enum": ["capsule", "sphere"] },
+        "radius": { "type": "number", "description": "Metres.", "minimum": 0 },
+        "height": { "type": "number", "description": "Metres, a capsule's caps included.", "minimum": 0 }
+      }
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a creature is: a skinned glTF of the mod, or a game creature's body (\"like\").",
+      "properties": {
+        "like": { "type": "string", "enum": ["vukah", "scavenger", "fisher", "villager"] },
+        "template": { "type": "string" },
+        "model": { "type": "string", "pattern": "\\.([gG][lL][bB]|[gG][lL][tT][fF])$" },
+        "skeleton": { "type": "string" },
+        "scale": { "type": "number", "description": "1 as modelled.", "minimum": 0, "maximum": 20 },
+        "colliders": { "type": "array", "maxItems": 2, "items": { "$ref": "#/$defs/collider" } },
+        "slots": { "type": "object", "description": "The game's attachment slots on joints: { \"HandR\": \"hand_r\" }.", "additionalProperties": { "type": "string" } },
+        "size": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["radius", "height"],
+          "properties": { "radius": { "type": "number", "description": "Metres.", "minimum": 0 }, "height": { "type": "number", "description": "Metres.", "minimum": 0 } }
+        },
+        "workshop": { "type": "string", "pattern": "^0x[0-9a-fA-F]+$" },
+        "tool": { "type": "string" }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How it notices and chases: a game creature's tuning to start from, and what to change.",
+      "properties": {
+        "like": { "type": "string", "enum": ["vukah", "scavenger", "heavy", "still"] },
+        "template": { "type": "string" },
+        "sight": { "type": "number", "description": "Metres.", "minimum": 0, "maximum": 1000 },
+        "sightAngle": { "type": "number", "description": "Half its view, degrees.", "minimum": 0, "maximum": 180 },
+        "aggro": { "type": "number", "description": "Metres.", "minimum": 0, "maximum": 1000 },
+        "leash": { "type": "number", "description": "Its home zone's radius, metres.", "minimum": 0, "maximum": 1000 },
+        "faction": { "type": "string" },
+        "moves": { "type": "boolean" },
+        "fights": { "type": "boolean" },
+        "pickTarget": { "type": "string", "description": "A picker registered with Blocks.Target." },
+        "pickEvery": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 60 },
+        "tune": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Any field of the game's AI by path." }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "description": "A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, or one of the game's { \"type\": ... }."
+    },
+    "action": { "type": "object", "description": "A rule's action: setPhase, attack, custom, { \"effect\": ..., \"on\": \"target\" | \"self\" }, or one of the game's { \"type\": ... }." },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["do"],
+      "description": "On a trigger, every so often, when its conditions hold, do something.",
+      "properties": {
+        "name": { "type": "string" },
+        "on": {
+          "enum": ["onUpdate", "onEnter", "onExit", "onStartAttack", "onEndAttack", "onEnterState", "onExitState", "OnUpdate", "OnEnter", "OnExit", "OnStartAttack", "OnEndAttack", "OnEnterState", "OnExitState"]
+        },
+        "every": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 3600 },
+        "cooldown": { "type": "number", "description": "Seconds.", "minimum": 0 },
+        "chance": { "type": "number", "description": "0..1.", "minimum": 0, "maximum": 1 },
+        "when": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "do": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/action" } }
+      }
+    },
+    "creatureAttack": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An attack: the state it plays, its reach, what its blow does.",
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "plays": { "type": "string" },
+        "range": { "type": "number", "description": "Metres.", "minimum": 0, "maximum": 200 },
+        "minRange": { "type": "number", "description": "Metres.", "minimum": 0 },
+        "cooldown": { "type": "number", "description": "Seconds.", "minimum": 0 },
+        "style": { "type": "array", "items": { "type": "string" } },
+        "chance": { "type": "number", "description": "0..1.", "minimum": 0, "maximum": 1 },
+        "hitAt": { "type": "number", "description": "Seconds into it.", "minimum": 0 },
+        "length": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 30 },
+        "angle": { "type": "number", "description": "Degrees in front.", "minimum": 0, "maximum": 360 },
+        "onHit": { "type": "array", "items": { "$ref": "#/$defs/effectRef" } },
+        "delivery": { "$ref": "#/$defs/delivery" },
+        "sequence": { "$ref": "#/$defs/guid" }
+      }
+    },
+    "behaviour": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a creature does: attacks and rules on top of the game's combat AI, or a brain.",
+      "properties": {
+        "like": { "type": "string", "enum": ["vukah-melee", "scavenger-melee", "none"] },
+        "template": { "type": "string" },
+        "attacks": { "type": "array", "maxItems": 32, "items": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/creatureAttack" } ] } },
+        "rules": { "type": "array", "maxItems": 32, "items": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/rule" } ] } },
+        "phases": { "type": "array", "items": { "type": "string" } },
+        "pickAttack": { "type": "string" },
+        "pickEvery": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 60 },
+        "brain": { "type": "string", "description": "A brain registered with Blocks.Brain." }
+      }
+    },
+    "creatureStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "damage": { "type": "number", "description": "1 as the game has it.", "minimum": 0, "maximum": 100 },
+        "experience": { "type": "number", "description": "1 as the game has it.", "minimum": 0, "maximum": 100 },
+        "takes": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0, "maximum": 10 } }
+      }
+    },
+    "creatureSpawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replaces"],
+      "properties": {
+        "replaces": { "type": "string" },
+        "chance": { "type": "number", "description": "0..1.", "minimum": 0, "maximum": 1 },
+        "nightOnly": { "type": "boolean" },
+        "dayOnly": { "type": "boolean" }
+      }
+    },
+    "creature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body"],
+      "description": "A creature: its body, animation, AI and behaviour.",
+      "properties": {
+        "name": { "type": "string" },
+        "was": { "type": "string" },
+        "body": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/body" } ] },
+        "animation": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/animation" } ] },
+        "ai": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/ai" } ] },
+        "behaviour": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/behaviour" } ] },
+        "stats": { "$ref": "#/$defs/creatureStats" },
+        "spawns": { "type": "array", "items": { "$ref": "#/$defs/creatureSpawn" } }
+      }
+    },
+    "npc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "body"],
+      "description": "A friendly NPC on a game NPC's body: talk, wares, a place in the roster.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "was": { "type": "string" },
+        "body": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/body" } ] },
+        "animation": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/animation" } ] },
+        "ai": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/ai" } ] },
+        "behaviour": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/behaviour" } ] },
+        "talk": { "type": "string", "description": "A dialogue of the mod's quests/*.json." },
+        "names": { "type": "object", "additionalProperties": { "type": "string" } },
+        "vendor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sells": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": ["item"],
+                "additionalProperties": false,
+                "properties": { "item": { "type": "string" }, "count": { "type": "integer", "minimum": 1 } }
+              }
+            },
+            "gives": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 } },
+            "workshop": { "type": "string" }
+          }
+        },
+        "roster": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unlockedBy": { "type": "string" },
+            "summonTool": { "type": "string" },
+            "description": { "type": "string" },
+            "roamingRange": { "type": "number", "description": "Metres.", "minimum": 0, "maximum": 200 }
+          }
+        },
+        "place": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "at": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+            "distance": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            "once": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "interactionRef": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ref"
+        },
+        {
+          "$ref": "#/$defs/interaction"
+        }
+      ],
+      "description": "An interaction: inline, or a block of interactions by name."
+    },
+    "interaction": {
+      "type": "object",
+      "description": "What happens when a player uses a placed thing. A field left out is what its starter does. verb, plays, toggle and the game's lock in requires are the game's own; effects and requires' when, unless are Kiln's, on the server.",
+      "properties": {
+        "verb": {
+          "enum": [
+            "open",
+            "close",
+            "use",
+            "activate",
+            "deactivate",
+            "flip",
+            "read",
+            "sit",
+            "sleep",
+            "search",
+            "inspect",
+            "talk",
+            "craft",
+            "collect",
+            "harvest",
+            "drink"
+          ],
+          "description": "The prompt's word: one of the game's, so every language has it."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A prompt of your own instead of verb: the same text in every language."
+        },
+        "plays": {
+          "anyOf": [
+            {
+              "enum": [
+                "sit",
+                "sleep",
+                "toggle",
+                "chest",
+                "inventory",
+                "read",
+                "talk",
+                "drink"
+              ]
+            },
+            {
+              "$ref": "#/$defs/guid"
+            }
+          ],
+          "description": "What the player plays: one of the game's interaction sequences, or a sequence's GUID."
+        },
+        "toggle": {
+          "type": "object",
+          "description": "Two states, and each use flips it, as a door's: the guest's sequence flips it. A prompt left out is its starter's.",
+          "properties": {
+            "on": {
+              "enum": [
+                "open",
+                "close",
+                "use",
+                "activate",
+                "deactivate",
+                "flip",
+                "read",
+                "sit",
+                "sleep",
+                "search",
+                "inspect",
+                "talk",
+                "craft",
+                "collect",
+                "harvest",
+                "drink"
+              ],
+              "description": "The prompt while it is off: one of the game's words."
+            },
+            "off": {
+              "enum": [
+                "open",
+                "close",
+                "use",
+                "activate",
+                "deactivate",
+                "flip",
+                "read",
+                "sit",
+                "sleep",
+                "search",
+                "inspect",
+                "talk",
+                "craft",
+                "collect",
+                "harvest",
+                "drink"
+              ],
+              "description": "The prompt while it is on: one of the game's words."
+            },
+            "onPrompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A prompt of your own while it is off. Wins over on."
+            },
+            "offPrompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A prompt of your own while it is on. Wins over off."
+            },
+            "startsOn": {
+              "type": "boolean",
+              "description": "It is on when placed: a door stands open."
+            }
+          },
+          "additionalProperties": false
+        },
+        "requires": {
+          "$ref": "#/$defs/requires"
+        },
+        "effects": {
+          "$ref": "#/$defs/effects",
+          "description": "What happens to the player once the game has accepted the use."
+        },
+        "onRefused": {
+          "$ref": "#/$defs/effects",
+          "description": "What happens to the player when requires' when or unless refuses them."
+        }
+      },
+      "additionalProperties": false
+    },
+    "requires": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "What it takes to use it. item, count, uses and time are the game's own lock, shown in the player's game; when and unless are checked by Kiln on the server.",
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/itemRef",
+          "description": "An item in the player's bag."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "How many of item. Default 1."
+        },
+        "uses": {
+          "type": "boolean",
+          "description": "The use takes item from the bag, as a lockpick goes."
+        },
+        "time": {
+          "enum": [
+            "day",
+            "night"
+          ],
+          "description": "Only by day, or only by night."
+        },
+        "when": {
+          "$ref": "#/$defs/states",
+          "description": "Only while the player is in one of these."
+        },
+        "unless": {
+          "$ref": "#/$defs/states",
+          "description": "Not while the player is in any of these."
+        }
+      },
+      "additionalProperties": false
+    },
+    "spot": {
+      "type": "object",
+      "description": "Where the player sits or lies: metres from the thing's origin in its own axes, and which way they face, in degrees.",
+      "properties": {
+        "at": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -10,
+            "maximum": 10
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "facing": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "blueprint": {
+      "type": "object",
+      "required": [
+        "name",
+        "cells"
+      ],
+      "description": "A new shape on the game's building materials: beside the walls and floors in the build menu, taking every material they take.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "cells": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "description": "Layers from the bottom up; in a layer, rows from the back to the front; in a row, # a cell and . or a space none. Half a metre a cell, 32 at most each way.",
+          "items": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "pattern": "^[#. ]{0,32}$"
+            }
+          }
+        },
+        "roof": {
+          "type": "boolean",
+          "description": "A roof shape: it cycles through the roof materials."
+        },
+        "cost": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9999,
+          "description": "Blocks of the material one placement takes. Default: 20 for every 64 cells, as the game's walls."
+        },
+        "recipe": {
+          "$ref": "#/$defs/recipe"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hair": {
+      "type": "object",
+      "required": [
+        "name",
+        "look"
+      ],
+      "description": "A hair style: a worn look on the head. A morph target named Female is its shape on a female head; Hat and Hood the cut under a hat or a hood.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "look": {
+          "$ref": "#/$defs/wornLookRef"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "beard": {
+      "type": "object",
+      "required": [
+        "name",
+        "look"
+      ],
+      "description": "A beard: a worn look on the jaw. A morph target named Female is its shape on a female head.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "look": {
+          "$ref": "#/$defs/wornLookRef"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "container": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "Something that holds items. Starts from the game's small chest; visual.like names another.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "tweakPlaced": {
+          "$ref": "#/$defs/tweak",
+          "description": "The same, set on the template it places (templates section paths)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/placement"
+            }
+          ]
+        },
+        "comfort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/comfort"
+            }
+          ]
+        },
+        "onInteract": {
+          "$ref": "#/$defs/interactionRef",
+          "description": "What happens when a player uses it."
+        },
+        "light": {
+          "$ref": "#/$defs/vfx",
+          "description": "A VFX on it for as long as it stands: where the game's lamps have their light."
+        },
+        "recipe": {
+          "$ref": "#/$defs/recipe",
+          "description": "How the item that places it is made."
+        },
+        "loot": {
+          "$ref": "#/$defs/loot"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        },
+        "slots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "description": "Inventory slots. Default: the starter's."
+        },
+        "holds": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "What it holds when first placed: item -> count. Once: what a player takes out isn't put back.",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "door": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "A door. Starts from the game's wooden door; visual.like names another.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "tweakPlaced": {
+          "$ref": "#/$defs/tweak",
+          "description": "The same, set on the template it places (templates section paths)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/placement"
+            }
+          ]
+        },
+        "comfort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/comfort"
+            }
+          ]
+        },
+        "onInteract": {
+          "$ref": "#/$defs/interactionRef",
+          "description": "What happens when a player uses it."
+        },
+        "light": {
+          "$ref": "#/$defs/vfx",
+          "description": "A VFX on it for as long as it stands: where the game's lamps have their light."
+        },
+        "recipe": {
+          "$ref": "#/$defs/recipe",
+          "description": "How the item that places it is made."
+        },
+        "loot": {
+          "$ref": "#/$defs/loot"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bed": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "A bed: the game's sleep and rest. Starts from the game's wooden bed; visual.like names another.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "tweakPlaced": {
+          "$ref": "#/$defs/tweak",
+          "description": "The same, set on the template it places (templates section paths)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/placement"
+            }
+          ]
+        },
+        "comfort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/comfort"
+            }
+          ]
+        },
+        "onInteract": {
+          "$ref": "#/$defs/interactionRef",
+          "description": "What happens when a player uses it."
+        },
+        "light": {
+          "$ref": "#/$defs/vfx",
+          "description": "A VFX on it for as long as it stands: where the game's lamps have their light."
+        },
+        "recipe": {
+          "$ref": "#/$defs/recipe",
+          "description": "How the item that places it is made."
+        },
+        "loot": {
+          "$ref": "#/$defs/loot"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        },
+        "lies": {
+          "$ref": "#/$defs/spot",
+          "description": "Where the player lies. Default: the starter's spot."
+        },
+        "spawnPoint": {
+          "type": "boolean",
+          "description": "A player who dies comes back at the last of these beds they slept in. Kiln's, on the server."
+        },
+        "skipsNight": {
+          "type": "boolean",
+          "description": "When every player in the world sleeps at night in such beds, the morning comes. Kiln's, on the server."
+        }
+      },
+      "additionalProperties": false
+    },
+    "seat": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "A seat: the game's sitting. Starts from the game's wooden chair; visual.like names another.",
+      "properties": {
+        "tweak": {
+          "$ref": "#/$defs/tweak"
+        },
+        "tweakPlaced": {
+          "$ref": "#/$defs/tweak",
+          "description": "The same, set on the template it places (templates section paths)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "visual": {
+          "$ref": "#/$defs/visualRef",
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/placement"
+            }
+          ]
+        },
+        "comfort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "$ref": "#/$defs/comfort"
+            }
+          ]
+        },
+        "onInteract": {
+          "$ref": "#/$defs/interactionRef",
+          "description": "What happens when a player uses it."
+        },
+        "light": {
+          "$ref": "#/$defs/vfx",
+          "description": "A VFX on it for as long as it stands: where the game's lamps have their light."
+        },
+        "recipe": {
+          "$ref": "#/$defs/recipe",
+          "description": "How the item that places it is made."
+        },
+        "loot": {
+          "$ref": "#/$defs/loot"
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        },
+        "sits": {
+          "$ref": "#/$defs/spot",
+          "description": "Where the player sits. Default: the starter's spot."
+        }
       },
       "additionalProperties": false
     }

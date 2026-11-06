@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "comment": "The same blocks as ScreenTestMod.cs defines in code, as data: the lab compares what each pair became.",
+  "screenEffects": {
+    "flash-json": { "fill": { "color": "#ffffff", "amount": 0.85 }, "vignette": { "amount": 0.5, "radius": 0.3 }, "seconds": 0, "fadeOut": 0.5 },
+    "cold-json": { "temperature": -0.6, "saturation": 0.7, "vignette": { "color": "#10243a", "amount": 0.6 }, "fadeIn": 1, "fadeOut": 1 },
+    "fade-json": { "fill": "#000000", "fadeIn": 2, "seconds": 1, "fadeOut": 2, "order": 10 },
+    "hurt-json": { "tint": { "color": "#ff4030", "amount": 0.35 }, "vignette": { "color": "#400000", "amount": 0.8 }, "fadeIn": 0.1, "seconds": 0.3, "fadeOut": 0.6, "range": 12 }
+  },
+  "statuses": {
+    "frozen-json": { "name": "Frozen", "seconds": 3, "screen": "cold-json", "onApply": [ { "screen": "flash-json" } ] }
+  },
+  "effects": {
+    "flash-hit-json": { "screen": "hurt-json" }
+  }
+}

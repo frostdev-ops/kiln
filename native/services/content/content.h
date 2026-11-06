@@ -210,7 +210,42 @@ struct Conflict {
     std::string what;     // "items Material_T1_Wood_Logs.maxStackSize"
     std::string winner, loser, winner_value, loser_value;
 };
-std::recursive_mutex& store_mutex();
+// The one lock of the store, the registries, new content and kiln.gamedata (recursive). It also keeps how long it is held at a time,
+// for the load-time report (timing_report).
+class StoreMutex {
+public:
+    void lock();
+    void unlock();
+    bool try_lock();
+
+private:
+    std::recursive_mutex m_;
+};
+StoreMutex& store_mutex();
+
+// Where load time goes: inclusive time per phase (nested phases count in both), and the store lock's longest holds.
+enum Phase : uint8_t {
+    PH_DEFINE, PH_DEFINE_LOCKED, PH_GD_DEFINE, PH_GD_REGISTER, PH_GD_FIELDS, PH_GD_AFTER, PH_GD_READY, PH_SYNC, PH_SYNC_ITEMS,
+    PH_BUILD_CLONE, PH_KITBASH, PH_WORLD_ITEMS, PH_RESOLVE_ITEM, PH_MAP_PUT, PH_KC_ENTRY, PH_SYNC_RECIPES, PH_BUILD_RECIPE,
+    PH_WS_ADD, PH_CRAFTED, PH_LOOT, PH_DROPS, PH_FLUSH, PH_WRITE_BATCH, PH_NEAR_ALLOC, PH_APPLY_JSON, PH_APPLY_PACKS,
+    PH_BUILD_REGISTRIES, PH_DROP_TABLE, PH_STORE_SCAN, PH_IS_NEW, PH_OWN_LISTS, PH_ASSET_PUT, PH_GAME_REGISTER, PH_BUILD_BYTES, PH_STATUS, PH_LISTING, PH_EXPORT, PH_TEXTS, PH_SEQ_RES, PH_CONFLICTS, PH_PACK_FILE, PH_COUNT
+};
+class PhaseTimer {
+public:
+    explicit PhaseTimer(Phase p);
+    ~PhaseTimer();
+    PhaseTimer(const PhaseTimer&) = delete;
+    PhaseTimer& operator=(const PhaseTimer&) = delete;
+
+private:
+    Phase p_, outer_;
+    int64_t t0_;
+};
+// "phase total ms / calls (max longest ms), ..." and the store lock's holds and waits. reset: start counting again.
+std::string timing_report(bool reset);
+std::string lock_report(bool reset);
+void timing_mark_job_thread(bool on);  // the calling thread is a game job thread (its waits for the lock are counted apart)
+
 // Adds or replaces `owner`'s layer of the slot at addr (the slot remembers the original bytes on first touch).
 bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
                uint8_t n, const uint8_t* bytes, const std::string& source);
@@ -223,6 +258,7 @@ bool store_has(uintptr_t addr);
 size_t store_flush(std::string* error);
 std::vector<Conflict> store_conflicts();
 uint32_t store_changed();  // slots whose current bytes differ from the original
+uint64_t store_generation();  // changes with every change of a slot (what store_changed and store_conflicts count follows it)
 void store_for_each(const std::function<void(uintptr_t, const Slot&)>& fn);
 std::string owner_label(KilnOwner owner);
 void set_owner_label(KilnOwner owner, const std::string& label);

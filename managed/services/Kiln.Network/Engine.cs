@@ -196,6 +196,7 @@ internal static class NetEngine
             try { d[k] = f() ?? ""; }
             catch (Exception e) { Log(LogLevel.Warn, $"handshake property {k} threw: {e.Message}"); }
         }
+        foreach (var (k, v) in WorldTablesGate.Properties()) d[k] = v;
         return d;
     }
 
@@ -466,6 +467,13 @@ internal static class NetEngine
             }
         }
         var reason = refuse ? "This server requires mods you do not have: " + string.Join(", ", refusedFor.Take(8)) : "";
+        // Different material ids show the wrong walls whatever the mod lists say. modSync off is the operator's own call.
+        if (_config.ModSync != ModSyncPolicy.Off && WorldTablesGate.Difference(hello.Properties) is { } tables)
+        {
+            reason = refuse ? reason + " " + tables : tables;
+            refuse = true;
+            refusedFor = [.. refusedFor, tables];
+        }
         if (Events.HasSubscribers<NetClientHandshakeEvent>())
         {
             var ev = Events.Post(new NetClientHandshakeEvent(p, missing, extra, refuse) { Reason = reason });

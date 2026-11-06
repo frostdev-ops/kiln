@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: furniture, interactions, shapes, hair and beards as blocks (docs/kiln/modding/world-blocks.md). All on the game's art, with no GUIDs and no base items.
+       blocks/twins.json is the same in data. The side and the clients follow from using Blocks (both, kiln). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>furniture-blocks</KilnModId>
+    <KilnModName>Furniture blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A chest that wants a key, a door that opens only at night, a camp bed to come back to, seats that do something, a wall shape with an arched window, and a haircut.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

@@ -136,6 +136,18 @@ public static unsafe class World
         return true;
     }
 
+    /// <summary>Copies <paramref name="value"/> into the entity's component at <paramref name="offset"/>. False when the entity has no such component or it doesn't fit.
+    /// Layouts depend on the game build, and the game reads these values as its own: know the field.</summary>
+    public static bool TryWrite<T>(EntityId entity, string component, int offset, T value) where T : unmanaged
+    {
+        var t = Tick("World.TryWrite");
+        uint size = 0;
+        var p = entity.IsNone ? null : t->Component(entity.Value, ComponentHash(component), &size);
+        if (p == null || offset < 0 || (uint)offset + (uint)sizeof(T) > size) return false;
+        *(T*)((byte*)p + offset) = value;
+        return true;
+    }
+
     /// <summary>A copy of the entity's component bytes, or null.</summary>
     public static byte[]? ReadBytes(EntityId entity, string component)
     {

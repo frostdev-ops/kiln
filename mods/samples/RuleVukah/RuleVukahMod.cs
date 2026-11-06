@@ -31,8 +31,8 @@ public sealed class RuleVukahMod : Mod
                         Act.Game("PlayActionSequenceAction", ("sequence", Shout), ("waitUntilFinished", false)),
                         Act.Custom(npc =>
                         {
-                            npc.Creature.Command.Heal(3);
                             Log.Info($"rule-vukah: {npc.Entity} rallies at {npc.HealthFraction:P0}, target {npc.Target}");
+                            Combat.Heal(npc.Entity, npc.HealthMax / 4);
                         }),
                     ],
                 },

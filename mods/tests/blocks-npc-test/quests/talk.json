@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "dialogues": {
+    "tobin-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": { "en": "Well met. The road is long and my fire is small." },
+          "options": [ { "text": { "en": "Who are you?" }, "reply": { "en": "Just a wanderer." }, "once": true } ]
+        }
+      }
+    }
+  }
+}

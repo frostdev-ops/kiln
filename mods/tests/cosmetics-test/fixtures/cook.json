@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "tool": "modelcook",
+  "out": "cooked",
+  "steps": [
+    { "op": "worn", "model": "models/plain.gltf", "attach": "Chest", "materials": { "*": "test_cloth" } },
+    { "op": "worn", "model": "models/female.gltf", "attach": "Chest", "materials": { "*": "test_cloth" } },
+    { "op": "worn", "model": "models/shield.gltf", "attach": "Chest", "materials": { "*": "test_cloth" } }
+  ]
+}

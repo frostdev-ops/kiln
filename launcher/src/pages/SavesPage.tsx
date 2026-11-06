@@ -10,7 +10,7 @@ import { Badge, Card, EmptyState, IconButton, Page, PageHeader, Table, errorText
 export default function SavesPage() {
   const { game } = useGame();
   const slots = useQuery({ queryKey: qk.saves(game?.id ?? ""), queryFn: () => api.savesList(game!.id), enabled: !!game });
-  if (!game) return <Page><PageHeader title="Saves" /><EmptyState title="No game" hint="Pick a game on Play." /></Page>;
+  if (!game) return <Page><PageHeader title="Saves" sub="No game yet. Find Enshrouded on Play first." /></Page>;
   const cols: Column<SaveSlot>[] = [
     { key: "file", header: "File", width: "minmax(0, 1.4fr)", render: (s) => <span className="k-mono">{s.file}</span> },
     { key: "kind", header: "Kind", width: "110px", render: (s) => <Badge tone={s.kind === "character" ? "ember" : "idle"}>{s.kind}</Badge> },
@@ -20,7 +20,7 @@ export default function SavesPage() {
   const dir = slots.data?.[0]?.path.replace(/[\\/][^\\/]+$/, "");
   return (
     <Page>
-      <PageHeader title="Saves" sub="Kiln keeps the last backups per game." />
+      <PageHeader title="Saves" sub={`${slots.data?.length ?? 0} save file${slots.data?.length === 1 ? "" : "s"}. Kiln backs them up before a start with different mods and keeps the last ones.`} />
       <Card flush title="Save files" sub={slots.data?.[0]?.steamId ? `Steam user ${slots.data[0].steamId}` : undefined}
         actions={dir && <IconButton label="Open folder" icon={<FolderOpen />} onClick={() => api.appOpenPath(dir).catch((e) => toast.error(e))} />}>
         {slots.error ? <EmptyState title="Saves unavailable" hint={errorText(slots.error)} /> : (

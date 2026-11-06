@@ -7,9 +7,16 @@ namespace Kiln;
 /// <summary>Something <see cref="Blocks.Define{T}"/> takes: a spell, a weapon, a status, an effect.</summary>
 public interface IBlock { }
 
-/// <summary>How a spell reaches what it affects. Today: <see cref="ProjectileBlock"/>.</summary>
+/// <summary>How a spell, an attack or an ability reaches what it affects: <see cref="ProjectileBlock"/>, <see cref="SelfBlock"/>, <see cref="AroundBlock"/>, <see cref="ConeBlock"/>, <see cref="BeamBlock"/>, <see cref="ZoneBlock"/>, <see cref="ChainBlock"/>, <see cref="SummonBlock"/>.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type", UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FailSerialization)]
 [JsonDerivedType(typeof(ProjectileBlock), "projectile")]
+[JsonDerivedType(typeof(SelfBlock), "self")]
+[JsonDerivedType(typeof(AroundBlock), "around")]
+[JsonDerivedType(typeof(ConeBlock), "cone")]
+[JsonDerivedType(typeof(BeamBlock), "beam")]
+[JsonDerivedType(typeof(ZoneBlock), "zone")]
+[JsonDerivedType(typeof(ChainBlock), "chain")]
+[JsonDerivedType(typeof(SummonBlock), "summon")]
 public interface IDeliveryBlock { }
 
 // ---------------------------------------------------------------------------------------------------- effects -----
@@ -70,6 +77,18 @@ public sealed record EffectBlock : IBlock
     /// <summary>A sound at the target or the place, for everyone near it who has Kiln.</summary>
     [ClientsModWhen("^(?![0-9a-fA-F]{8}-)[^:]+$")]
     public SoundRef? Sound { get; init; }
+
+    /// <summary>A full-screen effect for the target, when it is a player, or for the players near the place. It needs <c>Seconds</c>.</summary>
+    public ScreenRef? Screen { get; init; }
+
+    /// <summary>An ability the target casts, as if from code: its costs and cooldown apply, and a cast that is refused does nothing. With <see cref="On"/> = caster: whoever wields, wears or cast.</summary>
+    public AbilityRef? Casts { get; init; }
+
+    /// <summary>What a cast that is refused gives back, and what one that is not takes besides: an item's use.</summary>
+    internal (string Item, int Took, int More)? CastsFrom { get; init; }
+
+    /// <summary>The spell's charges a cast takes besides the one the game takes.</summary>
+    internal (string Item, int Count)? TakesCharges { get; init; }
 }
 
 /// <summary>An area: who is in it is found when it happens.</summary>
@@ -140,8 +159,10 @@ public sealed record StatusBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
-    /// <summary>Seconds it lasts unless whoever applies it says otherwise.</summary>
-    public required double Seconds { get; init; }
+    /// <summary>Seconds it lasts unless whoever applies it says otherwise. Needed unless <see cref="While"/> says when it ends.</summary>
+    public double Seconds { get; init; }
+    /// <summary>A player has it for as long as they are in this state: any of the game's, <c>PlayerStateId.Gliding</c>, in JSON a name such as <c>"Gliding"</c> or <c>"HangGliding"</c>.</summary>
+    public PlayerStateRef? While { get; init; }
     public StatusKind Kind { get; init; } = StatusKind.Debuff;
     /// <summary>What it looks like: its icon and body effect. A premade <see cref="StatusLook"/> today; your own with VfxBlock.</summary>
     public StatusLook Look { get; init; } = StatusLook.Frost;
@@ -157,6 +178,9 @@ public sealed record StatusBlock : IBlock, ITweakable
     /// <summary>A VFX on whoever has it, for as long as they have it. It takes the place of the <see cref="Look"/>'s.</summary>
     [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
+
+    /// <summary>A full-screen effect on the screen of the player who has it, from when it starts until it ends, then by its fade out.</summary>
+    public ScreenRef? Screen { get; init; }
 
     /// <summary>Runs on whoever has it when it starts.</summary>
     public IReadOnlyList<EffectRef>? OnApply { get; init; }
@@ -231,8 +255,12 @@ public sealed record SpellBlock : IBlock, ITweakable
 /// <summary>How a spell is cast.</summary>
 public sealed record CastBlock
 {
-    public required int ManaCost { get; init; }
-    public CastAnimation Animation { get; init; } = CastAnimation.FastBolt;
+    public int ManaCost { get; init; }
+    public int StaminaCost { get; init; }
+    /// <summary>How many a cast takes of the spell's stack, or of an ability's item. 0: none, it is used for ever. Null: 1. An ability with no item has none to take.</summary>
+    public int? Charges { get; init; }
+    /// <summary>The motion. On a spell null is <see cref="CastAnimation.FastBolt"/>; on an ability, none.</summary>
+    public CastAnimation? Animation { get; init; }
     /// <summary>Seconds into the animation the spell leaves the staff (cost, sound and effects move with it). Null: the animation's own.</summary>
     public double? ReleaseAt { get; init; }
     /// <summary>A VFX on the caster's hand, when the animation has its own: it takes that one's place and moment.</summary>
@@ -265,6 +293,8 @@ public sealed record ProjectileBlock : IDeliveryBlock
     public IReadOnlyList<EffectRef>? OnImpact { get; init; }
     /// <summary>What happens to the creature it strikes, if it struck one. A projectile needs this or <see cref="OnImpact"/>.</summary>
     public IReadOnlyList<EffectRef>? OnHit { get; init; }
+    /// <summary>It turns toward what it was aimed at. Null: it flies where it was sent.</summary>
+    public HomingBlock? Homing { get; init; }
     /// <summary>Game fields this block does not cover, set on the template it flies as: <c>Tweak = { { GameFields.Templates.LifeTime.LifeTime, 5 } }</c>. It wins over what the block sets.</summary>
     [JsonConverter(typeof(TemplateTweakConverter))]
     public FieldValues Tweak { get; init; } = new();

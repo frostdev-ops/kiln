@@ -56,9 +56,19 @@ internal static class BlockRuntime
     }
 
     /// <summary>A status with the icon of a game status: the icon is the game's data, read when content is ready.</summary>
-    public static void AddIcon(ModBlocks mod, string buff, string source, string block)
+    public static void AddIcon(ModBlocks mod, string buff, string source, string block) => AddIcon(mod, "buffs", buff, Content.Buffs, source, block);
+
+    /// <summary>A block with the icon of a game entry of the same section.</summary>
+    public static void AddIcon(ModBlocks mod, string section, string entry, GameDataRegistry registry, string source, string block)
     {
-        lock (Gate) mod.Icons.Add((buff, source, block));
+        lock (Gate) mod.Icons.Add((section, entry, registry, source, block));
+        Hook(mod);
+    }
+
+    /// <summary>Something to look at once content is ready: what a block names is known then, and what is wrong with it goes to <paramref name="check"/>'s argument, by name.</summary>
+    public static void AddReady(ModBlocks mod, Action<Action<string>> check)
+    {
+        lock (Gate) mod.ReadyChecks.Add(check);
         Hook(mod);
     }
 
@@ -142,6 +152,13 @@ internal static class BlockRuntime
         }
         FinishLate(mod, Problem);
         FinishVfx(mod, Problem);
+        List<Action<Action<string>>> checks;
+        lock (Gate)
+        {
+            checks = mod.ReadyChecks.ToList();
+            mod.ReadyChecks.Clear();
+        }
+        foreach (var check in checks) check(Problem);
         var doc = new JsonObject { ["format"] = 1 };
         lock (Gate)
         {
@@ -160,23 +177,28 @@ internal static class BlockRuntime
                 ((sec[entry] ??= new JsonObject()).AsObject())[path] = program.ToString();
             }
         }
-        List<(string Buff, string Source, string Block)> icons;
+        List<(string Section, string Entry, GameDataRegistry Registry, string Source, string Block)> icons;
         lock (Gate) icons = mod.Icons.ToList();
-        foreach (var (buff, source, block) in icons)
+        foreach (var (section, entry, registry, source, block) in icons)
         {
-            if (Content.Buffs.Get(source)?.GetJson("icon")?["value"] is not { } icon)
+            if (registry.Get(source)?.GetJson("icon")?["value"] is not { } icon)
             {
-                var text = $"block {block}, icon: the game has no status \"{source}\"";
+                var text = $"block {block}, icon: the game has no {(section == "buffs" ? "status" : "perk")} \"{source}\"";
                 bool known;
                 lock (mod.Errors) known = mod.Errors.Contains(text);
                 if (!known) Problem(text);
                 continue;
             }
-            var sec = (doc["buffs"] ??= new JsonObject()).AsObject();
-            ((sec[buff] ??= new JsonObject()).AsObject())["icon"] = icon.DeepClone();
+            var sec = (doc[section] ??= new JsonObject()).AsObject();
+            ((sec[entry] ??= new JsonObject()).AsObject())["icon"] = icon.DeepClone();
         }
-        var report = BlocksBridge.ApplyAs(mod.Owner, doc.ToJsonString(), $"blocks of {mod.Id}");
-        foreach (var e in report.Errors) Problem(e);
+        // A big document goes in parts: each holds the store lock while it applies, and a game thread that needs the lock (a drop table the
+        // game loads) waits for one part at most.
+        foreach (var part in Parts(doc, 500))
+        {
+            var report = BlocksBridge.ApplyAs(mod.Owner, part.ToJsonString(), $"blocks of {mod.Id}");
+            foreach (var e in report.Errors) Problem(e);
+        }
         // what kiln.content and kiln.gamedata could not take of a definition: a block's author reads it here, by name. An item's reference
         // to a clone is retried every 2 s: look when that has passed.
         BlocksBridge.After(150, () =>
@@ -194,6 +216,31 @@ internal static class BlockRuntime
             WarnRenames(mod, prefix);
         });
         return true;
+    }
+
+    // A rules document in parts of at most `entries` entries, each entry whole (the document's own nodes move into the parts).
+    private static IEnumerable<JsonObject> Parts(JsonObject doc, int entries)
+    {
+        var part = new JsonObject { ["format"] = 1 };
+        int n = 0, made = 0;
+        foreach (var (section, body) in doc.ToList())
+        {
+            if (body is not JsonObject of) continue;
+            foreach (var (entry, rules) in of.ToList())
+            {
+                if (n == entries)
+                {
+                    yield return part;
+                    made++;
+                    part = new JsonObject { ["format"] = 1 };
+                    n = 0;
+                }
+                of.Remove(entry);
+                ((part[section] ??= new JsonObject()).AsObject())[entry] = rules;
+                n++;
+            }
+        }
+        if (n > 0 || made == 0) yield return part;
     }
 
     // A block's ids come from its name, so a rename without Was is a new item, and what the world holds of the old one stays as a placeholder.

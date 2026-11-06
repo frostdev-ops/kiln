@@ -118,11 +118,19 @@ struct PickEntry {
 PickEntry g_pick[kMaxPick];
 std::atomic<uint32_t> g_pick_n{0};
 
+// Targets being held for a creature.
+struct Prefer {
+    KilnOwner owner;
+    KilnEntity target;
+    uint64_t until_ms;
+};
+std::unordered_map<KilnEntity, Prefer> g_prefer;
+
 // AI switch: creatures Kiln turned off, with the owners who want it so.
 std::unordered_map<KilnEntity, std::vector<KilnOwner>> g_ai_off;
 
 // Layout read from the game's reflection at resolve time.
-int64_t g_off_enabled = -1, g_off_behavior_index = -1, g_off_next_target_change = -1;
+int64_t g_off_enabled = -1, g_off_behavior_index = -1, g_off_next_target_change = -1, g_off_target_entity = -1, g_off_target_counter = -1;
 int64_t g_off_phase = -1;
 struct BuffList {
     int64_t first = -1;
@@ -598,6 +606,38 @@ void push_work(uint32_t kind, KilnEntity e, uint32_t id, KilnEntity target) {
     g_work.push_back(KilnRuleWork{kind, e, id, target, g_step});
 }
 
+// enemy_combat_targets switches to its best candidate only once now passes DynamicAggro.nextAllowedTargetChangeTime: with
+// that at "never" it keeps what SelectedTargets holds, and post_enemy_combat_targets fills in where that entity is.
+void hold_target(KilnEntity e, KilnEntity target) {
+    uint32_t na = 0, ns = 0;
+    auto* aggro = static_cast<uint8_t*>(component(e, kAggroDyn, &na));
+    auto* sel = static_cast<uint8_t*>(component(e, H::Targets, &ns));
+    if (!aggro || !sel || static_cast<uint32_t>(g_off_next_target_change) + 8 > na || static_cast<uint32_t>(g_off_target_entity) + 4 > ns) return;
+    const int64_t never = INT64_MAX;
+    seh_write(aggro + g_off_next_target_change, &never, 8);
+    uint32_t cur = 0;
+    seh_read(sel + g_off_target_entity, &cur, 4);
+    if (cur == target) return;
+    seh_write(sel + g_off_target_entity, &target, 4);
+    if (g_off_target_counter >= 0 && static_cast<uint32_t>(g_off_target_counter) + 3 <= ns) {
+        // as the game does on a change
+        uint16_t counter = 0;
+        seh_read(sel + g_off_target_counter, &counter, 2);
+        ++counter;
+        const uint8_t flags = 0;
+        seh_write(sel + g_off_target_counter, &counter, 2);
+        seh_write(sel + g_off_target_counter + 2, &flags, 1);
+    }
+}
+
+void let_target_go(KilnEntity e) {
+    uint32_t n = 0;
+    auto* aggro = static_cast<uint8_t*>(component(e, kAggroDyn, &n));
+    if (!aggro || static_cast<uint32_t>(g_off_next_target_change) + 8 > n) return;
+    const int64_t now = 0;
+    seh_write(aggro + g_off_next_target_change, &now, 8);
+}
+
 void ai_switch_write(KilnEntity e, bool on) {
     if (g_off_enabled < 0) return;
     uint32_t n = 0;
@@ -616,7 +656,7 @@ void rules_resolve() {
     const auto feat = [](const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); };
     int64_t v = 0;
     if (g_api->constant(kstr("creatures/ctx.arsenal"), &v) == KILN_OK) g_ctx_arsenal = v;
-    if (feat("creatures.rules") && g_ctx_arsenal >= 0 && L.ctx_dyn >= 0) {
+    if (feat("creatures.rules") && L.ctx_dyn >= 0) {
         sym("creatures/ConstraintEval", &g_s_constraint);
         sym("creatures/ActionExec", &g_s_action);
     }
@@ -642,6 +682,10 @@ void rules_read_layout() {
     }
     if (type_info("keen::ecs::DynamicAggro", &t, &err) && resolve_path(t, "nextAllowedTargetChangeTime", &f, &err))
         g_off_next_target_change = f.offset;
+    if (type_info("keen::ecs::SelectedTargets", &t, &err)) {
+        if (resolve_path(t, "targets[0].targetEntityId", &f, &err)) g_off_target_entity = f.offset;
+        if (resolve_path(t, "targets[0].changeCounter", &f, &err)) g_off_target_counter = f.offset;
+    }
     if (type_info("keen::ecs::DynamicEnemyPhases", &t, &err) && resolve_path(t, "currentPhase", &f, &err))
         g_off_phase = f.offset;
     if (type_info("keen::ecs::BuffContainer", &t, &err)) {
@@ -786,6 +830,19 @@ void rules_pre_work() {
             default: break;
         }
     }
+    if (!g_prefer.empty()) {
+        const uint64_t now = GetTickCount64();
+        for (auto it = g_prefer.begin(); it != g_prefer.end();) {
+            const bool alive = entity_exists(it->first);
+            if (!alive || now >= it->second.until_ms || !entity_exists(it->second.target)) {
+                if (alive) let_target_go(it->first);
+                it = g_prefer.erase(it);
+                continue;
+            }
+            hold_target(it->first, it->second.target);
+            ++it;
+        }
+    }
     if (g_step % kGoneCheckSteps == 0) {
         for (auto it = g_tracks.begin(); it != g_tracks.end();) {
             if (entity_exists(it->first)) {
@@ -859,6 +916,14 @@ void rules_release_owner(KilnOwner owner) {
     }
     g_pick_n.store(n, std::memory_order_release);
     refresh_override_flag();
+    for (auto it = g_prefer.begin(); it != g_prefer.end();) {
+        if (it->second.owner == owner) {
+            if (entity_exists(it->first)) let_target_go(it->first);
+            it = g_prefer.erase(it);
+        } else {
+            ++it;
+        }
+    }
     for (auto it = g_ai_off.begin(); it != g_ai_off.end();) {
         std::erase(it->second, owner);
         if (it->second.empty()) {
@@ -1088,14 +1153,23 @@ KilnResult KILN_CALL ai_switch_get_api(KilnEntity e, uint32_t* out) {
     return KILN_OK;
 }
 
-KilnResult KILN_CALL target_prefer_api(KilnEntity e) {
+KilnResult KILN_CALL target_prefer_api(KilnOwner owner, KilnEntity e, KilnEntity target, float seconds) {
     if (!on_tick()) return KILN_ERR_WRONG_THREAD;
-    if (g_off_next_target_change < 0) return KILN_ERR_UNAVAILABLE;
-    uint32_t n = 0;
-    auto* d = static_cast<uint8_t*>(component(e, kAggroDyn, &n));
-    if (!d) return entity_exists(e) ? KILN_ERR_UNAVAILABLE : KILN_ERR_NOT_FOUND;
-    const int64_t zero = 0;
-    return seh_write(d + g_off_next_target_change, &zero, 8) ? KILN_OK : KILN_ERR_INTERNAL;
+    if (g_off_next_target_change < 0 || g_off_target_entity < 0) return KILN_ERR_UNAVAILABLE;
+    if (!owner) return KILN_ERR_INVALID_ARGUMENT;
+    if (!target) {
+        auto it = g_prefer.find(e);
+        if (it != g_prefer.end() && it->second.owner == owner) {
+            let_target_go(e);
+            g_prefer.erase(it);
+        }
+        return KILN_OK;
+    }
+    if (!entity_exists(e) || !entity_exists(target)) return KILN_ERR_NOT_FOUND;
+    if (!component(e, kAggroDyn) || !component(e, H::Targets)) return KILN_ERR_UNAVAILABLE;
+    g_prefer[e] = Prefer{owner, target, GetTickCount64() + static_cast<uint64_t>(std::max(seconds, 0.f) * 1000.f)};
+    hold_target(e, target);
+    return KILN_OK;
 }
 
 // BehaviorUpdate(ctx), armed once an arsenal got fewer rules: a creature can still hold the index of a rule that is gone,

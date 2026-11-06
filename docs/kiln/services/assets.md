@@ -147,8 +147,11 @@ never drawn from the model at run time. So a mod that changes a model ships the 
   unsupported format fails with a logged reason.
 - **No save impact**: nothing is written to the game's files or the save; mod resources exist only while the mod runs.
   A removed mod's resources come off; items that referenced only a mod's resources fall back to the vanilla look/name.
-- The content-map rebuild keeps earlier snapshots alive for in-flight readers (a small bounded cost; fine for a
-  session's handful of rebuilds).
+- The merged content map the game is handed, and the per-type key lists it is given, are kept for the session: the game holds on to them.
+  They are made again only when a blob, or a resource of that type, changes.
+- What the hooks read is published as immutable indexes and freed once no reader can hold them (reader counts by epoch). A put adds to a
+  small index of recent resources, and the main one is built again after 64 of them, so a put costs about the same however many resources
+  are served: 3,097 template, sequence and perk clones put one at a time take 0.2 s, and the server stays at 1.3 GB.
 
 ## Tests and labs
 ```sh

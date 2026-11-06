@@ -734,6 +734,26 @@
             "additionalProperties": true
           }
         },
+        "materials": {
+          "type": "array",
+          "description": "The game's materials: what a material block names.",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind", "cell"],
+            "properties": {
+              "name": { "type": "string", "description": "What a mod writes: from the debug name of the item that places it, or Cell<id> when none does." },
+              "guid": { "$ref": "#/$defs/guid" },
+              "kind": { "enum": ["building", "terrain"] },
+              "cell": { "type": "integer", "minimum": 1, "maximum": 255, "description": "The id in a cell." },
+              "displayName": { "type": "string" },
+              "item": { "type": "string", "description": "The item that places it." },
+              "hardness": { "type": "string" },
+              "health": { "type": "integer" },
+              "breaks": { "type": "string" },
+              "roof": { "type": "boolean" }
+            }
+          }
+        },
         "vfx": {
           "type": "array",
           "description": "VfxResource (client only). VFX have no names of their own: name is the template that carries it or the sequence that plays it (byName: VfxId.Game finds it by this name), else a label from what else uses it, else Vfx_<guid8>. id = FNV-1a of the GUID.",

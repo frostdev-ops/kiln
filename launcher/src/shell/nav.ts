@@ -1,34 +1,35 @@
-// Sidebar navigation. Server and admin pages are reached through Servers.
-import { Archive, Flame, Info, Layers, Library, PenTool, Play, ScrollText, Server, Settings, type LucideIcon } from "lucide-react";
+// Header navigation: words only, no icons. Settings and About sit at the right of the header. Server and admin pages
+// are reached through Servers (one grouped list per server: shell/serverNav.ts).
 
 export interface NavItem {
   label: string;
   to: string;
-  icon: LucideIcon;
-  /** Also active on these route prefixes. */
-  match?: string[];
 }
 
 export const NAV_MAIN: NavItem[] = [
-  { label: "Play", to: "/", icon: Play },
-  { label: "Profiles", to: "/profiles", icon: Layers },
-  { label: "Library", to: "/library", icon: Library },
-  { label: "Runtime", to: "/runtime", icon: Flame },
-  { label: "Logs", to: "/logs", icon: ScrollText },
-  { label: "Saves", to: "/saves", icon: Archive },
-  { label: "Editor", to: "/editor", icon: PenTool },
-  { label: "Servers", to: "/servers", icon: Server },
+  { label: "Play", to: "/" },
+  { label: "Profiles", to: "/profiles" },
+  { label: "Library", to: "/library" },
+  { label: "Runtime", to: "/runtime" },
+  { label: "Logs", to: "/logs" },
+  { label: "Saves", to: "/saves" },
+  { label: "Editor", to: "/editor" },
+  { label: "Servers", to: "/servers" },
 ];
 
-export const NAV_FOOT: NavItem[] = [
-  { label: "Settings", to: "/settings", icon: Settings },
-  { label: "About", to: "/about", icon: Info },
+export const NAV_SIDE: NavItem[] = [
+  { label: "Settings", to: "/settings" },
+  { label: "About", to: "/about" },
 ];
 
-/** Top-bar title for a path. */
+/** The nav entry a path belongs to ("/" only for Play itself). */
+export function navFor(path: string): NavItem | null {
+  if (path === "/" || path === "") return NAV_MAIN[0];
+  return [...NAV_MAIN, ...NAV_SIDE].filter((n) => n.to !== "/" && (path === n.to || path.startsWith(n.to + "/")))
+    .sort((a, b) => b.to.length - a.to.length)[0] ?? null;
+}
+
+/** Window title part for a path. */
 export function titleFor(path: string): string {
-  const all = [...NAV_MAIN, ...NAV_FOOT];
-  if (path === "/" || path === "") return "Play";
-  const hit = all.filter((n) => n.to !== "/" && path.startsWith(n.to)).sort((a, b) => b.to.length - a.to.length)[0];
-  return hit?.label ?? "Kiln";
+  return navFor(path)?.label ?? "Kiln";
 }

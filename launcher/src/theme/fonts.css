@@ -1,23 +1,60 @@
-/* Bundled fonts. Variable woff2 subsets (Latin + Latin Extended-A + punctuation) of the OFL
-   releases in google/fonts; licences next to the files in src/assets/fonts/. No web-font URLs. */
+/* Bundled fonts: woff2 subsets (Latin, Latin-1, Latin Extended-A, punctuation, arrows) of the OFL releases in
+   google/fonts; licences next to the files in src/assets/fonts/. No web-font URLs.
+   Grenze Gotisch: weights 600-700 (variable). Inconsolata: width 90, weights 400-600 (variable). */
 @font-face {
-  font-family: "Fraunces";
-  src: url("../assets/fonts/Fraunces-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Grenze Gotisch";
+  src: url("../assets/fonts/GrenzeGotisch-Variable.woff2") format("woff2");
+  font-weight: 600 700;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Inter";
-  src: url("../assets/fonts/Inter-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Alegreya Sans";
+  src: url("../assets/fonts/AlegreyaSans-Regular.woff2") format("woff2");
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "JetBrains Mono";
-  src: url("../assets/fonts/JetBrainsMono-Variable.woff2") format("woff2");
-  font-weight: 100 800;
+  font-family: "Alegreya Sans";
+  src: url("../assets/fonts/AlegreyaSans-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans";
+  src: url("../assets/fonts/AlegreyaSans-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans";
+  src: url("../assets/fonts/AlegreyaSans-Bold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans SC";
+  src: url("../assets/fonts/AlegreyaSansSC-Medium.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans SC";
+  src: url("../assets/fonts/AlegreyaSansSC-Bold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inconsolata";
+  src: url("../assets/fonts/Inconsolata-Variable.woff2") format("woff2");
+  font-weight: 400 600;
+  font-stretch: 90%;
   font-style: normal;
   font-display: swap;
 }

@@ -1,0 +1,12 @@
+{
+  "id": "stations-test",
+  "name": "station and prop blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "StationsTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "advanced": true,
+  "dependencies": { "station-blocks": "*" },
+  "description": "PASS/FAIL lines: stations and props from Kiln.Blocks on a server with no player: the exact cycle, running out, burning fuel, a workshop of its own, what is saved across a restart, C# and JSON the same, the errors a mistake gets, and Build.PlaceProp on a clone. Start it twice."
+}

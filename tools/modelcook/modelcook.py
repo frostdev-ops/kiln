@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""modelcook: glTF 2.0 (rigid or skinned) -> Keen keen::RenderModel resource + renderData blob, served by kiln.assets.
+"""modelcook: glTF 2.0 (rigid, skinned or worn) -> Keen keen::RenderModel resource + renderData blob, served by kiln.assets.
 
     modelcook.py recipe ASSETS/cook.json [--update-manifest] [--check] [--no-dispatch]
                                          run a mod's cook recipe (the normal way); steps of another tool
@@ -9,6 +9,10 @@
                  [--material GUID | --material-map NAME=GUID ...] [--lod LOD1.gltf ...] [--pixel-size F ...] [--skeleton GUID]
     modelcook.py visual --base-template GUID --model GUID --guid GUID --assets DIR [--name NAME] [--stem S]
     modelcook.py validate DIR/cooked/NAME.bin [--blob NAME.blob] [--against GUID] [--gltf IN.gltf]
+    modelcook.py looks MODDIR [--mod ID] [--update-manifest] [--check]
+                                         the looks a mod's blocks/*.json name, for a mod with no assets/cook.json of modelcook's (that recipe cooks them itself)
+    modelcook.py skeleton OUT.glb [--body male|female|none]
+                                         the player's skeleton to weight against, from your own game, with a body to model around: it stays on your machine
 
 A mod ships its sources (glTF, PNG, JSON) and assets/cook.json (format: cook/recipe.py, docs/kiln/modding/models.md),
 never game data: the cook runs on the player's machine against the installed game (read only) and writes
@@ -132,6 +136,38 @@ def cmd_validate(a):
     return 0 if r["ok"] else 1
 
 
+def cmd_looks(a):
+    mod_dir = Path(a.mod_dir)
+    real = mod_dir / "assets" / "cook.json"
+    if real.exists() and recipe.load(real).get("tool", recipe.TOOL) == recipe.TOOL:
+        print(f"{real} cooks the looks: modelcook.py recipe {real}")
+        return 0
+    path, doc = recipe.looks_recipe(mod_dir, a.mod)
+    if not recipe.own_steps(recipe.load(path, doc)):
+        print("no looks")
+        return 0
+    if a.check:
+        need = recipe.needs_cook(path, doc)
+        print("cook needed" if need else "up to date")
+        return 1 if need else 0
+    k, t = _ctx(a)
+    r = recipe.run(path, k, t, exe_sha256=t.dump.get("exe_sha256"), update_manifest=a.update_manifest, given=doc)
+    for s in r["steps"]:
+        print(f"step {s['step']} {s['op']}: {s['guid']} {'ok' if s['ok'] else 'FAILED'}"
+              + ("" if s["ok"] else " " + json.dumps({c: v for c, v in s["checks"].items() if not v})))
+    if r["manifest"]["missing"] or r["manifest"]["mismatched"]:
+        print("assets.json does not match the cooked files (run with --update-manifest)")
+    print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s), report {path.parent / doc['out'] / recipe.LOOKS_REPORT}")
+    return 0 if r["ok"] else 1
+
+
+def cmd_skeleton(a):
+    k, t = _ctx(a)
+    r = steps.player_reference(k, t, Path(a.out), None if a.body == "none" else a.body)
+    print(json.dumps({"file": a.out, **r}, indent=1))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="modelcook.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--game", default=str(DEFAULT_GAME))
@@ -168,9 +204,17 @@ def main(argv=None):
     p.add_argument("--blob")
     p.add_argument("--against")
     p.add_argument("--gltf")
+    p = sub.add_parser("looks")
+    p.add_argument("mod_dir")
+    p.add_argument("--mod", help="the mod's id, when it has no kiln.mod.json in its folder")
+    p.add_argument("--update-manifest", action="store_true")
+    p.add_argument("--check", action="store_true", help="only say whether a cook is needed (no game access)")
+    p = sub.add_parser("skeleton")
+    p.add_argument("out")
+    p.add_argument("--body", choices=("male", "female", "none"), default="male", help="the body to model around, a mesh the cook leaves out (default: male)")
     a = ap.parse_args(argv)
     try:
-        return {"recipe": cmd_recipe, "cook": cmd_cook, "visual": cmd_visual, "validate": cmd_validate}[a.cmd](a)
+        return {"recipe": cmd_recipe, "cook": cmd_cook, "visual": cmd_visual, "validate": cmd_validate, "skeleton": cmd_skeleton, "looks": cmd_looks}[a.cmd](a)
     except (steps.StepError, recipe.RecipeError, steps.RM.CookError, gltf.GltfError, skin.SkinError) as e:
         print(f"modelcook: {e}", file=sys.stderr)
         return 2

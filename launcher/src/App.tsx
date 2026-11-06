@@ -32,6 +32,7 @@ const ServerConfigsPage = lazy(() => import("./pages/servers/ServerConfigsPage")
 const ServerBackupsPage = lazy(() => import("./pages/servers/ServerBackupsPage"));
 const ServerLogsPage = lazy(() => import("./pages/servers/ServerLogsPage"));
 const ServerModpackPage = lazy(() => import("./pages/servers/ServerModpackPage"));
+const ServerTicksPage = lazy(() => import("./pages/servers/ServerTicksPage"));
 const AdminRoutes = lazy(() => import("./admin").then((m) => ({ default: m.AdminRoutes })));
 
 // The save editor is big (its game data): loaded on first visit.
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="configs" element={<ServerConfigsPage />} />
           <Route path="backups" element={<ServerBackupsPage />} />
           <Route path="logs" element={<ServerLogsPage />} />
+          <Route path="ticks" element={<ServerTicksPage />} />
           <Route path="modpack" element={<ServerModpackPage />} />
           <Route path="admin/*" element={<AdminRoutes />} />
         </Route>

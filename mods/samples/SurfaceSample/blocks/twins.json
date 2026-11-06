@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "surfaces": {
+    "moss-json": {
+      "side": { "albedo": "textures/moss-brick.png", "normal": "textures/moss-brick_n.png", "roughness": "textures/moss-brick_r.png", "height": "textures/moss-brick_h.png" },
+      "top": { "albedo": "textures/moss-top.png", "tiling": 2 },
+      "edge": { "game": "StoneAncientMoonstone" },
+      "bevel": 0.2
+    }
+  },
+  "buildingMaterials": {
+    "moss-brick-json": {
+      "name": "Moss Brick", "description": "Soft to the eye, hard on the pick.",
+      "surface": "moss-json",
+      "strength": { "hardness": "hard", "health": 1200, "breaks": "stone" },
+      "recipe": { "makes": 20, "needs": { "Build_TerrainMaterial_T1_Stone": 10, "Material_T1_Plant_Fibre": 2 } }
+    },
+    "rune-stone-json": {
+      "name": "Rune Stone",
+      "surface": { "side": { "game": "StoneRough", "emissive": { "map": "textures/runes.png", "strength": 3 } }, "decoration": "none" },
+      "recipe": { "makes": 10, "needs": { "Build_TerrainMaterial_T1_Stone": 10 } }
+    }
+  },
+  "materialTweaks": {
+    "snowy-logs-json": { "material": "WoodRough", "surface": { "side": { "albedo": "textures/snowy-logs.png" } } }
+  }
+}

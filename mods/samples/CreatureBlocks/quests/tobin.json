@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "dialogues": {
+    "tobin": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": { "en": "Well met, Flameborn. Mind the stonelings: they walk at night.", "de": "Sei gegrüßt, Flammengeborener. Hüte dich vor den Steinlingen: Sie wandern nachts." },
+          "options": [ { "text": { "en": "Stonelings?", "de": "Steinlinge?" }, "reply": { "en": "Rubble that learned to hate. Hit them hard, and early.", "de": "Geröll, das hassen gelernt hat. Schlag früh und fest zu." }, "once": true } ]
+        }
+      }
+    }
+  }
+}

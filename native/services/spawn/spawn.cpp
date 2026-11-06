@@ -227,6 +227,12 @@ size_t load_templates() {
     return n;
 }
 
+// Templates registered at run time (kiln.gamedata clones) reach the engine's list after the catalog last read it. Reading it
+// costs some milliseconds, so a name that is nothing doesn't read it every time.
+void refresh_templates() {
+    if (on_tick() && game::world_ready() && now_s() - g_templates_at > 5) load_templates();
+}
+
 // ---- spawn core ----
 struct Resolved {
     Guid guid;
@@ -244,8 +250,8 @@ KilnResult resolve_template(const KilnGuid* gp, KilnStr name, uint32_t flags, Re
         }
         if (catalog::engine_loaded()) {
             // templates registered at run time (kiln.gamedata clones) reach the engine's map later: re-read it
-            if (!catalog::engine_has(out->guid) && on_tick() && game::world_ready() && now_s() - g_templates_at > 5) {
-                load_templates();
+            if (!catalog::engine_has(out->guid)) {
+                refresh_templates();
                 if (catalog::get(out->guid, &e)) {
                     out->name = e.name;
                     out->kind = e.kind;
@@ -259,7 +265,7 @@ KilnResult resolve_template(const KilnGuid* gp, KilnStr name, uint32_t flags, Re
     }
     if (!catalog::find(sv(name), &e)) {
         // Names the shipped catalog lacks may be loaded by the engine since the last read.
-        if (on_tick() && game::world_ready() && now_s() - g_templates_at > 5) load_templates();
+        refresh_templates();
         if (!catalog::find(sv(name), &e)) return KILN_ERR_NOT_FOUND;
     }
     if (catalog::engine_loaded() && !catalog::engine_has(e.guid)) return KILN_ERR_NOT_FOUND;
@@ -787,7 +793,10 @@ void fill_template(const catalog::Entry& e, KilnTemplateInfo* out) {
 KilnResult KILN_CALL t_template_find(KilnStr name, KilnTemplateInfo* out) {
     if (!out || out->size < sizeof(KilnTemplateInfo)) return KILN_ERR_INVALID_ARGUMENT;
     catalog::Entry e;
-    if (!catalog::find(sv(name), &e)) return KILN_ERR_NOT_FOUND;
+    if (!catalog::find(sv(name), &e)) {
+        refresh_templates();
+        if (!catalog::find(sv(name), &e)) return KILN_ERR_NOT_FOUND;
+    }
     fill_template(e, out);
     return KILN_OK;
 }
@@ -797,7 +806,10 @@ KilnResult KILN_CALL t_template_get(const KilnGuid* guid, KilnTemplateInfo* out)
     Guid g;
     std::memcpy(g.b, guid->b, 16);
     catalog::Entry e;
-    if (!catalog::get(g, &e)) return KILN_ERR_NOT_FOUND;
+    if (!catalog::get(g, &e)) {
+        refresh_templates();
+        if (!catalog::get(g, &e)) return KILN_ERR_NOT_FOUND;
+    }
     fill_template(e, out);
     return KILN_OK;
 }

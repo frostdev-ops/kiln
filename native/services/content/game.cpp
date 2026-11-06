@@ -315,6 +315,7 @@ void near_alloc_boot() {
 }
 
 void* near_alloc(uintptr_t target, size_t n) {
+    PhaseTimer pt(PH_NEAR_ALLOC);
     n = (n + 15) & ~size_t(15);
     std::lock_guard lock(g_alloc_mu);
     // Free address space near a resource can be scarce: under Wine the low 4 GB are nearly full. So a target uses the nearest chunk with room, or, when that is far off, a new

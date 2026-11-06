@@ -25,7 +25,6 @@ internal static partial class Compiler
         WandBlock w => DefineWand(ctx, low, name, w),
         ArmorBlock a => DefineArmor(ctx, low, name, a),
         ItemBlock i => DefineItem(ctx, low, name, i),
-        StationBlock s => DefineStation(ctx, low, name, s),
         VisualBlock v => Part(ctx, low, name, v, CheckVisual),
         OnHitBlock h => Part(ctx, low, name, h, CheckHits),
         WeaponStats s => Part(ctx, low, name, s, CheckWeaponStats),
@@ -33,7 +32,9 @@ internal static partial class Compiler
         WeaponClass c => Part(ctx, low, name, c, (x, b) => ClassOf(x, b, "like")),
         ArmorSlot c => Part(ctx, low, name, c, (x, b) => SlotOf(x, b, "like")),
         ArmorSet s => Part(ctx, low, name, s, null),
-        _ => null,
+        WornLook l => Part(ctx, low, name, l, CheckWorn),
+        CosmeticBlock c => DefineCosmetic(ctx, low, name, c),
+        _ => DefineWorldBlock(ctx, low, name, block),
     };
 
     // A part has no resource of its own: it is checked where it was written, and compiled where it is used.
@@ -63,18 +64,20 @@ internal static partial class Compiler
         /// only in the starter's list must not leave a value behind for it.</summary>
         public JsonArray? Rows;
         public string? Model, Icon;
+        /// <summary>A worn item's models for what the character wears and is: the game's <c>equipment.visualModels</c>.</summary>
+        public List<(uint Mask, string Model)>? VisualModels;
         public string?[]? Perks;
         public ItemLoot? Loot;
         public List<ItemDrop>? Drops;
         public bool Rolled;
         public IReadOnlyDictionary<string, ItemTexts>? Texts;
 
-        public void Commit(string displayName, string? description)
+        public void Commit(string displayName, string? description, string? source = null)
         {
             Low.Item(new ItemDefinition
             {
-                Guid = Guid, Name = Game, BaseOn = Starter, DisplayName = displayName, Description = description, Fields = Fields, Refs = Refs,
-                Model = Model, Icon = Icon, Perks = Perks, Loot = Loot, Drops = Drops, RolledLoot = Rolled, Texts = Texts,
+                Guid = Guid, Name = Game, BaseOn = Starter, DisplayName = displayName, Description = description ?? "", Source = source, Fields = Fields, Refs = Refs,
+                Model = Model, Icon = Icon, Perks = Perks, Loot = Loot, Drops = Drops, RolledLoot = Rolled, Texts = Texts, VisualModels = VisualModels,
             });
             var parts = new JsonObject();
             if (Model != null) parts["model"] = Model;
@@ -143,7 +146,8 @@ internal static partial class Compiler
                     slots[i] = v;
                     any = true;
                 }
-                else d.DataRules[$"perkReferences[{i}]"] = v;   // a perk by name resolves when content is ready, a clone's too
+                // a perk by name resolves when content is ready, a clone's too
+                else d.DataRules[$"perkReferences[{i}]"] = d.Ctx.Find(v, $"{path}[{i}]") is BlockHandle<PerkBlock> block ? block.GameName : v;
             }
         }
         var top = (int)rarity;
@@ -152,7 +156,16 @@ internal static partial class Compiler
         for (var i = starterSlots; i <= top; i++)
         {
             var mine = perks != null && i < perks.Count && perks[i].Value is { Length: > 0 } v && v != "none";
-            if (mine) continue;
+            if (mine)
+            {
+                // named when content is ready: until then the class's perk holds the slot, or the item would be registered with a gap at its rarity
+                if (perksFrom != null && d.DataRules.ContainsKey($"perkReferences[{i}]"))
+                {
+                    slots[i] = "item:" + perksFrom;
+                    any = true;
+                }
+                continue;
+            }
             if (perksFrom == null)
                 throw new BlockError(d.Ctx.Block, rarityPath, $"{rarity} needs {top + 1} enhancement slots and this has {starterSlots}: name a perk for slot {i} in perks, or lower the rarity");
             slots[i] = "item:" + perksFrom;
@@ -259,21 +272,8 @@ internal static partial class Compiler
 
     private static void DefineRecipe(BlockContext ctx, Lowered low, string key, string item, RecipeBlock r)
     {
-        if (r.Makes is < 1 or > 65535) throw new BlockError(ctx.Block, "recipe.makes", $"{r.Makes} is outside 1..65535");
-        if (r.Needs.Count == 0) throw new BlockError(ctx.Block, "recipe.needs", "a recipe that needs nothing is not listed by the game");
-        if (r.Seconds is <= 0) throw new BlockError(ctx.Block, "recipe.seconds", $"{r.Seconds} must be more than 0");
-        var inputs = new List<RecipeIngredient>();
-        foreach (var (what, count) in r.Needs)
-        {
-            if (count < 1) throw new BlockError(ctx.Block, $"recipe.needs[{what}]", $"{count} is less than 1");
-            inputs.Add(new RecipeIngredient(ctx.ItemName(what, $"recipe.needs[{what}]"), count));
-        }
-        var (_, station) = ctx.Station(r.Station, "recipe.station");
-        low.Recipe(new RecipeDefinition
-        {
-            Guid = BlockIds.Derive(ctx.Mod.Id, "recipe", key), Name = item + ".recipe", Station = station, Inputs = inputs,
-            Outputs = [new RecipeIngredient(item, r.Makes)], Duration = r.Seconds is { } d ? TimeSpan.FromSeconds(d) : null,
-        });
+        if (r.Output != null) throw new BlockError(ctx.Block, "recipe.output", "this recipe makes this block: output is for a station's list of recipes");
+        LowerRecipe(ctx, low, key, item + ".recipe", item, r, "recipe", null, false, r.Sheltered);
     }
 
     // ---- weapons ------------------------------------------------------------------------------------------------
@@ -326,7 +326,7 @@ internal static partial class Compiler
         var stats = w.Stats != null ? ctx.Part(w.Stats, "stats") : cls.Stats != null ? ctx.Part(cls.Stats, "class.stats") : new WeaponStats();
         var power = stats.Power ?? (stats.Damage != null ? (int)Math.Round(stats.Damage.Total) : null);
         WeaponFields(d, cls, stats, w.Perks, w.Visual, w.Loot, w.Recipe, stats.Damage, power);
-        d.Commit(w.Name, w.Description);
+        d.Commit(w.Name, w.Description, w.Source);
         Hosted(ctx, low, key, d.Guid, d.Game, ctx.Hits(w.OnHit, "onHit"), ctx.Hits(w.OnKill, "onKill"), []);
         if (w.Recipe != null) DefineRecipe(ctx, low, key, d.Game, w.Recipe);
         return new BlockHandle<WeaponBlock>(ctx.Mod.Id, name, d.Guid, d.Game, w);
@@ -369,7 +369,7 @@ internal static partial class Compiler
         if (first.Emitter.FirstRadius is { } r) rows.Add(Row(RowRadius, "Float", (int)Math.Round(r * 100)));
         if (first.Emitter.FirstStatusSeconds is { } secs) rows.Add(Row(RowDebuffDuration, "Duration", (int)Math.Round(secs * 1000)));
         d.Rows = rows;
-        d.Commit(w.Name, w.Description);
+        d.Commit(w.Name, w.Description, w.Source);
         Hosted(ctx, low, key, d.Guid, d.Game, ctx.Hits(w.OnHit, "onHit"), ctx.Hits(w.OnKill, "onKill"), []);
         if (w.Recipe != null) DefineRecipe(ctx, low, key, d.Game, w.Recipe);
         return new BlockHandle<WandBlock>(mod, name, d.Guid, d.Game, w);
@@ -383,7 +383,9 @@ internal static partial class Compiler
         var moves = a.Moves ?? motion;
         if (a.Cast.ManaCost < 0) throw new BlockError(ctx.Block, $"{slot}.cast.manaCost", $"{a.Cast.ManaCost} is less than 0");
         if (a.Cast.ReleaseAt is <= 0) throw new BlockError(ctx.Block, $"{slot}.cast.releaseAt", $"{a.Cast.ReleaseAt} must be more than 0");
-        if (a.Cast.Animation != CastAnimation.FastBolt) throw new BlockError(ctx.Block, $"{slot}.cast.animation", "that is a staff's: a wand's motion is its attack's moves");
+        if (a.Cast.Charges != null) throw new BlockError(ctx.Block, $"{slot}.cast.charges", "a wand has no charges: its attacks are its own");
+        if (a.Cast.StaminaCost < 0) throw new BlockError(ctx.Block, $"{slot}.cast.staminaCost", $"{a.Cast.StaminaCost} is less than 0");
+        if (a.Cast.Animation is { } animation && animation != CastAnimation.FastBolt) throw new BlockError(ctx.Block, $"{slot}.cast.animation", "that is a staff's: a wand's motion is its attack's moves");
         var lowered = LowerDelivery(ctx, low, $"{key}.{slot}", $"{name}.{slot}", a.Delivery, $"{slot}.delivery", primary: main);
         var seqName = $"{mod}.{name}.{slot}";
         // The attack's VFX takes the place of the motion's first VFX event, at its time.
@@ -401,6 +403,7 @@ internal static partial class Compiler
         }
         foreach (var i in moves.Silenced) rules[$"events[SpawnEntityEvent#{i}].chance"] = 0;
         if (a.Cast.ManaCost > 0) rules["events[PayUsageCost#0].impactValues.0xaf236ece"] = a.Cast.ManaCost;
+        if (a.Cast.StaminaCost > 0) rules["events[PayUsageCost#0].impactValues.0x727d7f78"] = a.Cast.StaminaCost;
         // Last, and all of the motion's shots, the silenced too, so that they keep their order: a time change re-sorts the events, and [Type#k] counts in the current order,
         // also where a client applies them. Moved later, the last goes first and each move leaves the earlier ones where they are; moved earlier, the other way round.
         if (a.Cast.ReleaseAt is { } at)
@@ -463,16 +466,15 @@ internal static partial class Compiler
         }
         d.Rows = rows;
         PerkSlots(d, a.Perks, stats.Rarity, 5, null, "perks", "stats.rarity");
-        var look = a.Visual ?? slot.Visual ?? SetLook(ctx, a.Set, slot);
-        ApplyVisual(d, look, "visual");
+        ArmorLooks(d, a, slot);
         ApplyLoot(d, a.Loot);
-        d.Commit(a.Name, a.Description);
+        d.Commit(a.Name, a.Description, a.Source);
         Hosted(ctx, low, key, d.Guid, d.Game, [], [], ctx.Hits(a.OnHitTaken, "onHitTaken"));
         if (a.Recipe != null) DefineRecipe(ctx, low, key, d.Game, a.Recipe);
         return new BlockHandle<ArmorBlock>(ctx.Mod.Id, name, d.Guid, d.Game, a);
     }
 
-    private static PartRef<VisualBlock>? SetLook(BlockContext ctx, PartRef<ArmorSet>? set, ArmorSlot slot)
+    private static ArmorLook? SetLook(BlockContext ctx, PartRef<ArmorSet>? set, ArmorSlot slot)
     {
         if (set == null) return null;
         var s = ctx.Part(set, "set");
@@ -495,6 +497,8 @@ internal static partial class Compiler
         Only(b.Heals != null, "heals", ItemKind.Consumable, ItemKind.Food);
         Only(b.OnUse != null, "onUse", ItemKind.Consumable, ItemKind.Food);
         Only(b.Feeds != null, "feeds", ItemKind.Food);
+        Only(b.OnEat != null, "onEat", ItemKind.Consumable, ItemKind.Food);
+        Only(b.CanEat != null, "canEat", ItemKind.Consumable, ItemKind.Food);
         Only(b.Fuel != null, "fuel", ItemKind.Material);
         Only(b.Comfort != null, "comfort", ItemKind.Material);
         Only(b.Tool != null, "tool", ItemKind.Tool);
@@ -630,28 +634,10 @@ internal static partial class Compiler
             d.Rules["sequences[0].sequence"] = sequence;
         }
 
-        d.Commit(b.Name, b.Description);
+        d.Commit(b.Name, b.Description, b.Source);
+        PlayerTriggers.DefineForItem(ctx, low, key, d.Game, b);
         if (b.Recipe != null) DefineRecipe(ctx, low, key, d.Game, b.Recipe);
         return new BlockHandle<ItemBlock>(mod, name, d.Guid, d.Game, b);
-    }
-
-    // ---- stations -----------------------------------------------------------------------------------------------
-
-    private static BlockHandle DefineStation(BlockContext ctx, Lowered low, string name, StationBlock s)
-    {
-        RequireName(ctx, s.Name, "a station");
-        var key = s.Was ?? name;
-        var mod = ctx.Mod.Id;
-        var d = new Draft(ctx, low, key, name, s.Kind.Item);
-        // What is placed: a template of its own, with the kind's workshop. Its menu is that workshop's (a menu of its own needs a workshop the game's menu lists; docs/kiln/modding/item-blocks.md).
-        var template = BlockIds.Derive(mod, "template", $"{key}.station");
-        low.Clone("templates", template, $"{mod}.{name}.station", s.Kind.Template, new JsonObject());
-        d.Refs["equipment.placedEntity"] = template.ToString();
-        ApplyVisual(d, s.Visual, "visual");
-        ApplyLoot(d, s.Loot);
-        d.Commit(s.Name, s.Description);
-        if (s.Recipe != null) DefineRecipe(ctx, low, key, d.Game, s.Recipe);
-        return new BlockHandle<StationBlock>(mod, name, d.Guid, d.Game, s);
     }
 
     // ---- what follows the wielder ----------------------------------------------------------------------------------

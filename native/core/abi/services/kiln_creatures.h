@@ -399,8 +399,10 @@ typedef struct KilnCreaturesApi {
     KilnResult(KILN_CALL* ai_switch)(KilnOwner owner, KilnEntity entity, uint32_t enabled);
     /* 1 when the AI runs, 0 when it is off. Tick. */
     KilnResult(KILN_CALL* ai_switch_get)(KilnEntity entity, uint32_t* out_enabled);
-    /* Makes `target` the creature's next combat target: clears the target-change wait. The threat goes through `command`. Tick. */
-    KilnResult(KILN_CALL* target_prefer)(KilnEntity entity);
+    /* Holds `target` as the creature's combat target for `seconds`: the game keeps a target while its next allowed change
+     * lies ahead, and Kiln re-asserts both every Pre. target 0 lets go. Send a threat through `command` too, so that the AI
+     * stays in Combat. Released with `owner`. Tick. */
+    KilnResult(KILN_CALL* target_prefer)(KilnOwner owner, KilnEntity entity, KilnEntity target, float seconds);
 } KilnCreaturesApi;
 
 #ifdef __cplusplus

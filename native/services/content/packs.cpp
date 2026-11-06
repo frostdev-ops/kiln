@@ -835,7 +835,10 @@ PacksReport apply_all_packs(const std::vector<PackFile>& files) {
         const std::string text = read_file(upath(p.path), &ok);
         t_pack_dir = p.dir;
         if (!ok) r.errors.push_back("cannot read the file");
-        else apply_pack(it->second, base, text, p.rel, &r);
+        else {
+            PhaseTimer ft(PH_PACK_FILE);
+            apply_pack(it->second, base, text, p.rel, &r);
+        }
         t_pack_dir.clear();
         rep.files.emplace_back(p.rel, std::move(r));
     }
@@ -1118,6 +1121,7 @@ json list_json(const std::vector<KilnContentStack>& st, bool inputs) {
 }  // namespace
 
 std::string export_changes_json(uint32_t kinds, uint32_t* fields) {
+    PhaseTimer pt(PH_EXPORT);
     if (!kinds) kinds = (1u << KILN_CONTENT_ITEMS) | (1u << KILN_CONTENT_RECIPES);
     std::lock_guard lock(store_mutex());
     std::map<std::pair<uint32_t, uint32_t>, json> bodies;  // (kind, id) -> fields; ordered: the same state gives the same text

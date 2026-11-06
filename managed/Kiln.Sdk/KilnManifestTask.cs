@@ -27,7 +27,7 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
     public string ClientsFallback { get; set; } = "";
     /// <summary>The built assembly: what its blocks ask of players' games is in its metadata (written at compile time).</summary>
     public string AssemblyPath { get; set; } = "";
-    /// <summary>The mod's blocks/ folder: a new VFX in a data file asks for <c>mod</c>, as one in code does.</summary>
+    /// <summary>The mod's blocks/ folder: what its data files ask of players' games (<see cref="DataClients"/>; the other data folders are beside it).</summary>
     public string BlocksDirectory { get; set; } = "";
     public string Authors { get; set; } = "";
     public string Description { get; set; } = "";
@@ -118,51 +118,16 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
         return null;
     }
 
-    // What the data files ask for: a "vfx" section, or a "vfx" field that names a new VFX. The rest of what they can ask for is kiln lint's (docs/kiln/modding/lint.md).
-    private string? ClientsOfBlocks()
+    // What the mod's data files ask for (DataClients): blocks/*.json beside the project, and the other data folders there.
+    private string? ClientsOfData()
     {
-        if (BlocksDirectory.Length == 0 || !Directory.Exists(BlocksDirectory)) return null;
-        foreach (var file in Directory.GetFiles(BlocksDirectory, "*.json"))
-        {
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file), new System.Text.Json.JsonDocumentOptions { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true });
-                if (AsksForMod(doc.RootElement, top: true)) return "mod";
-            }
-            catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
-            {
-                Log.LogMessage(MessageImportance.Low, $"kiln.mod.json: cannot read {file}: {e.Message}");
-            }
-        }
-        return null;
-    }
-
-    private static bool AsksForMod(System.Text.Json.JsonElement e, bool top)
-    {
-        if (e.ValueKind == System.Text.Json.JsonValueKind.Array) return e.EnumerateArray().Any(x => AsksForMod(x, false));
-        if (e.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
-        foreach (var p in e.EnumerateObject())
-        {
-            if (p.Name != "vfx")
-            {
-                if (AsksForMod(p.Value, false)) return true;
-                continue;
-            }
-            if (top) return p.Value.ValueKind == System.Text.Json.JsonValueKind.Object && p.Value.EnumerateObject().Any();
-            var name = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString()
-                : p.Value.ValueKind == System.Text.Json.JsonValueKind.Object && p.Value.TryGetProperty("name", out var n) ? n.GetString() : null;
-            if (name != null && !name.StartsWith("game:", StringComparison.Ordinal) && !Guid.TryParse(name, out _)) return true;
-        }
-        return false;
+        if (BlocksDirectory.Length == 0) return null;
+        var dir = Path.GetDirectoryName(Path.GetFullPath(BlocksDirectory.TrimEnd('/', '\\')));
+        return dir == null ? null : DataClients.OfFolder(dir, text => Log.LogMessage(MessageImportance.Low, $"kiln.mod.json: {text}"));
     }
 
     // The higher of what the code and the data files ask for.
-    private string? ClientsNeeded()
-    {
-        var code = ClientsOfAssembly();
-        var data = ClientsOfBlocks();
-        return data ?? code;
-    }
+    private string? ClientsNeeded() => DataClients.Max(ClientsOfAssembly(), ClientsOfData());
 
     private static List<string> List(string value) =>
         value.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();

@@ -2,7 +2,7 @@
 // spec from the backend: factors, switches, choices, minutes stored as nanoseconds), user groups and
 // bans. Edits go to server_settings_set, which validates them and refuses while the server runs.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
@@ -78,7 +78,7 @@ export default function ServerSettingsPage() {
         <span className="k-hint k-mono">{q.data?.path}</span>
         <div className="k-row" style={{ gap: 8 }}>
           <Button variant="ghost" disabled={!dirty} onClick={() => setEdit({})}>Discard</Button>
-          <Button icon={<Save size={16} />} variant="primary" disabled={!dirty || running} loading={saving} onClick={save}>Save</Button>
+          <Button variant={dirty ? "primary" : "secondary"} disabled={!dirty || running} loading={saving} onClick={save}>Save</Button>
         </div>
       </div>
       <Card title="General">

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of cosmetic blocks with mods/samples/CosmeticSample. Player-free. Its models are the sample's under other names, put together where it is built, so its recipe is cooked
+       there: tools/modelcook/modelcook.py recipe, on output/assets/cook.json, with its update-manifest option. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Combat/Kiln.Combat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Client/Kiln.Client.csproj" Private="false" ExcludeAssets="runtime" />
+    <Compile Remove="LowClients/**" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="fixtures/cook.json" Link="assets/cook.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="blocks/**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The sample's models under other names: this mod has models of its own to cook. -->
+    <None Include="../../samples/CosmeticSample/models/frost-hood.gltf" Link="models/plain.gltf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../samples/CosmeticSample/models/frost-hood.gltf" Link="models/female.gltf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../samples/CosmeticSample/models/frost-hood.gltf" Link="models/shield.gltf" CopyToOutputDirectory="PreserveNewest" />
+    <!-- On purpose not in blocks/ in the repository: these are wrong, and the repository's mods must pass the schemas. -->
+    <None Include="fixtures/broken.json" Link="blocks/broken.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Names the models above, which only exist where the mod is built. -->
+    <None Include="fixtures/armor.json" Link="blocks/armor.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

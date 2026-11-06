@@ -1,14 +1,14 @@
 // Game art: the save editor's art, the items of Kiln mods, and the admin map's relief, all made from
-// the user's own game (app_assets_import(kind, null), kiln_manage::gameart) without any button. <GameArtAuto/> (top
-// bar) checks the status every 15 s and when the window gets focus, and runs the work in the background when:
+// the user's own game (app_assets_import(kind, null), kiln_manage::gameart) without any button. <GameArtAuto/> (the
+// shell) checks the status every 15 s and when the window gets focus, and runs the work in the background when:
 // the art is missing, the installed game's build changed, or the mods changed (active profile, library, kiln/mods,
-// the game's kiln/state/content-definitions.json). While it runs: a small progress pill. Errors: a toast (once per
+// the game's kiln/state/content-definitions.json). While it runs: the header's task tray. Errors: a toast (once per
 // state) and <data>/logs/launcher.log. Docs: docs/kiln/launcher/gameart.md.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import * as api from "../api/commands";
 import type { AssetsStatus, KilnError, Task } from "../api/commands";
-import { StatusPill, runTask, toast, useTasks } from "../ui";
+import { runTask, toast, useTasks } from "../ui";
 
 export const ASSETS_KEY = ["app_assets_status"] as const;
 export type ArtKind = "editor" | "admin";
@@ -50,12 +50,7 @@ export function artWork(st: AssetsStatus, kind: ArtKind): string | null {
   return !a.map || a.current === false ? `admin|${a.gameBuild ?? ""}` : null;
 }
 
-export function ArtProgress({ task }: { task: Task }) {
-  const pct = task.progress !== null && task.progress !== undefined ? ` ${Math.round(task.progress * 100)}%` : "";
-  return <StatusPill tone="ember" pulse title={task.message ?? undefined}>{`Preparing game art${pct}`}</StatusPill>;
-}
-
-/** Mount once (top bar): runs the game-art work on its own and shows a pill while it runs. */
+/** Mount once (the shell does): runs the game-art work on its own; the task shows in the header's task tray. */
 export function GameArtAuto() {
   const qc = useQueryClient();
   const { data: st } = useAssetsStatus();
@@ -83,6 +78,5 @@ export function GameArtAuto() {
         qc.invalidateQueries({ queryKey: ASSETS_KEY });
       });
   }, [st, editorTask, adminTask, qc]);
-  const task = editorTask ?? adminTask;
-  return task ? <ArtProgress task={task} /> : null;
+  return null;
 }

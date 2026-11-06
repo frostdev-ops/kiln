@@ -10,6 +10,10 @@
     <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Creature and NPC blocks lower onto this service's own registries (Npc/NpcCompiler.cs in Kiln.Blocks). -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />

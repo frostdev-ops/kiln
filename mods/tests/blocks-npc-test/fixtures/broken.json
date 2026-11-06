@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "comment": "Wrong on purpose: each block is refused with its name and field, and none becomes anything. Linked into blocks/ by the project only, so the cook and the schema checks of the repository don't read it.",
+  "animations": {
+    "ghost-moves": { "clips": "models/stoneling.glb", "skeleton": "ghost", "idle": "Idle", "walk": "Walk", "run": "Run" },
+    "no-idle": { "clips": "models/stoneling.glb", "walk": "Walk" }
+  },
+  "creatures": {
+    "bad-plays": { "body": "stone-body", "animation": "stone-moves", "behaviour": { "attacks": [ { "plays": "slam2", "onHit": [ { "damage": { "blunt": 5 } } ] } ] } },
+    "bad-mixed": { "body": "vukah", "animation": "stone-moves" },
+    "bad-moves": { "body": "stone-body", "animation": "still-moves" },
+    "bad-keeps": { "body": "stone-body", "animation": "stone-moves", "behaviour": "vukah-melee" },
+    "bad-skeleton": { "body": "stone-body", "animation": "ghost-moves" },
+    "bad-uncooked": { "body": { "model": "models/stoneling.glb", "skeleton": "ghost" }, "animation": "ghost-moves" },
+    "bad-phase": { "body": "vukah", "behaviour": { "like": "vukah-melee", "phases": [ "calm" ], "rules": [ { "do": [ { "setPhase": "angry" } ] } ] } },
+    "bad-empty-attack": { "body": "stone-body", "animation": "stone-moves", "behaviour": { "attacks": [ { "plays": "slam" } ] } },
+    "bad-spawn": { "body": "vukah", "spawns": [ { "replaces": "Enemy_No_Such_Creature" } ] },
+    "bad-level": { "body": "vukah", "stats": { "level": 99 } }
+  },
+  "npcs": {
+    "bad-npc-body": { "name": "Nobody", "body": "stone-body" }
+  }
+}

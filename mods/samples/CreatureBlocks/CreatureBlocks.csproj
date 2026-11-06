@@ -1,0 +1,18 @@
+<Project>
+  <!-- Sample: creatures and an NPC from building blocks (docs/kiln/modding/npc-blocks.md). The stoneling is entirely the mod's: a script writes its
+       glTF (make-creature.py), the cook makes its skeleton, clips, graph and model, and blocks give it a mind. A Vukah gets a rule of its own, and a
+       wanderer trades. No GUIDs, no game data. The clients follow from the blocks: mod (a body of its own, an NPC). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>creature-blocks</KilnModId>
+    <KilnModName>Stonelings (creature blocks sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A creature made of its own files, a Vukah that rallies, a stone sentinel driven by C#, and Tobin, who trades a little.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Creatures;Quests</KilnServices>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="models/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

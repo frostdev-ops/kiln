@@ -16,15 +16,16 @@ Clear space: ¼ of the mark's height. Minimum: mark 16 px, lockup 96 px wide. No
 ## Colour
 | | |
 |---|---|
-| Charcoal | `#0f0d0c` `#171413` `#1f1b19` `#2a2421` |
-| Text | `#f4ece6` `#cdbfb5` `#94857a` |
-| Ember | `#ff6a1a` (primary) `#ff8540` `#e5530a` `#b83f05` |
+| Soot | `#080504` `#110c09` `#1a120e` `#251a14`, well `#0a0705` |
+| Text | `#f5e9db` `#dccbba` `#ab9682` |
+| Ember | `#ff6a1a` (primary) `#ff8f45` `#e5530a` `#b83f05` |
 | Gold | `#f9c74f` |
+| State | `#8fd6b4` `#8cbbe3` `#f9c74f` `#ff7d66` |
 
-Text on ember or gold is `#0f0d0c`. Full set: `palette.json`.
+Text on ember or gold is `#170803`. Full set: `palette.json`.
 
 ## Type
-Fraunces (display), Inter (UI), JetBrains Mono (code). All OFL.
+Grenze Gotisch (names), Alegreya Sans and Alegreya Sans SC (UI, labels), Inconsolata (data). All OFL.
 
 ## Voice
 Plain, specific, calm.

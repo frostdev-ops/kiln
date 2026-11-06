@@ -255,7 +255,8 @@ fn tool_cmd(repo: &Path, tool: &str) -> Option<(PathBuf, &'static str)> {
 fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
     let recipes = p.recipes();
     let mut results = Vec::new();
-    if recipes.is_empty() {
+    let looks = wants_looks(p);
+    if recipes.is_empty() && !looks {
         if !auto {
             out::say(json, "no cook recipes (*/cook.json) in this project");
         }
@@ -326,5 +327,66 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         all_ok &= ok;
         results.push(json!({"recipe": r, "tool": tool, "ok": ok, "cooked": true}));
     }
+    if looks {
+        let (ok, entry) = cook_looks(p, check, game.as_deref(), json, auto, &repo, &py)?;
+        all_ok &= ok;
+        results.extend(entry);
+    }
     Ok(json!({"ok": all_ok, "recipes": results}))
+}
+
+/// Whether the project's blocks/*.json may hold looks with files the player's game needs cooked: a blocks folder and no assets/cook.json of modelcook's, which cooks them itself.
+fn wants_looks(p: &Project) -> bool {
+    if !p.dir.join("blocks").is_dir() {
+        return false;
+    }
+    let recipe = p.dir.join("assets/cook.json");
+    let tool = std::fs::read_to_string(&recipe).ok().and_then(|t| crate::project::jsonc(&t).ok()).map(|d| d["tool"].as_str().unwrap_or("modelcook").to_string());
+    tool.as_deref() != Some("modelcook")
+}
+
+/// The looks of blocks/*.json, cooked with no recipe of the mod's own (`modelcook.py looks`). Nothing when there are none.
+fn cook_looks(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool, repo: &Path, py: &str) -> Result<(bool, Option<Value>)> {
+    let script = repo.join("tools/modelcook/modelcook.py");
+    let where_ = p.dir.join("blocks");
+    let probe = Command::new(py).arg(&script).arg("looks").arg(&p.dir).arg("--check").output();
+    let Ok(probe) = probe else { return Ok((true, None)) };
+    let said = String::from_utf8_lossy(&probe.stdout);
+    if said.contains("no looks") {
+        if !auto && p.recipes().is_empty() {
+            out::say(json, "no cook recipes (*/cook.json) in this project, and no looks with files in blocks/*.json");
+        }
+        return Ok((true, None));
+    }
+    let needed = !probe.status.success();
+    if check {
+        out::say(json, format!("{} (looks): {}", where_.display(), if needed { "cook needed" } else { "up to date" }));
+        return Ok((!needed, Some(json!({"recipe": where_, "tool": "modelcook", "needed": needed}))));
+    }
+    if !needed {
+        if !auto {
+            out::say(json, format!("{} (looks): up to date", where_.display()));
+        }
+        return Ok((true, Some(json!({"recipe": where_, "tool": "modelcook", "ok": true, "cooked": false}))));
+    }
+    let Some(game) = game else {
+        let msg = format!("{} (looks): the cook reads your installed game; none found (--game or KILN_GAME)", where_.display());
+        if auto {
+            out::say(json, format!("kiln: warning: {msg}"));
+            return Ok((false, Some(json!({"recipe": where_, "tool": "modelcook", "ok": false, "skipped": msg}))));
+        }
+        return Err(CliError::new("not_found", msg).into());
+    };
+    let mut cmd = Command::new(py);
+    cmd.arg(&script).arg("--game").arg(game).arg("looks").arg(&p.dir).arg("--update-manifest");
+    // a model's GUID follows from the mod's id: a project whose kiln.mod.json is made by the build says it in KilnModId
+    if !p.dir.join("kiln.mod.json").is_file() && matches!(p.kind, Kind::Dotnet) {
+        let id = p.property("KilnModId")?;
+        if !id.is_empty() {
+            cmd.arg("--mod").arg(id);
+        }
+    }
+    out::say(json, format!("kiln: cooking the looks of {}", where_.display()));
+    let ok = tools::run_passthrough(&mut cmd, json)?.success();
+    Ok((ok, Some(json!({"recipe": where_, "tool": "modelcook", "ok": ok, "cooked": true}))))
 }

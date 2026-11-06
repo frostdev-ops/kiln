@@ -21,6 +21,7 @@
 // Evidence and the consumers of each field: docs/re/content.md section 8.
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,6 +29,7 @@
 #include "refs.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_spawn.h"
+#include "services/kiln_worldtables.h"
 
 namespace kc {
 
@@ -56,6 +58,7 @@ bool zero16(const uint8_t* p) {
 
 struct Pools {
     uint64_t key = 0;  // which item list they were built from
+    std::unordered_set<uintptr_t> seen;  // the items read into them
     std::unordered_map<std::string, std::unordered_set<G, GH>> by_type;
     std::unordered_map<G, uint32_t, GH> perk_id;  // perk GUID -> perk id, as the game data pairs them
     uint32_t perk_slots = 0, perk_fnv = 0;        // slots with a perk; of those, id == FNV-1a(GUID)
@@ -70,10 +73,12 @@ uint64_t list_key(const std::vector<uintptr_t>& items) {
     return k;
 }
 
+// Built from the first list and grown by the items each later list adds: registering many items asks again after each one. An item
+// that left the list (a redefinition's old clone, still valid memory) keeps its GUIDs in them; a world reset starts over.
 const Pools& pools(const Schema& s, const std::vector<uintptr_t>& items) {
     const uint64_t key = list_key(items);
     if (g_pools.key == key && key) return g_pools;
-    Pools p;
+    Pools& p = g_pools;
     p.key = key;
     std::vector<const Field*> refs;
     for (const Field& f : s.fields)
@@ -88,7 +93,7 @@ const Pools& pools(const Schema& s, const std::vector<uintptr_t>& items) {
     uint8_t buf[2088 + 64];
     const size_t n = std::min<size_t>(s.size, sizeof buf);
     for (uintptr_t a : items) {
-        if (!a || !rd(a, buf, n)) continue;
+        if (!a || !p.seen.insert(a).second || !rd(a, buf, n)) continue;
         for (const Field* f : refs)
             if (f->offset + 16 <= n && !zero16(buf + f->offset)) p.by_type[f->type_name].insert(gof(buf + f->offset));
         if (oid) p.item_guids.insert(gof(buf + oid->offset));
@@ -101,7 +106,6 @@ const Pools& pools(const Schema& s, const std::vector<uintptr_t>& items) {
             p.perk_id.emplace(gof(buf + pr[i]->offset), id);
         }
     }
-    g_pools = std::move(p);
     return g_pools;
 }
 
@@ -133,6 +137,7 @@ bool asset_served(const std::string& ref_type, const uint8_t g[16]) {
     if (!a || a->header.size < offsetof(KilnAssetsApi, resource_read) + sizeof(a->resource_read) || !a->resource_read) return false;
     uint32_t type = 0;
     if (ref_type == "keen::ObjectReference<keen::Model>") type = 0x177394c7u;  // FNV-1a("keen::RenderModel")
+    else if (ref_type == "keen::ObjectReference<keen::VoxelObjectDefinition>") type = 0xe53afbafu;  // a shape's preview: keen::VoxelModelResource
     else if (ref_type == "keen::ecs::TemplateReference") type = 0x39768775u;   // FNV-1a("keen::ecs::TemplateResource")
     else if (ref_type == "keen::PerkReference") type = 0x6084515au;            // FNV-1a("keen::Perk"): kiln.gamedata's perk clones
     else if (ref_type.rfind("keen::ObjectReference<", 0) == 0 && ref_type.size() > 23)
@@ -144,6 +149,12 @@ bool asset_served(const std::string& ref_type, const uint8_t g[16]) {
     size_t n = 0;
     const KilnResult r = a->resource_read(&k, nullptr, 0, &n);
     return r == KILN_OK || r == KILN_ERR_BUFFER_TOO_SMALL;
+}
+
+// A building material a mod made: its GUID is in kiln.worldtables' merged tables, and has no resource of its own.
+bool world_material(const uint8_t g[16]) {
+    const auto* t = static_cast<const KilnWorldTablesApi*>(g_api->service(KilnStr{KILN_WORLDTABLES_SERVICE, std::strlen(KILN_WORLDTABLES_SERVICE)}, KILN_WORLDTABLES_VERSION));
+    return t && t->header.size >= sizeof(KilnWorldTablesApi) && t->material_id(g) >= 0;
 }
 
 std::string type_short(const std::string& t) {
@@ -205,6 +216,7 @@ bool resolve(const Schema& s, const Field& f, const std::string& spec, const Ite
     if (auto it = p.by_type.find(f.type_name); it != p.by_type.end() && it->second.count(g)) return true;
     if (f.type_name == "keen::ecs::TemplateReference" && template_loaded(out)) return true;
     if (asset_served(f.type_name, out)) return true;
+    if (f.path == "equipment.voxelData.placeVoxelMaterial" && world_material(out)) return true;
     *why = f.path + ": " + spec + " is not a " + type_short(f.type_name) + " the game has loaded (no loaded item uses it" +
            (f.type_name == "keen::ecs::TemplateReference" ? ", it is not a loaded template" : "") +
            ", and no mod serves it through kiln.assets)";
@@ -242,6 +254,8 @@ struct Alias {
     const char* key;
     const char* path;  // the reference a GUID value sets (bundles copy more from item:<name>)
 };
+constexpr size_t kEquipmentModelSize = 20;
+
 const Alias kAliases[] = {
     {"model", "equipment.equipmentEntityModelSetup.model"},
     {"visual", "equipment.visualEntity"},
@@ -273,6 +287,56 @@ void one_ref(const Schema& s, const Field& f, const json& v, const ItemFind& fin
         return;
     }
     put(out, &f, g);
+}
+
+// "visualModels": [ { "mask": <keen::BlendShapeMask>, "model": <reference> } ]: a list of its own for the item's per-body models (keen::EquipmentModel, 20 bytes). The same list on the same item is
+// built once: a retry of the item's references comes here again.
+void visual_models(const Schema& s, const json& v, const ItemFind& find, const Pools& p, KitbashOut* out, uintptr_t self) {
+    const auto header = s.special.find("equipment.visualModels");
+    const Field* model = s.find("equipment.visualModel");
+    if (header == s.special.end() || !model) {
+        out->problems.push_back("visualModels: this build's ItemInfo has no equipment.visualModels");
+        return;
+    }
+    if (!v.is_array() || v.size() > 64) {
+        out->problems.push_back("visualModels: a list of up to 64 { \"mask\", \"model\" }");
+        return;
+    }
+    std::vector<uint8_t> rows(v.size() * kEquipmentModelSize);
+    for (size_t i = 0; i < v.size(); ++i) {
+        const json& e = v[i];
+        if (!e.is_object() || !e.contains("mask") || !e["mask"].is_number_unsigned() || !e.contains("model") || !e["model"].is_string()) {
+            out->problems.push_back("visualModels[" + std::to_string(i) + "]: { \"mask\": a number, \"model\": a reference }");
+            return;
+        }
+        uint8_t g[16];
+        std::string why;
+        if (!resolve(s, *model, e["model"].get<std::string>(), find, p, g, nullptr, nullptr, &why)) {
+            out->problems.push_back("visualModels[" + std::to_string(i) + "]: " + why);
+            return;
+        }
+        const uint32_t mask = e["mask"].get<uint32_t>();
+        std::memcpy(rows.data() + i * kEquipmentModelSize, &mask, 4);
+        std::memcpy(rows.data() + i * kEquipmentModelSize + 4, g, 16);
+    }
+    BlobWrite b;
+    b.path = "equipment.visualModels";
+    b.offset = header->second;
+    b.count = static_cast<uint32_t>(v.size());
+    if (!rows.empty() && self) {
+        static std::map<std::pair<uintptr_t, std::string>, void*> built;
+        void*& mem = built[{self, v.dump()}];
+        if (!mem) {
+            mem = near_alloc(self + header->second, rows.size());
+            if (mem) std::memcpy(mem, rows.data(), rows.size());
+        }
+        if (!mem) {
+            out->problems.push_back("visualModels: no memory near the item");
+            return;
+        }
+        b.data = reinterpret_cast<uintptr_t>(mem);
+    }
+    out->blobs.push_back(b);
 }
 
 void perks(const Schema& s, const json& v, const ItemFind& find, const Pools& p, KitbashOut* out) {
@@ -339,7 +403,7 @@ void perks(const Schema& s, const json& v, const ItemFind& find, const Pools& p,
 }  // namespace
 
 bool is_kitbash_key(const Schema& s, const std::string& key) {
-    if (key == "icon" || key == "perks" || key == "refs" || alias_path(key)) return true;
+    if (key == "icon" || key == "perks" || key == "refs" || key == "visualModels" || alias_path(key)) return true;
     const Field* f = s.find(key);
     return f && f->ref;
 }
@@ -368,6 +432,7 @@ void kitbash(const Schema& s, const std::string& key, const json& value, const I
         return;
     }
     if (key == "perks") return perks(s, value, find, p, out);
+    if (key == "visualModels") return visual_models(s, value, find, p, out, self);
     const std::string spec = str(value);
     if (key == "model" || key == "icon") {
         if (spec.rfind("item:", 0) == 0) {  // bundle

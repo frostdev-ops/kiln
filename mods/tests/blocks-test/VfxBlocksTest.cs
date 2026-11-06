@@ -349,7 +349,9 @@ public sealed partial class BlocksTestMod
         await Abilities.ApplyBuff(withParameters, relayed.Guid, source: caster);
         await Steps(12);
         Check(_vfxCues.Count == 1, $"a VFX with parameters signals the server, once: {_vfxCues.Count}");
-        Check(_spawnsSeen.Count == 0, "and spawns no carrier");
+        // only this status's program: other mods' tests spawn things in the same world
+        var ownProgram = BlockIds.Fnv(Content.Buffs.Get(relayed.GameName)!.Get("impact").Guid);
+        Check(_spawnsSeen.Count(x => x.Impact.ProgramId == ownProgram) == 0, "and spawns no carrier");
         Info($"the relay sent {Vfx.Status().RelaySent - sent} message(s) (nobody may be listening here)");
         Commands.Register("blockstest", ctx =>
         {

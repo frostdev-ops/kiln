@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: cosmetic blocks (docs/kiln/modding/cosmetics.md). make_models.py wrote models/; `kiln cook` finds the looks in blocks/ and makes what the game reads from them, on your own machine. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>cosmetic-sample</KilnModId>
+    <KilnModName>Cosmetic blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A hood and a cape for the vanity slots, on models made by a script.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+    <KilnClients>mod</KilnClients>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "comment": "The game's 4 m door wall drawn as cells: its table entry and its preview have to be the game's own bytes. And a small roof shape.",
+  "blueprints": {
+    "door-wall": {
+      "name": "Test Door Wall",
+      "cells": [ ["##....##"], ["##....##"], ["##....##"], ["##....##"], ["##....##"], ["########"], ["########"], ["########"] ],
+      "recipe": { "makes": 1, "needs": { "Material_T1_Twigs": 1 } }
+    },
+    "ridge": {
+      "name": "Test Ridge",
+      "roof": true,
+      "cells": [ ["####", "####"], [".##.", ".##."] ]
+    }
+  }
+}

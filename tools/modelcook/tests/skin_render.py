@@ -56,8 +56,8 @@ def shade(tris, palette, yaw_deg, box):
     return img
 
 
-def triangles_of(desc, blob, hier, world, lod=0):
-    posed = D.cooked_posed(desc, blob, hier, world, lod)
+def triangles_of(desc, blob, hier, world, lod=0, shapes=None):
+    posed = D.cooked_posed(desc, blob, hier, world, lod, shapes)
     m = mesh.RenderModel(guid="", desc=desc, data=blob)
     lo = desc["lods"][lod]
     out = []

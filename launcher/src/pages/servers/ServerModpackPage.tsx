@@ -2,7 +2,7 @@
 // clients: "mod", by kdh1), a deterministic zip of them, and the URL players download it from (written into
 // network.json; a running server re-reads it at once). Hosting the zip is up to the admin.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
@@ -57,7 +57,7 @@ export default function ServerModpackPage() {
         <div className="k-row" style={{ gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <Field label="Name"><TextInput value={name} placeholder={built?.manifest.name ?? "Ember Isles"} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Version"><TextInput value={version} onChange={(e) => setVersion(e.target.value)} /></Field>
-          <Button icon={<Package size={16} />} variant="primary" disabled={!name.trim() || !version.trim() || !q.data?.required.length} loading={busy === "build"} onClick={build}>Build</Button>
+          <Button disabled={!name.trim() || !version.trim() || !q.data?.required.length} loading={busy === "build"} onClick={build}>Build</Button>
         </div>
         {built && (
           <div style={{ marginTop: 12 }}>

@@ -955,6 +955,8 @@ uint32_t ref_target(const std::string& type_name) {
             if (target == "keen::ImpactDefinition") target = "keen::ImpactProgram";  // a program reference: the program's GUID
             if (target == "keen::actor::ActorSequence") target = "keen::actor::ActorSequenceResource";
             if (target == "keen::ecs::Template") target = "keen::ecs::TemplateResource";  // a template reference: a loaded template or a clone
+            if (target == "keen::Model") target = "keen::RenderModel";  // cooked under the editor type's GUID, as a sound below
+            if (target == "keen::SoundContainer") target = "keen::SoundContainerResource";
             return fnv1a(target);
         }
         if (t->kind != K_TYPEDEF) break;
@@ -1022,14 +1024,27 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
             return true;
         }
         if (!(s.size() == 36 && guid_parse(s, g))) {
-            // names: templates, sequences, perks, items ("item:<name>")
+            // names: templates, sequences, perks, items ("item:<name>"), what an item has in a field ("item:<name>.<path>")
             if (s.rfind("item:", 0) == 0) {
-                const Entry* it = reg(KILN_CONTENT_ITEMS).lookup(s.substr(5));
+                const Registry& I = reg(KILN_CONTENT_ITEMS);
+                const Entry* it = I.lookup(s.substr(5));
+                const Field* from = nullptr;
+                for (size_t dot = s.find('.', 5); !it && dot != std::string::npos; dot = s.find('.', dot + 1)) {
+                    from = I.schema.find(s.substr(dot + 1));
+                    if (from && from->bytes == 16) it = I.lookup(s.substr(5, dot - 5));
+                }
                 if (!it) {
                     *err = "unknown item " + s.substr(5);
                     return false;
                 }
-                std::memcpy(g, it->guid, 16);
+                if (from) {
+                    if (!rd(it->addr + from->offset, g, 16)) {
+                        *err = s + " is not readable";
+                        return false;
+                    }
+                } else {
+                    std::memcpy(g, it->guid, 16);
+                }
             } else {
                 for (uint32_t sec : {KILN_GD_TEMPLATES, KILN_GD_SEQUENCES, KILN_GD_PERKS})
                     if (!named) named = greg(sec).lookup(s);
@@ -1045,9 +1060,16 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
             // A StateId is only hashed, it is never a resource: any GUID is valid, so blocks can invent new states.
             // A dedicated server loads no UI images and nothing on it reads them: a reference to one cannot be checked there, and needs not be.
             static const bool server = GetModuleHandleA("enshrouded_server.exe") != nullptr;
-            const bool ok = f.type_name == "keen::ObjectReference<keen::animationgraph::StateId>" ||
-                            (server && f.type_name == "keen::ObjectReference<keen::UiImage>") ||
+            static const uint32_t kSound = fnv1a(std::string("keen::SoundContainerResource")), kModel = fnv1a(std::string("keen::RenderModel"));  // nor sounds or models: it carries the GUID for its clients
+            // an animation graph is referenced by its tool type and loaded as its runtime form, under the same GUID
+            static const uint32_t kToolGraph = fnv1a(std::string("keen::anim_graph::tool_graph::AnimationGraph2_0")),
+                                  kGraph = fnv1a(std::string("keen::anim_graph::runtime_graph::AnimationGraphResource2_0"));
+            // A loca tag is only hashed to its id, and the UI shows an empty string for a tag no table has (client LocaRecord): any GUID is safe, and a
+            // clone's own texts answer theirs.
+            const bool ok = f.type_name == "keen::ObjectReference<keen::animationgraph::StateId>" || f.type_name == "keen::ObjectReference<keen::LocaTag>" ||
+                            (server && (f.type_name == "keen::ObjectReference<keen::UiImage>" || target == kSound || target == kModel)) ||
                             res_data(g, target) != 0 ||
+                            (target == kToolGraph && res_data(g, kGraph) != 0) ||
                             (target == fnv1a(std::string("keen::ecs::TemplateResource")) && greg(KILN_GD_TEMPLATES).get(fnv1a(g, 16)));
             if (!ok) {
                 *err = guid_text(g) + " is not a loaded " + f.type_name;

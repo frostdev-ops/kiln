@@ -31,9 +31,10 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
       "recipe": { "makes": 10, "needs": { "Material_T1_Twigs": 2 } } } } }
 ```
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
-stations: [item-blocks.md](item-blocks.md).
+stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
+AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md).
 
-A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`.
+A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named.
 
 ## Effects
 An effect is what happens. It has no resource of its own: it becomes statements in the program of whatever triggers it, so the same effect works on a spell, a weapon or a status.
@@ -46,11 +47,13 @@ An effect is what happens. It has no resource of its own: it becomes statements 
 | `Spawns` | Spawns a `GameTemplates` constant or a template's GUID there, as a child of what spawned it, at its level and faction |
 | `Vfx` | A VFX there: see [VFX](#vfx) |
 | `Sound` | A sound there, for everyone near who has Kiln: a cue of this mod (needs `clients: mod`), `"other-mod:name"`, or a cue's GUID |
+| `Screen` | A full-screen effect for the target when it is a player, or for players near the place: [screen-effects.md](screen-effects.md) |
 | `Damage`, `Knockback`, `Flinch` | A hit. `Damage.Ice(40) + Damage.Fire(10)` |
 | `Heal`, `Restores` | `Restore.Mana(20) + Restore.Stamina(10)`. Less than 0 takes it away. A target without that attribute gets nothing: most creatures have no mana |
 | `Removes` | Statuses taken off: blocks by name, or `GameBuffs` constants |
 | `Applies` | A status put on: a block, or a `GameBuffs` constant. `new StatusApply { Status = chilled, Seconds = 4 }` to set the time |
 | `Then` | More effects, after this one, at the same target or place |
+| `Casts` | An ability the target casts, as from code: its costs and cooldown apply. `new EffectBlock { On = EffectOn.Caster, Casts = "flame-step" }` on a perk's hit casts it for the one who hit |
 
 The parts run in that order. Where there is no target, such as the place a projectile stopped, only an area, a spawn, a VFX, a sound and what is `On` the caster can happen: the block says so when it compiles.
 
@@ -62,13 +65,18 @@ The parts run in that order. Where there is no target, such as the place a proje
 | `StatusBlock.OnApply`, `OnTick`, `OnExpire` | Who has the status |
 | `WeaponBlock.OnHit`, `OnKill` | What was hit or killed |
 | `ArmorBlock.OnHitTaken` | Who dealt the hit |
+| `PerkBlock.OnHit`, `OnKill`, `OnHitTaken`; the same on a `TalentBlock` | As on a weapon |
+| A delivery's `Effects` | Each one it reaches; `SelfBlock`: the caster |
+| `AbilityBlock.OnCast`, `TalentBlock.OnStart`, `ItemBlock.OnEat`, `TriggerBlock.Do`, `OnEnd` | The caster, who has the talent, who ate, the player |
 
 A hit an effect deals is skipped by these triggers, so an effect cannot trigger itself.
 
 **Damage numbers.** On a spell, the first `Damage` is its main hit: `Damage.Ice(40)` is the number in the tooltip, and the staff's power adds to it in a cast, as the game does. `Flat = true` makes it exactly the number written. Everything else is exactly the number written. The target's armour and the attacker's stats apply after, as for every hit.
 
 ## Statuses
-A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect), `Refreshes`, the three triggers above, `TickEvery`, and:
+A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and body effect), `Refreshes`, the three triggers above, `TickEvery`, `Screen` (a [screen effect](screen-effects.md) on its player while it lasts), and:
+
+`While` puts it on a player for as long as they are in a state, and takes it off after: `While = PlayerStateId.Gliding`, in JSON `"while": "Gliding"`. It needs no `Seconds`. Any of the game's states works: [player-states.md](player-states.md).
 
 `Modifies` changes stats for as long as it runs, and takes them back after. `Modifies = { [Stat.MoveSpeed] = -0.5, [Stat.Strength] = 5, [Stat.ResistIce] = 0.25 }`.
 
@@ -81,9 +89,67 @@ A buff or debuff in the game's buff bar. `Seconds`, `Kind`, `Look` (its icon and
 JSON keys are kebab case: `"move-speed"`. `new Stat("my-key", guid, Whole: true)` names any other attribute; in JSON, a GUID key is taken as a share.
 
 ## Spells
-`Cast` (`ManaCost`, `Animation`, `ReleaseAt`), `Delivery`, `OnCast`, `Level`, `MaxCharges`, `Recipe`. A cast takes the mana and one charge from the stack. The tooltip's rows follow from the spell: mana, charge time, the first status's time, the first area's radius.
+`Cast` (`ManaCost`, `StaminaCost`, `Charges`, `Animation`, `ReleaseAt`), `Delivery`, `OnCast`, `Level`, `MaxCharges`, `Recipe`. A cast takes its costs and `Charges` from the stack: 1 by default, 0 for a spell that is never used up. The tooltip's rows follow from the spell: mana, stamina, charge time, the first status's time, the first area's radius.
 
-`ProjectileBlock`: `Speed`, `Gravity`, `Range`, `Look` (hand, projectile and impact visuals), `OnImpact`, `OnHit`. It needs one of the two.
+## Deliveries
+How a spell, a wand's attack or an ability gets there. A spell's staff and a wand place it at the hand, an ability at the caster, facing where they aim.
+
+| Delivery | Reaches | JSON `type` |
+|---|---|---|
+| `ProjectileBlock` | `Speed`, `Gravity`, `Range`, `Look`, `OnImpact` where it stops, `OnHit` on what it strikes, `Homing` | `projectile` |
+| `SelfBlock` | The caster | `self` |
+| `AroundBlock` | Everyone within `Radius` of the caster | `around` |
+| `ConeBlock` | Everyone within `Range`, inside `Angle` degrees of the aim | `cone` |
+| `BeamBlock` | Everyone along a line, `Range` long and `Width` wide. With `Seconds` it keeps hitting every `TickEvery`, turning with the caster | `beam` |
+| `ZoneBlock` | Everyone within `Radius` of a place `Ahead` of the caster, every `TickEvery`, for `Seconds` | `zone` |
+| `ChainBlock` | The first within `Range` and `Angle`, then `Jumps` more, each within `JumpRange` of the last, never one twice | `chain` |
+| `SummonBlock` | `Count` of a `GameTemplates` template in front of the caster, as its children; with `Seconds` they are taken away | `summon` |
+
+All but the projectile find who they reach by a query, as an area does: through walls, with or without a player near. `Affects` picks enemies or friends. `Vfx` shows where it happens. `Homing` (`TurnSpeed`, `SeekRange`, `Delay`) is the game's own homing projectile: it turns toward the enemy an ability aimed at, or what it finds along its aim.
+
+## Abilities
+Cast on a key, a chat command, an item, or from code with `Abilities.Cast(caster, "<mod>:<name>")`:
+```csharp
+Blocks.Define("flame-step", new AbilityBlock
+{
+    Name = "Flame Step", Key = "G", Command = "step",
+    Cast = new CastBlock { ManaCost = 20, StaminaCost = 10 }, Cooldown = 8,
+    Delivery = new ConeBlock { Range = 8, Angle = 60, Effects = [new EffectBlock { Damage = Damage.Fire(30) }] },
+});
+```
+`Aim` is `Forward` or `NearestEnemy` (none in `Range`: no cast). `SpecialCost` costs the special-ability bar. Without `Cast.Animation` nothing plays and the delivery leaves at once, or after `ReleaseAt`; with one, the caster plays it and its event sends the delivery. `Item` makes an item that casts it when used: `Cast.Charges` is how many a cast takes, 0 keeps it, and a refused cast gives back what it took. A `Key` needs `clients: mod`; a chat command works on any client.
+
+## Perks
+An enhancement in an item's `Perks`. The game's rule applies: it runs while the item is worn or in hand, once a player has unlocked that enhancement at an upgrade. A weapon's `OnHit` is the same with no unlock.
+```csharp
+var edge = Blocks.Define("frost-edge-perk", new PerkBlock { Name = "Frost Edge", Value = "5%", OnHit = [new EffectBlock { Chance = 0.05, Applies = chilled }] });
+Blocks.Define("glacier", new WeaponBlock { Name = "Glacier", Class = WeaponClass.Sword, Perks = [edge] });
+```
+`Modifies`, `OnHit`, `OnKill`, `OnHitTaken`. `Value` is the number in front of its name in the tooltip (`"5%"`, `"12"`, `"2.5"`, `"8s"`); left out, it is what one `Modifies` entry or one on-hit effect's `Chance` says. `Icon` takes a game perk's icon.
+
+## Talents
+A `TalentBlock` is a node: in a tree of its own, or in the game's tree with `Game`. `Cost` per level, `MaxLevel`, `Requires`, `Modifies` (per level), `OnHit`, `OnKill`, `OnHitTaken`, `Keeps` a status, `OnStart`, and `Unlocks` an ability only those with it can cast.
+```csharp
+Blocks.Define("ember-arts", new TalentTreeBlock
+{
+    Name = "Ember Arts", Key = "K",
+    Nodes =
+    {
+        ["kindle"] = new TalentBlock { Name = "Kindle", MaxLevel = 3, Modifies = { [Stat.Intelligence] = 1 } },
+        ["step"] = new TalentBlock { Name = "Flame Step", Requires = ["kindle"], Cost = 2, Unlocks = "flame-step" },
+    },
+});
+Blocks.Define("ember-ward", new TalentBlock { Name = "Ember Ward", MaxLevel = 3, Modifies = { [Stat.Strength] = 1 }, Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, -40] } });
+```
+A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`.
+
+## What players do
+Any of the game's player states and actions ([player-states.md](player-states.md)) can drive effects:
+```csharp
+Blocks.Define("rest", new TriggerBlock { On = PlayerStateId.Sitting, Do = [new EffectBlock { Restores = Restore.Mana(5) }], Cooldown = 10 });
+Blocks.Define("no-mushrooms-in-bed", new TriggerBlock { On = PlayerStateRef.Eating, Item = GameItems.Food_T1_raw_mushroom_Mushroom_brown, When = [PlayerStateId.Sleeping], Stop = true });
+```
+`On` is a state entered, an action started, `Eating` (a consumable started) or `Eaten` (it has really gone). In JSON a name: Kiln's (`"Gliding"`) or the game's (`"HangGliding"`). `Item`, `When`, `Unless`, `If` (code), `Cooldown`, `Do`, `OnEnd` when a state is left, and `Stop` to stop an action or a meal. A consumable says the same of itself: `OnEat` once it has gone, `CanEat` (`When`, `Unless`, `OnRefused`) before. Refused, the item stays and gives nothing; one the game uses up in its first moment (`Consumable_Scroll_Fog_Meteor_Shower`) cannot be refused, and a rule on it is an error. Triggers run on the server world. Nothing is watched until a mod has one.
 
 ## Game things, by name
 `GameBuffs` constants are ids, `GameTemplates` constants are names. Only the running game knows what they stand for, so a program naming one is finished when content is ready. A name that is nothing is a load error by block and field, and `kiln lint` says so first if a catalog is there.
@@ -155,12 +221,12 @@ The build works it out from the blocks, the lowest level that works. `KilnClient
 
 | The mod's blocks contain | `clients` |
 |---|---|
-| Effects only | `none` |
-| New items, spells, statuses | `kiln`: Kiln clients get the definitions from the server. Vanilla clients cannot join |
-| A cue, a PNG icon, a model or a VFX of the mod's own | `mod`: every player needs the mod. Kiln clients without it are refused |
+| Effects only, triggers | `none` |
+| New items, spells, statuses, perks, abilities | `kiln`: Kiln clients get the definitions from the server. Vanilla clients cannot join |
+| A cue, a PNG icon, a model or a VFX of the mod's own, a key, talents | `mod`: every player needs the mod. Kiln clients without it are refused |
 | A game VFX by name, on any of these | No more than the block needs |
 
-A compiled block type says its level with `[BlockClients]`, and a field that can name the mod's own files with `[ClientsModWhen]`. A code mod gets the level from a generator at compile time. The build also reads `blocks/*.json` for new VFX. For the rest a mod with blocks only in data files gets `kiln`, and `kiln lint` checks.
+An ability that only acts on its caster works with `none` too: say so with `KilnClients`. A compiled block type says its level with `[BlockClients]`, and a field that can name the mod's own files with `[ClientsModWhen]`. A code mod gets the level from a generator at compile time. The build also reads the mod's data files (`blocks/*.json`, and the `skills`, `quests`, `content` and `assets` folders) and takes the higher of the two. In a data file, talents, a talent tree, an NPC, a building material, a blueprint, a new VFX or material, an ability's key, or a field that names the mod's own file (a cue, a PNG icon, a model, an NPC's body or clips) asks `mod`; a new item, spell, status or perk, an ability that places something, or a game VFX by name asks `kiln`. Data files that ask no more than `none` still get `kiln` in a mod with `Blocks`: say `none` with `KilnClients`. `kiln lint` checks what a manifest says.
 
 ## Going below a block
 A block doesn't cover every game field. `Tweak` sets the rest on what it made, and wins over what the block sets ([typed-fields.md](typed-fields.md)):

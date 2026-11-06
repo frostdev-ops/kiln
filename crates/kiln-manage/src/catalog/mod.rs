@@ -37,13 +37,13 @@ pub const FORMAT: u32 = 1;
 pub const KIND: &str = "kiln.catalog";
 /// What gets extracted and how. Bump it when a section or field rule changes, so existing catalogs read as outdated
 /// and `build_default` remakes them.
-pub const RECIPE: u32 = 4; // 2: graphs. 3: template fields, configs, field kinds. 4: vfx
+pub const RECIPE: u32 = 5; // 2: graphs. 3: template fields, configs, field kinds. 4: vfx. 5: materials
 /// The sides, in lookup order for `side: None`.
 pub const SIDES: [&str; 2] = ["client", "server"];
 /// Every section name the format defines (all optional in a file).
-pub const SECTIONS: [&str; 18] = [
+pub const SECTIONS: [&str; 19] = [
     "items", "recipes", "loot", "drops", "templates", "arsenals", "graphs", "sequences", "buffs", "perks", "skills", "configs", "workshops",
-    "itemCategories", "resources", "sounds", "vfx", "loca",
+    "itemCategories", "resources", "sounds", "vfx", "materials", "loca",
 ];
 
 /// The game build a catalog was made from.

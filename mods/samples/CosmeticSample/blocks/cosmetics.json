@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "materials": {
+    "wander_wool": { "kind": "cloth", "tint": "#6b2e1f" }
+  },
+  // A look of its own: other blocks name it, this mod's or another's.
+  "wornLooks": {
+    "sample-look": { "model": "models/frost-hood.gltf", "attach": "Head", "fits": "hood", "hides": [ "hair" ] },
+    "cape-look": { "model": "models/wander-cape.gltf", "attach": "Chest", "materials": { "wander_wool": "wander_wool" } }
+  },
+  "cosmetics": {
+    // The same as the code's frost-hood, in data. A look in a data file needs no recipe: `kiln cook` finds its files here.
+    "frost-hood-data": {
+      "name": "Frost Hood",
+      "description": "Cold to the touch, warm to the wearer.",
+      "slot": "head",
+      "look": {
+        "model": "models/frost-hood.gltf",
+        "attach": "Head",
+        "fits": "hood",
+        "hides": [ "hair" ]
+      },
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 12 } }
+    },
+    // A look by name, and dyes.
+    "wander-cape": {
+      "name": "Wanderer's Cape",
+      "slot": "upperBody",
+      "look": "cape-look",
+      "dyes": true,
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 20 } }
+    },
+    // A look like a game item's, with no files: Kiln clients get it from the server.
+    "plain-tricorn": {
+      "name": "Plain Tricorn",
+      "slot": "head",
+      "look": { "like": "Vanity_TX_Helmet_05_tricorn" },
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 2 } }
+    }
+  }
+}

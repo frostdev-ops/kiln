@@ -1,0 +1,53 @@
+{
+  "format": 1,
+  "comment": "The creature of the test's own files, in data; each \"-json\" block is the twin of a C# block of the same name without it (BlocksNpcTestMod.cs).",
+  "animations": {
+    "stone-moves": {
+      "clips": "models/stoneling.glb",
+      "idle": "Idle", "walk": "Walk", "run": "Run", "dead": "Dead",
+      "hit": { "clip": "Flinch", "reference": "Ref", "bones": [ "chest", "head" ] },
+      "states": { "slam": { "clip": "Attack" }, "brace": { "clip": "Hold", "loop": true } }
+    },
+    "still-moves": { "clips": "models/stoneling.glb", "idle": "Idle", "dead": "Dead" }
+  },
+  "bodies": {
+    "stone-body": {
+      "model": "models/stoneling.glb", "scale": 1.1,
+      "slots": { "HandR": "hand_r", "Head": "head", "Chest": "chest" },
+      "size": { "radius": 0.5, "height": 2.0 },
+      "colliders": [ { "shape": "capsule", "radius": 0.45, "height": 2.0 } ]
+    }
+  },
+  "effects": {
+    "stone-blow-json": { "damage": { "blunt": 30 }, "knockback": "small" }
+  },
+  "behaviours": {
+    "stone-fighter-json": {
+      "phases": [ "angry" ],
+      "attacks": [ { "name": "slam", "plays": "slam", "range": 3, "hitAt": 0.6, "onHit": [ "stone-blow-json" ] } ],
+      "rules": [
+        { "name": "angry", "every": 0.5, "cooldown": 5, "when": [ { "healthBelow": 0.95 } ], "do": [ { "setPhase": "angry" }, { "effect": { "heal": 40 }, "on": "self" } ] },
+        { "name": "count", "every": 0.5, "when": [ { "custom": "always-json" } ], "do": [ { "custom": "count-json" } ] }
+      ]
+    }
+  },
+  "creatures": {
+    "stoneling-json": {
+      "name": "Stoneling", "body": "stone-body", "animation": "stone-moves",
+      "ai": { "like": "vukah", "sight": 25, "faction": "Vukah" },
+      "behaviour": "stone-fighter-json", "stats": { "level": 10 }
+    },
+    "vukah-mind-json": {
+      "body": "vukah",
+      "behaviour": { "like": "vukah-melee", "rules": [ { "name": "count", "every": 0.5, "when": [ { "custom": "always-json" } ], "do": [ { "custom": "count-json" } ] } ] },
+      "stats": { "level": 12 }
+    }
+  },
+  "npcs": {
+    "tobin-json": {
+      "name": "Tobin", "body": "fisher", "talk": "tobin-talk",
+      "vendor": { "sells": { "Material_T1_Plant_Fibre": { "item": "Material_T1_Twigs", "count": 2 } } },
+      "roster": { "summonTool": "Tobin's Whistle", "description": "A wanderer who trades a little." }
+    }
+  }
+}

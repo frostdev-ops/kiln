@@ -1,6 +1,8 @@
 // File drop target + path picker. In Tauri, drops arrive as window drag-drop events with
 // real paths; in a plain browser (mock mode) the file names stand in for paths.
-import { FolderOpen, Upload } from "lucide-react";
+// Two forms: the niche (an arch that fills with fire while something is dragged over it or `busy` imports) and a
+// one-line row ("Add a runtime bundle  kiln-runtime-<version>.zip  [Files]").
+import { FolderOpen } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTauri } from "../api/commands";
 import { Button } from "./Button";
@@ -33,9 +35,15 @@ export interface DropZoneProps {
   /** A second button for folders. */
   pickFolder?: boolean;
   disabled?: boolean;
+  /** "row": one line; default: the niche. */
+  variant?: "niche" | "row";
+  /** The niche burns while an import runs; this replaces its word ("Firing"). */
+  busy?: ReactNode;
 }
 
-export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickFolder, disabled }: DropZoneProps) {
+const NICHE = "M1 299V128C1 74 62 31 116 1C170 31 231 74 231 128V299Z";
+
+export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickFolder, disabled, variant = "niche", busy }: DropZoneProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
   const cb = useRef(onPaths);
@@ -73,17 +81,36 @@ export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickF
     if (r?.length) onPaths(r);
   };
 
-  return (
-    <div ref={ref} className={"k-drop" + (over ? " over" : "")} aria-disabled={disabled || undefined}
-      onDragOver={(e) => { e.preventDefault(); if (!isTauri()) setOver(true); }} onDragLeave={() => !isTauri() && setOver(false)} onDrop={browserDrop}>
-      <div className="k-drop-icon"><Upload size={20} /></div>
-      <div className="k-drop-text">
+  const desk = isTauri() ? undefined : "Needs the desktop app";
+  const buttons = (
+    <div className="k-row" style={{ gap: 6 }}>
+      <Button size={variant === "row" ? "s" : "m"} disabled={disabled || !isTauri()} title={desk} onClick={() => choose(false)}>Files</Button>
+      {pickFolder && <Button size={variant === "row" ? "s" : "m"} disabled={disabled || !isTauri()} title={desk} onClick={() => choose(true)}>Folder</Button>}
+    </div>
+  );
+  const dragProps = {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); if (!isTauri()) setOver(true); },
+    onDragLeave: () => !isTauri() && setOver(false),
+    onDrop: browserDrop,
+  };
+  if (variant === "row") {
+    return (
+      <div ref={ref} className={"k-drop" + (over ? " over" : "")} aria-disabled={disabled || undefined} {...dragProps}>
         <span className="k-drop-title">{title}</span>
-        {hint && <span className="k-hint">{hint}</span>}
+        {hint && <span className="k-drop-hint">{hint}</span>}
+        {buttons}
       </div>
-      <div className="k-row">
-        <Button size="s" icon={<FolderOpen />} disabled={disabled || !isTauri()} title={isTauri() ? undefined : "Needs the desktop app"} onClick={() => choose(false)}>Files</Button>
-        {pickFolder && <Button size="s" disabled={disabled || !isTauri()} title={isTauri() ? undefined : "Needs the desktop app"} onClick={() => choose(true)}>Folder</Button>}
+    );
+  }
+  const hot = over || !!busy;
+  return (
+    <div ref={ref} className={"k-niche" + (hot ? " hot" : "")} aria-disabled={disabled || undefined} data-drop {...dragProps}>
+      <div className="k-niche-fire" aria-hidden><i /></div>
+      <svg viewBox="0 0 232 300" aria-hidden><path d={NICHE} /></svg>
+      <div className="k-niche-in">
+        <span className="k-niche-word" role={busy ? "status" : undefined}>{busy || title}</span>
+        {hint && <span className="k-niche-hint">{hint}</span>}
+        {buttons}
       </div>
     </div>
   );

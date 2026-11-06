@@ -1,39 +1,31 @@
-// /servers: every dedicated server the launcher knows: kilnctl instances, Steam installs,
-// Windows and remote servers. New server (SteamCMD install, optionally reflinked from another install) and import.
+// /servers: every dedicated server the launcher knows, one line each: kilnctl instances, Steam installs, Windows and
+// remote servers. New server (SteamCMD install, optionally reflinked from another install) and import.
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderInput, Plus, Server } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import {
-  Badge, Button, Card, EmptyState, Field, Modal, NumberInput, Page, PageHeader, PathPicker, Select, Skeleton, StatusPill,
-  TextInput, Toggle, errorText, runTask, toast,
+  Button, EmptyState, Field, Modal, NameId, NumberInput, Page, PageHeader, PathPicker, Select, Skeleton, Table,
+  TextInput, Toggle, errorText, runTask, toast, type Column,
 } from "../../ui";
-import { runnerLabel, sk, stateTone, useServerEvents, useServers, useServerStatus, type ServerInstanceX, type ServerSpecX } from "./serverApi";
+import { runnerLabel, sk, useServerEvents, useServers, useServerStatus, type ServerInstanceX, type ServerSpecX } from "./serverApi";
 
 /** Windows (WebView2): path examples in Windows form. */
 const WIN = /Windows/i.test(navigator.userAgent);
 
-function ServerCard({ s }: { s: ServerInstanceX }) {
-  const st = useServerStatus(s.id);
-  return (
-    <Link to={`/servers/${s.id}/overview`} className="k-plain-link">
-      <Card
-        title={s.name}
-        sub={<span className="k-mono k-ellipsis" title={s.id}>{s.id}</span>}
-        actions={<StatusPill tone={stateTone(st.data?.state)} pulse={st.data?.state === "starting"}>{st.data?.state ?? "…"}</StatusPill>}
-      >
-        <div className="k-row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <Badge tone="info">{runnerLabel[s.runner ?? "kilnctl"]}</Badge>
-          <Badge>UDP {s.queryPort}</Badge>
-          {st.data?.players != null && <Badge tone="ok">{st.data.players} online</Badge>}
-          {st.data?.kiln && <Badge tone="ember">Kiln {st.data.kiln}</Badge>}
-          {(s.source as string) === "steam" && <Badge tone="warn" title="Found in a Steam library; not recorded yet">detected</Badge>}
-        </div>
-        <div className="k-hint k-mono k-ellipsis" style={{ marginTop: 8 }} title={s.dir ?? s.remote?.host}>{s.dir ?? s.remote?.host}</div>
-      </Card>
-    </Link>
-  );
+function StateCell({ id }: { id: string }) {
+  const st = useServerStatus(id);
+  const state = st.data?.state;
+  const tone = state === "running" ? "ok" : state === "starting" || state === "stopping" ? "warn" : "idle";
+  return <span className={`k-badge k-tone-${tone}`}>{state ? state.charAt(0).toUpperCase() + state.slice(1) : "…"}</span>;
+}
+function PlayersCell({ id }: { id: string }) {
+  const st = useServerStatus(id);
+  return <span className="k-mono">{st.data?.players ?? "-"}</span>;
+}
+function KilnCell({ id }: { id: string }) {
+  const st = useServerStatus(id);
+  return <span className="k-mono k-muted">{st.data?.kiln ?? "-"}</span>;
 }
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -119,20 +111,28 @@ function ImportServer({ open, onClose }: { open: boolean; onClose: () => void })
 
 export default function ServersPage() {
   useServerEvents();
+  const nav = useNavigate();
   const q = useServers();
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const list = q.data ?? [];
+  const cols: Column<ServerInstanceX>[] = [
+    { key: "name", header: "Server", sort: (a, b) => a.name.localeCompare(b.name), render: (s) => <NameId name={s.name} id={s.id} /> },
+    { key: "runner", header: "Runs as", width: "minmax(0, 150px)", render: (s) => <span className="k-muted" style={{ fontSize: 15.5 }}>{runnerLabel[s.runner ?? "kilnctl"]}{(s.source as string) === "steam" ? ", found in Steam" : ""}</span> },
+    { key: "port", header: "Port", width: "90px", align: "right", render: (s) => <span className="k-mono">{s.queryPort}</span> },
+    { key: "players", header: "Online", width: "64px", align: "right", render: (s) => <PlayersCell id={s.id} /> },
+    { key: "kiln", header: "Kiln", width: "minmax(0, 150px)", render: (s) => <KilnCell id={s.id} /> },
+    { key: "state", header: "State", width: "86px", render: (s) => <StateCell id={s.id} /> },
+  ];
+  const say = q.isLoading ? "Reading the servers." : q.error ? errorText(q.error) : !list.length ? "None yet. Install one with SteamCMD, or import a server folder." : `${list.length} dedicated server${list.length === 1 ? "" : "s"} on this PC and over SSH.`;
   return (
-    <Page wide>
-      <PageHeader title="Servers" sub="Dedicated servers on this PC and over SSH"
-        actions={<><Button icon={<FolderInput size={16} />} variant="secondary" onClick={() => setImporting(true)}>Import</Button>
-          <Button icon={<Plus size={16} />} variant="primary" onClick={() => setCreating(true)}>New server</Button></>} />
-      {q.isLoading ? <Skeleton lines={4} /> : q.error ? <EmptyState icon={<Server />} title="Servers unavailable" hint={errorText(q.error)} /> : !q.data?.length ? (
-        <EmptyState icon={<Server />} title="No servers yet" hint="Install one with SteamCMD, or import a folder." action={<Button variant="primary" onClick={() => setCreating(true)}>New server</Button>} />
+    <Page fill>
+      <PageHeader title="Servers" sub={say}
+        actions={<><Button onClick={() => setImporting(true)}>Import</Button><Button variant="primary" onClick={() => setCreating(true)}>New server</Button></>} />
+      {q.isLoading ? <Skeleton lines={3} /> : q.error ? null : !list.length ? (
+        <EmptyState page title="No servers" hint="Install one with SteamCMD, or import a folder." action={<Button onClick={() => setCreating(true)}>New server</Button>} />
       ) : (
-        <div className="k-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-          {q.data.map((s) => <ServerCard key={s.id} s={s} />)}
-        </div>
+        <Table aria-label="Servers" fill columns={cols} rows={list} rowKey={(s) => s.id} onRowClick={(s) => nav(`/servers/${encodeURIComponent(s.id)}/overview`)} />
       )}
       <NewServer open={creating} onClose={() => setCreating(false)} />
       <ImportServer open={importing} onClose={() => setImporting(false)} />

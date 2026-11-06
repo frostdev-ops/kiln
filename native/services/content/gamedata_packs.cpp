@@ -5,7 +5,8 @@
 //    path table). The store keeps the game's original bytes and one layer per owner, as for items.
 //  - Tooltips: a config with a loca tag that sits next to a `uiValues` list (ItemInfo, Perk, BuffType, SkillTreeNode)
 //    has a uiValue whose locaId = FNV-1a(locaTag); it follows the config, scaled by the config's valueFormat
-//    (Normal x1, Percentage x100, Duration / DurationMilliseconds x1000 (ms), Float x100), as the same owner's layer.
+//    (Normal x1, Percentage x100, Duration / DurationMilliseconds x1000 (ms), Float x100), as the same owner's layer. A row is found by its
+//    locaId, never by its place, and the content sync does not send it: the receiver's config brings it, to the row with that locaId.
 //  - Config adds: a config a Configurations array lacks is added by pointing the array's 8-byte header at a copy in
 //    Kiln's memory (each element's self-relative offset rebased) plus a new element built from an existing entry of
 //    that config id elsewhere in the game data. The header is the owner's layer; revert = the original 8 bytes.
@@ -43,6 +44,7 @@ struct SlotInfo {
     int32_t sub = -1;
     uintptr_t configs = 0;   // kSubAdd: the Configurations struct
     const char* array = "";  // kSubAdd: "simple" / "scaled"
+    bool follow = false;     // a tooltip row that follows a config (pair_tooltip): the config is what the content sync sends
 };
 std::unordered_map<uintptr_t, SlotInfo> g_info;
 
@@ -80,13 +82,19 @@ bool put(KilnOwner owner, uint64_t seq, uint32_t section, const GEntry& e, const
          uintptr_t addr, const uint8_t* bytes, const std::string& source, int32_t sub = -1) {
     if (!store_put(owner, seq, GD_KIND_BASE + section, e.id, path_index(path), sub, addr, f.bytes, bytes, source)) return false;
     SlotInfo& si = g_info[addr];
-    si.section = section, si.id = e.id, si.name = e.name, si.path = path, si.f = f, si.sub = sub;
+    si.section = section, si.id = e.id, si.name = e.name, si.path = path, si.f = f, si.sub = sub, si.follow = false;
     return true;
 }
 
 bool original_bytes(uintptr_t addr, uint8_t n, uint8_t* out) {
     std::memset(out, 0, 16);
     return store_original(addr, n, out) || rd(addr, out, n);
+}
+
+// a path to a list of rows ("uiValues", a buff's "whileApplied" / "onCreate"), not to a value in one
+bool rows_path(const std::string& path) {
+    const std::string n = last_name(path);
+    return n == "uiValues" || n == "whileApplied" || n == "onCreate";
 }
 
 // ---- tooltips ----
@@ -137,22 +145,26 @@ void pair_tooltip(KilnOwner owner, uint64_t seq, uint32_t section, const GEntry&
             store_drop(owner, at);
             return;
         }
-        bool ok = false;
-        const int64_t v = ui_scale(format, as_double(decode(f, bytes)), &ok);
-        if (!ok) return;
         Field uf;
         uf.bytes = 4, uf.vt = KILN_CV_INT, uf.is_signed = true, uf.type_name = "keen::sint32", uf.writable = true;
-        const int32_t v32 = static_cast<int32_t>(std::clamp<int64_t>(v, INT32_MIN, INT32_MAX));
-        uint8_t b[16] = {};
-        std::memcpy(b, &v32, 4);
+        uint8_t b[16] = {}, corig[16];
+        if (original_bytes(r.node.addr + f.offset, f.bytes, corig) && std::memcmp(corig, bytes, f.bytes) == 0) {
+            original_bytes(at, 4, b);  // the config at the game's value (a "match the server"): the row at the game's value, as it was
+        } else {
+            bool ok = false;
+            const int64_t v = ui_scale(format, as_double(decode(f, bytes)), &ok);
+            if (!ok) return;
+            const int32_t v32 = static_cast<int32_t>(std::clamp<int64_t>(v, INT32_MIN, INT32_MAX));
+            std::memcpy(b, &v32, 4);
+        }
         // the tooltip path sits next to the configs: "<owner path>.uiValues[i].value"
         std::string base = r.path;
         const size_t cut = base.find(".impactValues");
         const size_t cut2 = base.find(".configValues");
         std::string prefix = cut != std::string::npos ? base.substr(0, cut) : cut2 != std::string::npos ? base.substr(0, cut2) : "";
         if (base.rfind("impactValues", 0) == 0 || base.rfind("configValues", 0) == 0) prefix.clear();
-        put(owner, seq, section, e, (prefix.empty() ? "" : prefix + ".") + "uiValues[" + std::to_string(i) + "].value", uf, at, b,
-            source);
+        if (put(owner, seq, section, e, (prefix.empty() ? "" : prefix + ".") + "uiValues[" + std::to_string(i) + "].value", uf, at, b, source))
+            g_info[at].follow = true;
         return;
     }
 }
@@ -494,6 +506,7 @@ std::string slot_path(int32_t field) {
 }
 
 void after_changes() {
+    PhaseTimer pt(PH_GD_AFTER);
     std::lock_guard lock(store_mutex());
     g_modified_stale = true;
     std::string err;
@@ -946,8 +959,10 @@ void gd_pack_sections(KilnOwner owner, uint64_t seq_base, const gjson& doc, cons
                     }
                 }
                 ++matched;
+                // a list of rows before the rule's other values: a tooltip row that follows a config then goes to the list the entry keeps
+                for (int pass = 0; pass < 2; ++pass)
                 for (auto& [path, val] : rule.items()) {
-                    if (path.empty() || path[0] == '@') continue;
+                    if (path.empty() || path[0] == '@' || rows_path(path) != (pass == 0)) continue;
                     if (sec == KILN_GD_ITEMS && !refs_ok && !nc_is_new(KILN_CONTENT_ITEMS, e->id)) {
                         std::vector<Resolved> rr;
                         std::string rerr;
@@ -1160,6 +1175,21 @@ uint32_t gd_export(gjson& doc, uint32_t kinds) {
         if (std::memcmp(s.current, s.original, s.n) == 0) return;
         // what follows another field (Impact.programId after Impact.program): applying the field brings it, and a pack cannot set it itself
         if (s.sub < 0 && identity_field(last_name(si.path))) return;
+        // a tooltip row that follows a config: the config brings it on the receiver, to the row with its locaId wherever that row is
+        if (si.follow) return;
+        // a value set by its place in a copy of a list the entry no longer has (a list of rows put in place after it, a hot reload's new copy): its
+        // path now leads to another value, or to none; sent, it would land there (or twice on one path). What the entry has goes with its list.
+        if (s.sub < 0 && e) {
+            std::vector<Resolved> rr;
+            std::string rerr;
+            bool here = false;
+            if (resolve(greg(sec).root, root_of(sec, *e), si.path, &rr, &rerr))
+                for (const Resolved& x : rr) {
+                    Field lf;
+                    if (x.node.t && leaf_of(x.node.t, &lf) && x.node.addr + lf.offset == addr) here = true;
+                }
+            if (!here) return;
+        }
         GEntry fallback;
         if (!e) {
             fallback.id = s.id, fallback.name = si.name;

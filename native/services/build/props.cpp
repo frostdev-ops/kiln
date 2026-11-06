@@ -41,7 +41,7 @@ static_assert(sizeof(WorldTransform) == 56 && sizeof(SpawnComponent) == 24);
 const KilnItemsApi* g_items = nullptr;
 std::mutex g_item_mu;
 std::map<std::array<uint8_t, 16>, uint32_t> g_tpl_item;  // template GUID -> item that places it
-bool g_tpl_map_built = false;
+uint32_t g_tpl_map_items = 0;  // how many items the map was built from: new items and clones come later
 
 bool guid_zero(const KilnGuid& g) {
     for (uint8_t b : g.b)
@@ -64,9 +64,11 @@ const uint8_t* item_info(uint32_t item) {
 }
 
 void build_template_map() {
-    if (g_tpl_map_built || !g_items || !F.items || !item_registry()) return;
-    g_tpl_map_built = true;
+    if (!g_items || !F.items || !item_registry()) return;
     const uint32_t n = g_items->item_count();
+    if (n == g_tpl_map_items) return;
+    g_tpl_map_items = n;
+    g_tpl_item.clear();
     uint32_t mapped = 0;
     for (uint32_t i = 0; i < n; ++i) {
         KilnItemInfo info{};

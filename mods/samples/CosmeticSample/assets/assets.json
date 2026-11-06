@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "blob",
+      "file": "cooked/models_frost-hood.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "c965271f-57f6-5e8e-b8aa-cf274ec1426e",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/models_frost-hood.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/models_frost-hood.blob"
+        }
+      ]
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/models_wander-cape.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "ad1dd614-00bd-5c13-9b0d-ba19cbcde4a5",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/models_wander-cape.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/models_wander-cape.blob"
+        }
+      ]
+    }
+  ]
+}

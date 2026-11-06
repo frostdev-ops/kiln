@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "statuses": {
+    "mark-json": { "name": "Mark", "seconds": 30, "kind": "buff" },
+    "glide-buff-json": { "name": "Lift", "kind": "buff", "while": "HangGliding", "modifies": { "move-speed": 0.25 } },
+    "data-names-code": { "name": "Data Names Code", "seconds": 3, "onApply": [ "burst", { "applies": "mark" } ] }
+  },
+  "effects": {
+    "burst-json": { "damage": { "ice": 11 }, "flinch": "none" }
+  },
+  "perks": {
+    "perk-hit-json": { "name": "Frost Edge", "description": "Hits bite with cold.", "value": "5%", "onHit": [ "burst-json", { "applies": "mark-json" } ] },
+    "perk-might-json": { "name": "Might", "modifies": { "strength": 5 } }
+  },
+  "weapons": {
+    "perk-sword-json": { "name": "Perk Sword", "class": "sword", "stats": { "level": 5, "power": 20, "rarity": "uncommon" }, "perks": [ "perk-hit-json", "perk-might-json" ] }
+  },
+  "abilities": {
+    "mend-json": { "name": "Mend", "cast": { "manaCost": 10, "staminaCost": 5 }, "cooldown": 5, "onCast": [ { "heal": 3 } ], "command": "mend-json" },
+    "nova-json": { "name": "Nova", "delivery": { "type": "around", "radius": 6, "effects": [ { "damage": { "fire": 21 }, "flinch": "none" } ] } },
+    "cone-json": { "name": "Cone", "delivery": { "type": "cone", "range": 8, "angle": 60, "effects": [ { "damage": { "fire": 22 }, "flinch": "none" } ] } },
+    "beam-json": { "name": "Beam", "delivery": { "type": "beam", "range": 20, "width": 2, "effects": [ { "damage": { "fire": 23 }, "flinch": "none" } ] } },
+    "zone-json": { "name": "Zone", "delivery": { "type": "zone", "radius": 4, "seconds": 2, "tickEvery": 0.5, "ahead": 6, "effects": [ { "damage": { "fire": 24 }, "flinch": "none" } ] } },
+    "chain-json": { "name": "Chain", "delivery": { "type": "chain", "range": 15, "jumps": 2, "jumpRange": 6, "effects": [ { "damage": { "fire": 25 }, "flinch": "none" } ] } },
+    "summon-json": { "name": "Summon", "delivery": { "type": "summon", "template": "Zone_Player_Spell_IceBolt_1", "count": 2, "seconds": 1 } },
+    "bolt-json": { "name": "Bolt", "delivery": { "type": "projectile", "speed": 20, "onHit": [ { "damage": { "fire": 26 } } ], "homing": { "turnSpeed": 40, "seekRange": 15 } } }
+  },
+  "talentTrees": {
+    "arts-json": {
+      "name": "Arts", "points": { "start": 1, "perLevel": 1 }, "menu": "Arts", "key": "J",
+      "nodes": {
+        "kindle": { "name": "Kindle", "maxLevel": 3, "modifies": { "strength": 2, "move-speed": 0.1 } },
+        "hearth": { "name": "Hearth", "description": "Hits burn.", "requires": [ "kindle" ], "onHit": [ { "damage": { "fire": 31 }, "flinch": "none" } ] },
+        "gate": { "name": "Gate", "requires": [ "hearth" ], "cost": 2, "keeps": "mark-json" }
+      }
+    }
+  },
+  "talents": {
+    "ward-json": { "name": "Ward", "maxLevel": 3, "cost": 0, "modifies": { "strength": 1 }, "game": { "from": [ "0x8efcc472" ], "offset": [ 170, -40 ] } }
+  },
+  "triggers": {
+    "on-sit-json": { "on": "Sitting", "do": [ { "restores": { "mana": 3 } } ], "onEnd": [ { "restores": { "stamina": 2 } } ], "cooldown": 1 }
+  },
+  "items": {
+    "cake-json": { "name": "Cake", "kind": "consumable", "onUse": [ { "heal": 1 } ], "onEat": [ { "restores": { "mana": 4 } } ], "canEat": { "unless": [ "Sleeping" ] } }
+  }
+}

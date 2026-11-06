@@ -36,8 +36,10 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 
+#include "barber.h"
 #include "content.h"
 #include "nlohmann/json.hpp"
 #include "refs.h"
@@ -249,8 +251,9 @@ uint64_t map_get(uintptr_t map, uint32_t key) {
     return v;
 }
 
-// 1 inserted, 2 already this value, 3 the key holds another value (*other), 4 replaced (replace = true), 0 failure.
-int map_put(uintptr_t map, uint32_t key, uint64_t value, bool replace, uint64_t* other, std::string* why) {
+// 1 inserted, 2 already this value, 3 the key holds another value (*other), 4 replaced (replace = true), 0 failure
+// (*no_room: for good, the map is as full as the game lets it be).
+int map_put(uintptr_t map, uint32_t key, uint64_t value, bool replace, uint64_t* other, std::string* why, bool* no_room = nullptr) {
     MapView m;
     if (!map_view(map, &m)) {
         *why = "the map is not readable";
@@ -260,6 +263,7 @@ int map_put(uintptr_t map, uint32_t key, uint64_t value, bool replace, uint64_t*
     const int64_t s = map_slot(m, key, &found);
     if (s < 0) {
         *why = "the map is full";
+        if (no_room) *no_room = true;
         return 0;
     }
     if (found) {
@@ -272,6 +276,7 @@ int map_put(uintptr_t map, uint32_t key, uint64_t value, bool replace, uint64_t*
     }
     if (static_cast<uint64_t>(m.count) + 1 > m.cap / 2) {  // the game reserves 2 x next_pow2(n): keep its load factor
         *why = "the map has no room left (count " + std::to_string(m.count) + " of " + std::to_string(m.cap) + ")";
+        if (no_room) *no_room = true;
         return 0;
     }
     if (!map_write(map, m, s, key, value)) {
@@ -306,6 +311,41 @@ uintptr_t ws_array(uintptr_t rreg, uint32_t workshop) {
     const int64_t s = map_slot(m, workshop, &found);
     if (s < 0 || !found) return 0;
     return reinterpret_cast<uintptr_t>(m.values) + static_cast<uintptr_t>(s) * static_cast<uintptr_t>(N.ws_stride);
+}
+
+// The list of a workshop the game's data doesn't know: a new entry of the workshop map. The game reserves it once at load
+// (0x923700: 0x40 asked, so 0x80 slots of keys and values, 46 taken) and never inserts after that, so its threshold of half
+// the slots doesn't apply here. A quarter stays free so that a lookup, which stops at the first clear bit, stays short.
+uintptr_t ws_create(uintptr_t rreg, uint32_t workshop, std::string* why) {
+    const uintptr_t map = rreg + N.ws_map;
+    MapView m;
+    if (!map_view(map, &m)) {
+        *why = "the workshop map is not readable";
+        return 0;
+    }
+    bool found = false;
+    const int64_t s = map_slot(m, workshop, &found);
+    if (s < 0) {
+        *why = "the workshop map is full";
+        return 0;
+    }
+    const uintptr_t arr = reinterpret_cast<uintptr_t>(m.values) + static_cast<uintptr_t>(s) * static_cast<uintptr_t>(N.ws_stride);
+    if (found) return arr;
+    if (static_cast<uint64_t>(m.count) + 1 > m.cap * 3 / 4) {
+        *why = "the game has room for " + std::to_string(m.cap * 3 / 4) + " workshops, and all " + std::to_string(m.count) + " are taken";
+        return 0;
+    }
+    __try {
+        // the count, the key, then the bit and the map's count: a reader on another thread sees the slot only when it is complete
+        *reinterpret_cast<volatile uint16_t*>(arr + N.ws_count) = 0;
+        m.keys[s] = workshop;
+        _InterlockedOr64(reinterpret_cast<volatile long long*>(&m.bits[s >> 6]), static_cast<long long>(1ull << (s & 63)));
+        *reinterpret_cast<volatile uint32_t*>(map + E.hm_count) = m.count + 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *why = "the workshop map write faulted";
+        return 0;
+    }
+    return arr;
 }
 
 // 1 appended, 2 already there, 0 failure
@@ -373,7 +413,11 @@ struct TextEntry {
 };
 using TextMap = std::unordered_map<uint32_t, const TextEntry*>;
 using TextSet = std::map<std::string, std::string>;  // language key -> text
-std::atomic<const TextMap*> g_texts{nullptr};
+// Copy on write, so that the hooks read without a lock; in shards, so that a change copies a small map: thousands of definitions each
+// set their texts. Old maps are never freed (a reader may hold one).
+constexpr size_t kShards = 256;
+std::atomic<const TextMap*> g_texts[kShards] = {};
+std::atomic<const TextMap*>& text_shard(uint32_t tag) { return g_texts[tag & (kShards - 1)]; }
 std::mutex g_text_mu;
 std::deque<std::string> g_text_arena;
 // loca hook diagnostics (client)
@@ -461,11 +505,13 @@ bool same_view(const TextView& v, const std::string* s) {
 // Sets the texts of one tag (empty set: nothing). Unchanged texts keep their entry.
 void set_texts(uint32_t tag, const TextSet& texts) {
     if (!tag || texts.empty()) return;
+    PhaseTimer pt(PH_TEXTS);
     std::lock_guard lock(g_text_mu);
     load_languages();
     const std::string* all = pick_text(texts, "");
     if (!all) return;
-    const TextMap* cur = g_texts.load();
+    std::atomic<const TextMap*>& shard = text_shard(tag);
+    const TextMap* cur = shard.load();
     if (cur) {
         auto it = cur->find(tag);
         if (it != cur->end()) {
@@ -487,7 +533,7 @@ void set_texts(uint32_t tag, const TextSet& texts) {
     }
     auto* next = new TextMap(cur ? *cur : TextMap{});
     (*next)[tag] = e;
-    g_texts.store(next);
+    shard.store(next);
 }
 
 void set_text(uint32_t tag, const std::string& text) {
@@ -497,7 +543,7 @@ void set_text(uint32_t tag, const std::string& text) {
 // The text a hook answers for `tag` in the pool's current language (nullptr: not one of ours).
 int64_t g_loca_lang_off = 0;  // LocaPool +0xd8 on 26404966 (content/loca.language), 0 = unknown
 const TextView* text_for(uint32_t tag, const void* pool) {
-    const TextMap* m = g_texts.load(std::memory_order_acquire);
+    const TextMap* m = text_shard(tag).load(std::memory_order_acquire);
     if (!m) return nullptr;
     auto it = m->find(tag);
     if (it == m->end()) return nullptr;
@@ -518,7 +564,9 @@ struct GuidHash {
     size_t operator()(const GuidKey& k) const { return std::hash<uint64_t>()(k.a ^ (k.b * 0x9E3779B97F4A7C15ull)); }
 };
 using AliasMap = std::unordered_map<GuidKey, GuidKey, GuidHash>;
-std::atomic<const AliasMap*> g_alias{nullptr};
+std::atomic<const AliasMap*> g_alias[kShards] = {};  // as the texts: copy on write, in shards
+std::atomic<bool> g_any_alias{false};
+std::atomic<const AliasMap*>& alias_shard(const GuidKey& k) { return g_alias[k.a & (kShards - 1)]; }
 GuidKey gk(const uint8_t g[16]) {
     GuidKey k;
     std::memcpy(&k.a, g, 8);
@@ -526,15 +574,18 @@ GuidKey gk(const uint8_t g[16]) {
     return k;
 }
 void set_alias(const uint8_t from[16], const uint8_t to[16]) {
+    PhaseTimer pt(PH_TEXTS);
     std::lock_guard lock(g_text_mu);
-    const AliasMap* cur = g_alias.load();
+    std::atomic<const AliasMap*>& shard = alias_shard(gk(from));
+    const AliasMap* cur = shard.load();
     if (cur) {
         auto it = cur->find(gk(from));
         if (it != cur->end() && it->second == gk(to)) return;
     }
     auto* next = new AliasMap(cur ? *cur : AliasMap{});
     (*next)[gk(from)] = gk(to);
-    g_alias.store(next);
+    shard.store(next);
+    g_any_alias.store(true);
 }
 
 // A derived GUID for a definition's name / description / lore tag (stable for a GUID, distinct per purpose).
@@ -569,6 +620,7 @@ struct Def {
     uint8_t guid[16] = {};
     uint32_t id = 0;
     std::string guid_s, name, base, station;
+    uint32_t menu_workshop = 0;  // recipes: "menu": the workshop whose crafting menu lists it, when that is not its own
     std::string display;  // recipes: the recipe name; items: texts["*"].name
     TextSet texts[kTextSlots];  // items: per slot, language key -> text ("*" = displayName / description / lore)
     json fields = json::object();
@@ -602,6 +654,10 @@ struct Def {
     std::vector<std::string> gear_notes;  // the definition's own choices that break what the recipe tooltip promises
     bool rolled = false;                  // items: "rolledLoot": keeps the base's generateRarity and level range
     bool kitbash_retry = false;         // a reference was not loaded yet: tried again (kiln.assets may serve it later)
+    bool no_description = false;  // "description": "": none, rather than the base's
+    size_t at = 0;                // its place in g_defs
+    std::string listed;           // its entry in definitions(), as of listed_as (a fingerprint of what the entry shows)
+    uint64_t listed_as = 0;
     bool has_text(int slot) const { return !texts[slot].empty(); }
 };
 using DefPtr = std::shared_ptr<Def>;
@@ -611,10 +667,47 @@ using DefPtr = std::shared_ptr<Def>;
 std::vector<DefPtr> g_defs;         // in definition order
 std::atomic<uint64_t> g_version{1};  // +1 per change of the definitions
 
+// The definitions by GUID, name and id (under store_mutex), so that a lookup costs the same however many there are: registering
+// thousands looks up each one's base and stacks. g_defs only grows, and a definition keeps its kind, GUID and place; a
+// redefinition may change its name.
+struct DefIndex {
+    std::unordered_map<std::string, DefPtr> guid;                    // kind + GUID bytes
+    std::unordered_map<std::string, DefPtr> guid_text;               // items: the GUID as text
+    std::unordered_map<std::string, std::vector<DefPtr>> name;       // kind + lower-case name, oldest first
+    std::unordered_map<uint64_t, std::vector<DefPtr>> id;            // kind << 32 | id, oldest first
+    static std::string key(uint32_t kind, const std::string& s) { return static_cast<char>('0' + kind) + s; }
+    static std::string key(uint32_t kind, const uint8_t g[16]) { return key(kind, std::string(reinterpret_cast<const char*>(g), 16)); }
+    void add_name(const DefPtr& d) {
+        auto& v = name[key(d->kind, lower(d->name))];
+        v.insert(std::upper_bound(v.begin(), v.end(), d, [](const DefPtr& a, const DefPtr& b) { return a->at < b->at; }), d);
+    }
+    void add(const DefPtr& d) {
+        guid[key(d->kind, d->guid)] = d;
+        if (d->kind == KILN_CONTENT_ITEMS) guid_text.emplace(d->guid_s, d);
+        add_name(d);
+        id[(uint64_t(d->kind) << 32) | d->id].push_back(d);
+    }
+    void rename(const DefPtr& d, const std::string& from) {
+        if (lower(from) == lower(d->name)) return;
+        if (auto it = name.find(key(d->kind, lower(from))); it != name.end()) {
+            std::erase(it->second, d);
+            if (it->second.empty()) name.erase(it);
+        }
+        add_name(d);
+    }
+    const std::vector<DefPtr>* named(uint32_t kind, const std::string& n) const {
+        auto it = name.find(key(kind, lower(n)));
+        return it == name.end() ? nullptr : &it->second;
+    }
+    const std::vector<DefPtr>* with_id(uint32_t kind, uint32_t i) const {
+        auto it = id.find((uint64_t(kind) << 32) | i);
+        return it == id.end() ? nullptr : &it->second;
+    }
+} g_index;
+
 DefPtr find_def(uint32_t kind, const uint8_t guid[16]) {
-    for (const DefPtr& d : g_defs)
-        if (d->kind == kind && std::memcmp(d->guid, guid, 16) == 0) return d;
-    return nullptr;
+    auto it = g_index.guid.find(DefIndex::key(kind, guid));
+    return it == g_index.guid.end() ? nullptr : it->second;
 }
 
 // ============================================================================================= per world =======
@@ -630,6 +723,9 @@ struct WorldState {
     uintptr_t ireg = 0, rreg = 0;
     bool names_built = false;
     std::unordered_map<std::string, NameRec> names;   // lower-case debug name -> item
+    uint64_t names_gen = 0;                           // +1 per change of names
+    std::vector<uintptr_t> all;                       // world_items() as of all_gen
+    uint64_t all_gen = ~0ull;
     std::unordered_map<uint32_t, uintptr_t> items;    // id -> the ItemInfo we put into this world's map
     std::unordered_map<uint32_t, uintptr_t> recipes;  // id -> RecipeInfo in the map
     std::unordered_map<uint32_t, uintptr_t> listed;   // id -> RecipeInfo in its workshop list
@@ -676,20 +772,26 @@ void build_names(WorldState& ws) {
         if (!n.empty()) ws.names.emplace(lower(n), r);
     }
     ws.names_built = true;
+    ++ws.names_gen;
 }
 
 // An item selector -> id / GUID / ItemInfo in this world: a definition's name or GUID, a debug name, "0x" id, GUID.
 bool resolve_item(WorldState& ws, const std::string& sel, NameRec* out) {
+    PhaseTimer pt(PH_RESOLVE_ITEM);
     uint8_t g[16];
     {
+        // the oldest definition with that name or GUID
         std::lock_guard lock(store_mutex());
-        for (const DefPtr& d : g_defs)
-            if (d->kind == KILN_CONTENT_ITEMS && (lower(d->name) == lower(sel) || d->guid_s == lower(sel))) {
-                out->id = d->id;
-                std::memcpy(out->guid, d->guid, 16);
-                out->info = static_cast<uintptr_t>(map_get(ws.ireg + E.items_map, d->id));
-                return true;
-            }
+        const std::string low = lower(sel);
+        DefPtr d;
+        if (const auto* v = g_index.named(KILN_CONTENT_ITEMS, low)) d = v->front();
+        if (auto it = g_index.guid_text.find(low); it != g_index.guid_text.end() && (!d || it->second->at < d->at)) d = it->second;
+        if (d) {
+            out->id = d->id;
+            std::memcpy(out->guid, d->guid, 16);
+            out->info = static_cast<uintptr_t>(map_get(ws.ireg + E.items_map, d->id));
+            return true;
+        }
     }
     build_names(ws);
     if (auto it = ws.names.find(lower(sel)); it != ws.names.end()) {
@@ -847,14 +949,18 @@ void set_blob(uint8_t* base, uint32_t field, const void* data, uint32_t count) {
 
 // ============================================================================================= items ===========
 // Every ItemInfo of a world (the pools that validate kitbash GUIDs come from them).
-std::vector<uintptr_t> world_items(WorldState& ws) {
+// Kept between calls: registering many items asks after each one, and sync_world adds each new one to it.
+const std::vector<uintptr_t>& world_items(WorldState& ws) {
+    PhaseTimer pt(PH_WORLD_ITEMS);
     build_names(ws);
-    std::vector<uintptr_t> out;
-    out.reserve(ws.names.size());
+    if (ws.all_gen == ws.names_gen) return ws.all;
+    ws.all.clear();
+    ws.all.reserve(ws.names.size());
     for (auto& [n, r] : ws.names)
-        if (r.info) out.push_back(r.info);
-    std::sort(out.begin(), out.end());
-    return out;
+        if (r.info) ws.all.push_back(r.info);
+    std::sort(ws.all.begin(), ws.all.end());
+    ws.all_gen = ws.names_gen;
+    return ws.all;
 }
 
 // ---- gear: an item is what its recipe tooltip promises (docs/re/items.md section 10) ----
@@ -956,6 +1062,7 @@ void note_crafted(Def& d, const std::string& recipe) {
 }
 
 uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) {
+    PhaseTimer pt(PH_BUILD_CLONE);
     const uint32_t size = L.item.size;
     const size_t total = size + d.name.size() + 1;
     auto* p = static_cast<uint8_t*>(near_alloc(base, total));
@@ -982,6 +1089,12 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
     for (int s = 0; s < kTextSlots; ++s)
         if (d.has_text(s))
             if (const Field* f = L.item.find(kTextPaths[s]); f && f->bytes == 16) std::memcpy(p + f->offset, d.tag_guid[s], 16);
+    // Where the base is found is not where this item is: its hint is its own or there is none, as on most of the game's items.
+    const auto no_text = [&](int slot) {
+        if (const Field* f = L.item.find(kTextPaths[slot]); f && f->bytes == 16 && !d.has_text(slot)) std::memset(p + f->offset, 0, 16);
+    };
+    no_text(4);
+    if (d.no_description) no_text(2);
     char* name = reinterpret_cast<char*>(p + size);
     std::memcpy(name, d.name.data(), d.name.size());
     name[d.name.size()] = 0;
@@ -992,6 +1105,7 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
     // kitbash: references to resources the game already loaded (refs.cpp), checked against this world's items
     d.warnings.clear();
     if (!d.kitbash.empty()) {
+        PhaseTimer kt(PH_KITBASH);
         const std::vector<uintptr_t> all = world_items(ws);
         const ItemFind find = [&](const std::string& sel) -> uintptr_t {
             NameRec r{};
@@ -1021,6 +1135,7 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
 #if KC_GAMEDATA
     // its lists become its own: a change to one of them must not change the base and every other clone of it
     // Refused rather than kept: a rule on a shared list would change the base item and every other clone of it.
+    PhaseTimer ot(PH_OWN_LISTS);
     if (std::string own; !gd_own_lists(reinterpret_cast<uintptr_t>(p), game_base, &own)) {
         *why = "its lists cannot be its own: " + own;
         return 0;
@@ -1032,6 +1147,7 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
 
 // ============================================================================================= recipes =========
 uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
+    PhaseTimer pt(PH_BUILD_RECIPE);
     uintptr_t tmpl = 0;
     bool from_station = false;
     if (!d.base.empty()) {
@@ -1043,14 +1159,28 @@ uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
     }
     uint8_t wguid[16] = {};
     uint32_t wid = 0;
+    bool own_workshop = false;
     if (!d.station.empty()) {
-        // a recipe selector (its station) or a workshop id
+        // a recipe selector (its station), a workshop id, or "workshop:<guid>": a workshop of its own, new if nothing has it yet
         uintptr_t s = 0;
-        if (d.station.size() > 2 && d.station[0] == '0' && (d.station[1] == 'x' || d.station[1] == 'X')) {
+        if (d.station.rfind("workshop:", 0) == 0) {
+            if (!guid_parse(lower(d.station.substr(9)), wguid)) {
+                *why = "\"" + d.station + "\": a workshop of its own is \"workshop:<guid>\"";
+                return 0;
+            }
+            own_workshop = true;
+            wid = fnv1a(wguid, 16);
+            s = first_recipe_of(ws, wid);
+            if (!s) s = first_recipe_of(ws, 0);  // no recipes there yet: only the shape of a recipe, what it asks is cleared below
+            if (!s) {
+                *why = "no recipe to take the shape of a recipe from";
+                return 0;
+            }
+        } else if (d.station.size() > 2 && d.station[0] == '0' && (d.station[1] == 'x' || d.station[1] == 'X')) {
             wid = static_cast<uint32_t>(std::strtoul(d.station.c_str() + 2, nullptr, 16));
             s = first_recipe_of(ws, wid);
             if (!s && wid != 0) {
-                *why = "workshop " + d.station + " has no recipes";
+                *why = "workshop " + d.station + " has no recipes (a workshop of its own is \"workshop:<guid>\")";
                 return 0;
             }
         } else if (lower(d.station) == "hand" || lower(d.station) == "player") {
@@ -1064,7 +1194,7 @@ uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
             }
             rdv(s + L.r_wid, wid);
         }
-        if (s) rd(s + L.r_wguid, wguid, 16);
+        if (s && !own_workshop) rd(s + L.r_wguid, wguid, 16);
         if (!tmpl) {
             tmpl = s;
             from_station = true;
@@ -1179,6 +1309,7 @@ uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
 
 // ============================================================================================= sync ============
 void add_kc_entry(uint32_t kind, const Def& d, uintptr_t addr) {
+    PhaseTimer pt(PH_KC_ENTRY);
     std::lock_guard lock(store_mutex());
     Registry& r = reg(kind);
     if (r.entries.empty()) return;  // no snapshot yet: build_registries will read the game's map
@@ -1220,6 +1351,7 @@ uint32_t g_early_kind = KILN_WORLD_CLIENT;  // the kind registered at registry l
 // Inserts every definition into `world`'s registries (its thread). Returns true when everything is settled.
 bool sync_world(uint32_t kind, uintptr_t world) {
     if (!N.on || !world || kind >= KILN_WORLD_KINDS || kind == KILN_WORLD_PREDICTION) return false;
+    PhaseTimer pt(PH_SYNC);
     KilnSessionInfo si{};
     si.size = sizeof si;
     g_api->session(&si);
@@ -1253,6 +1385,7 @@ bool sync_world(uint32_t kind, uintptr_t world) {
     bool settled = true;
     uint32_t added_items = 0, added_recipes = 0, listed = 0, unlisted = 0;
     // ---- items ----
+    std::optional<PhaseTimer> items_timer(std::in_place, PH_SYNC_ITEMS);
     for (const DefPtr& dp : defs) {
         Def& d = *dp;
         if (d.kind != KILN_CONTENT_ITEMS || (d.internal && kind != g_early_kind)) continue;
@@ -1289,7 +1422,12 @@ bool sync_world(uint32_t kind, uintptr_t world) {
         std::string why;
         // a redefinition swaps the map's value (the old clone stays valid); a foreign item under the id is a collision
         const bool ours = had != ws.items.end();
-        const int rc = map_put(ws.ireg + E.items_map, d.id, clone, ours, &other, &why);
+        int rc = 0;
+        bool no_room = false;
+        {
+            PhaseTimer mt(PH_MAP_PUT);
+            rc = map_put(ws.ireg + E.items_map, d.id, clone, ours, &other, &why, &no_room);
+        }
         if (rc == 3) {
             char b[96];
             std::snprintf(b, sizeof b, "id 0x%08x is taken by another item (%s)", d.id,
@@ -1299,20 +1437,26 @@ bool sync_world(uint32_t kind, uintptr_t world) {
         }
         if (!rc) {
             fail_once(ws, kind, d, why);
-            settled = false;
+            if (!no_room) settled = false;  // a full map stays full: trying again each step only costs time
             continue;
         }
         ws.items[d.id] = clone;
         build_names(ws);
         ws.names[lower(d.name)] = NameRec{d.id, {}, clone};
         std::memcpy(ws.names[lower(d.name)].guid, d.guid, 16);
+        if (ws.all_gen == ws.names_gen++) {  // world_items() stays current: the new item at its end
+            ws.all.push_back(clone);
+            ws.all_gen = ws.names_gen;
+        }
         if (active && !d.internal) add_kc_entry(KILN_CONTENT_ITEMS, d, clone);
         ++added_items;
         LOGI("new content: item %s (0x%08x, %s) %s the %s world's registry (clone of %s at %p)", d.name.c_str(), d.id,
              d.guid_s.c_str(), rc == 4 ? "replaced in" : "added to", wname(kind), d.base.c_str(), reinterpret_cast<void*>(clone));
     }
+    items_timer.reset();
     if (kind == g_early_kind) unknown_enable(ws);  // the registry is complete: from here a miss is an unknown id
     // ---- recipes ----
+    std::optional<PhaseTimer> recipes_timer(std::in_place, PH_SYNC_RECIPES);
     if (!ws.rreg || !recipes_loaded(ws.rreg)) {
         for (const DefPtr& dp : defs)
             if (dp->kind == KILN_CONTENT_RECIPES) settled = false;
@@ -1340,7 +1484,11 @@ bool sync_world(uint32_t kind, uintptr_t world) {
             if (had == ws.recipes.end() || had->second != info) {
                 uint64_t other = 0;
                 std::string why;
-                const int rc = map_put(ws.rreg + E.recipes_map, d.id, info, had != ws.recipes.end(), &other, &why);
+                int rc = 0;
+                {
+                    PhaseTimer mt(PH_MAP_PUT);
+                    rc = map_put(ws.rreg + E.recipes_map, d.id, info, had != ws.recipes.end(), &other, &why);
+                }
                 if (rc == 3) {
                     char b[96];
                     std::snprintf(b, sizeof b, "id 0x%08x is taken by recipe %s", d.id,
@@ -1367,15 +1515,28 @@ bool sync_world(uint32_t kind, uintptr_t world) {
                 ++unlisted;
             }
             if (want && !ws.listed.count(d.id)) {
-                const uintptr_t arr = ws_array(ws.rreg, wid);
                 std::string why;
+                uintptr_t arr = ws_array(ws.rreg, wid);
+                if (!arr && d.station.rfind("workshop:", 0) == 0) {
+                    arr = ws_create(ws.rreg, wid, &why);
+                    if (!arr) {
+                        fail_once(ws, kind, d, why);
+                        continue;
+                    }
+                    LOGI("new content: workshop 0x%08x (%s) is new in the %s world's recipe registry", wid, d.station.c_str() + 9, wname(kind));
+                }
                 if (!arr) {
                     char b[64];
                     std::snprintf(b, sizeof b, "workshop 0x%08x has no recipe list", wid);
                     fail_once(ws, kind, d, b);
                     continue;
                 }
-                if (!ws_add(arr, info, &why)) {
+                bool added = false;
+                {
+                    PhaseTimer wt(PH_WS_ADD);
+                    added = ws_add(arr, info, &why);
+                }
+                if (!added) {
                     fail_once(ws, kind, d, why);
                     continue;
                 }
@@ -1386,22 +1547,37 @@ bool sync_world(uint32_t kind, uintptr_t world) {
             }
         }
     }
+    recipes_timer.reset();
     // an item that opted out and that a new recipe makes: its warnings
     {
+        PhaseTimer ct(PH_CRAFTED);
         std::lock_guard lock(store_mutex());
         for (const DefPtr& r : defs) {
             if (r->kind != KILN_CONTENT_RECIPES || r->orphan) continue;
             for (const StackSpec& o : r->outputs) {
                 NameRec out{};
                 if (o.item.empty() || !resolve_item(ws, o.item, &out)) continue;
-                for (const DefPtr& i : defs)
-                    if (i->kind == KILN_CONTENT_ITEMS && i->id == out.id) note_crafted(*i, r->name);
+                if (const auto* made = g_index.with_id(KILN_CONTENT_ITEMS, out.id))
+                    for (const DefPtr& i : *made) note_crafted(*i, r->name);
             }
         }
     }
     if (kind == KILN_WORLD_SERVER && added_items + listed + unlisted + added_recipes >= 0) {
         loot_sync(ws, world);  // random loot of new items (server world only)
         drops_sync();          // drop tables seen so far
+    }
+    if (kind == KILN_WORLD_CLIENT) {
+        // new hair styles and beards in the barber's lists (barber.cpp): each new item that starts from a listed style
+        std::vector<BarberItem> barber;
+        for (const DefPtr& dp : defs)
+            if (dp->kind == KILN_CONTENT_ITEMS && !dp->internal && !dp->placeholder) {
+                BarberItem b{};
+                std::memcpy(b.guid, dp->guid, 16);
+                std::memcpy(b.base, dp->base_guid, 16);
+                std::memcpy(b.icon, dp->icon_guid, 16);
+                barber.push_back(b);
+            }
+        barber_sync(barber);
     }
     if ((listed || unlisted) && kind == KILN_WORLD_CLIENT && N.ui_refresh) {
         // the crafting UI rebuilds its recipe lists only when the player's knowledge changes: make it rebuild now
@@ -1472,6 +1648,7 @@ uintptr_t loot_registry(uintptr_t world) {
 // Builds / inserts the loot entry of every definition with "loot" (server world thread). Returns how many are in.
 uint32_t loot_sync(WorldState& ws, uintptr_t world) {
     if (!N.loot || !loot_layout()) return 0;
+    PhaseTimer pt(PH_LOOT);
     const uintptr_t lreg = loot_registry(world);
     if (!lreg) return 0;
     std::vector<DefPtr> defs;
@@ -1818,6 +1995,7 @@ uint64_t g_drops_version = 0;
 void drops_sync() {
     const uint64_t v = g_version.load();
     if (v == g_drops_version) return;
+    PhaseTimer pt(PH_DROPS);
     g_drops_version = v;
     const std::vector<DropAdd> adds = drop_adds();
     std::lock_guard lock(store_mutex());
@@ -2001,8 +2179,16 @@ void menu_sync(const WorldState& ws) {
     }
     for (auto& [id, info] : listed) {
         if (kiln_recipes.count(id)) continue;  // a Kiln subcategory lists it (kiln.craftmenu)
+        DefPtr def;
+        {
+            std::lock_guard lock(store_mutex());
+            for (const DefPtr& d : g_defs)
+                if (d->kind == KILN_CONTENT_RECIPES && d->id == id) def = d;
+        }
+        // the menu it shows in: its own workshop's, or the one its definition names (a workshop of its own that opens another's menu)
         uint32_t wid = 0;
         rdv(info + L.r_wid, wid);
+        if (def && def->menu_workshop) wid = def->menu_workshop;
         uint32_t wi = UINT32_MAX;
         for (uint32_t i = 0; i < wss.count; ++i) {
             uint32_t w = 0;
@@ -2016,12 +2202,6 @@ void menu_sync(const WorldState& ws) {
         const BlobRef cl = blob_at(cats.data + wi * 8ull);
         uintptr_t by_base = 0, by_cat = 0, last = 0;
         uint32_t best = 0;
-        DefPtr def;
-        {
-            std::lock_guard lock(store_mutex());
-            for (const DefPtr& d : g_defs)
-                if (d->kind == KILN_CONTENT_RECIPES && d->id == id) def = d;
-        }
         uint32_t base_id = 0;
         if (def && !def->base.empty()) {
             uint8_t g[16];
@@ -2563,12 +2743,13 @@ void client_diag(uintptr_t world) {
     }
     g_loca_trace.store(trace);
     std::string ours;
-    if (const TextMap* m = g_texts.load())
-        for (auto& [tag, v] : *m) {
-            char b[16];
-            std::snprintf(b, sizeof b, " %08x", tag);
-            ours += b;
-        }
+    for (const auto& shard : g_texts)
+        if (const TextMap* m = shard.load())
+            for (auto& [tag, v] : *m) {
+                char b[16];
+                std::snprintf(b, sizeof b, " %08x", tag);
+                ours += b;
+            }
     LOGI("new content (client diag): loca hook %llu lookup(s), %llu answered with new texts; our tags:%s; trace %s",
          (unsigned long long)g_loca_calls.load(), (unsigned long long)g_loca_hits.load(), ours.c_str(), trace ? "on" : "off");
     if (!ids.empty()) {
@@ -2887,24 +3068,24 @@ LocaResult* __fastcall hk_loca(LocaResult* out, void* pool, uint32_t id) {
 }
 
 void* __fastcall hk_uitex(void* cache, const uint8_t* key, uint8_t flag) {
-    if (key)
-        if (const AliasMap* m = g_alias.load(std::memory_order_acquire)) {
-            uint8_t g[16];
-            if (rd(reinterpret_cast<uintptr_t>(key), g, 16)) {
-                // a PNG icon kiln.assets serves under the item's own GUID: look it up unchanged (the cache knows it);
-                // in every other state (none, pending, failed) the alias stays (an unknown key stops the game)
-                if (const KilnAssetsApi* a = assets_api(); a && a->icon_state && a->icon_state(g) == KILN_ICON_SERVED)
-                    return g_uitex_hook.call<void*>(cache, key, flag);
-                auto it = m->find(gk(g));
-                if (it != m->end()) {
-                    alignas(16) uint8_t k[32];
-                    std::memcpy(k, key, 32);  // {guid, type, part, ...}: the callers build 32 bytes
-                    std::memcpy(k, &it->second.a, 8);
-                    std::memcpy(k + 8, &it->second.b, 8);
-                    return g_uitex_hook.call<void*>(cache, k, flag);
-                }
+    if (key && g_any_alias.load(std::memory_order_acquire)) {
+        uint8_t g[16];
+        const AliasMap* m = nullptr;
+        if (rd(reinterpret_cast<uintptr_t>(key), g, 16) && (m = alias_shard(gk(g)).load(std::memory_order_acquire))) {
+            // a PNG icon kiln.assets serves under the item's own GUID: look it up unchanged (the cache knows it);
+            // in every other state (none, pending, failed) the alias stays (an unknown key stops the game)
+            if (const KilnAssetsApi* a = assets_api(); a && a->icon_state && a->icon_state(g) == KILN_ICON_SERVED)
+                return g_uitex_hook.call<void*>(cache, key, flag);
+            auto it = m->find(gk(g));
+            if (it != m->end()) {
+                alignas(16) uint8_t k[32];
+                std::memcpy(k, key, 32);  // {guid, type, part, ...}: the callers build 32 bytes
+                std::memcpy(k, &it->second.a, 8);
+                std::memcpy(k + 8, &it->second.b, 8);
+                return g_uitex_hook.call<void*>(cache, k, flag);
             }
         }
+    }
     return g_uitex_hook.call<void*>(cache, key, flag);
 }
 
@@ -3022,6 +3203,7 @@ extern "C" __declspec(dllexport) void kc_nc_set_texts(uint32_t tag, const char* 
 
 KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bool pack, const std::string& source,
                      std::string* report) {
+    PhaseTimer pt(PH_DEFINE);
     json out = json::object();
     auto fail = [&](const std::string& why) {
         out["ok"] = false;
@@ -3055,7 +3237,9 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
         // texts: displayName / description / lore = every language ("*"); "texts" per language key
         if (!d->display.empty()) d->texts[0]["*"] = d->display;
         if (!str_of(j, "description").empty()) d->texts[2]["*"] = str_of(j, "description");
+        else d->no_description = j.contains("description");
         if (!str_of(j, "lore").empty()) d->texts[3]["*"] = str_of(j, "lore");
+        if (!str_of(j, "source").empty()) d->texts[4]["*"] = str_of(j, "source");
         if (j.contains("texts")) {
             const json& t = j["texts"];
             if (!t.is_object()) return fail("\"texts\" must be { \"<language>\": { \"name\", \"description\", \"lore\", ... } }");
@@ -3075,7 +3259,7 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
         }
         // kitbash: references to loaded resources (refs.cpp); checked when the clone is built
         for (const char* k : {"model", "visual", "icon", "perks", "weaponType", "impact", "program", "animation",
-                              "collectionModel", "iconModel", "refs"})
+                              "collectionModel", "iconModel", "refs", "visualModels"})
             if (j.contains(k)) d->kitbash[k] = j[k];
         // "icon": "<file>.png": a PNG icon of its own (kiln.assets, client); relative paths: the mod's folder (packs)
         // or <game>/kiln (the managed API passes absolute paths)
@@ -3105,6 +3289,11 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
     } else {
         d->station = str_of(j, "station");
         if (d->base.empty() && d->station.empty()) return fail("a recipe needs \"base\" (a recipe to copy) or \"station\"");
+        if (const std::string menu = str_of(j, "menu"); !menu.empty()) {
+            if (menu.size() <= 2 || menu[0] != '0' || (menu[1] != 'x' && menu[1] != 'X'))
+                return fail("\"menu\" must be a workshop id (\"0x...\"): the workshop whose crafting menu lists the recipe");
+            d->menu_workshop = static_cast<uint32_t>(std::strtoul(menu.c_str() + 2, nullptr, 16));
+        }
         std::string err;
         for (const char* k : {"inputs", "outputs"}) {
             if (!j.contains(k) || !j[k].is_array() || j[k].empty() || j[k].size() > 32)
@@ -3148,11 +3337,13 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
     out["name"] = d->name;
     bool changed = false;
     {
+        PhaseTimer lt(PH_DEFINE_LOCKED);
         std::lock_guard lock(store_mutex());
         DefPtr cur = find_def(kind, d->guid);
-        for (const DefPtr& x : g_defs)
-            if (x != cur && x->kind == kind && lower(x->name) == lower(d->name) && !(x->placeholder || d->placeholder))
-                return fail("the name " + d->name + " is already used by " + x->guid_s + " (" + x->owner_label + ")");
+        if (const auto* same_name = g_index.named(kind, d->name))
+            for (const DefPtr& x : *same_name)
+                if (x != cur && !(x->placeholder || d->placeholder))
+                    return fail("the name " + d->name + " is already used by " + x->guid_s + " (" + x->owner_label + ")");
         if (cur && d->placeholder && !cur->placeholder && !cur->orphan) {
             // the item is defined (its mod is back): no placeholder needed
             out["ok"] = true;
@@ -3182,7 +3373,10 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
                 // a new version: clones and the recipe are rebuilt, the maps re-pointed (the old memory stays valid)
                 d->version = cur->version + 1;
                 d->owner = owner;
+                const std::string was = cur->name;
+                d->at = cur->at;
                 *cur = std::move(*d);
+                g_index.rename(cur, was);
                 cur->clones.clear();
                 cur->info = 0;
                 changed = true;
@@ -3193,7 +3387,9 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
                      cur->guid_s.c_str(), cur->owner_label.c_str(), cur->id);
             d = cur;
         } else {
+            d->at = g_defs.size();
             g_defs.push_back(d);
+            g_index.add(d);
             changed = true;
             out["state"] = d->placeholder ? "placeholder" : "defined";
         }
@@ -3289,57 +3485,89 @@ void nc_world_stopping(uintptr_t world) {
         }
 }
 
+namespace {
+// FNV-1a over what a listing entry shows (nc_definitions_json).
+struct Fingerprint {
+    uint64_t h = 1469598103934665603ull;
+    void add(const void* p, size_t n) {
+        for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(p)[i]) * 1099511628211ull;
+    }
+    template <class T>
+    void add(const T& v) { add(&v, sizeof v); }
+    void add(const std::string& s) {
+        add(s.size());
+        add(s.data(), s.size());
+    }
+    void add(const std::vector<std::string>& v) {
+        add(v.size());
+        for (const std::string& s : v) add(s);
+    }
+};
+}  // namespace
+
 std::string nc_definitions_json() {
-    json a = json::array();
+    PhaseTimer pt(PH_LISTING);
     std::lock_guard lock(store_mutex());
+    // Each entry's text is kept with its fingerprint (what it shows) and made again only when that changed: tools ask for the listing
+    // every second, and making all of it costs a fraction of a millisecond per definition, under the store lock.
+    const KilnAssetsApi* icons = assets_api();
+    std::string out = "[";
     for (const DefPtr& d : g_defs) {
         if (d->internal) continue;
-        char idb[16];
-        std::snprintf(idb, sizeof idb, "0x%08x", d->id);
-        json w = json::array();
+        uint8_t in_world[KILN_WORLD_KINDS] = {};
+        bool listed = false;
         for (uint32_t k = 0; k < KILN_WORLD_KINDS; ++k) {
             const WorldState& ws = g_ws[k];
-            if (!ws.world) continue;
-            const bool in = d->kind == KILN_CONTENT_ITEMS ? ws.items.count(d->id) != 0 : ws.recipes.count(d->id) != 0;
-            if (in) w.push_back(wname(k));
+            listed = listed || ws.listed.count(d->id);
+            if (ws.world) in_world[k] = d->kind == KILN_CONTENT_ITEMS ? ws.items.count(d->id) != 0 : ws.recipes.count(d->id) != 0;
         }
-        json e = {{"kind", d->kind == KILN_CONTENT_ITEMS ? "item" : "recipe"}, {"guid", d->guid_s}, {"id", idb},
-                  {"name", d->name}, {"base", d->base}, {"owner", d->owner_label}, {"source", d->source},
-                  {"state", d->orphan ? "orphaned" : (w.empty() ? (d->error.empty() ? "pending" : "error") : "registered")},
-                  {"worlds", w}, {"version", d->version}, {"mod", d->mod}};
-        if (d->placeholder) e["placeholder"] = true;
-        if (!d->error.empty()) e["error"] = d->error;
-        if (!d->display.empty()) e["displayName"] = d->display;
-        json warn = json::array();
-        for (const std::string& x : d->warnings) warn.push_back(x);
-        for (const std::string& x : d->gear_notes) warn.push_back(x);
-        if (!d->icon_problem.empty()) warn.push_back(d->icon_problem);
-        if (!warn.empty()) e["warnings"] = warn;
-        if (d->kind == KILN_CONTENT_ITEMS) {
-            json langs = json::array();
-            std::set<std::string> ls;
-            for (const TextSet& t : d->texts)
-                for (auto& [k, v] : t) ls.insert(k);
-            for (const std::string& k : ls) langs.push_back(k);
-            if (!langs.empty()) e["languages"] = langs;
-            if (!d->icon_file.empty()) {
-                e["iconFile"] = d->icon_file;
-                if (const KilnAssetsApi* a = assets_api(); a && a->icon_state) {
-                    static const char* const st[] = {"none", "pending", "served", "failed"};
-                    const int32_t v = a->icon_state(d->guid);
-                    e["iconState"] = v >= 0 && v <= 3 ? st[v] : "?";
+        const int32_t icon = !d->icon_file.empty() && icons && icons->icon_state ? icons->icon_state(d->guid) : -2;
+        Fingerprint f;
+        f.add(in_world), f.add(listed), f.add(icon), f.add(d->version), f.add(d->orphan), f.add(d->placeholder);
+        f.add(d->error), f.add(d->warnings), f.add(d->gear_notes), f.add(d->icon_problem), f.add(d->owner_label), f.add(d->source), f.add(d->mod);
+        if (f.h != d->listed_as || d->listed.empty()) {
+            char idb[16];
+            std::snprintf(idb, sizeof idb, "0x%08x", d->id);
+            json w = json::array();
+            for (uint32_t k = 0; k < KILN_WORLD_KINDS; ++k)
+                if (in_world[k]) w.push_back(wname(k));
+            json e = {{"kind", d->kind == KILN_CONTENT_ITEMS ? "item" : "recipe"}, {"guid", d->guid_s}, {"id", idb},
+                      {"name", d->name}, {"base", d->base}, {"owner", d->owner_label}, {"source", d->source},
+                      {"state", d->orphan ? "orphaned" : (w.empty() ? (d->error.empty() ? "pending" : "error") : "registered")},
+                      {"worlds", w}, {"version", d->version}, {"mod", d->mod}};
+            if (d->placeholder) e["placeholder"] = true;
+            if (!d->error.empty()) e["error"] = d->error;
+            if (!d->display.empty()) e["displayName"] = d->display;
+            json warn = json::array();
+            for (const std::string& x : d->warnings) warn.push_back(x);
+            for (const std::string& x : d->gear_notes) warn.push_back(x);
+            if (!d->icon_problem.empty()) warn.push_back(d->icon_problem);
+            if (!warn.empty()) e["warnings"] = warn;
+            if (d->kind == KILN_CONTENT_ITEMS) {
+                json langs = json::array();
+                std::set<std::string> ls;
+                for (const TextSet& t : d->texts)
+                    for (auto& [k, v] : t) ls.insert(k);
+                for (const std::string& k : ls) langs.push_back(k);
+                if (!langs.empty()) e["languages"] = langs;
+                if (!d->icon_file.empty()) {
+                    e["iconFile"] = d->icon_file;
+                    if (icon != -2) {
+                        static const char* const st[] = {"none", "pending", "served", "failed"};
+                        e["iconState"] = icon >= 0 && icon <= 3 ? st[icon] : "?";
+                    }
                 }
             }
+            e["definition"] = d->body;
+            if (d->kind == KILN_CONTENT_RECIPES) e["listed"] = listed;
+            d->listed = e.dump();
+            d->listed_as = f.h;
         }
-        e["definition"] = d->body;
-        if (d->kind == KILN_CONTENT_RECIPES) {
-            bool listed = false;
-            for (const WorldState& ws : g_ws) listed = listed || ws.listed.count(d->id);
-            e["listed"] = listed;
-        }
-        a.push_back(e);
+        if (out.size() > 1) out += ',';
+        out += d->listed;
     }
-    return a.dump();
+    out += ']';
+    return out;
 }
 
 std::string nc_info_json(const std::string& refs_json) {
@@ -3395,10 +3623,9 @@ std::string nc_info_json(const std::string& refs_json) {
 }
 
 bool nc_is_new(uint32_t kind, uint32_t id) {
+    PhaseTimer pt(PH_IS_NEW);
     std::lock_guard lock(store_mutex());
-    for (const DefPtr& d : g_defs)
-        if (d->kind == kind && d->id == id) return true;
-    return false;
+    return g_index.with_id(kind, id) != nullptr;
 }
 
 uint32_t nc_undefine_owner(KilnOwner owner) {

@@ -12,9 +12,12 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
 | [blocks.md](blocks.md) | Building blocks: statuses, effects, spells; what they compile to, what clients need, how mistakes show. Start here to make something |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations and loot as blocks: no base items, no GUIDs |
+| [world-blocks.md](world-blocks.md) | Props, stations that work on their own (a forge, a drying rack) and building materials as blocks |
+| [cosmetics.md](cosmetics.md) | Pieces for the vanity slots on models of your own: skinned or on one joint, both bodies from one file, `kiln skeleton player` |
 | [impact.md](impact.md) | Impact programs: tools/impact (dis/asm/lint/clone/cook), Kiln natives, packaging into kiln.assets |
 | [sounds.md](sounds.md) | Sounds, cues, music, voice-over: tools/soundcook, cook.json sound steps, SoundSample |
 | [vfx.md](vfx.md) | Effects: particles, lights and the game's VFX by name, in `blocks/*.json` or C#, the budget, VfxSample |
+| [screen-effects.md](screen-effects.md) | Full-screen effects: colour grading, tint, vignette, fades and flashes, on a status, an effect or from code |
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |

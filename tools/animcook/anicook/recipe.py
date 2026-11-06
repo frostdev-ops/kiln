@@ -25,7 +25,7 @@ from kfc.archive import ResourceKey
 from kfc.blob import Decoder
 from kfc.blobwrite import Encoder
 
-from . import clips as C, graphgen as G, skeleton as K
+from . import blocks as B, clips as C, graphgen as G, skeleton as K
 from .gltfdoc import Doc
 
 TOOL = "animcook"
@@ -76,6 +76,10 @@ def load(path):
         raise RecipeError(f"{p}: {e}") from e
     if doc.get("format") != 1:
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
+    try:
+        doc = B.add_to(doc, p)  # the animations and bodies of the mod's blocks/*.json
+    except B.BlocksError as e:
+        raise RecipeError(str(e)) from e
     for i, st in enumerate(doc.get("steps", [])):
         tl = tool_of(doc, st)
         if tl not in KNOWN_TOOLS and tl != "impact":
@@ -102,7 +106,7 @@ def load(path):
 
 
 def sources_of(doc, base):
-    out = []
+    out = list(doc.get("blocksSources", []))
     for _, st in own_steps(doc):
         for k in ("gltf", "raw"):
             if k in st:

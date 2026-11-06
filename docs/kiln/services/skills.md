@@ -223,6 +223,7 @@ code. Code may also call `Skills.LoadTrees()` (the calling mod's folder) or `Ski
 | `{"attribute": "Strength", "amount": n}` | the game's attribute-node program (`937e39f4`, the "+1 Strength" kind) with n × level on the player. Names: Strength, Constitution, Intelligence, Spirit, Dexterity, Endurance (`TalentAttributes`; matched in the lab per attribute component). Lab: "Strength 1 -> 3 (+2 from the talent)", back to 1 at lock |
 | `{"gameNode": "0x<id>"}` | a game node's effect for this player: its program with its own config values (`SkillIdComponent`), as the game runs it for its own unlocks; the node is not unlocked in the game's tree |
 | `{"program": "<guid>", "configs": {...}}` | any Impact program kept running on the player (root = the player) |
+| C#: `TalentEffect.LevelledProgram(program, "0x<config id>")` | the same, with the node's level in that float config; it starts again when the level changes (what building blocks' talents use) |
 | `{"buff": "<GUID or clone name>", "refresh": s}` | a game buff or a kiln.gamedata buff clone (`buffs.add`), applied for refresh + 5 s and renewed every refresh. It ends within that time after a lock (Kiln can't take a game buff off early) |
 | `{"ability": "<id>"}` | a Kiln.Abilities ability only players with this node may cast (`AbilityCastEvent` canceled with "needs the talent ...") |
 | C#: `TalentEffect.Callback(apply, remove)` | code, as the tree's mod, on the tick thread |

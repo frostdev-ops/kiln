@@ -55,6 +55,14 @@ public static class Blocks
     /// material's textures once at start, so one defined here is there from the next start; see <see cref="MaterialBlockHandle.Status"/>. A block in a data file's "materials" section is there at once.</summary>
     public static MaterialBlockHandle Define(string name, MaterialBlock block) => (MaterialBlockHandle)Define<MaterialBlock>(name, block);
 
+    /// <summary>Changes a game material in place, as the calling mod's. The game reads its material tables once at start, so a tweak new to this game is there from the next start;
+    /// see <see cref="TableBlockHandle{T}.Status"/>. One in a data file's "materialTweaks" section is there at once.</summary>
+    public static TableBlockHandle<MaterialTweakBlock> Define(string name, MaterialTweakBlock block) => (TableBlockHandle<MaterialTweakBlock>)Define<MaterialTweakBlock>(name, block);
+
+    /// <summary>Defines a new building material as the calling mod's. The game reads its material tables once at start, so one new to this game is there from the next start;
+    /// see <see cref="TableBlockHandle{T}.Status"/>. One in a data file's "buildingMaterials" section is there at once.</summary>
+    public static TableBlockHandle<BuildingMaterialBlock> Define(string name, BuildingMaterialBlock block) => (TableBlockHandle<BuildingMaterialBlock>)Define<BuildingMaterialBlock>(name, block);
+
     /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
     public static BlockHandle? Find(string name, string? mod = null)
     {
@@ -119,6 +127,7 @@ public static class Blocks
             m.Owner = owner;
         }
         m.OwnedByMod = true;
+        BlocksStartup.ReadData(m);
         return m;
     }
 }
@@ -142,6 +151,9 @@ internal sealed class ModBlocks(string id, ulong owner)
     public bool VfxPreloaded;
     /// <summary>Blocks of this mod's data files not compiled yet: a reference by name compiles them first.</summary>
     public readonly Dictionary<string, Func<BlockHandle>> Pending = new();
+    /// <summary>The data files, read and not compiled yet; <see cref="DataLoaded"/>: compiled.</summary>
+    public BlockJson.DataFiles? Data;
+    public bool DataLoaded;
     public readonly HashSet<string> Compiling = new();
     public string? ManifestClients;
     /// <summary>The owner is the mod's own, not one of Kiln's for a mod with only data files.</summary>
@@ -163,10 +175,16 @@ internal sealed class ModBlocks(string id, ulong owner)
         LateFailed.Clear();
         LateRules.Clear();
         Icons.Clear();
+        ReadyChecks.Clear();
+        PlayerTriggers.Forget(Id);
         VfxRaw.Clear();
         VfxLates.Clear();
         Carriers.Clear();
         VfxPreloaded = false;
+        Data?.Dispose();
+        Data = null;
+        DataLoaded = false;
+        Pending.Clear();
         ReportDirty = true;
     }
 
@@ -177,7 +195,8 @@ internal sealed class ModBlocks(string id, ulong owner)
     public readonly List<Guid> LatePending = new();
     public readonly HashSet<Guid> LateFailed = new();
     public readonly List<(string Section, string Entry, string Path, Guid Program)> LateRules = new();
-    public readonly List<(string Buff, string Source, string Block)> Icons = new();
+    public readonly List<(string Section, string Entry, GameDataRegistry Registry, string Source, string Block)> Icons = new();
     public bool ReadyHooked;
+    public readonly List<Action<Action<string>>> ReadyChecks = new();
     public readonly List<(string Section, string Entry, JsonObject Rules)> ReadyRules = new();
 }

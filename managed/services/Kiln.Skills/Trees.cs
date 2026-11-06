@@ -138,6 +138,11 @@ public abstract class TalentEffect
     public static TalentEffect Program(Guid program, IReadOnlyDictionary<string, object>? configs = null) =>
         new ProgramEffect(program, configs);
 
+    /// <summary><see cref="Program(Guid, IReadOnlyDictionary{string, object}?)"/>, with the node's level in a float config: <paramref name="levelConfig"/>
+    /// (a config id "0x...", or a variable's name). It starts again when the level changes.</summary>
+    public static TalentEffect LevelledProgram(Guid program, string levelConfig, IReadOnlyDictionary<string, object>? configs = null) =>
+        new ProgramEffect(program, configs, levelConfig);
+
     /// <summary>A Kiln.Abilities ability (id) that only players with this node can cast.</summary>
     public static TalentEffect Ability(string abilityId) => new AbilityEffect(abilityId);
 
@@ -168,10 +173,11 @@ internal sealed class GameNodeEffect(uint node) : TalentEffect
     internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectGameNode, $"0x{Node:x8}");
 }
 
-internal sealed class ProgramEffect(Guid program, IReadOnlyDictionary<string, object>? configs) : TalentEffect
+internal sealed class ProgramEffect(Guid program, IReadOnlyDictionary<string, object>? configs, string? levelConfig = null) : TalentEffect
 {
     public readonly Guid ProgramGuid = program;
     public readonly IReadOnlyDictionary<string, object>? Configs = configs;
+    public readonly string? LevelConfig = levelConfig;
     internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectProgram, ProgramGuid);
 }
 

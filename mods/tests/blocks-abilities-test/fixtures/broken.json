@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "perks": {
+    "perk-nothing": { "name": "Nothing" },
+    "perk-bad-value": { "name": "Bad Value", "value": "lots", "modifies": { "strength": 1 } },
+    "perk-typo": { "name": "Typo", "modifes": { "strength": 1 } }
+  },
+  "abilities": {
+    "ability-nothing": { "name": "Nothing" },
+    "ability-charges": { "name": "Charges", "cast": { "charges": 2 }, "onCast": [ { "heal": 1 } ] },
+    "ability-bad-cone": { "name": "Bad Cone", "delivery": { "type": "cone", "angle": 200, "effects": [ { "heal": 1 } ] } },
+    "ability-no-effects": { "name": "No Effects", "delivery": { "type": "beam", "effects": [] } },
+    "ability-unknown-delivery": { "name": "Laser", "delivery": { "type": "laser", "effects": [ { "heal": 1 } ] } },
+    "ability-bad-homing": { "name": "Bad Homing", "delivery": { "type": "projectile", "onHit": [ { "heal": 1 } ], "homing": { "turnSpeed": 0 } } },
+    "ability-casts-nothing": { "name": "Casts Nothing", "onCast": [ { "casts": "no-such-ability" } ] }
+  },
+  "talents": {
+    "talent-no-anchor": { "name": "No Anchor", "game": { } },
+    "talent-levels": { "name": "Levels", "maxLevel": 9, "game": { "from": [ "0x8efcc472" ] } },
+    "talent-class": { "name": "Class", "game": { "class": "Bard", "from": [ "0x8efcc472" ] } },
+    "talent-tiers": { "name": "Tiers", "pointsSpent": 2, "game": { "from": [ "0x8efcc472" ] } }
+  },
+  "talentTrees": {
+    "tree-no-nodes": { "name": "Empty", "nodes": { } },
+    "tree-bad-require": { "name": "Bad Require", "nodes": { "a": { "name": "A", "requires": [ "nope" ] } } },
+    "tree-loop": { "name": "Loop", "nodes": { "a": { "name": "A", "requires": [ "b" ] }, "b": { "name": "B", "requires": [ "a" ] } } },
+    "tree-game-node": { "name": "Game Node", "nodes": { "a": { "name": "A", "game": { "from": [ "0x8efcc472" ] } } } },
+    "tree-same-cell": { "name": "Same Cell", "nodes": { "a": { "name": "A", "column": 1, "row": 1 }, "b": { "name": "B", "column": 1, "row": 1 } } }
+  },
+  "triggers": {
+    "trigger-nothing": { "on": "Gliding" },
+    "trigger-bad-state": { "on": "NoSuchState", "do": [ { "heal": 1 } ] },
+    "trigger-stop-state": { "on": "Gliding", "stop": true },
+    "trigger-end-action": { "on": "ActionPrimary", "onEnd": [ { "heal": 1 } ] },
+    "trigger-stop-eaten": { "on": "eaten", "stop": true }
+  },
+  "statuses": {
+    "status-bad-while": { "name": "Bad While", "while": "NoSuchState" },
+    "status-no-time": { "name": "No Time" }
+  },
+  "items": {
+    "item-eat-material": { "name": "Stone", "kind": "material", "onEat": [ { "heal": 1 } ] },
+    "item-empty-rule": { "name": "Empty Rule", "kind": "consumable", "onUse": [ { "heal": 1 } ], "canEat": { } }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "talents": {
+    "kindle": { "name": "Kindle", "maxLevel": 3, "modifies": { "intelligence": 1 } }
+  },
+  "talentTrees": {
+    "ember-path": { "name": "Ember Path", "nodes": { "hearth": { "name": "Hearth", "modifies": { "strength": 1 } } } }
+  }
+}

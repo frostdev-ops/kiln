@@ -133,18 +133,48 @@ struct Served {
     uint32_t handle = 0;  // synthetic (new) or the game's (override); 0 until known
     bool is_new = false;
 };
+// One level of the resource index (immutable once published).
 struct ResSnap {
-    uint64_t gen = 0;
     std::unordered_map<Key, Served, KeyHash> keys;
     std::unordered_map<uint32_t, Served> handles;
     std::unordered_map<uint32_t, std::vector<Key>> new_by_type;
     std::unordered_map<uint32_t, Key> synth_keys;  // synthetic handle -> key
-    // Every key ever served as new in this process. A template stays registered in its world after resource_remove
-    // (docs/kiln/services/gamedata.md), so a client without Kiln can still be sent its entities.
+    // Every key ever served as new in this process (a delta: those added since its base). A template stays registered in its world after
+    // resource_remove (docs/kiln/services/gamedata.md), so a client without Kiln can still be sent its entities.
     std::unordered_map<Key, bool, KeyHash> ever_new;
-    // vanilla + new key lists per type, built on first use
+    std::unordered_map<uint32_t, size_t> ever_new_by_type;
+};
+// What the hooks read: a base, built again now and then, and a small delta of the resources added since, built again at each put. So a
+// put costs about the same however many resources are served (mods with thousands of clones put one at a time).
+struct ResView {
+    uint64_t gen = 0;
+    const ResSnap* base = nullptr;   // never null once published
+    const ResSnap* delta = nullptr;  // never null once published
+    // vanilla + new key lists per type, built on first use. The game keeps the list it was given: never freed.
     mutable std::mutex merged_mu;
-    mutable std::unordered_map<uint32_t, std::vector<uint8_t>> merged;
+    mutable std::unordered_map<uint32_t, const std::vector<uint8_t>*> merged;
+    const Served* key(const Key& k) const;
+    const Served* handle(uint32_t h) const;
+    const Key* synth(uint32_t h) const;
+    bool ever_new(const Key& k) const;
+    size_t new_count(uint32_t type) const;
+    void new_keys(uint32_t type, std::vector<Key>* out) const;  // base's, then delta's
+    bool any_keys() const { return !base->keys.empty() || !delta->keys.empty(); }
+    bool any_handles() const { return !base->handles.empty() || !delta->handles.empty(); }
+    bool any_new() const { return !base->new_by_type.empty() || !delta->new_by_type.empty(); }
+};
+
+// Readers on any thread hold a ReadGuard while they use what g_res, g_content or g_icons point at. A writer frees what it replaced once
+// every reader that could have seen it has left (two reader counts, by epoch). A reader must not wait for g_mu inside one.
+class ReadGuard {
+public:
+    ReadGuard();
+    ~ReadGuard();
+    ReadGuard(const ReadGuard&) = delete;
+    ReadGuard& operator=(const ReadGuard&) = delete;
+
+private:
+    uint64_t epoch_;
 };
 struct Extent {
     uint64_t offset;
@@ -156,7 +186,7 @@ struct ContentSnap {
     std::unordered_map<HashK, uint64_t, HashKHash> entries;  // hash -> offset in Kiln's container
     std::vector<Extent> extents;                             // sorted by offset
 };
-extern std::atomic<const ResSnap*> g_res;
+extern std::atomic<const ResView*> g_res;
 extern std::atomic<const ContentSnap*> g_content;
 extern std::atomic<uint64_t> g_content_gen;
 extern uint16_t g_container_index;  // Kiln's container index (the game's count), 0xFFFF until the IO queue opened it
@@ -198,6 +228,7 @@ KilnResult op_resource_put(KilnOwner owner, const KilnAssetKey* key, const void*
 KilnResult op_resource_remove(KilnOwner owner, const KilnAssetKey* key);
 KilnResult op_resource_read(const KilnAssetKey* key, void* buffer, size_t cap, size_t* out_len);
 KilnResult op_resource_data(const KilnAssetKey* key, const void** ptr, size_t* len);
+KilnResult op_when_resources_ready(void(KILN_CALL* fn)(void*), void* user);
 KilnResult op_resource_list(uint32_t type, KilnAssetKey* out, size_t cap, size_t* out_count);
 int32_t op_resource_is_new(const KilnAssetKey* key);
 size_t op_resource_new_count(uint32_t type);

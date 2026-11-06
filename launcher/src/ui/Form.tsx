@@ -1,4 +1,5 @@
-// Form primitives: Field, TextInput, NumberInput, Select, Slider, TextArea, Toggle.
+// Form primitives: Field, TextInput, NumberInput, Select, Slider, TextArea, Toggle, WellInput (a well with its label
+// inside: Filter, Search items), FlameToggle (light a mod or put it out). Fields sit in wells; the rim catches flame on focus.
 import { forwardRef, useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export interface FieldProps {
@@ -140,5 +141,39 @@ export function Toggle({ checked, onChange, label, hint, disabled, id, ...rest }
         </span>
       )}
     </label>
+  );
+}
+
+export interface WellInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
+  /** The small-caps word inside the well ("Filter", "Search items"). */
+  label: ReactNode;
+  /** Text after the input (a count). */
+  note?: ReactNode;
+  compact?: boolean;
+  wellStyle?: React.CSSProperties;
+}
+
+/** An input set in a well with its label inside it. */
+export const WellInput = forwardRef<HTMLInputElement, WellInputProps>(function WellInput({ label, note, compact, wellStyle, id, className, ...rest }, ref) {
+  const auto = useId();
+  const fid = id ?? auto;
+  return (
+    <div className={["k-well", compact && "compact", className].filter(Boolean).join(" ")} style={wellStyle}>
+      <label className="k-label" htmlFor={fid}>{label}</label>
+      <input ref={ref} id={fid} autoComplete="off" spellCheck={false} {...rest} />
+      {note !== undefined && note !== null && <span className="k-well-note">{note}</span>}
+    </div>
+  );
+});
+
+const FLAME = "M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z";
+
+/** The flame toggle of mod lists: lit (on) or out. `label` is the mod's name. */
+export function FlameToggle({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button type="button" className={"k-flame" + (on ? " on" : "")} aria-pressed={on} aria-label={`Light ${label}`} title={on ? `${label} is lit: put it out` : `${label} is out: light it`}
+      disabled={disabled} onClick={() => onChange(!on)}>
+      <svg viewBox="0 0 24 24" aria-hidden><path d={FLAME} /></svg>
+    </button>
   );
 }

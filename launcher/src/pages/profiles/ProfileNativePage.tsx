@@ -1,20 +1,21 @@
-// /profiles/:id/native: native DLL mods by load phase (drag to reorder inside a phase; the
-// native resolver still applies after/before rules) and Kiln plugins.
+// /profiles/:id/native: native DLL mods by load phase (drag to reorder inside a phase; the native resolver still
+// applies after/before rules) and Kiln plugins.
 import { useQuery } from "@tanstack/react-query";
-import { Cpu, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import * as api from "../../api/commands";
 import type { NativePhase, ProfileMod } from "../../api/commands";
 import { qk, useLibrary } from "../../api/hooks";
-import { Badge, Banner, Button, Card, EmptyState, IconButton, Panel, SortableList, Toggle } from "../../ui";
+import { Banner, Button, FlameToggle, Menu, Modal, NameId, Panel, SortableList, Toggle } from "../../ui";
 import { libName, ModList } from "./ModList";
+import { ProfileFacts } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
 
 const PHASES: { id: NativePhase; label: string; hint: string }[] = [
-  { id: "dllmain", label: "dllmain", hint: "In the proxy, before anything else. Can hang the start." },
-  { id: "early", label: "early", hint: "At the start of Kiln's boot. Runs in safe idle too." },
-  { id: "boot", label: "boot", hint: "After Kiln's services and plugins." },
-  { id: "world", label: "world", hint: "At the first world. Needs hooks." },
+  { id: "dllmain", label: "Dllmain", hint: "In the proxy, before anything else. Can hang the start." },
+  { id: "early", label: "Early", hint: "At the start of Kiln's boot. Runs in safe idle too." },
+  { id: "boot", label: "Boot", hint: "After Kiln's services and plugins." },
+  { id: "world", label: "World", hint: "At the first world. Needs hooks." },
 ];
 
 export default function ProfileNativePage() {
@@ -39,63 +40,68 @@ export default function ProfileNativePage() {
   const reasons = new Map((preview.data?.native ?? []).map((n) => [n.id, n.reason]));
 
   return (
-    <div className="k-stack" style={{ gap: 16 }}>
+    <div className="k-scroll k-stack" style={{ gap: 18, paddingBottom: 20 }}>
       {profile.mods.native.some((m) => m.enabled && phaseOf(m) === "dllmain") && (
-        <Banner tone="warn" title="dllmain mods">They load inside the proxy. A bad one can stop the game from starting.</Banner>
+        <Banner tone="warn" title="Dllmain">These load inside the proxy. A bad one can stop the game from starting.</Banner>
       )}
-      <Card title="Native mods" sub="DLL mods. Drag to set the order inside a phase."
-        actions={<Button size="s" icon={<Plus />} onClick={() => setAdding(true)}>Add</Button>}>
+      <section className="k-card">
+        <header className="k-card-head">
+          <div className="k-card-titles"><h2 className="k-card-title">Native mods</h2><span className="k-card-sub">Drag to set the order inside a phase.</span></div>
+          <div className="k-card-actions"><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>
+        </header>
         {profile.mods.native.length === 0 ? (
-          <EmptyState icon={<Cpu />} title="No native mods" hint="Import a DLL or a folder with native.json." />
+          <div className="k-empty"><div className="k-empty-title">No native mods. Import a DLL or a folder with native.json on the Library page.</div></div>
         ) : PHASES.map((ph) => {
           const items = byPhase(ph.id);
           if (!items.length) return null;
           return (
-            <Panel key={ph.id} title={<span className="k-phase-head"><span className="k-phase-name">{ph.label}</span><span className="k-hint" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>{ph.hint}</span></span>}>
-              <SortableList aria-label={`${ph.label} phase`} items={items} itemKey={(m) => m.id} onReorder={(n) => reorder(ph.id, n)} render={(m) => (
-                <div className="k-row" style={{ gap: 12 }}>
-                  <Toggle checked={m.enabled} onChange={(on) => toggle("native", m.id, on)} aria-label={`Enable ${m.id}`} />
-                  <span className="k-stack" style={{ gap: 0, flex: 1, minWidth: 0 }}>
-                    <span className="k-item-title" style={{ opacity: m.enabled ? 1 : 0.55 }}>{libName(lib.data, "native", m.id)}</span>
-                    <span className="k-dim k-mono" style={{ fontSize: 11 }}>{m.id} · {m.version}</span>
-                  </span>
-                  {m.enabled && reasons.get(m.id) && <span className="k-hint" title={reasons.get(m.id) ?? ""}><TriangleAlert size={13} color="var(--k-warn)" /> {reasons.get(m.id)}</span>}
-                  {ph.id === "dllmain" && <Badge tone="warn">proxy</Badge>}
-                  <IconButton label={`Remove ${m.id}`} size="s" icon={<Trash2 />} onClick={() => remove("native", m.id)} />
-                </div>
-              )} />
+            <Panel key={ph.id} title={<>{ph.label} <span className="k-hint" style={{ fontFamily: "var(--k-font-ui)", marginLeft: 8 }}>{ph.hint}</span></>}>
+              <SortableList aria-label={`${ph.label} phase`} items={items} itemKey={(m) => m.id} onReorder={(n) => reorder(ph.id, n)} render={(m) => {
+                const name = libName(lib.data, "native", m.id);
+                const why = m.enabled ? reasons.get(m.id) : null;
+                return (
+                  <div className="k-row" style={{ gap: 12, flexWrap: "nowrap" }}>
+                    <FlameToggle on={m.enabled} label={name} onChange={(on) => toggle("native", m.id, on)} />
+                    <NameId name={name} id={m.id} dim={!m.enabled} />
+                    <span className="k-mono k-muted" style={{ flex: "none" }}>{m.version}</span>
+                    <span className="k-spacer" />
+                    {why && <span className="k-hint" style={{ fontStyle: "italic", color: "var(--k-ember-300)" }} title={why}>{why}</span>}
+                    <Menu label={`More for ${name}`} icon={<MoreHorizontal />} size="s" items={[{ label: "Remove from this profile", danger: true, onSelect: () => remove("native", m.id) }]} />
+                  </div>
+                );
+              }} />
             </Panel>
           );
         })}
-      </Card>
-      {adding && <AddNative onDone={() => setAdding(false)} have={profile.mods.native} onAdd={(ms) => update((p) => { p.mods.native.push(...ms); })} />}
-      <Card flush title="Kiln plugins" sub="DLLs with kiln_plugin_main.">
+      </section>
+      <section className="k-card">
+        <header className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Kiln plugins</h2><span className="k-card-sub">DLLs with kiln_plugin_main. They load after Kiln's services.</span></div></header>
         <ModList kind="plugin" mods={profile.mods.plugin} onToggle={(m, on) => toggle("plugin", m, on)} onRemove={(m) => remove("plugin", m)}
           onAdd={(ms) => update((p) => { p.mods.plugin.push(...ms); })}
           onVersion={(m, version, hash) => update((p) => { p.mods.plugin = p.mods.plugin.map((x) => (x.id === m ? { ...x, version, hash } : x)); })}
-          emptyHint="Plugins load after Kiln's services." />
-      </Card>
+          emptyHint="No plugins in this profile." />
+      </section>
+      <AddNative open={adding} onClose={() => setAdding(false)} have={profile.mods.native} onAdd={(ms) => update((p) => { p.mods.native.push(...ms); })} />
+      <ProfileFacts hint="Native mods load by phase, in the order set here. Kiln still applies their after and before rules." />
     </div>
   );
 }
 
-/** Reuses ModList's add modal through a hidden list (opens straight away). */
-function AddNative({ onDone, have, onAdd }: { onDone: () => void; have: ProfileMod[]; onAdd: (m: ProfileMod[]) => void }) {
+function AddNative({ open, onClose, have, onAdd }: { open: boolean; onClose: () => void; have: ProfileMod[]; onAdd: (m: ProfileMod[]) => void }) {
   const lib = useLibrary("native");
   const [pick, setPick] = useState<string[]>([]);
   const avail = (lib.data ?? []).filter((l) => !have.some((h) => h.id === l.id));
   return (
-    <Card title="Add native mods" actions={<>
-      <Button size="s" variant="ghost" onClick={onDone}>Cancel</Button>
-      <Button size="s" variant="primary" disabled={!pick.length} onClick={() => { onAdd(avail.filter((l) => pick.includes(l.id)).map((l) => ({ id: l.id, version: l.versions[0].version, hash: l.versions[0].hash, enabled: true }))); onDone(); }}>Add {pick.length || ""}</Button>
-    </>}>
-      {avail.length === 0 ? <span className="k-hint">Nothing else in the library.</span> : avail.map((l) => {
+    <Modal open={open} onClose={onClose} title="Add native mods" width={520}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={!pick.length} onClick={() => { onAdd(avail.filter((l) => pick.includes(l.id)).map((l) => ({ id: l.id, version: l.versions[0].version, hash: l.versions[0].hash, enabled: true }))); setPick([]); onClose(); }}>Add {pick.length || ""}</Button></>}>
+      {avail.length === 0 ? <span className="k-empty-title">Nothing else in the library.</span> : avail.map((l) => {
         const phase = (l.versions[0].manifest as { phase?: string } | null)?.phase ?? "early";
         return (
           <Toggle key={l.id} checked={pick.includes(l.id)} onChange={(on) => setPick(on ? [...pick, l.id] : pick.filter((x) => x !== l.id))}
-            label={l.name} hint={<span className="k-mono">{l.id} · {l.versions[0].version} · {phase}</span>} />
+            label={l.name} hint={<span className="k-mono">{l.id} {l.versions[0].version}, {phase}</span>} />
         );
       })}
-    </Card>
+    </Modal>
   );
 }

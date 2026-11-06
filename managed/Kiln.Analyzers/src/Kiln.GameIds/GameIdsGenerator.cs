@@ -22,7 +22,7 @@ namespace Kiln.GameIds;
 [Generator(LanguageNames.CSharp)]
 public sealed class GameIdsGenerator : IIncrementalGenerator
 {
-    public const string DefaultSections = "Items;Perks;Buffs;Skills;Workshops";
+    public const string DefaultSections = "Items;Perks;Buffs;Skills;Workshops;Materials";
 
     internal static readonly DiagnosticDescriptor NoCatalog = new(
         "KILN190", "No game-data catalog",
@@ -95,6 +95,7 @@ public sealed class GameIdsGenerator : IIncrementalGenerator
         new("sequences", "GameSequences", false, false, "action sub-sequences (names; `sequences` keys)"),
         new("sounds", "GameSounds", false, false, "sound cues (first sound's name; use the GUID in cook recipes)"),
         new("vfx", "GameVfx", false, false, "VFX, named after what uses them (GUIDs: VfxId.Of, VfxRef.Game)", valueIsGuid: true),
+        new("materials", "GameMaterials", false, false, "building and terrain materials (what a material block's Material names)"),
     ];
 
     public void Initialize(IncrementalGeneratorInitializationContext context)

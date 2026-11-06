@@ -192,7 +192,7 @@ function FieldEditor({ f, busy, onSet, onCancel }: { f: ContentField; busy: bool
     <div className="ka-inline">
       {ctl}
       {f.valueType === "time" ? <span className="k-hint">seconds</span> : null}
-      <Button size="s" variant="primary" loading={busy} onClick={go}>Set</Button>
+      <Button size="s" loading={busy} onClick={go}>Set</Button>
       <Button size="s" variant="ghost" onClick={onCancel}>Cancel</Button>
     </div>
   );
@@ -219,7 +219,7 @@ function SingleField({ kind, entry }: { kind: ContentKind; entry: string }) {
           <div className="ka-inline">
             <span>Now <b className="k-mono">{cur.value}</b>, game's <span className="k-mono">{cur.original}</span></span>
             <TextInput aria-label="New value" placeholder="new value" value={val} onChange={(e) => setVal(e.target.value)} style={{ width: 160 }} />
-            <Button size="s" variant="primary" onClick={() => ok() && set.mutate({ kind, entry, field: field.trim(), value: parsed() })}>Set</Button>
+            <Button size="s" onClick={() => ok() && set.mutate({ kind, entry, field: field.trim(), value: parsed() })}>Set</Button>
             <Button size="s" variant="ghost" onClick={() => ok() && reset.mutate({ kind, entry, field: field.trim() })}>Reset</Button>
           </div>
         ) : null}

@@ -12,6 +12,7 @@
 //    PRESENT_SRC, framebuffers, one command buffer + fence + semaphore per image;
 //  - in vkQueuePresentKHR: build the ImGui frame, record it into the presented image, submit on the present queue
 //    waiting on the game's semaphores, present waiting on Kiln's semaphore instead.
+// Before the overlay: subscribers of the pre-overlay callback (kiln_ui.h) chain their own submit in the same way.
 #ifndef VK_NO_PROTOTYPES
 #define VK_NO_PROTOTYPES
 #endif
@@ -92,6 +93,8 @@ struct Swap {
     VkExtent2D extent{};
     uint32_t min_images = 2;
     bool drawable = false;  // created with COLOR_ATTACHMENT usage
+    VkImageUsageFlags usage = 0;
+    std::vector<VkImage> listed;  // the driver's image list, fetched once for the pre-overlay callback
     bool ready = false;     // resources below exist
     VkRenderPass pass = VK_NULL_HANDLE;
     std::vector<VkImage> images;
@@ -119,6 +122,16 @@ std::atomic<float> g_dpi{1.0f};
 std::atomic<double> g_frame_ms{0};
 bool g_failed = false;  // overlay disabled after a Vulkan error (presents keep passing through)
 bool g_logged_draw = false;
+
+struct PreOverlaySub {
+    KilnHandle handle;
+    KilnUiPreOverlayFn fn;
+    KilnUiSwapchainGoneFn gone;
+    void* user;
+};
+std::vector<PreOverlaySub> g_pre_overlay;  // under g_mu
+std::atomic<uint32_t> g_pre_demand{0};
+std::atomic<uint32_t> g_extra_usage{0};
 
 template <typename T>
 T dfn(Device& d, const char* name) {
@@ -430,6 +443,127 @@ bool draw(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* out_wait, ui
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Work before the overlay (kiln_ui.h, subscribe_pre_overlay)
+
+int fault_filter(EXCEPTION_POINTERS* ep);
+uint32_t g_fault_code = 0;
+void* g_fault_addr = nullptr;
+
+// What was asked for with add_swapchain_usage, as far as this surface supports it: a swapchain the surface would refuse must not fail because of Kiln.
+VkImageUsageFlags supported_extra_usage(VkDevice dev, VkSurfaceKHR surface) {
+    const uint32_t extra = g_extra_usage.load();
+    if (!extra || !R.gipa) return 0;
+    VkInstance instance = VK_NULL_HANDLE;
+    VkPhysicalDevice physical = VK_NULL_HANDLE;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        auto it = g_devices.find(dev);
+        if (it == g_devices.end()) return 0;
+        instance = it->second->instance ? it->second->instance : g_instance;
+        physical = it->second->physical;
+    }
+    auto caps_fn = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(R.gipa(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+    VkSurfaceCapabilitiesKHR caps{};
+    if (!caps_fn || caps_fn(physical, surface, &caps) != VK_SUCCESS) return 0;
+    return extra & caps.supportedUsageFlags;
+}
+
+bool guarded_gone(KilnUiSwapchainGoneFn fn, void* device, void* swapchain, void* user) {
+    __try {
+        fn(device, swapchain, user);
+        return true;
+    } __except (fault_filter(GetExceptionInformation())) {
+        return false;
+    }
+}
+
+// g_mu held.
+void notify_gone(VkDevice dev, VkSwapchainKHR swapchain) {
+    for (const PreOverlaySub& s : g_pre_overlay)
+        if (s.gone && !guarded_gone(s.gone, dev, swapchain, s.user)) logf(KILN_LOG_ERROR, "ui: a pre-overlay subscriber faulted (0x%08x) as a swapchain went", g_fault_code);
+}
+
+bool guarded_pre_overlay_fn(KilnUiPreOverlayFn fn, const KilnUiPreOverlay* p, void** out, void* user, bool* faulted) {
+    __try {
+        return fn(p, out, user);
+    } __except (fault_filter(GetExceptionInformation())) {
+        *faulted = true;
+        return false;
+    }
+}
+
+// True: *wait replaces the game's semaphores in this present.
+bool run_pre_overlay(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* wait) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (g_pre_overlay.empty()) return false;
+    Swap* s = nullptr;
+    uint32_t index = 0;
+    for (uint32_t i = 0; i < info->swapchainCount; ++i) {
+        auto it = g_swaps.find(info->pSwapchains[i]);
+        if (it != g_swaps.end() && it->second.drawable && it->second.hwnd) {
+            s = &it->second;
+            index = info->pImageIndices[i];
+            break;
+        }
+    }
+    if (!s) return false;
+    auto dit = g_devices.find(s->device);
+    if (dit == g_devices.end() || !dit->second->fn.vkGetSwapchainImagesKHR) return false;
+    Device& d = *dit->second;
+    if (s->listed.empty()) {
+        uint32_t n = 0;
+        if (d.fn.vkGetSwapchainImagesKHR(d.device, s->swapchain, &n, nullptr) != VK_SUCCESS || n == 0) return false;
+        std::vector<VkImage> listed(n);
+        if (d.fn.vkGetSwapchainImagesKHR(d.device, s->swapchain, &n, listed.data()) != VK_SUCCESS) return false;
+        s->listed = std::move(listed);
+    }
+    if (index >= s->listed.size()) return false;
+    uint32_t family = d.graphics_family;
+    if (auto q = d.queue_family.find(queue); q != d.queue_family.end()) family = q->second;
+
+    KilnUiPreOverlay p{};
+    p.size = sizeof p;
+    p.image_index = index;
+    p.instance = d.instance ? d.instance : g_instance;
+    p.physical_device = d.physical;
+    p.device = d.device;
+    p.get_instance_proc_addr = reinterpret_cast<void*>(R.gipa);
+    p.get_device_proc_addr = reinterpret_cast<void*>(d.gdpa);
+    p.queue = queue;
+    p.swapchain = s->swapchain;
+    p.image = s->listed[index];
+    p.wait_semaphores = reinterpret_cast<void* const*>(info->pWaitSemaphores);
+    p.wait_count = info->waitSemaphoreCount;
+    p.queue_family = family;
+    p.format = static_cast<uint32_t>(s->format);
+    p.color_space = static_cast<uint32_t>(s->color_space);
+    p.width = s->extent.width;
+    p.height = s->extent.height;
+    p.usage = s->usage;
+    bool submitted = false;
+    for (size_t i = 0; i < g_pre_overlay.size();) {
+        const PreOverlaySub sub = g_pre_overlay[i];
+        void* out = nullptr;
+        bool faulted = false;
+        const bool took = guarded_pre_overlay_fn(sub.fn, &p, &out, sub.user, &faulted);
+        if (faulted) {
+            logf(KILN_LOG_ERROR, "ui: a pre-overlay subscriber faulted (0x%08x at %p): removed", g_fault_code, g_fault_addr);
+            g_pre_overlay.erase(g_pre_overlay.begin() + static_cast<ptrdiff_t>(i));
+            if (g_pre_overlay.empty()) g_pre_demand = 0;
+            continue;
+        }
+        ++i;
+        if (!took || !out) continue;
+        // the next one in line waits on this one's work
+        *wait = static_cast<VkSemaphore>(out);
+        p.wait_semaphores = reinterpret_cast<void* const*>(wait);
+        p.wait_count = 1;
+        submitted = true;
+    }
+    return submitted;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Detours
 
 VkResult VKAPI_CALL hk_create_instance(const VkInstanceCreateInfo* ci, const VkAllocationCallbacks* a, VkInstance* out) {
@@ -481,6 +615,7 @@ void VKAPI_CALL hk_destroy_device(VkDevice dev, const VkAllocationCallbacks* a) 
             Device& d = *dit->second;
             if (device_fns_ok(d)) {
                 d.fn.vkDeviceWaitIdle(dev);
+                notify_gone(dev, nullptr);
                 for (auto it = g_swaps.begin(); it != g_swaps.end();) {
                     if (it->second.device == dev) {
                         destroy_swap_resources(d, it->second);
@@ -540,12 +675,14 @@ VkResult VKAPI_CALL hk_create_swapchain(VkDevice dev, const VkSwapchainCreateInf
                                         VkSwapchainKHR* out) {
     if (!ci || !out) return R.create_swapchain(dev, ci, a, out);
     VkSwapchainCreateInfoKHR c = *ci;
-    c.imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    c.imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | supported_extra_usage(dev, ci->surface);
     VkResult r = R.create_swapchain(dev, &c, a, out);
     bool drawable = r == VK_SUCCESS;
+    VkImageUsageFlags usage = c.imageUsage;
     if (r != VK_SUCCESS && c.imageUsage != ci->imageUsage) {
         r = R.create_swapchain(dev, ci, a, out);
         drawable = (ci->imageUsage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) != 0;
+        usage = ci->imageUsage;
     }
     if (r != VK_SUCCESS) return r;
     g_swapchain_count.fetch_add(1);
@@ -554,8 +691,10 @@ VkResult VKAPI_CALL hk_create_swapchain(VkDevice dev, const VkSwapchainCreateInf
         auto it = g_swaps.find(ci->oldSwapchain);
         auto dit = g_devices.find(dev);
         if (it != g_swaps.end() && dit != g_devices.end()) destroy_swap_resources(*dit->second, it->second);
+        notify_gone(dev, ci->oldSwapchain);
     }
     Swap s;
+    s.usage = usage;
     s.device = dev;
     s.swapchain = *out;
     s.format = ci->imageFormat;
@@ -590,6 +729,7 @@ void VKAPI_CALL hk_destroy_swapchain(VkDevice dev, VkSwapchainKHR sc, const VkAl
         auto it = g_swaps.find(sc);
         if (it != g_swaps.end()) {
             if (auto dit = g_devices.find(dev); dit != g_devices.end()) destroy_swap_resources(*dit->second, it->second);
+            notify_gone(dev, sc);
             g_swaps.erase(it);
             g_swap_count = static_cast<uint32_t>(g_swaps.size());
         }
@@ -599,8 +739,6 @@ void VKAPI_CALL hk_destroy_swapchain(VkDevice dev, VkSwapchainKHR sc, const VkAl
 
 // draw() under g_mu and a fault guard: an access violation in the overlay turns the overlay off (logged) instead of
 // taking the game down. No C++ object with a destructor lives in this frame.
-uint32_t g_fault_code = 0;
-void* g_fault_addr = nullptr;
 int fault_filter(EXCEPTION_POINTERS* ep) {
     g_fault_code = ep->ExceptionRecord->ExceptionCode;
     g_fault_addr = ep->ExceptionRecord->ExceptionAddress;
@@ -629,6 +767,14 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
     if (t - last_attach.load(std::memory_order_relaxed) >= 1000) {
         last_attach.store(t, std::memory_order_relaxed);
         if (HWND h = g_hwnd.load()) input_attach(h);
+    }
+    VkPresentInfoKHR after_pre_overlay;
+    VkSemaphore pre_overlay_wait = VK_NULL_HANDLE;
+    if (info && g_pre_demand.load(std::memory_order_relaxed) > 0 && run_pre_overlay(queue, info, &pre_overlay_wait)) {
+        after_pre_overlay = *info;
+        after_pre_overlay.waitSemaphoreCount = 1;
+        after_pre_overlay.pWaitSemaphores = &pre_overlay_wait;
+        info = &after_pre_overlay;
     }
     if (!info || g_failed || !want_draw()) {
         // capture just ended with nothing left to draw: still give the game its cursor clip back (render thread)
@@ -780,6 +926,23 @@ bool vk_install() {
          g_wine ? "Wine: winevulkan exports" : "Windows: proc-address wrappers", reinterpret_cast<void*>(g_vulkan), g_installs);
     return ok;
 }
+
+KilnResult vk_subscribe_pre_overlay(KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out) {
+    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
+    const KilnHandle h = next_handle();
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_pre_overlay.push_back({h, fn, gone, user});
+    if (out) *out = h;
+    return KILN_OK;
+}
+
+bool vk_unsubscribe(KilnHandle handle) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    return std::erase_if(g_pre_overlay, [&](const PreOverlaySub& s) { return s.handle == handle; }) > 0;
+}
+
+void vk_set_pre_overlay_demand(uint32_t count) { g_pre_demand.store(count, std::memory_order_relaxed); }
+void vk_add_swapchain_usage(uint32_t usage) { g_extra_usage.fetch_or(usage); }
 
 void vk_status(KilnUiStatus* out) {
     out->hooked = g_installed.load() ? 1 : 0;

@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "items": { "an-item": { "name": "x" } },
+  "effects": { "an-effect": { "heal": 1 } },
+  "stations": {
+    "no-name": { "kind": "forge" },
+    "typo-field": { "name": "x", "kinds": "forge" },
+    "bad-kind": { "name": "x", "kind": "anvil" },
+    "bench-processing": { "name": "x", "kind": "workbench", "processing": { "slots": 8 } },
+    "many-slots": { "name": "x", "processing": { "slots": 500 } },
+    "no-output": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "needs": { "Material_T1_Twigs": 1 } } ] },
+    "no-seconds": { "name": "x", "processing": {}, "recipes": [ { "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ] },
+    "bad-seconds": { "name": "x", "processing": {}, "recipes": [ { "seconds": -1, "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ] },
+    "bench-seconds": { "name": "x", "kind": "workbench", "recipes": [ { "seconds": 3, "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ] },
+    "recipe-station": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "station": "0x4da88f73", "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ] },
+    "no-inputs": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "output": "Material_T1_Resin" } ] },
+    "bad-burn": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "burns": { "Material_T1_Charcoal": 0 }, "output": "Material_T1_Resin" } ] },
+    "effect-output": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "needs": { "Material_T1_Twigs": 1 }, "output": "an-effect" } ] },
+    "bad-sound": { "name": "x", "processing": { "running": { "sound": "no-such-cue" } } },
+    "glb-model": { "name": "x", "visual": { "model": "models/x.glb" } },
+    "text-model": { "name": "x", "visual": { "model": "a-model" } },
+    "look-vfx": { "name": "x", "visual": { "vfx": "game:x" } },
+    "rack-roof": { "name": "x", "processing": {}, "recipes": [ { "seconds": 1, "sheltered": true, "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ] },
+    "no-such-process": { "name": "x", "processing": "gone" },
+    "wrong-process": { "name": "x", "processing": "an-effect" },
+    "no-such-menu": { "name": "x", "menu": "gone" },
+    "bad-comfort": { "name": "x", "comfort": { "amount": -1 } },
+    "bad-range": { "name": "x", "comfort": { "amount": 1, "range": 0 } },
+    "bad-category": { "name": "x", "comfort": { "amount": 1, "category": "sofa" } },
+    "bad-on": { "name": "x", "placement": { "on": "roof" } },
+    "bad-size": { "name": "x", "placement": { "size": [1, 0, 1] } }
+  },
+  "props": {
+    "no-look": { "name": "x" },
+    "no-prop-name": { "visual": { "like": "Prop_Decoration_T4_Banner_Wall" } },
+    "not-placed": { "name": "x", "visual": { "like": "Material_T1_Twigs" } }
+  },
+  "placements": { "part-size": { "size": [0, 1, 1] } },
+  "comforts": { "part-range": { "amount": 1, "range": -1 } },
+  "processing": { "part-slots": { "slots": 0 } }
+}

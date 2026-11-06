@@ -6,7 +6,7 @@
     the same catalog (KILN194 and up). Imported by Sdk.targets after Kiln.Mod.targets.
 
     Properties (all optional):
-      KilnGameIds        sections to generate: Items;Perks;Buffs;Skills;Workshops (default), any of those plus
+      KilnGameIds        sections to generate: Items;Perks;Buffs;Skills;Workshops;Materials (default), any of those plus
                          Recipes, Templates, Sequences, Sounds, Vfx, Fields (or one section: Fields.Items); All; None (off, and no
                          path checks)
       KilnCatalog        the catalog: a file (client.json / server.json) or the folder holding them
@@ -16,7 +16,7 @@
     No catalog: nothing is generated and the build shows info KILN190.
   -->
   <PropertyGroup>
-    <KilnGameIds Condition="'$(KilnGameIds)' == ''">Items;Perks;Buffs;Skills;Workshops</KilnGameIds>
+    <KilnGameIds Condition="'$(KilnGameIds)' == ''">Items;Perks;Buffs;Skills;Workshops;Materials</KilnGameIds>
     <!-- the launcher's data dir, as kiln_manage::paths::DataDirs::locate() -->
     <_KilnDataDir Condition="'$(KILN_DATA_DIR)' != ''">$(KILN_DATA_DIR)</_KilnDataDir>
     <_KilnDataDir Condition="'$(_KilnDataDir)' == '' and '$(OS)' == 'Windows_NT' and '$(LOCALAPPDATA)' != ''">$(LOCALAPPDATA)\Kiln</_KilnDataDir>

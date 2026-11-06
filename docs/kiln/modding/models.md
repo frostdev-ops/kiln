@@ -14,8 +14,8 @@ Status:
   bytes.
 - **In game: an overridden weapon model renders**. Still to check: the handedness marker read
   upright, icons, and a crafted new item.
-- **Skinned models: proven offline and on a dedicated server, not yet seen in a client.** See [Skinned models](#skinned-models). Blend shapes, cloth and chains aren't written; skinned armor still
-  needs those decisions (docs/re/models.md section 7).
+- **Skinned models: proven offline and on a dedicated server, not yet seen in a client.** See [Skinned models](#skinned-models). Blend shapes are written (morph targets,
+  [cosmetics.md](cosmetics.md)); cloth and chains aren't.
 
 ## The rule: ship sources and a recipe, never game data
 A mod folder holds only what its author made:
@@ -135,7 +135,9 @@ mismatch.
 - **Geometry limits.**
   - One glTF primitive per material.
   - Each primitive at most 65,535 vertices: indices are u16.
-  - Triangles only; no morph targets or sparse accessors yet. A skinned glTF needs `skeleton` in its step.
+  - Triangles only. A skinned glTF needs `skeleton` in its step. Morph targets named after the game's blend shapes (`Female`, `Hat`, `Tight`, ...) are written on a model with a
+    `skeleton`, and left out with a warning elsewhere; sparse ones (Blender's shape keys) are read.
+  - A mesh node named `reference_*` is left out: a body to model around.
   - Node transforms are applied.
 - **UVs.** Top-left origin, as glTF. With the base model's material, your UVs sample its textures. ModelSample maps
   its cubes onto the Bronze Sword's steel and leather.
@@ -199,7 +201,8 @@ GUID whichever tool runs first.
 
 | Key | Meaning |
 |---|---|
-| `skeleton` | The name of a `skeleton` step, or `"@input"` of type `keen::ModelHierarchyResource` |
+| `skeleton` | The name of a `skeleton` step, `"@input"` of type `keen::ModelHierarchyResource`, or `"@player"`, the player's |
+| `attach` | A mesh with no skin, rigid on one joint of the skeleton: a slot's name (`Head`, `Chest`, `HandPalmR`, ...) or `j<index>`. The file's origin is the joint |
 | `material`, `materialMap`, `base` | What to draw with. One is needed. `base` (a game model) gives the default materials, and is optional on a skinned model |
 | `guid`, `mode` | Without `base` or with `"mode": "new"`, the GUID follows from `<mod>:model:<name>`. For an override: `"guid": "@input"`, `"mode": "override"` |
 | `globalScale` | Rarely needed, see [below](#globalscale) |
@@ -231,7 +234,7 @@ The sample `tools/modelcook/samples/rigged_figure.py` writes such a creature wit
 
 A coarser LOD may use fewer materials (101 of the game's models do) and any joints of the skeleton. Primitives with identical vertices share a vertex group, as the game's LODs do.
 
-Not written: blend shapes, cloth, chains, sleeves, card clusters, and a skinned tree. None of them is needed for a creature (no creature model uses blend shapes, and cloth and chains are
+Not written: cloth, chains, sleeves, card clusters, and a skinned tree. None of them is needed for a creature (no creature model uses blend shapes, and cloth and chains are
 optional on the ones that have them).
 
 ### globalScale
@@ -275,7 +278,7 @@ What a tool that generates creature bodies needs:
 | File | What |
 |---|---|
 | `<stem>.bin`, `<stem>.blob` | The RenderModel and its GPU data, listed in `assets.json` with `--update-manifest` |
-| `<stem>.model.json` | `{ guid, name, skeleton, joints, lods, materials, boundingBox, globalScale }`: what a template or a block needs, without the binary |
+| `<stem>.model.json` | `{ guid, name, skeleton, joints, lods, materials, boundingBox, globalScale, morphs, attach }`: what a template or a block needs, without the binary |
 | `cook-report.json` | `steps[i]`: `guid`, `mode`, `checks`, `warnings`, `skin` |
 
 **Using it in a template:**

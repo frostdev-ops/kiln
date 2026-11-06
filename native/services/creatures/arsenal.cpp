@@ -849,6 +849,10 @@ bool rebuild(Composite& c) {
     }
     if (c.layers.empty()) {
         if (c.installed) {
+            // creatures inside one of the rules that go away hold its index
+            uint32_t base_rules = 0;
+            if (c.had_game_entry) seh_read(reinterpret_cast<const uint8_t*>(c.game_ptr) + AL.rules + 4, &base_rules, 4);
+            if (c.rule_count > base_rules) ai_behavior_guard_arm();
             if (c.had_game_entry) map_put(c.guid, c.game_ptr);
             else map_erase(c.guid);
             c.installed = false;

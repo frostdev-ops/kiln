@@ -84,6 +84,12 @@ assets/cook.json: model, sound and animation steps.
 | `steps` | array |  |  |
 | `voiceoverFallback` | [voLang](#volang) or null |  | soundcook: the mod-wide default for empty voice slots (null / absent: silence, as the game). |
 
+## attach
+
+A rigid model on one joint: a slot of the skeleton (Head, Chest, HandPalmR, ...) or j<index>. The mesh has no skin; its origin is the joint.
+
+Type: string
+
 ## cueFields
 
 Cue fields (tools/soundcook/sndcook/recipe.py CUE_FIELDS).
@@ -191,11 +197,17 @@ a GUID, @<input id>, or the name of a material in this mod's blocks/*.json
 
 Type: [guid](#guid) or [inputRef](#inputref) or string
 
+## modPath
+
+a path relative to the mod's folder min length 1 A file that must exist.
+
+Type: string
+
 ## modelStep
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `op` | `"model"` \| `"visual"` | yes | modelcook steps are "model" or "visual" (a sound step needs "tool": "soundcook") |
+| `op` | `"model"` \| `"visual"` \| `"worn"` | yes | modelcook steps are "model", "visual" or "worn" (a sound step needs "tool": "soundcook") |
 | `tool` | [stepTool](#steptool) |  |  |
 
 ## path

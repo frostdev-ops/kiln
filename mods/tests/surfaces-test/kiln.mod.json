@@ -1,0 +1,9 @@
+{
+  "id": "surfaces-test",
+  "name": "Building surfaces lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "SurfacesTest.dll",
+  "side": "server",
+  "clients": "none"
+}

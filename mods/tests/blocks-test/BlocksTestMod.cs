@@ -15,8 +15,13 @@ public sealed partial class BlocksTestMod : Mod
     private int _pass, _fail;
     private readonly List<EntityId> _spawned = new();
     private readonly List<ImpactDamageEvent> _hits = new();
+    private readonly Dictionary<ImpactDamageEvent, double> _hitAt = new(ReferenceEqualityComparer.Instance);  // the game's clock when a hit came, in seconds
     private readonly List<ImpactBuffEvent> _buffs = new();
     private WorldPosition _at;
+    private uint _clock;  // the game's 60 Hz clock at the last step
+    private double _longestStep;  // the longest step since it was last set to 0, in seconds of the game's clock
+
+    private double GameSeconds => _clock / 60.0;
 
     private void Info(string s) => Log.Info($"blocks-test: INFO {s}");
     private bool Check(bool ok, string what)
@@ -54,9 +59,18 @@ public sealed partial class BlocksTestMod : Mod
         });
         DefineParts();
         DefineVfxBlocks();
+        Context.Tick.Pre += (in TickInfo t) =>
+        {
+            _clock = t.Clock;
+            _longestStep = Math.Max(_longestStep, t.ClockDelta / 60.0);
+        };
         Events.On<ImpactNativeEvent>(e =>
         {
-            if (e is ImpactDamageEvent h) _hits.Add(h);
+            if (e is ImpactDamageEvent h)
+            {
+                _hits.Add(h);
+                _hitAt[h] = GameSeconds;
+            }
             if (e is ImpactBuffEvent b) _buffs.Add(b);
             if (e is ImpactSpawnEvent s) _spawnsSeen.Add(s);
         });
@@ -313,16 +327,24 @@ public sealed partial class BlocksTestMod : Mod
         Check(buffs.Count > before && _buffs.Any(b => b.Buff == chilled.Guid && b.Target == enemy), $"it applied Chilled ({chilled.Id:x8}) on the enemy: {buffs.Count} buff entit(ies), {buffs.FirstOrDefault().Seconds:0.##} s");
         Check(buffs.Any(b => Math.Abs(b.Seconds - 8) < 0.01), "for the status's 8 s");
 
-        // the status's own effects: 3 ice every 2 s, for 8 s
+        // the status's own effects: 3 ice every 2 s, for 8 s. Timed on the game's clock, from the hit that applied it: a busy machine makes
+        // steps slower, and the status can run out inside the window.
+        var applied = hit != null && _hitAt.TryGetValue(hit, out var at) ? at : GameSeconds;
         _hits.Clear();
-        var tickClock = System.Diagnostics.Stopwatch.StartNew();
+        _longestStep = 0;
+        var from = GameSeconds;
         await Steps(25 * 5);
+        var to = GameSeconds;
         var ticks = _hits.Where(h => h.Target == enemy && Math.Abs(h.Damage.Ice - 3) < 1e-3).ToList();
         var h2 = Combat.GetHealth(enemy)?.Current;
-        var tickSeconds = tickClock.Elapsed.TotalSeconds;
-        Info($"after {tickSeconds:0.0} s: {ticks.Count} tick(s), health {h1} -> {h2}, attacker {ticks.FirstOrDefault()?.Attacker}");
-        // the game's clock is real time; steps are slower on a busy machine
-        Check(Math.Abs(ticks.Count - tickSeconds / 2) <= 1, $"OnTick ran on the target every 2 s: {ticks.Count} ticks in {tickSeconds:0.0} s");
+        var tickTimes = ticks.Select(t => _hitAt.TryGetValue(t, out var s) ? s - applied : double.NaN).ToList();
+        // a tick is due every 2 s while the status lasts; one at the window's edges or at its last moment may fall either side, and a hit is
+        // seen up to a step late
+        var due = Enumerable.Range(1, 4).Count(k => applied + 2 * k > from && applied + 2 * k <= Math.Min(to, applied + 8));
+        var steady = tickTimes.Zip(tickTimes.Skip(1), (a, b) => b - a).All(gap => Math.Abs(gap - 2) <= 0.2 + _longestStep);
+        Info($"after {to - from:0.0} s of game time: {ticks.Count} tick(s) at [{string.Join(", ", tickTimes.Select(t => $"{t:0.00}"))}] s after it was applied, health {h1} -> {h2}, attacker {ticks.FirstOrDefault()?.Attacker}");
+        Check(ticks.Count > 0 && Math.Abs(ticks.Count - due) <= 1 && steady,
+            $"OnTick ran on the target every 2 s: {ticks.Count} ticks in {to - from:0.0} s of game time ({due} due), at [{string.Join(", ", tickTimes.Select(t => $"{t:0.0}"))}] s");
         Check(h2 < h1, $"and it hurts: {h1} -> {h2}");
         Check(ticks.All(t => t.Attacker == caster), "credited to the caster");
         await Steps(25 * 5);

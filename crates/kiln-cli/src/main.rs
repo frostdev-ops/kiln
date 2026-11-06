@@ -19,6 +19,7 @@ mod out;
 mod project;
 mod server;
 mod tools;
+mod skeleton;
 mod vfx;
 
 #[cfg(feature = "catalog")]
@@ -70,6 +71,8 @@ enum Cmd {
     Catalog(CatalogArgs),
     /// One game VFX from the catalog: what finds it, how long it runs, what it takes.
     Vfx(vfx::VfxArgs),
+    /// The player's skeleton from your installed game, as a glTF to weight a worn model against, with a body to model around.
+    Skeleton(skeleton::SkeletonArgs),
 }
 
 #[derive(clap::Args)]
@@ -160,6 +163,7 @@ fn main() {
         Cmd::Blocks(a) => blocks::run(a, json),
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
+        Cmd::Skeleton(a) => skeleton::run(a, json),
     };
     std::process::exit(match r {
         Ok(code) => code,

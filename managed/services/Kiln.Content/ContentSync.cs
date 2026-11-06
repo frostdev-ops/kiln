@@ -721,7 +721,7 @@ public static unsafe class ContentSync
         var (a1, err1, rc1) = ApplyJson(e1, "sync round-trip: same state");
         var e2 = ExportJson(Kinds, out _) ?? "";
         if (rc1 != ContentNative.Ok || err1.Count > 0) problems.Add($"applying the exported state: {string.Join("; ", err1.Take(4))}");
-        if (e2 != e1) problems.Add($"the state changed when applied on top: {FirstDifference(e1, e2)}");
+        if (e2 != e1) problems.Add($"the state changed when applied on top: {Difference(e1, e2)}");
         t->RevertOwner(_owner);
         var empty = new JsonObject { ["format"] = 1 };
         var reset = AddResets(empty);
@@ -729,13 +729,65 @@ public static unsafe class ContentSync
         var e3 = ExportJson(Kinds, out _) ?? "";
         var left = JsonNode.Parse(e3)?["@fields"]?.GetValue<int>() ?? -1;
         if (err2.Count > 0) problems.Add($"matching a vanilla server: {string.Join("; ", err2.Take(4))}");
-        if (left != 0) problems.Add($"matching a vanilla server left {left} change(s): {FirstDifference("{}", e3)}");
+        if (left != 0) problems.Add($"matching a vanilla server left {left} change(s): {Difference("{\"format\":1}", Unadded(e3))}");
         t->RevertOwner(_owner);
         var e4 = ExportJson(Kinds, out _) ?? "";
-        if (e4 != e1) problems.Add($"taking the layer off did not restore the state: {FirstDifference(e1, e4)}");
+        if (e4 != e1) problems.Add($"taking the layer off did not restore the state: {Difference(e1, e4)}");
         var r = new ContentRoundTrip(problems.Count == 0, fields, a1, reset, sw.Elapsed.TotalMilliseconds, problems);
         Log(r.Ok ? LogLevel.Info : LogLevel.Warn, $"round trip: {r}");
         return r;
+    }
+
+    // What differs between two exported documents, by path ("templates.<name>.<field>: a -> b"), the first few; the text's first difference when
+    // they do not parse. The "add" lists of definitions come first in a document and hide the field that changed.
+    private static string Difference(string a, string b)
+    {
+        JsonNode? x, y;
+        try
+        {
+            x = JsonNode.Parse(a);
+            y = JsonNode.Parse(b);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return FirstDifference(a, b);
+        }
+        var found = new List<string>();
+        void Walk(string path, JsonNode? p, JsonNode? q)
+        {
+            if (found.Count >= 4) return;
+            if (p is JsonObject po && q is JsonObject qo)
+            {
+                foreach (var k in po.Select(e => e.Key).Union(qo.Select(e => e.Key)))
+                    if (k != "@fields") Walk(path.Length == 0 ? k : $"{path}.{k}", po[k], qo[k]);
+                return;
+            }
+            if (p is JsonArray pa && q is JsonArray qa && pa.Count == qa.Count)
+            {
+                for (var i = 0; i < pa.Count; i++) Walk($"{path}[{i}]", pa[i], qa[i]);
+                return;
+            }
+            var ps = p?.ToJsonString() ?? "(none)";
+            var qs = q?.ToJsonString() ?? "(none)";
+            if (ps != qs) found.Add($"{path}: {Cut(ps)} -> {Cut(qs)}");
+        }
+        static string Cut(string s) => s.Length <= 160 ? s : s[..160] + "...";
+        Walk("", x, y);
+        return found.Count > 0 ? string.Join("; ", found) : FirstDifference(a, b);
+    }
+
+    // A document without its definitions' "add" lists and its options: the changes it holds.
+    private static string Unadded(string doc)
+    {
+        if (JsonNode.Parse(doc) is not JsonObject o) return doc;
+        o.Remove("options");
+        foreach (var (name, section) in o.ToList())
+            if (section is JsonObject s)
+            {
+                s.Remove("add");
+                if (s.Count == 0) o.Remove(name);
+            }
+        return o.ToJsonString();
     }
 
     private static string FirstDifference(string a, string b)

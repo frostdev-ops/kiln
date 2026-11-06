@@ -152,7 +152,7 @@ public sealed class ItemBlocksMod : Mod
         });
         Blocks.Define("ember-gem", new ItemBlock
         {
-            Name = "Ember Gem", Rarity = Rarity.Rare, Stack = 20,
+            Name = "Ember Gem", Source = "Pried from cooled embers", Rarity = Rarity.Rare, Stack = 20,
             Texts = new Dictionary<string, ItemTexts> { ["de"] = new() { Name = "Glutstein", Description = "Noch warm." } },
             Visual = new VisualBlock { Icon = "item:" + GameItems.Material_T1_Metal_Scraps, Dropped = GameItems.Material_T1_Metal_Scraps, Tint = "#ff6600" },
             Recipe = new RecipeBlock { Station = bench, Needs = { [shard] = 5 }, Seconds = 4 },

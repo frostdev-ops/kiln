@@ -8,17 +8,17 @@ events). Design system: [design-system.md](design-system.md).
 | Path | What |
 |---|---|
 | `src/main.tsx`, `src/App.tsx` | entry, routes (HashRouter). Server/admin pages load lazily; optional server slots via `import.meta.glob` (below) |
-| `src/shell/` | AppShell (sidebar, top bar with the game-state pill and the task tray, toasts, splash, route error boundary), `gameState.ts`, `nav.ts` |
+| `src/shell/` | AppShell (the stage, the header with nav, tasks and the game's state word, the Play page in front of the stage, the sheet for every other page, the mouth: the Play button and pilot light; toasts, splash, route error boundary), `play.ts` (the Play control shared by the mouth and the Play page), `gameState.ts`, `nav.ts`, `serverNav.ts` (a server's grouped list) |
 | `src/ui/` | the design system |
 | `src/components/` | `ConfigEditor`, `SaveBackups` (shared with server pages) |
 | `src/pages/` | client pages (Play, Profiles + tabs, Library, Runtime, Logs, Saves, Editor, Settings, About) |
 | `src/api/commands.ts` | typed wrappers for every command + `KilnEvents` (contract) |
 | `src/api/hooks.ts` | TanStack Query hooks, query keys, the selected game (zustand), `useBackendEvents` |
 | `src/api/mock.ts` | in-memory backend for the browser (stateful: profiles, library, tasks, a fake running game) |
-| `src/api/fallback.ts` | dev aid: read-only `not_implemented` commands answer from the mock inside Tauri (MOCK flag in the sidebar) |
+| `src/api/fallback.ts` | dev aid: read-only `not_implemented` commands answer from the mock inside Tauri (Mock flag in the header) |
 | `src/editor/` | the vendored Save Editor ([UPSTREAM.md](../../../launcher/src/editor/UPSTREAM.md)) |
 | `src/data/kiln-json.snapshot.json` | schema snapshot of Kiln's own `kiln/kiln.json` (core + Kiln.Host `mods` section) |
-| `src/assets/fonts/` | Fraunces, Inter, JetBrains Mono (variable woff2 subsets) + OFL licences |
+| `src/assets/fonts/` | Grenze Gotisch, Alegreya Sans, Alegreya Sans SC, Inconsolata (woff2 subsets) + OFL licences |
 | `src-tauri/src/commands/` | one file per area; `app.rs` also holds the task runner `spawn_task` |
 | `src-tauri/src/state.rs` | data dirs, settings, game lookup, Steam roots (+ settings' extra folders), game status |
 | `src-tauri/src/watch.rs` | the watcher thread: `kiln://game`, `kiln://last-server`, `kiln://log` |
@@ -31,9 +31,9 @@ events). Design system: [design-system.md](design-system.md).
 ## Pages
 | Route | Page | Backend |
 |---|---|---|
-| `/` | Play: refusal banner (`last-server.json`) with the modpack offer slot; hero with Play / Play vanilla once (warns first: Kiln gear can crash) / Play without mods once / Play a profile once; Steam launch-option advice (read-only); Boot card (`state/boot.json`, `mods.json`, `native.json`); Install card (games, Kiln, proxy, build); active profile | `game_*`, `launch_play`, `launch_state`, `profile_active/activate`, `modpack_pending/dismiss` |
+| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln, proxy, runs on, last boot); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
 | `/profiles` | list, create, duplicate, delete (typed), activate | `profile_*` |
-| `/profiles/:id/mods` | Kiln mods (toggle, version, remove, add from library) + resolver preview (client/server: load order, rejections with reasons, warnings) | `profile_save`, `profile_resolve`, `library_list` |
+| `/profiles/:id/mods` | the Kiln mods as the resolver's load order (client or server side): numerals, flame toggles, why a mod stays out; add from the library, other versions, remove | `profile_save`, `profile_resolve`, `library_list` |
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
 | `/profiles/:id/emf`, `/configs`, `/saves` | EMF mods; the profile's config folder (SchemaForm/raw); backups made with this profile | `config_*`, `saves_*` |
 | `/library` | drop zip/folder/DLL → detection → import task; versions; remove (typed, force when used); clean up unused | `library_*` |
@@ -43,7 +43,7 @@ events). Design system: [design-system.md](design-system.md).
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
 | `/settings` | launcher settings, games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
 | `/about` | versions, CREDITS.md, "Theme and design: frostdev" | `app_info` |
-| `/servers` | redirect to the first server (when there is no `ServersPage.tsx`) | `server_list` |
+| `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
 
 Optional slots for server pages (picked up by `import.meta.glob`, no route edit needed):
 `src/pages/servers/ServersPage.tsx` (the `/servers` index), `ServerLayout.tsx` (wraps `/servers/:id/*`),

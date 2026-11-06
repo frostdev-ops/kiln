@@ -1360,6 +1360,666 @@
     },
     {
       "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/look/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/look/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/look/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/look/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/arms/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/arms/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/arms/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/arms/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/chest/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/chest/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/chest/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/chest/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/feet/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/feet/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/feet/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/feet/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/head/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/head/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/head/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/head/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/legs/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/legs/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/legs/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armor/*/set/legs/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/arms/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/arms/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/arms/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/arms/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/chest/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/chest/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/chest/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/chest/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/feet/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/feet/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/feet/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/feet/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/head/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/head/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/head/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/head/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/legs/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/legs/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/legs/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/armorSets/*/legs/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/beards/*/look/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/beards/*/look/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/beards/*/look/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/beards/*/look/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/cosmetics/*/look/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/cosmetics/*/look/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/cosmetics/*/look/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/cosmetics/*/look/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/hair/*/look/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/hair/*/look/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/hair/*/look/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/hair/*/look/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/wornLooks/*/female",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/wornLooks/*/icon",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/wornLooks/*/model",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "item:"
+      ],
+      "pointer": "/wornLooks/*/variants/*",
+      "schema": "kiln-blocks.schema.json",
+      "section": "items"
+    },
+    {
+      "files": [
         "**/quests/*.json"
       ],
       "forms": [

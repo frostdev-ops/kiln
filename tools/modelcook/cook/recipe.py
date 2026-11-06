@@ -33,6 +33,10 @@ A model step with `skeleton` cooks a skinned model (docs/kiln/modding/models.md)
 skeletons. A step of this recipe is read directly from its glTF, so it makes no difference which tool runs first. `base` is optional when `material` or `materialMap`
 says what to draw with; without `guid` such a model's GUID follows from <mod>:model:<name>, as the animation tools' ids do.
 
+`"skeleton": "@player"` is the player's skeleton, with no input to declare. A model on it is worn: cook/worn.py has the "worn" step, and the steps a mod's blocks/*.json ask for by themselves.
+A mod with no assets/cook.json of modelcook's still has those: looks_recipe() is the recipe they make on their own (`modelcook.py looks MODDIR`, which `kiln cook` runs), with its report in
+cook-report.looks.json.
+
 A step may name its own cooker with `"tool"` (default: the file's `tool`), so one recipe can cook models and sounds:
 `{ "tool": "soundcook", "op": "sound", ... }` is run by tools/soundcook. modelcook runs only its own steps (a step's
 index stays its position in `steps`) and leaves the others to their tool (`modelcook.py recipe` starts them unless
@@ -53,9 +57,9 @@ from pathlib import Path
 
 from kfc.archive import ResourceKey
 
-from . import material as MB, steps as S
+from . import material as MB, steps as S, worn as W
 
-OPS = ("model", "visual")
+OPS = ("model", "visual", "worn")
 TOOL = "modelcook"
 HIERARCHY = "keen::ModelHierarchyResource"
 KNOWN_TOOLS = ("modelcook", "soundcook", "animcook")
@@ -73,9 +77,26 @@ def _resolve(ref, inputs):
     return ref
 
 
-def load(path):
+LOOKS_REPORT = "cook-report.looks.json"
+
+
+def looks_recipe(mod_dir, mod=None):
+    """The recipe of a mod with looks in blocks/*.json and no assets/cook.json of modelcook's: (where it would be, its document)."""
+    doc = {"format": 1, "tool": TOOL, "out": "cooked", "steps": [], "looks": True}
+    if mod:
+        doc["mod"] = mod
+    return Path(mod_dir) / "assets" / "cook.json", doc
+
+
+def _recipe_bytes(path, given=None):
+    """What a report's recipe_sha256 is of: the file, or the document a recipe was made from."""
+    return json.dumps(given, sort_keys=True).encode() if given is not None else Path(path).read_bytes()
+
+
+def load(path, given=None):
+    """A recipe: the file at `path`, or `given` as if it were there."""
     p = Path(path)
-    doc = json.loads(p.read_text())
+    doc = json.loads(json.dumps(given)) if given is not None else json.loads(p.read_text())
     if doc.get("format") != 1:
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
     if doc.get("tool", TOOL) not in KNOWN_TOOLS:
@@ -86,6 +107,8 @@ def load(path):
             raise RecipeError(f"step {i}: tool {tool!r} (known: {', '.join(KNOWN_TOOLS)})")
         if tool == TOOL and st.get("op") not in OPS:
             raise RecipeError(f"step {i}: op {st.get('op')!r} (known: {', '.join(OPS)})")
+        if tool == TOOL and st.get("op") == "worn" and "model" not in st:
+            raise RecipeError(f"step {i} (worn): model missing: the glTF file, relative to the mod's folder")
         if tool == TOOL and st.get("op") == "model":
             if "gltf" not in st:
                 raise RecipeError(f"step {i} (model): gltf missing")
@@ -93,7 +116,22 @@ def load(path):
                 raise RecipeError(f"step {i} (model): base, material or materialMap missing, or \"materials\": \"gltf\": nothing says what to draw it with")
             if st.get("materials", "gltf") != "gltf":
                 raise RecipeError(f"step {i} (model): materials {st['materials']!r}: the only value is \"gltf\"")
-    return doc
+    # what the mod's blocks ask for; a step of the recipe that names the same file says more, and wins
+    named = {st.get("model") for st in doc.get("steps", []) if st.get("op") == "worn"}
+    doc["steps"] = doc.get("steps", []) + [st for st in W.steps_from_blocks(_mod_dir(p)) if st["model"] not in named]
+    return _creature_blocks(doc, p)
+
+
+def _creature_blocks(doc, p):
+    """The bodies and animations of the mod's blocks/*.json (tools/animcook/anicook/blocks.py): their model steps, and the skeleton steps those bind to."""
+    try:
+        from anicook import blocks as AB
+    except ImportError:
+        return doc
+    try:
+        return AB.add_to(doc, p)
+    except AB.BlocksError as e:
+        raise RecipeError(str(e)) from e
 
 
 def tool_of(doc, st):
@@ -134,20 +172,22 @@ def _foreign_inputs(doc):
 
 
 def report_name(doc):
+    if doc.get("looks"):
+        return LOOKS_REPORT
     return "cook-report.json" if doc.get("tool", TOOL) == TOOL else f"cook-report.{TOOL}.json"
 
 
-def needs_cook(path):
+def needs_cook(path, given=None):
     """True when the outputs are missing or the report does not match this recipe (no game access needed)."""
     p = Path(path)
-    doc = load(p)
+    doc = load(p, given)
     if not own_steps(doc):
         return False
     rep = p.parent / doc.get("out", "cooked") / report_name(doc)
     if not rep.exists():
         return True
     r = json.loads(rep.read_text())
-    if r.get("recipe_sha256") != S.sha256(p.read_bytes()) or not r.get("ok"):
+    if r.get("recipe_sha256") != S.sha256(_recipe_bytes(p, given)) or not r.get("ok"):
         return True
     for src, h in r.get("sources", {}).items():
         f = p.parent / src
@@ -169,6 +209,8 @@ def _target(doc, st, inputs, k, t, base_dir, path):
     ref = st.get("skeleton")
     if ref is None:
         return None
+    if ref == "@player" and "player" not in inputs:
+        return S.game_target(k, t, S.PLAYER_SKELETON)
     if ref.startswith("@"):
         guid = _resolve(ref, inputs)
         if inputs[ref[1:]]["type"] != HIERARCHY:
@@ -223,8 +265,16 @@ def _names_blocks(st):
 
 def sources_of(doc, path=None):
     """The files a cook of this recipe's own steps reads, relative to the recipe: a change in one means a new cook."""
-    out = set()
+    out = set(doc.get("blocksSources", []))
     for _, st in own_steps(doc):
+        if st.get("op") == "worn" and path is not None:
+            mod_dir = _mod_dir(path)
+            base = Path(path).resolve().parent
+            for f in [st["model"], *st.get("lods", [])]:
+                out.add(os.path.relpath(mod_dir / f, base))
+            for f in sorted((mod_dir / "blocks").glob("*.json")):
+                out.add(os.path.relpath(f, base))  # the look's fields and its materials
+            continue
         if st.get("op") != "model":
             continue
         out.add(st["gltf"])
@@ -247,9 +297,9 @@ def _made_here(path, mod_dir, mod_files):
         return False
 
 
-def run(path, k, t, exe_sha256=None, update_manifest=False):
+def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     p = Path(path)
-    doc = load(p)
+    doc = load(p, given)
     base_dir = p.parent
     out = doc.get("out", "cooked")
     inputs, in_report = {}, {}
@@ -274,6 +324,8 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
     own = None
     mod_files = {}  # what goes in the mod's folder rather than beside the recipe: blocks made from a glTF, and PNGs that were embedded in it
     for i, st in own_steps(doc):
+        if st["op"] == "worn":
+            st = W.as_model_step(st, base_dir.resolve(), mod_dir)
         op = st["op"]
         base_id = st.get("base")
         if base_id not in inputs and not (op == "model" and base_id is None):
@@ -302,7 +354,7 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
             f, e, r = S.model(k, t, gl, inputs[base_id]["guid"] if base_id else None, guid=_model_guid(doc, st, inputs, p),
                               mode=st.get("mode"), name=st.get("name"), material=material,
                               material_map=mm, pixel_sizes=st.get("pixelSizes"), stem=st.get("stem"), subdir=out,
-                              target=_target(doc, st, inputs, k, t, base_dir, p), global_scale=st.get("globalScale"), own_materials=own)
+                              target=_target(doc, st, inputs, k, t, base_dir, p), global_scale=st.get("globalScale"), own_materials=own, attach=st.get("attach"))
             r["warnings"] = r.get("warnings", []) + from_gltf
         else:
             f, e, r = S.visual(k, t, inputs[base_id]["guid"], _resolve(st["model"], inputs), _resolve(st["guid"], inputs),
@@ -333,7 +385,7 @@ def run(path, k, t, exe_sha256=None, update_manifest=False):
 
     ok = all(r.get("ok") for r in reports) and not missing and not mismatched
     report = {
-        "recipe": str(p), "recipe_sha256": S.sha256(p.read_bytes()), "ok": ok,
+        "recipe": str(p), "recipe_sha256": S.sha256(_recipe_bytes(p, given)), "ok": ok,
         "game": {"kfc": str(k.path), "version": k.version, "exe_sha256": exe_sha256},
         "inputs": in_report,
         "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc, p) if not _made_here(base_dir / src, mod_dir, mod_files)},

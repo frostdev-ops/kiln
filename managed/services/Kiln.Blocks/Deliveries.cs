@@ -19,6 +19,7 @@ internal static partial class Compiler
     /// item's power. An item has one power, so only one attack of it can be bound; with false, the delivery deals exactly the numbers written.</param>
     internal static DeliveryLowered LowerDelivery(BlockContext ctx, Lowered low, string key, string name, IDeliveryBlock d, string path, IReadOnlyList<EffectRef>? onCast = null, string onCastPath = "onCast", bool primary = true)
     {
+        if (d is PlacedDelivery placed) return LowerPlaced(ctx, low, key, name, placed, path, onCast, onCastPath, primary);
         if (d is not ProjectileBlock p) throw new BlockError(ctx.Block, path, $"{d.GetType().Name} is not a delivery Kiln can compile yet");
         if (p.Speed <= 0) throw new BlockError(ctx.Block, $"{path}.speed", $"{p.Speed} must be more than 0");
         if (p.Range <= 0) throw new BlockError(ctx.Block, $"{path}.range", $"{p.Range} must be more than 0");
@@ -42,7 +43,8 @@ internal static partial class Compiler
             ["StaticGravityModifier.modifier"] = p.Gravity,
             ["LifeTime.lifeTime"] = p.Range / p.Speed,
         };
-        if (p.OnHit is { Count: > 0 } || onCast is { Count: > 0 })
+        CheckHoming(ctx, p, path);
+        if (p.OnHit is { Count: > 0 } || onCast is { Count: > 0 } || p.Homing != null)
         {
             var (fp, fblob, fem, flisting) = EffectEmitter.ProjectileProgram(ctx, $"{key}.projectile", onCast, onCastPath, p.OnHit, $"{path}.onHit", primary: primary && em.PrimaryDamage == null);
             low.Program(fp, $"{key}.projectile", fblob, flisting);
@@ -51,10 +53,11 @@ internal static partial class Compiler
         }
         var projectileGuid = BlockIds.Derive(mod, "template", $"{key}.projectile");
         if (p.Vfx is { } vfx) Merge(flight, VfxData.Component(ctx, VfxData.Lower(ctx, vfx, $"{path}.vfx"), $"{mod}.{name}.projectile"));
-        low.Clone("templates", projectileGuid, $"{mod}.{name}.projectile", p.Look.Projectile, flight);
+        if (p.Homing is { } homing) HomingFields(ctx, low, flight, p, homing, $"{path}.homing", $"{mod}.{name}.projectile");
+        low.Clone("templates", projectileGuid, $"{mod}.{name}.projectile", p.Homing != null ? HomingStarter : p.Look.Projectile, flight);
 
         // a clone can name another clone once both are registered: a rule, not a field
-        low.TemplateRules($"{mod}.{name}.projectile", new JsonObject { ["ImpactConfiguration.configValues.SpawnTemplate"] = impactGuid.ToString() });
+        low.TemplateRules($"{mod}.{name}.projectile", new JsonObject { ["ImpactConfiguration.configValues.0xf6a785cd"] = impactGuid.ToString() });
         if (p.Tweak.Count > 0) low.Tweak($"{ctx.Block}, {path}", "templates", $"{mod}.{name}.projectile", p.Tweak);
         return new DeliveryLowered(projectileGuid, p.Speed, em, p.Look.HandItem);
     }

@@ -1,0 +1,19 @@
+<Project>
+  <!-- Sample: building surfaces (docs/kiln/modding/world-blocks.md, "Surfaces"). A new wall material with its own textures and hardness, a stone with glowing
+       runes on the game's own maps, and rough wood retextured with snow, in C#; blocks/twins.json says the same in data. Every player needs the textures: clients mod. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>surface-sample</KilnModId>
+    <KilnModName>Building surfaces (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Moss Brick, Rune Stone and snowy logs: building materials that look like their own.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="textures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

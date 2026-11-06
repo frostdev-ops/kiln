@@ -1,0 +1,8 @@
+# Made on your machine by make-creature.py and the cook, from the glTF it generates: never committed.
+models/
+assets/cooked/
+assets/assets.json
+blocks/models_*.materials.json
+quests/generated/
+bin/
+obj/

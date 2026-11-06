@@ -153,8 +153,8 @@ public static class CreatureAdminCommands
         Require();
         var e = c.Get<EntityId>("entity");
         var t = c.Get<EntityId>("target");
-        Creatures.Of(e).PreferTarget(t);
-        c.Reply($"{e}: prefers {t}");
+        Creatures.Of(e).PreferTarget(t, 10);
+        c.Reply($"{e}: holds {t} as its target for 10 s");
     }
 
     private static void Near(CommandContext c)

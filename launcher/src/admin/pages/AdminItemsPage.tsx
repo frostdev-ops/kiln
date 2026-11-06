@@ -1,12 +1,12 @@
-// /servers/:id/admin/items: search the server's items (item_search: names as Kiln knows them,
-// including items added by mods), give one to a player (stackables 1 to 10000; gear with level and rarity), or drop
-// it into the world (spawn_item). Content (stats, recipes) is on the Content page.
+// /servers/:id/admin/items: search the server's items (item_search: names as Kiln knows them, including items added by
+// mods); the selected item's form beside the table: give it to a player (stackables 1 to 10000; gear with level and
+// rarity), or drop it into the world (spawn_item). Content (stats, recipes) is on the Content page.
 import { useState } from "react";
 import { useAdminCall, useAdminQuery, useAdminState, useHasOp, type AdminPlayer } from "../../api/admin";
 import { CoordInputs, NeedsOp, PlayerSelect, coordText, parseCoords, playerName, withAdmin, type CoordText } from "../common";
 import { OfflineNote } from "../ConnectionBar";
 import type { GiveResult, ItemHit } from "../types";
-import { Badge, Button, Card, EmptyState, Field, NumberInput, Page, PageHeader, Select, Table, TextInput, toastError, toastOk, useDebounced } from "../ui";
+import { Button, Field, NumberInput, Page, Select, SplitPage, Table, WellInput, toastError, toastOk, useDebounced } from "../ui";
 
 const RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 
@@ -16,41 +16,30 @@ function ItemsPage() {
   const [q, setQ] = useState("");
   const dq = useDebounced(q.trim(), 200);
   const search = useAdminQuery<ItemHit[]>("item_search", { q: dq }, { enabled: dq.length >= 2, staleTime: 60_000 });
-  const [sel, setSel] = useState<ItemHit | null>(null);
+  const [selId, setSel] = useState<number | null>(null);
+  const rows = search.data ?? [];
+  const sel = rows.find((r) => r.id === selId) ?? rows[0] ?? null;
+  const count = dq.length < 2 ? "" : search.isFetching ? "Searching" : `${rows.length}${rows.length === 50 ? "+" : ""} found`;
   return (
-    <Page>
-      <PageHeader title="Items" sub="The server's item list, as Kiln knows it (mods' new items included)." />
+    <Page fill>
       <OfflineNote />
       <NeedsOp ops="item_search" what="Item search">
-        <div className="k-grid k-grid-main" style={{ alignItems: "start" }}>
-          <Card title="Search" sub={search.data ? `${search.data.length} found${search.data.length === 50 ? " (first 50)" : ""}` : "Type two letters or more"} flush>
-            <div style={{ padding: "12px 16px" }}>
-              <TextInput aria-label="Search items" autoFocus placeholder="wood, sword, shroud…" value={q} onChange={(e) => setQ(e.target.value)} />
-            </div>
-            <Table
-              aria-label="Items"
-              rows={search.data ?? []}
-              rowKey={(r) => String(r.id)}
-              selectedKey={sel ? String(sel.id) : null}
-              onRowClick={setSel}
-              columns={[
-                { key: "n", header: "Item", render: (r) => r.name, sort: (a, b) => a.name.localeCompare(b.name) },
-                { key: "g", header: "Kind", width: "90px", render: (r) => (r.gear ? <Badge tone="info">gear</Badge> : <span className="k-muted">stacks</span>) },
-                { key: "id", header: "Id", width: "120px", align: "right", render: (r) => <span className="k-mono">{r.id}</span> },
-              ]}
-              empty={<EmptyState title={dq.length >= 2 ? (search.isFetching ? "Searching…" : "No item matches") : "Search the item list"} hint={search.error?.message} />}
-            />
-          </Card>
-          <div className="k-stack" style={{ gap: 16 }}>
-            {sel ? <GiveCard item={sel} players={players} /> : <Card><EmptyState title="Pick an item" hint="Then give it to a player or drop it into the world." /></Card>}
-          </div>
-        </div>
+        <SplitPage form aside={sel ? <GiveForm key={sel.id} item={sel} players={players} /> : <span className="k-empty-title">Pick an item, then give it to a player or drop it into the world.</span>}>
+          <WellInput label="Search items" autoFocus value={q} onChange={(e) => setQ(e.target.value)} note={count} style={{ fontSize: 16 }} />
+          <Table aria-label="Items" fill rows={rows} rowKey={(r) => String(r.id)} rowHeight={44} selectedKey={sel ? String(sel.id) : null} onRowClick={(r) => setSel(r.id)}
+            columns={[
+              { key: "n", header: "Item", sort: (a, b) => a.name.localeCompare(b.name), render: (r) => <span className="k-mono" style={{ fontSize: 16, color: "var(--k-text-0)" }}>{r.name}</span> },
+              { key: "g", header: "Kind", width: "64px", render: (r) => <span className={`k-badge k-tone-${r.gear ? "ember" : "idle"}`}>{r.gear ? "gear" : "stacks"}</span> },
+              { key: "id", header: "Id", width: "110px", align: "right", render: (r) => <span className="k-mono" style={{ color: "#d0beac" }}>{r.id}</span> },
+            ]}
+            empty={dq.length >= 2 ? (search.isFetching ? "Searching." : search.error?.message ?? "No item matches that.") : "Type two letters or more: wood, sword, shroud."} />
+        </SplitPage>
       </NeedsOp>
     </Page>
   );
 }
 
-function GiveCard({ item, players }: { item: ItemHit; players: AdminPlayer[] }) {
+function GiveForm({ item, players }: { item: ItemHit; players: AdminPlayer[] }) {
   const [toSel, setTo] = useState<number | null>(null);
   const to = toSel ?? players[0]?.entity ?? null;
   const [count, setCount] = useState(1);
@@ -60,8 +49,8 @@ function GiveCard({ item, players }: { item: ItemHit; players: AdminPlayer[] }) 
   const where = whereSel || (players[0] ? `p:${players[0].entity}` : "coords");
   const [coords, setCoords] = useState<CoordText>(coordText(null));
   const [amount, setAmount] = useState(1);
-  const give = useAdminCall<GiveResult>("give_item", { onSuccess: (r) => toastOk(`Gave ${r.given} × ${item.name}${r.given < r.requested ? ` (only room for ${r.given})` : ""}`), onError: (e) => toastError(e) });
-  const drop = useAdminCall<{ entity: number }>("spawn_item", { onSuccess: (r) => toastOk(`Dropped ${item.name} (entity ${r.entity})`), onError: (e) => toastError(e) });
+  const give = useAdminCall<GiveResult>("give_item", { onSuccess: (r) => toastOk(`Gave ${r.given} × ${item.name}`, r.given < r.requested ? `Only room for ${r.given}.` : undefined), onError: (e) => toastError(e) });
+  const drop = useAdminCall<{ entity: number }>("spawn_item", { onSuccess: (r) => toastOk(`Dropped ${item.name}`, `Entity ${r.entity}.`), onError: (e) => toastError(e) });
   const hasGive = useHasOp("give_item");
   const hasDrop = useHasOp("spawn_item");
   const send = () => {
@@ -89,40 +78,43 @@ function GiveCard({ item, players }: { item: ItemHit; players: AdminPlayer[] }) 
   };
   return (
     <>
-      <Card title={item.name} sub={<span className="k-mono">#{item.id}{item.gear ? " · gear" : ""}</span>}>
-        <div className="k-stack" style={{ gap: 12 }}>
-          {hasGive ? (
-            <>
-              <Field label="Give to"><PlayerSelect value={to} onChange={setTo} players={players} /></Field>
-              <div className="ka-inline">
-                <Field label="Amount"><NumberInput value={count} integer min={1} max={10000} onCommit={setCount} style={{ width: 100 }} /></Field>
-                {item.gear ? (
-                  <>
-                    <Field label="Level"><NumberInput value={level} integer min={1} max={100} onCommit={setLevel} placeholder="item's" style={{ width: 90 }} /></Field>
-                    <Field label="Rarity"><Select value={rarity} onChange={setRarity} options={[{ value: "", label: "item's own" }, ...RARITIES]} /></Field>
-                  </>
-                ) : null}
-              </div>
-              <div className="k-row"><span className="k-spacer" /><Button variant="primary" disabled={to == null} loading={give.isPending} onClick={send}>Give {to != null ? `to ${playerName(players.find((p) => p.entity === to))}` : ""}</Button></div>
-            </>
-          ) : <div className="k-muted">give_item is not available on this server.</div>}
+      <form className="k-stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <div>
+          <span className="k-mono" style={{ fontSize: 17, color: "var(--k-text-0)", overflowWrap: "anywhere" }}>{item.name}</span>
+          <div className="k-mono k-muted" style={{ fontSize: 14.5 }}>#{item.id}, {item.gear ? "gear" : "stacks"}</div>
         </div>
-      </Card>
-      {hasDrop ? (
-        <Card title="Drop into the world" sub="A loot bag on the ground (spawn_item)">
-          <div className="k-stack" style={{ gap: 12 }}>
-            <div className="ka-inline">
-              <Select aria-label="Where" value={where} onChange={setWhere} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `At ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
-              {where === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
+        {hasGive ? (
+          <>
+            <Field label="Give to" htmlFor="give-to"><PlayerSelect id="give-to" value={to} onChange={setTo} players={players} placeholder="Pick a player" /></Field>
+            <div style={{ display: "grid", gridTemplateColumns: item.gear ? "1fr 1fr 1.2fr" : "1fr 2fr", gap: 8 }}>
+              <Field label="Amount" htmlFor="give-n"><NumberInput id="give-n" value={count} integer min={1} max={10000} onCommit={setCount} /></Field>
+              {item.gear ? (
+                <>
+                  <Field label="Level" htmlFor="give-l"><NumberInput id="give-l" value={level} integer min={1} max={100} onCommit={setLevel} placeholder="item's" /></Field>
+                  <Field label="Rarity" htmlFor="give-r"><Select id="give-r" value={rarity} onChange={setRarity} options={[{ value: "", label: "Item's own" }, ...RARITIES]} /></Field>
+                </>
+              ) : <span />}
             </div>
-            <div className="ka-inline">
-              <NumberInput aria-label="Amount" value={amount} integer min={1} max={10000} onCommit={setAmount} style={{ width: 100 }} />
-              <span className="k-spacer" />
-              <Button loading={drop.isPending} onClick={dropIt}>Drop</Button>
+            <div className="k-row-between">
+              <span className="k-hint">{to == null ? "Needs someone online." : `To ${playerName(players.find((p) => p.entity === to))}.`}</span>
+              <Button type="submit" variant="primary" disabled={to == null} loading={give.isPending}>Give</Button>
             </div>
+          </>
+        ) : <span className="k-hint">This Kiln.Admin has no give_item op.</span>}
+      </form>
+      {hasDrop && (
+        <form className="k-stack" style={{ gap: 10, paddingTop: 14, boxShadow: "inset 0 1px 0 var(--k-line)" }} onSubmit={(e) => { e.preventDefault(); dropIt(); }}>
+          <div><span className="k-card-title">Drop into the world</span><div className="k-hint">A loot bag on the ground.</div></div>
+          {players.length > 0 && (
+            <Select aria-label="Where" value={where} onChange={setWhere} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `At ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
+          )}
+          {where === "coords" && <CoordInputs value={coords} onChange={setCoords} />}
+          <div className="k-row-between">
+            <div style={{ width: 110 }}><NumberInput aria-label="Amount to drop" value={amount} integer min={1} max={10000} onCommit={setAmount} /></div>
+            <Button type="submit" loading={drop.isPending}>Drop</Button>
           </div>
-        </Card>
-      ) : null}
+        </form>
+      )}
     </>
   );
 }

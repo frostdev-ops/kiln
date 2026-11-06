@@ -98,6 +98,7 @@ where the game has them, plus the per-section fields below.
 | `resources` | RenderModel, RenderMaterialResource, ModelHierarchyResource, UiTextureResource, ImpactProgram, SoundContainerResource, SoundResource, VoiceoverResource (what cook recipes and asset entries name) | texture / sound debugName / – / GUID | `type`, `part` (> 0) | 45,220 (server 2,093) |
 | `sounds` | every `SoundContainerResource` (sound cues; client only) | the first sound's debugName (the GUID when none) / FNV-1a / GUID | `scene`, `positional`, `entries` | 6,951 |
 | `vfx` | every `keen::VfxResource` (client only). VFX have no names of their own, so see below | a template that carries it, a sequence that plays it, a label, or `Vfx_<guid8>` / FNV-1a of the GUID / GUID | `namedFrom`, `byName`, `names`, `usedBy`, `particles`, `emitters`, `meshes`, `textures`, `cullDistance`, `killTime`, `length`, `parameters` | 1,575 |
+| `materials` | `TerraformingEfficiencyRegistryResource`, the world's `materialGuids`, the items that place each material | from the placing item's name (`Block_T1_Wood_Rough_CRAFTING` → `WoodRough`, `Build_TerrainMaterial_T1_Stone` → `TerrainStone`), else `Cell<id>` / — / the material's GUID | `kind` (`building` / `terrain`), `cell`, `displayName`, `item`, `hardness`, `health`, `breaks`, `roof` | 201 |
 | `loca` | `LocaTagCollectionResource`, en-us (client only) | – / tag id (FNV-1a of the tag GUID) / – | `text` (with the game's markup) | 16,740 |
 
 The names and ids follow kiln.content and kiln.gamedata exactly (`native/services/content/gamedata_res.cpp`): what the
@@ -168,6 +169,7 @@ both namespaces.
 |---|---|---|
 | `GameItems`, `GamePerks`, `GameRecipes`, `GameTemplates`, `GameSequences`, `GameSounds` | the entry's `name` | the name (GUID-named and `<guid>#k` entries are left out) |
 | `GameVfx` | the GUID, which always finds it (`VfxId.Of`, `VfxRef.Game`) | the name |
+| `GameMaterials` | the material's `name` (`WoodRough`; what `MaterialTweakBlock.Material` takes) | the name |
 | `GameBuffs`, `GameSkills` | the `0x` id (the data packs' key) | display name + `_<id>` (`Rested_cdbe9c80`; the game names them `buff_<id>`) |
 | `GameWorkshops` | the `0x` workshop id (a recipe's station) | the station item's name |
 
@@ -183,7 +185,7 @@ Identifiers:
 
 | Property | Default | |
 |---|---|---|
-| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | sections (with or without `Game`); any of those plus `Recipes`, `Templates`, `Sequences`, `Sounds`, `Vfx`; `Fields` or `Fields.Items` for typed paths ([typed-fields.md](typed-fields.md)); `All`; `None` |
+| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops;Materials` | sections (with or without `Game`); any of those plus `Recipes`, `Templates`, `Sequences`, `Sounds`, `Vfx`; `Fields` or `Fields.Items` for typed paths ([typed-fields.md](typed-fields.md)); `All`; `None` |
 | `KilnCatalog` | `$KILN_CATALOG`, else the default folder | a catalog file or folder |
 | `KilnCatalogSide` | `server` for `KilnSide` server, else `client` | which file of a folder first; the other one when it is missing (the server catalog has no display names) |
 

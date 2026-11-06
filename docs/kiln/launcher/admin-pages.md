@@ -5,17 +5,19 @@ KAP/1 ([admin-protocol.md](admin-protocol.md)). Code: `launcher/src/admin/**`,
 `launcher/src/api/admin.ts`, `launcher/vite.admin.config.ts`, `tools/launcher/{mock-admin.py,admin-shots.mjs}`.
 
 ## Mounting
-`<AdminRoutes/>` (`src/admin/index.tsx`) is self-contained: it reads `:id` from the route (or takes `serverId`), opens
-the server's shared admin session (`<AdminProvider>`), and renders the connection bar, the page tabs and the pages.
-App.tsx mounts it at `servers/:id/admin/*` inside the Servers layout. Each page's default export also works on its own
-route (`withAdmin` adds a provider from `useParams().id`).
+`<AdminRoutes/>` (`src/admin/index.tsx`) reads `:id` from the route (or takes `serverId`), opens the server's shared
+admin session (`<AdminProvider>`) and renders the pages. App.tsx mounts it at `servers/:id/admin/*` inside the server
+layout, whose grouped list links the pages and whose live sentence shows the connection (reconnect and the transport
+are in its `···` menu, or in the banner pages show while disconnected). Configs, Mods and the console are merged into
+the server's own pages (`/servers/:id/configs`, `mods`, `overview`; the old admin routes redirect there). Each page's
+default export also works on its own route (`withAdmin` adds a provider from `useParams().id`).
 
 | Route | Page | Ops (Kiln.Admin) |
 |---|---|---|
-| `players` | who is in the world (live), SteamIDs, rights, health; teleport (player, waypoint, grave, coords), give item (ItemPicker on `item_search`; gear with level/rarity), heal, god, kill (typed confirmation), inventory, tell; everyone seen | players (state), teleport, teleport_to_player, give_item, item_search, heal, god, kill, inventory, tell, permissions_get |
+| `players` | who is in the world (live) as a table and the selected player's form: SteamIDs, rights, health; teleport (player, waypoint, grave, coords), give item (ItemPicker on `item_search`; gear with level/rarity), heal, god, kill (typed confirmation), inventory, tell; everyone seen | players (state), teleport, teleport_to_player, give_item, item_search, heal, god, kill, inventory, tell, permissions_get |
 | `map` | Leaflet map: tiles + WebGL relief, markers, place names, find & filter, search, players gliding with the pushes, follow, waypoints, graves, zones drawn and editable, enemies near players, routes, context menus (teleport, waypoint, protect an area) | zones_list, zones_add, zones_remove, teleport, teleport_to_player, enemies |
 | `zones` | protection zones: list, add/edit (centre from a player, the map or numbers; refused actions; owners; admins), remove, the build's hooks | zones_list, zones_add, zones_remove, gameplay_status |
-| `items` | the server's item list, give to a player, drop into the world | item_search, give_item, spawn_item |
+| `items` | the server's item list; the selected item's form: give to a player, drop into the world | item_search, give_item, spawn_item |
 | `spawn` | creature picker (local catalog + types the server saw + GUID), 1..20 next to a player or at coords, spread, labels, remove spawned | spawn, enemies, despawn_spawned |
 | `world` | time of day (presets, slider, HH:MM, game-clock reset), weather reset, broadcast, live world settings (the game's ranges), make permanent | time_get, time_set, weather_reset, broadcast, settings_get, settings_set, settings_save |
 | `combat` | players' health, heal/god/kill; any entity by id (health, damage, kill); creatures near a player or coords; deaths with the killer | health, heal, god, kill, damage, enemies, state.combatDeaths |
@@ -23,9 +25,9 @@ route (`withAdmin` adds a provider from `useParams().id`).
 | `gamedata` | kiln.gamedata: search a section (templates, arsenals, sequences, buffs, perks, skills, items), an entry's fields (templates) or JSON, set a path to a pack value, reset it; changes are Kiln.Admin's layers  | gamedata_status, gamedata_search, gamedata_get, gamedata_set, gamedata_reset, template_fields |
 | `permissions` | groups (admin, inherits, rules), server user groups → Kiln groups, players' groups and rules by SteamID, check (explained), nodes | permissions_* |
 | `content` | status, look up (search, entry, fields: enum/flags/bool/number/text), set/reset, single-field fallback, data packs + conflicts + re-apply, mods' new definitions, sync status | content_* , sync_status |
-| `configs` | config list, SchemaForm on the live schema (Kiln validates every change), pending-restart values, re-read | config_list, config_get, config_set, config_reload |
-| `mods` | state, tick cost, faults, errors, deps; run tests, reload, unload (confirm), load; new folders on disk; on/off for the next start (`server_mods` / `server_mod_enable`) | mods, mod_test, mod_reload, mod_unload, mod_load, crash_reports |
-| `console` | command line with completion (Tab, list), history (↑ ↓), run as a player, typed help from the command tree; the server log (kiln.log or the game's) | command_run, command_complete, commands_describe, log_tail |
+| `configs` (merged: `/servers/:id/configs`) | config list, SchemaForm on the live schema (Kiln validates every change), pending-restart values, re-read | config_list, config_get, config_set, config_reload |
+| `mods` (merged: `/servers/:id/mods`) | one table with the files: state, tick cost, faults, errors, deps; run tests, reload, unload (confirm), load; on/off for the next start (`server_mods` / `server_mod_enable`) | mods, mod_test, mod_reload, mod_unload, mod_load |
+| `console` (merged: the server's Overview) | command line with completion (Tab), history (Up, Down), run as a player, the command list with usage | command_run, command_complete, commands_describe |
 | `saves` | save status, save now, Kiln backups (name rules), restore staged for the next start (typed `restore`), cancel, restart | save_status, save_now, backup_list, backup_create, backup_restore, backup_cancel_restore |
 | `crashes` | Kiln's crash reports, newest first, the text with a filter; from the folder (`logs_crash_reports`) while the server is stopped | crash_reports |
 

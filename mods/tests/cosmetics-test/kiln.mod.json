@@ -1,0 +1,12 @@
+{
+  "id": "cosmetics-test",
+  "name": "cosmetic blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "CosmeticsTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "dependencies": { "cosmetic-sample": "*" },
+  "description": "PASS/FAIL lines: what Kiln.Blocks makes of cosmetic blocks, player-free. Registration, ids across a restart, C# and JSON the same, the mistakes a look can make, per-body models, and a piece in a vanity slot of a player-template entity."
+}

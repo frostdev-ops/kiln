@@ -1,9 +1,12 @@
-// Modal and ConfirmDanger. Esc and the backdrop close; focus moves in and comes back.
+// Dialogs. Working dialogs (forms: install, play a profile once, modpack offer) are a plain Soot 2 panel with a
+// Grenze 36 title and the actions bottom right. The pointed arch (`arch`) is only for warnings and typed confirmation:
+// 500 wide, it rises from its base, at most three lines plus the input. ConfirmDanger keeps its typed word.
+// Esc and the backdrop close; focus moves in, is trapped, and comes back.
 import { X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button, IconButton } from "./Button";
-import { Field, TextInput } from "./Form";
+import { TextInput } from "./Form";
 
 export interface ModalProps {
   open: boolean;
@@ -11,23 +14,28 @@ export interface ModalProps {
   title: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
-  /** px, default 520. */
+  /** px, default 520 (working dialogs: 480-640). */
   width?: number;
   /** Backdrop click and Esc do nothing (a task is running). */
   locked?: boolean;
+  /** The pointed arch: a warning or a typed confirmation. */
+  arch?: boolean;
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Modal({ open, onClose, title, children, footer, width, locked }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, width, locked, arch }: ModalProps) {
   const box = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
     const before = document.activeElement as HTMLElement | null;
     const first = box.current?.querySelector<HTMLElement>("[data-autofocus]") ?? box.current?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus();
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !locked) { e.stopPropagation(); onClose(); }
+      if (e.key === "Escape" && !locked) { e.stopPropagation(); close.current(); }
       if (e.key === "Tab" && box.current) {
         const items = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
         if (!items.length) return;
@@ -38,15 +46,31 @@ export function Modal({ open, onClose, title, children, footer, width, locked }:
     };
     window.addEventListener("keydown", key, true);
     return () => { window.removeEventListener("keydown", key, true); before?.focus?.(); };
-  }, [open, locked, onClose]);
+  }, [open, locked]);
   if (!open) return null;
+  const backdrop = (e: React.MouseEvent) => { if (e.target === e.currentTarget && !locked) onClose(); };
+  if (arch) {
+    return createPortal(
+      <div className="k-modal-backdrop" onMouseDown={backdrop}>
+        <div ref={box} className="k-arch" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+          <svg viewBox="0 0 500 460" preserveAspectRatio="none" aria-hidden><path d="M1 459V210C1 130 130 60 250 1C370 60 499 130 499 210V459Z" /></svg>
+          <div className="k-arch-in">
+            <h2 id={titleId} className="k-arch-title">{title}</h2>
+            {children}
+            {footer && <div className="k-arch-foot">{footer}</div>}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
   return createPortal(
-    <div className="k-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !locked) onClose(); }}>
-      <div ref={box} className="k-modal" role="dialog" aria-modal="true" aria-labelledby="k-modal-title" style={{ ["--w" as string]: `${width ?? 520}px` }}>
+    <div className="k-modal-backdrop" onMouseDown={backdrop}>
+      <div ref={box} className="k-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ ["--w" as string]: `${width ?? 520}px` }}>
         <div className="k-modal-head">
-          <h2 className="k-modal-title" id="k-modal-title">{title}</h2>
+          <h2 className="k-modal-title" id={titleId}>{title}</h2>
           <span className="k-spacer" />
-          {!locked && <IconButton label="Close" icon={<X />} size="s" onClick={onClose} />}
+          {!locked && !footer && <IconButton label="Close" icon={<X />} size="s" onClick={onClose} />}
         </div>
         <div className="k-modal-body">{children}</div>
         {footer && <div className="k-modal-foot">{footer}</div>}
@@ -54,6 +78,11 @@ export function Modal({ open, onClose, title, children, footer, width, locked }:
     </div>,
     document.body,
   );
+}
+
+/** The text block of an arch dialog (one to three lines). */
+export function ArchText({ children }: { children: ReactNode }) {
+  return <div className="k-arch-body">{children}</div>;
 }
 
 export interface ConfirmDangerProps {
@@ -69,7 +98,7 @@ export interface ConfirmDangerProps {
   onConfirm: () => void | Promise<void>;
 }
 
-/** A destructive action behind a typed confirmation. */
+/** A destructive action behind a typed confirmation, in the arch. The danger fill stays disabled until the word matches. */
 export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm }: ConfirmDangerProps) {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,16 +110,17 @@ export function ConfirmDanger({ open, onClose, title, message, word, action, onC
     try { await onConfirm(); onClose(); } finally { setBusy(false); }
   };
   return (
-    <Modal open={open} onClose={onClose} title={title} locked={busy}
+    <Modal arch open={open} onClose={onClose} title={title} locked={busy}
       footer={<>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="danger-fill" disabled={!ok} loading={busy} onClick={run}>{action}</Button>
       </>}>
-      {message && <div>{message}</div>}
-      <Field label={<>Type <span className="k-danger-word">{word}</span> to confirm</>} htmlFor="k-confirm-word">
+      {message && <ArchText>{message}</ArchText>}
+      <div className="k-arch-typed">
+        <label htmlFor="k-confirm-word">Type <span className="k-danger-word">{word}</span> to confirm</label>
         <TextInput id="k-confirm-word" data-autofocus value={typed} onChange={(e) => setTyped(e.target.value)} mono autoComplete="off" spellCheck={false}
           onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
-      </Field>
+      </div>
     </Modal>
   );
 }

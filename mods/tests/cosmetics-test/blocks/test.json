@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "materials": { "test_cloth": { "kind": "cloth" } },
+  "wornLooks": {
+    "shared-look": { "like": "Vanity_TX_Helmet_05_tricorn", "fits": "hat" }
+  },
+  "cosmetics": {
+    "by-name": { "name": "Named Look", "slot": "head", "look": "shared-look" },
+    "other-mods-look": { "name": "Borrowed Look", "slot": "head", "look": "cosmetic-sample:sample-look" }
+  }
+}

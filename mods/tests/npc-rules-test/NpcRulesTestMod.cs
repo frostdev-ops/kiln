@@ -76,7 +76,7 @@ public sealed class NpcRulesTestMod : Mod
                 st = Arsenals.Status!;
             }
             Check(!st.RuleHooks && !st.AttackHooks, "no hook is installed while no mod asks for one");
-            if (!st.Dispatcher || !st.Attacks)
+            if (!st.Writer || !st.Dispatcher || !st.Attacks)
             {
                 await Unresolved(st);
                 return;
@@ -99,6 +99,7 @@ public sealed class NpcRulesTestMod : Mod
             await Picks();
             await AiSwitch();
             await Extend();
+            await Shrink();
             await Pack();
             _trace?.Remove();
             _trace = null;
@@ -201,18 +202,21 @@ public sealed class NpcRulesTestMod : Mod
     // ---------------------------------------------------------------------------------------------- what didn't resolve ----
     private async Task Unresolved(RulesStatus st)
     {
-        Info("the hooks' targets did not resolve here: checking that everything stays calm");
-        var ok = false;
-        try
+        Info("some targets did not resolve here: checking that everything stays calm");
+        if (!st.Writer || !st.Dispatcher)
         {
-            Arsenals.Define("unresolved", new ArsenalSpec { Rules = [new ArsenalRule { Name = "r", If = [Is.Custom(_ => true)], Do = [] }] });
+            var ok = false;
+            try
+            {
+                Arsenals.Define("unresolved", new ArsenalSpec { Rules = [new ArsenalRule { Name = "r", If = [Is.Custom(_ => true)], Do = [] }] });
+            }
+            catch (NotSupportedException e)
+            {
+                ok = true;
+                Info("a rule with Kiln's kinds is refused: " + e.Message);
+            }
+            Check(ok, "a rule with Kiln's kinds is refused with a reason, not a crash");
         }
-        catch (NotSupportedException e)
-        {
-            ok = true;
-            Info("a rule with Kiln's kinds is refused: " + e.Message);
-        }
-        Check(ok, "a rule with Kiln's kinds is refused with a reason, not a crash");
         if (st.Writer)
         {
             var from = Arsenals.OfTemplate(Vukah)!.Value;
@@ -228,11 +232,21 @@ public sealed class NpcRulesTestMod : Mod
             Check(World.Exists(a) && Arsenals.Info(h.Id) is { IsKiln: true, Rules.Count: 2 }, "a data-only arsenal still works, needing no hook");
         }
         var e2 = await One(Vukah, 3, 0);
-        Check(Creatures.Of(e2).Inspect() != null, "creatures run on");
-        var threw = false;
-        try { Creatures.Of(e2).Attacks.Force(0); }
-        catch (NotSupportedException) { threw = true; }
-        Check(threw, "an attack override says it is unavailable");
+        Creatures.Of(e2).ForceReady();
+        await Steps(100);
+        Check(Creatures.Of(e2).Inspect() != null, $"creatures run on: {Creatures.Of(e2).State}");
+        if (!st.Attacks)
+        {
+            var threw = false;
+            try { Creatures.Of(e2).Attacks.Force(0); }
+            catch (NotSupportedException) { threw = true; }
+            Check(threw, "an attack override says it is unavailable");
+        }
+        Creatures.Of(e2).AiEnabled = false;
+        await Steps(20);
+        Check(!Creatures.Of(e2).AiEnabled, "the AI switch needs no hook and still works");
+        Creatures.Of(e2).AiEnabled = true;
+        Info($"status: writer {st.Writer}, dispatcher {st.Dispatcher}, attacks {st.Attacks}, hooks {Arsenals.Status!.RuleHooks}/{Arsenals.Status!.AttackHooks}");
     }
 
     // ---------------------------------------------------------------------------------------------- the writer ----
@@ -276,6 +290,18 @@ public sealed class NpcRulesTestMod : Mod
             $"a new arsenal from an existing one: {i?.Attacks.Count} attacks, {i?.Rules.Count} rules, attack 3 plays {i?.Attacks[3].Sequence}, problems {string.Join(";", i?.Problems ?? [])}");
         Check(i != null && i.Attacks[0].Id == baseInfo.Attacks[0].Id && i.Attacks[0].Sequence == baseInfo.Attacks[0].Sequence, "the base's attacks keep their indexes");
         Check(Arsenals.Info(from)!.Address == baseInfo.Address, "the arsenal it started from is untouched");
+        // A limit that depends on the base: those additions are left out with the reason; the arsenal is the base.
+        var tooMany = Arsenals.Define("too-many", new ArsenalSpec
+        {
+            From = from,
+            Rules = Enumerable.Range(0, 40).Select(n => new ArsenalRule { Name = "many" + n, If = [Is.HealthBelow(1)] }).ToList(),
+        });
+        await Steps(2);
+        var over = Arsenals.Info(tooMany.Id)!;
+        Check(over.Problems.Any(p => p.Contains("32")) && over.Rules.Count == baseInfo.Rules.Count && over.Attacks.Count == baseInfo.Attacks.Count,
+            $"past the limit: refused with \"{string.Join("; ", over.Problems)}\", the arsenal is its base ({over.Rules.Count} rules)");
+        tooMany.Dispose();
+        await Steps(2);
         var map0 = Arsenals.Status!.MapCount;
         h.Dispose();
         _handles.Remove(h);
@@ -672,21 +698,60 @@ public sealed class NpcRulesTestMod : Mod
         ca.Command.Attack(b, 5000);
         await Steps(60);
         Info($"target before: {ca.Inspect()?.Target} (b {b}, c {c})");
-        var steps = new List<int>();
         foreach (var want in new[] { c, b, c })
         {
-            ca.PreferTarget(want);
+            ca.PreferTarget(want, 30);
             var n = 0;
-            while (ca.Inspect()?.Target != want && n < 200)
+            while (ca.Inspect()?.Target != want && n < 50)
             {
                 await Steps(1);
                 n++;
             }
-            steps.Add(n);
-            await Steps(20);
-            if (!World.Exists(want)) break;
-            Check(ca.Inspect()?.Target == want, $"PreferTarget: the target is {want} after {n} steps, and stays");
+            var heldFor = 0;
+            for (var i = 0; i < 100 && ca.Inspect()?.Target == want; i++)
+            {
+                await Steps(1);
+                heldFor++;
+            }
+            Check(n < 50 && heldFor == 100, $"PreferTarget: the target is {want} after {n} steps, and held for {heldFor}");
         }
+        ca.ReleaseTarget();
+        await Steps(100);
+        Info($"PreferTarget released: target {ca.Inspect()?.Target}, state {ca.State}");
+        Gone(a, b, c);
+        await Steps(5);
+        // The same from an arsenal: a rule finds the creatures, the pick runs on the tick. A fresh trio, the last one has fought.
+        a = await One(Vukah, 0, 6);
+        b = await One(Vukah, 2, 6);
+        c = await One(Vukah, -2, 6);
+        ca = Creatures.Of(a);
+        ca.Faction = Faction.PlayerAlly;
+        foreach (var e in new[] { a, b, c }) { Creatures.Of(e).Level = 60; Creatures.Of(e).ForceReady(); }
+        var pickedTarget = c;
+        var picks = 0;
+        var pt = Arsenals.Define("pick-target", new ArsenalSpec
+        {
+            From = Arsenals.OfTemplate(Vukah),
+            PickEvery = 0.5,
+            PickTarget = _ =>
+            {
+                picks++;
+                return pickedTarget;
+            },
+        });
+        _handles.Add(pt);
+        await Steps(3);
+        ca.Arsenal = pt.Id;
+        await Steps(50);
+        ca.Command.Attack(b, 5000);
+        await Steps(60);
+        Check(picks > 0 && ca.Inspect()?.Target == c, $"PickTarget: asked {picks} times, the target is {ca.Inspect()?.Target} (wanted {c})");
+        pickedTarget = b;
+        await Steps(60);
+        Check(ca.Inspect()?.Target == b, $"PickTarget follows the answer: now {ca.Inspect()?.Target} (wanted {b})");
+        ca.Arsenal = Arsenals.OfTemplate(Vukah)!.Value;
+        pt.Dispose();
+        _handles.Remove(pt);
         Gone(a, b, c);
         await Steps(5);
     }
@@ -751,6 +816,36 @@ public sealed class NpcRulesTestMod : Mod
         var r0 = runs;
         await Steps(60);
         Check(runs == r0 && World.Exists(a), $"and the creature goes on with the game's rules, in {Creatures.Of(a).State}");
+        Gone(a);
+        await Steps(3);
+    }
+
+    // ---------------------------------------------------------------------------------------------- a rule goes away mid-run ----
+    private async Task Shrink()
+    {
+        // A creature inside a rule of ours holds that rule's index, and the game does not check it against the list.
+        var from = Arsenals.OfTemplate(Vukah)!.Value;
+        var game = Arsenals.Info(from)!;
+        var h = Arsenals.Extend(from, new ArsenalSpec
+        {
+            Rules = [new ArsenalRule { Name = "long-pause", Every = 0.2, If = [Is.HealthBelow(1)], Do = [Act.Game("PauseAction", ("minDuration", 600.0), ("maxDuration", 600.0))] }],
+        });
+        await Steps(3);
+        var a = await One(Vukah, 0, 0);
+        Creatures.Of(a).ForceReady();
+        int index = 255;
+        for (var i = 0; i < 200 && index == 255; i++)
+        {
+            await Steps(1);
+            index = World.ReadBytes(a, "DynamicEnemy01BehaviorState")?[0x410] ?? 255;
+        }
+        Check(index == game.Rules.Count, $"a creature is inside the rule we add: current rule {index}");
+        h.Dispose();
+        await Steps(10);
+        var after = World.ReadBytes(a, "DynamicEnemy01BehaviorState")?[0x410] ?? 0;
+        Check(after == 255 && !Arsenals.Info(from)!.IsKiln, $"the rule goes away under it: its index is reset ({index} -> {after}), the game's own record is back");
+        await Steps(60);
+        Check(World.Exists(a) && Creatures.Of(a).Inspect() != null, $"and it runs on: {Creatures.Of(a).State}");
         Gone(a);
         await Steps(3);
     }

@@ -1097,6 +1097,109 @@ fn resources(s: &Src, textures: &HashMap<String, String>, sounds: &HashMap<Strin
     Ok(out)
 }
 
+/// The stable name of a material, from the debug name of the item that places it. The same rule as `material_name` in native/services/worldtables/merge.cpp,
+/// which reads the running game: a mod's file means the same on a machine with no catalog.
+fn material_name(item: &str) -> Option<String> {
+    let s = item.trim_start_matches('_');
+    let (prefix, rest) = if let Some(r) = s.strip_prefix("Build_TerrainMaterial_") {
+        ("Terrain", r)
+    } else if let Some(r) = s.strip_prefix("Block_") {
+        ("", r)
+    } else {
+        return None;
+    };
+    let mut out = prefix.to_string();
+    for tok in rest.split('_') {
+        let tier = tok.len() >= 2 && tok.starts_with('T') && tok[1..].bytes().all(|b| b.is_ascii_digit());
+        let up = tok.to_ascii_uppercase();
+        if tok.is_empty() || tier || up == "CRAFTING" || up == "REWARD" {
+            continue;
+        }
+        let mut c = tok.chars();
+        if let Some(first) = c.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(c.as_str());
+        }
+    }
+    Some(out)
+}
+
+/// The game's materials, from its terraforming registry and the world's GUID table: what a material block names, what it starts from, and what a tool does to it.
+/// An id no item places has no name of its own: it answers to `Cell<id>`.
+fn materials(s: &Src, loca: &Loca) -> Result<Vec<Entry>> {
+    const T: &str = "keen::ItemInfo";
+    let o = Offsets::new(&s.types);
+    let (dbg, name) = (o.need(T, "debugName")?, o.get(T, "name"));
+    let voxel_guid = s.types.path(T, "equipment.voxelData.placeVoxelMaterial").map(|(a, _)| a as usize);
+    let voxel_id = s.types.path(T, "equipment.voxelData.placeVoxelMaterialId").map(|(a, _)| a as usize);
+    let (Some(voxel_guid), Some(voxel_id)) = (voxel_guid, voxel_id) else {
+        return Err(Error::new(ErrorCode::Parse, "ItemInfo.equipment.voxelData"));
+    };
+    let mut placed: HashMap<u64, (String, Option<String>)> = HashMap::new();
+    for (ix, key) in s.of_type(T)? {
+        if key.part != 0 {
+            continue;
+        }
+        let b = s.kfc.read(ix)?;
+        if guid_at(&b, voxel_guid).is_none_or(|g| g.bytes().all(|c| c == b'0' || c == b'-')) {
+            continue;
+        }
+        let Some(id) = u8_at(&b, voxel_id) else { continue };
+        placed.entry(id as u64).or_insert_with(|| (blob_string_at(&b, dbg), name.and_then(|n| loca.text_ref(&b, n))));
+    }
+    // The world resource with a material table: a GUID per cell id.
+    let guids_at = o.need("keen::VoxelWorldResource", "materialGuids")?;
+    let mut guids: HashMap<u64, String> = HashMap::new();
+    for (ix, key) in s.of_type("keen::VoxelWorldResource")? {
+        if key.part != 0 {
+            continue;
+        }
+        let b = s.kfc.read(ix)?;
+        for id in 1..256usize {
+            if let Some(g) = guid_at(&b, guids_at + id * 16)
+                && !g.bytes().all(|c| c == b'0' || c == b'-')
+            {
+                guids.insert(id as u64, g);
+            }
+        }
+        if !guids.is_empty() {
+            break;
+        }
+    }
+    let reg = s.one("keen::TerraformingEfficiencyRegistryResource")?;
+    let v = Decoder::new(&s.types).decode("keen::TerraformingEfficiencyRegistryResource", &reg, 0)?;
+    let text = |x: &Value, ty: &str| x.as_str().map(str::to_string).or_else(|| scalar(x).and_then(|n| s.enum_name(ty, n)));
+    let mut out = Vec::new();
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut add = |c: &Value, cell: u64, kind: &str, roof: Option<bool>| {
+        let item = placed.get(&cell);
+        let named = item.and_then(|(n, _)| material_name(n)).filter(|n| !taken.contains(n));
+        let n = named.unwrap_or_else(|| format!("Cell{cell}"));
+        taken.insert(n.clone());
+        let mut en = e(Some(n), None, guids.get(&cell).cloned());
+        put(&mut en, "kind", kind);
+        put(&mut en, "cell", cell);
+        put(&mut en, "displayName", opt(item.and_then(|(_, d)| d.clone())));
+        put(&mut en, "item", opt(item.map(|(n, _)| n.clone())));
+        put(&mut en, "hardness", opt(text(&c["hardness"], "keen::HardnessCategory")));
+        put(&mut en, "health", opt(scalar(&c["healthPoints"])));
+        put(&mut en, "breaks", opt(text(&c["damageSusceptibility"], "keen::PropDamageSusceptibility")));
+        if roof == Some(true) {
+            put(&mut en, "roof", true);
+        }
+        out.push(en);
+    };
+    for c in v["buildingConfigs"].as_array().into_iter().flatten() {
+        let cell = 128 + scalar(&c["buildingMaterial"]).unwrap_or(0);
+        add(c, cell, "building", Some(c["isRoofBlock"].as_bool().unwrap_or(false)));
+    }
+    for c in v["terrainConfigs"].as_array().into_iter().flatten() {
+        add(c, scalar(&c["terrainMaterial"]).unwrap_or(0), "terrain", None);
+    }
+    out.sort_by_key(|e| e.get("cell").and_then(Value::as_u64));
+    Ok(out)
+}
+
 fn loca_section(loca: &Loca) -> Vec<Entry> {
     loca.en
         .iter()
@@ -1622,6 +1725,12 @@ pub fn build(game_dir: &Path, dest: &Path, opts: &BuildOptions, p: &mut dyn Prog
         match resources(&s, &tex, &sound_names) {
             Ok(v) => drop(sections.insert("resources".into(), v)),
             Err(e) => note("resources", e, &mut problems),
+        }
+    }
+    if want("materials") {
+        match materials(&s, &loca) {
+            Ok(v) => drop(sections.insert("materials".into(), v)),
+            Err(e) => note("materials", e, &mut problems),
         }
     }
     if want("loca") && !loca.en.is_empty() {

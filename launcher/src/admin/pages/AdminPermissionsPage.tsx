@@ -201,7 +201,7 @@ function PlayersTab({ d, put, person, setPerson, check }: { d: PermissionsModel;
   const [add, setAdd] = useState("");
   const sel = person ?? people[0]?.steamId ?? null;
   return (
-    <div className="ka-split">
+    <div className="ka-split list-left">
       <Card title="Players" flush>
         <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--k-line)" }} className="ka-inline">
           <TextInput aria-label="SteamID64" placeholder="SteamID64" maxLength={17} value={add} onChange={(e) => setAdd(e.target.value)} style={{ width: 170 }} mono />

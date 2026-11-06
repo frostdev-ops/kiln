@@ -181,7 +181,8 @@ is not running.
 ## C (native plugins)
 `kiln_ui.h` (later additions, check `header.size`): `screen`, `subscribe_screen`, `subscribe_ui_tick`,
 `menu_add` / `menu_set` (`KILN_UI_MENU_MAIN` / `PAUSE`), `push_style` / `pop_style`, `image_*`, `combo`,
-`input_multiline`, `set_hover_capture`. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
+`input_multiline`, `set_hover_capture`, and work at present under the overlay: `subscribe_pre_overlay`, `set_pre_overlay_demand`,
+`add_swapchain_usage` (kiln.screen draws its full-screen effects there: [services/screen.md](services/screen.md)). `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
 tables in the same header.
 
@@ -192,6 +193,7 @@ tables in the same header.
   `Ui.Status.FrameMs` is the CPU cost of the last overlay frame.
 - Resize, minimise and SDR↔HDR swapchain changes are handled. HDR (PQ) output is not tone-mapped yet, so the overlay
   is too bright there.
+- Work under the overlay (kiln.screen) is called only while it says it has something to do; otherwise the present reads one counter.
 - `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only
   while their menu is open. `KILN_NO_MENU_LOAD=1` keeps the mods' load at the first world step.

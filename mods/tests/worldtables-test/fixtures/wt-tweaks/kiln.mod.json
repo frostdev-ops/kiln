@@ -1,0 +1,1 @@
+{ "id": "wt-tweaks", "name": "wt-tweaks", "version": "1.0.0", "apiVersion": "0.1", "entryAssembly": "WtFixture.dll", "side": "server", "clients": "none" }

@@ -9,9 +9,10 @@ internal static class ItemJson
 {
     public static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
-        ("items", BlockJson.Make<ItemBlock>), ("wands", BlockJson.Make<WandBlock>), ("armor", BlockJson.Make<ArmorBlock>), ("stations", BlockJson.Make<StationBlock>),
+        ("items", BlockJson.Make<ItemBlock>), ("wands", BlockJson.Make<WandBlock>), ("armor", BlockJson.Make<ArmorBlock>), ("stations", BlockJson.Make<StationBlock>), ("cosmetics", BlockJson.Make<CosmeticBlock>), ("wornLooks", BlockJson.Make<WornLook>),
         ("looks", BlockJson.Make<VisualBlock>), ("weaponStats", BlockJson.Make<WeaponStats>), ("armorStats", BlockJson.Make<ArmorStats>),
         ("weaponClasses", BlockJson.Make<WeaponClass>), ("armorSlots", BlockJson.Make<ArmorSlot>), ("armorSets", BlockJson.Make<ArmorSet>), ("onHits", BlockJson.Make<OnHitBlock>),
+        ("props", BlockJson.Make<PropBlock>), ("placements", BlockJson.Make<PlacementBlock>), ("comforts", BlockJson.Make<ComfortBlock>), ("processing", BlockJson.Make<ProcessingBlock>), ("menus", BlockJson.Make<MenuBlock>),
     ];
 }
 

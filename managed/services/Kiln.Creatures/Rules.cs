@@ -591,6 +591,14 @@ public static unsafe class Arsenals
         return Write(RuleIds.Derive(owner.Name, "arsenal", name), spec, owner, owner.Name, "");
     }
 
+    /// <summary>An arsenal written for a block: its GUID, owner and mod given, so a block in a data file (with no mod code running) has one too.
+    /// What the same owner and source wrote before is replaced.</summary>
+    internal static ArsenalHandle DefineFor(Guid id, ArsenalSpec spec, Creatures.OwnerKey owner, string mod, string source)
+    {
+        RemoveOwned(owner, source);
+        return Write(id, spec, owner, mod, source);
+    }
+
     /// <summary>Adds to an arsenal the game has, for every creature that uses it, by its GUID. The game's own attacks and rules stay
     /// at their indexes; yours come after them.</summary>
     [TickThreadOnly]
@@ -864,7 +872,7 @@ public static unsafe class Arsenals
                 {
                     Name = "kiln.pick-target",
                     Every = spec.PickEvery,
-                    Do = [Act.Custom(npc => RulePump.ApplyTargetPick(npc, pick))],
+                    Do = [Act.Custom(npc => RulePump.ApplyTargetPick(npc, pick, spec.PickEvery))],
                 }, mod, h, ref nameless));
             }
             doc["rules"] = rules;
@@ -1151,11 +1159,11 @@ internal static unsafe class RulePump
         e.Mod = mod;
     }
 
-    internal static void ApplyTargetPick(NpcView npc, Func<NpcView, EntityId> pick)
+    internal static void ApplyTargetPick(NpcView npc, Func<NpcView, EntityId> pick, double every)
     {
         var chosen = pick(npc);
-        if (chosen.Value == 0 || chosen == npc.Target) return;
-        npc.Creature.PreferTarget(chosen);
+        if (chosen.Value == 0) return;
+        npc.Creature.PreferTarget(chosen, every * 3);
     }
 
     private static void FreeSlot(Slot s)

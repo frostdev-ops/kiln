@@ -41,6 +41,9 @@ Service: `native/services/ui` (`kiln.ui`), managed `Kiln.Ui`; usage `docs/kiln/u
    per-image view + framebuffer + command buffer + fence + semaphore (created once per swapchain), a render pass that
    LOADs and keeps `PRESENT_SRC_KHR`, ImGui's frame, one submit on the present queue waiting on the game's semaphores
    (stage COLOR_ATTACHMENT_OUTPUT) and signalling Kiln's, then the real present waiting on Kiln's semaphore only.
+   Before the overlay, subscribers of the pre-overlay callback (kiln.screen's full-screen effects) may submit their own work the same way: it waits
+   on the game's semaphores, and the overlay and the present wait on its semaphore instead. `vkCreateSwapchainKHR` adds the usage they asked for
+   (`TRANSFER_SRC` for kiln.screen) where the surface supports it.
 4. Swapchain recreation (resize, minimise, SDR↔HDR) destroys the old resources (after their fences); a format change
    rebuilds ImGui's pipeline (`ImGui_ImplVulkan_CreateMainPipeline`). `vkDestroyDevice` shuts the ImGui backend down.
 5. ImGui's texture uploads (font atlas) submit on the present queue and wait for it (`vkQueueWaitIdle`) — once at the

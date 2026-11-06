@@ -46,7 +46,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnServer` / `KilnModsDir` | | deploy target: a server folder / its `kiln/mods` |
 | `KilnReload` | false | KilnDeploy also writes `kiln/control/deploy-<id>.cmd` = `reload <id>` |
 | `KilnPackageOutputPath` | next to the output folder | where KilnPack writes the zip |
-| `KilnModFolders` | `content;assets;skills;quests;blocks;icons;impact;audio` | data folders copied into the mod folder |
+| `KilnModFolders` | `content;assets;skills;quests;blocks;icons;impact;audio;vfx;models` | data folders copied into the mod folder |
 | `KilnIncludeModFolders` | true | false: copy none of them automatically |
 | `KilnPackExclude` | `assets/cooked/**` | globs KilnPack leaves out, relative to the mod folder. Cooked files are made from the player's own game, so they never ship |
 | `KilnAnalyzers` | true | false: no KILN1xx analyzers ([analyzers.md](analyzers.md)) |

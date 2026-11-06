@@ -1,6 +1,6 @@
 {
   "catalog": false,
-  "description": "skills/*.json: what the native reader and Kiln.Skills accept (gameTree as a list, one node instead of a list, {x, y}, Active / Passive / None, GUID config keys, true / false values, program configs by name); a missing \"guid\" keeps its own message (KL104); no link (KL109), cost out of range (KL107), a link to no node (KL401); Kiln.Skills' Validate: a node id twice (KL305), requires of an unknown node (KL401 error, did you mean), two nodes in one cell (KL310); game-tree nodes without clients mod (KL207 error), with clients mod on a server mod (no KL204), a talent tree without it (KL207 info)",
+  "description": "skills/*.json: what the native reader and Kiln.Skills accept (gameTree as a list, one node instead of a list, {x, y}, Active / Passive / None, GUID config keys, true / false values, program configs by name); a missing \"guid\" keeps its own message (KL104); no link (KL109), cost out of range (KL107), a link to no node (KL401); Kiln.Skills' Validate: a node id twice (KL305), requires of an unknown node (KL401 error, did you mean), two nodes in one cell (KL310); game-tree nodes without clients mod (KL207 error), with clients mod on a server mod (no KL204), a talent tree without it (KL207 info); talent blocks without it (KL207 error: Kiln.Blocks refuses them)",
   "diagnostics": [
     {
       "code": "KL901",
@@ -48,6 +48,14 @@
       "file": "game-tree-kiln/skills/nodes.json",
       "line": 10,
       "message": "1001 is above the maximum 1000",
+      "severity": "error"
+    },
+    {
+      "code": "KL207",
+      "col": 151,
+      "file": "talent-blocks-kiln/kiln.mod.json",
+      "line": 1,
+      "message": "this mod has talents but says \"clients\": \"kiln\": every player's game builds the tree and draws it from the mod's own files, so Kiln.Blocks refuses them below \"clients\": \"mod\"; declare \"clients\": \"mod\" and side \"both\"",
       "severity": "error"
     },
     {

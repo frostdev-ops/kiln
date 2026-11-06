@@ -1,0 +1,14 @@
+{ "format": 1,
+  "surfaces": {
+    "shared": { "side": { "albedo": "tex/odd.png", "roughness": "tex/rough_colour.png" } }
+  },
+  "buildingMaterials": {
+    "a": { "name": "A", "surface": { "side": { "albedo": "tex/good.png", "normal": "tex/normal_grey.png", "height": "tex/height_srgb.png", "ao": "tex/ao_16.png" },
+                                     "top": { "albedo": "tex/albedo_linear.png", "roughness": "tex/rough_grey.png" } } },
+    "b": { "name": "B", "surface": "shared" },
+    "c": { "name": "C", "surface": { "side": { "albedo": "tex/missing.png", "metallic": "tex/not_really.png", "emissive": { "map": "tex/tiny.png" } } } },
+    "good": { "name": "Good", "surface": { "side": { "albedo": "tex/good.png", "roughness": 0.5, "emissive": "#ffaa00" } } }
+  },
+  "materialTweaks": {
+    "t": { "material": "WoodRough", "surface": { "top": { "albedo": "tex/good.png", "normal": { "map": "tex/odd.png" } } } }
+  } }

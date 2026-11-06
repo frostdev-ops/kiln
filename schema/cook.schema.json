@@ -26,6 +26,18 @@
       "description": "Informational: the side and build the recipe was written on.",
       "properties": { "side": { "enum": ["client", "server"] }, "madeOn": { "type": "string" } }
     },
+    "modPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\\\/])(?![A-Za-z]:)[\\s\\S]+$",
+      "x-kiln-message": "a path relative to the mod's folder",
+      "x-kiln-file": "mod"
+    },
+    "attach": {
+      "type": "string",
+      "anyOf": [ { "pattern": "^[A-Za-z][A-Za-z0-9]*$" }, { "pattern": "^[jJ][0-9]+$" } ],
+      "description": "A rigid model on one joint: a slot of the skeleton (Head, Chest, HandPalmR, ...) or j<index>. The mesh has no skin; its origin is the joint."
+    },
     "inputRef": { "type": "string", "pattern": "^@.+$", "description": "@<input id>: that input's GUID." },
     "guidOrInput": { "anyOf": [{ "$ref": "#/$defs/guid" }, { "$ref": "#/$defs/inputRef" }], "x-kiln-message": "a GUID or @<input id>" },
     "materialRef": { "anyOf": [{ "$ref": "#/$defs/guid" }, { "$ref": "#/$defs/inputRef" }, { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }], "x-kiln-message": "a GUID, @<input id>, or the name of a material in this mod's blocks/*.json" },
@@ -133,7 +145,7 @@
       "type": "object",
       "required": ["op"],
       "properties": {
-        "op": { "enum": ["model", "visual"], "x-kiln-message": "modelcook steps are \"model\" or \"visual\" (a sound step needs \"tool\": \"soundcook\")" },
+        "op": { "enum": ["model", "visual", "worn"], "x-kiln-message": "modelcook steps are \"model\", \"visual\" or \"worn\" (a sound step needs \"tool\": \"soundcook\")" },
         "tool": { "$ref": "#/$defs/stepTool" }
       },
       "allOf": [
@@ -149,7 +161,8 @@
               "lods": { "type": "array", "items": { "$ref": "#/$defs/path" }, "description": "Coarser files, coarsest last. The cook refuses more than 8 LODs: no game model has more." },
               "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "One per LOD: 0 first, then rising." },
               "base": { "type": "string", "x-kiln-cook-base": "keen::RenderModel", "description": "A game model: the default materials. Optional when material, materialMap or materials is given." },
-              "skeleton": { "type": "string", "minLength": 1, "description": "The glTF's skin is bound to this skeleton: the name of a skeleton step of this recipe, or @input of a game skeleton." },
+              "skeleton": { "type": "string", "minLength": 1, "description": "The glTF's skin is bound to this skeleton: the name of a skeleton step of this recipe, @input of a game skeleton, or @player, the player's." },
+              "attach": { "$ref": "#/$defs/attach" },
               "globalScale": { "type": "number", "exclusiveMinimum": 0, "description": "Stored in the model; only cloth uses it. Default: the base's or game skeleton's value, else 1. It doesn't resize the model." },
               "guid": { "$ref": "#/$defs/guidOrInput" },
               "mode": { "enum": ["override", "new"] },
@@ -161,6 +174,25 @@
             },
             "x-kiln-unknownKeys": "warning",
             "x-kiln-unknownKeysMessage": "unknown key in a model step (modelcook ignores it)"
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "worn" } }, "required": ["op"] },
+          "then": {
+            "description": "A model worn on the player: the files of a look written in code. A look in blocks/*.json needs no step: the cook finds its files there. <out>/<path with _ for />.bin, .blob and .model.json.",
+            "required": ["model"],
+            "properties": {
+              "op": {}, "tool": {}, "comment": {},
+              "model": { "$ref": "#/$defs/modPath" },
+              "lods": { "type": "array", "items": { "$ref": "#/$defs/modPath" }, "description": "Coarser files, relative to the mod's folder." },
+              "pixelSizes": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "One per LOD: 0 first, then rising." },
+              "attach": { "$ref": "#/$defs/attach" },
+              "materials": { "type": "object", "additionalProperties": { "$ref": "#/$defs/materialRef" }, "description": "glTF material name, or \"*\" for every one -> a game material, or a material block of this mod by name. One it leaves out becomes a block of its own." },
+              "skeleton": { "type": "string", "minLength": 1, "description": "Default @player." },
+              "globalScale": { "type": "number", "exclusiveMinimum": 0 }
+            },
+            "x-kiln-unknownKeys": "warning",
+            "x-kiln-unknownKeysMessage": "unknown key in a worn step (modelcook ignores it)"
           }
         },
         {

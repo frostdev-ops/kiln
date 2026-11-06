@@ -240,6 +240,24 @@ public sealed class BlocksItemsTestMod : Mod
         Check(charm?.Guid == BlockIds.Derive(Sample, "item", "ember-token"), $"a rename: ids come from the oldest name: {charm?.Guid}");
         Check(charm?.Get("comfortSetup.comfortAmount").Integer == 2 && charm.Get("comfortSetup.isSet").Integer != 0, $"comfort {charm?.Get("comfortSetup.comfortAmount").Integer}");
 
+        // Texts: what a starter says is not the block's, and what a base says about where it is found is not true of a clone.
+        var flint = Content.Items.Get("Ammo_T1_Arrow_Flint_lvl5")!;
+        const string Hint = "acquisitionHint", Told = "description";
+        var plainArrow = I("ember-arrow");
+        Check(flint.GetRef(Hint) != Guid.Empty && plainArrow.GetRef(Hint) == Guid.Empty, $"a block with no Source says nothing about where to get it (its starter does: {flint.GetRef(Hint)})");
+        Check(flint.GetRef(Told) != Guid.Empty && plainArrow.GetRef(Told) == Guid.Empty, $"a block with no Description has none (its starter's is {flint.GetRef(Told)})");
+        Check(I("ember-gem").GetRef(Hint) != Guid.Empty && I("ember-gem-json").GetRef(Hint) != Guid.Empty, "Source sets it, in C# and in JSON");
+        Check(I("ember-edge").GetRef(Told) != Guid.Empty && I("ember-shard").GetRef(Told) != Guid.Empty, "and Description sets its text");
+        var resin = Content.Items.Get("Material_T1_Resin")!;
+        const string CloneNoText = "BlocksItems_Resin_Clone", CloneSource = "BlocksItems_Resin_Source";
+        // defined every time: after a restart the saved ones are placeholders until their definition comes again
+        NewContent.RegisterJson(ContentKind.Items, "{\"guid\":\"5d0a7f13-2c84-4e69-b1a7-93c1e8f6d201\",\"name\":\"" + CloneNoText + "\",\"base\":\"Material_T1_Resin\"}");
+        NewContent.RegisterJson(ContentKind.Items, "{\"guid\":\"5d0a7f13-2c84-4e69-b1a7-93c1e8f6d202\",\"name\":\"" + CloneSource + "\",\"base\":\"Material_T1_Resin\",\"source\":\"Sold at the docks\",\"description\":\"\"}");
+        var cloneNoText = Content.Items.Get(CloneNoText)!;
+        var cloneSource = Content.Items.Get(CloneSource)!;
+        Check(resin.GetRef(Hint) != Guid.Empty && cloneNoText.GetRef(Hint) == Guid.Empty, $"a clone does not keep its base's source text (resin's is {resin.GetRef(Hint)})");
+        Check(cloneNoText.GetRef(Told) == resin.GetRef(Told) && resin.GetRef(Told) != Guid.Empty, "and keeps its base's description unless it says otherwise");
+        Check(cloneSource.GetRef(Hint) != Guid.Empty && cloneSource.GetRef(Hint) != resin.GetRef(Hint) && cloneSource.GetRef(Told) == Guid.Empty, "\"source\" gives a clone its own, and an empty \"description\" gives it none");
         var gem = I("ember-gem");
         var scraps = Content.Items.Get("Material_T1_Metal_Scraps")!;
         Check(gem.GetRef("iconModel") == scraps.GetRef("iconModel"), $"the look's Dropped: the model lying on the ground: {gem.GetRef("iconModel")}");

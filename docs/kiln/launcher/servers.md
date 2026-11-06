@@ -54,8 +54,7 @@ btrfs/XFS; config, saves, logs, Kiln and dinput8.dll are not copied), runs `stea
 while it runs).
 
 ## Console
-`kiln_manage::server::console`, page `ServerConsolePage.tsx` (the Console tab: `/servers/:id/logs`, "Console" next to
-"Log files").
+`kiln_manage::server::console`, component `ServerConsole.tsx` (on the server's Overview).
 - **Capture file** `<state>/<id>.run.log` (`$XDG_STATE_HOME/kiln`; Windows `%LOCALAPPDATA%\Kiln\state`): the file
   `kilnctl start` already writes. Each start appends a marker (`---- kiln-launcher start <id> at <time>`, kilnctl's
   `---- kilnctl start ...`) and `kiln-launcher: ...` notes (what ran, Proton build, launch options); a start rotates a
@@ -68,8 +67,9 @@ while it runs).
 - **Source**: `capture` while the capture is no more than a minute older than the game log; else `gamelog` (the
   server was started by Steam, systemd or by hand: its game log, levels from the prefixes); `none` before any output.
   A follower re-checks every 2 s and sends a `reset` when the source changes.
-- **Commands**: the command line runs Kiln commands over the server's shared admin session (`admin_call` op
-  `command_run`, as on the admin console page) while Kiln.Admin is connected; mounted only while the server runs.
+- **Commands**: the command line (`kiln>`) runs Kiln commands over the server's shared admin session (`admin_call` op
+  `command_run`) while Kiln.Admin is connected, with Tab completion (`command_complete`), history, "run as" a player
+  and the command list (`commands_describe`); mounted only while the server runs.
 - Tauri (contract additions): `server_console_open(serverId, maxLines: number | null)` ->
   `{subscription, serverId, source, path, lines: {text, level}[], truncated}`; `server_console_close(subscription)`;
   event `kiln://console {subscription, serverId, reset, source, path, truncated, lines}` (lines in batches of up to
@@ -77,29 +77,38 @@ while it runs).
   servers: `unsupported`.
 
 ## Pages (`/servers/:id/...`)
-- **overview**: state, pid, uptime, players, Kiln version and boot, the KAP endpoint, the A2S answer; SteamCMD update,
-  Kiln runtime install, remove.
+One grouped list per server replaces the server tabs and the admin tabs (`launcher/src/shell/serverNav.ts`): Run
+(Overview, Logs, Tick stats), World (Players, Map, Zones, Spawn, Creatures, Combat, World), Data (Items, Game data,
+Content, Permissions), Files (Settings, Configs, Mods, Backups, Saves, Modpack, Crashes). The layout
+(`ServerLayout.tsx`) shows the server's name (a button: change server), its live sentence (state, uptime, players, the
+admin connection) and Start or Restart and Stop; Update the game, Install Kiln, the admin transport and Remove sit in
+its `···` menu. It holds the shared admin session while the server runs.
+- **overview**: the Console (above) and an aside: step p99 over the last minutes (tick stats), steps per second, max
+  step, run by, port, admin endpoint, policy, game and Kiln versions, pid.
+- **logs**: the shared LogsFor (kiln.log, the game log, proxy.log, mod logs). **ticks**: the tick stats.
 - **settings**: `enshrouded_server.json`: name, slots, port, chat, preset, every difficulty setting (the game's
   ranges, minutes stored as nanoseconds), user groups (passwords unique, permissions, reserved
   slots), bans. Validated, unknown keys kept, written with tabs. Refused while the
   server runs (the game rewrites the file).
-- **mods**: `kiln/mods/*` and `kiln/native/*` with their state (state/mods.json), clients, source. Sync from the
-  library: each synced folder gets `.kiln-source.json` (`{format, library: {kind, id, version, hash}, synced, by}`);
-  sync replaces/deletes only folders with that marker; a hand-placed folder of the same id is reported as a conflict
-  and left alone. The copy is checked against the library entry's kdh1 first, staged next to the target, then swapped
-  in (a `.disabled` flag is kept). A running server gets `mod_unload` before a removal, `mod_reload` after a change,
-  `mod_load` for a new folder. The on/off switch writes or removes an empty `.disabled` file (any folder).
-- **configs**: the shared ConfigEditor on `{server: id}` (offline JSONC edits); live edits are on the admin pages.
+- **configs**: while the server runs, the live configs (admin ops `config_list`, `config_set`, `config_reload`: Kiln
+  checks each change and applies it at once, except entries marked Restart); while it is stopped, the shared
+  ConfigEditor on `{server: id}` (offline JSONC edits).
+- **mods**: one table for `kiln/mods/*` and `kiln/native/*` and what the running Kiln says about each (admin op
+  `mods`: state, tick cost, faults); the flame writes or removes an empty `.disabled` file (the next start); the aside
+  acts on the selected mod (`mod_reload`, `mod_unload`, `mod_load`, `mod_test`; Kiln.Admin can't unload itself).
+  Sync from the library: each synced folder gets `.kiln-source.json` (`{format, library: {kind, id, version, hash},
+  synced, by}`); sync replaces/deletes only folders with that marker; a hand-placed folder of the same id is reported
+  as a conflict and left alone. The copy is checked against the library entry's kdh1 first, staged next to the
+  target, then swapped in (a `.disabled` flag is kept). A running server gets `mod_unload` before a removal,
+  `mod_reload` after a change, `mod_load` for a new folder.
 - **backups**: Kiln.Saves backups (`kiln/backups/<stamp>-<name>/`, made with the admin op `backup_create` while the
   server runs: consistent, right after a save) and kilnctl tarballs (`<backup_dir>/<id>-savegame-<stamp>.tar.gz`,
   savegame + kiln/data, made when the server is stopped or has no admin). Restore when stopped: the current save and
   `kiln/data/worlds` move to `<backup_dir>/before-restore-<stamp>/` first. While running, a Kiln.Saves backup is staged
   for the next start (`backup_restore`); tarballs need a stopped server. Steam servers keep tarballs in
   `<data>/backups/servers/<id>/`, never inside the Steam library.
-- **logs** (tab "Console"): the Console (above), and "Log files": the shared LogsFor (kiln.log, the game log, mod logs,
-  crash reports).
 - **modpack**: [modpacks.md](modpacks.md).
-- **admin/**: the admin pages over `AdminHub`.
+- **admin/**: the admin pages over `AdminHub` ([admin-pages.md](admin-pages.md)).
 
 ## Admin sessions
 `AdminHub` (`kiln_manage::admin::hub`, held in a process-wide OnceLock by `commands/admin.rs`): one session per server,

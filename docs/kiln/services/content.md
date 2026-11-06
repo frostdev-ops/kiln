@@ -262,8 +262,11 @@ public override void OnLoad()   // register early: the registries take them when
   null keeps the base's), `Fields` (paths of `Content.Items.Fields`: numbers, bools, enum names, string lists for flag
   sets; identity fields `itemId`, `objectId`, `flags` cannot be set). Gear: see "Rarity, level and perks of new gear".
 - Recipe definitions: `BaseOn` (a recipe to copy: station, level, comfort, props, cooking, …) and/or `Station` (a
-  recipe whose station to use, `"0x<workshop id>"`, or `"hand"`: the player's own crafting menu; without `BaseOn` the
-  recipe has no level / comfort / prop / water requirement), `Inputs` (1..32: item names, including new items, or
+  recipe whose station to use, `"0x<workshop id>"`, `"hand"`: the player's own crafting menu, or `"workshop:<guid>"`: a
+  workshop of the mod's own, id FNV-1a of the GUID, given a recipe list of its own when nothing has one yet; without
+  `BaseOn` the recipe has no level / comfort / prop / water requirement), `Menu` (`"menu"` in a pack: the `"0x…"`
+  workshop whose crafting menu lists it, when that is not its own; a station opens the menu of its
+  `CraftingInteraction.workshopId` and runs the recipes of its `Crafting.workshopId`), `Inputs` (1..32: item names, including new items, or
   `RecipeIngredient.OfCategory(id, n)`), `Outputs` (1..32 items), `Duration`, `DisplayName` (a recipe name; most
   recipes show their result's), `Fields` (other `RecipeInfo` paths), `Unlock`:
   - `Always` (default): no knowledge requirement. The game's crafting UI lists such a recipe once the player knows one
@@ -509,8 +512,8 @@ section 8.
 ```
 - Keys: `name`, `caption` (the line under the name), `description`, `lore`, `acquisitionHint`, `primaryAction`,
   `secondaryAction`, `tertiaryAction` (the action hints). Each set text gets its own loca tag (derived from the
-  item GUID) in the clone; texts not given stay the base item's. `displayName` / `description` / `lore` are the
-  language `"*"` (every language), as before.
+  item GUID) in the clone; texts not given stay the base item's, except `acquisitionHint`: where the base is found is not where a new item is, so without a text of its own it has none. `displayName` / `description` / `lore` / `source` (`acquisitionHint`) are the
+  language `"*"` (every language). `"description": ""` is no description, rather than the base's.
 - The game's language (`keen::LanguageId`: 1 en-us, 2 en-gb, 3 de-de, 5 fr-fr, 16 pt-br, 20 zh-cn, ... 34 uk-ua, from
   the game's reflection; kiln.log "game languages") is the LocaPool's current language (client `+0xd8`,
   `content/loca.language`, feature `content.loca_language`). Per tag and language the hooks answer: the exact key

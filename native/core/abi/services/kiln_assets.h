@@ -162,6 +162,12 @@ typedef struct KilnAssetsApi {
      * any thread. Added v1 (appended); check header.size before calling. */
     int32_t(KILN_CALL* resource_is_new)(const KilnAssetKey* key);
     size_t(KILN_CALL* resource_new_count)(uint32_t type);
+
+    /* when_resources_ready: calls fn(user) once the game's resource service is up, on the game's thread and before the
+     * game has read anything through it: the moment to read a game resource and put an edited copy. At once, on this
+     * thread, when it's already up. For a service that edits tables other mods share; a mod's own override belongs in
+     * assets.json. KILN_ERR_UNAVAILABLE: resources are off on this build. Added v1 (appended); check header.size. */
+    KilnResult(KILN_CALL* when_resources_ready)(void(KILN_CALL* fn)(void* user), void* user);
 } KilnAssetsApi;
 
 #ifdef __cplusplus

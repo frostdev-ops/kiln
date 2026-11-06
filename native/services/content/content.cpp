@@ -174,7 +174,20 @@ bool g_have_filter = false;
 std::vector<std::string> g_filter;
 std::atomic<bool> g_filter_changed{false};
 
+// A timing report in lines of a length the log keeps whole.
+void log_timing(const char* what, const std::string& text) {
+    size_t at = 0;
+    while (at < text.size()) {
+        size_t end = text.size();
+        if (end - at > 900) end = text.rfind(", ", at + 900);
+        if (end == std::string::npos || end <= at) end = std::min(text.size(), at + 900);
+        LOGI("%s: %s", what, text.substr(at, end - at).c_str());
+        at = end < text.size() && text.compare(end, 2, ", ") == 0 ? end + 2 : end;
+    }
+}
+
 void apply_packs(bool reload) {
+    PhaseTimer pt(PH_APPLY_PACKS);
     const auto t0 = std::chrono::steady_clock::now();
     std::vector<PackFile> files = discover_packs(&g_pack_sig);
     std::vector<std::string> skipped;
@@ -205,6 +218,8 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     if (!world) return;
     g_kind.store(kind);
     if (!g_first_step) {
+        log_timing("load timing, definitions before the world", timing_report(true));
+        LOGI("store lock before the world: %s", lock_report(true).c_str());
         g_first_step = step;
         g_first_time = std::chrono::steady_clock::now();
         g_wait_since = step;
@@ -241,7 +256,12 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     }
     std::string why;
     const auto t0 = std::chrono::steady_clock::now();
-    if (!build_registries(world, &why)) {
+    bool built = false;
+    {
+        PhaseTimer bt(PH_BUILD_REGISTRIES);
+        built = build_registries(world, &why);
+    }
+    if (!built) {
         set_detail(why.c_str());
         static std::string last;
         if (why != last) LOGW("not ready: %s", why.c_str());
@@ -274,6 +294,8 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     apply_packs(false);
     g_ready.store(true);
     set_detail("ready");
+    log_timing("load timing, world load", timing_report(true));
+    LOGI("store lock at world load: %s", lock_report(true).c_str());
     // <kiln>/data/content/dump-on-start: write the registries once the packs are applied (for modders).
     const std::string marker = data_dir() + "\\content\\dump-on-start";
     if (GetFileAttributesA(marker.c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -378,6 +400,13 @@ void pre(const KilnTickInfo* tick, uint32_t kind, uintptr_t world) {
         return;
     }
     if (tick->step % 25 == 0) probe_owners();
+    if (tick->step % 250 == 0) {
+        const std::string t = timing_report(true);
+        if (!t.empty()) {
+            LOGD("timing, the last 250 steps: %s", t.c_str());
+            LOGD("store lock, the last 250 steps: %s", lock_report(true).c_str());
+        }
+    }
     if (g_filter_changed.exchange(false)) {
         LOGI("the set of loaded mods changed: re-applying data packs");
         apply_packs(true);
@@ -411,7 +440,11 @@ void note_table(const uint8_t guid[16], uintptr_t data) {
         std::lock_guard lock(g_seen_mu);
         if (!g_seen.insert(data).second) return;
     }
+    const bool job = !g_api->on_world_thread(g_kind.load());
+    timing_mark_job_thread(job);
+    PhaseTimer pt(PH_DROP_TABLE);
     std::lock_guard lock(store_mutex());
+    timing_mark_job_thread(false);
     Registry& D = reg(KILN_CONTENT_DROPS);
     Entry e;
     std::memcpy(e.guid, guid, 16);
@@ -462,6 +495,7 @@ void fill_entry(const Registry& r, const Entry& e, KilnContentEntry* out) {
 }
 
 KilnResult KILN_CALL t_status(KilnContentStatus* out) {
+    PhaseTimer pt(PH_STATUS);
     if (!out || out->size < sizeof *out) return KILN_ERR_INVALID_ARGUMENT;
     std::memset(out, 0, sizeof *out);
     out->size = sizeof *out;
@@ -474,8 +508,16 @@ KilnResult KILN_CALL t_status(KilnContentStatus* out) {
         out->recipes = static_cast<uint32_t>(reg(2).entries.size());
         out->loot = static_cast<uint32_t>(reg(3).entries.size());
         out->drops = static_cast<uint32_t>(reg(4).entries.size());
-        out->changed = store_changed();
-        out->conflicts = static_cast<uint32_t>(store_conflicts().size());
+        // both walk the whole store: counted again only after it changed (mods ask often)
+        static uint64_t gen = ~0ull;
+        static uint32_t changed = 0, conflicts = 0;
+        if (store_generation() != gen) {
+            gen = store_generation();
+            changed = store_changed();
+            conflicts = static_cast<uint32_t>(store_conflicts().size());
+        }
+        out->changed = changed;
+        out->conflicts = conflicts;
     }
     out->stack_guard = guard_on();
     out->reload_pending = g_filter_changed.load();
@@ -696,6 +738,7 @@ void copy_out(const std::string& s, char* buf, size_t cap, size_t* out_len) {
 }
 
 KilnResult KILN_CALL t_apply_json(KilnOwner owner, KilnStr text, KilnStr source, char* report, size_t cap, size_t* len) {
+    PhaseTimer pt(PH_APPLY_JSON);
     if (!text.ptr) return KILN_ERR_INVALID_ARGUMENT;
     if (!tick()) return KILN_ERR_WRONG_THREAD;
     if (!g_ready.load()) return KILN_ERR_UNAVAILABLE;

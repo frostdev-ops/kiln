@@ -4,6 +4,7 @@ only) and returns the bytes it produced plus the kiln.assets entries that serve 
 mod's assets/ folder)."""
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -18,6 +19,11 @@ from .validate import validate
 
 class StepError(Exception):
     pass
+
+
+# The one skeleton of the player, for both bodies, and the animation graph that says which of its joints a slot is.
+PLAYER_SKELETON = "87b29df6-6518-43ef-9298-e3f85a6204b9"
+GRAPH_TYPE = "keen::anim_graph::runtime_graph::AnimationGraphResource2_0"
 
 
 def _norm_guid(g):
@@ -52,6 +58,75 @@ def game_target(k, t, guid):
     return SK.Target.from_game(Decoder(t, max_array=1 << 26).decode(ht, k.read(key)), key.guid)
 
 
+def _graph_slots(value):
+    """(skeleton, slotBoneIndexMapping) of a decoded AnimationGraphResource2_0."""
+    for v in (value, *[x for x in value.values() if isinstance(x, dict)]):
+        if "hierarchy" in v:
+            return v["hierarchy"], v.get("slotBoneIndexMapping")
+    return None, None
+
+
+def slot_joints(k, t, skeleton):
+    """{keen::AttachmentSlot name: joint} of a skeleton, from the first of the game's animation graphs on it. Slots no graph sets are left out, as is Root."""
+    gt = t.get(GRAPH_TYPE)
+    if gt is None:
+        return {}
+    names = [v["name"] for v in t.get("keen::AttachmentSlot")["values"]]
+    dec = Decoder(t, max_array=1 << 26)
+    for key in k.resources_of_type(gt["hash"]):
+        hierarchy, table = _graph_slots(dec.decode(gt["hash"], k.read(key)))
+        if hierarchy == skeleton and table:
+            return {names[i]: j for i, j in enumerate(table) if j and i < len(names) and names[i] != "Count"}
+    return {}
+
+
+def attach_joint(k, t, target, name):
+    """What "attach" says: a slot's name, as the game calls them (any case), or j<index>."""
+    if isinstance(name, str) and name[:1] in "jJ" and name[1:].isdigit():
+        return int(name[1:])
+    slots = slot_joints(k, t, target.guid)
+    for slot, joint in slots.items():
+        if slot.lower() == str(name).lower():
+            return joint
+    raise StepError(f"attach: {name!r} is not a slot of skeleton {target.guid}; there are {', '.join(sorted(slots)) or 'none'}, or say j<index>")
+
+
+def player_reference(k, t, out, body="male"):
+    """The player's skeleton as a glTF to weight against, from the installed game, with a body in it to model around unless body is None. Joints are named j<index>, and j<index>_<slot> where a
+    slot sits. The body is a mesh node named reference_body, which a cook leaves out, so an author can export the whole scene. Returns what it wrote: {"joints", "named", "body_parts", "vertices"}."""
+    from kfc import mesh as M
+    h = M.load_hierarchy(k, t, PLAYER_SKELETON)
+    names = {i: f"j{i}" for i in range(h["jointCount"])}
+    named = {}
+    for slot, joint in slot_joints(k, t, PLAYER_SKELETON).items():
+        if joint not in named and not slot.startswith("Generic"):
+            named[joint] = slot
+            names[joint] = f"j{joint}_{slot}"
+    tri = M.Tris()
+    parts = 0
+    if body:
+        th = t.get("keen::ItemInfo")["hash"]
+        mh = t.get("keen::RenderModel")["hash"]
+        dec = Decoder(t)
+        female = body == "female"
+        want = re.compile(rf"^VC_Body_(Head_{'Female' if female else 'Male'}_01_.*|(?!Head)\w+_01)$")
+        for key in k.resources_of_type(th):
+            v = dec.decode(th, k.read(key))
+            if not want.match(v.get("debugName") or ""):
+                continue
+            eq = v["equipment"]
+            model = eq.get("visualModel")
+            if female:
+                model = next((m["model"] for m in eq.get("visualModels") or [] if "Female" in m["mask"]), model)
+            if model and k.has(ResourceKey(model, mh, 0)):
+                tri.submeshes += M.to_rh(M.triangles(M.load_render_model(k, t, model), 0)).submeshes
+                parts += 1
+        if not parts:
+            raise StepError("no body parts found in this game (VC_Body_*): say --body none")
+    M.write_gltf(tri, out, name="reference_body", skeleton=M.skeleton_rh(h), joint_names=names)
+    return {"joints": h["jointCount"], "named": {names[j]: s for j, s in named.items()}, "body_parts": parts, "vertices": tri.vertex_count}
+
+
 def global_scale_of(k, t, hierarchy):
     """The value the game's models on a skeleton carry: one per skeleton, in all 249 that have models. The renderer doesn't apply it (docs/re/models.md 5)."""
     th = t.get("keen::RenderModel")
@@ -63,9 +138,10 @@ def global_scale_of(k, t, hierarchy):
 
 
 def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None, material_map=None,
-          pixel_sizes=None, stem=None, subdir="cooked", target=None, global_scale=None, own_materials=None):
+          pixel_sizes=None, stem=None, subdir="cooked", target=None, global_scale=None, own_materials=None, attach=None):
     """glTF (one file per LOD, LOD 0 first) -> RenderModel .bin + renderData .blob. `base` is a game model whose materials are the defaults, or None. With `target`
-    (a skin.Target) the model is skinned on that skeleton. own_materials {"blocks", "mod"}: the mod's MaterialBlocks, which material and material_map may name.
+    (a skin.Target) the model is skinned on that skeleton, and with `attach` too (a slot's name or j<index>) rigid on one of its joints. Morph targets named as keen::BlendShapeFlags
+    become blend shapes. own_materials {"blocks", "mod"}: the mod's MaterialBlocks, which material and material_map may name.
     Returns (files {relative name: bytes}, entries, report)."""
     th = t.get("keen::RenderModel")["hash"]
     base_desc, base_key = {"materials": []}, None
@@ -84,9 +160,14 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
         raise StepError(f"mode new: {out_guid} already names a game resource")
     docs = [gltf.read(f) for f in gltf_files]
     warnings = []
+    if attach is not None and target is None:
+        raise StepError(f"attach: {attach!r} is a joint of a skeleton: name it with \"skeleton\" in the step")
+    joint = attach_joint(k, t, target, attach) if attach is not None else None
     for doc in docs:
         skinned = any("skin" in p for p in doc["primitives"])
-        if target is not None:
+        if joint is not None:
+            warnings += SK.attach(doc, target, joint)
+        elif target is not None:
             warnings += SK.bind(doc, target)
         elif skinned:
             raise StepError(f"{doc['file']} has a skinned mesh: name its skeleton with \"skeleton\" in the step")
@@ -113,6 +194,12 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
         lods.append(lod)
     SK.check_limits(lods, pixel_sizes, materials)
     name = name or Path(gltf_files[0]).stem
+    morphs = []
+    if target is not None:
+        morphs, more = SK.morph_names(lods)
+        warnings += more
+    elif any(p.get("morphs") for lod in lods for p in lod):
+        warnings.append("morph targets are left out: the game raises them on worn models only, which name a \"skeleton\"")
     skin = None
     if target is not None:
         bad_effect = [m["material"] for m in materials if m["renderEffectId"] != "Pbr"]
@@ -121,7 +208,7 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
         if global_scale is None:
             global_scale = base_desc["globalScale"] if base_desc.get("hierarchy") == target.guid else global_scale_of(k, t, target.guid) if k.by_guid(target.guid) else 1.0
         skin = {"hierarchy": target.guid, "hierarchyJointCount": len(target), "globalScale": global_scale}
-    desc, blob = RM.build(lods, materials, base_desc, name, pixel_sizes, skin=skin)
+    desc, blob = RM.build(lods, materials, base_desc, name, pixel_sizes, skin=skin, morphs=morphs)
     data = RM.encode(t, desc)
     stem = stem or name
     fb, fo = f"{subdir}/{stem}.bin", f"{subdir}/{stem}.blob"
@@ -136,7 +223,9 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
     files = {fb: data, fo: blob}
     if target is not None:
         side = {"format": 1, "tool": "modelcook", "guid": out_guid, "name": name, "skeleton": target.guid, "joints": desc["skinningMap"], "lods": len(desc["lods"]),
-                "materials": [m["material"] for m in materials], "boundingBox": desc["boundingBox"], "globalScale": desc["globalScale"]}
+                "materials": [m["material"] for m in materials], "boundingBox": desc["boundingBox"], "globalScale": desc["globalScale"], "morphs": morphs}
+        if attach is not None:
+            side["attach"] = str(attach)
         files[f"{subdir}/{stem}.model.json"] = json.dumps(side, indent=1).encode() + b"\n"
     return files, entries, report
 

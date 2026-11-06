@@ -1,0 +1,13 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "comment": "The same shapes as MaterialTweaksMod.cs, on other materials: a data file's blocks are in the game's tables from the first start.",
+  "strengths": {
+    "vault-json": { "hardness": "unbreakable" }
+  },
+  "materialTweaks": {
+    "tough-deadwood": { "material": "WoodDeadwood", "strength": { "hardness": "moderatelyHard" } },
+    "vault-granite": { "material": "StoneGranite", "strength": "vault-json" },
+    "soft-copper": { "material": "MetalCopper", "strength": { "health": 300 } }
+  }
+}

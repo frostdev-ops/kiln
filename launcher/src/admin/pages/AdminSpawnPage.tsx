@@ -1,6 +1,6 @@
 // /servers/:id/admin/spawn: spawn creatures by template (picked from the creature catalog, the
 // enemies the server has seen, or a GUID), 1 to 20 at a time, next to a player or at coordinates; remove everything
-// spawned from here.
+// spawned from here. The seen types as a table; the spawn form beside it.
 import { useMemo, useState } from "react";
 import { useAdminCall, useAdminQuery, useAdminState, useHasOp } from "../../api/admin";
 import { prettyTemplate, useCreatureCatalog } from "../catalog";
@@ -8,7 +8,7 @@ import { CoordInputs, NeedsOp, coordText, parseCoords, playerName, useServerId, 
 import { OfflineNote } from "../ConnectionBar";
 import { labelEnemy, useHistory } from "../history";
 import type { EnemiesResult, SpawnResult } from "../types";
-import { Banner, Button, Card, EmptyState, NumberInput, Page, PageHeader, Select, Stat, Stats, SuggestInput, Table, TextInput, confirm, toastError, toastOk, type Suggestion } from "../ui";
+import { Button, Field, NumberInput, Page, PageHeader, Select, SplitPage, SuggestInput, Table, TextInput, confirm, toastError, toastOk, type Suggestion } from "../ui";
 
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 interface Pick {
@@ -69,61 +69,56 @@ function SpawnPage() {
   };
   const fromText = (): Pick | null => pick ?? (GUID.test(text.trim()) ? { guid: text.trim(), label: text.trim() } : null);
 
+  const alive = st.state?.spawned ?? 0;
   return (
-    <Page>
-      <PageHeader title="Spawn" sub="Creatures by template, next to a player or anywhere. Everything spawned here can be removed again." />
+    <Page fill>
+      <PageHeader title="Spawn" sub={`${alive} spawned from here alive, ${all.length} creature types known${seen.data ? `, ${seen.data.total} enemies loaded` : ""}. Everything spawned here can be removed again.`} />
       <OfflineNote />
       <NeedsOp ops="spawn" what="Spawning">
-        <Stats>
-          <Stat k="Spawned from here" v={st.state?.spawned ?? 0} s="alive right now" />
-          <Stat k="Creature types" v={all.length} s={catalog.data?.length ? "catalog + seen" : "seen by the server"} />
-          <Stat k="Loaded enemies" v={seen.data?.total ?? "-"} s="on the server" />
-        </Stats>
-        <Card title="Spawn a creature" actions={hasDespawn ? (
-          <Button variant="danger" size="s" disabled={!st.state?.spawned} loading={despawn.isPending} onClick={async () => {
-            if (await confirm({ title: "Remove spawned creatures?", body: <p>Removes every creature spawned through Kiln.Admin since it loaded ({st.state?.spawned ?? 0} alive).</p>, ok: "Remove", danger: true })) despawn.mutate({});
-          }}>Remove {st.state?.spawned || ""} spawned</Button>
-        ) : null}>
-          <div className="k-stack" style={{ gap: 12 }}>
-            <div className="ka-inline">
-              <span className="ka-label">Creature</span>
-              <div style={{ width: 380 }}>
-                <SuggestInput value={text} placeholder={all.length ? `Search ${all.length} creatures, or paste a template GUID` : "Paste a template GUID"} suggestions={sugg}
-                  onChange={(v) => { setText(v); setPick(null); }} onPick={(s) => { setPick(s.value); setText(s.value.label); }} onEnter={() => { const p = fromText(); if (p) run(p); }} />
-              </div>
-              <span className="k-mono k-muted">{pick ? pick.guid : ""}</span>
-            </div>
-            <div className="ka-inline">
-              <span className="ka-label">Where</span>
-              <Select aria-label="Where" value={where} onChange={setAt} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `Next to ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
+        <SplitPage form aside={
+          <form className="k-stack" style={{ gap: 12 }} onSubmit={(e) => { e.preventDefault(); const p = fromText(); if (!p) toastError({ message: "Pick a creature from the list, or paste a template GUID." }); else run(p); }}>
+            <span className="k-card-title">Spawn a creature</span>
+            <Field label="Creature" htmlFor="spawn-what" hint={pick ? <span className="k-mono">{pick.guid}</span> : undefined}>
+              <SuggestInput id="spawn-what" value={text} placeholder={all.length ? `Search ${all.length} creatures, or a GUID` : "Paste a template GUID"} suggestions={sugg}
+                onChange={(v) => { setText(v); setPick(null); }} onPick={(s) => { setPick(s.value); setText(s.value.label); }} onEnter={() => { const p = fromText(); if (p) run(p); }} />
+            </Field>
+            <Field label="Where" htmlFor="spawn-where">
+              <Select id="spawn-where" value={where} onChange={setAt} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `Next to ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
               {where === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
+            </Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <Field label="How many, 1 to 20" htmlFor="spawn-n"><NumberInput id="spawn-n" value={count} integer min={1} max={20} onCommit={setCount} /></Field>
+              <Field label="Spread, metres" htmlFor="spawn-s"><NumberInput id="spawn-s" value={spread} min={0} max={50} onCommit={setSpread} /></Field>
             </div>
-            <div className="ka-inline">
-              <span className="ka-label">How many</span>
-              <NumberInput aria-label="Count" value={count} integer min={1} max={20} onCommit={setCount} style={{ width: 80 }} />
-              <span className="k-hint">spread</span>
-              <NumberInput aria-label="Spread" value={spread} min={0} max={50} onCommit={setSpread} style={{ width: 80 }} />
-              <span className="k-hint">metres</span>
-              <span className="k-spacer" />
-              <Button variant="primary" loading={spawn.isPending} onClick={() => { const p = fromText(); if (!p) toastError({ message: "Pick a creature from the list, or paste a template GUID." }); else run(p); }}>Spawn</Button>
+            <div className="k-row" style={{ justifyContent: "flex-end" }}>
+              <Button type="submit" variant="primary" loading={spawn.isPending}>Spawn</Button>
             </div>
-            {!catalog.data?.length ? <Banner tone="info">No local creature catalog: the list holds the enemy types the server has seen near players.</Banner> : null}
-          </div>
-        </Card>
-        <Card title="Seen near players" sub="Enemy types the server reported (enemies op); name them for the picker" flush>
+            {!catalog.data?.length ? <p className="k-hint">No local creature catalog: the list holds the enemy types the server has seen near players.</p> : null}
+            {hasDespawn ? (
+              <div className="ka-tool">
+                <span className="k-hint">{alive} spawned from here {alive === 1 ? "is" : "are"} alive.</span>
+                <div><Button variant="danger" size="s" disabled={!alive} loading={despawn.isPending} onClick={async () => {
+                  if (await confirm({ title: "Remove spawned creatures?", body: <p>Removes every creature spawned through Kiln.Admin since it loaded ({alive} alive).</p>, ok: "Remove", danger: true })) despawn.mutate({});
+                }}>Remove {alive || ""} spawned</Button></div>
+              </div>
+            ) : null}
+          </form>
+        }>
+          <div className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Seen near players</h2><span className="k-card-sub">Enemy types the server reported. Name them for the picker.</span></div></div>
           <Table
             aria-label="Seen enemy types"
+            fill
             rows={seen.data?.catalog ?? []}
             rowKey={(r) => r.guid}
             columns={[
-              { key: "label", header: "Name", render: (r) => <TextInput aria-label="Label" defaultValue={hist.enemyLabels[r.guid] ?? (catalog.data?.find((c) => c.guid === r.guid)?.name ?? prettyTemplate(r.name))} onBlur={(e) => labelEnemy(id, r.guid, e.target.value)} style={{ maxWidth: 260 }} /> },
+              { key: "label", header: "Name", render: (r) => <TextInput aria-label={`Name for ${r.name}`} defaultValue={hist.enemyLabels[r.guid] ?? (catalog.data?.find((c) => c.guid === r.guid)?.name ?? prettyTemplate(r.name))} onBlur={(e) => labelEnemy(id, r.guid, e.target.value)} style={{ height: 32 }} /> },
               { key: "t", header: "Template", render: (r) => <span className="k-mono k-muted">{r.name}</span> },
-              { key: "seen", header: "Seen", width: "80px", align: "right", render: (r) => r.seen },
-              { key: "go", header: "", width: "110px", align: "right", render: (r) => <Button size="s" disabled={spawn.isPending} onClick={() => run({ guid: r.guid, label: hist.enemyLabels[r.guid] || prettyTemplate(r.name) }, 1)}>Spawn 1</Button> },
+              { key: "seen", header: "Seen", width: "60px", align: "right", render: (r) => <span className="k-mono">{r.seen}</span> },
+              { key: "go", header: <span className="k-sr-only">Spawn</span>, width: "84px", align: "right", render: (r) => <Button size="s" disabled={spawn.isPending} onClick={() => run({ guid: r.guid, label: hist.enemyLabels[r.guid] || prettyTemplate(r.name) }, 1)}>Spawn 1</Button> },
             ]}
-            empty={<EmptyState title={seen.data ? "No enemies seen yet" : "Not scanned yet"} hint="The server learns enemy types it sees around the point above." />}
+            empty={seen.data ? "No enemies seen yet. The server learns the types it sees around the spawn point." : "Not scanned yet."}
           />
-        </Card>
+        </SplitPage>
       </NeedsOp>
     </Page>
   );

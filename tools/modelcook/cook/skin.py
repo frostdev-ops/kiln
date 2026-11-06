@@ -5,6 +5,7 @@ The format (docs/re/models.md 5): 8 bytes per vertex, 4 x u8 indices into `skinn
 slots 0. `skinningMap` holds a u16 skeleton joint per model joint, in ascending order, and lists the joints that carry weight. Vertices are stored in bind pose:
 the client multiplies each by the joint's chained pose and the skeleton's `skinToJointMatrices` entry, so a joint's bind matrix is the inverse of that entry.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ MAX_MATERIALS = 12  # the same; the loader keeps a growing array
 BIND_TOLERANCE = 2e-3  # of a matrix element: metres for a position, about that many radians for a rotation
 DROPPED_WEIGHT_ERROR = 0.10  # a vertex that loses more than this to the 4-influence limit would visibly change shape
 DROPPED_WEIGHT_WARN = 0.01
+ACTIVE_BLEND_SHAPES = 4  # the client applies at most this many at once to an instance, and none with more raised (client 0xf6de0)
 
 
 class SkinError(Exception):
@@ -67,12 +69,13 @@ class Target:
 
     def joint_of(self, doc, node):
         """The skeleton joint a glTF node stands for: by name, or by the joint index tools/kfc's export keeps in the node's extras."""
-        j = self.index.get(doc["node_names"][node])
+        name = doc["node_names"][node]
+        j = self.index.get(name)
         if j is None:
             j = doc["node_extras"][node].get("keen_joint")
-            if not (isinstance(j, int) and 0 <= j < len(self.names)):
-                j = None
-        return j
+        if j is None and (m := re.match(r"j(\d+)_", name)):  # `kiln skeleton player` names the joints it knows: j17_Head
+            j = int(m[1])
+        return j if isinstance(j, int) and 0 <= j < len(self.names) else None
 
     @classmethod
     def from_skeleton(cls, sk, guid):
@@ -182,6 +185,7 @@ def bind(doc, target):
             if _diff(m, _identity()) > 1e-7:
                 pos, nrm, tan, det = gltf.transform_attributes(m, p["positions"], p["normals"], p["tangents"])
                 p["positions"], p["normals"], p["tangents"] = pos, nrm, tan
+                p["morphs"] = {k: [gltf._xf_dir(m, v) for v in deltas] for k, deltas in (p.get("morphs") or {}).items()}
                 if det < 0:
                     idx = p["indices"]
                     for t in range(0, len(idx) - 2, 3):
@@ -201,7 +205,7 @@ def bind(doc, target):
         else:
             j, node = _nearest_joint(doc, p, target)
             if j is None:
-                raise SkinError(f"{where}: this mesh has no skin and no joint above it, so nothing would move it. Weight it, or parent it to a bone")
+                raise SkinError(f"{where}: this mesh has no skin and no joint above it, so nothing would move it. Weight it, parent it to a bone, or say \"attach\" in its step")
             rest.setdefault(j, node)
             weights = [[(j, 1.0)]] * len(p["positions"])
         bad = None
@@ -226,6 +230,48 @@ def bind(doc, target):
         p["influences"] = out
     _check_rest(doc, target, rest)
     return warnings
+
+
+def attach(doc, target, joint):
+    """A rigid model on one joint: every vertex follows `joint`, all weight on it. The file's origin is the joint and its axes are the character's: y up, facing +z. So the vertices move to where
+    the joint is at bind pose, which the game stores, and no rotation is added. Works without an armature or a body in the file. Returns warnings."""
+    if not 0 <= joint < len(target):
+        raise SkinError(f"attach: joint {joint} is not in the skeleton ({target.source}, {len(target)} joints)")
+    b = target.bind[joint]
+    offset = (-b[0][3], b[1][3], b[2][3])  # glTF space
+    for pi, p in enumerate(doc["primitives"]):
+        if "skin" in p:
+            raise SkinError(f"{doc['file']}, primitive {pi}: it is weighted, so its skin says what moves it: leave out \"attach\"")
+        p["positions"] = [(v[0] + offset[0], v[1] + offset[1], v[2] + offset[2]) for v in p["positions"]]
+        p["influences"] = [[(joint, WEIGHT_SUM)]] * len(p["positions"])
+    return []
+
+
+def morph_names(lods):
+    """The blend shapes a model has, in keen::BlendShapeFlags order, from its primitives' morph targets: (names, warnings). Names match the flags, whatever their case; the deltas are put
+    under the exact name, in place. A target of any other name is left out: nothing in the game would ever raise it."""
+    known = {n.lower(): n for n in kmesh.BLEND_SHAPES}
+    used, unknown = set(), set()
+    for lod in lods:
+        for p in lod:
+            have = p.get("morphs") or {}
+            p["morphs"] = {}
+            for name, deltas in have.items():
+                exact = known.get(name.lower())
+                if exact is None:
+                    unknown.add(name)
+                else:
+                    p["morphs"][exact] = deltas
+                    used.add(exact)
+    names = [n for n in kmesh.BLEND_SHAPES if n in used]
+    warnings = [f"morph target {n!r} is left out: the game raises only {', '.join(kmesh.BLEND_SHAPES)}" for n in sorted(unknown)]
+    if len(names) > ACTIVE_BLEND_SHAPES:
+        warnings.append(f"{len(names)} blend shapes: the client applies at most {ACTIVE_BLEND_SHAPES} at once")
+    for li, lod in enumerate(lods):
+        missing = [n for n in names if not any(n in (p.get("morphs") or {}) for p in lod)]
+        if missing:
+            warnings.append(f"LOD {li} has no morph target {', '.join(missing)}: seen from that far, it stays in its base shape")
+    return names, warnings
 
 
 def _check_rest(doc, target, rest):

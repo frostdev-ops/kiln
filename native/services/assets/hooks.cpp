@@ -92,73 +92,77 @@ char __fastcall hk_init(uintptr_t S, void* cfg) {
 }
 
 uint32_t* __fastcall hk_by_key(uint32_t* out, uintptr_t S, const uint8_t* key32) {
-    if (const ResSnap* s = g_res.load(std::memory_order_acquire); s && !s->keys.empty() && key32) {
-        Key k;
-        std::memcpy(&k, key32, sizeof k);
-        auto it = s->keys.find(k);
-        if (it != s->keys.end() && it->second.is_new) {
-            *out = it->second.handle;
-            return out;
+    if (key32) {
+        ReadGuard g;
+        if (const ResView* v = g_res.load(std::memory_order_acquire); v && v->any_keys()) {
+            Key k;
+            std::memcpy(&k, key32, sizeof k);
+            if (const Served* sv = v->key(k); sv && sv->is_new) {
+                *out = sv->handle;
+                return out;
+            }
         }
     }
     return orig_by_key(out, S, key32);
 }
 
 DataSpan* __fastcall hk_data(DataSpan* out, uintptr_t S, uint32_t h) {
-    if (const ResSnap* s = g_res.load(std::memory_order_acquire); s && !s->handles.empty()) {
-        auto it = s->handles.find(h);
-        if (it != s->handles.end()) {
-            out->data = it->second.data;
-            out->size = it->second.size;
-            out->flags = 0x100000000ull;
-            return out;
-        }
-        if (h >= kSynthBase) {  // a synthetic handle whose resource was taken off: "not available", like the game
-            out->data = nullptr, out->size = 0, out->flags = 0;
-            return out;
+    {
+        ReadGuard g;
+        if (const ResView* v = g_res.load(std::memory_order_acquire); v && v->any_handles()) {
+            if (const Served* sv = v->handle(h)) {
+                out->data = sv->data;  // the bytes are never freed
+                out->size = sv->size;
+                out->flags = 0x100000000ull;
+                return out;
+            }
+            if (h >= kSynthBase) {  // a synthetic handle whose resource was taken off: "not available", like the game
+                out->data = nullptr, out->size = 0, out->flags = 0;
+                return out;
+            }
         }
     }
     return orig_data(out, S, h);
 }
 
 KeyOfResult* __fastcall hk_key_of(KeyOfResult* out, uintptr_t S, uint32_t h) {
-    if (h >= kSynthBase)
-        if (const ResSnap* s = g_res.load(std::memory_order_acquire)) {
-            auto it = s->synth_keys.find(h);
+    if (h >= kSynthBase) {
+        ReadGuard g;
+        if (const ResView* v = g_res.load(std::memory_order_acquire)) {
             std::memset(out, 0, sizeof *out);
-            if (it != s->synth_keys.end()) {
-                std::memcpy(out->key, &it->second, sizeof(Key));
-            } else {
-                out->error = 0x12;
-            }
+            if (const Key* k = v->synth(h)) std::memcpy(out->key, k, sizeof(Key));
+            else out->error = 0x12;
             return out;
         }
+    }
     return orig_key_of(out, S, h);
 }
 
 TypeList* __fastcall hk_by_type(TypeList* out, uintptr_t S, uint32_t type, uint32_t* opt) {
     TypeList* r = orig_by_type(out, S, type, opt);
-    const ResSnap* s = g_res.load(std::memory_order_acquire);
-    if (!s || s->new_by_type.empty()) return r;
-    auto nit = s->new_by_type.find(type);
-    if (nit == s->new_by_type.end()) return r;
+    ReadGuard g;
+    const ResView* s = g_res.load(std::memory_order_acquire);
+    if (!s || !s->any_new()) return r;
     std::lock_guard lock(s->merged_mu);
     auto mit = s->merged.find(type);
     if (mit == s->merged.end()) {
-        std::vector<uint8_t> v;
+        std::vector<Key> added;
+        s->new_keys(type, &added);
+        if (added.empty()) return r;
+        auto* v = new std::vector<uint8_t>();  // the game keeps the list it is given: never freed
         const uint64_t n = out->keys ? out->count : 0;
-        v.resize((n + nit->second.size()) * 32);
-        if (n) std::memcpy(v.data(), out->keys, n * 32);
-        for (size_t i = 0; i < nit->second.size(); ++i) {
-            std::memset(v.data() + (n + i) * 32, 0, 32);
-            std::memcpy(v.data() + (n + i) * 32, &nit->second[i], sizeof(Key));
+        v->resize((n + added.size()) * 32);
+        if (n) std::memcpy(v->data(), out->keys, n * 32);
+        for (size_t i = 0; i < added.size(); ++i) {
+            std::memset(v->data() + (n + i) * 32, 0, 32);
+            std::memcpy(v->data() + (n + i) * 32, &added[i], sizeof(Key));
         }
-        mit = s->merged.emplace(type, std::move(v)).first;
+        mit = s->merged.emplace(type, v).first;
     }
     out->error = 0;
     out->zero = 0;
-    out->keys = mit->second.data();
-    out->count = mit->second.size() / 32;
+    out->keys = mit->second->data();
+    out->count = mit->second->size() / 32;
     return out;
 }
 
@@ -286,6 +290,7 @@ const void* __fastcall hk_cmap(uintptr_t reader) {
         g_game_map.store(game);
         g_reader.store(reader);
     }
+    ReadGuard g;
     const ContentSnap* cs = g_content.load(std::memory_order_acquire);
     if (!cs || cs->entries.empty() || g_container_index == 0xFFFF) return game;
     const Merged* m = g_merged.load(std::memory_order_acquire);
@@ -394,23 +399,35 @@ HANDLE WINAPI hk_CreateIoCompletionPort(HANDLE file, HANDLE port, ULONG_PTR key,
     return r;
 }
 
-void serve_read(uint64_t off, uint8_t* dst, uint64_t n) {
+// The parts of Kiln's container a read covers. Worked out under a ReadGuard, copied after it: the copy into the game's buffer runs under
+// hk_ReadFile's __try, and a fault there must not leave a reader counted (the blob bytes themselves are never freed).
+struct ReadPart {
+    uint64_t at;
+    const uint8_t* src;
+    uint64_t n;
+};
+bool plan_read(uint64_t off, uint64_t n, std::vector<ReadPart>* parts) {
+    ReadGuard g;
     const ContentSnap* cs = g_content.load(std::memory_order_acquire);
-    std::memset(dst, 0, n);
-    if (!cs) return;
+    if (!cs) return false;
     const uint64_t end = off + n;
     auto it = std::upper_bound(cs->extents.begin(), cs->extents.end(), off,
                                [](uint64_t o, const Extent& e) { return o < e.offset; });
     if (it != cs->extents.begin()) --it;
-    bool hit = false;
     for (; it != cs->extents.end() && it->offset < end; ++it) {
         const uint64_t a = std::max(off, it->offset), b = std::min(end, it->offset + it->size);
-        if (a < b) {
-            std::memcpy(dst + (a - off), it->data + (a - it->offset), b - a);
-            hit = true;
-        }
+        if (a < b) parts->push_back({a - off, it->data + (a - it->offset), b - a});
     }
-    if (!hit) g_read_misses.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+__declspec(noinline) void serve_read(uint64_t off, uint8_t* dst, uint64_t n) {
+    std::vector<ReadPart> parts;
+    const bool any = plan_read(off, n, &parts);
+    std::memset(dst, 0, n);
+    if (!any) return;
+    for (const ReadPart& p : parts) std::memcpy(dst + p.at, p.src, p.n);
+    if (parts.empty()) g_read_misses.fetch_add(1, std::memory_order_relaxed);
 }
 
 BOOL WINAPI hk_ReadFile(HANDLE h, LPVOID buf, DWORD n, LPDWORD done, LPOVERLAPPED ov) {

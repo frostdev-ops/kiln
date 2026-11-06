@@ -480,6 +480,7 @@ KilnResult KILN_CALL t_manifest(KilnOwner o, KilnStr dir, char* rep, size_t cap,
 KilnResult KILN_CALL t_res_data(const KilnAssetKey* k, const void** ptr, size_t* len) { return op_resource_data(k, ptr, len); }
 int32_t KILN_CALL t_res_is_new(const KilnAssetKey* k) { return op_resource_is_new(k); }
 size_t KILN_CALL t_res_new_count(uint32_t t) { return op_resource_new_count(t); }
+KilnResult KILN_CALL t_when_ready(void(KILN_CALL* fn)(void*), void* user) { return op_when_resources_ready(fn, user); }
 
 const KilnAssetsApi kTable = {
     {sizeof(KilnAssetsApi), KILN_ASSETS_VERSION},
@@ -491,6 +492,7 @@ const KilnAssetsApi kTable = {
     &t_res_data,
     &t_res_is_new,
     &t_res_new_count,
+    &t_when_ready,
 };
 
 // ---- control commands: kiln/control/assets.cmd -> assets.result.json (handled by the core's console) ------------

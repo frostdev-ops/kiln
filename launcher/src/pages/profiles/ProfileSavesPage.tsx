@@ -7,6 +7,6 @@ import { useProfileId } from "./useProfileEdit";
 export default function ProfileSavesPage() {
   const id = useProfileId();
   const { game } = useGame();
-  if (!game) return <EmptyState title="No game" hint="Pick a game on Play." />;
-  return <SaveBackups gameId={game.id} profileId={id} title="Backups for this profile" />;
+  if (!game) return <EmptyState title="No game yet. Pick one on Play." />;
+  return <div className="k-scroll" style={{ paddingBottom: 20 }}><SaveBackups gameId={game.id} profileId={id} title="Backups made with this profile" /></div>;
 }

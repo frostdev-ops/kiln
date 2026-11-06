@@ -2,10 +2,11 @@
 """Build a keen::RenderModel resource + its renderData content blob from triangles (format: docs/re/models.md).
 
 Output layout (as the game's own cooked models):
-    renderData = [group 0: P | N | T | C | UV streams][group 1 ...] [skin stream, when skinned] [u16 indices of every mesh, LOD 0 first]
-    vertexData = {0, sum of group bytes}, skinningData = {after them, 8 x vertices}, indexData follows, others empty.
+    renderData = [group 0: P | N | T | C | UV streams][group 1 ...] [skin stream, when skinned] [blend shapes, when it has them] [u16 indices of every mesh, LOD 0 first]
+    vertexData = {0, sum of group bytes}, skinningData = {after them, 8 x vertices}, blendShapeData = {after that}, indexData follows on 4 bytes, others empty.
 Each glTF primitive (one material each) becomes one vertex group and one RenderModelMesh per LOD. Skinned primitives with the same vertices share a group, as the
-game's LODs do.
+game's LODs do. Blend shapes: per group, every vertex of the model's first shape, then of the next, 3 x f16 position deltas in metres. Every group has them, zeros where a
+primitive has no such target, which is the layout most of the game's models use, and a group's blendShapeByteOffset is its start inside blendShapeData.
 """
 import hashlib
 import struct
@@ -85,15 +86,36 @@ def encode_group(p, off, sc):
     return bytes(out)
 
 
+def encode_morphs(p, names):
+    """One group's blend shape data, for the model's shapes `names` in order. A target the primitive lacks is zeros."""
+    n = len(p["positions"])
+    out = bytearray()
+    for name in names:
+        deltas = (p.get("morphs") or {}).get(name)
+        if deltas is None:
+            out += bytes(6 * n)
+            continue
+        if len(deltas) != n:
+            raise CookError(f"morph target {name!r} has {len(deltas)} deltas for {n} vertices")
+        for v in deltas:
+            try:
+                out += struct.pack("<3e", *v)
+            except OverflowError as e:
+                raise CookError(f"morph target {name!r}: a delta of {v} does not fit a 16-bit float") from e
+    return bytes(out)
+
+
 def _vec(v):
     return {"x": float(v[0]), "y": float(v[1]), "z": float(v[2])}
 
 
-def build(lods, materials, base, name, pixel_sizes=None, skin=None):
+def build(lods, materials, base, name, pixel_sizes=None, skin=None, morphs=None):
     """lods: [[prepared primitive (game space), ...] per LOD]; materials: [{material guid, renderEffectId,
     materialFlags}] indexed by primitive["material_slot"]; base: a decoded vanilla RenderModel (dict) whose other
     fields are kept (empty cloth/sdf are forced). skin: {"hierarchy": skeleton GUID, "hierarchyJointCount", "globalScale"} for a skinned model,
-    whose primitives carry "influences" (cook/skin.py). Returns (desc dict, renderData bytes)."""
+    whose primitives carry "influences" (cook/skin.py). morphs: the blend shapes it has, by their keen::BlendShapeFlags name (skin.morph_names), whose deltas the
+    primitives carry in "morphs". Returns (desc dict, renderData bytes)."""
+    morphs = list(morphs or [])
     allp = [q for lod in lods for p in lod for q in p["positions"]]
     off, sc, mn, mx = quantization(allp)
     smap = S.joint_map(lods) if skin else []
@@ -102,6 +124,7 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
     model_index = {j: i for i, j in enumerate(smap)}
     groups = bytearray()
     skin_stream = bytearray()
+    morph_stream = bytearray()
     known_groups = {}
     indices = []
     meshes = []
@@ -112,12 +135,14 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
         for p in lod:
             vb = encode_group(p, off, sc)
             sb = S.encode_stream(p["influences"], model_index) if skin else b""
+            mb = encode_morphs(p, morphs)
             c, r = G.bounding_sphere(p["positions"])
-            group = known_groups.get((vb, sb)) if skin else None
+            group = known_groups.get((vb, sb, mb)) if skin else None
             if group is None:
-                group = known_groups[(vb, sb)] = (len(groups), vcount_total)
+                group = known_groups[(vb, sb, mb)] = (len(groups), vcount_total, len(morph_stream))
                 groups += vb
                 skin_stream += sb
+                morph_stream += mb
                 vcount_total += len(p["positions"])
             meshes.append({
                 "boundingSphere": {"center": _vec(c), "radius": float(r)},
@@ -127,7 +152,7 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
                 "indexCount": len(p["indices"]),
                 "meshletOffset": 0, "meshletCount": 0,
                 "vertexDataByteOffset": group[0],
-                "blendShapeByteOffset": 0,
+                "blendShapeByteOffset": group[2],
                 "skinVertexOffset": group[1],
                 "vertexFormat": "PNTCT", "vertexStride": 24, "clothMeshIndex": 0,
                 "positionQuantization": "x21y21z21_unorm",
@@ -137,8 +162,10 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
         lod_desc.append({"meshOffset": first, "meshCount": len(meshes) - first, "pixelSize": float(ps)})
     vdata = bytes(groups)
     sdata = bytes(skin_stream)
+    mdata = bytes(morph_stream)
+    mpad = bytes(-(len(vdata) + len(sdata) + len(mdata)) & 3)
     idata = struct.pack(f"<{len(indices)}H", *indices)
-    blob = vdata + sdata + idata
+    blob = vdata + sdata + mdata + mpad + idata
     c, r = G.bounding_sphere(allp)
     radius = max((q[0] ** 2 + q[1] ** 2 + q[2] ** 2) ** 0.5 for q in allp)
     h = content_hash(blob)
@@ -153,7 +180,7 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
         "meshlets": [], "meshes": meshes, "lods": lod_desc,
         "foliageAnimationShaderData": None,
         "hierarchy": "00000000-0000-0000-0000-000000000000",
-        "blendShapes": [], "blendShapeMask": 0, "globalScale": 1.0, "hasCardClusterLod": False,
+        "blendShapes": [{"id": kmesh.BLEND_SHAPES[m]} for m in morphs], "blendShapeMask": (1 << len(morphs)) - 1, "globalScale": 1.0, "hasCardClusterLod": False,
         "sdf": {"parts": []},
         "skinnedTree": {"jointMatrix": [], "jointParent": [], "jointSpringData": [], "leafJoints": [],
                         "inverseTransformTree": []},
@@ -162,11 +189,11 @@ def build(lods, materials, base, name, pixel_sizes=None, skin=None):
         "sleeves": [], "jointCount": len(smap), "hierarchyJointCount": skin["hierarchyJointCount"] if skin else 0,
         "renderData": {"hash": {"size": h[0], "hash0": h[1], "hash1": h[2], "hash2": h[3]},
                        "category": {"value": RENDER_DATA_CATEGORY}, "bundleId": 0, "sortKey": 0},
-        "indexData": {"start": len(vdata) + len(sdata), "count": len(idata)},
+        "indexData": {"start": len(vdata) + len(sdata) + len(mdata) + len(mpad), "count": len(idata)},
         "meshletData": {"start": (len(blob) + 3) & ~3 if skin else len(blob), "count": 0},
         "vertexData": {"start": 0, "count": len(vdata)},
         "skinningData": {"start": len(vdata) if skin else 0, "count": len(sdata)},
-        "blendShapeData": {"start": 0, "count": 0},
+        "blendShapeData": {"start": len(vdata) + len(sdata) if mdata else 0, "count": len(mdata)},
     })
     if skin:
         d["hierarchy"] = skin["hierarchy"]

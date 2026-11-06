@@ -1,0 +1,11 @@
+{
+  "id": "cosmetic-sample",
+  "name": "Cosmetic blocks (sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "CosmeticSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "license": "MIT",
+  "description": "A hood and a cape for the vanity slots, on models made by a script: no game data. A rigid model on a joint with a Female morph target; a look like a game item's. Every player needs it: models are drawn by the client."
+}

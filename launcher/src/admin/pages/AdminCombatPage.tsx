@@ -133,7 +133,7 @@ function NearCard({ players }: { players: AdminPlayer[] }) {
           <Select aria-label="Around" value={at} onChange={setAt} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `Around ${playerName(p)}` })), { value: "coords", label: "Around coordinates" }]} />
           {at === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
           <NumberInput aria-label="Radius" value={radius} integer min={1} max={500} onCommit={setRadius} style={{ width: 80 }} />
-          <Button size="s" variant="primary" loading={q.isFetching && !q.data} onClick={go}>Scan</Button>
+          <Button size="s" loading={q.isFetching && !q.data} onClick={go}>Scan</Button>
         </div>
         {q.error ? <div className="k-error-text">{q.error.message}</div> : null}
         {scan && q.data ? (

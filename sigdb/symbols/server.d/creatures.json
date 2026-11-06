@@ -431,7 +431,6 @@
       ],
       "constants": [
         "creatures/ctx.dyn",
-        "creatures/ctx.arsenal",
         "creatures/ctx.program"
       ]
     },

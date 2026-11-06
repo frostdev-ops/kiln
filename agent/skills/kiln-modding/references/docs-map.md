@@ -6,6 +6,8 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 |---|---|
 | Start a project | `first-mod`, `dev-kit` |
 | Make a spell, a status, an effect, an item or a weapon | `blocks`, `item-blocks` |
+| Make a prop, a station that works on its own (a forge, a drying rack), comfort | `world-blocks` |
+| A cosmetic, a hat, a cape: a model worn on the body | `cosmetics`, `models` |
 | The `kiln` command | `cli` |
 | Manifest, sides, `clients`, version ranges | `manifest` |
 | Events, configs, commands, saved data, other mods | `code-mods` |

@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: stations and props as blocks (docs/kiln/modding/world-blocks.md). A drying rack and a forge of your own, with their own workshops and recipes, a bench, and props, all on the
+       game's art, with no GUIDs and no base items. blocks/twins.json is the same in data. The side and the clients follow from using Blocks (both, kiln). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>station-blocks</KilnModId>
+    <KilnModName>Station blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A drying rack and a forge of your own, each with a workshop and recipes of its own, a bench, and props on the game's art. blocks/twins.json is the same in data.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

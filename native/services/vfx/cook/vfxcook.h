@@ -200,7 +200,10 @@ constexpr uint32_t kMaxMaterialTextureSide = 4096;
 constexpr float kDefaultReflectance = 0.5028854608535767f;  // 3,070 of the game's 3,403
 
 // keen::PixelFormat
-constexpr uint8_t kFormatBc1Unorm = 131, kFormatBc5Unorm = 141, kFormatBc7Unorm = 145, kFormatBc7Srgb = 146;
+constexpr uint8_t kFormatBc1Unorm = 131, kFormatBc1Srgb = 132, kFormatBc4Unorm = 139, kFormatBc5Unorm = 141, kFormatBc7Unorm = 145, kFormatBc7Srgb = 146;
+// 8 bytes a 4x4 block (BC1, BC4), else 16; mips of the sRGB formats are averaged in linear light.
+constexpr uint32_t format_block_bytes(uint8_t f) { return f == kFormatBc1Unorm || f == kFormatBc1Srgb || f == kFormatBc4Unorm ? 8 : 16; }
+constexpr bool format_srgb(uint8_t f) { return f == kFormatBc7Srgb || f == kFormatBc1Srgb; }
 
 // A ResourceContentReference.
 struct ContentRef {

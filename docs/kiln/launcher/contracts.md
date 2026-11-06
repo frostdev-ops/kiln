@@ -714,11 +714,11 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
   `useAdminCall(op, options?)` (TanStack mutation), `useAdminQuery(op, args?, options?)` over one AdminHub session per
   server; without a server id they use the nearest provider. The admin routes are mounted by `<AdminRoutes/>` at
   `servers/:id/admin/*`. Pages: [admin-pages.md](admin-pages.md).
-- `src/theme/tokens.css`: generated from `branding/palette.json`: `--k-<name>` for every colour, `--k-grad-molten`,
-  `--k-glow`, `--k-radius-{s,m,l}`, `--k-font-{display,ui,mono}` (Fraunces, Inter, JetBrains Mono; bundled locally
-  later, no web-font URLs), `--k-text-on-ember: #0f0d0c` (text on ember or gold fills is never white),
-  `--k-ember-text-on-light`.
+- `src/theme/tokens.css`: generated from `branding/palette.json`: `--k-<name>` for every colour (with `--k-well` and
+  `--k-line-hot`), `--k-radius-{s,m,l}`, `--k-font-{display,ui,label,mono}` (Grenze Gotisch, Alegreya Sans, Alegreya
+  Sans SC, Inconsolata; bundled locally, no web-font URLs), `--k-text-on-ember: #170803` (text on ember or gold fills
+  is never white), `--k-ember-text-on-light`.
 - Routes: Play `/`; Client `/profiles/:id/{mods,native,emf,configs,saves}`, `/library`, `/runtime`,
-  `/logs`, `/saves`, `/editor`, `/settings`, `/about`; Servers `/servers/:id/{overview,settings,mods,configs,backups,
-  logs,modpack}`; Admin `/servers/:id/admin/{players,map,zones,items,spawn,world,combat,creatures,gamedata,permissions,content,configs,
-  mods,console,saves,crashes}`.
+  `/logs`, `/saves`, `/editor`, `/settings`, `/about`; Servers `/servers/:id/{overview,logs,ticks,settings,configs,mods,
+  backups,modpack}`; Admin `/servers/:id/admin/{players,map,zones,items,spawn,world,combat,creatures,gamedata,permissions,
+  content,saves,crashes}` (`admin/configs`, `admin/mods` and `admin/console` redirect to the merged server pages).

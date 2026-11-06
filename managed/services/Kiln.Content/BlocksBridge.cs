@@ -33,8 +33,14 @@ internal static unsafe class BlocksBridge
     /// <summary>A loaded mod's folder, or empty.</summary>
     public static string ModDirectory(string mod) => Mods.Get(mod)?.Directory ?? "";
 
+    /// <summary>This is a game client: it draws models, so a mod's cooked files matter here.</summary>
+    public static bool IsClient => Kiln.Client.IsClient;
+
     /// <summary>Whether a native service runs on this side.</summary>
     public static bool HasService(string name, uint minVersion) => Backend.Current.Service(name, minVersion) != 0;
+
+    /// <summary>A native service's table, for Kiln.Blocks' own bindings. 0: not here.</summary>
+    public static nint ServiceTable(string name, uint minVersion) => (nint)Backend.Current.Service(name, minVersion);
 
     public static IDisposable AddTick(string name, Action<ulong> step) => ServiceTick.Add(name, (in TickInfo t) => step(t.Step));
 

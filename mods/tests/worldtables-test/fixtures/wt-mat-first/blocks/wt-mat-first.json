@@ -1,0 +1,12 @@
+{
+ "format": 1,
+ "buildingMaterials": {
+  "brick-first-17": {
+   "name": "Test Brick First",
+   "strength": {
+    "hardness": "veryHard",
+    "health": 5000
+   }
+  }
+ }
+}

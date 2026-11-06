@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "cosmetics": {
+    "needs-files": { "name": "x", "slot": "head", "look": { "model": "models/hat.gltf", "attach": "Head" } },
+    "needs-icon": { "name": "x", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn", "icon": "icons/x.png" } },
+    "game-look": { "name": "Low", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn" } }
+  }
+}

@@ -80,11 +80,10 @@ public static unsafe partial class Content
         ContentNative.Status s = default;
         s.Size = (uint)sizeof(ContentNative.Status);
         if (t->GetStatus(&s) != ContentNative.Ok) return null;
-        var (defs, placeholders) = NewContent.Counts();
         return new ContentStatus(s.Ready != 0, (s.Registries & 1) != 0, (s.Registries & 2) != 0, (s.Registries & 4) != 0,
             (s.Registries & 8) != 0, s.StackGuard != 0, (int)s.Items, (int)s.Recipes, (int)s.Loot, (int)s.Drops,
             (int)s.Packs, (int)s.PackErrors, (int)s.Conflicts, (int)s.Changed, s.Generation,
-            ContentNative.Text(s.Detail, 160)) { Definitions = defs, Placeholders = placeholders };
+            ContentNative.Text(s.Detail, 160)) { CountedBy = NewContent.Counts };
     }
 
     /// <summary>

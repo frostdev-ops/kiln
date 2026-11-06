@@ -43,7 +43,7 @@ function GameDataPage() {
               <div className="ka-inline">
                 <Select aria-label="Section" value={section} onChange={(s) => { setSection(s); setEntry(null); }} options={SECTIONS} />
                 <TextInput aria-label="Search" placeholder="name contains…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") setQuery({ section, q: q.trim() }); }} style={{ width: 220 }} />
-                <Button size="s" variant="primary" loading={hits.isFetching && !hits.data} onClick={() => setQuery({ section, q: q.trim() })}>Search</Button>
+                <Button size="s" loading={hits.isFetching && !hits.data} onClick={() => setQuery({ section, q: q.trim() })}>Search</Button>
               </div>
               {hits.error ? <div className="k-error-text">{hits.error.message}</div> : null}
               {query ? (

@@ -1,0 +1,2 @@
+{ "format": 1, "tool": "animcook", "out": "cooked", "mod": "creature-blocks",
+  "comment": "The animations and bodies of blocks/*.json are cooked by themselves: no steps needed. \"mod\" is the project's KilnModId: ids follow from it.", "steps": [] }

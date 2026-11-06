@@ -167,7 +167,10 @@ using namespace gd;
 
 namespace {
 
-KilnResult KILN_CALL t_status(char* buf, size_t cap, size_t* len) { return copy_res(status_json(), buf, cap, len); }
+KilnResult KILN_CALL t_status(char* buf, size_t cap, size_t* len) {
+    PhaseTimer pt(PH_STATUS);
+    return copy_res(status_json(), buf, cap, len);
+}
 
 uint32_t KILN_CALL t_count(uint32_t section) {
     if (common(section) != KILN_OK) return 0;
@@ -382,11 +385,18 @@ KilnResult KILN_CALL t_define(KilnOwner owner, uint32_t section, KilnStr json, c
     if (len) *len = 0;
     std::string rep;
     const KilnResult rc = clones_define(owner, section, str(json), false, "", &rep);
+    if (rep.size() >= cap) {  // the report without its listing entry, rather than cut short
+        gjson j = gjson::parse(rep, nullptr, false);
+        if (j.is_object()) j.erase("entry"), rep = j.dump(-1, ' ', false, gjson::error_handler_t::replace);
+    }
     copy_out(rep, report, cap, len);
     return rc;
 }
 
-KilnResult KILN_CALL t_definitions(char* buf, size_t cap, size_t* len) { return copy_res(clones_json(), buf, cap, len); }
+KilnResult KILN_CALL t_definitions(char* buf, size_t cap, size_t* len) {
+    PhaseTimer pt(PH_LISTING);
+    return copy_res(clones_json(), buf, cap, len);
+}
 
 }  // namespace
 
@@ -400,6 +410,7 @@ void gd_boot() {
 }
 
 void gd_world_ready(uintptr_t world, uint32_t kind) {
+    PhaseTimer pt(PH_GD_READY);
     const auto t0 = std::chrono::steady_clock::now();
     std::string why;
     bool ok = false;

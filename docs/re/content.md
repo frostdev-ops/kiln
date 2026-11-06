@@ -499,8 +499,42 @@ Limits found by defining many blocks at once (whole lab mod set, server 26430253
 | New items | 3,979 (4,213 game items, 8,192 at the load factor) | the game reserves 2 x next_pow2(n) slots; Kiln keeps its load factor | `the map has no room left (count 8192 of 16384)` |
 | New recipes | about 1,550 (4,096 at the load factor) | the same | `the map has no room left (count 4096 of 8192)` |
 | Recipes at one workshop | 512 in all | inline `SmallDynamicArray<RecipeInfo*, 512>` | `the workshop list is full (512)` |
-| Buff clones | 1,024 | Kiln's own: the buff collection's header is rebuilt per clone, so more costs near memory quadratically | `Kiln's buff collection is full (1024 clones)` |
+| Buff clones | 1,024 | Kiln's own: the buff collection's header is rebuilt for each clone defined while the world runs (once per turn at world load), so more costs near memory quadratically | `Kiln's buff collection is full (1024 clones)` |
 
-Items, weapons and armor use no template. A wand attack or a spell uses two, a station one, so templates run out first.
-Near memory did not limit that run: 65 chunks (16 MB) with the table limits above reached. Defining blocks grows with the number already defined: a wand took 45 ms at 100 and about 260 ms at 900,
-3 minutes for 4,000 blocks.
+Items, weapons and armor use no template. A wand attack or a spell uses two, a station one, so templates run out first for spells, and a workshop's list for crafted gear.
+
+Near memory did not limit any of this: 16 MB with every table above full.
+
+### Load time
+
+A definition costs about the same however many are defined. From Kiln's start to the blocks' rules applied, with the whole lab mod set
+plus N items, weapons, armor, statuses and wands (server 26430253, a busy machine, everything at low priority):
+
+| N of each kind | Blocks | Before | Now | Of that, the mods' `OnLoad` (defining) |
+|---|---|---|---|---|
+| 250 | 1,251 | 33 s | 6 s | 12.3 s, now 0.3 s |
+| 1,000 | 5,001 | 7.9 min | 25-28 s | 289 s, now 2-5 s |
+
+What grew with the number already defined, and what it does now:
+- Finding a definition by name or GUID walked every definition, with two lower-case copies of each name, once for each base, recipe stack,
+  name check and reference. An index now.
+- A clone that a block defines (`GameDataRegistry.Define`) listed every clone definition as JSON to find the one it made, under the store
+  lock. The define report carries it now.
+- An item with references rebuilt the pools of loaded GUIDs from every item. They grow by the items added now.
+- Each clone's registration walked and wrote out the whole store and rebuilt the buff collection's header. At world load clones register in
+  turns of about 10 ms of the store lock, with one write-out and one header per turn.
+- A write-out of the store walked every slot; it writes the slots that changed since the last one.
+- Texts and icon aliases are maps the hooks read without a lock, copied on each change: each text copied the whole map. They are in 256
+  shards now.
+- `Content.Status()` and `Content.Ready` listed every definition to count them, and the definitions file for tools was listed every second.
+  The count is taken when read, and a listing makes an entry again only when what it shows changed.
+- An item the item map has no room for was tried again at every step.
+
+The store lock: registering clones holds it a turn of about 10 ms at a time (one clone can take up to 80 ms). The longest holds at 1,000 of each
+kind are applying the data packs at world load (0.2-0.4 s, one hold for every pack file) and applying the blocks' rules, 19,242 changes in one
+document (0.2-1 s). kiln.log has the breakdown at each start:
+`load timing, definitions before the world`, `load timing, world load`, `store lock at world load`.
+
+Left: kiln.assets rebuilds its index of served resources for every resource it is given, which costs in proportion to what it already
+serves (about 8 s of the 1,000-per-kind load, for 3,097 clone resources), and keeps every old index. The server used 6.6 GB at 1,000 of
+each kind.

@@ -108,6 +108,9 @@ any path (`"Faction.faction": "Vukah"`, `"LifeTime.lifeTime": ">2"`, a list = an
 - **Tooltips**: a config with a loca tag next to a `uiValues` list (items, perks, buffs, skill nodes) has a tooltip
   value with `locaId` = FNV-1a(locaTag): it follows, scaled by the config's `valueFormat` (Normal ×1, Percentage ×100,
   Duration ms ×1000, Float ×100). Fireball I: ManaCost 30 → `uiValues[0].value` 30; the cast time stays 2500.
+  The row is found by its `locaId`, never by its place: a list of rows in another order than the game's keeps each value. In a rule, a
+  list of rows applies before the rule's configs, so the tooltip follows on the list the entry keeps. The content sync sends the config and
+  a list as a whole, never a followed row or a value set in a list the entry no longer has; the receiver's config brings the row.
 - **Event order**: the game walks a sub-sequence's events in order and stops at the first one at or after the current
   time window (server 0x34620), so events must stay sorted by time. After a time change Kiln points the events list
   at a sorted copy (an internal layer), recomputed whenever layers change. `[Type#k]` counts in that current order.
@@ -160,6 +163,17 @@ that needs its own permanent numbers and its own name is a **clone**.
   `sequenceId` follows): a new spell = an ammo item clone (kiln.content) + a cast sequence clone (here) + a
   projectile template clone. `"add"` lists are registered before the pack's other sections, so rules of the same
   pack may name the clone.
+- **A template's base by item**: `"base": "item:<name>"` is the template that item places (`equipment.placedEntity`),
+  found when the items are there, a mod's new item included.
+- **Components the base lacks**: `"addComponents": ["ComfortProvider"]` gives the clone those components of the game's
+  types, zeroed, for its `fields` to fill in. The component list is kept sorted by type name, as the game's are.
+- **Components the base has and the clone doesn't**: `"removeComponents": ["SubEntities", "HookShotAnchorSubEntity"]` leaves them out of the
+  clone's list (the base's gear, on a creature with a body of its own). A name the base doesn't have is refused, and so are `CurrentTransform`
+  and, on an actor, what a puppet needs to live (`Actor`, `ActorInput`, `NetworkActor`, `Velocity`, `LastTransform`, `Faction` and the four
+  animation graph components).
+- **A reference from an item**: a reference field takes `"item:<name>.<path>"`, what that item has in that field:
+  `"ModelResource.model": "item:Prop_Production_T1_Drying_Rack.iconModel"`. A dedicated server has no models or
+  sounds, so it carries a model's or a sound's GUID for its clients unchecked.
 - Perks and buffs: see "Perk and buff clones" below.
 
 ## Perk and buff clones

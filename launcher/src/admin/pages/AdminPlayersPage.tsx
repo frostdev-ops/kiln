@@ -1,7 +1,7 @@
-// /servers/:id/admin/players: who is in the world (live from the state pushes), SteamIDs,
-// teleport (to a player, a waypoint, a grave or coordinates), give items, heal, god mode, kill (typed confirmation),
-// inventory, tell, progression (level, experience, skill points: kiln.progression); plus everyone
-// seen on this server.
+// /servers/:id/admin/players: who is in the world (live from the state pushes) as a table, and the selected player's
+// form beside it: teleport (to a player, a waypoint, a grave or coordinates), give items, heal, god mode, kill (typed
+// confirmation), progression (level, experience, skill points: kiln.progression), tell, inventory. Plus everyone seen
+// on this server.
 import { useState } from "react";
 import { useAdminCall, useAdminQuery, useAdminState, useHasOp, type AdminPlayer } from "../../api/admin";
 import { CoordInputs, ItemPicker, NeedsOp, coordText, parseCoords, playerName, useServerId, withAdmin, type CoordText } from "../common";
@@ -9,7 +9,7 @@ import { OfflineNote } from "../ConnectionBar";
 import { knownPlayers, saveWaypoint, useHistory } from "../history";
 import type { GiveResult, HealthResult, InventoryResult, ItemHit, PermissionsModel } from "../types";
 import {
-  Avatar, Badge, Button, Card, EmptyState, HealthBar, KeyValue, NumberInput, Page, PageHeader, Select, Table, TextInput, Toggle,
+  Badge, Button, Card, HealthBar, Modal, NameId, NumberInput, Page, PageHeader, Segmented, Select, SplitPage, Table, TextInput, Toggle,
   agoS, confirm, fmtPos, promptText, toastError, toastOk,
 } from "../ui";
 
@@ -23,42 +23,43 @@ function PlayersPage() {
   const perms = useAdminQuery<PermissionsModel>("permissions_get", {}, { staleTime: 30_000 });
   const known = knownPlayers(hist, perms.data?.players ?? {});
   const online = new Set(players.map((p) => p.steamId));
+  const [view, setView] = useState<"world" | "seen">("world");
+  const [selId, setSel] = useState<number | null>(null);
+  const sel = players.find((p) => p.entity === selId) ?? players[0] ?? null;
   return (
-    <Page>
-      <PageHeader title="Players" sub="Live from the server's state, every second. Actions run on the server at once." />
+    <Page fill>
+      <PageHeader title="Players" sub="Live from the server, every second. Actions run at once." />
       <OfflineNote />
       {st.session ? (
         <NeedsOp ops="players" what="The player list">
-          {players.length ? (
-            <div className="ka-players">
-              {players.map((p) => <PlayerCard key={p.entity} p={p} players={players} />)}
-            </div>
-          ) : (
-            <Card>
-              <EmptyState title="Nobody is in the world" hint="Players show up here while they're connected. The tools below act on NPCs and spawned creatures on the Combat and Spawn pages." />
-            </Card>
-          )}
+          <SplitPage form aside={sel && view === "world" ? <PlayerForm key={sel.entity} p={sel} players={players} /> : <span className="k-empty-title">{view === "world" ? "Nobody is in the world. Players show here while they are connected." : "Pick In the world to act on a player."}</span>}>
+            <Segmented aria-label="Players" value={view} onChange={setView} options={[{ id: "world", label: `In the world ${players.length}` }, { id: "seen", label: `Everyone seen ${known.length}` }]} />
+            {view === "world" ? (
+              <Table aria-label="Players in the world" fill rows={players} rowKey={(p) => String(p.entity)} selectedKey={sel ? String(sel.entity) : null} onRowClick={(p) => setSel(p.entity)}
+                columns={[
+                  { key: "name", header: "Player", sort: (a, b) => playerName(a).localeCompare(playerName(b)), render: (p) => <NameId name={playerName(p)} id={p.steamId ?? `entity ${p.entity}`} /> },
+                  { key: "state", header: "State", width: "96px", render: (p) => (p.healthMax && (p.health ?? 0) <= 0 ? <span className="k-badge k-tone-err">Dead</span> : p.god ? <span className="k-badge k-tone-ember">God mode</span> : p.admin ? <span className="k-badge k-tone-warn">Admin</span> : <span className="k-badge k-tone-ok">Playing</span>) },
+                  { key: "hp", header: "Health", width: "130px", render: (p) => (p.healthMax ? <HealthBar health={p.health} max={p.healthMax} /> : <span className="k-muted">-</span>) },
+                  { key: "pos", header: "Position", width: "140px", align: "right", render: (p) => <span className="k-mono">{fmtPos(p.pos)}</span> },
+                ]}
+                empty="Nobody is in the world." />
+            ) : (
+              <Table aria-label="Known players" fill rows={known} rowKey={(r) => r.steamId}
+                columns={[
+                  { key: "name", header: "Player", render: (r) => <NameId name={r.name || "Unknown"} id={r.steamId} />, sort: (a, b) => a.name.localeCompare(b.name) },
+                  { key: "seen", header: "Last seen", width: "130px", render: (r) => (online.has(r.steamId) ? <span className="k-badge k-tone-ok">Online</span> : <span className="k-muted">{r.lastSeen ? agoS(r.lastSeen) : "In permissions"}</span>), sort: (a, b) => a.lastSeen - b.lastSeen },
+                  { key: "first", header: "First seen", width: "120px", render: (r) => <span className="k-muted">{r.firstSeen ? agoS(r.firstSeen) : "-"}</span> },
+                ]}
+                empty="Players are remembered once they join while the launcher is connected." />
+            )}
+          </SplitPage>
         </NeedsOp>
       ) : null}
-      <Card title="Everyone seen on this server" sub="Recorded by the launcher while it was connected, plus the names in the permissions file" flush>
-        <Table
-          aria-label="Known players"
-          rows={known}
-          rowKey={(r) => r.steamId}
-          columns={[
-            { key: "name", header: "Player", render: (r) => <span className="ka-person"><Avatar name={r.name || "?"} online={online.has(r.steamId)} /><span className="ka-person-name">{r.name || "Unknown"}</span></span>, sort: (a, b) => a.name.localeCompare(b.name) },
-            { key: "sid", header: "SteamID64", width: "200px", render: (r) => <span className="k-mono">{r.steamId}</span> },
-            { key: "seen", header: "Last seen", width: "140px", render: (r) => (online.has(r.steamId) ? <Badge tone="ok">online</Badge> : r.lastSeen ? agoS(r.lastSeen) : "in permissions.json"), sort: (a, b) => a.lastSeen - b.lastSeen },
-            { key: "first", header: "First seen", width: "140px", render: (r) => (r.firstSeen ? agoS(r.firstSeen) : "-") },
-          ]}
-          empty={<EmptyState title="No players yet" hint="Players are remembered once they join while the launcher is connected." />}
-        />
-      </Card>
     </Page>
   );
 }
 
-function PlayerCard({ p, players }: { p: AdminPlayer; players: AdminPlayer[] }) {
+function PlayerForm({ p, players }: { p: AdminPlayer; players: AdminPlayer[] }) {
   const id = useServerId();
   const name = playerName(p);
   const heal = useAdminCall<HealthResult & { healed: number }>("heal");
@@ -70,50 +71,41 @@ function PlayerCard({ p, players }: { p: AdminPlayer; players: AdminPlayer[] }) 
     if (!(await confirm({ title: `Kill ${name}?`, body: <p>{name} dies at once and respawns as after any death, leaving a tombstone as the server's death rules say.</p>, typed: name, ok: "Kill" }))) return;
     kill.mutate({ entity: p.entity }, { onSuccess: (r) => (r.killed ? toastOk(`${name} was killed`) : toastError({ message: `${name}: ${r.state}` })), onError: (e) => toastError(e) });
   };
+  const saveSpot = async () => {
+    const wp = await promptText({ title: "Save this spot as a waypoint", ok: "Save", prompt: { placeholder: "Home base", maxLength: 40, initial: `${name} spot`.slice(0, 40) } });
+    if (wp && p.pos) {
+      const err = saveWaypoint(id, wp, p.pos);
+      if (err) toastError({ message: err });
+      else toastOk(`Saved waypoint ${wp}`);
+    }
+  };
   return (
-    <Card>
-      <div className="ka-player-head" style={{ marginBottom: 12 }}>
-        <span className="ka-person">
-          <Avatar name={name} online />
-          <span>
-            <span className="ka-person-name">{name}</span>{" "}
-            {p.admin ? <Badge tone="warn">admin</Badge> : null} {p.god ? <Badge tone="ember">god mode</Badge> : null}
-            {p.healthMax && (p.health ?? 0) <= 0 ? <Badge tone="err">dead</Badge> : null}
-            <div className="ka-person-meta">
-              <span className="k-mono">{p.steamId ?? "no SteamID"}</span> · entity {p.entity} · at <span className="k-mono">{fmtPos(p.pos)}</span>
-            </div>
-          </span>
-        </span>
-        <span className="k-spacer" />
-        {p.healthMax ? <span className="ka-inline"><HealthBar health={p.health} max={p.healthMax} /><span className="k-hint">{p.health} / {p.healthMax}</span></span> : null}
+    <>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 500, color: "var(--k-text-0)" }}>{name}</div>
+        <div className="k-mono k-muted" style={{ fontSize: 14.5 }}>{p.steamId ?? "no SteamID"}, entity {p.entity}</div>
+        <div className="k-hint">At <span className="k-mono">{fmtPos(p.pos)}</span>{p.healthMax ? <>, health <span className="k-mono">{p.health} / {p.healthMax}</span></> : null}. Rights: {p.permissions || "none"}.</div>
       </div>
-      <div className="ka-player-tools">
-        <KeyValue rows={[["Rights", p.permissions || "none"]]} />
-        <TeleportRow p={p} players={players} />
-        <GiveRow p={p} />
+      <TeleportRow p={p} players={players} />
+      <GiveRow p={p} />
+      <div className="ka-tool">
+        <span className="k-label">Combat</span>
         <div className="ka-inline">
-          <span className="ka-label">Combat</span>
-          <Button size="s" disabled={!hasCombat} loading={heal.isPending} onClick={() => heal.mutate({ entity: p.entity }, { onSuccess: (r) => toastOk(`Healed ${name} (+${r.healed ?? 0})`), onError: (e) => toastError(e) })}>
-            Heal to full
-          </Button>
-          <Toggle checked={!!p.god} disabled={!hasCombat || god.isPending} label="God mode" onChange={(on) => god.mutate({ entity: p.entity, on }, { onSuccess: (r) => toastOk(`God mode ${r.god ? "on" : "off"} for ${name}`), onError: (e) => toastError(e) })} />
-          <Button size="s" variant="danger" disabled={!hasCombat} loading={kill.isPending} onClick={askKill}>Kill…</Button>
-          <span className="k-spacer" />
-          <Button size="s" variant="ghost" onClick={() => setInv((v) => !v)}>{inv ? "Hide inventory" : "Inventory"}</Button>
-          <Button size="s" variant="ghost" disabled={!p.pos} onClick={async () => {
-            const wp = await promptText({ title: "Save this spot as a waypoint", ok: "Save", prompt: { placeholder: "e.g. Home base", maxLength: 40, initial: `${name} spot`.slice(0, 40) } });
-            if (wp && p.pos) {
-              const err = saveWaypoint(id, wp, p.pos);
-              if (err) toastError({ message: err });
-              else toastOk(`Saved waypoint ${wp}`);
-            }
-          }}>Save spot as waypoint</Button>
+          <Button size="s" disabled={!hasCombat} loading={heal.isPending} onClick={() => heal.mutate({ entity: p.entity }, { onSuccess: (r) => toastOk(`Healed ${name}`, `+${r.healed ?? 0}`), onError: (e) => toastError(e) })}>Heal to full</Button>
+          <Button size="s" variant="danger" disabled={!hasCombat} loading={kill.isPending} onClick={askKill}>Kill</Button>
         </div>
-        <ProgressionRow p={p} />
-        <TellRow p={p} />
-        {inv ? <Inventory entity={p.entity} /> : null}
+        <Toggle checked={!!p.god} disabled={!hasCombat || god.isPending} label="God mode" onChange={(on) => god.mutate({ entity: p.entity, on }, { onSuccess: (r) => toastOk(`God mode ${r.god ? "on" : "off"} for ${name}`), onError: (e) => toastError(e) })} />
       </div>
-    </Card>
+      <ProgressionRow p={p} />
+      <TellRow p={p} />
+      <div className="ka-inline">
+        <button type="button" className="k-link" onClick={() => setInv(true)}>Inventory</button>
+        <button type="button" className="k-link" disabled={!p.pos} onClick={saveSpot}>Save this spot as a waypoint</button>
+      </div>
+      <Modal open={inv} onClose={() => setInv(false)} title={`${name}'s inventory`} width={640} footer={<Button onClick={() => setInv(false)}>Close</Button>}>
+        {inv && <Inventory entity={p.entity} />}
+      </Modal>
+    </>
   );
 }
 
@@ -155,12 +147,14 @@ function TeleportRow({ p, players }: { p: AdminPlayer; players: AdminPlayer[] })
     tp.mutate({ entity: p.entity, x: pos.x, y: pos.y, z: pos.z, safe }, done);
   };
   return (
-    <div className="ka-inline">
-      <span className="ka-label">Teleport</span>
-      <Select aria-label="Teleport target" value={target} onChange={setTarget} options={options} style={{ minWidth: 220 }} />
+    <div className="ka-tool">
+      <label className="k-label" htmlFor={`tp-${p.entity}`}>Teleport</label>
+      <div className="ka-inline" style={{ flexWrap: "nowrap" }}>
+        <Select id={`tp-${p.entity}`} value={target} onChange={setTarget} options={options} />
+        <Button size="s" disabled={!has || !target} loading={tp.isPending || tpp.isPending} onClick={go}>Go</Button>
+      </div>
       {target === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
       {target && !target.startsWith("player:") ? <Toggle checked={safe} onChange={setSafe} label="Find ground" /> : null}
-      <Button size="s" variant="primary" disabled={!has} loading={tp.isPending || tpp.isPending} onClick={go}>Go</Button>
     </div>
   );
 }
@@ -185,17 +179,19 @@ function GiveRow({ p }: { p: AdminPlayer }) {
     });
   };
   return (
-    <div className="ka-inline">
-      <span className="ka-label">Give item</span>
-      <div style={{ width: 300 }}><ItemPicker value={item} onPick={setItem} /></div>
-      <NumberInput aria-label="Amount" value={count} integer min={1} max={10000} onCommit={setCount} style={{ width: 90 }} />
-      {item?.gear ? (
-        <>
-          <NumberInput aria-label="Level" placeholder="level" value={level} integer min={1} max={100} onCommit={setLevel} style={{ width: 80 }} />
-          <Select aria-label="Rarity" value={rarity} onChange={setRarity} options={RARITIES.map((r) => ({ value: r, label: r || "rarity" }))} />
-        </>
-      ) : null}
-      <Button size="s" variant="primary" disabled={!has} loading={give.isPending} onClick={send}>Give</Button>
+    <div className="ka-tool">
+      <label className="k-label" htmlFor={`give-${p.entity}`}>Give an item</label>
+      <ItemPicker id={`give-${p.entity}`} value={item} onPick={setItem} placeholder="Search the server's items" />
+      <div className="ka-inline" style={{ flexWrap: "nowrap" }}>
+        <NumberInput aria-label="Amount" value={count} integer min={1} max={10000} onCommit={setCount} />
+        {item?.gear ? (
+          <>
+            <NumberInput aria-label="Level" placeholder="level" value={level} integer min={1} max={100} onCommit={setLevel} />
+            <Select aria-label="Rarity" value={rarity} onChange={setRarity} options={RARITIES.map((r) => ({ value: r, label: r || "Rarity" }))} />
+          </>
+        ) : null}
+        <Button size="s" disabled={!has || !item} loading={give.isPending} onClick={send}>Give</Button>
+      </div>
     </div>
   );
 }
@@ -242,33 +238,28 @@ function ProgressionRow({ p }: { p: AdminPlayer }) {
   };
   const busy = setLevel.isPending || giveXp.isPending || givePts.isPending || respec.isPending;
   return (
-    <div className="ka-inline">
-      <span className="ka-label">Progression</span>
+    <div className="ka-tool">
+      <span className="k-label">Progression</span>
       {s?.hasLevel ? (
-        <>
-          <Badge tone="info">level {s.level}/{s.levelCap}</Badge>
-          <span className="k-hint" title="Experience into the level / what the level needs">
-            {s.atLevelCap ? "at the level cap" : `${s.experience.toLocaleString()} / ${s.experienceNeeded.toLocaleString()} XP`}
-            {s.experiencePending ? ` (+${s.experiencePending.toLocaleString()})` : ""}
-          </span>
-          {s.hasPoints ? (
-            <span className="k-hint" title={`${s.skillPointsFromLevel} from levels, ${s.skillPointsFromKnowledge} from skill-point knowledge; ${s.unlockedNodes} nodes unlocked`}>
-              · {s.skillPoints} of {s.skillPointsTotal} skill points unspent
-            </span>
-          ) : null}
-          {s.overBudget ? <Badge tone="err" >over budget: the game resets the tree at the next login</Badge> : null}
-        </>
-      ) : <span className="k-muted">{q.error ? q.error.message : q.data ? "no progression data" : "reading…"}</span>}
-      <span className="k-spacer" />
-      <NumberInput aria-label="Level" placeholder="level" value={level} integer min={1} max={s?.levelCap || 1000} onCommit={setLevelText} style={{ width: 70 }} />
-      <Button size="s" disabled={busy || !s?.hasLevel} loading={setLevel.isPending} onClick={doLevel}>Set level</Button>
-      <NumberInput aria-label="Experience" value={xp} integer min={1} max={100000000} onCommit={setXp} style={{ width: 90 }} />
-      <Button size="s" disabled={busy || !s?.hasLevel || s.atLevelCap} loading={giveXp.isPending} onClick={() => giveXp.mutate({ entity: p.entity, amount: xp }, told(`Gave ${xp} XP`))}>Give XP</Button>
-      <NumberInput aria-label="Skill points" value={pts} integer min={1} max={1000} onCommit={setPts} style={{ width: 60 }} />
-      <Button size="s" disabled={busy || !s?.hasPoints || !s.givableSkillPoints} loading={givePts.isPending}
-        title={s ? `Given as the game's skill-point knowledge: ${s.givableSkillPoints} more can be given; for more, raise the level` : undefined}
-        onClick={() => givePts.mutate({ entity: p.entity, amount: pts }, told(`Gave ${pts} skill point(s)`))}>Give points</Button>
-      <Button size="s" variant="ghost" disabled={busy || !s?.hasSkills} loading={respec.isPending} onClick={doRespec}>Respec…</Button>
+        <span className="k-hint">
+          <span className="k-tone-info">Level {s.level} of {s.levelCap}</span>
+          {s.atLevelCap ? ", at the cap" : `, ${s.experience.toLocaleString()} of ${s.experienceNeeded.toLocaleString()} XP`}
+          {s.experiencePending ? ` (+${s.experiencePending.toLocaleString()})` : ""}
+          {s.hasPoints ? `. ${s.skillPoints} of ${s.skillPointsTotal} skill points unspent.` : "."}
+          {s.overBudget ? <span className="k-tone-err"> Over budget: the game resets the tree at the next login.</span> : null}
+        </span>
+      ) : <span className="k-hint">{q.error ? q.error.message : q.data ? "No progression data." : "Reading…"}</span>}
+      <div className="ka-grid3">
+        <NumberInput aria-label="Level" placeholder="level" value={level} integer min={1} max={s?.levelCap || 1000} onCommit={setLevelText} />
+        <Button size="s" disabled={busy || !s?.hasLevel} loading={setLevel.isPending} onClick={doLevel}>Set level</Button>
+        <NumberInput aria-label="Experience" value={xp} integer min={1} max={100000000} onCommit={setXp} />
+        <Button size="s" disabled={busy || !s?.hasLevel || s.atLevelCap} loading={giveXp.isPending} onClick={() => giveXp.mutate({ entity: p.entity, amount: xp }, told(`Gave ${xp} XP`))}>Give XP</Button>
+        <NumberInput aria-label="Skill points" value={pts} integer min={1} max={1000} onCommit={setPts} />
+        <Button size="s" disabled={busy || !s?.hasPoints || !s.givableSkillPoints} loading={givePts.isPending}
+          title={s ? `Given as the game's skill-point knowledge: ${s.givableSkillPoints} more can be given; for more, raise the level` : undefined}
+          onClick={() => givePts.mutate({ entity: p.entity, amount: pts }, told(`Gave ${pts} skill point(s)`))}>Give points</Button>
+      </div>
+      <div><button type="button" className="k-link" disabled={busy || !s?.hasSkills} onClick={doRespec}>Respec the skill tree</button></div>
     </div>
   );
 }
@@ -284,10 +275,12 @@ function TellRow({ p }: { p: AdminPlayer }) {
     tell.mutate({ entity: p.entity, text: t }, { onSuccess: () => { toastOk(`Told ${playerName(p)}`); setText(""); }, onError: (e) => toastError(e) });
   };
   return (
-    <div className="ka-inline">
-      <span className="ka-label">Message</span>
-      <TextInput aria-label="Message" value={text} maxLength={500} placeholder={`A chat line only ${playerName(p)} sees`} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} style={{ flex: 1, minWidth: 240 }} />
-      <Button size="s" loading={tell.isPending} onClick={send}>Send</Button>
+    <div className="ka-tool">
+      <label className="k-label" htmlFor={`tell-${p.entity}`}>Message</label>
+      <div className="ka-inline" style={{ flexWrap: "nowrap" }}>
+        <TextInput id={`tell-${p.entity}`} value={text} maxLength={500} placeholder={`Only ${playerName(p)} sees it`} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
+        <Button size="s" loading={tell.isPending} onClick={send}>Send</Button>
+      </div>
     </div>
   );
 }
@@ -299,14 +292,14 @@ function Inventory({ entity }: { entity: number }) {
   const list = q.data.inventories ?? [];
   if (!list.length) return <div className="k-muted">No inventories reported.</div>;
   return (
-    <div className="k-grid k-grid-3">
+    <div className="k-stack" style={{ gap: 16 }}>
       {list.map((inv) => (
         <Card key={inv.link} title={inv.category} sub={`${inv.slots.length} slots used`}>
           <div className="ka-list">
             {inv.slots.map((s, i) => (
               <div key={i} className="ka-row-item">
                 <span>{s.name ?? `#${s.item}`}</span>
-                {s.level ? <Badge tone="info">lv {s.level}</Badge> : null}
+                {s.level ? <Badge tone="info">{`Level ${s.level}`}</Badge> : null}
                 {s.rarity ? <Badge tone="ember">{s.rarity}</Badge> : null}
                 {s.equipped ? <Badge tone="ok">equipped</Badge> : null}
                 <span className="k-spacer" />

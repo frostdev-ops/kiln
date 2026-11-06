@@ -1,0 +1,1 @@
+{ "format": 1, "tool": "animcook", "out": "cooked", "comment": "The animations and bodies of blocks/*.json are cooked by themselves: no steps needed.", "steps": [] }

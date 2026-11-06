@@ -1,0 +1,12 @@
+{
+  "id": "furniture-test",
+  "name": "furniture and interaction blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "FurnitureTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "advanced": true,
+  "dependencies": { "furniture-blocks": "*" },
+  "description": "PASS/FAIL lines: containers, doors, beds, seats, interactions, shapes, hair and beards from Kiln.Blocks on a server with no player: what the templates say, interactions through the game's own code with a spawned character, C# and JSON the same, the errors a mistake gets, and what a restart keeps. Start it twice."
+}

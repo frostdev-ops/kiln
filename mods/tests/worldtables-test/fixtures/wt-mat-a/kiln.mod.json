@@ -1,0 +1,1 @@
+{ "id": "wt-mat-a", "name": "wt-mat-a", "version": "1.0.0", "apiVersion": "0.1", "entryAssembly": "WtFixture.dll", "side": "both", "clients": "mod" }

@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "containers": {
+    "no-name": { "slots": 4 },
+    "many-slots": { "name": "x", "slots": 500 },
+    "bad-holds": { "name": "x", "holds": { "Material_T1_Twigs": 0 } },
+    "typo-field": { "name": "x", "slotz": 4 }
+  },
+  "doors": {
+    "bad-time": { "name": "x", "onInteract": { "requires": { "time": "dusk" } } },
+    "empty-requires": { "name": "x", "onInteract": { "requires": {} } },
+    "bad-count": { "name": "x", "onInteract": { "requires": { "item": "Material_T1_Twigs", "count": 0 } } },
+    "uses-nothing": { "name": "x", "onInteract": { "requires": { "uses": true } } },
+    "bad-state": { "name": "x", "onInteract": { "requires": { "when": ["Levitating"] } } },
+    "bad-verb": { "name": "x", "onInteract": { "verb": "yodel" } },
+    "blank-prompt": { "name": "x", "onInteract": { "toggle": { "onPrompt": " " } } },
+    "verb-and-prompt": { "name": "x", "onInteract": { "verb": "use", "prompt": "Knock" } },
+    "refused-lock": { "name": "x", "onInteract": { "requires": { "time": "night" }, "onRefused": [ { "heal": 1 } ] } },
+    "no-such-interaction": { "name": "x", "onInteract": "gone" }
+  },
+  "beds": {
+    "far-spot": { "name": "x", "lies": { "at": [0, 50, 0] } }
+  },
+  "seats": {
+    "bad-play": { "name": "x", "onInteract": { "plays": "dance" } }
+  },
+  "interactions": {
+    "empty-interaction": { }
+  },
+  "blueprints": {
+    "no-cells": { "name": "x", "cells": [] },
+    "bad-cell": { "name": "x", "cells": [ ["#x#"] ] },
+    "too-big": { "name": "x", "cells": [ ["#################################"] ] },
+    "bad-cost": { "name": "x", "cells": [ ["##"] ], "cost": 0 }
+  },
+  "hair": {
+    "hair-fits": { "name": "x", "look": { "like": "VC_Hair_04_01_pixie", "fits": "hood" } },
+    "hair-attach": { "name": "x", "look": { "model": "models/none.glb", "attach": "Head" } },
+    "hair-jaw": { "name": "x", "look": { "like": "VC_Hair_04_01_pixie", "variants": { "jaw03": "models/none.glb" } } }
+  },
+  "beards": {
+    "beard-hat": { "name": "x", "look": { "like": "VC_Beard01_full", "variants": { "hat": "models/none.glb" } } }
+  }
+}

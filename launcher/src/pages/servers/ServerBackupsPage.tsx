@@ -2,7 +2,7 @@
 // admin op while the server runs) and kilnctl tarballs (savegame + kiln/data). Restore: at once when stopped (the
 // current save moves aside first); while running, a Kiln.Saves backup is staged for the next start.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveRestore, Plus } from "lucide-react";
+import { ArchiveRestore } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
@@ -45,7 +45,7 @@ export default function ServerBackupsPage() {
   ];
   return (
     <Card title="Backups" sub={running ? "A backup now is made right after a fresh save." : "The server is stopped: a backup is a tarball of the save."}
-      actions={<Button icon={<Plus size={16} />} variant="primary" loading={busy} onClick={create}>Back up now</Button>} flush>
+      actions={<Button loading={busy} onClick={create}>Back up now</Button>} flush>
       <Table columns={cols} rows={q.data ?? []} rowKey={(b) => b.source + b.name} empty="No backups yet" aria-label="Backups" />
       <ConfirmDanger open={!!restore} onClose={() => setRestore(null)} title="Restore backup"
         message={running ? `Stage ${restore?.name} for the next start? Restart the server to apply it.` : `Replace the world with ${restore?.name}? The current save moves to the backup folder first.`}

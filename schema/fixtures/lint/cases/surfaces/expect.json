@@ -1,0 +1,85 @@
+{
+  "description": "KL333: sizes kiln.surfaces refuses, in a surfaces section, inline and on a retexture; a greyscale normal map, a data map in colour, sRGB and linear tags, 16 bits. A missing file is KL501, a file that is not a PNG KL503. A good surface says nothing.",
+  "diagnostics": [
+    {
+      "code": "KL333",
+      "col": 37,
+      "file": "blocks/s.json",
+      "line": 3,
+      "message": "tex/odd.png: 6x8 is not a power of two on both sides (kiln.surfaces refuses this surface, and the material looks like Rough Stone)",
+      "severity": "error"
+    },
+    {
+      "code": "KL333",
+      "col": 65,
+      "file": "blocks/s.json",
+      "line": 3,
+      "message": "tex/rough_colour.png is in colour: a roughness map's red channel is read and the rest is ignored; save it as greyscale",
+      "severity": "info"
+    },
+    {
+      "code": "KL333",
+      "col": 84,
+      "file": "blocks/s.json",
+      "line": 6,
+      "message": "tex/normal_grey.png is greyscale: a normal map's red and green are its direction, so this one is flat",
+      "severity": "warning"
+    },
+    {
+      "code": "KL333",
+      "col": 117,
+      "file": "blocks/s.json",
+      "line": 6,
+      "message": "tex/height_srgb.png is tagged sRGB; a height map's values are read as they are, as linear data",
+      "severity": "info"
+    },
+    {
+      "code": "KL333",
+      "col": 146,
+      "file": "blocks/s.json",
+      "line": 6,
+      "message": "tex/ao_16.png has 16 bits a channel: it is read at 8",
+      "severity": "info"
+    },
+    {
+      "code": "KL333",
+      "col": 57,
+      "file": "blocks/s.json",
+      "line": 7,
+      "message": "tex/albedo_linear.png is tagged linear, but an albedo map is read as sRGB colour: it will look brighter than in your editor",
+      "severity": "warning"
+    },
+    {
+      "code": "KL501",
+      "col": 58,
+      "file": "blocks/s.json",
+      "line": 9,
+      "message": "tex/missing.png: no such file (<case>/tex/missing.png)",
+      "severity": "error"
+    },
+    {
+      "code": "KL503",
+      "col": 89,
+      "file": "blocks/s.json",
+      "line": 9,
+      "message": "tex/not_really.png is not a PNG file (kiln.assets decodes PNG only)",
+      "severity": "error"
+    },
+    {
+      "code": "KL333",
+      "col": 132,
+      "file": "blocks/s.json",
+      "line": 9,
+      "message": "tex/tiny.png: 2x2 is outside 4..4096 (kiln.surfaces refuses this surface, and the material looks like Rough Stone)",
+      "severity": "error"
+    },
+    {
+      "code": "KL333",
+      "col": 104,
+      "file": "blocks/s.json",
+      "line": 13,
+      "message": "tex/odd.png: 6x8 is not a power of two on both sides (kiln.surfaces refuses this surface, and the material looks like Rough Stone)",
+      "severity": "error"
+    }
+  ]
+}

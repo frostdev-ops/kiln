@@ -1,5 +1,5 @@
 /* Kiln's layer over the vendored editor. Upstream styles: src/styles.css (scoped). */
-.kiln-editor { position: absolute; inset: 0; font-family: 'Harmonique', 'NotoSerifGame', 'Fraunces', serif; }
+.kiln-editor { position: absolute; inset: 0; font-family: 'Harmonique', 'NotoSerifGame', 'Alegreya Sans', serif; }
 .kiln-editor-hint {
   position: absolute; z-index: 30; left: 50%; top: 12px; transform: translateX(-50%);
   font: 500 12.5px var(--k-font-ui); color: var(--k-text-1); background: #171413ee; border: 1px solid var(--k-line-strong);

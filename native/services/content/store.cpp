@@ -4,6 +4,7 @@
 // with no layer left the original comes back. Writes go out in batches (store_flush).
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <set>
@@ -16,14 +17,140 @@
 namespace kc {
 
 namespace {
-std::recursive_mutex g_mu;
+StoreMutex g_mu;
 std::map<uintptr_t, Slot> g_slots;
+std::vector<uintptr_t> g_dirty;  // the slots a flush writes, so that it costs what changed and not what the store holds
+uint64_t g_gen = 0;              // +1 per change of any slot (store_generation)
+
+void mark(uintptr_t addr, Slot& s) {
+    ++g_gen;
+    if (s.dirty) return;
+    s.dirty = true;
+    g_dirty.push_back(addr);
+}
 std::unordered_map<KilnOwner, std::string> g_labels;
 std::atomic<uint64_t> g_code_seq{0};
 bool g_guard = false;
+
+// ---- timing ----
+int64_t now_us() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+constexpr const char* kPhaseNames[PH_COUNT] = {
+    "define", "define (locked)", "clone define", "clone register", "clone fields", "clone flush", "gamedata ready", "world sync",
+    "sync items", "build clone", "kitbash", "world items", "resolve item", "map insert", "registry entry", "sync recipes",
+    "build recipe", "workshop list", "crafted notes", "loot", "drop tables", "flush", "write batch", "near alloc", "apply json",
+    "apply packs", "build registries", "drop table hook", "store scan", "is new", "own lists", "asset put", "game register",
+    "build bytes", "status", "listing", "export", "texts", "sequence resource",
+    "conflicts", "pack file"};
+struct PhaseStat {
+    std::atomic<int64_t> us{0}, max_us{0};
+    std::atomic<uint64_t> n{0};
+};
+PhaseStat g_phase[PH_COUNT];
+thread_local Phase tl_phase = PH_COUNT;  // the innermost phase running on this thread
+thread_local Phase tl_hold_phase = PH_COUNT;
+thread_local int tl_depth = 0;
+thread_local int64_t tl_since = 0;
+thread_local bool tl_job = false;
+std::mutex g_hold_mu;
+int64_t g_hold_max = 0, g_wait_max = 0, g_job_wait_max = 0, g_holds_over_100ms = 0, g_hold_total = 0;
+uint64_t g_holds = 0;
+Phase g_hold_max_phase = PH_COUNT, g_job_wait_phase = PH_COUNT;
+void note_max(std::atomic<int64_t>& m, int64_t v) {
+    int64_t cur = m.load(std::memory_order_relaxed);
+    while (v > cur && !m.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
+}
 }  // namespace
 
-std::recursive_mutex& store_mutex() { return g_mu; }
+void StoreMutex::lock() {
+    if (tl_depth > 0) {
+        m_.lock();
+        ++tl_depth;
+        return;
+    }
+    const int64_t t0 = now_us();
+    m_.lock();
+    tl_since = now_us();
+    tl_hold_phase = tl_phase;
+    tl_depth = 1;
+    const int64_t waited = tl_since - t0;
+    if (waited > 1000) {
+        std::lock_guard l(g_hold_mu);
+        g_wait_max = std::max(g_wait_max, waited);
+        if (tl_job && waited > g_job_wait_max) g_job_wait_max = waited, g_job_wait_phase = tl_phase;
+    }
+}
+
+bool StoreMutex::try_lock() {
+    if (!m_.try_lock()) return false;
+    if (tl_depth++ == 0) tl_since = now_us(), tl_hold_phase = tl_phase;
+    return true;
+}
+
+void StoreMutex::unlock() {
+    if (--tl_depth == 0) {
+        const int64_t held = now_us() - tl_since;
+        std::lock_guard l(g_hold_mu);
+        ++g_holds;
+        g_hold_total += held;
+        if (held > 100000) ++g_holds_over_100ms;
+        // the phase the hold started in, or, when it started outside any, the one it ended in
+        if (held > g_hold_max) g_hold_max = held, g_hold_max_phase = tl_hold_phase != PH_COUNT ? tl_hold_phase : tl_phase;
+    }
+    m_.unlock();
+}
+
+PhaseTimer::PhaseTimer(Phase p) : p_(p), outer_(tl_phase), t0_(now_us()) {
+    tl_phase = p;
+    // a hold that started outside any phase is credited to the first phase inside it
+    if (tl_depth > 0 && tl_hold_phase == PH_COUNT) tl_hold_phase = p;
+}
+
+PhaseTimer::~PhaseTimer() {
+    const int64_t d = now_us() - t0_;
+    PhaseStat& s = g_phase[p_];
+    s.us.fetch_add(d, std::memory_order_relaxed);
+    s.n.fetch_add(1, std::memory_order_relaxed);
+    note_max(s.max_us, d);
+    tl_phase = outer_;
+}
+
+void timing_mark_job_thread(bool on) { tl_job = on; }
+
+std::string timing_report(bool reset) {
+    std::string out;
+    char b[512];
+    for (int i = 0; i < PH_COUNT; ++i) {
+        PhaseStat& s = g_phase[i];
+        const uint64_t n = reset ? s.n.exchange(0) : s.n.load();
+        const int64_t us = reset ? s.us.exchange(0) : s.us.load();
+        const int64_t mx = reset ? s.max_us.exchange(0) : s.max_us.load();
+        if (!n) continue;
+        std::snprintf(b, sizeof b, "%s%s %.0f ms / %llu (max %.1f)", out.empty() ? "" : ", ", kPhaseNames[i], us / 1000.0,
+                      static_cast<unsigned long long>(n), mx / 1000.0);
+        out += b;
+    }
+    return out;
+}
+
+std::string lock_report(bool reset) {
+    std::string out;
+    char b[512];
+    std::lock_guard l(g_hold_mu);
+    std::snprintf(b, sizeof b, "%llu holds, %.0f ms in all, longest %.1f ms (%s), %lld over 100 ms; longest wait %.1f ms",
+                  static_cast<unsigned long long>(g_holds), g_hold_total / 1000.0, g_hold_max / 1000.0,
+                  g_hold_max_phase < PH_COUNT ? kPhaseNames[g_hold_max_phase] : "outside the timed phases",
+                  static_cast<long long>(g_holds_over_100ms), g_wait_max / 1000.0);
+    out += b;
+    std::snprintf(b, sizeof b, ", a job thread's longest %.1f ms (%s)", g_job_wait_max / 1000.0,
+                  g_job_wait_phase < PH_COUNT ? kPhaseNames[g_job_wait_phase] : "-");
+    out += b;
+    if (reset) g_holds = 0, g_hold_total = 0, g_hold_max = 0, g_wait_max = 0, g_job_wait_max = 0, g_holds_over_100ms = 0;
+    return out;
+}
+
+StoreMutex& store_mutex() { return g_mu; }
 uint64_t next_code_seq() { return kCodeSeq | ++g_code_seq; }
 
 std::string owner_label(KilnOwner owner) {
@@ -64,7 +191,7 @@ bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_
     l->source = source;
     std::memcpy(l->bytes, bytes, n);
     std::sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
-    s.dirty = true;
+    mark(addr, s);
     return true;
 }
 
@@ -76,7 +203,7 @@ bool store_drop(KilnOwner owner, uintptr_t addr) {
     const size_t before = ls.size();
     std::erase_if(ls, [&](const Layer& x) { return x.owner == owner; });
     if (ls.size() == before) return false;
-    it->second.dirty = true;
+    mark(addr, it->second);
     return true;
 }
 
@@ -87,7 +214,7 @@ uint32_t store_drop_owner(KilnOwner owner) {
         const size_t before = s.layers.size();
         std::erase_if(s.layers, [&](const Layer& x) { return x.owner == owner; });
         if (s.layers.size() != before) {
-            s.dirty = true;
+            mark(addr, s);
             ++n;
         }
     }
@@ -116,10 +243,11 @@ uint32_t store_reset(bool revert, std::string* error) {
     for (auto& [addr, s] : g_slots) {
         if (!s.layers.empty()) ++n;
         s.layers.clear();
-        s.dirty = true;
+        mark(addr, s);
     }
     if (revert) store_flush(error);
     g_slots.clear();
+    g_dirty.clear();
     return n;
 }
 
@@ -143,11 +271,18 @@ bool store_original(uintptr_t addr, uint8_t n, uint8_t* out) {
 }
 
 size_t store_flush(std::string* error) {
+    PhaseTimer pt(PH_FLUSH);
     std::lock_guard lock(g_mu);
     std::vector<Write> writes;
     std::vector<uintptr_t> addrs;
-    for (auto& [addr, s] : g_slots) {
-        if (!s.dirty) continue;
+    std::vector<std::map<uintptr_t, Slot>::iterator> dirty;
+    dirty.reserve(g_dirty.size());
+    for (uintptr_t a : g_dirty)
+        if (auto it = g_slots.find(a); it != g_slots.end() && it->second.dirty) dirty.push_back(it);
+    g_dirty.clear();
+    for (auto& d : dirty) {
+        const uintptr_t addr = d->first;
+        Slot& s = d->second;
         const uint8_t* want = s.layers.empty() ? s.original : s.layers.back().bytes;
         if (std::memcmp(want, s.current, s.n) != 0) {
             Write w{addr, s.n, {}};
@@ -157,7 +292,11 @@ size_t store_flush(std::string* error) {
         }
     }
     uintptr_t failed = 0;
-    const size_t done = writes.empty() ? 0 : write_batch(writes, &failed);
+    size_t done = 0;
+    if (!writes.empty()) {
+        PhaseTimer wt(PH_WRITE_BATCH);
+        done = write_batch(writes, &failed);
+    }
     if (failed && error) {
         char b[96];
         std::snprintf(b, sizeof b, "%zu of %zu writes failed (first at %p)", writes.size() - done, writes.size(),
@@ -167,20 +306,23 @@ size_t store_flush(std::string* error) {
     // What is in memory now, whatever happened.
     const Registry& items = reg(KILN_CONTENT_ITEMS);
     const Field* max_stack = items.schema.find("maxStackSize");
-    for (auto it = g_slots.begin(); it != g_slots.end();) {
+    for (auto& it : dirty) {
         Slot& s = it->second;
-        if (s.dirty) {
-            uint8_t now[kSlotBytes] = {};
-            if (rd(it->first, now, s.n)) std::memcpy(s.current, now, s.n);
-            s.dirty = false;
-            if (max_stack && s.kind == KILN_CONTENT_ITEMS && s.field >= 0 &&
-                &items.schema.fields[static_cast<size_t>(s.field)] == max_stack)
-                guard_maybe(*max_stack, s.kind, s.original, s.current);
-        }
-        if (s.layers.empty() && std::memcmp(s.current, s.original, s.n) == 0) it = g_slots.erase(it);
-        else ++it;
+        uint8_t now[kSlotBytes] = {};
+        if (rd(it->first, now, s.n)) std::memcpy(s.current, now, s.n);
+        s.dirty = false;
+        if (max_stack && s.kind == KILN_CONTENT_ITEMS && s.field >= 0 && &items.schema.fields[static_cast<size_t>(s.field)] == max_stack)
+            guard_maybe(*max_stack, s.kind, s.original, s.current);
+        // a slot that is clean and back to the original goes (only a written slot can have become so)
+        if (s.layers.empty() && std::memcmp(s.current, s.original, s.n) == 0) g_slots.erase(it);
     }
+    if (!dirty.empty()) ++g_gen;
     return done;
+}
+
+uint64_t store_generation() {
+    std::lock_guard lock(g_mu);
+    return g_gen;
 }
 
 uint32_t store_changed() {
@@ -191,6 +333,7 @@ uint32_t store_changed() {
 }
 
 void store_for_each(const std::function<void(uintptr_t, const Slot&)>& fn) {
+    PhaseTimer pt(PH_STORE_SCAN);
     std::lock_guard lock(g_mu);
     for (auto& [addr, s] : g_slots) fn(addr, s);
 }
@@ -232,6 +375,7 @@ std::string layer_value(const Slot& s, const Field* f, const uint8_t* bytes) {
 }  // namespace
 
 std::vector<Conflict> store_conflicts() {
+    PhaseTimer pt(PH_CONFLICTS);
     std::lock_guard lock(g_mu);
     std::vector<Conflict> out;
     for (auto& [addr, s] : g_slots) {

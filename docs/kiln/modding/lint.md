@@ -607,6 +607,40 @@ blocks/fx.json:8:86: warning KL324: vfx/good_8x8.png: 8x8 doesn't divide into 3 
 ```
 Fix: correct `columns` and `rows`, or the image.
 
+### KL330 material-budget
+Error. More `buildingMaterials` than the game has ids for: 49 across every mod, counted over the mods checked together (a profile). A material's id is a byte in a cell, so the room
+can't grow. At boot, kiln.worldtables gives ids in sorted GUID order and refuses the rest by name, so which block is over depends on the other mods.
+```text
+blocks/walls.json:3:5: error KL330: This mod has 50 building materials, and the game has ids for 49: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order ("m0" is one of this mod's)
+```
+Fix: fewer materials. A material an absent mod left in a world also keeps its id; `WorldTables.Forget` frees it.
+
+### KL331 material-count
+Warning. A mod with 5 or more `buildingMaterials`. Every mod shares the 49 ids, so one mod with many leaves the others little.
+```text
+blocks/walls.json:3:5: warning KL331: this mod has 6 building materials: all mods share 49 ids, and past that the game can't take more
+```
+Fix: keep a mod's materials few, or say on its page how many it takes.
+
+### KL332 material-reference
+Warning (needs the catalog). A `materialTweaks` block's `material` that is not a game material: the block is refused at boot. Names come from the item that places the material
+(`StoneRough`, `WoodFancy`, `TerrainStone`); `Cell<id>` and the material's GUID work too.
+```text
+blocks/tweaks.json:2:27: warning KL332: "StoneRuogh" is not a game material the catalog knows; a block that names one is refused at boot; did you mean "StoneRough"?
+```
+Fix: correct the name (quick fix when a close match exists), or use a `GameMaterials` constant.
+
+### KL333 surface-texture
+A building surface's PNG (`surfaces`, or `surface` in `buildingMaterials` and `materialTweaks`), as each client's kiln.surfaces will cook it. Error: a size it refuses, not a power of
+two on both sides or outside 4 to 4096; the material then looks like Rough Stone. Warning: a greyscale normal map (flat), and an albedo or emissive tagged linear, which is read as
+sRGB colour. Info: a data map in colour (only its red is read), one tagged sRGB (its values are read as they are), 16 bits a channel (read at 8). A file that isn't there or isn't
+a PNG is [KL501](#kl501-file-missing) or [KL503](#kl503-not-png).
+```text
+blocks/s.json:3:37: error KL333: tex/odd.png: 6x8 is not a power of two on both sides (kiln.surfaces refuses this surface, and the material looks like Rough Stone)
+blocks/s.json:6:84: warning KL333: tex/normal_grey.png is greyscale: a normal map's red and green are its direction, so this one is flat
+```
+Fix: resize or re-save the image: colour maps (albedo, emissive) in sRGB, data maps (roughness, metallic, reflectance, height, AO) as greyscale, normal maps as RGB.
+
 ### KL401 unknown-reference
 Warning by default; an error where the reader refuses the file or the node (game-tree links, a talent node's `requires`).
 A name, id or GUID that neither the game nor the mods have. References to the game need the catalog.

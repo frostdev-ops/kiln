@@ -170,7 +170,7 @@ internal static unsafe class CreaturesNative
         public delegate* unmanaged[Cdecl]<ulong, GuidBytes*, uint, int> AttackPickArsenal;
         public delegate* unmanaged[Cdecl]<ulong, uint, uint, int> AiSwitch;
         public delegate* unmanaged[Cdecl]<uint, uint*, int> AiSwitchGet;
-        public delegate* unmanaged[Cdecl]<uint, int> TargetPrefer;
+        public delegate* unmanaged[Cdecl]<ulong, uint, uint, float, int> TargetPrefer;
     }
 
     public const uint WorkAction = 1, WorkCondition = 2, WorkPick = 3, WorkGone = 4;

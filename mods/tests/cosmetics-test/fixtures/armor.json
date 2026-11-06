@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "armor": {
+    "coat-armor-json": { "name": "Coat Armor", "slot": "chest", "stats": { "level": 5, "physical": 30 },
+      "look": { "model": "models/plain.gltf", "female": "models/female.gltf", "attach": "Chest", "hides": [ "chest", "waist" ] } },
+    "set-helm-json": { "name": "Set Helm", "slot": "head", "set": "worn-set-json" }
+  },
+  "armorSets": {
+    "worn-set-json": { "head": { "model": "models/shield.gltf", "attach": "Chest" }, "chest": { "like": "Armor_T1_Warrior_DPS_Chest" } }
+  }
+}

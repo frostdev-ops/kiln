@@ -33,8 +33,11 @@ public sealed record ItemDefinition
     /// <summary>The name players see (all languages). Null: the base item's.</summary>
     public string? DisplayName { get; init; }
 
-    /// <summary>The tooltip description. Null: the base item's.</summary>
+    /// <summary>The tooltip description. Null: the base item's. Empty: none.</summary>
     public string? Description { get; init; }
+
+    /// <summary>Where to get it, in the tooltip (all languages). Null: nothing: a new item does not take the base's.</summary>
+    public string? Source { get; init; }
 
     /// <summary>The lore text. Null: the base item's.</summary>
     public string? Lore { get; init; }
@@ -56,7 +59,7 @@ public sealed record ItemDefinition
 
     /// <summary>Texts per language (<c>"en"</c>, <c>"de"</c>, <c>"pt-BR"</c>, <c>"*"</c> = every language). A game
     /// language without its own entry uses its primary language ("pt" for pt-BR), then <c>"en"</c>, then
-    /// <see cref="DisplayName"/> / <see cref="Description"/> / <see cref="Lore"/>. Texts not given stay the base item's.</summary>
+    /// <see cref="DisplayName"/> / <see cref="Description"/> / <see cref="Lore"/>. Texts not given stay the base item's, except <see cref="ItemTexts.AcquisitionHint"/>.</summary>
     public IReadOnlyDictionary<string, ItemTexts>? Texts { get; init; }
 
     // ---- kitbash: references to resources the game already loaded ----
@@ -64,6 +67,10 @@ public sealed record ItemDefinition
     /// <summary>The model: <c>"item:&lt;name&gt;"</c> takes another item's whole visual setup (held / worn model,
     /// visual entity, model offsets, hide mask, collection model); a model GUID sets the equipment model only.</summary>
     public string? Model { get; init; }
+
+    /// <summary>A worn item's models for what the character wears and is, the game's <c>equipment.visualModels</c>: the client draws the first entry whose <c>Mask</c> (keen::BlendShapeMask) is
+    /// exactly the raised flags it looks at, and the plain model otherwise. <c>Model</c>: a model GUID, or <c>"item:&lt;name&gt;.equipment.visualModel"</c>. Null: the base's.</summary>
+    public IReadOnlyList<(uint Mask, string Model)>? VisualModels { get; init; }
 
     /// <summary>The icon: <c>"item:&lt;name&gt;"</c> (another item's icon and icon setup), an item GUID, or a PNG file
     /// (relative to the mod's folder; drawn by kiln.assets on Kiln clients, the base's icon until then). Null: the
@@ -102,7 +109,7 @@ public sealed record ItemTexts
     public string? Caption { get; init; }
     public string? Description { get; init; }
     public string? Lore { get; init; }
-    /// <summary>Where to get it (shown for items the player does not have yet).</summary>
+    /// <summary>Where to get it (shown for items the player does not have yet). Not given in any language: none, not the base item's.</summary>
     public string? AcquisitionHint { get; init; }
     /// <summary>The action hints (e.g. "Attack", "Block").</summary>
     public string? PrimaryAction { get; init; }
@@ -172,9 +179,13 @@ public sealed record RecipeDefinition
     /// <see cref="Station"/> is given.</summary>
     public string? BaseOn { get; init; }
 
-    /// <summary>Where it is crafted: a recipe whose station to use, a workshop id (<c>"0x…"</c>), or <c>"hand"</c> (the
-    /// player's own crafting menu). Without <see cref="BaseOn"/> the recipe has no level / comfort / prop needs.</summary>
+    /// <summary>Where it is crafted: a recipe whose station to use, a workshop id (<c>"0x…"</c>), <c>"hand"</c> (the
+    /// player's own crafting menu), or <c>"workshop:&lt;guid&gt;"</c>: a workshop of a mod's own, whose id is FNV-1a of the GUID, new if nothing
+    /// has it yet. Without <see cref="BaseOn"/> the recipe has no level / comfort / prop needs.</summary>
     public string? Station { get; init; }
+
+    /// <summary>The workshop (<c>"0x…"</c>) whose crafting menu lists it, when that is not the one it is crafted at. Null: its own.</summary>
+    public string? Menu { get; init; }
 
     public required IReadOnlyList<RecipeIngredient> Inputs { get; init; }
     public required IReadOnlyList<RecipeIngredient> Outputs { get; init; }
@@ -260,6 +271,7 @@ public static unsafe class NewContent
         if (def.DisplayName != null) j["displayName"] = def.DisplayName;
         if (def.Description != null) j["description"] = def.Description;
         if (def.Lore != null) j["lore"] = def.Lore;
+        if (def.Source != null) j["source"] = def.Source;
         (def.Fields as FieldValues)?.Require("items", $"item {def.Name}");
         if (def.Fields is { Count: > 0 }) j["fields"] = FieldsJson(def.Fields);
         if (def.Texts is { Count: > 0 })
@@ -278,6 +290,7 @@ public static unsafe class NewContent
         }
         if (def.RolledLoot) j["rolledLoot"] = true;
         if (def.Model != null) j["model"] = def.Model;
+        if (def.VisualModels != null) j["visualModels"] = new JsonArray(def.VisualModels.Select(v => (JsonNode)new JsonObject { ["mask"] = v.Mask, ["model"] = v.Model }).ToArray());
         if (def.Icon != null) j["icon"] = IconPath(def.Icon);
         if (def.Perks != null) j["perks"] = new JsonArray(def.Perks.Select(p => p == null ? null : (JsonNode)JsonValue.Create(p)!).ToArray());
         if (def.WeaponType != null) j["weaponType"] = def.WeaponType;
@@ -321,6 +334,7 @@ public static unsafe class NewContent
         var j = new JsonObject { ["guid"] = def.Guid.ToString("D"), ["name"] = def.Name };
         if (def.BaseOn != null) j["base"] = def.BaseOn;
         if (def.Station != null) j["station"] = def.Station;
+        if (def.Menu != null) j["menu"] = def.Menu;
         j["inputs"] = Stacks(def.Inputs);
         j["outputs"] = Stacks(def.Outputs);
         if (def.Duration is { } d) j["duration"] = d.TotalSeconds;

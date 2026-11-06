@@ -1,0 +1,16 @@
+<Project>
+  <!-- Sample: material tweaks (docs/kiln/modding/world-blocks.md, "Materials"). Harder walls, an unbreakable vault stone and softer iron, in C#; blocks/twins.json
+       says the same about other materials in data. Only the server's tables change, so players need nothing: side server, clients none. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>material-tweaks</KilnModId>
+    <KilnModName>Material tweaks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Harder rough wood, unbreakable fancy stone, softer iron blocks: what it takes to dig the game's materials, changed on the server.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+    <KilnSide>server</KilnSide>
+    <KilnClients>none</KilnClients>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

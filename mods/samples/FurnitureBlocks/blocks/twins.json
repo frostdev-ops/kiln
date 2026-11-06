@@ -1,0 +1,56 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "containers": {
+    "lockbox-json": {
+      "name": "Lockbox", "description": "Opens for whoever carries scrap.",
+      "slots": 8,
+      "holds": { "Material_T1_Twigs": 10 },
+      "onInteract": { "requires": { "item": "Material_T1_Metal_Scraps" } },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 4, "Material_T1_Metal_Scraps": 1 } }
+    }
+  },
+  "doors": {
+    "night-door-json": {
+      "name": "Night Door",
+      "onInteract": { "requires": { "time": "night" } },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 6 } }
+    }
+  },
+  "beds": {
+    "camp-bed-json": {
+      "name": "Camp Bed",
+      "visual": { "like": "Prop_Decoration_Comfort1_T0_Bed_Cot" },
+      "comfort": { "amount": 2, "category": "bed" },
+      "spawnPoint": true, "skipsNight": true,
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 10, "Material_T1_Wood_Logs": 2 } }
+    }
+  },
+  "interactions": {
+    "pray-json": { "prompt": "Pray", "requires": { "unless": ["InCombat"] }, "effects": [ { "heal": 25 } ] }
+  },
+  "seats": {
+    "milking-stool-json": {
+      "name": "Milking Stool",
+      "visual": { "like": "Prop_Decoration_Comfort1_T0_Chair_Stool" },
+      "onInteract": { "effects": [ { "restores": { "stamina": 20 } } ] }
+    },
+    "prayer-bench-json": {
+      "name": "Prayer Bench",
+      "visual": { "like": "Prop_Decoration_Comfort1_T0_Bench" },
+      "onInteract": "pray-json"
+    }
+  },
+  "blueprints": {
+    "arched-window-json": {
+      "name": "Arched Window Wall",
+      "cells": [ ["########"], ["########"], ["##....##"], ["##....##"], ["##....##"], ["###..###"], ["########"], ["########"] ]
+    }
+  },
+  "hair": {
+    "short-crop-json": { "name": "Short Crop", "look": { "like": "VC_Hair_04_02_frenchcrop" } }
+  },
+  "beards": {
+    "trim-json": { "name": "Trim", "look": { "like": "VC_Beard12_stubble" } }
+  }
+}

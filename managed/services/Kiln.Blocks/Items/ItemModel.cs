@@ -68,11 +68,12 @@ public sealed class HitsRef : IEnumerable<EffectRef>
 }
 
 /// <summary>A perk in an enhancement slot: a game perk's name or GUID (<c>GamePerks</c>), <c>item:&lt;name&gt;</c> (that item's perk in the same slot),
-/// or <c>none</c>. The game's rule applies: it runs once a player has unlocked its slot. A <c>PerkBlock</c> plugs in here when it exists.</summary>
+/// or <c>none</c>, or a <see cref="PerkBlock"/> by handle or name. The game's rule applies: it runs once a player has unlocked its slot.</summary>
 [JsonConverter(typeof(PerkRefConverter))]
 public readonly record struct PerkRef(string? Value)
 {
     public static implicit operator PerkRef(string? value) => new(value);
+    public static implicit operator PerkRef(BlockHandle<PerkBlock> handle) => new(handle.ToString());
     public override string ToString() => Value ?? "";
 }
 
@@ -88,6 +89,8 @@ public sealed record WeaponBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
+    /// <summary>Where to get it, in the tooltip. Null: nothing. The same goes for <see cref="Description"/>: a block does not take the texts of what it is made from.</summary>
+    public string? Source { get; init; }
     /// <summary>How it is held and swung: <c>WeaponClass.Sword</c>, or your own.</summary>
     public required PartRef<WeaponClass> Class { get; init; }
     public PartRef<VisualBlock>? Visual { get; init; }
@@ -161,6 +164,8 @@ public sealed record WandBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
+    /// <summary>Where to get it, in the tooltip. Null: nothing.</summary>
+    public string? Source { get; init; }
     /// <summary>The primary attack. Its main damage is the wand's power: the tooltip's number, and what perks and stats scale.</summary>
     public required WandAttack Primary { get; init; }
     /// <summary>The heavy attack. Null: the primary again. Its damage is exactly what it says.</summary>
@@ -216,10 +221,15 @@ public sealed record ArmorBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
+    /// <summary>Where to get it, in the tooltip. Null: nothing.</summary>
+    public string? Source { get; init; }
     public required PartRef<ArmorSlot> Slot { get; init; }
-    /// <summary>A family of looks: this piece takes the look the set has for its slot. <see cref="Visual"/> wins over it.</summary>
+    /// <summary>A family of looks: this piece takes the look the set has for its slot. <see cref="Visual"/> and <see cref="Look"/> win over it.</summary>
     public PartRef<ArmorSet>? Set { get; init; }
     public PartRef<VisualBlock>? Visual { get; init; }
+    /// <summary>What it looks like on the body: a model of the mod's own, skinned or on one joint, for both bodies (docs/kiln/modding/cosmetics.md). It wins over <see cref="Visual"/> for what is
+    /// worn; <see cref="Visual"/> still gives the dropped model and the tint.</summary>
+    public PartRef<WornLook>? Look { get; init; }
     public PartRef<ArmorStats>? Stats { get; init; }
     /// <inheritdoc cref="WeaponBlock.Perks"/>
     public IReadOnlyList<PerkRef>? Perks { get; init; }
@@ -285,7 +295,7 @@ public sealed record ArmorSlot : IBlock, IPremade
     internal string[] ClearConfigs { get; init; } = [];
 }
 
-/// <summary>A family of looks, one per slot. The premades are plain instances; write your own from <see cref="VisualBlock"/>s.</summary>
+/// <summary>A family of looks, one per slot. The premades are plain instances; write your own from <see cref="VisualBlock"/>s or <see cref="WornLook"/>s.</summary>
 public sealed record ArmorSet : IBlock, IPremade
 {
     private static ArmorSet From(string key, string stem) => new()
@@ -301,11 +311,11 @@ public sealed record ArmorSet : IBlock, IPremade
 
     /// <summary>How JSON names a premade.</summary>
     public string Key { get; init; } = "";
-    public PartRef<VisualBlock>? Head { get; init; }
-    public PartRef<VisualBlock>? Chest { get; init; }
-    public PartRef<VisualBlock>? Arms { get; init; }
-    public PartRef<VisualBlock>? Legs { get; init; }
-    public PartRef<VisualBlock>? Feet { get; init; }
+    public ArmorLook? Head { get; init; }
+    public ArmorLook? Chest { get; init; }
+    public ArmorLook? Arms { get; init; }
+    public ArmorLook? Legs { get; init; }
+    public ArmorLook? Feet { get; init; }
 }
 
 /// <summary>A stat a piece of gear adds while it is worn. The game turns the item's configs into the wearer's stats and the tooltip follows them.</summary>
@@ -336,6 +346,8 @@ public sealed record ItemBlock : IBlock, ITweakable
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
+    /// <summary>Where to get it, in the tooltip. Null: nothing.</summary>
+    public string? Source { get; init; }
     /// <summary>Null: a <see cref="Tool"/> makes a tool, <see cref="Ammo"/> an arrow, <see cref="Feeds"/> food, <see cref="Heals"/> or <see cref="OnUse"/> a potion, the rest a material.</summary>
     public ItemKind? Kind { get; init; }
     public PartRef<VisualBlock>? Visual { get; init; }
@@ -353,6 +365,10 @@ public sealed record ItemBlock : IBlock, ITweakable
     public IReadOnlyList<EffectRef>? OnUse { get; init; }
     /// <summary>The status eating it gives, in the game's food slots. Its tooltip's duration is the status's.</summary>
     public StatusRef? Feeds { get; init; }
+    /// <summary>What happens to whoever used it, once the item has really gone. A hit that stops the use before that stops this too.</summary>
+    public IReadOnlyList<EffectRef>? OnEat { get; init; }
+    /// <summary>When it can be used. Refused, the item stays and it gives nothing.</summary>
+    public EatRule? CanEat { get; init; }
 
     /// <summary>Seconds it burns in a fire.</summary>
     public double? Fuel { get; init; }
@@ -436,9 +452,17 @@ public sealed record RecipeBlock
     public IDictionary<ItemRef, int> Needs { get; init; } = new Dictionary<ItemRef, int>();
     /// <summary>Seconds at a timed station. Null: the station's own.</summary>
     public double? Seconds { get; init; }
+    /// <summary>What it makes, in a station's <see cref="StationBlock.Recipes"/>. Elsewhere a recipe makes the block it is on.</summary>
+    public ItemRef? Output { get; init; }
+    /// <summary>Fuel: what each cycle burns. It is an input, as in the game's data, and a station with none left stops the same way: charcoal in a forge is one.</summary>
+    public IDictionary<ItemRef, int> Burns { get; init; } = new Dictionary<ItemRef, int>();
+    /// <summary>A player crafts it only under a roof, the game's rule for most bench recipes. A station that works on its own doesn't check it, so its recipes refuse it.</summary>
+    public bool? Sheltered { get; init; }
+    /// <summary>The comfort level it asks of whoever makes it.</summary>
+    public int? Comfort { get; init; }
 }
 
-public static class Stations
+public static partial class Stations
 {
     /// <summary>The player's own crafting menu.</summary>
     public const string Hand = "hand";
@@ -451,37 +475,6 @@ public readonly record struct StationRef(string Value)
     public static implicit operator StationRef(string value) => new(value);
     public static implicit operator StationRef(BlockHandle<StationBlock> handle) => new(handle.ToString());
     public override string ToString() => Value;
-}
-
-/// <summary>A crafting station a player builds: an item they place, that opens a workshop's menu and lists the recipes of that workshop.</summary>
-public sealed record StationBlock : IBlock, ITweakable
-{
-    public required string Name { get; init; }
-    public string? Description { get; init; }
-    /// <summary>Which menu it opens, and the build it starts from.</summary>
-    public StationKind Kind { get; init; } = StationKind.Workbench;
-    public PartRef<VisualBlock>? Visual { get; init; }
-    public RecipeBlock? Recipe { get; init; }
-    public LootBlock? Loot { get; init; }
-    /// <inheritdoc cref="WeaponBlock.Was"/>
-    public string? Was { get; init; }
-
-    /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
-    [JsonConverter(typeof(ItemTweakConverter))]
-    public FieldValues Tweak { get; init; } = new();
-}
-
-/// <summary>A workshop of the game, with the item that places it. Premade instances: your station lists what this workshop lists, plus your recipes.</summary>
-[JsonConverter(typeof(PremadeConverter<StationKind>))]
-public sealed record StationKind(string Key, string Item, string Template, string Workshop) : IPremade
-{
-    public static readonly StationKind Workbench = new("workbench", "Craftingstation_Workbench", "Craftingstation_Workbench", "0x4da88f73");
-    public static readonly StationKind Carpenter = new("carpenter", "Craftingstation_Carpenter_Workbench", "Craftingstation_Carpenter_Workbench", "0x8996a8c4");
-    public static readonly StationKind Kitchen = new("kitchen", "Craftingstation_Farmer_Kitchen", "Craftingstation_Farmer_Kitchen", "0x07ce61f0");
-    public static readonly StationKind Forge = new("forge", "Prop_Production_T1_Forge", "T1_Forge_Factory", "0x8dca2c49");
-    public static readonly StationKind Oven = new("oven", "Prop_Production_T3_Oven", "T3_Oven_Factory", "0x1ee9f0bf");
-    public static readonly StationKind Alchemy = new("alchemy", "Prop_Production_T3_Alchemy_Station", "T3_Alchemy_Station_Factory", "0xd08b9300");
-    internal static readonly StationKind[] All = [Workbench, Carpenter, Kitchen, Forge, Oven, Alchemy];
 }
 
 // ---------------------------------------------------------------------------------------------- how it is found -----

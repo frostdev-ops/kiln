@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "wornLooks": {
+    "nothing-look": { "hides": [ "hair" ] },
+    "bad-attach": { "model": "models/plain.gltf", "attach": "Tail" },
+    "bad-sizes": { "model": "models/plain.gltf", "pixelSizes": [ 0, 0.1 ] }
+  },
+  "cosmetics": {
+    "no-such-slot": { "name": "x", "slot": "neck", "look": "shared-look" },
+    "no-such-look": { "name": "x", "slot": "head", "look": "gone-look" },
+    "wrong-kind-look": { "name": "x", "slot": "head", "look": "by-name" },
+    "no-name-piece": { "name": "", "slot": "head", "look": "shared-look" },
+    "typo-piece": { "name": "x", "slot": "head", "look": "shared-look", "dies": true },
+    "missing-file": { "name": "x", "slot": "head", "look": { "model": "models/gone.glb" } },
+    "outside-file": { "name": "x", "slot": "head", "look": { "model": "../../secrets.glb" } },
+    "not-a-model": { "name": "x", "slot": "head", "look": { "model": "models/plain.png" } },
+    "bad-fit": { "name": "x", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn", "fits": "wig" } },
+    "female-fit": { "name": "x", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn", "fits": "female" } },
+    "bad-part": { "name": "x", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn", "hides": [ "tail" ] } },
+    "unheard-variant": { "name": "x", "slot": "head", "look": { "model": "models/plain.gltf", "variants": { "tight": "models/shield.gltf" } } },
+    "same-variant": { "name": "x", "slot": "head", "look": { "model": "models/plain.gltf", "female": "models/female.gltf", "variants": { "female": "models/shield.gltf" } } },
+    "attach-game-look": { "name": "x", "slot": "head", "look": { "like": "Vanity_TX_Helmet_05_tricorn", "attach": "Head" } },
+    "bad-recipe": { "name": "x", "slot": "head", "look": "shared-look", "recipe": { "needs": {} } }
+  }
+}

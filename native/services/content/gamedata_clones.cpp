@@ -38,11 +38,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <set>
+#include <unordered_set>
 
 #include "gamedata.h"
 
@@ -81,10 +83,24 @@ struct Def {
     uint32_t slot = UINT32_MAX;  // buffs: the record index in Kiln's collection
     std::set<uintptr_t> probed;  // buffs: worlds where the game's own lookup was checked
     uint64_t version = 0;
+    std::string listed;          // its entry in definitions(), as of listed_as (a fingerprint of what the entry shows)
+    uint64_t listed_as = 0;
 };
 
 std::recursive_mutex g_mu;
 std::vector<Def> g_defs;
+
+// Registering many at once (a world's load): the writes, the event order and the buff collection's header are done once per turn of
+// the store lock instead of once per clone (under store_mutex).
+bool g_batch = false;
+bool g_batch_changes = false;         // after_changes() is owed
+std::vector<size_t> g_batch_buffs;    // buff clones (g_defs indices) that wait for the header
+std::unordered_set<uint64_t> g_defs_layered;  // section << 32 | id: entries with layers of g_defs_owner in this world
+
+void changed() {
+    if (g_batch) g_batch_changes = true;
+    else after_changes();
+}
 
 using RegisterFn = uintptr_t(__fastcall*)(uintptr_t holder, const void* data, const uint8_t* guid, uint8_t force);
 RegisterFn g_register = nullptr;
@@ -148,15 +164,19 @@ bool has_text(const Def& d, const char* slot) {
     return false;
 }
 
-// Registers the clone's texts with kiln.content's loca hooks (process-wide; the hooks run on clients only).
+// Registers the clone's texts with kiln.content's loca hooks (process-wide; the hooks run on clients only). A slot's tag is derived from the clone's GUID
+// and "kiln:<slot>": a perk's or buff's name and description, a template's own slots (an interaction's prompt), which its fields name by that tag.
 void publish_texts(const Def& d) {
-    for (const char* slot : {"name", "description"}) {
-        if (!has_text(d, slot)) continue;
+    std::set<std::string> slots;
+    for (auto& [lang, t] : d.texts.items())
+        if (t.is_object())
+            for (auto& [slot, text] : t.items()) slots.insert(slot);
+    for (const std::string& slot : slots) {
         gjson per = gjson::object();
         for (auto& [lang, t] : d.texts.items())
             if (t.is_object() && t.contains(slot) && t[slot].is_string()) per[lang] = t[slot];
         uint8_t tag[16];
-        derive_guid(d.guid, std::strcmp(slot, "name") == 0 ? "kiln:name" : "kiln:description", tag);
+        derive_guid(d.guid, ("kiln:" + slot).c_str(), tag);
         const std::string s = per.dump();
         kc_nc_set_texts(fnv1a(tag, 16), s.data(), s.size());
     }
@@ -227,20 +247,24 @@ const Def* clone_base(const Def& d) {
 }
 
 void apply_fields(Def& d, const GEntry& e) {
-    // a redefinition: the old definition's layers come off first
-    std::vector<uintptr_t> mine;
-    store_for_each([&](uintptr_t a, const Slot& s) {
-        if (s.kind == GD_KIND_BASE + d.section && s.id == e.id)
-            for (const Layer& l : s.layers)
-                if (l.owner == g_defs_owner) mine.push_back(a);
-    });
-    for (uintptr_t a : mine) {
-        store_drop(g_defs_owner, a);
-        forget_added(g_defs_owner, a);
+    PhaseTimer pt(PH_GD_FIELDS);
+    // a redefinition: the old definition's layers come off first (an entry the definitions never wrote to in this world has none)
+    const uint64_t key = (uint64_t(d.section) << 32) | e.id;
+    if (g_defs_layered.count(key)) {
+        std::vector<uintptr_t> mine;
+        store_for_each([&](uintptr_t a, const Slot& s) {
+            if (s.kind == GD_KIND_BASE + d.section && s.id == e.id)
+                for (const Layer& l : s.layers)
+                    if (l.owner == g_defs_owner) mine.push_back(a);
+        });
+        for (uintptr_t a : mine) {
+            store_drop(g_defs_owner, a);
+            forget_added(g_defs_owner, a);
+        }
+        // Before the rules resolve: they must see the clone without the old definition. A config it added is still in memory until the flush; a rule would change that element, and the flush would then take it away.
+        std::string flushed;
+        store_flush(&flushed);
     }
-    // Before the rules resolve: they must see the clone without the old definition. A config it added is still in memory until the flush; a rule would change that element, and the flush would then take it away.
-    std::string flushed;
-    store_flush(&flushed);
     // A clone starts from the game's original, not from what other mods changed. So a clone of a clone takes what the definitions before it say, oldest first, then its own.
     std::vector<const Def*> chain{&d};
     while (chain.size() < 16)
@@ -250,7 +274,7 @@ void apply_fields(Def& d, const GEntry& e) {
     for (auto c = chain.rbegin(); c != chain.rend(); ++c)
         for (auto& [path, v] : (*c)->fields.items()) {
             if (path.empty() || path[0] == '@') continue;
-            apply_value(g_defs_owner, 1, d.section, e, path, v, "definition " + d.name, &errs);
+            if (apply_value(g_defs_owner, 1, d.section, e, path, v, "definition " + d.name, &errs)) g_defs_layered.insert(key);
         }
     d.warnings = errs;
     for (const std::string& w : errs) LOGW("gamedata: clone %s: %s", d.name.c_str(), w.c_str());
@@ -270,7 +294,11 @@ bool ensure_info(Def& d, uintptr_t world, const std::string& base_name) {
             d.state = "error", d.problem = "the world's template table is full (" + std::to_string(count) + " of " + std::to_string(cap) + ")";
             return false;
         }
-        const uintptr_t info = call_register(holder, reinterpret_cast<const void*>(d.data), d.guid);
+        uintptr_t info = 0;
+        {
+            PhaseTimer rt(PH_GAME_REGISTER);
+            info = call_register(holder, reinterpret_cast<const void*>(d.data), d.guid);
+        }
         if (!info) {
             d.state = "error", d.problem = "the game did not register the template (RegisterTemplateInfo returned nothing)";
             return false;
@@ -411,6 +439,11 @@ uint32_t sub_id_of(const uint8_t g[16], int k) {
     return k == 0 ? fnv1a(g, 16) : fnv1a(g, 16) ^ (static_cast<uint32_t>(k) * 0x9E3779B1u);
 }
 
+KilnResult put_new(const KilnAssetsApi* A, const KilnAssetKey* key, const std::vector<uint8_t>& bytes) {
+    PhaseTimer pt(PH_ASSET_PUT);
+    return A->resource_put(g_owner, key, bytes.data(), bytes.size(), KILN_ASSET_PUT_NEW);
+}
+
 bool assets_ok(const KilnAssetsApi* A) {
     return A && A->header.size >= offsetof(KilnAssetsApi, resource_data) + sizeof(void*) && A->resource_data;
 }
@@ -444,7 +477,11 @@ void register_sequence(Def& d, uintptr_t world) {
         size_t n = 0;
         if (A->resource_data(&key, &p, &n) != KILN_OK || !p) {
             uint64_t size = 0;
-            const uintptr_t src = res_data(base->guid, st->hash, &size);
+            uintptr_t src = 0;
+            {
+                PhaseTimer rt(PH_SEQ_RES);
+                src = res_data(base->guid, st->hash, &size);
+            }
             std::vector<uint8_t> bytes(static_cast<size_t>(size) + kCloneRoom);
             if (!src || size < st->size || size > (16u << 20) || !rd(src, bytes.data(), static_cast<size_t>(size))) {
                 d.state = "error", d.problem = "the base sequence's resource is not readable";
@@ -452,7 +489,7 @@ void register_sequence(Def& d, uintptr_t world) {
             }
             store_originals(src, static_cast<size_t>(size), bytes.data());  // what rules changed on the base is not the clone's (see apply_fields)
             if (const TField* rf = st->field("resourceId")) std::memcpy(bytes.data() + rf->offset, d.guid, 16);
-            if (A->resource_put(g_owner, &key, bytes.data(), bytes.size(), KILN_ASSET_PUT_NEW) != KILN_OK ||
+            if (put_new(A, &key, bytes) != KILN_OK ||
                 A->resource_data(&key, &p, &n) != KILN_OK || !p) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
@@ -479,9 +516,180 @@ void register_sequence(Def& d, uintptr_t world) {
         S.add(std::move(e));
     }
     apply_fields(d, *S.get(sub_id_of(d.guid, 0)));
-    after_changes();
+    changed();
     d.state = "registered";
     d.problem.clear();
+}
+
+// "base": "item:<name>": the template that item places. *ready: the item is there, so a failure won't change with time.
+const GEntry* template_of_item(const std::string& item, bool* ready, std::string* err) {
+    Registry& I = reg(KILN_CONTENT_ITEMS);
+    const Entry* e = I.lookup(item);
+    const Field* f = I.schema.find("equipment.placedEntity");
+    if (!e || !f) {
+        *err = "unknown item " + item;
+        return nullptr;
+    }
+    *ready = true;
+    uint8_t g[16] = {};
+    if (!rd(e->addr + f->offset, g, 16)) {
+        *err = "the item " + item + " is not readable";
+        return nullptr;
+    }
+    const GEntry* t = greg(KILN_GD_TEMPLATES).get(fnv1a(g, 16));
+    if (!t) *err = "the item " + item + " places no template";
+    return t;
+}
+
+// "removeComponents": ["SubEntities"]: components of the base a clone does without (a creature's gear on another body). The list keeps its
+// place and order with those entries left out; their data stays unused in the copy. An actor's own (what a puppet needs to live: section 5.1 of
+// docs/re/npc-internals.md) and CurrentTransform are refused, as is a name the base doesn't have.
+bool remove_components(const Def& d, const TType* type, std::vector<uint8_t>* bytes, std::string* err) {
+    if (!d.body.contains("removeComponents")) return true;
+    const gjson& names = d.body["removeComponents"];
+    const TField* cf = type->field("components");
+    if (!names.is_array() || !cf) {
+        *err = "\"removeComponents\" must be a list of component types";
+        return false;
+    }
+    static const std::set<std::string> kept = {"CurrentTransform", "LastTransform", "Actor", "ActorInput", "NetworkActor", "Velocity", "Faction",
+                                               "AnimationGraphResourceComponent2", "ServerAnimationGraphInput", "NetworkAnimationGraphInput",
+                                               "ServerAnimationGraphComponent2", "ServerAnimationGraphSlotComponent"};
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, bytes->data() + cf->offset, 4);
+    std::memcpy(&count, bytes->data() + cf->offset + 4, 4);
+    const size_t list_at = static_cast<size_t>(static_cast<int64_t>(cf->offset) + rel);
+    if (list_at + count * 12ull > bytes->size()) {
+        *err = "the base's component list is not readable";
+        return false;
+    }
+    struct Var {
+        std::string brief;
+        uint32_t hash, size;
+        int64_t data;
+    };
+    std::vector<Var> vars;
+    bool actor = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        const size_t at = list_at + i * 12ull;
+        uint32_t h = 0, sz = 0;
+        int32_t r = 0;
+        std::memcpy(&h, bytes->data() + at, 4);
+        std::memcpy(&r, bytes->data() + at + 4, 4);
+        std::memcpy(&sz, bytes->data() + at + 8, 4);
+        const TType* t = type_hash(h);
+        vars.push_back({t ? t->brief : std::string(), h, sz, static_cast<int64_t>(at) + 4 + r});
+        actor |= vars.back().brief == "Actor";
+    }
+    std::set<std::string> drop;
+    for (const gjson& n : names) {
+        if (!n.is_string()) {
+            *err = "\"removeComponents\" must be a list of component types";
+            return false;
+        }
+        const std::string brief = n.get<std::string>();
+        if (std::none_of(vars.begin(), vars.end(), [&](const Var& v) { return v.brief == brief; })) {
+            *err = "\"removeComponents\": the base has no " + brief;
+            return false;
+        }
+        if (brief == "CurrentTransform" || (actor && kept.count(brief))) {
+            *err = "\"removeComponents\": " + brief + " is what " + (actor ? "an actor" : "any entity") + " needs to live";
+            return false;
+        }
+        drop.insert(brief);
+    }
+    size_t k = 0;
+    for (const Var& v : vars) {
+        if (drop.count(v.brief)) continue;
+        const size_t at = list_at + k++ * 12ull;
+        const int32_t r = static_cast<int32_t>(v.data - static_cast<int64_t>(at + 4));
+        std::memcpy(bytes->data() + at, &v.hash, 4);
+        std::memcpy(bytes->data() + at + 4, &r, 4);
+        std::memcpy(bytes->data() + at + 8, &v.size, 4);
+    }
+    const uint32_t left = static_cast<uint32_t>(k);
+    std::memcpy(bytes->data() + cf->offset + 4, &left, 4);
+    return true;
+}
+
+// "addComponents": ["ComfortProvider"]: components of the game's types a clone has and its base hasn't, zeroed; its "fields" fill them
+// in. The clone's component list moves behind the clone's name, in the same place the rest of its own data goes: the room for near
+// allocations stays last. RegisterTemplateInfo reads the list as it does the game's, which is sorted by type name, so this one is too.
+bool add_components(const Def& d, const TType* type, std::vector<uint8_t>* bytes, std::string* err) {
+    if (!d.body.contains("addComponents")) return true;
+    const gjson& names = d.body["addComponents"];
+    const TField* cf = type->field("components");
+    if (!names.is_array() || !cf) {
+        *err = "\"addComponents\" must be a list of component types";
+        return false;
+    }
+    struct Var {
+        std::string brief;
+        uint32_t hash, size;
+        int64_t data;  // from the start of the clone; -1: new, after the list
+    };
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, bytes->data() + cf->offset, 4);
+    std::memcpy(&count, bytes->data() + cf->offset + 4, 4);
+    const size_t head = bytes->size() - kCloneRoom;
+    if (static_cast<uint64_t>(cf->offset) + rel + count * 12ull > head) {
+        *err = "the base's component list is not readable";
+        return false;
+    }
+    std::vector<Var> vars;
+    for (uint32_t i = 0; i < count; ++i) {
+        const size_t at = cf->offset + rel + i * 12ull;
+        uint32_t h = 0, sz = 0;
+        int32_t r = 0;
+        std::memcpy(&h, bytes->data() + at, 4);
+        std::memcpy(&r, bytes->data() + at + 4, 4);
+        std::memcpy(&sz, bytes->data() + at + 8, 4);
+        const TType* t = type_hash(h);
+        vars.push_back({t ? t->brief : std::string(), h, sz, static_cast<int64_t>(at) + 4 + r});
+    }
+    size_t added = 0;
+    for (const gjson& n : names) {
+        if (!n.is_string()) {
+            *err = "\"addComponents\" must be a list of component types";
+            return false;
+        }
+        const std::string brief = n.get<std::string>();
+        if (std::any_of(vars.begin(), vars.end(), [&](const Var& v) { return v.brief == brief; })) continue;
+        const TType* t = type_named("keen::ecs::" + brief);
+        const TType* b = t;
+        while (b && b->name != "keen::ecs::Component") b = b->inner();
+        if (!b) {
+            *err = "\"" + brief + "\" is not a component type of the game";
+            return false;
+        }
+        vars.push_back({brief, t->hash, t->size, -1});
+        added += (static_cast<size_t>(t->size) + 15) & ~size_t(15);
+    }
+    std::stable_sort(vars.begin(), vars.end(), [](const Var& a, const Var& b) { return a.brief < b.brief; });
+    const size_t list_at = (head + 15) & ~size_t(15);
+    size_t data_at = (list_at + vars.size() * 12 + 15) & ~size_t(15);
+    std::vector<uint8_t> out(data_at + added + kCloneRoom, 0);
+    std::memcpy(out.data(), bytes->data(), head);
+    for (size_t i = 0; i < vars.size(); ++i) {
+        Var& v = vars[i];
+        if (v.data < 0) {
+            v.data = static_cast<int64_t>(data_at);
+            data_at += (static_cast<size_t>(v.size) + 15) & ~size_t(15);
+        }
+        const size_t at = list_at + i * 12;
+        const int32_t r = static_cast<int32_t>(v.data - static_cast<int64_t>(at + 4));
+        std::memcpy(out.data() + at, &v.hash, 4);
+        std::memcpy(out.data() + at + 4, &r, 4);
+        std::memcpy(out.data() + at + 8, &v.size, 4);
+    }
+    const int32_t list_rel = static_cast<int32_t>(static_cast<int64_t>(list_at) - cf->offset);
+    const uint32_t list_count = static_cast<uint32_t>(vars.size());
+    std::memcpy(out.data() + cf->offset, &list_rel, 4);
+    std::memcpy(out.data() + cf->offset + 4, &list_count, 4);
+    *bytes = std::move(out);
+    return true;
 }
 
 // Registers one template definition in the active world (store_mutex held, on its thread).
@@ -510,9 +718,14 @@ void register_template(Def& d, uintptr_t world) {
         d.state = "error", d.problem = "the name " + d.name + " is taken (" + guid_text(n->guid) + ")";
         return;
     }
-    const GEntry* base = T.lookup(d.base);
+    const bool by_item = d.base.rfind("item:", 0) == 0;
+    bool item_ready = false;
+    std::string base_err = "unknown base template " + d.base;
+    const GEntry* base = by_item ? template_of_item(d.base.substr(5), &item_ready, &base_err) : T.lookup(d.base);
     if (!base) {
-        d.state = "error", d.problem = "unknown base template " + d.base;
+        // the game's items come with the registries, a mod's after them: clones_tick tries again until the registry is complete
+        const bool wait = by_item && !item_ready && reg(KILN_CONTENT_ITEMS).entries.empty();
+        d.state = wait ? "waiting" : "error", d.problem = base_err;
         return;
     }
     KilnAssetKey key{};
@@ -527,11 +740,16 @@ void register_template(Def& d, uintptr_t world) {
         } else {
             std::vector<uint8_t> bytes;
             std::string err;
-            if (!build_bytes(d, *base, T.type, "name", &bytes, &err)) {
+            bool built = false;
+            {
+                PhaseTimer bt(PH_BUILD_BYTES);
+                built = build_bytes(d, *base, T.type, "name", &bytes, &err) && remove_components(d, T.type, &bytes, &err) && add_components(d, T.type, &bytes, &err);
+            }
+            if (!built) {
                 d.state = "error", d.problem = err;
                 return;
             }
-            if (A->resource_put(g_owner, &key, bytes.data(), bytes.size(), KILN_ASSET_PUT_NEW) != KILN_OK ||
+            if (put_new(A, &key, bytes) != KILN_OK ||
                 A->resource_data(&key, &p, &n) != KILN_OK || !p) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
@@ -548,7 +766,7 @@ void register_template(Def& d, uintptr_t world) {
         T.add(std::move(e));
     }
     apply_fields(d, *T.get(id));
-    after_changes();
+    changed();
     d.state = "registered";
     d.problem.clear();
 }
@@ -626,7 +844,7 @@ void register_perk(Def& d, uintptr_t world) {
         } else if (A->resource_data(&key, &p, &n) == KILN_OK && p) {
             d.data = reinterpret_cast<uintptr_t>(p);  // an earlier world of this process
         } else {
-            if (A->resource_put(g_owner, &key, bytes.data(), bytes.size(), KILN_ASSET_PUT_NEW) != KILN_OK ||
+            if (put_new(A, &key, bytes) != KILN_OK ||
                 A->resource_data(&key, &p, &n) != KILN_OK || !p) {
                 d.state = "error", d.problem = "kiln.assets refused the new resource";
                 return;
@@ -644,7 +862,7 @@ void register_perk(Def& d, uintptr_t world) {
         P.add(std::move(e));
     }
     apply_fields(d, *P.get(id));
-    after_changes();
+    changed();
     publish_texts(d);
     d.state = "registered";
     d.problem.clear();
@@ -885,6 +1103,8 @@ void probe_buff(Def& d, uintptr_t world) {
         }
 }
 
+void buff_registered(Def& d, uintptr_t world);
+
 void register_buff(Def& d, uintptr_t world) {
     GRegistry& B = greg(KILN_GD_BUFFS);
     std::string err;
@@ -940,15 +1160,18 @@ void register_buff(Def& d, uintptr_t world) {
         d.data = dst;
         d.rebuild = false;
     }
-    if (BM.header_count != BM.n + BM.used && !build_header(&err)) {
-        d.state = "error", d.problem = err;
-        return;
+    // in a batch, the collection's header is built and the world pointed at it once, at the end of the turn (buffs_attach)
+    if (!g_batch) {
+        if (BM.header_count != BM.n + BM.used && !build_header(&err)) {
+            d.state = "error", d.problem = err;
+            return;
+        }
+        if (!buff_world(world, &err)) {
+            d.state = "waiting", d.problem = err;  // clones_tick tries again
+            return;
+        }
+        d.worlds.insert(world);
     }
-    if (!buff_world(world, &err)) {
-        d.state = "waiting", d.problem = err;  // clones_tick tries again
-        return;
-    }
-    d.worlds.insert(world);
     {
         std::lock_guard lock(g_bg_mu);
         std::array<uint8_t, 16> g;
@@ -962,19 +1185,68 @@ void register_buff(Def& d, uintptr_t world) {
         B.add(std::move(e));
     }
     apply_fields(d, *B.get(id));
-    after_changes();
+    changed();
     publish_texts(d);
+    if (g_batch) {
+        g_batch_buffs.push_back(static_cast<size_t>(&d - g_defs.data()));
+        return;
+    }
+    buff_registered(d, world);
+}
+
+void buff_registered(Def& d, uintptr_t world) {
     if (d.state != "registered")
         LOGI("gamedata: buff %s (%s, id 0x%08x, clone of %s%s): record %u of Kiln's buff collection (%p)", d.name.c_str(),
-             guid_text(d.guid).c_str(), id, base->name.c_str(), d.placeholder ? ", placeholder" : "", d.slot, reinterpret_cast<void*>(dst));
+             guid_text(d.guid).c_str(), fnv1a(d.guid, 16), d.base.c_str(), d.placeholder ? ", placeholder" : "", d.slot,
+             reinterpret_cast<void*>(d.data));
     d.state = "registered";
     d.problem.clear();
     probe_buff(d, world);
 }
 
+// The end of a batch's turn: the writes and event order, then the buff collection's header with every buff clone of the turn.
+void batch_finish(uintptr_t world) {
+    if (g_batch_changes) {
+        g_batch_changes = false;
+        after_changes();
+    }
+    if (g_batch_buffs.empty()) return;
+    std::string err;
+    const bool built = BM.header_count == BM.n + BM.used || build_header(&err);
+    const bool attached = built && buff_world(world, &err);
+    for (size_t i : g_batch_buffs) {
+        Def& d = g_defs[i];
+        if (!built) d.state = "error", d.problem = err;
+        else if (!attached) d.state = "waiting", d.problem = err;  // clones_tick tries again
+        else {
+            d.worlds.insert(world);
+            buff_registered(d, world);
+        }
+    }
+    g_batch_buffs.clear();
+}
+
+// One definition as definitions() lists it (store_mutex and g_mu held).
+gjson listing(const Def& d) {
+    char id[16];
+    std::snprintf(id, sizeof id, "0x%08x", fnv1a(d.guid, 16));
+    gjson x = {{"section", section_name(d.section)}, {"guid", guid_text(d.guid)}, {"id", id}, {"name", d.name}, {"base", d.base},
+               {"owner", owner_label(d.owner)}, {"mod", d.mod}, {"source", d.source}, {"state", d.orphan ? "orphaned" : d.state},
+               {"placeholder", d.placeholder}, {"worlds", d.worlds.size()}, {"version", d.version}, {"definition", d.body}};
+    if (d.data) x["address"] = d.data;
+    if (!d.texts.empty()) x["texts"] = d.texts;
+    if (!d.problem.empty()) x["error"] = d.problem;
+    if (!d.warnings.empty()) x["warnings"] = d.warnings;
+    return x;
+}
+
 void register_def(Def& d, uintptr_t world) {
+    PhaseTimer pt(PH_GD_REGISTER);
     switch (d.section) {
-        case KILN_GD_TEMPLATES: register_template(d, world); break;
+        case KILN_GD_TEMPLATES:
+            register_template(d, world);
+            if (!d.texts.empty()) publish_texts(d);
+            break;
         case KILN_GD_SEQUENCES: register_sequence(d, world); break;
         case KILN_GD_PERKS: register_perk(d, world); break;
         case KILN_GD_BUFFS: register_buff(d, world); break;
@@ -1078,14 +1350,28 @@ void clones_boot() {
          g_templates ? "on" : "OFF (gamedata.template_clones not resolved)", g_get_buff ? "resolved for the self-check" : "not resolved");
 }
 
+// Every definition, in turns of about 10 ms of the store lock: a game thread that needs it (a drop table the game loads) waits one turn
+// at most, and each turn writes once.
 void clones_world_ready(uintptr_t world, uint32_t) {
-    std::lock_guard l1(store_mutex());
-    std::lock_guard lock(g_mu);
-    for (Def& d : g_defs) register_def(d, world);
+    size_t i = 0;
+    for (bool more = true; more;) {
+        std::lock_guard l1(store_mutex());
+        std::lock_guard lock(g_mu);
+        const auto t0 = std::chrono::steady_clock::now();
+        g_batch = true;
+        while (i < g_defs.size()) {
+            register_def(g_defs[i++], world);
+            if (std::chrono::steady_clock::now() - t0 > std::chrono::milliseconds(10)) break;
+        }
+        batch_finish(world);
+        g_batch = false;
+        more = i < g_defs.size();
+    }
 }
 
 void clones_world_reset() {
     std::lock_guard lock(g_mu);
+    g_defs_layered.clear();  // the store forgets every layer with the world
     for (Def& d : g_defs) {
         if (d.state == "registered" || d.state == "waiting") d.state = "pending";  // the next world registers them again
         d.worlds.clear();  // a new world may get the same address
@@ -1114,6 +1400,7 @@ void clones_tick(uint64_t step) {
 
 KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& json, bool pack, const std::string& source,
                          std::string* report) {
+    PhaseTimer pt(PH_GD_DEFINE);
     const gjson j = gjson::parse(json, nullptr, false);
     gjson r = {{"ok", false}};
     auto fail = [&](const std::string& why, KilnResult rc = KILN_ERR_INVALID_ARGUMENT) {
@@ -1164,15 +1451,18 @@ KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& j
             }
             if (!t.is_object()) return fail("texts." + lang + " must be an object { \"name\", \"description\" }");
             for (auto& [slot, text] : t.items()) {
-                if (slot != "name" && slot != "description") return fail("texts." + lang + "." + slot + ": a perk or buff has a name and a description");
+                // a template's slots are its own (what its loca fields name by tag); a perk or a buff has a name and a description
+                const bool own = section == KILN_GD_TEMPLATES && !slot.empty() && slot.size() <= 32 &&
+                                 std::all_of(slot.begin(), slot.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; });
+                if (!own && slot != "name" && slot != "description") return fail("texts." + lang + "." + slot + ": a perk or buff has a name and a description; a template's slots are letters and digits");
                 if (!text.is_string()) return fail("texts." + lang + "." + slot + " must be a string");
                 if (!text.get<std::string>().empty()) d.texts[lang][slot] = text;
             }
         }
     }
     std::vector<std::string> notes;
-    if (!d.texts.empty() && (section == KILN_GD_TEMPLATES || section == KILN_GD_SEQUENCES)) {
-        notes.push_back("texts are for perks and buffs (ignored)");
+    if (!d.texts.empty() && section == KILN_GD_SEQUENCES) {
+        notes.push_back("texts are for perks, buffs and templates (ignored)");
         d.texts = gjson::object();
     }
     if (j.contains("placeholder")) {
@@ -1233,27 +1523,41 @@ KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& j
     if (err || it->state == "waiting") r["error"] = it->problem;
     for (const std::string& n : notes) it->warnings.push_back(n);
     if (!it->warnings.empty()) r["warnings"] = it->warnings;
-    *report = r.dump();
+    r["entry"] = listing(*it);  // what definitions() lists for it: the caller needs not list them all
+    *report = r.dump(-1, ' ', false, gjson::error_handler_t::replace);
     return err ? KILN_ERR_INVALID_ARGUMENT : KILN_OK;
 }
 
+// Each entry's text is kept with a fingerprint of what it shows (FNV-1a) and made again only when that changed: mods and tools ask for the
+// listing often, and making all of it costs a fraction of a millisecond per definition, under the store lock.
 std::string clones_json() {
     std::lock_guard l1(store_mutex());  // before g_mu, as everywhere: owner_label below takes it
     std::lock_guard lock(g_mu);
-    gjson a = gjson::array();
-    for (const Def& d : g_defs) {
-        char id[16];
-        std::snprintf(id, sizeof id, "0x%08x", fnv1a(d.guid, 16));
-        gjson x = {{"section", section_name(d.section)}, {"guid", guid_text(d.guid)}, {"id", id}, {"name", d.name}, {"base", d.base},
-                   {"owner", owner_label(d.owner)}, {"mod", d.mod}, {"source", d.source}, {"state", d.orphan ? "orphaned" : d.state},
-                   {"placeholder", d.placeholder}, {"worlds", d.worlds.size()}, {"version", d.version}, {"definition", d.body}};
-        if (d.data) x["address"] = d.data;
-        if (!d.texts.empty()) x["texts"] = d.texts;
-        if (!d.problem.empty()) x["error"] = d.problem;
-        if (!d.warnings.empty()) x["warnings"] = d.warnings;
-        a.push_back(x);
+    std::string out = "[";
+    for (Def& d : g_defs) {
+        uint64_t h = 1469598103934665603ull;
+        const auto add = [&](const void* p, size_t n) {
+            for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(p)[i]) * 1099511628211ull;
+        };
+        const auto add_s = [&](const std::string& t) {
+            const size_t n = t.size();
+            add(&n, sizeof n);
+            add(t.data(), n);
+        };
+        const size_t worlds = d.worlds.size(), nw = d.warnings.size();
+        add(&d.version, sizeof d.version), add(&d.orphan, 1), add(&d.placeholder, 1), add(&worlds, sizeof worlds), add(&d.data, sizeof d.data);
+        add_s(d.state), add_s(d.problem), add_s(owner_label(d.owner)), add_s(d.mod), add_s(d.source);
+        add(&nw, sizeof nw);
+        for (const std::string& w : d.warnings) add_s(w);
+        if (h != d.listed_as || d.listed.empty()) {
+            d.listed = listing(d).dump(-1, ' ', false, gjson::error_handler_t::replace);
+            d.listed_as = h;
+        }
+        if (out.size() > 1) out += ',';
+        out += d.listed;
     }
-    return a.dump(-1, ' ', false, gjson::error_handler_t::replace);
+    out += ']';
+    return out;
 }
 
 gjson clones_status() {

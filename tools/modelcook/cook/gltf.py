@@ -2,9 +2,9 @@
 """Minimal glTF 2.0 reader (stdlib only): .gltf (embedded data URIs or external .bin) and .glb.
 
 Returns the triangles of every mesh primitive reachable from the default scene, with node transforms applied:
-positions, normals, tangents, uv0, colour0 and indices. A primitive of a skinned node keeps its mesh-space attributes,
-as glTF ignores that node's transform, and adds its influences; cook/skin.py binds it to a skeleton. Sparse accessors
-and morph targets are rejected.
+positions, normals, tangents, uv0, colour0, indices and morph targets' position deltas. A primitive of a skinned node keeps
+its mesh-space attributes, as glTF ignores that node's transform, and adds its influences; cook/skin.py binds it to a
+skeleton. A mesh node named reference_* is left out: it is a body to model around, as `kiln skeleton player` writes.
 """
 import base64
 import json
@@ -15,6 +15,7 @@ from pathlib import Path
 COMP = {5120: ("b", 1), 5121: ("B", 1), 5122: ("h", 2), 5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4)}
 NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 NORM_DIV = {5120: 127.0, 5121: 255.0, 5122: 32767.0, 5123: 65535.0}
+REFERENCE = "reference_"
 
 
 class GltfError(Exception):
@@ -53,26 +54,36 @@ def _load(path):
     return doc, buffers
 
 
-def _accessor(doc, buffers, idx):
-    a = doc["accessors"][idx]
-    if "sparse" in a:
-        raise GltfError("sparse accessors are not supported")
-    fmt, size = COMP[a["componentType"]]
-    n = NCOMP[a["type"]]
-    count = a["count"]
-    if "bufferView" not in a:
-        return [tuple([0] * n) for _ in range(count)]
-    bv = doc["bufferViews"][a["bufferView"]]
+def _elements(doc, buffers, view, offset, comp, n, count, norm):
+    fmt, size = COMP[comp]
+    bv = doc["bufferViews"][view]
     data = buffers[bv["buffer"]]
-    base = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+    base = bv.get("byteOffset", 0) + offset
     stride = bv.get("byteStride") or size * n
-    norm = a.get("normalized", False)
     out = []
     for i in range(count):
         vals = struct.unpack_from("<" + fmt * n, data, base + i * stride)
-        if norm and a["componentType"] in NORM_DIV:
-            vals = tuple(max(v / NORM_DIV[a["componentType"]], -1.0) for v in vals)
+        if norm and comp in NORM_DIV:
+            vals = tuple(max(v / NORM_DIV[comp], -1.0) for v in vals)
         out.append(vals)
+    return out
+
+
+def _accessor(doc, buffers, idx):
+    a = doc["accessors"][idx]
+    n = NCOMP[a["type"]]
+    count = a["count"]
+    norm = a.get("normalized", False)
+    if "bufferView" in a:
+        out = _elements(doc, buffers, a["bufferView"], a.get("byteOffset", 0), a["componentType"], n, count, norm)
+    else:
+        out = [tuple([0] * n) for _ in range(count)]
+    if "sparse" in a:  # Blender writes shape keys this way
+        sp = a["sparse"]
+        idxs = _elements(doc, buffers, sp["indices"]["bufferView"], sp["indices"].get("byteOffset", 0), sp["indices"]["componentType"], 1, sp["count"], False)
+        vals = _elements(doc, buffers, sp["values"]["bufferView"], sp["values"].get("byteOffset", 0), a["componentType"], n, sp["count"], norm)
+        for i, v in zip(idxs, vals):
+            out[i[0]] = v
     return out
 
 
@@ -143,6 +154,22 @@ def _influences(doc, buffers, at, nv):
     return out
 
 
+def _morphs(doc, buffers, mesh, prim):
+    """{target's name: [position delta per vertex]}. The names are `extras.targetNames` of the mesh or the primitive, as Blender and other tools write them; a target with no position delta
+    changes nothing this format can hold. Deltas of normals and tangents are dropped: the game moves positions only."""
+    targets = prim.get("targets")
+    if not targets:
+        return {}
+    names = (prim.get("extras") or {}).get("targetNames") or (mesh.get("extras") or {}).get("targetNames") or []
+    out = {}
+    for i, t in enumerate(targets):
+        if "POSITION" not in t:
+            continue
+        name = names[i] if i < len(names) else f"target{i}"
+        out[name] = [tuple(float(c) for c in v) for v in _accessor(doc, buffers, t["POSITION"])]
+    return out
+
+
 def world_matrices(nodes):
     """Every node's rest transform from the scene root (rows)."""
     parent = [None] * len(nodes)
@@ -181,9 +208,9 @@ def _skins(doc, buffers):
 
 def read(path):
     """-> {"primitives": [{"material": index|None, "material_name", "positions", "normals"|None, "tangents"|None,
-    "uvs"|None, "colors"|None, "indices", "ancestors"}], "materials": [names], "skins", "node_names", "node_extras", "world"}
+    "uvs"|None, "colors"|None, "indices", "ancestors", "morphs"}], "materials": [names], "skins", "node_names", "node_extras", "world"}
     in glTF space (right-handed, y up, metres). `ancestors` lists the nodes above the primitive's node, nearest first.
-    A primitive of a skinned node has "skin" (index into "skins") and "influences", and its attributes stay in mesh space."""
+    A primitive of a skinned node has "skin" (index into "skins") and "influences", and its attributes (morphs too) stay in mesh space."""
     doc, buffers = _load(path)
     scene = doc.get("scenes", [{}])[doc.get("scene", 0)] if doc.get("scenes") else {"nodes": list(range(len(doc.get("nodes", []))))}
     prims = []
@@ -191,13 +218,12 @@ def read(path):
     def visit(ni, parent, above):
         node = doc["nodes"][ni]
         m = _mat_mul(parent, _node_matrix(node))
-        if "mesh" in node:
+        if "mesh" in node and not str(node.get("name", "")).startswith(REFERENCE):
             skin = node.get("skin")
-            for p in doc["meshes"][node["mesh"]]["primitives"]:
+            mesh = doc["meshes"][node["mesh"]]
+            for p in mesh["primitives"]:
                 if p.get("mode", 4) != 4:
                     raise GltfError("only triangle lists are supported")
-                if p.get("targets"):
-                    raise GltfError("morph targets are not supported")
                 at = p["attributes"]
                 raw_pos = _accessor(doc, buffers, at["POSITION"])
                 raw_nrm = _accessor(doc, buffers, at["NORMAL"]) if "NORMAL" in at else None
@@ -219,8 +245,11 @@ def read(path):
                         idx[t + 1], idx[t + 2] = idx[t + 2], idx[t + 1]
                 mi = p.get("material")
                 mname = doc["materials"][mi].get("name", f"material{mi}") if mi is not None and doc.get("materials") else None
+                morphs = _morphs(doc, buffers, mesh, p)
+                if skin is None:
+                    morphs = {k: [_xf_dir(m, v) for v in deltas] for k, deltas in morphs.items()}
                 prim = {"material": mi, "material_name": mname, "positions": pos, "normals": nrm,
-                        "tangents": tan, "uvs": uv, "colors": col, "indices": idx, "ancestors": above}
+                        "tangents": tan, "uvs": uv, "colors": col, "indices": idx, "ancestors": above, "morphs": morphs}
                 if skin is not None:
                     prim["skin"] = skin
                     prim["influences"] = _influences(doc, buffers, at, len(pos))

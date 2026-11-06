@@ -23,7 +23,7 @@ internal static class BlockJson
 
     private static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
-        ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), .. ItemJson.Kinds,
+        ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), ("screenEffects", Make<ScreenEffectBlock>), .. WorldJson.Kinds, .. ItemJson.Kinds, .. AbilityJson.Kinds, .. FurnitureJson.Kinds, .. NpcJson.Kinds,
     ];
 
     internal static BlockHandle Make<T>(ModBlocks mod, string name, JsonElement e) where T : class, IBlock =>
@@ -43,13 +43,16 @@ internal static class BlockJson
         return Make<MaterialBlock>(mod, name, e);
     }
 
-    /// <summary>Compiles a mod's blocks/*.json. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
-    public static int LoadMod(ModBlocks mod, string directory)
+    /// <summary>Reads a mod's blocks/*.json and compiles nothing yet: each block waits, and a reference by name compiles it. So the mod's code can name its data files'
+    /// blocks from its first <see cref="Blocks.Define{T}"/> on, and a data block can name a block its code defined before.</summary>
+    public static void Read(ModBlocks mod, string directory)
     {
+        if (mod.Data != null) return;
+        var data = mod.Data = new DataFiles();
         var dir = Path.Combine(directory, "blocks");
-        if (!Directory.Exists(dir)) return 0;
-        var docs = new List<JsonDocument>();
-        var entries = new List<(string File, string Section, string Name, Func<BlockHandle> Compile)>();
+        if (!Directory.Exists(dir)) return;
+        var docs = data.Docs;
+        var entries = data.Entries;
         foreach (var file in Directory.GetFiles(dir, "*.json").OrderBy(x => x, StringComparer.Ordinal))
         {
             var rel = $"blocks/{Path.GetFileName(file)}";
@@ -81,8 +84,17 @@ internal static class BlockJson
                 Fail(mod, $"{rel}: {e.Message}");
             }
         }
+    }
+
+    /// <summary>Compiles a mod's blocks/*.json: what <see cref="Read"/> read, or reads it now. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
+    public static int LoadMod(ModBlocks mod, string directory)
+    {
+        Read(mod, directory);
+        using var data = mod.Data!;
+        mod.Data = null;
+        mod.DataLoaded = true;
         var n = 0;
-        foreach (var (file, section, name, compile) in entries)
+        foreach (var (file, section, name, compile) in data.Entries)
         {
             try
             {
@@ -108,8 +120,20 @@ internal static class BlockJson
                 mod.Pending.Remove(name);
             }
         }
-        foreach (var d in docs) d.Dispose();
         return n;
+    }
+
+    /// <summary>A mod's data files, read: what their blocks are, until each is compiled.</summary>
+    internal sealed class DataFiles : IDisposable
+    {
+        public readonly List<JsonDocument> Docs = new();
+        public readonly List<(string File, string Section, string Name, Func<BlockHandle> Compile)> Entries = new();
+
+        public void Dispose()
+        {
+            foreach (var d in Docs) d.Dispose();
+            Docs.Clear();
+        }
     }
 
     private static void Fail(ModBlocks mod, string message)
@@ -135,6 +159,14 @@ internal static class BlocksStartup
         lock (Gate) _tick ??= BlocksBridge.AddTick("kiln blocks data", OnTick);
     }
 
+    /// <summary>The mod's code is defining blocks: its data files' names are there for it to use. They compile when named, the rest at the next pass.</summary>
+    public static void ReadData(ModBlocks mod)
+    {
+        if (mod.DataLoaded || mod.Data != null) return;
+        var dir = BlocksBridge.ModDirectory(mod.Id);
+        if (dir.Length > 0) BlockJson.Read(mod, dir);
+    }
+
     private static void OnTick(ulong step)
     {
         if (step % 10 != 3) return;
@@ -146,6 +178,8 @@ internal static class BlocksStartup
         });
         BlockRuntime.WriteReports();
         BlockRuntime.SubscribeSignals();
+        AbilityRuntime.Subscribe();
+        PlayerTriggers.Subscribe();
         foreach (var m in Mods.All)
         {
             if (!m.IsLoaded || m.Directory.Length == 0 || Done.Contains(m.Id) || !Directory.Exists(Path.Combine(m.Directory, "blocks"))) continue;

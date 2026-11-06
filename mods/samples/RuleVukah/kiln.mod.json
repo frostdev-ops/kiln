@@ -6,5 +6,5 @@
   "entryAssembly": "RuleVukah.dll",
   "side": "server",
   "clients": "none",
-  "description": "Rules on the plain Vukah, on the server only: below half health in a fight it shouts and heals, and at night it prefers its charge. A new arsenal with a longer throw for /creature spawn. Vanilla clients see the result. Sample for kiln.creatures' rules."
+  "description": "Rules on the plain Vukah, on the server only: below half health in a fight it shouts and heals a quarter. A second arsenal gives it a long throw, used at night by a rule. Vanilla clients see the result. Sample for kiln.creatures' rules."
 }

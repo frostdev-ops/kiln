@@ -107,7 +107,9 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         }
         // what the mod defined in code at an earlier start (Kiln.Quests/Native/NativeExport.cs)
         const fs::path code = fs::path(widen(path_of(KILN_PATH_DATA))) / L"kiln-quests" / L"native" / widen(mf["id"].get<std::string>() + ".json");
-        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec)) return;
+        // the NPC blocks it defined (Kiln.Blocks, Npc/NpcCompiler.cs), kept beside it so that a redeploy of the mod keeps them; the mod's own files win
+        const fs::path npc_blocks = fs::path(code).replace_filename(widen(mf["id"].get<std::string>() + ".blocks.json"));
+        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec)) return;
         const std::string side = mf.value("side", "both");
         if ((side == "server" && client) || (side == "client" && !client)) return;
         qb::ModInput m;
@@ -123,6 +125,7 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         std::sort(generated.begin(), generated.end());
         files.insert(files.end(), generated.begin(), generated.end());
         ec.clear();
+        if (fs::exists(npc_blocks, ec)) files.push_back(npc_blocks);
         if (fs::exists(code, ec)) files.push_back(code);
         for (const fs::path& f : files) {
             qb::ojson doc = qb::ojson::parse(read_file(f), nullptr, false, true);

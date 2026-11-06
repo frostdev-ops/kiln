@@ -1,115 +1,164 @@
-// The launcher frame: sidebar, top bar (game-state pill + task tray), content outlet, toasts,
-// splash. Mounts the backend event feeds once.
-import { Check, ChevronDown } from "lucide-react";
-import { Suspense, useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAppInfo, useBackendEvents, useGame, useGameSel, useGameStatus, useLaunchState } from "../api/hooks";
+// The launcher frame ("Hearth"): the stage behind everything, the header (logo, nav, tasks, Settings, About, the game's
+// state word), the Play page in front of the stage, the sheet that rises over it for every other page, the mouth (the
+// Play button, which shrinks to a pilot light in the corner while a sheet is up), toasts and the splash.
+// Mounts the backend event feeds once.
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import * as api from "../api/commands";
+import { qk, useAppInfo, useBackendEvents } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
-import { Mark, Spinner, Splash, StatusPill, TaskTray, Toaster, useTaskFeed } from "../ui";
+import { Lockup, Skeleton, Splash, TaskTray, Toaster, toast, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
 import { RouteErrorBoundary } from "./ErrorBoundary";
-import { gameState } from "./gameState";
-import { NAV_FOOT, NAV_MAIN, titleFor, type NavItem } from "./nav";
+import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
+import { clock, usePlayControl, type PlayControl } from "./play";
 
-function NavEntry({ item }: { item: NavItem }) {
-  const Icon = item.icon;
+const reduced = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Keeps the last value shown for `ms` after `show` turns false (so a sheet can drop with its page still on it). */
+function useLinger<T>(value: T, show: boolean, ms: number): T | null {
+  const last = useRef<T | null>(show ? value : null);
+  const [, bump] = useState(0);
+  if (show) last.current = value;
+  useEffect(() => {
+    if (show) return;
+    const t = setTimeout(() => { last.current = null; bump((n) => n + 1); }, reduced() ? 0 : ms);
+    return () => clearTimeout(t);
+  }, [show, ms]);
+  return show ? value : last.current;
+}
+
+function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
+  const loc = useLocation();
+  const info = useAppInfo();
+  const fallback = useMockFallback();
+  const nav = useRef<HTMLElement>(null);
+  const active = navFor(loc.pathname);
+  // the gold diamond sits under the active word (placed from its offset: words differ in width)
+  useLayoutEffect(() => {
+    const place = () => {
+      const b = nav.current?.querySelector<HTMLElement>(".k-navb.on");
+      nav.current?.style.setProperty("--dx", b ? `${(b.offsetLeft + b.offsetWidth / 2).toFixed(1)}px` : "-40px");
+    };
+    place();
+    window.addEventListener("resize", place);
+    document.fonts?.ready.then(place).catch(() => {});
+    return () => window.removeEventListener("resize", place);
+  }, [active?.to]);
+  const v = ctl.view;
+  const word = ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
+    ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}`
+    : v.label;
+  const tone = ctl.starting ? "ember" : v.phase === "running" ? (v.tone === "warn" ? "warn" : "ember") : v.phase === "vanilla" ? "info" : v.phase === "updating" ? "warn" : "idle";
+  const mock = info.data?.mock || mockFallbackActive(fallback);
   return (
-    <NavLink to={item.to} end={item.to === "/"} className={({ isActive }) => "k-nav-item" + (isActive ? " active" : "")}>
-      <Icon aria-hidden />
-      {item.label}
-    </NavLink>
+    <header className="k-head">
+      <NavLink to="/" className="k-logo" aria-label="Kiln: Play" title={info.data ? `Kiln Launcher ${info.data.version}` : "Kiln"}><Lockup height={30} /></NavLink>
+      <nav ref={nav} className="k-nav" aria-label="Main">
+        {NAV_MAIN.map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.to === "/"} className={"k-navb" + (active?.to === n.to ? " on" : "")} aria-current={active?.to === n.to ? "page" : undefined}>
+            <span>{n.label}</span>
+          </NavLink>
+        ))}
+        {active && NAV_MAIN.includes(active) && <span className="k-nav-dia" aria-hidden><i className="k-dia" /></span>}
+      </nav>
+      <div className="k-head-right">
+        <TaskTray />
+        {NAV_SIDE.map((n) => (
+          <NavLink key={n.to} to={n.to} className={({ isActive }) => "k-head-link" + (isActive ? " on" : "")}>{n.label}</NavLink>
+        ))}
+        {mock && <span className="k-mock-flag" title={info.data?.mock ? "Browser mock" : `Mock data for: ${fallback.join(", ")}`}>Mock</span>}
+        <span role="status" className={`k-head-state k-tone-${tone}`} style={{ opacity: isPlay ? 0 : 1 }} title={v.detail ?? undefined}>{word}</span>
+      </div>
+    </header>
   );
 }
 
-function gameName(path: string) {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
-
-function GamePill() {
-  const { game, games } = useGame();
-  const setGameId = useGameSel((s) => s.setGameId);
-  const status = useGameStatus(game?.id);
-  const launch = useLaunchState(game?.id);
-  const view = gameState(game ? status.data : null, launch.data, !!game && status.isLoading);
+/** The mouth: the Play button on the Play page, the pilot light in the corner on every other page. */
+function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   const nav = useNavigate();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const clients = games.filter((g) => g.kind === "client");
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  const qc = useQueryClient();
+  const [hot, setHot] = useState(false);
+  const detect = useMutation({
+    mutationFn: api.gameDetect,
+    onSuccess: (g) => { qc.setQueryData(qk.games, g); if (!g.some((x) => x.kind === "client")) toast.info("No Enshrouded found", "Add its folder on Play."); },
+    onError: (e) => toast.error(e),
+  });
+  const v = ctl.view;
+  const name = ctl.profileName ?? "Enshrouded";
+  let word: string, sub: string, heat: "unlit" | "idle" | "flare" | "embers" | "low", act: (() => void) | null, aria: string;
+  if (!ctl.game) {
+    word = "Add game"; sub = "Kiln looks in every Steam library"; heat = "unlit"; act = () => detect.mutate(); aria = "Add game: find Enshrouded in your Steam libraries";
+  } else if (v.phase === "none") {
+    word = "Play"; sub = "Checking the game"; heat = "unlit"; act = null; aria = "Checking the game";
+  } else if (v.phase === "updating") {
+    word = "Updating"; sub = "Steam is updating the game"; heat = "embers"; act = null; aria = "Steam is updating the game";
+  } else if (!ctl.installed && !ctl.running) {
+    word = "Install"; sub = "Kiln goes into the game folder"; heat = "unlit"; act = () => nav("/runtime?install=1"); aria = "Install Kiln";
+  } else if (ctl.starting) {
+    word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; act = null; aria = "Starting";
+  } else if (ctl.running) {
+    const t = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label;
+    word = t; sub = v.label === "Running" ? "Running" : v.label; heat = v.label === "Safe idle" ? "low" : "embers"; act = null;
+    aria = `${v.label}${ctl.elapsed !== null ? ` for ${t}` : ""}`;
+  } else {
+    word = "Play"; sub = "Opens through Steam"; heat = "idle"; act = () => ctl.play("profile"); aria = `Play ${name}. Opens through Steam.`;
+  }
+  const subTone = v.phase === "vanilla" ? " k-tone-info" : v.phase === "updating" || v.label === "Safe idle" ? " k-tone-warn" : "";
   return (
-    <div ref={ref} style={{ position: "relative" }} className="k-row">
-      {clients.length > 1 && (
-        <button type="button" className="k-btn k-btn-ghost k-btn-s" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
-          {game ? gameName(game.path) : "Game"} <ChevronDown />
-        </button>
-      )}
-      <button type="button" className="k-game-btn" onClick={() => nav("/")} title={view.detail ?? undefined} aria-label={`Game: ${view.label}`}>
-        <StatusPill tone={view.tone} pulse={view.pulse}>{view.label}</StatusPill>
-      </button>
-      {open && (
-        <div className="k-popover" role="menu" style={{ top: "calc(100% + 6px)", right: 0 }}>
-          {clients.map((g) => (
-            <button key={g.id} type="button" role="menuitem" className="k-menu-item" onClick={() => { setGameId(g.id); setOpen(false); }}>
-              {g.id === game?.id ? <Check /> : <span style={{ width: 15 }} />}
-              <span className="k-stack" style={{ gap: 0 }}>
-                <span>{gameName(g.path)}</span>
-                <span className="k-dim k-mono" style={{ fontSize: 11 }}>{g.source} · {g.platform}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <button type="button" className={`k-door ${isPlay ? "play" : "pilot"} heat-${heat}${hot && act ? " hot" : ""}`} disabled={!act || detect.isPending}
+      onClick={() => act?.()} onMouseEnter={() => setHot(true)} onMouseLeave={() => setHot(false)} aria-label={aria} title={isPlay ? undefined : aria}>
+      <span className="k-door-fire" aria-hidden />
+      <span className="k-door-lab" aria-hidden>
+        <span className={"k-door-word" + (word.length > 6 ? " long" : "")}>{word}</span>
+        <span className={"k-door-sub" + subTone}>{sub}</span>
+      </span>
+    </button>
   );
 }
 
 export function AppShell() {
   const info = useAppInfo();
   const loc = useLocation();
+  const outlet = useOutlet();
   useTaskFeed();
   useBackendEvents();
-  const fallback = useMockFallback();
+  const ctl = usePlayControl();
   const [minShown, setMinShown] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMinShown(true), 650); return () => clearTimeout(t); }, []);
   const ready = minShown && (info.isSuccess || info.isError);
+  const isPlay = loc.pathname === "/" || loc.pathname === "";
+  const page = (
+    <RouteErrorBoundary key={loc.pathname}>
+      <Suspense fallback={<div className="k-page"><Skeleton lines={4} /></div>}><div className="k-route">{outlet}</div></Suspense>
+    </RouteErrorBoundary>
+  );
+  const sheet = useLinger<ReactNode>(page, !isPlay, 480);
+  const hero = useLinger<ReactNode>(page, isPlay, 360);
+  // the torch: a soft warm light follows the pointer across the sheet
+  const root = useRef<HTMLDivElement>(null);
+  const frame = useRef(0);
+  const torch = (e: React.MouseEvent) => {
+    if (frame.current || reduced()) return;
+    const x = e.clientX, y = e.clientY;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      root.current?.style.setProperty("--mx", `${x}px`);
+      root.current?.style.setProperty("--my", `${y}px`);
+    });
+  };
+  useEffect(() => { document.title = isPlay ? "Kiln" : `${navFor(loc.pathname)?.label ?? "Kiln"} · Kiln`; }, [isPlay, loc.pathname]);
   return (
-    <div className="k-shell">
-      <aside className="k-sidebar">
-        <NavLink to="/" className="k-brand" aria-label="Kiln home">
-          <Mark size={26} />
-          <span className="k-brand-name">Kiln</span>
-        </NavLink>
-        <nav className="k-nav" aria-label="Main">
-          {NAV_MAIN.map((n) => <NavEntry key={n.to} item={n} />)}
-          <div className="k-nav-sep" />
-          {NAV_FOOT.map((n) => <NavEntry key={n.to} item={n} />)}
-        </nav>
-        <div className="k-sidebar-foot">
-          <span>{info.data ? `v${info.data.version}` : info.isError ? "backend offline" : "…"}</span>
-          {(info.data?.mock || mockFallbackActive(fallback)) && <span className="k-mock-flag" title={info.data?.mock ? "Browser mock" : `Mock data for: ${fallback.join(", ")}`}>mock</span>}
-        </div>
-      </aside>
-      <header className="k-topbar">
-        <div className="k-topbar-title"><b>{titleFor(loc.pathname)}</b></div>
-        <div className="k-topbar-right">
-          <GameArtAuto />
-          <GamePill />
-          <TaskTray />
-        </div>
-      </header>
-      <main className="k-main" id="main">
-        <RouteErrorBoundary key={loc.pathname}>
-          <Suspense fallback={<div className="k-page"><Spinner /></div>}>
-            <Outlet />
-          </Suspense>
-        </RouteErrorBoundary>
+    <div ref={root} className={"k-app" + (isPlay ? " is-play" : " is-sheet")} data-nogl="1" onMouseMove={torch}>
+      <div className="k-stage" aria-hidden><div className="k-fall" /></div>
+      <Header isPlay={isPlay} ctl={ctl} />
+      <div className={"k-hero-layer" + (isPlay ? " on" : "")} aria-hidden={!isPlay}>{hero}</div>
+      <main className={"k-sheet" + (isPlay ? " down" : " up")} id="main" aria-hidden={isPlay}>
+        <div className="k-sheet-in">{sheet}</div>
       </main>
+      <Mouth isPlay={isPlay} ctl={ctl} />
+      <GameArtAuto />
       <Toaster />
       <Splash done={ready} />
     </div>

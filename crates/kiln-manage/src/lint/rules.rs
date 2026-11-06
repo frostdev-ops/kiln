@@ -148,6 +148,7 @@ pub(crate) fn run(l: &mut Linter) {
         quests(&mut out, m);
         blocks(&mut out, m, &code, cat);
         skipped_refs += vfx(&mut out, m, cat);
+        surfaces(&mut out, m);
         quests_native(&mut out, m);
         licences(&mut out, m);
     }
@@ -758,6 +759,21 @@ fn cook_outputs(m: &LMod) -> Vec<PathBuf> {
         let impact = r.str_of("tool") == Some("impact");
         let out = dir.join(r.str_of("out").unwrap_or(if impact { "../assets/cooked/impact" } else { "cooked" }));
         for s in r.get("steps").and_then(Node::as_array).into_iter().flatten() {
+            // a worn step's files are named after its model's path in the mod: models/hat.glb -> models_hat
+            if s.str_of("op") == Some("worn")
+                && let Some(model) = s.str_of("model")
+            {
+                let p = model.replace('\\', "/");
+                let stem = match p.rfind('.') {
+                    Some(dot) if dot > p.rfind('/').map_or(0, |x| x + 1) => &p[..dot],
+                    _ => p.as_str(),
+                }
+                .replace('/', "_");
+                for ext in ["bin", "blob", "model.json"] {
+                    v.push(normalize(&out.join(format!("{stem}.{ext}"))));
+                }
+                continue;
+            }
             if let Some(stem) = s.str_of("stem") {
                 v.push(normalize(&out.join(format!("{stem}.bin"))));
                 if s.str_of("op") == Some("model") {
@@ -830,6 +846,8 @@ struct Contents {
     voice_asset: Option<(String, Span)>,
     /// A Kiln talent tree (vanilla players still reach it through /talents).
     talent_tree: Option<(String, Span)>,
+    /// A talent or talent tree block, which Kiln.Blocks refuses below clients "mod" (every player's game builds the tree from the mod's files).
+    block_talents: Option<(String, Span)>,
     /// A VFX only the mod's own files can give a client: a block of the `vfx` section, or a `vfx` field that names one.
     new_vfx: Option<(String, Span, &'static str)>,
     client_assets: Option<(String, Span, String)>,
@@ -838,7 +856,7 @@ struct Contents {
 }
 
 fn contents(m: &LMod) -> Contents {
-    let mut c = Contents { definition: None, game_nodes: None, native_journal: None, voice_asset: None, talent_tree: None, new_vfx: None, client_assets: None, png_icon: false, anything: false };
+    let mut c = Contents { definition: None, game_nodes: None, native_journal: None, voice_asset: None, talent_tree: None, block_talents: None, new_vfx: None, client_assets: None, png_icon: false, anything: false };
     for f in &m.files {
         if matches!(f.kind.as_str(), "content" | "assets" | "cook") {
             c.anything = true;
@@ -856,6 +874,21 @@ fn contents(m: &LMod) -> Contents {
         match f.kind.as_str() {
             "blocks" => {
                 c.anything = true;
+                // talents are nodes of a tree every client builds from the mod's own files, as skills/*.json
+                if let Some(t) = r.get("talents").and_then(Node::as_object).and_then(|o| o.iter().find(|b| b.value.get("game").is_some())) {
+                    c.game_nodes.get_or_insert((f.display.clone(), t.key_span));
+                }
+                for section in ["talents", "talentTrees"] {
+                    if let Some(t) = r.get(section).and_then(Node::as_object).and_then(|o| o.first()) {
+                        c.block_talents.get_or_insert((f.display.clone(), t.key_span));
+                    }
+                }
+                // an ability that places something makes new templates; one with only effects on the caster asks nothing
+                if c.definition.is_none()
+                    && let Some(a) = r.get("abilities").and_then(Node::as_object).and_then(|o| o.iter().find(|b| b.value.get("delivery").is_some() || b.value.get("item").is_some()))
+                {
+                    c.definition = Some((f.display.clone(), a.key_span, "a new ability that places something".to_string()));
+                }
                 if c.new_vfx.is_none() {
                     if let Some(b) = r.get("vfx").and_then(Node::as_object).and_then(|o| o.first()) {
                         c.new_vfx = Some((f.display.clone(), b.key_span, "a new VFX"));
@@ -865,7 +898,7 @@ fn contents(m: &LMod) -> Contents {
                         c.new_vfx = Some((f.display.clone(), u.span, "a field that names a new VFX"));
                     }
                 }
-                for (key, what) in [("spells", "a new spell"), ("weapons", "a new weapon"), ("statuses", "a new status"), ("items", "a new item"), ("wands", "a new wand"), ("armor", "a new piece of armor"), ("stations", "a new station")] {
+                for (key, what) in [("spells", "a new spell"), ("weapons", "a new weapon"), ("statuses", "a new status"), ("items", "a new item"), ("wands", "a new wand"), ("armor", "a new piece of armor"), ("stations", "a new station"), ("props", "a new prop"), ("cosmetics", "a new cosmetic"), ("perks", "a new perk"), ("containers", "a new container"), ("doors", "a new door"), ("beds", "a new bed"), ("seats", "a new seat"), ("hair", "a new hair style"), ("beards", "a new beard")] {
                     if c.definition.is_none()
                         && let Some(b) = r.get(key).and_then(Node::as_object).and_then(|o| o.first())
                     {
@@ -887,6 +920,8 @@ fn contents(m: &LMod) -> Contents {
                             if mm.key == "icon" && text.to_ascii_lowercase().ends_with(".png") {
                                 *out = Some((mm.value.span, "a PNG item icon"));
                             } else if mm.key == "model" && text.len() == 36 && text.bytes().filter(|b| *b == b'-').count() == 4 {
+                                *out = Some((mm.value.span, "a model of the mod's own"));
+                            } else if matches!(mm.key.as_str(), "model" | "female") && { let t = text.to_ascii_lowercase(); t.ends_with(".glb") || t.ends_with(".gltf") } {
                                 *out = Some((mm.value.span, "a model of the mod's own"));
                             } else if mm.key == "sound" && !text.is_empty() && !is_guid(text) && !text.contains(':') {
                                 *out = Some((mm.value.span, "a sound of the mod's own"));
@@ -1096,13 +1131,18 @@ fn manifest_rules(out: &mut Out, m: &LMod, _defs: &Defs, _mi: usize) {
             out.push(d);
         }
     }
-    let skills = c.game_nodes.as_ref().map(|(f, s)| (f, s, true)).or(c.talent_tree.as_ref().map(|(f, s)| (f, s, false)));
-    if let Some((file, span, game_tree)) = skills
+    // 0: nodes in the game's tree, 1: talent blocks, 2: a tree of skills/*.json
+    let skills = c.game_nodes.as_ref().map(|(f, s)| (f, s, 0)).or(c.block_talents.as_ref().map(|(f, s)| (f, s, 1))).or(c.talent_tree.as_ref().map(|(f, s)| (f, s, 2)));
+    if let Some((file, span, kind)) = skills
         && clients != "mod"
     {
-        let mut d = if game_tree {
+        let mut d = if kind == 0 {
             Diagnostic::new(&mf.display, codes::CLIENTS_SKILLS, at, &format!(
                 "this mod has nodes in the game's skill tree but says {how}: every client must build the same tree from the mod's own files (the server sends no tree definitions); declare \"clients\": \"mod\""
+            ))
+        } else if kind == 1 {
+            Diagnostic::new(&mf.display, codes::CLIENTS_SKILLS, at, &format!(
+                "this mod has talents but says {how}: every player's game builds the tree and draws it from the mod's own files, so Kiln.Blocks refuses them below \"clients\": \"mod\"; declare \"clients\": \"mod\" and side \"both\""
             ))
         } else {
             Diagnostic::new(&mf.display, codes::CLIENTS_SKILLS, at, &format!(
@@ -1279,7 +1319,9 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
         at_refs(s, &mut refs);
         for n in refs {
             let id = &n.as_str().unwrap_or("")[1..];
-            if !inputs.contains_key(id) {
+            // @player is the player's skeleton, with no input to declare (tools/modelcook)
+            let player = id == "player" && tool == "modelcook" && s.get("skeleton").is_some_and(|sk| std::ptr::eq(sk, n));
+            if !inputs.contains_key(id) && !player {
                 let mut d = Diagnostic::new(&f.display, codes::COOK_INPUT, n.span, &format!("@{id}: no such input"));
                 let c: Vec<&str> = inputs.keys().copied().collect();
                 if let Some(b) = suggest::best(id, &c) {
@@ -1582,9 +1624,13 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     if files.is_empty() {
         return;
     }
-    const SECTIONS: [(&str, &str); 17] = [
-        ("vfx", "vfx"), ("materials", "material"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
+    const SECTIONS: [(&str, &str); 41] = [
+        ("props", "prop"), ("placements", "placement"), ("comforts", "comfort"), ("processing", "processing"), ("menus", "menu"),
+        ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
         ("looks", "look"), ("weaponStats", "weapon stats"), ("armorStats", "armor stats"), ("weaponClasses", "weapon class"), ("armorSlots", "armor slot"), ("armorSets", "armor set"), ("onHits", "on-hit"),
+        ("cosmetics", "cosmetic"), ("wornLooks", "worn look"),
+        ("containers", "container"), ("doors", "door"), ("beds", "bed"), ("seats", "seat"), ("interactions", "interaction"), ("blueprints", "blueprint"), ("hair", "hair"), ("beards", "beard"),
+        ("perks", "perk"), ("abilities", "ability"), ("talents", "talent"), ("talentTrees", "talent tree"), ("triggers", "trigger"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
@@ -1601,22 +1647,36 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     // What a field takes when it is a name: the kinds it accepts, and the premades that are names too.
     fn wants(k: &str) -> Option<(&'static [&'static str], &'static str, &'static [&'static str])> {
         Some(match k {
-            "onImpact" | "effects" | "onApply" | "onTick" | "onExpire" | "then" | "onUse" => (&["effect"], "an effect", &[]),
+            "onImpact" | "effects" | "onApply" | "onTick" | "onExpire" | "then" | "onUse" | "onEat" | "onRefused" | "onCast" | "onStart" | "do" | "onEnd" => (&["effect"], "an effect", &[]),
+            "strength" => (&["strength"], "a strength", &[]),
             "onHit" | "onKill" | "onHitTaken" => (&["effect", "on-hit"], "an effect or an on-hit", &[]),
-            "applies" | "status" | "feeds" | "removes" => (&["status"], "a status", &[]),
-            "visual" | "head" | "chest" | "arms" | "legs" | "feet" => (&["look"], "a look", &[]),
+            "applies" | "status" | "feeds" | "removes" | "keeps" => (&["status"], "a status", &[]),
+            "casts" | "unlocks" => (&["ability"], "an ability", &[]),
+            "visual" => (&["look"], "a look", &[]),
+            "head" | "chest" | "arms" | "legs" | "feet" => (&["look", "worn look"], "a look or a worn look", &[]),
             "stats" => (&["weapon stats", "armor stats"], "stats", &[]),
             "class" => (&["weapon class"], "a weapon class", &["sword", "axe", "mace", "greatsword", "greataxe", "hammer", "daggers", "bow", "staff", "shield", "wand"]),
             "slot" => (&["armor slot"], "an armor slot", &["head", "chest", "arms", "legs", "feet", "ring"]),
             "set" => (&["armor set"], "an armor set", &["warrior", "mage", "ranger"]),
+            "look" => (&["worn look"], "a worn look", &[]),
             "station" => (&["station"], "a station", &["hand"]),
+            "placement" => (&["placement"], "a placement", &[]),
+            "comfort" => (&["comfort"], "a comfort", &[]),
+            "processing" => (&["processing"], "a processing", &[]),
+            "menu" => (&["menu"], "a menu", &[]),
+            "onInteract" => (&["interaction"], "an interaction", &[]),
             "vfx" => (&["vfx"], "a VFX", &[]),
+            "screen" => (&["screen effect"], "a screen effect", &[]),
             _ => return None,
         })
     }
     fn walk(n: &Node, field: Option<&str>, out: &mut Vec<(String, &'static [&'static str], &'static str, Span)>) {
         if let Some(obj) = n.as_object() {
             for mm in obj {
+                // a cosmetic's slot is a vanity slot, not an armor slot block
+                if mm.key == "slot" && obj.iter().any(|x| x.key == "look") {
+                    continue;
+                }
                 // { "name": "burst", "slot": "chest" } says the same as "burst"
                 if mm.key == "vfx"
                     && let Some(name) = mm.value.get("name").filter(|x| x.as_str().is_some())
@@ -1640,11 +1700,11 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     fn items(n: &Node, parent: &str, out: &mut Vec<(String, Span)>) {
         if let Some(obj) = n.as_object() {
             for mm in obj {
-                if mm.key == "needs" {
+                if mm.key == "needs" || mm.key == "burns" {
                     for need in mm.value.as_object().into_iter().flatten() {
                         out.push((need.key.clone(), need.key_span));
                     }
-                } else if let Some(text) = mm.value.as_str().filter(|_| matches!(mm.key.as_str(), "dropsLike" | "dropped") || (mm.key == "like" && matches!(parent, "visual" | "loot"))) {
+                } else if let Some(text) = mm.value.as_str().filter(|_| matches!(mm.key.as_str(), "dropsLike" | "dropped" | "output") || (mm.key == "like" && matches!(parent, "visual" | "loot" | "look"))) {
                     out.push((text.to_string(), mm.value.span));
                 } else {
                     items(&mm.value, &mm.key, out);
@@ -1669,6 +1729,9 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             // the "looks" section's entries are looks: their "like" is an item too
             for look in r.get("looks").and_then(Node::as_object).into_iter().flatten() {
                 items(&look.value, "visual", &mut item_names);
+            }
+            for look in r.get("wornLooks").and_then(Node::as_object).into_iter().flatten() {
+                items(&look.value, "look", &mut item_names);
             }
         }
         for (name, kinds, what, span) in names {
@@ -1724,7 +1787,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
                 continue;
             }
             match known.get(&name) {
-                Some((other, ..)) if !matches!(*other, "spell" | "weapon" | "item" | "wand" | "armor" | "station") => out.push(Diagnostic::new(&f.display, codes::BLOCK_REF, span, &format!("\"{name}\" is {} {other} block; this field takes an item", a_or_an(other)))),
+                Some((other, ..)) if !matches!(*other, "spell" | "weapon" | "item" | "wand" | "armor" | "station" | "prop") => out.push(Diagnostic::new(&f.display, codes::BLOCK_REF, span, &format!("\"{name}\" is {} {other} block; this field takes an item", a_or_an(other)))),
                 Some(_) => {}
                 None => {
                     if game.is_some_and(|g| !g.names.contains(&name)) {
@@ -1889,6 +1952,102 @@ fn png_size(p: &Path) -> Option<(u32, u32)> {
     Some((u32::from_be_bytes(head[16..20].try_into().ok()?), u32::from_be_bytes(head[20..24].try_into().ok()?)))
 }
 
+/// What a PNG's header chunks say: size, bits, colour type, and whether it's tagged sRGB or linear.
+struct PngInfo {
+    w: u32,
+    h: u32,
+    depth: u8,
+    colour: u8,
+    srgb: bool,
+    linear: bool,
+}
+
+fn png_info(p: &Path) -> Option<PngInfo> {
+    let data = std::fs::read(p).ok()?;
+    if data.len() < 33 || data[..8] != PNG[..] || data[12..16] != *b"IHDR" {
+        return None;
+    }
+    let be = |at: usize| u32::from_be_bytes(data[at..at + 4].try_into().unwrap_or_default());
+    let mut info = PngInfo { w: be(16), h: be(20), depth: data[24], colour: data[25], srgb: false, linear: false };
+    let mut at = 8;
+    while at + 12 <= data.len() {
+        let (len, kind) = (be(at) as usize, &data[at + 4..at + 8]);
+        if kind == b"IDAT" || at + 12 + len > data.len() {
+            break;
+        }
+        match kind {
+            b"sRGB" | b"iCCP" => info.srgb = true,
+            // gAMA is 1/gamma x 100000: 45455 is sRGB's, 100000 linear
+            b"gAMA" if len == 4 => match be(at + 8) {
+                40000..=50000 => info.srgb = true,
+                90000..=110000 => info.linear = true,
+                _ => {}
+            },
+            _ => {}
+        }
+        at += 12 + len;
+    }
+    Some(info)
+}
+
+/// KL333 over one mod: the PNGs of building surfaces, as kiln.surfaces will cook them on each client. A file that isn't there or isn't a PNG is
+/// KL501 or KL503, from the schema.
+fn surfaces(out: &mut Out, m: &LMod) {
+    for f in m.files.iter().filter(|f| f.kind == "blocks") {
+        let Some(root) = &f.root else { continue };
+        let mut found: Vec<(&Node, String)> = Vec::new();
+        for b in root.get("surfaces").and_then(Node::as_object).into_iter().flatten() {
+            found.push((&b.value, format!("/surfaces/{}", ptr_seg(&b.key))));
+        }
+        for section in ["buildingMaterials", "materialTweaks"] {
+            for b in root.get(section).and_then(Node::as_object).into_iter().flatten() {
+                if let Some(s) = b.value.get("surface").filter(|s| s.as_object().is_some()) {
+                    found.push((s, format!("/{section}/{}/surface", ptr_seg(&b.key))));
+                }
+            }
+        }
+        for (s, at) in found {
+            for part in ["side", "top", "bottom", "edge", "edgeTop", "noise"] {
+                let Some(layer) = s.get(part).filter(|l| l.as_object().is_some()) else { continue };
+                for key in ["albedo", "emissive", "normal", "roughness", "metallic", "reflectance", "height", "ao"] {
+                    let Some(v) = layer.get(key) else { continue };
+                    let Some((name, span)) = v.as_str().map(|t| (t, v.span)).or_else(|| v.get("map").and_then(|x| x.as_str().map(|t| (t, x.span)))) else { continue };
+                    if name.starts_with('#') {
+                        continue;
+                    }
+                    let Some(p) = png_info(&normalize(&m.root.join(name.replace('\\', "/")))) else { continue };
+                    let ptr = format!("{at}/{part}/{key}");
+                    let colour = matches!(key, "albedo" | "emissive");
+                    let a = if matches!(key, "albedo" | "emissive" | "ao") { "an" } else { "a" };
+                    let mut say = |sev: Severity, text: String| out.push(Diagnostic::new(&f.display, codes::SURFACE_TEXTURE, span, &text).severity(sev).pointer(&ptr));
+                    if !p.w.is_power_of_two() || !p.h.is_power_of_two() {
+                        say(Severity::Error, format!("{name}: {}x{} is not a power of two on both sides (kiln.surfaces refuses this surface, and the material looks like Rough Stone)", p.w, p.h));
+                        continue;
+                    }
+                    if p.w.min(p.h) < 4 || p.w.max(p.h) > 4096 {
+                        say(Severity::Error, format!("{name}: {}x{} is outside 4..4096 (kiln.surfaces refuses this surface, and the material looks like Rough Stone)", p.w, p.h));
+                        continue;
+                    }
+                    let grey = matches!(p.colour, 0 | 4);
+                    if key == "normal" && grey {
+                        say(Severity::Warning, format!("{name} is greyscale: a normal map's red and green are its direction, so this one is flat"));
+                    } else if !colour && key != "normal" && !grey {
+                        say(Severity::Info, format!("{name} is in colour: {a} {key} map's red channel is read and the rest is ignored; save it as greyscale"));
+                    }
+                    if colour && p.linear {
+                        say(Severity::Warning, format!("{name} is tagged linear, but {a} {key} map is read as sRGB colour: it will look brighter than in your editor"));
+                    } else if !colour && p.srgb {
+                        say(Severity::Info, format!("{name} is tagged sRGB; {a} {key} map's values are read as they are, as linear data"));
+                    }
+                    if p.depth == 16 {
+                        say(Severity::Info, format!("{name} has 16 bits a channel: it is read at 8"));
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn colour_text(t: &str) -> bool {
     let h = t.strip_prefix('#').unwrap_or(t);
     matches!(h.len(), 6 | 8) && h.bytes().all(|b| b.is_ascii_hexdigit())
@@ -2030,6 +2189,7 @@ fn vfx(out: &mut Out, m: &LMod, cat: Option<&Catalog>) -> usize {
             }
         }
     }
+    world_tables(out, m, &files, cat);
     // the budget: this mod with everything it is checked against. The first block of the file says it, once per mod
     if let Some((f, b)) = files.iter().find_map(|f| f.root.as_ref().and_then(|r| r.get("vfx")).and_then(Node::as_object).and_then(|o| o.first()).map(|b| (*f, b))) {
         let game = cat.map(|c| c.vfx_count as u64).filter(|n| *n > 0).unwrap_or(vfx_limits::GAME_VFX);
@@ -2040,6 +2200,58 @@ fn vfx(out: &mut Out, m: &LMod, cat: Option<&Catalog>) -> usize {
         }
     }
     skipped
+}
+
+/// The building-material ids every mod shares (kiln.worldtables, which refuses past this at boot): 128 slots, 85 the game's, 6 of those deprecated.
+const MATERIAL_ROOM: usize = 49;
+/// From here on, a mod takes a real share of that room.
+const MATERIAL_MANY: usize = 5;
+
+/// What kiln.worldtables refuses at boot, said earlier: past the room for new materials, a game material that isn't one, a material in a mod that doesn't ask players to have it.
+fn world_tables(out: &mut Out, m: &LMod, files: &[&LFile], cat: Option<&Catalog>) {
+    let of = |f: &LFile, key: &str| f.root.as_ref().and_then(|r| r.get(key)).and_then(Node::as_object).map(<[_]>::to_vec).unwrap_or_default();
+    let (side, clients, _) = side_clients(m);
+    let mine: Vec<(String, Span, String)> = files
+        .iter()
+        .flat_map(|f| of(f, "buildingMaterials").into_iter().map(|b| (b.key.clone(), b.key_span, f.display.clone())).collect::<Vec<_>>())
+        .collect();
+    if let Some((name, at, file)) = mine.first() {
+        if clients != "mod" {
+            out.push(Diagnostic::new(file, codes::CLIENTS_DEFINITIONS, *at, &format!("building material \"{name}\" needs \"clients\": \"mod\", and this mod says \"{clients}\": cells reach players as ids, so kiln.worldtables refuses it")));
+        } else if side != "both" {
+            out.push(Diagnostic::new(file, codes::CLIENTS_DEFINITIONS, *at, &format!("building material \"{name}\" needs \"side\": \"both\", and this mod says \"{side}\": both sides read the material's id from the same tables")));
+        }
+        if mine.len() >= MATERIAL_MANY {
+            out.push(Diagnostic::new(file, codes::MATERIAL_COUNT, *at, &format!("this mod has {} building materials: all mods share {MATERIAL_ROOM} ids, and past that the game can't take more", mine.len())));
+        }
+    }
+    // Every mod checked here takes ids in sorted GUID order, so which block is over depends on the others: all of them are named by the count.
+    let total: usize = out.mods.iter().flat_map(|x| x.files.iter()).filter(|f| f.kind == "blocks").map(|f| of(f, "buildingMaterials").len()).sum();
+    if total > MATERIAL_ROOM
+        && let Some((name, at, file)) = mine.first()
+    {
+        let what = if out.mods.iter().filter(|x| !x.files.is_empty()).count() > 1 { "Together, the mods checked here have" } else { "This mod has" };
+        out.push(Diagnostic::new(file, codes::MATERIAL_BUDGET, *at, &format!("{what} {total} building materials, and the game has ids for {MATERIAL_ROOM}: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order (\"{name}\" is one of this mod's)")));
+    }
+    // A catalog older than the section has no word on it.
+    let Some(section) = cat.and_then(|c| c.section("materials")).filter(|s| !s.names.is_empty()) else { return };
+    let known: Vec<&str> = section.names_list.iter().map(String::as_str).collect();
+    for f in files {
+        for b in of(f, "materialTweaks") {
+            let Some(v) = b.value.get("material") else { continue };
+            let Some(text) = v.as_str() else { continue };
+            let cell = text.strip_prefix("Cell").is_some_and(|n| n.parse::<u8>().is_ok_and(|x| x > 0));
+            if cell || section.names.contains(text) || section.guids.contains(&text.to_ascii_lowercase()) {
+                continue;
+            }
+            let mut d = Diagnostic::new(&f.display, codes::MATERIAL_REF, v.span, &format!("\"{text}\" is not a game material the catalog knows; a block that names one is refused at boot"));
+            if let Some(best) = suggest::best(text, &known) {
+                d.message.push_str(&format!("; did you mean \"{best}\"?"));
+                d.fixes.push(Fix::new(&format!("Replace with \"{best}\""), vec![TextEdit::new(&f.display, v.span, &quote(best))]));
+            }
+            out.push(d);
+        }
+    }
 }
 
 /// What the boot build of native data refuses (native/services/quests/questpack.cpp): the whole mod's native data is left out,

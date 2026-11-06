@@ -202,7 +202,7 @@ kiln.gameplay's inject uses); their readers get them in the next sim step.
 | `StopGuarding(target)` | `StopGuardingEvent` → `enemy01`; ends Kiln's order (its home goes back) | guard cleared |
 | `Stay()` | StopGuarding + Kiln's order ends + `Home` = where it stands | |
 | `MoveTo(pos)` | `Home` = pos (roaming/return-home walk it there; the enemy AI has no path command) | home moved |
-| `Heal(seconds)` | `RestoreEnemyHealthEvent` → `enemy01_pre_update` | not observed (needs a hurt, ready creature) |
+| `Heal(seconds)` | `RestoreEnemyHealthEvent` → `enemy01_pre_update` | a hurt, ready creature's health did not change in 6 s; use `Combat.Heal` |
 | `ControlTarget(target)` | `RegisterControlledCombatTargetEvent` → `control_combat_target` | not observed |
 
 Villager commands (`NpcCommandEvent {Reset, GoToPosition}` → `npc_active_behavior`) take an `NpcId`, not an entity id:
@@ -294,7 +294,7 @@ var thrower = Arsenals.Define("thrower", new ArsenalSpec
     [
         new ArsenalRule { Name = "rally", Every = 1, Cooldown = 20,
             If = [Is.Game("StateConstrain", ("states", new[] { "Combat" })), Is.HealthBelow(0.5)],
-            Do = [Act.Custom(npc => npc.Creature.Command.Heal(3))] },
+            Do = [Act.Custom(npc => Combat.Heal(npc.Entity, npc.HealthMax / 4))] },
         new ArsenalRule { Name = "night", Every = 2, If = [Is.Night, Is.Custom(npc => Weather.IsStorm)], Do = [Act.Attack("long-throw")] },
     ],
 });
@@ -377,7 +377,7 @@ c.Attacks.Clear();           // drops this mod's override
 
 new ArsenalSpec { PickAttack = npc => npc.HealthFraction < 0.5 ? "slam" : null, PickTarget = npc => npc.Target, PickEvery = 0.25 };
 
-c.PreferTarget(other);       // the game's AddThreatTargetEvent with a threat that wins, and no wait for the next target change: no hook
+c.PreferTarget(other, 5);    // holds this combat target for 5 s, then the game chooses again; c.ReleaseTarget() ends it. No hook
 c.AiEnabled = false;         // the game's AI switch, a layer of this mod
 ```
 
@@ -385,7 +385,7 @@ c.AiEnabled = false;         // the game's AI switch, a layer of this mod
 selection, and the combo path inside AttackExecution, where a sequence's follow-up that names another attack starts it with no selection at
 all. An override makes the game's own selection pick the forced attack, so its use counters, cooldown group and chosen target go to that attack;
 refuses combo follow-ups; refuses a rule that plays a refused attack's sequence directly; and counts whatever reaches `SetCurrentAttack` against it
-(`StartsOffOverride`, and it corrects a forced one). An attack already running when you set an override plays to its end.
+(`StartsOffOverride`, and it corrects a forced one). An attack already running when you set an override plays to its end. A forced attack still has to reach: it starts once the creature is within the attack's `MaxRange`.
 With `PickAttack`, a creature's first selection answers "nothing available" until the tick has asked your code, so no natural attack slips through.
 
 **AI off.** The body, sequences and damage keep running. Decisions stop, and so does target upkeep: `enemy_combat_targets` checks the same switch and
@@ -404,8 +404,8 @@ clears `SelectedTargets`, so a `Brain` needs its own perception. `NetworkEnemy.s
 | `Brain` | `c.AiEnabled = false`, then `ActorInput` and sequences on the tick; say that perception stops with it |
 | JSON | the `arsenals` list above, or the JSON `RuleCondition.ToJson()` shows |
 
-Call `Define` and `Extend` from mod code: additions belong to the calling mod and go when it unloads. A type or field the game's reflection does not have throws
-`ArgumentException` at once with the reason, so a block can pass it on. What depends on the base (the limits, a `From` that is missing) shows in `Arsenals.Info(id).Problems` from the next step.
+Call `Define` and `Extend` from mod code: additions belong to the calling mod and go when it unloads. A mod has one set of additions per arsenal: calling again for the same arsenal replaces them, and other mods' stay. A type or field the game's reflection does not have throws
+`ArgumentException` at once with the reason, so a block can pass it on. What depends on the base (the limits) shows in `Arsenals.Info(id).Problems` from the next step: that owner's additions are left out, and the others stay. A `From` that does not exist yet is logged, and the arsenal appears once it does.
 `Arsenals.Info` lists attacks by index, GUID and sequence. A sequence is not checked against the body's graph: a state the graph lacks does not fail, the creature holds its pose while the
 sequence's impacts run, so the state agreement in a block's `Define` is what catches it.
 
@@ -420,9 +420,18 @@ one of Kiln's: `{ "kiln": "condition", "slot": n }`, `"buff"`, `"time"`, `"phase
   behaviour update resets it, once an arsenal has shrunk. After a `kiln.content` change the composites are rebuilt (`ContentReadyEvent`, `Arsenals.Refresh()`).
 - **Hooks go in at first use and come out when nothing uses them:** `ConstraintEval` and `ActionExec` for Kiln's kinds; `SelectAttack`, `AttackAvailable`, the follow-up lookup and a mid hook on `SetCurrentAttack` for overrides. Data-only
   arsenals need none. A server without rule mods runs none of this.
-- **Fails soft.** A target that does not resolve: `Arsenals.Status` says so, a rule with Kiln's kinds or an override throws `NotSupportedException` with the reason, data-only arsenals still work, creatures run on. With no hooks loaded Kiln's kinds in a record are harmless: the game reads them as false and no-op.
+- **Fails soft.** A target that does not resolve: `Arsenals.Status` says so, and what needs it throws `NotSupportedException` with the reason. Without the dispatcher, data-only arsenals still work; without the registry map, no arsenal can be written; without the attack targets, overrides are off. The AI switch needs none of them. Creatures run on either way (lab, with each target's pattern broken in turn). With no hooks loaded Kiln's kinds in a record are harmless: the game reads them as false and no-op.
 
-COST_PLACEHOLDER
+**Cost, lab, 100 Vukahs fighting in pairs, each with 3 rules on Kiln's kinds and an allow mask** (4 runs of 400 steps):
+
+| Part | Per step |
+|---|---|
+| Tick side, native (the table for 100 creatures) | 3.7 to 6.9 µs |
+| Job side, Kiln's kinds | 1.1 to 1.4 µs: 12 to 20 kinds at 67 to 95 ns each |
+| Tick side, managed (conditions, actions) | 30 to 67 µs, the test's own lambdas and `NpcView` reads included |
+| The whole sim step, no hooks / all of this on / hooks out again | 5.06 / 5.67 / 6.42, 8.20 / 6.94 / 8.18, 5.19 / 4.29 / 4.13, 10.20 / 11.36 / 13.58 ms |
+
+So the step's own time shows no difference above run-to-run noise, which is 1 ms or more on a busy machine. Forwarding the game's own constraints and actions through the hooks was not timed apart from that. `kiln.log` gives each install as 0 ms, on a millisecond clock; removal was not timed.
 
 `/creature rules [entity]` shows all this; `/creature attack`, `aiswitch`, `target` drive it.
 

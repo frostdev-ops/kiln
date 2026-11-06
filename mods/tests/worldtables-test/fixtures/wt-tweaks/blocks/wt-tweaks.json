@@ -1,0 +1,41 @@
+{
+ "format": 1,
+ "strengths": {
+  "vault": {
+   "hardness": "unbreakable"
+  }
+ },
+ "materialTweaks": {
+  "vault-stone": {
+   "material": "StoneRough",
+   "strength": "vault"
+  },
+  "thin-wood": {
+   "material": "WoodRough",
+   "strength": {
+    "health": 1
+   }
+  },
+  "harder-deadwood": {
+   "material": "WoodDeadwood",
+   "strength": {
+    "hardness": "moderatelyHard",
+    "health": 1
+   }
+  },
+  "thick-fancy-wood": {
+   "material": "WoodFancy",
+   "strength": {
+    "health": 1000000
+   }
+  },
+  "soft-iron": {
+   "material": "MetalIron",
+   "strength": {
+    "hardness": "soft",
+    "health": 10,
+    "breaks": "none"
+   }
+  }
+ }
+}

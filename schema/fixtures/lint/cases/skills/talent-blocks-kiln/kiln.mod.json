@@ -1,0 +1,1 @@
+{ "id": "fixture-talent-blocks-kiln", "version": "1.0.0", "apiVersion": "0.2", "license": "MIT", "entryAssembly": "D.dll", "side": "both", "clients": "kiln" }

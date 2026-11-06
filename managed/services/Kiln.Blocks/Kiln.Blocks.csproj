@@ -7,11 +7,14 @@
     <RootNamespace>Kiln</RootNamespace>
     <AssemblyName>Kiln.Blocks</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- The lab test drives what the block types do not reach yet (a wielder's program without an item). -->
     <InternalsVisibleTo Include="BlocksTest" />
+    <InternalsVisibleTo Include="BlocksAbilitiesTest" />
+    <InternalsVisibleTo Include="FurnitureTest" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
@@ -20,5 +23,13 @@
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Audio/Kiln.Audio.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Vfx/Kiln.Vfx.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Skills/Kiln.Skills.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Time/Kiln.Time.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Creatures/Kiln.Creatures.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Quests/Kiln.Quests.csproj" Private="false" />
   </ItemGroup>
 </Project>

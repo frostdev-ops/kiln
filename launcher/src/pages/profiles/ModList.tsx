@@ -1,10 +1,11 @@
-// A profile's mods of one kind: toggles, version pick, remove, and the add-from-library modal.
-import { Library, Plus, Search, Trash2 } from "lucide-react";
+// A profile's mods of one kind as a table: flame toggle, name and id, version, row actions (other versions, remove);
+// and the add-from-library dialog.
+import { MoreHorizontal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
-import { Badge, Button, EmptyState, IconButton, Modal, Select, Table, TextInput, Toggle, type Column } from "../../ui";
+import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, type Column } from "../../ui";
 
 export function libName(lib: LibraryEntry[] | undefined, kind: ModKind, id: string) {
   return lib?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
@@ -21,45 +22,44 @@ export interface ModListProps {
   /** Extra cell per row (e.g. resolver state). */
   extra?: { header: ReactNode; width?: string; render: (m: ProfileMod) => ReactNode };
   emptyHint?: string;
+  /** Fill the parent's height (the list scrolls inside). */
+  fill?: boolean;
 }
 
-export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extra, emptyHint }: ModListProps) {
+export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extra, emptyHint, fill }: ModListProps) {
   const lib = useLibrary(kind);
   const [adding, setAdding] = useState(false);
   const columns: Column<ProfileMod>[] = [
-    { key: "on", header: "", width: "48px", render: (m) => <Toggle checked={m.enabled} onChange={(on) => onToggle(m.id, on)} aria-label={`Enable ${m.id}`} /> },
-    { key: "name", header: "Mod", width: "minmax(0, 2fr)", sort: (a, b) => a.id.localeCompare(b.id), render: (m) => {
+    { key: "on", header: <span className="k-sr-only">Lit</span>, width: "40px", render: (m) => <FlameToggle on={m.enabled} label={libName(lib.data, kind, m.id)} onChange={(on) => onToggle(m.id, on)} /> },
+    { key: "name", header: "Mod", sort: (a, b) => a.id.localeCompare(b.id), render: (m) => <NameId name={libName(lib.data, kind, m.id)} id={m.id} dim={!m.enabled} /> },
+    { key: "version", header: "Version", width: "120px", render: (m) => {
       const e = lib.data?.find((l) => l.id === m.id);
+      if (lib.data && !e) return <Badge tone="err" title="Not in the library">Missing</Badge>;
+      return <span className="k-mono" title={(e?.versions.length ?? 0) > 1 ? `${e!.versions.length} versions in the library` : undefined}>{m.version}</span>;
+    } },
+    ...(extra ? [{ key: "extra", header: extra.header, width: extra.width ?? "minmax(0, 1fr)", render: extra.render }] : []),
+    { key: "act", header: <span className="k-sr-only">Actions</span>, width: "32px", align: "right", render: (m) => {
+      const vs = lib.data?.find((l) => l.id === m.id)?.versions ?? [];
       return (
-        <span className="k-stack" style={{ gap: 0 }}>
-          <span className="k-item-title" style={{ opacity: m.enabled ? 1 : 0.55 }}>{e?.name ?? m.id}</span>
-          <span className="k-dim k-mono" style={{ fontSize: 11 }}>{m.id}</span>
-        </span>
+        <Menu label={`More for ${libName(lib.data, kind, m.id)}`} icon={<MoreHorizontal />} size="s" items={[
+          ...vs.filter((v) => v.version !== m.version).map((v) => ({ label: `Use ${v.version}`, onSelect: () => onVersion(m.id, v.version, v.hash) })),
+          { label: "Remove from this profile", danger: true, onSelect: () => onRemove(m.id) },
+        ]} />
       );
     } },
-    { key: "version", header: "Version", width: "150px", render: (m) => {
-      const e = lib.data?.find((l) => l.id === m.id);
-      const vs = e?.versions ?? [];
-      if (!e) return <Badge tone="err" title="Not in the library">missing</Badge>;
-      if (vs.length < 2) return <span className="k-mono">{m.version}</span>;
-      return <Select aria-label={`Version of ${m.id}`} value={m.version} onChange={(v) => onVersion(m.id, v, vs.find((x) => x.version === v)!.hash)}
-        options={vs.map((v) => v.version)} style={{ height: 28 }} />;
-    } },
-    ...(extra ? [{ key: "extra", header: extra.header, width: extra.width ?? "minmax(0, 1.5fr)", render: extra.render }] : []),
-    { key: "rm", header: "", width: "40px", align: "right", render: (m) => <IconButton label={`Remove ${m.id}`} size="s" icon={<Trash2 />} onClick={() => onRemove(m.id)} /> },
   ];
   return (
     <>
-      <Table aria-label={`${kind} mods`} columns={columns} rows={mods} rowKey={(m) => m.id} rowHeight={52} maxHeight={560}
-        empty={<EmptyState icon={<Library />} title="No mods" hint={emptyHint ?? "Add some from the library."} action={<Button icon={<Plus />} onClick={() => setAdding(true)}>Add</Button>} />} />
-      {mods.length > 0 && <div style={{ padding: "10px 14px" }}><Button size="s" icon={<Plus />} onClick={() => setAdding(true)}>Add</Button></div>}
+      <Table aria-label={`${kind} mods`} columns={columns} rows={mods} rowKey={(m) => m.id} fill={fill}
+        empty={<EmptyState title={emptyHint ?? "None in this profile."} action={<Button size="s" onClick={() => setAdding(true)}>Add from the library</Button>} />} />
+      {mods.length > 0 && <div><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>}
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind={kind} have={mods.map((m) => m.id)} lib={lib.data ?? []}
         onAdd={(ms) => { onAdd(ms); setAdding(false); }} />
     </>
   );
 }
 
-function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void }) {
+export function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void }) {
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Set<string>>(new Set());
   const avail = useMemo(() => lib.filter((l) => !have.includes(l.id) && (!q || (l.name + l.id).toLowerCase().includes(q.toLowerCase()))), [lib, have, q]);
@@ -69,20 +69,19 @@ function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolean; onCl
     onAdd(ms);
   };
   return (
-    <Modal open={open} onClose={onClose} title="Add from library" width={560}
-      footer={<><Link to="/library" className="k-link" style={{ marginRight: "auto", fontSize: 13 }}>Import more</Link><Button variant="ghost" onClick={onClose}>Cancel</Button>
+    <Modal open={open} onClose={onClose} title="Add from the library" width={560}
+      footer={<><Link to="/library" className="k-link" style={{ marginRight: "auto", fontSize: 16 }}>Import more</Link><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={!pick.size} onClick={done}>Add {pick.size || ""}</Button></>}>
-      <div className="k-input-group"><Search size={15} className="k-dim" /><TextInput data-autofocus placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      {avail.length === 0 ? <EmptyState title={lib.length ? "Everything is added" : "Library is empty"} hint={lib.length ? undefined : "Import mods on the Library page."} /> : (
-        <div className="k-list" style={{ maxHeight: 360, overflow: "auto", margin: "0 -4px" }}>
+      <WellInput label="Filter" data-autofocus value={q} onChange={(e) => setQ(e.target.value)} />
+      {avail.length === 0 ? <EmptyState title={lib.length ? "Everything is in this profile already." : "The library is empty."} hint={lib.length ? undefined : "Import mods on the Library page."} /> : (
+        <div className="k-list" style={{ maxHeight: 340, overflow: "auto" }}>
           {avail.map((l) => (
-            <label key={l.id} className="k-list-item clickable" style={{ padding: "8px 6px" }}>
+            <label key={l.id} className="k-list-item clickable">
               <input type="checkbox" checked={pick.has(l.id)} onChange={(e) => { const s = new Set(pick); if (e.target.checked) s.add(l.id); else s.delete(l.id); setPick(s); }}
-                style={{ accentColor: "var(--k-ember-500)", width: 16, height: 16 }} />
-              <span className="k-stack" style={{ gap: 0, flex: 1 }}>
-                <span className="k-item-title">{l.name}</span>
-                <span className="k-item-sub k-mono">{l.id} · {l.versions[0].version}</span>
-              </span>
+                style={{ accentColor: "var(--k-ember-500)", width: 16, height: 16, flex: "none" }} />
+              <NameId name={l.name} id={l.id} />
+              <span className="k-spacer" />
+              <span className="k-mono k-muted">{l.versions[0].version}</span>
               {l.versions[0].side && <Badge>{l.versions[0].side}</Badge>}
             </label>
           ))}

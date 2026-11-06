@@ -43,10 +43,11 @@ Evidence tags:
   dispatched on a type hash, and an unknown hash is harmless. With two detours, a rule using Kiln's own constraint and action types
   ran from the game's own arsenal resource: `constraint false: evaluated 18 times, action 0`, `constraint true: evaluated 10 times, action ran 10`.
   This changes what a `BehaviourBlock` should be: **see section 4.3.**
-- **Attack choice can be replaced by rewriting one output [rt].** A detour on `SelectAttack` set the index, and the Vukah played that
-  attack's sequence.
-- **A one-byte per-entity switch turns the enemy AI off and leaves the body running [rt]**: `DynamicEnemy01BehaviorState+0x498`.
-  No hook needed. Then C# drives through `ActorInput` and sequences, 3.8 µs per entity per step before caching.
+- **Attack choice can be replaced on every start path [rt].** `SetCurrentAttack` is the one place an attack becomes selected, and it has two sources: a selection,
+  and a sequence's combo follow-up, which runs no selection at all. Section 4.4 has the trace.
+- **A one-byte per-entity switch turns the enemy AI off and leaves the body running [rt]**: `DynamicEnemy01BehaviorState.enabled`, `+0x498`.
+  No hook needed. Then C# drives through `ActorInput` and sequences, 3.8 µs per entity per step before caching. The target pass checks the same byte: with it off,
+  `SelectedTargets` clears, so a brain needs its own perception.
 - **A puppet needs only 12 components, an AI enemy 39, a villager 33 [rt, server].** The rest of a template is client
   presentation, loot, scaling, sensors.
 - **Custom bodies need Kiln on every client; custom minds do not.** Template, graph, clips, skeleton, model and sequences must be on the client at boot (`clients: "mod"`).
@@ -344,7 +345,9 @@ Villagers have no schedule data beyond `sleepSetup` (`NpcCommon.sleepTime`, `wak
 | ConstraintEval | `0x11d9e0` / `0x35e380` | `(out, ctx, variant*, extra)`: the arsenal constraint dispatcher, binary tree on the variant hash; an unknown hash is false | 3.2/s for 3 creatures | 32 B, unique on all 3 servers |
 | ActionExec | `0x11eed0` / `0x35f870` | `(ctx, state, variant*, flag)`: the arsenal action dispatcher; an unknown hash does nothing | rare | 24 B, unique on all 3 servers |
 | Behaviour rules | `0x1207b0` / `0x361150` | `(ctx, mode)`: walks `behaviors[]` of one `BehaviorMode`, timers, chance, then constraints and actions. Phases change here (`SetPhaseAction`) | 14/s for 3 creatures | 24 B, unique on all 3 servers |
-| Start attack | `0x12ab70` / `0x36b480` | Starts the chosen attack: combat state, rules. 6 callers | with SelectAttack | 16 B, unique on all 3 servers |
+| SetCurrentAttack | `0x12ab70` / `0x36b480` | `(ctx, index)`: writes `selectedAttackIndex`, runs the attack rules. 0xFF = none. 6 callers: every attack passes here (4.4) | with SelectAttack | 16 B, unique on all 3 servers |
+| BeginAttack | `0x128a30` / `0x369340` | `(ctx, {index, target}, target id, flag)`: SetCurrentAttack, then CombatState Attack. 7 callers, each after a selection | with SelectAttack | in `creatures.json` |
+| FindAttackBySequence | `0x120f50` / `0x361860` | `(out, ctx, sequence hash)`: `out[0]` attack, `out+8` index. One caller, the combo follow-up in AttackExecution (`0x132510`) | per step while a follow-up is open | in `creatures.json`, captured at its call |
 | TriggerSequence | `0x369d0` / `0x219a30` | `(out, actor, trigger context, sequence hash, trigger, input type)`: every sequence start of the game. 61 callers | on start | 112 B, unique on all 3 servers |
 | **Enemy, movement** | | | | |
 | MoveRequest | `0x1169e0` / `0x357380` | `(ctx, distance, mode)`: writes `DynamicPathWalker` (target, arrive distances), returns from the walker state. 10 callers: Guard, Patrol, Roaming, ReturnHome, Flee... | 2.2/s for 3 creatures, more when walking | 16 B, unique on all 3 servers |
@@ -379,7 +382,7 @@ Villagers have no schedule data beyond `sleepSetup` (`NpcCommon.sleepTime`, `wak
 | `locomotion_animation` | `0x1d7b90` / `0x4382d0` | Writes the graph inputs (section 2.5) | 1 per creature per step | 16 B, unique on all 3 servers |
 | `actor_locomotion` | `0x7e490` / `0x26bcb0` | `ActorInput` to velocity | 1 per creature per step | 16 B, unique on all 3 servers |
 
-Rows the table groups: 53 functions, all unique on all 3 servers with 16-32 bytes (`TriggerSequence` needs 112: use a second anchor). On the client 51 are unique and 2 hit twice (`StateDispatch`, `Combat state`): extend those. All RVAs of svn 1285601 and 1287369 are equal **[data]**. Full patterns: regenerate with the method in section 7. They need no new sigdb concept: `sigdb/symbols/server.d/creatures.json` already holds `SetState`, `HandleCondition`, `Enemy01Update`, `Enemy01Entity` this way.
+Rows the table groups: 53 functions, all unique on all 3 servers with 16-32 bytes (`TriggerSequence` needs 112: use a second anchor). On the client 51 are unique and 2 hit twice (`StateDispatch`, `Combat state`): extend those. All RVAs of svn 1285601 and 1287369 are equal **[data]**. Full patterns: regenerate with the method in section 7. They need no new sigdb concept: `sigdb/symbols/server.d/creatures.json` already holds `SetState`, `HandleCondition`, `Enemy01Update`, `Enemy01Entity` this way, and now `ConstraintEval`, `ActionExec`, `SelectAttack`, `AttackAvailable`, `SetCurrentAttack`, `BeginAttack`, `FindAttackBySequence`, `CurrentTarget` and the arsenal map's fields. Those resolve with `tools/sigport/sigdb_check.py` on servers 26430253, 26404334 and 1273043 and clients 26430625 and 26404966: `creatures.rules`, `creatures.attacks` and `creatures.arsenal_writer` on for all 5.
 
 **Program access lists worth having at hand [dis]** (T = template, R = read, W = written):
 - `enemy01`: T `Enemy01BehaviorState`, `EnemyArsenalReference`, `PathWalker`; R `ClearPathToTarget`, `CurrentTransform`, `Faction`, `Health`, `DynamicHitReactionBehavior`, `Velocity`; W `Actor`, `ActorInput`, `DynamicEnemy01BehaviorState`, `DynamicFleeSensor`, `DynamicLocomotion`, `Movement`, `DynamicNetworkLocomotion`, `DynamicPathWalker`, `ServerAnimationGraphInput`, `Stamina`; plus optional `DynamicAggro`, `CombatFlags`, `DynamicEnemyAiming`, `DynamicEnemyPhases`, `DynamicFlying`, `SelectedTargets`, `SteeringAgent`... System reads: arsenal and enemy registries, `PathGridSystem`, `VoxelGrid`, `Daytime`, `WeatherSystem`.
@@ -432,19 +435,48 @@ E constraint true: rule evaluated 10 times, action ran 10 times
 ```
 The payload after the header is any bytes, so a mod's constraint and action can carry their own data and ids: a `kiln::npc::Call {block id, args}` dispatched to C#. Without Kiln's hooks loaded they do nothing, safely. **Attacks, sequences and everything else in an arsenal entry stay usable**, and a rule can mix game and Kiln kinds. The same trick should work for `AttackCommandArray` and `AttackDataVariant` **[hyp]**, not looked at.
 
-Handler rule: these run on job threads. A handler may read only what is safe there (a table the tick publishes, or the context's own components). Effects with world access should be queued to the tick. Managed handlers work (the lab's were C#); on reload the `hooks.md` caveat applies.
+Handler rule: these run on job threads. A handler may read only what is safe there (a table the tick publishes, or the context's own components). Effects with world access should be queued to the tick. Managed handlers work (the lab's were C#); on reload the `hooks.md` caveat applies. `kiln.creatures` builds it that way: `services/creatures.md`, "Rules and arsenals".
 
-### 4.4 Replacing one decision **[rt]**
-Lab `E fight`, Vukah, arsenal attacks 0 Normal (0 to 2.5 m), 1 Retaliate/CounterAttack, 2 IgnoreThreat (5 to 22 m); a detour on `SelectAttack` overwrites `out+8`:
+Two layout facts for a writer **[dis] [data]**. A constraint's payload must exist and start with `negated`: the rule walker reads that byte of every constraint itself, whatever the type, and a zero offset would fault. And `settings.chance` is not read by the rule walker; the game's data rolls with `RandomChanceConstrain`. Payloads are packed with no alignment (offsets end in 1, 5, 9, 13 in the game's own blob), with `size` the type's size in all of them.
+
+### 4.4 Replacing one decision **[rt] [dis]**
+**How an attack starts.** `SetCurrentAttack(ctx, index)` `0x12ab70` writes `combatData.selectedAttackIndex` (`dyn+0x40`) and runs the attack rules. 0xFF means none, and 4 of its 6 callers only ever pass that. The other two:
+
+| Path | Code | What it does |
+|---|---|---|
+| Selection | `BeginAttack` `0x128a30(ctx, {index, target}, target id, flag)`, from `SelectAttack`'s output | Callers: `0x12a250`, `0x127930` (Combat), `0x13b940` (Turn), `0x136720` (Flanking), `0x125850` (ContinuousMovement), `0x133e70` (StunBreak), and `SelectAttackAction` in rules |
+| Combo follow-up | `0x132510`, AttackExecution's update: with `CanTriggerPrimary` on, the `followUps` entry for trigger Primary (`Actor+0x1d8`, stride `0x1a8`, trigger at `+0x18`, `wasTriggered` at `+0x1a4`); `FindAttackBySequence` `0x120f50` finds the attack whose `actionSequence` hashes to it; `0x121c50` must answer 0; then `SetCurrentAttack` and `0x12c2d0` | **No selection runs.** A sequence declares this with `SetActionOportunity {triggeredBy, followUp}`. 67 such events over the arsenals' attacks, 30 of them naming another attack of the same arsenal. Some attacks have no style at all and start only this way (Scavenger `Chain_Strike02`, `Chain_Strike03`) |
+
+Every attack's sequence then starts from one place: `0x12c2d0`, reading `selectedAttackIndex`, called from Attack's update once `0x121c50` says it can run, and from the follow-up. A rule can also play any sequence with `PlayActionSequenceAction` without selecting an attack: 5 rules in the game's data play an attack's sequence.
+
+**Lab: attack 0 "still playing" under a forced pick was not a second path.** A detour that overwrote `SelectAttack`'s output 60 steps after the pair became ready and hostile, counting steps a sequence was seen playing, saw attack 0's sequence for 72 and 113 steps in two fights. Tracing `TriggerSequence` by caller, on the Vukah:
 ```
-E natural: SelectAttack 5 calls, picks 0:5                         (attack 0's sequence)
-E fight force=1: SelectAttack 29 calls, picks 1:6; sequences 16f4db39:644, 947bf0f6:72, b49eeb00:54      (hp fell on both)
-E fight force=1: SelectAttack 26 calls, picks 1:9; sequences 16f4db39:330, 947bf0f6:113, a3531d29:39, b49eeb00:280
+natural: who started what: 947bf0f6 x14 from +0x12c3ef
+forced 1, run 0: selects 9, starts 9, off the override 0; b49eeb00 x9 from +0x12c3ef
+forced 1, run 1: selects 8, starts 8, off the override 0; b49eeb00 x8 from +0x12c3ef
+forced 1, run 2: selects 8, starts 8, off the override 0; b49eeb00 x8 from +0x12c3ef
+forced late: attack 0 had started 2 times before the force, 2 of the pair were playing it then; started 0 times after it; seen playing 78 steps after it
 ```
-`b49eeb00` is FNV(attack 1's sequence GUID), `947bf0f6` attack 0's, `16f4db39` the heavy hit reaction, `a3531d29` the taunt. So the forced attack plays, though attack 1's style gate does not normally allow it there. Attack 0 still played at times: another start path (the attack rules, or before the pick) exists and was not traced. Two pairs at another spot in the lab never started fighting in 400 steps; the spot, not forcing, is the likely reason, since this happened with forcing off only and a natural pick happened elsewhere **[hyp]**.
+So forced from before they are ready, attack 0 never starts. Forced late, it is seen for 78 steps and started 0 times: attacks begun before the force, playing out. The Vukah's own attacks declare no follow-up, so the combo path could not have been it there. (`+0x12c3ef` is `0x12c2d0`'s call of `TriggerSequence`.)
+
+The combo path is real elsewhere, and a detour on `SelectAttack` alone does not stop it. The Scavenger, standing within its 1.9 m reach, where `0af145e9` (`Chain_Strike02`) and `28408ed0` (`Chain_Strike03`) have no style:
+```
+natural:    0af145e9 x6, 2770f8fd x6, c925972e x6, 28408ed0 x6, all from +0x12c3ef      12 starts no selection could have picked
+forced 1:   selects 22, starts 22, follow-ups refused 503, off 0; 2770f8fd x22          refused counts each look, while the window is open
+allow 1,3:  follow-ups refused 135; c925972e x6, 2770f8fd x6
+```
+
+**What Kiln does (`native/services/creatures/rules.cpp`).** Overwriting `out+8` afterwards is not enough: `SelectAttack` has by then done its bookkeeping for the attack it chose (use counter, cooldown group, speed, chosen target). So an override makes the game's selection choose:
+- `SelectAttack`: sets a per-thread pick and calls the original, with a style the forced attack has;
+- `AttackAvailable` (one caller, `SelectAttack`): 0 for every attack but the forced one; for that one the original's answer, or the current target when the original refuses, which forces it past range, cooldown and constraints. An allow mask just refuses those outside it;
+- `FindAttackBySequence` (one caller, the follow-up): no attack, when the override refuses the one found;
+- `PlayActionSequenceAction` in the action dispatcher: skipped when its sequence is an attack the override refuses;
+- `SetCurrentAttack`, a mid hook: counts starts, and any that arrive against the override (0 in every run), rewriting a forced one.
+
+`SelectAttack` returns `out[0]` error (0x1f nothing available), `out+8` index, `out+0xc` threat, `out+0x10` the target from `AttackAvailable`, which returns that target's id or 0. An attack still needs its range to run: Attack's update waits on `0x121c50`, which needs the creature within reach, and nothing walks in the lab, so a pair must stand within `maxRange` to be tested there.
 
 **Same pattern for the others:**
-- target: overwrite `SelectedTargets` in a `post_enemy_combat_targets` hook, or send `AddThreatTargetEvent` (already works, `creatures.md` 12);
+- target: no hook **[rt]**. `enemy_combat_targets` switches to its best candidate only when now passes `DynamicAggro.nextAllowedTargetChangeTime`, and only while no attack is selected (`allowTargetSwitches`, written at the end of the behaviour update). With that time at "never" it keeps what `SelectedTargets.targets[0].targetEntityId` holds, and `post_enemy_combat_targets` fills in that entity's transform. So the tick writes both, in Pre, and re-asserts them. `AddThreatTargetEvent` alone gets a first target, but a threat of a million did not move one the game had settled on in 200 steps;
 - transitions: `HandleCondition(ctx, cond)`: change `cond`, or return without calling;
 - move: replace `MoveRequest` (10 callers), return the walker status code (0 arrived, 1 walking, 2 stuck, 3 unreachable, 4 waiting);
 - a new FSM state: `HandleCondition` to enter a free state number, `StateDispatch` to run it. Free numbers: the table is `30 × 33` bytes, and `State` values above 29 would index past the table **[hyp: stay within, reuse `CustomBehavior` combat state or `ControlledByAttack` (14)]**.
@@ -458,7 +490,7 @@ C PlaySequence Vukah attack with the AI off: True
 C seq now (1213876837, …) NetworkActor.sequenceRuntimeId 485a4a65      = FNV(sequence GUID), the replicated field
 C AI on again: Idle
 ```
-- **Turn off:** one byte, per entity, no hook. `enemy_combat_targets` keeps maintaining `SelectedTargets` and aggro, free perception for your code. `NetworkEnemy.state` freezes at the last value; if client presentation reads it (`link_toggle_state_to_enemy_states`), set it **[hyp]**.
+- **Turn off:** one byte, per entity, no hook. **Perception stops with it [dis] [rt]:** `enemy_combat_targets` runs its pass only with `enabled` on, and otherwise clears the target: `target was 2912, is now 0`. A brain needs its own perception, or the sensors' components. `NetworkEnemy.state` freezes at the last value **[rt]**; if client presentation reads it (`link_toggle_state_to_enemy_states`), set it **[hyp]**.
 - **Drive:** `ActorInput`: `desiredWorldMoveInput +0x198`, `desiredWorldLookDirection +0x1b8`, `locomotionSpeed +0x1c4` (Zero, Sneak, Walk, Run, Sprint, Swim, Dive...), `defaultAnimationStateId +0`; `DynamicPathWalker` for walking on paths; `Abilities.PlaySequence`, `Cast`, `RunImpact` for actions.
 - **Replicates correctly:** position, velocity, `NetworkActor`, `NetworkAnimationGraphInput`, `NetworkHealth`: the same fields the AI's result goes through. kiln.creatures' `kiln_creatures_marks` already handles `MarkWritten` for what Kiln changes (`services/creatures.md`).
 - **Not shown:** that `ActorInput` writes produce walking. In the lab the entity is in LocomotionState Falling with no terrain (`vel -20`, `inputVelocity 0`), as expected without a player. On the client checklist.
@@ -468,6 +500,7 @@ C AI on again: Idle
 - Forwarding detour ~65 ns, through a managed handler ~100 ns (`hooks.md`). Mid hooks ran in the lab on 27 sites at once with no fault: 15,144 calls in 10 s.
 - A sensible enemy set: `HandleCondition`, `SelectAttack`, `ConstraintEval`, `ActionExec`, a per-entity gate. With 100 creatures: about 360 calls per step on the hot ones. **About 40 µs per step at 100 ns**, of a 16-40 ms step.
 - Handlers on hot functions should be native or a table lookup; `SelectAttack`, `ConstraintEval`, `ActionExec`, `Behaviour rules` are rare enough for C#.
+- Measured with what got built, 100 Vukahs fighting, 3 rules each **[rt]**: tick side 3.7 to 6.9 µs native and 30 to 67 µs managed per step, job side 1.1 to 1.4 µs for 12 to 20 of Kiln's kinds per step at 67 to 95 ns each. The sim step's own time shows no difference above run-to-run noise, 1 ms or more (`services/creatures.md`).
 - Install cost: `safetyhook` freezes threads briefly once at load. `hooks.md` notes that two mods sharing a very hot function stall on reload under Wine; a single Kiln dispatcher per target avoids that, so these belong in `kiln.creatures`, not in mods.
 
 ## 5. A whole NPC
@@ -500,6 +533,7 @@ The lab's reduced templates were still **copied values** from the Vukah's and th
 - **Must be on every client at boot** (`clients: "mod"`, no sync possible, as for quests): the template, model, materials and textures, skeleton, graph, clips, root motion, notify sequences, actor sequences (client plays its own copy by id), VFX and sounds.
 - **Server only:** `Enemy01BehaviorState`, arsenal (`g38_enemy::EnemyArsenalRegistry`, `EnemyArsenalReference` server only), `SubEntities`, all hooks, all brains in C#. No client code runs for behaviour.
 - A vanilla client cannot join: unknown template → crash (`gamedata.md`: kept from it). A body-less server-side change on a **vanilla** body stays vanilla-compatible: arsenal rules (Kiln kinds included), AI overrides, hooks.
+- **What a client gets of a rule or an override [rt server, on the wire side only]:** only what the game's own choice would send. A forced attack shows in `NetworkActor.sequenceRuntimeId` (FNV of the sequence) and `NetworkAnimationGraphInput.animationStateId` for the same steps as on the server: `483 entity-steps` each, `0` that differ. Arsenals, phases, the published table and overrides are in no replicated component. So `clients` stays `none` for a game sequence on a game body. A sequence whose state the body's graph lacks (the Bonebreaker's `ThreePunchCombo` on a plain Vukah) still runs its impacts, and the graph holds its pose, on the client too **[hyp]**. A new sequence needs `kiln` (a clone) or `mod` (new clips). Nothing here has been watched from a client: H6 to H9.
 - The client's prediction world (kind 1) runs some of the same programs for the local player only **[hyp]** (`abilities.md` 8); not creatures.
 
 ### 5.4 Saves **[data] [dis]**
@@ -515,7 +549,10 @@ Unchanged: `services/npcs.md` works on any template with `ActiveNpcState`. Roste
 - `abilities.md` table: animation graph data "may be baked": a served graph worked; live editing remains untried.
 - `models.md` 3: `globalScale` is not always 1.0: 142 of 267 creature models differ.
 - `creatures.md` 4: "must match the animation graph" is a data rule of authors, not an engine check.
-- kiln.content's `sequences.add` refuses a new StateId GUID: `… is not a loaded keen::ObjectReference<keen::animationgraph::StateId>`. A state id is not a resource: the check must let any GUID through. Diff for its owner in the final report.
+- kiln.content's `sequences.add` refused a new StateId GUID: a state id is not a resource, so the check lets any GUID through now.
+- `AnimationGraphResourceComponent2.animationGraph` is an `ObjectReference<keen::anim_graph::tool_graph::AnimationGraph2_0>`: it names the tool type, and what is loaded under
+  that GUID is the runtime `AnimationGraphResource2_0`. kiln.gamedata's reference check looked for the tool type and refused every cooked graph on a template clone; it takes the
+  runtime form now **[rt server: a clone plays its cooked graph]**.
 
 ## 7. Proof status
 
@@ -530,7 +567,8 @@ Unchanged: `services/npcs.md` works on any template with `ActiveNpcState`. Roste
 | Export | `kfc.py clip <guid> --gltf F --model <model>`: skeleton, skinned mesh, sampled animation: valid JSON with 97 joints, 291 channels. Not opened in Blender here (no GPU use) |
 | From-scratch skeleton, clips, graph, state id on the engine | server lab, section 2.6 **[rt]** |
 | Reduced templates | server lab, section 5.1 **[rt]** |
-| Arsenal extension, attack override, AI off | server lab, sections 4.3-4.5 **[rt]** |
+| Arsenal extension, attack override, AI off | server lab, sections 4.3-4.5 **[rt]**; `mods/tests/npc-rules-test` runs them through `kiln.creatures` |
+| Arsenal writer | all 201 arsenals read and written back in memory by the running server, 0 differ **[rt]** |
 | Call rates | server lab, 10 s, 27 mid hooks **[rt]** |
 | Signatures | 53 masked prologues on 3 servers + client **[data]** |
 | **Not proven** | anything drawn by a client; `ActorInput` producing walking; a skinned cooked model; custom notifies; blend spaces and layers from scratch; a custom body with `Enemy01BehaviorState` actually attacking on its own new skeleton in front of a player |
@@ -550,8 +588,34 @@ H1 and H2 are `tools/animcook/samples/clip_override.py` with `mods/tests/clipche
 | H3 | A cooked skinned model on the Vukah's skeleton on a Vukah override | The cooked mesh animates with all the Vukah's clips, no spikes | Skin stream, `skinningMap`, inverse binds on the game's skeleton |
 | H4 | A skeleton, model, clips and graph of our own on a clone of the Vukah, Idle + Walk + Run + one attack + Dead | Spawns, idles, walks to you with `Walk`, swings, dies. kiln.log: no `failed to initialize Animation Graph Instance`, no `Could not find description`, no `[model_loader]` | The whole body + animation path |
 | H5 | `Creatures.Of(e)` with `+0x498 = 0`, `ActorInput` per tick toward the player | Walks with its walk animation, foot speed matches, turns | The C# puppet's walking; which inputs the graph gets |
-| H6 | The arsenal rule of 4.3 on a Vukah near a player, action = heal or chat line | Fires only when your condition holds | Kiln rules in real combat |
-| H7 | `SelectAttack` forced to the charge attack (`2`) | Always charges within its range | Override in real combat |
+| H6 | Rules in real combat. **Unproven.** Steps below | A Vukah you hurt below half shouts and heals a quarter, once in 20 s, and only then | Kiln rules with a player; the client exe's hooks when hosted |
+| H7 | Attack override in real combat. **Unproven.** Steps below | It only throws, from 5 to 22 m; forced to its strike, it walks up first | Override with real walking, where the lab can't go |
+| H8 | The AI switch. **Unproven.** Steps below | It stands, ignores you, still takes hits and plays sequences; awake again on the switch | `NetworkEnemy.state` frozen on a client; hit reactions with the AI off |
+| H9 | H6 and H7 with **no Kiln on the client**, joined to a lab. **Unproven.** Steps below | The same, and nothing odd: no disconnect, no error dialog | That `clients: none` is true for rules and overrides |
+
+**Steps for H6 to H8, hosting a local world** (this also runs the hooks on the client's exe):
+```
+dotnet build mods/samples/RuleVukah/RuleVukah.csproj -c Release -o /tmp/rulevukah
+tools/client/client.sh backup-saves
+tools/client/client.sh deploy --real --policy any --mod /tmp/rulevukah
+```
+Start the game and load a local world. In chat, or in `<game>/kiln/control/console/c.cmd` with the answer in `c.result.json`: `/creature spawn Enemy_Vukah_Melee`, then `/creature near 30` for its id. The log is `<game>/kiln/logs/kiln.log`. Check first that it says `arsenals: e30312e7-9749-4329-8bfd-469a295747b5: 3 attack(s), 2 rule(s)` and `rules: constraint and action hooks installed`, and that `/creature rules` answers `dispatcher on`.
+
+- **H6.** Fight it. Above half health: no shout, no log line. Below half: it shouts (its `Retaliate_Shout`), its health jumps by a quarter, and the log says `rule-vukah: <id> rallies at <below 50> %, target <your entity>`. Hit it below half again at once: nothing for 20 s. **Fail:** a line above 50 %, or no line below it.
+- **H7.** `/creature rules <id>` lists its attacks. `/creature attack <id> force 2`, stand 5 to 22 m away: every attack is the stone throw. `/creature attack <id> force 0`, stand 10 m away: it walks to you, then strikes, and never throws. `/creature attack <id> clear`: it chooses as usual again. Then `/creature rules`: `starts <n> (against an override 0)`. **Fail:** another attack while forced, or a number other than 0 there.
+- **A written attack.** The log names the thrower's arsenal: `rule-vukah: ... the thrower's arsenal is <guid>`. `/creature set <id> arsenal <guid>`, stand 25 to 35 m away, in line of sight: it throws from there, which a plain Vukah does not.
+- **H8.** `/creature aiswitch <id> off`: it stops deciding: no attack, no walking to you. Hit it: its health drops. `/creature aiswitch <id> on`: it fights again within a second or two. Note whether it plays hit reactions while off, and what its awareness icon and health bar do.
+
+**Steps for H9, nothing of Kiln on the client:**
+```
+tools/client/client.sh undeploy --real
+export KILN_OUT=<build dir>
+dotnet build mods/samples/RuleVukah/RuleVukah.csproj -c Release -o $KILN_OUT/mods/rule-vukah --artifacts-path $KILN_OUT/dotnet
+tools/lab/lab.sh new mylab <port> --save <a save>
+tools/deploy-server.sh <labs>/mylab --policy any
+tools/lab/lab.sh start mylab
+```
+Join the lab from the DEDICATED SERVER tab, as an admin. Run H6 and H7 from chat; the lines are in `<labs>/mylab/kiln/logs/kiln.log`. **Pass:** as above, with the animations and sounds right, and no disconnect. **Note for the `clients` level:** anything that looks wrong here means `none` is not true for that feature.
 
 **Expected failures worth looking for:** a culling pop if `boundingBox` is too small for the animated mesh; `globalScale`'s role; hit reactions playing no state on a custom graph that lacks `Hit*` ids; a custom graph's overlay at `0xc6b6f9d4` missing.
 
@@ -572,7 +636,7 @@ H1 and H2 are `tools/animcook/samples/clip_override.py` with `mods/tests/clipche
 | Animation: engine input contract | code, fixed | Document and export hashes as constants; custom inputs by GUID | constants in the writer | S | medium: hashes are `.rdata` GUIDs, the kinds may gain entries | high **[dis]** |
 | Animation: feet IK, retargeting | data, on 2 and 6 nodes | Later | graph writer | M | low | medium |
 | **AI:** tuning | data | Existing `Ai.Set`, `templates`; a block-level JSON | kiln.creatures | S | low: reflection paths | high |
-| AI: target choice | code | Hook `post_enemy_combat_targets` or event `AddThreatTargetEvent` | 1 hook; existing command | S | low: unique on all builds | high for the event; hook **[dis]** |
+| AI: target choice | code | Built: `c.PreferTarget`, `PickTarget`. Tick writes, section 4.4 | no hook | done | low: fields by reflection | high **[rt]** |
 | AI: aggro, sight | code + data | Mostly data. Hook `0x13cab0` to add or block candidates | 1 hook | S-M | low | medium: inner flow only outlined |
 | AI: factions, new relations | code | Hook leaf `0x94a690`, table of relations; check inlined copies | 1 hook, more if inlined | M | medium: leaf, 6 callers, inlining can change | medium |
 | AI: leash, home | data | Existing `Home`, `EnemySettings`, feature bits | kiln.creatures | S | low | high |
@@ -581,11 +645,11 @@ H1 and H2 are `tools/animcook/samples/clip_override.py` with `mods/tests/clipche
 | AI: new path types, custom grid | code | Replace `pathfinding` per entity | large RE of `0x60900b`, cell format | **L** | medium-high: big functions | low; alternative: a mod's own A* writing `ActorInput` |
 | AI: flying, swimming | data + code | Existing components, states by id | template values, graph states | S-M | low | medium: not run |
 | **Behaviour:** rules from JSON | data | Arsenal writer per block (attacks, rules, constraints, actions as JSON) + registry merge per mod | kiln.content `arsenals` grown to add | M | low | high **[rt: override + rule]** |
-| Behaviour: **custom constraints and actions** | data + 2 hooks | Dispatcher in kiln.creatures, `Kiln.Blocks` kinds | 2 hooks, tick-published table | M | low: both unique on all builds | high **[rt]** |
-| Behaviour: attack selection | code | Hook `SelectAttack` | 1 hook | S | low | high **[rt]**; second start path untraced |
+| Behaviour: **custom constraints and actions** | data + 2 hooks | Built: dispatcher in kiln.creatures, `Is`, `Act` | 2 hooks, tick-published table | done | low: both unique on all builds | high **[rt]**; real combat unseen (H6) |
+| Behaviour: attack selection | code | Built: `c.Attacks`, `PickAttack`. Section 4.4 | 4 hooks | done | low | high **[rt]**; walking into range unseen (H7) |
 | Behaviour: transitions, new states | code + table | Hook `HandleCondition` (already mid-hooked), `StateDispatch` | 2 hooks | M | low-medium: table size may change | medium |
 | Behaviour: phases, boss logic | data | Existing rule actions | arsenal writer | S | low | high |
-| Behaviour: C# brain (per NPC) | code off | `+0x498`, `ActorInput`, sequences, a `NpcBrain` per-tick API | `kiln.creatures` field, no hook | S-M | low: field in reflection (offset by name) | high for off and sequences **[rt]**; walking unseen |
+| Behaviour: C# brain (per NPC) | code off | Switch built: `c.AiEnabled`. To build: `ActorInput`, a `NpcBrain` per-tick API, its own perception | `kiln.creatures` field, no hook | S-M | low: field by name | high for off and sequences **[rt]**; walking unseen |
 | Behaviour: villager routines | code | Hook `DecideTask` / `SetDecision`, or `NpcCommandEvent` from C# | 1-2 hooks or none | M | low | medium: rates 0 in the lab, needs a player |
 | **Whole NPC:** templates per block | data | Component sets of 5.1, defaults from a chosen base | template writer | M | low | high server; client list needs H4 |
 | Whole NPC: replication | engine | Nothing new: `clients: "mod"`, boot resources | manifest rule | none | low | high by design; unseen |
@@ -602,9 +666,9 @@ S = up to a few days for one developer, M = a week or two, L = weeks, XL = a pro
 ### Recommended order
 1. **Animation cooker** on `anim.py` + `animgraph.py`: clip, skeleton, state machine graph from glTF. H1 and H2 as soon as it can override one clip. Everything else draws on it.
 2. **Skinned bodies** in `tools/modelcook`. H3, then H4: first truly custom creature.
-3. **Arsenal writer + the 2-hook dispatcher:** `BehaviourBlock` rules from JSON with Kiln kinds. This needs no client change, so it can also ship for vanilla bodies at once.
+3. **Arsenal writer + the 2-hook dispatcher:** built. `BehaviourBlock` rules from JSON with Kiln kinds. This needs no client change, so it can also ship for vanilla bodies at once.
 4. **`AIBlock`** as JSON over tuning, plus target and move hooks; add the `NpcBrain` puppet API (`+0x498`). H5, H6, H7.
-5. **`SelectAttack`, `HandleCondition`** as public override points in `kiln.creatures`.
+5. **`HandleCondition`** as a public override point in `kiln.creatures`; the attack override is built.
 6. Villager routines, factions, flying and swimming checks; blend shapes and cloth when armor or a modder asks.
 
 ### Closest alternatives where something is costly

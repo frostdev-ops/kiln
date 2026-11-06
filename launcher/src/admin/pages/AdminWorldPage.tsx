@@ -63,7 +63,7 @@ function TimeCard() {
         {s ? <Slider aria-label="Hour" value={Math.round(s.hours * 4) / 4} min={0} max={23.75} step={0.25} onCommit={(h) => set.mutate({ hours: h, ...mode })} /> : null}
         <div className="ka-inline">
           <TextInput aria-label="Clock" placeholder="19:45" value={clock} onChange={(e) => setClock(e.target.value)} onKeyDown={(e) => e.key === "Enter" && setClockText()} style={{ width: 100 }} mono />
-          <Button size="s" variant="primary" loading={set.isPending} onClick={setClockText}>Set time</Button>
+          <Button size="s" loading={set.isPending} onClick={setClockText}>Set time</Button>
           <Toggle checked={game} onChange={setGame} label="Reset the game's clock" hint="Off: the world jumps forward to that time (plants grow, stations run)." />
         </div>
         {s?.weather && hasWeather ? (
@@ -89,7 +89,7 @@ function BroadcastCard() {
     <Card title="Broadcast" sub="A chat line every player in the world sees">
       <div className="k-stack">
         <TextInput aria-label="Broadcast text" value={text} maxLength={500} placeholder="Server restarts in 5 minutes." onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
-        <div className="k-row"><span className="k-hint">{text.length} / 500</span><span className="k-spacer" /><Button variant="primary" size="s" loading={send.isPending} onClick={go}>Send to everyone</Button></div>
+        <div className="k-row"><span className="k-hint">{text.length} / 500</span><span className="k-spacer" /><Button size="s" loading={send.isPending} onClick={go}>Send to everyone</Button></div>
       </div>
     </Card>
   );
@@ -133,7 +133,7 @@ function SettingsCard() {
     <Card title="World settings" sub="Changes apply at once and last until the server restarts, unless you make them permanent."
       actions={<>
         <Button size="s" variant="ghost" onClick={() => invalidateAdmin(qc, id, ["settings_get"])}>Re-read</Button>
-        {hasSave ? <Button size="s" variant="primary" disabled={!q.data} loading={save.isPending} onClick={keep}>Make permanent</Button> : null}
+        {hasSave ? <Button size="s" disabled={!q.data} loading={save.isPending} onClick={keep}>Make permanent</Button> : null}
       </>}>
       {q.error ? <Banner tone="warn">{q.error.message}</Banner> : null}
       {q.data && !q.data.write_supported ? <Banner tone="warn">This server build reports the settings as read-only right now (the world may still be loading).</Banner> : null}

@@ -1,13 +1,14 @@
 // SchemaForm: edits a config from its `.schema` snapshot (contracts.md 5.5).
 // Controls by entry type: bool → Toggle; int/float → number (slider when min and max are set); enum → Select;
-// duration ("5m", "1h30m") → text with a check; list<T> → chips; string → text. Badges: requires restart, synced.
+// duration ("5m", "1h30m") → text with a check; list<T> → chips; string → text. Words, not badges: Restart, Synced,
+// Pending. A changed row has a gold diamond before its label and shows the default with Reset; an invalid row shows an
+// iron-red message under the field. One column, max 720 wide; section heads in small caps.
 // The form never writes: it calls onChange(path, value) / onReset(path) and the page saves (config_set).
-import { Plus, RotateCcw, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { Json, SchemaSnapshot, SnapshotEntry, ValidationError } from "../api/commands";
 import { IconButton } from "./Button";
 import { NumberInput, Select, Slider, TextInput, Toggle } from "./Form";
-import { Badge } from "./StatusPill";
 
 export interface SchemaFormProps {
   schema: SchemaSnapshot;
@@ -86,7 +87,7 @@ export function SchemaForm({ schema, values, onChange, onReset, errors = [], pen
     return order.filter((s, i) => map.has(s) && order.indexOf(s) === i).map((s) => ({ section: (schema.sections ?? []).find((x) => x.path === s) ?? null, entries: map.get(s)! }));
   }, [schema, filter]);
 
-  if (groups.length === 0) return <div className="k-muted" style={{ padding: 12 }}>{filter ? "No matching settings." : "No settings."}</div>;
+  if (groups.length === 0) return <div className="k-empty-title">{filter ? "No setting matches that." : "This config has no settings."}</div>;
   return (
     <div className="k-sform">
       {groups.map((g) => (
@@ -94,7 +95,7 @@ export function SchemaForm({ schema, values, onChange, onReset, errors = [], pen
           {g.section && (
             <div className="k-sform-section-head">
               <span className="k-sform-section-title">{label(g.section.path)}</span>
-              {g.section.synced && <Badge tone="info" title="Sent to Kiln clients">synced</Badge>}
+              {g.section.synced && <span className="k-word-sm k-tone-info" title="Sent to Kiln clients">Synced</span>}
               {g.section.comment && <span className="k-hint">{g.section.comment}</span>}
             </div>
           )}
@@ -128,21 +129,24 @@ function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled
   return (
     <div className={"k-sform-row" + (changed ? " changed" : "") + (shownError ? " invalid" : "")}>
       <div className="k-sform-meta">
-        <div className="k-field-head">
-          <label className="k-label" htmlFor={id}>{label(e.path)}</label>
-          {e.requiresRestart && <Badge tone="warn" title="Applies after a restart">restart</Badge>}
-          {e.synced && <Badge tone="info" title="Sent to Kiln clients">synced</Badge>}
-          {pending && <Badge tone="ember" title="Saved; waits for a restart">pending</Badge>}
+        <div className="k-sform-label">
+          <label htmlFor={id}>{label(e.path)}</label>
+          {e.requiresRestart && <span className="k-word-sm k-tone-warn" title="Applies after a restart">Restart</span>}
+          {e.synced && <span className="k-word-sm k-tone-info" title="Sent to Kiln clients">Synced</span>}
+          {pending && <span className="k-word-sm k-tone-ember" title="Saved; waits for a restart">Pending</span>}
         </div>
         {e.comment && <span className="k-hint">{e.comment}</span>}
-        <span className="k-sform-key">{e.path}{changed ? ` · default ${fmt(e.default)}` : ""}</span>
+        <span className="k-sform-key">{e.path}</span>
       </div>
       <div className="k-sform-control">
-        <div className="k-input-group">
-          <div style={{ flex: 1, minWidth: 0 }}><Control id={id} entry={e} value={v} set={set} disabled={disabled} invalid={!!shownError} /></div>
-          {onReset && changed && <IconButton label="Reset to default" size="s" icon={<RotateCcw />} onClick={() => onReset(e.path)} disabled={disabled} />}
-        </div>
+        <Control id={id} entry={e} value={v} set={set} disabled={disabled} invalid={!!shownError} />
         {shownError && <span className="k-error-text">{shownError}</span>}
+        {changed && (
+          <span className="k-sform-default">
+            Default <span className="k-mono">{fmt(e.default)}</span>
+            {onReset && <> · <button type="button" className="k-link" aria-label={`Reset ${label(e.path)} to its default`} onClick={() => onReset(e.path)} disabled={disabled}>Reset</button></>}
+          </span>
+        )}
       </div>
     </div>
   );

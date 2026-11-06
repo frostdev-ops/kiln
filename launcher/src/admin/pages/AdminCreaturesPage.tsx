@@ -27,16 +27,20 @@ function CreaturesPage() {
   const s = status.data;
   return (
     <Page>
-      <PageHeader title="Creatures" sub={s ? `${s.catalog} templates · ${s.entities} creature(s) changed · ${s.layers} change(s) by mods` : "Kiln.Creatures: catalog, values, AI and commands"} />
+      <PageHeader title="Creatures" sub={s ? `${s.catalog} templates, ${s.entities} creature${s.entities === 1 ? "" : "s"} changed, ${s.layers} change${s.layers === 1 ? "" : "s"} by mods.` : "Kiln.Creatures: catalog, values, AI and commands."} />
       <OfflineNote />
       <NeedsOp ops={["creature_status", "creature_catalog", "creature_near", "creature_inspect"]} what="Creature tools">
-        <div className="k-grid k-grid-2" style={{ alignItems: "start" }}>
-          <NearCard players={players} onPick={setPicked} picked={picked} />
-          <InspectCard entity={picked} setEntity={setPicked} players={players} />
+        <div className="ka-split">
+          <div className="k-stack" style={{ gap: 22, minWidth: 0 }}>
+            <NearCard players={players} onPick={setPicked} picked={picked} />
+            <CatalogCard players={players} onSpawned={setPicked} />
+          </div>
+          <div className="k-stack" style={{ gap: 12, minWidth: 0 }}>
+            <InspectCard entity={picked} setEntity={setPicked} players={players} />
+            <p className="k-hint">Values set here are Kiln.Admin's: they go back to the game's (or another mod's) when Kiln.Admin reloads or the server restarts. Spawned creatures stay.</p>
+          </div>
         </div>
-        <CatalogCard players={players} onSpawned={setPicked} />
       </NeedsOp>
-      <div className="k-hint">Values set here are Kiln.Admin's: they go back to the game's (or another mod's) when Kiln.Admin reloads or the server restarts. Spawned creatures stay.</div>
     </Page>
   );
 }
@@ -82,7 +86,7 @@ function NearCard({ players, onPick, picked }: { players: AdminPlayer[]; onPick:
         <div className="ka-inline">
           {where.ui}
           <NumberInput aria-label="Radius" value={radius} integer min={1} max={2000} onCommit={setRadius} style={{ width: 90 }} />
-          <Button size="s" variant="primary" loading={q.isFetching && !q.data} onClick={go}>Scan</Button>
+          <Button size="s" loading={q.isFetching && !q.data} onClick={go}>Scan</Button>
         </div>
         {q.error ? <div className="k-error-text">{q.error.message}</div> : null}
         {scan ? (
@@ -168,7 +172,7 @@ function InspectCard({ entity, setEntity, players }: { entity: number | null; se
               <div className="ka-inline">
                 <Select aria-label="Field" value={field} onChange={setField} options={FIELDS} />
                 {field === "home" ? where.ui : <TextInput aria-label="Value" value={value} placeholder={field.startsWith("feature") ? "Patrol, Roaming" : "value"} onChange={(e) => setValue(e.target.value)} style={{ width: 160 }} />}
-                <Button size="s" variant="primary" loading={set.isPending} onClick={sendSet}>Set</Button>
+                <Button size="s" loading={set.isPending} onClick={sendSet}>Set</Button>
                 <Button size="s" variant="ghost" loading={reset.isPending} disabled={!c.layers} onClick={() => reset.mutate({ entity: c.entity })}>Reset</Button>
               </div>
             ) : null}

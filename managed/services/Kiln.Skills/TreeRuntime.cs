@@ -636,6 +636,7 @@ public static partial class Skills
             {
                 var cfg = new ImpactConfigs();
                 if (pe.Configs is not null) foreach (var (k, v) in pe.Configs) cfg[k] = v;
+                if (pe.LevelConfig is { } levelConfig) cfg[levelConfig] = (float)level;
                 ae.Impact = Abilities.RunProgram(pe.ProgramGuid, p, new ImpactOptions { Root = h.Entity, Configs = cfg, Tag = "skills" })
                     .GetAwaiter().GetResult();
                 break;

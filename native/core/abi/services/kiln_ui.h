@@ -184,6 +184,33 @@ typedef void(KILN_CALL* KilnUiScreenFn)(const KilnUiScreen* now, const KilnUiScr
 typedef void(KILN_CALL* KilnUiTickFn)(const KilnUiScreen* now, void* user);
 typedef void(KILN_CALL* KilnUiMenuFn)(KilnHandle entry, void* user);
 
+/* The frame the game is about to present, for subscribe_pre_overlay. Vulkan handles are void* so that this header needs no Vulkan headers. */
+typedef struct KilnUiPreOverlay {
+    uint32_t size;
+    uint32_t image_index;
+    void* instance;                 /* VkInstance */
+    void* physical_device;          /* VkPhysicalDevice */
+    void* device;                   /* VkDevice */
+    void* get_instance_proc_addr;   /* PFN_vkGetInstanceProcAddr: the real one */
+    void* get_device_proc_addr;     /* PFN_vkGetDeviceProcAddr: the real one */
+    void* queue;                    /* VkQueue the game presents on */
+    void* swapchain;                /* VkSwapchainKHR */
+    void* image;                    /* VkImage being presented, in PRESENT_SRC_KHR once wait_semaphores signal */
+    void* const* wait_semaphores;   /* VkSemaphore[wait_count] */
+    uint32_t wait_count;
+    uint32_t queue_family;
+    uint32_t format;                /* VkFormat */
+    uint32_t color_space;           /* VkColorSpaceKHR */
+    uint32_t width, height;
+    uint32_t usage;                 /* VkImageUsageFlags the swapchain was created with */
+    uint32_t reserved;
+} KilnUiPreOverlay;
+
+/* Render thread, inside the game's vkQueuePresentKHR. Keep it short: the game's frame waits. See subscribe_pre_overlay. */
+typedef bool(KILN_CALL* KilnUiPreOverlayFn)(const KilnUiPreOverlay* frame, void** out_semaphore, void* user);
+/* Any thread, with no present running: what was made for this swapchain has to go. swapchain NULL: the whole device goes. */
+typedef void(KILN_CALL* KilnUiSwapchainGoneFn)(void* device, void* swapchain, void* user);
+
 /* Render thread, inside the ImGui frame. */
 typedef void(KILN_CALL* KilnUiFrameFn)(const KilnUiFrame* frame, void* user);
 /* Window thread. Return true to keep the key from the game. */
@@ -316,6 +343,20 @@ typedef struct KilnUiApi {
      *   only while it is over them: > 0 = on (count of such panels), clicks over a Kiln panel are kept from the
      *   game; the keyboard stays the game's. */
     void(KILN_CALL* set_hover_capture)(uint32_t panels);
+
+    /* ---- full-screen work at present, under the overlay ----
+     * subscribe_pre_overlay: fn runs at each present of the game window's swapchain while set_pre_overlay_demand has said > 0, before the overlay.
+     *   It may record and submit its own work on `queue`, waiting on wait_semaphores, leaving the image in PRESENT_SRC_KHR. Then it returns true
+     *   and sets *out_semaphore, which it signals: the overlay and the present wait on that in place of the game's. Returning false says it
+     *   submitted nothing and did not touch the semaphores, and the frame goes on as before. Submit last: nothing may fail after it.
+     *   A fault in fn removes the subscription, with a log line. Remove with unsubscribe.
+     * gone: see KilnUiSwapchainGoneFn. Called once the overlay's own work on that swapchain has finished.
+     * set_pre_overlay_demand: 0 means no call at all, and the present costs one relaxed load. Any thread.
+     * add_swapchain_usage: VkImageUsageFlags for every swapchain created from now on, as far as the surface supports them (KilnUiPreOverlay.usage
+     *   says what it got). Call it in on_ready: the game creates its first swapchain after that. */
+    KilnResult(KILN_CALL* subscribe_pre_overlay)(KilnOwner owner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out);
+    void(KILN_CALL* set_pre_overlay_demand)(uint32_t count);
+    void(KILN_CALL* add_swapchain_usage)(uint32_t usage);
 } KilnUiApi;
 
 /* ====================================================================================================================

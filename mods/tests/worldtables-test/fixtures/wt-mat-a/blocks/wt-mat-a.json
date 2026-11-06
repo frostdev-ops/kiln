@@ -1,0 +1,1 @@
+{ "format": 1, "buildingMaterials": { "brick-a": { "name": "Test Brick A", "strength": { "hardness": "soft", "health": 2, "breaks": "stone" } } } }

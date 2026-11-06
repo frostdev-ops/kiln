@@ -102,11 +102,17 @@ public sealed record ContentStatus(bool Ready, bool HasItems, bool HasRecipes, b
     int Items, int Recipes, int Loot, int Drops, int Packs, int PackErrors, int Conflicts, int Changed, ulong Generation,
     string Detail)
 {
+    // Counted when first read: that lists every definition, and Content.Ready and the ready checks ask for the status often.
+    private readonly Lazy<(int Definitions, int Placeholders)>? _counts;
+    private readonly int? _definitions, _placeholders;
+
     /// <summary>New items and recipes defined by mods and data packs (all states).</summary>
-    public int Definitions { get; init; }
+    public int Definitions { get => _definitions ?? _counts?.Value.Definitions ?? 0; init => _definitions = value; }
 
     /// <summary>Placeholders "[Missing: mod:item]" registered for items of mods that are gone (missing content).</summary>
-    public int Placeholders { get; init; }
+    public int Placeholders { get => _placeholders ?? _counts?.Value.Placeholders ?? 0; init => _placeholders = value; }
+
+    internal Func<(int Definitions, int Placeholders)> CountedBy { init => _counts = new(value); }
 }
 
 /// <summary>

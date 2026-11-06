@@ -6,11 +6,11 @@ import { MapView } from "../map/MapView";
 
 function MapPage() {
   const ref = useRef<HTMLDivElement>(null);
-  const [h, setH] = useState(640);
+  const [h, setH] = useState(480);
   useLayoutEffect(() => {
     const fit = () => {
       const top = ref.current?.getBoundingClientRect().top ?? 0;
-      setH(Math.max(420, window.innerHeight - top));
+      setH(Math.max(300, window.innerHeight - top - 18));
     };
     fit();
     window.addEventListener("resize", fit);

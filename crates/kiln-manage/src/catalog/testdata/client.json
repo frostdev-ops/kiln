@@ -36,7 +36,8 @@
     "workshops": 1,
     "graphs": 1,
     "configs": 6,
-    "vfx": 3
+    "vfx": 3,
+    "materials": 3
   },
   "sections": {
     "items": [
@@ -442,6 +443,39 @@
         ],
         "killTime": 10,
         "length": 10.0
+      }
+    ],
+    "materials": [
+      {
+        "name": "StoneRough",
+        "guid": "11111111-2222-4333-8444-555555555501",
+        "kind": "building",
+        "cell": 155,
+        "displayName": "Rough Stone Block",
+        "item": "Block_T1_Stone_Rough_CRAFTING",
+        "hardness": "ModeratelyHard",
+        "health": 250,
+        "breaks": "Stone"
+      },
+      {
+        "name": "Cell129",
+        "guid": "11111111-2222-4333-8444-555555555502",
+        "kind": "building",
+        "cell": 129,
+        "hardness": "VeryHard",
+        "health": 100,
+        "breaks": "Stone"
+      },
+      {
+        "name": "TerrainStone",
+        "guid": "11111111-2222-4333-8444-555555555503",
+        "kind": "terrain",
+        "cell": 2,
+        "displayName": "Stone",
+        "item": "Build_TerrainMaterial_T1_Stone",
+        "hardness": "Hard",
+        "health": 5,
+        "breaks": "Stone"
       }
     ]
   },

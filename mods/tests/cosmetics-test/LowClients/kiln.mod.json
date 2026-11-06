@@ -1,0 +1,11 @@
+{
+  "id": "cosmetics-low",
+  "name": "cosmetics: clients too low",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "CosmeticsLow.dll",
+  "side": "both",
+  "clients": "kiln",
+  "advanced": true,
+  "description": "Part of cosmetics-test: a look with files in a mod that says clients kiln, refused; a look like a game item's in the same mod, fine."
+}

@@ -39,7 +39,8 @@ internal sealed class ProgramBuilder(string key)
         ["applyAttributeValue"] = (0x798388df, 7), ["revertApplyAttributeValue"] = (0xe41652a7, 7), ["isValidEntity"] = (0xcf3810a6, 1),
         ["filterFriends"] = (0xd6bb2b78, 4), ["filterSameRoot"] = (0xf52a5619, 4), ["forEachCollisionInStream"] = (0xd0a532b0, 11),
         ["itemBasedMaterialReaction"] = (0xad415283, 8), ["equal"] = (0x0294c6df, 3), ["triggerNoise"] = (0xd471249f, 2),
-        ["GetSlotTransform"] = (0x3e1c0b5d, 5),
+        ["GetSlotTransform"] = (0x3e1c0b5d, 5), ["applyOffset"] = (0x90cf9818, 5), ["fromTransform"] = (0x866dfbeb, 6), ["sub"] = (0xd367cdeb, 4),
+        ["mul"] = (0xc19163a7, 4), ["less"] = (0x69190348, 3), ["GetLength"] = (0xd8e52c57, 2), ["SetLength"] = (0xa5ff238b, 3), ["SetTransform"] = (0x236b6555, 1), ["destroyEntity"] = (0xc691c4da, 1),
     };
 
     internal sealed class Label { public int Pc = -1; public readonly List<int> Uses = new(); }
@@ -53,6 +54,10 @@ internal sealed class ProgramBuilder(string key)
     private readonly List<LateRef> _late = new();
     private List<uint> _cur = null!;
     private int _sites;
+
+    /// <summary>The GUID follows from the key alone, not the bytes: for data a server keeps between starts (a node of the game's tree), which has to find the program
+    /// whatever it became. A change then takes the next start: a registered program is never replaced.</summary>
+    public bool Stable { get; set; }
 
     /// <summary>The event streams the instance allocates (OnCollision 1, OnHit 2).</summary>
     public byte Streams { get; set; }
@@ -185,6 +190,36 @@ internal sealed class ProgramBuilder(string key)
         Pop();
     }
 
+    /// <summary>A Time variable := now + another. Pass the same pair to <see cref="IfPassed"/>.</summary>
+    public void Deadline(int end, int seconds)
+    {
+        _cur.Add(GLoad);
+        _cur.Add(Handle(seconds));
+        _cur.Add(LTime);
+        _cur.Add(IAdd);
+        _cur.Add(GStore);
+        _cur.Add(Handle(end));
+    }
+
+    /// <summary>Jumps once a Time variable has passed.</summary>
+    public void IfPassed(int end, Label l)
+    {
+        _cur.Add(GLoad);
+        _cur.Add(Handle(end));
+        _cur.Add(LTime);
+        _cur.Add(ILeq);
+        IfTrue(l);
+    }
+
+    /// <summary>to := from, for a uint32, sint32, float32, bool or Time variable.</summary>
+    public void Set(int to, int from)
+    {
+        _cur.Add(GLoad);
+        _cur.Add(Handle(from));
+        _cur.Add(GStore);
+        _cur.Add(Handle(to));
+    }
+
     private static uint Handle(int v) => 0xFFFF0000u | (uint)v;
 
     /// <summary>Calls a native; pushes its result byte (pop it, or branch on it). Arguments in args[] order; null = unconnected.</summary>
@@ -215,7 +250,7 @@ internal sealed class ProgramBuilder(string key)
     public (Guid Guid, byte[] Blob) Build(string mod)
     {
         var blob = Layout(Guid.Empty);
-        var guid = BlockIds.Derive(mod, "program", $"{key}#{Convert.ToHexString(SHA1.HashData(blob))[..12]}");
+        var guid = Stable ? BlockIds.Derive(mod, "program", key) : BlockIds.Derive(mod, "program", $"{key}#{Convert.ToHexString(SHA1.HashData(blob))[..12]}");
         return (guid, Layout(guid));
     }
 

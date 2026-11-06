@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: a perk, abilities, two kinds of talent and triggers on what a player does, from building blocks (docs/kiln/modding/blocks.md). No GUIDs, no base
+       items. The side and the clients follow from the blocks: both, and mod (talents are a tree every player's game builds, and a key is bound on the player's game). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>ability-blocks</KilnModId>
+    <KilnModName>Ember Path (blocks sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A sword with an enhancement, a cone on G, a homing bolt from a charm, the Ember Path talent tree, a node in the game's tree, a bun that only works out of combat, and gliding that costs less stamina.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Abilities;Players</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

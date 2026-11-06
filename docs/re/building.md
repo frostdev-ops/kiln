@@ -15,7 +15,7 @@ Tags:
 - **[rt]** run on a lab server, log lines in the section;
 - **[hyp]** not verified.
 
-Nothing here has been drawn by a client: everything about pictures is **[dec]**, **[spv]** or **[hyp]**.
+One client session checked the surface tables (1.4, **[rt client]**); everything else about pictures is **[dec]**, **[spv]** or **[hyp]**.
 
 ## Short answers
 - **A building material is one byte in a cell, and every table that describes it is data.** Cell low byte 1..127 is terrain, 128..255 is building
@@ -27,8 +27,7 @@ Nothing here has been drawn by a client: everything about pictures is **[dec]**,
   id. A tool holds damage per hardness category. The dig kernel's cost per material = `health / (damage[hardness] × miningDamageFactor × classMod)`; zero damage or `Unbreakable` leaves the material untouched. **[dec] [rt]**
 - **Saves keep a GUID per material id; the wire doesn't.** A terrain blob in the save carries a 256-entry GUID table and remaps on load. Cells of an unknown GUID come
   back as air. Replication sends raw bytes. **[dec] [rt]**
-- **A client without a material draws a fallback, by a bound check in the shader.** The fill shaders compare the index with a uniform, the table's `layerCount`.
-  **[spv]**
+- **A free slot draws, and an id past the count draws a fallback.** On a client, a slot filled through resource overrides alone drew like the material it was copied from; an id past `layerCount` drew a plain stone surface without edge decoration, and nothing crashed. The fill shaders compare the index with the table's `layerCount`. **[spv] [rt client]**
 - **Stations are data plus one state machine.** A forge and a drying rack are the same template kinds: `Crafting` + `FactoryStation` + `Inventory` and optional parts. The
   game's "fuel" for a forge is a recipe input (charcoal). A station runs recipes of its own workshop id, and any id works on the server. **[data] [dec] [rt]**
 - **Cosmetics exist in the game.** Five vanity slots, each shown instead of its armour slot; a vanity item is an armour-slot item with flag `IsVanityItem`. Dyes are a
@@ -88,6 +87,7 @@ table[id] = config.healthPoints / damage       0x22c970, 0x229400 terrain 1..127
 The heavy pickaxe swing is a second config at 7×.
 
 - Building hardness and health in the data: Rough Wood `SlightlyHard` 150, Rough Stone `ModeratelyHard` 250, Granite Block `VeryHard` 1000, Iron Block `VeryHard` 2000, Gold Block `VeryHard` 5000. Terrain health is much lower: dirt 2..5, stone 5, ores 8..25. So a block is 30 to 1000 times the terrain it replaces.
+- **What digging gives back** is the config's `materialItem` per `blocksPerLootItemExchangeRate` blocks, and for the game's building materials that is the main raw input of the block's recipe at the recipe's ratio: Rough Stone is made 100 from 2 stone and gives a stone per 50, Rough Wood 100 from 2 logs and a log per 50, Moonstone 100 from 10 moonstone and one per 10, Fancy Stone 100 from 5 limestone (and 5 flint) and a limestone per 20. None of the 85 configs names its own block item. **[data]** Whether a base's undo records give blocks back some other way wasn't read.
 - **Bases.** The zone rule is on the player, not on the wall. A player's own impact (the node's `playerId`) needs permission bits (`0x163040`: bit 8, and bit 4 inside a zone) and, in a zone, a per-player undo record (`0x230fb0`), or it does nothing. An impact with no player skips all of that and digs anywhere. **[dec]** The game's own `Terraform_Explosion_TNT_T1`, spawned by the lab inside a base zone, removed 504 of 729 cells of Rough Wood **[rt]**. So base walls take damage from anything unowned, as far as its numbers reach.
 - **No structural rules.** No support, stability or collapse type exists in reflection; a block stays where it is. Props have `AttachToSurface.detachAction` (None, Destroy, AddGravity). **[refl]**
 - **Unbreakable** materials never get a table entry, and are excluded from dismantling (`0x22d640`, `hardness < 5`). **[dec]**
@@ -130,6 +130,16 @@ else
 The same buffer (stride 392) is in 17 pipelines: the building and roof fill passes, `BrickSDF`, `BrickVoxelMaterialCopy`, `BrickMaterialCount` and the tessellated building and roof chunklet passes. Only the fill pass was read for the bound check. **[spv]**
 
 The renderer resolves all four tables once at creation, by fixed GUIDs (client `0xf4790`). So an override must be there at boot. **[dec]**
+
+**In a client [rt client]** (client 26430625, an offline local world). Overrides of `BuildingMaterialBlendingResource`, `GiVoxelBuildingMaterialResource`, `BuildingMaterialParametersResource` and `TerraformingEfficiencyRegistryResource`, served by kiln.assets at boot, put slot 84's maps and numbers (moonstone, id 212) into slot 85 (id 213) and raised the counts to 86. Then three 2 m cubes were written next to each other:
+
+| Cells | Drawn |
+|---|---|
+| 212, the game's moonstone | Veined crystal surface, crystal edge decoration, blue veins |
+| 213, the free slot | The same as 212 |
+| 214, past the count | Flat grey stone brick, no edge decoration, no bevel: the fallback |
+
+No crash or device loss, the game ran on for two minutes, and kiln.log had no error lines. The cells read back as written.
 
 **Terrain** is tighter, by layers rather than ids: `WorldMaterialBlending2Resource` has per-id `layerStartIndexAndCount` (128 slots), 224 layer slots of which 222 are used, and 768 texture slots of which 499 are used. Terrain materials blend per biome and mode. A new terrain id that reuses other layers fits today; one with its own layers can use two, unless the buffers grow, which wasn't tested. **[data]**
 
@@ -220,15 +230,23 @@ Items and models are found by GUID each frame, and a miss leaves the slot empty:
 - Body parts are items with `BodyPart_*` slots, category `Customization`, `VC_*`, 133. Male and female are separate models: `VC_Body_Chest_01`: `visualModel` male, `visualModels[{Female}]` female. Heads per gender.
 - Armor is usually one model with a `Female` morph: of 224 models with blend shapes, 159 have it. Others list per-mask models (`Vanity_TX_Hunter_Chest`: 6 entries for `Tight`, `Shield`, `Female`).
 - Hair and beards are items as well: 45 and 13, listed in `CharacterCustomizationResource.hairItems`, `beardItems` in the UI bundle, with colour lists. `Hat` and `Hood` swap the hair model through `visualModels`.
-- Rigid attachment exists for 8 armour items: `visualEntity` → a template with `SlotAttachment` and `VisualEquipment` (`Visuals_Ring_Of_Light`), spawned by the server's `equipment_visuals`. A rigid mesh can equally be a skinned model with all weight on one joint, which needs no server entity.
+- Rigid attachment exists for 8 armour items: `visualEntity` → a template with `SlotAttachment` and `VisualEquipment` (`Visuals_Ring_Of_Light`), spawned by the server's `equipment_visuals`. A rigid mesh can equally be a skinned model with all weight on one joint, which needs no server entity. The game does this itself: 19 of its vanity head models are skinned on the head joint (17) alone, and moving one's vertices to the joint's frame and attaching them again gives the same vertices within 0.3 µm. Slots of the player's skeleton, from its animation graph's `slotBoneIndexMapping`: Head 17, Chest 15, Pelvis 1, FootL 5, FootR 9, HandR 94, HandL 64, HandPalmR 74, HandPalmL 44, KneeR 7, KneeL 3, ArmL 67, Block 66. **[data]**
 
-### 3.4 Blend shape data **[data]**
+### 3.4 Blend shape data **[data] [spv] [dec]**
 `RenderModel.blendShapeData` holds per shape and per vertex **3 × f16 position deltas**, 6 bytes, in metres:
 - `mesh.blendShapeByteOffset` is the group's start. The range size is the sum of (group vertices × 6 × shapes) over the groups that have data.
-- 197 of 224 models fit "all groups" or "first group" exactly; the other 27 are other subsets, each adding up.
+- 197 of 224 models fit "all groups" or "first group" exactly; the other 27 are other subsets, each adding up. A group with no data also says offset 0.
 - On `armor_n_ear_lumberer_01_chest_tint`: 2,683 vertices, 16,098 B, median delta 2.6 mm, largest 3.6 cm, 58 % non-zero.
+- **Order** **[spv]**: the model vertex shader (`renderer.gpc`, `Model_*` pipelines) reads delta = `blendShapeData + blendShapeByteOffset + (shape × vertexCount + vertex) × 6`, three halves, for each
+  raised bit of the instance's shape mask that the mesh's mask also has, weighted by a byte /255, and adds it to the position before skinning. So a group holds all its vertices of the first
+  shape, then of the next. Normals are not changed.
+- **Shapes and weights** **[dec]**: per frame `0x383700` turns the slot's mask into `{BlendShapeId, weight}` pairs, weight 1.0, through a fixed table of 26 GUIDs in `keen::BlendShapeFlags`
+  order (client `0x14152a898`); `0x1161ae` matches them against the model's `blendShapes` by GUID and packs at most **4** weights into the instance (`0xf6de0` also caps the list at 4).
+  The table's GUIDs: `tools/kfc/kfc/mesh.py` `BLEND_SHAPES`, checked against the executable by `game_worn_check.py table`.
+- `RenderModel.blendShapeMask` has a bit per entry of `blendShapes` (1, 3, 7, 8191 in the game's data).
 
-So a morph target in a glTF maps directly, and normals don't change.
+So a morph target in a glTF maps directly, and normals don't change. The cook writes every group, zeros where a primitive lacks a target, in the "all groups" form. **[data]**: all 224
+models with blend shapes, exported to glTF by tools/kfc and cooked, give their 538 shapes back byte for byte (1,378,801 vertices).
 
 ## 4. Replication
 - **Inventory and slots** replicate item ids and counts; other players' clients resolve looks locally (section 3.2). So a worn item a client doesn't have is invisible on that player, and what else that client does with it is docs/re/content.md §9.
@@ -286,9 +304,8 @@ Every resource of these types decoded and re-encoded through `tools/kfc`, byte-i
 Written through the same code, with a new material in slot 85 copied from slot 4 (blending table, GI table, parameters, registry, pool, blueprint item, world GUID), and decoded again: `layerCount` 86, the table still 50,176 B, 48 more patch points, 42 more textures, 6 more feedback lists, and a second encode identical. The world resource differs in 16 bytes.
 
 ## 7. Open
-- **Drawn by a client: everything.** A new slot's picture, the fallback, a new item in the menu, a cooked armor piece.
+- **Drawn by a client:** a slot with its own cooked textures, rather than copied ones; the edge decoration of a new slot; a new item in the menu; a cooked armor piece.
 - Which UI reads the known-material sets (1.2).
 - The factory budget's amount (2.4); the capacity of the client's per-workshop recipe list map, `G38UiPlayData` (client `0x31b730`).
 - Whether a factory screen is the same builder as a bench's, `CraftingMenu` `0xb80050`, with `FbUiFactory` parts.
-- Other shaders' bound checks on the material index (1.4).
 - Why a placed rack on open ground without `UsedItem` wasn't saved (section 5).

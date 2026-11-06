@@ -1,62 +1,91 @@
-// /profiles/:id/* frame: name, activation state, settings, the tabs.
+// /profiles/:id/* frame: the profile's name with its id and state word, the tabs, the tab's page, and an aside the tab
+// fills (through <ProfileAside>, a portal into it) or leaves empty (then the tab gets the full width).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Settings2, Zap } from "lucide-react";
-import { useState } from "react";
-import { Link, Outlet } from "react-router-dom";
+import { useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Link, Outlet, useOutletContext } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ModKind } from "../../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus } from "../../api/hooks";
-import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, StatusPill, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
+import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
 
-export default function ProfileLayout() {
+interface Ctx { aside: HTMLElement | null }
+
+/** Renders `children` into the profile page's aside. */
+export function ProfileAside({ children }: { children: ReactNode }) {
+  const ctx = useOutletContext<Ctx | undefined>();
+  return ctx?.aside ? createPortal(children, ctx.aside) : null;
+}
+
+/** Activation for the profile pages' asides: Activate (or Apply when changed since), and the settings dialog. */
+export function useActivation() {
   const id = useProfileId();
   const qc = useQueryClient();
-  const { profile, query, update } = useProfileEdit(id);
+  const { profile } = useProfileEdit(id);
   const { game } = useGame();
   const active = useActiveProfile(game?.id);
   const status = useGameStatus(game?.id);
-  const [edit, setEdit] = useState(false);
   const isActive = !!game && active.data?.profileId === id;
-  const stale = isActive && profile && active.data && Date.parse(profile.updated) > Date.parse(active.data.activated);
+  const stale = isActive && !!profile && !!active.data && Date.parse(profile.updated) > Date.parse(active.data.activated);
   const activate = useMutation({
     mutationFn: () => api.profileActivate(id, game!.id),
-    onSuccess: () => { invalidateGame(qc, game!.id); toast.ok(stale ? "Applied" : "Profile active"); },
+    onSuccess: () => { invalidateGame(qc, game!.id); toast.ok(stale ? "Applied" : "Profile active", "Steam's Play button uses it too."); },
     onError: (e) => toast.error(e),
   });
+  const running = !!status.data?.running;
+  const button = game && (!isActive || stale) ? (
+    <Button variant="primary" loading={activate.isPending} disabled={running} title={running ? "Close the game first" : undefined} onClick={() => activate.mutate()}>
+      {stale ? "Apply" : "Activate"}
+    </Button>
+  ) : null;
+  return { isActive, stale, button, needsAction: !!button };
+}
+
+export default function ProfileLayout() {
+  const id = useProfileId();
+  const { profile, query, update } = useProfileEdit(id);
+  const { isActive, stale } = useActivation();
+  const [aside, setAside] = useState<HTMLElement | null>(null);
+  const [edit, setEdit] = useState(false);
 
   if (query.isLoading) return <Page><Skeleton lines={5} /></Page>;
-  if (!profile) return <Page><EmptyState title="Profile not found" hint={query.error ? errorText(query.error) : id} action={<Link to="/profiles"><Button>All profiles</Button></Link>} /></Page>;
+  if (!profile) return <Page><EmptyState page title="No such profile" hint={query.error ? errorText(query.error) : id} action={<Link to="/profiles"><Button>All profiles</Button></Link>} /></Page>;
   const n = (k: ModKind) => profile.mods[k].length;
   return (
-    <Page>
-      <div className="k-row"><Link to="/profiles" className="k-link" style={{ fontSize: 12.5, display: "inline-flex", gap: 4, alignItems: "center" }}><ArrowLeft size={13} />Profiles</Link></div>
-      <PageHeader title={profile.name}
-        sub={<span className="k-row" style={{ gap: 8 }}>
-          <span className="k-mono">{profile.id}</span>
-          {isActive && <StatusPill tone="ember">active</StatusPill>}
-          {profile.server && <span>· for {profile.server.name ?? profile.server.id}</span>}
-        </span>}
-        actions={<>
-          <Button icon={<Settings2 />} onClick={() => setEdit(true)}>Settings</Button>
-          {game && (!isActive || stale) && (
-            <Button variant="primary" icon={<Zap />} loading={activate.isPending} disabled={!!status.data?.running} title={status.data?.running ? "Close the game first" : undefined}
-              onClick={() => activate.mutate()}>{stale ? "Apply" : "Activate"}</Button>
-          )}
-        </>} />
-      {stale && <Banner tone="warn" title="Changed since activation">Apply to write it to the game.</Banner>}
-      <NavTabs aria-label="Profile" items={[
-        { to: "mods", label: "Mods", count: n("kiln") },
-        { to: "native", label: "Native", count: n("native") + n("plugin") },
-        { to: "emf", label: "EMF", count: n("emf") },
-        { to: "configs", label: "Configs" },
-        { to: "saves", label: "Saves" },
-      ]} />
-      <Outlet />
+    <Page fill>
+      <div className="k-split-page">
+        <div className="k-split-main">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <PageHeader title={profile.name}
+              meta={<>
+                <span className="k-mono k-muted">{profile.id}</span>
+                {isActive && <span className={"k-pill " + (stale ? "k-tone-warn" : "k-tone-gold")}>{stale ? "Changed since active" : "Active"}</span>}
+                {profile.server && <span className="k-pill k-tone-info">For {profile.server.name ?? profile.server.id}</span>}
+              </>} />
+            <NavTabs aria-label="Profile" items={[
+              { to: "mods", label: "Mods", count: n("kiln") },
+              { to: "native", label: "Native", count: n("native") + n("plugin") },
+              { to: "emf", label: "EMF", count: n("emf") },
+              { to: "configs", label: "Configs" },
+              { to: "saves", label: "Saves" },
+            ]} />
+          </div>
+          {stale && <Banner tone="warn" title="Changed">The profile changed since it was activated. Apply writes it to the game.</Banner>}
+          <Outlet context={{ aside, openSettings: () => setEdit(true) }} />
+        </div>
+        <aside ref={setAside} className="k-aside k-profile-aside" />
+      </div>
       <ProfileSettingsModal open={edit} onClose={() => setEdit(false)} name={profile.name} notes={profile.notes} dropins={profile.dropins} dataDir={profile.dataDir}
         onSave={(v) => { update((p) => { p.name = v.name; p.notes = v.notes; p.dropins = v.dropins; p.dataDir = v.dataDir; }); setEdit(false); }} />
     </Page>
   );
+}
+
+/** Opens the profile's settings dialog (from an aside). */
+export function useOpenSettings(): () => void {
+  const ctx = useOutletContext<{ openSettings?: () => void } | undefined>();
+  return ctx?.openSettings ?? (() => {});
 }
 
 const DROPIN_KINDS: { kind: ModKind; label: string; folder: string }[] = [
@@ -88,7 +117,30 @@ function ProfileSettingsModal({ open, onClose, onSave, ...init }: {
           ))}
         </div>
       </Field>
-      <Field label="Notes" htmlFor="ps-notes"><TextArea id="ps-notes" rows={3} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} style={{ fontFamily: "var(--k-font-ui)" }} /></Field>
+      <Field label="Notes" htmlFor="ps-notes"><TextArea id="ps-notes" rows={3} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} style={{ fontFamily: "var(--k-font-ui)", fontSize: 16 }} /></Field>
     </Modal>
+  );
+}
+
+/** The aside of the tabs without their own: what the profile holds, one line about the tab, Activate and Settings. */
+export function ProfileFacts({ hint }: { hint: ReactNode }) {
+  const id = useProfileId();
+  const { profile } = useProfileEdit(id);
+  const act = useActivation();
+  const openSettings = useOpenSettings();
+  if (!profile) return null;
+  const m = profile.mods;
+  return (
+    <ProfileAside>
+      <span className="k-label" style={{ fontSize: 16 }}>In this profile</span>
+      <p style={{ fontSize: 19, lineHeight: 1.28, color: "var(--k-head)" }}>
+        {m.kiln.length} Kiln, {m.native.length} native, {m.plugin.length} plugin{m.plugin.length === 1 ? "" : "s"}, {m.emf.length} EMF.
+      </p>
+      <p className="k-hint" style={{ fontSize: 16 }}>{hint}</p>
+      <div className="k-row" style={{ marginTop: "auto", gap: 8 }}>
+        {act.button}
+        <Button onClick={openSettings}>Settings</Button>
+      </div>
+    </ProfileAside>
   );
 }

@@ -85,4 +85,5 @@ def to_game(prim):
     out["positions"] = [(-p[0], p[1], p[2]) for p in prim["positions"]]
     out["normals"] = [(-n[0], n[1], n[2]) for n in prim["normals"]]
     out["tangents"] = [(-t[0], t[1], t[2], -t[3]) for t in prim["tangents"]]
+    out["morphs"] = {k: [(-v[0], v[1], v[2]) for v in deltas] for k, deltas in (prim.get("morphs") or {}).items()}
     return out

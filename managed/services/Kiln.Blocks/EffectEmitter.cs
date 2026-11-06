@@ -8,7 +8,7 @@
 //    an effect that deals damage cannot trigger itself.
 namespace Kiln;
 
-internal sealed class EffectEmitter
+internal sealed partial class EffectEmitter
 {
     private const uint CfgDamage = 0x72864524, CfgDamageScale = 0x5333fdf6;
     private static readonly Guid MagicScale = new("461946f8-b443-4dec-8dfd-3f2b63e38a60"), PhysicalScale = new("6e45319c-b82d-45b3-84d8-119e61f4c46b"),
@@ -121,11 +121,12 @@ internal sealed class EffectEmitter
             _b.Call("kiln.Signal", null, at, tagVar);
             _b.Pop();
         }
+        if (e.Screen is { } screen) PlayScreen(screen, target, id, $"{path}.screen");
         var hits = e.Damage != null || e.Knockback != Knockback.None;
-        if (hits || e.Heal != null || e.Restores != null || e.Removes is { Count: > 0 } || e.Applies != null)
+        if (hits || e.Heal != null || e.Restores != null || e.Removes is { Count: > 0 } || e.Applies != null || e.Casts != null || e.TakesCharges != null)
         {
             if (target is not { } t)
-                throw new BlockError(_ctx.Block, path, "this place has no target of its own: put damage, heal, restores, removes and applies inside an Area, say On = EffectOn.Caster, or use a trigger that has a target");
+                throw new BlockError(_ctx.Block, path, "this place has no target of its own: put damage, heal, restores, removes, applies and casts inside an Area, say On = EffectOn.Caster, or use a trigger that has a target");
             if (hits) Hit(e, t, id);
             if (e.Heal is { } heal) Change("Health", Health, heal, t, id);
             if (e.Restores is { } r)
@@ -142,6 +143,8 @@ internal sealed class EffectEmitter
                     _b.Pop();
                 }
             if (e.Applies is { } a) Apply(a, t, id, path);
+            if (e.Casts is { } casts) Signal(AbilityRuntime.CastTag(_ctx, casts, e.CastsFrom, $"{path}.casts"), t, $"casts{id}");
+            if (e.TakesCharges is { } takes) Signal(AbilityRuntime.TakeTag(takes.Item, takes.Count), t, $"takes{id}");
         }
         if (e.Then is { Count: > 0 } then)
         {
@@ -267,7 +270,7 @@ internal sealed class EffectEmitter
         var seconds = a.Seconds ?? own;
         if (seconds is { } known) FirstStatusSeconds ??= known;
         // unconnected: the status's own time (a game status: its time is the game's business)
-        _b.Call("applyBuff", null, status, target, null, null, seconds is { } s ? _b.VTime($"statusFor{id}", s) : null);
+        _b.Call("applyBuff", null, status, target, null, null, seconds is > 0 and { } s ? _b.VTime($"statusFor{id}", s) : null);
         _b.Pop();
     }
 
@@ -279,12 +282,16 @@ internal sealed class EffectEmitter
         return place;
     }
 
-    private void Area(AreaBlock area, int origin, int id, string path)
+    private void Area(AreaBlock area, int origin, int id, string path) =>
+        InRange(origin, area.Radius, area.Affects, id, null, (who, _, _) => OnTarget(area.Effects, who, $"{path}.effects"));
+
+    /// <summary>Everyone in range who counts. <paramref name="filter"/> jumps to its label to skip one; <paramref name="body"/> gets the one found, and the labels of the next and of the end.</summary>
+    private void InRange(int origin, float range, AreaAffects affects, int id, Action<int, ProgramBuilder.Label>? filter, Action<int, ProgramBuilder.Label, ProgramBuilder.Label> body)
     {
         var site = $"area{id}";
         var who = _b.V($"who{id}", ImpactType.Entity);
         var index = _b.V($"index{id}", ImpactType.Uint32);
-        var radius = _b.VFloat($"radius{id}", area.Radius);
+        var radius = _b.VFloat($"radius{id}", range);
         var factions = _b.VU16("factions", ImpactType.FactionMask, AllFactions);
         _areas.Add((site, who, index, origin, radius));
         _b.Zero(index);
@@ -293,7 +300,7 @@ internal sealed class EffectEmitter
         _b.Mark(next);
         _b.Call("forEachEntityWithFactionInRange", site, who, null, index, factions, origin, radius);
         _b.IfFalse(done);
-        _b.Call(area.Affects == AreaAffects.Enemies ? "isEnemy" : "isFriend", null, Caster, who);
+        _b.Call(affects == AreaAffects.Enemies ? "isEnemy" : "isFriend", null, Caster, who);
         _b.IfFalse(next);
         // Only what has health: the query also finds a creature's child entities (weak spots, VFX links). The game keeps one hit per root
         // target and impact, and a hit kept on a VFX link is lost, so hitting those too lost the damage at random.
@@ -303,7 +310,8 @@ internal sealed class EffectEmitter
         _b.Pop();
         _b.Load(health);
         _b.IfFalse(next);
-        OnTarget(area.Effects, who, $"{path}.effects");
+        filter?.Invoke(who, next);
+        body(who, next, done);
         _b.Goto(next);
         _b.Mark(done);
     }
@@ -370,7 +378,8 @@ internal sealed class EffectEmitter
     /// land, on what was hit. <paramref name="onKill"/>: each kill, on what was killed. <paramref name="onHitTaken"/>: each hit they take, on who dealt it.
     /// Hits an effect dealt are skipped, so an effect cannot trigger itself. Pass it to <see cref="BlockRuntime.AddWeapon"/>.</summary>
     public static (Guid Guid, byte[] Blob, EffectEmitter E, string Listing) WielderProgram(BlockContext ctx, string key,
-        IReadOnlyList<EffectRef>? onHit, string? onHitPath, IReadOnlyList<EffectRef>? onKill, string? onKillPath, IReadOnlyList<EffectRef>? onHitTaken, string? onHitTakenPath)
+        IReadOnlyList<EffectRef>? onHit, string? onHitPath, IReadOnlyList<EffectRef>? onKill, string? onKillPath, IReadOnlyList<EffectRef>? onHitTaken, string? onHitTakenPath,
+        Action<ProgramBuilder, EffectEmitter>? before = null, Action<ProgramBuilder, EffectEmitter>? after = null, Action<ProgramBuilder, EffectEmitter>? every = null)
     {
         var b = new ProgramBuilder(key) { Streams = 1 << 1 };
         var e = new EffectEmitter(b, ctx);
@@ -387,7 +396,9 @@ internal sealed class EffectEmitter
         var hit = b.NewLabel();
         var dealt = b.NewLabel();
         b.BeginCode();
+        before?.Invoke(b, e);
         b.Mark(step);
+        every?.Invoke(b, e);
         b.Call("getRoot", null, e.Caster);
         b.Pop();
         b.Call("onEvent", null, stream, hitStream);
@@ -426,6 +437,7 @@ internal sealed class EffectEmitter
         b.Goto(next);
         b.Halt();
         b.BeginShutdown();
+        after?.Invoke(b, e);
         e.EmitShutdown();
         b.Halt();
         var (guid, blob) = ctx.Build(b);
@@ -511,9 +523,8 @@ internal sealed class EffectEmitter
         }
         b.Call("triggerNoise", null, pos, noise);
         b.Pop();
+        // the entity goes at the end of the step, and the next could see the same collision again: nothing runs after the first
         b.DestroySelf();
-        b.Yield();
-        b.Goto(step);
         b.Halt();
         b.BeginShutdown();
         e.EmitShutdown();
@@ -534,6 +545,7 @@ internal sealed class EffectEmitter
         b.Pop();
         b.Call("getRoot", null, e.Caster);
         b.Pop();
+        if (s.Screen is { } screenOn) e.ScreenWhile(screenOn, target, starts: true);
         foreach (var (stat, value) in s.Modifies)
         {
             var path = $"modifies[{stat.Key}]";
@@ -567,7 +579,7 @@ internal sealed class EffectEmitter
             e.OnTarget(onTick, target, "onTick");
             b.Goto(tick);
         }
-        else if (s.OnExpire is { Count: > 0 } || modifies.Count > 0)
+        else if (s.OnExpire is { Count: > 0 } || modifies.Count > 0 || s.Screen != null)
         {
             var idle = b.NewLabel();     // it stays alive so that its shutdown code runs when the status ends
             b.Mark(idle);
@@ -582,6 +594,7 @@ internal sealed class EffectEmitter
             b.Call("revertApplyAttributeValue", m.Site, m.Attr, m.Op, m.Storage, m.Sign, target, null, m.Value);
             b.Pop();
         }
+        if (s.Screen is { } screenOff) e.ScreenWhile(screenOff, target, starts: false);
         e.EmitShutdown();
         b.Halt();
         var (guid, blob) = ctx.Build(b);

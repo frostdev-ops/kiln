@@ -1,0 +1,9 @@
+{
+  "id": "worldtables-test",
+  "name": "kiln.worldtables lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "WorldTablesTest.dll",
+  "side": "server",
+  "clients": "none"
+}

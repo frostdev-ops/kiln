@@ -303,7 +303,7 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
 1. **Skeleton binding.** Done: cook against the player skeleton GUID (`87b29df6…`) by joint index. `kfc.py model <armor> --gltf F --skin` writes joints `j<index>` (the name hash is in `extras`) and the skin, artists weight to those bones, and modelcook maps the glTF joints to skeleton indices.
 2. **Body hiding and blend shapes.**
    - `hideMask` decides which body parts the armor hides. Copy it from the base armor item.
-   - `blendShapeMask` and per-model blend shapes adapt the armor to body shapes (data 11,694 B on the chest; format not decoded). First target: an armor model without blend shapes. Test whether the game accepts `blendShapes` = [] for the item's mask.
+   - `blendShapeMask` and per-model blend shapes adapt the armor to body shapes. Done: the format is in docs/re/building.md 3.4, and modelcook writes morph targets.
 3. **Cloth.** NvCloth data (`RenderModelClothData`, `RenderClothMeshResource`): leave it out, since `clothMeshIndex` 0 and `cloth` null are valid on most models.
 4. **Gender / body variants.** `armor_m_*` names suggest per-body models; find where the female variant is chosen (`EquipmentModel {BlendShapeMask mask, model}` lists, `CharacterPresetCollection`).
 5. **Animations.**

@@ -112,7 +112,7 @@ internal static partial class Compiler
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not ScreenEffectBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -122,9 +122,13 @@ internal static partial class Compiler
             SpellBlock s => DefineSpell(ctx, low, name, s),
             VfxBlock v => DefineVfx(ctx, low, name, v),
             MaterialBlock m => DefineMaterial(ctx, low, name, m),
-            _ => DefineItemBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
+            MaterialTweakBlock t => DefineMaterialTweak(ctx, low, name, t),
+            BuildingMaterialBlock m => DefineBuildingMaterial(ctx, low, name, m),
+            StrengthBlock s => DefineStrength(ctx, low, name, s),
+            SurfaceBlock s => DefineSurface(ctx, low, name, s),
+            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
-        if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : "items", handle.GameName, tweak.Tweak);
+        if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
         low.Commit();
         mod.Handles[name] = handle;
         mod.Lowered[name] = low.Json;
@@ -153,7 +157,8 @@ internal static partial class Compiler
     private static BlockHandle DefineStatus(BlockContext ctx, Lowered low, string name, StatusBlock s)
     {
         if (string.IsNullOrWhiteSpace(s.Name)) throw new BlockError(ctx.Block, "name", "a status needs a name players can read");
-        if (s.Seconds <= 0) throw new BlockError(ctx.Block, "seconds", $"{s.Seconds} must be more than 0");
+        if (s.While == null && s.Seconds <= 0) throw new BlockError(ctx.Block, "seconds", $"{s.Seconds} must be more than 0");
+        if (s.Seconds < 0) throw new BlockError(ctx.Block, "seconds", $"{s.Seconds} is less than 0");
         var key = s.Was ?? name;
         var guid = BlockIds.Derive(ctx.Mod.Id, "buff", key);
         var (program, blob, listing) = EffectEmitter.StatusProgram(ctx, $"{key}.status", s);
@@ -169,12 +174,13 @@ internal static partial class Compiler
         }
         low.Clone("buffs", guid, game, s.Look.Starter, new JsonObject
         {
-            ["defaultLifeTime"] = s.Seconds,
+            ["defaultLifeTime"] = s.Seconds > 0 ? s.Seconds : PlayerTriggers.WhileSeconds,
             ["slot"] = s.Kind == StatusKind.Buff ? "Buff" : "Debuff",
             ["applyType"] = s.Refreshes ? "ResetTime" : "Replace",
             ["impact"] = program.ToString(),
         }, s.Name, s.Description);
         StatusVfx(ctx, low, game, s);
+        if (s.While is { } state) PlayerTriggers.DefineWhile(ctx, low, key, guid, state);
         return new BlockHandle<StatusBlock>(ctx.Mod.Id, name, guid, game, s);
     }
 
@@ -184,12 +190,17 @@ internal static partial class Compiler
     {
         if (string.IsNullOrWhiteSpace(s.Name)) throw new BlockError(ctx.Block, "name", "a spell needs a name players can read");
         if (s.Cast.ManaCost < 0) throw new BlockError(ctx.Block, "cast.manaCost", $"{s.Cast.ManaCost} is less than 0");
+        if (s.Cast.StaminaCost < 0) throw new BlockError(ctx.Block, "cast.staminaCost", $"{s.Cast.StaminaCost} is less than 0");
+        if (s.Cast.Charges is < 0) throw new BlockError(ctx.Block, "cast.charges", $"{s.Cast.Charges} is less than 0");
         if (s.Level is < 1 or > 55) throw new BlockError(ctx.Block, "level", $"{s.Level} is outside the game's item levels 1..55");
         if (s.MaxCharges is < 1 or > 65535) throw new BlockError(ctx.Block, "maxCharges", $"{s.MaxCharges} is outside 1..65535");
         var key = s.Was ?? name;
         var mod = ctx.Mod.Id;
 
-        var delivery = LowerDelivery(ctx, low, key, name, s.Delivery, "delivery", s.OnCast);
+        var spellItem = $"{mod}.{name}";
+        // The game takes one charge; the rest a cast takes on its way out.
+        var onCast = s.Cast.Charges is > 1 ? [.. s.OnCast ?? [], new EffectBlock { On = EffectOn.Caster, TakesCharges = (spellItem, s.Cast.Charges.Value - 1) }] : s.OnCast;
+        var delivery = LowerDelivery(ctx, low, key, name, s.Delivery, "delivery", onCast);
         var em = delivery.Emitter;
 
         // the item: the look's own spell item, with the rows this spell has
@@ -217,9 +228,11 @@ internal static partial class Compiler
         });
 
         // what the game reads from configs, and the tooltip rows (uiValues show what these configs say; they are tooltip-only)
-        var rules = new JsonObject { ["impactValues.ManaCost"] = s.Cast.ManaCost, ["impactValues.0x579b2657"] = s.Cast.Animation.ChargeSeconds };
-        var sequence = s.Cast.Animation.Sequence;
-        if (s.Cast.ReleaseAt != null || s.Cast.Vfx != null)
+        var animation = s.Cast.Animation ?? CastAnimation.FastBolt;
+        var rules = new JsonObject { ["impactValues.ManaCost"] = s.Cast.ManaCost, ["impactValues.0x579b2657"] = animation.ChargeSeconds };
+        if (s.Cast.StaminaCost > 0) rules["impactValues.StaminaCost"] = s.Cast.StaminaCost;
+        var sequence = animation.Sequence;
+        if (s.Cast.ReleaseAt != null || s.Cast.Vfx != null || s.Cast.Charges == 0)
         {
             var seqGuid = BlockIds.Derive(mod, "sequence", key);
             var seqName = $"{mod}.{name}.cast";
@@ -232,6 +245,7 @@ internal static partial class Compiler
             }
             // The cast's VFX takes the place of the motion's own VFX event, at its time: its hand and its moment are the motion's.
             if (s.Cast.Vfx is { } vfx) Merge(times, VfxData.Notifier(ctx, VfxData.Lower(ctx, vfx, "cast.vfx", Slot.HandR), seqName));
+            if (s.Cast.Charges == 0) times["events[PayUsageCost#1].consume"] = false;
             low.Clone("sequences", seqGuid, seqName, sequence, times);
             rules["sequences[0].sequence"] = seqName;
         }
@@ -243,17 +257,19 @@ internal static partial class Compiler
     }
 
     // The rows a spell's tooltip shows, each only if the spell has it. Loca ids are the game's: Mana Cost, Charge Time, Debuff Duration, Radius.
-    private const string RowMana = "0xbe5b2600", RowChargeTime = "0x5c76837c", RowDebuffDuration = "0xa63d29bf", RowRadius = "0xc9d82dea";
+    private const string RowStamina = "0xaa06e3ec", RowMana = "0xbe5b2600", RowChargeTime = "0x5c76837c", RowDebuffDuration = "0xa63d29bf", RowRadius = "0xc9d82dea";
 
     internal static JsonObject Row(string locaId, string format, int value) => new() { ["locaId"] = locaId, ["valueFormat"] = format, ["value"] = value };
 
     internal static JsonArray TooltipRows(CastBlock cast, EffectEmitter em)
     {
+        // The starter's rows first, in its order (mana, charge time), then what this spell adds. A row follows its config by its locaId, wherever it is.
         var rows = new JsonArray
         {
             Row(RowMana, "Normal", cast.ManaCost),
-            Row(RowChargeTime, "Duration", (int)Math.Round(cast.Animation.ChargeSeconds * 1000)),
+            Row(RowChargeTime, "Duration", (int)Math.Round((cast.Animation ?? CastAnimation.FastBolt).ChargeSeconds * 1000)),
         };
+        if (cast.StaminaCost > 0) rows.Add(Row(RowStamina, "Normal", cast.StaminaCost));
         if (em.FirstStatusSeconds is { } seconds) rows.Add(Row(RowDebuffDuration, "Duration", (int)Math.Round(seconds * 1000)));
         if (em.FirstRadius is { } radius) rows.Add(Row(RowRadius, "Float", (int)Math.Round(radius * 100)));
         return rows;
@@ -329,9 +345,13 @@ internal sealed class Lowered(ModBlocks mod)
         Arr("programs").Add(new JsonObject { ["key"] = key, ["guid"] = guid.ToString(), ["size"] = blob.Length });
     }
 
-    public void Clone(string section, Guid guid, string name, string baseName, JsonObject fields, string? displayName = null, string? description = null)
+    public void Clone(string section, Guid guid, string name, string baseName, JsonObject fields, string? displayName = null, string? description = null, IReadOnlyList<string>? addComponents = null,
+        IReadOnlyList<string>? removeComponents = null, JsonObject? texts = null)
     {
         var def = new JsonObject { ["guid"] = guid.ToString(), ["name"] = name, ["base"] = baseName, ["fields"] = fields };
+        if (texts is { Count: > 0 }) def["texts"] = texts.DeepClone();
+        if (addComponents != null) def["addComponents"] = new JsonArray(addComponents.Select(c => (JsonNode)JsonValue.Create(c)).ToArray());
+        if (removeComponents != null) def["removeComponents"] = new JsonArray(removeComponents.Select(c => (JsonNode)JsonValue.Create(c)).ToArray());
         if (displayName != null) def["displayName"] = displayName;
         if (description != null) def["description"] = description;
         Arr(section).Add(def.DeepClone());
@@ -377,7 +397,8 @@ internal sealed class Lowered(ModBlocks mod)
     public void Recipe(RecipeDefinition d)
     {
         _recipes.Add(d);
-        Arr("recipes").Add(new JsonObject { ["guid"] = d.Guid.ToString(), ["name"] = d.Name, ["station"] = d.Station,
+        Arr("recipes").Add(new JsonObject { ["guid"] = d.Guid.ToString(), ["name"] = d.Name, ["station"] = d.Station, ["menu"] = d.Menu, ["seconds"] = d.Duration?.TotalSeconds,
+            ["fields"] = d.Fields is { Count: > 0 } f ? new JsonObject(f.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => KeyValuePair.Create(x.Key, (JsonNode?)JsonValue.Create(x.Value.ToString())))) : null,
             ["inputs"] = new JsonArray(d.Inputs.Select(x => (JsonNode)new JsonObject { ["item"] = x.Item, ["count"] = x.Count }).ToArray()),
             ["outputs"] = new JsonArray(d.Outputs.Select(x => (JsonNode)new JsonObject { ["item"] = x.Item, ["count"] = x.Count }).ToArray()) });
     }
@@ -421,7 +442,7 @@ internal sealed class Lowered(ModBlocks mod)
         foreach (var rule in _lateRules) BlockRuntime.AddLateRule(mod, rule.Section, rule.Entry, rule.Path, rule.Program);
         foreach (var (section, def) in _clones)
         {
-            var registry = section switch { "buffs" => Content.Buffs, "sequences" => Content.Sequences, _ => Content.Templates };
+            var registry = section switch { "buffs" => Content.Buffs, "sequences" => Content.Sequences, "perks" => Content.Perks, _ => Content.Templates };
             BlocksBridge.DefineClone(registry, def, mod.Owner);
         }
         foreach (var d in _items) BlocksBridge.Register(d, mod.Owner);
@@ -442,7 +463,7 @@ internal sealed class Lowered(ModBlocks mod)
         {
             if (Json[key] is JsonArray a && a.Count > 0) parts.Add($"{a.Count} {what}");
         }
-        Count("items", "item(s)"); Count("recipes", "recipe(s)"); Count("templates", "template(s)"); Count("buffs", "buff(s)"); Count("sequences", "sequence(s)"); Count("programs", "program(s)");
+        Count("items", "item(s)"); Count("recipes", "recipe(s)"); Count("templates", "template(s)"); Count("buffs", "buff(s)"); Count("perks", "perk(s)"); Count("sequences", "sequence(s)"); Count("programs", "program(s)");
         if (Json["vfx"] is { } vfx) parts.Add($"VFX {vfx} ({Json["status"] ?? "not built here"})");
         if (Json["material"] is { } material) parts.Add($"material {material} ({Json["status"] ?? "not built here"})");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);

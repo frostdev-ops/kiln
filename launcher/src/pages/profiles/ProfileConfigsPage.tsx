@@ -4,5 +4,5 @@ import { useProfileId } from "./useProfileEdit";
 
 export default function ProfileConfigsPage() {
   const id = useProfileId();
-  return <ConfigEditor target={{ profile: id }} />;
+  return <div className="k-scroll" style={{ paddingBottom: 20 }}><ConfigEditor target={{ profile: id }} /></div>;
 }

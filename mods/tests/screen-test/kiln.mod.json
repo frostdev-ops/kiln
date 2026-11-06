@@ -1,0 +1,10 @@
+{
+  "id": "screen-test",
+  "name": "screen effects test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ScreenTest.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "PASS/FAIL lines for kiln.screen and ScreenEffectBlock in kiln.log. A dedicated server checks the blocks, what their programs signal and the relay; a client plays each effect on a key (docs/kiln/services/screen.md, Manual test)."
+}

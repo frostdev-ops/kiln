@@ -97,15 +97,25 @@ public readonly unsafe struct CreatureRef
         Creatures.Check(t->RulesPhaseSet(Entity.Value, RuleIds.Fnv(phase)), $"entity {Entity}: phase");
     }
 
-    /// <summary>Makes <paramref name="target"/> the creature's combat target as soon as the game's target pass runs:
-    /// a threat large enough to win, through the game's own <c>AddThreatTargetEvent</c>, and no wait for the next allowed
-    /// target change. Needs no hook. Tick thread.</summary>
+    /// <summary>Holds <paramref name="target"/> as the creature's combat target for <paramref name="seconds"/>, then the game
+    /// chooses again: it sends the game's <c>AddThreatTargetEvent</c>, so the creature stays in Combat, and keeps the game's
+    /// target pass from switching away. Needs no hook. Tick thread.</summary>
     [TickThreadOnly]
-    public void PreferTarget(EntityId target, float threat = 1_000_000f)
+    public void PreferTarget(EntityId target, double seconds = 5, float threat = 5000f)
     {
         var t = Creatures.Tick("CreatureRef.PreferTarget");
+        var o = Creatures.RequireOwner(_owner, "CreatureRef.PreferTarget");
         Command.Attack(target, threat);
-        t->TargetPrefer(Entity.Value);
+        Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, target.Value, (float)seconds), $"entity {Entity}: target");
+    }
+
+    /// <summary>Lets go of a target held with <see cref="PreferTarget"/>: the game chooses again. Tick thread.</summary>
+    [TickThreadOnly]
+    public void ReleaseTarget()
+    {
+        var t = Creatures.Tick("CreatureRef.ReleaseTarget");
+        var o = Creatures.RequireOwner(_owner, "CreatureRef.ReleaseTarget");
+        Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, 0, 0), $"entity {Entity}: target");
     }
 
     /// <summary>The enemy AI state (Invalid without enemy AI).</summary>
@@ -217,8 +227,8 @@ public readonly unsafe struct CreatureRef
         set => Ai.Set("EnemyArsenalReference.arsenal", value.ToString());
     }
 
-    /// <summary>Drops everything the calling mod changed on this creature (values and AI overrides). Returns how
-    /// many changes were dropped.</summary>
+    /// <summary>Drops everything the calling mod changed on this creature (values, AI overrides, its attack override, AI
+    /// switch and held target). Returns how many values and AI overrides were dropped.</summary>
     public int Reset()
     {
         var t = Creatures.Tick("CreatureRef.Reset");
@@ -228,6 +238,9 @@ public readonly unsafe struct CreatureRef
         var empty = default(NativeStr);
         t->AiReset(o.Native, Entity.Value, empty, empty, &b);
         t->SetReady(o.Native, Entity.Value, 0);
+        t->SetAttackOverride(o.Native, Entity.Value, null);
+        t->AiSwitch(o.Native, Entity.Value, 1);
+        t->TargetPrefer(o.Native, Entity.Value, 0, 0);
         return (int)(a + b);
     }
 

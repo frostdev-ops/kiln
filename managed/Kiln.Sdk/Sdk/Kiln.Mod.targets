@@ -63,7 +63,7 @@
        KilnPack leaves out KilnPackExclude (default assets/cooked/**: files cooked from the player's own game are made
        on each player's machine and never shipped; docs/kiln/modding/models.md). -->
   <PropertyGroup>
-    <KilnModFolders Condition="'$(KilnModFolders)' == ''">content;assets;skills;quests;blocks;icons;impact;audio;vfx</KilnModFolders>
+    <KilnModFolders Condition="'$(KilnModFolders)' == ''">content;assets;skills;quests;blocks;icons;impact;audio;vfx;models</KilnModFolders>
     <KilnPackExclude Condition="'$(KilnPackExclude)' == ''">assets/cooked/**</KilnPackExclude>
     <_KilnModFolderGlobs>$([MSBuild]::Unescape($(KilnModFolders.Replace(' ', '').Replace(',', ';').Replace(';', '/**;'))))/**</_KilnModFolderGlobs>
   </PropertyGroup>

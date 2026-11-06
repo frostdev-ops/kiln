@@ -46,6 +46,37 @@ STREAMS = {  # vertexFormat -> [(attribute, bytes)]
     "PNTCT": [("position", 8), ("normal", 4), ("tangent", 4), ("color", 4), ("texcoord", 4)],
 }
 
+# keen::BlendShapeFlags, in order: bit i of a BlendShapeMask. The client's fixed table (client 0x14152a898) turns a raised flag into the BlendShapeId a model lists.
+BLEND_SHAPES = {
+    "Female": "3ec83c3b-82b6-4731-a7b9-4463f9b5c76d",
+    "Hat": "fc7fc617-3863-4b8d-ae43-082152713256",
+    "Hood": "2b3fc521-07c4-440d-be70-307bc0b35898",
+    "Jaw01": "43fde1e6-0196-4ba9-97db-beeea2e26e56",
+    "Jaw02": "552be9b4-f21a-46d2-af20-3e8a401d6ab4",
+    "Jaw03": "5ad93866-5d4a-4acf-b6bb-7d921d19c775",
+    "Jaw04": "531aeae7-0dbf-4038-93f9-dba2ec60adbc",
+    "Jaw05": "0ccc503e-0583-4444-99ea-57c11be270ee",
+    "Jaw06": "b41d570e-dc19-44a7-9672-11bef496d2fe",
+    "Jaw07": "17237349-2a2e-4660-b080-ed5fad00068d",
+    "Jaw08": "ba84be17-0280-4f45-bbb1-6fdd0a730420",
+    "Jaw09": "880334c2-bef9-4ccd-84d1-66b0ebdc502b",
+    "Jaw10": "b5b9ec46-176a-4668-80e8-1671c1adfebd",
+    "Jaw11": "36753a8b-3409-4948-a779-cbb94da8dcc0",
+    "Jaw12": "c9ec3a54-b035-4bed-9126-967415d7509d",
+    "Jaw13": "55880850-79de-4c24-91c3-fdb4b42f34d9",
+    "Jaw14": "b6473d9c-a42a-4cdb-999c-3bd080c2d4ee",
+    "Jaw15": "7a97c809-9a26-449e-9297-724d4d7a4db2",
+    "Jaw16": "d1d46eec-5da9-4899-b6f9-2e617e0ec670",
+    "NoArmor": "c14fbcd5-1577-493e-a348-b0da20b83d6c",
+    "Shield": "5a272f2b-5397-48aa-8543-cb3f4968c1a8",
+    "Tight": "09ea4cf7-5e1b-4335-9689-f4dbb61dc199",
+    "ArmsTight01": "7b972fea-d31c-4833-ae90-a0eb2bcefe71",
+    "LegsBeltTight": "199337da-538e-42db-bac1-34106dcc39e8",
+    "LegsFeetTight": "4abf7c82-2c16-4757-9fe4-b5e7f6b158a6",
+    "LegsFeetTight01": "178e21c0-3b72-4c50-ae2e-a59ade68555e",
+}
+BLEND_SHAPE_NAMES = {g: n for n, g in BLEND_SHAPES.items()}
+
 
 @dataclass
 class RenderModel:
@@ -190,6 +221,35 @@ def skin_of(m, mesh):
     return joints, weights
 
 
+def blend_groups(m):
+    """The vertex groups that hold blend shape data, by vertexDataByteOffset. A group's `blendShapeByteOffset` is its start inside blendShapeData, and a group with no data also says 0,
+    so the range's size tells which of the groups at 0 owns it: the data groups add up to it."""
+    d = m.desc
+    n = len(d["blendShapes"])
+    total = d["blendShapeData"]["count"]
+    if not n or not total:
+        return set()
+    groups = {}
+    for x in d["meshes"]:
+        groups.setdefault(x["vertexDataByteOffset"], x)
+    others = [g for g in groups.values() if g["blendShapeByteOffset"]]
+    rest = total - sum(g["vertexCount"] * 6 * n for g in others)
+    at_zero = [o for o, g in sorted(groups.items()) if not g["blendShapeByteOffset"] and g["vertexCount"] * 6 * n == rest]
+    return {o for o, g in groups.items() if g["blendShapeByteOffset"]} | set(at_zero[:1])
+
+
+def blend_of(m, mesh, shape):
+    """One blend shape's position deltas of a mesh's group, in model space (metres), or None when the group has no data. Per group: every vertex of the first shape, then of the next,
+    3 x f16 each (the vertex shader's reading: start + (shape x vertexCount + vertex) x 6)."""
+    d = m.desc
+    if mesh["vertexDataByteOffset"] not in blend_groups(m):
+        return None
+    n = mesh["vertexCount"]
+    st = d["blendShapeData"]["start"] + mesh["blendShapeByteOffset"] + shape * n * 6
+    v = struct.unpack_from(f"<{3 * n}e", m.data, st)
+    return [v[i:i + 3] for i in range(0, 3 * n, 3)]
+
+
 def _quat_mat(q):
     x, y, z, w = q
     return [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
@@ -268,6 +328,13 @@ def triangles(m, lod=0):
             g["joints"], g["weights"] = skin_of(m, mesh)
         g["material"] = d["materials"][mesh["materialIndex"]]["material"] if d["materials"] else None
         g["materialIndex"] = mesh["materialIndex"]
+        morphs = {}
+        for i, b in enumerate(d.get("blendShapes") or []):
+            deltas = blend_of(m, mesh, i)
+            if deltas is not None:
+                morphs[BLEND_SHAPE_NAMES.get(b["id"], b["id"])] = deltas
+        if morphs:
+            g["morphs"] = morphs
         tri.submeshes.append(g)
     return tri
 
@@ -302,6 +369,8 @@ def to_rh(tri):
             t["normals"] = [(-n[0], n[1], n[2], n[3]) for n in s["normals"]]
         if s.get("tangents"):
             t["tangents"] = [(-n[0], n[1], n[2], -n[3]) for n in s["tangents"]]
+        if s.get("morphs"):
+            t["morphs"] = {k: [(-v[0], v[1], v[2]) for v in deltas] for k, deltas in s["morphs"].items()}
         out.submeshes.append(t)
     return out
 
@@ -332,15 +401,18 @@ def write_obj(tri, path):
 
 
 def write_gltf(tri, path, name="model", skeleton=None, joint_names=None):
-    """glTF 2.0 with an embedded buffer (data URI): positions, normals, tangents, uv0, colour, u32 indices; one
-    primitive per submesh. `tri` must already be right-handed (to_rh). With `skeleton` (skeleton_rh()), the joints
-    become nodes "j<index>" (or joint_names[index]) and a skin; submeshes with joints get JOINTS_0 / WEIGHTS_0."""
+    """glTF 2.0 with an embedded buffer (data URI; a .glb path gets the binary container): positions, normals, tangents, uv0, colour, u32 indices, morph targets;
+    one primitive per submesh. `tri` must already be right-handed (to_rh). With `skeleton` (skeleton_rh()), the joints become nodes "j<index>" (or joint_names[index]) and a skin; submeshes
+    with joints get JOINTS_0 / WEIGHTS_0."""
     import base64
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     blob = bytearray()
     views, accessors, prims, materials = [], [], [], []
     mat_index = {}
+    morph_names = []
+    for s in tri.submeshes:
+        morph_names += [k for k in s.get("morphs", {}) if k not in morph_names]
 
     def add(data, target, comp, typ, count, mn=None, mx=None):
         while len(blob) % 4:
@@ -379,7 +451,15 @@ def write_gltf(tri, path, name="model", skeleton=None, joint_names=None):
             mat_index[key] = len(materials)
             materials.append({"name": f"keen:{key}", "pbrMetallicRoughness": {"baseColorFactor": [0.7, 0.6, 0.45, 1.0],
                                                                              "metallicFactor": 0.6, "roughnessFactor": 0.5}})
-        prims.append({"attributes": attrs, "indices": ia, "material": mat_index[key]})
+        prim = {"attributes": attrs, "indices": ia, "material": mat_index[key]}
+        if morph_names:  # every primitive of a mesh has the same targets; one with no data for a shape gets zeros
+            targets = []
+            for k in morph_names:
+                deltas = s.get("morphs", {}).get(k) or [(0.0, 0.0, 0.0)] * len(P)
+                targets.append({"POSITION": add(b"".join(struct.pack("<3f", *v) for v in deltas), 34962, 5126, "VEC3", len(P),
+                                                [min(v[i] for v in deltas) for i in range(3)], [max(v[i] for v in deltas) for i in range(3)])})
+            prim["targets"] = targets
+        prims.append(prim)
     nodes = [{"mesh": 0, "name": name}]
     roots = [0]
     skins = []
@@ -402,11 +482,18 @@ def write_gltf(tri, path, name="model", skeleton=None, joint_names=None):
     doc = {
         "asset": {"version": "2.0", "generator": "kiln tools/kfc"},
         "scene": 0, "scenes": [{"nodes": roots}], "nodes": nodes,
-        "meshes": [{"name": name, "primitives": prims}], "materials": materials,
+        "meshes": [{"name": name, "primitives": prims, **({"extras": {"targetNames": morph_names}} if morph_names else {})}], "materials": materials,
         "buffers": [{"byteLength": len(blob),
                      "uri": "data:application/octet-stream;base64," + base64.b64encode(bytes(blob)).decode()}],
         "bufferViews": views, "accessors": accessors,
     }
     if skins:
         doc["skins"] = skins
-    path.write_text(json.dumps(doc))
+    if path.suffix.lower() == ".glb":
+        doc["buffers"] = [{"byteLength": len(blob)}]
+        js = json.dumps(doc).encode()
+        js += b" " * (-len(js) & 3)
+        bin_ = bytes(blob) + bytes(-len(blob) & 3)
+        path.write_bytes(struct.pack("<III", 0x46546C67, 2, 28 + len(js) + len(bin_)) + struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(bin_), 0x004E4942) + bin_)
+    else:
+        path.write_text(json.dumps(doc))

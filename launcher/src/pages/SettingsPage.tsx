@@ -18,7 +18,7 @@ const WIN = /Windows/i.test(navigator.userAgent);
 export default function SettingsPage() {
   return (
     <Page>
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" sub="The launcher, the games it knows, and Kiln's own settings for this game." />
       <div className="k-grid k-grid-2" style={{ alignItems: "start" }}>
         <LauncherCard />
         <GamesCard />

@@ -1,0 +1,481 @@
+// SPDX-License-Identifier: MIT
+// Lab test of creature and NPC blocks. No player: creatures are forced ready and fight each other. Start it twice: the second run checks that the ids
+// stayed and that the NPCs written for the game's start were built. PASS and FAIL lines in kiln.log, then "blocks-npc-test done: N PASS, M FAIL".
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Kiln;
+
+namespace BlocksNpcTest;
+
+public sealed class BlocksNpcTestMod : Mod
+{
+    private const string Me = "blocks-npc-test";
+    // where forced-ready creatures fight in the lab's save (outside the base, which pacifies them)
+    private static readonly WorldPosition Pos = new(3855.8, 833.0, 1399.8);
+    private readonly List<EntityId> _mine = [];
+    private int _pass, _fail;
+    private CreatureHandle? _stoneling, _vukahMind, _brainy;
+    internal static long CsCount, JsonCount, BrainTicks, BrainAttacks, BrainSaw;
+
+    private void Check(bool ok, string what)
+    {
+        if (ok) _pass++;
+        else _fail++;
+        Log.Info($"{Me}: {(ok ? "PASS" : "FAIL")} {what}");
+    }
+
+    private void Info(string s) => Log.Info($"{Me}: {s}");
+
+    public override void OnLoad()
+    {
+        // what the data files name by name
+        Blocks.Condition("always-json", _ => true, 0.5);
+        Blocks.Action("count-json", _ => Interlocked.Increment(ref JsonCount));
+
+        // the twins of blocks/creatures.json
+        var blow = Blocks.Define("stone-blow", new EffectBlock { Damage = Damage.Blunt(30), Knockback = Knockback.Small });
+        Blocks.Define("stone-fighter", new BehaviourBlock
+        {
+            Phases = ["angry"],
+            Attacks = [new AttackBlock { Name = "slam", Plays = "slam", Range = 3, HitAt = 0.6, OnHit = [blow] }],
+            Rules =
+            [
+                new RuleBlock { Name = "angry", Every = 0.5, Cooldown = 5, When = [Is.HealthBelow(0.95)], Do = [Act.SetPhase("angry"), Act.Effect(new EffectBlock { Heal = 40 }, NpcEffectOn.Self)] },
+                new RuleBlock { Name = "count", Every = 0.5, When = [Is.Custom(_ => true, 0.5)], Do = [Act.Custom(_ => Interlocked.Increment(ref CsCount))] },
+            ],
+        });
+        _stoneling = (CreatureHandle)Blocks.Define("stoneling", new CreatureBlock
+        {
+            Name = "Stoneling", Body = "stone-body", Animation = "stone-moves",
+            AI = AIs.Vukah with { Sight = 25, Faction = Faction.Vukah },
+            Behaviour = "stone-fighter", Stats = new CreatureStats { Level = 10 },
+        });
+        _vukahMind = (CreatureHandle)Blocks.Define("vukah-mind", new CreatureBlock
+        {
+            Body = Bodies.Vukah,
+            Behaviour = Behaviours.VukahMelee with { Rules = [new RuleBlock { Name = "count", Every = 0.5, When = [Is.Custom(_ => true, 0.5)], Do = [Act.Custom(_ => Interlocked.Increment(ref CsCount))] }] },
+            Stats = new CreatureStats { Level = 12 },
+        });
+        Blocks.Define("tobin", new NpcBlock
+        {
+            Name = "Tobin", Body = Bodies.Fisher, TalkName = "tobin-talk",
+            Vendor = new VendorBlock { Sells = { [GameItemName("Material_T1_Plant_Fibre")] = Price.Of(GameItemName("Material_T1_Twigs"), 2) } },
+            Roster = new RosterBlock { SummonTool = "Tobin's Whistle", Description = "A wanderer who trades a little." },
+        });
+
+        // a brain: the game's AI off, this code on
+        _brainy = (CreatureHandle)Blocks.Define("stone-brain", new CreatureBlock
+        {
+            Name = "Stone brain", Body = "stone-body", Animation = "stone-moves", AI = AIs.Vukah with { Sight = 20, Faction = Faction.Vukah },
+            Behaviour = new BehaviourBlock { Attacks = [new AttackBlock { Name = "slam", Plays = "slam", Range = 3, HitAt = 0.6, OnHit = [blow] }], Brain = () => new StoneMind() },
+        });
+
+        // an NPC whose dialogue is defined here, as quests define them in code
+        Blocks.Define("mira", new NpcBlock
+        {
+            Name = "Mira", Body = Bodies.Villager,
+            Talk = new DialogueDefinition { Id = "mira-talk", Start = "hi", Nodes = { ["hi"] = new DialogueNode { Text = "The stones walk at night." } } },
+        });
+        _ = Run();
+    }
+
+    private static ItemRef GameItemName(string name) => new(name);
+
+    public override void OnUnload()
+    {
+        foreach (var e in _mine) try { Spawn.Destroy(e); } catch (Exception) { }
+        _mine.Clear();
+    }
+
+    private async Task Steps(int n)
+    {
+        for (var i = 0; i < n; i++) await Context.Scheduler.NextTick();
+    }
+
+    private async Task Run()
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (!Spawn.WorldRunning && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
+            await Steps(120);
+            await Section("mistakes", Mistakes);
+            await Section("twins", Twins);
+            await Section("data", Data);
+            await Section("ids", Ids);
+            await Section("fight", Fight);
+            await Section("game body", GameBody);
+            await Section("brain", Brain);
+            await Section("npc", Npc);
+            await Section("clones", Clones);
+        }
+        catch (Exception e) { Check(false, $"exception: {e}"); }
+        OnUnload();
+        Log.Info($"{Me} done: {_pass} PASS, {_fail} FAIL");
+    }
+
+    private async Task Section(string name, Func<Task> run)
+    {
+        try { await run(); }
+        catch (Exception e) { Check(false, $"{name} threw: {e}"); }
+    }
+
+    private static string Refused(Action define)
+    {
+        try { define(); return ""; }
+        catch (BlockError e) { return e.Message; }
+    }
+
+    // ---- wrong blocks ----
+
+    private Task Mistakes()
+    {
+        var (blocks, errors) = Blocks.Report()[Me];
+        foreach (var e in errors) Info($"refused: {e}");
+        void Named(string block, params string[] words)
+        {
+            var e = errors.FirstOrDefault(x => x.Contains($" {block},", StringComparison.Ordinal) || x.Contains($" {block}:", StringComparison.Ordinal));
+            Check(e != null && words.All(w => e.Contains(w, StringComparison.OrdinalIgnoreCase)), $"{block} is refused by block and field: \"{e}\"");
+        }
+        Named("bad-plays", "behaviour.attacks[0].plays", "slam2", "slam", "idle");
+        Named("bad-mixed", "animation", "skeleton");
+        Named("bad-moves", "animation.walk", "moves");
+        Named("bad-keeps", "behaviour", "Enemy_Vukah_Melee");
+        Named("bad-skeleton", "animation", "ghost", "stoneling");
+        Named("bad-uncooked", "animation", "not cooked");
+        Named("bad-phase", "behaviour.rules[0].do[0]", "calm");
+        Named("bad-empty-attack", "behaviour.attacks[0].onHit");
+        Named("bad-spawn", "spawns[0].replaces", "Enemy_No_Such_Creature");
+        Named("bad-level", "stats.level", "99");
+        Named("no-idle", "idle");
+        Named("bad-npc-body", "body.model");
+        string[] wrong = ["bad-plays", "bad-mixed", "bad-moves", "bad-keeps", "bad-skeleton", "bad-uncooked", "bad-phase", "bad-empty-attack", "bad-spawn", "bad-level", "no-idle", "bad-npc-body"];
+        var made = wrong.Where(blocks.Contains).ToList();
+        Check(made.Count == 0, $"none of the {wrong.Length} wrong blocks became anything: {string.Join(", ", made)}");
+        Check(CreatureVariants.Get($"{Me}:bad-plays") == null && CreatureVariants.Get($"{Me}:bad-level") == null, "and no variant of theirs exists");
+
+        var cs = Refused(() => Blocks.Define("cs-bad-plays", new CreatureBlock
+        {
+            Body = "stone-body", Animation = "stone-moves",
+            Behaviour = new BehaviourBlock { Attacks = [new AttackBlock { Name = "x", Plays = "slam2", OnHit = [new EffectBlock { Heal = 1 }] }] },
+        }));
+        Check(cs.Contains("creature cs-bad-plays", StringComparison.Ordinal) && cs.Contains("behaviour.attacks[0].plays", StringComparison.Ordinal) && cs.Contains("slam2", StringComparison.Ordinal),
+            $"C#: an attack playing a state the graph lacks throws with block and field: \"{cs}\"");
+        cs = Refused(() => Blocks.Define("cs-run-plays", new CreatureBlock
+        {
+            Body = "stone-body", Animation = "stone-moves",
+            Behaviour = new BehaviourBlock { Attacks = [new AttackBlock { Plays = AnimState.Run, OnHit = [new EffectBlock { Heal = 1 }] }] },
+        }));
+        Check(cs.Contains("plays", StringComparison.Ordinal) && cs.Contains("Run", StringComparison.Ordinal), $"C#: the engine's Run can't be played by a sequence (no GUID): \"{cs}\"");
+        cs = Refused(() => Blocks.Define("cs-inline", new CreatureBlock
+        {
+            Body = "stone-body",
+            Animation = new AnimationBlock { Clips = "models/stoneling.glb", Idle = "Idle", Walk = "Walk", Run = "Run" },
+        }));
+        Check(cs.Contains("animation", StringComparison.Ordinal) && cs.Contains("not cooked", StringComparison.Ordinal) && cs.Contains("blocks/*.json", StringComparison.Ordinal),
+            $"C#: an animation with files written in code is refused, saying where it belongs: \"{cs}\"");
+        cs = Refused(() => Blocks.Define("cs-bad-npc", new NpcBlock { Name = "x", Body = Bodies.Fisher, Vendor = new VendorBlock() }));
+        Check(cs.Contains("vendor.sells", StringComparison.Ordinal), $"C#: a vendor that sells nothing: \"{cs}\"");
+        return Task.CompletedTask;
+    }
+
+    // ---- C# and JSON are the same objects ----
+
+    private Task Twins()
+    {
+        static string Normal(string? json) => Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID").Replace("-json", "").Replace("\r", "");
+        foreach (var name in new[] { "stoneling", "vukah-mind", "tobin", "stone-blow" })
+        {
+            var cs = Normal(Blocks.Lowered(name, Me));
+            var json = Normal(Blocks.Lowered($"{name}-json", Me));
+            Check(cs.Length > 10 && cs == json, $"blocks/creatures.json lowers to what the C# {name} does ({cs.Length} characters)");
+            if (cs != json) Info($"C#: {cs}\nJSON: {json}");
+        }
+        Info($"stoneling lowers to: {Blocks.Lowered("stoneling", Me)}");
+        return Task.CompletedTask;
+    }
+
+    // ---- what they became ----
+
+    private Task Data()
+    {
+        var low = JsonNode.Parse(Blocks.Lowered("stoneling", Me)!)!;
+        var graph = Guid.Parse(low["creature"]!["graph"]!.GetValue<string>());
+        var model = Guid.Parse(low["creature"]!["model"]!.GetValue<string>());
+        Check(graph == BlockIds.Derive(Me, "graph", "stone-moves.stone-body"), $"its graph is the cooked one with the body's slots: {graph}");
+        Check(model == BlockIds.Derive(Me, "model", "models/stoneling"), $"its model is the cooked one: {model}");
+        Check(low["creature"]!["clients"]!.GetValue<string>() == "mod", "a body of its own asks clients: mod");
+        var t = Content.Templates.Get($"{Me}.stoneling");
+        Check(t != null, $"its template is a template of its own: {t?.Guid}");
+        if (t != null)
+        {
+            Check(t.Get("AnimationGraphResourceComponent2.animationGraph").ToString() == graph.ToString(), $"the template plays the cooked graph: {t.Get("AnimationGraphResourceComponent2.animationGraph")}");
+            Check(t.Get("ModelResource.model").ToString() == model.ToString(), $"and draws the cooked model: {t.Get("ModelResource.model")}");
+            Check(t.Get("Enemy01BehaviorState.patrolSetup.patrolAnimation").ToString() == "a26eaa64-1902-496c-bc67-070c87a32303", $"a state the AI names by field is the animation's Walk: {t.Get("Enemy01BehaviorState.patrolSetup.patrolAnimation")}");
+            Info($"template: scale {t.Get("ScaleComponent.uniformScale")}, faction {t.Get("Faction.faction")}, sight {t.Get("Enemy01BehaviorState.aggroSetup.viewRange")}, path radius {t.Get("PathWalker.horizontalRadius")}, " +
+                 $"capsule {t.GetJson("ColliderResourceComponent.colliders[0].dataArray[CapsuleColliderData#0].shape")?["value"]?.ToJsonString()}, bounds max y {t.Get("Enemy01BehaviorState.defaultLocalBoundingBoxMax.y")}");
+            Check(Math.Abs(t.GetNumber("Enemy01BehaviorState.aggroSetup.viewRange") - 25) < 0.01 && Math.Abs(t.GetNumber("ScaleComponent.uniformScale") - 1.1) < 0.01, "the AI's sight and the body's scale are the template's");
+        }
+        var arsenal = _stoneling!.Arsenal!.Value;
+        var info = Arsenals.Info(arsenal);
+        var seq = BlockIds.Derive(Me, "sequence", "stoneling.slam");
+        Check(info is { Attacks.Count: 1 } && info.Attacks[0].Sequence == seq && info.Rules.Count == 2, $"its arsenal has its attack, playing its own sequence, and its 2 rules: {info?.Attacks.Count} attack(s), {info?.Rules.Count} rule(s), problems {string.Join("; ", info?.Problems ?? [])}");
+        var s = Content.Sequences.Get($"{Me}.stoneling.slam");
+        Check(s != null && s.Get("events[SetAnimationEvent#0].animationName").ToString() == BlockIds.Derive(Me, "state", "slam").ToString(), $"the attack's sequence sets the attack's state: {s?.Get("events[SetAnimationEvent#0].animationName")}");
+        Info($"slam sequence: length {s?.Get("length")}, spawn at {s?.Get("events[SpawnEntityEvent#0].time")}, places {s?.Get("events[SpawnEntityEvent#0].templateReference")}");
+        var mind = JsonNode.Parse(Blocks.Lowered("vukah-mind", Me)!)!;
+        Check(mind["creature"]!["clients"]!.GetValue<string>() == "none" && mind["creature"]!["template"]!.GetValue<string>() == "Enemy_Vukah_Melee",
+            "a game body with a new mind stays the game's creature and asks clients for nothing");
+        return Task.CompletedTask;
+    }
+
+    private Task Ids()
+    {
+        var file = Path.Combine(Context.DataDirectory, "ids.txt");
+        var now = string.Join("\n", new[] { "stoneling", "vukah-mind", "stone-brain", "tobin", "stone-moves", "stone-body" }
+            .Select(n => $"{n} {Blocks.Find(n, Me)?.Guid}") .Append($"arsenal {_stoneling?.Arsenal}").Append($"variant {_stoneling?.Variant}"));
+        if (File.Exists(file))
+        {
+            var before = File.ReadAllText(file);
+            Check(before == now, $"after the restart the ids are the same: {now.Replace('\n', ',')}");
+        }
+        else
+        {
+            Directory.CreateDirectory(Context.DataDirectory);
+            File.WriteAllText(file, now);
+            Info($"first run: ids written to {file}; start again for the restart check");
+        }
+        return Task.CompletedTask;
+    }
+
+    // ---- a creature of our own files ----
+
+    private async Task<EntityId> Opponent(double dx, double dz)
+    {
+        var e = await Spawn.Entity("Enemy_Vukah_Melee", new WorldPosition(Pos.X + dx, Pos.Y, Pos.Z + dz), 0, new SpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(e);
+        var c = Creatures.Of(e);
+        c.Faction = Faction.PlayerAlly;
+        c.Level = 60;
+        c.ForceReady();
+        return e;
+    }
+
+    private static uint StateOf(EntityId e) => World.ReadBytes(e, "ServerAnimationGraphInput") is { Length: > 0x230 } b ? BitConverter.ToUInt32(b, 0x22c) : 0;
+
+    private async Task Fight()
+    {
+        var s = await _stoneling!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(s);
+        await Steps(30);
+        var info = Spawn.Inspect(s);
+        Check(info?.Template == Content.Templates.Get($"{Me}.stoneling")?.Guid, $"a stoneling spawns as its own template: {info?.Template}");
+        var g = World.ReadBytes(s, "ServerAnimationGraphComponent2");
+        Check(g != null && BitConverter.ToInt32(g, 0) != 0, $"with a running graph: handle {(g == null ? 0 : BitConverter.ToInt32(g, 0))}");
+        Check(StateOf(s) == _stoneling.States["Idle"], $"standing in the engine's Idle: 0x{StateOf(s):x8}");
+        var c = Creatures.Of(s);
+        Check(c.Arsenal == _stoneling.Arsenal, $"its arsenal is the block's: {c.Arsenal}");
+        Check(CreatureVariants.Of(s)?.Id == _stoneling.Variant && c.Level == 10, $"it is the block's variant, level {c.Level}");
+        Check(c.Features.Disabled.HasFlag(EnemyFeatures.UseTaunt), $"the base creature's own motions (taunt, block, spawn sequence) are off: {c.Features.Disabled}");
+
+        var o = await Opponent(2, 0);
+        c.Level = 60;
+        c.ForceReady();
+        var slamSeq = BlockIds.Fnv(BlockIds.Derive(Me, "sequence", "stoneling.slam"));
+        var slamState = _stoneling.States["slam"];
+        var angry = RuleIds.Fnv(RuleIds.Derive(Me, "phase", "angry"));
+        long seqSteps = 0, stateSteps = 0, cs0 = Interlocked.Read(ref CsCount);
+        var lowest = 1.0;
+        int healed = 0, last = c.Inspect()?.Health ?? 0;
+        var phase = false;
+        for (var i = 0; i < 900 && World.Exists(s); i++)
+        {
+            if (i % 40 == 0 && World.Exists(o))
+            {
+                c.Command.Attack(o, 5000);
+                Creatures.Of(o).Command.Attack(s, 5000);
+            }
+            await Steps(1);
+            if (Abilities.SequenceOf(s) is { Sequence: var q } && q == slamSeq) seqSteps++;
+            if (StateOf(s) == slamState) stateSteps++;
+            if (World.Exists(o) && Creatures.Of(o).Inspect() is { HealthMax: > 0 } oh) lowest = Math.Min(lowest, (double)oh.Health / oh.HealthMax);
+            if (c.Inspect() is { } me)
+            {
+                if (me.Health > last + 20) healed++;
+                last = me.Health;
+            }
+            phase |= World.Exists(s) && c.Phase == angry;
+            if (i % 100 == 0)
+            {
+                var a = c.Inspect();
+                var b = World.Exists(o) ? Creatures.Of(o).Inspect() : null;
+                var d = World.TryGetPosition(s, out var ps) && World.TryGetPosition(o, out var po) ? ps.DistanceTo(po) : -1;
+                Info($"fight step {i}: stoneling {a?.State} target {a?.Target} hp {a?.Health}/{a?.HealthMax} seq {Abilities.SequenceOf(s)?.Sequence:x8} state 0x{StateOf(s):x8}; " +
+                     $"opponent {b?.State} target {b?.Target} hp {b?.Health}/{b?.HealthMax} seq {(World.Exists(o) ? Abilities.SequenceOf(o)?.Sequence : 0):x8}; {d:F1} m apart");
+            }
+        }
+        Info($"fight: slam sequence seen {seqSteps} steps, its state {stateSteps} steps, opponent down to {lowest:P0}, healed {healed} time(s), angry {phase}, rule count {Interlocked.Read(ref CsCount) - cs0}");
+        Check(seqSteps > 0, $"the stoneling attacks with its own sequence ({seqSteps} steps)");
+        Check(stateSteps > 0, $"and its graph plays the attack's state ({stateSteps} steps)");
+        Check(lowest < 1, $"its hit lands: the opponent is down to {lowest:P0}");
+        Check(Interlocked.Read(ref CsCount) > cs0, "a rule with code of its own fires (Is.Custom, Act.Custom)");
+        Check(phase && healed > 0, $"below 95% health its rule sets the phase \"angry\" and its effect heals it ({healed})");
+        Spawn.Destroy(s);
+        if (World.Exists(o)) Spawn.Destroy(o);
+    }
+
+    // ---- a game creature with a new mind ----
+
+    private async Task GameBody()
+    {
+        var v = await _vukahMind!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(v);
+        var o = await Opponent(2, 0);
+        var c = Creatures.Of(v);
+        c.ForceReady();
+        var j0 = Interlocked.Read(ref JsonCount);
+        var c0 = Interlocked.Read(ref CsCount);
+        for (var i = 0; i < 200; i++)
+        {
+            if (i % 40 == 0 && World.Exists(o)) c.Command.Attack(o, 5000);
+            await Steps(1);
+        }
+        Check(Spawn.Inspect(v)?.Template == Creatures.Template("Enemy_Vukah_Melee")?.Id, "a Vukah with a new mind is the game's Vukah");
+        var info = Arsenals.Info(c.Arsenal);
+        Check(c.Arsenal == _vukahMind.Arsenal && info != null && info.Attacks.Count > 1, $"its arsenal keeps the Vukah's attacks and adds its rule: {info?.Attacks.Count} attacks, {info?.Rules.Count} rules");
+        Check(Interlocked.Read(ref CsCount) > c0, $"its rule fires ({Interlocked.Read(ref CsCount) - c0} times)");
+        Spawn.Destroy(v);
+        if (World.Exists(o)) Spawn.Destroy(o);
+    }
+
+    // ---- a brain ----
+
+    private async Task Brain()
+    {
+        var b = await _brainy!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(b);
+        var o = await Opponent(2, 0);
+        var c = Creatures.Of(b);
+        c.ForceReady();
+        var t0 = Interlocked.Read(ref BrainTicks);
+        var slamSeq = BlockIds.Fnv(BlockIds.Derive(Me, "sequence", "stone-brain.slam"));
+        long seen = 0;
+        for (var i = 0; i < 400; i++)
+        {
+            await Steps(1);
+            if (Abilities.SequenceOf(b) is { Sequence: var q } && q == slamSeq) seen++;
+        }
+        Check(!c.AiEnabled, "a creature with a brain has the game's AI off");
+        Check(Interlocked.Read(ref BrainTicks) - t0 > 300, $"its brain runs every step ({Interlocked.Read(ref BrainTicks) - t0} ticks in 400 steps)");
+        Check(Interlocked.Read(ref BrainSaw) > 0, "its own perception sees the opponent, with the game's off");
+        Check(Interlocked.Read(ref BrainAttacks) > 0 && seen > 0, $"and the brain attacks with the creature's attack: {Interlocked.Read(ref BrainAttacks)} started, its sequence seen {seen} steps");
+        Spawn.Destroy(b);
+        if (World.Exists(o)) Spawn.Destroy(o);
+    }
+
+    // ---- a friendly NPC ----
+
+    private async Task Npc()
+    {
+        var def = Quests.NpcDefinitions.FirstOrDefault(d => d.FullId == $"{Me}:tobin");
+        Check(def is { Clone: true, Template: "NPC_Workshop_Fisher_Trader", Dialogue: "tobin-talk" }, $"the NPC is the quests' NPC, a clone of the fisher with its dialogue: {def?.FullId} {def?.CloneName}");
+        Check(Quests.NpcDefinitions.Any(d => d.FullId == $"{Me}:mira") && Dialogues.Definitions.Any(d => d.FullId == $"{Me}:mira-talk"), "an NPC with a dialogue from code defines both");
+        var recipe = Content.Recipes.Get($"{Me}.tobin.sells0");
+        Check(recipe != null, $"its wares are a recipe at the fisher's workshop: {recipe?.Name}");
+        await Steps(60);
+        var file = Path.Combine(Context.Info.Directory, "quests", "generated", "npc-blocks.json");
+        var doc = File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) : null;
+        Check(doc?["npcs"]?["tobin"]?["roster"]?["summonItem"] != null && doc["npcs"]!["tobin-json"] != null, $"its roster entry is written for the game's start: {file}");
+
+        // the quests' engine knows it: a talk objective to it is done by talking to it
+        var q = Quests.Define(new QuestDefinition
+        {
+            Id = "meet-tobin", Name = "Meet Tobin", Giver = "tobin", Journal = QuestJournalMode.Chat,
+            Steps = [new QuestStep { Id = "talk", Objectives = [QuestObjective.Talk("tobin")] }],
+        });
+        var who = QuestHolder.Synthetic("blocks-npc-test");
+        Quests.Reset(q.FullId, who);
+        var r = Quests.Start(q.FullId, who, force: true);
+        QuestInput.Talk(who, "tobin", modId: Me);
+        await Steps(10);
+        Check(r.Ok && Quests.StatusOf(q.FullId, who) == QuestStatus.Done, $"a quest whose step is to talk to it is done by talking to it: {r.Reason} {Quests.StatusOf(q.FullId, who)}");
+
+        // what the game built at this start from what the last one wrote
+        var lookup = Spawn.Lookup($"Kiln_{Me}_tobin");
+        if (lookup == null)
+        {
+            Info("the NPC's template is not built yet: it is from the next start (start the lab again)");
+            return;
+        }
+        Check(lookup.Id == BlockIds.Derive(Me, "npc", "tobin"), $"the game built the NPC from the written file: {lookup.Name} {lookup.Id}");
+        var e = await Spawn.Entity(lookup.Name, new WorldPosition(Pos.X, Pos.Y, Pos.Z + 12), 90, new SpawnOptions { Tag = Me });
+        _mine.Add(e);
+        await Steps(80);
+        Check(World.Exists(e), $"it spawns and stays (its roster entry is unlocked): {e}");
+    }
+    // ---- what the template clones take ----
+
+    private static bool Absent(GameDataEntry t, string component)
+    {
+        try { return t.GetJson(component) is not { } j || j["absent"] is not null; }
+        catch (Exception e) when (e is ArgumentException or KeyNotFoundException or InvalidOperationException) { return true; }
+    }
+
+    private (string State, string? Error) Clone(string name, JsonArray? remove)
+    {
+        var def = new JsonObject { ["guid"] = BlockIds.Derive(Me, "template", name).ToString(), ["name"] = $"{Me}.{name}", ["base"] = "Enemy_Vukah_Melee", ["fields"] = new JsonObject() };
+        if (remove != null) def["removeComponents"] = remove;
+        try
+        {
+            var d = Content.Templates.Define(def);
+            return (d.State, d.Error);
+        }
+        catch (ArgumentException e) { return ("refused", e.Message); }
+    }
+
+    private Task Clones()
+    {
+        var t = Content.Templates.Get($"{Me}.stoneling")!;
+        var graph = BlockIds.Derive(Me, "graph", "stone-moves.stone-body").ToString();
+        string Refusal(string value)
+        {
+            try { t.Set("AnimationGraphResourceComponent2.animationGraph", value); return ""; }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return e.Message; }
+        }
+        var wrong = Refusal(Guid.NewGuid().ToString());
+        Check(wrong.Contains("not a loaded", StringComparison.Ordinal), $"a template's graph that is no loaded graph is still refused: \"{wrong}\"");
+        var right = Refusal(graph);
+        Check(right.Length == 0 && t.Get("AnimationGraphResourceComponent2.animationGraph").ToString() == graph, $"a mod's cooked graph is taken: \"{right}\" {t.Get("AnimationGraphResourceComponent2.animationGraph")}");
+
+        Check(Absent(t, "SubEntities") && Absent(t, "HookShotAnchorSubEntity"), "a body of its own leaves the base creature's gear out (SubEntities, HookShotAnchorSubEntity)");
+        var (state, error) = Clone("no-gear", new JsonArray("SubEntities", "HookShotAnchorSubEntity"));
+        var ng = Content.Templates.Get($"{Me}.no-gear");
+        Check(state == "registered" && ng != null && Absent(ng, "SubEntities") && !Absent(ng, "Enemy01BehaviorState"), $"removeComponents takes those two out and keeps the rest: {state} {error}");
+        (state, error) = Clone("no-such", new JsonArray("NoSuchComponent"));
+        Check(state != "registered" && error?.Contains("NoSuchComponent", StringComparison.Ordinal) == true, $"a component the base hasn't is refused by name: {state} \"{error}\"");
+        (state, error) = Clone("no-actor", new JsonArray("Actor"));
+        Check(state != "registered" && error?.Contains("Actor", StringComparison.Ordinal) == true, $"an actor's own is refused: {state} \"{error}\"");
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>Walks to what it sees and hits it: the game's AI is off for it.</summary>
+internal sealed class StoneMind : NpcBrain
+{
+    public override void Tick(NpcControl npc)
+    {
+        Interlocked.Increment(ref BlocksNpcTestMod.BrainTicks);
+        if (npc.Target.IsNone)
+        {
+            npc.Stop();
+            return;
+        }
+        Interlocked.Increment(ref BlocksNpcTestMod.BrainSaw);
+        if (npc.TargetDistance is < 3 && World.Position(npc.Target) is { } at)
+        {
+            npc.Face(at);
+            if (npc.Attack("slam")) Interlocked.Increment(ref BlocksNpcTestMod.BrainAttacks);
+        }
+        else if (World.Position(npc.Target) is { } to) npc.MoveTo(to, run: true);
+    }
+}

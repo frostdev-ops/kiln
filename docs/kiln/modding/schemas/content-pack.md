@@ -51,6 +51,7 @@ A clone with a fixed GUID (never change a released one), a name and a base of th
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
+| `addComponents` | array of string |  | Templates: components of the game's types the clone has and its base hasn't, zeroed; its fields fill them in. |
 | `base` | string | yes | min length 1 |
 | `description` | string |  |  |
 | `displayName` | string |  |  |
@@ -58,6 +59,7 @@ A clone with a fixed GUID (never change a released one), a name and a base of th
 | `guid` | [fixedGuid](#fixedguid) | yes |  |
 | `name` | [cloneName](#clonename) | yes |  |
 | `placeholder` |  |  | "placeholder" is written by Kiln for missing gamedata Kiln warns (not refused). |
+| `removeComponents` | array of string |  | Templates: components of the base the clone does without, such as a creature's gear (SubEntities) on another body. A component the base hasn't, CurrentTransform, and an actor's own are refused. |
 | `texts` | object |  |  |
 
 ## cloneName
@@ -131,7 +133,7 @@ A new item: a clone of `base` with its own fixed GUID, debug name, texts and val
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `base` | string | yes | The item it is cloned from (debug name, 0x id or GUID). min length 1 Names a **items** entry (checked against the catalog). |
-| `description` | string |  |  |
+| `description` | string |  | Empty: none, rather than the base item's. |
 | `displayName` | string |  | The name players see (every language). |
 | `drops` | array of object |  | Drop-table stacks: {table: <table GUID \| glob over GUIDs \| like:<item>>, countMin, countMax, chance, weight}. |
 | `fields` | [fields](#fields) |  |  |
@@ -142,6 +144,7 @@ A new item: a clone of `base` with its own fixed GUID, debug name, texts and val
 | `name` | [itemName](#itemname) | yes |  |
 | `placeholder` | object |  | Kiln's own (missing content): mods do not write it. Kiln warns (not refused). |
 | `rolledLoot` | boolean |  | Opt-in for a rolled loot item: keeps the base's generateRarity and level range. Default false: a fixed rarity and one level, as the recipe tooltip shows. |
+| `source` | string |  | Where to get it, in the tooltip (every language). Not given: nothing, not the base item's. |
 | `texts` | [texts](#texts) |  |  |
 
 ## itemName

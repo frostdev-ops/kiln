@@ -569,8 +569,8 @@ public sealed class GamedataTestMod : Mod
         // items: the pack changed the game item's mana cost
         const string Mana = "impactValues.ManaCost";
         var ammo = Content.ItemData.Get(Fireball)!;
-        NewContent.RegisterJson(ContentKind.Items, "{\"guid\":\"9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c3c\",\"name\":\"Kiln_Test_Ammo_Game\",\"base\":\"" + Fireball + "\"}");
-        var ammoGame = Content.ItemData.Get("Kiln_Test_Ammo_Game");
+        NewContent.RegisterJson(ContentKind.Items, "{\"guid\":\"9f3a6c21-4d7e-4b18-a2c5-6e0d8b7f1c3c\",\"name\":\"GamedataTest_Ammo_Game\",\"base\":\"" + Fireball + "\"}");
+        var ammoGame = Content.ItemData.Get("GamedataTest_Ammo_Game");
         Check(ammoGame != null && Near(Num(ammoGame, Mana), ammo.Original(Mana).AsDouble) && Near(Num(ammo, Mana), 30), $"an item clone has the game's mana cost, not the rule on its base: {(ammoGame != null ? Num(ammoGame, Mana) : -1)} (game {ammo.Original(Mana).AsDouble}, the base 30)");
     }
 

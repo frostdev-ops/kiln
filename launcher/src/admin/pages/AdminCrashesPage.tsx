@@ -31,7 +31,7 @@ function CrashesPage() {
       <PageHeader title="Crash reports" sub="Kiln writes one when a mod or Kiln itself faults: the mod, the exception, the mod list and the log around it." />
       <OfflineNote />
       {!has && st.session ? <Banner tone="ember" title="Needs a newer Kiln.Admin">This server's Kiln.Admin has no 'crash_reports' op; the list comes from the server folder.</Banner> : null}
-      <div className="ka-split">
+      <div className="ka-split list-left">
         <Card title="Reports" sub={`${list.length} · newest first`} flush>
           <div className="ka-pick" style={{ padding: 6 }}>
             {list.map((c) => (

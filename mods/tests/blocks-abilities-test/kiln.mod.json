@@ -1,0 +1,11 @@
+{
+  "id": "blocks-abilities-test",
+  "name": "perk, ability, talent and trigger blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksAbilitiesTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "advanced": true,
+  "description": "PASS/FAIL lines, player-free: perks by the game's unlock rule, abilities and their costs, every delivery, talents in a Kiln tree and in the game's, triggers on what a player does, C# and JSON alike, and the errors a mistake gets."
+}

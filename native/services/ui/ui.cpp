@@ -314,6 +314,7 @@ KilnResult KILN_CALL t_subscribe_key(KilnOwner owner, KilnUiKeyFn fn, void* user
 
 KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
     if (game_unsubscribe(h)) return KILN_OK;  // menu entries, screen and UI-tick subscriptions
+    if (vk_unsubscribe(h)) return KILN_OK;    // pre-overlay subscriptions
     std::lock_guard<std::mutex> lk(g_sub_mu);
     const size_t n = g_frame_subs.size() + g_key_subs.size();
     std::erase_if(g_frame_subs, [&](const FrameSub& s) { return s.handle == h; });
@@ -470,6 +471,9 @@ void KILN_CALL t_window_rect(float* x, float* y, float* w, float* h) {
     if (h) *h = s.y;
 }
 void KILN_CALL t_set_hover_capture(uint32_t n) { g_hover_panels = n; }
+KilnResult KILN_CALL t_subscribe_pre_overlay(KilnOwner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out) {
+    return vk_subscribe_pre_overlay(fn, gone, user, out);
+}
 
 // kiln.ui.tick (for Kiln.Host)
 KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, KilnHandle* out) { return game_subscribe_frame_tick(o, fn, u, out); }
@@ -492,6 +496,7 @@ const KilnUiApi kTable = {
     &t_screen, &t_subscribe_screen, &t_subscribe_ui_tick, &t_menu_add, &t_menu_set, &t_push_style, &t_pop_style,
     &t_image_load, &t_image_size, &t_image, &t_image_button, &t_image_free, &t_set_next_window_focus, &t_combo,
     &t_input_multiline, &t_dummy, &t_window_rect, &t_set_hover_capture,
+    &t_subscribe_pre_overlay, &vk_set_pre_overlay_demand, &vk_add_swapchain_usage,
 };
 
 std::string api_path(int kind) {

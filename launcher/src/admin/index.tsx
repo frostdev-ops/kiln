@@ -1,11 +1,11 @@
-// Server administration: the admin pages of one server, self-contained. Mount
-// `<AdminRoutes/>` on `servers/:id/admin/*` (App.tsx does); it provides the server's shared admin session
-// (<AdminProvider>), the connection bar, the page tabs and the pages. Pages and hooks: docs/kiln/launcher/admin-pages.md.
+// Server administration: the admin pages of one server. Mount `<AdminRoutes/>` on `servers/:id/admin/*` (App.tsx does);
+// it provides the server's shared admin session (<AdminProvider>) and the pages. The server's grouped list
+// (shell/serverNav.ts) links to them; the connection shows in the server's live sentence (pages/servers/ServerLayout.tsx).
+// Configs, Mods and the console are merged into the server's own pages (live while it runs); their old admin routes
+// redirect there. Pages and hooks: docs/kiln/launcher/admin-pages.md.
 import { Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
-import { AdminProvider, useAdminState } from "../api/admin";
-import { ConnectionBar } from "./ConnectionBar";
+import { AdminProvider } from "../api/admin";
 import { startHistory } from "./history";
-import { ConfirmHost, NavTabs } from "./ui";
 import AdminPlayersPage from "./pages/AdminPlayersPage";
 import AdminMapPage from "./pages/AdminMapPage";
 import AdminZonesPage from "./pages/AdminZonesPage";
@@ -17,16 +17,14 @@ import AdminCreaturesPage from "./pages/AdminCreaturesPage";
 import AdminGameDataPage from "./pages/AdminGameDataPage";
 import AdminPermissionsPage from "./pages/AdminPermissionsPage";
 import AdminContentPage from "./pages/AdminContentPage";
-import AdminConfigsPage from "./pages/AdminConfigsPage";
-import AdminModsPage from "./pages/AdminModsPage";
-import AdminConsolePage from "./pages/AdminConsolePage";
 import AdminSavesPage from "./pages/AdminSavesPage";
 import AdminCrashesPage from "./pages/AdminCrashesPage";
 import "./admin.css";
 
 export { AdminProvider } from "../api/admin";
+export { ConfirmHost } from "./ui";
 
-/** The admin pages in tab order (route segment, tab label, page). */
+/** The admin pages (route segment, label, page). */
 export const ADMIN_PAGES = [
   ["players", "Players", AdminPlayersPage],
   ["map", "Map", AdminMapPage],
@@ -39,9 +37,6 @@ export const ADMIN_PAGES = [
   ["gamedata", "Game data", AdminGameDataPage],
   ["permissions", "Permissions", AdminPermissionsPage],
   ["content", "Content", AdminContentPage],
-  ["configs", "Configs", AdminConfigsPage],
-  ["mods", "Mods", AdminModsPage],
-  ["console", "Console", AdminConsolePage],
   ["saves", "Saves", AdminSavesPage],
   ["crashes", "Crashes", AdminCrashesPage],
 ] as const;
@@ -53,24 +48,13 @@ export function adminBase(serverId: string) {
   return `/servers/${encodeURIComponent(serverId)}/admin`;
 }
 
+/** The admin pages render inside the server's layout, which also hosts their confirm() dialogs (ConfirmHost). */
 function AdminLayout() {
-  const st = useAdminState();
-  const base = adminBase(useParams().id ?? st.serverId);
-  const players = st.state?.players?.length;
-  return (
-    <div className="ka-admin">
-      <div className="ka-admin-head">
-        <ConnectionBar />
-        {/* absolute links: inside the admin/* splat route, React Router 7 resolves relative ones against the splat */}
-        <NavTabs aria-label="Admin pages" items={ADMIN_PAGES.map(([seg, label]) => ({ to: `${base}/${seg}`, label, count: seg === "players" && players ? players : undefined }))} />
-      </div>
-      <div className="ka-admin-body">
-        <Outlet />
-      </div>
-      <ConfirmHost />
-    </div>
-  );
+  return <Outlet />;
 }
+
+/** Old admin routes that are merged into the server's own pages. */
+const MERGED: [string, string][] = [["configs", "configs"], ["mods", "mods"], ["console", "overview"]];
 
 /** Every admin page of the server in the URL (`/servers/:id/admin/*`). */
 export function AdminRoutes({ serverId }: { serverId?: string }) {
@@ -84,6 +68,9 @@ export function AdminRoutes({ serverId }: { serverId?: string }) {
           <Route index element={<Navigate to={`${adminBase(id)}/players`} replace />} />
           {ADMIN_PAGES.map(([seg, , Page]) => (
             <Route key={seg} path={seg} element={<Page />} />
+          ))}
+          {MERGED.map(([from, to]) => (
+            <Route key={from} path={from} element={<Navigate to={`/servers/${encodeURIComponent(id)}/${to}`} replace />} />
           ))}
           <Route path="*" element={<Navigate to={`${adminBase(id)}/players`} replace />} />
         </Route>

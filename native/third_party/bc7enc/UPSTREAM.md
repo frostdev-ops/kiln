@@ -6,3 +6,5 @@
 - Licence: MIT or public domain (Unlicense), your choice: `LICENSE` (copied from the repository). Not vendored:
   `bc7e.ispc` (Apache 2.0), `lodepng` (zlib), `miniz`, the RDO encoder and the command-line tool.
 - Used by: `native/services/assets` (kiln.assets) to encode PNG retextures to a texture's own BCn format.
+  Also `native/services/vfx/cook` (VFX textures, materials) and `native/services/surfaces/cook` (building surfaces, which also decode a
+  texture's last mip with `bc7decomp` and `rgbcx`).

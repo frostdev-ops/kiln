@@ -1,5 +1,6 @@
-// Toasts: `toast.ok("Saved")`, `toast.error(err)`, `toast.info(...)`; <Toaster/> lives in the shell.
-import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
+// Toasts, bottom left: `toast.ok("Saved")`, `toast.error(err)`, `toast.info(...)`; <Toaster/> lives in the shell.
+// A small-caps title and one line. They go after 2.6 s; errors stay until closed.
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { create } from "zustand";
 import { toKilnError } from "../api/commands";
@@ -23,8 +24,8 @@ export const useToasts = create<ToastStore>((set, get) => ({
   items: [],
   push: (t, ms) => {
     const id = ++seq;
-    set({ items: [...get().items.slice(-4), { ...t, id }] });
-    const life = ms ?? (t.kind === "err" ? 8000 : 3500);
+    set({ items: [...get().items.slice(-3), { ...t, id }] });
+    const life = ms ?? (t.kind === "err" ? 0 : 2600);
     if (life > 0) setTimeout(() => get().dismiss(id), life);
     return id;
   },
@@ -41,20 +42,17 @@ export const toast = {
   },
 };
 
-const ICON: Record<ToastKind, ReactNode> = { ok: <CircleCheck />, err: <CircleAlert />, info: <Info /> };
-
 export function Toaster() {
   const { items, dismiss } = useToasts();
   return (
     <div className="k-toasts" aria-live="polite">
       {items.map((t) => (
         <div key={t.id} className={`k-toast k-toast-${t.kind}`} role={t.kind === "err" ? "alert" : "status"}>
-          {ICON[t.kind]}
           <div className="k-toast-body">
-            <div>{t.title}</div>
+            <div className="k-toast-title">{t.title}</div>
             {t.detail && <div className="k-toast-detail">{t.detail}</div>}
           </div>
-          <button type="button" className="k-toast-close" aria-label="Dismiss" onClick={() => dismiss(t.id)}><X size={14} /></button>
+          <button type="button" className="k-toast-close" aria-label="Dismiss" title="Dismiss" onClick={() => dismiss(t.id)}><X size={14} /></button>
         </div>
       ))}
     </div>
