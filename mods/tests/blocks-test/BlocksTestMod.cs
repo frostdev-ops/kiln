@@ -217,7 +217,7 @@ public sealed partial class BlocksTestMod : Mod
     // JSON and C# are the same objects: what they lower to differs only in names and the ids that follow from names.
     private void Twin()
     {
-        string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "frostlance", "frostbolt").Replace("-json", "");
+        string Normal(string? json) => Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "[Ff]rostlance", m => m.Value[0] == 'F' ? "Frostbolt" : "frostbolt").Replace("-json", "");
         var cs = Normal(Blocks.Lowered("frostbolt", Sample));
         var json = Normal(Blocks.Lowered("frostlance", Sample));
         Check(cs.Length > 500 && cs == json, $"blocks/frostlance.json lowers to what the C# frostbolt does ({cs.Length} characters of definitions)");

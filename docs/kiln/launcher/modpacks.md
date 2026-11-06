@@ -23,9 +23,11 @@ launcher downloads, checks and installs it into a profile. Formats: [contracts.m
 
 ## Player: the offer and the install
 1. Kiln.Network writes `kiln/state/last-server.json` when a server answers the join. The launcher watches it
-   (`kiln://last-server`); `modpack_pending(gameId)` returns it when it is worth an offer: a refusal, or a welcome that
-   still lists missing mods, from a server that advertises a modpack, unless the user dismissed that same modpack
-   (`modpack_dismiss`, kept in `<data>/modpacks/dismissed.json` per game and server).
+   (`kiln://last-server`); `modpack_pending(gameId)` returns it when Play should show it: every refusal (Play's refusal
+   banner, with **Get modpack** only when the server advertises one), or a welcome that still lists missing mods from a
+   server that advertises a modpack. Not when the user dismissed it (`modpack_dismiss`, kept in
+   `<data>/modpacks/dismissed.json` per game and server): a dismissed modpack isn't offered again, a dismissed refusal
+   without a modpack stays away until the next refusal.
 2. **The consent modal** (`ModpackOffer`, opened from Play's refusal banner): server name and id, the refusal reason,
    the modpack's name, version, URL, size and sha256, what is missing (`modpack_inspect`, which downloads nothing),
    whether it holds native code, a "this runs code on your PC" warning, and a checkbox the user must tick. http URLs are

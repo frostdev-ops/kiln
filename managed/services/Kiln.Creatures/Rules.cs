@@ -595,8 +595,15 @@ public static unsafe class Arsenals
     /// What the same owner and source wrote before is replaced.</summary>
     internal static ArsenalHandle DefineFor(Guid id, ArsenalSpec spec, Creatures.OwnerKey owner, string mod, string source)
     {
-        RemoveOwned(owner, source);
-        return Write(id, spec, owner, mod, source);
+        // written later than the mod's OnLoad (a game client's hosted world): its code conditions and actions are still the mod's, and go with it
+        var outer = ModContext.CurrentMod;
+        if (owner.Mod is { } m) ModContext.CurrentMod = m;
+        try
+        {
+            RemoveOwned(owner, source);
+            return Write(id, spec, owner, mod, source);
+        }
+        finally { ModContext.CurrentMod = outer; }
     }
 
     /// <summary>Adds to an arsenal the game has, for every creature that uses it, by its GUID. The game's own attacks and rules stay

@@ -31,7 +31,7 @@ events). Design system: [design-system.md](design-system.md).
 ## Pages
 | Route | Page | Backend |
 |---|---|---|
-| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln, proxy, runs on, last boot); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
+| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors plus the mods that failed in mods.json/native.json of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
 | `/profiles` | list, create, duplicate, delete (typed), activate | `profile_*` |
 | `/profiles/:id/mods` | the Kiln mods as the resolver's load order (client or server side): numerals, flame toggles, why a mod stays out; add from the library, other versions, remove | `profile_save`, `profile_resolve`, `library_list` |
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
@@ -71,7 +71,11 @@ textures load).
 - `spawn_task(app, kind, title, work)` (commands/app.rs): runs `work(&mut dyn Progress)` on the blocking pool; emits the
   whole `Task` as `kiln://task` at start, per report (throttled ~80 ms unless the message changes) and at the end
   (`done` + `result`, `failed` + `error`, `canceled` for `ErrorCode::Canceled`; a panic is `internal`).
-  `task_cancel` makes `canceled()` true; `task_list` keeps the last 50 finished.
+  `task_cancel` makes `canceled()` true; `task_list` keeps the last 50 finished. Every task's start and outcome (with
+  the error code, message and last step) are also appended to `<data>/logs/launcher.log`, which outlives the process.
+- Runtime installs end with a check of the game folder: the receipt must name the bundle's version and parts and every
+  listed file must have its bytes, else the task fails. Parts the game's side cannot take are refused before the
+  bundle's verify. The page keeps the last change and its outcome until dismissed; Play shows a failed one.
 - Frontend: `useTaskFeed()` (shell) fills the store; `runTask(() => cmd(...), {done})` awaits a task's result.
 - Watcher (1 s): process start/stop (`proc::find_game`), mtimes of `state/{boot,mods,native,last-server}.json`;
   computes the full status only when something changed. Log follows poll in the same loop.

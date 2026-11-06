@@ -148,6 +148,10 @@ Hud.Toast("Saved!", ToastKind.Success, seconds: 3);  // any thread
 ```
 `Ui.Frame += ui => …` runs every overlay frame for custom drawing.
 
+Kiln's own toast: when a server refuses this client (Kiln.Network's REJECT), Kiln.Ui shows who refused and the mods it
+named (else its reason) for 20 s, over the game's login error dialog that follows, and again for 30 s when the game is
+back at its main menu (`ui: refusal shown` in kiln.log). Mods don't need to handle `Network.Rejected` for that.
+
 ## Key bindings
 ```csharp
 var b = KeyBindings.Register("mymod.toggle", "F8", () => w.Toggle(), "Toggle my window");

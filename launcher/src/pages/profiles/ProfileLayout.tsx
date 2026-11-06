@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { Link, Outlet, useOutletContext } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ModKind } from "../../api/commands";
-import { invalidateGame, useActiveProfile, useGame, useGameStatus } from "../../api/hooks";
+import { invalidateGame, showActive, useActiveProfile, useGame, useGameStatus } from "../../api/hooks";
 import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
 
@@ -30,8 +30,9 @@ export function useActivation() {
   const stale = isActive && !!profile && !!active.data && Date.parse(profile.updated) > Date.parse(active.data.activated);
   const activate = useMutation({
     mutationFn: () => api.profileActivate(id, game!.id),
+    onMutate: () => showActive(qc, game!.id, id),
     onSuccess: () => { invalidateGame(qc, game!.id); toast.ok(stale ? "Applied" : "Profile active", "Steam's Play button uses it too."); },
-    onError: (e) => toast.error(e),
+    onError: (e, _v, undo) => { undo?.(); toast.error(e); },
   });
   const running = !!status.data?.running;
   const button = game && (!isActive || stale) ? (

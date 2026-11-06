@@ -23,7 +23,7 @@
     "modpack": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/modpackRef" }] },
     "required": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/requiredMod" }, "default": [] },
     "truncated": { "type": "boolean", "default": false, "description": "required[] was cut to keep the frame <= 7 KB." },
-    "missing": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Required ids this client lacks or has with another hash." },
+    "missing": { "type": "array", "items": { "type": "string" }, "default": [], "description": "On a refusal: the mods the REJECT names (what the server refused for). Otherwise: required ids this client lacks or has with another hash." },
     "history": { "type": "array", "maxItems": 20, "items": { "$ref": "#" } }
   },
   "additionalProperties": true

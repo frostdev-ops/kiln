@@ -46,6 +46,7 @@ public sealed class FurnitureBlocksMod : Mod
             Name = "Milking Stool",
             Visual = new VisualBlock { Like = GameItems.Prop_Decoration_Comfort1_T0_Chair_Stool },
             OnInteract = new InteractBlock { Effects = [new EffectBlock { Restores = Restore.Stamina(20) }] },
+            Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Wood_Logs] = 2 } },
         });
 
         // An interaction is a part: write it once, use it on several things. Kiln checks the player's state on the server and declines the way the game does.
@@ -60,6 +61,7 @@ public sealed class FurnitureBlocksMod : Mod
             Name = "Prayer Bench",
             Visual = new VisualBlock { Like = GameItems.Prop_Decoration_Comfort1_T0_Bench },
             OnInteract = pray,
+            Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Wood_Logs] = 3 } },
         });
 
         // A shape of your own for every building material: a 4 m wall with an arched window. Half a metre a cell; layers from the bottom up.

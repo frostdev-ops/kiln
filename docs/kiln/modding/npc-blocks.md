@@ -131,6 +131,11 @@ sealed class Sentinel : NpcBrain
 by path (`["combatSetup.preferedDistance"] = "3"`). It starts from a game creature's tuning (`Template`, the Vukah's by default), because hundreds of fields
 have no neutral value. A body of your own runs that creature's AI program; a friendly fighter is a creature with `Faction = Faction.PlayerAlly`.
 
+## Server and client
+A creature's arsenal, variant and spawn rules belong to the server world. A server writes them as the mod loads. A game client loads mods off the tick
+thread and has a server world only while it hosts one, so there they are written at the first step of a hosted world, before anything of it spawns; a
+client joined to another server never needs them. What a block can't take then is an error of the mod by block and field, as in a data file.
+
 ## Spawning
 `Blocks.Spawn("stoneling", position)` or the handle's `Spawn`; `/creature spawn <mod>:<name>` takes the variant. `Spawns` puts it in place of the game's
 creatures of a template, by chance, at night or by day.

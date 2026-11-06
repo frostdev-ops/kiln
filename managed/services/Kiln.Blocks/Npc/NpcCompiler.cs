@@ -455,27 +455,32 @@ internal static class NpcCompiler
             if (s.NightOnly && s.DayOnly) throw new BlockError(ctx.Block, $"spawns[{i}]", "night only or day only, not both");
             if (Creatures.Available && Creatures.Template(s.Replaces) is null) throw new BlockError(ctx.Block, $"spawns[{i}].replaces", $"the game has no creature \"{s.Replaces}\"");
         }
-        // the arsenal first: what its writer refuses, it refuses by name before anything else of the block is registered
-        if (spec != null && Creatures.Available)
+        // The arsenal, the variant and the spawn rules are the server world's. On the tick thread (a server's OnLoad, a data file's block) they are
+        // written now, and what the arsenal's writer refuses is refused by name before anything else of the block is registered. A game client runs
+        // OnLoad off the tick thread and has no server world until it hosts one: there they wait for it (NpcServerSide).
+        if (spec != null && Creatures.Available && NpcServerSide.Now)
+            DefineArsenal(ctx, info, spec, owner, mod, name, thrown: true);
+        else if (spec != null)
+            NpcServerSide.Post(ctx.Mod, ctx.Block, () => DefineArsenal(ctx, info, spec, owner, mod, name, thrown: false));
+        low.AfterCommit(() =>
         {
-            try { Arsenals.DefineFor(info.Arsenal!.Value, spec, owner, mod, $"blocks:{name}"); }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
-            {
-                throw new BlockError(ctx.Block, "behaviour", e.Message);
-            }
-        }
-        low.AfterCommit(() => Register(ctx, info, variant, spawns));
+            NpcRuntime.Register(info);
+            NpcServerSide.Post(ctx.Mod, ctx.Block, () => Register(ctx, info, variant, spawns));
+        });
         return new CreatureHandle(mod, name, templateGuid == Guid.Empty ? BlockIds.Derive(mod, "creature", key) : templateGuid, template, c, info);
     }
 
     /// <summary>What of a base creature's gear its template has: removed from a template on a body of your own.</summary>
     private static IReadOnlyList<string>? GearOf(string template)
     {
+        // Before the game's templates are read, or off the tick thread (a game client's OnLoad), what the default base is known to have: a client and its
+        // server must make the same clone, so the answer can't depend on where it was asked.
+        IReadOnlyList<string>? Known() => template == AiDefault ? ["SubEntities", "HookShotAnchorSubEntity"] : null;
+        if (template == AiDefault || !Game.IsTickThread) return Known();
         GameDataEntry? t;
         try { t = Content.Templates.Get(template); }
-        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException) { return null; }
-        // before the game's templates are read (a mod's OnLoad), what the default base is known to have
-        if (t == null) return template == AiDefault ? ["SubEntities", "HookShotAnchorSubEntity"] : null;
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException) { return Known(); }
+        if (t == null) return Known();
         var gear = new List<string>();
         foreach (var c in new[] { "SubEntities", "HookShotAnchorSubEntity" })
         {
@@ -591,9 +596,19 @@ internal static class NpcCompiler
         };
     }
 
+    private static void DefineArsenal(BlockContext ctx, NpcCreature info, ArsenalSpec spec, Creatures.OwnerKey owner, string mod, string name, bool thrown)
+    {
+        if (!Creatures.Available) return;
+        try { Arsenals.DefineFor(info.Arsenal!.Value, spec, owner, mod, $"blocks:{name}"); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
+        {
+            if (thrown) throw new BlockError(ctx.Block, "behaviour", e.Message);
+            NpcServerSide.Fail(ctx.Mod, new BlockError(ctx.Block, "behaviour", e.Message).Message);
+        }
+    }
+
     private static void Register(BlockContext ctx, NpcCreature info, CreatureVariant variant, IReadOnlyList<SpawnBlock> spawns)
     {
-        NpcRuntime.Register(info);
         if (!Creatures.Available)
         {
             BlocksBridge.Log(LogLevel.Warn, $"blocks: {ctx.Mod.Id}: {ctx.Block}: kiln.creatures is not here: the creature is defined, and nothing spawns it");

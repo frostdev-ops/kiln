@@ -296,6 +296,7 @@ public static class Screens
             if (prev.LanguageId != cur.LanguageId) Menus.LanguageChanged();
             if (prev.Kind != cur.Kind) UiEngine.Log(LogLevel.Debug, $"game screen {prev.Kind} -> {cur.Kind} ({cur.State}/{cur.Hud})");
             Crafting.ScreenChanged(prev, cur);
+            RefusalNotice.ScreenChanged(prev, cur);
             foreach (var (h, owner) in Handlers.Snapshot()) UiModCalls.Invoke(owner, x => h(x.prev, x.cur), (prev, cur), "Ui.Screens.Changed");
             if (Events.HasSubscribers<ScreenChangedEvent>()) Events.Enqueue(new ScreenChangedEvent(prev, cur));
         }

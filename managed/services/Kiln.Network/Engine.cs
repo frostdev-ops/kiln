@@ -747,7 +747,7 @@ internal static class NetEngine
                 link.Properties = j.Properties;
                 _serverAdvert = NetAdvertise.Parse(j.Properties, null);
                 Log(LogLevel.Warn, $"the server refused this client: {j.Reason}");
-                LastServer.Record("rejected", j.Reason, _serverAdvert, null);
+                LastServer.Record("rejected", j.Reason, _serverAdvert, null, j.Details);
                 RejectedHandlers.Raise(h => h(j.Reason, j.Details), "Network.Rejected");
                 break;
             }

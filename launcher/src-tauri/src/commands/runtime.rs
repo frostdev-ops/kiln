@@ -4,10 +4,13 @@
 use super::TaskId;
 use super::app::{spawn_task, to_value};
 use crate::state::{blocking, dirs};
-use kiln_manage::Error;
 use kiln_manage::bundle::{self, RuntimeBundle};
-use kiln_manage::install::{self, InstallOptions, InstallState};
+use kiln_manage::game::{GameInstall, GameKind};
+use kiln_manage::install::{self, InstallOptions, InstallReceipt, InstallState};
+use kiln_manage::manifest::RunSide;
 use kiln_manage::pe::{self, ProxyClass};
+use kiln_manage::task::Progress;
+use kiln_manage::{Error, ErrorCode};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager};
 
@@ -57,15 +60,57 @@ fn installer() -> Option<String> {
     Some(format!("kiln-launcher {}", env!("CARGO_PKG_VERSION")))
 }
 
+/// The fresh status goes out from its own thread: computing it (hashes, the bundle list, the process list) must not
+/// hold the task's end back.
 fn after_change(app: &AppHandle, game_id: &str) {
     crate::state::forget_install_state(game_id);
-    crate::watch::emit_status(app, game_id);
+    let (app, id) = (app.clone(), game_id.to_string());
+    std::thread::spawn(move || crate::watch::emit_status(&app, &id));
+}
+
+fn side_of(g: &GameInstall) -> RunSide {
+    match g.kind {
+        GameKind::Server => RunSide::Server,
+        GameKind::Client => RunSide::Client,
+    }
+}
+
+/// An install only counts when the game folder says so afterwards: the receipt names the bundle's version and parts,
+/// and every file it lists has its bytes. Anything else fails the task with what is wrong.
+pub(crate) fn check_applied(g: &GameInstall, version: &str, receipt: &InstallReceipt, p: &mut dyn Progress) -> Result<(), Error> {
+    p.report(Some(0.95), "checking the game folder");
+    let on_disk = install::read_receipt(&g.path)?
+        .ok_or_else(|| Error::new(ErrorCode::Internal, format!("the install ended, but {} has no kiln/.install.json", g.path.display())))?;
+    if on_disk.runtime.version != version || on_disk.runtime.components != receipt.runtime.components {
+        return Err(Error::new(ErrorCode::Internal, format!(
+            "the install ended, but kiln/.install.json says Kiln {} ({}), not {version} ({})",
+            on_disk.runtime.version,
+            on_disk.runtime.components.join(", "),
+            receipt.runtime.components.join(", ")
+        )));
+    }
+    let wrong = install::modified_files(&g.path, &on_disk);
+    if !wrong.is_empty() {
+        return Err(Error::new(ErrorCode::HashMismatch, format!(
+            "Kiln {version} is not fully in the game folder: {} file(s) differ from the install, e.g. {}",
+            wrong.len(),
+            wrong.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+        ))
+        .with_detail(serde_json::json!({ "files": wrong })));
+    }
+    p.report(Some(1.0), &format!("Kiln {version} is in the game folder ({} files, {})", on_disk.files.len(), on_disk.runtime.components.join(", ")));
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn runtime_install(app: AppHandle, game_id: String, version: String, options: InstallOptions) -> Result<TaskId, Error> {
     let g = blocking({ let id = game_id.clone(); move || crate::state::game(&id) }).await?;
     let b = blocking({ let v = version.clone(); move || bundle::find(&dirs()?, &v) }).await?;
+    // parts this side cannot take fail now, before the bundle's verify (a minute's work on a slow disk)
+    if let Some(parts) = options.components.clone() {
+        let (file, side) = (b.file.clone(), side_of(&g));
+        blocking(move || install::select_components(&bundle::read(&file)?, side, Some(&parts)).map(|_| ())).await?;
+    }
     let title = format!("Install Kiln {}", b.kiln);
     let a = app.clone();
     Ok(spawn_task(&app, "runtime_install", title, move |p| {
@@ -75,7 +120,9 @@ pub async fn runtime_install(app: AppHandle, game_id: String, version: String, o
         options.installer = options.installer.or_else(installer);
         let r = install::install(&d, &g, &b.file, &options, p);
         after_change(&a, &game_id);
-        to_value(r?)
+        let r = r?;
+        check_applied(&g, &b.version, &r, p)?;
+        to_value(r)
     }))
 }
 
@@ -117,7 +164,9 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
         };
         let r = install::install(&d, &g, &b.file, &options, p);
         after_change(&a, &game_id);
-        to_value(r?)
+        let r = r?;
+        check_applied(&g, &b.version, &r, p)?;
+        to_value(r)
     }))
 }
 

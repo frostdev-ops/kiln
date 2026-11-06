@@ -251,6 +251,20 @@ def advert(props):
             "chunks": i}
 
 
+MOD_DETAIL = re.compile(r"([a-z0-9][a-z0-9._-]{0,63}) (v?[0-9][0-9A-Za-z.+-]*) \((missing|client has [^)]*)\)")
+
+
+def named_mods(details):
+    """The mods a REJECT's details name, in order: what a Kiln client puts in last-server.json missing[] for a refusal
+    (Kiln.Network NetRefusal.NamedMods). Channel, protocol and other details name none."""
+    out = []
+    for d in details:
+        m = MOD_DETAIL.fullmatch(d)
+        if m and m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
 def lab_required(lab):
     """What the server should advertise: kiln/mods/* with clients "mod" (default from side), kdh1 by the reference."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "schema", "fixtures", "dirhash"))
@@ -613,7 +627,8 @@ class Suite:
                        m.welcome["props"].get("kiln.modpack.version") == "7", f"{r}; {json.dumps({k: v for k, v in (m.welcome or {}).get('props', {}).items() if 'modpack' in k})}")
             self.control(ctl, "advertise off")
             o = ready_client(self.port, "adv-off", self.verbose)
-            self.check("advert.off", o.welcome is not None and not any(k.startswith("kiln.") for k in o.welcome["props"]),
+            # advertise covers the server and modpack keys; kiln.worldtables is the world-tables check, always sent
+            self.check("advert.off", o.welcome is not None and not any(k.startswith(("kiln.server.", "kiln.modpack.", "kiln.required")) for k in o.welcome["props"]),
                        str(o.welcome["props"] if o.welcome else None))
         finally:
             self.control(ctl, "advertise on")
@@ -901,6 +916,24 @@ class Suite:
             a = advert(c.reject_props or {})
             self.check("missing.default.offer-data", any(r.get("id") in lacking for r in a.get("required", [])) and bool((c.reject_props or {}).get("kiln.server.id")),
                        json.dumps(a)[:300])
+            self.check("missing.default.client-missing", c.reject is not None and sorted(named_mods(c.reject[1])) == sorted(lacking), str(c.reject and c.reject[1]))
+            # A client that also lacks a side-both mod without `clients` (its clients only defaults to "mod"): the refusal
+            # still names only the stated mods, while required[] (what a modpack holds) has that mod too. So the client's
+            # last-server.json missing[] has to follow the refusal's details, not required[].
+            for extra in [u for u in unstated if any(r.get("id") == u for r in a.get("required", []))][:1]:
+                c = join("mm-unstated-too", lacking + [extra])
+                details = c.reject[1] if c.reject else []
+                req = [r.get("id") for r in advert(c.reject_props or {}).get("required", [])]
+                self.check("missing.default.unstated-not-named", c.reject is not None and not any(d.startswith(extra + " ") for d in details), str(details))
+                self.check("missing.default.unstated-required", extra in req and all(m in req for m in lacking), str(req))
+                self.check("missing.default.client-missing-unstated", sorted(named_mods(details)) == sorted(lacking), f"{named_mods(details)} from {details}")
+                self.control(ctl, "policy refuse")
+                time.sleep(0.2)
+                c = join("mm-refuse-all", lacking + [extra])
+                named = named_mods(c.reject[1]) if c.reject else []
+                self.check("missing.refuse.client-missing", c.reject is not None and sorted(named) == sorted(lacking + [extra]), f"{named} from {c.reject}")
+                self.control(ctl, "policy default")
+                time.sleep(0.2)
             # the launcher's offer: outcome "rejected" and a modpack in last-server.json, which the client takes from these properties
             sha = "ab" * 32
             self.control(ctl, f"modpack https://example.org/nettest-7.zip {sha}")

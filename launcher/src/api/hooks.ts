@@ -64,6 +64,50 @@ export const useActiveProfile = (g: GameId | null | undefined) =>
   useQuery({ queryKey: qk.active(g ?? ""), queryFn: () => api.profileActive(g!), enabled: !!g });
 export const useLibrary = (kind: ModKind | null = null) => useQuery({ queryKey: qk.library(kind), queryFn: () => api.libraryList(kind) });
 
+/** Shows `profileId` (null: no profile) as the game's active profile at once, before the activation answers: Play's
+ *  name, the mouth and the Profiles list read these two queries. Await it before the command; the returned function
+ *  puts the old values back when the activation fails. */
+export async function showActive(qc: QueryClient, g: GameId, profileId: ProfileId | null): Promise<() => void> {
+  // a refetch that started before the activation must not land on top of it
+  await qc.cancelQueries({ queryKey: qk.active(g) });
+  await qc.cancelQueries({ queryKey: qk.profiles });
+  const before = qc.getQueryData<api.Activation | null>(qk.active(g));
+  const list = qc.getQueryData<api.ProfileSummary[]>(qk.profiles);
+  qc.setQueryData<api.Activation | null>(qk.active(g), profileId
+    ? { generation: 0, pathMode: "z", profileJson: "", copied: 0, fingerprint: "", ...before, gameId: g, profileId, activated: new Date().toISOString() }
+    : null);
+  if (list) {
+    qc.setQueryData<api.ProfileSummary[]>(qk.profiles, list.map((p) => ({
+      ...p, active: p.id === profileId ? [...p.active.filter((x) => x !== g), g] : p.active.filter((x) => x !== g),
+    })));
+  }
+  return () => {
+    qc.setQueryData(qk.active(g), before ?? null);
+    if (list) qc.setQueryData(qk.profiles, list);
+  };
+}
+
+// ---------------------------------------------------------------- the last runtime change per game
+
+/** An install, update, rollback or uninstall started on Runtime, kept for this session so its outcome stays in view
+ *  after the page is left: Runtime shows it until dismissed, Play shows a failure. */
+export interface RuntimeChange {
+  /** "Update to 0.2.0-dev+20261106.f1ad110", "Uninstall" */
+  what: string;
+  /** The bundle version it puts in (null: uninstall). */
+  version: string | null;
+  taskId: api.TaskId | null;
+  state: "running" | "done" | "failed";
+  error: api.KilnError | null;
+  at: number;
+}
+interface RuntimeChanges { last: Record<GameId, RuntimeChange>; put: (g: GameId, c: RuntimeChange) => void; clear: (g: GameId) => void }
+export const useRuntimeChanges = create<RuntimeChanges>((set, get) => ({
+  last: {},
+  put: (g, c) => set({ last: { ...get().last, [g]: c } }),
+  clear: (g) => { const { [g]: _, ...rest } = get().last; set({ last: rest }); },
+}));
+
 /** Refetches everything about a game (after install, activation, launch). */
 export function invalidateGame(qc: QueryClient, g: GameId) {
   // the game list too: an install's id changes once Kiln is installed (path hash -> receipt id)

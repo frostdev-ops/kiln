@@ -81,6 +81,12 @@ test("import → add to profile → light → resolver preview", async ({ page }
     await dialog.getByRole("button", { name: "Import 1" }).click();
     await expect(page.getByText("Imported 1")).toBeVisible();
     await expect(page.getByRole("table", { name: "Library" }).getByText("Night Owl")).toBeVisible();
+    // a pack zip with the mod in a folder inside imports too
+    const dt2 = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "dawn-lamp-2.0.0-pack.zip")); return d; });
+    await page.locator("[data-drop]").dispatchEvent("drop", { dataTransfer: dt2 });
+    const dialog2 = page.getByRole("dialog", { name: "Import" });
+    await dialog2.getByRole("button", { name: "Import 1" }).click();
+    await expect(page.getByRole("table", { name: "Library" }).getByText("Dawn Lamp")).toBeVisible();
 
     await open(page, "/profiles/ember-run/mods");
     await page.getByRole("button", { name: "Add mod", exact: true }).click();
@@ -141,7 +147,76 @@ test("the active profile is chosen from its name", async ({ page }) => {
   const list = page.getByRole("listbox", { name: "Profiles" });
   await expect(list.getByRole("option").first()).toBeVisible();
   await list.getByRole("option", { name: /Vanilla plus/ }).click();
-  await expect(page.getByRole("button", { name: "Active profile: Vanilla plus. Change profile." })).toBeVisible();
+  // the name changes at once: the mock's activation answers after 1.5 s, like a real one with big mods
+  await expect(page.getByRole("button", { name: "Active profile: Vanilla plus. Change profile." })).toBeVisible({ timeout: 500 });
+  await expect(page.getByText("Active profile: Vanilla plus", { exact: true })).toBeVisible();
+  // the Profiles page agrees without a reload
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profiles" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "Vanilla plus" }).getByText("Active", { exact: true })).toBeVisible();
+});
+
+test("Last boot counts the mods that failed to load and opens the logs", async ({ page }) => {
+  await open(page, "/");
+  // the example state files: boot.json has no errors, mods.json of the same run has a mod that failed
+  const last = page.getByRole("button", { name: /^Last boot: .*1 mod failed\. Open the logs\.$/ });
+  await expect(last).toBeVisible();
+  await last.click();
+  await expect(page).toHaveURL(/#\/logs$/);
+});
+
+test("a runtime change that fails says so on Runtime and on Play until dismissed", async ({ page }) => {
+  await open(page, "/");
+  // Play names the build, so two dev builds of the same version differ
+  await expect(page.locator(".k-hero-facts")).toContainText("0.2.0-dev (20261104)");
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Runtime" }).click();
+  await page.getByRole("row").filter({ hasText: "0.1.9+20261101.a41c2d0" }).getByRole("button", { name: "Roll back" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install Kiln 0.1.9" });
+  // a client is offered only the parts a client can take
+  await expect(dialog.getByText("core", { exact: true })).toBeVisible();
+  for (const part of ["admin", "samples"]) await expect(dialog.getByText(part, { exact: true })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __kilnMock: { failNextInstall: (m: string) => void } }).__kilnMock.failNextInstall("No space left on device"));
+  await dialog.getByRole("button", { name: "Install" }).click();
+  const failed = page.locator(".k-banner").filter({ hasText: "Rollback to 0.1.9+20261101.a41c2d0 failed" });
+  await expect(failed).toContainText("No space left on device", { timeout: 8000 });
+  await expect(failed).toContainText("The game keeps Kiln 0.2.0-dev+20261104.0f1ffa6");
+  // it stays after leaving the page: Play says it too, next to the version
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
+  const onPlay = page.locator(".k-hero-banner .k-banner").filter({ hasText: "Rollback to 0.1.9+20261101.a41c2d0 failed" });
+  await expect(onPlay).toContainText("The game still has Kiln 0.2.0-dev+20261104.0f1ffa6.");
+  await expect(page.getByRole("button", { name: "update failed" })).toBeVisible();
+  await onPlay.getByRole("button", { name: "Dismiss" }).click();
+  await expect(onPlay).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "update failed" })).toHaveCount(0);
+});
+
+test("a refusal shows on Play, with or without a modpack, until dismissed", async ({ page }) => {
+  await open(page, "/");
+  const refused = page.locator(".k-hero-banner .k-banner").filter({ has: page.locator(".k-banner-title", { hasText: /^Refused$/ }) });
+  // the contract example: refused by a server that advertises a modpack
+  await expect(refused).toHaveCount(1);
+  await expect(refused.getByRole("button", { name: "Get modpack" })).toBeVisible();
+  // the game wrote a refusal from a server without a modpack (a lab refusing by the default policy)
+  await page.evaluate(() => (window as unknown as { __kilnMock: { setLastServer: (l: unknown) => void } }).__kilnMock.setLastServer({
+    format: 1, written: "2026-11-06T05:33:51Z", outcome: "rejected",
+    reason: "This server requires mods you do not have: npcsample 0.1.0 (missing), quests-sample 2.0.0 (missing)",
+    server: { id: "srv-d09b032bfe63", name: "Kiln lab mylab", address: null, kiln: "0.2.0-dev" }, modpack: null,
+    required: [{ id: "net-test", version: "0.1.0", hash: `kdh1:${"3".repeat(64)}`, kind: "kiln" },
+      { id: "npcsample", version: "0.1.0", hash: `kdh1:${"b".repeat(64)}`, kind: "kiln" },
+      { id: "quests-sample", version: "2.0.0", hash: `kdh1:${"a".repeat(64)}`, kind: "kiln" }],
+    truncated: false, missing: ["npcsample", "quests-sample"], history: [],
+  }));
+  await expect(refused.getByText("Kiln lab mylab: This server requires mods you do not have: npcsample 0.1.0 (missing), quests-sample 2.0.0 (missing)")).toBeVisible();
+  await expect(refused.getByRole("button", { name: "Get modpack" })).toHaveCount(0);
+  await refused.getByRole("button", { name: "Dismiss" }).click();
+  await expect(refused).toHaveCount(0);
+  // the next refusal from that server shows again
+  await page.evaluate(() => {
+    const m = (window as unknown as { __kilnMock: { setLastServer: (l: unknown) => void } }).__kilnMock;
+    m.setLastServer({ format: 1, written: "2026-11-06T06:10:00Z", outcome: "rejected", reason: null,
+      server: { id: "srv-d09b032bfe63", name: "Kiln lab mylab", address: null, kiln: "0.2.0-dev" }, modpack: null, required: [],
+      truncated: false, missing: ["npcsample"], history: [] });
+  });
+  await expect(refused.getByText("Kiln lab mylab: missing npcsample.")).toBeVisible();
 });
 
 test("destructive actions need the typed word, in the arch", async ({ page }) => {

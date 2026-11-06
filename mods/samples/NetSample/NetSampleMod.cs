@@ -55,7 +55,7 @@ public sealed class NetSampleMod : Mod
         Context.Tick.Pre += (in TickInfo t) => _step = t.Step;
         Network.ServerReady += server => Hud.Toast($"Kiln server {server.KilnVersion}: press F9 to ping it");
         Network.ServerVanilla += _ => Hud.Toast("This server has no Kiln: netsample does nothing here", ToastKind.Warning);
-        Network.Rejected += (reason, _) => Hud.Toast("Refused: " + reason, ToastKind.Error, 10);
+        Network.Rejected += (reason, _) => Log.Warn("refused: " + reason);  // Kiln itself shows the refusal on screen
         if (Ui.Available)
         {
             KeyBindings.Register("netsample.ping", "F9", () =>

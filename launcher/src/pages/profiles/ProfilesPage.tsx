@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ProfileSummary } from "../../api/commands";
-import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfiles } from "../../api/hooks";
+import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatus, useProfiles } from "../../api/hooks";
 import { Button, ConfirmDanger, EmptyState, Field, Menu, Modal, NameId, Page, PageHeader, Select, Skeleton, Table, TextInput, errorText, fmtAgo, toast, type Column } from "../../ui";
 
 export default function ProfilesPage() {
@@ -20,8 +20,9 @@ export default function ProfilesPage() {
   const [del, setDel] = useState<ProfileSummary | null>(null);
   const activate = useMutation({
     mutationFn: (pid: string) => api.profileActivate(pid, game!.id),
+    onMutate: (pid) => (game ? showActive(qc, game.id, pid) : undefined),
     onSuccess: () => { if (game) invalidateGame(qc, game.id); toast.ok("Profile active", "Steam's Play button uses it too."); },
-    onError: (e) => toast.error(e),
+    onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });
   const running = !!status.data?.running;
 

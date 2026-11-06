@@ -41,8 +41,11 @@ export function Menu({ label, icon, items, align = "right", variant, size }: { l
     const r = ref.current?.getBoundingClientRect();
     if (r) {
       const side = align === "right" ? { right: window.innerWidth - r.right } : { left: r.left };
-      const flip = r.bottom + 240 > window.innerHeight && r.top > 240;
-      setPlace({ position: "fixed", ...side, ...(flip ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
+      const below = window.innerHeight - r.bottom - 22, above = r.top - 22;
+      const flip = below < 240 && above > below;
+      // never past the window's edge: a long list scrolls inside
+      setPlace({ position: "fixed", ...side, maxHeight: Math.max(120, flip ? above : below), overflowY: "auto",
+        ...(flip ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
     }
     setOpen((o) => !o);
   };

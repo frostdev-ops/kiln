@@ -57,6 +57,10 @@ const runtime: Record<string, InstallState> = {
 };
 const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null } | null> = {};
 let pidSeq = 4100;
+/** How long profile_activate takes to answer. */
+const ACTIVATE_MS = 1500;
+/** The next runtime install fails with this message (tests: `__kilnMock.failNextInstall`). */
+let failNextInstall: string | null = null;
 
 const bundles: RuntimeBundle[] = [
   { version: "0.2.0-dev+20261104.0f1ffa6", kiln: "0.2.0-dev", file: "runtime/kiln-runtime-0.2.0-dev+20261104.0f1ffa6.zip", sha256: hex("rt2"),
@@ -295,6 +299,23 @@ export function mockStopGame(gameId = "client-steam") {
   emitGame(gameId, "stopped");
 }
 
+// ---------------------------------------------------------------- last server (Play's refusal banner)
+
+// <game>/kiln/state/last-server.json and dismissed.json, filtered like commands/modpack.rs (worth_showing).
+let lastServer: LastServer | null = clone(lastServerExample as unknown as LastServer);
+const dismissedOffers: Record<string, string> = {};
+const dismissKey = (l: LastServer) => (l.modpack ? l.modpack.sha256 : `refused ${l.written}`);
+function pendingLastServer(): LastServer | null {
+  const l = lastServer;
+  if (!l || dismissedOffers[l.server.id ?? ""] === dismissKey(l)) return null;
+  return l.outcome === "rejected" || (l.outcome === "welcome" && !!l.modpack && l.missing.length > 0) ? l : null;
+}
+/** Dev/test helper: the game wrote a new last-server.json (the watcher's kiln://last-server follows). */
+export function mockSetLastServer(l: LastServer | null, gameId = "client-steam") {
+  lastServer = l;
+  if (l) mockEmit("kiln://last-server", { gameId, lastServer: l });
+}
+
 // ---------------------------------------------------------------- saves
 
 const saveSlots: SaveSlot[] = [
@@ -507,11 +528,17 @@ const handlers: Record<string, Handler> = {
     const g = gameOf(gameId);
     if (running[gameId]) reject("game_running", "Close the game first.");
     const b = bundles.find((x) => x.version === version) ?? reject("not_found", `No bundle ${version}.`);
-    const opts = (a.options ?? {}) as { switchFromShroudforge?: boolean };
+    const opts = (a.options ?? {}) as { switchFromShroudforge?: boolean; components?: string[] | null };
+    // like the backend: a part this side cannot take is refused before the task starts
+    const wrong = opts.components?.find((c) => ["admin", "samples", "sigdb-server"].includes(c));
+    if (wrong) reject("invalid_argument", `component ${wrong} is not for the client side`);
+    const fail = failNextInstall;
+    failNextInstall = null;
     return startTask("runtime_install", `Install Kiln ${b.kiln}`, ["Staging", "Verifying hashes", "Classifying dinput8.dll", "Backing up", "Placing files", "Writing receipt"], () => {
       const st = runtime[gameId];
+      if (fail) reject("io", fail);
       if (st?.proxy?.kind === "shroudforge" && !opts.switchFromShroudforge) reject("refused", "ShroudForge is installed. Switch from ShroudForge to replace it.");
-      const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components: b.components } };
+      const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components: opts.components ?? b.components } };
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };
       emitGame(g.id, "status");
       return receipt;
@@ -558,7 +585,14 @@ const handlers: Record<string, Handler> = {
     return null;
   },
   profile_resolve: (a) => resolve(profiles.get(S(a.profileId)) ?? reject("not_found", "No such profile."), (a.side as "client" | "server") ?? "client"),
-  profile_activate: (a) => { const r = activate(S(a.profileId), S(a.gameId)); emitGame(S(a.gameId), "status"); return r; },
+  // the real activation answers after it has resolved and written the profile (seconds with big mods): the UI must
+  // not wait for the answer to show the new name
+  profile_activate: async (a) => {
+    const r = activate(S(a.profileId), S(a.gameId));
+    await new Promise((ok) => setTimeout(ok, ACTIVATE_MS));
+    emitGame(S(a.gameId), "status");
+    return r;
+  },
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
 
@@ -700,13 +734,14 @@ const handlers: Record<string, Handler> = {
   editor_open_backups: () => null,
 
   // modpack (the refusal banner on Play); servers: the server mock handlers below override these
-  modpack_pending: () => lastServerExample as unknown as LastServer,
-  modpack_dismiss: () => null,
+  modpack_pending: () => pendingLastServer(),
   server_list: () => [server],
   server_get: () => server,
   server_status: () => serverStatus,
   admin_sessions: () => [],
   ...serverMockHandlers,
+  // after the server mocks: Play's Dismiss has to stick
+  modpack_dismiss: (a) => { if (lastServer && (lastServer.server.id ?? "") === S(a.serverId)) dismissedOffers[S(a.serverId)] = dismissKey(lastServer); return null; },
 };
 Object.assign(handlers, adminMockHandlers(mockEmit));
 
@@ -725,6 +760,11 @@ function detect(path: string): Detected {
   if (lower.startsWith("kiln-runtime-")) return { kind: "runtime", path, id: null, version: lower.slice(13).replace(/\.zip$/, ""), name, reason: "kiln-runtime.json at the root", items: [] };
   if (lower.endsWith(".dll")) return { kind: lower.includes("plugin") ? "plugin" : "bare-dll", path, id: base, version: null, name,
     reason: lower.includes("plugin") ? "exports kiln_plugin_main" : "a DLL without kiln_plugin_main; imports as a native mod", items: [] };
+  // a pack zip with the mod in a folder inside (`<name>-pack.zip` holds `<name>/kiln.mod.json`)
+  if (lower.endsWith("-pack.zip")) {
+    const inner = detect(`${path.replace(/-pack\.zip$/i, "")}.zip`);
+    return { kind: "unknown", path, id: null, version: null, name, reason: "a folder with 1 importable item(s)", items: [{ ...inner, path: `${path}/${inner.id}` }] };
+  }
   if (lower.includes("modpack")) return { kind: "modpack", path, id: null, version: null, name, reason: "kiln-modpack.json at the root", items: [] };
   if (lower.includes("emf")) return { kind: "emf", path, id: base, version, name, reason: "emf.json", items: [] };
   if (lower.includes("native")) return { kind: "native", path, id: base, version, name, reason: "native.json", items: [] };
@@ -734,8 +774,8 @@ function detect(path: string): Detected {
 
 function importPaths(paths: string[]): ImportReport {
   const report: ImportReport = { imported: [], existing: [], skipped: [] };
-  for (const p of paths) {
-    const d = detect(p);
+  for (const p of paths.flatMap((x) => { const d = detect(x); return d.kind === "unknown" && d.items.length ? d.items.map((i) => i.path) : [x]; })) {
+    const d = p.includes(".zip/") ? detect(p.split(".zip/")[0].replace(/-pack$/i, "") + ".zip") : detect(p);
     const kind: ModKind | null = d.kind === "bare-dll" ? "native" : d.kind === "kiln" || d.kind === "native" || d.kind === "emf" || d.kind === "plugin" ? d.kind : null;
     if (!kind || !d.id) { report.skipped.push({ path: p, reason: d.reason }); continue; }
     const version = d.version ?? "1.0.0";
@@ -776,4 +816,5 @@ export function mockEmit(name: string, payload: unknown): void {
 }
 
 // Playwright and the dev console reach the fake game through this (mock mode only).
-if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit };
+if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
+  failNextInstall: (message: string) => { failNextInstall = message; } };

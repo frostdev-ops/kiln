@@ -17,15 +17,19 @@ internal static class LastServer
     private static readonly object WriteLock = new();
 
     /// <summary>Records an answer from the server. Hashing the local mods runs on the thread pool; the file is written
-    /// when that is done (a REJECT's kick follows 1.5 s later, the process keeps running).</summary>
-    public static void Record(string outcome, string? reason, NetServerAdvert advert, string? serverKiln)
+    /// when that is done (a REJECT's kick follows 1.5 s later, the process keeps running). For a refusal,
+    /// <paramref name="refusedFor"/> is the REJECT's details: <c>missing</c> then lists the mods the server named
+    /// (<see cref="NetRefusal.Missing"/>), not every required mod this client lacks.</summary>
+    public static void Record(string outcome, string? reason, NetServerAdvert advert, string? serverKiln, IReadOnlyList<string>? refusedFor = null)
     {
         var local = LocalMods();
         Task.Run(() =>
         {
             try
             {
-                var entry = Build(outcome, reason, advert, serverKiln, Missing(advert.Required, local), DateTime.UtcNow);
+                var lacking = Missing(advert.Required, local);
+                var missing = refusedFor is null ? lacking : NetRefusal.Missing(refusedFor, lacking);
+                var entry = Build(outcome, reason, advert, serverKiln, missing, DateTime.UtcNow);
                 Write(FilePath, entry);
                 NetEngine.Log(LogLevel.Info, $"last-server.json: {outcome}" +
                                               (advert.ServerId is { } id ? $" from {id}" : "") +

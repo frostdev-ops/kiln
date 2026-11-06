@@ -5,7 +5,7 @@
   <PropertyGroup>
     <KilnModId>furniture-blocks</KilnModId>
     <KilnModName>Furniture blocks (sample)</KilnModName>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>A chest that wants a key, a door that opens only at night, a camp bed to come back to, seats that do something, a wall shape with an arched window, and a haircut.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <KilnServices>Blocks</KilnServices>

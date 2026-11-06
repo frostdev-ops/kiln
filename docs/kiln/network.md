@@ -68,9 +68,11 @@ ch.SendTo(player, msg); ch.SendTo(peer, msg); ch.SendToAll(msg, except: peer); c
      sends what's needed), nor a mod in `optionalMods`. Only `side: both` Kiln mods can be checked: the handshake doesn't list others.
    - `off`: no check.
    - `warn`, set in `network.json`: accept, with the differences as warnings in WELCOME.
-   - `refuse`: if anything is missing, send **REJECT** (reason and list; the client shows it as a toast), then about
-     1.5 s later the game's own login failure (`kickReason`, default 1 = "Version"; the game shows that as "An update
-     of the game is available…", so the toast is what tells the player which mods are missing).
+   - `refuse`: if anything is missing, send **REJECT** (reason and list), then about 1.5 s later the game's own login
+     failure (`kickReason`, default 1 = "Version"; the game shows that as "An update of the game is available…").
+     Kiln on the client (Kiln.Ui) shows the server's name and the mods the REJECT names as a toast as soon as it
+     arrives, over that dialog, and again when the game is back at its main menu: that is what tells the player which
+     mods are missing. The same goes for every refusal, whatever the policy.
    - Handlers of `NetClientHandshakeEvent` can override.
 4. **WELCOME**: the server's Kiln version, policy, its `both` mods, the channel table `{id, name, version, required}`,
    the message limit, warnings and properties. Both sides then use the server's channel ids for the channels they
@@ -226,9 +228,14 @@ about 50 mods fit, the rest are counted in `kiln.required.more`. Every value sta
 **Client side** (`Network.ServerAdvert`): the server's properties parsed back. On every REJECT, on the first WELCOME
 of a connection and when a server never answers, Kiln.Network writes `kiln/state/last-server.json`
 (`schema/state-last-server.schema.json`): outcome (`rejected` | `welcome` | `vanilla`: no Kiln, or a WELCOME without
-`kiln.server.*`), reason, server `{id, name, address: null, kiln}`, modpack, required[], truncated, missing[] (required
-ids this client lacks or has with another kdh1, from its loaded mods and `state/native.json`), and the previous
-entries as history (newest first, at most 20). Written on the thread pool, atomically (tmp + rename).
+`kiln.server.*`), reason, server `{id, name, address: null, kiln}`, modpack, required[], truncated, missing[], and the
+previous entries as history (newest first, at most 20). Written on the thread pool, atomically (tmp + rename).
+- `missing[]` on a refusal: the mods the REJECT's details name (`<id> <version> (missing)` or `(client has …)`), which
+  is what the server refused for. Under the default policy that's only mods that state `clients: "mod"`; required[]
+  can hold more (a `side: both` mod whose `clients` only defaults to `"mod"` is in the modpack, but no reason to refuse).
+  A REJECT without details falls back to the rule below.
+- `missing[]` otherwise: required ids this client lacks or has with another kdh1, from its loaded mods and
+  `state/native.json`.
 
 ## Wire format (one kiln.net frame each)
 `'K' 'N' 0x01 type`, then:

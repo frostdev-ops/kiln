@@ -32,12 +32,14 @@
     "milking-stool-json": {
       "name": "Milking Stool",
       "visual": { "like": "Prop_Decoration_Comfort1_T0_Chair_Stool" },
-      "onInteract": { "effects": [ { "restores": { "stamina": 20 } } ] }
+      "onInteract": { "effects": [ { "restores": { "stamina": 20 } } ] },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 2 } }
     },
     "prayer-bench-json": {
       "name": "Prayer Bench",
       "visual": { "like": "Prop_Decoration_Comfort1_T0_Bench" },
-      "onInteract": "pray-json"
+      "onInteract": "pray-json",
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 3 } }
     }
   },
   "blueprints": {

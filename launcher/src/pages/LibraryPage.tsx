@@ -14,7 +14,9 @@ import {
 type KindFilter = "all" | ModKind;
 const KIND_LABEL: Record<ModKind, string> = { kiln: "Kiln", native: "Native", emf: "EMF", plugin: "Plugin" };
 const KIND_TONE: Record<ModKind, Tone> = { kiln: "ember", native: "info", emf: "ok", plugin: "idle" };
-const importable = (d: Detected) => ["kiln", "native", "plugin", "emf", "bare-dll", "modpack"].includes(d.kind);
+// a zip or folder holding mods in subfolders (a KilnPack's <id>/ folder) detects as unknown with items: the import takes them
+const importable = (d: Detected): boolean =>
+  ["kiln", "native", "plugin", "emf", "bare-dll", "modpack"].includes(d.kind) || (d.kind === "unknown" && d.items.some(importable));
 
 export default function LibraryPage() {
   const qc = useQueryClient();

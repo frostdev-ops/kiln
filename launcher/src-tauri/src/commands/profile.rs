@@ -45,6 +45,12 @@ pub async fn profile_resolve(profile_id: String, side: RunSide) -> Result<Resolv
     .await
 }
 
+/// The game's fresh status, from its own thread: the activation answers as soon as profile.json is written (the
+/// status hashes files and lists processes, which used to hold the answer, and Play's header with it, for seconds).
+fn emit_status_later(app: AppHandle, game_id: String) {
+    std::thread::spawn(move || crate::watch::emit_status(&app, &game_id));
+}
+
 #[tauri::command]
 pub async fn profile_activate(app: AppHandle, profile_id: String, game_id: String) -> Result<Activation, Error> {
     let id = game_id.clone();
@@ -54,7 +60,7 @@ pub async fn profile_activate(app: AppHandle, profile_id: String, game_id: Strin
         profile::activate(&dirs()?, &profile_id, &g)
     })
     .await?;
-    crate::watch::emit_status(&app, &game_id);
+    emit_status_later(app, game_id);
     Ok(r)
 }
 
@@ -67,7 +73,7 @@ pub async fn profile_deactivate(app: AppHandle, game_id: String) -> Result<(), E
         profile::deactivate(&dirs()?, &g)
     })
     .await?;
-    crate::watch::emit_status(&app, &game_id);
+    emit_status_later(app, game_id);
     Ok(())
 }
 

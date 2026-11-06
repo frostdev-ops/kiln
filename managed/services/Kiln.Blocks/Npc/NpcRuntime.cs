@@ -146,6 +146,75 @@ public static class NpcBlocksApi
     }
 }
 
+/// <summary>
+/// What a creature block registers in the server world: its arsenal, variant and spawn rules. On the tick thread of a server they are written at once
+/// (a dedicated server runs OnLoad and data files there). A game client runs OnLoad off the tick thread, and has a server world only while it hosts one:
+/// there they wait, and are written on the tick thread of the first server world that runs, before anything of it spawns. A client joined to another
+/// server never needs them: the creature's mind is that server's.
+/// </summary>
+internal static class NpcServerSide
+{
+    private static readonly object Gate = new();
+    private static readonly List<(ModBlocks Mod, string Block, Action Run)> Pending = [];
+    private static IDisposable? _tick;
+
+    // where it runs: the tick thread, a game client, a server world running here (tests put their own in)
+    internal static Func<bool> OnTickThread = () => Game.IsTickThread;
+    internal static Func<bool> IsClient = () => BlocksBridge.IsClient;
+    internal static Func<bool> ServerRunning = () => Lifecycle.IsServerRunning;
+
+    /// <summary>Server-world work can run here and now: the tick thread of a server, or of a client that hosts the world that runs.</summary>
+    public static bool Now => OnTickThread() && (!IsClient() || ServerRunning());
+
+    /// <summary>How many wait for a server world.</summary>
+    public static int Waiting
+    {
+        get { lock (Gate) return Pending.Count; }
+    }
+
+    /// <summary>Runs <paramref name="run"/> now if it can (see <see cref="Now"/>), otherwise at the first step of a server world here.</summary>
+    public static void Post(ModBlocks mod, string block, Action run)
+    {
+        if (Now)
+        {
+            Run(mod, block, run);
+            return;
+        }
+        lock (Gate)
+        {
+            Pending.Add((mod, block, run));
+            _tick ??= BlocksBridge.AddTick("kiln creature blocks: server world", OnTick);
+        }
+    }
+
+    /// <summary>A block's server-world part was refused after its Define returned: an error of the mod, by block and field, as a data file's are.</summary>
+    public static void Fail(ModBlocks mod, string message)
+    {
+        lock (mod.Errors) mod.Errors.Add(message);
+        mod.ReportDirty = true;
+        BlocksBridge.Log(LogLevel.Error, $"blocks: {mod.Id}: {message}");
+    }
+
+    internal static void OnTick(ulong step)
+    {
+        if (!ServerRunning()) return;   // a client's own world, joined to another server: nothing of a creature's mind runs here
+        List<(ModBlocks Mod, string Block, Action Run)> work;
+        lock (Gate)
+        {
+            work = Pending.ToList();
+            Pending.Clear();
+        }
+        foreach (var (mod, block, run) in work) Run(mod, block, run);
+    }
+
+    private static void Run(ModBlocks mod, string block, Action run)
+    {
+        try { run(); }
+        catch (BlockError e) { Fail(mod, e.Message); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or InvalidOperationException or KeyNotFoundException) { Fail(mod, $"block {block}: {e.Message}"); }
+    }
+}
+
 /// <summary>What <see cref="Blocks.Define{T}"/> gives back for a creature: its variant, template and arsenal, and a way to spawn it.</summary>
 public sealed class CreatureHandle : BlockHandle<CreatureBlock>
 {

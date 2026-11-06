@@ -6,7 +6,7 @@
   <PropertyGroup>
     <KilnModId>frostbolt-block</KilnModId>
     <KilnModName>Frostbolt (blocks sample)</KilnModName>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>A staff spell, a sword and a status from building blocks: one Frost Burst effect, shared by the spell's area and the sword's hits, with an original charge, trail, burst and aura. Frostlance is the same spell in blocks/frostlance.json.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <KilnServices>Blocks</KilnServices>

@@ -186,6 +186,20 @@ fn install_round_trip(t: &Path, zip: &Path) -> R {
     ensure(pe::classify_proxy(&game_dir.join("dinput8.dll")).map_err(e)?.kind == pe::ProxyKind::Kiln, "dinput8.dll is not Kiln's after install")?;
     let st = install::status(&dirs, &g).map_err(e)?;
     ensure(st.installed && st.modified.is_empty(), format!("status after install: installed {} modified {:?}", st.installed, st.modified))?;
+    // the launcher's check after an install: passes now; a file that did not land or another version fails it
+    let check = |v: &str| crate::commands::runtime::check_applied(&g, v, &r, &mut NoProgress);
+    check(&r.runtime.version).map_err(e)?;
+    ensure(check("9.9.9+20990101.0000000").is_err(), "check_applied accepted a version the receipt does not name")?;
+    let f = r.files.iter().find(|f| !f.config && f.path != "dinput8.dll").ok_or("the bundle installed no files besides dinput8.dll")?;
+    let original = fs::read(game_dir.join(&f.path)).map_err(e)?;
+    fs::write(game_dir.join(&f.path), b"not what the bundle brought").map_err(e)?;
+    let wrong = check(&r.runtime.version);
+    fs::write(game_dir.join(&f.path), &original).map_err(e)?;
+    ensure(wrong.as_ref().is_err_and(|x| x.code == kiln_manage::ErrorCode::HashMismatch && x.message.contains("1 file")),
+        format!("check_applied with {} changed: {wrong:?}", f.path))?;
+    // a part the side cannot take is refused from the manifest alone (the launcher asks before the bundle's verify)
+    let m = bundle::read(zip).map_err(e)?;
+    ensure(install::select_components(&m, manifest::RunSide::Client, Some(&["core".into(), "sigdb-server".into()])).is_err(), "a client took sigdb-server")?;
     install::uninstall(&dirs, &g, &mut NoProgress).map_err(e)?;
     ensure(fs::read(game_dir.join("dinput8.dll")).map_err(e)? == emf, "uninstall did not restore the EMF proxy byte-identically")?;
     Ok(format!("installed {} over an EMF proxy (chained), uninstalled byte-identically", r.runtime.version))

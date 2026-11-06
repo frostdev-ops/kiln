@@ -257,7 +257,7 @@ Lab with no `labPort`, real client through `play-once` mode vanilla unless noted
 13. **Kiln client, all mods**: Tobin, the Warden and markers appear within about a second of the world; note `has the server's definitions after N ms` and whether anything visibly pops in. Quests still work (Q3, N2).
 14. **Kiln client, spawn the elite right after a hot reload that adds it**: no crash, the elite appears after `content state ... applied`.
 15. **The game's log after 11**: no flood of `processMessage UpdateEntity`, frame rate unchanged near the missing NPC.
-16. **Same client, `modSync` not set (the default)**: Kiln's toast names both mods, then the game's dialog, back to the menu, no crash. Lab: `refusing ... quests-sample ...`, `kick`. `kiln/state/last-server.json`: `"outcome": "rejected"` with the mods. With a modpack published on the lab, the launcher offers it.
+16. **Same client, `modSync` not set (the default)**, also with net-test on the lab (no `clients`): Kiln's toast names the server and both mods (not net-test) before the game's dialog and stays over it, then shows again at the main menu; back to the menu, no crash. kiln.log: `ui: refusal shown: ...` and `ui: refusal shown again at the main menu`, `last-server.json: rejected ... missing npcsample, quests-sample`. Lab: `refusing ... quests-sample ...`, `kick`. `kiln/state/last-server.json`: `"outcome": "rejected"`, `missing` the two mods, `required` all three. The launcher's Play page shows the Refused banner without a modpack (Dismiss hides it); with a modpack published on the lab, the banner offers it.
 
 ## Not verified / open
 1. The per-message maximum at runtime (expected 8192 or 16384 bytes): real-client frames were small (≤ 336 bytes);

@@ -6,8 +6,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
-import type { GameInstall, LastServer } from "../api/commands";
-import { invalidateGame, qk, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles } from "../api/hooks";
+import type { BootState, GameInstall, LastServer } from "../api/commands";
+import {
+  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
+} from "../api/hooks";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import {
   ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, errorText, toast,
@@ -119,8 +121,13 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
   const stageAt = !ctl.running ? 0 : !fresh ? 1 : 3;
-  const errors = fresh ? boot?.errors?.length ?? 0 : 0;
-  const lastBoot = boot ? `${boot.bootMs ? `${(boot.bootMs / 1000).toFixed(1)} s` : "Done"}, ${errors ? `${errors} error${errors > 1 ? "s" : ""}` : "no errors"}` : "Not yet";
+  // the last boot, running or not: boot.json plus what the same run wrote after it (mods.json, native.json)
+  const problems = bootProblems(state.data);
+  const lastBoot = boot ? `${boot.bootMs ? `${(boot.bootMs / 1000).toFixed(1)} s` : "Done"}, ${problems.text}` : "Not yet";
+  const change = useRuntimeChanges((x) => x.last[game.id]);
+  // the build date tells two dev builds apart; an update that is ready or failed is said next to it
+  const kilnNote = change?.state === "failed" ? { text: "update failed", tone: "err", title: `${change.what} failed: ${change.error?.message ?? ""}` }
+    : rt?.upgradeAvailable ? { text: "update ready", tone: "warn", title: `${rt.upgradeAvailable} is ready to install` } : null;
   const build = game.buildId ? `build ${game.buildId}${boot?.exe?.verified ? ", verified" : ""}` : "build unknown";
 
   return (
@@ -172,10 +179,15 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
           </div>
         )}
         <dl className="k-hero-facts">
-          <div><dt>Kiln</dt><dd title={kiln ?? undefined}>{kiln ? kiln.split("+")[0] : "Not installed"}</dd></div>
+          <div>
+            <dt>Kiln{kilnNote && <> · <button type="button" className={`k-link k-tone-${kilnNote.tone}`} title={kilnNote.title} onClick={() => nav("/runtime")}>{kilnNote.text}</button></>}</dt>
+            <dd title={kiln ?? undefined}>{kiln ? kilnLabel(kiln) : "Not installed"}</dd>
+          </div>
           <div><dt>Proxy</dt><dd>{rt?.proxy ? PROXY[rt.proxy.kind] ?? rt.proxy.kind : "-"}</dd></div>
           <div><dt>Runs on</dt><dd>{platform(game)}</dd></div>
-          <div><dt>Last boot</dt><dd style={errors ? { color: "var(--k-err)" } : undefined}>{lastBoot}</dd></div>
+          <div><dt>Last boot</dt><dd>{boot && problems.count ? (
+            <button type="button" className="k-link" style={{ color: "var(--k-err)" }} title={problems.detail} aria-label={`Last boot: ${lastBoot}. Open the logs.`} onClick={() => nav("/logs")}>{lastBoot}</button>
+          ) : lastBoot}</dd></div>
         </dl>
       </section>
 
@@ -204,16 +216,30 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
 /** Refusal, Kiln did not start, the Steam launch option, Steam updating, safe idle: flat strips above the name. */
 function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl: PlayControl; pending: LastServer | null; onOffer: () => void; boot: api.BootJson | null }) {
   const qc = useQueryClient();
+  const nav = useNavigate();
   const status = useGameStatus(game.id);
+  const change = useRuntimeChanges((x) => x.last[game.id]);
   const s = status.data;
   const out = [];
   if (pending?.outcome === "rejected") {
     out.push(
       <Banner key="refused" tone="err" title="Refused" actions={<>
         {pending.modpack && <Button size="s" onClick={onOffer}>Get modpack</Button>}
-        {pending.server.id && <button type="button" className="k-link" onClick={() => api.modpackDismiss(game.id, pending.server.id!).then(() => qc.invalidateQueries({ queryKey: qk.pending(game.id) })).catch((e) => toast.error(e))}>Dismiss</button>}
+        <button type="button" className="k-link" onClick={() => api.modpackDismiss(game.id, pending.server.id ?? "").then(() => qc.invalidateQueries({ queryKey: qk.pending(game.id) })).catch((e) => toast.error(e))}>Dismiss</button>
       </>}>
         {pending.server.name ?? "A server"}: {pending.reason ?? (pending.missing.length ? <>missing <span className="k-mono">{pending.missing.join(", ")}</span>.</> : "it needs mods you do not have.")}
+      </Banner>,
+    );
+  }
+  if (change?.state === "failed") {
+    const has = s?.runtime.receipt?.runtime.version;
+    out.push(
+      <Banner key="rt" tone="err" title={`${change.what} failed`} actions={<>
+        <Button size="s" onClick={() => nav("/runtime")}>Runtime</Button>
+        <button type="button" className="k-link" onClick={() => useRuntimeChanges.getState().clear(game.id)}>Dismiss</button>
+      </>}>
+        <span style={{ overflowWrap: "anywhere" }}>{change.error?.message ?? "It stopped without a reason."}</span>{" "}
+        {has ? <>The game still has Kiln <span className="k-mono">{has}</span>.</> : "Kiln is not in the game."}
       </Banner>,
     );
   }
@@ -240,21 +266,33 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
   const profiles = useProfiles();
   const active = useActiveProfile(gameId);
   const [open, setOpen] = useState(false);
+  const [room, setRoom] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const list = profiles.data ?? [];
   const activate = useMutation({
     mutationFn: (pid: string) => (pid ? api.profileActivate(pid, gameId) : api.profileDeactivate(gameId).then(() => null)),
-    onSuccess: (_r, pid) => { invalidateGame(qc, gameId); toast.ok(pid ? `Active profile: ${list.find((p) => p.id === pid)?.name ?? pid}` : "No profile", "Steam's Play button uses it too."); },
-    onError: (e) => toast.error(e),
+    // the name changes at once (the activation answers after the backend has written it, which takes a moment);
+    // a failed activation puts the old one back
+    onMutate: (pid) => showActive(qc, gameId, pid || null),
+    onSuccess: (r, pid) => {
+      qc.setQueryData(qk.active(gameId), r);
+      invalidateGame(qc, gameId);
+      toast.ok(pid ? `Active profile: ${list.find((p) => p.id === pid)?.name ?? pid}` : "No profile", "Steam's Play button uses it too.");
+    },
+    onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    // the list fits between the title and the window's bottom edge; the profiles scroll inside it
+    const fit = () => { const b = ref.current?.getBoundingClientRect(); setRoom(b ? Math.max(180, window.innerHeight - b.bottom - 16) : 0); };
+    fit();
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
+    window.addEventListener("resize", fit);
     ref.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"], [role="option"]')?.focus();
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); window.removeEventListener("resize", fit); };
   }, [open]);
   const pick = (pid: string) => { setOpen(false); if (pid !== (active.data?.profileId ?? "")) activate.mutate(pid); };
   const cur = active.data?.profileId ?? "";
@@ -266,7 +304,7 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
         </button>
       </h1>
       {open && (
-        <div className="k-popover k-hero-pop" role="listbox" aria-label="Profiles"
+        <div className="k-popover k-hero-pop" role="listbox" aria-label="Profiles" style={room ? { maxHeight: room } : undefined}
           onKeyDown={(e) => {
             if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
             e.preventDefault();
@@ -274,15 +312,17 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
             const at = items.indexOf(document.activeElement as HTMLElement);
             items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
           }}>
-          {list.map((p) => (
-            <button key={p.id} type="button" role="option" aria-selected={p.id === cur} className="k-menu-item" disabled={running} onClick={() => pick(p.id)}>
-              <span style={{ fontWeight: p.id === cur ? 700 : 400 }}>{p.name}</span>
-              <span className="k-mono">{p.counts.kiln + p.counts.native + p.counts.emf + p.counts.plugin} mods</span>
+          <div className="k-pop-scroll">
+            {list.map((p) => (
+              <button key={p.id} type="button" role="option" aria-selected={p.id === cur} className="k-menu-item" disabled={running} onClick={() => pick(p.id)}>
+                <span style={{ fontWeight: p.id === cur ? 700 : 400 }}>{p.name}</span>
+                <span className="k-mono">{p.counts.kiln + p.counts.native + p.counts.emf + p.counts.plugin} mods</span>
+              </button>
+            ))}
+            <button type="button" role="option" aria-selected={!cur} className="k-menu-item" disabled={running} onClick={() => pick("")}>
+              <span style={{ fontWeight: !cur ? 700 : 400 }}>No profile</span><span className="k-mono">drop-ins</span>
             </button>
-          ))}
-          <button type="button" role="option" aria-selected={!cur} className="k-menu-item" disabled={running} onClick={() => pick("")}>
-            <span style={{ fontWeight: !cur ? 700 : 400 }}>No profile</span><span className="k-mono">drop-ins</span>
-          </button>
+          </div>
           <div className="k-menu-sep" />
           {cur && <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => nav(`/profiles/${cur}/mods`)}>Edit this profile</button>}
           <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => nav("/profiles")}>All profiles</button>
@@ -315,6 +355,42 @@ function PlayOnceModal({ open, onClose, onPlay }: { open: boolean; onClose: () =
       </Field>
     </Modal>
   );
+}
+
+/** "0.2.0-dev (20261104)": the version and the build date of a `<semver>+<yyyymmdd>.<git>` runtime. */
+function kilnLabel(v: string): string {
+  const [base, build] = v.split("+");
+  const date = build?.split(".")[0];
+  return date ? `${base} (${date})` : base;
+}
+
+/** What went wrong in the last boot. boot.json is written when the boot ends, before Kiln.Host loads the mods, so
+ *  its `errors` never hold mod failures: those are in mods.json (and native.json for native mods), counted when the
+ *  same run wrote them, i.e. the same pid and written after boot.json (Wine reuses pids from run to run). */
+function bootProblems(st: BootState | undefined): { count: number; text: string; detail: string } {
+  const boot = st?.boot;
+  if (!boot) return { count: 0, text: "no errors", detail: "" };
+  const since = Date.parse(boot.written) - 2000;
+  const sameRun = (f: { pid: number; written: string } | null | undefined) => !!f && f.pid === boot.pid && Date.parse(f.written) >= since;
+  const errors = [
+    ...(boot.errors ?? []),
+    ...boot.chain.filter((c) => c.status === "failed").map((c) => `${c.path.split(/[\\/]/).pop()} did not load`),
+    ...(boot.plugins ?? []).filter((p) => p.status === "failed").map((p) => `plugin ${p.id ?? p.file}: ${p.error ?? "failed"}`),
+  ];
+  const mods = sameRun(st?.mods) ? st!.mods!.mods.filter((m) => m.state === "failed") : [];
+  const natives = sameRun(st?.native) ? st!.native!.mods.filter((m) => m.state === "failed") : [];
+  const nativeCount = natives.length || (boot.native?.failed ?? 0);
+  const parts = [
+    mods.length ? `${mods.length} mod${mods.length > 1 ? "s" : ""} failed` : "",
+    nativeCount ? `${nativeCount} native mod${nativeCount > 1 ? "s" : ""} failed` : "",
+    errors.length ? `${errors.length} error${errors.length > 1 ? "s" : ""}` : "",
+  ].filter(Boolean);
+  const detail = [
+    ...mods.map((m) => `${m.name ?? m.id}: ${m.reason ?? "failed"}`),
+    ...natives.map((m) => `${m.id}: ${m.reason ?? "failed"}`),
+    ...errors,
+  ].join("\n");
+  return { count: mods.length + nativeCount + errors.length, text: parts.length ? parts.join(", ") : "no errors", detail };
 }
 
 function platform(g: GameInstall): string {

@@ -1,5 +1,5 @@
 {
-  // Frostlance: the same spell as FrostboltBlockMod.cs's, as data. Block fields take the block inline, or by name.
+  // Frostlance: the same spell as FrostboltBlockMod.cs's Frostbolt, as data, under its own name so the two can be told apart in the game. Block fields take the block inline, or by name.
   "format": 1,
   "vfx": {
     "frost_burst-json": {
@@ -43,7 +43,7 @@
   },
   "spells": {
     "frostlance": {
-      "name": "Frostbolt",
+      "name": "Frostlance",
       "description": "A shard of ice that bursts where it lands, and chills what it hits.",
       "cast": { "manaCost": 30, "vfx": "frost_charge-json" },
       "delivery": {

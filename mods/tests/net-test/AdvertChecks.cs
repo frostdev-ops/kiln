@@ -62,6 +62,22 @@ internal static class AdvertChecks
         var none = NetAdvertise.Parse(new Dictionary<string, string> { ["net-test.hello"] = "x" }, "0.1.0");
         check("advert.absent", !none.Present && none.Required.Count == 0 && none.Modpack is null && none.Kiln == "0.1.0", "");
 
+        // a refusal under the default policy names only the mods that state clients: "mod"; the required list (what a
+        // modpack holds) also has a side-both mod without clients. The client's missing[] follows the refusal.
+        var required = new List<NetRequiredMod>
+        {
+            new("net-test", "0.1.0", "kdh1:" + new string('d', 64)), new("npcsample", "0.1.0", "kdh1:" + new string('e', 64)),
+            new("quests-sample", "2.0.0", "kdh1:" + new string('f', 64)),
+        };
+        var refusal = Wire.EncodeReject(new Wire.Reject("This server requires mods you do not have: npcsample 0.1.0 (missing), quests-sample 2.0.0 (missing)",
+            ["npcsample 0.1.0 (missing)", "quests-sample 2.0.0 (missing)"]) { Properties = NetAdvertise.Properties(cfg, 200, required, true, out _) });
+        var rj = Wire.DecodeReject(refusal.Concat(new byte[(4 - refusal.Length % 4) % 4]).ToArray());
+        var radv = NetAdvertise.Parse(rj.Properties, null);
+        var missing = NetRefusal.Missing(rj.Details, radv.Required.Select(r => r.Id).ToList());
+        check("lastserver.refusal-missing", radv.Required.Count == 3 && missing.SequenceEqual(["npcsample", "quests-sample"]) &&
+                                            NetRefusal.Missing([], radv.Required.Select(r => r.Id).ToList()).Count == 3,
+            $"required [{string.Join(", ", radv.Required.Select(r => r.Id))}], missing [{string.Join(", ", missing)}]");
+
         // the client's last-server.json: history newest first, at most 20, entries without their own history
         var path = Path.Combine(dataDir, "last-server-test.json");
         if (File.Exists(path)) File.Delete(path);

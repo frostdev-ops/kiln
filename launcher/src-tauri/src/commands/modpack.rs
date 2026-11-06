@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter};
 
-/// `<data>/modpacks/dismissed.json`: `{gameId: {serverId: modpack sha256 | ""}}`, offers the user said no to.
+/// `<data>/modpacks/dismissed.json`: `{gameId: {serverId: key}}`, what the user said no to (`dismiss_key`).
 fn dismissed_path() -> Result<std::path::PathBuf, Error> {
     Ok(dirs()?.root.join("modpacks").join("dismissed.json"))
 }
@@ -23,22 +23,34 @@ fn dismissed() -> BTreeMap<String, BTreeMap<String, String>> {
     dismissed_path().ok().and_then(|p| kiln_manage::util::read_json(&p).ok().flatten()).unwrap_or_default()
 }
 
-/// The last server answer worth an offer: a refusal, or a welcome that still lists missing mods, from a server that
-/// advertises a modpack; not one the user dismissed for the same modpack.
+/// What dismissing `last` remembers: its modpack's sha256 (that pack isn't offered again), or for a refusal without a
+/// modpack the time of that refusal (the next one shows again).
+fn dismiss_key(last: &LastServer) -> String {
+    match &last.modpack {
+        Some(pack) => pack.sha256.clone(),
+        None => format!("refused {}", last.written),
+    }
+}
+
+/// What Play shows from the last server answer: every refusal (its banner, with the offer when the server advertises
+/// a modpack), and a welcome that still lists missing mods from a server with a modpack (joined despite a mismatch,
+/// modSync warn); not one the user dismissed. `dismissed` is this game's part of dismissed.json.
+fn worth_showing(last: &LastServer, dismissed: Option<&BTreeMap<String, String>>) -> bool {
+    let server_id = last.server.id.clone().unwrap_or_default();
+    if dismissed.and_then(|m| m.get(&server_id)).is_some_and(|key| *key == dismiss_key(last)) {
+        return false;
+    }
+    match last.outcome {
+        JoinOutcome::Rejected => true,
+        JoinOutcome::Welcome => last.modpack.is_some() && !last.missing.is_empty(),
+        JoinOutcome::Vanilla => false,
+    }
+}
+
 fn pending_for(game_id: &str) -> Result<Option<LastServer>, Error> {
     let g = game(game_id)?;
     let Some(last) = kiln_manage::state::read_last_server(&g.path)? else { return Ok(None) };
-    let Some(pack) = last.modpack.as_ref() else { return Ok(None) };
-    let server_id = last.server.id.clone().unwrap_or_default();
-    if dismissed().get(game_id).and_then(|m| m.get(&server_id)).is_some_and(|sha| sha == &pack.sha256) {
-        return Ok(None);
-    }
-    let wanted = match last.outcome {
-        JoinOutcome::Rejected => true,
-        // joined despite a mismatch (modSync warn): offer what is still missing
-        JoinOutcome::Welcome => !last.missing.is_empty(),
-        JoinOutcome::Vanilla => false,
-    };
+    let wanted = worth_showing(&last, dismissed().get(game_id));
     Ok(wanted.then_some(last))
 }
 
@@ -122,14 +134,90 @@ pub async fn modpack_install(app: AppHandle, game_id: String, request: ModpackIn
 pub async fn modpack_dismiss(game_id: String, server_id: String) -> Result<(), Error> {
     blocking(move || {
         let g = game(&game_id)?;
-        let sha = kiln_manage::state::read_last_server(&g.path)?
-            .filter(|l| l.server.id.as_deref() == Some(server_id.as_str()))
-            .and_then(|l| l.modpack)
-            .map(|m| m.sha256)
+        // serverId "" is a server that sent no id (an older Kiln server)
+        let key = kiln_manage::state::read_last_server(&g.path)?
+            .filter(|l| l.server.id.as_deref().unwrap_or("") == server_id)
+            .map(|l| dismiss_key(&l))
             .unwrap_or_default();
         let mut all = dismissed();
-        all.entry(game_id).or_default().insert(server_id, sha);
+        all.entry(game_id).or_default().insert(server_id, key);
         kiln_manage::util::write_json_atomic(&dismissed_path()?, &all)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kiln_manage::state::ServerRef;
+
+    /// last-server.json after a lab refused a client by the default policy: no modpack published.
+    fn refusal(written: &str, modpack: bool) -> LastServer {
+        let mut v = serde_json::json!({
+            "format": 1, "written": written, "outcome": "rejected",
+            "reason": "This server requires mods you do not have: npcsample 0.1.0 (missing), quests-sample 2.0.0 (missing)",
+            "server": { "id": "srv-d09b032bfe63", "name": "Kiln lab mylab", "address": null, "kiln": "0.2.0-dev" },
+            "modpack": null,
+            "required": [
+                { "id": "net-test", "version": "0.1.0", "hash": format!("kdh1:{}", "3".repeat(64)), "kind": "kiln" },
+                { "id": "npcsample", "version": "0.1.0", "hash": format!("kdh1:{}", "b".repeat(64)), "kind": "kiln" },
+            ],
+            "truncated": false, "missing": ["npcsample", "quests-sample"],
+            "history": [{ "format": 1, "written": "2026-11-06T05:32:08Z", "outcome": "welcome", "server": {}, "modpack": null, "required": [] }],
+        });
+        if modpack {
+            v["modpack"] = serde_json::json!({ "url": "https://example.org/pack.zip", "sha256": "a".repeat(64) });
+        }
+        serde_json::from_value(v).expect("last-server.json shape")
+    }
+
+    fn dismissed_with(last: &LastServer) -> BTreeMap<String, String> {
+        BTreeMap::from([(last.server.id.clone().unwrap_or_default(), dismiss_key(last))])
+    }
+
+    #[test]
+    fn a_refusal_without_a_modpack_shows() {
+        assert!(worth_showing(&refusal("2026-11-06T05:33:51Z", false), None));
+    }
+
+    #[test]
+    fn a_refusal_with_a_modpack_shows() {
+        assert!(worth_showing(&refusal("2026-11-06T05:33:51Z", true), None));
+    }
+
+    #[test]
+    fn a_dismissed_refusal_stays_away_until_the_next_one() {
+        let first = refusal("2026-11-06T05:33:51Z", false);
+        let d = dismissed_with(&first);
+        assert!(!worth_showing(&first, Some(&d)));
+        assert!(worth_showing(&refusal("2026-11-06T06:00:00Z", false), Some(&d)), "a later refusal shows again");
+    }
+
+    #[test]
+    fn a_dismissed_modpack_is_not_offered_again() {
+        let first = refusal("2026-11-06T05:33:51Z", true);
+        let d = dismissed_with(&first);
+        assert!(!worth_showing(&refusal("2026-11-06T06:00:00Z", true), Some(&d)));
+    }
+
+    #[test]
+    fn a_dismissal_for_another_server_changes_nothing() {
+        let d = BTreeMap::from([("srv-other".to_string(), "refused 2026-11-06T05:33:51Z".to_string())]);
+        assert!(worth_showing(&refusal("2026-11-06T05:33:51Z", false), Some(&d)));
+    }
+
+    #[test]
+    fn a_welcome_shows_only_with_missing_mods_and_a_modpack() {
+        let mut w = refusal("2026-11-06T05:33:51Z", true);
+        w.outcome = JoinOutcome::Welcome;
+        assert!(worth_showing(&w, None));
+        w.missing.clear();
+        assert!(!worth_showing(&w, None));
+        let mut no_pack = refusal("2026-11-06T05:33:51Z", false);
+        no_pack.outcome = JoinOutcome::Welcome;
+        assert!(!worth_showing(&no_pack, None));
+        no_pack.outcome = JoinOutcome::Vanilla;
+        no_pack.server = ServerRef::default();
+        assert!(!worth_showing(&no_pack, None));
+    }
 }

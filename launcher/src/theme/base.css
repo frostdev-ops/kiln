@@ -95,7 +95,8 @@ p { margin: 0; }
 .k-title svg { display: inline-block; width: 26px; height: 26px; margin-left: 14px; vertical-align: .06em; fill: none; stroke: var(--k-text-2); stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round; transition: transform .35s var(--k-spring), stroke .15s; }
 .k-title:hover svg { stroke: var(--k-gold-400); transform: translateY(3px); }
-.k-hero-pop { left: 0; top: calc(100% + 2px); width: 340px; transform-origin: 20px 0; }
+.k-hero-pop { left: 0; top: calc(100% + 2px); width: 340px; transform-origin: 20px 0; display: flex; flex-direction: column; }
+.k-hero-pop .k-pop-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .k-hero-pop .k-menu-item { justify-content: space-between; font-size: 18px; }
 .k-hero-say { font-size: 25px; line-height: 1.25; max-width: 600px; color: var(--k-head); text-wrap: pretty; }
 .k-hero-once { display: flex; flex-wrap: wrap; gap: 5px 22px; align-items: baseline; }

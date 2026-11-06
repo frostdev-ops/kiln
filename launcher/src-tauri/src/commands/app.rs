@@ -173,6 +173,8 @@ pub fn spawn_task(
     };
     TASKS.lock().unwrap().insert(id.clone(), Entry { task: task.clone(), cancel: cancel.clone() });
     emit(app, &task);
+    // every task's start and outcome go to launcher.log: the task list lives in memory and ends with the process
+    launcher_log("task", &format!("{id} started: {}", task.title));
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut p = TaskProgress { app: app.clone(), task, cancel, last: Instant::now() - Duration::from_secs(1) };
@@ -185,9 +187,19 @@ pub fn spawn_task(
                 t.state = TaskState::Done;
                 t.progress = Some(1.0);
                 t.result = Some(v);
+                launcher_log("task", &format!("{} done: {}", t.id, t.message.as_deref().unwrap_or("-")));
             }
             Err(e) => {
                 t.state = if e.code == ErrorCode::Canceled { TaskState::Canceled } else { TaskState::Failed };
+                launcher_log("task", &format!(
+                    "{} {}: [{}] {}{} (last step: {})",
+                    t.id,
+                    if t.state == TaskState::Canceled { "canceled" } else { "failed" },
+                    e.code.as_str(),
+                    e.message,
+                    e.detail.as_ref().map(|d| format!(" {d}")).unwrap_or_default(),
+                    t.message.as_deref().unwrap_or("-")
+                ));
                 t.message = Some(e.message.clone());
                 t.error = Some(e);
             }
@@ -519,16 +531,21 @@ pub async fn app_assets_import(app: AppHandle, kind: String, from: Option<String
     Ok(id)
 }
 
-/// Appends one line to `<data>/logs/launcher.log` (game-art problems: the UI only toasts them).
-fn art_log(msg: &str) {
+/// Appends one line to `<data>/logs/launcher.log`: `<time> <area>: <msg>`. Best effort.
+pub fn launcher_log(area: &str, msg: &str) {
     if let Ok(d) = crate::state::dirs() {
         let p = d.logs().join("launcher.log");
         let _ = std::fs::create_dir_all(d.logs());
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
             use std::io::Write;
-            let _ = writeln!(f, "{} gameart: {msg}", kiln_manage::util::now_rfc3339());
+            let _ = writeln!(f, "{} {area}: {msg}", kiln_manage::util::now_rfc3339());
         }
     }
+}
+
+/// Game-art problems (the UI only toasts them).
+fn art_log(msg: &str) {
+    launcher_log("gameart", msg);
 }
 
 /// The editor's art, as one task ("Prepare game art"): extracts it from the client when it is missing or the game

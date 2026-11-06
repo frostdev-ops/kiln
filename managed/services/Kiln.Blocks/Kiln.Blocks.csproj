@@ -14,6 +14,7 @@
     <!-- The lab test drives what the block types do not reach yet (a wielder's program without an item). -->
     <InternalsVisibleTo Include="BlocksTest" />
     <InternalsVisibleTo Include="BlocksAbilitiesTest" />
+    <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="FurnitureTest" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
