@@ -208,6 +208,9 @@ public sealed record AnimationBlock : INpcBlock, IPremade
     public Clip? Stun { get; init; }
     /// <summary>Plays over everything when it is hit (the engine's hit overlay).</summary>
     public Clip? Hit { get; init; }
+    /// <summary>What a hit reaction, a stun or a parry plays over the whole body: the base creature's hit sequences play it. Default: <see cref="Hit"/>'s clip
+    /// once, else Idle. <see cref="Stun"/> defaults to it, and <see cref="Dead"/> to Idle, held.</summary>
+    public Clip? Stagger { get; init; }
 
     /// <summary>States of your own: what attacks, rules and sequences play by name.</summary>
     public IDictionary<AnimState, Clip> States { get; init; } = new Dictionary<AnimState, Clip>();

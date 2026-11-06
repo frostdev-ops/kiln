@@ -33,7 +33,7 @@ public class WorldTablesGateTests
     public void ANoKilnClientLacksAll()
     {
         var text = WorldTablesGate.Describe(Server, "");
-        Assert.StartsWith("This server's building materials don't match your game's:", text);
+        Assert.StartsWith("This server's building and terrain materials don't match your game's:", text);
         Assert.Contains("you don't have brick-first", text);
         Assert.Contains("you don't have brick-a", text);
     }

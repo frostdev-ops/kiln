@@ -24,6 +24,7 @@
 #include "merge.h"
 #include "reflect.h"
 #include "surfacecheck.h"
+#include "terrain.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 #include "services/kiln_saves.h"
@@ -40,6 +41,9 @@ constexpr uint32_t kTypePools = 0x9a2e4101u;      // keen::VoxelBlueprintMateria
 constexpr uint32_t kTypeBlueprints = 0x0dfcca99u; // keen::VoxelBlueprintItemRegistryResource
 constexpr uint32_t kTypeItem = 0xb5ce8765u;       // keen::ItemInfo
 constexpr uint32_t kTypeVoxelModel = 0xe53afbafu; // keen::VoxelModelResource
+constexpr uint32_t kTypeVfx = 0x293464a1u;       // keen::VoxelMaterialVfxDataResource
+constexpr uint32_t kTypeBlend2 = 0xdbfc162cu;    // keen::WorldMaterialBlending2Resource (client)
+constexpr uint32_t kTypeSimple = 0xebdb76f1u;    // keen::SimpleWorldMaterialResource (client)
 
 const KilnApi* g_api = nullptr;
 KilnOwner g_self = 0;
@@ -69,7 +73,10 @@ std::map<std::string, fs::path> g_pending_dirs;          // mod id -> its folder
 std::set<std::string> g_defined;                         // "<mod>/<block>": defined by code this session
 
 // What came of it.
-std::vector<Placed> g_placed;
+std::vector<Placed> g_placed;             // building materials, then terrain ones (cell < 128): live first in each
+size_t g_terrain_room = 0;                // ids for new terrain materials
+size_t g_pending_terrain = 0;             // new terrain materials code defined this session
+TerrainTables g_terrain_tables;
 std::vector<std::string> g_refused;
 std::vector<Shape> g_shapes;              // every enabled mod's shapes, then those the shapes table took
 std::vector<Shape> g_shapes_in;
@@ -201,6 +208,11 @@ std::string normal_material(const Material& m) {
     o["strength"] = nlohmann::json::parse(strength_json(m.strength).dump());
     if (!m.loot_from.empty()) o["loot"] = {{"from", m.loot_from}, {"count", m.loot_count}, {"makes", m.loot_makes}};
     if (j.is_object() && j.contains("surface") && !j["surface"].is_null()) o["surface"] = normal_surface(j["surface"], false);
+    if (m.terrain) {
+        o["terrain"] = {{"like", m.like}, {"look", m.look}, {"placeable", m.item}};
+        if (m.flatten) o["terrain"]["flatten"] = *m.flatten;
+        if (m.sliding) o["terrain"]["sliding"] = *m.sliding;
+    }
     return o.dump();
 }
 
@@ -270,7 +282,7 @@ void read_mod(const std::string& dir, const fs::path& pending_root) {
             g_errors.push_back(mf.file + ": not valid JSON");
             continue;
         }
-        if (!doc.is_object() || (!doc.contains("materialTweaks") && !doc.contains("buildingMaterials") && !doc.contains("blueprints"))) continue;
+        if (!doc.is_object() || (!doc.contains("materialTweaks") && !doc.contains("buildingMaterials") && !doc.contains("blueprints") && !doc.contains("terrainMaterials"))) continue;
         read_blocks(doc, &mf);
         g_errors.insert(g_errors.end(), mf.errors.begin(), mf.errors.end());
         for (Tweak& t : mf.tweaks) {
@@ -315,6 +327,14 @@ void read_kept() {
             k.mod = m->value("mod", "?");
             k.block = m->value("block", "?");
             k.roof = m->value("roof", false);
+            // a terrain material: what it started from and looked like, by name, so its config and look come back the same
+            k.terrain = m->value("kind", "") == "terrain";
+            if (k.terrain) {
+                k.like = m->value("like", kTerrainLike);
+                k.look = m->value("look", "");
+                if (m->contains("flatten") && (*m)["flatten"].is_boolean()) k.flatten = (*m)["flatten"].get<bool>();
+                if (m->contains("sliding") && (*m)["sliding"].is_boolean()) k.sliding = (*m)["sliding"].get<bool>();
+            }
             std::vector<std::string> errors;
             if (m->contains("strength")) read_strength((*m)["strength"], "strength", k.block, &k.strength, &errors);
             found.emplace(m.key(), std::move(k));
@@ -459,6 +479,36 @@ bool default_loot(Material* m, const std::string& label) {
     return true;
 }
 
+// A terrain material's "like" and "look" as cell ids, and what digging it gives back: its own item when it's placeable and says nothing else, otherwise
+// what it starts from gives, unless its strength says. Both have to be game terrain materials with a config.
+bool resolve_terrain(Material* m, const std::string& label, const RegistryInfo& info, const Bytes& world, std::vector<std::string>* errors) {
+    const auto cell_of = [&](const std::string& name, const char* field, int* out) {
+        const int c = resolve_material(name, world);
+        if (c >= 1 && c <= kTerrainLast && info.terrain_at.count(c)) {
+            *out = c;
+            return true;
+        }
+        errors->push_back(label + ", " + field + ": " + (c < 0 ? "the game has no material \"" + name + "\"" : "\"" + name + "\" is a building material: it takes a terrain material, a GameMaterials Terrain name or Cell<1..127>"));
+        return false;
+    };
+    if (!cell_of(m->like, "like", &m->like_cell)) return false;
+    if (m->look.empty()) m->look_cell = m->like_cell;
+    else if (!cell_of(m->look, "look", &m->look_cell)) return false;
+    Strength& s = m->strength;
+    if (m->item && (!s.drops || *s.drops == kDropsOwnBlock)) s.drops = m->item_guid.text();
+    if (!s.drops) return true;
+    Guid g;
+    if (Guid::parse(*s.drops, &g)) return true;
+    read_names();
+    const auto it = g_names.item.find(*s.drops);
+    if (it == g_names.item.end()) {
+        errors->push_back(label + ", strength.drops: the game has no item \"" + *s.drops + "\"");
+        return false;
+    }
+    s.drops = it->second.text();
+    return true;
+}
+
 // ---- the status file ------------------------------------------------------------------------------------------------
 const char* state_name(int32_t s) {
     switch (s) {
@@ -475,6 +525,7 @@ std::string status_text() {
     o["hash"] = g_hash;
     o["firstNewId"] = g_first_new_id;
     o["room"] = g_room;
+    o["terrainRoom"] = g_terrain_room;
     ojson mats = ojson::array();
     for (const Placed& p : g_placed) {
         ojson m = ojson::object();
@@ -484,6 +535,7 @@ std::string status_text() {
         m["mod"] = p.m.mod;
         m["block"] = p.m.block;
         if (p.reused) m["reused"] = true;
+        if (p.m.terrain) m["kind"] = "terrain", m["like"] = p.m.like_cell, m["look"] = p.m.look_cell;
         mats.push_back(std::move(m));
     }
     o["materials"] = std::move(mats);
@@ -608,9 +660,13 @@ void merge_locked() {
         std::vector<Material> live;
         std::set<Guid> seen;
         for (Material& m : g_live) {
-            const std::string label = "block buildingMaterial " + m.block + " (mod " + m.mod + ")";
+            const std::string label = std::string(m.terrain ? "block terrainMaterial " : "block buildingMaterial ") + m.block + " (mod " + m.mod + ")";
             if (!seen.insert(m.guid).second) {
                 g_errors.push_back(label + ": another block has its GUID: a \"was\" that names another block?");
+                continue;
+            }
+            if (m.terrain) {
+                if (resolve_terrain(&m, label, info, worlds[0].game, &g_errors)) live.push_back(std::move(m));
                 continue;
             }
             if (!default_loot(&m, label) || !resolve_drops(&m.strength, label)) continue;
@@ -641,11 +697,32 @@ void merge_locked() {
         for (const Material& k : g_kept_read)
             if (!live.count(k.guid)) kept.push_back(k);
     }
+    // Terrain ids are a room of their own: a cell's low byte 1..127 against 128..255.
+    std::vector<Material> tlive, tkept;
+    {
+        const auto split = [](std::vector<Material>* all, std::vector<Material>* terrain) {
+            std::vector<Material> rest;
+            for (Material& m : *all) (m.terrain ? *terrain : rest).push_back(std::move(m));
+            *all = std::move(rest);
+        };
+        split(&g_live, &tlive);
+        split(&kept, &tkept);
+        // a kept one keeps its config and look by name; a name this build lacks falls back to plain stone rather than losing the cells
+        std::vector<std::string> quiet;
+        for (Material& k : tkept)
+            if (!resolve_terrain(&k, "kept terrain material " + k.block, info, worlds[0].game, &quiet)) {
+                k.like = kTerrainLike, k.look.clear(), k.strength.drops.reset();
+                resolve_terrain(&k, k.block, info, worlds[0].game, &quiet);
+            }
+    }
     Allocation a = allocate(g_live, kept, free_ids, deprecated);
     g_room = a.room;
     g_refused = a.refused;
-    for (const std::string& r : g_refused) WT_E("worldtables: %s", r.c_str());
     g_placed = std::move(a.placed);
+    Allocation ta = allocate_terrain(tlive, tkept, free_terrain_ids(worlds[0].game, L, info));
+    g_terrain_room = ta.room;
+    g_refused.insert(g_refused.end(), ta.refused.begin(), ta.refused.end());
+    for (const std::string& r : g_refused) WT_E("worldtables: %s", r.c_str());
 
     // The new bytes. Anything that doesn't read leaves everything as the game has it.
     std::vector<RegistryChange> changes;
@@ -656,6 +733,19 @@ void merge_locked() {
     if (!merge_pools(pools.game, L, g_placed, &pools.merged, &why)) {
         go_off(why);
         return;
+    }
+    if (!ta.placed.empty()) {
+        Bytes next;
+        if (!merge_terrain_registry(reg.merged, L, ta.placed, &next, &changes, &why)) {
+            go_off(why);
+            return;
+        }
+        reg.merged = std::move(next);
+        if (!merge_terrain_pool(pools.merged, L, ta.placed, &next, &why)) {
+            go_off(why);
+            return;
+        }
+        pools.merged = std::move(next);
     }
     if (!merge_blueprints(blueprints.game, L, g_placed, first_pool_item(pools.game, L), &blueprints.merged, &why)) {
         go_off(why);
@@ -675,6 +765,8 @@ void merge_locked() {
             if (std::none_of(refused.begin(), refused.end(), [&](const std::string& r) { return r.rfind("block blueprint " + sh.block + " (mod " + sh.mod + ")", 0) == 0; }))
                 g_shapes_in.push_back(sh);
     }
+    const size_t building_n = g_placed.size();
+    g_placed.insert(g_placed.end(), ta.placed.begin(), ta.placed.end());
     for (Output& w : worlds)
         if (!merge_world(w.game, L, g_placed, &w.merged, &why)) {
             go_off(why);
@@ -684,6 +776,27 @@ void merge_locked() {
     outputs.push_back(std::move(pools));
     outputs.push_back(std::move(blueprints));
     for (Output& w : worlds) outputs.push_back(std::move(w));
+    // A terrain material's particle class (both sides) and look (a client's tables): the entries of the game material it looks like. A table that
+    // doesn't read costs that much: the material still digs and saves.
+    if (!ta.placed.empty()) {
+        std::string twhy;
+        if (!g_terrain_tables.ok && !read_terrain_tables(own_base(), own_size(), &g_terrain_tables, &twhy)) {
+            WT_W("worldtables: this build's terrain look tables don't resolve (%s): new terrain materials dig and save, and get no look or particles", twhy.c_str());
+        } else {
+            using Fn = bool (*)(const Bytes&, const TerrainTables&, const std::vector<Placed>&, Bytes*, std::string*);
+            for (const auto& [type, name, fn] : {std::tuple<uint32_t, const char*, Fn>{kTypeVfx, "particle", &merge_terrain_vfx},
+                                                 {kTypeBlend2, "terrain blending", &merge_terrain_blend},
+                                                 {kTypeSimple, "far terrain", &merge_terrain_simple}}) {
+                Output o;
+                if (!one(type, name, &o)) continue;  // a dedicated server has no look tables
+                if (!fn(o.game, g_terrain_tables, ta.placed, &o.merged, &twhy)) {
+                    WT_W("worldtables: %s; new terrain materials get no entry there", twhy.c_str());
+                    continue;
+                }
+                outputs.push_back(std::move(o));
+            }
+        }
+    }
 
     // Served as a whole or not at all.
     bool any = false;
@@ -734,11 +847,13 @@ void merge_locked() {
     for (const RegistryChange& c : g_changes) WT_I("worldtables: %s", c.text.c_str());
     for (const Placed& p : g_placed)
         if (p.reused) WT_W("worldtables: material %s took the game's deprecated slot %d: a world with cells of the deprecated material now shows this one", p.m.block.c_str(), p.cell);
-    size_t live_n = 0;
-    for (const Placed& p : g_placed) live_n += p.m.live ? 1 : 0;
+    size_t live_n = 0, tlive_n = 0;
+    for (size_t i = 0; i < g_placed.size(); ++i) (i < building_n ? live_n : tlive_n) += g_placed[i].m.live ? 1 : 0;
     if (any)
-        WT_I("worldtables: merged: %zu tweak(s), %zu live and %zu kept material(s) of room for %zu, first new id %d, %zu table(s) served; hash %s", g_tweaks.size(), live_n, g_placed.size() - live_n, g_room, g_first_new_id,
+        WT_I("worldtables: merged: %zu tweak(s), %zu live and %zu kept material(s) of room for %zu, first new id %d, %zu table(s) served; hash %s", g_tweaks.size(), live_n, building_n - live_n, g_room, g_first_new_id,
              put.size(), g_hash.c_str());
+    if (g_placed.size() > building_n)
+        WT_I("worldtables: terrain: %zu live and %zu kept material(s) of room for %zu", tlive_n, g_placed.size() - building_n - tlive_n, g_terrain_room);
     else
         WT_I("worldtables: nothing to change: the game's %zu tables are served as they are (registry fnv %s); hash %s", outputs.size(), hex64(fnv64(outputs[0].game)).c_str(), g_hash.c_str());
 }
@@ -793,6 +908,13 @@ void record_world(const std::string& world) {
         m["block"] = p.m.block;
         m["id"] = p.cell;
         m["roof"] = p.m.roof;
+        if (p.m.terrain) {
+            m["kind"] = "terrain";
+            m["like"] = p.m.like;
+            if (!p.m.look.empty()) m["look"] = p.m.look;
+            if (p.m.flatten) m["flatten"] = *p.m.flatten;
+            if (p.m.sliding) m["sliding"] = *p.m.sliding;
+        }
         Strength kept = p.m.strength;
         if (kept.drops && *kept.drops == p.m.item_guid.text()) kept.drops.reset(), kept.items_per_blocks.reset();  // a kept material has no block item
         m["strength"] = strength_json(kept);
@@ -972,30 +1094,49 @@ KilnResult KILN_CALL t_define(KilnStr json, char* report, size_t cap, size_t* ou
                 blocks.push_back(std::move(b));
             }
             for (const Material& m : mf.materials) {
+                // a building or a terrain material: the same path, each with its own section and room
+                const char* kind = m.terrain ? "terrainMaterial" : "buildingMaterial";
+                const char* section = m.terrain ? "terrainMaterials" : "buildingMaterials";
+                const size_t room = m.terrain ? g_terrain_room : g_room;
+                size_t& pending_n = m.terrain ? g_pending_terrain : g_pending_new;
+                const size_t taken = pending_n + static_cast<size_t>(std::count_if(g_placed.begin(), g_placed.end(), [&](const Placed& p) { return p.m.terrain == m.terrain; }));
                 ojson b = ojson::object();
                 b["name"] = m.block;
-                b["kind"] = "buildingMaterial";
+                b["kind"] = kind;
                 b["guid"] = m.guid.text();
                 const auto it = g_boot_definitions.find(mf.mod + "/m/" + m.block);
                 if (!usable) b["status"] = off;
                 else if (it != g_boot_definitions.end() && it->second == normal_material(m)) {
                     b["status"] = "registered";
-                    if (g_from_code.count(mf.mod + "/" + m.block)) keep_block("buildingMaterials", m.block);
+                    if (g_from_code.count(mf.mod + "/" + m.block)) keep_block(section, m.block);
                 } else {
                     b["status"] = "pending";
-                    if (g_room && g_placed.size() + g_pending_new >= g_room) {
-                        char room[160];
-                        std::snprintf(room, sizeof room, "the game has room for %zu new building materials across all mods, and %zu are taken", g_room, g_placed.size() + g_pending_new);
-                        errors.push_back("code: block buildingMaterial " + m.block + ": refused: " + room);
+                    // a terrain material's like and look are checked now, as a tweak's material is, rather than at the next start
+                    if (m.terrain && g_layouts_ok && !g_world_game.empty()) {
+                        bool bad = false;
+                        for (const auto& [field, name] : {std::pair<const char*, std::string>{"like", m.like}, {"look", m.look}}) {
+                            if (name.empty()) continue;
+                            const int c = resolve_material(name, g_world_game);
+                            if (c >= 1 && c <= kTerrainLast) continue;
+                            errors.push_back("code: block terrainMaterial " + m.block + ", " + field + ": " +
+                                             (c < 0 ? "the game has no material \"" + name + "\"" : "\"" + name + "\" is a building material: it takes a terrain material, a GameMaterials Terrain name or Cell<1..127>"));
+                            bad = true;
+                        }
+                        if (bad) continue;
+                    }
+                    if (room && taken >= room) {
+                        char text[160];
+                        std::snprintf(text, sizeof text, "the game has room for %zu new %s materials across all mods, and %zu are taken", room, m.terrain ? "terrain" : "building", taken);
+                        errors.push_back(std::string("code: block ") + kind + " " + m.block + ": refused: " + text);
                         continue;
                     }
-                    ++g_pending_new;
-                    keep_block("buildingMaterials", m.block);
+                    ++pending_n;
+                    keep_block(section, m.block);
                 }
                 for (const Placed& p : g_placed)
                     if (p.m.live && p.m.guid == m.guid) b["id"] = p.cell;
                 for (const std::string& r : g_refused)
-                    if (r.find("block buildingMaterial " + m.block + " (mod " + mf.mod + ")") == 0) errors.push_back(r);
+                    if (r.find(std::string("block ") + kind + " " + m.block + " (mod " + mf.mod + ")") == 0) errors.push_back(r);
                 blocks.push_back(std::move(b));
             }
             for (const Shape& sh : mf.shapes) {

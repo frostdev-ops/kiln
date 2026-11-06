@@ -101,6 +101,6 @@ internal static unsafe class WorldTablesGate
         }
         foreach (var (guid, id) in theirs.OrderBy(x => x.Value)) notes.Add($"your game has material {guid} (id {id}), and this server doesn't");
         var what = notes.Count == 0 ? "the lists differ" : string.Join("; ", notes.Take(6)) + (notes.Count > 6 ? $"; and {notes.Count - 6} more" : "");
-        return $"This server's building materials don't match your game's: {what}. Join with the same mods, and restart if you just changed them.";
+        return $"This server's building and terrain materials don't match your game's: {what}. Join with the same mods, and restart if you just changed them.";
     }
 }

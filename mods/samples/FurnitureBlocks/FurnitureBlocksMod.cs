@@ -12,12 +12,11 @@ public sealed class FurnitureBlocksMod : Mod
 {
     public override void OnLoad()
     {
-        // The game's own lock: without a piece of scrap metal in the bag, it stays shut, and the player's game shows it locked. It comes with ten twigs, once.
+        // The game's own lock: without a piece of scrap metal in the bag, it stays shut, and the player's game shows it locked.
         Blocks.Define("lockbox", new ContainerBlock
         {
             Name = "Lockbox", Description = "Opens for whoever carries scrap.",
             Slots = 8,
-            Holds = { [GameItems.Material_T1_Twigs] = 10 },
             OnInteract = new InteractBlock { Requires = new RequiresBlock { Item = GameItems.Material_T1_Metal_Scraps } },
             Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Wood_Logs] = 4, [GameItems.Material_T1_Metal_Scraps] = 1 } },
         });

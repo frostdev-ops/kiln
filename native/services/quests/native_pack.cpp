@@ -94,6 +94,117 @@ bool template_by_name(const std::string& name, qb::Guid* out) {
     return true;
 }
 
+// blocks/*.json as the block loader reads it: comments (nlohmann skips them) and trailing commas, dropped here outside strings.
+qb::ojson parse_relaxed(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    bool in_str = false;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (in_str) {
+            out.push_back(c);
+            if (c == '\\' && i + 1 < text.size()) out.push_back(text[++i]);
+            else if (c == '"') in_str = false;
+            continue;
+        }
+        if (c == '"') in_str = true;
+        if (c == ',') {
+            size_t j = i + 1;
+            while (j < text.size() && std::isspace(static_cast<unsigned char>(text[j]))) ++j;
+            if (j < text.size() && (text[j] == '}' || text[j] == ']')) continue;
+        }
+        out.push_back(c);
+    }
+    return qb::ojson::parse(out, nullptr, false, true);
+}
+
+// The NPC blocks of a mod's blocks/*.json ("npcs"), in the quests' file format, so the game builds them at the first start: what Kiln.Blocks'
+// NpcCompiler.NpcFile writes for an NPC block, the same ids (UUIDv5 of <mod>:npc:<name>, <mod>:item:<name>.tool) and the same body premades.
+// An NPC block written in code is not visible here: Kiln.Blocks writes it to the data folder, and the game builds it from the next start.
+qb::ojson npcs_from_blocks(const std::string& mod, const std::vector<qb::ojson>& docs) {
+    struct Premade {
+        const char *key, *tmpl, *workshop, *tool;
+    };
+    static const Premade kBodies[] = {
+        {"fisher", "NPC_Workshop_Fisher_Trader", "0xc4acc104", "NPC_Townsfolk_Male_Villager_08_fisher_Trader"},
+        {"villager", "NPC_Workshop_Fisher_Trader", "0xc4acc104", "NPC_Townsfolk_Male_Villager_08_fisher_Trader"},
+        {"vukah", "Enemy_Vukah_Melee", "", ""},
+        {"scavenger", "Enemy_Scavenger_Melee01", "", ""},
+    };
+    std::map<std::string, qb::ojson> bodies;
+    for (const qb::ojson& d : docs)
+        if (d.contains("bodies") && d["bodies"].is_object())
+            for (const auto& [k, v] : d["bodies"].items()) bodies[k] = v;
+    // a body: a premade's key, a "bodies" block by name, or one inline; "like" starts from a premade
+    struct Body {
+        std::string tmpl, workshop, tool;
+        bool own = false;
+    };
+    const auto premade = [&](const std::string& key, Body* b) {
+        for (const Premade& p : kBodies)
+            if (key == p.key) {
+                b->tmpl = p.tmpl, b->workshop = p.workshop, b->tool = p.tool;
+                return true;
+            }
+        return false;
+    };
+    const auto body_of = [&](const qb::ojson& v, Body* b) {
+        const qb::ojson* o = &v;
+        if (v.is_string()) {
+            if (premade(v.get<std::string>(), b)) return true;
+            auto it = bodies.find(v.get<std::string>());
+            if (it == bodies.end()) return false;
+            o = &it->second;
+        }
+        if (!o->is_object()) return false;
+        if (o->contains("like") && (*o)["like"].is_string() && !premade((*o)["like"].get<std::string>(), b)) return false;
+        for (auto [key, field] : {std::pair{"template", &b->tmpl}, std::pair{"workshop", &b->workshop}, std::pair{"tool", &b->tool}})
+            if (o->contains(key) && (*o)[key].is_string()) *field = (*o)[key].get<std::string>();
+        b->own = o->contains("model");
+        return !b->tmpl.empty();
+    };
+    qb::ojson out = qb::ojson::object();
+    for (const qb::ojson& d : docs) {
+        if (!d.contains("npcs") || !d["npcs"].is_object()) continue;
+        for (const auto& [name, n] : d["npcs"].items()) {
+            Body b;
+            if (!n.is_object() || !n.contains("name") || !n["name"].is_string() || !n.contains("body") || !body_of(n["body"], &b) || b.own) continue;  // Kiln.Blocks says what is wrong
+            const std::string key = n.contains("was") && n["was"].is_string() ? n["was"].get<std::string>() : name;
+            const std::string clone = qb::guid_text(qb::derive_guid(mod, "npc", key));
+            qb::ojson o = {{"template", b.tmpl}, {"clone", {{"guid", clone}, {"name", "Kiln_" + mod + "_" + key}}}};
+            qb::ojson names = {{"en", n["name"]}};
+            if (n.contains("names") && n["names"].is_object())
+                for (const auto& [lang, text] : n["names"].items()) names[lang] = text;
+            o["names"] = names;
+            if (n.contains("talk") && n["talk"].is_string()) o["dialogue"] = n["talk"];
+            const qb::ojson roster = n.value("roster", qb::ojson());
+            if (roster.is_object() && roster.contains("description")) o["description"] = {{"en", roster["description"]}};
+            if (n.contains("place") && n["place"].is_object()) {
+                const qb::ojson& p = n["place"];
+                qb::ojson po = {{"once", p.value("once", true)}, {"unlock", false}};
+                if (p.contains("at")) po["at"] = p["at"];
+                else po["near"] = "player";
+                if (p.contains("distance")) po["distance"] = p["distance"];
+                o["place"] = po;
+            }
+            if (roster.is_object() && !b.tool.empty()) {
+                qb::ojson ro = {{"summonItem",
+                                 {{"guid", qb::guid_text(qb::derive_guid(mod, "item", key + ".tool"))},
+                                  {"name", mod + "." + key + ".tool"},
+                                  {"base", b.tool},
+                                  {"texts", {{"en", {{"caption", roster.value("summonTool", n["name"])}}}}},
+                                  {"refs", {{"equipment.placedEntity", clone}}}}}};
+                if (roster.contains("unlockedBy")) ro["unlock"] = roster["unlockedBy"];
+                if (roster.contains("roamingRange")) ro["roamingRange"] = roster["roamingRange"];
+                if (!b.workshop.empty()) ro["workshop"] = b.workshop;
+                o["roster"] = ro;
+            }
+            out[key] = o;
+        }
+    }
+    return out;
+}
+
 // Every enabled mod of the load order with a quests/ folder, as kiln.assets finds its assets.json.
 void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
     auto one = [&](const std::string& dir) {
@@ -109,7 +220,23 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         const fs::path code = fs::path(widen(path_of(KILN_PATH_DATA))) / L"kiln-quests" / L"native" / widen(mf["id"].get<std::string>() + ".json");
         // the NPC blocks it defined (Kiln.Blocks, Npc/NpcCompiler.cs), kept beside it so that a redeploy of the mod keeps them; the mod's own files win
         const fs::path npc_blocks = fs::path(code).replace_filename(widen(mf["id"].get<std::string>() + ".blocks.json"));
-        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec)) return;
+        // the NPC blocks of its data files: built at the first start, from the mod's folder (read only)
+        std::vector<qb::ojson> block_docs;
+        for (auto it = fs::directory_iterator(base / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+            if (it->path().extension() == L".json") {
+                qb::ojson d = parse_relaxed(read_file(it->path()));
+                if (!d.is_discarded() && d.is_object() && d.contains("npcs")) block_docs.push_back(std::move(d));
+            }
+        ec.clear();
+        if (!block_docs.empty())  // bodies a block names may be in any of the files
+            for (auto it = fs::directory_iterator(base / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+                if (it->path().extension() == L".json") {
+                    qb::ojson d = parse_relaxed(read_file(it->path()));
+                    if (!d.is_discarded() && d.is_object() && d.contains("bodies") && !d.contains("npcs")) block_docs.push_back(std::move(d));
+                }
+        ec.clear();
+        const qb::ojson block_npcs = block_docs.empty() ? qb::ojson::object() : npcs_from_blocks(mf["id"].get<std::string>(), block_docs);
+        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty()) return;
         const std::string side = mf.value("side", "both");
         if ((side == "server" && client) || (side == "client" && !client)) return;
         qb::ModInput m;
@@ -125,9 +252,16 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         std::sort(generated.begin(), generated.end());
         files.insert(files.end(), generated.begin(), generated.end());
         ec.clear();
+        const size_t own_files = files.size();
         if (fs::exists(npc_blocks, ec)) files.push_back(npc_blocks);
         if (fs::exists(code, ec)) files.push_back(code);
-        for (const fs::path& f : files) {
+        for (size_t i = 0; i < files.size(); ++i) {
+            // the mod's own quests files first (they win), then its NPC blocks, then what its code defined at an earlier start
+            if (i == own_files && !block_npcs.empty()) {
+                m.documents.push_back(qb::ojson{{"format", 1}, {"npcs", block_npcs}});
+                m.files.push_back("blocks/*.json");
+            }
+            const fs::path& f = files[i];
             qb::ojson doc = qb::ojson::parse(read_file(f), nullptr, false, true);
             if (doc.is_discarded() || !doc.is_object()) {
                 KW("native: %s/%s is not valid JSON: skipped", m.id.c_str(), f.filename().string().c_str());
@@ -135,6 +269,10 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
             }
             m.documents.push_back(std::move(doc));
             m.files.push_back(f.filename().string());
+        }
+        if (files.size() == own_files && !block_npcs.empty()) {
+            m.documents.push_back(qb::ojson{{"format", 1}, {"npcs", block_npcs}});
+            m.files.push_back("blocks/*.json");
         }
         const qb::ojson audio = qb::ojson::parse(read_file(base / L"assets" / L"cooked" / L"audio.json"), nullptr, false, true);
         if (!audio.is_discarded()) m.audio = audio;

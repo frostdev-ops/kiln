@@ -31,6 +31,10 @@ void read_terrain_blocks(const ojson& doc, ModFile* out);
 // Terrain ids with no GUID in the world's table and no config in the registry: the room for new ones.
 std::vector<int> free_terrain_ids(const Bytes& world, const Layouts& L, const RegistryInfo& info);
 
+// The terrain ids, as allocate() gives building ones: live materials first, then kept ones, each in sorted GUID order. A live one past the room is
+// refused by name; kept ones hold their room and are never dropped for a live one.
+Allocation allocate_terrain(std::vector<Material> live, std::vector<Material> kept, const std::vector<int>& free_ids);
+
 // New terrain configs, after the game's: each a copy of its like_cell's config (sounds, friction, buffs and all) with its id, flags and strength. A
 // strength's drops is an item GUID by now. false + *why: the registry isn't what the layout says, or a like_cell has no config.
 bool merge_terrain_registry(const Bytes& reg, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::vector<RegistryChange>* changes, std::string* why);

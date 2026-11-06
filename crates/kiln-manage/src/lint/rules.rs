@@ -1624,9 +1624,9 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     if files.is_empty() {
         return;
     }
-    const SECTIONS: [(&str, &str); 41] = [
+    const SECTIONS: [(&str, &str); 42] = [
         ("props", "prop"), ("placements", "placement"), ("comforts", "comfort"), ("processing", "processing"), ("menus", "menu"),
-        ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
+        ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("terrainMaterials", "terrain material"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
         ("looks", "look"), ("weaponStats", "weapon stats"), ("armorStats", "armor stats"), ("weaponClasses", "weapon class"), ("armorSlots", "armor slot"), ("armorSets", "armor set"), ("onHits", "on-hit"),
         ("cosmetics", "cosmetic"), ("wornLooks", "worn look"),
         ("containers", "container"), ("doors", "door"), ("beds", "bed"), ("seats", "seat"), ("interactions", "interaction"), ("blueprints", "blueprint"), ("hair", "hair"), ("beards", "beard"),
@@ -1675,6 +1675,15 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             for mm in obj {
                 // a cosmetic's slot is a vanity slot, not an armor slot block
                 if mm.key == "slot" && obj.iter().any(|x| x.key == "look") {
+                    continue;
+                }
+                // a terrain material's like and look are game materials (world_tables checks them), not blocks
+                if mm.key == "terrainMaterials" {
+                    for b in mm.value.as_object().into_iter().flatten() {
+                        for x in b.value.as_object().into_iter().flatten().filter(|x| x.key != "like" && x.key != "look") {
+                            walk(&x.value, Some(x.key.as_str()), out);
+                        }
+                    }
                     continue;
                 }
                 // { "name": "burst", "slot": "chest" } says the same as "burst"
@@ -2206,6 +2215,8 @@ fn vfx(out: &mut Out, m: &LMod, cat: Option<&Catalog>) -> usize {
 const MATERIAL_ROOM: usize = 49;
 /// From here on, a mod takes a real share of that room.
 const MATERIAL_MANY: usize = 5;
+/// The terrain-material ids every mod shares: 127 slots, 116 the game's. A room of its own, apart from the building materials'.
+const TERRAIN_ROOM: usize = 11;
 
 /// What kiln.worldtables refuses at boot, said earlier: past the room for new materials, a game material that isn't one, a material in a mod that doesn't ask players to have it.
 fn world_tables(out: &mut Out, m: &LMod, files: &[&LFile], cat: Option<&Catalog>) {
@@ -2233,10 +2244,43 @@ fn world_tables(out: &mut Out, m: &LMod, files: &[&LFile], cat: Option<&Catalog>
         let what = if out.mods.iter().filter(|x| !x.files.is_empty()).count() > 1 { "Together, the mods checked here have" } else { "This mod has" };
         out.push(Diagnostic::new(file, codes::MATERIAL_BUDGET, *at, &format!("{what} {total} building materials, and the game has ids for {MATERIAL_ROOM}: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order (\"{name}\" is one of this mod's)")));
     }
+    // Terrain materials: the same rules, their own room.
+    let terrain: Vec<(String, Span, String)> = files
+        .iter()
+        .flat_map(|f| of(f, "terrainMaterials").into_iter().map(|b| (b.key.clone(), b.key_span, f.display.clone())).collect::<Vec<_>>())
+        .collect();
+    if let Some((name, at, file)) = terrain.first() {
+        if clients != "mod" {
+            out.push(Diagnostic::new(file, codes::CLIENTS_DEFINITIONS, *at, &format!("terrain material \"{name}\" needs \"clients\": \"mod\", and this mod says \"{clients}\": cells reach players as ids, so kiln.worldtables refuses it")));
+        } else if side != "both" {
+            out.push(Diagnostic::new(file, codes::CLIENTS_DEFINITIONS, *at, &format!("terrain material \"{name}\" needs \"side\": \"both\", and this mod says \"{side}\": both sides read the material's id from the same tables")));
+        }
+        let total: usize = out.mods.iter().flat_map(|x| x.files.iter()).filter(|f| f.kind == "blocks").map(|f| of(f, "terrainMaterials").len()).sum();
+        if total > TERRAIN_ROOM {
+            let what = if out.mods.iter().filter(|x| !x.files.is_empty()).count() > 1 { "Together, the mods checked here have" } else { "This mod has" };
+            out.push(Diagnostic::new(file, codes::MATERIAL_BUDGET, *at, &format!("{what} {total} terrain materials, and the game has ids for {TERRAIN_ROOM}: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order (\"{name}\" is one of this mod's)")));
+        }
+    }
     // A catalog older than the section has no word on it.
     let Some(section) = cat.and_then(|c| c.section("materials")).filter(|s| !s.names.is_empty()) else { return };
     let known: Vec<&str> = section.names_list.iter().map(String::as_str).collect();
     for f in files {
+        for b in of(f, "terrainMaterials") {
+            for key in ["like", "look"] {
+                let Some(v) = b.value.get(key) else { continue };
+                let Some(text) = v.as_str() else { continue };
+                let cell = text.strip_prefix("Cell").is_some_and(|n| n.parse::<u8>().is_ok_and(|x| x > 0 && x < 128));
+                if cell || section.names.contains(text) {
+                    continue;
+                }
+                let mut d = Diagnostic::new(&f.display, codes::MATERIAL_REF, v.span, &format!("\"{text}\" is not a game terrain material the catalog knows; a block that names one is refused at boot"));
+                if let Some(best) = suggest::best(text, &known) {
+                    d.message.push_str(&format!("; did you mean \"{best}\"?"));
+                    d.fixes.push(Fix::new(&format!("Replace with \"{best}\""), vec![TextEdit::new(&f.display, v.span, &quote(best))]));
+                }
+                out.push(d);
+            }
+        }
         for b in of(f, "materialTweaks") {
             let Some(v) = b.value.get("material") else { continue };
             let Some(text) = v.as_str() else { continue };

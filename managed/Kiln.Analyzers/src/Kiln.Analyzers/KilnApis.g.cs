@@ -36,6 +36,19 @@ internal static partial class KilnApis
         "M:Kiln.AiAccess.Set(System.String,System.Boolean)", // AiAccess.Set(string, bool): via AiAccess.Set(string, string)
         "M:Kiln.AiAccess.Set(System.String,System.Double)", // AiAccess.Set(string, double): via AiAccess.Set(string, string)
         "M:Kiln.AiAccess.Set(System.String,System.String)", // AiAccess.Set(string, string): via Creatures.Tick(string)
+        "M:Kiln.Arsenals.Define(System.String,Kiln.ArsenalSpec)", // Arsenals.Define(string, ArsenalSpec): via Arsenals.Write(Guid, ArsenalSpec, Creatures.OwnerKey, string, string)
+        "M:Kiln.Arsenals.Extend(System.Guid,Kiln.ArsenalSpec)", // Arsenals.Extend(Guid, ArsenalSpec): via Arsenals.Write(Guid, ArsenalSpec, Creatures.OwnerKey, string, string)
+        "M:Kiln.Arsenals.Extend(System.String,Kiln.ArsenalSpec)", // Arsenals.Extend(string, ArsenalSpec): via Arsenals.Extend(Guid, ArsenalSpec)
+        "M:Kiln.Arsenals.Info(System.Guid)", // Arsenals.Info(Guid): via Creatures.Tick(string)
+        "M:Kiln.Arsenals.JobHandler(System.UInt32,System.IntPtr,System.IntPtr)", // Arsenals.JobHandler(uint, nint, nint): via Creatures.Tick(string)
+        "M:Kiln.Arsenals.Refresh", // Arsenals.Refresh(): via Creatures.Tick(string)
+        "M:Kiln.Arsenals.SelfTest", // Arsenals.SelfTest(): via Creatures.Tick(string)
+        "M:Kiln.AttackControl.Allow(System.Int32[])", // AttackControl.Allow(params int[]): via AttackControl.Set(int, uint)
+        "M:Kiln.AttackControl.Clear", // AttackControl.Clear(): via Creatures.Tick(string)
+        "M:Kiln.AttackControl.Force(System.Guid)", // AttackControl.Force(Guid): via Arsenals.AttackIndexOf(EntityId, Guid)
+        "M:Kiln.AttackControl.Force(System.Int32)", // AttackControl.Force(int): via AttackControl.Set(int, uint)
+        "M:Kiln.AttackControl.Force(System.String)", // AttackControl.Force(string): via AttackControl.Force(Guid)
+        "M:Kiln.AttackControl.Natural", // AttackControl.Natural(): via AttackControl.Set(int, uint)
         "M:Kiln.Build.Add(Kiln.BuildShape,System.Byte,Kiln.BuildOptions)", // Build.Add(BuildShape, byte, BuildOptions?): via Build.RunShape(ShapeOp, BuildShape, byte, byte, double, float, int, BuildOptions?)
         "M:Kiln.Build.BoxAround(Kiln.WorldPosition,System.Double,System.Double,System.Double)", // Build.BoxAround(WorldPosition, double, double, double): via Build.BoxBetween(WorldPosition, WorldPosition)
         "M:Kiln.Build.BoxBetween(Kiln.WorldPosition,Kiln.WorldPosition)", // Build.BoxBetween(WorldPosition, WorldPosition): via Build.CellOf(WorldPosition)
@@ -170,20 +183,27 @@ internal static partial class KilnApis
         "M:Kiln.CreatureRef.LootAccess.set_Disabled(System.Boolean)", // CreatureRef.LootAccess.Disabled.set: via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.LootAccess.set_Labels(System.Guid)", // CreatureRef.LootAccess.Labels.set: via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.LootAccess.set_Slots(System.ValueTuple{System.Int32,System.Int32})", // CreatureRef.LootAccess.Slots.set: via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
+        "M:Kiln.CreatureRef.PreferTarget(Kiln.EntityId,System.Double,System.Single)", // CreatureRef.PreferTarget(EntityId, double, float): via Creatures.Tick(string)
+        "M:Kiln.CreatureRef.ReleaseTarget", // CreatureRef.ReleaseTarget(): via Creatures.Tick(string)
         "M:Kiln.CreatureRef.Reset", // CreatureRef.Reset(): via Creatures.Tick(string)
         "M:Kiln.CreatureRef.ResistanceAccess.Reset(Kiln.DamageKind)", // CreatureRef.ResistanceAccess.Reset(DamageKind): via CreatureRef.ResetField(uint, uint)
         "M:Kiln.CreatureRef.ResistanceAccess.get_Item(Kiln.DamageKind)", // CreatureRef.ResistanceAccess.this[DamageKind].get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.ResistanceAccess.set_Item(Kiln.DamageKind,System.Single)", // CreatureRef.ResistanceAccess.this[DamageKind].set: via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
+        "M:Kiln.CreatureRef.SetPhase(System.Guid)", // CreatureRef.SetPhase(Guid): via Creatures.Tick(string)
+        "M:Kiln.CreatureRef.SetPhase(System.String)", // CreatureRef.SetPhase(string): via CreatureRef.SetPhase(Guid)
+        "M:Kiln.CreatureRef.get_AiEnabled", // CreatureRef.AiEnabled.get: via Creatures.Tick(string)
         "M:Kiln.CreatureRef.get_Arsenal", // CreatureRef.Arsenal.get: via Creatures.Tick(string)
         "M:Kiln.CreatureRef.get_DamageFactor", // CreatureRef.DamageFactor.get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.get_Faction", // CreatureRef.Faction.get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.get_Home", // CreatureRef.Home.get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.get_Level", // CreatureRef.Level.get: via CreatureRef.GetRaw(uint, uint)
+        "M:Kiln.CreatureRef.get_Phase", // CreatureRef.Phase.get: via Creatures.Tick(string)
         "M:Kiln.CreatureRef.get_Scale", // CreatureRef.Scale.get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.get_SpeedFactor", // CreatureRef.SpeedFactor.get: via CreatureRef.GetRaw(uint, uint)
         "M:Kiln.CreatureRef.get_State", // CreatureRef.State.get: via CreatureRef.Inspect()
         "M:Kiln.CreatureRef.get_Target", // CreatureRef.Target.get: via CreatureRef.Inspect()
         "M:Kiln.CreatureRef.get_XpFactor", // CreatureRef.XpFactor.get: via CreatureRef.GetRaw(uint, uint)
+        "M:Kiln.CreatureRef.set_AiEnabled(System.Boolean)", // CreatureRef.AiEnabled.set: via Creatures.Tick(string)
         "M:Kiln.CreatureRef.set_Arsenal(System.Guid)", // CreatureRef.Arsenal.set: via AiAccess.Set(string, string)
         "M:Kiln.CreatureRef.set_DamageFactor(System.Single)", // CreatureRef.DamageFactor.set: via CreatureRef.SetNumber(uint, double, string, uint)
         "M:Kiln.CreatureRef.set_Faction(Kiln.Faction)", // CreatureRef.Faction.set: via CreatureRef.SetNumber(uint, double, string, uint)
@@ -315,6 +335,14 @@ internal static partial class KilnApis
         "M:Kiln.NativeQuests.Resync(Kiln.QuestHolder,System.Boolean)", // NativeQuests.Resync(QuestHolder, bool): Game.AssertTickThread
         "M:Kiln.NativeQuests.Wanted(System.String,Kiln.QuestHolder)", // NativeQuests.Wanted(string, QuestHolder): Game.AssertTickThread
         "M:Kiln.NetChannel.SendNear``1(Kiln.WorldPosition,System.Double,``0,Kiln.NetPeer)", // NetChannel.SendNear<T>(WorldPosition, double, T, NetPeer?): Services.RequireTickThread
+        "M:Kiln.NpcView.InPhase(System.String)", // NpcView.InPhase(string): via CreatureRef.Phase.get
+        "M:Kiln.NpcView.get_Health", // NpcView.Health.get: via NpcView.Info.get
+        "M:Kiln.NpcView.get_HealthFraction", // NpcView.HealthFraction.get: via NpcView.HealthMax.get
+        "M:Kiln.NpcView.get_HealthMax", // NpcView.HealthMax.get: via NpcView.Info.get
+        "M:Kiln.NpcView.get_Info", // NpcView.Info.get: via CreatureRef.Inspect()
+        "M:Kiln.NpcView.get_State", // NpcView.State.get: via NpcView.Info.get
+        "M:Kiln.NpcView.get_Target", // NpcView.Target.get: via NpcView.Info.get
+        "M:Kiln.NpcView.get_TargetDistance", // NpcView.TargetDistance.get: via NpcView.Target.get
         "M:Kiln.Permissions.AddPlayerToGroup(System.UInt64,System.String,System.String)", // Permissions.AddPlayerToGroup(ulong, string, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.MapUserGroup(System.String,System.Collections.Generic.IEnumerable{System.String})", // Permissions.MapUserGroup(string, IEnumerable<string>): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.RemoveGroup(System.String)", // Permissions.RemoveGroup(string): via PermissionStore.Edit(Action<PermissionModel>, string)
@@ -368,6 +396,11 @@ internal static partial class KilnApis
         "M:Kiln.Schematic.Paste(Kiln.WorldPosition,Kiln.PasteOptions)", // Schematic.Paste(WorldPosition, PasteOptions?): via Schematic.TargetBox(WorldPosition, int, CellPos)
         "M:Kiln.Schematic.PasteAt(Kiln.CellPos,Kiln.PasteOptions)", // Schematic.PasteAt(CellPos, PasteOptions?): via Build.Load(CellBox, TimeSpan?)
         "M:Kiln.Schematic.TargetBox(Kiln.WorldPosition,System.Int32,Kiln.CellPos)", // Schematic.TargetBox(WorldPosition, int, CellPos): via Build.CellOf(WorldPosition)
+        "M:Kiln.ScreenEffects.Play(Kiln.ScreenEffect)", // ScreenEffects.Play(ScreenEffect): via ScreenRelay.Play(ScreenEffect, byte, EntityId, WorldPosition, float)
+        "M:Kiln.ScreenEffects.PlayFor(Kiln.EntityId,Kiln.ScreenEffect)", // ScreenEffects.PlayFor(EntityId, ScreenEffect): via ScreenRelay.Play(ScreenEffect, byte, EntityId, WorldPosition, float)
+        "M:Kiln.ScreenEffects.PlayNear(Kiln.WorldPosition,System.Single,Kiln.ScreenEffect)", // ScreenEffects.PlayNear(WorldPosition, float, ScreenEffect): via ScreenRelay.Play(ScreenEffect, byte, EntityId, WorldPosition, float)
+        "M:Kiln.ScreenEffects.SetStrength(Kiln.ScreenHandle,System.Single)", // ScreenEffects.SetStrength(ScreenHandle, float): via ScreenRelay.SetStrength(uint, float)
+        "M:Kiln.ScreenEffects.Stop(Kiln.ScreenHandle,System.Boolean)", // ScreenEffects.Stop(ScreenHandle, bool): via ScreenRelay.Stop(uint, bool)
         "M:Kiln.Selectors.Entities(Kiln.CommandSource,System.String)", // Selectors.Entities(CommandSource, string): via Selectors.Select(CommandSource, string)
         "M:Kiln.Selectors.Players(Kiln.CommandSource,System.String)", // Selectors.Players(CommandSource, string): via Selectors.Select(CommandSource, string)
         "M:Kiln.Selectors.Select(Kiln.CommandSource,System.String)", // Selectors.Select(CommandSource, string): Services.RequireTickThread
@@ -444,6 +477,7 @@ internal static partial class KilnApis
         "M:Kiln.World.Transform(Kiln.EntityId)", // World.Transform(EntityId): via World.Tick(string)
         "M:Kiln.World.TryGetPosition(Kiln.EntityId,Kiln.WorldPosition@)", // World.TryGetPosition(EntityId, out WorldPosition): via World.Tick(string)
         "M:Kiln.World.TryRead``1(Kiln.EntityId,System.String,``0@)", // World.TryRead<T>(EntityId, string, out T): via World.Tick(string)
+        "M:Kiln.World.TryWrite``1(Kiln.EntityId,System.String,System.Int32,``0)", // World.TryWrite<T>(EntityId, string, int, T): via World.Tick(string)
         "M:Kiln.World.get_EntityCount", // World.EntityCount.get: via World.Tick(string)
         "M:Kiln.WorldData.Contains(System.String)", // WorldData.Contains(string): via WorldData.Bundle(string)
         "M:Kiln.WorldData.Get``1(System.String)", // WorldData.Get<T>(string): via WorldData.Bundle(string)

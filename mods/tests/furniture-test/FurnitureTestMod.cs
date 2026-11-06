@@ -66,7 +66,6 @@ public sealed class FurnitureTestMod : Mod
         Blocks.Define("lever-chest", new ContainerBlock { Name = "Lever Chest", OnInteract = new InteractBlock { Verb = InteractVerb.Flip, Toggle = new ToggleBlock { StartsOn = true } } });
         Blocks.Define("key-door", new DoorBlock { Name = "Key Door", OnInteract = new InteractBlock { Requires = new RequiresBlock { Item = Twigs, Count = 2, Uses = true } } });
         Blocks.Define("bell-door", new DoorBlock { Name = "Bell Door", OnInteract = new InteractBlock { Prompt = "Ring the bell", Toggle = new ToggleBlock { OnPrompt = "Push", Off = InteractVerb.Sit } } });
-        Blocks.Define("stocked-box", new ContainerBlock { Name = "Stocked Box", Holds = { [Twigs] = 5, [Scraps] = 2 } });
         Blocks.Define("high-bed", new BedBlock { Name = "High Bed", Lies = new SpotBlock { At = new(0.1f, 1.2f, -0.3f), Facing = 90 } });
         Blocks.Define("own-seat", new SeatBlock { Name = "Own Seat", Visual = new VisualBlock { Model = "item:Prop_Decoration_Comfort3_T2_Chair" }, Sits = new SpotBlock { At = new(0, 0.45f, 0.05f) } });
         Blocks.Define("plain-lamp", new PropBlock { Name = "Plain Lamp", Visual = new VisualBlock { Like = "Prop_Decoration_T2_Vase_Clay_01" }, OnInteract = new InteractBlock { Effects = [new EffectBlock { Heal = 1 }] } });
@@ -162,7 +161,6 @@ public sealed class FurnitureTestMod : Mod
         Named("bad-verb", "yodel", "open");
         Named("blank-prompt", "toggle.onPrompt", "words");
         Named("verb-and-prompt", "prompt", "not both");
-        Named("bad-holds", "holds[Material_T1_Twigs]", "0");
         Named("hair-jaw", "variants[jaw03]", "Jaw03");
         Named("refused-lock", "onRefused");
         Named("no-such-interaction", "onInteract", "gone");
@@ -176,7 +174,7 @@ public sealed class FurnitureTestMod : Mod
         Named("hair-fits", "look.fits");
         Named("hair-attach", "look.attach");
         Named("beard-hat", "variants", "hat");
-        string[] broken = ["no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "bad-holds", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "bad-cost", "hair-fits", "hair-attach", "beard-hat"];
+        string[] broken = ["no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "bad-cost", "hair-fits", "hair-attach", "beard-hat"];
         var made = (mine.Blocks ?? []).Intersect(broken).ToList();
         Check(made.Count == 0 && Content.Items.Get($"{Me}.many-slots") == null && Content.Templates.Get($"{Me}.many-slots.prop") == null, $"none of the broken blocks became anything ({string.Join(", ", made)})");
         var late = mine.Errors?.FirstOrDefault(x => x.Contains("plain-lamp", StringComparison.Ordinal));
@@ -238,8 +236,6 @@ public sealed class FurnitureTestMod : Mod
         var texts = NewContentTexts(bellGuid);
         Info($"the bell door's clone as kiln.gamedata keeps it: {texts}");
         Check(texts.Contains("Ring the bell", StringComparison.Ordinal) && texts.Contains("Push", StringComparison.Ordinal), "and kiln.gamedata keeps the template's texts, which it gives the loca hooks of every Kiln client");
-        var stocked = T($"{Me}.stocked-box.prop");
-        Check(Has(stocked, "DefaultInventory"), "Holds: the container keeps the game's flag of what it got first");
         var high = T($"{Me}.high-bed.prop");
         Check(Math.Abs(high.Get("InteractionAttachment.guestOffset.localOffset.y").Number - 1.2) < 1e-4 && Math.Abs(high.Get("InteractionAttachment.guestOffset.orientationOffset.y").Number - Math.Sin(Math.PI / 4)) < 1e-4,
             $"Lies: where the guest lies, turned: y {high.Get("InteractionAttachment.guestOffset.localOffset.y").Number}, q.y {high.Get("InteractionAttachment.guestOffset.orientationOffset.y").Number}");
@@ -303,18 +299,6 @@ public sealed class FurnitureTestMod : Mod
         Check(Items.Read(box)?.AvailableSlots == 8, $"the lockbox holds 8: {Items.Read(box)?.AvailableSlots}");
         var bench = Offer(_placed[4]);
         Check(bench is { Length: 56 } && BitConverter.ToUInt32(bench, OfferVerb) == BlockIds.Fnv(Compiler.LocaTag(T(G("prayer-bench") + ".prop").Guid, "kiln:verb")), "a placed entity starts with the template's verb");
-        foreach (var (what, e) in new[] { ("ours", EntityId.None), ("game chest", await Place("Prop_Decoration_T1_Storage_24", Near(at, 7))) })
-        {
-            var probe = what == "ours" ? Build.PlaceProp($"{Me}.stocked-box.prop", Near(at, 8), null, 0, InBases) : e;
-            if (what == "ours") { _placed.Add(probe); await Steps(2); }
-            foreach (var c in new[] { "DefaultInventory", "InventorySetupInit", "InventoryEmptyState", "RandomLootSlotCount", "InventorySetupOverwrite", "UpgradeStorage", "OnSuccess", "Inventory", "UsedItem" })
-                Info($"{what} {probe}: {c} {World.ComponentSize(probe, c)} {(World.ReadBytes(probe, c) is { } b ? Convert.ToHexString(b.Take(24).ToArray()) : "-")}");
-        }
-        var stocked = await Place($"{Me}.stocked-box.prop", Near(at, 5));
-        await Steps(12);
-        var twigs = Items.Read(stocked)?.Count(new ItemId(I(Twigs).Id)) ?? -1;
-        var scraps = Items.Read(stocked)?.Count(new ItemId(I(Scraps).Id)) ?? -1;
-        Check(twigs == 5 && scraps == 2 && World.ReadBytes(stocked, "DefaultInventory")?[0x11] == 1, $"Holds: a placed container gets what it holds, once: twigs {twigs}, scraps {scraps}, the game's flag {World.ReadBytes(stocked, "DefaultInventory")?[0x11]}");
         var lever = await Place($"{Me}.lever-chest.prop", Near(at, 6));
         Check(World.ReadBytes(lever, "ServerToggleState") is { } s && s[0] == 1, "a toggle that starts on is on when placed");
         Remove();
@@ -467,18 +451,13 @@ public sealed class FurnitureTestMod : Mod
         Info($"the door's toggle written open, 24 steps later: {World.ReadBytes(door, "ServerToggleState")?[0]}");
         var bed = await Place(G("camp-bed") + ".prop", Near(at, 3));
         InteractRuntime.SleptIn(guest, bed, "test:2");
-        var stocked = await Place($"{Me}.stocked-box.prop", Near(at, 5));
-        await Steps(12);
-        await Items.Take(stocked, new ItemId(I(Twigs).Id), 1);
-        await Steps(4);
         var open = await OpenGround();
         var outside = Build.PlaceProp(G("camp-bed") + ".prop", open, null, 0, new BuildOptions());
         await Steps(24);
         var state = new JsonObject
         {
             ["box"] = Pos(box), ["door"] = Pos(door), ["bed"] = Pos(bed), ["outside"] = Pos(outside),
-            ["doorState"] = World.ReadBytes(door, "ServerToggleState")?[0] ?? 255, ["gameDoor"] = Pos(gameDoor), ["stocked"] = Pos(stocked),
-            ["stockedTwigs"] = Items.Read(stocked)?.Count(new ItemId(I(Twigs).Id)) ?? -1,
+            ["doorState"] = World.ReadBytes(door, "ServerToggleState")?[0] ?? 255, ["gameDoor"] = Pos(gameDoor),
             ["itemBox"] = I(G("lockbox")).Guid.ToString(), ["templateBox"] = T(G("lockbox") + ".prop").Guid.ToString(), ["templateDoor"] = T($"{Me}.coded-door.prop").Guid.ToString(),
             ["templateBed"] = T(G("camp-bed") + ".prop").Guid.ToString(), ["hair"] = I(G("short-crop")).Guid.ToString(),
         };
@@ -515,10 +494,6 @@ public sealed class FurnitureTestMod : Mod
         Check(!door.IsNone && !gameDoor.IsNone && mine == theirs, $"the door came back, as the game's own door does: open {mine}, the game's {theirs}");
         if (!gameDoor.IsNone) Build.RemoveProp(gameDoor, InBases);
         Check(!bed.IsNone, $"the bed came back in the base: {bed}");
-        var stocked = At(s["stocked"], T($"{Me}.stocked-box.prop").Guid);
-        var left = stocked.IsNone ? -1 : Items.Read(stocked)?.Count(new ItemId(I(Twigs).Id)) ?? -1;
-        Check(!stocked.IsNone && left == (int)s["stockedTwigs"]!, $"a container that got what it holds isn't filled again by a restart: twigs {left} (left with {s["stockedTwigs"]})");
-        if (!stocked.IsNone) Build.RemoveProp(stocked, InBases);
         var spawn = InteractRuntime.SpawnOf("test:2");
         Check(spawn is { } sp && !bed.IsNone && Math.Abs(sp.X - World.Position(bed)!.Value.X) < 0.01, $"and a player's spawn bed is still theirs after the restart: {spawn}");
         if (!door.IsNone)

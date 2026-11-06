@@ -6,6 +6,7 @@
 #include "merge.h"
 
 #include "surfacecheck.h"
+#include "terrain.h"
 
 #include <algorithm>
 #include <cctype>
@@ -328,6 +329,7 @@ void read_blocks(const ojson& doc, ModFile* out) {
                 out->materials.push_back(std::move(m));
             }
     }
+    read_terrain_blocks(doc, out);
     if (auto it = doc.find("blueprints"); it != doc.end()) {
         if (!it->is_object()) err("blueprints: expected block name -> block");
         else

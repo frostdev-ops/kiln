@@ -133,7 +133,7 @@ JSON sections: `containers`, `doors`, `beds`, `seats`, and `interactions` for pa
 
 | Block | Starts from | Fields of its own |
 |---|---|---|
-| `ContainerBlock` | the game's small chest: its lid, sounds, upgrades | `Slots` (1..120), `Holds` |
+| `ContainerBlock` | the game's small chest: its lid, sounds, upgrades | `Slots` (1..120) |
 | `DoorBlock` | the game's wooden door: opens both ways, paths and water follow it | |
 | `BedBlock` | the game's wooden bed: its sleep, comfort of the bed category | `Lies`, `SpawnPoint`, `SkipsNight` |
 | `SeatBlock` | the game's wooden chair: its sitting, comfort of the chair category | `Sits` |
@@ -145,7 +145,6 @@ All four take a prop's fields (`Visual`, `Placement`, `Comfort`, `Light`, `Recip
 - **The prompt and what the player plays.** `Verb` is one of the game's words (`InteractVerb.Open`, `Sit`, `Sleep`, `Use`, `Read`, `Search`, ...), so every language has it; `Prompt` is a text of your own, the same in every language. `Plays` is one of the game's sequences (`InteractPlay.Sit`, `Sleep`, `Toggle`, `Chest`, ...) or a sequence's GUID.
 - **A toggle.** `Toggle` gives anything two states that each use flips, as a door's; `StartsOn` places it on. The player's sequence flips it (the game's `Interaction_Toggle`). Its prompts are `On` and `Off` (game words) or `OnPrompt` and `OffPrompt` (your own); one left out is the starter's, a door's open and close.
 - **What it takes.** `Item`, `Count`, `Uses` and `Time` are the game's own lock: it refuses in the player's game, which shows it locked; `Uses` takes the item, as a lockpick goes. `When`, `Unless` (player states, [player-states.md](player-states.md)) and `If` are checked by Kiln on the server, which declines the use the way the game does: the object never accepts and the player's sequence stops. `OnRefused` runs then; it isn't allowed with only the game's lock, which refuses where nothing of Kiln's runs.
-- **What a container holds.** `Holds = { [GameItems.Material_T1_Twigs] = 10 }` goes into it when it is first placed, once: the game's own flag for a container's first contents is kept with it, so a restart doesn't fill it again.
 - **Effects** run on the player once the game has accepted the use: a seat sat on, a bed lain in, a door used. Villagers that use furniture get nothing.
 - **Beds.** The game's sleep gives the game's rest by the comfort around the player. The game's beds are no spawn point and skip no night: `SpawnPoint` makes the last such bed a player slept in the place they come back after dying (kept per player in `kiln/data/blocks/`, and dropped when the bed is gone), and `SkipsNight` brings the morning, as the admin menu's clock does, when every player in the world sleeps in a bed that says so. Both are Kiln's, on the server.
 - **Hard-coded cases.** A prop whose look has no interaction of its own has nothing to start: say `Plays`, or start from a game item that has one. Kiln says so by name when the game's templates are there.
@@ -291,6 +290,44 @@ Blocks.Define("arched-window", new BlueprintBlock
 
 A shape is an entry in a table every shape shares, merged at each game's start like the materials' tables, so every player needs the mod (`clients: mod`). Kiln makes its blueprint item, the table entry with its cells, and the model the client draws under the cursor (one of the item's own, so the ghost is the shape, not the wall it starts from). The game reads the table once at start: a shape from a data file is there from the first start; one defined in C# is kept and is there from the next start (`Status` says `Pending`, then `Registered`). The item's id comes from the mod and the block's name, so a placed shape's item stays the same across restarts.
 
+### Terrain materials
+Ground, rock and ore of your own. Sample: `mods/samples/TerrainSample` (C#, and `blocks/twins.json` as data; the admin commands `/glacier-vein` and `/snow-mound` put some in front of you).
+
+```csharp
+// digs like copper ore, looks like celesthium ore, and gives celesthium: one per 12 cells dug
+var ore = Blocks.Define("glacier-ore", new TerrainMaterialBlock
+{
+    Name = "Glacier Ore",
+    Like = "Cell26",                 // copper ore: an id no item places answers to Cell<id>
+    Look = "Cell115",                // celesthium ore
+    Strength = new StrengthBlock { Health = 12, Drops = "Material_T7_Celesthium_Ore", ItemsPerBlocks = 12 },
+});
+
+// placed with the game's terrain shapes, slippery; digging gives it back
+Blocks.Define("packed-snow", new TerrainMaterialBlock { Name = "Packed Snow", Like = "TerrainSnow", Look = "TerrainIce", Sliding = true, Placeable = true });
+
+// a vein in the ground: cells of it, written by code
+await Build.Paint(BuildShape.Sphere(at, 1.5), (byte)ore.CellId);
+```
+```jsonc
+"terrainMaterials": {
+  "glacier-ore": { "name": "Glacier Ore", "like": "Cell26", "look": "Cell115", "strength": { "health": 12, "drops": "Material_T7_Celesthium_Ore", "itemsPerBlocks": 12 } },
+  "packed-snow": { "name": "Packed Snow", "like": "TerrainSnow", "look": "TerrainIce", "sliding": true, "placeable": true } }
+```
+
+| Field | What | Default |
+|---|---|---|
+| `Like` | the game terrain material it starts from: its strength, what digging it gives, its sounds, friction, footing for NPCs and buffs (tar's, mud's). A `GameMaterials` Terrain name or `Cell<1..127>` | `TerrainStone` |
+| `Look` | the game terrain material whose look it takes: the same layers and particles | `Like` |
+| `Strength` | as for building materials; a field left out is `Like`'s. A terrain cell is weak next to a block: dirt has 2..5 health, stone 5, ores 8..25 | `Like`'s |
+| `Flatten`, `Sliding` | the game's flatten tool works on it; feet slide on it, as on ice | `Like`'s |
+| `Placeable` | an item named `Name` that the game's terrain shapes place, and that digging gives back. Without it, it is only found and dug, as the game's ores | false |
+| `Icon`, `Recipe`, `Description` | the item's, with `Placeable` | the game's stone's icon; not crafted |
+
+All take `Was`. Ids: a terrain material is a byte in a cell, 1..127, and the game uses 116, so 11 fit for every mod together, apart from the building materials' 49; past that one is refused by name (KL330 says so before you ship). Ids may change between sessions, as building materials' do: code reads `CellId` each session, and worlds follow the GUID. A world keeps its cells of a removed mod's terrain the same way: they stay, dig as before and come back with the mod. When the game reads its tables, how C# and data files arrive, and what players need are as for building materials: every player needs the mod (`clients: "mod"`, side `both`).
+
+Where it appears is up to code: the world's own terrain is baked into the game's files, so new terrain doesn't grow there by itself yet. Its look is a game material's; textures of your own for terrain aren't a field yet.
+
 ### What players' games need
 A `MaterialTweakBlock` changes only the server's dig, or only pictures: `clients: none`, and vanilla clients may join. A player with the mod sees a retexture; one without sees the game's own look. A `BuildingMaterialBlock` needs `clients: "mod"` and side `both`: cells reach players as ids, so every player needs the same materials. A client whose ids differ is refused at join, with the materials named; restarting with the same mods fixes it.
 
@@ -299,8 +336,9 @@ A `MaterialTweakBlock` changes only the server's dig, or only pictures: `clients
 worldtables: wt: blocks/walls.json: block materialTweak vault, strength.hardness: "steely" is not a hardness; there are soft, slightlyHard, moderatelyHard, hard, veryHard, unbreakable
 worldtables: block materialTweak typo (mod wt), material: the game has no material "StoneRuogh"
 worldtables: block buildingMaterial m49 (mod wt): refused: the game has room for 49 new building materials across all mods
+worldtables: block terrainMaterial bad-like (mod wt), like: "WoodRough" is a building material: it takes a terrain material, a GameMaterials Terrain name or Cell<1..127>
 ```
 A wrong block changes nothing; the file's other blocks load. On a game build whose tables Kiln can't read, none load and kiln.log says why; the game's own tables are untouched.
 
 ### Test
-`mods/tests/worldtables-test/run.py` drives a lab server through one start per scenario (tweaks against the game's own explosions, a new material, restarts, a changed mod list, a removed mod, the join check with fake clients, the limit); `native/services/worldtables/tests/run.sh` checks ids and the table writers on the host. Surfaces: `tools/surfacecook/tests` against the game's own tables, and `mods/tests/surfaces-test/run.py` on a lab server ([services/surfaces.md](../services/surfaces.md#tests)).
+`mods/tests/worldtables-test/run.py` drives a lab server through one start per scenario (tweaks against the game's own explosions, a new material, restarts, a changed mod list, a removed mod, the join check with fake clients, the limit); `native/services/worldtables/tests/run.sh` checks ids and the table writers on the host. Surfaces: `tools/surfacecook/tests` against the game's own tables, and `mods/tests/surfaces-test/run.py` on a lab server ([services/surfaces.md](../services/surfaces.md#tests)). Terrain: `mods/tests/terrain-test/run.py` ([services/worldtables.md](../services/worldtables.md#tests)).

@@ -608,8 +608,8 @@ blocks/fx.json:8:86: warning KL324: vfx/good_8x8.png: 8x8 doesn't divide into 3 
 Fix: correct `columns` and `rows`, or the image.
 
 ### KL330 material-budget
-Error. More `buildingMaterials` than the game has ids for: 49 across every mod, counted over the mods checked together (a profile). A material's id is a byte in a cell, so the room
-can't grow. At boot, kiln.worldtables gives ids in sorted GUID order and refuses the rest by name, so which block is over depends on the other mods.
+Error. More `buildingMaterials` than the game has ids for: 49 across every mod, counted over the mods checked together (a profile); or more `terrainMaterials` than their
+own 11. A material's id is a byte in a cell, so the room can't grow. At boot, kiln.worldtables gives ids in sorted GUID order and refuses the rest by name, so which block is over depends on the other mods.
 ```text
 blocks/walls.json:3:5: error KL330: This mod has 50 building materials, and the game has ids for 49: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order ("m0" is one of this mod's)
 ```

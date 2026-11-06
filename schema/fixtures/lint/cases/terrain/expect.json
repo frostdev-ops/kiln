@@ -1,0 +1,29 @@
+{
+  "description": "Terrain materials: KL201 without clients mod, KL330 past the 11 terrain ids (apart from the building materials' 49), a field a terrain material doesn't have. Good ones say nothing else.",
+  "diagnostics": [
+    {
+      "code": "KL201",
+      "col": 5,
+      "file": "blocks/t.json",
+      "line": 4,
+      "message": "terrain material \"frost-ore\" needs \"clients\": \"mod\", and this mod says \"kiln\": cells reach players as ids, so kiln.worldtables refuses it",
+      "severity": "error"
+    },
+    {
+      "code": "KL330",
+      "col": 5,
+      "file": "blocks/t.json",
+      "line": 4,
+      "message": "This mod has 13 terrain materials, and the game has ids for 11: kiln.worldtables refuses those past that by name, starting from the last in sorted GUID order (\"frost-ore\" is one of this mod's)",
+      "severity": "error"
+    },
+    {
+      "code": "KL102",
+      "col": 34,
+      "file": "blocks/t.json",
+      "line": 6,
+      "message": "\"shine\" is not allowed here (allowed: comment, description, flatten, icon, like, look, name, placeable, recipe, sliding, strength, was)",
+      "severity": "error"
+    }
+  ]
+}

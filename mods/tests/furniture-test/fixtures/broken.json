@@ -3,7 +3,6 @@
   "containers": {
     "no-name": { "slots": 4 },
     "many-slots": { "name": "x", "slots": 500 },
-    "bad-holds": { "name": "x", "holds": { "Material_T1_Twigs": 0 } },
     "typo-field": { "name": "x", "slotz": 4 }
   },
   "doors": {

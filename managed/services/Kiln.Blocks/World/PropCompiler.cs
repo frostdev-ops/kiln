@@ -16,7 +16,7 @@ internal static partial class Compiler
     private const int MaxSlots = 64;
 
     /// <summary>The prop and station blocks. Null: not one of them.</summary>
-    private static BlockHandle? DefineWorldBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => DefineFurnitureBlock(ctx, low, name, block) ?? block switch
+    private static BlockHandle? DefineWorldBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => DefineFurnitureBlock(ctx, low, name, block) ?? DefineTerrainBlock(ctx, low, name, block) ?? block switch
     {
         StationBlock s => DefineStation(ctx, low, name, s),
         PropBlock p => DefineProp(ctx, low, name, p),

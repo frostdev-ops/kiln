@@ -112,7 +112,7 @@ internal static partial class Compiler
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not ScreenEffectBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch

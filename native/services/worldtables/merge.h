@@ -34,6 +34,7 @@ uint32_t item_id_of(const Guid& g);
 struct ConfigLayout {
     uint32_t stride = 0, id = 0, item = 0, hardness = 0, rate = 0, health = 0, klass = 0, conditional = 0;
     uint32_t roof = UINT32_MAX;  // buildings only
+    uint32_t flatten = UINT32_MAX, sliding = UINT32_MAX;  // terrain only: canBeFlattened, isSlidingMaterial
 };
 struct Layouts {
     uint32_t reg_terrain = 0, reg_building = 0, reg_size = 0;

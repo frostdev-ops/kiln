@@ -1,0 +1,17 @@
+<Project>
+  <!-- Sample: terrain materials (docs/kiln/modding/world-blocks.md, "Terrain materials"). An ore vein that digs like copper and looks like celesthium, and packed
+       snow players place with the game's terrain shapes, in C#; blocks/twins.json says the same in data. Two admin commands put some in front of you. Cells reach
+       players as ids, so every player needs the mod: clients mod. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>terrain-sample</KilnModId>
+    <KilnModName>Terrain materials (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Glacier ore veins and packed snow: terrain of a mod's own, dug with the game's tools.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Build;World;Chat</KilnServices>
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

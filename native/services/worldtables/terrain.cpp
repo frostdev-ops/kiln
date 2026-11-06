@@ -158,6 +158,33 @@ std::vector<int> free_terrain_ids(const Bytes& world, const Layouts& L, const Re
     return out;
 }
 
+Allocation allocate_terrain(std::vector<Material> live, std::vector<Material> kept, const std::vector<int>& free_ids) {
+    Allocation a;
+    auto by_guid = [](const Material& x, const Material& y) { return x.guid.text() < y.guid.text(); };
+    std::sort(live.begin(), live.end(), by_guid);
+    std::sort(kept.begin(), kept.end(), by_guid);
+    a.room = free_ids.size();
+    const size_t holds = std::min(kept.size(), a.room), for_live = a.room - holds;
+    size_t at = 0;
+    for (size_t i = 0; i < live.size(); ++i) {
+        if (i >= for_live) {
+            std::string why = "the game has room for " + std::to_string(a.room) + " new terrain materials across all mods";
+            if (!kept.empty()) why += ", " + std::to_string(holds) + " of them kept for absent mods (WorldTables.Forget frees one)";
+            a.refused.push_back("block terrainMaterial " + live[i].block + " (mod " + live[i].mod + "): refused: " + why);
+            continue;
+        }
+        a.placed.push_back(Placed{std::move(live[i]), free_ids[at++], false});
+    }
+    for (size_t i = 0; i < kept.size(); ++i) {
+        if (at >= free_ids.size()) {
+            a.refused.push_back("kept terrain material " + kept[i].guid.text() + " (" + kept[i].block + ", mod " + kept[i].mod + "): no room left: a world's cells of it are lost when it loads");
+            continue;
+        }
+        a.placed.push_back(Placed{std::move(kept[i]), free_ids[at++], false});
+    }
+    return a;
+}
+
 bool merge_terrain_registry(const Bytes& reg, const Layouts& L, const std::vector<Placed>& placed, Bytes* out, std::vector<RegistryChange>* changes, std::string* why) {
     RegistryInfo info;
     if (!read_registry(reg, L, &info, why)) return false;

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test for terrain materials on a server, player free: blocks register into kiln.worldtables' terrain ids, keep them across restarts and a removed mod,
+       read the same from C# as from JSON, and the game's own explosion digs them by their strength. Driven by run.py, one scenario per server start: the mode
+       comes from kiln/data/terrain-test/mode. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TerrainTest.cs" />
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Build/Kiln.Build.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Assets/Kiln.Assets.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -149,6 +149,44 @@ No crash or device loss, the game ran on for two minutes, and kiln.log had no er
 - So ids are not stable data: moving a material to another slot is safe as long as the GUID stays in the table. A removed material's cells read back as `material 0, fill 0`: air, walls gone. See the lab results.
 - Replication (`0x83ba40`) sends the store's blocks as they are, with no table. Client and server must agree on ids.
 
+### 1.6 Terrain materials **[refl] [data]**
+**Ids.** 1..116 are configured and have a GUID in `materialGuids`; 117..127 have neither: 11 free, a room apart from the building ids. No terrain id is
+deprecated: the three without an item are unbreakable world materials (5; 16 with path type `DeadlyFog`; 34 `Lava`).
+
+**`TerrainTerraformingConfig`** (184 B): `terrainMaterial`, `terrainItem` (the loot), `hardness`, `terrainPerLootItemExchangeRate`, `healthPoints`,
+`knowledgeQuery`, `canBeFlattened`, `isSlidingMaterial`, `collisionFeedbackMaterial`, `materialFeedbackId` (dig and step sounds), `damageSusceptibility`,
+`buffReference`, `conditionalBuffTypes`, `isDangerous`, `frictionFactor`, jump cost items, submerge depth and percentages, `entityTag`, `pathNodeType`.
+- Diggable ground has 2..25 health (dirt 2..5, stone 5, ores 8..25); mud, tar and ice more. Ores are terrain: copper ore (26) is `VeryHard`, 8, class Metal,
+  and gives `Material_T2_Ore_Copper` per 8 cells. Many ids share a loot item: five rubble ids give `Build_TerrainMaterial_T1_Rubble`.
+- 56 ids are placed by an item in the pool `TerrainMaterials` (slot `TerrainMaterial`, category `Materials`, `placeVoxelMaterialId` the id, `isBuildingVoxel`
+  false), with the game's terrain shapes. These items have no entry in `VoxelBlueprintItemRegistryResource`; only the shapes do.
+
+**The look, client only.** `WorldMaterialBlending2Resource` (`layerCount` 222):
+
+| Data block | Entries | Per entry |
+|---|---|---|
+| `bakingVoxelMaterialDataBlock` | 128, by id | u32 `firstLayer \| layerCount << 16`. 117..127: `222 \| 0` |
+| `bakingLayerDataBlock` | 224 | 12 B: flags (`Surface`, `Underworld`, `Top`, `Bottom`, `Side`), top and bottom side mapping |
+| `renderingLayerDataBlock` | 224 | 40 B: flags and blend layer count, `baseLayerIndex`, height blending, detail weight and opacity, edge smoothness |
+| `renderingTextureDataBlock` | 768 texture layers, 499 used | 52 B: tiling, albedo, roughness, normal, height, AO and emissive maps, displacement, a feedback list. 2,569 textures, 3,068 patch points |
+
+A material has 1 to 6 layers: one for every face, or top, side and bottom, each once on the surface and once underground. `SimpleWorldMaterialResource`
+holds the same per id in a simple form: `layerInfosDataBlock` is 256 u32, two per id (surface, underground), `first | count << 9`, into 512 layer weights
+(12 B) and 512 `SimpleVoxelPbrMaterial`s (60 B: albedo, roughness, emissive, metallic, reflectance, tiling, an albedo and an emissive map), 352 used. What
+reads it, far terrain or GI, wasn't followed **[hyp]**. `VoxelMaterialVfxDataResource.materialType[256]` (both sides) gives 8 terrain ids a particle class
+(mycelium, fog, lava, mud, tar, snow, ice, mud).
+
+So a new id that looks like a game terrain material is three u32 copies and no new layer. Layers of its own need entries past 222 (2 free) and texture
+layers past 499 (269 free); growing the 224 wasn't tested. A dedicated server ships the registry, the particle table, the world and the biome map, not the
+look tables.
+
+**Where terrain comes from.** The world is baked. `VoxelWorldResource` `509feadb…` part 0 (part 1 is the fog) names 7 levels of tiles as content blobs: level 6
+is 80 × 80 tiles of 256 × 256 columns, 150..360 KB each, in a column format of the game's (a 32 × 32 table of 3-byte offsets, then the groups); levels 0..5
+are coarser copies. `voxelHashes` holds 1,024 B per level-6 tile, `cpuDisplacement` 98 KB. Generated cells are read from these blobs as tiles stream in
+(docs/re/build.md 2); only edits are stored. `BiomeMapResource` `509feadb…` is 1280 × 1280 at 8 m, a `keen::Biome` (9 values) per pixel, on both sides.
+Biomes are baked into the cells: each biome's dirt is an id of its own (1 grassland, 10 wetlands, 11 steppes, 12 deep forest). The editor's per-biome
+material types (`BiomeVoxelMaterial`) don't ship. **[data]**
+
 ## 2. Placed objects
 Placing is `equipment.placedEntity`: an item names a template, the server spawns it (docs/re/build.md 6). Props persist as entities anywhere. Template families among 1,819 placing items: `Prop` 1,118, `None` 257, `Switch` 202, `Container` 71, `Plant` 63, `Animal` 39, `Factory` 30, `Npc` 28, `Water` 7, `Sign` 3, `Altar` 1. **[data]**
 
@@ -297,6 +335,7 @@ Every resource of these types decoded and re-encoded through `tools/kfc`, byte-i
 | `TerraformingEfficiencyRegistryResource`, `BuildingMaterialBlendingResource`, `BuildingMaterialParametersResource`, `GiVoxelBuildingMaterialResource`, `WorldMaterialBlending2Resource`, `SimpleWorldMaterialResource`, `VoxelMaterialVfxDataResource`, `VoxelBlueprintItemRegistryResource`, `VoxelBlueprintMaterialPoolRegistryResource`, `WorkshopRegistryResource`, `RecipeRegistryResource`, `CharacterPresetCollection`, `MaterialFeedbackCollectionResource`, `FbUiBundle`, `Game38ClientResources` | 1 each |
 | `VoxelBlueprintConfig` | 7 |
 | `VoxelModelResource` | 78 |
+| `WorldMaterialBlending2Resource`, `SimpleWorldMaterialResource`, `VoxelMaterialVfxDataResource`, with two new terrain ids written by kiln.worldtables | 1 each |
 | `RenderMaterialResource` | 3,458 |
 | `ItemInfo` | 4,268 |
 | `ecs::TemplateResource`, among them `T1_Forge_Factory` (10,024 B) and `T1_Drying_Rack_Factory` (2,632 B) | 12,269 |

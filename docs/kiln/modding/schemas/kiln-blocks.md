@@ -57,6 +57,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `surfaces` | object |  | Parts: how building materials look, defined once for materials of this mod to name. |
 | `talentTrees` | object |  | Whole trees of their own, on Kiln's screen. Needs "clients": "mod". |
 | `talents` | object |  | Nodes of a skill tree: in the game's own tree with game, else parts for a talent tree. Needs "clients": "mod". |
+| `terrainMaterials` | object |  | New terrain materials: ground, rock or ore, an id and a GUID in the game's tables. 11 fit across all mods, apart from the building materials. Needs "clients": "mod". |
 | `triggers` | object |  | What a player does or is, any of the game's states and actions, driving effects. |
 | `vfx` | `kiln-vfx.schema.json section` |  | Effects written from nothing: particles and a light. No compiler, no game data. Built by the game client at start. |
 | `wands` | object |  | One-handed casters whose attacks are spells of their own: no spell item, no charges. |
@@ -173,6 +174,7 @@ How a body moves: a glTF of the mod with its clips (cooked when the mod builds),
 | `skeleton` | string |  |  |
 | `sneak` | [animClip](#animclip) |  |  |
 | `sprint` | [animClip](#animclip) |  |  |
+| `stagger` | [animClip](#animclip) |  | What a hit reaction, a stun or a parry plays over the whole body. Default: the hit clip once, else Idle. |
 | `states` | object |  | States of your own, by name. |
 | `stun` | [animClip](#animclip) |  |  |
 | `template` | string |  | A game creature whose graph this is. |
@@ -430,7 +432,6 @@ Something that holds items. Starts from the game's small chest; visual.like name
 |---|---|---|---|
 | `comfort` | [ref](#ref) or [comfort](#comfort) |  |  |
 | `description` | string |  |  |
-| `holds` | object |  | What it holds when first placed: item -> count. Once: what a player takes out isn't put back. |
 | `light` | [vfx](#vfx) |  | A VFX on it for as long as it stands: where the game's lamps have their light. |
 | `loot` | [loot](#loot) |  |  |
 | `name` | string | yes | min length 1 |
@@ -1130,6 +1131,25 @@ A whole tree on Kiln's screen in the game's look. Kiln keeps each character's un
 | `points` | object |  | Where its points come from (default 1, and 1 more per character level). |
 | `respec` | boolean |  | Everything can be given back for free (default). |
 | `was` | [name](#name) |  |  |
+
+## terrainMaterial
+
+A new terrain material: it starts from a game terrain material and looks like one.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `comment` | string |  |  |
+| `description` | string |  |  |
+| `flatten` | boolean |  | The game's flatten tool works on it. Default: like's. |
+| `icon` | string |  | The item's picture: a PNG in the mod's folder, or item:<name>. Default: the game's stone's. min length 1 |
+| `like` | string |  | The game terrain material it starts from: a GameMaterials Terrain name or Cell<1..127>. Its strength, loot, sounds, friction and buffs come along. Default TerrainStone. min length 1 |
+| `look` | string |  | The game terrain material whose look it takes. Default: like's. min length 1 |
+| `name` | string | yes | What players read: its item's name when it's placeable. min length 1 |
+| `placeable` | boolean |  | It has an item the game's terrain shapes place, and digging gives it back. Default false: only found and dug, as the game's ores. |
+| `recipe` | [recipe](#recipe) |  | How its item is made; needs placeable. |
+| `sliding` | boolean |  | Feet slide on it, as on ice. Default: like's. |
+| `strength` | [strengthRef](#strengthref) |  |  |
+| `was` | string |  | The block's old name, after a rename: the material's id comes from it, so its cells stay in every world. |
 
 ## texts
 

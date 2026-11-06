@@ -1,0 +1,9 @@
+{
+  "id": "terrain-test",
+  "name": "Terrain materials lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "TerrainTest.dll",
+  "side": "both",
+  "clients": "mod"
+}

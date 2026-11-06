@@ -165,6 +165,7 @@ internal static class NpcCompiler
         foreach (var (state, clip) in a.States)
         {
             if (state.EngineName is { } e) throw new BlockError(ctx.Block, Join(path, $"states[{state}]"), $"the engine's {e} is a field of its own: {e} = ...");
+            if (state.Name == "Stagger") throw new BlockError(ctx.Block, Join(path, "states[Stagger]"), "Stagger is a field of its own: Stagger = ...");
             if (state.IsGame) throw new BlockError(ctx.Block, Join(path, $"states[{state}]"), "a state of your own has a name; ids are the game's graphs'");
             CheckClip(ctx, clip, Join(path, $"states[{state}]"));
         }
@@ -174,6 +175,7 @@ internal static class NpcCompiler
             if (clip.Then is { } then && !names.Contains(then.ToString()))
                 throw new BlockError(ctx.Block, Join(path, $"states[{state}].then"), $"\"{then}\" is not a state of this animation; it has {string.Join(", ", names.Order())}");
         if (a.Hit is { Blend: not null }) throw new BlockError(ctx.Block, Join(path, "hit"), "a clip, not a blend");
+        if (a.Stagger is { } stg) CheckClip(ctx, stg, Join(path, "stagger"));
     }
 
     private static void CheckClip(BlockContext ctx, Clip c, string path)
@@ -414,6 +416,8 @@ internal static class NpcCompiler
             var fields = TemplateFields(ctx, body, ai, graph, model, box, moves);
             // the base creature's gear hangs on its own slots: a body of your own does without it
             low.Clone("templates", templateGuid, template, aiBase, fields, removeComponents: GearOf(aiBase));
+            // and its hit, stun and death sequences play this animation's states, not the base creature's
+            low.AfterCommit(() => NpcReactions.Add(ctx.Mod, key, name, aiBase, template, graph));
         }
         else template = body.Template!;
 
@@ -814,6 +818,7 @@ internal static class NpcCompiler
         if (n.Talk != null && n.TalkName != null) throw new BlockError(ctx.Block, "talk", "a dialogue from code or by name, not both");
         ctx.Need(ClientsLevel.Mod, null, "an NPC, its lines and its place in the roster are built by every player's game at start, from the mod");
 
+        var fromData = ctx.Mod.Compiling.Contains(name);   // a data file's block compiles under its name; one from code does not
         var cloneGuid = BlockIds.Derive(mod, "npc", key);
         var cloneName = $"Kiln_{mod}_{key}";
         var names = new Dictionary<string, string>(StringComparer.Ordinal) { ["en"] = n.Name };
@@ -865,7 +870,9 @@ internal static class NpcCompiler
             }
             def.ModId = mod;
             Quests.DefineNpc(def);
-            NpcFiles.Put(mod, key, file);
+            // one of a data file the game's start-up build reads from the mod's folder itself (native_pack.cpp): only one from code is written for the next start
+            if (!fromData) NpcFiles.Put(mod, key, file);
+            else NpcFiles.Forget(mod, key);
         });
         return new BlockHandle<NpcBlock>(mod, name, cloneGuid, cloneName, n);
     }
@@ -920,6 +927,17 @@ internal static class NpcFiles
     private static readonly HashSet<string> Dirty = new(StringComparer.Ordinal);
     private static IDisposable? _tick;
 
+    /// <summary>An NPC that is no longer one of code's: out of the file at its next write.</summary>
+    public static void Forget(string mod, string npc)
+    {
+        lock (ByMod)
+        {
+            if (ByMod.TryGetValue(mod, out var m) && m.Remove(npc)) Dirty.Add(mod);
+            else if (!ByMod.ContainsKey(mod)) { ByMod[mod] = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal); Dirty.Add(mod); }
+            _tick ??= BlocksBridge.AddTick("kiln npc blocks", Flush);
+        }
+    }
+
     public static void Put(string mod, string npc, JsonObject entry)
     {
         lock (ByMod)
@@ -944,6 +962,12 @@ internal static class NpcFiles
         foreach (var (mod, doc) in work)
         {
             var file = Path.Combine(QuestsInternals.DataOwner.DataDirectory, "native", mod + ".blocks.json");
+            if (doc["npcs"] is JsonObject { Count: 0 })
+            {
+                try { if (File.Exists(file)) File.Delete(file); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod}: {file}: {e.Message}"); }
+                continue;
+            }
             var text = doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
             try
             {
@@ -951,7 +975,7 @@ internal static class NpcFiles
                 Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                 File.WriteAllText(file + ".tmp", text);
                 File.Move(file + ".tmp", file, true);
-                BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod}: its NPC blocks are written for the game's start: {file}. They are in the roster and the game's menus from the next start");
+                BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod}: its NPC blocks from code are written for the game's start: {file}. They are in the roster and the game's menus from the next start; one in blocks/*.json is there from the first");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {

@@ -203,7 +203,7 @@ void KILN_CALL write_tables(const KilnWorldTablesApi* wt, void*) {
         for (uint32_t i = 0; i < n; ++i) {
             KilnWtMaterial m{};
             m.size = sizeof m;
-            if (wt->material_at(i, &m) != KILN_OK || m.state != KILN_WT_LIVE) continue;
+            if (wt->material_at(i, &m) != KILN_OK || m.state != KILN_WT_LIVE || m.cell_id < 128) continue;  // a terrain material has no building slot
             SurfaceJob j;
             j.mod = str(m.mod);
             j.block = str(m.block);

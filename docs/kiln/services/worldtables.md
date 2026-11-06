@@ -8,12 +8,12 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
 | Layer | Where |
 |---|---|
 | C table | `native/core/abi/services/kiln_worldtables.h` (`kiln.worldtables` v1) |
-| Native | `native/services/worldtables/` → `kiln/services/kiln-worldtables.dll`. `merge.cpp` is portable: ids, the handshake hash, and writers over a resource's bytes |
-| Managed | `managed/services/Kiln.Blocks/World/` (`MaterialTweakBlock`, `BuildingMaterialBlock`, `StrengthBlock`, `WorldTables`; `SurfaceBlock` is kiln.surfaces') |
+| Native | `native/services/worldtables/` → `kiln/services/kiln-worldtables.dll`. `merge.cpp` and `terrain.cpp` are portable: ids, the handshake hash, and writers over a resource's bytes |
+| Managed | `managed/services/Kiln.Blocks/World/` (`MaterialTweakBlock`, `BuildingMaterialBlock`, `TerrainMaterialBlock`, `StrengthBlock`, `WorldTables`; `SurfaceBlock` is kiln.surfaces') |
 | Handshake | `managed/services/Kiln.Network/WorldTablesGate.cs` |
 | Lint | KL330 material-budget, KL331 material-count, KL332 material-reference; KL201 for a material in a mod that doesn't say `clients: "mod"` |
 | Catalog | section `materials` (`GameMaterials`): name, cell id, GUID, hardness, health, class |
-| Test | `mods/tests/worldtables-test/` (`run.py` drives a lab server through 15 scenarios) |
+| Test | `mods/tests/worldtables-test/` (`run.py` drives a lab server through 15 scenarios), `mods/tests/terrain-test/` (terrain materials, 6 scenarios) |
 
 ## What it changes
 - `MaterialTweakBlock` changes a game material's strength in place: hardness, health, the tool class modifier, the loot item and rate. Only the registry
@@ -37,7 +37,7 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
 - A table with nothing to change is served as the game has it. With no mod, every table is the game's to the byte (the lab compares them).
 
 ## When
-- `on_ready`: read every enabled mod's `blocks/*.json` (sections `materialTweaks`, `buildingMaterials`, `strengths`, `blueprints`), `blocks.tables.json` when there is
+- `on_ready`: read every enabled mod's `blocks/*.json` (sections `materialTweaks`, `buildingMaterials`, `terrainMaterials`, `strengths`, `blueprints`), `blocks.tables.json` when there is
   one, and what code defined in an earlier run (below).
 - When the game's resource service comes up (kiln.assets' `when_resources_ready`), on the game's thread and before its first read: resolve names, give
   ids, write the tables, register them as overrides, then run the table writers. Every service's `on_ready` has run by then, on both sides (client log:
@@ -56,6 +56,23 @@ together.
   mods`. The others load. Kept materials hold room and are never dropped for a live one.
 - A save keeps a GUID per id and remaps on load, so an id may change between sessions. Never store an id; store the GUID, and ask `material_id` / `CellIdOf`.
 
+## Terrain materials
+A terrain material is a cell's low byte 1..127, as the game's dirt, stone and ores are. The game uses 1..116, so 117..127 are free: 11 for every mod together,
+a room of their own (`TerrainMaterialBlock`, section `terrainMaterials`). Evidence: [docs/re/building.md](../../re/building.md) 1.6.
+- A new one is a copy of the config of the game terrain material it starts from (`like`, default `TerrainStone`): its sounds, friction, footing for NPCs,
+  buffs (tar's stay pointed at, not copied) and strength, then what the block says (strength, `flatten`, `sliding`). Its GUID is
+  `UUIDv5(<mod>:terrain:<name>)`; ids go as for building materials (live in GUID order, kept after, refused past the room by name:
+  `block terrainMaterial o11 (mod x): refused: the game has room for 11 new terrain materials across all mods`).
+- What digging gives: `like`'s loot, unless the strength says. `placeable` gives it an item (a clone of the game's stone, with its id and GUID in
+  `equipment.voxelData`) in the pool `TerrainMaterials`, which the game's terrain shapes place from; digging then gives that item back, at `like`'s rate.
+- Its look is a game terrain material's (`look`, default `like`): the same layers, by three per-id entries, `WorldMaterialBlending2Resource`'s baking table
+  and `SimpleWorldMaterialResource`'s two layer infos (client only), and the particle class in `VoxelMaterialVfxDataResource` (both sides). Layers of its own
+  are a cooker's job and not built: [Not proven](#not-proven).
+- Code writes its cells with Kiln.Build (`Build.Add`, `Paint`, `Replace` with `(byte)handle.CellId`); worlds keep them as they keep a building material's:
+  per world, and while the mod is away.
+- `material_at` lists building materials first, then terrain ones (`cell_id` < 128), live first in each; the hash covers both, so a client with other
+  terrain ids is refused like one with other building ids. A table writer for building slots skips terrain rows.
+
 ## Worlds and absent mods
 Without Kiln's help, a world opened without a material's mod turns its cells to air: the game's load maps an unknown GUID to 0, and the next save makes that
 final. So every world remembers each material it ran with (`kiln/data/worldtables/worlds/<world GUID>.json`: mod, block, strength). At boot, a remembered
@@ -69,7 +86,7 @@ fallback for them, and a mod enabled again finds its walls.
 Cells replicate as raw bytes with no table, so a client with other ids shows the wrong walls. `table_hash()` is 16 hex digits over the live materials' ids and
 GUIDs (`0000000000000000` with none, and from a Kiln without this service). HELLO and WELCOME carry `kiln.worldtables` (the hash) and `kiln.worldtables.ids`
 (`213=<guid>,...`). When they differ, the server refuses the client with a REJECT naming what differs, whatever `modSync` says except `off`:
-`This server's building materials don't match your game's: brick-a (mod wt-mat-a) is id 214 here and 213 on your game. Join with the same mods, and restart
+`This server's building and terrain materials don't match your game's: brick-a (mod wt-mat-a) is id 214 here and 213 on your game. Join with the same mods, and restart
 if you just changed them.` Kept materials aren't in the hash: they come after every live id, past what any client's render tables hold.
 
 ## Table writers (new material slots)
@@ -121,6 +138,11 @@ tools/lab/lab.sh new mylab <port> --save <savegame dir>
 tools/deploy-server.sh <labs>/mylab --policy any
 mods/tests/worldtables-test/run.py --lab mylab --port <lab transport port> [--low]
 ```
+Terrain materials: `native/services/worldtables/tests/run.sh` with `KILN_TERRAIN_RES=<folder of the game's tables>` merges two into the game's own tables,
+then `tests/terrain_roundtrip.py <folder>` decodes the results with tools/kfc and checks each says exactly that and nothing more. `mods/tests/terrain-test/run.py
+--lab mylab` (with `mods/samples/TerrainSample` built into `$KILN_OUT/mods/terrain-sample`) runs six starts: ids and refusals, C# against JSON, cells written
+and read back, the game's TNT by strength, the served registry decoded, restarts, the mod removed and back, the 12th refused.
+
 Each scenario is one server start; the save carries over: no mods (tables byte-identical to the game's files, the game's own explosion on four
 materials), a tweak that changes nothing, tweaks (Unbreakable, a softer and a harder category, health), bad blocks, a layout that doesn't resolve, a new
 material (its id, its dig, its item in the pools), a restart, a mod list that moves the id, the mod removed (walls stay) and back, the handshake with fake
@@ -129,4 +151,8 @@ clients, a forgotten material, 50 materials (49 placed, one refused), and a twea
 
 ## Not proven
 Nothing here has been drawn by a client. A client's own registry only feeds its cursor and movement, as far as the code shows; the render tables come from a
-table writer.
+table writer. For terrain: how a new id looks, its far form and particles, its sounds and friction underfoot, the terrain shapes placing a placeable one, and
+what an id with no layers draws (a client that lacks the look tables' entries). Terrain layers of a mod's own (textures) aren't built: an entry past the
+game's 222 layers (2 free) and texture layers past 499 (269 free), cooked as kiln.surfaces cooks building maps; past 224 layers the buffers have to grow,
+which needs the shaders read and a GPU check (M). New terrain in the world's own generation isn't built either: the world is baked tiles, so it takes a
+cooker for the tile format or a hook where tiles are read (L, docs/re/building.md 1.6).

@@ -37,6 +37,12 @@
       "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/buildingMaterial" }
     },
+    "terrainMaterials": {
+      "type": "object",
+      "description": "New terrain materials: ground, rock or ore, an id and a GUID in the game's tables. 11 fit across all mods, apart from the building materials. Needs \"clients\": \"mod\".",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/terrainMaterial" }
+    },
     "surfaces": {
       "type": "object",
       "description": "Parts: how building materials look, defined once for materials of this mod to name.",
@@ -215,6 +221,26 @@
         "icon": { "type": "string", "minLength": 1, "description": "The block item's picture: a PNG in the mod's folder, or item:<name>. Without one, each client draws a block of its surface." },
         "recipe": { "$ref": "#/$defs/recipe" },
         "was": { "type": "string", "description": "The block's old name, after a rename: the material's id comes from it, so its walls stay in every world." }
+      }
+    },
+    "terrainMaterial": {
+      "type": "object",
+      "description": "A new terrain material: it starts from a game terrain material and looks like one.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "comment": { "type": "string" },
+        "name": { "type": "string", "minLength": 1, "description": "What players read: its item's name when it's placeable." },
+        "description": { "type": "string" },
+        "like": { "type": "string", "minLength": 1, "description": "The game terrain material it starts from: a GameMaterials Terrain name or Cell<1..127>. Its strength, loot, sounds, friction and buffs come along. Default TerrainStone." },
+        "look": { "type": "string", "minLength": 1, "description": "The game terrain material whose look it takes. Default: like's." },
+        "strength": { "$ref": "#/$defs/strengthRef" },
+        "flatten": { "type": "boolean", "description": "The game's flatten tool works on it. Default: like's." },
+        "sliding": { "type": "boolean", "description": "Feet slide on it, as on ice. Default: like's." },
+        "placeable": { "type": "boolean", "description": "It has an item the game's terrain shapes place, and digging gives it back. Default false: only found and dug, as the game's ores." },
+        "icon": { "type": "string", "minLength": 1, "description": "The item's picture: a PNG in the mod's folder, or item:<name>. Default: the game's stone's." },
+        "recipe": { "$ref": "#/$defs/recipe", "description": "How its item is made; needs placeable." },
+        "was": { "type": "string", "description": "The block's old name, after a rename: the material's id comes from it, so its cells stay in every world." }
       }
     },
     "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$", "description": "The block's name. Ids come from your mod id and this: keep it. A rename says \"was\"." },
@@ -1176,7 +1202,8 @@
         "sneak": { "$ref": "#/$defs/animClip" },
         "dead": { "$ref": "#/$defs/animClip" },
         "stun": { "$ref": "#/$defs/animClip" },
-        "hit": { "$ref": "#/$defs/animClip" }
+        "hit": { "$ref": "#/$defs/animClip" },
+        "stagger": { "$ref": "#/$defs/animClip", "description": "What a hit reaction, a stun or a parry plays over the whole body. Default: the hit clip once, else Idle." }
       }
     },
     "collider": {
@@ -1743,16 +1770,6 @@
           "minimum": 1,
           "maximum": 120,
           "description": "Inventory slots. Default: the starter's."
-        },
-        "holds": {
-          "type": "object",
-          "minProperties": 1,
-          "description": "What it holds when first placed: item -> count. Once: what a player takes out isn't put back.",
-          "additionalProperties": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 65535
-          }
         }
       },
       "additionalProperties": false

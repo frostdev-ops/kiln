@@ -42,8 +42,8 @@ enum {
 typedef struct KilnWtMaterial {
     uint32_t size;      /* set by the caller: sizeof(KilnWtMaterial) */
     uint32_t state;     /* KILN_WT_LIVE, KILN_WT_KEPT */
-    uint8_t guid[16];   /* the material's GUID, game byte order. Follows from mod id and block name: UUIDv5(<mod>:material:<name>) */
-    uint32_t cell_id;   /* the id in a cell, 128..255. Index into the render tables: cell_id - 128 */
+    uint8_t guid[16];   /* the material's GUID, game byte order. Follows from mod id and block name: UUIDv5(<mod>:material:<name>), a terrain one's <mod>:terrain:<name> */
+    uint32_t cell_id;   /* the id in a cell: 128..255 a building material (index into the render tables: cell_id - 128), 1..127 a terrain material */
     uint32_t reused;    /* 1: a slot the game has marked deprecated; its table entries are this material's now */
     uint32_t item_id;   /* the block item's ItemId, 0 for a kept material */
     uint32_t reserved;
@@ -79,7 +79,7 @@ typedef struct KilnWorldTablesApi {
      * every install with no live material, including one with the service off. */
     KilnStr(KILN_CALL* table_hash)(void);
 
-    /* Every material in the tables, live ones first, in id order. 0 before the merge. */
+    /* Every material in the tables: the building materials, then the terrain ones (cell_id < 128), live ones first in each. 0 before the merge. */
     uint32_t(KILN_CALL* material_count)(void);
     KilnResult(KILN_CALL* material_at)(uint32_t index, KilnWtMaterial* out);
     /* The cell id of a material's GUID, or -1: not in the tables. */

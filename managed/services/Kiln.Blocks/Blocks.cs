@@ -63,6 +63,10 @@ public static class Blocks
     /// see <see cref="TableBlockHandle{T}.Status"/>. One in a data file's "buildingMaterials" section is there at once.</summary>
     public static TableBlockHandle<BuildingMaterialBlock> Define(string name, BuildingMaterialBlock block) => (TableBlockHandle<BuildingMaterialBlock>)Define<BuildingMaterialBlock>(name, block);
 
+    /// <summary>Defines a new terrain material as the calling mod's. The game reads its material tables once at start, so one new to this game is there from the next start;
+    /// see <see cref="TableBlockHandle{T}.Status"/>. One in a data file's "terrainMaterials" section is there at once.</summary>
+    public static TableBlockHandle<TerrainMaterialBlock> Define(string name, TerrainMaterialBlock block) => (TableBlockHandle<TerrainMaterialBlock>)Define<TerrainMaterialBlock>(name, block);
+
     /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
     public static BlockHandle? Find(string name, string? mod = null)
     {

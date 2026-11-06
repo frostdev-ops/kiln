@@ -26,7 +26,7 @@ from pathlib import Path
 ENGINE_FIELDS = {"idle": "Idle", "walk": "Walk", "run": "Run", "sprint": "Sprint", "idleCombat": "IdleCombat", "fall": "Fall", "idleSneak": "IdleSneak",
                  "sneak": "Sneak", "dead": "Dead", "stun": "Stun"}
 LOOPED = {"Idle", "Walk", "Run", "Sprint", "IdleCombat", "IdleSneak", "Sneak"}
-DERIVED = ("IdleCombat", "Fall")  # states a graph gets from Idle when the block leaves them out
+DERIVED = ("IdleCombat", "Fall")  # states a graph gets from Idle when the block leaves them out (and Stagger, Stun, Dead: see plan())
 SECTIONS = ("animations", "bodies")
 INLINE = ("creatures", "npcs")
 
@@ -219,6 +219,23 @@ def plan(mod_dir):
         for engine in DERIVED:
             if engine not in states:
                 states[engine] = dict(states["Idle"], engine=engine)
+        # What the base creature's hit, stun and death sequences play becomes these (Kiln.Blocks makes those sequences play them). Stagger: the
+        # block's, else its hit clip once over the whole body, else Idle once. Stun as Stagger; Dead: Idle, held.
+        if "Stagger" in (b.get("states") or {}):
+            raise BlocksError(f"{where}, states.Stagger: Stagger is a field of its own: \"stagger\"")
+        idle = {k: v for k, v in states["Idle"].items() if k != "engine"}
+        if b.get("stagger") is not None:
+            st, _ = source("stagger", b["stagger"], False)
+        elif b.get("hit") is not None:
+            hc = clip_spec(b["hit"], f"{where}, hit")
+            st, _ = source("hit", {k: hc[k] for k in ("clip", "blend", "speed") if k in hc}, False)
+        else:
+            st = dict(idle, loop=False)
+        states["Stagger"] = st
+        if "Stun" not in states:
+            states["Stun"] = dict(st, engine="Stun")
+        if "Dead" not in states:
+            states["Dead"] = dict(idle, engine="Dead", loop=False)
         layers = []
         if b.get("hit") is not None:
             st, c = source("hit", b["hit"], False)

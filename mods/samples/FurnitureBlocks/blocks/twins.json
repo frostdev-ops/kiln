@@ -5,7 +5,6 @@
     "lockbox-json": {
       "name": "Lockbox", "description": "Opens for whoever carries scrap.",
       "slots": 8,
-      "holds": { "Material_T1_Twigs": 10 },
       "onInteract": { "requires": { "item": "Material_T1_Metal_Scraps" } },
       "recipe": { "needs": { "Material_T1_Wood_Logs": 4, "Material_T1_Metal_Scraps": 1 } }
     }

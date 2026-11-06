@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "terrainMaterials": {
+    "frost-ore": {"name": "Frost Ore", "like": "Cell26", "look": "Cell115", "strength": {"hardness": "veryHard", "health": 12, "breaks": "metal"}},
+    "frost-soil": {"name": "Frost Soil", "placeable": true, "sliding": true},
+    "glossy": {"name": "Glossy", "shine": 1},
+    "t00": {"name": "T0"},
+    "t01": {"name": "T1"},
+    "t02": {"name": "T2"},
+    "t03": {"name": "T3"},
+    "t04": {"name": "T4"},
+    "t05": {"name": "T5"},
+    "t06": {"name": "T6"},
+    "t07": {"name": "T7"},
+    "t08": {"name": "T8"},
+    "t09": {"name": "T9"}
+  }
+}

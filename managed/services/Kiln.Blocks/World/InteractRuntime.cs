@@ -18,8 +18,7 @@ internal static class InteractRuntime
     private static readonly object Gate = new();
     private static readonly Dictionary<Guid, Entry> Entries = new();
     private static readonly Dictionary<Guid, Bed> Beds = new();
-    private static readonly Dictionary<Guid, (string Block, List<(string Item, int Count)> Items)> Holds = new();
-    private static IDisposable? _tick, _attempts, _results, _teleports, _joins, _watch;
+    private static IDisposable? _tick, _attempts, _results, _teleports;
     private static Dictionary<string, JsonObject>? _spawns;
     private static string? _spawnFile;
     private static ulong _nightSkipped;
@@ -42,16 +41,6 @@ internal static class InteractRuntime
         {
             Beds[template] = new Bed(mod.Id, block, spawnPoint, skipsNight);
             _spawnFile ??= SpawnFile(mod.Id);
-            _tick ??= BlocksBridge.AddTick("kiln blocks interactions", OnTick);
-        }
-    }
-
-    /// <summary>What a container of this template holds when it is first placed.</summary>
-    public static void AddHolds(ModBlocks mod, Guid template, string block, List<(string Item, int Count)> items)
-    {
-        lock (Gate)
-        {
-            Holds[template] = (block, items);
             _tick ??= BlocksBridge.AddTick("kiln blocks interactions", OnTick);
         }
     }
@@ -79,11 +68,6 @@ internal static class InteractRuntime
             if (Entries.Values.Any(e => e.When != null || e.Unless != null || e.If != null)) _attempts ??= Events.On<InteractEvent>(OnAttempt);
             if (Entries.Values.Any(e => e.Effects != null) || Beds.Values.Any(b => b.SpawnPoint)) _results ??= Events.On<InteractionResultEvent>(OnResult);
             if (Beds.Values.Any(b => b.SpawnPoint)) _teleports ??= Events.On<TeleportEvent>(OnTeleport);
-            if (Holds.Count > 0)
-            {
-                _joins ??= Events.On<EntityJoinLevelEvent>(OnJoin);
-                _watch ??= Gameplay.WatchEntities(EntityCategories.Prop);
-            }
         }
     }
 
@@ -146,35 +130,6 @@ internal static class InteractRuntime
         if (program is not { } g || !World.Exists(who) || World.Position(who) is not { } at) return;
         var started = Abilities.RunProgram(g, at, new ImpactOptions { Root = who, Tag = "blocks-interact" });
         if (started.IsFaulted) BlocksBridge.Log(LogLevel.Warn, $"blocks: block {block}: its program did not start on {who}: {started.Exception?.GetBaseException().Message}");
-    }
-
-    // ---- containers -----------------------------------------------------------------------------------------------------
-
-    // keen::ecs::DefaultInventory: the game's flag that a container got its default inventory, saved with the entity
-    private const int DefaultInventorySize = 20, Applied = 0x11;
-
-    private static void OnJoin(EntityJoinLevelEvent e)
-    {
-        if (e.Template is not { } template) return;
-        (string Block, List<(string Item, int Count)> Items) holds;
-        lock (Gate)
-            if (!Holds.TryGetValue(template, out holds)) return;
-        var who = e.Entity;
-        // its components are filled in the step it is made: look a few steps later
-        BlocksBridge.After(4, () => _ = Fill(who, holds.Block, holds.Items));
-    }
-
-    /// <summary>Puts what a container starts with into it, once: the game's own flag says whether it has had it.</summary>
-    internal static async Task<bool> Fill(EntityId box, string block, IReadOnlyList<(string Item, int Count)> items)
-    {
-        if (World.ReadBytes(box, "DefaultInventory") is not { Length: DefaultInventorySize } d || d[Applied] != 0) return false;
-        World.TryWrite(box, "DefaultInventory", Applied, (byte)1);
-        foreach (var (item, count) in items)
-        {
-            var r = await Items.Give(box, item, count);
-            if (r.Status != ItemsStatus.Done) BlocksBridge.Log(LogLevel.Warn, $"blocks: block {block}: {item} x{count} did not go into {box}: {r}");
-        }
-        return true;
     }
 
     // ---- beds -----------------------------------------------------------------------------------------------------------

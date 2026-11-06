@@ -257,7 +257,8 @@ int cook(const Args& a) {
             mf.clients = man.value("clients", "mod");
             kwt::read_blocks(kwt::parse_relaxed(slurp_text(f)), &mf);
             errors.insert(errors.end(), mf.errors.begin(), mf.errors.end());
-            for (auto& m : mf.materials) live.push_back(std::move(m));
+            for (auto& m : mf.materials)
+                if (!m.terrain) live.push_back(std::move(m));  // a terrain material has no building surface slot
             for (auto& tw : mf.tweaks) tweaks.push_back(std::move(tw));
         }
     }

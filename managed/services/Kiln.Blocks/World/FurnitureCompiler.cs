@@ -58,25 +58,6 @@ internal static partial class Compiler
                     p.Fields["InventorySetup.availableSlotCount"] = slots;
                     kind["slots"] = slots;
                 }
-                if (c.Holds.Count > 0)
-                {
-                    var holds = new List<(string Item, int Count)>();
-                    var json = new JsonObject();
-                    foreach (var (item, count) in c.Holds)
-                    {
-                        var path = $"holds[{item}]";
-                        if (count is < 1 or > 65535) throw new BlockError(ctx.Block, path, $"{count} is outside 1..65535");
-                        var n = ctx.ItemName(item, path);
-                        holds.Add((n, count));
-                        json[n] = count;
-                    }
-                    if (holds.Count > (c.Slots ?? MaxContainerSlots)) throw new BlockError(ctx.Block, "holds", $"{holds.Count} kinds of item in {c.Slots} slots");
-                    // the game's flag that a container got what it starts with: kept with the entity, so a restart doesn't fill it again
-                    Components(p, "DefaultInventory");
-                    kind["holds"] = json;
-                    var (guid, block) = (p.Guid, ctx.Block);
-                    low.AfterCommit(() => InteractRuntime.AddHolds(ctx.Mod, guid, block, holds));
-                }
                 break;
             case BedBlock bed:
                 if (bed.Lies is { } lies) Spot(p, ctx, lies, "lies");

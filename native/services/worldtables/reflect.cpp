@@ -164,6 +164,8 @@ bool read_layouts(const uint8_t* image_base, size_t image_size, const std::strin
     L->terrain.health = r.off(t, "healthPoints");
     L->terrain.klass = r.off(t, "damageSusceptibility");
     L->terrain.conditional = r.off(t, "conditionalBuffTypes");
+    L->terrain.flatten = r.off(t, "canBeFlattened");
+    L->terrain.sliding = r.off(t, "isSlidingMaterial");
 
     const uint8_t* w = r.type("keen::VoxelWorldResource");
     L->world_guids = r.off(w, "materialGuids");
@@ -231,6 +233,31 @@ bool read_model_layout(const uint8_t* image_base, size_t image_size, ModelLayout
     M->size_field = r.off(m, "size");
     M->data = r.off(m, "data");
     M->terrain = r.off(m, "isTerrain");
+    return r.ok;
+}
+
+bool read_terrain_tables(const uint8_t* image_base, size_t image_size, TerrainTables* T, std::string* why) {
+    Image img{image_base, image_size, {}, {}};
+    if (!img.open()) {
+        *why = "the game's image has no data sections";
+        return false;
+    }
+    const std::string none;
+    Reader r{img, none, why};
+    T->vfx = r.off(r.type("keen::VoxelMaterialVfxDataResource"), "materialType");
+    const uint8_t* block = r.type("keen::RenderDataBlock");
+    const uint32_t data = r.off(block, "data"), sig = r.off(block, "typeSignatureHash");
+    const uint32_t blend = r.off(r.type("keen::WorldMaterialBlending2Resource"), "bakingVoxelMaterialDataBlock");
+    const uint32_t simple = r.off(r.type("keen::SimpleWorldMaterialResource"), "layerInfosDataBlock");
+    T->blend = blend + data, T->blend_sig = blend + sig;
+    T->simple = simple + data, T->simple_sig = simple + sig;
+    // a data block names its element type by layout hash
+    const uint8_t* be = r.type("keen::WorldMaterialBlending2BakingVoxelMaterialShaderData");
+    const uint8_t* se = r.type("keen::SimpleVoxelLayerInfo");
+    T->blend_type = be ? rd<uint32_t>(be + kRecLayout) : 0;
+    T->simple_type = se ? rd<uint32_t>(se + kRecLayout) : 0;
+    if (r.ok && (r.size_of(be) != 4 || r.size_of(se) != 4)) r.fail("a terrain table's entry isn't 4 bytes on this build");
+    T->ok = r.ok;
     return r.ok;
 }
 

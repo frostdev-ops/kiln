@@ -513,7 +513,7 @@ plus N items, weapons, armor, statuses and wands (server 26430253, a busy machin
 | N of each kind | Blocks | Before | Now | Of that, the mods' `OnLoad` (defining) |
 |---|---|---|---|---|
 | 250 | 1,251 | 33 s | 6 s | 12.3 s, now 0.3 s |
-| 1,000 | 5,001 | 7.9 min | 25-28 s | 289 s, now 2-5 s |
+| 1,000 | 5,001 | 7.9 min | 11 s (25-28 s on a busier machine) | 289 s, now 1.4-5 s |
 
 What grew with the number already defined, and what it does now:
 - Finding a definition by name or GUID walked every definition, with two lower-case copies of each name, once for each base, recipe stack,
@@ -530,11 +530,11 @@ What grew with the number already defined, and what it does now:
   The count is taken when read, and a listing makes an entry again only when what it shows changed.
 - An item the item map has no room for was tried again at every step.
 
-The store lock: registering clones holds it a turn of about 10 ms at a time (one clone can take up to 80 ms). The longest holds at 1,000 of each
-kind are applying the data packs at world load (0.2-0.4 s, one hold for every pack file) and applying the blocks' rules, 19,242 changes in one
-document (0.2-1 s). kiln.log has the breakdown at each start:
+The store lock: registering clones holds it a turn of about 10 ms at a time (one clone can take up to 80 ms). A mod's block rules go in parts
+of 500 entries (40-80 ms each at 1,000 of each kind). The longest hold left is applying the data packs at world load: 0.1-0.6 s at 1,000 of
+each kind, one hold for every pack file, most of it the lab set's largest pack. kiln.log has the breakdown at each start:
 `load timing, definitions before the world`, `load timing, world load`, `store lock at world load`.
 
-Left: kiln.assets rebuilds its index of served resources for every resource it is given, which costs in proportion to what it already
-serves (about 8 s of the 1,000-per-kind load, for 3,097 clone resources), and keeps every old index. The server used 6.6 GB at 1,000 of
-each kind.
+kiln.assets built its index of served resources again for every resource it was given and kept every old one: 4.6-8 s of the 1,000-per-kind
+load for 3,097 clone resources, and the server grew to 6.6 GB. A put now adds to a small index of recent resources, and replaced indexes are
+freed once no reader holds them ([assets.md](../kiln/services/assets.md)): 0.2 s, and 1.3 GB.

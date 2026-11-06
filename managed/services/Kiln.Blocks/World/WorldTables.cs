@@ -5,14 +5,18 @@ using System.Text;
 
 namespace Kiln;
 
-/// <summary>A building material in the game's tables that a mod made, or that a world keeps for an absent mod.</summary>
-/// <param name="CellId">The id in a cell, 128..255. It may change between sessions: a save follows the GUID.</param>
+/// <summary>A building or terrain material in the game's tables that a mod made, or that a world keeps for an absent mod.</summary>
+/// <param name="CellId">The id in a cell: 128..255 a building material, 1..127 a terrain one. It may change between sessions: a save follows the GUID.</param>
 /// <param name="Guid">The material's GUID. It follows from the mod id and the block's name.</param>
 /// <param name="Mod">The mod, as last seen for a kept material.</param>
 /// <param name="Block">The block's name.</param>
 /// <param name="Live">An enabled mod's. False: kept, so a world's cells of it stay while its mod is away.</param>
 /// <param name="Reused">It took a slot the game has marked deprecated.</param>
-public sealed record WorldMaterial(int CellId, Guid Guid, string Mod, string Block, bool Live, bool Reused);
+public sealed record WorldMaterial(int CellId, Guid Guid, string Mod, string Block, bool Live, bool Reused)
+{
+    /// <summary>A terrain material (<see cref="TerrainMaterialBlock"/>): cell ids 1..127 are the game's terrain.</summary>
+    public bool Terrain => CellId is > 0 and < 128;
+}
 
 /// <summary>The game's shared building-material tables, merged from every enabled mod at boot. docs/kiln/services/worldtables.md.</summary>
 public static class WorldTables
@@ -32,7 +36,7 @@ public static class WorldTables
     /// <summary>What a client and a server have to agree on: 16 hex digits over the live materials' ids and GUIDs.</summary>
     public static string Hash => WorldTablesNative.Hash();
 
-    /// <summary>Every material in the tables, live ones first, in id order.</summary>
+    /// <summary>Every material in the tables: the building materials, then the terrain ones, live ones first in each.</summary>
     public static IReadOnlyList<WorldMaterial> Materials => WorldTablesNative.Materials();
 
     /// <summary>The cell id of a material's GUID, or -1: it isn't in the tables.</summary>

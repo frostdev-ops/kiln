@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "comment": "The same terrain materials as TerrainSampleMod.cs, in data: in the game's tables from the first start, where the code's wait for the next.",
+  "terrainMaterials": {
+    "glacier-ore-json": {
+      "name": "Glacier Ore",
+      "like": "Cell26",
+      "look": "Cell115",
+      "strength": { "health": 12, "drops": "Material_T7_Celesthium_Ore", "itemsPerBlocks": 12 }
+    },
+    "packed-snow-json": {
+      "name": "Packed Snow",
+      "description": "Snow trodden hard enough to slide on.",
+      "like": "TerrainSnow",
+      "look": "TerrainIce",
+      "sliding": true,
+      "placeable": true,
+      "strength": { "hardness": "slightlyHard", "health": 6 },
+      "recipe": { "makes": 4, "needs": { "Build_TerrainMaterial_T5_Snow": 8 } }
+    }
+  }
+}

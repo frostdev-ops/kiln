@@ -134,9 +134,6 @@ public sealed record ContainerBlock : PropBlock
 {
     /// <summary>Inventory slots, 1..120. Null: the starter's.</summary>
     public int? Slots { get; init; }
-
-    /// <summary>What it holds when it is first placed: item and count. Once: what a player takes out isn't put back, after a restart either.</summary>
-    public IDictionary<ItemRef, int> Holds { get; init; } = new Dictionary<ItemRef, int>();
 }
 
 /// <summary>A door: it opens and closes for whoever uses it, and paths and water follow it, as the game's doors do. It starts from the game's wooden door.</summary>

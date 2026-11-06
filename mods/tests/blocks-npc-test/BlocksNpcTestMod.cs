@@ -104,6 +104,7 @@ public sealed class BlocksNpcTestMod : Mod
             await Section("data", Data);
             await Section("ids", Ids);
             await Section("fight", Fight);
+            await Section("reactions", Reactions);
             await Section("game body", GameBody);
             await Section("brain", Brain);
             await Section("npc", Npc);
@@ -284,7 +285,8 @@ public sealed class BlocksNpcTestMod : Mod
         var slamSeq = BlockIds.Fnv(BlockIds.Derive(Me, "sequence", "stoneling.slam"));
         var slamState = _stoneling.States["slam"];
         var angry = RuleIds.Fnv(RuleIds.Derive(Me, "phase", "angry"));
-        long seqSteps = 0, stateSteps = 0, cs0 = Interlocked.Read(ref CsCount);
+        long seqSteps = 0, stateSteps = 0, staggerSteps = 0, cs0 = Interlocked.Read(ref CsCount);
+        var staggerState = _stoneling.States["Stagger"];
         var lowest = 1.0;
         int healed = 0, last = c.Inspect()?.Health ?? 0;
         var phase = false;
@@ -298,6 +300,7 @@ public sealed class BlocksNpcTestMod : Mod
             await Steps(1);
             if (Abilities.SequenceOf(s) is { Sequence: var q } && q == slamSeq) seqSteps++;
             if (StateOf(s) == slamState) stateSteps++;
+            if (StateOf(s) == staggerState) staggerSteps++;
             if (World.Exists(o) && Creatures.Of(o).Inspect() is { HealthMax: > 0 } oh) lowest = Math.Min(lowest, (double)oh.Health / oh.HealthMax);
             if (c.Inspect() is { } me)
             {
@@ -314,6 +317,7 @@ public sealed class BlocksNpcTestMod : Mod
                      $"opponent {b?.State} target {b?.Target} hp {b?.Health}/{b?.HealthMax} seq {(World.Exists(o) ? Abilities.SequenceOf(o)?.Sequence : 0):x8}; {d:F1} m apart");
             }
         }
+        Info($"fight: its Stagger seen {staggerSteps} steps (the opponent's blows are light: they play the hit layer, not a stagger)");
         Info($"fight: slam sequence seen {seqSteps} steps, its state {stateSteps} steps, opponent down to {lowest:P0}, healed {healed} time(s), angry {phase}, rule count {Interlocked.Read(ref CsCount) - cs0}");
         Check(seqSteps > 0, $"the stoneling attacks with its own sequence ({seqSteps} steps)");
         Check(stateSteps > 0, $"and its graph plays the attack's state ({stateSteps} steps)");
@@ -322,6 +326,68 @@ public sealed class BlocksNpcTestMod : Mod
         Check(phase && healed > 0, $"below 95% health its rule sets the phase \"angry\" and its effect heals it ({healed})");
         Spawn.Destroy(s);
         if (World.Exists(o)) Spawn.Destroy(o);
+    }
+
+    // ---- reactions and death on a body of its own ----
+
+    private async Task<uint> Plays(EntityId e, Guid sequence, int steps)
+    {
+        Check(Abilities.PlaySequence(e, sequence), $"{sequence} plays on it");
+        var seen = new Dictionary<uint, int>();
+        for (var i = 0; i < steps; i++)
+        {
+            await Steps(1);
+            var st = StateOf(e);
+            seen[st] = seen.GetValueOrDefault(st) + 1;
+        }
+        Info($"{sequence}: states {string.Join(", ", seen.Select(x => $"0x{x.Key:x8} x{x.Value}"))}");
+        return seen.Where(x => x.Key != _stoneling!.States["Idle"]).OrderByDescending(x => x.Value).Select(x => x.Key).FirstOrDefault();
+    }
+
+    private async Task Reactions()
+    {
+        var t = Content.Templates.Get($"{Me}.stoneling")!;
+        var stagger = BlockIds.Derive(Me, "state", "Stagger");
+        var medium = Guid.Parse(t.Get("HitReactionBehavior.hitReactionMedium.hitSequence").ToString()!);
+        var vukah = Content.Templates.Get("Enemy_Vukah_Melee")!;
+        var theirs = Guid.Parse(vukah.Get("HitReactionBehavior.hitReactionMedium.hitSequence").ToString()!);
+        var made = Content.Sequences.Get(medium.ToString());
+        Check(medium != theirs && made?.Get("events[SetAnimationEvent#0].animationName").ToString() == stagger.ToString(),
+            $"its hit reaction is a sequence of its own that plays its Stagger: {medium} (the Vukah's {theirs}) sets {made?.Get("events[SetAnimationEvent#0].animationName")}");
+        var longStun = Guid.Parse(t.Get("HitReactionBehavior.hitReactionLongStun.hitSequence").ToString()!);
+        var ls = Content.Sequences.Get(longStun.ToString());
+        Check(ls?.Get("events[SetAnimationEvent#0].animationName").ToString() == stagger.ToString() && ls.Get("events[SetAnimationEvent#1].animationName").ToString() == "1477d689-8d8c-424c-bb5e-6f4cf42b2ac8",
+            "a long stun: the base's own state becomes its Stagger, the engine's Stun stays (its graph has one)");
+        var death = Guid.Parse(t.Get("Actor.deathSequence").ToString()!);
+        Check(death == Guid.Parse(vukah.Get("Actor.deathSequence").ToString()!), $"its death keeps the Vukah's sequence, which plays the engine's Dead its graph has: {death}");
+
+        var s = await _stoneling!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(s);
+        await Steps(30);
+        CreatureRef c_;
+        var st = _stoneling.States;
+        // a hit that makes it stagger, through the game's own hit reaction: it picks the sequence the template names
+        c_ = Creatures.Of(s);
+        c_.ForceReady();
+        await Steps(20);
+        var hit = await Combat.Damage(s, 5, default, new DamageOptions { Reaction = HitReaction.Medium, ForceInterrupt = true });
+        var seenStagger = 0;
+        for (var i = 0; i < 20; i++)
+        {
+            await Steps(1);
+            if (StateOf(s) == st["Stagger"]) seenStagger++;
+        }
+        Check(hit.Applied && seenStagger > 0, $"a hit with a medium reaction plays its Stagger through the game's hit reaction: {hit}, {seenStagger} steps");
+        await Steps(30);
+        var got = await Plays(s, medium, 12);
+        Check(got == st["Stagger"], $"its hit reaction plays its Stagger state: 0x{got:x8} (Stagger 0x{st["Stagger"]:x8})");
+        await Steps(40);
+        got = await Plays(s, longStun, 40);
+        Check(got == st["Stagger"] || got == st["Stun"], $"its long stun plays its Stagger, then the Stun: 0x{got:x8}");
+        await Steps(130);
+        got = await Plays(s, death, 30);
+        Check(got == st["Dead"], $"its death sequence lays it in its Dead state: 0x{got:x8} (Dead 0x{st["Dead"]:x8})");
+        Spawn.Destroy(s);
     }
 
     // ---- a game creature with a new mind ----
@@ -383,9 +449,22 @@ public sealed class BlocksNpcTestMod : Mod
         var recipe = Content.Recipes.Get($"{Me}.tobin.sells0");
         Check(recipe != null, $"its wares are a recipe at the fisher's workshop: {recipe?.Name}");
         await Steps(60);
-        var file = Path.Combine(Context.Info.Directory, "quests", "generated", "npc-blocks.json");
+        // beside what the quests a mod defines in code become, in the data folder: a redeploy of the mod keeps it
+        var file = Path.GetFullPath(Path.Combine(Context.DataDirectory, "..", "kiln-quests", "native", $"{Me}.blocks.json"));
         var doc = File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) : null;
-        Check(doc?["npcs"]?["tobin"]?["roster"]?["summonItem"] != null && doc["npcs"]!["tobin-json"] != null, $"its roster entry is written for the game's start: {file}");
+        Check(doc?["npcs"]?["tobin"]?["roster"]?["summonItem"] != null && doc["npcs"]!["tobin-json"] == null,
+            $"the roster entry of an NPC from code is written for the next start, in the data folder; one from a data file is not: {file}");
+
+        // an NPC block of a data file: the game's start-up build reads it from the mod's folder, so it is there at the first start
+        var first = Spawn.Lookup($"Kiln_{Me}_tobin-json");
+        Check(first != null && first.Id == BlockIds.Derive(Me, "npc", "tobin-json"), $"an NPC of blocks/*.json is built at the first start: {first?.Name} {first?.Id}");
+        if (first != null)
+        {
+            var j = await Spawn.Entity(first.Name, new WorldPosition(Pos.X, Pos.Y, Pos.Z + 16), 90, new SpawnOptions { Tag = Me });
+            _mine.Add(j);
+            await Steps(80);
+            Check(World.Exists(j), $"and spawns and stays: {j}");
+        }
 
         // the quests' engine knows it: a talk objective to it is done by talking to it
         var q = Quests.Define(new QuestDefinition

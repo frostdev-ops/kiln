@@ -50,11 +50,20 @@ class Blocks(unittest.TestCase):
         self.assertIn(("modelcook", "model", "models/golem"), ops)
         graph = next(s for s in steps if s.get("name") == "golem-moves.golem-body")
         self.assertEqual(graph["slots"], {"HandR": "hand_r"}, "slots as the graph names them, however JSON cased them")
-        self.assertEqual(set(graph["states"]), {"Idle", "Walk", "Run", "Dead", "slam", "rest", "IdleCombat", "Fall"}, "IdleCombat and Fall stand as in Idle")
+        self.assertEqual(set(graph["states"]), {"Idle", "Walk", "Run", "Dead", "slam", "rest", "IdleCombat", "Fall", "Stagger", "Stun"},
+                         "IdleCombat and Fall stand as in Idle; Stagger and Stun play the hit clip")
         self.assertEqual(graph["states"]["IdleCombat"]["clip"], graph["states"]["Idle"]["clip"])
+        self.assertEqual(graph["states"]["Stagger"]["clip"], "golem.Flinch.once", "a hit reaction plays the hit clip over the whole body")
+        self.assertEqual(graph["states"]["Stun"]["engine"], "Stun")
         clips = next(s for s in steps if s["op"] == "clips")["clips"]
         self.assertTrue(clips["golem.Idle"]["loop"] and not clips["golem.Slam.once"]["loop"], "the engine's moving states loop, your own play once")
         self.assertEqual(steps[0]["gltf"], "../models/golem.glb", "paths are the recipe's")
+
+    def test_reaction_defaults(self):
+        self.write({"format": 1, "animations": {"plain": {"clips": "models/golem.glb", "idle": "Idle", "walk": "WalkF", "run": "Run"}}})
+        states = next(s for s in B.steps_from_blocks(self.mod, self.mod / "assets") if s.get("name") == "plain")["states"]
+        self.assertEqual(states["Dead"], {"engine": "Dead", "clip": "golem.Idle", "loop": False}, "with no death clip it stands as in Idle and holds")
+        self.assertEqual(states["Stagger"]["clip"], "golem.Idle")
 
     def test_cook(self):
         self.write({"format": 1, "creatures": {"golem": {"body": BODY, "animation": ANIM}}})

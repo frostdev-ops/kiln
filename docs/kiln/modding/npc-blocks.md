@@ -62,6 +62,7 @@ such a block, says where it belongs, and C# names the data file's block instead.
 | `Sprint`, `IdleCombat`, `Fall`, `IdleSneak`, `Sneak`, `Stun` | The engine's other states. `IdleCombat` and `Fall` stand as in Idle when left out |
 | `Dead` | Plays when it dies and holds its last frame |
 | `Hit` | Plays over everything when it is hit (the engine's hit overlay). With `Reference` it adds to what plays |
+| `Stagger` | What a hit reaction, a stun or a parry plays over the whole body. Default: `Hit`'s clip once, else Idle. `Stun` defaults to it, `Dead` to Idle, held |
 | `States` | Your own: `[new AnimState("slam")] = new Clip("Attack") { Speed = 1.2 }`, in JSON `"slam": { "clip": "Attack", "speed": 1.2 }`. `Then` moves on to another state when the clip ends |
 | `Layers` | More clips over the states, always or on an overlay |
 | `Skeleton` | The skeleton's name, the file's name by default: a body and an animation share a skeleton when they name the same one |
@@ -85,9 +86,12 @@ The game checks none of this; a mistake shows as a creature frozen in a pose, or
 | A game body plays its own graph, a body of yours an animation of yours | The skeleton again |
 | A rule's phase or attack is one of the behaviour's | A typo would be a phase nothing enters |
 
-What a body of your own gets from the AI's creature, and what Kiln changes so it can't disagree with your animation: the AI's fields that name a state
-(combat idle, patrol, flee, sleep, swimming) point at your Idle, IdleCombat and Walk; the base creature's own motions that are sequences of its states
-(taunt, blocking, call for help, idle turns, sleep, its spawn sequence) are off.
+What a body of your own gets from the AI's creature, and what Kiln changes so it can't disagree with your animation:
+- the AI's fields that name a state (combat idle, patrol, flee, sleep, swimming) point at your Idle, IdleCombat and Walk;
+- its hit reactions, stuns, parries and death are sequences of its own: copies of the base creature's whose state events play your `Stagger` (or
+  `Dead` for a death), keeping an engine state your graph has (Stun, Fall, Dead). They are made when content is ready, from the running game's data;
+- the base creature's other motions that are sequences of its states (taunt, blocking, call for help, idle turns, sleep, its spawn sequence) are off;
+- its gear (`SubEntities`) is left out.
 
 ## Behaviour
 **Rules first.** A creature keeps the game's combat: blocking, flanking, hit reactions, choosing among its attacks. You add attacks and rules.
@@ -145,8 +149,13 @@ Blocks.Define("tobin", new NpcBlock
 ```
 It becomes the quests' NPC ([npcs.md](../services/npcs.md)): a new NPC of its own, cloned from the body's game NPC, with its dialogue, so quests name it as a
 `giver` or in `talk`. Its wares are recipes at the body's workshop, which the game's NPC of that workshop shows too. **Its roster entry and lines are built
-by the game at start**, so Kiln writes them to the mod's `quests/generated/npc-blocks.json`: from the next start they are there; ship that file to have them
-at the first. Players need the mod.
+by the game at start**:
+- an NPC block in `blocks/*.json` is read by that start-up build from the mod's folder, so it is there at the **first start**, on a server and on each
+  player's game;
+- one written in C# is known only once the mod's code runs, so Kiln writes it to `kiln/data/kiln-quests/native/<mod>.blocks.json` (the data folder: a
+  redeploy keeps it, and nothing is written into the mod) and it is there from the next start. Write NPCs in data files to have them at once.
+
+A `quests/*.json` of the mod's own that names the same NPC wins over both. Players need the mod.
 
 An NPC's body is a game NPC's for now (`Bodies.Villager`, `Bodies.Fisher`): the start-up build would also have to set a custom body's graph and model, and
 its portrait in the roster is unseen.
@@ -160,8 +169,7 @@ with slots. `Was` keeps the ids through a rename.
 | What | Today | What it takes |
 |---|---|---|
 | A body or animation with files written in C# | Data files only | A source generator that hands the build the block's cook steps: M |
-| Hit reactions, dodges, parries on a body of your own | The base creature's sequences play, and your graph holds its pose for their length | Clone each of those sequences onto your states: S per kind |
-| The base's gear (`SubEntities`) on a body of your own | Still attached, at your root (unmapped slots are joint 0) | `removeComponents` on a template clone, in kiln.gamedata: S |
+| Dodges and the base's other motions on a body of your own | Off (taunt, blocking, call for help, idle turns, sleep, spawn sequence) | Copies onto your states, as hit reactions are: S per kind |
 | `Sight` with line of sight in a brain's own perception | Distance and faction only | A raycast per candidate: S |
 | A new FSM state, faction relations, villager routines | Not built | Hooks on `HandleCondition`/`StateDispatch`, the faction leaf, `DecideTask`: M each |
 | Ragdolls | A `Dead` state | Client physics: XL, not planned |
