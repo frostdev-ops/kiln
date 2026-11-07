@@ -9,7 +9,7 @@ import * as api from "../api/commands";
 import type { GameInstall, LaunchMode } from "../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles } from "../api/hooks";
 import { toast } from "../ui";
-import { gameState, type GameStateView } from "./gameState";
+import { gameState, KILN_LOAD_GRACE_MS, playOnceMissed, type GameStateView } from "./gameState";
 
 interface LaunchMemo {
   at: Record<string, number>;
@@ -31,8 +31,12 @@ export interface PlayControl {
   starting: boolean;
   /** Seconds since the game started (while running). */
   elapsed: number | null;
-  /** play-once.ini still there 120 s after our launch: the proxy did not run. */
+  /** Kiln did not load: play-once.ini still there 120 s after our launch, or `kilnMissing`. */
   stuck: boolean;
+  /** The game runs, and Kiln did not load into it: the play-once flag was not consumed (KILN_LOAD_GRACE_MS after the
+   *  process started), or a non-vanilla start of this launcher has no boot.json of this run a minute in. Never for a
+   *  vanilla start. The play surfaces show "No Kiln" and the Steam-setting banner instead of "Starting" forever. */
+  kilnMissing: boolean;
   profileName: string | null;
   play: (mode: LaunchMode, profileId?: string) => void;
 }
@@ -46,12 +50,20 @@ export function usePlayControl(): PlayControl {
   const profiles = useProfiles();
   const memo = useLaunchMemo();
   const id = game?.id ?? "";
-  const raw = gameState(game ? status.data : null, launchState.data, !!game && status.isLoading);
-  // a vanilla start writes no boot.json: say so when this launcher started it that way
-  const view: GameStateView = raw.phase === "running" && !raw.detail?.startsWith("Kiln") && memo.mode[id] === "vanilla"
-    ? { ...raw, phase: "vanilla", label: "Vanilla", tone: "info", detail: "Started without Kiln" } : raw;
   const s = status.data;
   const running = !!s?.running;
+  const now = useNow(running ? 1000 : 0);
+  const raw = gameState(game ? s : null, launchState.data, !!game && status.isLoading, now);
+  const at = memo.at[id];
+  const bootFresh = !!launchState.data?.boot && !launchState.data.stale;
+  const vanillaStart = memo.mode[id] === "vanilla";
+  const startedAt = running && s?.started ? Date.parse(s.started) : NaN;
+  const kilnMissing = !!game && !vanillaStart && (playOnceMissed(s, now)
+    || (running && !!s?.runtime.installed && !!launchState.data && !bootFresh && !!at && now - (Number.isNaN(startedAt) ? at : startedAt) >= 2 * KILN_LOAD_GRACE_MS));
+  // a vanilla start writes no boot.json: say so when this launcher started it that way
+  const view: GameStateView = raw.phase === "running" && !raw.detail?.startsWith("Kiln") && vanillaStart
+    ? { ...raw, phase: "vanilla", label: "Vanilla", tone: "info", detail: "Started without Kiln" }
+    : kilnMissing ? { phase: "running", label: "No Kiln", tone: "warn", pulse: true, detail: "The game runs without Kiln: Steam did not load it" } : raw;
   const launch = useMutation({
     mutationKey: ["launch_play"],
     mutationFn: (req: api.LaunchRequest) => api.launchPlay(id, req),
@@ -83,14 +95,11 @@ export function usePlayControl(): PlayControl {
       });
     }
   }, [id, running, launchState.data]);
-  const now = useNow(running ? 1000 : 0);
   const launching = useIsMutating({ mutationKey: ["launch_play"] });
   const real = running && s?.started ? Date.parse(s.started) : NaN;
   const since = Number.isNaN(real) ? memo.since[id] : real;
-  const at = memo.at[id];
-  const bootFresh = !!launchState.data?.boot && !launchState.data.stale;
-  const starting = view.phase === "starting" || (launching > 0 && !running)
-    || (running && !bootFresh && !!at && memo.mode[id] !== "vanilla" && now - at < 120_000);
+  const starting = !kilnMissing && (view.phase === "starting" || (launching > 0 && !running)
+    || (running && !bootFresh && !!at && !vanillaStart && now - at < 120_000));
   const activeProfile = profiles.data?.find((p) => p.id === active.data?.profileId) ?? null;
   return {
     game,
@@ -101,7 +110,8 @@ export function usePlayControl(): PlayControl {
     busy: launching > 0 || starting,
     starting,
     elapsed: running && since ? Math.max(0, Math.round((now - since) / 1000)) : null,
-    stuck: !!s?.playOncePending && !running && !!at && Date.now() - at > 120_000,
+    stuck: kilnMissing || (!!s?.playOncePending && !running && !!at && Date.now() - at > 120_000),
+    kilnMissing,
     profileName: activeProfile?.name ?? null,
     play: (mode, profileId) => launch.mutate({ mode, profileId: profileId ?? null }),
   };

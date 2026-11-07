@@ -125,7 +125,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
     say = `${order.length} of ${total} mods load on this client.` + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} on the server.` : "");
   } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
-  const runLine = v.phase === "vanilla" ? "Started without Kiln." : fresh && boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
+  const runLine = v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : fresh && boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
     : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${preview.data ? ` and ${preview.data.kiln.order.length} mods` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
@@ -271,9 +271,17 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
   const advice = s?.runtime.installed ? s.launchOptions?.advice : null;
   if (advice && (ctl.stuck || !s?.launchOptions?.hasDllOverride)) {
     out.push(
-      <Banner key="adv" tone="warn" title={ctl.stuck ? "Kiln did not start" : "One Steam setting"}
+      <Banner key="adv" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : ctl.stuck ? "Kiln did not start" : "One Steam setting"}
         actions={<Button size="s" onClick={() => navigator.clipboard?.writeText(advice).then(() => toast.ok("Copied", "Paste it into Steam's launch options."))}>Copy</Button>}>
+        {ctl.stuck && "The game started without Kiln, so mods and \"Without mods\" can't apply. Close it, then set "}
         Steam, Enshrouded, Properties, Launch options: <span className="k-mono">{advice}</span>
+      </Banner>,
+    );
+  } else if (ctl.stuck && s?.runtime.installed) {
+    // the launch option is set (or not needed here) and Kiln still did not load: say so, never "Starting" forever
+    out.push(
+      <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : "Kiln did not start"} actions={<Button size="s" onClick={() => nav("/logs")}>Logs</Button>}>
+        The game started without Kiln. Close it and send us <span className="k-mono">kiln/logs/proxy.log</span> from the game folder (no such file: Kiln's dinput8.dll never loaded), your Proton version and Steam's launch options for Enshrouded.
       </Banner>,
     );
   }

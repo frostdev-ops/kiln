@@ -473,7 +473,11 @@ entry changed since is left alone; then `profile.json` is written again where th
 5. Watch: the process appears -> `kiln://game {kind: "started"}`; `state/boot.json` with a live pid and the nonce ->
    `{kind: "boot"}`; `mods.json`/`native.json` updates -> `{kind: "mods"|"native"}`; exit -> `{kind: "stopped"}`.
    play-once.ini still there after 120 s: the proxy did not run; under Proton show the `WINEDLLOVERRIDES="dinput8=n,b"
-   %command%` advice (read-only check of the launch options).
+   %command%` advice (read-only check of the launch options). While the game runs: play-once.ini still there 30 s after
+   the process started (`GameStatus.started`; the proxy deletes it in its DllMain), or a non-vanilla start of this
+   launcher without a boot.json of this run 60 s in, means Kiln did not load: the state is "No Kiln" (warn), never
+   "Starting", and the advice (or, without one, a "send proxy.log" banner) shows (`shell/gameState.ts` `playOnceMissed`,
+   `shell/play.ts` `kilnMissing`).
 
 ### Install / upgrade / uninstall / rollback
 Section 5.7. Long-running: `runtime_install` etc. return a task id; progress through `kiln://task`.

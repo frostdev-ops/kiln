@@ -79,7 +79,7 @@ export default function Home() {
           )}
           {game && rt?.installed && rt.upgradeAvailable && <DeckButton id="update" onClick={() => setOpen("update")}>Update Kiln</DeckButton>}
           {canSwitch && <DeckButton id="switch-profile" disabled={ctl.running} onClick={() => setOpen("profiles")}>Switch profile</DeckButton>}
-          {advice && <DeckButton id="steam-setting" a="How" onClick={() => nav("/deck/help")}>One Steam setting</DeckButton>}
+          {(advice || (ctl.stuck && rt?.installed)) && <DeckButton id="steam-setting" a="How" onClick={() => nav("/deck/help")}>{ctl.stuck ? "Kiln is not loading" : "One Steam setting"}</DeckButton>}
           {change?.state === "failed" && <DeckButton id="kiln-failed" onClick={() => nav("/deck/kiln")}>Kiln</DeckButton>}
         </div>
       </div>

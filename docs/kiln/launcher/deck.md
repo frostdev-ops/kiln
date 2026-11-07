@@ -109,7 +109,14 @@ steps instead:
 - **Valve's Proton:** Enshrouded's launch options need `WINEDLLOVERRIDES="dinput8=n,b" %command%` so Kiln's
   `dinput8.dll` loads (not with GE-Proton 11-11 and newer). The state comes from `game_status.launchOptions` (a
   read-only look at Steam's config). Steps: Steam button, Library, Enshrouded, the gear (or ☰), Properties, General,
-  Launch Options; Steam + X for the keyboard.
+  Launch Options; Steam + X for the keyboard. Measured 2026-11-07 (desktop, outside Steam's launch, Proton's loaddll
+  trace): Proton Experimental 11.0-20261027b and UMU-Proton 10.0-4 load the game folder's `DINPUT8.dll` as native
+  without the override, so which Valve Proton builds still need it is not settled; the setting is harmless where it
+  is not needed.
+- **Kiln not loading:** a running game whose play-once flag is still there 30 s after its start (or a launcher start
+  with no boot.json a minute in) shows **No Kiln** on Home (never "Starting" forever) and a "Kiln is not loading"
+  button to Help, whose "Kiln not loading?" block says what to send (`kiln/logs/proxy.log`, `kiln/logs/kiln.log`,
+  `~/.local/share/kiln/logs/launcher.log`, Proton version, Game or Desktop Mode).
 - **Kiln in Game Mode:** Desktop Mode (Steam, Power, Switch to Desktop), open Steam, Games, Add a Non-Steam Game to My
   Library, browse to the Kiln Launcher AppImage, Add Selected Programs. Back in Game Mode it is under Library,
   Non-Steam, and Deck mode opens by itself (`--deck` as its launch option forces it). Controller layout: Steam's

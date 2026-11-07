@@ -371,6 +371,9 @@ test.describe("what a player does", () => {
     await expect(page.locator(".deck-help")).toContainText("Add a Non-Steam Game");
     await expect.poll(() => focused(page)).toBe("help-steam");
     await pad(page, "down");
+    expect(await focused(page)).toBe("help-noload");
+    await expect(page.locator(".deck-help")).toContainText("kiln/logs/proxy.log");
+    await pad(page, "down");
     expect(await focused(page)).toBe("help-add");
   });
 });

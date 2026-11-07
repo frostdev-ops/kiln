@@ -75,6 +75,9 @@ let pidSeq = 4100;
 const ACTIVATE_MS = 1500;
 /** The next runtime install fails with this message (tests: `__kilnMock.failNextInstall`). */
 let failNextInstall: string | null = null;
+/** Steam does not load Kiln's proxy (tests: `__kilnMock.setNoProxy`): starts keep play-once.ini, write no boot.json, the
+ *  launch option is not set, and the process "started" 31 s before the launch so the launcher's grace has passed. */
+let noProxy = false;
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
@@ -268,6 +271,7 @@ const launched = new Set<string>();
 function bootFor(gameId: string): BootJson | null {
   const r = running[gameId];
   if (!r && FRESH && !launched.has(gameId)) return null;
+  if (r && noProxy) return null;
   if (!r || Date.now() - r.at < 2500 || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
   const b = clone(bootExample as unknown as BootJson);
   b.pid = r.pid;
@@ -283,9 +287,10 @@ function status(gameId: string): GameStatus {
   const g = gameOf(gameId);
   const r = running[gameId];
   return {
-    id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at).toISOString() : null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
-    activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && Date.now() - r.at < 2500,
-    boot: bootFor(gameId), launchOptions: { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
+    id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
+    activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
+    boot: bootFor(gameId), launchOptions: noProxy ? { value: null, hasDllOverride: false, advice: 'WINEDLLOVERRIDES="dinput8=n,b" %command%' }
+      : { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
     newerMods: newerMods[gameId] ?? [],
   };
 }
@@ -1018,5 +1023,6 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
+  setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

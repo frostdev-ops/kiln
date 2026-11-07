@@ -146,6 +146,25 @@ test("the mouth is the Play button and follows the game state", async ({ page })
   await expect(play).toHaveAccessibleName(/^Play /);
 });
 
+test("Without mods when Steam does not load Kiln: No Kiln and the Steam setting, never Starting forever", async ({ page }) => {
+  type M = { __kilnMock: { stopGame: () => void; setNoProxy: (on: boolean) => void } };
+  await open(page, "/");
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setNoProxy(true));
+  const state = page.locator(".k-head-state");
+  // before any start: the one Steam setting is offered already
+  await expect(page.getByText("One Steam setting")).toBeVisible();
+  await page.getByRole("button", { name: "Without mods", exact: true }).click();
+  // the process runs past the grace with play-once.ini still there: the proxy never ran
+  await expect(state).toHaveText(/^No Kiln/, { timeout: 8000 });
+  await expect(page.getByText("Kiln is not loading")).toBeVisible();
+  await expect(page.getByText("The game started without Kiln", { exact: false })).toBeVisible();
+  await expect(page.locator(".k-hero").getByText("Waiting for Kiln to boot.")).toHaveCount(0);
+  await expect(page.locator(".k-hero").getByText("Running without Kiln: Steam did not load it this start.")).toBeVisible();
+  await page.evaluate(() => (window as unknown as M).__kilnMock.stopGame());
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setNoProxy(false));
+  await expect(state).toHaveText("Stopped");
+});
+
 test("the running clock counts from the game's own start, also when Steam started it", async ({ page }) => {
   type M = { __kilnMock: { stopGame: () => void; startOutside: (secondsAgo: number) => void } };
   await open(page, "/");

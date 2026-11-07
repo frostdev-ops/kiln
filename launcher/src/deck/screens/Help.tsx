@@ -35,6 +35,11 @@ export default function Help() {
           </ol>
           <p className="deck-dim">Kiln never changes Steam's settings itself.</p>
         </section>
+        <section className="deck-block" tabIndex={0} data-deck-id="help-noload" data-deck-a="-" aria-labelledby="h-noload">
+          <h2 id="h-noload">Kiln not loading?</h2>
+          <p>Home says <b>No Kiln</b> when the game runs but Kiln didn't load into it. Close the game, check the launch option above, and play again.</p>
+          <p>Still no Kiln? Send us, from the game folder: <span className="deck-mono">kiln/logs/proxy.log</span> (no such file: Steam never loaded Kiln) and <span className="deck-mono">kiln/logs/kiln.log</span>, and the launcher's log (<span className="deck-mono">~/.local/share/kiln/logs</span>), with your Proton version and Game or Desktop Mode.</p>
+        </section>
         <section className="deck-block" tabIndex={0} data-deck-id="help-add" data-deck-a="-" aria-labelledby="h-add">
           <h2 id="h-add">Kiln in Game Mode</h2>
           <ol>
