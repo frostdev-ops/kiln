@@ -40,6 +40,12 @@
         {"scope": {"symbol": "time/GetGameTime", "size": 256}, "pattern": "F3 0F 59 41 {time/daytime.scale:d8} 0F 5A C8"}
       ]
     },
+    "time/SetTimeScale": {
+      "comment": "g38_daytime: re-anchors at ecsNow (GetGameTime), bumps the change counter and stores the scale (xmm1); its one caller is the server's sleep program. docs/re/time.md, The clock's speed.",
+      "find": [
+        {"pattern": "48 89 5C 24 08 57 48 83 EC 30 0F 29 74 24 20 49 8B D0 0F 28 F1 49 8B D8 48 8B F9 E8 {time/GetGameTime:rel32} FF 47 {time/daytime.counter:d8} F3 0F 11 77 {time/daytime.scale:d8}"}
+      ]
+    },
     "time/WeatherUpdate": {
       "find": [
         {"pattern": "48 8B C4 55 57 41 56 48 81 EC 80 00 00 00 48 8B 29 45 33 F6 48 89 58 08"}
@@ -116,6 +122,7 @@
     "time.read": {"symbols": ["time/SetTimeOfDay", "time/GetGameTime", "time/GameTimeToTod", "@time.daytime_fields", "@time.daytime_update"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.tod", "time/daytime.day_start", "time/daytime.night_start", "time/daytime.day_length", "time/daytime.night_length", "time/daytime.scale", "time/daytime.is_day"]},
     "time.set": {"symbols": ["time/SetTimeOfDay", "time/TodToGameTime", "time/GetGameTime"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.day_length", "time/daytime.night_length"]},
     "time.weather": {"symbols": ["time/WeatherUpdate", "time/WeatherRemoveInstance", "@time.weather_update", "@time.weather_layers"], "constants": ["time/weather.mode", "time/weather.layers", "time/weather.layer_count", "time/weather.layer_stride", "time/weather.layer_cur", "time/weather.layer_prev"]},
+    "time.scale": {"symbols": ["time/SetTimeScale", "time/GetGameTime"], "constants": ["time/daytime.counter", "time/daytime.scale"]},
     "time.sync_probe": {"symbols": ["time/SendServerInfo", "@time.server_info", "time/ServerGameDaytimeSync", "time/DaytimeSyncIfChanged"], "constants": ["time/gs.daytime_synced", "time/gs.server_game", "time/sg.daytime"]}
   }
 }

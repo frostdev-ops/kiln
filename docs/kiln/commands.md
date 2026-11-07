@@ -151,3 +151,12 @@ hosting a co-op world, or a world played offline. `Creative.Set(player, on)` doe
 - It ends with `/creative off`, when the player leaves, or when the world closes. A flight outside a base ends at once
   and sets the player down on the ground. Builds placed outside bases stay in the save.
 - Remote tools: Kiln.Admin's ops `creative {entity, on?}` and `rules` call the same (docs/kiln/launcher/admin-protocol.md).
+- `/creative give <player> <item> [count] [level]`: items from the catalogue for a player in creative mode (refused
+  otherwise); gear at that level. The command says it is giving; the player is told the outcome (`Took 7 x Wood Logs.`),
+  and kiln.log has `kiln.rules: creative: <name> took ...`.
+- `/creative time <time>`: jumps the world's clock forward to a time of day (`7`, `07:30`, `7pm`, `dusk`).
+- `/creative cycle normal|stopped|fast`: the day and night cycle for the whole world until it is set back or the server
+  restarts: stopped (the sun stands still, sleeping doesn't move it), fast (a whole day and night in about 90 s).
+- The same in the game's **creative menu** (F7, or Creative in the pause menu; docs/kiln/services/rules.md "Creative
+  menu"), and for remote tools Kiln.Admin's ops `creative_give {entity, item, count?, level?, rarity?}` and
+  `creative_cycle {mode}`.

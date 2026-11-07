@@ -1,0 +1,10 @@
+{
+  "id": "creative-test",
+  "name": "creative tools lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "CreativeTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "PASS/FAIL lines: creative mode's tools on a dedicated server with no player. A spawned player character takes items from the catalogue (refused without creative mode, a stack and levelled gear with it), falls without damage under NoFallDamage, and the day and night cycle stops, runs fast and goes back to normal (kiln.time's held clock speed), from code and from /creative."
+}

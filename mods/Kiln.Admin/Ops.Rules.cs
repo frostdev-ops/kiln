@@ -57,6 +57,28 @@ internal static partial class Ops
             if (req["entity"] is JsonValue) o["player"] = EffectiveJson(Rules.Of(RequirePlayer(req).Entity));
             return o;
         });
+        // {entity, item (name or id), count?, level?, rarity?} -> items for a player in creative mode (the creative menu's Take)
+        bridge.RegisterAsync("creative_give", async req =>
+        {
+            var p = RequirePlayer(req);
+            var name = req["item"]?.ToString() ?? throw new AdminError("item required");
+            var item = Items.Lookup(name) ?? throw new AdminError($"no item '{name}'");
+            var count = req["count"] is JsonValue c && c.TryGetValue<int>(out var n) ? n : 1;
+            int? level = req["level"] is JsonValue l && l.TryGetValue<int>(out var lv) ? lv : null;
+            ItemRarity? rarity = req["rarity"]?.ToString() is { } rs && Enum.TryParse<ItemRarity>(rs, true, out var rr) ? rr : null;
+            var r = await CreativeTools.Give(p.Entity, item.Id, count, level, rarity);
+            if (!r.Ok) throw new AdminError(r.Message);
+            return new JsonObject { ["entity"] = p.Entity.Value, ["item"] = item.Name, ["message"] = r.Message };
+        });
+        // {mode: "normal" | "stopped" | "fast"} -> the day and night cycle for the whole world (session)
+        bridge.Register("creative_cycle", req =>
+        {
+            var mode = req["mode"]?.ToString() ?? throw new AdminError("mode required");
+            if (!Enum.TryParse<TimeCycle>(mode, true, out var cycle) || !Enum.IsDefined(cycle)) throw new AdminError("mode is normal, stopped or fast");
+            var r = CreativeTools.SetCycle(cycle, "a remote tool");
+            if (!r.Ok) throw new AdminError(r.Message);
+            return new JsonObject { ["cycle"] = Time.Cycle.ToString(), ["speed"] = Time.HeldSpeed, ["message"] = r.Message };
+        });
         log.Info("creative and rules ops are on (/creative itself is Kiln.Rules')");
         return true;
     }

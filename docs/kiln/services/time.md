@@ -7,9 +7,9 @@ saved with the world (it survives a restart). Evidence and offsets: [docs/re/tim
 |---|---|
 | C table | `native/core/abi/services/kiln_time.h` (`kiln.time` v1) |
 | Native | `native/services/time/time.cpp` -> `kiln/services/kiln-time.dll` |
-| Symbols | `sigdb/symbols/server.d/time.json` (features `time.read`, `time.set`, `time.weather`, `time.sync_probe`) |
+| Symbols | `sigdb/symbols/server.d/time.json` (features `time.read`, `time.set`, `time.weather`, `time.scale`, `time.sync_probe`) |
 | Managed | `managed/services/Kiln.Time` -> `kiln/host/Kiln.Time.dll` (static class `Kiln.Time`) |
-| Test | `mods/tests/chat-test` (PASS/FAIL lines in `kiln/logs/kiln.log`) |
+| Test | `mods/tests/chat-test`, `mods/tests/creative-test` (the clock's speed) (PASS/FAIL lines in `kiln/logs/kiln.log`) |
 
 ## C#
 ```csharp
@@ -38,12 +38,32 @@ if (Time.Available && Time.Ready)
   `Switching state from LoadEcsScene to Run` (`Context.GameLog.Line`) when your mod loads with the server.
 - `SyncedCounter == ChangeCounter` means the server has put the change into its ServerInfo message to clients.
 
+### The clock's speed (day and night cycle)
+```csharp
+if (Time.CanSetSpeed)                     // feature time.scale on this build
+{
+    Time.SetCycle(TimeCycle.Stopped);     // the sun stands still (speed 0); sleeping doesn't move it
+    Time.SetCycle(TimeCycle.Fast);        // a whole day and night in Time.FastCycle (90 s)
+    Time.SetSpeed(4);                     // any speed 0..1000 (1 = the game's normal speed)
+    Time.SetSpeed(null);                  // = SetCycle(TimeCycle.Normal): the game decides again
+    double? held = Time.HeldSpeed;        // null while the game decides; Time.Cycle reads it as a TimeCycle
+}
+```
+- While Kiln holds a speed, the game's own speed change (its sleep system asks for a faster clock while players sleep,
+  and for 1 again after) is refused, and a world that loads or re-anchors gets the held speed back at the next step.
+- The speed travels in the daytime anchor the server already syncs, so every client (vanilla too) follows; it is
+  re-sent only when it changes.
+- Session state: it ends when the world closes or the server restarts (the save keeps the time of day, not the speed).
+- `/creative cycle normal|stopped|fast` and the creative menu use it (docs/kiln/services/rules.md "Creative menu").
+
 ## C (native plugins)
 ```c
 const KilnTimeApi* t = api->service(KilnStr{"kiln.time", 9}, 1);   // in on_ready; NULL = unavailable
 KilnTimeState s;  if (t && t->get(&s) == KILN_OK) { /* s.hours ... */ }
 t->set_time_of_day(13.5, KILN_TIME_SET_FORWARD);                  // tick thread
 t->reset_weather();                                               // tick thread
+if (t->header.size >= offsetof(KilnTimeApi, time_scale_hold) + sizeof(void*) && t->time_scale_hold() > -1.5f)
+    t->set_time_scale(0.0f);                                      // tick thread: stop the clock; -1 gives it back
 ```
 Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_THREAD`, `KILN_ERR_INVALID_ARGUMENT`
 (NaN, unknown mode).

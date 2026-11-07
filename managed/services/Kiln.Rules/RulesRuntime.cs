@@ -313,6 +313,8 @@ internal static unsafe class RulesRuntime
         SetInvulnerable(s, eff.Invulnerable || s.GraceUntil is not null);
         // water
         if (!Equals(before.Water, eff.Water)) Water(s);
+        // falls (Kiln.Combat's fall event)
+        RulesFalls.Changed(eff);
     }
 
     // The server world's hooks get the player's rules, but the glider's only for a game that runs them too (the host's

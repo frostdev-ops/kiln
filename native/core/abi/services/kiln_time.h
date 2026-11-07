@@ -55,6 +55,14 @@ typedef struct KilnTimeApi {
     /* Ends every weather phenomenon and makes each weather layer pick a new one on the server's next weather update
      * (same frame). Clients are told through the game's own weather sync. Tick thread only. */
     KilnResult(KILN_CALL* reset_weather)(void);
+    /* Later additions: check header.size before calling. */
+    /* Holds the day/night clock's speed: scale 0 stops the clock, 1 is the game's normal speed, more runs it faster
+     * (at most 1000). While held, the game's own speed changes (sleeping) are refused. A negative scale gives the
+     * speed back to the game. Session state: it ends when the world closes. Clients follow through the game's own
+     * daytime sync. Tick thread only. KILN_ERR_UNAVAILABLE when this build has no feature time.scale. */
+    KilnResult(KILN_CALL* set_time_scale)(float scale);
+    /* The speed Kiln holds; -1 when the game decides; -2 when this build cannot hold it. Any thread. */
+    float(KILN_CALL* time_scale_hold)(void);
 } KilnTimeApi;
 
 #ifdef __cplusplus

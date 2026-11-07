@@ -124,6 +124,15 @@ internal static class RulesStartup
         }
         try
         {
+            CreativeNet.Start();
+            CreativeMenu.Start();
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException)
+        {
+            RulesRuntime.Log(LogLevel.Warn, $"the creative menu is not available: {e.Message}");
+        }
+        try
+        {
             Creative.RegisterCommand();
         }
         catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or InvalidOperationException)

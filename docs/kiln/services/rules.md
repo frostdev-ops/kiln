@@ -69,6 +69,7 @@ Every member is optional (null: no opinion).
 | `BuildRefund` | multiplier | what dismantling and undo give back | server |
 | `DigDamage` | multiplier | the damage the player's tools deal to terrain and blocks; 1000 = one hit | server |
 | `Invulnerable` | switch | no damage from hits | server |
+| `NoFallDamage` | switch | no damage and no hard-landing stagger from falls, from any height (Kiln.Combat's fall event, canceled); `Invulnerable` already covers falls | server |
 | `MinHealth`, `MinStamina`, `MinMana` | fraction 0..1 | kept at least this full (1 = locked full) | server |
 | `FreezeShroudTimer` | switch | the Shroud timer does not go down in the Shroud, and the Shroud cannot kill; when the rule ends it counts down from where it stands | server |
 | `MinShroudTime` | fraction 0..1 | the Shroud timer is kept at least this full (below it, it recovers at the game's 25 s per second) | server |
@@ -129,8 +130,46 @@ could name a preset too (an item that applies one while held, a quest reward of 
 `allowFlyAnywhere`, `allowBuildOutsideBases`, `allowIgnoreNoBuildZones`, `allowIgnoreEnemiesNearby`,
 `allowBuildInShroud`, `allowIgnoreBasePermissions` (**false** by default: other players' bases stay theirs),
 `allowInvulnerable`, `allowWater`, `minBuildCost`, `maxDigDamage`, `maxHealthFloor`, `maxStaminaFloor`, `maxManaFloor`,
-`allowFreezeShroudTimer`, `maxShroudFloor`, `allowUnlimitedGliding`, `allowGlideBoost`, `maxGlideSpeed` (60 m/s).
+`allowFreezeShroudTimer`, `maxShroudFloor`, `allowUnlimitedGliding`, `allowGlideBoost`, `maxGlideSpeed` (60 m/s),
+`allowNoFallDamage`.
 Edits apply within a second.
+
+## Creative menu
+Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (Kiln menu > Keys changes it), or
+**Creative** in the pause menu (shown to admins and to players in creative mode).
+- **Items**: the server's item catalogue (every item of the world, mods' items included, without the game's debug, test
+  and retired entries), a search, a category, "without equipment" (weapons, armour, rings and gems left out). Pick an
+  item: **Take 1**, **Take** a stack, or **Take** a count; gear gets a level and a rarity. Items go where the game puts
+  picked-up items, with its "+N" popup. Needs creative mode.
+- **World**: the time of day (jump forward to an hour) and the day and night cycle: **Normal**, **Stopped** (the sun
+  stands still; sleeping doesn't move it), **Fast** (a whole day and night in about 90 s). Admins only; for the whole
+  world, until it is set back or the server restarts.
+- **Rules**: what creative mode gives you now, and which hooks work on this build.
+- Creative mode on or off for yourself (admins), and a "Creative" line on the HUD while it is on.
+
+Every action is a request the server checks; the menu shows what the server answers. Taking items needs creative mode
+for that player (only an admin turns it on: `/creative on <player>`); the time and the cycle need the creative
+permission (`kiln.command.creative`: admins, a hosted world's host). A game hosting its own world (co-op or offline)
+asks its own server half directly; a player on a dedicated server needs Kiln in their game (channel `kiln:creative`,
+not required: games without it join as before). The same tools from code and commands:
+```csharp
+CreativeResult r = await CreativeTools.Give(player, item.Id, count: 50);             // refused unless creative mode is on
+await CreativeTools.Give(player, sword.Id, 1, level: 30, rarity: ItemRarity.Epic);
+CreativeTools.SetTime(player, 7.5);                  // checks the player's permission
+CreativeTools.SetCycle(player, TimeCycle.Stopped);
+CreativeTools.SetCycle(TimeCycle.Fast, "my mod");    // no check: the console, commands with their own permission
+IReadOnlyList<ItemInfo> list = CreativeTools.Catalog();
+```
+`/creative give <player> <item> [count] [level]`, `/creative time <time>`, `/creative cycle normal|stopped|fast`
+(docs/kiln/commands.md). The cycle is kiln.time's held clock speed (`Time.SetCycle`, `Time.SetSpeed`;
+docs/kiln/services/time.md).
+
+Lab (`mods/tests/creative-test`, a spawned player character, no client): 21 PASS, 0 FAIL. The catalogue lists 4,180 of
+4,213 items; taking is refused without creative mode, gives a stack (`0 -> 7`) and gear at the asked level and rarity
+(`level 55, Epic`) with it; an unknown item is refused; Stopped holds the clock (`15:35 -> 15:35` over 100 steps, scale
+0, counter unchanged while the game's requests are refused), Fast runs it at x46.7 (`15:36 -> 16:27`), Normal gives it
+back; `/creative time 7:30` and `/creative cycle` from the console; NoFallDamage: `a 40 m fall canceled (would have
+taken 200 health)`, the same drop without the rule `200 -> 0`. The menu itself needs the game (manual test).
 
 ## Server and client
 | Part | Where it runs |

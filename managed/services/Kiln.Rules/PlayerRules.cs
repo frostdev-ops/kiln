@@ -76,6 +76,10 @@ public sealed record PlayerRules
     /// <summary>No damage from hits (Kiln.Combat's invulnerability).</summary>
     public bool? Invulnerable { get; init; }
 
+    /// <summary>No damage from falls, from any height, and no hard-landing stagger (Kiln.Combat's fall event, canceled
+    /// on the server). <see cref="Invulnerable"/> already covers falls; this is for rules that keep other damage.</summary>
+    public bool? NoFallDamage { get; init; }
+
     /// <summary>Health is kept at least at this fraction of its max (1 = always full).</summary>
     public double? MinHealth { get; init; }
 
@@ -159,7 +163,7 @@ public sealed record PlayerRules
         IgnoreBasePermissions = other.IgnoreBasePermissions ?? IgnoreBasePermissions,
         KeepBuildsOutsideBases = other.KeepBuildsOutsideBases ?? KeepBuildsOutsideBases,
         BuildCost = other.BuildCost ?? BuildCost, BuildRefund = other.BuildRefund ?? BuildRefund, DigDamage = other.DigDamage ?? DigDamage,
-        Invulnerable = other.Invulnerable ?? Invulnerable, MinHealth = other.MinHealth ?? MinHealth,
+        Invulnerable = other.Invulnerable ?? Invulnerable, NoFallDamage = other.NoFallDamage ?? NoFallDamage, MinHealth = other.MinHealth ?? MinHealth,
         MinStamina = other.MinStamina ?? MinStamina, MinMana = other.MinMana ?? MinMana,
         FreezeShroudTimer = other.FreezeShroudTimer ?? FreezeShroudTimer, MinShroudTime = other.MinShroudTime ?? MinShroudTime,
         UnlimitedGliding = other.UnlimitedGliding ?? UnlimitedGliding, GlideSink = other.GlideSink ?? GlideSink,
@@ -286,6 +290,7 @@ public sealed record EffectiveRules
     public double BuildRefund { get; init; } = 1;
     public double DigDamage { get; init; } = 1;
     public bool Invulnerable { get; init; }
+    public bool NoFallDamage { get; init; }
     public double MinHealth { get; init; }
     public double MinStamina { get; init; }
     public double MinMana { get; init; }
@@ -307,7 +312,7 @@ public sealed record EffectiveRules
     /// <summary>True when nothing differs from the game's own rules.</summary>
     public bool IsDefault => !FlyAnywhere && !BuildOutsideBases && !IgnoreNoBuildZones && !IgnoreEnemiesNearby && !BuildInShroud &&
                              !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && DigDamage == 1 &&
-                             !Invulnerable && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
+                             !Invulnerable && !NoFallDamage && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
                              MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null;
 
     internal RulesNativePart Native => new(
@@ -337,6 +342,7 @@ public sealed record EffectiveRules
         if (BuildRefund != 1) parts.Add($"refunds x{BuildRefund:0.##}");
         if (DigDamage != 1) parts.Add(DigDamage >= 1000 ? "instant mining" : $"dig x{DigDamage:0.##}");
         if (Invulnerable) parts.Add("invulnerable");
+        else if (NoFallDamage) parts.Add("no fall damage");
         if (MinHealth > 0) parts.Add(MinHealth >= 1 ? "health full" : $"health >= {MinHealth:P0}");
         if (MinStamina > 0) parts.Add(MinStamina >= 1 ? "stamina full" : $"stamina >= {MinStamina:P0}");
         if (MinMana > 0) parts.Add(MinMana >= 1 ? "mana full" : $"mana >= {MinMana:P0}");
@@ -398,6 +404,7 @@ internal static class RulesMath
             BuildRefund = Product(r => r.BuildRefund),
             DigDamage = Product(r => r.DigDamage),
             Invulnerable = Switch(r => r.Invulnerable),
+            NoFallDamage = Switch(r => r.NoFallDamage),
             MinHealth = Floor(r => r.MinHealth),
             MinStamina = Floor(r => r.MinStamina),
             MinMana = Floor(r => r.MinMana),
@@ -453,7 +460,8 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
     bool AllowIgnoreEnemiesNearby = true, bool AllowBuildInShroud = true, bool AllowIgnoreBasePermissions = false,
     bool AllowInvulnerable = true, double MinBuildCost = 0, double MaxDigDamage = 1000, double MaxStaminaFloor = 1,
     double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
-    double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60)
+    double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60,
+    bool AllowNoFallDamage = true)
 {
     public static readonly RulesLimits Default = new();
 
@@ -476,6 +484,7 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
             BuildInShroud = Cap(e.BuildInShroud, AllowBuildInShroud, "buildInShroud"),
             IgnoreBasePermissions = Cap(e.IgnoreBasePermissions, AllowIgnoreBasePermissions, "ignoreBasePermissions"),
             Invulnerable = Cap(e.Invulnerable, AllowInvulnerable, "invulnerable"),
+            NoFallDamage = Cap(e.NoFallDamage, AllowNoFallDamage, "noFallDamage"),
             BuildCost = Math.Max(e.BuildCost, Math.Max(MinBuildCost, 0)),
             DigDamage = Math.Min(e.DigDamage, Math.Max(MaxDigDamage, 0)),
             MinHealth = Math.Min(e.MinHealth, MaxHealthFloor),

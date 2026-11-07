@@ -271,7 +271,11 @@ public sealed class RulesPolicy
     [Comment("The fastest a boosted glider may go, m/s."), Range(0, 120)]
     public double MaxGlideSpeed { get; set; } = 60;
 
+    [Comment("Falls may do no damage for a player (NoFallDamage).")]
+    public bool AllowNoFallDamage { get; set; } = true;
+
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,
         AllowBuildInShroud, AllowIgnoreBasePermissions, AllowInvulnerable, MinBuildCost, MaxDigDamage, MaxStaminaFloor, MaxHealthFloor,
-        MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed);
+        MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed,
+        AllowNoFallDamage);
 }

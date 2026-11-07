@@ -35,6 +35,7 @@ public static class Creative
         {
             if (!Sets.Remove(player, out var set) || !set.Active) return new(true, false, $"{name} is not in creative mode.");
             set.Dispose();
+            CreativeServer.Push(player);
             Tell(player, "Creative mode is off: the game's own costs, vitals and flight rules are back. A flight outside a base ends and sets you down on the ground.");
             return new(true, false, $"Creative mode off for {name}.");
         }
@@ -68,6 +69,7 @@ public static class Creative
             ModContext.CurrentMod = outer;
         }
         var now = Rules.Of(player);
+        CreativeServer.Push(player);
         Tell(player, $"Creative mode is on: {now}. For throwaway or creative worlds: it grants no levels, XP, skill points or unlocks.");
         return new(true, true, $"Creative mode on for {name}: {now}" +
                                (now.Denied.Count > 0 ? $" (this server's rules.json denies {string.Join(", ", now.Denied)})" : ""));
@@ -129,6 +131,15 @@ public static class Creative
             .Then(Commands.Literal("off").Executes(c => c.Reply(Run(c, Self(c), false)))
                 .Then(Commands.Argument("player", Arg.Player()).Executes(c => c.Reply(Run(c, c.Get<Player>("player").Entity, false)))))
             .Then(Commands.Literal("status").Executes(c => c.Reply(Status())))
+            .Then(Commands.Literal("give").Describe("takes items from the catalogue for a player in creative mode")
+                .Then(Commands.Argument("player", Arg.Player())
+                    .Then(Commands.Argument("item", Arg.Item()).Executes(c => Give(c, 1, null))
+                        .Then(Commands.Argument("count", Arg.Int(1, CreativeTools.MaxGive)).Executes(c => Give(c, c.Get<int>("count"), null))
+                            .Then(Commands.Argument("level", Arg.Int(1, 100)).Executes(c => Give(c, c.Get<int>("count"), c.Get<int>("level"))))))))
+            .Then(Commands.Literal("time").Describe("jumps the world's clock forward to a time of day")
+                .Then(Commands.Argument("time", Arg.TimeOfDay()).Executes(c => c.Reply(Tools(c, CreativeTools.SetTime(c.Get<double>("time"), Who(c)))))))
+            .Then(Commands.Literal("cycle").Describe("the day and night cycle: normal, stopped or fast")
+                .Then(Commands.Argument("mode", Arg.Enum<TimeCycle>()).Executes(c => c.Reply(Tools(c, CreativeTools.SetCycle(c.Get<TimeCycle>("mode"), Who(c)))))))
             .Then(Commands.Argument("player", Arg.Player()).Executes(c => c.Reply(Run(c, c.Get<Player>("player").Entity, null)))),
             CommandPermission.Admin);
     }
@@ -136,6 +147,38 @@ public static class Creative
     // A player runs it for themselves; on a game playing offline, the console acts as the host's character.
     private static EntityId Self(CommandContext c) =>
         c.Source.IsPlayer && !c.Source.Player.IsNone ? c.Source.Player : throw new CommandException("name a player: /creative [on|off] <player>");
+
+    private static string Who(CommandContext c) => c.Source.IsPlayer && !c.Source.Player.IsNone ? NameOf(c.Source.Player) : "the console";
+
+    private static string Tools(CommandContext c, CreativeResult r)
+    {
+        if (!r.Ok) c.Fail(r.Message);
+        return r.Message;
+    }
+
+    // Items.Give finishes on a later step: the command says it asked, the player and the log get the outcome.
+    private static void Give(CommandContext c, int count, int? level)
+    {
+        var player = c.Get<Player>("player").Entity;
+        var item = c.Get<ItemInfo>("item");
+        if (!Creative.IsOn(player)) c.Fail($"{NameOf(player)} is not in creative mode (/creative on {NameOf(player)}).");
+        _ = GiveAndTell(player, item.Id, count, level);
+        c.Reply($"Giving {count} x {item.Label} to {NameOf(player)}...");
+    }
+
+    private static async Task GiveAndTell(EntityId player, ItemId item, int count, int? level)
+    {
+        CreativeResult r;
+        try
+        {
+            r = await CreativeTools.Give(player, item, count, level);
+        }
+        catch (Exception e)
+        {
+            r = new CreativeResult(false, IsOn(player), e.Message);
+        }
+        Tell(player, r.Message);
+    }
 
     private static string Run(CommandContext c, EntityId player, bool? on)
     {

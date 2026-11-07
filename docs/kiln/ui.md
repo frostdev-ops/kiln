@@ -169,6 +169,8 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
   game's own text fields (chat, a rename, the main menu's boxes) don't tell Kiln they have the keyboard, so a tree bound to K used to open inside
   chat and take the rest of the line. `b.OnGameScreens = true` fires it on every game screen too. Function keys and Ctrl/Alt chords always
   fire. Without the game UI hooks (an unknown build) the screen isn't known and they fire as before.
+- `kiln.creative` (default **F7**) opens Kiln's creative menu (items, time of day, the day and night cycle; also
+  **Creative** in the pause menu for admins and players in creative mode): docs/kiln/services/rules.md "Creative menu".
 - `kiln.menu` (default **Insert**) opens the Kiln menu. Its toggle is native, so it works without the managed host.
   Escape closes the menu.
 

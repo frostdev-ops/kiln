@@ -17,6 +17,17 @@ public enum TimeSetMode
     GameReset = 1,
 }
 
+/// <summary>The day and night cycle (<see cref="Time.SetCycle"/>).</summary>
+public enum TimeCycle
+{
+    /// <summary>The game's: day and night pass at the server's set lengths (faster while players sleep).</summary>
+    Normal = 0,
+    /// <summary>The sun stands still at the hour it is; sleeping doesn't move it.</summary>
+    Stopped = 1,
+    /// <summary>A whole day and night in about 90 seconds.</summary>
+    Fast = 2,
+}
+
 /// <summary>A snapshot of the server's day/night clock.</summary>
 /// <param name="Hours">Time of day, 0..24, at the current game clock (reflects a set at once).</param>
 /// <param name="HoursField">The game's own time-of-day field, updated once per sim step.</param>
@@ -85,6 +96,19 @@ public static unsafe class Time
         public delegate* unmanaged[Cdecl]<double, uint, int> SetTimeOfDay;
         public delegate* unmanaged[Cdecl]<int> ResetWeather;
     }
+
+    // The table with its later additions; an older kiln-time.dll has only Table (Services.Get refuses a table smaller
+    // than the struct asked for, so the additions are read through this view after a size check).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TableV2
+    {
+        public Table Base;
+        public delegate* unmanaged[Cdecl]<float, int> SetTimeScale;
+        public delegate* unmanaged[Cdecl]<float> TimeScaleHold;
+    }
+
+    private static TableV2* T2 => T != null && T->Header.Size >= (uint)sizeof(TableV2) ? (TableV2*)T : null;
+    private static bool HasScale => T2 != null;
 
     private static Table* _table;
     private static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.time", 1));
@@ -160,6 +184,67 @@ public static unsafe class Time
         if (T == null) throw new NotSupportedException("kiln.time is unavailable on this game build");
         Services.RequireTickThread("Time.ResetWeather");
         Check(T->ResetWeather(), "Time.ResetWeather");
+    }
+
+    /// <summary>True when this build can hold the clock's speed (<see cref="SetSpeed"/>, <see cref="SetCycle"/>).</summary>
+    public static bool CanSetSpeed => HasScale && T2->TimeScaleHold() > -1.5f;
+
+    /// <summary>The clock speed Kiln holds (0 = stopped, 1 = the game's normal speed), or null when the game decides
+    /// (1, faster while players sleep).</summary>
+    public static double? HeldSpeed
+    {
+        get
+        {
+            if (!HasScale) return null;
+            var v = T2->TimeScaleHold();
+            return v >= 0 ? v : null;  // -1: the game decides; -2: this build cannot hold it
+        }
+    }
+
+    /// <summary>Holds the day/night clock at a speed: 0 stops it (sleeping doesn't move it either), 1 is the game's
+    /// normal speed, more runs it faster (at most 1000). Null gives the speed back to the game. Clients follow through
+    /// the game's own daytime sync. Session state: it ends when the world closes or the server restarts. Tick thread.</summary>
+    public static void SetSpeed(double? speed)
+    {
+        if (!HasScale) throw new NotSupportedException("kiln.time cannot hold the clock's speed (an older Kiln)");
+        if (speed is { } v && (!double.IsFinite(v) || v < 0 || v > 1000)) throw new ArgumentOutOfRangeException(nameof(speed), "0..1000");
+        Services.RequireTickThread("Time.SetSpeed");
+        Check(T2->SetTimeScale(speed is { } x ? (float)x : -1f), "Time.SetSpeed");
+    }
+
+    /// <summary>The day and night cycle as the held speed shows it.</summary>
+    public static TimeCycle Cycle => HeldSpeed switch
+    {
+        null => TimeCycle.Normal,
+        0 => TimeCycle.Stopped,
+        _ => TimeCycle.Fast,
+    };
+
+    /// <summary>A whole day and night takes this long in <see cref="TimeCycle.Fast"/>.</summary>
+    public static readonly TimeSpan FastCycle = TimeSpan.FromSeconds(90);
+
+    /// <summary>The speed <see cref="TimeCycle.Fast"/> uses for a cycle of <paramref name="day"/> + <paramref name="night"/>:
+    /// one cycle in <see cref="FastCycle"/>, at least 2.</summary>
+    public static double FastSpeed(TimeSpan day, TimeSpan night)
+    {
+        var cycle = (day + night).TotalSeconds;
+        return Math.Clamp(double.IsFinite(cycle) && cycle > 0 ? cycle / FastCycle.TotalSeconds : 28, 2, 1000);
+    }
+
+    /// <summary>Normal (the game's), Stopped (the sun stands still) or Fast (a whole day and night in about 90 s).
+    /// Tick thread.</summary>
+    public static void SetCycle(TimeCycle cycle)
+    {
+        switch (cycle)
+        {
+            case TimeCycle.Normal: SetSpeed(null); break;
+            case TimeCycle.Stopped: SetSpeed(0); break;
+            case TimeCycle.Fast:
+                var s = State;
+                SetSpeed(FastSpeed(s.DayLength, s.NightLength));
+                break;
+            default: throw new ArgumentOutOfRangeException(nameof(cycle));
+        }
     }
 
     /// <summary>"HH:mm" for hours 0..24.</summary>

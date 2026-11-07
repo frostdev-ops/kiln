@@ -78,6 +78,22 @@ Day/night lengths: `server_update_daytime` calls `Daytime_setDurations` every st
 3 after the load, 5 once the lab's 60/10 min settings applied; 30/12 min defaults before). So lengths are read-only
 here; change them through the game settings (kiln.settings).
 
+## The clock's speed (svn 1287369)
+`g38_daytime` speed setter `(daytime, float scale /*xmm1*/, ecsNow /*r8*/)`: `GetGameTime(daytime, ecsNow)`, `++counter`
+(+0x24), `scale` -> +0x20, `+0x10 = ecsNow`, `+0x18 = game time` (server RVA `0x95b640`, client `0xeb39d0`; symbol
+`time/SetTimeScale`, feature `time.scale`). It re-anchors before changing the speed, so the clock never jumps. It
+has **one caller** in each exe (server `0x108f75`, inside `0x108de0`): a server program that walks the 16 player slots
+(stride 0xA0), counts the players present and those asleep, and computes the wanted speed (1, or faster while every
+present player sleeps); it calls the setter only when the current speed differs from the wanted one by more than a
+relative tolerance. A remote client has no other writer: its Daytime copy takes `{anchor ECS, anchor game, scale}` from
+the server's sync (`DaytimeSyncIfChanged` copies +0x10, +0x18, +0x20), so a speed set on the server reaches every
+client with the next ServerInfo.
+
+Kiln holds a speed by hooking the setter: while held, a call for the server world's Daytime whose current speed already
+equals the held one returns at once (the sleep program then asks every step, and nothing changes: no counter bump, no
+re-sync); any other call is made with the held speed. Kiln's Pre applies the held speed when the field differs (after a
+load, or Kiln's own change), through the original setter.
+
 ## Weather reset
 `WeatherSystem` (0x150 B): `+0x08` mode (0 = server), `+0xC8` layers, `+0xD0` count, stride 0x18:
 `+0x00` nextPhenomenonTime (game time), `+0x10` current instance, `+0x14` previous instance (captured from
