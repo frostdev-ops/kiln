@@ -125,7 +125,11 @@ inside the AppImage (owners and licences from the system's package manager). A c
 The checks (all run; the script fails at the end if one failed): SHA256SUMS; the updater signatures against the
 launcher's built-in key and version; the AppImage's `--selftest` on a private X display; the NSIS setup installed
 silently under Wine into a scratch prefix, then `--selftest`; the deb's control fields and files; the rpm's files;
-`kilnctl bundle verify`; `kilnctl`/`kiln --version`, the Windows builds under Wine; a mod made with `dotnet new
+`kilnctl bundle verify`; `kilnctl`/`kiln --version`, the Windows builds under Wine; every Linux ELF file (the
+AppImage unpacked with `--appimage-extract`, the deb's and rpm's files, kilnctl, kiln, any inside the zips) needing no
+glibc symbol version above 2.35 (`objdump -T -p`; `release.py glibc`, see "Linux builds"); kilnctl, kiln and the
+AppImage started on a clean Ubuntu 22.04 in a throwaway container (`start-test.sh`: `--selftest`, then the launcher's
+window on Xvfb, a screenshot in `<work>/checks/start-ubuntu22/screen.png`); a mod made with `dotnet new
 kiln-mod` from the packed templates, built against the packed SDK from the folder (a scratch NuGet cache); the vsix's
 files; the Authenticode signatures (when signed); and a scan inside every file and archive (AppImage, deb, rpm,
 setup, zips, nupkgs, vsix, tarball) for game data, home paths, keys, the key's password, credentials and tokens.
@@ -138,6 +142,56 @@ rpm: rpm versions can't hold the `-` of `X.Y.Z-dev.N`.
 
 Builds reuse `<repo>/.out/release-work` (`--work`): a fixed export path keeps the compiler caches warm. Pinned
 downloads (the .NET runtime, netcoredbg) are cached in `~/.cache/kiln-release`.
+
+## Linux builds (the Ubuntu 22.04 container)
+Every Linux ELF file of a release (the launcher's AppImage, deb and rpm, `kilnctl`, `kiln`) is compiled and bundled
+in a Docker container, Ubuntu 22.04 with glibc 2.35 (`tools/release/linux-build/`). Why: a Linux binary needs the
+glibc it was linked against or newer, and the AppImage also carries the build system's own libraries (WebKitGTK,
+GTK, sqlite, ...). Built on a rolling distro, everything needs that distro's brand-new glibc: 0.2.0-dev.13, built on
+Arch with glibc 2.44, failed on a Steam Deck with ``/usr/lib/libm.so.6: version `GLIBC_2.44' not found (required by
+.../usr/lib/libsqlite3.so.0)``, and its AppImage, deb, kilnctl and kiln needed 2.44, 2.39, 2.39 and 2.39. Ubuntu
+22.04 is the oldest base with WebKitGTK 4.1 (which Tauri 2 needs) and Tauri's usual AppImage baseline; builds from it
+run on SteamOS, Ubuntu 22.04+, Debian 12+, Fedora 36+ and Arch. The release check `release.py glibc` fails any
+Linux file that needs a newer symbol version.
+
+- **What runs where:** in the container: `cargo build` of kilnctl and kiln, `tools/launcher/build-linux.sh` (the
+  Tauri CLI under bun, the web build, cargo, linuxdeploy with `APPIMAGE_EXTRACT_AND_RUN=1`, so no FUSE), and
+  `notices.py` for the AppImage's libraries (their owners and licences come from the container's dpkg database).
+  On the host: everything else, Windows included (cargo-xwin, NSIS, the runtime DLLs), the updater signatures and the
+  checks (the start test in its own throwaway container). The updater key never enters the container: release.sh signs the finished AppImage on the host, as before.
+- **The container:** `tools/release/linux-build/run.sh` runs a command in it as the calling user (files stay yours),
+  with `--cap-drop ALL`, the export, the work folder and `tools/release` mounted at their own paths (tools/release
+  read-only), and nothing else of the host: no `~/.cargo`, `~/.config` or keys. Its HOME, CARGO_HOME and cargo
+  target dir live in `KILN_GLIBC_DIR` (default `<repo>/.out/glibc`: `home/` holds Tauri's downloaded AppImage tools,
+  `cargo-home/` the crates, `cargo/` the Linux build), separate from the host's own cargo builds, so later runs are
+  incremental. It needs ~3 GB, the image ~2.4 GB of Docker's disk; on the build machine `.out/glibc` is a link to `/mnt/Dongus/kiln-glibc`, off the root
+  disk. A shell in it: `tools/release/linux-build/run.sh --mount "$PWD" -- bash`.
+- **The image:** `tools/release/linux-build/Dockerfile`: `ubuntu:22.04` pinned by digest, Tauri's Linux packages,
+  Rust (rustup-init checked by sha256, one pinned toolchain) and bun (checked by sha256), at the host's versions.
+  `tools/release/linux-build/image.sh` prints its tag, `kiln-linux-build:<first 12 hex of the Dockerfile's sha256>`,
+  and builds it when missing (a few minutes; release.sh does this itself). Editing the Dockerfile makes a new tag, and
+  the older images are removed.
+  - **Rebuild it** (`tools/release/linux-build/image.sh --rebuild`, no layer cache) now and then, and before a stable
+    release: the apt packages are Ubuntu's as of the image's build, and the AppImage ships its WebKitGTK.
+  - **Raise Rust or bun:** change `RUST_VERSION` (or `RUSTUP_VERSION` + `RUSTUP_SHA256`, from
+    `https://static.rust-lang.org/rustup/archive/<v>/x86_64-unknown-linux-gnu/rustup-init.sha256`), or `BUN_VERSION`
+    + `BUN_SHA256` (the release's `SHASUMS256.txt`). **Move the base** (a newer `ubuntu:22.04` build):
+    `docker pull ubuntu:22.04 && docker inspect --format '{{index .RepoDigests 0}}' ubuntu:22.04` and put the digest in
+    `FROM`. A newer Ubuntu raises the glibc floor: change `glibc_max` in release.sh with it, deliberately.
+- **`--host-build`** (`release.sh VERSION --host-build`): builds the Linux files on the host instead, with no Docker,
+  for quick local tests of the release script. Such a build needs the host's glibc; the glibc check fails for it and
+  the folder must never be published.
+- **Checking a build by hand:** `python3 tools/release/lib/release.py glibc <release folder>` prints the newest glibc
+  version each Linux file needs. `tools/release/linux-build/start-test.sh <release folder> [--distro ubuntu22|arch2024]`
+  starts it on a clean older system in a throwaway container: `ubuntu22` is `ubuntu:22.04` (glibc 2.35, the floor),
+  `arch2024` an Arch Linux of 2024-01-01 (glibc 2.38, `/usr/lib` like SteamOS). It runs kilnctl and kiln
+  `--version` on the bare image, unpacks the AppImage with `--appimage-extract`, lists the libraries it expects from
+  the system (X11, xcb, EGL/GLX, gbm, drm, wayland-client, fontconfig, freetype, harfbuzz, fribidi, expat: what every
+  desktop has and AppImages leave out), installs a minimal desktop (Xvfb, Mesa, fontconfig, a font, dbus), runs
+  `--selftest` as a normal user, then the launcher itself on the Xvfb display, and saves a screenshot (`screen.png`),
+  the window tree and the launcher's log in `--out` (default `./start-test-<distro>`). It needs network (apt/pacman).
+  release.sh runs it for `ubuntu22` as a check. Rendering is Mesa's llvmpipe, named with `GALLIUM_DRIVER` (with no
+  GPU, the Mesa of 2024-01 tries zink, which fails, and its Xvfb and GL clients crash: a container artefact).
 
 ## Steps
 One-time setup (frostdev.io):

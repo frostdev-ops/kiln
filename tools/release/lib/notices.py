@@ -249,7 +249,8 @@ def appimage_libs(root):
         sys_path = system.get(base)
         pkg = None
         if sys_path:
-            for cmd in (["pacman", "-Qqo", sys_path], ["dpkg", "-S", sys_path]):
+            # dpkg: Ubuntu 22.04's packages may list a file under /lib (merged /usr), so both spellings are asked
+            for cmd in (["pacman", "-Qqo", sys_path], ["dpkg", "-S", sys_path], ["dpkg", "-S", re.sub(r"^/usr/lib/", "/lib/", sys_path)]):
                 try:
                     out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True).strip()
                     pkg = out.split(":")[0].strip() if cmd[0] == "dpkg" else out.splitlines()[0]
@@ -266,7 +267,11 @@ def appimage_libs(root):
                 f = dict((l.split(":", 1)[0].strip(), l.split(":", 1)[1].strip()) for l in info.splitlines() if ":" in l)
                 ver, lic, url = f.get("Version", ""), f.get("Licenses", ""), f.get("URL", "")
             except (OSError, subprocess.CalledProcessError):
-                pass
+                try:  # dpkg (the release build container): no licence field; the texts are /usr/share/doc/<pkg>/copyright
+                    out = subprocess.check_output(["dpkg-query", "-W", "-f", "${Version}\t${Homepage}", pkg], stderr=subprocess.DEVNULL, text=True)
+                    ver, url = (out.split("\t", 1) + [""])[:2]
+                except (OSError, subprocess.CalledProcessError):
+                    pass
             for d in (f"/usr/share/licenses/{pkg}", f"/usr/share/doc/{pkg}"):
                 for p in license_files(d):
                     texts.append((os.path.basename(p), read(p)))

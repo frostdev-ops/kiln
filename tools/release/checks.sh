@@ -84,6 +84,10 @@ check_cli_versions() {
   [[ $a == kilnctl* && $b == kiln* ]]
 }
 
+check_start_ubuntu() { # the Linux files on a clean Ubuntu 22.04 (start-test.sh: a throwaway container, needs network)
+  "$here/linux-build/start-test.sh" "$out" --distro ubuntu22 --out "$ck/start-ubuntu22" --wait 5
+}
+
 check_template() {
   local d=$ck/template
   rm -rf "$d" && mkdir -p "$d"
@@ -134,6 +138,12 @@ run_checks() {
   [[ -n $rpm ]] && check "rpm contains usr/bin/kiln-launcher" check_rpm
   check "kilnctl bundle verify on the runtime zip" "$out/runtime/kilnctl" bundle verify "$out/runtime/kiln-runtime-$version.zip"
   check "kilnctl and kiln --version (Linux)" check_cli_versions
+  # every Linux ELF (the AppImage's own files, the deb's, the rpm's, kilnctl, kiln) must run on glibc $glibc_max: the
+  # Steam Deck and Ubuntu 22.04 (release.sh builds them in the Ubuntu 22.04 container; --host-build fails here)
+  check "every Linux ELF needs glibc ${glibc_max:-2.35} at most (objdump -T -p, AppImage/deb/rpm unpacked)" \
+    python3 "$lib/release.py" glibc "$out" --max "${glibc_max:-2.35}" --tmp "$ck"
+  check "kilnctl, kiln and the AppImage start on a clean Ubuntu 22.04 (--selftest, the launcher's window; screenshot in checks/start-ubuntu22)" \
+    check_start_ubuntu
   check "dotnet new kiln-mod from the packed templates builds against the packed SDK (local feed)" check_template
   check "the vsix lists its files" check_vsix
   if ((signing)); then check "Authenticode signatures verify" check_authenticode; fi

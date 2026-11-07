@@ -2,13 +2,19 @@
 # Builds a complete Kiln release folder from a clean export of one commit, checks it, and stops: publishing is a
 # separate, manual step (tools/release/github-draft.sh, tools/release/publish.sh; docs/kiln/launcher/releasing.md).
 #   tools/release/release.sh VERSION [--commit REV] [--out DIR] [--work DIR] [--notes FILE] [--worktree]
-#                                    [--skip-windows] [--no-checks] [--force]
+#                                    [--skip-windows] [--no-checks] [--force] [--host-build] [--no-nexus]
 # VERSION: X.Y.Z (stable) or X.Y.Z-dev.N (dev) for this tree's VERSION (tools/release/version.sh prints one).
 # --commit: what to build (default HEAD); exported with `git archive`, so uncommitted work never gets in.
 # --worktree: test runs only: export the working tree (tracked and untracked, not ignored) instead of a commit.
 # --out: the release folder (default ~/Kiln-release/kiln-VERSION). --work: build dir (default <repo>/.out/release-work;
 #   a fixed path, so later runs reuse the compiler caches). --notes: release notes (Markdown); default: the commit
 #   subjects since the previous v* tag.
+# Linux files (the launcher's AppImage, deb and rpm, kilnctl, kiln) are compiled and bundled in a Docker container,
+#   Ubuntu 22.04 (glibc 2.35; tools/release/linux-build/), so they run on older distros and the Steam Deck: a build on
+#   this machine needs its own, newer glibc. Cargo's Linux target dir: KILN_GLIBC_DIR (default <repo>/.out/glibc)/cargo.
+# --host-build: quick local tests only: build the Linux files on this machine instead (fast, no Docker). They run only
+#   on distros with this machine's glibc or newer; the glibc check fails, and such a folder must never be published.
+# --no-nexus: skip the Nexus Mods dry run at the end (test builds).
 #
 # The folder: README.txt, RELEASE-NOTES.md, SHA256SUMS, LICENSE, CREDITS.md, THIRD-PARTY-NOTICES.txt,
 #   linux/    the AppImage (+ .sig, the updater signature), .deb, .rpm
@@ -23,7 +29,9 @@
 # Checks it runs on its own output (all of them; it fails at the end when one failed): SHA256SUMS, the updater
 #   signatures against the launcher's built-in key, the AppImage's --selftest on a private display, the NSIS setup
 #   installed silently under Wine + --selftest, the deb's control and files, the rpm's files, `kilnctl bundle verify`,
-#   kilnctl/kiln --version (Windows builds under Wine), a mod from the packed templates built against the packed SDK,
+#   kilnctl/kiln --version (Windows builds under Wine), every Linux ELF (in the AppImage, deb and rpm too) needing no
+#   glibc symbol version above 2.35, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway container:
+#   --selftest and the launcher's window), a mod from the packed templates built against the packed SDK,
 #   the vsix's files, Authenticode signatures (when signed), and a scan of every file and archive for game data, home
 #   paths, keys, passwords and tokens.
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
@@ -32,7 +40,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 lib=$here/lib
 
-version="" commit=HEAD out="" work="" notes="" worktree=0 skip_windows=0 checks=1 force=0
+version="" commit=HEAD out="" work="" notes="" worktree=0 skip_windows=0 checks=1 force=0 host_build=0 nexus=1
 while (($#)); do
   case $1 in
     --commit) commit=$2; shift 2 ;;
@@ -43,6 +51,8 @@ while (($#)); do
     --skip-windows) skip_windows=1; shift ;;
     --no-checks) checks=0; shift ;;
     --force) force=1; shift ;;
+    --host-build) host_build=1; shift ;;
+    --no-nexus) nexus=0; shift ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) [[ -z $version ]] || { echo "one version only" >&2; exit 2; }; version=$1; shift ;;
@@ -122,16 +132,43 @@ seed "netcoredbg-$nc-win64.zip" "$KILN_OUT/vscode/netcoredbg/$nc/netcoredbg-win6
 signing=0
 if "$here/authenticode.sh" available; then signing=1; note "Authenticode: signing Windows files"; else note "Windows files unsigned (no authenticode.env)"; fi
 sign_pe() { ((signing)) && "$here/authenticode.sh" sign "$@" | tee -a "$log"; return 0; }
+# linux COMMAND...: runs a Linux build command (cargo, build-linux.sh, notices.py for the AppImage) where the Linux files
+# are built: the Ubuntu 22.04 container (tools/release/linux-build/run.sh; $src, $work and tools/release mounted at
+# their own paths), or this machine with --host-build. $lin_target is its cargo target dir. The updater key never goes
+# into the container: the finished AppImage is signed on this machine (8. below).
+glibc_max=2.35
+if ((host_build)); then
+  lin_target=$CARGO_TARGET_DIR
+  linux() { low "$@"; }
+  note "--host-build: the Linux files are built on this machine (glibc $(ldd --version | sed -n '1s/.* //p')): NOT portable, never publish this folder"
+else
+  glibc=$(realpath -ms "${KILN_GLIBC_DIR:-$repo/.out/glibc}")
+  export KILN_GLIBC_DIR=$glibc
+  lin_target=$glibc/cargo
+  # the container's crate cache shows as /build/.cargo, like the host's ~/.cargo under the /build prefix above
+  lin_rustflags="$RUSTFLAGS --remap-path-prefix=$glibc/cargo-home=/build/.cargo"
+  linux() {
+    local nice=()
+    [[ ${KILN_RELEASE_NICE:-} == 1 ]] && nice=(--nice)
+    CARGO_TARGET_DIR=$lin_target RUSTFLAGS=$lin_rustflags "$here/linux-build/run.sh" "${nice[@]}" \
+      --mount "$src" --mount "$work" --ro "$here" \
+      --env KILN_GIT --env SOURCE_DATE_EPOCH --env KILN_OUT --env CARGO_TARGET_DIR --env KILN_SDK_VERSION --env RUSTFLAGS \
+      --env KILN_RELEASE_BUILD --env ContinuousIntegrationBuild --env NO_STRIP -- "$@"
+  }
+  step "Linux build image (Ubuntu 22.04, glibc $glibc_max)"
+  image=$("$here/linux-build/image.sh" 2>>"$log") || { tail -40 "$log" >&2; die "the Linux build image did not build"; }
+  note "Linux files: built in $image; cargo target $lin_target"
+fi
 
 # ---------------------------------------------------------------- 3. dependencies, command-line tools
 step "dependencies (bun, npm)"
 (cd "$src/launcher" && quiet low bun install --frozen-lockfile)
 (cd "$src/tools/vscode" && quiet low npm ci --no-audit --no-fund)
 step "kilnctl and kiln (Linux, Windows)"
-(cd "$src" && quiet low cargo build --release --locked -p kilnctl -p kiln-cli)
+(cd "$src" && quiet linux cargo build --release --locked -p kilnctl -p kiln-cli)
 win=x86_64-pc-windows-msvc
 (cd "$src" && quiet low cargo xwin build --release --locked -p kilnctl -p kiln-cli --target $win)
-kilnctl=$CARGO_TARGET_DIR/release/kilnctl
+kilnctl=$lin_target/release/kilnctl
 
 # ---------------------------------------------------------------- 4. runtime
 step "runtime: native + managed build, stage"
@@ -177,23 +214,24 @@ step "launcher: Linux"
 # rpm versions can't hold "-": a dev build (X.Y.Z-dev.N) has no rpm
 bundles=appimage,deb
 [[ $channel == stable ]] && bundles+=,rpm
-rm -rf "$CARGO_TARGET_DIR/release/bundle"
-if ! (cd "$src" && low tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" \
+rm -rf "$lin_target/release/bundle"
+if ! (cd "$src" && linux tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" \
     --config "$(resources "$notices")" >>"$log" 2>&1); then
   note "the rpm did not build; building AppImage and deb only"
   bundles=appimage,deb
-  (cd "$src" && quiet low tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
+  (cd "$src" && quiet linux tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
 fi
 lin=$KILN_OUT/bundles/linux
 appimage=$(ls -t "$lin"/*.AppImage | head -1)
-# the AppImage carries system libraries (GTK, WebKitGTK, ...): add them to the notices, then rebundle the AppImage
+# the AppImage carries system libraries (GTK, WebKitGTK, ...): add them to the notices, then rebundle the AppImage.
+# notices.py runs where the AppImage was built: the owners and licences come from that system's package database.
 step "notices for the AppImage's bundled libraries"
 rm -rf "$work/appimage-root" && mkdir -p "$work/appimage-root"
 unsquashfs -q -n -o "$(python3 "$lib/release.py" offset "$appimage")" -d "$work/appimage-root/r" "$appimage" >/dev/null
-python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
-  "${nuget_args[@]}" --appimage-root "$work/appimage-root/r" | tee -a "$log"
+(cd "$src" && linux python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" \
+  --dotnet-root "$src/.cache/dotnet-win-x64/root" "${nuget_args[@]}" --appimage-root "$work/appimage-root/r") | tee -a "$log"
 rm -rf "$work/appimage-root"
-(cd "$src" && quiet low tools/launcher/build-linux.sh --bundles appimage --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
+(cd "$src" && quiet linux tools/launcher/build-linux.sh --bundles appimage --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
 appimage=$(ls -t "$lin"/*.AppImage | head -1)
 deb=$(ls -t "$lin"/*.deb | head -1)
 rpm=$(ls -t "$lin"/*.rpm 2>/dev/null | head -1 || true)
@@ -262,8 +300,8 @@ cp "$deb" "$out/linux/$D"
 [[ -n $rpm ]] && cp "$rpm" "$out/linux/$R"
 [[ -n $setup ]] && cp "$setup" "$out/windows/$S"
 cp "$runtime_zip" "$out/runtime/kiln-runtime-$version.zip"
-install -m 755 "$CARGO_TARGET_DIR/release/kilnctl" "$out/runtime/kilnctl"
-install -m 755 "$CARGO_TARGET_DIR/release/kiln" "$out/sdk/kiln"
+install -m 755 "$lin_target/release/kilnctl" "$out/runtime/kilnctl"
+install -m 755 "$lin_target/release/kiln" "$out/sdk/kiln"
 if ((!skip_windows)); then
   install -m 644 "$CARGO_TARGET_DIR/$win/release/kilnctl.exe" "$out/runtime/kilnctl.exe"
   install -m 644 "$CARGO_TARGET_DIR/$win/release/kiln.exe" "$out/sdk/kiln.exe"
@@ -378,7 +416,7 @@ if ((checks)); then
 fi
 
 # Nexus Mods: what would go up (GET calls only); the upload itself is publish.sh --nexus or nexus.py --publish
-if [[ -f $HOME/.config/kiln-release/nexus.env ]]; then
+if ((nexus)) && [[ -f $HOME/.config/kiln-release/nexus.env ]]; then
   step "Nexus Mods (dry run)"
   python3 -I "$here/nexus.py" "$out" --work "$work/nexus" | tee -a "$log" || note "the Nexus dry run failed (the release is fine)"
 fi

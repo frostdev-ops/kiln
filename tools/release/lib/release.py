@@ -9,6 +9,8 @@
   scan       look inside every file and archive of a folder for things that must not ship: game data, home paths,
              keys, passwords, tokens
   offset     print where the squashfs of an AppImage starts (for unsquashfs -o)
+  glibc      check every Linux ELF of a folder (in the AppImage, deb, rpm and zips too) needs no glibc symbol version
+             above a limit (objdump -T -p), so the builds run on older distros (Steam Deck, Ubuntu 22.04)
 """
 import argparse
 import base64
@@ -430,6 +432,151 @@ def cmd_scan(a):
     print("scan: clean")
 
 
+# ---------------------------------------------------------------- glibc
+
+GLIBC_VER = re.compile(rb"\bGLIBC_([0-9]+(?:\.[0-9]+)+|PRIVATE|ABI_[A-Z0-9_]+)\b")
+# glibc's non-numeric version markers and the release that brought them (an unknown one counts as too new)
+GLIBC_ABI = {"ABI_DT_RELR": "2.36"}
+
+
+def _ver(s):
+    return tuple(int(x) for x in s.split("."))
+
+
+def elf_glibc(path):
+    """The GLIBC_ versions an ELF names: its dynamic symbols' (objdump -T) and its version references (-p: they also
+    hold markers no symbol carries, such as GLIBC_ABI_DT_RELR), and for glibc's own libraries the ones they define.
+    Returns (set of versions, objdump's error or None)."""
+    r = subprocess.run(["objdump", "-T", "-p", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        err = r.stderr.decode(errors="replace").strip()
+        # a static executable (the AppImage runtime) has no dynamic symbol table: nothing to need
+        if b"not a dynamic object" in r.stderr or b"no symbols" in r.stderr:
+            return set(), None
+        return set(), err or f"objdump exit {r.returncode}"
+    return {m.decode() for m in GLIBC_VER.findall(r.stdout)}, None
+
+
+class GlibcScan:
+    def __init__(self, limit, tmp):
+        self.limit = _ver(limit)
+        self.tmp = tmp
+        self.rows = []      # (top-level file, max version or "-", ELF count)
+        self.problems = []  # "where: what"
+
+    def scan_top(self, path, rel):
+        self.elfs, self.max = 0, None
+        self.walk(path, rel, 0)
+        self.rows.append((rel, ".".join(map(str, self.max)) if self.max else "-", self.elfs))
+
+    def walk(self, path, where, depth):
+        with open(path, "rb") as f:
+            head = f.read(16)
+        if head[:4] == b"\x7fELF":
+            self.check_elf(path, where)
+        if depth > 3:
+            return
+        kind = self.archive(path, head)
+        if not kind:
+            return
+        d = tempfile.mkdtemp(dir=self.tmp)
+        try:
+            try:
+                self.extract(kind, path, d)
+            except Exception as e:  # noqa: BLE001
+                self.problems.append(f"{where}: cannot open the {kind} to check it: {e}")
+                return
+            for base, dirs, files in os.walk(d):
+                dirs.sort()
+                for n in sorted(files):
+                    p = os.path.join(base, n)
+                    if os.path.islink(p) or not os.path.isfile(p):
+                        continue
+                    self.walk(p, f"{where}!{os.path.relpath(p, d)}", depth + 1)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    @staticmethod
+    def archive(path, head):
+        n = path.lower()
+        if head[:4] == b"\x7fELF" and head[8:11] == b"AI\x02":
+            return "appimage"
+        if head[:8] == b"!<arch>\n" and n.endswith(".deb"):
+            return "deb"
+        if head[:4] == b"\xed\xab\xee\xdb":
+            return "rpm"
+        if head[:4] in (b"PK\x03\x04", b"PK\x05\x06") and n.endswith((".zip", ".nupkg", ".vsix")):
+            return "zip"
+        return None  # the NSIS setup and the source tarball hold no Linux binaries
+
+    @staticmethod
+    def extract(kind, path, dest):
+        if kind == "appimage":
+            # the AppImage's own runtime unpacks it (no FUSE needed): what a user with --appimage-extract gets
+            exe = os.path.abspath(path)
+            if not os.access(exe, os.X_OK):
+                exe = os.path.join(dest, "app.AppImage")
+                shutil.copyfile(path, exe)
+                os.chmod(exe, 0o755)
+            subprocess.run([exe, "--appimage-extract"], cwd=dest, check=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "TMPDIR": dest})
+            if exe.startswith(dest):
+                os.remove(exe)
+        elif kind == "deb" and shutil.which("dpkg-deb"):
+            subprocess.run(["dpkg-deb", "-x", path, dest], check=True)
+        else:
+            extract(kind, path, dest)
+
+    def check_elf(self, path, where):
+        self.elfs += 1
+        vers, err = elf_glibc(path)
+        if err:
+            self.problems.append(f"{where}: objdump -T failed: {err}")
+            return
+        if "PRIVATE" in vers:
+            self.problems.append(f"{where}: needs GLIBC_PRIVATE (tied to one exact glibc build)")
+        for v in sorted(x for x in vers if x.startswith("ABI_")):
+            if v not in GLIBC_ABI:
+                self.problems.append(f"{where}: needs GLIBC_{v} (a glibc marker this check does not know: newer than 2.36)")
+        # (version, name): GLIBC_ABI_DT_RELR counts as 2.36
+        nums = sorted(((_ver(GLIBC_ABI.get(v, v)), v if v in GLIBC_ABI else GLIBC_ABI.get(v, v)) for v in vers
+                       if v != "PRIVATE" and (not v.startswith("ABI_") or v in GLIBC_ABI)), reverse=True)
+        if not nums:
+            return
+        if self.max is None or nums[0][0] > self.max:
+            self.max = nums[0][0]
+        over = [n for v, n in nums if v > self.limit]
+        if over:
+            self.problems.append(f"{where}: needs GLIBC_{over[0]}" + (f" (also {', '.join(over[1:])})" if over[1:] else ""))
+
+
+def cmd_glibc(a):
+    tmp = tempfile.mkdtemp(prefix="kiln-glibc-", dir=a.tmp)
+    s = GlibcScan(a.max, tmp)
+    try:
+        paths = a.files or [os.path.join(a.dir, r) for r in release_files(a.dir)
+                            if not r.startswith(("source/", "windows/", "updates/"))]
+        top = os.path.abspath(a.dir)
+        for p in paths:
+            ap = os.path.abspath(p)
+            s.scan_top(p, os.path.relpath(ap, top) if ap.startswith(top + os.sep) else p)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print(f"glibc: limit GLIBC_{a.max}; the newest glibc symbol version each file (and everything inside it) needs:")
+    for rel, mx, n in s.rows:
+        if n:
+            print(f"  {rel:<64} {mx:>6}  ({n} ELF file{'s' if n != 1 else ''})")
+    if not any(n for _, _, n in s.rows):
+        s.problems.append("no Linux ELF files found")
+    if s.problems:
+        for p in s.problems[:200]:
+            print(f"glibc: {p}", file=sys.stderr)
+        if len(s.problems) > 200:
+            print(f"glibc: ... {len(s.problems) - 200} more", file=sys.stderr)
+        sys.exit(1)
+    print("glibc: OK")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -465,6 +612,12 @@ def main():
     o = sub.add_parser("offset")
     o.add_argument("file")
     o.set_defaults(fn=cmd_offset)
+    g = sub.add_parser("glibc")
+    g.add_argument("dir", help="a release folder (every file but source/, windows/, updates/)")
+    g.add_argument("files", nargs="*", help="only these files (paths)")
+    g.add_argument("--max", default="2.35", help="the newest GLIBC_ symbol version allowed (default 2.35: Ubuntu 22.04)")
+    g.add_argument("--tmp")
+    g.set_defaults(fn=cmd_glibc)
     a = p.parse_args()
     a.fn(a)
 

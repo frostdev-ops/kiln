@@ -17,6 +17,7 @@ Most players want the Kiln Launcher. It installs Kiln into the game, manages mod
              chmod +x @APPIMAGE@ && ./@APPIMAGE@
            Or the package: linux/@DEB@ (Debian, Ubuntu)@RPM_LINE@
            A package install is updated by downloading the next package, not by the launcher.
+           Runs on SteamOS (Steam Deck) and distros with glibc 2.35 or newer: Ubuntu 22.04+, Debian 12+, Fedora 36+.
 
   Windows  windows/@SETUP@
            Installs for your user (no administrator rights). It updates itself.
