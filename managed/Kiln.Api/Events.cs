@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Kiln.Api.Tests")]
+[assembly: InternalsVisibleTo("Kiln.Ui.Tests")]
 
 namespace Kiln;
 
@@ -15,6 +16,8 @@ namespace Kiln;
 /// class: services use it to start producing the event only once someone listens.</remarks>
 public abstract class KilnEvent
 {
+    // Services with a private dispatch thread must not also run on the tick bus.
+    internal virtual bool TickDispatchAllowed => true;
 }
 
 /// <summary>An event whose default outcome a handler can stop by setting <see cref="Canceled"/>.</summary>
@@ -141,14 +144,15 @@ public sealed class EventSubscription : IDisposable
     internal long Order { get; }
     internal object? Target { get; init; }
     internal Action<object>? Invoke { get; set; }
-    public bool Active { get; internal set; } = true;
+    private bool _active = true;
+    public bool Active { get => Volatile.Read(ref _active); internal set => Volatile.Write(ref _active, value); }
 
-    // Tick thread only (Post runs there).
+    // Also written by service dispatchers (e.g. the render thread).
     internal long Calls, TotalTicks, MaxTicks;
     internal int Faults;
 
-    public EventHandlerStats Stats => new(Calls, TotalTicks * 1000.0 / Stopwatch.Frequency,
-        MaxTicks * 1000.0 / Stopwatch.Frequency, Faults);
+    public EventHandlerStats Stats => new(Interlocked.Read(ref Calls), Interlocked.Read(ref TotalTicks) * 1000.0 / Stopwatch.Frequency,
+        Interlocked.Read(ref MaxTicks) * 1000.0 / Stopwatch.Frequency, Volatile.Read(ref Faults));
 
     public void Dispose() => Events.Remove(this);
 
@@ -269,6 +273,7 @@ public static class Events
     public static T Post<T>(T ev) where T : KilnEvent
     {
         ArgumentNullException.ThrowIfNull(ev);
+        RequireTickDispatch(ev);
         Game.AssertTickThread();
         var handlers = HandlersFor(ev.GetType());
         if (handlers.Length == 0) return ev;
@@ -300,10 +305,7 @@ public static class Events
                     Fault(sub, ev, e);
                 }
                 var ticks = Stopwatch.GetTimestamp() - start;
-                sub.Calls++;
-                sub.TotalTicks += ticks;
-                if (ticks > sub.MaxTicks) sub.MaxTicks = ticks;
-                _dispatched++;
+                RecordCall(sub, ticks);
                 if (cancelable != null && cancelable.Canceled != wasCanceled)
                     cancelable.CanceledBy = cancelable.Canceled ? sub.Owner : null;
             }
@@ -322,6 +324,7 @@ public static class Events
     public static void Enqueue(KilnEvent ev)
     {
         ArgumentNullException.ThrowIfNull(ev);
+        RequireTickDispatch(ev);
         if (Queued.Count >= 65536) throw new InvalidOperationException("more than 65536 events are waiting for the tick thread");
         Queued.Enqueue(ev);
     }
@@ -370,8 +373,33 @@ public static class Events
         /// <summary>Zeroes every handler's timing (not the fault counts).</summary>
         public static void ResetStats()
         {
-            foreach (var s in Subscriptions) s.Calls = s.TotalTicks = s.MaxTicks = 0;
+            foreach (var s in Subscriptions)
+            {
+                Interlocked.Exchange(ref s.Calls, 0);
+                Interlocked.Exchange(ref s.TotalTicks, 0);
+                Interlocked.Exchange(ref s.MaxTicks, 0);
+            }
         }
+    }
+
+    private static void RequireTickDispatch(KilnEvent ev)
+    {
+        if (!ev.TickDispatchAllowed)
+            throw new InvalidOperationException($"{ev.GetType().Name} is dispatched only by its service, not by Events.Post or Events.Enqueue");
+    }
+
+    internal static void RecordCall(EventSubscription sub, long ticks)
+    {
+        Interlocked.Increment(ref sub.Calls);
+        Interlocked.Add(ref sub.TotalTicks, ticks);
+        var max = Interlocked.Read(ref sub.MaxTicks);
+        while (ticks > max)
+        {
+            var seen = Interlocked.CompareExchange(ref sub.MaxTicks, ticks, max);
+            if (seen == max) break;
+            max = seen;
+        }
+        Interlocked.Increment(ref _dispatched);
     }
 
     internal static void Remove(EventSubscription sub)
@@ -441,9 +469,12 @@ public static class Events
     internal static void Watch(ModContext mod)
     {
         lock (Lock)
-            if (!Watched.Add(mod))
-                return;
-        mod.Retiring += () => RemoveAll(mod);
+        {
+            if (!Watched.Add(mod)) return;
+            mod.Retiring += () => RemoveAll(mod);
+            // Retire may have already taken its event snapshot before we installed the cleanup hook.
+            if (!mod.Alive) RemoveAll(mod);
+        }
     }
 
     private static EventSubscription Add(Type type, Delegate handler, EventPriority priority, bool receiveCanceled,
@@ -464,7 +495,12 @@ public static class Events
             list.Add(sub);
             ChangedLocked();
         }
-        if (mod != null) Watch(mod);
+        if (mod != null)
+        {
+            Watch(mod);
+            // The mod may have retired after the initial Alive check, even if it was already watched.
+            if (!mod.Alive) RemoveAll(mod);
+        }
         StartProducers(type);
         return sub;
     }
@@ -532,7 +568,7 @@ public static class Events
 
     private static void Fault(EventSubscription sub, KilnEvent ev, Exception e)
     {
-        sub.Faults++;
+        Interlocked.Increment(ref sub.Faults);
         var what = $"event {ev.GetType().Name}: handler {sub.Name} threw ({sub.Faults}/{MaxFaults})";
         if (sub.Mod != null) sub.Mod.Log.Error(e, what);
         else Backend.Current.Log(0, LogLevel.Error, $"{what}: {e}");

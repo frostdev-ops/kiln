@@ -71,6 +71,10 @@ int main() {
     }
     // a point exactly at the camera does not produce NaN
     { const double p[3] = {0, 0, 0}; CHECK(!project(c, p, W, H, o)); CHECK(std::isfinite(o[0]) && std::isfinite(o[1])); }
+    // Non-finite positions and invalid viewports must never be reported drawable.
+    { const double p[3] = {NAN, 0, 10}; CHECK(!project(c, p, W, H, o)); }
+    { const double p[3] = {0, 0, INFINITY}; CHECK(!project(c, p, W, H, o)); }
+    { const double p[3] = {0, 0, 10}; CHECK(!project(c, p, 0, H, o)); CHECK(!project(c, p, W, NAN, o)); }
     if (g_fail == 0) std::printf("render_math: all checks passed\n");
     return g_fail == 0 ? 0 : 1;
 }

@@ -113,6 +113,53 @@ public class RenderProjectionTests
     }
 
     [Fact]
+    public void InvalidProjectionInputsAreNotDrawable()
+    {
+        var c = At(0, 0, 0, Quaternion.Identity);
+        Assert.False(default(RenderCamera).Project(new WorldPosition(0, 0, 10), W, H, out _, out _));
+        Assert.False(c.Project(new WorldPosition(double.NaN, 0, 10), W, H, out _, out _));
+        Assert.False(c.Project(new WorldPosition(0, 0, double.PositiveInfinity), W, H, out _, out _));
+        Assert.False(c.Project(new WorldPosition(0, 0, 10), 0, H, out _, out _));
+        Assert.False(new RenderCamera(default, Quaternion.Identity, float.NaN).Valid);
+    }
+
+    [Fact]
+    public void ClampedDirectionDoesNotSaturateAtLargeCoordinates()
+    {
+        var ev = new RenderFrameEvent { Width = W, Height = H, Scale = 1, Camera = At(0, 0, 0, Quaternion.Identity) };
+        Assert.False(ev.World.ToScreenClamped(new WorldPosition(1e100, 2e100, 1), 20, out var s, out var angle));
+        Assert.Equal(MathF.Atan2(-2, 1), angle, 1e-5f);
+        Assert.Equal(20, s.Y, 0.01f);
+        Assert.True(float.IsFinite(s.X));
+    }
+
+    [Fact]
+    public void LinesAreClippedToTheVisibleFrustum()
+    {
+        var c = At(0, 0, 0, Quaternion.Identity);
+        Assert.True(RenderMath.ClipLine(c, (-1e8, 0, 10), (1e8, 0, 10), W, H, out var a, out var b));
+        Assert.Equal(0, a.X, 0.1f);
+        Assert.Equal(W, b.X, 0.1f);
+        Assert.Equal(H / 2, a.Y, 0.1f);
+        Assert.True(RenderMath.ClipLine(c, (0, 0, -10), (0, 0, 10), W, H, out a, out b));
+        Assert.Equal(new Vector2(W / 2, H / 2), a);
+        Assert.Equal(a, b);
+        Assert.False(RenderMath.ClipLine(c, (0, 0, -10), (0, 0, -1), W, H, out _, out _));
+        Assert.False(RenderMath.ClipLine(c, (100, 0, 1), (100, 5, 1), W, H, out _, out _));
+        Assert.False(RenderMath.ClipLine(c, (double.NaN, 0, 10), (0, 0, 10), W, H, out _, out _));
+    }
+
+    [Fact]
+    public void NonUnitRotationIsNormalized()
+    {
+        var unit = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2);
+        var c = At(0, 0, 0, unit * 1.2f);
+        Assert.True(c.Project(new WorldPosition(10, 0, 0), W, H, out var s, out _));
+        Assert.Equal(W / 2, s.X, 0.01f);
+        Assert.Equal(1, c.Forward.Length(), 1e-5f);
+    }
+
+    [Fact]
     public void NoCameraDrawsNothing()
     {
         var ev = new RenderFrameEvent { Width = W, Height = H, Scale = 1 };
@@ -128,7 +175,24 @@ public class RenderBudgetTests
     public void WarmUpIsFree()
     {
         var b = new RenderBudget();
-        for (var i = 0; i < RenderBudget.WarmUp; i++) Assert.Null(b.Record(500, 2));
+        for (var i = 0; i < RenderBudget.WarmUp; i++) Assert.Null(b.Record(3, 2));
+    }
+
+    [Fact]
+    public void HardStallsCountDuringWarmup()
+    {
+        var b = new RenderBudget();
+        Assert.Null(b.Record(100, 2));
+        Assert.Null(b.Record(100, 2));
+        Assert.Contains("stalled", b.Record(100, 2));
+    }
+
+    [Fact]
+    public void NanCannotDisableTheBudget()
+    {
+        var before = Render.HandlerBudgetMs;
+        Assert.Throws<ArgumentOutOfRangeException>(() => Render.HandlerBudgetMs = double.NaN);
+        Assert.Equal(before, Render.HandlerBudgetMs);
     }
 
     [Fact]
@@ -238,6 +302,79 @@ public class RenderDispatchTests
         {
             Render.HandlerBudgetMs = saved;
         }
+    }
+
+    [Fact]
+    public void RetainedFramesCannotBeDispatchedOnTheTickBus()
+    {
+        var ev = NewFrame();
+        Assert.Throws<InvalidOperationException>(() => Events.Post(ev));
+        Assert.Throws<InvalidOperationException>(() => Events.Enqueue(ev));
+    }
+
+    [Fact]
+    public void DisposedHandlersInAnOldSnapshotDoNotRun()
+    {
+        var calls = 0;
+        using var s = Events.On<RenderFrameEvent>(_ => calls++);
+        var snapshot = RenderDispatch.Handlers();
+        s.Dispose();
+        RenderDispatch.Dispatch(NewFrame(), snapshot);
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public void ThrowingStallsAreAlsoBudgeted()
+    {
+        using var s = Events.On<RenderFrameEvent>(_ =>
+        {
+            var start = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(start).TotalMilliseconds < 101) { }
+            throw new InvalidOperationException("slow failure");
+        });
+        for (var i = 0; i < 3; i++) RenderDispatch.Dispatch(NewFrame(), RenderDispatch.Handlers());
+        Assert.False(s.Active);
+    }
+
+    [Fact]
+    public void DrawingIsEnabledOnlyInsideTheHandlerOnItsThread()
+    {
+        var ev = NewFrame();
+        Assert.False(ev.Draw.Active);
+        bool activeInside = false, activeElsewhere = true;
+        using var s = Events.On<RenderFrameEvent>(e =>
+        {
+            activeInside = e.Draw.Active;
+            // Use an actual other thread: Task waits may inline queued work onto the waiting thread.
+            var worker = new Thread(() => activeElsewhere = e.Draw.Active);
+            worker.Start();
+            worker.Join();
+            throw new InvalidOperationException("test cleanup after a fault");
+        });
+        RenderDispatch.Dispatch(ev, RenderDispatch.Handlers());
+        Assert.True(activeInside);
+        Assert.False(activeElsewhere);
+        Assert.False(ev.Draw.Active);
+        Assert.Equal(1, s.Stats.Faults);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference CacheAndDisposeHandler()
+    {
+        var sub = Events.On<RenderFrameEvent>(_ => { });
+        _ = RenderDispatch.Handlers();
+        sub.Dispose();
+        return new WeakReference(sub);
+    }
+
+    [Fact]
+    public void CachedSnapshotsDoNotKeepUnloadedHandlersAlive()
+    {
+        var weak = CacheAndDisposeHandler();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Assert.False(weak.IsAlive);
     }
 
     [Fact]

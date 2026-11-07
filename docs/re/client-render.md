@@ -124,7 +124,8 @@ Used by kiln.render (`sigdb/symbols/client.d/render.json`, feature `render.camer
   camera's quaternion for the view direction (its glide pitch), which fixes the forward axis.
 - **Not in it:** `player_camera_transform` (`0x2b7900`) adds camera shake (a glider wobble) to the render camera only.
 - **Threads:** written on the main thread; presents run on the render thread, typically a frame behind. kiln.render
-  copies the camera under a sequence lock and hands every reader a whole copy.
+  copies the camera and its metadata under a mutex; readers try the mutex once and return unavailable on contention
+  rather than waiting on the render thread.
 - **To confirm in the game:** that the vertical fov reading is right (markers stay on their spot at the screen's
   edges; `Render.FieldOfViewIsHorizontal` flips it for the check) and how far behind the scene markers lag while
   turning fast.

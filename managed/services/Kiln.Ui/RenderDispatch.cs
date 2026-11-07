@@ -11,10 +11,10 @@ namespace Kiln;
 internal sealed class RenderBudget
 {
     public const int Window = 120;     // frames looked at
-    public const int WarmUp = 30;      // first calls not counted (JIT, first texture uploads)
+    public const int WarmUp = 30;      // ordinary budget grace (JIT); hard stalls always count
     public const int SlowLimit = 60;   // over budget in more than this many of the window's frames: off
     public const double StallMs = 100; // one call this long is a stall
-    public const int StallLimit = 3;   // stalls (after warm-up) before it goes off
+    public const int StallLimit = 3;   // hard stalls before it goes off
 
     private readonly bool[] _over = new bool[Window];
     private int _next, _overCount, _stalls;
@@ -37,9 +37,9 @@ internal sealed class RenderBudget
         _over[_next] = over;
         if (over) _overCount++;
         _next = (_next + 1) % Window;
-        if (_calls <= WarmUp) return null;
         if (ms >= StallMs && ++_stalls >= StallLimit)
             return $"it stalled {_stalls} frames for {StallMs:F0} ms or more (last {ms:F0} ms)";
+        if (_calls <= WarmUp) return null;
         if (_overCount > SlowLimit)
             return $"it took more than its {budgetMs:0.##} ms budget in {_overCount} of the last {Window} frames (average {AverageMs:F2} ms)";
         return null;
@@ -54,9 +54,8 @@ internal static class RenderDispatch
     private static Timer? _watch;
     private static RenderFrameEvent? _event;
     private static readonly ConditionalWeakTable<EventSubscription, RenderBudget> Budgets = new();
-    // the bus's cached array and the filter made from it, published together
-    private sealed record Filtered(EventSubscription[] Source, EventSubscription[] Handlers);
-    private static Filtered _filtered = new([], []);
+    // A strong last-snapshot cache would pin unloaded mods when no overlay/timer is running.
+    private static readonly ConditionalWeakTable<EventSubscription[], EventSubscription[]> Filtered = new();
     private static long _frames;
     private static double _lastMs, _maxMs, _avgDt = 1.0 / 60;
     private static int _disabled;
@@ -81,11 +80,7 @@ internal static class RenderDispatch
     internal static EventSubscription[] Handlers()
     {
         var src = Events.HandlersOf(typeof(RenderFrameEvent));
-        var cur = Volatile.Read(ref _filtered);
-        if (ReferenceEquals(src, cur.Source)) return cur.Handlers;
-        var next = new Filtered(src, src.Where(s => s.Type == typeof(RenderFrameEvent)).ToArray());
-        Volatile.Write(ref _filtered, next);
-        return next.Handlers;
+        return Filtered.GetValue(src, static source => source.Where(s => s.Type == typeof(RenderFrameEvent)).ToArray());
     }
 
     private static unsafe void Check()
@@ -120,7 +115,7 @@ internal static class RenderDispatch
         var subs = Handlers();
         if (subs.Length == 0)
         {
-            if (_frameHandle != 0) Check();
+            if (Volatile.Read(ref _frameHandle) != 0) Check();
             return;
         }
         var ev = _event ??= new RenderFrameEvent();
@@ -155,6 +150,7 @@ internal static class RenderDispatch
                 SynchronizationContext.SetSynchronizationContext(mod?.Scheduler.SynchronizationContext ?? outerSync);
                 var start = Stopwatch.GetTimestamp();
                 Exception? error = null;
+                ev.Draw.Begin();
                 try
                 {
                     sub.Invoke!(ev);
@@ -163,19 +159,20 @@ internal static class RenderDispatch
                 {
                     error = e;
                 }
+                finally
+                {
+                    ev.Draw.End();
+                }
                 var ticks = Stopwatch.GetTimestamp() - start;
-                sub.Calls++;
-                sub.TotalTicks += ticks;
-                if (ticks > sub.MaxTicks) sub.MaxTicks = ticks;
+                Events.RecordCall(sub, ticks);
+                var why = Budgets.GetValue(sub, _ => new RenderBudget()).Record(ticks * 1000.0 / Stopwatch.Frequency, Render.HandlerBudgetMs);
                 if (error != null)
                 {
-                    sub.Faults++;
+                    Interlocked.Increment(ref sub.Faults);
                     Log(sub, LogLevel.Error, $"render: handler {sub.Name} threw ({sub.Faults}/{Events.MaxFaults}): {error}");
                     if (sub.Faults >= Events.MaxFaults) Disable(sub, $"it threw {Events.MaxFaults} times");
-                    continue;
                 }
-                var why = Budgets.GetValue(sub, _ => new RenderBudget()).Record(ticks * 1000.0 / Stopwatch.Frequency, Render.HandlerBudgetMs);
-                if (why != null) Disable(sub, why);
+                if (sub.Active && why != null) Disable(sub, why);
             }
         }
         finally
@@ -183,9 +180,10 @@ internal static class RenderDispatch
             ModContext.CurrentMod = outer;
             SynchronizationContext.SetSynchronizationContext(outerSync);
         }
-        _lastMs = (Stopwatch.GetTimestamp() - frameStart) * 1000.0 / Stopwatch.Frequency;
-        if (_lastMs > _maxMs) _maxMs = _lastMs;
-        _frames++;
+        var ms = (Stopwatch.GetTimestamp() - frameStart) * 1000.0 / Stopwatch.Frequency;
+        Volatile.Write(ref _lastMs, ms);
+        if (ms > _maxMs) Volatile.Write(ref _maxMs, ms);
+        Interlocked.Increment(ref _frames);
     }
 
     private static void Disable(EventSubscription sub, string why)
@@ -216,7 +214,7 @@ internal static class RenderDispatch
     public static RenderStats Stats()
     {
         var st = RenderNative.ReadStatus();
-        return new RenderStats(Handlers().Length, Interlocked.Read(ref _frames), _lastMs, _maxMs, Volatile.Read(ref _disabled),
+        return new RenderStats(Handlers().Length, Interlocked.Read(ref _frames), Volatile.Read(ref _lastMs), Volatile.Read(ref _maxMs), Volatile.Read(ref _disabled),
             st is { Camera: 1 }, st is { CameraValid: 1 }, (long)(st?.CameraFrames ?? 0));
     }
 }

@@ -6,7 +6,9 @@
  * Frames
  *  - Drawing happens inside a kiln.ui frame callback (kiln_ui.h subscribe_frame): the game's render thread, once per
  *    presented frame while the overlay draws. acquire_frames asks for a frame at every present (as a HUD line would);
- *    release gives it back. With nothing acquired and nothing else on the overlay the presents pass through untouched.
+ *    release gives it back (it does not unsubscribe the callback). Before unloading, unsubscribe from outside a callback,
+ *    then release the frame handle. Unsubscribe waits for an in-flight frame callback; core owner_revoke does not clean
+ *    up these service handles. With nothing acquired and nothing else on the overlay the presents pass through untouched.
  *  - A frame that draws nothing records no GPU work (kiln.ui skips the submit when ImGui's draw data is empty), so a
  *    per-frame callback that only computes costs CPU time only.
  *  - Everything below is drawn on ImGui's background list: under every Kiln window, screen, HUD line and toast, over
@@ -40,7 +42,7 @@ enum {
 
 typedef struct KilnRenderCamera {
     uint32_t size;          /* set to sizeof(KilnRenderCamera) before calling camera() */
-    uint8_t valid;          /* a camera was written in the last 500 ms (in game; 0 in the menu, while loading) */
+    uint8_t valid;          /* a camera was written in the last 500 ms (may remain valid briefly after leaving play) */
     uint8_t available;      /* the camera hook runs on this build (feature render.camera) */
     uint8_t reserved[2];
     double position[3];     /* metres */

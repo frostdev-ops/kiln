@@ -10,16 +10,29 @@ internal static class UiModCalls
 
     public static ModContext? Caller => ModContext.CurrentMod;
 
+    internal static void RequireAlive(ModContext? mod)
+    {
+        if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+    }
+
     public static void Watch(ModContext? mod)
     {
         if (mod is null) return;
         lock (Lock)
-            if (!Watched.Add(mod)) return;
-        mod.Retiring += () =>
         {
+            if (mod.Alive && Watched.Add(mod))
+                mod.Retiring += () =>
+                {
+                    lock (Lock) Watched.Remove(mod);
+                    UiEngine.Retire(mod);
+                };
+        }
+        if (!mod.Alive)
+        {
+            // Retirement may have taken its callback snapshot before the hook above was installed.
             lock (Lock) Watched.Remove(mod);
             UiEngine.Retire(mod);
-        };
+        }
     }
 
     /// <summary>Runs <paramref name="fn"/>(<paramref name="arg"/>) as <paramref name="mod"/>; false when it threw.</summary>
@@ -101,7 +114,11 @@ internal static unsafe class UiEngine
     public static UiWindow AddWindow(UiWindow w)
     {
         UiModCalls.Watch(w.Owner);
-        lock (Lock) _windows = [.. _windows, w];
+        lock (Lock)
+        {
+            UiModCalls.RequireAlive(w.Owner);
+            _windows = [.. _windows, w];
+        }
         Recount();
         return w;
     }
@@ -119,7 +136,11 @@ internal static unsafe class UiEngine
     public static UiScreen AddScreen(UiScreen s)
     {
         UiModCalls.Watch(s.Owner);
-        lock (Lock) _screens = [.. _screens, s];
+        lock (Lock)
+        {
+            UiModCalls.RequireAlive(s.Owner);
+            _screens = [.. _screens, s];
+        }
         Recount();
         return s;
     }
@@ -143,8 +164,22 @@ internal static unsafe class UiEngine
 
     public static void TrackImage(UiImage img)
     {
-        UiModCalls.Watch(img.Owner);
-        lock (Images) Images.Add(img);
+        try
+        {
+            UiModCalls.Watch(img.Owner);
+            lock (Images)
+            {
+                UiModCalls.RequireAlive(img.Owner);
+                Images.RemoveAll(i => i.Handle == 0);
+                Images.Add(img);
+            }
+        }
+        catch
+        {
+            // The native image has already been allocated; do not orphan it if unload won the race.
+            img.Dispose();
+            throw;
+        }
     }
 
     public static HudLine AddHud(string id, HudAnchor anchor)
@@ -152,9 +187,11 @@ internal static unsafe class UiEngine
         var owner = UiModCalls.Caller;
         lock (Lock)
         {
+            UiModCalls.RequireAlive(owner);
             var existing = _hud.FirstOrDefault(h => h.Id == id);
             if (existing != null) return existing;
             UiModCalls.Watch(owner);
+            UiModCalls.RequireAlive(owner);
             var l = new HudLine(id, anchor, owner);
             _hud = [.. _hud, l];
             Recount();
@@ -202,7 +239,11 @@ internal static unsafe class UiEngine
         {
             lock (Lock) _configPages = _configPages.Where(p => p.H != h).ToArray();
         });
-        lock (Lock) _configPages = [.. _configPages, (modId, draw, owner, h)];
+        lock (Lock)
+        {
+            UiModCalls.RequireAlive(owner);
+            _configPages = [.. _configPages, (modId, draw, owner, h)];
+        }
         return h;
     }
 
@@ -730,7 +771,11 @@ internal sealed class OwnedList<T> where T : Delegate
         if (fn is null) return;
         var owner = UiModCalls.Caller;
         UiModCalls.Watch(owner);
-        lock (_lock) _items = [.. _items, (fn, owner)];
+        lock (_lock)
+        {
+            UiModCalls.RequireAlive(owner);
+            _items = [.. _items, (fn, owner)];
+        }
     }
 
     public void Remove(T? fn)

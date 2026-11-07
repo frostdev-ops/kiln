@@ -46,21 +46,9 @@ internal static unsafe class RenderNative
         public delegate* unmanaged[Cdecl]<ulong, float, float, float, float, float, float, float, float, uint, void> Image;
     }
 
-    private static Table* _table;
-    private static bool _tried;
-
-    public static Table* T
-    {
-        get
-        {
-            if (_table == null && !_tried)
-            {
-                _tried = true;
-                _table = Services.Get<Table>("kiln.render", 1);
-            }
-            return _table;
-        }
-    }
+    // Publish the completed lookup once; another thread must never observe "tried" before the pointer.
+    private static readonly Lazy<nint> TableAddress = new(() => (nint)Services.Get<Table>("kiln.render", 1));
+    public static Table* T => (Table*)TableAddress.Value;
 
     public static bool Available => T != null;
 

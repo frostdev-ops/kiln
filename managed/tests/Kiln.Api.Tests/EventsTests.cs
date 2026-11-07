@@ -49,6 +49,52 @@ public sealed class BadHandlers
 
 public sealed class EventsTests : KilnTest
 {
+    private sealed class ServiceThreadEvent : KilnEvent
+    {
+        internal override bool TickDispatchAllowed => false;
+    }
+
+    [Fact]
+    public void Service_thread_events_cannot_be_reposted_to_the_tick_bus()
+    {
+        Assert.Throws<InvalidOperationException>(() => Events.Post(new ServiceThreadEvent()));
+        Assert.Throws<InvalidOperationException>(() => Events.Enqueue(new ServiceThreadEvent()));
+        Assert.Equal(0, Events.Diagnostics.Queued);
+    }
+
+    [Fact]
+    public void Concurrent_dispatch_counters_do_not_lose_updates()
+    {
+        using var sub = Events.On<PingEvent>(_ => { });
+        var before = Events.Diagnostics.HandlerCalls;
+        Parallel.For(0, 2000, _ => Events.RecordCall(sub, 10));
+        Assert.Equal(2000, sub.Stats.Calls);
+        Assert.Equal(2000, Events.Diagnostics.HandlerCalls - before);
+        Assert.Equal(20000 * 1000.0 / System.Diagnostics.Stopwatch.Frequency, sub.Stats.TotalMs);
+        Events.Diagnostics.ResetStats();
+        Assert.Equal(0, sub.Stats.Calls);
+        Assert.Equal(0, sub.Stats.MaxMs);
+    }
+
+    [Fact]
+    public void Subscriptions_racing_retirement_are_removed()
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            var mod = NewMod("retire-race-" + i);
+            EventSubscription? subscription = null;
+            Parallel.Invoke(
+                () => As(mod, () =>
+                {
+                    try { subscription = Events.On<PingEvent>(_ => { }); }
+                    catch (InvalidOperationException) { } // retirement won the admission check
+                }),
+                mod.Retire);
+            Assert.True(subscription == null || !subscription.Active);
+            Assert.DoesNotContain(Events.Subscriptions, s => ReferenceEquals(s.Mod, mod));
+        }
+    }
+
     [Fact]
     public void Priority_then_subscription_order()
     {

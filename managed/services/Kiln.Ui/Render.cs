@@ -16,12 +16,14 @@ namespace Kiln;
 /// <c>Context.Scheduler.Post</c> (server world); post bus events with <c>Events.Enqueue</c>.</para>
 /// <para><b>Budget:</b> each handler gets <see cref="Render.HandlerBudgetMs"/> per frame. A handler that runs over it in
 /// most frames, stalls a frame for over 100 ms three times, or throws five times is turned off (logged, and a toast says
-/// which mod). Nothing can interrupt a handler that is running, so keep it short.</para>
+/// which mod). Hard stalls count during warm-up and on faults. Nothing can interrupt a handler that is running, so keep it short.</para>
 /// <para>The event object, <see cref="Draw"/> and <see cref="World"/> are reused every frame: don't keep them.</para>
 /// <para>Never posted on a dedicated server. Subscribing there is harmless.</para>
 /// </remarks>
 public sealed class RenderFrameEvent : KilnEvent
 {
+    internal override bool TickDispatchAllowed => false;
+
     // Runs when the first handler subscribes (the bus runs an event class's static constructor then).
     static RenderFrameEvent() => RenderDispatch.Start();
 
@@ -54,8 +56,8 @@ public sealed class RenderFrameEvent : KilnEvent
     /// <summary>A Kiln screen or window has the mouse and keyboard.</summary>
     public bool Capturing { get; internal set; }
 
-    /// <summary>The camera the game renders with this frame (<see cref="RenderCamera.Valid"/> false in the menu, while
-    /// loading, or when the camera is not found on this game build).</summary>
+    /// <summary>The camera the game renders with this frame (<see cref="RenderCamera.Valid"/> expires 500 ms after the last write,
+    /// or is false when the camera is not found on this game build).</summary>
     public RenderCamera Camera { get; internal set; }
 
     /// <summary>The game's screen (main menu, in game, map, ...).</summary>
@@ -75,9 +77,9 @@ public readonly struct RenderCamera
 {
     internal RenderCamera(in RenderNative.Camera c)
     {
-        Valid = c.Valid != 0;
+        Valid = c.Valid != 0 && RenderMath.ValidLens(c.FovY) && RenderMath.ValidRotation(new Quaternion(c.Qx, c.Qy, c.Qz, c.Qw));
         Position = new WorldPosition(c.X, c.Y, c.Z);
-        Rotation = new Quaternion(c.Qx, c.Qy, c.Qz, c.Qw);
+        Rotation = Valid ? Quaternion.Normalize(new Quaternion(c.Qx, c.Qy, c.Qz, c.Qw)) : Quaternion.Identity;
         FovY = c.FovY > 0 ? c.FovY : MathF.PI / 3;
         Aspect = c.Aspect;
         Near = c.Near;
@@ -90,9 +92,10 @@ public readonly struct RenderCamera
     /// <summary>A camera for tests and tools.</summary>
     public RenderCamera(WorldPosition position, Quaternion rotation, float fovY, float near = 0.1f, float distance = 0)
     {
-        Valid = true;
+        Valid = double.IsFinite(position.X) && double.IsFinite(position.Y) && double.IsFinite(position.Z) &&
+            RenderMath.ValidLens(fovY) && RenderMath.ValidRotation(rotation);
         Position = position;
-        Rotation = rotation;
+        Rotation = Valid ? Quaternion.Normalize(rotation) : Quaternion.Identity;
         FovY = fovY;
         Near = near;
         Far = 10000;
@@ -192,12 +195,19 @@ internal static class RenderMath
         return new D3(vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx));
     }
 
-    public static float NearPlane(in RenderCamera c) => c.Near is > 0.01f and < 100f ? c.Near : 0.05f;
+    public static bool ValidLens(float fov) => float.IsFinite(fov) && fov > 0 && fov < MathF.PI;
+    public static bool ValidRotation(Quaternion q) => float.IsFinite(q.LengthSquared()) && q.LengthSquared() > 1e-12f;
+
+    public static float NearPlane(in RenderCamera c) => float.IsFinite(c.Near) && c.Near > 0.01f ? c.Near : 0.05f;
 
     public static bool ProjectCamera(in RenderCamera c, double x, double y, double z, float width, float height, out Vector2 screen,
         out float depth)
     {
-        var aspect = height > 0 ? (double)width / height : 16.0 / 9.0;
+        screen = default;
+        depth = 0;
+        if (!c.Valid || !double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z) ||
+            !float.IsFinite(width) || !float.IsFinite(height) || width <= 0 || height <= 0) return false;
+        var aspect = (double)width / height;
         var t = Math.Tan(c.FovY * 0.5);
         double tx, ty;
         if (Render.FieldOfViewIsHorizontal)
@@ -217,6 +227,43 @@ internal static class RenderMath
         screen = new Vector2(Clamp(sx), Clamp(sy));
         depth = (float)z;
         return front;
+    }
+
+    // Clip in camera space before perspective division, preserving lines whose endpoints are far off screen.
+    internal static bool ClipLine(in RenderCamera c, (double X, double Y, double Z) a, (double X, double Y, double Z) b,
+        float width, float height, out Vector2 sa, out Vector2 sb)
+    {
+        sa = sb = default;
+        if (!c.Valid || width <= 0 || height <= 0 || !float.IsFinite(width) || !float.IsFinite(height) ||
+            !double.IsFinite(a.X) || !double.IsFinite(a.Y) || !double.IsFinite(a.Z) ||
+            !double.IsFinite(b.X) || !double.IsFinite(b.Y) || !double.IsFinite(b.Z)) return false;
+        var t = Math.Tan(c.FovY / 2.0);
+        var aspect = (double)width / height;
+        var horizontal = Render.FieldOfViewIsHorizontal;
+        var tx = horizontal ? t : t * aspect;
+        var ty = horizontal ? t / aspect : t;
+        var near = NearPlane(c) + 1e-6;
+        // Sequential plane clipping also avoids subtracting enormous screen coordinates after projection.
+        if (!Plane(ref a, ref b, a.Z - near, b.Z - near) ||
+            !Plane(ref a, ref b, a.X + a.Z * tx, b.X + b.Z * tx) ||
+            !Plane(ref a, ref b, a.Z * tx - a.X, b.Z * tx - b.X) ||
+            !Plane(ref a, ref b, a.Y + a.Z * ty, b.Y + b.Z * ty) ||
+            !Plane(ref a, ref b, a.Z * ty - a.Y, b.Z * ty - b.Y)) return false;
+        return ProjectCamera(c, a.X, a.Y, a.Z, width, height, out sa, out _) &&
+            ProjectCamera(c, b.X, b.Y, b.Z, width, height, out sb, out _);
+    }
+
+    private static bool Plane(ref (double X, double Y, double Z) a, ref (double X, double Y, double Z) b, double da, double db)
+    {
+        if (!double.IsFinite(da) || !double.IsFinite(db) || (da < 0 && db < 0)) return false;
+        if ((da < 0) == (db < 0)) return true;
+        // Scale the distances before dividing so da-db cannot overflow.
+        var scale = Math.Max(Math.Abs(da), Math.Abs(db));
+        var t = (da / scale) / (da / scale - db / scale);
+        var cut = (a.X * (1 - t) + b.X * t, a.Y * (1 - t) + b.Y * t, a.Z * (1 - t) + b.Z * t);
+        if (da < 0) a = cut;
+        else b = cut;
+        return true;
     }
 
     private static float Clamp(double v) => double.IsFinite(v) ? (float)Math.Clamp(v, -1e7, 1e7) : (v < 0 ? -1e7f : 1e7f);
@@ -246,7 +293,11 @@ public sealed unsafe class RenderDraw
 {
     internal RenderDraw() { }
 
-    private static RenderNative.Table* T => RenderNative.T;
+    private int _thread;
+    internal bool Active => Volatile.Read(ref _thread) == Environment.CurrentManagedThreadId;
+    internal void Begin() => Volatile.Write(ref _thread, Environment.CurrentManagedThreadId);
+    internal void End() => Volatile.Write(ref _thread, 0);
+    private RenderNative.Table* T => Active ? RenderNative.T : null;
 
     public void Line(float x0, float y0, float x1, float y1, Color color, float thickness = 1)
     {
@@ -381,11 +432,14 @@ public sealed class WorldDraw
     {
         screen = new Vector2(_frame.Width / 2, _frame.Height / 2);
         angle = MathF.PI / 2;
-        if (!Ready) return false;
+        if (!Ready || !float.IsFinite(margin) || !float.IsFinite(_frame.Width) || !float.IsFinite(_frame.Height) ||
+            _frame.Width <= 0 || _frame.Height <= 0) return false;
         var (x, y, z) = Cam.ToCameraSpace(p);
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z)) return false;
         var front = RenderMath.ProjectCamera(Cam, x, y, z, _frame.Width, _frame.Height, out var s, out _);
         var c = new Vector2(_frame.Width / 2, _frame.Height / 2);
-        var half = new Vector2(MathF.Max(1, c.X - margin), MathF.Max(1, c.Y - margin));
+        margin = Math.Clamp(margin, 0, MathF.Min(c.X, c.Y));
+        var half = new Vector2(c.X - margin, c.Y - margin);
         if (front && MathF.Abs(s.X - c.X) <= half.X && MathF.Abs(s.Y - c.Y) <= half.Y)
         {
             screen = s;
@@ -394,8 +448,8 @@ public sealed class WorldDraw
             return true;
         }
         // direction in pixel space (y down); behind the camera the camera-space x/y still say which side it lies on
-        var d = front ? s - c : new Vector2((float)x, (float)-y);
-        if (d.LengthSquared() < 1e-9f) d = new Vector2(0, 1);
+        var length = Math.Max(Math.Abs(x), Math.Abs(y));
+        var d = length > 1e-12 ? new Vector2((float)(x / length), (float)(-y / length)) : new Vector2(0, 1);
         var k = MathF.Min(half.X / MathF.Max(MathF.Abs(d.X), 1e-6f), half.Y / MathF.Max(MathF.Abs(d.Y), 1e-6f));
         screen = c + d * k;
         angle = MathF.Atan2(d.Y, d.X);
@@ -485,19 +539,8 @@ public sealed class WorldDraw
 
     private void CameraLine((double X, double Y, double Z) a, (double X, double Y, double Z) b, Color color, float thickness)
     {
-        double near = RenderMath.NearPlane(Cam) + 0.01;
-        if (a.Z < near && b.Z < near) return;
-        if (a.Z < near) a = Cut(a, b, near);
-        else if (b.Z < near) b = Cut(b, a, near);
-        RenderMath.ProjectCamera(Cam, a.X, a.Y, a.Z, _frame.Width, _frame.Height, out var sa, out _);
-        RenderMath.ProjectCamera(Cam, b.X, b.Y, b.Z, _frame.Width, _frame.Height, out var sb, out _);
-        D.Line(sa, sb, color, thickness);
-    }
-
-    private static (double X, double Y, double Z) Cut((double X, double Y, double Z) behind, (double X, double Y, double Z) front, double near)
-    {
-        var t = (near - behind.Z) / (front.Z - behind.Z);
-        return (behind.X + (front.X - behind.X) * t, behind.Y + (front.Y - behind.Y) * t, near);
+        if (RenderMath.ClipLine(Cam, a, b, _frame.Width, _frame.Height, out var sa, out var sb))
+            D.Line(sa, sb, color, thickness);
     }
 
     /// <summary>The edges of an axis-aligned box between two corners.</summary>
@@ -552,13 +595,19 @@ public static class Render
     /// most of the last 120 frames turns the handler off.</summary>
     public static double HandlerBudgetMs
     {
-        get => _budgetMs;
-        set => _budgetMs = Math.Clamp(value, 0.1, 100);
+        get => Volatile.Read(ref _budgetMs);
+        set
+        {
+            if (!double.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value), "The render budget must be finite");
+            Volatile.Write(ref _budgetMs, Math.Clamp(value, 0.1, 100));
+        }
     }
+
+    private static bool _horizontal;
 
     /// <summary>Calibration: read the camera's field of view as horizontal instead of vertical. For checking the
     /// projection on a game build where markers drift towards the screen's edges; leave it off otherwise.</summary>
-    public static bool FieldOfViewIsHorizontal { get; set; }
+    public static bool FieldOfViewIsHorizontal { get => Volatile.Read(ref _horizontal); set => Volatile.Write(ref _horizontal, value); }
 
     /// <summary>Frame diagnostics.</summary>
     public static RenderStats Stats => RenderDispatch.Stats();

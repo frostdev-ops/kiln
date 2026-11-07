@@ -32,7 +32,8 @@ pixels, and markers, labels, lines, boxes and rings at world positions that foll
 > `Client.Post` to act on the game. Keep it fast: a handler gets 2 ms per frame. One that is too slow in most frames,
 > or throws five times, is turned off. Your log says why, and a toast names your mod.
 >
-> **No cost when unused.** When nothing subscribes, Kiln adds nothing to the game's frames.
+> **No requested overlay frames when unused.** With no subscribers, render events do not request frames. The camera
+> hook and periodic subscription checks still run; Kiln windows and HUD can independently request overlay frames.
 
 ## Sample mod blurb (samples list)
 > **Render sample** (`rendersample`, client): an FPS counter, a compass strip, and waypoints. Ctrl+J drops a waypoint
@@ -40,7 +41,7 @@ pixels, and markers, labels, lines, boxes and rings at world positions that foll
 
 ## Native plugins (C API page)
 > `kiln_render.h` (`kiln.render` v1): drawing calls for a kiln.ui frame callback, `acquire_frames` / `release`, and
-> `camera` / `world_to_screen` (any thread).
+> `camera` / `world_to_screen` (any thread). Unsubscribe frame callbacks and release frame demand before unloading.
 
 ## Known limits to mention
 - Client only. World drawing needs the game's camera, which Kiln finds on the current game build. On an unknown build

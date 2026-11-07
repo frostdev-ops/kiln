@@ -6,11 +6,25 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 
 #include "kiln_api.h"
 #include "services/kiln_ui.h"
 
 namespace kui {
+
+// Snapshots hold this state, not a bare callback. Unsubscribe cancels queued calls and waits for an in-flight call
+// before the plugin may unload. A callback may unsubscribe itself (the gate is recursive).
+struct CallbackLifetime {
+    std::recursive_mutex gate;
+    std::atomic<bool> active{true};
+    std::unique_lock<std::recursive_mutex> drain(bool nonblocking = false) {
+        std::unique_lock lock(gate, std::defer_lock);
+        if (nonblocking && !lock.try_lock()) return lock;
+        if (!nonblocking) lock.lock();
+        return lock;
+    }
+};
 
 extern const KilnApi* g_api;
 extern KilnOwner g_owner;

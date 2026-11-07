@@ -9,8 +9,10 @@
 #include <cstring>
 #include <filesystem>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
@@ -42,22 +44,25 @@ float g_style_scale = 0;
 std::string g_ini_path;
 bool g_imgui = false;
 thread_local bool t_in_frame = false;
+thread_local CallbackLifetime* t_callback = nullptr;
 
-struct FrameSub {
+struct FrameSub : CallbackLifetime {
     KilnHandle handle;
     KilnOwner owner;
     KilnUiFrameFn fn;
     void* user;
 };
-struct KeySub {
+struct KeySub : CallbackLifetime {
     KilnHandle handle;
     KilnOwner owner;
     KilnUiKeyFn fn;
     void* user;
 };
 std::mutex g_sub_mu;
-std::vector<FrameSub> g_frame_subs;
-std::vector<KeySub> g_key_subs;
+std::vector<std::shared_ptr<FrameSub>> g_frame_subs;
+std::vector<std::shared_ptr<KeySub>> g_key_subs;
+// Keep canceled calls discoverable while another thread drains them (including self-unsubscribe during cleanup).
+std::unordered_map<KilnHandle, std::shared_ptr<CallbackLifetime>> g_retiring_subs;
 
 SafetyHookInline g_load_library;
 using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
@@ -219,17 +224,24 @@ bool build_frame(float width, float height, float dpi) {
     f.menu_open = g_menu_open.load() ? 1 : 0;
     f.capturing = capturing() ? 1 : 0;
     f.frame = ++g_frame_no;
-    std::vector<FrameSub> subs;
+    std::vector<std::shared_ptr<FrameSub>> subs;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
         subs = g_frame_subs;
     }
     t_in_frame = true;
     for (const auto& s : subs) {
-        if (!guarded_frame(s.fn, &f, s.user)) {
+        std::lock_guard call(s->gate);
+        if (!s->active.load(std::memory_order_acquire)) continue;
+        auto* outer = t_callback;
+        t_callback = s.get();
+        const bool ok = guarded_frame(s->fn, &f, s->user);
+        t_callback = outer;
+        if (!ok) {
+            s->active.store(false, std::memory_order_release);
             set_error("a frame callback faulted; removed");
             std::lock_guard<std::mutex> lk(g_sub_mu);
-            std::erase_if(g_frame_subs, [&](const FrameSub& x) { return x.handle == s.handle; });
+            std::erase_if(g_frame_subs, [&](const auto& x) { return x == s; });
         }
     }
     if (f.menu_open && subs.empty()) fallback_menu();
@@ -252,18 +264,25 @@ bool dispatch_key(const KilnUiKey& key) {
         g_menu_open = false;
         return true;
     }
-    std::vector<KeySub> subs;
+    std::vector<std::shared_ptr<KeySub>> subs;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
         subs = g_key_subs;
     }
     bool consumed = false;
     for (const auto& s : subs) {
+        std::lock_guard call(s->gate);
+        if (!s->active.load(std::memory_order_acquire)) continue;
         bool c = false;
-        if (!guarded_key(s.fn, &key, s.user, &c)) {
+        auto* outer = t_callback;
+        t_callback = s.get();
+        const bool ok = guarded_key(s->fn, &key, s->user, &c);
+        t_callback = outer;
+        if (!ok) {
+            s->active.store(false, std::memory_order_release);
             set_error("a key callback faulted; removed");
             std::lock_guard<std::mutex> lk(g_sub_mu);
-            std::erase_if(g_key_subs, [&](const KeySub& x) { return x.handle == s.handle; });
+            std::erase_if(g_key_subs, [&](const auto& x) { return x == s; });
             continue;
         }
         consumed |= c;
@@ -300,7 +319,12 @@ KilnResult KILN_CALL t_subscribe_frame(KilnOwner owner, KilnUiFrameFn fn, void* 
     if (!fn) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard<std::mutex> lk(g_sub_mu);
     const KilnHandle h = next_handle();
-    g_frame_subs.push_back({h, owner, fn, user});
+    auto sub = std::make_shared<FrameSub>();
+    sub->handle = h;
+    sub->owner = owner;
+    sub->fn = fn;
+    sub->user = user;
+    g_frame_subs.push_back(std::move(sub));
     if (out) *out = h;
     return KILN_OK;
 }
@@ -309,19 +333,48 @@ KilnResult KILN_CALL t_subscribe_key(KilnOwner owner, KilnUiKeyFn fn, void* user
     if (!fn) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard<std::mutex> lk(g_sub_mu);
     const KilnHandle h = next_handle();
-    g_key_subs.push_back({h, owner, fn, user});
+    auto sub = std::make_shared<KeySub>();
+    sub->handle = h;
+    sub->owner = owner;
+    sub->fn = fn;
+    sub->user = user;
+    g_key_subs.push_back(std::move(sub));
     if (out) *out = h;
     return KILN_OK;
 }
 
 KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
+    std::shared_ptr<CallbackLifetime> removed;
+    {
+        std::lock_guard<std::mutex> lk(g_sub_mu);
+        const auto erase = [&](const auto& s) {
+            if (s->handle != h) return false;
+            s->active.store(false, std::memory_order_release);
+            removed = s;
+            g_retiring_subs[h] = s;
+            return true;
+        };
+        std::erase_if(g_frame_subs, erase);
+        std::erase_if(g_key_subs, erase);
+        if (!removed) {
+            const auto it = g_retiring_subs.find(h);
+            if (it != g_retiring_subs.end()) removed = it->second;
+        }
+    }
+    // Never wait under g_sub_mu: the callback may itself subscribe/unsubscribe.
+    if (removed) {
+        // Two callbacks canceling one another must not deadlock their threads. Retry from the cleanup thread.
+        auto drain = removed->drain(t_callback != nullptr);
+        if (!drain.owns_lock()) return KILN_ERR_WRONG_THREAD;
+        std::lock_guard lk(g_sub_mu);
+        g_retiring_subs.erase(h);
+        return KILN_OK;
+    }
     if (game_unsubscribe(h)) return KILN_OK;  // menu entries, screen and UI-tick subscriptions
-    if (vk_unsubscribe(h)) return KILN_OK;    // pre-overlay subscriptions
-    std::lock_guard<std::mutex> lk(g_sub_mu);
-    const size_t n = g_frame_subs.size() + g_key_subs.size();
-    std::erase_if(g_frame_subs, [&](const FrameSub& s) { return s.handle == h; });
-    std::erase_if(g_key_subs, [&](const KeySub& s) { return s.handle == h; });
-    return g_frame_subs.size() + g_key_subs.size() < n ? KILN_OK : KILN_ERR_NOT_FOUND;
+    // Frame callbacks run under Vulkan's mutex. Look up local handles first to avoid recursively locking it.
+    if (t_in_frame) return KILN_ERR_WRONG_THREAD;
+    if (vk_unsubscribe(h)) return KILN_OK;
+    return KILN_ERR_NOT_FOUND;
 }
 
 void KILN_CALL t_set_demand(uint32_t n) { g_demand = n; }

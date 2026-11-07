@@ -38,12 +38,12 @@ struct CamData {
     float distance, fov_y, aspect, near_plane, far_plane;
 };
 
-// One writer (the game's main thread), readers on any thread: a sequence lock.
-std::atomic<uint32_t> g_cam_seq{0};
+// Copy data and its metadata under the same lock. Readers never wait on the render thread.
+std::mutex g_cam_mu;
 CamData g_cam{};
 std::atomic<uint64_t> g_cam_frames{0}, g_cam_ms{0};
 std::atomic<uint64_t> g_draws{0};
-bool g_cam_on = false;
+std::atomic<bool> g_cam_on{false};
 SafetyHookMid g_cam_hook;
 std::atomic<bool> g_cam_logged{false};
 constexpr double kFixed = 1.0 / 4294967296.0;  // WorldPosition: metres in 32.32 fixed point
@@ -51,10 +51,7 @@ constexpr uint64_t kCamFreshMs = 500;
 
 bool read_cam(const uint8_t* cpi, CamData* out) {
     __try {
-        const auto* raw = reinterpret_cast<const int64_t*>(cpi + L.cpi_camera);
-        out->pos[0] = raw[0];
-        out->pos[1] = raw[1];
-        out->pos[2] = raw[2];
+        std::memcpy(out->pos, cpi + L.cpi_camera, sizeof out->pos);
         std::memcpy(out->rot, cpi + L.rotation, sizeof out->rot);
         std::memcpy(&out->distance, cpi + L.distance, 4);
         std::memcpy(&out->fov_y, cpi + L.fov_y, 4);
@@ -79,7 +76,9 @@ bool finite_cam(const CamData& d) {
     for (float f : d.rot)
         if (!std::isfinite(f)) return false;
     const float len = d.rot[0] * d.rot[0] + d.rot[1] * d.rot[1] + d.rot[2] * d.rot[2] + d.rot[3] * d.rot[3];
-    return len > 0.5f && len < 2.0f && std::isfinite(d.fov_y);
+    const float fov = krender::fov_radians(d.fov_y);
+    return len > 0.5f && len < 2.0f && std::isfinite(d.fov_y) && d.fov_y > 0 &&
+           fov > 0 && fov < 3.14159265f && std::isfinite(d.distance);
 }
 
 // Main thread, after the client wrote ClientPlayerInput.camera: rbp = the client game, r14 = the local player's
@@ -88,11 +87,14 @@ void hk_camera(safetyhook::Context& c) {
     if (!c.rbp || !c.r14 || !cam_obj_present(c.rbp)) return;  // no camera object: nothing was written this frame
     CamData d;
     if (!read_cam(reinterpret_cast<const uint8_t*>(c.r14), &d) || !finite_cam(d)) return;
-    g_cam_seq.fetch_add(1, std::memory_order_acq_rel);  // odd: writing
-    g_cam = d;
-    g_cam_seq.fetch_add(1, std::memory_order_release);  // even: done
-    g_cam_frames.fetch_add(1, std::memory_order_relaxed);
-    g_cam_ms.store(GetTickCount64(), std::memory_order_relaxed);
+    const float norm = std::sqrt(d.rot[0] * d.rot[0] + d.rot[1] * d.rot[1] + d.rot[2] * d.rot[2] + d.rot[3] * d.rot[3]);
+    for (float& r : d.rot) r /= norm;
+    {
+        std::lock_guard lk(g_cam_mu);
+        g_cam = d;
+        g_cam_frames.fetch_add(1, std::memory_order_relaxed);
+        g_cam_ms.store(GetTickCount64(), std::memory_order_relaxed);
+    }
     if (!g_cam_logged.exchange(true))
         logf(KILN_LOG_INFO, "render: first camera at (%.1f, %.1f, %.1f) m, rotation (%.3f, %.3f, %.3f, %.3f), fov %g, aspect %g, "
              "near %g, far %g, distance %g", d.pos[0] * kFixed, d.pos[1] * kFixed, d.pos[2] * kFixed, d.rot[0], d.rot[1],
@@ -101,21 +103,13 @@ void hk_camera(safetyhook::Context& c) {
 
 bool snapshot(CamData* out, uint64_t* frames, uint64_t* age) {
     if (!g_cam_on || g_cam_frames.load(std::memory_order_relaxed) == 0) return false;
-    for (int i = 0; i < 8; ++i) {
-        const uint32_t s0 = g_cam_seq.load(std::memory_order_acquire);
-        if (s0 & 1) {
-            YieldProcessor();
-            continue;
-        }
-        CamData d = g_cam;
-        std::atomic_thread_fence(std::memory_order_acquire);
-        if (g_cam_seq.load(std::memory_order_relaxed) != s0) continue;
-        *out = d;
-        *frames = g_cam_frames.load(std::memory_order_relaxed);
-        *age = GetTickCount64() - g_cam_ms.load(std::memory_order_relaxed);
-        return true;
-    }
-    return false;
+    std::unique_lock lk(g_cam_mu, std::try_to_lock);
+    if (!lk.owns_lock()) return false;
+    *out = g_cam;
+    *frames = g_cam_frames.load(std::memory_order_relaxed);
+    const uint64_t now = GetTickCount64(), written = g_cam_ms.load(std::memory_order_relaxed);
+    *age = now >= written ? now - written : 0;
+    return true;
 }
 
 bool math_camera(krender::Camera* m, uint64_t* age_out = nullptr) {
@@ -165,6 +159,7 @@ KilnResult KILN_CALL t_status(KilnRenderStatus* out) {
 }
 
 KilnResult KILN_CALL t_acquire(KilnOwner owner, KilnHandle* out) {
+    if (!out) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard lk(g_mu);
     const KilnHandle h = next_handle();
     g_holders.push_back({h, owner});
@@ -220,12 +215,12 @@ bool KILN_CALL t_world_to_screen(const double world[3], float w, float h, float 
 }
 
 void KILN_CALL t_line(float x0, float y0, float x1, float y1, uint32_t rgba, float th) {
-    if (!sane2(x0, y0) || !sane2(x1, y1)) return;
+    if (!sane2(x0, y0) || !sane2(x1, y1) || !sane(th)) return;
     if (ImDrawList* d = dl()) d->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), col(rgba), th > 0 ? th : 1.0f);
 }
 
 void KILN_CALL t_rect(float x0, float y0, float x1, float y1, uint32_t rgba, float rounding, float th, int32_t filled) {
-    if (!sane2(x0, y0) || !sane2(x1, y1)) return;
+    if (!sane2(x0, y0) || !sane2(x1, y1) || !sane(rounding) || !sane(th)) return;
     ImDrawList* d = dl();
     if (!d) return;
     if (filled) d->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col(rgba), rounding);
@@ -233,7 +228,7 @@ void KILN_CALL t_rect(float x0, float y0, float x1, float y1, uint32_t rgba, flo
 }
 
 void KILN_CALL t_circle(float x, float y, float r, uint32_t rgba, int32_t seg, float th, int32_t filled) {
-    if (!sane2(x, y) || !sane(r) || r <= 0) return;
+    if (!sane2(x, y) || !sane(r) || r <= 0 || !sane(th)) return;
     ImDrawList* d = dl();
     if (!d) return;
     seg = std::clamp(seg, 0, 256);
@@ -242,7 +237,7 @@ void KILN_CALL t_circle(float x, float y, float r, uint32_t rgba, int32_t seg, f
 }
 
 void KILN_CALL t_triangle(float x0, float y0, float x1, float y1, float x2, float y2, uint32_t rgba, float th, int32_t filled) {
-    if (!sane2(x0, y0) || !sane2(x1, y1) || !sane2(x2, y2)) return;
+    if (!sane2(x0, y0) || !sane2(x1, y1) || !sane2(x2, y2) || !sane(th)) return;
     ImDrawList* d = dl();
     if (!d) return;
     if (filled) d->AddTriangleFilled(ImVec2(x0, y0), ImVec2(x1, y1), ImVec2(x2, y2), col(rgba));
@@ -250,7 +245,7 @@ void KILN_CALL t_triangle(float x0, float y0, float x1, float y1, float x2, floa
 }
 
 void KILN_CALL t_polyline(const float* xy, uint32_t count, uint32_t rgba, float th, int32_t closed, int32_t filled) {
-    if (!xy || count < 2 || count > 4096) return;
+    if (!in_frame() || !xy || count < 2 || count > 4096 || !sane(th)) return;
     thread_local std::vector<ImVec2> pts;
     pts.clear();
     for (uint32_t i = 0; i < count; ++i) {

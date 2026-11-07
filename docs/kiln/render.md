@@ -59,7 +59,7 @@ bytes) and show from the frame after loading; the mod's images are freed when it
 `ToScreenClamped(p, margin, out pixel, out angle)` (off screen or behind: on the edge, in its direction),
 `Marker(p, color, size, MarkerShape)` (`Diamond`, `Circle`, `Square`, `Triangle`, `Cross`), `Label(p, text)`,
 `Icon(p, image, size)`, `Line(a, b)`, `Box(min, max)` / `Box(center, size)`, `Circle(center, radius)`. Points behind the
-camera are not drawn; lines, boxes and rings are cut at the near plane, so the part in front still shows.
+camera are not drawn; lines, boxes and rings are clipped to the near plane and viewport, so visible segments still show.
 
 ### `RenderCamera`
 `Valid`, `Position`, `Rotation` (quaternion, camera space to world), `Forward` / `Right` / `Up`, `Heading` (degrees: 0
@@ -78,22 +78,26 @@ frame, not on the tick thread. It runs on the bus's subscriptions: `Events.On`, 
 runs as its mod, and every subscription ends when the mod unloads. In a handler:
 - read what your mod keeps (copies, immutable snapshots swapped whole); don't touch game state;
 - act with `Client.Post` (client world, main thread) or `Context.Scheduler.Post` (server world when hosting);
-- post bus events with `Events.Enqueue` (`Events.Post` is for the tick thread and throws here);
+- post other bus events with `Events.Enqueue` (`Events.Post` is for the tick thread and throws here); render frame events
+  themselves cannot be reposted through either method;
 - don't keep `e`, `e.Draw` or `e.World`: they are reused next frame. Drawing outside the handler does nothing.
+
+Managed unsubscribe and unload do not wait for a handler that dispatch has already admitted. `OnUnload` can overlap
+that final call, so use snapshots and coordinate disposal of resources you own.
 
 A handler of a base class (`KilnEvent`) does not get render frames; subscribe to `RenderFrameEvent` itself.
 
 ## Cost
-- Nobody subscribed: no frame is asked for; the game's presents pass through untouched (as without Kiln's overlay).
+- Nobody subscribed: render events request no overlay frames. Existing Kiln windows and HUD can still request frames.
+  The camera hook still copies the camera on client updates, and the subscription timer still checks periodically.
 - Subscribed: one overlay frame per present. A frame in which nothing is drawn records no GPU work; drawing adds one
   render pass over the swapchain image (the same pass Kiln's HUD and windows use).
-- Checking whether to post costs two memory reads; the overlay's frame wish follows subscriptions within a quarter
-  second.
+- Dispatch reuses cached subscription arrays; the overlay's frame demand follows subscriptions within a quarter second.
 
 ## Safety: the budget
 Nothing can stop a handler that is running, so a slow one is turned off instead:
-- over `Render.HandlerBudgetMs` (2 ms) in more than 60 of the last 120 frames, or three frames of 100 ms or more (the
-  first 30 calls are not counted: JIT, first uploads);
+- over `Render.HandlerBudgetMs` (2 ms) in more than 60 of the last 120 frames (the first 30 calls have grace for JIT and
+  initial uploads), or three calls of 100 ms or more, including warm-up and throwing calls;
 - five exceptions (like the bus).
 The handler is unsubscribed, the mod's log says why, and a toast names the mod. Other handlers keep running. Handler
 times show in `Events.Diagnostics.Handlers` like any bus handler.
@@ -106,13 +110,17 @@ one's). Full-screen colour effects (`ScreenEffects`, [services/screen.md](servic
 ## The camera
 The camera is the local player's view as the client writes it each frame (position, rotation, field of view), read by a
 hook on the game's main thread (feature `render.camera`). Points drawn this way follow the scene; camera shake (a glider's
-wobble) is not in it, so markers may tremble a little against the scene there. Not valid in the main menu and while
-loading. On a game build where the camera is not found, `Render.CameraAvailable` is false, `Camera.Valid` stays false and
-world drawing does nothing; screen drawing still works.
+wobble) is not in it, so markers may tremble a little against the scene there. The camera expires 500 ms after its last
+write, including when returning to the main menu or loading. On a game build where the camera is not found,
+`Render.CameraAvailable` is false, `Camera.Valid` stays false and world drawing does nothing; screen drawing still works.
 
 ## C (native plugins)
 `kiln_render.h`: draw inside a kiln.ui frame callback (`kiln_ui.h` `subscribe_frame`); call `acquire_frames` so a frame
-happens at every present while you draw, and `release` before unloading.
+happens at every present while you draw. Before unloading, unsubscribe the frame callback with `ui->unsubscribe(sub)`
+from your cleanup thread (outside callbacks), then call `r->release(frames)`. Unsubscribe cancels pending callbacks and
+waits for an in-flight callback to finish; releasing frame demand alone does not unsubscribe it. These service handles
+require explicit cleanup; core owner revocation does not remove them. A callback trying to unsubscribe a different
+callback that is currently running gets `KILN_ERR_WRONG_THREAD`; retry from the cleanup thread.
 ```c
 #define S(x) (KilnStr){x, sizeof(x) - 1}
 const KilnUiApi* ui = api->service(S(KILN_UI_SERVICE), 1);

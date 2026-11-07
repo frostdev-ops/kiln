@@ -21,10 +21,10 @@ public sealed class RenderSampleMod : Mod
 
     private static readonly Color[] Palette = [Color.Orange, Color.Cyan, Color.Green, Color.Yellow, new(230, 120, 230)];
 
-    // written on the main thread (key handlers), read on the render thread: swapped whole
-    private ImmutableArray<Waypoint> _points = [];
+    // Only the main thread writes; the render thread reads one published reference for the whole frame.
+    private sealed record WaypointsState(uint Session, ImmutableArray<Waypoint> Points);
+    private WaypointsState _waypoints = new(0, []);
     private volatile bool _visible = true;
-    private uint _session;
     private int _next = 1;
     private UiImage? _pin;
     private float _frameMs;
@@ -37,6 +37,7 @@ public sealed class RenderSampleMod : Mod
             return;
         }
         _pin = Ui.LoadImage(Path.Combine(Context.Info.Directory, "waypoint.png"));
+        Client.Tick += OnTick;
         Events.On<RenderFrameEvent>(OnFrame);
         KeyBindings.Register("rendersample.mark", "Ctrl+J", Mark, "Drop a waypoint where the character stands");
         KeyBindings.Register("rendersample.unmark", "Ctrl+Shift+J", Unmark, "Remove the nearest waypoint");
@@ -53,8 +54,23 @@ public sealed class RenderSampleMod : Mod
 
     // ---- main thread (key handlers) ----
 
+    private void OnTick(in TickInfo _) => CheckSession();
+
+    private WaypointsState CheckSession()
+    {
+        var session = Client.ClientWorldSession;
+        var state = Volatile.Read(ref _waypoints);
+        if (state.Session != session)
+        {
+            state = new WaypointsState(session, []);
+            Volatile.Write(ref _waypoints, state);
+        }
+        return state;
+    }
+
     private void Mark()
     {
+        var state = CheckSession();
         var cam = Render.Camera;
         if (!cam.Valid)
         {
@@ -65,17 +81,18 @@ public sealed class RenderSampleMod : Mod
         feet = feet with { Y = feet.Y - 1.6 };
         var wp = new Waypoint($"Waypoint {_next}", feet, Palette[(_next - 1) % Palette.Length]);
         _next++;
-        _points = _points.Add(wp);
+        Volatile.Write(ref _waypoints, state with { Points = state.Points.Add(wp) });
         Hud.Toast($"{wp.Name} at {wp.At}", ToastKind.Success, 2);
         Log.Info($"rendersample: {wp.Name} at {wp.At} (camera {cam.Position}, heading {cam.Heading:F0})");
     }
 
     private void Unmark()
     {
+        var state = CheckSession();
         var cam = Render.Camera;
-        if (_points.IsEmpty) return;
-        var nearest = _points.MinBy(p => p.At.DistanceTo(cam.Position))!;
-        _points = _points.Remove(nearest);
+        if (state.Points.IsEmpty) return;
+        var nearest = state.Points.MinBy(p => p.At.DistanceTo(cam.Position))!;
+        Volatile.Write(ref _waypoints, state with { Points = state.Points.Remove(nearest) });
         Hud.Toast($"{nearest.Name} removed", ToastKind.Info, 2);
     }
 
@@ -94,11 +111,7 @@ public sealed class RenderSampleMod : Mod
 
     private void OnFrame(RenderFrameEvent e)
     {
-        if (Client.ClientWorldSession != _session)
-        {
-            _session = Client.ClientWorldSession;  // a new world: the old waypoints belong to another map
-            if (!_points.IsEmpty) _points = [];
-        }
+        var state = Volatile.Read(ref _waypoints);
         if (!_visible) return;
         _frameMs += (e.DeltaSeconds * 1000 - _frameMs) * 0.1f;
         var s = e.Scale;
@@ -106,7 +119,7 @@ public sealed class RenderSampleMod : Mod
         e.Draw.Text(14 * s, 12 * s, $"{e.Fps:F0} fps  {_frameMs:F1} ms", Color.White);
         if (!e.Camera.Valid) return;  // menu or loading: nothing in the world to point at
         Compass(e);
-        Waypoints(e);
+        if (state.Session == Client.ClientWorldSession) Waypoints(e, state.Points);
     }
 
     private static void Compass(RenderFrameEvent e)
@@ -128,10 +141,10 @@ public sealed class RenderSampleMod : Mod
         e.Draw.Triangle(new(cx - 5 * s, top + h + 6 * s), new(cx + 5 * s, top + h + 6 * s), new(cx, top + h), Color.Orange, 1.5f * s);
     }
 
-    private void Waypoints(RenderFrameEvent e)
+    private void Waypoints(RenderFrameEvent e, ImmutableArray<Waypoint> points)
     {
         var s = e.Scale;
-        foreach (var p in _points)
+        foreach (var p in points)
         {
             var dist = e.World.DistanceTo(p.At);
             e.World.Circle(p.At, 1.5, p.Color.WithAlpha(200), 2 * s);

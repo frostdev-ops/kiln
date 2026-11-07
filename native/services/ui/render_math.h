@@ -45,6 +45,11 @@ inline float fov_radians(float fov) {
 inline bool project_camera(const Camera& c, const double v[3], float width, float height, float out[3]) {
     const double t = std::tan(static_cast<double>(c.fov_y) * 0.5);
     const double aspect = height > 0 ? static_cast<double>(width) / height : 16.0 / 9.0;
+    out[0] = out[1] = out[2] = 0;
+    if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0 ||
+        !std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2]) ||
+        !std::isfinite(c.fov_y) || c.fov_y <= 0 || c.fov_y >= 3.14159265f ||
+        !std::isfinite(c.near_plane) || c.near_plane <= 0) return false;
     double z = v[2];
     const bool front = z > c.near_plane;
     if (std::fabs(z) < 1e-6) z = z < 0 ? -1e-6 : 1e-6;
