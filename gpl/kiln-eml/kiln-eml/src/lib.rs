@@ -12,7 +12,7 @@ pub mod discover;
 pub mod logging;
 pub mod runner;
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod plugin;
 
 /// kiln-eml's own version.

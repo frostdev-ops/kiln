@@ -10,7 +10,7 @@ const BUILD_ID: &str = env!("BUILD_ID");
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileStateCache {
     build_id: String,
-    files: HashMap<PathBuf, u64>,
+    files: HashMap<PathBuf, (u64, u128, u64)>,
 }
 
 impl Default for FileStateCache {
@@ -24,6 +24,8 @@ impl Default for FileStateCache {
 
 impl FileStateCache {
 
+    pub fn configuration(&mut self, key: &str) { self.build_id.push_str(key); }
+
     pub fn error() -> Self {
         Self {
             build_id: String::new(),
@@ -36,11 +38,26 @@ impl FileStateCache {
         path: impl Into<PathBuf>,
     ) {
         let path = path.into();
-        let timestamp = path.metadata()
-            .map_or(0, |m| m.modified()
-                .map_or(0, |t| t.duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs())));
-
+        // kiln-eml: whole-second mtimes miss rapid edits, preserved timestamps and resource/backup changes.
+        // Hash bytes as well; unreadable files poison this snapshot rather than producing a cache hit.
+        use std::io::Read;
+        let fingerprint = (|| -> std::io::Result<_> {
+            let m = path.symlink_metadata()?;
+            if m.file_type().is_symlink() { return Err(std::io::Error::other("symlink")); }
+            let nanos = m.modified()?.duration_since(std::time::UNIX_EPOCH).map_err(std::io::Error::other)?.as_nanos();
+            let crc = crc::Crc::<u64>::new(&crc::CRC_64_ECMA_182);
+            let mut digest = crc.digest();
+            if m.is_file() {
+                let mut f = std::fs::File::open(&path)?;
+                let mut buf = [0u8; 65536];
+                loop { let n = f.read(&mut buf)?; if n == 0 { break; } digest.update(&buf[..n]); }
+            }
+            Ok((m.len(), nanos, digest.finalize()))
+        })();
+        let timestamp = match fingerprint {
+            Ok(v) => v,
+            Err(_) => { self.build_id.clear(); return; }
+        };
         self.files.insert(path, timestamp);
     }
 
@@ -89,7 +106,7 @@ impl FileStateCache {
     }
 
     fn eq_build_id(&self, other: &Self) -> bool {
-        self.build_id == other.build_id
+        !self.build_id.is_empty() && self.build_id == other.build_id
     }
 
     fn eq_files(&self, other: &Self) -> bool {
@@ -115,4 +132,23 @@ impl FileStateCache {
         true
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn preserved_timestamp_edit_and_unreadable_file_invalidate_cache() {
+        let p = std::env::temp_dir().join(format!("kiln-cache-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&p, "before").unwrap();
+        let time = p.metadata().unwrap().modified().unwrap();
+        let mut a = FileStateCache::default(); a.track(&p);
+        std::fs::write(&p, "after!").unwrap();
+        std::fs::File::options().write(true).open(&p).unwrap().set_modified(time).unwrap();
+        let mut b = FileStateCache::default(); b.track(&p);
+        assert!(a.diff(&b).is_some());
+        std::fs::remove_file(&p).unwrap();
+        let mut c = FileStateCache::default(); c.track(&p);
+        assert!(c.diff(&c).is_some());
+    }
 }

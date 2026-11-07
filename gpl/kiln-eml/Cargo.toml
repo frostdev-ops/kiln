@@ -24,7 +24,7 @@ version = "0.2.0"
 authors = ["Brabb3l"]
 license = "GPL-3.0-or-later"
 license-file = "LICENSE"
-rust-version = "1.88.0"
+rust-version = "1.89.0"
 
 [workspace.dependencies]
 kfc = { path = "eml/kfc", features = ["resource", "content"] }

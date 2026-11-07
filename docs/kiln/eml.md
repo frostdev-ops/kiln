@@ -89,9 +89,10 @@ runs right after the native mods of phase `early`:
 - outside the loader lock, unlike EML.
 
 The early step:
-1. Loads every `kiln/plugins/kiln-*.dll` whose file holds the export name `kiln_plugin_early` (found through a
-   read-only file mapping).
-2. Calls each `kiln_plugin_early`.
+1. Loads every `kiln/plugins/kiln-*.dll` whose bounded PE export table defines `kiln_plugin_early` (inspected through a
+   read-only file mapping; imports, arbitrary strings and forwarded exports do not qualify).
+2. Initializes kiln-eml first so its profile roots and collection service are available, then calls the peer
+   `kiln_plugin_early` exports in filename order.
 3. Calls each `on_ready`.
 
 kiln-eml publishes `kiln.eml` in its `kiln_plugin_early` and runs the mods in `on_ready`, so other early plugins can
@@ -124,16 +125,34 @@ Each candidate is classified. Only EML mods run; everything else is logged and l
 This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
 - **Patch on.** Export is on only when `<game>/eml.json` says `use_export_flag` (kiln-eml reads that file and never
   creates it).
-- **Its own cache** in `<game>/kiln/eml/cache/` (types.json, files.json, Lua definitions for editors). The cache
-  tracks exactly the listed mods, so switching a mod off re-patches.
-- **The backup is EML's own** `<exe>.kfc.bak`, so a player can switch between EML's loader and Kiln's without losing
-  vanilla data.
+- **Its own cache** in `<game>/kiln/eml/cache/` (`<exe>-types.json`, files.json, Lua definitions for editors). The DLL
+  targets its actual host executable even when client and server data share a folder; target identity is part of the
+  patch cache key and reflection caches are separate. It fingerprints
+  file contents, size and full-resolution mtimes, including resources, backups and `eml.json`, plus runner code and
+  options. Switching a mod off re-patches. Reading those fingerprints has I/O cost on large installs; export passes
+  always run. Unreadable inputs and inputs changed during a run cannot produce a reusable cache entry.
+- **The header backup is EML's own** `<exe>.kfc.bak`. New backups also save `<exe>.kfc_resources.bak` for exact
+  resource-file restoration. Backups are atomically replaced and same-version malformed backups are refused.
+- **Publication:** the writer builds privately in the game filesystem, flushes every output, publishes the vanilla
+  header before replacing mod-owned containers/resources, and publishes the patched header last. Vanilla containers
+  and the resource prefix stay immutable. Interrupted publication leaves either vanilla or the complete patch.
+  The per-install OS lock is held until process exit; on Windows an already-running game from the same install is
+  also refused. Unmanaged loaders must still be kept from starting during patch preparation.
+- **Paths:** profile entries resolve against `<game>/kiln` (including relative paths); each explicitly listed
+  folder/zip authorizes its resulting mod root. `add_mod` still requires an absolute path under a game mod root or
+  an explicit profile root. Check the root itself and everything below it for links/junctions, traversal and special
+  files, and compare final resolved paths for containment. Ancestors above the root are the player's layout and
+  are not inspected: Steam library symlinks and Wine drive links such as `Z:\` are allowed there. Under Wine,
+  `OPEN_REPARSE_POINT` does not prevent following Unix links; a by-name attributes query catches directory links,
+  but Unix file symlinks are invisible to Win32 and must be excluded by the installer. This follows the
+  [engine path policy](engines/README.md#when-the-other-loader-is-installed-too).
+  Zip classification uses the same SF/EMF/Flame exclusions as folders, with entry and uncompressed-size limits.
 
 It fails soft:
 - **A mod whose Lua fails is switched off, and the run repeats without it.** EML names each chunk `mods.<id>.<module>`,
   so the error names the mod. The other mods still patch.
-- **A failure that names no mod** (a write error, a panic): the game data goes back to vanilla from `.kfc.bak`, and the
-  cache is dropped so the next start re-runs. The game and the other Kiln mods run on.
+- **A failure that names no mod** (a write error, a panic): a compatible valid backup restores vanilla, and the
+  cache is dropped so the next start re-runs. Restore failures are reported as failures; they are never labelled idle.
 - **No EML mods (left):** if a `.kfc.bak` exists and differs, `<exe>.kfc` is restored from it byte for byte, once.
   Otherwise kiln-eml touches nothing (`idle`).
 
@@ -160,12 +179,12 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
   `kiln-eml: 2 EML mod(s) loaded, 3 resource(s) patched in enshrouded_server (1263 ms)`.
 - `kiln/logs/eml.log`: everything, debug included.
 - `kiln/state/eml.json` (format 1, for the launcher and `Kiln.Eml`):
-  `{ phase: done|failed|aside|idle, file, patched, cached, restored, ms, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }] }`.
+  `{ pid, phase: done|failed|aside|idle, file, patched, cached, restored, ms, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }] }`.
 
 ### Licence layout
 | What | Licence | Where |
 |---|---|---|
-| EML's crates (8, v0.2.0 + 4 marked changes) | GPL-3.0-or-later | `gpl/kiln-eml/eml/` |
+| EML's crates (8, v0.2.0 + changes listed in the GPL README) | GPL-3.0-or-later | `gpl/kiln-eml/eml/` |
 | kiln-eml plugin + `kiln-eml-run` | GPL-3.0-or-later | `gpl/kiln-eml/kiln-eml/` |
 | Licence, notice, build | GPL-3.0 text | `gpl/kiln-eml/{LICENSE,NOTICE.txt,README.md,build.sh,Cargo.toml,Cargo.lock}` |
 | The early-plugin step | MIT | `native/core/src/early_plugins.{h,cpp}` |
@@ -264,7 +283,8 @@ written from EML's documentation and from what the probe observed, never from EM
 - `DataBuffer`: EML's buffer model. Writes append at `Tail` and reads consume from `Head`. It has `Order` (little or
   big), every fixed-size type including `Half`, strings, `Skip/Reset/Reserve/Copy`, `Wrap`, `ToString`. EML Lua code
   ports to C# line by line.
-- `Eml.Status` / `Eml.IsLoaded(id)` / `Eml.Load(path)`: this start's `state/eml.json`. These are the port of
+- `Eml.Status` / `Eml.IsLoaded(id)`: the current process's `state/eml.json`, checked by PID and write time so a missing
+  or disabled plugin cannot report an old run. `Eml.Load(path)` can inspect a historical result. These are the port of
   `loader.has_mod`, plus the run's result for Kiln mods that build on an EML mod.
 
 ```csharp
@@ -282,10 +302,11 @@ Not ported, on purpose:
 ## 5. Tests and evidence
 
 ### Host
-- Rust tests: `gpl/kiln-eml/build.sh --test`. There are 8 (discovery, classification, profile `mods.eml` and
-  drop-ins, de-duplication, naming the failing mod, idle, restore safety, missing game files).
-- C# tests: `dotnet test managed/tests/Kiln.Eml.Tests` runs 8 (hash check values, buffer round trips, byte order,
-  cursors, the state reader).
+- Rust tests: `gpl/kiln-eml/build.sh --test` runs the plugin, Lua runner and base-container tests before attempting
+  the Windows build. Regressions cover interrupted publication, exact restoration, corrupt backups, preserved-time
+  edits, process locks, ABI versions, path validation, zip classification and removed-content padding.
+- C# tests: `dotnet test managed/tests/Kiln.Eml.Tests` covers hash check values, buffer round trips, byte order,
+  zero-filling after cursor changes, overflow and current-process state validation.
 - `kiln-eml-run --game <dir> [--mod <path>]... [--profile <json>] [--no-patch] [--export --export-dir <d>] [--state <file>]`:
   the plugin's discovery and run on Linux, against a game folder (use a reflinked copy, never a real install). It
   prints the state JSON.
@@ -335,24 +356,29 @@ are kiln.log lines:
   refused to start (`Container ..._010.dat has wrong size 4'096 (expected: 0)`). kiln-eml now truncates the padding
   containers. EML 0.2.0 has the same bug; it is worth reporting upstream.
 
-## 6. Shared core: ShroudForge and EMF content
-There must be **one writer of the game's KFC files per start**: two would undo each other. kiln-eml is that writer.
-- **ShroudForge (agent `sf`).** ShroudForge's EML-format packages should reach kiln-eml through `kiln.eml` `add_mod`,
-  from a `kiln_plugin_early` export in kiln-shroudforge.dll. Don't let the GPL `shroudforge` runtime patch the KFC
-  itself. kiln-eml skips SF-own packages (`extended.mod.json` with a launcher other than "EML") unless they are added
-  this way.
-  - If the SF runtime must patch for SF-specific capabilities, it has two options: run before kiln-eml and pass its
-    output folder as a mod, or tell kiln-eml to stand aside. The second needs a `kiln.eml` v2 slot (`stand_aside(reason)`);
-    ask for it.
-  - kiln-eml already stands aside for a loaded ShroudForge `dbghelp.dll`.
-- **EMF content mods (agent `emf26`).** Same contract: kiln-emf's early export calls `add_mod` for each EMF mod that
-  ships EML content, so no `emf_content.dll` is needed under Kiln.
-- How a peer gets the table in its own `kiln_plugin_early`:
-  `GetModuleHandleW(L"kiln-eml.dll")` → `GetProcAddress("kiln_eml_service")` → `get(1)`. The core loads every early
-  DLL before it calls any `kiln_plugin_early`, so file-name order doesn't matter. Later, `api->service("kiln.eml", 1)`.
-  `state_json()` returns the result.
-- The SF and EMF runtimes are GPL too, so they may also link the crates in `gpl/kiln-eml/eml` directly. That is their
-  call, inside their own GPL folders. The C table keeps the MIT plugins (kiln-shroudforge, kiln-emf) free of GPL code.
+## 6. Shared startup data writer: ShroudForge and EMF content
+
+There must be one KFC writer per start. The append-only `kiln.eml` table is now v2: v1's slots are unchanged;
+`stand_aside(reason)` is added. Callers check header size/version and required slots before dereferencing them.
+A missing DLL/export, incompatible table or a reservation after collection closes is unavailable. A v1 reader
+requests `get(1)`, checks `version >= 1` and its own prefix size, then calls only `add_mod`, `phase` and `state_json`.
+On x64 that prefix is 32 bytes; v2 is 40 bytes with `stand_aside` appended. C++ layout assertions and a Rust reader
+that only knows the v1 prefix cover compatibility.
+
+- kiln-eml normally owns patching. Peers can hand it EML-format folders through `add_mod` during early collection.
+- ShroudForge retains its own startup writer. Its early export validates the selected runtime pair and reserves
+  `kiln.eml` v2 before calling `shroudforge_prepare_startup`. kiln-eml publishes `aside` and does not rewrite SF's
+  result. SF's Lua loop starts at early `on_ready`, after preparation, and continues independently of Kiln hooks.
+- A bundled SF DLL alone does not claim an EML-only legacy installation: hosting needs an enabled SF package or
+  previous SF startup state, an active SF profile, or `KILN_SHROUDFORGE=1`.
+- When SF owns startup, EML packages must live in SF's configured mods folder. Kiln-only EML profile paths and
+  `kiln/eml/mods` are not forwarded into SF; the `aside` outcome explicitly identifies the selected writer.
+- An older kiln-eml table cannot coordinate SF's writer; the adapter refuses to run a second writer.
+- A self-hosted EML/SF proxy still takes precedence. No second startup writer should be chained.
+
+The core loads every early DLL before calling exports, so a peer can use
+`GetModuleHandleW(L"kiln-eml.dll")` and `GetProcAddress("kiln_eml_service")` regardless of filename order.
+Later it can request `api->service("kiln.eml", version)`.
 
 ## 7. Client checklist (for the user)
 The client has its own data files, so a client check must run on a copy. These are steps for the user, who does all
@@ -383,4 +409,4 @@ Mods we need from the user (Nexus downloads, which agents can't fetch):
   Real EML mods have `"capabilities": ["patch"]`, so they show as ShroudForge (for detect).
 - The launcher could read `state/eml.json` and show each EML mod's state. When the player turns kiln-eml off, it could
   offer EML's restore (copy `.kfc.bak` over `.kfc`).
-- `kiln.eml` v2 `stand_aside(reason)` if the SF runtime keeps its own KFC writer.
+- Forwarding Kiln-only EML profile/private-root packages into SF when SF owns startup requires a separate integration.

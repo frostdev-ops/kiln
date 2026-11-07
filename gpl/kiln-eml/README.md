@@ -12,7 +12,7 @@ loads the DLL and calls its C exports, described by Kiln's own MIT header
 [native/core/abi/services/kiln_eml.h](../../native/core/abi/services/kiln_eml.h). Kiln's ABI structs are mirrored in
 [kiln-eml/src/plugin.rs](kiln-eml/src/plugin.rs) (MIT headers, compatible with GPL-3).
 
-Kiln's own MIT ports of EML capabilities (managed/Kiln.Api/Eml/) are written from EML's documentation and observed
+Kiln's own MIT ports of EML capabilities (managed/services/Kiln.Eml/) are written from EML's documentation and observed
 behaviour, never from this code.
 
 ## Layout
@@ -39,8 +39,25 @@ Each is marked `kiln-eml:` in the source.
    Found on a lab server on 2026-11-07; worth reporting upstream.
 4. Workspace `Cargo.toml`: release builds unwind on panic (EML aborts), so kiln-eml catches a failing run.
 
+5. `mod-loader-lua/transaction.rs`, `load.rs`, `env/app_state.rs`: private staged writers, flushed header-last
+   publication through a vanilla-header barrier, atomic backups/restores, exact resource snapshots and rejection
+   of corrupt same-version backups. Default game containers are never rewritten.
+6. `mod-loader-lua/cache`, `lib.rs`, `build.rs`: content fingerprints, full mtimes, resources/backups/config/options,
+   code-derived deterministic build IDs, no export short circuit, no cache after inputs changed during the run.
+7. `kfc-base/container/writer.rs`: explicit header flush/sync, so buffered write errors propagate; regression test
+   preserving the removed-content padding fix.
+
+The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
+ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.
+Wine exposes directory links by name but hides Unix file symlinks, which the installer must exclude.
+The v2 service preserves the v1 prefix and `get(1)`; C++ layout and Rust v1-reader regressions verify it.
+The plugin checks ABI sizes, holds an OS install lock for its process lifetime, rejects an already-running
+Windows game from that install, and exposes the append-only v2 `stand_aside` reservation to SF. Interrupted stages may
+remain on disk after a hard crash but never replace the live header before their data is ready. Old EML backups without
+resource snapshots restore the header exactly and retain their resource prefix; unreferenced mod containers are retained.
+
 ## Updating to a new EML release
 
-Copy the eight crates from the new tag over `eml/`, re-apply the four changes (search `kiln-eml:` in the old copy),
+Copy the eight crates from the new tag over `eml/`, re-apply the listed changes (search `kiln-eml:` in the old copy),
 update the tag and commit here, in `NOTICE.txt` and in `kiln-eml/src/lib.rs` (`EML_VERSION`), run
 `build.sh --host --test` and the probe mod (docs/kiln/eml.md, "Tests").

@@ -24,13 +24,14 @@ public enum ByteOrder
 public sealed class DataBuffer
 {
     private byte[] _data;
+    private int _tail;
 
     public DataBuffer(int initialCapacity = 64) => _data = new byte[Math.Max(0, initialCapacity)];
 
     private DataBuffer(byte[] data, int tail)
     {
         _data = data;
-        Tail = tail;
+        _tail = tail;
     }
 
     /// <summary>A buffer over a copy of <paramref name="bytes"/>: head 0, tail at the end.</summary>
@@ -49,13 +50,15 @@ public sealed class DataBuffer
     /// <summary>Write position (end of the data). Setting it moves the end; growing it zero-fills.</summary>
     public int Tail
     {
-        get;
+        get => _tail;
         set
         {
             if (value < 0) throw new ArgumentOutOfRangeException(nameof(Tail));
-            Reserve(value - field);
-            field = value;
-            if (Head > field) Head = field;
+            int previous = _tail;
+            if (value > previous) Reserve(value - previous);
+            if (value > previous) _data.AsSpan(previous, value - previous).Clear();
+            _tail = value;
+            if (Head > _tail) Head = _tail;
         }
     }
 
@@ -76,8 +79,10 @@ public sealed class DataBuffer
     /// <summary>Makes room for at least <paramref name="length"/> more bytes after the tail.</summary>
     public void Reserve(int length)
     {
-        if (length <= 0 || Tail + length <= _data.Length) return;
-        Array.Resize(ref _data, Math.Max(Tail + length, _data.Length * 2));
+        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
+        int required = checked(Tail + length);
+        if (required <= _data.Length) return;
+        Array.Resize(ref _data, (int)Math.Max(required, Math.Min((long)_data.Length * 2, Array.MaxLength)));
     }
 
     /// <summary>Moves the head forward by <paramref name="length"/> bytes.</summary>
@@ -87,7 +92,7 @@ public sealed class DataBuffer
     public void Copy(DataBuffer source, int offset = 0, int? length = null)
     {
         int n = length ?? source.Remaining - offset;
-        if (offset < 0 || n < 0 || offset + n > source.Remaining) throw new ArgumentOutOfRangeException(nameof(length));
+        if (offset < 0 || n < 0 || n > source.Remaining - offset) throw new ArgumentOutOfRangeException(nameof(length));
         WriteBytes(source._data.AsSpan(source.Head + offset, n));
     }
 

@@ -3,7 +3,7 @@ use std::{cell::{Cell, RefCell, RefMut}, collections::{HashMap, hash_map::{self,
 use bitflags::bitflags;
 use mod_loader::ModEnvironment;
 use once_cell::unsync::OnceCell;
-use kfc::{container::{KFCCursor, KFCFile, KFCReader, KFCWriter}, guid::{ContentHash, ResourceId}, reflection::{LookupKey, TypeHandle, TypeIndex, TypeRegistry}, resource::value::Value};
+use kfc::{container::{KFCCursor, KFCFile, KFCReader}, guid::{ContentHash, ResourceId}, reflection::{LookupKey, TypeHandle, TypeIndex, TypeRegistry}, resource::value::Value};
 
 use crate::{RunArgs, alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{Type, game::value::is_dirty_lua_value, value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}}, log::warn, lua::{LuaError, LuaValue}};
 
@@ -17,7 +17,8 @@ pub struct AppState {
 
     ref_file: Rc<KFCFile>,
     reader: RefCell<KFCCursor<KFCReader>>,
-    writer: RefCell<Option<KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>>>,
+    // kiln-eml: write to a private stage; publish only after successful finalization.
+    writer: RefCell<Option<crate::transaction::PatchWriter>>,
 
     // NOTE: the `Vec<u8>` must always be treated as immutable
     new_contents: RefCell<HashMap<ContentHash, Vec<u8>>>,
@@ -206,7 +207,7 @@ impl AppState {
     #[inline]
     pub fn take_writer(
         &self,
-    ) -> KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>> {
+    ) -> crate::transaction::PatchWriter {
         self.writer.borrow_mut()
             .take()
             .expect("KFCWriter is no longer available")

@@ -133,7 +133,10 @@ tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH
 [[ $(sed 's/[-+].*//' "$src/VERSION") == "${version%%-*}" ]] || die "VERSION in the export is $(cat "$src/VERSION"), not for $version"
 # ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so
 # export the fork at the pinned commit with its own submodules, ship that as its corresponding source, and build from it
-sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge 2>/dev/null | awk '$2 == "commit" {print $3}')
+sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge | awk '$2 == "commit" {print $3}')
+if [[ -d $src/gpl/kiln-eml && -z $sfpin ]]; then die "release has no pinned ShroudForge submodule"; fi
+# A release always builds the exported pin, regardless of a developer override.
+unset KILN_SHROUDFORGE_SRC
 if [[ -n $sfpin ]]; then
   "$lib/sf-source.sh" "$repo/third_party/shroudforge" "$sfpin" "$work/source/shroudforge-kiln-${sfpin:0:12}-src.tar.gz" \
     "$src/third_party/shroudforge" >>"$log" 2>&1 || die "cannot export ShroudForge's source at $sfpin (git submodule update --init --recursive third_party/shroudforge)"
@@ -149,7 +152,7 @@ rm -rf "$KILN_OUT" && mkdir -p "$KILN_OUT"
 # no build paths in the binaries: the home folder and the export become neutral prefixes; KILN_RELEASE_BUILD drops
 # the "tree this was built from" defaults of kilnctl and kiln
 unset RUSTFLAGS
-export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/build"$'\x1f'"--remap-path-prefix=$src=/kiln" KILN_RELEASE_BUILD=1
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$work=/build/work"$'\x1f'"--remap-path-prefix=$HOME=/build"$'\x1f'"--remap-path-prefix=$src=/kiln" KILN_RELEASE_BUILD=1
 export ContinuousIntegrationBuild=true DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NO_STRIP=${NO_STRIP:-true}
 cache=${KILN_RELEASE_CACHE:-$HOME/.cache/kiln-release}
 mkdir -p "$cache"
@@ -209,8 +212,8 @@ step "runtime: native + managed build, stage"
 stage=$work/stage
 # the native DLLs name their PDB without a path (/pdbaltpath); the PDBs themselves hold the build machine's paths, so
 # they stay out of the release and go to $work/symbols (keep them for crash reports of this build)
-CFLAGS="/clang:-ffile-prefix-map=$HOME=/build /clang:-ffile-prefix-map=$src=/kiln" \
-  CXXFLAGS="/clang:-ffile-prefix-map=$HOME=/build /clang:-ffile-prefix-map=$src=/kiln" LDFLAGS="/pdbaltpath:%_PDB%" \
+CFLAGS="/clang:-ffile-prefix-map=\"$work=/build/work\" /clang:-ffile-prefix-map=\"$HOME=/build\" /clang:-ffile-prefix-map=\"$src=/kiln\"" \
+  CXXFLAGS="/clang:-ffile-prefix-map=\"$work=/build/work\" /clang:-ffile-prefix-map=\"$HOME=/build\" /clang:-ffile-prefix-map=\"$src=/kiln\"" LDFLAGS="/pdbaltpath:%_PDB%" \
   quiet low "$src/tools/package/stage.sh" "$stage"
 rm -rf "$work/symbols"
 while IFS= read -r -d '' pdb; do
@@ -228,10 +231,17 @@ nuget_args=()
 for a in "${assets[@]}"; do nuget_args+=(--nuget-assets "$a"); done
 python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
   "${nuget_args[@]}" | tee -a "$log"
+if [[ -f $stage/eml/kiln/plugins/kiln-eml.dll ]]; then
+  printf '\nkiln-eml corresponding source: source/kiln-%s-src.tar.gz, directory gpl/kiln-eml/.\n' "$version" >>"$notices"
+fi
 if [[ -d $stage/shroudforge/kiln/plugins/shroudforge ]]; then
   # the GPL-3 component's notice; its own licences ship in kiln/plugins/shroudforge/LICENSES
   { printf '\n%s\n' "ShroudForge runtime (component \"shroudforge\", kiln/plugins/shroudforge/)"
     cat "$stage/shroudforge/kiln/plugins/shroudforge/NOTICE.txt"
+    for license in "$stage/shroudforge/kiln/plugins/shroudforge/LICENSES/"*; do
+      printf '\n--- %s\n' "$(basename "$license")"
+      cat "$license"
+    done
     printf 'Corresponding source: source/shroudforge-kiln-%s-src.tar.gz in this release, and\nhttps://github.com/frostdev-ops/shroudforge at commit %s.\n' "${sfpin:0:12}" "$sfpin"; } >>"$notices"
 fi
 install -m 644 "$notices" "$stage/core/kiln/THIRD-PARTY-NOTICES.txt"
@@ -369,7 +379,7 @@ for f in "$KILN_OUT"/nuget/*."$sdk_version".nupkg; do cp "$f" "$out/sdk/"; done
 cp "$vsix" "$out/sdk/"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
 cp "$src/LICENSE" "$src/CREDITS.md" "$notices" "$out/"
-cp "$work/source/kiln-$version-src.tar.gz" "$out/source/"
+cp "$work/source/"*.tar.gz "$out/source/"
 # the Nexus Mods build (nexus.py uploads these; never GitHub or frostdev.io)
 mkdir -p "$out/nexus/linux"
 cp "$nexus_appimage" "$out/nexus/linux/$A" && chmod 755 "$out/nexus/linux/$A"

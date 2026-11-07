@@ -13,6 +13,7 @@ mod log;
 mod cache;
 mod alias;
 mod load;
+mod transaction;
 mod lua;
 
 #[derive(Debug, Clone, Default)]
@@ -54,18 +55,23 @@ pub fn run(
 ) -> anyhow::Result<RunResult> {
     info!("Running lua with options: {:?}", args);
 
+    let cache_key = format!("{}|{:?}", args.file_name, args.options);
+    let mut mods_before = FileStateCache::default();
+    track_mods(&mut mods_before, env);
+
     // check cache if files have changed
 
     let cache_diff = if !args.options.skip_cache {
         let current_cache = FileStateCache::read(env.cache_dir());
         let mut new_cache = FileStateCache::default();
+        new_cache.configuration(&cache_key);
 
         new_cache.track_game_files(env.game_dir());
         track_mods(&mut new_cache, env);
 
         let cache_diff = new_cache.diff(&current_cache);
 
-        if cache_diff.is_none() && args.options.patch {
+        if cache_diff.is_none() && args.options.patch && !args.options.export {
             args.options.patch = false;
 
             info!("No changes detected, skipping patching");
@@ -165,16 +171,16 @@ pub fn run(
 
     if app_state.has_feature(AppFeatures::PATCH) {
         let mut new_cache = FileStateCache::default();
+        new_cache.configuration(&cache_key);
 
         new_cache.track_game_files(env.game_dir());
         track_mods(&mut new_cache, env);
 
-        new_cache.write(env.cache_dir());
-    } else {
-        let mut new_cache = FileStateCache::read(env.cache_dir());
+        let mut mods_after = FileStateCache::default();
+        track_mods(&mut mods_after, env);
+        if mods_before.diff(&mods_after).is_none() { new_cache.write(env.cache_dir()); }
+        else { let _ = std::fs::remove_file(env.cache_dir().join("files.json")); }
 
-        new_cache.track_game_files(env.game_dir());
-        new_cache.write(env.cache_dir());
     }
 
     let cached = !app_state.has_feature(AppFeatures::PATCH) && cache_diff.is_none();

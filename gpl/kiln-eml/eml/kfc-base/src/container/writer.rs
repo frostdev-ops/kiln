@@ -424,6 +424,12 @@ where
         file.set_resource_chunks(chunks);
 
         file.write(&mut file_writer)?;
+        // kiln-eml: drop must never hide a failed header write.
+        file_writer.flush()?;
+        drop(file_writer);
+        self.file.sync_all()?;
+        self.resource_writer.flush()?;
+        self.resource_writer.get_ref().sync_all()?;
 
         Ok(())
     }
@@ -508,4 +514,35 @@ impl ContainerWriter {
         self.writer.flush()
     }
 
+}
+
+#[cfg(test)]
+mod kiln_tests {
+    use super::*;
+    #[test]
+    fn removed_content_truncates_old_padding_containers() {
+        use std::rc::Rc;
+        let dir = std::env::temp_dir().join(format!("kiln-kfc-padding-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&dir).unwrap();
+        let mut base = KFCFile::default();
+        base.set_game_version("fixture".into());
+        base.set_containers(vec![ContainerInfo { size: 0, count: 0 }; 4]);
+        base.write(&mut File::create(dir.join("g.kfc")).unwrap()).unwrap();
+        File::create(dir.join("g.kfc_resources")).unwrap();
+        for index in 0..4 { File::create(dir.join(format!("g_{index:03}.dat"))).unwrap(); }
+        let base = Rc::new(base);
+        let types = Rc::new(TypeRegistry::default());
+        for payloads in [vec![b"a".as_slice(), b"b", b"c"], vec![b"d".as_slice()]] {
+            let mut writer = KFCWriter::new_incremental_with_options(&dir, "g", base.clone(), types.clone(),
+                KFCWriteOptions { overwrite_containers: true, truncate_containers: true, max_container_size: 1, ..Default::default() }).unwrap();
+            for data in payloads { writer.write_content(&ContentHash::from_data(data), data).unwrap(); }
+            writer.finalize().unwrap();
+        }
+        let result = KFCFile::from_path(dir.join("g.kfc"), false).unwrap();
+        for index in 5..8 {
+            assert_eq!(result.containers()[index].size, 0);
+            assert_eq!(dir.join(format!("g_{index:03}.dat")).metadata().unwrap().len(), 0);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -247,8 +247,7 @@ def gpl_plugins(src):
                 ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", "x86_64-pc-windows-msvc"],
                 cwd=d, stderr=subprocess.DEVNULL))
         except (OSError, subprocess.CalledProcessError) as e:
-            print(f"notices: WARNING: cargo metadata failed in gpl/{name} ({e}); its crates are not listed", file=sys.stderr)
-            continue
+            raise RuntimeError(f"notices: cannot enumerate GPL component gpl/{name}") from e
         by_id = {p["id"]: p for p in meta["packages"]}
         nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
         members = set(meta["workspace_members"])
@@ -269,6 +268,46 @@ def gpl_plugins(src):
             entries.append((p["name"], p["version"], p.get("license") or "see the licence file", p.get("repository") or "",
                             [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
     return entries
+
+
+def sf_crates(src):
+    """Normal Windows dependencies, including local MIT modules and the GPL kfc-parser crates."""
+    root = os.path.join(src, "third_party", "shroudforge")
+    if not os.path.isfile(os.path.join(root, "Cargo.toml")):
+        return []
+    meta = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", TARGETS[1]], cwd=root))
+    packages = {p["id"]: p for p in meta["packages"]}
+    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    stack = [p["id"] for p in meta["packages"] if p["name"] == "shroudforge-modloader"]
+    if not stack:
+        raise RuntimeError("ShroudForge runtime is absent from cargo metadata")
+    seen = set()
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        for dep in nodes[key]["deps"]:
+            if any(k["kind"] is None for k in dep["dep_kinds"]):
+                stack.append(dep["pkg"])
+    result = []
+    for pkg in sorted((packages[k] for k in seen), key=lambda p: (p["name"], p["version"])):
+        directory = os.path.dirname(pkg["manifest_path"])
+        files = license_files(directory)
+        if pkg.get("license_file"):
+            files.append(os.path.join(directory, pkg["license_file"]))
+        if not files and os.path.commonpath([root, directory]) == root:
+            # Workspace modules share their repository's licence. kfc-parser has its own GPL licence at its root.
+            parent = directory
+            while os.path.commonpath([root, parent]) == root:
+                files = license_files(parent)
+                if files or parent == root:
+                    break
+                parent = os.path.dirname(parent)
+        result.append((pkg["name"], pkg["version"], pkg.get("license") or "see licence text", pkg.get("repository") or "",
+                       [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
+    return result
 
 
 def tree_entries(items):
@@ -346,6 +385,10 @@ def main():
     src = os.path.abspath(a.src)
     n = Notices()
     n.add("Rust crates (the launcher, kilnctl and the kiln CLI; Linux and Windows)", cargo_crates(src))
+    n.add("ShroudForge runtime Rust dependencies (Windows)", sf_crates(src))
+    sf_ui = os.path.join(src, "third_party", "shroudforge", "modules", "modloader", "ui")
+    if os.path.isdir(os.path.join(sf_ui, "node_modules")):
+        n.add("ShroudForge embedded UI dependencies", npm_closure(sf_ui))
     if os.path.isdir(os.path.join(src, "launcher", "node_modules")):
         n.add("npm packages (the launcher's user interface)", npm_closure(os.path.join(src, "launcher")))
     if os.path.isdir(os.path.join(src, "tools", "vscode", "node_modules")):

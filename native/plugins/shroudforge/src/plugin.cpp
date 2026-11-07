@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln-shroudforge.dll: a Kiln plugin (<game>/kiln/plugins/) that runs ShroudForge's Lua mods unchanged by driving a
 // ShroudForge runtime (github.com/bonsaibauer/shroudforge, MIT) through its exported C functions. Docs:
-// docs/kiln/shroudforge-compat.md. This DLL is MIT and holds no ShroudForge or GPL code.
+// docs/kiln/shroudforge-compat.md. This DLL is MIT and holds no GPL implementation; processes.cpp credits the adapted SF MIT helper launcher.
 //
 // Two runtimes, one adapter:
 //   bundled    <game>/kiln/plugins/shroudforge/ : Kiln's build of the frostdev-ops/shroudforge fork (third_party/
@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <atomic>
 #include <ctime>
+#include <cstring>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -41,6 +42,8 @@
 #include "nlohmann/json.hpp"
 #include "services/kiln_profile.h"
 #include "sf_internal.h"
+#include "contract.h"
+#include "services/kiln_eml.h"
 
 #include <psapi.h>
 
@@ -70,7 +73,64 @@ KfcVoid g_kfc_tick = nullptr, g_kfc_shutdown = nullptr;
 KfcStatusFn g_kfc_status = nullptr;
 
 HANDLE g_stop = nullptr;
-std::thread g_thread;
+HANDLE g_worker = nullptr;
+bool g_initialized = false;
+bool g_early = false;
+bool g_prepared = false;
+
+// DLL exports are foreign code. SEH guards use POD-only frames; C++ exceptions are caught at the worker boundary.
+template<class F, class R, class... A> bool invoke(F fn, R* result, A... args) {
+    __try { *result = fn(args...); return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+template<class F, class... A> bool invoke_void(F fn, A... args) {
+    __try { fn(args...); return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool inside_root(const std::filesystem::path& p, const std::filesystem::path& root) {
+    auto pi = p.begin();
+    for (auto ri = root.begin(); ri != root.end(); ++ri, ++pi)
+        if (pi == p.end() || _wcsicmp(pi->c_str(), ri->c_str())) return false;
+    for (; pi != p.end(); ++pi) {
+        const auto part = pi->native();
+        if (part == L".." || part.find(L':') != std::wstring::npos) return false;
+    }
+    return true;
+}
+
+bool safe_path(const std::filesystem::path& p, const std::filesystem::path& root) {
+    auto base = root, full = p;
+    while (base != base.root_path() && !base.empty() && base.filename().empty()) base = base.parent_path();
+    while (full != full.root_path() && !full.empty() && full.filename().empty()) full = full.parent_path();
+    if (!full.is_absolute() || !base.is_absolute() || !inside_root(full, base)) return false;
+    // The root and every component below it must not be links. Ancestors belong to the player's layout;
+    // in particular, Wine's Z:\ drive is itself a reparse point and must not be judged here.
+    for (auto part = full; !part.empty();) {
+        const DWORD a = GetFileAttributesW(part.c_str()); // by-name query also exposes Wine directory symlinks
+        if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+        if (!_wcsicmp(part.c_str(), base.c_str())) break;
+        const auto parent = part.parent_path();
+        if (parent == part) return false;
+        part = parent;
+    }
+    std::error_code ec;
+    const auto resolved_root = std::filesystem::canonical(base, ec);
+    if (ec) return false;
+    const auto resolved = std::filesystem::canonical(full, ec);
+    return !ec && inside_root(resolved, resolved_root);
+}
+
+HMODULE load_runtime_dll(const std::filesystem::path& p) {
+    if (!safe_path(p, p.parent_path())) return nullptr;
+    HMODULE h = LoadLibraryExW(p.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    if (!h) return nullptr;
+    wchar_t actual[32768]{};
+    const DWORD n = GetModuleFileNameW(h, actual, 32768);
+    std::error_code ec;
+    if (!n || n == 32768 || !std::filesystem::equivalent(p, actual, ec)) { FreeLibrary(h); return nullptr; }
+    return h;
+}
 
 // what shroudforge.json says
 std::mutex g_status_mutex;
@@ -104,6 +164,7 @@ void write_status() {
 // mode: hosted | self-hosted | not-installed | off | failed
 void finish(const char* mode, const std::string& reason) {
     set_status("mode", mode);
+    if (std::strcmp(mode, "failed") == 0) set_status("runtime", "stopped");
     set_status("reason", reason);
     write_status();
 }
@@ -116,8 +177,9 @@ std::filesystem::path api_path(int32_t kind) {
 }
 
 std::string module_file(HMODULE h) {
-    wchar_t p[MAX_PATH] = L"";
-    GetModuleFileNameW(h, p, MAX_PATH);
+    wchar_t p[32768] = L"";
+    const auto n = GetModuleFileNameW(h, p, 32768);
+    if (!n || n == 32768) return "<loaded module path unavailable>";
     return to_utf8(p);
 }
 
@@ -139,6 +201,31 @@ std::string read_text(const std::filesystem::path& p) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+// A bundled DLL alone must not take EML-only installations away from kiln-eml's private/profile roots.
+bool legacy_wanted(std::string* reason) {
+    std::error_code ec;
+    const auto dir = sf_directory(g_game, "mods", "mods");
+    for (auto it = std::filesystem::directory_iterator(dir, ec);
+         !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        const auto extended = it->path() / L"extended.mod.json";
+        std::error_code file_ec;
+        if (!std::filesystem::is_regular_file(extended, file_ec)) continue;
+        try {
+            const auto j = nlohmann::json::parse(read_text(extended));
+            if (j.value("enabled", true) && j.value("launcher", std::string{}) != "EML") return true;
+        } catch (...) { return true; } // let SF diagnose its own malformed package
+    }
+    try {
+        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge/state") / L"state.json"));
+        if (const auto it = state.find("assets"); it != state.end()) {
+            const auto status = it->value("status", std::string{});
+            if (status == "applied" || status == "preparing" || status == "failed") return true;
+        }
+    } catch (...) {}
+    *reason = "no enabled ShroudForge packages or previous startup patch; EML stays with kiln-eml";
+    return false;
+}
+
 // Should this start host ShroudForge? reason explains a "no".
 bool wanted(std::string* reason) {
     wchar_t env[8] = L"";
@@ -146,11 +233,13 @@ bool wanted(std::string* reason) {
     if (n == 1 && env[0] == L'0') return *reason = "KILN_SHROUDFORGE=0", false;
     if (n == 1 && env[0] == L'1') return true;
     const auto* profile = static_cast<const KilnProfileApi*>(g_api->service(KilnStr{KILN_PROFILE_SERVICE, sizeof(KILN_PROFILE_SERVICE) - 1}, 1));
-    if (!profile) return true;  // no profile service: the legacy layout
+    if (profile && (profile->header.version < 1 || profile->header.size < offsetof(KilnProfileApi, json) + sizeof profile->json ||
+                    !profile->mode || !profile->json)) { *reason = "incompatible profile service"; return false; }
+    if (!profile) return legacy_wanted(reason);  // no profile service: the legacy layout
     const uint32_t mode = profile->mode();
     if (mode == KILN_PROFILE_NO_MODS) return *reason = "play-once without mods", false;
     if (mode == KILN_PROFILE_INVALID) return *reason = "the profile is invalid (kiln.log says why): no mods load", false;
-    if (mode == KILN_PROFILE_LEGACY) return true;
+    if (mode == KILN_PROFILE_LEGACY) return legacy_wanted(reason);
     // an active profile: on when its "mods.shroudforge" list has an enabled entry (the launcher writes each mod's
     // switch into ShroudForge's own extended.mod.json; this list says that the profile uses ShroudForge at all)
     const KilnStr js = profile->json();
@@ -205,6 +294,7 @@ struct LogTail {
             logf(level, "[sf] %s", line.c_str());
         }
         partial.erase(0, start);
+        if (partial.size() > 65536) partial.erase(0, partial.size() - 65536);
     }
 };
 LogTail g_tail;
@@ -227,7 +317,8 @@ void write_heartbeat(int64_t updated_at) {
 std::string kfc_status() {
     if (!g_kfc_status) return {};
     char text[2048] = {};
-    g_kfc_status(text, sizeof text);
+    if (!invoke_void(g_kfc_status, text, sizeof text)) return "state=faulted";
+    text[sizeof text - 1] = 0;
     return text;
 }
 
@@ -242,9 +333,20 @@ std::string status_field(const std::string& s, const char* key) {
 }
 
 void run_loop() {
+    struct Cleanup {
+        void* handle = nullptr;
+        ~Cleanup() {
+            if (handle) invoke_void(g_destroy, handle);
+            if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
+            g_initialized = false;
+            stop_helper_processes();
+        }
+    } cleanup;
     const auto root = g_game.wstring();
     const auto t0 = std::chrono::steady_clock::now();
-    void* handle = g_create(root.c_str());
+    void* handle = nullptr;
+    invoke(g_create, &handle, root.c_str());
+    cleanup.handle = handle;
     const double create_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     if (!handle) {
         logf(KILN_LOG_ERROR, "ShroudForge's runtime returned no handle (shroudforge_create, %.0f ms): its mods do not run; "
@@ -265,8 +367,9 @@ void run_loop() {
         const auto now = std::chrono::steady_clock::now();
         const double dt = std::chrono::duration<double>(now - previous).count();
         previous = now;
-        if (g_kfc_tick) g_kfc_tick();
-        if (!g_update(handle, dt)) {
+        bool updated = false;
+        const bool tick_ok = !g_initialized || !g_kfc_tick || invoke_void(g_kfc_tick);
+        if (!tick_ok || !invoke(g_update, &updated, handle, dt) || !updated) {
             logf(KILN_LOG_ERROR, "ShroudForge's runtime update failed: its Lua runtime stops (Kiln runs on)");
             set_status("runtime", "stopped");
             finish("failed", "shroudforge_update failed (see ShroudForge's log)");
@@ -289,11 +392,19 @@ void run_loop() {
         }
     }
     g_tail.poll();
-    g_destroy(handle);
-    if (g_kfc_shutdown) g_kfc_shutdown();
-    stop_helper_processes();
+    set_status("runtime", "stopped");
+    write_status();
     std::error_code ec;
     std::filesystem::remove(sf_directory(g_game, "runtime", "shroudforge/runtime") / L"heartbeat.json", ec);
+}
+
+DWORD WINAPI worker(void*) {
+    try { run_loop(); }
+    catch (...) {
+        logf(KILN_LOG_ERROR, "ShroudForge worker failed; stopping its runtime");
+        finish("failed", "ShroudForge worker threw an exception");
+    }
+    return 0;
 }
 
 struct Candidate {
@@ -325,21 +436,62 @@ void seed_profiles(const std::filesystem::path& src) {
     const auto dst = sf_directory(g_game, "runtime", "shroudforge/runtime") / L"profiles";
     std::error_code ec;
     unsigned copied = 0;
+    if (!safe_path(src, src)) return;
     for (auto it = std::filesystem::recursive_directory_iterator(src, ec); !ec && it != std::filesystem::recursive_directory_iterator();
          it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        const auto rel = std::filesystem::relative(it->path(), src, ec);
+        if (!it->is_regular_file(ec) || !safe_path(it->path(), src)) continue;
+        const auto rel = it->path().lexically_relative(src);
+        if (rel.empty() || rel.is_absolute()) continue;
         const auto target = dst / rel;
+        auto parent = target.parent_path();
+        while (!parent.empty() && !std::filesystem::exists(parent, ec)) parent = parent.parent_path();
+        if (parent.empty() || (inside_root(parent, dst) && !safe_path(parent, dst))) continue;
         if (std::filesystem::exists(target, ec)) continue;
         std::filesystem::create_directories(target.parent_path(), ec);
+        if (ec || !safe_path(target.parent_path(), dst)) continue;
         if (std::filesystem::copy_file(it->path(), target, ec)) ++copied;
     }
     if (copied) logf(KILN_LOG_INFO, "copied %u bundled game profile(s) to %s", copied, to_utf8(dst.wstring()).c_str());
 }
 
+void start_worker() {
+    if (!g_prepared || g_worker) return;
+    g_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!g_stop) {
+        if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
+        g_initialized = g_prepared = false;
+        stop_helper_processes();
+        return finish("failed", "could not create the stop event");
+    }
+    set_status("runtime", "starting");
+    finish("hosted", "");
+    g_worker = CreateThread(nullptr, 0, worker, nullptr, 0, nullptr);
+    if (!g_worker) {
+        if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
+        g_initialized = g_prepared = false;
+        stop_helper_processes();
+        CloseHandle(g_stop); g_stop = nullptr;
+        finish("failed", "could not start the mods thread");
+    }
+}
+
+bool reserve_writer() {
+    HMODULE eml = GetModuleHandleW(L"kiln-eml.dll");
+    if (!eml) return true;
+    auto get = reinterpret_cast<KilnEmlServiceFn>(GetProcAddress(eml, KILN_EML_SERVICE_EXPORT));
+    const KilnEmlApi* table = nullptr;
+    if (!get || !invoke(get, &table, KILN_EML_VERSION) || !table || table->header.version < 2 ||
+        table->header.size < sizeof(KilnEmlApi) || !table->stand_aside) return false;
+    constexpr char reason[] = "ShroudForge owns startup asset patching and runs EML packages in its mods folder";
+    KilnResult result = KILN_ERR_INTERNAL;
+    return invoke(table->stand_aside, &result, KilnStr{reason, sizeof reason - 1}) && result == KILN_OK;
+}
+
 void KILN_CALL on_ready(void*) {
+    if (g_runtime) { start_worker(); return; }
     g_game = api_path(KILN_PATH_GAME);
     g_state = api_path(KILN_PATH_STATE);
+    if (g_game.empty() || !safe_path(g_game, g_game)) return finish("failed", "invalid game path");
     g_server = !(g_api->size >= offsetof(KilnApi, side) + sizeof(void*) && g_api->side() == KILN_SIDE_CLIENT);
     set_status("format", 1);
     set_status("side", g_server ? "server" : "client");
@@ -366,17 +518,17 @@ void KILN_CALL on_ready(void*) {
     set_status("installed", installed.present ? nlohmann::json{{"version", installed.version}} : nlohmann::json());
     const bool use_installed = prefer_installed(kiln_dir);
     set_status("useInstalled", use_installed);
-    if (!bundled.present && !installed.present) {
-        logf(KILN_LOG_INFO, "no ShroudForge runtime: neither Kiln's bundled one (kiln/plugins/shroudforge/) nor an "
-                            "installed ShroudForge (shroudforge/): nothing to host");
-        return finish("not-installed", "no ShroudForge runtime (bundled component missing, ShroudForge not installed)");
-    }
     if (const std::string other = sf_in_process(); !other.empty()) {
         logf(KILN_LOG_INFO, "ShroudForge already runs in this process (%s, started by its own dbghelp.dll): it hosts "
                             "its mods itself next to Kiln; kiln-shroudforge stays out of the way",
              other.c_str());
         set_status("source", "installed");
         return finish("self-hosted", "ShroudForge's own bootstrap runs (" + other + ")");
+    }
+    if (!bundled.present && !installed.present) {
+        logf(KILN_LOG_INFO, "no ShroudForge runtime: neither Kiln's bundled one (kiln/plugins/shroudforge/) nor an "
+                            "installed ShroudForge (shroudforge/): nothing to host");
+        return finish("not-installed", "no ShroudForge runtime (bundled component missing, ShroudForge not installed)");
     }
     std::string reason;
     if (!wanted(&reason)) {
@@ -397,20 +549,39 @@ void KILN_CALL on_ready(void*) {
                                 "the installed ShroudForge %s", installed.version.c_str());
             order.push_back(&installed);
         }
-        if (installed.present && bundled.present)
+        if (installed.present && bundled.present) {
+            order.push_back(&installed);
             logf(KILN_LOG_INFO, "an installed ShroudForge %s is here too; Kiln uses its bundled runtime (switch: launcher "
                                 "Settings \"Use my installed ShroudForge\", kiln.json shroudforge.useInstalled)",
                  installed.version.c_str());
+        }
     }
     PrepareStartup prepare = nullptr;
     Candidate* chosen = nullptr;
     std::string last_error;
     for (Candidate* c : order) {
         const auto dll = c->dir / L"shroudforge-runtime.dll";
-        HMODULE h = LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        if (!supported_version(c->version) || !safe_path(c->dir / L"kfc-runtime.dll", c->dir)) {
+            last_error = c->name + " runtime has an unsupported/missing version or unsafe DLL path";
+            logf(KILN_LOG_WARN, "%s", last_error.c_str());
+            continue;
+        }
+        HMODULE kfc = load_runtime_dll(c->dir / L"kfc-runtime.dll");
+        const auto abi = kfc ? reinterpret_cast<KfcAbi>(GetProcAddress(kfc, "KfcRuntimeAbi")) : nullptr;
+        uint32_t native_abi = 0;
+        if (!abi || !invoke(abi, &native_abi) || !supported_abi(native_abi) ||
+            !GetProcAddress(kfc, "KfcRuntimeInitialize") || !GetProcAddress(kfc, "KfcRuntimeTick") ||
+            !GetProcAddress(kfc, "KfcRuntimeShutdown") || !GetProcAddress(kfc, "KfcRuntimeStatus")) {
+            last_error = c->name + " kfc-runtime.dll is corrupt or incompatible (requires ABI 12)";
+            if (kfc) FreeLibrary(kfc);
+            logf(KILN_LOG_WARN, "%s", last_error.c_str());
+            continue;
+        }
+        HMODULE h = load_runtime_dll(dll);
         if (!h) {
             last_error = c->name + " shroudforge-runtime.dll could not be loaded (error " + std::to_string(GetLastError()) + ")";
             logf(KILN_LOG_WARN, "%s", last_error.c_str());
+            FreeLibrary(kfc);
             continue;
         }
         const auto p = reinterpret_cast<PrepareStartup>(GetProcAddress(h, "shroudforge_prepare_startup"));
@@ -421,8 +592,10 @@ void KILN_CALL on_ready(void*) {
             last_error = c->name + " shroudforge-runtime.dll lacks the bootstrap exports (an unsupported ShroudForge version)";
             logf(KILN_LOG_WARN, "%s", last_error.c_str());
             FreeLibrary(h);
+            FreeLibrary(kfc);
             continue;
         }
+        g_kfc = kfc;
         g_runtime = h;
         prepare = p;
         g_create = cr;
@@ -444,11 +617,15 @@ void KILN_CALL on_ready(void*) {
          chosen->version.empty() ? "?" : chosen->version.c_str(), chosen->build.empty() ? "" : " ",
          chosen->build.c_str(), to_utf8(chosen->dir.wstring()).c_str());
     if (chosen == &bundled) seed_profiles(bundled.dir / L"profiles");
-    const auto kfc_dll = chosen->dir / L"kfc-runtime.dll";
+    if (!reserve_writer()) {
+        logf(KILN_LOG_ERROR, "ShroudForge cannot reserve the startup data writer (requires kiln-eml v2 in its early phase)");
+        return finish("failed", "EML writer is already active or incompatible; refusing a second KFC writer");
+    }
     g_tail.start();
     start_helper_processes(g_game, g_server);
     const auto t0 = std::chrono::steady_clock::now();
-    const bool prepared = prepare(g_game.wstring().c_str());
+    bool prepared = false;
+    invoke(prepare, &prepared, g_game.wstring().c_str());
     const double prep_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     g_tail.poll();
     if (!prepared) {
@@ -460,20 +637,24 @@ void KILN_CALL on_ready(void*) {
         return finish("failed", "ShroudForge's startup preparation failed (startup asset mods or its DLL Manager)");
     }
     logf(KILN_LOG_INFO, "ShroudForge startup preparation done (%.0f ms)", prep_ms);
-    g_kfc = LoadLibraryExW(kfc_dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    // Both DLLs and ABI were validated together before startup preparation.
+
     if (g_kfc) {
         const auto abi = reinterpret_cast<KfcAbi>(GetProcAddress(g_kfc, "KfcRuntimeAbi"));
         const auto init = reinterpret_cast<KfcBool>(GetProcAddress(g_kfc, "KfcRuntimeInitialize"));
         g_kfc_tick = reinterpret_cast<KfcVoid>(GetProcAddress(g_kfc, "KfcRuntimeTick"));
         g_kfc_shutdown = reinterpret_cast<KfcVoid>(GetProcAddress(g_kfc, "KfcRuntimeShutdown"));
         g_kfc_status = reinterpret_cast<KfcStatusFn>(GetProcAddress(g_kfc, "KfcRuntimeStatus"));
-        const uint32_t v = abi ? abi() : 0;
+        uint32_t v = 0;
+        if (abi) invoke(abi, &v);
         set_status("nativeAbi", v);
         if (!abi || !init || !g_kfc_tick || !g_kfc_shutdown || !g_kfc_status) {
             logf(KILN_LOG_WARN, "kfc-runtime.dll lacks the provider exports: ShroudForge mods get no live game access");
             g_kfc_tick = g_kfc_shutdown = nullptr;
             g_kfc_status = nullptr;
-        } else if (!init()) {
+        } else if (!supported_abi(v) || !invoke(init, &g_initialized) || !g_initialized) {
+            g_kfc_tick = nullptr;
+            invoke_void(g_kfc_shutdown);
             logf(KILN_LOG_WARN, "ShroudForge's native runtime (ABI %u) did not initialize: %s", v, kfc_status().c_str());
         } else {
             logf(KILN_LOG_INFO, "ShroudForge's native runtime (ABI %u) initialized: %s", v, kfc_status().c_str());
@@ -482,21 +663,14 @@ void KILN_CALL on_ready(void*) {
         logf(KILN_LOG_WARN, "kfc-runtime.dll could not be loaded (error %lu): ShroudForge mods get no live game access",
              GetLastError());
     }
-    g_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    set_status("runtime", "starting");
-    finish("hosted", "");
-    try {
-        g_thread = std::thread(run_loop);
-    } catch (...) {
-        logf(KILN_LOG_ERROR, "could not start ShroudForge's mods thread");
-        finish("failed", "could not start the mods thread");
-    }
+    g_prepared = true;
+    if (!g_early) start_worker();
 }
 
 void KILN_CALL on_unload(void*) {
-    // process exit: like ShroudForge's bootstrap on DLL_PROCESS_DETACH, only signal (threads are gone or frozen)
+    // The ABI permits this at process exit. Never wait under a possible loader lock. The pinned worker owns
+    // destroy/shutdown serially; retain its event, thread handle and modules until process teardown.
     if (g_stop) SetEvent(g_stop);
-    if (g_thread.joinable()) g_thread.detach();
 }
 
 }  // namespace
@@ -533,12 +707,35 @@ std::wstring to_wide(const std::string& s) {
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner,
                                                                        KilnPluginInfo* info) {
-    if (api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, server_world)) return KILN_ERR_UNAVAILABLE;
-    ksf::g_api = api;
-    ksf::g_owner = owner;
+    if (!api || !info || api->abi_version != KILN_ABI_VERSION ||
+        api->size < offsetof(KilnApi, server_world) || info->size < sizeof(KilnPluginInfo) ||
+        !api->path || !api->service || !api->log) return KILN_ERR_UNAVAILABLE;
+    // Keep callback code mapped while the runtime worker or its own background jobs can still call into it.
+    HMODULE pinned = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(&kiln_plugin_main), &pinned)) return KILN_ERR_UNAVAILABLE;
+    if (!ksf::g_api) { ksf::g_api = api; ksf::g_owner = owner; }
     info->id = KilnStr{"shroudforge", 11};
     info->version = KilnStr{"0.1.0", 5};
     info->on_ready = &ksf::on_ready;
     info->on_unload = &ksf::on_unload;
+    return KILN_OK;
+}
+
+// At process termination Windows has already stopped other threads. Never join or destroy runtimes under loader lock.
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_DETACH && ksf::g_stop) SetEvent(ksf::g_stop);
+    return TRUE;
+}
+
+extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_early(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
+    const auto result = kiln_plugin_main(api, owner, info);
+    if (result != KILN_OK) return result;
+    info->on_ready = [](void*) { ksf::start_worker(); };
+    info->on_unload = nullptr;
+    ksf::g_early = true;
+    try { ksf::on_ready(nullptr); }
+    catch (...) { ksf::g_early = false; return KILN_ERR_INTERNAL; }
+    ksf::g_early = false;
     return KILN_OK;
 }

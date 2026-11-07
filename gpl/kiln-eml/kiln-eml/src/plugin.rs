@@ -125,23 +125,25 @@ struct KilnProfileApi {
     json: unsafe extern "C" fn() -> KilnStr,
 }
 
-/// kiln_eml.h KilnEmlApi v1
+/// kiln_eml.h KilnEmlApi v2 (the v1 prefix is unchanged)
 #[repr(C)]
 pub struct KilnEmlApi {
     header: KilnServiceHeader,
     add_mod: unsafe extern "C" fn(KilnStr, KilnStr) -> i32,
     phase: unsafe extern "C" fn() -> u32,
     state_json: unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32,
+    stand_aside: unsafe extern "C" fn(KilnStr) -> i32,
 }
 
 // Function pointers are plain addresses; the table is immutable.
 unsafe impl Sync for KilnEmlApi {}
 
 static TABLE: KilnEmlApi = KilnEmlApi {
-    header: KilnServiceHeader { size: std::mem::size_of::<KilnEmlApi>() as u32, version: 1 },
+    header: KilnServiceHeader { size: std::mem::size_of::<KilnEmlApi>() as u32, version: 2 },
     add_mod: eml_add_mod,
     phase: eml_phase,
     state_json: eml_state_json,
+    stand_aside: eml_stand_aside,
 };
 
 // ---- state ----
@@ -213,6 +215,7 @@ fn init_logging(logs: Option<&Utf8Path>) {
 
 /// EML's own proxy (dbghelp.dll, or dinput8.dll chained by Kiln), or ShroudForge's (which carries EML), loaded in this
 /// process: it already patched the game files in its DllMain, so kiln-eml must not patch them a second time.
+#[cfg(windows)]
 fn eml_loader_loaded() -> Option<String> {
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
@@ -261,12 +264,39 @@ fn eml_loader_loaded() -> Option<String> {
     None
 }
 
+#[cfg(not(windows))]
+fn eml_loader_loaded() -> Option<String> { None }
+
+// Validate the headers before forming references to append-only ABI tables.
+fn valid_api(api: *const KilnApi, info: *mut KilnPluginInfo, ready: bool) -> bool {
+    if api.is_null() || info.is_null() { return false; }
+    unsafe {
+        let size = std::ptr::read(api.cast::<u32>()) as usize;
+        let version = std::ptr::read(api.cast::<u32>().add(1));
+        let info_size = std::ptr::read(info.cast::<u32>()) as usize;
+        if version != 1 || size < std::mem::size_of::<KilnApi>()
+            || info_size < if ready { std::mem::size_of::<KilnPluginInfo>() } else { std::mem::offset_of!(KilnPluginInfo, on_unload) } { return false; }
+        for offset in [std::mem::offset_of!(KilnApi, log), std::mem::offset_of!(KilnApi, path),
+            std::mem::offset_of!(KilnApi, service), std::mem::offset_of!(KilnApi, register_service)] {
+            if std::ptr::read(api.cast::<u8>().add(offset).cast::<usize>()) == 0 { return false; }
+        }
+    }
+    true
+}
+
 // ---- the run ----
 
 fn profile() -> Option<&'static KilnProfileApi> {
     let a = api()?;
     let p = unsafe { (a.service)(KilnStr::lit("kiln.profile"), 1) } as *const KilnProfileApi;
-    if p.is_null() { None } else { Some(unsafe { &*p }) }
+    if p.is_null() { return None; }
+    unsafe {
+        let h = &*p.cast::<KilnServiceHeader>();
+        if h.version != 1 || (h.size as usize) < std::mem::size_of::<KilnProfileApi>() { return None; }
+        if std::ptr::read(p.cast::<u8>().add(std::mem::offset_of!(KilnProfileApi, mode)).cast::<usize>()) == 0
+            || std::ptr::read(p.cast::<u8>().add(std::mem::offset_of!(KilnProfileApi, json)).cast::<usize>()) == 0 { return None; }
+        Some(&*p)
+    }
 }
 
 fn eml_json(game: &Utf8Path) -> (bool, Option<std::path::PathBuf>) {
@@ -318,7 +348,7 @@ fn run_now() {
         }
         if mode == KILN_PROFILE_ACTIVE || mode == KILN_PROFILE_ONCE {
             let json = unsafe { (p.json)().to_string() };
-            candidates.extend(discover::profile_candidates(&json));
+            candidates.extend(discover::profile_candidates(&json, &kiln));
             dropins = discover::profile_dropins(&json);
             profile_note = "profile";
         }
@@ -335,6 +365,7 @@ fn run_now() {
     }
     let cfg = RunConfig {
         game_dir: game.clone(),
+        file_name: std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase())),
         cache_dir: kiln.join("eml").join("cache"),
         patch: true,
         export,
@@ -381,8 +412,10 @@ fn run_now() {
 }
 
 fn guarded_run() {
-    if RAN.swap(true, Ordering::AcqRel) || PHASE.load(Ordering::Acquire) != EML_COLLECTING {
-        return;
+    {
+        let _added = ADDED.lock().unwrap_or_else(|e| e.into_inner());
+        if RAN.swap(true, Ordering::AcqRel) || PHASE.load(Ordering::Acquire) != EML_COLLECTING { return; }
+        PHASE.store(5, Ordering::Release); // running: add_mod is closed
     }
     if catch_unwind(AssertUnwindSafe(run_now)).is_err() {
         klog(1, "kiln-eml: the EML run panicked; the game and other mods run on");
@@ -398,9 +431,7 @@ unsafe extern "C" fn on_ready(_user: *mut c_void) {
 
 /// Common to the early step and the fallback: identity, logging, the stand-aside check, the service.
 fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready: bool) -> i32 {
-    if api.is_null() || info.is_null() {
-        return KILN_ERR_INVALID_ARGUMENT;
-    }
+    if !valid_api(api, info, with_ready) { return KILN_ERR_INVALID_ARGUMENT; }
     API.store(api as *mut KilnApi, Ordering::Release);
     OWNER.store(owner, Ordering::Relaxed);
     let info = unsafe { &mut *info };
@@ -440,6 +471,7 @@ pub unsafe extern "C" fn kiln_plugin_early(api: *const KilnApi, owner: u64, info
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kiln_plugin_main(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
+        if !valid_api(api, info, false) { return KILN_ERR_INVALID_ARGUMENT; }
         let first = !STARTED.load(Ordering::Acquire);
         if !first {
             // keep the early owner as the one that logs; just name ourselves for boot.json
@@ -460,23 +492,62 @@ pub unsafe extern "C" fn kiln_plugin_main(api: *const KilnApi, owner: u64, info:
 /// The kiln.eml table for early plugins (kiln_eml.h: GetModuleHandleW(L"kiln-eml.dll") + GetProcAddress).
 #[unsafe(no_mangle)]
 pub extern "C" fn kiln_eml_service(min_version: u32) -> *const KilnEmlApi {
-    if min_version <= 1 { &TABLE } else { std::ptr::null() }
+    if min_version <= 2 { &TABLE } else { std::ptr::null() }
 }
 
 unsafe extern "C" fn eml_add_mod(path: KilnStr, source: KilnStr) -> i32 {
-    let path = unsafe { path.to_string() };
-    let mut source = unsafe { source.to_string() };
-    if path.is_empty() {
-        return KILN_ERR_INVALID_ARGUMENT;
-    }
-    if RAN.load(Ordering::Acquire) {
-        return KILN_ERR_UNAVAILABLE;
-    }
-    if source.is_empty() {
-        source = "plugin".into();
-    }
-    ADDED.lock().unwrap().push(Candidate { path: Utf8PathBuf::from(path), source, enabled: true });
-    KILN_OK
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe fn input(s: KilnStr, max: usize) -> Option<String> {
+            if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
+            if s.len == 0 { return Some(String::new()); }
+            let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
+            if bytes.contains(&0) { return None; }
+            std::str::from_utf8(bytes).ok().map(str::to_owned)
+        }
+        let (Some(path), Some(mut source)) = (unsafe { input(path, 32768) }, unsafe { input(source, 256) }) else {
+            return KILN_ERR_INVALID_ARGUMENT;
+        };
+        let path = Utf8PathBuf::from(path);
+        let game = kpath(KILN_PATH_GAME).or_else(|| std::env::current_exe().ok()
+            .and_then(|p| p.parent().map(|p| p.to_owned())).and_then(|p| Utf8PathBuf::from_path_buf(p).ok()));
+        let Some(game) = game else { return KILN_ERR_UNAVAILABLE; };
+        let kiln = kpath(KILN_PATH_KILN).unwrap_or_else(|| game.join("kiln"));
+        let mut roots = vec![game.join("mods"), kiln.join("eml/mods"), kiln.join("mods")];
+        if let Some(p) = profile() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&unsafe { (p.json)().to_string() }) {
+                if let Some(kinds) = v.get("mods").and_then(|m| m.as_object()) {
+                    for list in kinds.values().filter_map(|v| v.as_array()) {
+                        roots.extend(list.iter().filter_map(|v| v.get("path")?.as_str().map(|path| discover::resolve_profile_path(path, &kiln))));
+                    }
+                }
+            }
+        }
+        if discover::validate_path(&path, &roots).is_err() { return KILN_ERR_INVALID_ARGUMENT; }
+        let mut added = ADDED.lock().unwrap_or_else(|e| e.into_inner());
+        if RAN.load(Ordering::Acquire) { return KILN_ERR_UNAVAILABLE; }
+        if source.is_empty() { source = "plugin".into(); }
+        added.push(Candidate { path, source, enabled: true });
+        KILN_OK
+    })).unwrap_or(KILN_ERR_INTERNAL)
+}
+
+unsafe extern "C" fn eml_stand_aside(reason: KilnStr) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if reason.ptr.is_null() || reason.len == 0 || reason.len > 1024 { return KILN_ERR_INVALID_ARGUMENT; }
+        let bytes = unsafe { std::slice::from_raw_parts(reason.ptr, reason.len) };
+        let Ok(reason) = std::str::from_utf8(bytes) else { return KILN_ERR_INVALID_ARGUMENT; };
+        if reason.contains('\0') { return KILN_ERR_INVALID_ARGUMENT; }
+        let _added = ADDED.lock().unwrap_or_else(|e| e.into_inner());
+        if RAN.load(Ordering::Acquire) { return KILN_ERR_UNAVAILABLE; }
+        if let Some(game) = kpath(KILN_PATH_GAME) {
+            if runner::lock_game(&game).is_err() { return KILN_ERR_UNAVAILABLE; }
+        } else { return KILN_ERR_UNAVAILABLE; }
+        RAN.store(true, Ordering::Release);
+        let mut out = Outcome::new(Phase::Aside, Vec::new());
+        out.aside = Some(reason.into());
+        publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
+        KILN_OK
+    })).unwrap_or(KILN_ERR_INTERNAL)
 }
 
 unsafe extern "C" fn eml_phase() -> u32 {
@@ -484,7 +555,7 @@ unsafe extern "C" fn eml_phase() -> u32 {
 }
 
 unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *mut usize) -> i32 {
-    let s = STATE_JSON.lock().unwrap();
+    let s = STATE_JSON.lock().unwrap_or_else(|e| e.into_inner());
     if !out_len.is_null() {
         unsafe { *out_len = s.len() };
     }
@@ -493,4 +564,58 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
     }
     unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), buffer, s.len()) };
     KILN_OK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rejects_short_and_old_abi_tables_without_reading_slots() {
+        let mut info = [0u64; 16];
+        info[0] = std::mem::size_of::<KilnPluginInfo>() as u64;
+        let mut header = [8u32, 1];
+        assert!(!valid_api(header.as_ptr().cast(), info.as_mut_ptr().cast(), true));
+        header[1] = 99;
+        assert!(!valid_api(header.as_ptr().cast(), info.as_mut_ptr().cast(), false));
+        assert!(!valid_api(std::ptr::null(), std::ptr::null_mut(), true));
+    }
+    #[test]
+    fn eml_table_versions_and_invalid_ffi_arguments() {
+        assert!(!kiln_eml_service(1).is_null());
+        let table = unsafe { &*kiln_eml_service(2) };
+        assert_eq!(table.header.version, 2);
+        assert_eq!(table.header.size as usize, std::mem::size_of::<KilnEmlApi>());
+        assert!(kiln_eml_service(3).is_null());
+        let bad = KilnStr { ptr: std::ptr::null(), len: 1 };
+        assert_eq!(unsafe { eml_add_mod(bad, KilnStr::lit("test")) }, KILN_ERR_INVALID_ARGUMENT);
+        assert_eq!(unsafe { eml_stand_aside(bad) }, KILN_ERR_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn v1_reader_calls_only_the_unchanged_prefix_of_the_v2_table() {
+        #[repr(C)]
+        struct V1Reader {
+            header: KilnServiceHeader,
+            add_mod: unsafe extern "C" fn(KilnStr, KilnStr) -> i32,
+            phase: unsafe extern "C" fn() -> u32,
+            state_json: unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32,
+        }
+        assert_eq!(std::mem::size_of::<V1Reader>(), std::mem::offset_of!(KilnEmlApi, stand_aside));
+        assert_eq!(std::mem::offset_of!(V1Reader, add_mod), std::mem::offset_of!(KilnEmlApi, add_mod));
+        assert_eq!(std::mem::offset_of!(V1Reader, phase), std::mem::offset_of!(KilnEmlApi, phase));
+        assert_eq!(std::mem::offset_of!(V1Reader, state_json), std::mem::offset_of!(KilnEmlApi, state_json));
+        let ptr = kiln_eml_service(1).cast::<V1Reader>();
+        assert!(!ptr.is_null());
+        // From here the reader knows only v1. It never reads or calls the appended slot.
+        let reader = unsafe { &*ptr };
+        assert!(reader.header.version >= 1);
+        assert!(reader.header.size as usize >= std::mem::size_of::<V1Reader>());
+        assert!(unsafe { (reader.phase)() } <= 5);
+        let mut needed = usize::MAX;
+        assert_eq!(unsafe { (reader.state_json)(std::ptr::null_mut(), 0, &mut needed) }, KILN_ERR_BUFFER_TOO_SMALL);
+        let mut text = vec![0u8; needed];
+        assert_eq!(unsafe { (reader.state_json)(text.as_mut_ptr(), text.len(), &mut needed) }, KILN_OK);
+        assert_eq!(unsafe { (reader.add_mod)(KilnStr { ptr: std::ptr::null(), len: 1 }, KilnStr::lit("v1-reader")) }, KILN_ERR_INVALID_ARGUMENT);
+    }
+
 }

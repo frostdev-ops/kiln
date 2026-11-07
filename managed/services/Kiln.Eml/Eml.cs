@@ -10,7 +10,7 @@ namespace Kiln;
 /// <summary>The EML mods of this start and what kiln-eml did with them (docs/kiln/eml.md).</summary>
 public static class Eml
 {
-    private static readonly Lazy<EmlStatus?> Current = new(() => Load(DefaultStateFile));
+    private static readonly Lazy<EmlStatus?> Current = new(() => Load(DefaultStateFile, currentProcess: true));
 
     /// <summary><c>&lt;game&gt;/kiln/state/eml.json</c>, found next to Kiln.Api (<c>&lt;game&gt;/kiln/host/</c>).</summary>
     public static string DefaultStateFile =>
@@ -20,15 +20,18 @@ public static class Eml
     public static EmlStatus? Status => Current.Value;
 
     /// <summary>True when the EML mod <paramref name="id"/> ran this start (EML <c>loader.has_mod</c>).</summary>
-    public static bool IsLoaded(string id) => Status?.Mods.Any(m => m.State == "loaded" && m.Id == id) ?? false;
+    public static bool IsLoaded(string id) => Status is { Phase: "done" } s && s.Mods.Any(m => m.State == "loaded" && m.Id == id);
 
     /// <summary>Reads a state file; null when it is missing or not format 1.</summary>
-    public static EmlStatus? Load(string path)
+    public static EmlStatus? Load(string path, bool currentProcess = false)
     {
         try
         {
             var s = JsonSerializer.Deserialize<EmlStatus>(File.ReadAllText(path), Options);
-            return s is { Format: 1 } ? s : null;
+            if (s is not { Format: 1, Mods: not null } || s.Mods.Any(m => m is null)) return null;
+            if (currentProcess && (s.Pid != Environment.ProcessId ||
+                File.GetLastWriteTimeUtc(path) < System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime())) return null;
+            return s;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -43,6 +46,7 @@ public static class Eml
 public sealed record EmlStatus
 {
     public int Format { get; init; }
+    public int Pid { get; init; }
     [JsonPropertyName("kilnEml")] public string? KilnEmlVersion { get; init; }
     [JsonPropertyName("eml")] public string? EmlVersion { get; init; }
     /// <summary><c>done</c> (patched or unchanged since the last run), <c>failed</c> (game data restored to vanilla),

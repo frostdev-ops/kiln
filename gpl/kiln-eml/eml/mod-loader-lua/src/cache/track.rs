@@ -1,3 +1,4 @@
+// kiln-eml: include resources/backups/config and make unreadable inputs invalidate the snapshot.
 use std::path::Path;
 
 use walkdir::WalkDir;
@@ -20,6 +21,7 @@ impl FileStateCache {
                     path = game_dir.display().to_string(),
                     "Failed to read game directory"
                 );
+                self.build_id.clear();
                 return;
             }
         };
@@ -33,6 +35,7 @@ impl FileStateCache {
                         path = game_dir.display().to_string(),
                         "Failed to read game directory entry, skipping"
                     );
+                    self.build_id.clear();
                     continue;
                 }
             };
@@ -41,7 +44,7 @@ impl FileStateCache {
             let extension = path.extension().and_then(|ext| ext.to_str());
 
             if let Some(ext) = extension {
-                if ext == "dat" || ext == "kfc" || ext == "exe" {
+                if matches!(ext, "dat" | "kfc" | "kfc_resources" | "exe" | "bak") || path.file_name().is_some_and(|n| n == "eml.json") {
                     self.track(path);
                 }
             }
@@ -60,8 +63,8 @@ impl FileStateCache {
         dir: impl AsRef<Path>,
     ) {
         let mod_files = WalkDir::new(dir)
-            .follow_links(true)
-            .follow_root_links(true)
+            .follow_links(false)
+            .follow_root_links(false)
             .into_iter();
 
         for mod_files in mod_files {
@@ -91,6 +94,7 @@ impl FileStateCache {
                         );
                     }
 
+                    self.build_id.clear();
                     continue;
                 }
             };

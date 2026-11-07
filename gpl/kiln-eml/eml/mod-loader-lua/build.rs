@@ -1,15 +1,25 @@
 use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 fn main() -> std::io::Result<()> {
     generate_definitions_file()?;
 
-    // does not change unless definitions change, so this may need to be changed in the future
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    println!("cargo:rustc-env=BUILD_ID={now}");
+    // kiln-eml: deterministic cache schema identifier; never embed the build clock.
+    let root = Path::new("../..");
+    let mut inputs = Vec::new();
+    collect_build_inputs(&root.join("eml"), &mut inputs)?;
+    collect_build_inputs(&root.join("kiln-eml"), &mut inputs)?;
+    inputs.extend([root.join("Cargo.toml"), root.join("Cargo.lock")]);
+    inputs.sort();
+    let mut hash = 0xcbf29ce484222325u64;
+    for path in inputs {
+        println!("cargo:rerun-if-changed={}", path.display());
+        for byte in path.strip_prefix(root).unwrap().to_string_lossy().bytes().chain(fs::read(&path)?) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    println!("cargo:rustc-env=BUILD_ID=kiln-eml-v2-{hash:016x}");
 
     Ok(())
 }
@@ -74,6 +84,16 @@ fn collect_lua_files(
         } else if p.extension().and_then(|s| s.to_str()) == Some("lua") {
             out.push(p);
         }
+    }
+    Ok(())
+}
+
+// kiln-eml: a reproducible code fingerprint invalidates old patches after a runner/parser change too.
+fn collect_build_inputs(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() { collect_build_inputs(&path, out)?; }
+        else if path.extension().is_some_and(|e| e == "rs" || e == "lua" || e == "toml") { out.push(path); }
     }
     Ok(())
 }

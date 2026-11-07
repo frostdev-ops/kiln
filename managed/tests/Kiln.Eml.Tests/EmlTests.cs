@@ -32,6 +32,20 @@ public class DataBufferTests
     }
 
     [Fact]
+    public void GrowingTailClearsPreviouslyWrittenBytes()
+    {
+        var b = DataBuffer.Wrap("secret");
+        b.Tail = 0;
+        b.Tail = 6;
+        Assert.Equal(new byte[6], b.ToArray());
+        b.Reset();
+        b.Tail = 6;
+        Assert.Equal(new byte[6], b.ToArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() => b.Reserve(-1));
+        Assert.Throws<OverflowException>(() => b.Reserve(int.MaxValue));
+    }
+
+    [Fact]
     public void ByteOrder()
     {
         var b = new DataBuffer { Order = Kiln.ByteOrder.Big };
@@ -81,7 +95,16 @@ public class EmlStatusTests
         Assert.Equal(2, s.Mods.Count);
         Assert.Equal("patch", s.Mods[0].Capabilities[0]);
         Assert.Null(Kiln.Eml.Load(f + ".missing"));
+        Assert.Null(Kiln.Eml.Load(f, currentProcess: true)); // an earlier plugin run has no current PID
+        File.WriteAllText(f, $"{{\"format\":1,\"pid\":{Environment.ProcessId}}}");
+        Assert.NotNull(Kiln.Eml.Load(f, currentProcess: true));
+        File.SetLastWriteTimeUtc(f, DateTime.UnixEpoch);
+        Assert.Null(Kiln.Eml.Load(f, currentProcess: true));
         File.WriteAllText(f, "{\"format\":2}");
+        Assert.Null(Kiln.Eml.Load(f));
+        File.WriteAllText(f, "{\"format\":1,\"mods\":null}");
+        Assert.Null(Kiln.Eml.Load(f));
+        File.WriteAllText(f, "{\"format\":1,\"mods\":[null]}");
         Assert.Null(Kiln.Eml.Load(f));
         File.Delete(f);
     }

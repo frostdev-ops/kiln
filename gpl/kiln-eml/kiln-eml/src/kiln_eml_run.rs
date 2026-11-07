@@ -66,7 +66,7 @@ fn main() {
             eprintln!("{p}: {e}");
             std::process::exit(2)
         });
-        candidates.extend(discover::profile_candidates(&text));
+        candidates.extend(discover::profile_candidates(&text, &game.join("kiln")));
         dropins |= discover::profile_dropins(&text);
     }
     candidates.extend(mods.iter().map(|p| Candidate { path: p.clone(), source: "cli".into(), enabled: true }));

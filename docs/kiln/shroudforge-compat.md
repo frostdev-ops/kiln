@@ -82,9 +82,9 @@ cadence uses the installed copy.
     nlohmann).
   - SF's EML v1 Lua API (`mod-runtime/lua/eml/v1`) is SF's own MIT implementation, but it runs on the GPL `kfc` types. SF
     does not reuse EML's GPL Lua host (`mod-loader-lua`).
-- **kiln-shroudforge.dll is MIT and contains no SF or GPL code.** It loads the player's installed SF files at run time
-  through their exported C functions, which is what SF's MIT bootstrap does. Kiln distributes nothing GPL. When the
-  player has SF, GPL code runs in the Kiln process, exactly as it does today when they run SF.
+- **kiln-shroudforge.dll is MIT and contains no GPL implementation.** Its helper-process launcher is adapted from
+  SF's MIT bootstrap with attribution. It loads the player's installed SF files at run time
+  through their exported C functions, which is what SF's MIT bootstrap does. Kiln ships the GPL runtime as the separate component described below; the adapter does not link its implementation.
 - The user decided (2026-11-07) that EML is supported as a separate GPL-3 plugin, `kiln-eml.dll`, in its own directory,
   and that Kiln stays MIT. The bundled ShroudForge runtime is shipped the same way: `kiln/plugins/shroudforge/` holds
   `shroudforge-runtime.dll` (GPL-3 through kfc), `kfc-runtime.dll` (MIT), `LICENSES/`, `NOTICE.txt` and `SOURCE.txt`.
@@ -110,36 +110,38 @@ The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the de
 used when `kiln.json` has `"shroudforge": {"useInstalled": true}` (the launcher Settings toggle "Use my installed
 ShroudForge"; env `KILN_SHROUDFORGE_RUNTIME=installed|bundled` overrides). It logs which one runs
 (`ShroudForge runtime: bundled 1.7.9 kiln.823823a from ...`). When both are present it says how to switch. A chosen
-runtime that is missing, fails to load or lacks the exports falls back to the other one with a warning. In bundled mode
+runtime that is missing, unsafe, fails to load, has an unsupported version or lacks compatible exports falls back to
+the other one with a warning. Supported unversioned bootstrap contracts are SF 1.7.8 and 1.7.9; the native DLL must
+provide all five required exports and ABI 12. Missing `version.json` is incompatible. The runtime directory and its
+children cannot be reparse points; ancestors above that authorized root are the player's Steam/Wine layout and are
+not judged. Resolved paths must stay inside the root; Wine file links are excluded by the installer. DLL loads use
+restricted dependency search paths and verify the loaded file identity. In bundled mode
 it copies the bundled game profiles that are missing into SF's runtime folder and never overwrites a file. The data
 folder is SF's own `<game>/shroudforge/` (config, logs, state, cache, profiles). Mods come from SF's mods folder.
 `kiln/state/shroudforge.json` gains `source` (bundled|installed), `runtimeDir`, `bundled`, `installed` and
 `useInstalled`. Then, for whichever runtime was chosen:
 
-Its `on_ready` runs on the main thread while Kiln's gate still holds the game's entry point, the same moment SF's own gate
-gives its preparation:
+Its early export runs preparation on the main thread while Kiln's gate holds the game entry point. Both runtime DLLs
+are validated before preparation. The `kiln.eml` v2 reservation prevents two startup KFC writers:
 
-1. If ShroudForge is not installed (`shroudforge/shroudforge-runtime.dll` missing): status `not-installed`, nothing
-   else.
-2. If SF's bootstrap is already loaded (a module exporting `ShroudforgeStop`, or `shroudforge-runtime.dll`): status
-   `self-hosted`, and it stays out of the way.
-3. Decide whether to host. `KILN_SHROUDFORGE=0/1` overrides everything. Play-once without mods or an invalid profile
-   means off. With no profile (legacy layout) it hosts. With an active profile it hosts when `mods.shroudforge` has an
-   enabled entry.
-4. `LoadLibraryExW(shroudforge-runtime.dll)`. If it lacks the four exports: `failed` ("ShroudForge version not
-   supported"). Then the helper windows (client only, SF's module switches respected; ported from SF's
-   `module_processes.cpp` with credit), then `shroudforge_prepare_startup(<game>)`. If that fails, the game starts
-   without SF. SF itself would stop the game here. Then `kfc-runtime.dll`: `KfcRuntimeAbi` (logged, any version) and
-   `KfcRuntimeInitialize`. If initialization fails, SF runs in metadata-only mode, as in SF.
-5. A worker thread runs `shroudforge_create`, then every 16 ms `KfcRuntimeTick` + `shroudforge_update(dt)`. It writes the
-   heartbeat file SF's tools read (plus `"host":"kiln"`), mirrors SF's log into `kiln.log` as `[sf] ...` lines, and
-   writes `kiln/state/shroudforge.json` (`mode`, `reason`, `version`, `side`, `modsDir`, `nativeAbi`, `native`, `turns`,
-   `updated`). At process exit it signals the thread, as SF's bootstrap does on `DLL_PROCESS_DETACH`.
-6. Not run: SF's startup update check and pending-update install (Kiln's install must not be overwritten), and SF's
-   Debug Console (kiln.log carries SF's log).
+1. Detect a loaded SF bootstrap/runtime first, even when files have disappeared from disk: status `self-hosted`.
+2. Decide whether to host. `KILN_SHROUDFORGE=0/1` overrides. No-mods/invalid profiles are off. Active profiles need an
+   enabled `mods.shroudforge` entry. Legacy layouts need an enabled SF package or previous SF startup patch state;
+   the presence of bundled binaries alone leaves EML-only installs with kiln-eml.
+3. Try the preferred runtime pair and then the other pair. Validate versions, paths, exports and native ABI before
+   startup side effects. Copy missing bundled game profiles using checked paths.
+4. Reserve the EML writer through `stand_aside` while collection is open, then call startup preparation synchronously.
+   Old/incompatible EML tables or an already-finished EML writer make SF refuse preparation. When SF owns startup,
+   EML packages use SF's configured mods folder; Kiln-only EML profile/private-root folders are not forwarded.
+5. Initialize the native runtime. Failed native initialization disables ticking and cleans up the provider. On early
+   `on_ready`, start the worker: create, then every 16 ms tick + update, then destroy + shutdown serially on that worker.
+   Foreign export faults and C++ worker exceptions stop SF and report failure. The unload callback and process detach only signal,
+   with no loader-lock wait; worker handles and runtime modules remain alive until process teardown. Callback code stays mapped for the worker lifetime.
+6. Mirror SF's log and publish heartbeat/status. The adapter skips SF's bootstrap update check/pending-update install
+   and Debug Console. SF's own exported preparation can still start its config controller.
 
-Kiln plugins run only when Kiln's hooks are on (verified build or policy `any`). On a game build Kiln does not know yet,
-kiln-shroudforge does not run. SF still starts by itself if its `dbghelp.dll` is active.
+Startup preparation and SF's loop can run in Kiln safe idle too: the adapter uses SF's own exact-build profiles and
+needs no Kiln hook. A failed preparation is reported; the adapter does not attempt another writer after startup side effects.
 
 ### 5.2 `crates/kiln-manage/src/shroudforge.rs`
 
@@ -324,9 +326,8 @@ the world reaches Run. `kiln/state/shroudforge.json` while hosting: `"mode": "ho
 
 ## 10. Build and release (Kiln side)
 
-- Submodule (the coordinator adds it): `git submodule add -b kiln https://github.com/frostdev-ops/shroudforge.git
-  third_party/shroudforge && git -C third_party/shroudforge submodule update --init --recursive`. Until then, build
-  with `KILN_SHROUDFORGE_SRC=~/Work/shroudforge-kiln`.
+- The checked-in submodule is pinned at a commit. To initialize an absent checkout: `git submodule update --init --recursive third_party/shroudforge`. Developer staging can
+  override the source with `KILN_SHROUDFORGE_SRC`; release builds always use the exported pin.
 - `tools/package/stage.sh` runs `<src>/kiln/build.sh $KILN_OUT/shroudforge-build` and stages
   `shroudforge/kiln/plugins/shroudforge/` (component `shroudforge`, default on, both sides, requires core).
   `parity.sh` includes it when built, and `deploy-server.sh` deploys it when built.
@@ -335,3 +336,10 @@ the world reaches Run. `kiln/state/shroudforge.json` while hosting: `"mode": "ho
   into the build source, and appends the component's notice and source pointer to `THIRD-PARTY-NOTICES.txt`.
 - Build needs: cargo-xwin, clang-cl/lld-link/llvm-rc, cmake, ninja, node/npm. The first CMake configure fetches zydis
   (SF's pinned commit) with FetchContent.
+
+Review regressions: `native/plugins/shroudforge/tests/review_test.py` uses isolated Git/source/build fixtures for
+recursive source export (including nested gitlinks and spaces), reproducibility, incomplete notices, stale outputs,
+failed EML/SF builds and archive builds without Git. `tests/early_test.cpp` checks PE bounds and runtime versions.
+`tests/run.py` drives fake DLLs under Wine to check fallback, ABI rejection, writer reservation, update faults and
+serial shutdown; it never loads a game binary. A source-archive release also needs the reviewed fork's `kiln/build.sh`
+changes committed and its Kiln gitlink updated by the maintainer; the review itself does neither.

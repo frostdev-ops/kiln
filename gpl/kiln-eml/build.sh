@@ -20,6 +20,8 @@ for a in "$@"; do
   esac
 done
 cd "$here"
+# Host regressions run even if the Windows cross toolchain is unavailable.
+if ((test)); then cargo test --release --locked -p kiln-eml -p mod-loader-lua -p kfc-base; fi
 win=x86_64-pc-windows-msvc
 # the game ships no VC runtime for us: link the CRT statically (as kiln-core does)
 flags=${CARGO_ENCODED_RUSTFLAGS:-}
@@ -32,4 +34,3 @@ if ((host)); then
   cargo build --release --locked -p kiln-eml --bin kiln-eml-run
   echo "kiln-eml-run: $CARGO_TARGET_DIR/release/kiln-eml-run"
 fi
-if ((test)); then cargo test --release --locked -p kiln-eml; fi

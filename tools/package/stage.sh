@@ -20,7 +20,9 @@ while (($#)); do
   esac
   shift
 done
-out=${KILN_OUT:-$repo/.out/package}
+out=$(realpath -m -- "${KILN_OUT:-$repo/.out/package}")
+stage=$(realpath -m -- "$stage")
+[[ $stage != / && $stage != "$repo" && $repo != "$stage/"* && $out != "$stage" && $out != "$stage/"* && $stage != "$out/"* ]] || { echo "stage: unsafe or overlapping stage/build paths" >&2; exit 2; }
 export KILN_OUT=$out
 warn() { echo "stage: WARNING: $*" >&2; }
 die() { echo "stage: $*" >&2; exit 1; }
@@ -35,20 +37,27 @@ if ((build)); then
   done
   for dir in "$repo"/native/plugins/*/; do
     p=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
-    "$repo/native/build.sh" "kiln-$p" >/dev/null 2>&1 || warn "native plugin $p failed to build; skipped"
+    if [[ $p == shroudforge ]]; then
+      "$repo/native/build.sh" "kiln-$p" || die "ShroudForge adapter failed to build"
+    else
+      "$repo/native/build.sh" "kiln-$p" >/dev/null 2>&1 || warn "native plugin $p failed to build; skipped"
+    fi
   done
   dn "$repo/managed/Kiln.Host/Kiln.Host.csproj" -o "$out/host" >/dev/null
   for proj in "$repo"/managed/services/*/*.csproj; do
     [[ -f $proj ]] || continue
-    dn "$proj" -o "$out/host" >/dev/null 2>&1 || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
+    if [[ $(basename "$proj") == Kiln.Eml.csproj ]]; then
+      dn "$proj" -o "$out/host" || die "Kiln.Eml failed to build"
+    else
+      dn "$proj" -o "$out/host" >/dev/null 2>&1 || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
+    fi
   done
   dn "$repo/managed/Kiln.Game/Kiln.Game.csproj" -o "$out/host" >/dev/null 2>&1 || warn "Kiln.Game failed to build; skipped"
   dn "$repo/mods/samples/Hello/Hello.csproj" -o "$out/mods/hello" >/dev/null || warn "Hello sample failed to build"
   dn "$repo/mods/Kiln.Admin/Kiln.Admin.csproj" -o "$out/mods/kiln-admin" >/dev/null || warn "Kiln.Admin failed to build"
   # kiln-eml: the GPL-3 EML plugin, its own Cargo workspace in gpl/kiln-eml (docs/kiln/eml.md); lands in bin/plugins
-  if [[ -x $repo/gpl/kiln-eml/build.sh ]]; then
-    "$repo/gpl/kiln-eml/build.sh" >/dev/null 2>&1 || warn "kiln-eml (GPL plugin) failed to build; no eml component"
-  fi
+  [[ -x $repo/gpl/kiln-eml/build.sh ]] || die "missing kiln-eml build source"
+  "$repo/gpl/kiln-eml/build.sh" || die "kiln-eml build failed"
 fi
 bin=$out/cmake/bin
 [[ -f $bin/dinput8.dll && -f $bin/kiln-core.dll && -f $out/host/Kiln.Host.dll ]] || die "no Kiln build in $out (run without --no-build)"
@@ -82,10 +91,14 @@ fi
 # ShroudForge runtime: a separate GPL-3 component built from the frostdev-ops/shroudforge fork (third_party/shroudforge,
 # or KILN_SHROUDFORGE_SRC); kiln-shroudforge.dll (MIT, core) drives it. docs/kiln/shroudforge-compat.md
 sfsrc=${KILN_SHROUDFORGE_SRC:-$repo/third_party/shroudforge}
-if ((build)) && [[ -x $sfsrc/kiln/build.sh ]]; then
-  "$sfsrc/kiln/build.sh" "$out/shroudforge-build" >/dev/null || warn "the ShroudForge runtime failed to build; no shroudforge component"
+if ((build)); then
+  [[ -x $sfsrc/kiln/build.sh ]] || die "missing ShroudForge source: $sfsrc/kiln/build.sh"
+  "$sfsrc/kiln/build.sh" "$out/shroudforge-build" || die "ShroudForge runtime build failed"
 fi
 if [[ -f $out/shroudforge-build/shroudforge/shroudforge-runtime.dll ]]; then
+  for required in kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt LICENSES/ShroudForge-MIT.txt; do
+    [[ -s $out/shroudforge-build/shroudforge/$required ]] || die "incomplete ShroudForge component: $required"
+  done
   mkdir -p "$stage/shroudforge/kiln/plugins"
   rsync -a --delete "$out/shroudforge-build/shroudforge/" "$stage/shroudforge/kiln/plugins/shroudforge/"
 else

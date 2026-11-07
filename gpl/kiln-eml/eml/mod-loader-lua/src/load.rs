@@ -52,9 +52,21 @@ pub fn create_writer(
     file_name: &str,
     type_registry: &Rc<TypeRegistry>,
     ref_file: &Rc<KFCFile>,
-) -> Result<KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>, ()> {
+) -> Result<crate::transaction::PatchWriter, ()> {
+    // kiln-eml: only the private staging directory is writable by the KFC writer.
+    let stage = dir.join(format!(".kiln-eml-stage-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&stage).map_err(|_| ())?;
+    let mut patch = crate::transaction::PatchWriter {
+        writer: None, stage: stage.clone().into_std_path_buf(), game: dir.into(), name: file_name.into(),
+    };
+    crate::transaction::atomic_copy(dir.join(format!("{file_name}.kfc.bak")).as_std_path(),
+        stage.join(format!("{file_name}.kfc")).as_std_path()).map_err(|_| ())?;
+    let resources_backup = dir.join(format!("{file_name}.kfc_resources.bak"));
+    let resources = if resources_backup.exists() { resources_backup } else { dir.join(format!("{file_name}.kfc_resources")) };
+    crate::transaction::atomic_copy(resources.as_std_path(),
+        stage.join(format!("{file_name}.kfc_resources")).as_std_path()).map_err(|_| ())?;
     let writer = match KFCWriter::new_incremental_with_options(
-        dir,
+        &stage,
         file_name,
         ref_file.clone(),
         type_registry.clone(),
@@ -80,7 +92,8 @@ pub fn create_writer(
         }
     };
 
-    Ok(writer)
+    patch.writer = Some(writer);
+    Ok(patch)
 }
 
 pub fn create_backup(
@@ -91,46 +104,22 @@ pub fn create_backup(
     bak_path.push_str(".bak");
     let bak_path = Path::new(&bak_path);
 
+    // kiln-eml: reject links and malformed data; a version change refreshes the backup atomically.
+    crate::transaction::regular(path.as_std_path()).map_err(|_| ())?;
+    if bak_path.exists() { crate::transaction::regular(bak_path.as_std_path()).map_err(|_| ())?; }
     if bak_path.exists() && !validate_backup(path, bak_path) {
-        warn!(
-            path = ?path,
-            backup_path = ?bak_path,
-            "Backup file is not compatible with the current KFC file, creating a new backup.",
-        );
-
-        if !bak_path.is_file() {
-            error!(
-                path = ?bak_path,
-                "Backup path is not a file, please remove it manually.",
-            );
-
-            return Err(());
-        }
-
-        if let Err(e) = std::fs::remove_file(bak_path) {
-            warn!(
-                path = ?bak_path,
-                error = %e,
-                "Failed to remove old backup file",
-            );
-        }
+        let old = KFCFile::get_version_tag(bak_path).map_err(|_| ())?;
+        let current = KFCFile::get_version_tag(path).map_err(|_| ())?;
+        // Same-version corruption is not an update. Never promote an existing patch to the vanilla backup.
+        if old == current { return Err(()); }
     }
-
-    if !bak_path.exists() {
-        if let Err(e) = std::fs::copy(path, bak_path) {
-            error!(
-                path = ?bak_path,
-                error = %e,
-                "Failed to create backup file",
-            );
-
-            return Err(());
-        } else {
-            info!(
-                path = ?bak_path,
-                "Backup file created successfully",
-            );
-        }
+    if !bak_path.exists() || !validate_backup(path, bak_path) {
+        KFCFile::from_path(path, false).map_err(|_| ())?;
+        // Snapshot resources before committing the matching header backup. Existing EML-only backups may lack this.
+        let resources = path.with_extension("kfc_resources");
+        let resources_backup = path.with_extension("kfc_resources.bak");
+        crate::transaction::atomic_copy(resources.as_std_path(), resources_backup.as_std_path()).map_err(|_| ())?;
+        crate::transaction::atomic_copy(path.as_std_path(), bak_path.as_std_path()).map_err(|_| ())?;
     }
 
     Ok(bak_path.to_path_buf())
@@ -169,7 +158,7 @@ pub fn restore_backup(
         return Err(());
     }
 
-    if let Err(e) = std::fs::copy(bak_path, path) {
+    if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
         error!(
             path = ?path,
             backup_path = ?bak_path,
@@ -185,6 +174,12 @@ pub fn restore_backup(
         );
     }
 
+    // kiln-eml: new backups restore the resource file exactly too, after the vanilla header is live.
+    let resources_backup = path.with_extension("kfc_resources.bak");
+    if resources_backup.exists() {
+        crate::transaction::atomic_copy(resources_backup.as_std_path(), path.with_extension("kfc_resources").as_std_path())
+            .map_err(|_| ())?;
+    }
     Ok(())
 }
 
@@ -192,8 +187,8 @@ pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
 ) -> bool {
-    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
-        Ok(file) => file,
+    let version_bak = match KFCFile::from_path(kfc_path_bak, false) {
+        Ok(file) => file.game_version().to_owned(),
         Err(_) => return false,
     };
 
@@ -202,7 +197,16 @@ pub fn validate_backup(
         Err(_) => return false,
     };
 
-    version == version_bak
+    if version != version_bak { return false; }
+    let Ok(backup) = KFCFile::from_path(kfc_path_bak, false) else { return false; };
+    let resource_backup = kfc_path.with_extension("kfc_resources.bak");
+    if resource_backup.exists() {
+        let Ok(meta) = resource_backup.metadata() else { return false; };
+        if backup.resource_chunks().iter().any(|c| c.offset.checked_add(c.size).is_none_or(|end| end > meta.len())) {
+            return false;
+        }
+    }
+    true
 }
 
 pub fn load_type_registry(
@@ -219,7 +223,7 @@ pub fn load_type_registry(
         return Err(());
     }
 
-    let types_path = cache_dir.join("types.json");
+    let types_path = cache_dir.join(format!("{file_name}-types.json"));
     let exe_path = game_dir.join(file_name).with_extension("exe");
     let kfc_path = game_dir.join(file_name).with_extension("kfc");
 
@@ -397,4 +401,71 @@ pub fn export_lua_definitions(
             }
         }
     }
+}
+
+#[cfg(test)]
+mod kiln_tests {
+    use super::*;
+    use std::io::Write;
+    fn fixture() -> PathBuf {
+        let dir = PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-backup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        File::create(dir.join("g.kfc")).unwrap();
+        File::create(dir.join("g.kfc_resources")).unwrap();
+        KFCWriter::<Rc<KFCFile>, _>::new(&dir, "g", Rc::new(TypeRegistry::default()), "fixture")
+            .unwrap().finalize().unwrap();
+        dir
+    }
+    #[test]
+    fn backup_restores_exact_header_and_resources() {
+        let dir = fixture();
+        let kfc = dir.join("g.kfc");
+        let resources = dir.join("g.kfc_resources");
+        let original = std::fs::read(&kfc).unwrap();
+        let original_resources = std::fs::read(&resources).unwrap();
+        create_backup(&kfc).unwrap();
+        std::fs::OpenOptions::new().append(true).open(&kfc).unwrap().write_all(b"patch tail").unwrap();
+        std::fs::OpenOptions::new().append(true).open(&resources).unwrap().write_all(b"patch tail").unwrap();
+        restore_backup(&kfc).unwrap();
+        assert_eq!(std::fs::read(&kfc).unwrap(), original);
+        assert_eq!(std::fs::read(&resources).unwrap(), original_resources);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn corrupt_same_version_backup_is_neither_restored_nor_refreshed_from_a_patch() {
+        let dir = fixture();
+        let kfc = dir.join("g.kfc");
+        let bak = create_backup(&kfc).unwrap();
+        let original = std::fs::read(&kfc).unwrap();
+        let mut bad = std::fs::read(&bak).unwrap();
+        bad[24..28].copy_from_slice(&0x7fffffffu32.to_le_bytes()); // invalid container table, intact version
+        std::fs::write(&bak, &bad).unwrap();
+        assert_eq!(KFCFile::get_version_tag(&bak).unwrap(), "fixture");
+        assert!(!validate_backup(&kfc, &bak));
+        assert!(create_backup(&kfc).is_err());
+        assert!(restore_backup(&kfc).is_err());
+        assert_eq!(std::fs::read(&kfc).unwrap(), original);
+        assert_eq!(std::fs::read(&bak).unwrap(), bad);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn patch_cache_is_bound_to_the_selected_game_file() {
+        let dir = fixture();
+        let cache = dir.join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let mut types = TypeRegistry::default(); types.version = "fixture".into();
+        std::fs::write(cache.join("g-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+        let mod_dir = dir.join("mods/a");
+        std::fs::create_dir_all(mod_dir.join("src")).unwrap();
+        std::fs::write(mod_dir.join("mod.json"), r#"{"id":"a","name":"a","version":"1.0.0","capabilities":["patch"]}"#).unwrap();
+        std::fs::write(mod_dir.join("src/mod.lua"), "-- fixture").unwrap();
+        let env = mod_loader::ModEnvironment::load_from(&dir, &cache, vec![mod_dir]).unwrap();
+        let args = crate::RunArgs { file_name: "g".into(), options: crate::RunOptions { patch: true, ..Default::default() } };
+        assert!(!crate::run(&env, args.clone()).unwrap().cached);
+        assert!(crate::run(&env, args.clone()).unwrap().cached);
+        let other = crate::RunArgs { file_name: "other".into(), ..args };
+        assert!(crate::run(&env, other).is_err(), "another target must not reuse g's completed patch");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
 }

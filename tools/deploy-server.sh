@@ -47,13 +47,22 @@ if ((build)); then
   done
   for dir in "$repo"/native/plugins/*/; do
     plg=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
-    "$repo/native/build.sh" "kiln-$plg" >/dev/null 2>&1 || warn "native plugin $plg failed to build; skipped"
+    if [[ $plg == shroudforge ]]; then
+      "$repo/native/build.sh" "kiln-$plg" || { echo "deploy: ShroudForge adapter build failed" >&2; exit 1; }
+    else
+      "$repo/native/build.sh" "kiln-$plg" >/dev/null 2>&1 || warn "native plugin $plg failed to build; skipped"
+    fi
   done
   dotnet build "$repo/managed/Kiln.Host/Kiln.Host.csproj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null
   for proj in "$repo"/managed/services/*/*.csproj; do  # service assemblies live next to Kiln.Api (shared by every mod)
     [[ -f $proj ]] || continue
-    dotnet build "$proj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null 2>&1 \
-      || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
+    if [[ $(basename "$proj") == Kiln.Eml.csproj ]]; then
+      dotnet build "$proj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo \
+        || { echo "deploy: Kiln.Eml build failed" >&2; exit 1; }
+    else
+      dotnet build "$proj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null 2>&1 \
+        || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
+    fi
   done
   dotnet build "$repo/managed/Kiln.Game/Kiln.Game.csproj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null 2>&1 \
     || warn "Kiln.Game failed to build; skipped"  # generated game types (tools/typegen), shared like the services
@@ -61,7 +70,13 @@ if ((build)); then
     || warn "Hello sample failed to build"
   if ((loader_samples)); then "$repo/mods/samples/build.sh" >/dev/null || warn "loader samples failed to build"; fi
   # kiln-eml, the GPL-3 EML plugin (gpl/kiln-eml, docs/kiln/eml.md): into bin/plugins like Kiln's own plugins
-  if [[ -x $repo/gpl/kiln-eml/build.sh ]]; then "$repo/gpl/kiln-eml/build.sh" >/dev/null 2>&1 || warn "kiln-eml (GPL plugin) failed to build; skipped"; fi
+  if [[ -x $repo/gpl/kiln-eml/build.sh ]]; then "$repo/gpl/kiln-eml/build.sh" || { echo "deploy: kiln-eml build failed" >&2; exit 1; }; fi
+fi
+sfb=$out/shroudforge-build/shroudforge
+if [[ -d $sfb ]]; then
+  for required in shroudforge-runtime.dll kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt; do
+    [[ -s $sfb/$required ]] || { echo "deploy: incomplete ShroudForge component: $required" >&2; exit 1; }
+  done
 fi
 bin=$out/cmake/bin
 k=$server/kiln
@@ -77,8 +92,8 @@ if [[ -f $k/plugins/kiln-eml.dll ]]; then
   install -m 644 "$repo/gpl/kiln-eml/NOTICE.txt" "$k/plugins/kiln-eml.NOTICE.txt"
 fi
 # ShroudForge's runtime (GPL-3 component) when it was built: third_party/shroudforge/kiln/build.sh $KILN_OUT/shroudforge-build
-sfb=$out/shroudforge-build/shroudforge
-[[ -f $sfb/shroudforge-runtime.dll ]] && rsync -a --delete "$sfb/" "$k/plugins/shroudforge/"
+if [[ -d $sfb ]]; then rsync -a --delete "$sfb/" "$k/plugins/shroudforge/"; fi
+
 install -m 644 "$repo/sigdb/symbols/server.json" "$k/sigdb/server.json"
 rm -rf "$k/sigdb/server.d" && mkdir -p "$k/sigdb/server.d"
 cp "$repo"/sigdb/symbols/server.d/*.json "$k/sigdb/server.d/" 2>/dev/null || true
