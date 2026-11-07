@@ -7,6 +7,10 @@
  *  - flight: the gate of the game's building fly mode (player_control_action_sequence): a player with FLY_ANYWHERE may
  *    enter and keep it outside a base, without the fly-mode unlock and the building permission (still not while dead or
  *    gliding). Server world and the client's prediction world.
+ *  - building zone: the server cursor's "near a building zone" test (server_cursor_no_prediction): a player with
+ *    BUILD_OUTSIDE_BASES is near one everywhere. The game copies the answer into the actor state and the replicated
+ *    NetworkCursor, so the hammer's menu ("Needs a Flame Altar nearby"), the cursor and the fly-mode gate all see the
+ *    player as inside a base (the game's fly mode then works for this player too). Server world only.
  *  - placement: the build cursor's refusal flags (the function both cursor programs call): FLAG_BUILD_OUTSIDE_BASES
  *    clears "outside a building zone", FLAG_IGNORE_NO_BUILD_ZONES the two inhibitor-zone flags, FLAG_IGNORE_ENEMIES
  *    "enemies nearby", FLAG_IGNORE_SHROUD "inside the Shroud", FLAG_IGNORE_BASE_PERMISSIONS "no permission";
@@ -15,6 +19,12 @@
  *    dismantling and undo give back by build_refund. Server world only (the authority).
  *  - mining: the damage a player's terraforming deals to each material (terrain and building blocks) is scaled by
  *    dig_damage. Server world only.
+ *  - Shroud: the Shroud timer's drain (fog_resistance_update): SHROUD_FREEZE skips the drain while in the Shroud and
+ *    the Shroud's kill; shroud_floor holds the timer at a fraction of its max. Server world only (the HUD shows the
+ *    server's replicated value).
+ *  - gliding: the glider's step (locomotion_execution), its gravity and its stamina: GLIDE_UNLIMITED drains no stamina,
+ *    glide_sink scales the sink, GLIDE_BOOST pushes along the heading while sprint is held. Server world and the
+ *    client's prediction world (the same values on both, or the client is corrected every step).
  *
  * Sides: on a server (and a client that hosts a world) rules are per player entity of the server world (set). On a
  * client, the prediction world and the client's own cursor act only for the local player: set_local gives its rules.
@@ -34,21 +44,32 @@ extern "C" {
 /* KilnRulesPlayer.flags */
 enum {
     KILN_RULES_FLY_ANYWHERE = 0x0001u,          /* building fly mode outside bases */
-    KILN_RULES_BUILD_OUTSIDE_BASES = 0x0002u,   /* cursor: CursorOutsideBuildingZone cleared */
+    KILN_RULES_BUILD_OUTSIDE_BASES = 0x0002u,   /* near a building zone everywhere; cursor: CursorOutsideBuildingZone cleared */
     KILN_RULES_IGNORE_NO_BUILD_ZONES = 0x0004u, /* cursor: lenient and strict build-inhibitor zones cleared */
     KILN_RULES_IGNORE_ENEMIES = 0x0008u,        /* cursor: EnemiesNearby cleared */
     KILN_RULES_IGNORE_SHROUD = 0x0010u,         /* cursor: CursorInsideFogZone cleared */
     KILN_RULES_IGNORE_BASE_PERMISSIONS = 0x0020u, /* cursor: NoPermission cleared (other players' bases) */
+    KILN_RULES_SHROUD_FREEZE = 0x0040u,         /* the Shroud timer does not drain, and the Shroud cannot kill */
+    KILN_RULES_GLIDE_UNLIMITED = 0x0080u,       /* gliding: no stamina cost, never forced down for lack of it */
+    KILN_RULES_GLIDE_BOOST = 0x0100u,           /* gliding: holding sprint pushes along the view (glide_* below) */
 };
 
 typedef struct KilnRulesPlayer {
-    uint32_t size;        /* sizeof(KilnRulesPlayer) */
+    uint32_t size;        /* sizeof(KilnRulesPlayer); KILN_RULES_PLAYER_V1_SIZE (24) is still accepted */
     uint32_t flags;       /* KILN_RULES_* */
     float build_cost;     /* x what placing takes (1 = the game's; 0 = free: also clears "missing materials") */
     float build_refund;   /* x what dismantling and undo give back (1 = the game's) */
     float dig_damage;     /* x the damage a player's tools deal to terrain and blocks (1 = the game's) */
     uint32_t reserved;    /* 0 */
+    /* since 0.2.0-dev.15 (size 48) */
+    float shroud_floor;    /* the Shroud timer is kept at least at this fraction of its max (0 = no floor) */
+    float glide_sink;      /* x the glider's sink speed (1 = the game's; 0 = holds altitude) */
+    float glide_thrust;    /* GLIDE_BOOST: acceleration along the glider's heading while sprint is held, m/s^2 */
+    float glide_max_speed; /* GLIDE_BOOST: the push accelerates up to this speed, m/s (speed from a dive stays) */
+    float glide_lift;      /* GLIDE_BOOST: upward acceleration while sprint is held, m/s^2 */
+    float glide_coast;     /* GLIDE_BOOST: without sprint, slow down along the heading at most this fast, m/s^2 (0 = the game's drag) */
 } KilnRulesPlayer;
+#define KILN_RULES_PLAYER_V1_SIZE 24u
 
 /* KilnRulesStatus.hooks bits: which hooks are installed on this build and side */
 enum {
@@ -56,6 +77,9 @@ enum {
     KILN_RULES_HOOK_CURSOR = 0x02u,
     KILN_RULES_HOOK_COSTS = 0x04u,
     KILN_RULES_HOOK_DIG = 0x08u,
+    KILN_RULES_HOOK_ZONE = 0x10u,   /* the server cursor's building-zone test (BUILD_OUTSIDE_BASES) */
+    KILN_RULES_HOOK_SHROUD = 0x20u, /* the Shroud timer's drain (SHROUD_FREEZE, shroud_floor) */
+    KILN_RULES_HOOK_GLIDE = 0x40u,  /* gliding (GLIDE_UNLIMITED, glide_sink, GLIDE_BOOST) */
 };
 
 typedef struct KilnRulesStatus {
@@ -70,6 +94,11 @@ typedef struct KilnRulesStatus {
     uint64_t digs_scaled;        /* damage values scaled */
     uint64_t faults;             /* hook bodies that faulted (the game's own path ran instead) */
     char detail[160];            /* what is off and why; NUL-terminated */
+    /* since 0.2.0-dev.15 (size 256) */
+    uint64_t zone_forced;        /* building-zone tests turned to "near one" */
+    uint64_t shroud_held;        /* Shroud-timer steps held or recovering instead of draining */
+    uint64_t glide_changed;      /* glider steps changed (sink, stamina, boost) */
+    uint64_t reserved;
 } KilnRulesStatus;
 
 typedef struct KilnRulesApi {

@@ -39,20 +39,23 @@ public sealed class RulesTestMod : Mod
         for (var i = 0; i < 240 && !(Spawn.WorldRunning && Items.All.Count > 0); i++) await Steps(25);
         await Steps(50);
         var st = Rules.Status();
-        Check(st is { Flight: true, Placement: true, Costs: true, Mining: true },
-            $"kiln.rules hooks: flight {st?.Flight}, placement {st?.Placement}, costs {st?.Costs}, mining {st?.Mining} ({st?.Detail})");
+        Check(st is { Flight: true, Placement: true, Costs: true, Mining: true, BuildingZone: true, ShroudTimer: true, Gliding: true },
+            $"kiln.rules hooks: flight {st?.Flight}, building zone {st?.BuildingZone}, placement {st?.Placement}, costs {st?.Costs}, " +
+            $"mining {st?.Mining}, Shroud timer {st?.ShroudTimer}, gliding {st?.Gliding} ({st?.Detail})");
 
         var f = await Character();
         if (f.IsNone) return;
         Rules.Simulate(f);
         try
         {
+            await BuildingZone(f);
             await Flight(f);
             await Vitals(f);
             await Water(f);
             await Digging(f);
             await Layers(f);
             await CreativeMode(f);
+            await Shroud(f);
         }
         finally
         {
@@ -60,7 +63,8 @@ public sealed class RulesTestMod : Mod
             Spawn.Destroy(f);
         }
         st = Rules.Status();
-        Info($"counters: fly allowed {st?.FlyAllowed}, cursor cleared {st?.CursorCleared}, costs {st?.CostsScaled}, refunds {st?.RefundsScaled}, digs {st?.DigsScaled}, faults {st?.Faults}");
+        Info($"counters: fly allowed {st?.FlyAllowed}, zone forced {st?.ZoneForced}, cursor cleared {st?.CursorCleared}, costs {st?.CostsScaled}, " +
+             $"refunds {st?.RefundsScaled}, digs {st?.DigsScaled}, Shroud held {st?.ShroudHeld}, glide changed {st?.GlideChanged}, faults {st?.Faults}");
         Check(st?.Faults == 0, $"no hook faulted: {st?.Faults}");
     }
 
@@ -302,6 +306,77 @@ public sealed class RulesTestMod : Mod
         Check(off.Ok && !off.On && !Creative.IsOn(f) && Rules.Of(f).IsDefault && !Combat.IsInvulnerable(f), $"Creative.Set off: {off.Message}; rules {Rules.Of(f)}");
         var denied = Commands.Execute(CommandSource.ForSteamId(76561190000000099, "Visitor"), "/creative status");
         Check(denied.Denied, $"a player who is not an admin may not use /creative: {denied.Text}");
+    }
+
+    // ---- "near a building zone" (the hammer's "Needs a Flame Altar nearby") ----
+    private async Task BuildingZone(EntityId f)
+    {
+        await Steps(10);
+        Check(!PlayerStates.Is(f, PlayerStateId.IsNearBuildingZone), "outside a base the game says: not near a building zone");
+        var before = Rules.Status()!.ZoneForced;
+        var set = Rules.Apply(f, new PlayerRules { BuildOutsideBases = true }, label: "zone test");
+        for (var i = 0; i < 40 && !PlayerStates.Is(f, PlayerStateId.IsNearBuildingZone); i++) await Steps(1);
+        Check(PlayerStates.Is(f, PlayerStateId.IsNearBuildingZone),
+            $"BuildOutsideBases: the game's own state says near a building zone (what the hammer's hint and the fly gate read); tests turned {Rules.Status()!.ZoneForced - before}");
+        set.Dispose();
+        for (var i = 0; i < 40 && PlayerStates.Is(f, PlayerStateId.IsNearBuildingZone); i++) await Steps(1);
+        Check(!PlayerStates.Is(f, PlayerStateId.IsNearBuildingZone), "the rule ended: not near a building zone again");
+    }
+
+    // ---- the Shroud timer ----
+    private const uint FogResistanceNow = 0x6951df16, FogResistanceMax = 0xb34ad82f;
+
+    private static int? FogTime(EntityId f) => Abilities.Attributes.Get(f, "FogResistance", FogResistanceNow);
+
+    private async Task Shroud(EntityId f)
+    {
+        // Springlands Shroud: places the map data marks below the fog (an obelisk, Elixir wells, a Shroud root)
+        WorldPosition[] spots =
+        [
+            new(4547.78, 767.75, 2380.02), new(3164.32, 805.42, 2547.17), new(3364.1, 795.14, 2031.47),
+            new(3090.49, 803.9, 2526.04), new(2928.73, 832.45, 2324.47),
+        ];
+        var inFog = false;
+        foreach (var spot in spots)
+        {
+            var box = Build.BoxAround(spot, 8, 128, 8);
+            try { await Build.Load(box); } catch (Exception e) { Info($"loading the terrain at {spot}: {e.Message}"); }
+            var ground = GroundY(spot) ?? spot.Y;
+            Combat.SetInvulnerable(f);
+            var t = await Teleport.To(f, spot with { Y = ground + 1.5 }, new TeleportOptions { FindGround = true });
+            for (var i = 0; i < 150 && !(inFog = PlayerStates.Is(f, PlayerStateId.InFog)); i++) await Steps(1);
+            Info($"teleported to {spot} ({t.Status}, now {World.Position(f)}): in the Shroud {inFog}, timer {FogTime(f)} of {Abilities.Attributes.Get(f, "FogResistance", FogResistanceMax)}");
+            if (inFog) break;
+        }
+        Combat.SetInvulnerable(f, false);
+        if (!Check(inFog, "the character stands in the Shroud (the game's InFog state)")) return;
+
+        async Task<(int From, int To)> Watch(int steps)
+        {
+            var a = FogTime(f) ?? -1;
+            await Steps(steps);
+            return (a, FogTime(f) ?? -1);
+        }
+        var plain = await Watch(150);
+        Check(plain.To < plain.From, $"without a rule the timer goes down: {plain.From} -> {plain.To} in 150 steps");
+
+        var held = Rules.Status()!.ShroudHeld;
+        var set = Rules.Apply(f, new PlayerRules { FreezeShroudTimer = true }, label: "Shroud test");
+        await Steps(2);
+        var frozen = await Watch(150);
+        Check(frozen.To == frozen.From && PlayerStates.Is(f, PlayerStateId.InFog),
+            $"FreezeShroudTimer: the timer holds {frozen.From} -> {frozen.To} in 150 steps, still in the Shroud (steps held {Rules.Status()!.ShroudHeld - held})");
+        set.Dispose();
+        await Steps(2);
+        var after = await Watch(150);
+        Check(after.From == frozen.To && after.To < after.From, $"the rule ended: it counts down again from where it stood: {after.From} -> {after.To}");
+
+        var max = Abilities.Attributes.Get(f, "FogResistance", FogResistanceMax) ?? -1;
+        set = Rules.Apply(f, new PlayerRules { MinShroudTime = 1 }, label: "Shroud floor test");
+        var up = await Watch(150);
+        Check(up.To == max, $"MinShroudTime 1: back up to the max at the game's own rate: {up.From} -> {up.To} of {max}");
+        set.Dispose();
+        Check(Combat.GetHealth(f) is { Dead: false }, $"alive: {Combat.GetHealth(f)?.Current}");
     }
 
     // ---- several rule sets at once ----

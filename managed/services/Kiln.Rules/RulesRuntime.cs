@@ -78,6 +78,14 @@ internal static unsafe class RulesRuntime
         RulesNet.Start();
         ServiceTick.Add("kiln rules", Tick);
         Events.On<BuildEvent>(OnBuild, EventPriority.Monitor);
+        try
+        {
+            Gameplay.Enable();  // BuildEvent comes from kiln.gameplay's listener (KeepBuildsOutsideBases)
+        }
+        catch (Exception e) when (e is FileNotFoundException or TypeLoadException)
+        {
+            Log(LogLevel.Warn, $"Kiln.Gameplay unavailable: builds outside bases are not kept ({e.Message})");
+        }
         Events.On<ServerStoppingEvent>(_ => WorldClosing(), EventPriority.Lowest);
         Events.On<NetPeerReadyEvent>(e =>
         {
@@ -89,8 +97,11 @@ internal static unsafe class RulesRuntime
 
     private static string Describe(RulesStatus? s) => s is null
         ? "no kiln.rules (the game's rules only; vitals and water still apply)"
-        : $"hooks flight {(s.Flight ? "on" : "OFF")}, placement {(s.Placement ? "on" : "OFF")}, costs {(s.Costs ? "on" : "OFF")}, mining {(s.Mining ? "on" : "OFF")}" +
+        : $"hooks flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
+          $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}" +
           (s.Detail.Length > 0 ? $" ({s.Detail})" : "");
+
+    private static string On(bool on) => on ? "on" : "OFF";
 
     internal static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, "kiln.rules: " + text);
 
@@ -228,6 +239,7 @@ internal static unsafe class RulesRuntime
             {
                 if (_step % VitalsEverySteps == 0) Vitals(s);
                 Flight(s);
+                if (s.Effective.Native.HasGlide) PushNative(s);  // a client that becomes ready gets its glide rules
                 SyncClient(s);
             }
             catch (Exception e)
@@ -296,18 +308,30 @@ internal static unsafe class RulesRuntime
     {
         var eff = s.Effective;
         // the native hooks
-        var part = eff.Native;
-        if (part != s.Native && RulesNative.T is var t && t != null)
-        {
-            var p = RulesNative.Of(part);
-            t->Set(s.Entity.Value, part.IsDefault ? null : &p);
-            s.Native = part;
-        }
+        PushNative(s);
         // invulnerability (Kiln.Combat holds it for Kiln; a landing grace keeps it on)
         SetInvulnerable(s, eff.Invulnerable || s.GraceUntil is not null);
         // water
         if (!Equals(before.Water, eff.Water)) Water(s);
     }
+
+    // The server world's hooks get the player's rules, but the glider's only for a game that runs them too (the host's
+    // own, or a Kiln client with the rules channel): the glide is predicted, and a server-only change would be corrected
+    // on the player's screen every step.
+    private static void PushNative(PlayerState s)
+    {
+        var part = s.Effective.Native;
+        if (part.HasGlide && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutGlide;
+        var t = RulesNative.T;
+        if (part == s.Native || t == null) return;
+        var p = RulesNative.Of(part);
+        t->Set(s.Entity.Value, part.IsDefault ? null : &p);
+        if (part.HasGlide != s.Native.HasGlide && s.Effective.Native.HasGlide)
+            Log(LogLevel.Info, $"player {s.Entity}: gliding rules {(part.HasGlide ? "on (their game runs them too)" : "held back until their game has Kiln's rules channel")}");
+        s.Native = part;
+    }
+
+    private static bool PredictsRules(RulesClient c) => c is RulesClient.Host or RulesClient.Kiln or RulesClient.Simulated;
 
     private static void Leave(PlayerState s)
     {
@@ -427,7 +451,7 @@ internal static unsafe class RulesRuntime
         if (spark != 0)
         {
             s.Spark = spark;
-            if (World.Position(new EntityId(spark)) is { } at) s.SparkAt = at;
+            if (World.Position(new EntityId(spark)) is { } at && InWorld(at)) s.SparkAt = at;
             if (carry) s.Carried = true;
         }
         else if (s.Spark != 0)
@@ -438,10 +462,18 @@ internal static unsafe class RulesRuntime
             {
                 // the game's ground search looks near the target only: start it on the ground the voxels show below
                 var target = GroundBelow(last) is { } g ? g with { Y = g.Y + 1.0 } : last;
-                s.Teleporting = Teleport.To(s.Entity, target, new TeleportOptions { FindGround = true });
-                s.GraceUntil = DateTime.UtcNow.AddSeconds(LandingGraceSeconds);
-                s.GroundedChecks = 0;
-                Log(LogLevel.Info, $"player {s.Entity}: the flight ended at {last}; brought there from {body}");
+                if (!InWorld(target))
+                {
+                    // never a position the game cannot hold (a fixed-point overflow freezes its line-of-sight rays)
+                    Log(LogLevel.Warn, $"player {s.Entity}: the flight ended at {last}, outside the world; the character stays at {body}");
+                }
+                else
+                {
+                    s.Teleporting = Teleport.To(s.Entity, target, new TeleportOptions { FindGround = true });
+                    s.GraceUntil = DateTime.UtcNow.AddSeconds(LandingGraceSeconds);
+                    s.GroundedChecks = 0;
+                    Log(LogLevel.Info, $"player {s.Entity}: the flight ended at {last}; brought there from {body}");
+                }
             }
             s.Carried = false;
             s.SparkAt = null;
@@ -462,6 +494,17 @@ internal static unsafe class RulesRuntime
         }
     }
 
+    // The world is 10240 x 2560 x 10240 m from (0, 0, 0) (docs/re/map.md); positions are 32.32 fixed point, so a value
+    // far outside (or NaN) wraps or saturates in the game. A margin allows the edges and the voxels below 0.
+    private const double WorldSize = 10240, WorldHeight = 2560, WorldMargin = 512;
+
+    /// <summary>Whether <paramref name="p"/> is a position Kiln may move a character to: finite and in the world (with a
+    /// margin).</summary>
+    internal static bool InWorld(WorldPosition p) =>
+        double.IsFinite(p.X) && double.IsFinite(p.Y) && double.IsFinite(p.Z) &&
+        p.X >= -WorldMargin && p.X <= WorldSize + WorldMargin && p.Z >= -WorldMargin && p.Z <= WorldSize + WorldMargin &&
+        p.Y >= -WorldMargin && p.Y <= WorldHeight + WorldMargin;
+
     /// <summary>The top of the highest solid cell below <paramref name="p"/>, within 256 m (the voxels the server has
     /// loaded there; the flight's spark keeps them loaded), or null.</summary>
     internal static WorldPosition? GroundBelow(WorldPosition p, double depth = 256)
@@ -477,7 +520,8 @@ internal static unsafe class RulesRuntime
             {
                 var y = box.Y + i / layer;
                 if (y > top || cells[i].IsAir) continue;
-                return p with { Y = Build.CornerOf(new CellPos(box.X, y, box.Z)).Y + (Build.Grid?.CellSize ?? 0.5) };
+                var ground = p with { Y = Build.CornerOf(new CellPos(box.X, y, box.Z)).Y + (Build.Grid?.CellSize ?? 0.5) };
+                return InWorld(ground) ? ground : null;
             }
         }
         catch (Exception)

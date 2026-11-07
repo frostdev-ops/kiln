@@ -13,7 +13,8 @@ namespace Kiln;
 /// denies it, and a denial wins. The server's <c>kiln/config/rules.json</c> can deny any switch for everyone;</item>
 /// <item>multipliers (<see cref="BuildCost"/>, <see cref="BuildRefund"/>, <see cref="DigDamage"/>): multiplied
 /// together, then held to the server's limits;</item>
-/// <item>floors (<see cref="MinHealth"/>, <see cref="MinStamina"/>, <see cref="MinMana"/>): the highest wins;</item>
+/// <item>floors (<see cref="MinHealth"/>, <see cref="MinStamina"/>, <see cref="MinMana"/>, <see cref="MinShroudTime"/>): the
+/// highest wins;</item>
 /// <item><see cref="Water"/>: the most generous wins (the fastest rate; the items of every rule set).</item>
 /// </list>
 /// The same object reads from and writes to JSON (camelCase): a preset in <c>kiln/config/rules/&lt;name&gt;.json</c> is
@@ -84,6 +85,31 @@ public sealed record PlayerRules
     /// <summary>Mana is kept at least at this fraction of its max.</summary>
     public double? MinMana { get; init; }
 
+    // ---- the Shroud ----
+
+    /// <summary>The Shroud timer does not go down while the player is in the Shroud, and the Shroud cannot kill them (the
+    /// game kills by setting health to 0 when the timer runs out, which <see cref="Invulnerable"/> does not stop). When
+    /// the rule ends the timer counts down again from where it stands. A timer already at 0 recovers first.</summary>
+    public bool? FreezeShroudTimer { get; init; }
+
+    /// <summary>The Shroud timer never drops below this fraction of its max (1 = always full): below it, it recovers at
+    /// the game's own rate (25 s per second); at it, it holds. Also keeps the Shroud from killing the player.</summary>
+    public double? MinShroudTime { get; init; }
+
+    // ---- gliding (needs Kiln in the player's game: the glide runs in the game's prediction too) ----
+
+    /// <summary>The glider never forces the player down for a gameplay reason: gliding costs no stamina and does not end
+    /// when stamina would have run out. (Landing, a hit, water and letting go still end it, as in the game.)</summary>
+    public bool? UnlimitedGliding { get; init; }
+
+    /// <summary>x how fast the glider sinks (1 = the game's; 0 = holds its altitude). Multiplied with other rule sets'
+    /// values.</summary>
+    public double? GlideSink { get; init; }
+
+    /// <summary>Holding the sprint key while gliding pushes the player along the view direction, up to a speed cap;
+    /// letting go glides on as usual. The most generous of every rule set wins (each value separately).</summary>
+    public GlideBoostRule? GlideBoost { get; init; }
+
     // ---- water ----
 
     /// <summary>The player's water containers get water back (Kiln.Items' refill policies).</summary>
@@ -98,6 +124,8 @@ public sealed record PlayerRules
         KeepBuildsOutsideBases = true,
         BuildCost = 0, BuildRefund = 0, DigDamage = 1000,
         Invulnerable = true, MinHealth = 1, MinStamina = 1, MinMana = 1,
+        FreezeShroudTimer = true,
+        UnlimitedGliding = true, GlideSink = 0, GlideBoost = GlideBoostRule.Default,
         Water = WaterRule.KeepFull(),
     };
 
@@ -131,7 +159,11 @@ public sealed record PlayerRules
         KeepBuildsOutsideBases = other.KeepBuildsOutsideBases ?? KeepBuildsOutsideBases,
         BuildCost = other.BuildCost ?? BuildCost, BuildRefund = other.BuildRefund ?? BuildRefund, DigDamage = other.DigDamage ?? DigDamage,
         Invulnerable = other.Invulnerable ?? Invulnerable, MinHealth = other.MinHealth ?? MinHealth,
-        MinStamina = other.MinStamina ?? MinStamina, MinMana = other.MinMana ?? MinMana, Water = other.Water ?? Water,
+        MinStamina = other.MinStamina ?? MinStamina, MinMana = other.MinMana ?? MinMana,
+        FreezeShroudTimer = other.FreezeShroudTimer ?? FreezeShroudTimer, MinShroudTime = other.MinShroudTime ?? MinShroudTime,
+        UnlimitedGliding = other.UnlimitedGliding ?? UnlimitedGliding, GlideSink = other.GlideSink ?? GlideSink,
+        GlideBoost = other.GlideBoost ?? GlideBoost,
+        Water = other.Water ?? Water,
     };
 
     /// <summary>Out-of-range values, by member name; empty when the rules are fine.</summary>
@@ -152,6 +184,16 @@ public sealed record PlayerRules
         Frac("minHealth", MinHealth);
         Frac("minStamina", MinStamina);
         Frac("minMana", MinMana);
+        Frac("minShroudTime", MinShroudTime);
+        Mult("glideSink", GlideSink);
+        if (GlideBoost is { } g)
+        {
+            Mult("glideBoost.thrust", g.Thrust);
+            Mult("glideBoost.maxSpeed", g.MaxSpeed);
+            Mult("glideBoost.lift", g.Lift);
+            Mult("glideBoost.coast", g.Coast);
+            if (g.MaxSpeed > GlideBoostRule.SpeedLimit) p.Add($"glideBoost.maxSpeed: {g.MaxSpeed} is over {GlideBoostRule.SpeedLimit} m/s");
+        }
         if (Water is { } w && (double.IsNaN(w.ChargesPerSecond) || w.ChargesPerSecond <= 0))
             p.Add($"water.chargesPerSecond: {w.ChargesPerSecond} must be more than 0 (Infinity keeps the containers full)");
         return p;
@@ -188,6 +230,35 @@ public sealed record WaterRule
         (KeepsFull ? "keep full" : $"{ChargesPerSecond:0.##} charges/s") + (Items is { Count: > 0 } ? $" ({string.Join(", ", Items)})" : "");
 }
 
+/// <summary>The push a glider gets while the sprint key is held (<see cref="PlayerRules.GlideBoost"/>). It runs the same
+/// way in the server's world and the player's own prediction, so the server agrees with what the player sees.</summary>
+public sealed record GlideBoostRule
+{
+    /// <summary>The fastest any rule may make a boosted glider, m/s.</summary>
+    public const double SpeedLimit = 120;
+
+    /// <summary>Acceleration along the glider's heading (it turns toward where the player looks) while sprint is held,
+    /// m/s². It replaces the game's air drag along the heading, so it is the same with every glider. Default 15: about
+    /// 1.6 s from a plain glide (11-20 m/s) to the default cap.</summary>
+    public double Thrust { get; init; } = 15;
+
+    /// <summary>The boost accelerates up to this speed, m/s (default 35). It only caps the push: speed from a dive stays.</summary>
+    public double MaxSpeed { get; init; } = 35;
+
+    /// <summary>Upward acceleration while boosting, m/s² (default 0: the boost goes where the glider points; a
+    /// "jetpack" might use 8-10).</summary>
+    public double Lift { get; init; }
+
+    /// <summary>After letting go of sprint the glider slows down at most this fast, m/s² (default 8: about 2-3 s back
+    /// to a plain glide; 0 = the game's drag, which stops a fast glider almost at once).</summary>
+    public double Coast { get; init; } = 8;
+
+    public static GlideBoostRule Default { get; } = new();
+
+    public override string ToString() =>
+        $"boost {Thrust:0.#} m/s² up to {MaxSpeed:0.#} m/s" + (Lift > 0 ? $", lift {Lift:0.#} m/s²" : "") + $", coast {Coast:0.#} m/s²";
+}
+
 /// <summary>A player's rules after every rule set that applies was combined, and the server's limits held.</summary>
 public sealed record EffectiveRules
 {
@@ -207,6 +278,11 @@ public sealed record EffectiveRules
     public double MinHealth { get; init; }
     public double MinStamina { get; init; }
     public double MinMana { get; init; }
+    public bool FreezeShroudTimer { get; init; }
+    public double MinShroudTime { get; init; }
+    public bool UnlimitedGliding { get; init; }
+    public double GlideSink { get; init; } = 1;
+    public GlideBoostRule? GlideBoost { get; init; }
     public WaterRule? Water { get; init; }
 
     /// <summary>The rule sets that applied, in the order they were set.</summary>
@@ -220,13 +296,18 @@ public sealed record EffectiveRules
     /// <summary>True when nothing differs from the game's own rules.</summary>
     public bool IsDefault => !FlyAnywhere && !BuildOutsideBases && !IgnoreNoBuildZones && !IgnoreEnemiesNearby && !BuildInShroud &&
                              !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && DigDamage == 1 &&
-                             !Invulnerable && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && Water is null;
+                             !Invulnerable && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
+                             MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null;
 
     internal RulesNativePart Native => new(
         (FlyAnywhere ? RulesNative.FlyAnywhere : 0) | (BuildOutsideBases ? RulesNative.BuildOutsideBases : 0) |
         (IgnoreNoBuildZones ? RulesNative.IgnoreNoBuildZones : 0) | (IgnoreEnemiesNearby ? RulesNative.IgnoreEnemies : 0) |
-        (BuildInShroud ? RulesNative.IgnoreShroud : 0) | (IgnoreBasePermissions ? RulesNative.IgnoreBasePermissions : 0),
-        (float)BuildCost, (float)BuildRefund, (float)DigDamage);
+        (BuildInShroud ? RulesNative.IgnoreShroud : 0) | (IgnoreBasePermissions ? RulesNative.IgnoreBasePermissions : 0) |
+        (FreezeShroudTimer ? RulesNative.ShroudFreeze : 0) | (UnlimitedGliding ? RulesNative.GlideUnlimited : 0) |
+        (GlideBoost is not null ? RulesNative.GlideBoost : 0),
+        (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
+        (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
+        (float)(GlideBoost?.Coast ?? 0));
 
     /// <summary>The same values, ignoring <see cref="From"/>.</summary>
     public bool SameAs(EffectiveRules o) => this with { From = o.From, Denied = o.Denied } == o;
@@ -248,6 +329,11 @@ public sealed record EffectiveRules
         if (MinHealth > 0) parts.Add(MinHealth >= 1 ? "health full" : $"health >= {MinHealth:P0}");
         if (MinStamina > 0) parts.Add(MinStamina >= 1 ? "stamina full" : $"stamina >= {MinStamina:P0}");
         if (MinMana > 0) parts.Add(MinMana >= 1 ? "mana full" : $"mana >= {MinMana:P0}");
+        if (FreezeShroudTimer) parts.Add("Shroud timer frozen");
+        if (MinShroudTime > 0) parts.Add(MinShroudTime >= 1 ? "Shroud timer full" : $"Shroud timer >= {MinShroudTime:P0}");
+        if (UnlimitedGliding) parts.Add("unlimited gliding");
+        if (GlideSink != 1) parts.Add(GlideSink == 0 ? "gliding holds altitude" : $"glide sink x{GlideSink:0.##}");
+        if (GlideBoost is { } g) parts.Add("glide " + g);
         if (Water is { } w) parts.Add("water: " + w);
         return string.Join(", ", parts);
     }
@@ -304,10 +390,34 @@ internal static class RulesMath
             MinHealth = Floor(r => r.MinHealth),
             MinStamina = Floor(r => r.MinStamina),
             MinMana = Floor(r => r.MinMana),
+            FreezeShroudTimer = Switch(r => r.FreezeShroudTimer),
+            MinShroudTime = Floor(r => r.MinShroudTime),
+            UnlimitedGliding = Switch(r => r.UnlimitedGliding),
+            GlideSink = Product(r => r.GlideSink),
+            GlideBoost = Boost(sets.Select(s => s.Rules.GlideBoost)),
             Water = Water(sets.Select(s => s.Rules.Water)),
             From = sets.Where(s => s.Set is not null).Select(s => s.Set!).ToArray(),
         };
         return limits.Hold(e);
+    }
+
+    // The most generous of each value.
+    public static GlideBoostRule? Boost(IEnumerable<GlideBoostRule?> rules)
+    {
+        GlideBoostRule? best = null;
+        foreach (var b in rules)
+        {
+            if (b is null) continue;
+            static double V(double v) => double.IsFinite(v) && v > 0 ? v : 0;
+            best = best is null
+                ? new GlideBoostRule { Thrust = V(b.Thrust), MaxSpeed = V(b.MaxSpeed), Lift = V(b.Lift), Coast = V(b.Coast) }
+                : new GlideBoostRule
+                {
+                    Thrust = Math.Max(best.Thrust, V(b.Thrust)), MaxSpeed = Math.Max(best.MaxSpeed, V(b.MaxSpeed)),
+                    Lift = Math.Max(best.Lift, V(b.Lift)), Coast = Math.Max(best.Coast, V(b.Coast)),
+                };
+        }
+        return best;
     }
 
     // The most generous: the fastest rate; the items of every rule set (any without a list means every container).
@@ -331,7 +441,8 @@ internal static class RulesMath
 internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuildOutsideBases = true, bool AllowIgnoreNoBuildZones = true,
     bool AllowIgnoreEnemiesNearby = true, bool AllowBuildInShroud = true, bool AllowIgnoreBasePermissions = false,
     bool AllowInvulnerable = true, double MinBuildCost = 0, double MaxDigDamage = 1000, double MaxStaminaFloor = 1,
-    double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true)
+    double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
+    double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60)
 {
     public static readonly RulesLimits Default = new();
 
@@ -359,6 +470,12 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
             MinHealth = Math.Min(e.MinHealth, MaxHealthFloor),
             MinStamina = Math.Min(e.MinStamina, MaxStaminaFloor),
             MinMana = Math.Min(e.MinMana, MaxManaFloor),
+            FreezeShroudTimer = Cap(e.FreezeShroudTimer, AllowFreezeShroudTimer, "freezeShroudTimer"),
+            MinShroudTime = Math.Min(e.MinShroudTime, MaxShroudFloor),
+            UnlimitedGliding = Cap(e.UnlimitedGliding, AllowUnlimitedGliding, "unlimitedGliding"),
+            GlideBoost = e.GlideBoost is { } g && Cap(true, AllowGlideBoost, "glideBoost")
+                ? g with { MaxSpeed = Math.Min(g.MaxSpeed, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)) }
+                : null,
             Water = AllowWater ? e.Water : null,
         };
         if (e.Water is not null && !AllowWater) denied.Add("water");

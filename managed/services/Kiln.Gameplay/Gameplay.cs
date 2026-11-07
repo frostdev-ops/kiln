@@ -439,6 +439,21 @@ public static unsafe class Gameplay
             if (_listening != 0) return true;
             ulong h;
             var rc = t->Subscribe(0, GameplayNative.Mask(GameplayNative.Tick), &OnEvent, null, &h);
+            if (rc == WrongThread)
+            {
+                // First touched off the server-world thread (a hosting game's main thread, a file watcher): subscribe
+                // at the next service tick instead of never. Without this no gameplay event reaches the bus.
+                if (_retry == null)
+                {
+                    _retry = ServiceTick.Add("kiln.gameplay listener", static (in TickInfo _) => RetryListener());
+                    var from = new System.Diagnostics.StackTrace(1, false).ToString().Split('\n')
+                        .Select(l => l.Trim()).Where(l => l.Length > 0 && !l.Contains("Kiln.Gameplay.EnsureListener"))
+                        .Take(4);
+                    Backend.Current.Log(0, LogLevel.Info,
+                        $"Kiln.Gameplay: first used off the server thread ({Environment.CurrentManagedThreadId}); subscribing at the next server step. From: {string.Join(" <- ", from)}");
+                }
+                return false;
+            }
             if (rc != Ok)
             {
                 Backend.Current.Log(0, LogLevel.Warn, $"Kiln.Gameplay: cannot subscribe to kiln.gameplay (kiln error {rc})");
@@ -448,6 +463,19 @@ public static unsafe class Gameplay
             _listening = 1;
             Backend.Current.Log(0, LogLevel.Info, "Kiln.Gameplay: listening to kiln.gameplay");
             return true;
+        }
+    }
+
+    private const int WrongThread = 4;  // KILN_ERR_WRONG_THREAD
+    private static IDisposable? _retry;
+
+    private static void RetryListener()
+    {
+        EnsureListener();  // on the server thread now: subscribes, or logs why not (once)
+        lock (Gate)
+        {
+            _retry?.Dispose();
+            _retry = null;
         }
     }
 

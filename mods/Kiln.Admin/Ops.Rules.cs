@@ -44,7 +44,7 @@ internal static partial class Ops
             var o = new JsonObject
             {
                 ["available"] = s is not null,
-                ["hooks"] = s is null ? null : new JsonObject { ["flight"] = s.Flight, ["placement"] = s.Placement, ["costs"] = s.Costs, ["mining"] = s.Mining },
+                ["hooks"] = s is null ? null : new JsonObject { ["flight"] = s.Flight, ["buildingZone"] = s.BuildingZone, ["placement"] = s.Placement, ["costs"] = s.Costs, ["mining"] = s.Mining, ["shroudTimer"] = s.ShroudTimer, ["gliding"] = s.Gliding },
                 ["detail"] = s?.Detail,
                 ["presets"] = new JsonArray([.. Rules.Presets.Select(n => (JsonNode)n)]),
                 ["sets"] = new JsonArray([.. Rules.Active.Select(r => (JsonNode)new JsonObject

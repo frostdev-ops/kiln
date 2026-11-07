@@ -92,7 +92,12 @@ public static unsafe class Rules
         if (t->GetStatus(&s) != 0) return null;
         return new RulesStatus((s.Hooks & RulesNative.HookFly) != 0, (s.Hooks & RulesNative.HookCursor) != 0,
             (s.Hooks & RulesNative.HookCosts) != 0, (s.Hooks & RulesNative.HookDig) != 0, (int)s.Players, s.FlyAllowed,
-            s.CursorCleared, s.CostsScaled, s.RefundsScaled, s.DigsScaled, s.Faults, RulesNative.Text(s.Detail, 160));
+            s.CursorCleared, s.CostsScaled, s.RefundsScaled, s.DigsScaled, s.Faults, RulesNative.Text(s.Detail, 160))
+        {
+            BuildingZone = (s.Hooks & RulesNative.HookZone) != 0, ShroudTimer = (s.Hooks & RulesNative.HookShroud) != 0,
+            Gliding = (s.Hooks & RulesNative.HookGlide) != 0, ZoneForced = s.ZoneForced, ShroudHeld = s.ShroudHeld,
+            GlideChanged = s.GlideChanged,
+        };
     }
 }
 
@@ -177,7 +182,21 @@ public enum RulesClient
 }
 
 public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool Mining, int Players, ulong FlyAllowed,
-    ulong CursorCleared, ulong CostsScaled, ulong RefundsScaled, ulong DigsScaled, ulong Faults, string Detail);
+    ulong CursorCleared, ulong CostsScaled, ulong RefundsScaled, ulong DigsScaled, ulong Faults, string Detail)
+{
+    /// <summary>The server cursor's building-zone hook (BuildOutsideBases: the hammer's "Needs a Flame Altar nearby").</summary>
+    public bool BuildingZone { get; init; }
+
+    /// <summary>The Shroud timer's hook (FreezeShroudTimer, MinShroudTime).</summary>
+    public bool ShroudTimer { get; init; }
+
+    /// <summary>The glider's hooks (UnlimitedGliding, GlideSink, GlideBoost).</summary>
+    public bool Gliding { get; init; }
+
+    public ulong ZoneForced { get; init; }
+    public ulong ShroudHeld { get; init; }
+    public ulong GlideChanged { get; init; }
+}
 
 /// <summary>A player's rules changed (a rule set applied, updated, ended, or an area entered or left). Posted on the tick
 /// thread; not cancelable.</summary>
@@ -237,7 +256,22 @@ public sealed class RulesPolicy
     [Comment("The highest mana floor any rule may keep (1 = full)."), Range(0, 1)]
     public double MaxManaFloor { get; set; } = 1;
 
+    [Comment("The Shroud timer may be frozen for a player (FreezeShroudTimer).")]
+    public bool AllowFreezeShroudTimer { get; set; } = true;
+
+    [Comment("The highest Shroud timer floor any rule may keep (1 = full)."), Range(0, 1)]
+    public double MaxShroudFloor { get; set; } = 1;
+
+    [Comment("Gliding may cost no stamina for a player (UnlimitedGliding).")]
+    public bool AllowUnlimitedGliding { get; set; } = true;
+
+    [Comment("Holding sprint may push a glider along the view (GlideBoost).")]
+    public bool AllowGlideBoost { get; set; } = true;
+
+    [Comment("The fastest a boosted glider may go, m/s."), Range(0, 120)]
+    public double MaxGlideSpeed { get; set; } = 60;
+
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,
         AllowBuildInShroud, AllowIgnoreBasePermissions, AllowInvulnerable, MinBuildCost, MaxDigDamage, MaxStaminaFloor, MaxHealthFloor,
-        MaxManaFloor, AllowWater);
+        MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed);
 }

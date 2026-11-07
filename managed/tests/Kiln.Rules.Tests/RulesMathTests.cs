@@ -102,10 +102,111 @@ public class RulesMathTests
         Assert.Equal(1000, e.DigDamage);
         Assert.Equal(1, e.MinStamina);
         Assert.True(e.Water!.KeepsFull);
+        Assert.True(e.FreezeShroudTimer && e.UnlimitedGliding);
+        Assert.Equal(0, e.GlideSink);
+        Assert.NotNull(e.GlideBoost);
         var n = e.Native;
         Assert.Equal(RulesNative.FlyAnywhere | RulesNative.BuildOutsideBases | RulesNative.IgnoreNoBuildZones | RulesNative.IgnoreEnemies |
-                     RulesNative.IgnoreShroud, n.Flags);
+                     RulesNative.IgnoreShroud | RulesNative.ShroudFreeze | RulesNative.GlideUnlimited | RulesNative.GlideBoost, n.Flags);
         Assert.Equal(0f, n.BuildCost);
+        Assert.Equal(0f, n.GlideSink);
+        Assert.Equal((float)GlideBoostRule.Default.Thrust, n.GlideThrust);
+        Assert.Equal((float)GlideBoostRule.Default.MaxSpeed, n.GlideMaxSpeed);
+    }
+
+    [Fact]
+    public void ShroudAndGlidingCombine()
+    {
+        var a = new PlayerRules { MinShroudTime = 0.25, GlideSink = 0.5, GlideBoost = new GlideBoostRule { Thrust = 5, MaxSpeed = 50, Lift = 0 } };
+        var b = new PlayerRules { MinShroudTime = 0.5, GlideSink = 0.5, GlideBoost = new GlideBoostRule { Thrust = 20, MaxSpeed = 20, Lift = 4 } };
+        var e = Combine(a, b);
+        Assert.Equal(0.5, e.MinShroudTime);     // floors: the highest
+        Assert.Equal(0.25, e.GlideSink);        // multipliers: multiplied
+        Assert.Equal(20, e.GlideBoost!.Thrust); // boost: the most generous of each value
+        Assert.Equal(50, e.GlideBoost.MaxSpeed);
+        Assert.Equal(4, e.GlideBoost.Lift);
+        var denied = Combine(PlayerRules.Creative, new PlayerRules { FreezeShroudTimer = false, UnlimitedGliding = false });
+        Assert.False(denied.FreezeShroudTimer);
+        Assert.False(denied.UnlimitedGliding);
+        Assert.True(denied.FlyAnywhere);
+    }
+
+    [Fact]
+    public void ServerLimitsHoldShroudAndGliding()
+    {
+        var limits = RulesLimits.Default with { AllowFreezeShroudTimer = false, MaxShroudFloor = 0.5, MaxGlideSpeed = 25 };
+        var e = RulesMath.Combine(default, [(null, PlayerRules.Creative with { MinShroudTime = 1 })], limits);
+        Assert.False(e.FreezeShroudTimer);
+        Assert.Equal(0.5, e.MinShroudTime);
+        Assert.Equal(25, e.GlideBoost!.MaxSpeed);
+        Assert.Contains("freezeShroudTimer", e.Denied);
+        var off = RulesMath.Combine(default, [(null, PlayerRules.Creative)], RulesLimits.Default with { AllowGlideBoost = false });
+        Assert.Null(off.GlideBoost);
+        Assert.Equal(0u, off.Native.Flags & RulesNative.GlideBoost);
+    }
+
+    [Fact]
+    public void AnEarlierUneditedCreativeFileIsUpgraded()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var old = Path.Combine(dir, "creative.json");
+            File.WriteAllText(old, "// Kiln's \"creative\" rules\n" +
+                (PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null }).ToJson());
+            Assert.True(RulesPresets.IsEarlierDefault("creative", old));
+            File.WriteAllText(old, (PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null,
+                GlideBoost = null, DigDamage = 10 }).ToJson());
+            Assert.False(RulesPresets.IsEarlierDefault("creative", old));  // edited: left alone
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void TheFirstPresetReadAfterAnUpdateIsThisVersions()
+    {
+        // The first /creative after an update read the preset before Kiln.Rules started (and updated the file), so it
+        // applied the earlier Kiln's rules (no Shroud timer, no gliding: native flags 0x1f instead of 0x1df).
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var outer = RulesPresets.FolderOverride;
+        RulesPresets.FolderOverride = dir;
+        try
+        {
+            var file = Path.Combine(dir, "creative.json");
+            var earlier = PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null };
+            File.WriteAllText(file, "// Kiln's \"creative\" rules\n" + earlier.ToJson() + "\n");
+            var got = RulesPresets.Get("creative");
+            Assert.Equal(PlayerRules.Creative, got);
+            Assert.Equal(0x1dfu, Combine(got!).Native.Flags);
+            // the file is this version's now, and stays the owner's once edited
+            Assert.Equal(PlayerRules.Creative, PlayerRules.FromJson(File.ReadAllText(file)));
+            File.WriteAllText(file, (earlier with { DigDamage = 10 }).ToJson());
+            Assert.Equal(earlier with { DigDamage = 10 }, RulesPresets.Get("creative"));
+            Assert.Equal(0x1fu, Combine(RulesPresets.Get("creative")!).Native.Flags);
+        }
+        finally
+        {
+            RulesPresets.FolderOverride = outer;
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void KilnMovesCharactersOnlyInsideTheWorld()
+    {
+        Assert.True(RulesRuntime.InWorld(new WorldPosition(3790.5, 846.2, 1469.4)));
+        Assert.True(RulesRuntime.InWorld(new WorldPosition(0, -100, 10240)));  // the edges and the voxels below 0
+        // a frozen client's camera: Y 2^31 m below the world (a fixed-point overflow) made the game's rays endless
+        Assert.False(RulesRuntime.InWorld(new WorldPosition(3790.5, -2147482752.0, 1467.7)));
+        Assert.False(RulesRuntime.InWorld(new WorldPosition(double.NaN, 100, 100)));
+        Assert.False(RulesRuntime.InWorld(new WorldPosition(100, double.PositiveInfinity, 100)));
+        Assert.False(RulesRuntime.InWorld(new WorldPosition(20000, 100, 100)));
+        Assert.False(RulesRuntime.InWorld(new WorldPosition(100, 5000, 100)));
     }
 
     [Fact]

@@ -1,0 +1,151 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/rules.json",
+  "comment": "kiln.rules client guards (the game client only; docs/re/client.md, 'The camera, health-bar line of sight, and a frozen client'). rules.healthbar_guard: fill_ui_healthbar's line of sight from the camera to each health bar (a camera 2^31 m off made every ray walk ~1.5e9 voxel cells). rules.camera_check: a read-only look at the camera ClientPlayerInput gets each frame. Found on client 26430625 (5d9ef2f1...); every pattern is pinned to its function (scoped) and its layout constants are fixed, so another build refuses them instead of hooking the wrong place.",
+  "symbols": {
+    "rules/client.Healthbar": {
+      "comment": "fill_ui_healthbar (client program) update: iterator setup (0xf0 bytes), the local player's entity from LocalPlayerData +4",
+      "find": [
+        {
+          "pattern": "40 55 53 56 41 57 48 8D AC 24 B8 FD FF FF 48 81 EC 48 03 00 00 41 B8 F0 00 00 00 48 8D 55 10 4C 8B F9 E8 ?? ?? ?? ?? 48 8B 9D B8 00 00 00 49 8B CF 48 8B 85 D0 00 00 00 48 89 45 C0 8B 5B 04 8B D3 E8"
+        }
+      ]
+    },
+    "@rules/client.Healthbar.player": {
+      "comment": "the local player's RenderTransform position, kept for the whole loop: x in xmm14, y in xmm15 (int64 32.32 x 2^-32), z at [rbp + hb.player_z]; the loop's distance test reads them unchanged",
+      "find": [
+        {
+          "scope": {
+            "symbol": "rules/client.Healthbar",
+            "size": 768
+          },
+          "pattern": "F3 44 0F 10 15 ?? ?? ?? ?? 0F 57 C0 F3 48 0F 2A 47 10 41 B8 F0 00 00 00 49 8B CF 44 0F 29 B4 24 ?? ?? ?? ?? 45 0F 57 F6 F3 4C 0F 2A 37 44 0F 29 BC 24 ?? ?? ?? ?? 45 0F 57 FF F3 4C 0F 2A 7F 08 F3 41 0F 59 C2 F3 45 0F 59 F2 F3 0F 11 85 {rules/client.hb.player_z:d32} F3 45 0F 59 FA E8"
+        },
+        {
+          "scope": {
+            "symbol": "rules/client.Healthbar",
+            "size": 1024
+          },
+          "pattern": "48 8B 45 78 41 8D 76 01 F3 0F 10 85 {rules/client.hb.player_z:d32} 0F 57 FF 45 0F 57 C0 45 0F 57 C9 41 0F 28 CE 41 0F 28 F7"
+        }
+      ]
+    },
+    "rules/client.HealthbarRay": {
+      "comment": "the call of the line-of-sight test (rcx = result, rdx = the ray's start: the camera, float3 at [rbp-0x20]; r8 = its end: the entity + 1.5 m, float3 at [rbp-0x30]); the mid hook goes on the call",
+      "find": [
+        {
+          "scope": {
+            "symbol": "rules/client.Healthbar",
+            "size": 2400
+          },
+          "pattern": "F2 0F 10 85 ?? ?? 00 00 4C 8D 4C 24 ?? F2 0F 11 45 D0 4C 8D 45 D0 F2 0F 10 85 ?? ?? 00 00 48 8D 55 E0 8B 08 8B 85 ?? ?? 00 00 89 45 D8 8B 85 ?? ?? 00 00 89 4D ?? 48 8D 8D ?? ?? 00 00 89 45 E8 C6 45 ?? 01 F2 0F 11 45 E0 E8 {rules/client.LineOfSight:rel32} 0F B6 8D ?? ?? 00 00",
+          "offset": 73
+        }
+      ]
+    },
+    "@rules/client.LineOfSight.check": {
+      "comment": "the called function is the line-of-sight test (voxel DDA and collider ray) as on 26430625",
+      "find": [
+        {
+          "scope": {
+            "symbol": "rules/client.LineOfSight",
+            "size": 64
+          },
+          "pattern": "48 8B C4 48 89 58 08 4C 89 40 18 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00"
+        }
+      ]
+    },
+    "rules/client.CameraInput": {
+      "comment": "where the client fills ClientPlayerInput.camera (r14 = the local player's ClientPlayerInput, camera at +cpi.camera; rbp = the client game, its camera object at [rbp + cam.obj]) from the camera transform; the mid hook goes right after the last field (also the target of the 'no camera object' branch)",
+      "find": [
+        {
+          "pattern": "48 8B 95 {rules/client.cam.obj:d32} 0F 57 C0 F3 0F 7F 44 24 ?? 48 C7 44 24 ?? 00 00 00 00 0F 11 4C 24 ?? C7 84 24 ?? ?? 00 00 00 00 80 3F C7 84 24 ?? ?? 00 00 00 00 80 3F C7 84 24 ?? ?? 00 00 00 00 80 3F E8 {rules/client.CameraTransform:rel32} 0F 10 44 24 ?? F2 0F 10 4C 24 ?? 41 0F 11 46 {rules/client.cpi.camera:d8} 0F 10 44 24 ?? F2 41 0F 11 4E 30 41 0F 11 46 38 48 8B 85 {rules/client.cam.obj:d32} 8B 88 {rules/client.cam.distance:d32} 41 89 4E 48 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E 4C 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E 50 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E 54 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E 58 48 8B 8D",
+          "offset": 185
+        }
+      ]
+    },
+    "@rules/client.CameraTransform.fields": {
+      "comment": "the camera transform: pivot (WorldPosition) + offset turned by three quaternions - distance x forward; the fields the camera check reports",
+      "find": [
+        {
+          "scope": {
+            "symbol": "rules/client.CameraTransform",
+            "size": 64
+          },
+          "pattern": "48 8B C4 48 89 58 08 48 89 78 10 55 48 8D 68 ?? 48 81 EC ?? ?? 00 00 0F 10 82 {rules/client.cam.quat0:d32} 48 8B DA 48 8B F9 0F 10 8A {rules/client.cam.quat1:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "rules/client.CameraTransform",
+            "size": 1024
+          },
+          "pattern": "F2 0F 10 A3 {rules/client.cam.offset:d32} F3 0F 10 9B ?? ?? 00 00"
+        },
+        {
+          "scope": {
+            "symbol": "rules/client.CameraTransform",
+            "size": 1024
+          },
+          "pattern": "F3 0F 10 A3 {rules/client.cam.distance:d32} 4C 8D 9C 24 ?? ?? 00 00 F2 0F 10 83 ?? ?? 00 00 0F 28 CC 0F 10 93 {rules/client.cam.pivot:d32}"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "rules/client.hb.player_z": {
+      "value": 632
+    },
+    "rules/client.cam.obj": {
+      "value": 1480
+    },
+    "rules/client.cpi.camera": {
+      "value": 32
+    },
+    "rules/client.cam.distance": {
+      "value": 5284
+    },
+    "rules/client.cam.quat0": {
+      "value": 5296
+    },
+    "rules/client.cam.quat1": {
+      "value": 5312
+    },
+    "rules/client.cam.offset": {
+      "value": 5260
+    },
+    "rules/client.cam.pivot": {
+      "value": 5224
+    }
+  },
+  "features": {
+    "rules.healthbar_guard": {
+      "symbols": [
+        "rules/client.Healthbar",
+        "@rules/client.Healthbar.player",
+        "rules/client.HealthbarRay",
+        "rules/client.LineOfSight",
+        "@rules/client.LineOfSight.check"
+      ],
+      "constants": [
+        "rules/client.hb.player_z"
+      ]
+    },
+    "rules.camera_check": {
+      "symbols": [
+        "rules/client.CameraInput",
+        "rules/client.CameraTransform",
+        "@rules/client.CameraTransform.fields"
+      ],
+      "constants": [
+        "rules/client.cam.obj",
+        "rules/client.cpi.camera",
+        "rules/client.cam.distance",
+        "rules/client.cam.quat0",
+        "rules/client.cam.quat1",
+        "rules/client.cam.offset",
+        "rules/client.cam.pivot"
+      ]
+    }
+  }
+}

@@ -168,3 +168,51 @@ deployed with `tools/client/client.sh deploy --real --policy any --probe`. kiln.
   - kiln.spawn: tracks under `unknown-world`, because no save is found in that folder.
   - kiln.players: saw the session-1 leave only at session 2's first step ("left slot 0 ... [event 2]").
   - kiln.time: Daytime captured once; same address in session 2.
+
+## The camera, health-bar line of sight, and a frozen client (26430625, 2026-11-06)
+A hosted creative session froze about two minutes after an alt-tab (the system menu, HudScreen 2, open; the player
+standing still). Main thread at 100 % CPU inside the game; the server thread waiting on a lock behind it;
+`tick-stats.jsonl`: client and server world steps of 18.4 s each from then on. Evidence: a stack and register dump of
+the live process (read-only gdb), the program table, Ghidra decompiles. **[rt] [dis] [dec]**
+- **What spins:** `fill_ui_healthbar` (client program, update `0x30bd70`, descriptor `0x1e2b140`). For every entity with
+  `NetworkHealth` + `RenderTransform` (enemies, wildlife, minions) within **150 m of the local player's
+  `RenderTransform`** (`comiss` against 22500 at `0x30bfab`), it casts a voxel line of sight (`0xe88ee0` → `0x9b2b50`
+  → `0x9b2bf0` → the DDA `0xa0f770`, 0.5 m cells, `0x9c4e30` per cell) **from `ClientPlayerInput.data.camera.position`**
+  (the local player's, +0x20, a `WorldPosition` in 32.32 fixed point) to the entity + 1.5 m. Nothing bounds the ray's
+  length: the camera is assumed to be near the player.
+- **The bad value:** the ray in the frozen frame went from the camera (3790.55, **-2147482752**, 1467.67) to an entity at
+  (3811.75, 767.16 - 1.5, 1523.25); the player's `RenderTransform` was (3792.98, 846.24, 1469.41). So the camera's x and
+  z were normal and its Y was 2^31 m below the player's: **Y = INT64_MIN + (about 850-960 m)**, the signature of a
+  float that was out of range or NaN when the game converted it (`cvttss2si` gives 0x8000000000000000) and added it to
+  the Y of a position near the player. The DDA then walked about 1.5 billion cells per health bar, every step.
+- **Who writes the camera:** `0x3af340` (chunk `0x3af43e`) fills `ClientPlayerInput.camera` from the 3C camera object:
+  position and orientation from `0xe98ea0`, distance `+0x14a4`, fovY `+0x20c4`, aspect `+0x20b8`, near/far
+  `+0x20bc`/`+0x20c0`. `0xe98ea0` builds the transform as pivot (`+0x1468` WorldPosition) + the offset `+0x148c` rotated
+  by the camera's three quaternions (`+0x14b0`, `+0x14c0`, `+0x14d0`) − distance × forward, each term converted float →
+  int64 separately. The pivot comes from `0xec4f60` (camera update, unclamped dt from the step's ns): blended camera pose
+  (`0xe85b20`, per component, int64 deltas through float) + a direction × `+0x68` − direction × `+0x217c`; the pose from
+  the camera modes (`0xec0b90` → `0xe76340`). `player_camera_transform` (`0x2b7900`) adds the camera shake (`0xec02e0`;
+  a glider wobble while `DynamicNetworkLocomotion.state` is 4) to the render camera, not to `ClientPlayerInput`.
+  Which float overflowed was not found statically **[hyp]**; no Kiln hook is on this path (the client's Kiln hooks that
+  session: kiln.rules' fly gate, cursor flags and the three glider hooks, all no-ops for that player's rules then: flags
+  0x1f, sink 1; kiln-ui passes focus messages through and only holds `SetCursorPos`/`ClipCursor` while its own menu is
+  open).
+- **Why it looked like a freeze on alt-tab:** the camera may have been wrong for a while before; the rays start only
+  when a health-bar entity comes within 150 m of the player, and each then costs seconds.
+- **Kiln's guards (kiln-rules, client only; `sigdb/symbols/client.d/rules.json`):**
+  - `rules.healthbar_guard`: a mid hook on the `call` at `0x30c4af` (`rules/client.HealthbarRay`, scoped to
+    `rules/client.Healthbar` = `0x30bd70`; the call target `rules/client.LineOfSight` checked by its prologue; the
+    player's slots checked by two patterns: x in xmm14, y in xmm15, z at `[rbp + 0x278]`). A ray longer than 1 km, or
+    a non-finite one, is made zero-length (start := end; the DDA returns at once under 1e-20 m: "nothing in the way").
+    A camera outside the world logs once per session at W (both points, the player) and then a count every 30 s; a
+    camera inside the world but over 1 km away (a building flight far from the character: FlyAnywhere leaves it
+    behind) logs once at I.
+  - `rules.camera_check`: read only, a mid hook after the last camera field (`0x3af55f`, `rules/client.CameraInput`;
+    the camera transform `0xe98ea0` checked by three patterns that fix the field offsets). A camera outside the world
+    (1 km margin) or with non-finite orientation/lens logs once at W: the camera, the player (from the health-bar
+    program or, on a host, the server world), the orientation and lens, the last frame times (the time between two
+    camera writes) and the session's longest, then the camera object's `+0x50` target, `+0x68`, `+0x6c`, the pivot
+    `+0x1468`, the floats `+0x1480..+0x14dc` (offset, distance, the three quaternions) and `+0x217c`. A camera more
+    than 1 km from the player for 120 frames, after it was once near, logs the same once at I.
+  The camera's own view stays wrong: they keep the game running and name the source; the overflow itself is the
+  game's. A better fix once the source is known: put a camera more than a few km from the player back on it.

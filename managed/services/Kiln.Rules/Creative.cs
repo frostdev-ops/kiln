@@ -80,7 +80,8 @@ public static class Creative
         var s = Rules.Status();
         var hooks = s is null
             ? "kiln.rules is not loaded"
-            : $"hooks: flight {On(s.Flight)}, placement {On(s.Placement)}, costs {On(s.Costs)}, mining {On(s.Mining)}";
+            : $"hooks: flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
+              $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}";
         return (names.Count == 0 ? "Nobody is in creative mode" : "Creative mode: " + string.Join(", ", names)) + "; " + hooks + ".";
         static string On(bool b) => b ? "on" : "off";
     }

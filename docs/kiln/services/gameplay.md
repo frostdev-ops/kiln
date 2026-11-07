@@ -24,7 +24,11 @@ public sealed class NoChestsAtNight : Mod
 
 The service activates itself when its assembly is first used: `[Subscribe]` handlers for its events are enough (Kiln
 registers them before `OnLoad`, which runs the assembly's initializer: lab log `Kiln.Gameplay: listening to
-kiln.gameplay` comes before the first mod's `loaded` line). `Gameplay.Enable()` does it explicitly. Events are only
+kiln.gameplay` comes before the first mod's `loaded` line). `Gameplay.Enable()` does it explicitly. When the first
+use is off the server-world thread (in a game hosting a world, its main thread runs the client world), the subscription
+waits for the next server step instead of failing (log: `Kiln.Gameplay: first used off the server thread (…);
+subscribing at the next server step. From: …`, then `listening`). Before 0.2.0-dev.15 it failed for good there
+(`cannot subscribe to kiln.gameplay (kiln error 4)`) and no gameplay event reached the bus. Events are only
 built while someone subscribes to them (Kiln.Gameplay tells the native service each step which kinds it wants).
 
 ## Events

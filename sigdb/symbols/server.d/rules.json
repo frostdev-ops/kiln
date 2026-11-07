@@ -21,10 +21,88 @@
         { "pattern": "48 8D 95 {rules/fly.entity:d32} 48 8B CF E8 {rules/CurrentEntityId:rel32} 4C 8B 85 ?? ?? 00 00 48 8D 8D ?? ?? 00 00 8B 10 E8" }
       ]
     },
+    "rules/ZoneFlag": {
+      "comment": "server_cursor_no_prediction: right after IsInBuildZone(BuildZoneSystem, cursor position) returns (al), before it becomes ServerCursor.serverFlags IsNearBuildingZone (bit 2, +0x69); r12 holds the ProgramContext (the CurrentEntityId call right after takes it)",
+      "find": [
+        { "pattern": "48 8B 8D ?? ?? ?? ?? E8 ?? ?? ?? ?? 0F B6 56 69 0F B6 CA 80 CA 04 80 E1 FB 0F B6 D2 84 C0 0F B6 C9 0F 44 D1 88 56 69 48 83 BD ?? ?? ?? ?? 00 74 ?? 48 8D 95 ?? ?? ?? ?? 49 8B CC E8", "offset": 12 }
+      ]
+    },
     "rules/CursorFlags": {
       "comment": "the build cursor's refusal flags (keen::ecs::CursorFlag bits): server_cursor_no_prediction and client_cursor call it for the primary and secondary action; its context starts with the ProgramContext",
       "find": [
         { "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 56 41 57 48 8D 6C 24 C0 48 81 EC 40 01 00 00 0F B6 85 88 00 00 00 4D 8B F1 88 44 24 28 49 8B F8 0F B6 85 80 00 00 00 4D 8B C8 4D 8B C6 88 44 24 20 48 8B F2 48 8B D9 E8 ?? ?? ?? ?? 48 8B 8E {rules/cursor.actor:d32} B2 07 E8 ?? ?? ?? ?? 45 33 FF 84 C0" }
+      ]
+    },
+    "rules/ShroudDrain": {
+      "comment": "fog_resistance_update: the fog-type dispatch (movzx ecx, bl) after the safe-zone override; r15 = ProgramContext, bl = fog type (2 dangerous, 3 deadly drain FogResistance and run the death check), r13w / r12w = the current / max value slots, [rsp+fog.attr] = FogResistance, [rsp+fog.actor] = Actor",
+      "find": [
+        { "pattern": "48 8B 44 24 ?? 48 8D 95 ?? ?? 00 00 49 8B CF 0F B6 18 E8 ?? ?? ?? ?? 8B 08 FF C9 81 F9 FE 03 00 00 77 ?? 48 8B 4C 24 ?? 48 85 C9 74 ?? 0F B6 44 24 ?? 4C 8B 4C 24 ?? 4C 8B 44 24 ?? 48 8B 54 24 ?? 88 44 24 28 0F B7 44 24 ?? 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 4C 24 {rules/fog.actor:d8} B2 0E E8 ?? ?? ?? ?? 84 C0 0F 45 DF 0F B6 CB 84 DB 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 F9 01 0F 85", "offset": 101 }
+      ]
+    },
+    "@rules/ShroudDrain.attr": {
+      "comment": "the same program keeps its FogResistance component pointer at [rsp+fog.attr] (tested for its valid bit +6)",
+      "find": [
+        { "pattern": "48 8B 44 24 {rules/fog.attr:d8} 48 85 C0 0F 84 ?? ?? ?? ?? F6 40 06 01 0F 84 ?? ?? ?? ?? 48 8B 4D 00 48 85 C9 74 ?? 0F B6 45 FA" }
+      ]
+    },
+    "@rules/ShroudDrain.state": {
+      "comment": "the same program clears InFog (bit 13) in the Actor's state word first: its offset",
+      "find": [
+        { "pattern": "48 8B 44 24 ?? 48 81 A0 {rules/fog.state:d32} FF DF FF FF 48 8B 4D ?? 48 85 C9 74 ??" }
+      ]
+    },
+    "rules/GlideStep": {
+      "comment": "locomotion_execution's glide step (LocomotionState HangGliding 4), void(iterator*): the glider's thrust and drag on Velocity, in substeps; iterator +0 = ProgramContext; the died / hit event lists are checked first",
+      "find": [
+        { "pattern": "40 55 41 55 41 56 48 8D AC 24 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 4C 8B 29 48 8D 95 ?? ?? ?? ?? 4C 8B F1 49 8B CD E8 ?? ?? ?? ?? 49 8B 96 {rules/glide.died:d32} 41 B1 01 49 8B 8E {rules/glide.hits:d32} 44 8B 00 E8" }
+      ]
+    },
+    "@rules/GlideStep.abort": {
+      "comment": "the glide step's abort path hands its ActorInput slot to the abort function",
+      "find": [
+        { "pattern": "49 8B 8E {rules/glide.actor_input:d32} E8 ?? ?? ?? ?? 48 81 C4 ?? ?? ?? ?? 41 5E 41 5D 5D C3" }
+      ]
+    },
+    "@rules/GlideStep.xform": {
+      "comment": "the glide step turns (0,0,1) by the CurrentTransform's rotation (QuatRotate(float3* out, const Quaternion*, const float3*)) after reading the step's time (StepDelta(ctx, int64* out) -> ns)",
+      "find": [
+        { "pattern": "E8 {rules/StepDelta:rel32} F2 44 0F 10 ?? ?? ?? ?? ?? 4C 8D 44 24 ?? 49 8B 56 {rules/glide.xform:d8} 48 8D 4C 24 ?? 0F 57 C0 F3 0F 11 74 24 ?? F2 48 0F 2A 00 48 83 C2 {rules/xform.rotation:d8} F2 41 0F 59 ?? 66 44 0F 5A F8 0F 57 C0 0F 14 C7 F2 0F 11 44 24 ?? E8 {rules/QuatRotate:rel32} 49 8B 9E {rules/glide.dynloco:d32}" }
+      ]
+    },
+    "@rules/GlideStep.velocity": {
+      "comment": "the glide step's Velocity slot (float3*)",
+      "find": [
+        { "pattern": "E8 ?? ?? ?? ?? F3 0F 10 ?? ?? ?? ?? ?? F3 0F 10 ?? 24 ?? 49 8B 86 {rules/glide.velocity:d32} 48 8D 54 24" }
+      ]
+    },
+    "@rules/Loco.input": {
+      "comment": "locomotion_execution's PlayerInput slot (null for anything but a player) and the stick it reads",
+      "find": [
+        { "pattern": "48 8B 47 {rules/loco.player_input:d8} 0F C6 F6 C9 0F 29 74 24 ?? 66 0F 7F 74 24 ?? F2 0F 11 44 24 ?? 48 85 C0 74 ?? F3 0F 10 80 {rules/input.stick:d32} F3 44 0F 10 88" }
+      ]
+    },
+    "@rules/Input.mask": {
+      "comment": "PlayerInput's digital-input mask (the held bits, u64, follow at +8; Sprint = bit 53)",
+      "find": [
+        { "pattern": "CC 48 85 C9 74 ?? F6 81 {rules/input.mask:d32} 20 74 ?? B0 01 C3" }
+      ]
+    },
+    "@rules/Input.trigger": {
+      "comment": "the abort of an action (the glide's too): ActorInput's trigger u16 = 24 (ExternalAbortAndOverride)",
+      "find": [
+        { "pattern": "40 53 48 83 EC 20 48 8B D9 33 D2 48 83 C1 22 41 B8 56 01 00 00 E8 ?? ?? ?? ?? 0F 10 05 ?? ?? ?? ?? 66 C7 43 {rules/input.trigger:d8} 18 00" }
+      ]
+    },
+    "rules/GlideGravity": {
+      "comment": "gravity_apply_velocity_actor: after the gravity strength (xmm6, PlayerLocomotion's rising/falling override) is chosen, at lea rdx / mov rcx,rdi before StepDelta; rdi = ProgramContext, the Actor at [rbp + (int8)grav.actor]",
+      "find": [
+        { "pattern": "48 8B 4D {rules/grav.actor:d8} 33 D2 E8 ?? ?? ?? ?? 84 C0 74 ?? 48 8B 45 ?? 80 78 50 00 74 ?? 80 78 49 00 74 ?? 0F 2F 78 34 0F 87 ?? ?? ?? ?? 48 8B 45 ?? 48 8B 55 ?? F3 0F 10 70 0C 48 85 D2 74 ?? 48 8B 4D ?? 48 85 C9 74 ?? 0F B6 45 ?? 4C 8B 4D ?? 4C 8B 45 ?? 48 8B 55 ?? 88 44 24 28 0F B7 45 ?? 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 55 ?? 48 8B 45 ?? F3 0F 10 40 04 41 0F 2F C0 76 07 F3 0F 10 72 3C EB 05 F3 0F 10 72 40 48 8D 55 ?? 48 8B CF E8", "offset": 133 }
+      ]
+    },
+    "rules/GlideStamina": {
+      "comment": "stamina_depletion_glider: this step's drain in xmm6 just before it is added to StaminaDepletion (mov rax,[rbp-0x78]; addss xmm6,[rax]); rdi = ProgramContext",
+      "find": [
+        { "pattern": "41 0F 28 F9 48 8D 95 ?? ?? ?? ?? 48 8B CF E8 ?? ?? ?? ?? 48 8B 4D ?? 0F 57 C0 F2 48 0F 2A 00 F2 41 0F 59 C2 66 0F 5A F0 F3 41 0F 59 F0 F3 0F 59 F7 48 85 C9 74 ?? 0F B6 45 ?? 4C 8B 4D ?? 4C 8B 45 ?? 48 8B 55 ?? 88 44 24 28 0F B7 45 ?? 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 45 ?? F3 0F 58 30 F3 0F 11 30", "offset": 88 }
       ]
     },
     "rules/ApplyMaterials": {
@@ -43,16 +121,46 @@
   "constants": {
     "rules/fly.actor": { "min_votes": 1 },
     "rules/fly.entity": { "min_votes": 1 },
-    "rules/cursor.actor": { "min_votes": 1 }
+    "rules/cursor.actor": { "min_votes": 1 },
+    "rules/fog.actor": { "min_votes": 1 },
+    "rules/fog.attr": { "min_votes": 1 },
+    "rules/fog.state": { "min_votes": 1 },
+    "rules/glide.died": { "min_votes": 1 },
+    "rules/glide.hits": { "min_votes": 1 },
+    "rules/glide.actor_input": { "min_votes": 1 },
+    "rules/glide.xform": { "min_votes": 1 },
+    "rules/xform.rotation": { "min_votes": 1 },
+    "rules/glide.dynloco": { "min_votes": 1 },
+    "rules/glide.velocity": { "min_votes": 1 },
+    "rules/loco.player_input": { "min_votes": 1 },
+    "rules/input.stick": { "min_votes": 1 },
+    "rules/input.mask": { "min_votes": 1 },
+    "rules/input.trigger": { "min_votes": 1 },
+    "rules/grav.actor": { "min_votes": 1 }
   },
   "features": {
     "rules.fly": {
       "symbols": ["rules/FlyGate", "@rules/FlyGate.actor", "@rules/FlyGate.entity", "rules/ActorStateTest", "rules/CurrentEntityId", "items/JobStorage"],
       "constants": ["rules/fly.actor", "rules/fly.entity", "storage.kind"]
     },
+    "rules.zone": {
+      "symbols": ["rules/ZoneFlag", "rules/CurrentEntityId", "items/JobStorage"],
+      "constants": ["storage.kind"]
+    },
     "rules.cursor": {
       "symbols": ["rules/CursorFlags", "rules/CurrentEntityId", "items/JobStorage"],
       "constants": ["rules/cursor.actor", "storage.kind"]
+    },
+    "rules.shroud": {
+      "symbols": ["rules/ShroudDrain", "@rules/ShroudDrain.attr", "@rules/ShroudDrain.state", "rules/CurrentEntityId", "items/JobStorage"],
+      "constants": ["rules/fog.actor", "rules/fog.attr", "rules/fog.state", "storage.kind"]
+    },
+    "rules.glide": {
+      "symbols": ["rules/GlideStep", "@rules/GlideStep.abort", "@rules/GlideStep.xform", "@rules/GlideStep.velocity", "@rules/Loco.input",
+                  "@rules/Input.mask", "@rules/Input.trigger", "rules/GlideGravity", "rules/GlideStamina", "rules/QuatRotate",
+                  "rules/StepDelta", "rules/ActorStateTest", "rules/CurrentEntityId", "items/JobStorage"],
+      "constants": ["rules/glide.actor_input", "rules/glide.xform", "rules/xform.rotation", "rules/glide.velocity", "rules/loco.player_input",
+                    "rules/input.mask", "rules/input.trigger", "rules/grav.actor", "storage.kind"]
     },
     "rules.costs": {
       "symbols": ["rules/ApplyMaterials"],
