@@ -29,7 +29,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE)
-add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/EHsc>" /Zi)
+# /EHa (clang: -fasync-exceptions), not /EHsc: with /EHsc clang drops a __try whose body has no call that can throw,
+# so a fault inlined in it (a memcpy, a dereference) crashes the process (native/spikes/sehprobe). /EHa also makes
+# catch(...) catch hardware faults. It must come after CMake's default /EHsc in CMAKE_CXX_FLAGS: the last /EH wins.
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/EHa>" /Zi)
 add_link_options(/DEBUG /OPT:REF /OPT:ICF /IGNORE:4099)
 
 add_library(kiln-safetyhook STATIC third_party/safetyhook/safetyhook.cpp third_party/safetyhook/Zydis.c)
