@@ -23,6 +23,14 @@ SafetyHookInline g_hook;
 SafetyHookInline g_destroy_hook;
 bool g_installed = false;
 bool g_lifecycle = false;
+std::atomic<bool> g_faulted{false};
+
+void disable(const char* where) {
+    if (g_faulted.exchange(true)) return;
+    // With lifecycle delivery stopped these pointers must not outlive the game's worlds.
+    for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) worldinfo::set_world(kind, 0);
+    KLOG_E("tick: exception in %s; tick delivery disabled until restart", where);
+}
 int64_t g_world_storage = 0;  // world -> entity storage (the sim step's first argument)
 int64_t g_off_kind = 0, g_off_clock = 0, g_off_period = -1;
 using WaitWorldJobsFn = void(__cdecl*)(uintptr_t world);
@@ -241,12 +249,14 @@ uintptr_t server_step(uintptr_t storage, uintptr_t ticked, uintptr_t r8, uintptr
         }
         run(g_pre, info);
     } catch (...) {
-        KLOG_E("tick: exception in Pre (ignored)");
+        disable("server Pre");
+        return g_hook.call<uintptr_t>(storage, ticked, r8, r9);  // no Post with incomplete tick info
     }
 
     const double t1 = now_ms();
     const uintptr_t result = g_hook.call<uintptr_t>(storage, ticked, r8, r9);
     const double t2 = now_ms();
+    if (g_faulted.load()) return result;
 
     try {
         if (!g_post.empty()) {
@@ -269,7 +279,7 @@ uintptr_t server_step(uintptr_t storage, uintptr_t ticked, uintptr_t r8, uintptr
         g_prev_start = t0;
         write_stats_if_due();
     } catch (...) {
-        KLOG_E("tick: exception in Post (ignored)");
+        disable("server Post");
     }
     return result;
 }
@@ -352,12 +362,14 @@ uintptr_t other_step(uint32_t kind, uintptr_t storage, uintptr_t ticked, uintptr
         g_last_step_ms[kind].store(static_cast<int64_t>(t0), std::memory_order_relaxed);
         if (!K.pre.empty()) run_subs(K.pre, info);
     } catch (...) {
-        KLOG_E("tick: exception in %s-world Pre (ignored)", kKindName[kind]);
+        disable("client/prediction Pre");
+        return g_hook.call<uintptr_t>(storage, ticked, r8, r9);
     }
 
     const double t1 = now_ms();
     const uintptr_t result = g_hook.call<uintptr_t>(storage, ticked, r8, r9);
     const double t2 = now_ms();
+    if (g_faulted.load()) return result;
 
     try {
         if (!K.post.empty()) run_subs(K.post, info);
@@ -373,13 +385,13 @@ uintptr_t other_step(uint32_t kind, uintptr_t storage, uintptr_t ticked, uintptr
         K.prev_start = t0;
         write_window(w, kKindName[kind], K.pre.size(), K.post.size());
     } catch (...) {
-        KLOG_E("tick: exception in %s-world Post (ignored)", kKindName[kind]);
+        disable("client/prediction Post");
     }
     return result;
 }
 
 uintptr_t __fastcall hk_sim_step(uintptr_t storage, uintptr_t ticked, uintptr_t r8, uintptr_t r9) {
-    if (!(ticked & 0xFF)) return g_hook.call<uintptr_t>(storage, ticked, r8, r9);
+    if (g_faulted.load() || !(ticked & 0xFF)) return g_hook.call<uintptr_t>(storage, ticked, r8, r9);
     const uint8_t kind = *reinterpret_cast<const uint8_t*>(storage + g_off_kind);
     if (kind == KILN_WORLD_SERVER) return server_step(storage, ticked, r8, r9);
     if (kind < KILN_WORLD_KINDS) return other_step(kind, storage, ticked, r8, r9);
@@ -389,6 +401,7 @@ uintptr_t __fastcall hk_sim_step(uintptr_t storage, uintptr_t ticked, uintptr_t 
 // The game destroys a world (leaving a hosted or joined game; process exit). Runs on the destroying thread: the
 // server world's own thread for the server world, the main thread for the client world. The world is intact here.
 void __fastcall hk_world_destroy(uintptr_t world) {
+    if (g_faulted.load()) return g_destroy_hook.call<void>(world);
     try {
         uint8_t kind = 0xFF;
         if (world && guard::copy(&kind, world + static_cast<uintptr_t>(g_world_storage + g_off_kind), 1) &&
@@ -414,7 +427,7 @@ void __fastcall hk_world_destroy(uintptr_t world) {
             g_generation.fetch_add(1);
         }
     } catch (...) {
-        KLOG_E("tick: exception in the world-destroy hook (ignored)");
+        disable("world destroy");
     }
     g_destroy_hook.call<void>(world);
 }
@@ -458,19 +471,20 @@ bool install() {
     return true;
 }
 
-bool installed() { return g_installed; }
-bool lifecycle() { return g_lifecycle; }
+bool installed() { return g_installed && !g_faulted.load(); }
+bool lifecycle() { return g_lifecycle && !g_faulted.load(); }
 
-bool on_tick_thread() { return g_thread.load(std::memory_order_relaxed) == GetCurrentThreadId(); }
+bool on_tick_thread() { return !g_faulted.load() && g_thread.load(std::memory_order_relaxed) == GetCurrentThreadId(); }
 
 bool on_world_thread(uint32_t kind) {
+    if (g_faulted.load()) return false;
     if (kind == KILN_WORLD_SERVER) return on_tick_thread();
     return kind < KILN_WORLD_KINDS && g_kind_thread[kind].load(std::memory_order_relaxed) == GetCurrentThreadId();
 }
 
 KilnResult last(KilnTickInfo* out) {
     if (!out) return KILN_ERR_INVALID_ARGUMENT;
-    if (!g_installed) return KILN_ERR_UNAVAILABLE;
+    if (!installed()) return KILN_ERR_UNAVAILABLE;
     std::lock_guard lock(g_last_mutex);
     *out = g_last;
     return KILN_OK;
@@ -483,7 +497,7 @@ void write_stats_if_due() {
 KilnResult subscribe_world_tick(KilnOwner owner, uint32_t kind, int32_t phase, KilnTickFn fn, void* user,
                                 KilnHandle* out) {
     if (out) *out = 0;
-    if (!g_installed) return KILN_ERR_UNAVAILABLE;
+    if (!installed()) return KILN_ERR_UNAVAILABLE;
     if (kind == KILN_WORLD_SERVER) return reg::add_tick(owner, phase, fn, user, out);
     if (kind >= KILN_WORLD_KINDS || !fn || (phase != KILN_TICK_PRE && phase != KILN_TICK_POST))
         return KILN_ERR_INVALID_ARGUMENT;
@@ -505,7 +519,7 @@ KilnResult subscribe_world_tick(KilnOwner owner, uint32_t kind, int32_t phase, K
 }
 
 KilnResult post_world(KilnOwner owner, uint32_t kind, KilnTaskFn fn, void* user) {
-    if (!g_installed) return KILN_ERR_UNAVAILABLE;
+    if (!installed()) return KILN_ERR_UNAVAILABLE;
     if (kind == KILN_WORLD_SERVER) return reg::post(owner, fn, user);
     if (kind >= KILN_WORLD_KINDS || !fn) return KILN_ERR_INVALID_ARGUMENT;
     if (!reg::owner_alive(owner)) return KILN_ERR_REVOKED;
@@ -517,7 +531,7 @@ KilnResult post_world(KilnOwner owner, uint32_t kind, KilnTaskFn fn, void* user)
 
 KilnResult subscribe_world(KilnOwner owner, KilnWorldEventFn fn, void* user, KilnHandle* out) {
     if (out) *out = 0;
-    if (!g_installed) return KILN_ERR_UNAVAILABLE;
+    if (!installed()) return KILN_ERR_UNAVAILABLE;
     if (!fn) return KILN_ERR_INVALID_ARGUMENT;
     if (!reg::owner_alive(owner)) return KILN_ERR_REVOKED;
     auto s = std::make_shared<Sub>();
@@ -551,6 +565,7 @@ KilnResult remove(KilnHandle handle) {
 
 KilnResult session(KilnSessionInfo* out) {
     if (!out || out->size < sizeof(KilnSessionInfo)) return KILN_ERR_INVALID_ARGUMENT;
+    if (g_faulted.load()) return KILN_ERR_UNAVAILABLE;
     KilnSessionInfo s{};
     s.size = sizeof s;
     s.side = image().side;

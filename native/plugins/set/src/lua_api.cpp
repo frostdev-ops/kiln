@@ -2148,7 +2148,12 @@ void guarded(void (*fn)(uintptr_t), uintptr_t arg, const char* what) {
         stopHooks(nullptr);
         gSink(LV_BAD "Lua: access violation, mods off until the game restarts");
     } catch (...) {
-        gSink((LV_BAD "Internal error in " + std::string(what)).c_str());
+        // /EHa catches non-AV hardware faults here too. The Lua state must never be entered again.
+        const bool wasBroken = gBroken.exchange(true);
+        gLoaded = gHasDraw = false;
+        if (wasBroken) return;  // do not retry cleanup that faulted in the AV path above
+        stopHooks(nullptr);
+        gSink((LV_BAD "Internal error in " + std::string(what) + "; mods off until the game restarts").c_str());
     }
 }
 

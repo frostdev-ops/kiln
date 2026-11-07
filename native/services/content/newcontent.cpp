@@ -3488,7 +3488,9 @@ void early_sync() {
         g_in_update_hook = false;
     } catch (...) {
         g_in_update_hook = false;
-        LOGE("new content: exception in the early registration (ignored; the world's first Pre tries again)");
+        // /EHa also routes hardware faults here: match the outer SEH guard and stop frame-by-frame retries.
+        if (g_early_ireg.exchange(0))
+            LOGE("new content: exception in the early registration; early registration disabled; the world's first Pre tries again");
     }
 }
 

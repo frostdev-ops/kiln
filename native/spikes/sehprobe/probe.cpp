@@ -3,14 +3,19 @@
 // inside the __try block, under the flags this file is compiled with? Built twice by CMakeLists.txt: once with
 // /EHsc (synchronous C++ EH) and once with /EHa (clang: -fasync-exceptions). run.sh runs both under Wine.
 // Each case runs in a child process (the exe re-launches itself with the case name), so an uncaught fault only
-// kills that child: the parent prints CAUGHT / CRASH per case. The exit code counts uncaught a- and b-cases; the
-// x-cases (catch(...) vs. a fault, C++ exceptions) are informational: for x-catchall CAUGHT means catch(...) swallows
-// hardware faults.
+// kills that child. Every case contributes to the exit status, including C++ EH and unwinding checks.
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <stdexcept>
+#include <malloc.h>
+
+#ifdef PROBE_TICK_CASES
+int tick_fault_case(unsigned kind, bool post_fault);
+int tick_destroy_fault_case();
+int lua_fault_case();
+#endif
 
 #ifndef PROBE_MODE
 #define PROBE_MODE "?"
@@ -168,8 +173,61 @@ static int x_cxx_through_seh() {
     return 0;
 }
 
-struct Case { const char* name; int (*fn)(); };
+static int g_cleanups;
+struct Cleanup { ~Cleanup() { ++g_cleanups; } };
+__declspec(noinline) static void fault_with_cleanup() {
+    Cleanup cleanup;
+    g_sink = g_load_fn(reinterpret_cast<const int*>(bad_ptr()));
+}
+static int x_unwind() {
+    __try {
+        fault_with_cleanup();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return g_cleanups == 1;
+    }
+    return 0;
+}
+// A guard must not extend to later inline instructions in its caller (the proxy's attach/entry-gate shape).
+static int p_outside_guard() {
+    __try {
+        g_sink = g_load_fn(reinterpret_cast<const int*>(bad_ptr()));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_sink = 1;
+    }
+    g_sink = *bad_ptr();  // must surface, even under /EHa
+    return 0;
+}
+
+__declspec(noinline) static void overflow_stack(unsigned depth) {
+    if (depth == 0xFFFFFFFFu) return;  // opaque to the caller, so the optimiser cannot prove the recursion never returns
+    volatile char page[4096];
+    page[depth & 4095] = 1;
+    overflow_stack(depth + 1);
+    g_sink = page[depth & 4095];  // prevent tail recursion
+}
+static int x_stack_overflow() {
+    bool caught = false;
+    try {
+        overflow_stack(0);
+    } catch (...) {
+        caught = true;
+    }
+    // Windows requires restoring the stack guard after unwinding, outside the handler.
+    return caught && _resetstkoflw();
+}
+
+// info: reported, never counted. A stack overflow is not recoverable under Wine (the process ends with exit 1 in both
+// builds), so no Kiln guard may rely on catching one; the case only shows what the platform does.
+struct Case { const char* name; int (*fn)(); DWORD expected = 0; bool info = false; };
 static const Case kCases[] = {
+#ifdef PROBE_TICK_CASES
+    {"c-server-pre-disable", [] { return tick_fault_case(0, false); }},
+    {"c-server-post-disable", [] { return tick_fault_case(0, true); }},
+    {"c-client-pre-disable", [] { return tick_fault_case(2, false); }},
+    {"c-client-post-disable", [] { return tick_fault_case(2, true); }},
+    {"c-world-destroy-disable", tick_destroy_fault_case},
+    {"c-lua-av-escapes-pcall", lua_fault_case},
+#endif
     {"a-inline-memcpy16", a_memcpy},
     {"a-inline-load", a_load},
     {"a-inline-store", a_store},
@@ -182,6 +240,9 @@ static const Case kCases[] = {
     {"x-catchall-swallows-av", x_catchall},
     {"x-cxx-throw", x_cxx},
     {"x-cxx-through-seh", x_cxx_through_seh},
+    {"x-unwind-destructor", x_unwind},
+    {"x-catchall-stack-overflow", x_stack_overflow, 0, true},
+    {"p-outside-guard", p_outside_guard, EXCEPTION_ACCESS_VIOLATION},
 };
 
 int main(int argc, char** argv) {
@@ -208,8 +269,9 @@ int main(int argc, char** argv) {
             CloseHandle(pi.hProcess);
         }
         const char* verdict = code == 0 ? "CAUGHT" : code == 2 ? "NOFAULT" : "CRASH";
-        printf("[%s] %-22s %s (exit 0x%08lx)\n", PROBE_MODE, c.name, verdict, code);
-        if (code != 0 && c.name[0] != 'x') bad++;  // x-cases are informational
+        printf("[%s] %-24s %s (exit 0x%08lx, %s)\n", PROBE_MODE, c.name, verdict, code,
+               c.info ? "INFO" : code == c.expected ? "PASS" : "FAIL");
+        if (!c.info && code != c.expected) bad++;
     }
     fflush(stdout);
     return bad;

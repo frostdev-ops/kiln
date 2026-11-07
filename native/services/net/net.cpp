@@ -63,6 +63,7 @@ uint32_t g_side = 0;
 bool g_server_role = false, g_client_role = false, g_have_players = false, g_can_kick = false;
 int g_gs_register = 13;
 bool g_world_api = false;  // KilnApi has the client-support functions (subscribe_world_tick, ...)
+std::atomic<bool> g_client_faulted{false};
 
 SafetyHookMid g_after_sync;
 SafetyHookInline g_client_recv;
@@ -977,6 +978,7 @@ void client_set_up(bool up, uintptr_t conn) {
 }
 
 void client_deliver() {
+    if (g_client_faulted.load()) return;
     std::vector<Frame> frames;
     std::vector<Event> events;
     {
@@ -1041,6 +1043,7 @@ void client_knock_on_time() {
 // The game is about to send Gameplay Ready (0x86d9f0; called until it has). The proof goes first, in this call, so a
 // slow load can't put Gameplay Ready ahead of it; the server reads channel 12 before the game's own channels.
 void hk_client_ready(safetyhook::Context& ctx) {
+    if (g_client_faulted.load()) return;
     const uintptr_t gc = ctx.rcx;
     try {
         uintptr_t session = 0, set = 0;
@@ -1055,6 +1058,8 @@ void hk_client_ready(safetyhook::Context& ctx) {
         }
         client_flush(session, socket);
     } catch (...) {
+        if (!g_client_faulted.exchange(true))
+            logf(KILN_LOG_ERROR, "net: exception preparing Gameplay Ready; Kiln client networking disabled until restart");
     }
 }
 
@@ -1117,6 +1122,7 @@ void hk_create_template(safetyhook::Context& ctx) {
 using ClientReceiveFn = void(__fastcall*)(uintptr_t gc);
 
 void __fastcall hk_client_receive(uintptr_t gc) {
+    if (g_client_faulted.load()) return g_client_recv.call<void>(gc);
     g_last_client_hook.store(now_ms(), std::memory_order_relaxed);
     uintptr_t session = 0, set = 0;
     const uintptr_t socket = knet::client_socket(gc, &session, &set);
@@ -1138,11 +1144,15 @@ void __fastcall hk_client_receive(uintptr_t gc) {
             client_flush(session, socket);
         }
     } catch (...) {
+        // Includes hardware faults in subscribers delivered while no client-world tick is running.
+        if (!g_client_faulted.exchange(true))
+            logf(KILN_LOG_ERROR, "net: exception in ClientReceive; Kiln client networking disabled until restart");
     }
     g_client_recv.call<void>(gc);
 }
 
 void KILN_CALL on_client_pre(const KilnTickInfo*, void*) {
+    if (g_client_faulted.load()) return;
     g_last_client_pre.store(now_ms(), std::memory_order_relaxed);
     if (g_client_up && now_ms() - g_last_client_hook.load(std::memory_order_relaxed) > 3000) client_set_up(false, 0);
     client_deliver();
@@ -1185,7 +1195,8 @@ KilnResult KILN_CALL t_status(KilnNetStatus* out) {
     if (!out || out->size < sizeof(KilnNetStatus)) return KILN_ERR_INVALID_ARGUMENT;
     std::memset(out, 0, sizeof(*out));
     out->size = sizeof(KilnNetStatus);
-    out->roles = (g_server_role ? KILN_NET_ROLE_SERVER : 0u) | (g_client_role ? KILN_NET_ROLE_CLIENT : 0u);
+    out->roles = (g_server_role ? KILN_NET_ROLE_SERVER : 0u) |
+                 (g_client_role && !g_client_faulted.load() ? KILN_NET_ROLE_CLIENT : 0u);
     out->server_ready = g_server_seen.load() ? 1 : 0;
     out->lab = knet::lab::is_open() ? 1 : 0;
     out->channel = static_cast<uint32_t>(L.channel);
@@ -1193,7 +1204,7 @@ KilnResult KILN_CALL t_status(KilnNetStatus* out) {
     out->lab_port = knet::lab::is_open() ? g_lab_port : 0;
     {
         std::lock_guard<std::mutex> lk(g_mu);
-        out->client_ready = g_client_up ? 1 : 0;
+        out->client_ready = g_client_up && !g_client_faulted.load() ? 1 : 0;
         out->peers = static_cast<uint32_t>(g_peers.size()) + (g_client_up ? 1u : 0u);
         out->subscribers = static_cast<uint32_t>(g_subs.size());
     }
@@ -1235,7 +1246,7 @@ KilnResult KILN_CALL t_send(KilnPeer to, const uint8_t* data, uint32_t len) {
     if (!data || len == 0) return KILN_ERR_INVALID_ARGUMENT;
     if (len > g_max_frame.load()) return KILN_ERR_BUFFER_TOO_SMALL;
     if (to == KILN_NET_PEER_SERVER) {
-        if (!g_client_role) return KILN_ERR_UNAVAILABLE;
+        if (!g_client_role || g_client_faulted.load()) return KILN_ERR_UNAVAILABLE;
         std::lock_guard<std::mutex> lk(g_mu);
         if (!g_client_up) return KILN_ERR_NOT_FOUND;
         if (g_client_outbox.size() >= kOutboxFrames || g_client_outbox_bytes + len > kOutboxBytes) {
