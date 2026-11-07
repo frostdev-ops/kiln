@@ -55,8 +55,9 @@ export type GameId = string;
 export type ProfileId = string;
 export type ServerId = string;
 export type TaskId = string;
-/** kiln_manage::manifest::ModKind: Kiln's own four, then other engines' mods (eml ... shroudtopia run by Kiln's engine
- *  plugins), then the reserved kinds (no importer yet). Labels and helpers: ./kinds.ts. */
+/** kiln_manage::manifest::ModKind: Kiln's own four, then other engines' mods, each imported by the Library and run by
+ *  Kiln's plugin for that engine (Ember's are held but don't run yet: no published mod ABI). Labels and helpers:
+ *  ./kinds.ts. */
 export type ModKind = "kiln" | "native" | "plugin" | "emf"
   | "eml" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
   | "enshwick" | "shroudlink" | "ember";

@@ -46,7 +46,8 @@ impl Clients {
 
 /// Library / profile kinds (`library/<kind>/`, profile.json `mods.<kind>`). The first four are Kiln's own; the rest
 /// hold mods made for other engines, run by Kiln's plugin for that engine (docs/kiln/engines.md, "Library kinds").
-/// `enshwick`, `shroudlink` and `ember` are reserved: profiles and the library accept them, no importer exists yet.
+/// Every engine kind has a Library importer (engine_mods::IMPORTED); Ember's mods are held but don't run yet (Ember has
+/// published no mod ABI, docs/kiln/engines/ember.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModKind {
@@ -67,11 +68,12 @@ pub enum ModKind {
     Flame,
     /// Shroudtopia / Shroudweave DLL mods, run by kiln-shroudtopia.
     Shroudtopia,
-    /// Reserved: Enshwick mods.
+    /// Enshwick mods (DLL mods, `pack.toml` data packs and Luau mods), run by kiln-enshwick from `<game>/mods/<id>/`.
     Enshwick,
-    /// Reserved: shroudlink server mods.
+    /// shroudlink server mod DLLs, run by kiln-shroudlink (shroudlink's own server core).
     Shroudlink,
-    /// Reserved: Ember server SDK mods.
+    /// Ember server SDK mods (one library per folder), found and reported by kiln-ember; not run until Ember publishes
+    /// its mod ABI.
     Ember,
 }
 
@@ -120,11 +122,6 @@ impl ModKind {
     /// A kind for another engine's mods (not one of Kiln's own four).
     pub fn is_engine(self) -> bool {
         !ModKind::CORE.contains(&self)
-    }
-
-    /// Reserved kinds: listed in the formats, no importer yet.
-    pub fn is_reserved(self) -> bool {
-        matches!(self, ModKind::Enshwick | ModKind::Shroudlink | ModKind::Ember)
     }
 
     /// The engine whose plugin runs this kind (EMF for `emf`; None for Kiln's own kinds).

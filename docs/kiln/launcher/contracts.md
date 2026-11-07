@@ -72,7 +72,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | Path | What |
 |---|---|
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
-| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`; reserved `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
+| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size}` |
 | `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`) |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/` and `native.json` |
@@ -181,7 +181,9 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | `greeneye` | kiln-greeneye | library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
 | `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
 | `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
-| `enshwick`, `shroudlink`, `ember` | reserved | - | accepted, no importer or plugin yet |
+| `enshwick` | kiln-enshwick | library folder (`pack.toml`, or a folder with the mod DLL) | `plan_engine("enshwick")`; the plugin copies each enabled entry into `<game>/mods/<id>/` (Enshwick's loader reads only that folder), with its own receipts, and starts Enshwick's loader |
+| `shroudlink` | kiln-shroudlink | library folder (mod DLLs directly in it) | its own `plan_from` (the same rule as `compat.h`); roots are the enabled entries, then `shroudlink_mods/` and its direct subfolders |
+| `ember` | kiln-ember | library folder (one library) | `plan_engine("ember")`; finds and reports, starts nothing: Ember has published no mod ABI (the launcher says the mods don't run yet) |
 
 Placement ownership requires `.kiln-library.json` plus a matching launcher receipt in
 `kiln/state/library-placements.json` (`{path, marker, files}` entries, recording relative paths, file hashes and
@@ -194,7 +196,7 @@ In copy mode, the ShroudForge and SET profile entry paths name the verified sour
 Play once cannot select different ShroudForge or SET mods, versions or switches from the active profile: activate
 that profile first to change their fixed folders. A refused play-once request leaves those folders unchanged.
 
-`compat.h`'s rule for Greeneye, Flame and Shroudtopia: with a `mods.<kind>` list the profile's entries load and the
+`compat.h`'s rule for Greeneye, Flame, Shroudtopia, Enshwick, shroudlink and Ember: with a `mods.<kind>` list the profile's entries load and the
 engine's own folder is read only when `dropins` is `true`; without the list the folder is read (mods the player put
 there by hand keep working).
 
@@ -315,7 +317,9 @@ a tool: never imported), `data`, `save`, `reshade`, `cheat-table`, `asi`. EML vs
 Lua and the same `capabilities`; a package is ShroudForge's only with SF-specific `extended.mod.json` metadata or an
 SF schema (`shroudforge::is_sf_own_mod`); `launcher: "EML"` stays EML. A kind is imported only through its registered
 loader (`engines::builtin_loaders`: `engine_mods::import_engine_mod` for `eml`, `shroudforge`, `set`, `greeneye`,
-`flame`, `shroudtopia`), into `library/<kind>/`; the others are skipped with their `reason`. The launcher (MIT) only
+`flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), into `library/<kind>/`; the others are skipped with their
+`reason`. Enshwick packs take `id`/`version`/`name` from `pack.toml`; an Ember mod is a folder in `ember/mods/` (no
+manifest or known export exists yet) and its reason says it doesn't run yet. The launcher (MIT) only
 copies files: it never links or runs an engine's code.
 
 ### 5.4 `native.json` and `<configDir>/native.json`
@@ -907,9 +911,10 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
 - React 18 + TypeScript + Vite, bun. Router: `HashRouter`. Data: TanStack Query; state: zustand.
 - `src/api/commands.ts`: one typed function per command (section 9) + the shared types + `KilnEvents`. Names and
   argument shapes are the contract; pages import from here, never call `invoke` directly.
-- `src/api/kinds.ts`: the 13 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS`, `RESERVED_KINDS`,
-  `ENGINE_KINDS`, `KIND_NAME` (= `ModKind::label`), `KIND_SHORT` (badges), `KIND_TONE`, `KIND_PLUGIN`, `emptyMods()`,
-  `totalCount(counts)`.
+- `src/api/kinds.ts`: the 13 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS` (every engine kind,
+  = `engine_mods::IMPORTED`), `ENGINE_KINDS`, `NOT_RUNNING_KINDS` / `runsYet` / `NOT_RUNNING_NOTE` (=
+  `engine_mods::runs_yet`: Ember), `KIND_NAME` (= `ModKind::label`), `KIND_SHORT` (badges), `KIND_TONE`,
+  `KIND_PLUGIN`, `emptyMods()`, `totalCount(counts)`.
 - `src/api/mock.ts`: used automatically when `window.__TAURI_INTERNALS__` is absent (plain browser, Playwright mock
   mode): every command answers from in-memory fixtures (built on `schema/examples/`), unknown ones reject with
   `not_implemented`.

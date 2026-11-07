@@ -155,6 +155,25 @@ mod tests {
     }
 
     #[test]
+    fn enshwick_shroudlink_and_ember_entries_reach_their_settings_answer() {
+        let hash = format!("kdh1:{}", "a".repeat(64));
+        let p: kiln_manage::profile::Profile = serde_json::from_value(serde_json::json!({
+            "format": 1, "id": "test", "name": "Test", "created": "", "updated": "", "generation": 1,
+            "mods": { "enshwick": [{ "id": "you.lanterns", "version": "1.0.0", "hash": hash, "enabled": true }],
+                      "shroudlink": [{ "id": "chestsort", "version": "0.0.0", "hash": hash, "enabled": true }],
+                      "ember": [{ "id": "private-chests", "version": "0.0.0", "hash": hash, "enabled": true }] }
+        })).unwrap();
+        for (kind, id) in [(ModKind::Enshwick, "you.lanterns"), (ModKind::Shroudlink, "chestsort"), (ModKind::Ember, "private-chests")] {
+            assert!(settings_entry(&p, kind, id).is_ok(), "{kind:?}");
+            // nothing Kiln edits: the note says why (Enshwick per world, Ember not running yet)
+            let s = engine_mods::settings(kind, id, None, std::path::Path::new("/none"), None).unwrap();
+            assert_eq!(s.format, "none");
+            assert!(s.note.is_some());
+        }
+        assert_eq!(settings_entry(&p, ModKind::Ember, "chestsort").unwrap_err().code, ErrorCode::NotFound);
+    }
+
+    #[test]
     fn copied_profile_settings_use_the_game_copy_that_activation_reads_back() {
         let d = kiln_manage::paths::DataDirs { root: PathBuf::from("/data") };
         let copies = [PathBuf::from("/game")];

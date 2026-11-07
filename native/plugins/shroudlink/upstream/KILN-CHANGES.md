@@ -24,6 +24,12 @@ Review corrections (all integration changes, marked `kiln:`; upstream runtime ca
 | `server/Cargo.toml`, `server/build.rs` | Compile the Kiln-only SEH bridge in `../../src/guard.c` using the already pinned `cc` build dependency. The workspace lock lists that dependency. |
 | `common/src/scan.rs`, `common/src/file_scan.rs` | Bound and validate the exe-file fallback's PE headers, architecture, executable `.text` identity, section table and raw data; reject empty patterns. The new parser and malformed/truncated-file tests can also run directly with `rustc --test` without Windows. |
 
+Launcher server sync (marked `kiln:`):
+
+| File | Change |
+|---|---|
+| `server/src/kiln.rs` | `roots` also takes the direct subfolders of `shroudlink_mods/` (`mod_folders`: not hidden, not an EML folder, no links), where the launcher's server sync puts each mod (`shroudlink_mods/<id>/`). Upstream's own core still reads only `shroudlink_mods/*.dll`. |
+
 The enclosing workspace enables `Win32_Storage_FileSystem` and `Win32_Security` for those checked handles.
 `../build.sh --test` also includes the common crate's tests. `../src/guard.c` and `../tests/nearby/` are Kiln's own
 integration code/tests outside the vendored crates.

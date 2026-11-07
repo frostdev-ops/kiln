@@ -26,7 +26,7 @@
     "clients": { "enum": ["none", "kiln", "mod"], "description": "What joining players need (manifest 'clients')." },
     "kind": {
       "enum": ["kiln", "native", "plugin", "emf", "eml", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"],
-      "description": "Library / profile mod kind: Kiln's own (kiln, native, plugin) or the engine whose Kiln plugin runs the mod (emf, eml, shroudforge, set, greeneye, flame, shroudtopia; enshwick, shroudlink and ember are reserved)."
+      "description": "Library / profile mod kind: Kiln's own (kiln, native, plugin) or the engine whose Kiln plugin runs the mod (emf, eml, shroudforge, set, greeneye, flame, shroudtopia, enshwick, shroudlink, ember; Ember's mods are held but don't run until Ember publishes its mod ABI)."
     },
     "gamePath": {
       "type": "string",

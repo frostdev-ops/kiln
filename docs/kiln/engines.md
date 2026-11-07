@@ -77,17 +77,18 @@ game folder, which already allows placing a DLL there); absolute, drive and `..`
 | `flame` | `flame.json`, or a DLL exporting `FlameStartRuntime` |
 | `shroudforge` | SF-specific `extended.mod.json` or a ShroudForge schema; other SF-compatible Lua packages without the EML entry point |
 | `eml` | `mod.json` + `src/mod.lua`; shared `capabilities` do not imply SF. An extension with `launcher: "EML"` remains EML |
-| `enshwick` | `pack.toml`, or a DLL exporting `enshwick_mod_abi` / `_query` / `_init` (the folder is the mod) |
+| `enshwick` | `pack.toml` (a data pack, or a Luau mod with `main.luau`; its `id`, `version` and `name` are read), or a DLL exporting `enshwick_mod_abi` / `_query` / `_init` (the folder is the mod) |
 | `set` | `init.lua` |
 | `greeneye` | a DLL exporting `GreeneyeModStart` (the folder is the mod) |
 | `shroudtopia` | `shroudtopia.json`, or a DLL exporting `CreateModInstance` |
+| `shroudlink` | a DLL exporting `shroudlink_mod_v2` or `shroudlink_mod_v1` (the folder is the mod). A folder that also holds EML data mods (`<sub>/mod.json` + `src/mod.lua`) is a folder of mods: each DLL and each EML mod on its own. A release's `shroudlink_mods/` folder with one mod is named after its DLL |
+| `ember` | a folder in `ember/mods/` holding a DLL that no other engine claims (Ember's mods have no manifest or known export yet, so the place names them; a lone DLL elsewhere stays Kiln's own bare-DLL rule) |
 | `proxy` | another engine's loader or a tool DLL (classification above) |
 | `save` | `*.ksd`, `characters`, a world save (`<8 hex>_info`, `-N` backups) |
 | `cheat-table` | `.ct`, `.cetrainer` |
 | `reshade` | a `.ini` with "reshade" in its name |
 | `data` | `.kfc` (patched game files) |
 | `asi` | `.asi` |
-| `shroudlink`, `ember` | reserved for their mod formats |
 
 A kind without a loader is skipped on import with its reason. It is never imported as a plain DLL.
 An unreadable/unknown `mod.json` or incomplete Lua package stays one skipped item: its helper DLLs are never
@@ -116,12 +117,22 @@ installs take the kind.
 Code: `crates/kiln-manage/src/engine_mods.rs`; formats: [launcher/contracts.md](launcher/contracts.md) 5.1 ("Other
 engines' mods") and 5.8.
 
-- **Library.** `engines::builtin_loaders` registers `engine_mods::import_engine_mod` for `eml`, `shroudforge`, `set`,
-  `greeneye`, `flame` and `shroudtopia`. The item goes to `library/<kind>/<id>/<version>+<hash8>/` with its kdh1,
-  like a Kiln mod. A lone Greeneye or Shroudtopia DLL gets the `mod.json` its loader needs, a lone Flame DLL a
-  `flame.json`. `side`/`clients` come from the mod's `mod.json` when it states them, else the kind's default (EML,
-  ShroudForge, Flame: `both`/`mod`, since both sides need the same data; Greeneye: `client`/`none`; others
-  `both`/`none`). `enshwick`, `shroudlink` and `ember` are reserved kinds: still skipped with their reason.
+- **Library.** `engines::builtin_loaders` registers `engine_mods::import_engine_mod` for every engine kind: `eml`,
+  `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink` and `ember`
+  (`engine_mods::IMPORTED`). The item goes to `library/<kind>/<id>/<version>+<hash8>/` with its kdh1, like a Kiln
+  mod. A lone Greeneye or Shroudtopia DLL gets the `mod.json` its loader needs, a lone Flame DLL a `flame.json`. A
+  lone Enshwick or shroudlink DLL is wrapped into a folder with nothing generated: their manifests are compiled into
+  the DLL. Each import checks what its plugin needs in the committed copy: an Enshwick `pack.toml` or mod DLL, a
+  shroudlink mod DLL, exactly one library in an Ember folder (kiln-ember refuses more). An Enshwick mod may not take
+  the id `enshwick` (the loader's own `mods/enshwick/`). Ember needs the folder: a lone DLL says nothing about Ember.
+  `side`/`clients` come from the mod's `mod.json` when it states them (Enshwick: also `pack.toml`'s `side`), else the
+  kind's default: EML, ShroudForge, Flame and Enshwick `both`/`mod`, since both sides need the same data (Enshwick's
+  join check refuses players without a `both` mod); Greeneye `client`/`none`; shroudlink and Ember `server`/`none`
+  always (server frameworks: players never need their mods); others `both`/`none`.
+  **Ember's mods don't run yet.** Ember has published no mod ABI, so kiln-ember only finds and reports them
+  ([engines/ember.md](engines/ember.md)). The Library, profiles and server sync hold them like any kind so they are in
+  place when Ember ships; `engine_mods::runs_yet` is false for `ember`, and the launcher says so on the Library,
+  the profile's Engines tab and the Deck.
   Folder and archive imports refuse symlinks, including hidden links and Windows reparse points: Wine's plugins
   cannot read file symlinks. The same bounded import rules apply as for Kiln mods (512 MiB per file, 1 GiB total,
   10,000 entries, 32 levels; ZIP64 refused). Explicit invalid ids are refused rather than renamed away from the
@@ -137,15 +148,19 @@ engines' mods") and 5.8.
   enabled switch and setting values may change). A marker alone never grants deletion or replacement rights;
   older marker-only copies and folders changed by the player are left alone. Replacement is staged beside the
   destination and rolls the previous copy back if placement fails. Activation is refused while the game runs.
+  Enshwick's loader also reads only `<game>/mods/`, but kiln-enshwick copies the profile's enabled entries there
+  itself (with its own receipts in `kiln/data/enshwick-managed.json`), so its list names the library folder like
+  the other kinds; kiln-shroudlink and kiln-ember read the library folder in place.
 - **Settings.** `engine_mods::settings` / `set_setting`. ShroudForge: the settings in `extended.mod.json` (the copy in
   ShroudForge's mods folder), as a JSON Schema with Kiln's `x-kiln-*` hints. Shroudtopia: `mods.<key>` in
   `<configDir>/shroudtopia/shroudtopia.json`, with the types taken from the values. EMF keeps its ini editor. EML,
-  SET, Greeneye and Flame mods declare no settings. Settings calls require a valid mod id listed in the requested
+  SET, Greeneye, Flame, shroudlink and Ember mods declare no settings Kiln edits; Enshwick keeps each mod's settings
+  per world (`<save>-mod-settings/<id>/settings.toml`), edited in the game's Mods screen or with `enshwick config`. Settings calls require a valid mod id listed in the requested
   profile. ShroudForge writes require that profile active in the selected game and a Kiln-owned placed copy.
   Engine settings writes are refused while a game reading these files runs. Active copy-mode Shroudtopia profiles
   edit the game-side config copy, so activation's copy-back preserves the change. Without a matching selected game,
   a unique active copy is used; multiple active copies require selecting which game to edit.
-- **Status.** `engine_mods::status`: `kiln/state/{emf,eml,shroudforge,greeneye,flame,shroudtopia,set}.json`; missing files
+- **Status.** `engine_mods::status`: `kiln/state/{emf,eml,shroudforge,greeneye,flame,shroudtopia,set,enshwick,shroudlink,ember}.json`; missing files
   mean the plugin has not run yet, while unreadable, invalid or symlinked files report an error.
 - **Restore vanilla game data.** `engine_mods::eml_backup` / `eml_restore_vanilla`: copies `<exe>.kfc.bak` over a
   patched `<exe>.kfc`, which is what kiln-eml does itself when no EML mod is left. Inspection reports read failures;
@@ -160,14 +175,18 @@ engines' mods") and 5.8.
   | `shroudforge` | ShroudForge's mods folder |
   | `set` | `shrouded_engine_tweaks/mods` |
   | `greeneye` | `greeneye` |
-  | `flame`, `shroudtopia` | `mods` |
+  | `flame`, `shroudtopia`, `enshwick` | `mods` (Enshwick's loader folder `mods/enshwick/` is never a mod) |
+  | `shroudlink` | `shroudlink_mods` (one folder per mod, `shroudlink_mods/<id>/`; kiln-shroudlink reads the DLLs in its direct subfolders too) |
+  | `ember` | `ember/mods` |
 
   Each copy carries the `.kiln-source.json` marker plus a receipt and payload inventory in
   `kiln/state/server-library.json`. A marker alone never permits replacement or removal; older marker-only copies
   and copies with player additions are left alone. Engine sync and switching are refused while the server runs.
   Engines have no common off switch, so a switched-off engine mod moves reversibly to
-  `kiln/disabled/<kind>/<id>`. ShroudForge updates preserve player setting values. Modpacks (`modpack::client_mods`, `build`) carry the engine mods whose
-  `clients` is `mod`, as `<kind>/<id>/` with their kdh1. Kiln.Network adds the same mods to the advertised
+  `kiln/disabled/<kind>/<id>` (for Enshwick that is its own off rule: the folder leaves `mods/`). ShroudForge
+  updates preserve player setting values. Modpacks (`modpack::client_mods`, `build`) carry the engine mods whose
+  `clients` is `mod`, as `<kind>/<id>/` with their kdh1: Enshwick's `both` mods among the new kinds, never shroudlink
+  or Ember mods. Kiln.Network adds the same mods to the advertised
   `required[]`, each with its `kind` (`AdvertiseEngines.cs`), so a joining player's launcher learns what the server
   runs. The HELLO check still covers Kiln mods only: clients don't announce other engines' mods.
 - **Licences.** The launcher (MIT) only copies files. It never links or runs EML's GPL code or any other engine's code.

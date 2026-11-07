@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import * as api from "../api/commands";
 import type { Detected, ImportReport, LibraryEntry, ModKind } from "../api/commands";
 import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
-import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, isEngineKind } from "../api/kinds";
+import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, isEngineKind, runsYet } from "../api/kinds";
 import { useAddMods } from "../shell/drop";
 import {
   Badge, Button, ConfirmDanger, DropZone, EmptyState, Menu, Modal, NameId, Page, PageHeader, Segmented, Select, Skeleton, SplitPage, Table, WellInput,
@@ -79,8 +79,13 @@ export default function LibraryPage() {
 
   const cols: Column<LibraryEntry>[] = [
     { key: "name", header: "Mod", sort: (a, b) => a.name.localeCompare(b.name), render: (e) => <NameId name={e.name} id={e.id} /> },
-    { key: "kind", header: "Kind", width: engineKinds.length ? "96px" : "56px", sort: (a, b) => a.kind.localeCompare(b.kind),
-      render: (e) => <Badge tone={KIND_TONE[e.kind]} title={isEngineKind(e.kind) && e.kind !== "emf" ? `${KIND_NAME[e.kind]} mod, run by Kiln` : undefined}>{KIND_SHORT[e.kind]}</Badge> },
+    { key: "kind", header: "Kind", width: engineKinds.some((k) => !runsYet(k)) ? "150px" : engineKinds.length ? "96px" : "56px", sort: (a, b) => a.kind.localeCompare(b.kind),
+      render: (e) => (
+        <span className="k-row" style={{ gap: 4 }} data-not-running={runsYet(e.kind) ? undefined : true}>
+          <Badge tone={KIND_TONE[e.kind]} title={!runsYet(e.kind) ? NOT_RUNNING_NOTE[e.kind] : isEngineKind(e.kind) && e.kind !== "emf" ? `${KIND_NAME[e.kind]} mod, run by Kiln` : undefined}>{KIND_SHORT[e.kind]}</Badge>
+          {!runsYet(e.kind) && <Badge tone="warn" title={NOT_RUNNING_NOTE[e.kind]}>not yet</Badge>}
+        </span>
+      ) },
     { key: "ver", header: "Version", width: "150px", render: (e) => {
       const v = e.versions[0];
       return v ? (

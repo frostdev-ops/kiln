@@ -279,6 +279,11 @@ pub fn mod_reason(engine: Engine, what: &str) -> String {
     let n = engine.name();
     let a = if n.starts_with(['A', 'E', 'I', 'O', 'U']) { "an" } else { "a" };
     match loader_for(engine_kind(engine)) {
+        // Ember has published no mod ABI: the Library holds its mods, kiln-ember finds and reports them, none runs yet
+        Some(loader) if engine == Engine::Ember => format!(
+            "{what}: {a} {n} mod (Library importer: {}). It doesn't run yet: Ember has not published its mod ABI, so kiln-ember only finds and reports it",
+            loader.name
+        ),
         Some(loader) => format!("{what}: {a} {n} mod (Library importer: {})", loader.name),
         None => format!("{what}: {a} {n} mod. Kiln can't import {n} mods into the Library yet; no importer is registered"),
     }
@@ -383,6 +388,107 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     crate::jsonc::parse(&crate::manifest::read_text(path).ok()?).ok()
 }
 
+/// The top-level `key = "string"` pairs of a TOML file (Enshwick's `pack.toml`: `id`, `version`, `name`, `side`), as a
+/// JSON object. Tables, arrays, multi-line strings and non-string values are skipped; the default build has no TOML
+/// parser, and these few keys are all the launcher reads.
+pub fn toml_strings(text: &str) -> serde_json::Map<String, serde_json::Value> {
+    fn string(v: &str) -> Option<(String, &str)> {
+        let mut out = String::new();
+        if let Some(rest) = v.strip_prefix('\'') {
+            let end = rest.find('\'')?;
+            return Some((rest[..end].to_string(), &rest[end + 1..]));
+        }
+        let mut chars = v.strip_prefix('"')?.char_indices();
+        while let Some((i, c)) = chars.next() {
+            match c {
+                '"' => return Some((out, &v[i + 2..])),
+                '\\' => match chars.next()?.1 {
+                    'n' => out.push('\n'),
+                    't' => out.push('\t'),
+                    'r' => out.push('\r'),
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    'u' => {
+                        let hex: String = (0..4).filter_map(|_| chars.next().map(|x| x.1)).collect();
+                        out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                    }
+                    _ => return None,
+                },
+                c => out.push(c),
+            }
+        }
+        None
+    }
+    let mut map = serde_json::Map::new();
+    let mut skip_until: Option<&str> = None;
+    let mut depth = 0i32;
+    for line in text.trim_start_matches('\u{feff}').lines() {
+        let line = line.trim();
+        if let Some(end) = skip_until {
+            if line.contains(end) { skip_until = None; }
+            continue;
+        }
+        if depth > 0 {
+            depth += line.matches('[').count() as i32 - line.matches(']').count() as i32;
+            continue;
+        }
+        if line.starts_with('[') { break; } // the first table ends the top level
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let key = key.trim().trim_matches('"');
+        let value = value.trim();
+        if value.starts_with("\"\"\"") || value.starts_with("'''") {
+            let delim = &value[..3];
+            if !value[3..].contains(delim) { skip_until = Some(if delim == "'''" { "'''" } else { "\"\"\"" }); }
+            continue;
+        }
+        if value.starts_with('[') {
+            depth = value.matches('[').count() as i32 - value.matches(']').count() as i32;
+            continue;
+        }
+        if key.is_empty() || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') { continue; }
+        if let Some((v, rest)) = string(value) {
+            let rest = rest.trim();
+            if rest.is_empty() || rest.starts_with('#') {
+                map.entry(key.to_string()).or_insert(serde_json::Value::String(v));
+            }
+        }
+    }
+    map
+}
+
+/// `pack.toml`'s top-level strings (Enshwick data packs and Luau mods), as JSON.
+pub fn pack_toml(dir: &Path) -> Option<serde_json::Value> {
+    let text = crate::manifest::read_text(&dir.join("pack.toml")).ok()?;
+    Some(serde_json::Value::Object(toml_strings(&text)))
+}
+
+/// A folder in Ember's mods folder, `.../ember/mods/<mod>/` (Ember's mods carry no manifest or known export yet, so the
+/// place is what identifies them).
+fn in_ember_mods(dir: &Path) -> bool {
+    let name = |p: Option<&Path>| p.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_ascii_lowercase());
+    let parent = dir.parent();
+    name(parent).as_deref() == Some("mods") && name(parent.and_then(Path::parent)).as_deref() == Some("ember")
+}
+
+/// The one library of an Ember mod folder (Ember: "each mod is one directory holding one library"); None when the
+/// folder holds none, several, or another engine's mod DLL.
+pub fn ember_library(dir: &Path) -> Option<PathBuf> {
+    let dlls = dlls_in(dir);
+    let [dll] = dlls.as_slice() else { return None };
+    // another engine's mod DLL is that engine's
+    let bytes = std::fs::read(dll).ok()?;
+    let exports = crate::pe::parse(&bytes).map(|i| i.exports).unwrap_or_default();
+    if !crate::pe::is_pe64_dll(&bytes) || detect_dll(dll, &bytes, &exports).is_some() { return None; }
+    Some(dll.clone())
+}
+
+/// A folder of mods holding EML data mods (`<sub>/mod.json` + `<sub>/src/mod.lua`) next to shroudlink DLLs: shroudlink
+/// hands those to kiln-eml, so the Library takes them as EML mods and each DLL on its own.
+fn has_eml_subfolder(dir: &Path) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
+        .any(|p| p.is_dir() && p.join("mod.json").is_file() && p.join("src").join("mod.lua").is_file())
+}
+
 fn folder_detected(kind: DetectKind, engine: Engine, dir: &Path, manifest: Option<&serde_json::Value>, what: &str) -> Detected {
     let s = |k: &str| manifest.and_then(|m| m.get(k)).and_then(|v| v.as_str()).map(str::to_string);
     let mut d = detected(kind, Some(engine), dir, String::new());
@@ -432,7 +538,10 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
         return Some(folder_detected(kind, engine, dir, m.as_ref(), what));
     }
     if has("pack.toml") {
-        return Some(folder_detected(DetectKind::Enshwick, Engine::Enshwick, dir, None, "this Enshwick pack"));
+        // a data pack, or a Luau mod (pack.toml + main.luau): its id, version and name are pack.toml's
+        let m = pack_toml(dir);
+        let what = if has("main.luau") { "this Enshwick Luau mod" } else { "this Enshwick pack" };
+        return Some(folder_detected(DetectKind::Enshwick, Engine::Enshwick, dir, m.as_ref(), what));
     }
     if has("init.lua") && !has("native.json") {
         let m = read_json(&dir.join("mod.json"));
@@ -449,9 +558,25 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
             && d.kind != DetectKind::Proxy
             && let Some(engine) = d.engine
         {
+            if engine == Engine::Shroudlink && has_eml_subfolder(dir) {
+                return None; // a folder of mods: each DLL and each EML folder on its own
+            }
             let m = read_json(&dir.join("mod.json"));
-            return Some(folder_detected(d.kind, engine, dir, m.as_ref(), &format!("this {} mod", engine.name())));
+            let mut found = folder_detected(d.kind, engine, dir, m.as_ref(), &format!("this {} mod", engine.name()));
+            // a release zip's shroudlink_mods/ folder holding one mod: the mod is named after its DLL
+            if engine == Engine::Shroudlink && m.is_none()
+                && dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS))
+            {
+                found.id = d.id;
+                found.name = d.name;
+            }
+            return Some(found);
         }
+    }
+    // (no DLL here is another engine's mod: the loop above returned for those). Ember's importer refuses a folder with
+    // more than one library, as kiln-ember does, rather than taking its DLLs as plain mods.
+    if in_ember_mods(dir) && !dlls_in(dir).is_empty() {
+        return Some(folder_detected(DetectKind::Ember, Engine::Ember, dir, None, "this Ember mod"));
     }
     None
 }
@@ -535,7 +660,7 @@ fn registry() -> &'static RwLock<HashMap<DetectKind, Loader>> {
 
 /// Loaders built into kiln-manage. Support for an engine's mods adds one line here:
 /// `m.insert(DetectKind::Greeneye, crate::greeneye::LOADER);`
-/// EML, ShroudForge, SET, Greeneye, Flame and Shroudtopia: `engine_mods::import_engine_mod` (content-addressed copy).
+/// Every engine mod kind (EML ... Ember): `engine_mods::import_engine_mod` (content-addressed copy).
 fn builtin_loaders(m: &mut HashMap<DetectKind, Loader>) {
     crate::engine_mods::builtin_loaders(m);
 }
@@ -622,11 +747,27 @@ mod tests {
         fn noop(_: &mut ImportCtx) -> Result<()> {
             Ok(())
         }
-        // the reserved kinds have no built-in loader; the ones Kiln runs do (engine_mods)
-        assert_eq!(loader_for(DetectKind::Shroudtopia).map(|l| l.name), Some("kiln-shroudtopia"));
-        assert!(loader_for(DetectKind::Shroudlink).is_none());
-        assert!(register_loader(DetectKind::Shroudlink, Loader { name: "test", import: noop }).is_none());
-        assert_eq!(loader_for(DetectKind::Shroudlink).map(|l| l.name), Some("test"));
-        registry().write().unwrap().remove(&DetectKind::Shroudlink);
+        // every engine mod kind has a built-in loader (engine_mods); files that are no mods have none
+        for (kind, name) in [(DetectKind::Shroudtopia, "kiln-shroudtopia"), (DetectKind::Enshwick, "kiln-enshwick"),
+                             (DetectKind::Shroudlink, "kiln-shroudlink"), (DetectKind::Ember, "kiln-ember")] {
+            assert_eq!(loader_for(kind).map(|l| l.name), Some(name));
+        }
+        assert!(loader_for(DetectKind::Asi).is_none());
+        assert!(register_loader(DetectKind::Asi, Loader { name: "test", import: noop }).is_none());
+        assert_eq!(loader_for(DetectKind::Asi).map(|l| l.name), Some("test"));
+        registry().write().unwrap().remove(&DetectKind::Asi);
+    }
+
+    #[test]
+    fn toml_strings_reads_the_top_level_only() {
+        let m = toml_strings("\u{feff}# a pack\nid = \"you.lanterns\" # the id\nversion = '1.0.0'\nname = \"L\\u00e4nterns \\\"x\\\"\"\n\
+            description = \"\"\"\nid = \"not.this\"\n\"\"\"\nauthors = [\n  \"side = x\",\n]\nn = 3\nside = \"server\"\n\
+            [requires]\nversion = \"9.9.9\"\n");
+        assert_eq!(m.get("id").and_then(|v| v.as_str()), Some("you.lanterns"));
+        assert_eq!(m.get("version").and_then(|v| v.as_str()), Some("1.0.0"));
+        assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("L\u{e4}nterns \"x\""));
+        assert_eq!(m.get("side").and_then(|v| v.as_str()), Some("server"));
+        assert!(m.get("n").is_none() && m.get("description").is_none() && m.get("authors").is_none());
+        assert!(toml_strings("{}").is_empty() && toml_strings("id = \"open").is_empty());
     }
 }

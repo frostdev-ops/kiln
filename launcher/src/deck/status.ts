@@ -39,7 +39,7 @@ export function bootLine(st: BootState | null | undefined): BootLine {
 export const KIND_WORD: Record<ModKind | DetectKind, string> = {
   kiln: "Kiln mod", native: "Native mod", plugin: "Plugin", emf: "EMF mod", modpack: "Modpack", runtime: "Kiln runtime", "bare-dll": "DLL mod", unknown: "Mods",
   eml: "EML mod", shroudforge: "ShroudForge mod", set: "SET mod", enshwick: "Enshwick mod", greeneye: "Greeneye mod",
-  shroudtopia: "Shroudtopia mod", flame: "Flame mod", shroudlink: "shroudlink mod", ember: "Ember mod", proxy: "Loader",
+  shroudtopia: "Shroudtopia mod", flame: "Flame mod", shroudlink: "shroudlink mod", ember: "Ember mod (doesn't run yet)", proxy: "Loader",
   data: "Game data", save: "Save file", reshade: "ReShade preset", "cheat-table": "Cheat table", asi: "ASI plugin",
 };
 

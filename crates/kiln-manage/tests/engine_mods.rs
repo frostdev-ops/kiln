@@ -300,7 +300,8 @@ fn shroudlink_mod_dlls_are_detected_by_their_export() {
     put(&t.0, "chestsort/chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
     let d = library::detect(&t.0.join("chestsort/chestsort.dll")).unwrap();
     assert_eq!((d.kind, d.engine), (library::DetectKind::Shroudlink, Some(kiln_manage::engines::Engine::Shroudlink)));
-    assert!(!d.kind.importable(), "reserved: no importer yet");
+    assert!(d.kind.importable(), "kiln-shroudlink's importer: {}", d.reason);
+    assert!(d.reason.contains("Library importer: kiln-shroudlink"), "{}", d.reason);
 }
 
 #[test]

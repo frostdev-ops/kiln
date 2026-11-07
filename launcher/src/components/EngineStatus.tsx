@@ -12,29 +12,36 @@ type Obj = Record<string, Json>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: Json | undefined): string | null => (typeof v === "string" && v ? v : typeof v === "number" ? String(v) : null);
 
-/** The state word of a plugin's state file: EML `phase`, ShroudForge `mode`, else `state`/`status`. */
+/** The state word of a plugin's state file: EML `phase`, ShroudForge `mode`, else `state`/`status`; shroudlink and Ember
+ *  say `steppedAside`/`started`, and Ember's `abi: null` means it is waiting for Ember to publish its mod ABI. */
 export function headline(state: Json | null): string | null {
   if (!isObj(state)) return null;
-  return str(state.phase) ?? str(state.mode) ?? str(state.state) ?? str(state.status);
+  const word = str(state.phase) ?? str(state.mode) ?? str(state.state) ?? str(state.status);
+  if (word) return word;
+  if (state.steppedAside === true) return "stepped aside";
+  if ("abi" in state && state.abi === null) return "waiting for Ember's ABI";
+  if (typeof state.started === "boolean") return state.started ? "running" : "idle";
+  return null;
 }
 
 const toneOf = (word: string | null): Tone => {
   if (!word) return "idle";
   if (/fail|error|refus/i.test(word)) return "err";
-  if (/aside|off|not-installed|skip|disabled|idle/i.test(word)) return "idle";
+  if (/aside|off|not-installed|skip|disabled|idle|waiting/i.test(word)) return "idle";
   if (/done|hosted|loaded|running|active|started|ok/i.test(word)) return "ok";
   return "info";
 };
 
 export interface ModLine { id: string; state: string | null; reason: string | null }
 
-/** The `mods` list of a state file, each as {id, state, reason} (EML: id/state/reason; Greeneye: status; Shroudtopia: name). */
+/** The `mods` list of a state file, each as {id, state, reason} (EML: id/state/reason; Greeneye: status; Shroudtopia: name;
+ *  Enshwick: folder/action/note). */
 export function modLines(state: Json | null): ModLine[] {
   if (!isObj(state) || !Array.isArray(state.mods)) return [];
   return state.mods.filter(isObj).map((m) => ({
-    id: str(m.id) ?? str(m.name) ?? "?",
-    state: str(m.state) ?? str(m.status) ?? (typeof m.active === "boolean" ? (m.active ? "active" : "off") : null),
-    reason: str(m.reason) ?? str(m.detail) ?? str(m.error),
+    id: str(m.id) ?? str(m.name) ?? str(m.folder) ?? "?",
+    state: str(m.state) ?? str(m.status) ?? str(m.action) ?? (typeof m.active === "boolean" ? (m.active ? "active" : "off") : null),
+    reason: str(m.reason) ?? str(m.detail) ?? str(m.error) ?? str(m.note),
   }));
 }
 

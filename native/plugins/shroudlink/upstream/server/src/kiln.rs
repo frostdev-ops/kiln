@@ -356,16 +356,32 @@ pub fn eml_mods(roots: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-/// The roots shroudlink's loader reads, in order: enabled profile entries, then `<game>/shroudlink_mods`.
+/// The roots shroudlink's loader reads, in order: enabled profile entries, then `<game>/shroudlink_mods` and its direct
+/// subfolders (kiln: the launcher's server sync puts each mod in a folder of its own, `shroudlink_mods/<id>/`).
 pub fn roots(plan: &Plan, game: &Path) -> Vec<PathBuf> {
     if !plan.load {
         return Vec::new();
     }
     let mut roots: Vec<PathBuf> = plan.listed.iter().filter(|e| e.enabled).map(|e| e.path.clone()).collect();
     if plan.read_folder {
-        roots.push(game.join(plugins::DIR));
+        let dir = game.join(plugins::DIR);
+        roots.push(dir.clone());
+        roots.extend(mod_folders(&dir));
     }
     roots
+}
+
+/// kiln: the direct subfolders of `shroudlink_mods/` that can hold mod DLLs: not hidden (staging, `.loaded`), not an
+/// EML data mod (eml_mods finds those below the folder root), not a link, sorted.
+pub fn mod_folders(dir: &Path) -> Vec<PathBuf> {
+    let Some(_guard) = CheckedPath::open(dir, dir, false) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut subs: Vec<PathBuf> = entries.flatten().map(|e| e.path())
+        .filter(|p| p.is_dir() && !p.file_name().and_then(|n| n.to_str()).map_or(true, |n| n.starts_with('.')))
+        .filter(|p| CheckedPath::open(dir, p, false).is_some() && !is_eml_mod(p))
+        .collect();
+    subs.sort();
+    subs
 }
 
 /// Mod DLLs below the roots (a root DLL, or the DLLs directly in a root folder), as the loader will see them.
@@ -826,9 +842,20 @@ mod tests {
         std::fs::write(&single, b"").unwrap();
         let roots = vec![single.clone(), mods.clone()];
         let dlls = mod_dlls(&roots);
-        assert_eq!(dlls, vec![single, mods.join("a.DLL"), mods.join("b.dll")]);
+        assert_eq!(dlls, vec![single.clone(), mods.join("a.DLL"), mods.join("b.dll")]);
         assert_eq!(eml_mods(&roots), vec![mods.join("stacks")]);
         assert_eq!(eml_mods(&[mods.join("stacks")]), vec![mods.join("stacks")]);
+        // the launcher's synced folders (shroudlink_mods/<id>/) are roots too; hidden and EML folders are not
+        std::fs::create_dir_all(mods.join("meter")).unwrap();
+        std::fs::write(mods.join("meter").join("meter.dll"), b"").unwrap();
+        std::fs::create_dir_all(mods.join(".kiln-sync-1").join("new")).unwrap();
+        std::fs::write(mods.join(".kiln-sync-1").join("new").join("x.dll"), b"").unwrap();
+        assert_eq!(mod_folders(&mods), vec![mods.join("meter")]);
+        let plan = plan_from(None, "", "", &kiln());
+        let r = super::roots(&plan, &base);
+        assert_eq!(r, vec![mods.clone(), mods.join("meter")]);
+        assert_eq!(mod_dlls(&r), vec![mods.join("a.DLL"), mods.join("b.dll"), mods.join("meter").join("meter.dll")]);
+        assert_eq!(eml_mods(&r), vec![mods.join("stacks")], "an EML folder is handed over once");
         let _ = std::fs::remove_dir_all(&base);
     }
 }

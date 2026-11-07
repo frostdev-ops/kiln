@@ -126,7 +126,9 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   greeneye: [{ id: "zoom-out", name: "Zoom Out", version: "0.2.0", side: "client", clients: "none" }],
   flame: [{ id: "creative-build", name: "Creative Build", version: "3.1.0", side: "both", clients: "mod" }],
   shroudtopia: [{ id: "fly-mode", name: "Fly Mode", version: "1.0.3", side: "both", clients: "none" }],
-  enshwick: [], shroudlink: [], ember: [],
+  enshwick: [{ id: "you.lanterns", name: "Lanterns", version: "1.0.0", side: "both", clients: "mod" }],
+  shroudlink: [{ id: "chestsort", name: "chestsort.dll", version: "0.0.0", side: "server", clients: "none" }],
+  ember: [{ id: "private-chests", name: "private-chests", version: "0.0.0", side: "server", clients: "none" }],
 };
 
 const library: LibraryEntry[] = FRESH ? [] : MOD_KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
@@ -294,6 +296,8 @@ function engineSettings(kind: ModKind, id: string, pid: string) {
     return { kind, id, format: "shroudtopia.json", file: `/home/player/.local/share/kiln/profiles/${pid}/config/shroudtopia/shroudtopia.json`, schema: schemaFromValues(values), values: clone(values), note: null };
   }
   if (kind === "emf") return none("EMF settings: use the EMF ini editor");
+  if (kind === "enshwick") return none("Enshwick keeps each mod's settings per world (<save>-mod-settings/<id>/settings.toml): use the game's Mods screen or `enshwick config` on the server");
+  if (kind === "ember") return none("Ember mods don't run yet: Ember has not published its mod ABI");
   return none("this engine's mods declare no settings");
 }
 
@@ -813,6 +817,10 @@ const handlers: Record<string, Handler> = {
       st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
       st("flame", "flame.json", null),
       st("shroudtopia", "shroudtopia.json", { mods: [{ name: "Fly Mode", status: "active", updates: 120 }], refused: [] }),
+      st("enshwick", "enshwick.json", { status: "running", mods: [{ folder: "you.lanterns", form: "pack", origin: "profile", action: "copy", note: "" }] }),
+      st("shroudlink", "shroudlink.json", null),
+      st("ember", "ember.json", { abi: null, steppedAside: false, mods: [{ id: "private-chests", status: "waiting-for-abi",
+        reason: "not loaded: Ember has not published its mod ABI yet" }] }),
     ];
   },
   eml_backup: (a) => {
@@ -1102,7 +1110,11 @@ function importPaths(paths: string[]): ImportReport {
     const m: MockManifest = seed ? { ...seed, version } : { id: d.id, name: d.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), version, side: "both", phase: kind === "native" ? "early" : undefined };
     const fresh = entryFor(kind, m, now(), p);
     if (ex) ex.versions.unshift(fresh.versions[0]);
-    else library.push(fresh);
+    else {
+      // library::list's order: kind (ModKind::ALL), then id; a new Kiln mod lands among the Kiln mods, not at the end
+      const at = library.findIndex((l) => MOD_KINDS.indexOf(l.kind) > MOD_KINDS.indexOf(kind) || (l.kind === kind && l.id > fresh.id));
+      library.splice(at < 0 ? library.length : at, 0, fresh);
+    }
     report.imported.push(ref);
   }
   return report;

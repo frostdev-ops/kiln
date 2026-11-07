@@ -43,9 +43,9 @@
         "greeneye": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Greeneye Loader mods (mod.json + DLL), read by kiln-greeneye." },
         "flame": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Flame mods (flame.json), read by kiln-flame." },
         "shroudtopia": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Shroudtopia mods (a folder with the mod DLL), read by kiln-shroudtopia." },
-        "enshwick": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Enshwick mods." },
-        "shroudlink": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for shroudlink mods." },
-        "ember": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Ember server SDK mods." }
+        "enshwick": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Enshwick mods (a DLL exporting enshwick_mod_*, or a pack.toml data pack / Luau mod). kiln-enshwick copies each enabled entry into <game>/mods/<id>/ (the only folder Enshwick's loader reads) and starts Enshwick's own loader. path: the library folder." },
+        "shroudlink": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "shroudlink server mod DLLs, read by kiln-shroudlink (shroudlink's own server core). path: the library folder of mod DLLs, or one mod DLL." },
+        "ember": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Ember server SDK mods (a folder with one library), found and reported by kiln-ember. They don't run yet: Ember has published no mod ABI. path: the mod folder or its library." }
       },
       "additionalProperties": false,
       "description": "One list per mod kind. kiln-core counts kiln, native, plugin and emf (kiln.profile count/get); each engine plugin reads its own list from the profile's text (kiln.profile json()). Kilns older than these lists warn about and ignore an engine list; they never make the profile invalid."

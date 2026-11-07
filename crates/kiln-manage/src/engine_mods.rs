@@ -1,8 +1,12 @@
 //! Mods made for other engines, managed like Kiln mods (docs/kiln/engines.md "Managing every engine's mods"):
 //!
-//! - [`builtin_loaders`]: the Library importers of the engine kinds Kiln runs (EML, ShroudForge, SET, Greeneye, Flame,
-//!   Shroudtopia). Each copies the mod into a content-addressed library folder (`library::commit_folder`). The
-//!   launcher only moves files: no engine code (EML's GPL crates included) is linked or run here.
+//! - [`builtin_loaders`]: the Library importers of every engine kind (EML, ShroudForge, SET, Greeneye, Flame,
+//!   Shroudtopia, Enshwick, shroudlink, Ember). Each copies the mod into a content-addressed library folder
+//!   (`library::commit_folder`). The launcher only moves files: no engine code (EML's GPL crates included) is linked or
+//!   run here. Ember's mods are held and synced like the others but don't run yet: Ember has published no mod ABI, so
+//!   kiln-ember only finds and reports them (docs/kiln/engines/ember.md).
+//! - Enshwick's plugin copies a profile's Enshwick mods into `<game>/mods/<id>/` itself (with its own receipts), so the
+//!   profile names the library folder; shroudlink and Ember read the library folder in place.
 //! - [`place`]: ShroudForge and SET read their mods only from their own folder in the game. Profile activation copies
 //!   the profile's mods of those kinds there (a `.kiln-library.json` marker says the copy is Kiln's), keeps copies
 //!   that are current, and never touches folders the player put there.
@@ -26,9 +30,21 @@ pub const MARKER: &str = ".kiln-library.json";
 /// SET's mods folder, relative to the game.
 pub const SET_MODS: &str = "shrouded_engine_tweaks/mods";
 
-/// The kinds with a Library importer (the reserved enshwick, shroudlink and ember have none yet).
-pub const IMPORTED: [ModKind; 6] =
-    [ModKind::Eml, ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame, ModKind::Shroudtopia];
+/// shroudlink's mods folder, relative to the game (its DLLs directly, and Kiln's synced folders one level down).
+pub const SHROUDLINK_MODS: &str = "shroudlink_mods";
+/// Ember's mods folder, relative to the server: `ember/mods/<mod>/`, one library each.
+pub const EMBER_MODS: &str = "ember/mods";
+/// Enshwick's loader keeps its own files in `<game>/mods/enshwick/`: no mod may take that folder name.
+pub const ENSHWICK_LOADER_FOLDER: &str = "enshwick";
+
+/// The kinds with a Library importer: every engine kind (EMF's mods are Kiln's own `emf` kind).
+pub const IMPORTED: [ModKind; 9] = [ModKind::Eml, ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame,
+    ModKind::Shroudtopia, ModKind::Enshwick, ModKind::Shroudlink, ModKind::Ember];
+
+/// Kinds whose mods Kiln holds but cannot run yet (Ember: no published mod ABI). The launcher says so.
+pub fn runs_yet(kind: ModKind) -> bool {
+    kind != ModKind::Ember
+}
 
 /// The plugin that runs a kind ("kiln-eml"), for logs and the launcher.
 pub fn plugin_of(kind: ModKind) -> Option<&'static str> {
@@ -40,6 +56,9 @@ pub fn plugin_of(kind: ModKind) -> Option<&'static str> {
         ModKind::Greeneye => "kiln-greeneye",
         ModKind::Flame => "kiln-flame",
         ModKind::Shroudtopia => "kiln-shroudtopia",
+        ModKind::Enshwick => "kiln-enshwick",
+        ModKind::Shroudlink => "kiln-shroudlink",
+        ModKind::Ember => "kiln-ember",
         _ => return None,
     })
 }
@@ -56,9 +75,12 @@ pub fn builtin_loaders(m: &mut HashMap<DetectKind, Loader>) {
 /// Where a kind's mod runs and what joining players need, when its files don't say (`side`/`clients` in mod.json win).
 pub fn default_side(kind: ModKind) -> (Side, Clients) {
     match kind {
-        // data patches and new content: both sides must have the same data
-        ModKind::Eml | ModKind::ShroudForge | ModKind::Flame => (Side::Both, Clients::Mod),
+        // data patches and new content: both sides must have the same data. Enshwick: a mod's side is "both" unless it
+        // says "server" (pack.toml; a DLL's is compiled in), and its join check refuses players without a "both" mod.
+        ModKind::Eml | ModKind::ShroudForge | ModKind::Flame | ModKind::Enshwick => (Side::Both, Clients::Mod),
         ModKind::Greeneye => (Side::Client, Clients::None),
+        // server frameworks: shroudlink's mods run in its server core (players use its client addon), Ember is for
+        // dedicated servers only
         ModKind::Shroudlink | ModKind::Ember => (Side::Server, Clients::None),
         _ => (Side::Both, Clients::None),
     }
@@ -68,13 +90,26 @@ fn read_json(p: &Path) -> Option<serde_json::Value> {
     crate::jsonc::parse(crate::manifest::read_text(p).ok()?.trim_start_matches('\u{feff}')).ok()
 }
 
-/// The manifest an engine's mod folder has (mod.json, flame.json, shroudtopia.json), as JSON.
+/// The manifest an engine's mod folder has (mod.json, flame.json, shroudtopia.json, Enshwick's pack.toml), as JSON.
 pub fn manifest_json(folder: &Path) -> Option<serde_json::Value> {
     ["mod.json", "flame.json", "shroudtopia.json"].iter().find_map(|f| read_json(&folder.join(f)))
+        .or_else(|| crate::engines::pack_toml(folder))
 }
 
 fn side_of(kind: ModKind, folder: &Path) -> (Side, Clients) {
     let (mut side, mut clients) = default_side(kind);
+    if matches!(kind, ModKind::Shroudlink | ModKind::Ember) {
+        return (side, clients); // server-only engines: joining players never need their mods
+    }
+    if kind == ModKind::Enshwick
+        && let Some(m) = crate::engines::pack_toml(folder)
+    {
+        match m.get("side").and_then(|s| s.as_str()) {
+            Some("server") => (side, clients) = (Side::Server, Clients::None),
+            Some("both") => (side, clients) = (Side::Both, Clients::Mod),
+            _ => {}
+        }
+    }
     if kind == ModKind::ShroudForge
         && let Ok(m) = crate::shroudforge::read_mod(folder)
     {
@@ -115,6 +150,8 @@ fn write_dll_manifest(kind: ModKind, folder: &Path, id: &str, version: &str, fil
         // kiln-shroudtopia's folder scan (servers, drop-ins) takes folders with a mod.json.
         ModKind::Shroudtopia => Some(("mod.json", serde_json::json!({ "id": id, "name": file, "version": version,
             "description": format!("Generated by Kiln from {file}") }))),
+        // Enshwick's and shroudlink's manifests are compiled into the DLL (enshwick_mod_query, shroudlink_mod_v2), and
+        // Ember's mods have none: the DLL alone in its folder is the mod
         _ => None,
     };
     let Some((name, value)) = generated else { return Ok(0); };
@@ -122,6 +159,19 @@ fn write_dll_manifest(kind: ModKind, folder: &Path, id: &str, version: &str, fil
     body.push('\n');
     std::fs::write(folder.join(name), &body).map_err(io_at(folder, "writing"))?;
     Ok(body.len() as u64)
+}
+
+/// The first DLL directly in `dir` that is a mod DLL of `kind` (by its exports).
+fn dll_of(dir: &Path, kind: ModKind) -> Result<Option<PathBuf>> {
+    let mut files = Vec::new();
+    for e in std::fs::read_dir(dir).map_err(io_at(dir, "reading"))? {
+        let e = e?;
+        if e.file_type()?.is_file() && e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("dll")) {
+            files.push(e.path());
+        }
+    }
+    files.sort();
+    Ok(files.into_iter().find(|p| crate::library::detect(p).is_ok_and(|d| ModKind::of_detect(d.kind) == Some(kind))))
 }
 
 /// The importer of every engine kind: the folder (or the lone mod DLL, wrapped into a folder with the manifest its
@@ -135,9 +185,6 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     let Some(kind) = ModKind::of_detect(d.kind).filter(|k| k.is_engine()) else {
         return skip(ctx.report, d.reason.clone());
     };
-    if kind.is_reserved() {
-        return skip(ctx.report, d.reason.clone());
-    }
     let src = ctx.src;
     // Library importers are also called directly (outside the drop/Deck flow). Validate before reading a
     // manifest or DLL, including hidden links which are not part of kdh1 but are still unsafe imports.
@@ -162,6 +209,10 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         // Do not silently rename an explicit manifest id: the plugin reads the unmodified manifest.
         return skip(ctx.report, format!("{}: id {id:?} is not a valid mod id", d.path));
     }
+    if kind == ModKind::Enshwick && id.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER) {
+        // kiln-enshwick copies the mod into <game>/mods/<id>/, and mods/enshwick/ is the loader's own folder
+        return skip(ctx.report, format!("{}: id \"enshwick\" is Enshwick's own loader folder, not a mod", d.path));
+    }
     let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
         parsed.to_string()
     } else if version.is_empty() {
@@ -179,27 +230,37 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         if crate::hash::dirhash(&work)? != crate::hash::dirhash(src)? {
             return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was imported", src.display())));
         }
+        // what each plugin needs to find the mod in the folder, checked on the copy that is committed
+        let found = match kind {
+            ModKind::Enshwick => work.join("pack.toml").is_file() || dll_of(&work, kind)?.is_some(),
+            ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
+            ModKind::Ember => crate::engines::ember_library(&work).is_some(),
+            _ => true,
+        };
+        if !found {
+            let why = match kind {
+                ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
+                ModKind::Enshwick => "no pack.toml and no DLL exporting enshwick_mod_abi/_query/_init",
+                _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
+            };
+            return skip(ctx.report, format!("{}: {why}", d.path));
+        }
         let required = match kind {
             ModKind::Greeneye | ModKind::Shroudtopia => Some("mod.json"),
             ModKind::Flame => Some("flame.json"),
             _ => None,
         };
         if required.is_some_and(|m| !work.join(m).is_file()) {
-            let mut files = Vec::new();
-            for e in std::fs::read_dir(&work).map_err(io_at(&work, "reading"))? {
-                let e = e?;
-                if e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("dll")) {
-                    files.push(e.path());
-                }
-            }
-            files.sort();
-            let dll = files.into_iter().find(|p| crate::library::detect(p).is_ok_and(|d| ModKind::of_detect(d.kind) == Some(kind)))
-                .ok_or_else(|| Error::invalid(format!("{}: no {} mod DLL", src.display(), kind.label())))?;
+            let dll = dll_of(&work, kind)?.ok_or_else(|| Error::invalid(format!("{}: no {} mod DLL", src.display(), kind.label())))?;
             let file = dll.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error::invalid("DLL name must be UTF-8"))?;
             size += write_dll_manifest(kind, &work, &id, &version, file)?;
         }
         size
     } else {
+        if kind == ModKind::Ember {
+            // nothing in a lone DLL says it is Ember's; detection only names folders in ember/mods/
+            return skip(ctx.report, format!("{}: add the Ember mod's folder (ember/mods/<mod>/), not the DLL alone", d.path));
+        }
         std::fs::create_dir_all(&work).map_err(io_at(&work, "creating"))?;
         let file = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod.dll".into());
         let size = std::fs::copy(src, work.join(&file)).map_err(io_at(src, "copying"))?;
@@ -547,7 +608,11 @@ pub fn server_root(kind: ModKind, server: &Path) -> Option<PathBuf> {
         ModKind::ShroudForge => crate::shroudforge::mods_dir(server),
         ModKind::Set => server.join(SET_MODS),
         ModKind::Greeneye => server.join("greeneye"),
-        ModKind::Flame | ModKind::Shroudtopia => server.join("mods"),
+        // Enshwick's loader reads every folder in <server>/mods (kiln-enshwick hosts it on servers too)
+        ModKind::Flame | ModKind::Shroudtopia | ModKind::Enshwick => server.join("mods"),
+        // kiln-shroudlink reads shroudlink_mods/*.dll and the DLLs in its direct subfolders (one per synced mod)
+        ModKind::Shroudlink => server.join(SHROUDLINK_MODS),
+        ModKind::Ember => server.join(EMBER_MODS),
         _ => return None,
     })
 }
@@ -562,14 +627,19 @@ pub fn server_disabled_root(kind: ModKind, server: &Path) -> PathBuf {
 pub fn folder_is(kind: ModKind, dir: &Path) -> bool {
     match kind {
         ModKind::Emf => dir.join("mod.json").is_file(),
+        // its roots are Ember's own (ember/mods, kiln/disabled/ember): a folder with one library that no other engine claims
+        ModKind::Ember => crate::engines::ember_library(dir).is_some(),
+        // <mods>/enshwick/ is Enshwick's loader folder (mods.toml, enshwick.dll), never a mod
+        ModKind::Enshwick if dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)) => false,
         _ => crate::library::detect(dir).is_ok_and(|d| ModKind::of_detect(d.kind) == Some(kind)),
     }
 }
 
-/// id, version, name of an engine mod folder (mod.json `id`/`version`/`name`, else the folder name).
+/// id, version, name of an engine mod folder (mod.json `id`/`version`/`name`, else Enshwick's pack.toml, else the
+/// folder name).
 pub fn identity(dir: &Path) -> (String, Option<String>, Option<String>) {
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let m = read_json(&dir.join("mod.json"));
+    let m = read_json(&dir.join("mod.json")).or_else(|| crate::engines::pack_toml(dir));
     let s = |k: &str| m.as_ref().and_then(|v| v.get(k)).and_then(|x| x.as_str()).map(str::to_owned);
     (s("id").filter(|i| crate::manifest::is_mod_id(i)).unwrap_or(folder), s("version"), s("name"))
 }
@@ -701,6 +771,8 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
             })
         }
         ModKind::Emf => Ok(none("EMF settings: use the EMF ini editor")),
+        ModKind::Enshwick => Ok(none("Enshwick keeps each mod's settings per world (<save>-mod-settings/<id>/settings.toml): use the game's Mods screen or `enshwick config` on the server")),
+        ModKind::Ember => Ok(none("Ember mods don't run yet: Ember has not published its mod ABI")),
         _ => Ok(none("this engine's mods declare no settings")),
     }
 }
@@ -784,11 +856,15 @@ pub fn state_file(kind: ModKind) -> Option<&'static str> {
         ModKind::Flame => "flame.json",
         ModKind::Shroudtopia => "shroudtopia.json",
         ModKind::Set => "set.json",
+        ModKind::Enshwick => "enshwick.json",
+        ModKind::Shroudlink => "shroudlink.json",
+        ModKind::Ember => "ember.json",
         _ => return None,
     })
 }
 
-/// Every engine plugin's state in `<game>/kiln/state/` (EMF, EML, ShroudForge, Greeneye, Flame, Shroudtopia, SET).
+/// Every engine plugin's state in `<game>/kiln/state/` (EMF, EML, ShroudForge, Greeneye, Flame, Shroudtopia, SET,
+/// Enshwick, shroudlink, Ember).
 pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
     ModKind::ALL
         .into_iter()
@@ -909,7 +985,12 @@ mod tests {
         for k in IMPORTED {
             assert!(plugin_of(k).is_some(), "{k:?}");
             assert!(state_file(k).is_some(), "{k:?}");
-            assert!(k.is_engine() && !k.is_reserved());
+            assert!(k.is_engine());
+            assert!(default_side(k) == (Side::Server, Clients::None) || runs_yet(k), "{k:?}");
+        }
+        // every engine kind but EMF (Kiln's own emf kind) has an importer
+        for k in ModKind::ALL.into_iter().filter(|k| k.is_engine() && *k != ModKind::Emf) {
+            assert!(IMPORTED.contains(&k), "{k:?}");
         }
     }
 }

@@ -1,6 +1,6 @@
 // Other engines' mods in the launcher (docs/kiln/engines.md): Library kinds and labels, a profile's Engines tab
 // (switch, add, ShroudForge settings), the engine status on Logs, EML's "Restore vanilla game data", the Deck's Mods.
-// Browser mock only (src/api/mock.ts seeds one mod per imported kind; "Ember run" holds four of them).
+// Browser mock only (src/api/mock.ts seeds one mod per imported kind; the "Ember run" profile holds four of them).
 import { expect, test, type Page } from "@playwright/test";
 
 async function desktop(page: Page, route = "/") {
@@ -198,4 +198,62 @@ test("settings stop while the game runs and cannot edit another profile's Shroud
     return null;
   });
   expect(inactive).toBe("conflict");
+});
+
+test("Enshwick, shroudlink and Ember mods: library labels, Engines cards, and Ember says its mods don't run yet", async ({ page }) => {
+  await desktop(page, "/library");
+  const table = page.getByRole("table", { name: "Library" }).or(page.locator('[aria-label="Library"]')).first();
+  for (const [name, badge] of [["Lanterns", "Enshwick"], ["chestsort.dll", "shroudlink"], ["private-chests", "Ember"]] as const) {
+    // badges are styled in title case
+    await expect(table.locator('[role="row"], tr').filter({ hasText: name })).toContainText(new RegExp(badge, "i"));
+  }
+  const emberRow = table.locator('[role="row"], tr').filter({ hasText: "private-chests" });
+  await expect(emberRow.locator("[data-not-running]")).toContainText(/not yet/i);
+  await expect(table.locator('[role="row"], tr').filter({ hasText: "Lanterns" }).locator("[data-not-running]")).toHaveCount(0);
+  await page.getByRole("radio", { name: "Other engines" }).or(page.getByRole("button", { name: "Other engines" })).or(page.getByRole("tab", { name: "Other engines" })).first().click();
+  await page.getByLabel("Engine").selectOption("enshwick");
+  await expect(table).toContainText("Lanterns");
+  await expect(table).not.toContainText("private-chests");
+
+  await desktop(page, "/profiles/ember-run/engines");
+  for (const kind of ["enshwick", "shroudlink", "ember"]) await expect(page.locator(`[data-kind="${kind}"]`)).toContainText(`kiln-${kind}`);
+  await expect(page.locator('[data-kind="enshwick"]')).not.toContainText(/run yet/i);
+  const ember = page.locator('[data-kind="ember"]');
+  await expect(ember).toContainText(/doesn't run yet/i);
+  await expect(ember.getByRole("status").filter({ hasText: "These mods don't run yet" })).toContainText("Ember has not published its mod ABI");
+  for (const [kind, name, id] of [["ember", "private-chests", "private-chests"], ["enshwick", "Lanterns", "you.lanterns"], ["shroudlink", "chestsort.dll", "chestsort"]] as const) {
+    const card = page.locator(`[data-kind="${kind}"]`);
+    await card.scrollIntoViewIfNeeded();
+    await card.getByRole("button", { name: "Add from the library" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add from the library" });
+    await dialog.getByText(name, { exact: true }).first().click();
+    await dialog.getByRole("button", { name: /^Add 1/ }).click();
+    await expect(card).toContainText(name);
+    await expect.poll(async () => (await api<{ mods: Record<string, { id: string }[]> }>(page, "profileGet", "ember-run")).mods[kind].map((m) => m.id)).toEqual([id]);
+  }
+  // no Settings item for these kinds; the backend's note says why
+  const more = page.locator('[data-kind="enshwick"]').getByRole("button", { name: "More for Lanterns" });
+  await more.click();
+  await expect(page.getByRole("menuitem", { name: "Settings" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  const note = await api<{ format: string; note: string }>(page, "engineSettingsGet", "enshwick", "you.lanterns", "ember-run", null);
+  expect([note.format, note.note.includes("per world")]).toEqual(["none", true]);
+  await expect(page.getByRole("link", { name: /Engines/ })).toContainText("7");
+
+  // the Deck's Mods and Add mods screens name the kind with the same note
+  const words = await page.evaluate(async () => {
+    const { KIND_WORD } = await import("/src/deck/status.ts");
+    return [KIND_WORD.ember, KIND_WORD.enshwick, KIND_WORD.shroudlink];
+  });
+  expect(words).toEqual(["Ember mod (doesn't run yet)", "Enshwick mod", "shroudlink mod"]);
+});
+
+test("Logs > Engines reads Enshwick's and Ember's state files", async ({ page }) => {
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const list = page.getByLabel("Engine plugins");
+  await expect(list.locator('[data-engine="enshwick"]')).toContainText("running");
+  await expect(list.locator('[data-engine="enshwick"]')).toContainText("you.lanterns copy");
+  await expect(list.locator('[data-engine="ember"]')).toContainText("waiting for Ember's ABI");
+  await expect(list.locator('[data-engine="ember"]')).toContainText("private-chests waiting-for-abi");
 });

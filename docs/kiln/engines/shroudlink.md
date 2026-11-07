@@ -15,7 +15,8 @@ shroudlink. Kiln adds:
 
 - **where mods come from**: the profile's `mods.shroudlink` list, then `<server>/shroudlink_mods/` (the rule every
   engine plugin uses, [README.md](README.md#where-mods-are-found)). A profile entry's `path` is a mod DLL or a folder
-  of mod DLLs (a release zip's `shroudlink_mods` folder, for example).
+  of mod DLLs (a release zip's `shroudlink_mods` folder, for example). In `shroudlink_mods/` Kiln reads the DLLs
+  there and in its direct subfolders (`shroudlink_mods/<id>/`, where the launcher's server sync puts each mod).
 - **EML data mods** (shroudlink's "bigger stacks x10" / "chests x2"): any folder among those roots, or its direct
   subfolders, with `mod.json` + `src/mod.lua` is handed to kiln-eml, Kiln's single writer of game data, in the early
   phase (`kiln_eml.h`, `add_mod(path, "shroudlink")`). shroudlink's own `UPDATE-SERVER.bat` repatch step is not
@@ -54,7 +55,8 @@ stays idle. That case is on the client checklist.
 
 ## Install a mod
 
-Unpack its zip into the server folder (`shroudlink_mods/<name>.dll`), or add it to a Kiln profile:
+Unpack its zip into the server folder (`shroudlink_mods/<name>.dll`, or `shroudlink_mods/<name>/`), import it in the
+launcher's Library and sync it to the server, or add it to a Kiln profile:
 
 ```json
 "mods": { "shroudlink": [

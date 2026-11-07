@@ -159,7 +159,8 @@ pub struct ClientMod {
 /// The mods of `<server>/kiln/mods/*` and `<server>/kiln/native/*` that players need: the same rule as Kiln.Network's
 /// advertised required[] (a managed mod that failed to load, per state/mods.json, is left out like the server does).
 /// Also other engines' mods in each engine's server folder (`engine_mods::server_root`) whose `clients` is `mod`
-/// (stated in their mod.json, else the kind's default: EML, ShroudForge and Flame mods change data both sides need).
+/// (stated in their mod.json or Enshwick's pack.toml, else the kind's default: EML, ShroudForge, Flame and Enshwick mods
+/// change what both sides load; shroudlink and Ember are server-only).
 pub fn client_mods(server_dir: &Path) -> Result<Vec<ClientMod>> {
     let kiln = server_dir.join("kiln");
     let failed: std::collections::HashSet<String> = crate::state::read_mods(server_dir)
@@ -191,7 +192,7 @@ pub fn client_mods(server_dir: &Path) -> Result<Vec<ClientMod>> {
             out.push(m);
         }
     }
-    for kind in ModKind::ALL.into_iter().filter(|k| k.is_engine() && !k.is_reserved()) {
+    for kind in ModKind::ALL.into_iter().filter(|k| k.is_engine()) {
         let Some(root) = crate::engine_mods::server_root(kind, server_dir) else { continue };
         let Ok(rd) = std::fs::read_dir(&root) else { continue };
         let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();

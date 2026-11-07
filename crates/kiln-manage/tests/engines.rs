@@ -195,7 +195,24 @@ fn every_engine_kind_is_detected_with_its_reason() {
             put(&d, "lockers.dll", &build_test_dll(&["enshwick_mod_abi", "enshwick_mod_query", "enshwick_mod_init"], b""));
             put(&d, "helper.dll", &build_test_dll(&["helper"], b""));
             d
-        }, DetectKind::Enshwick, Some(Engine::Enshwick), "Kiln can't import Enshwick mods into the Library yet; no importer is registered"),
+        }, DetectKind::Enshwick, Some(Engine::Enshwick), "author.lockers: an Enshwick mod (Library importer: kiln-enshwick)"),
+        // Enshwick Luau mod: pack.toml names it
+        ({
+            let d = r.join("luau-folder");
+            put(&d, "pack.toml", b"id = \"author.greeter\"\nversion = \"0.2.0\"\nname = \"Greeter\"\n");
+            put(&d, "main.luau", b"print('hi')");
+            d
+        }, DetectKind::Enshwick, Some(Engine::Enshwick), "Greeter: an Enshwick mod"),
+        // shroudlink mod DLL
+        (put(r, "sl/chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b"")), DetectKind::Shroudlink, Some(Engine::Shroudlink),
+         "chestsort.dll: a shroudlink mod (Library importer: kiln-shroudlink)"),
+        // Ember mod: one library in ember/mods/<mod>/ (no ABI: the place names it), with the note that it doesn't run yet
+        ({
+            let d = r.join("server/ember/mods/private-chests");
+            put(&d, "private_chests.dll", &build_test_dll(&[], b""));
+            put(&d, "config.json", b"{}");
+            d
+        }, DetectKind::Ember, Some(Engine::Ember), "It doesn't run yet: Ember has not published its mod ABI"),
         // SET mod
         ({
             let d = r.join("set-mod");
@@ -237,7 +254,7 @@ fn every_engine_kind_is_detected_with_its_reason() {
         assert_eq!((d.kind, d.engine), (kind, engine), "{}: {}", path.display(), d.reason);
         assert!(d.reason.contains(words), "{}: {:?} lacks {words:?}", path.display(), d.reason);
         assert!(!d.reason.ends_with('.'), "{}: the launcher adds the period: {:?}", path.display(), d.reason);
-        // importable: the engine kinds Kiln runs (engine_mods); never the reserved kinds, loaders or files
+        // importable: every engine mod kind (engine_mods); never loaders or files
         let runs = kiln_manage::manifest::ModKind::of_detect(d.kind).is_some_and(|k| kiln_manage::engine_mods::IMPORTED.contains(&k));
         assert_eq!(d.kind.importable(), runs, "{}: {:?}", path.display(), d.kind);
     }

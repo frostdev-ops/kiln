@@ -127,7 +127,7 @@ fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
 
 /// The kinds a server takes: Kiln's managed and native mods, then every engine kind with a server folder.
 fn server_kinds() -> impl Iterator<Item = ModKind> {
-    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || (k.is_engine() && !k.is_reserved()))
+    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || k.is_engine())
 }
 
 /// The folders of `kind` in `dir` (a root several engines may share: each folder is checked for the kind).
