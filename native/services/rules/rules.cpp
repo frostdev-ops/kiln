@@ -46,6 +46,7 @@
 #include "kiln_api.h"
 #include "services/kiln_rules.h"
 #ifndef KILN_RULES_HOST_TEST
+#include "creative.h"
 #include "safetyhook.hpp"
 #include "services/kiln_client.h"
 #include "services/kiln_world.h"
@@ -773,6 +774,8 @@ uint32_t __fastcall hk_pay(void* tx, int64_t* costs, uint32_t owner, uint32_t mu
         }
         if (code) S.faults.fetch_add(1, std::memory_order_relaxed);
     }
+    // creative.cpp: the recipe function's payment for an operator with FREE_CRAFTING (its own return-address test)
+    if (kiln_rules_creative::pay_free(reinterpret_cast<uintptr_t>(_ReturnAddress()), tx, owner)) return 0;
     return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
 }
 
@@ -1261,6 +1264,7 @@ void fill_status(KilnRulesStatus* out) {
 
 const KilnRulesApi kTable = {
     {sizeof(KilnRulesApi), KILN_RULES_VERSION}, &t_set, &t_clear, &t_get, &t_set_local, &t_status,
+    &kiln_rules_creative::map_reveal, &kiln_rules_creative::creative_status,
 };
 
 // ============================================================================================= boot ============
@@ -1336,11 +1340,19 @@ void install() {
         inline_hook(h_apply, reinterpret_cast<void*>(fn.apply), reinterpret_cast<void*>(&hk_apply), "ApplyMaterials"))
         g_hooks |= KILN_RULES_HOOK_COSTS;
     else note("costs (rules.costs)");
-    // the storage-chest upgrade's payment (counted with the costs)
+    // creative mode's hooks (creative.cpp): free crafting answers through the payment hooked below
+    g_hooks |= kiln_rules_creative::install(g_api, off);
+    // the storage-chest upgrade's payment (counted with the costs); the same hook serves free crafting
     uintptr_t pay = 0;
+    if ((g_hooks & KILN_RULES_HOOK_CRAFT) && sym("rules/InventoryPay", &pay) &&
+        !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")) {
+        g_hooks &= ~KILN_RULES_HOOK_CRAFT;
+        kiln_rules_creative::pay_hook_failed();
+        note("free crafting (payment hook failed)");
+    }
     if (feat("rules.storage") && cst("items/tx.operator", &L.tx_operator) &&
         sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) && upgrade_call_valid(g_upgrade_ret, pay) &&
-        inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))
+        (h_pay || inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")))
         logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
              static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
              static_cast<unsigned long long>(g_upgrade_ret - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
@@ -1410,7 +1422,7 @@ void install() {
     }
     if (g_api->side() == KILN_SIDE_CLIENT) install_client_guards();
     auto on = [](uint32_t bit) { return (g_hooks & bit) ? "on" : "OFF"; };
-    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s",
+    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s (creative: see above)",
          on(KILN_RULES_HOOK_FLY), on(KILN_RULES_HOOK_ZONE), on(KILN_RULES_HOOK_CURSOR), on(KILN_RULES_HOOK_COSTS),
          on(KILN_RULES_HOOK_DIG), on(KILN_RULES_HOOK_SHROUD), on(KILN_RULES_HOOK_GLIDE));
 }
@@ -1435,3 +1447,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
 }
 
 #endif  // !KILN_RULES_HOST_TEST
+
+// The rule snapshots and the log for creative.cpp (creative.h).
+namespace kiln_rules_bridge {
+bool rules_of(uint32_t entity, KilnRulesPlayer* out) { return player_rules(entity, out); }
+bool local_rules(KilnRulesPlayer* out) { return load(g_local, out); }
+void log(int level, const char* text) { logf(level, "%s", text); }
+}  // namespace kiln_rules_bridge

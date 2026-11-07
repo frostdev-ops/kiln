@@ -28,6 +28,10 @@ public static unsafe partial class Items
     /// <summary>True when give/take can run (the service's program runs and its checks passed).</summary>
     public static bool CanTransact => Status()?.Transactions == true;
 
+    /// <summary>This build supports <see cref="Gear.Unlocked"/> and <see cref="Gear.GemSlot"/> (feature
+    /// items.pide_options; a give with them is Unavailable otherwise).</summary>
+    public static bool GearOptionsAvailable => Available && Game.HasFeature("items.pide_options");
+
     /// <summary>The service's state, or null when it is not loaded.</summary>
     public static ItemsServiceStatus? Status()
     {
@@ -131,6 +135,16 @@ public static unsafe partial class Items
                 r.Flags |= ItemsNative.Rarity;
                 r.Rarity = (byte)ra;
             }
+            if (g.Unlocked is { } un)
+            {
+                if (un < 0) return Invalid(target, item, count, "unlocked upgrades must be 0 or more");
+                if (un > 0)
+                {
+                    r.Flags |= ItemsNative.Unlock;
+                    r.Unlock = un >= 5 ? (byte)255 : (byte)un;
+                }
+            }
+            if (g.GemSlot) r.Flags |= ItemsNative.GemSlot;
         }
         if (options.HasFlag(GiveOptions.Notify)) r.Flags |= ItemsNative.Notify;
         if (options.HasFlag(GiveOptions.AllOrNothing)) r.Flags |= ItemsNative.AllOrNothing;

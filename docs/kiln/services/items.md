@@ -34,6 +34,8 @@ if (r.Status == ItemsStatus.Partial) Log.Info($"only {r.Done} fit");
 
 // Gear with a level and rarity (the game clamps the level to the item's range)
 var g = await Items.Give(chest, info!.Id, 1, new Gear(Level: 20, Rarity: ItemRarity.Epic));
+// ... with all its upgrades unlocked (each one level higher, as at the workbench) and an empty gem slot (weapons)
+var u = await Items.Give(chest, info!.Id, 1, new Gear(20, ItemRarity.Epic) { Unlocked = 5, GemSlot = true });
 EntityId sword = g.Changes[0].ItemEntity;              // the new item entity (level, perks, durability live there)
 
 // What a recipe makes, through the game's own recipe function: created exactly as crafting creates it
@@ -58,6 +60,14 @@ IReadOnlyList<EntityId> chests = Items.FindInventories(InventoryKinds.Containers
   roll back: says what would happen). `slot` = the slot to fill first.
   Unset `Gear` values are the game's defaults, the same as crafting: a level rolled in the item's range, `rarity` or, with
   `generateRarity` set (loot weapons), the lowest allowed rarity (Common), never a rolled one: docs/re/items.md section 10.
+- `Gear.Unlocked` (1-4, 5 or more = all the item has) and `Gear.GemSlot` (weapons: an empty gem slot when the game's roll
+  gave none) are applied as the item entity is created: a hook in the game's createPide changes the component list it
+  spawns the item with (`PerkContainerNew.unlockedPerks`, the `Level` value + the unlocked count, a `WeaponGemSlot` entry;
+  docs/re/creative-mode-146.md "Part 3 research", section 2). `Items.GearOptionsAvailable` says whether this build has
+  it (feature `items.pide_options`); without it a give with them is `Unavailable`. C: `KILN_ITEMS_UNLOCK` with
+  `KilnItemsRequest.unlock` (1..5, 255 = all), `KILN_ITEMS_GEM_SLOT`. Lab: "all upgrades: perks 4/4, level 34 (asked 30 +
+  4)", "the weapon has a gem slot". Not checked yet: whether a save and restart keeps the level of an upgraded item
+  (the game re-clamps `Level - unlocked` at load, which stays in range).
 - `GiveRecipeResult(target, recipeId, count = 1, GiveOptions)` → `Task<ItemsResult>`: the game's recipe function (feature
   `items.recipe`, C flag `KILN_ITEMS_RECIPE`). Inputs are not taken and a station's requirements count as met. For tests and
   for mods that hand out what a recipe makes. `Notify`, `NoMerge`, `DryRun`. All outputs fit or nothing changes (`NoRoom`).

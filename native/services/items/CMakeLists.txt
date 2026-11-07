@@ -1,1 +1,1 @@
-kiln_service(items items.cpp engine.cpp)
+kiln_service(items items.cpp engine.cpp pide.cpp)

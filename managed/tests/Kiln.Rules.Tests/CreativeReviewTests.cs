@@ -111,16 +111,30 @@ public sealed class CreativeReviewTests
     {
         var requested = new EffectiveRules { Player = P, FreeCrafting = true, KeepConsumables = true, NoFallDamage = true,
             Denied = ["invulnerable"] };
-        var supported = RulesCrafting.Supported(requested);
+        var supported = RulesCrafting.Supported(requested, hooks: 0);   // no native hook: fail closed
         Assert.False(supported.FreeCrafting);
         Assert.False(supported.KeepConsumables);
         Assert.True(supported.NoFallDamage);
         Assert.Equal(new[] { "invulnerable", "freeCraftingUnavailable", "keepConsumablesUnavailable" }, supported.Denied);
         Assert.Equal((0UL, 0UL), RulesCrafting.Counters);
-        Assert.Same(supported, RulesCrafting.Supported(supported));
+        Assert.Same(supported, RulesCrafting.Supported(supported, 0));
         var limited = RulesMath.Combine(P, [(null, new PlayerRules { FreeCrafting = true, KeepConsumables = true })],
             RulesLimits.Default with { AllowFreeCrafting = false, AllowKeepConsumables = false });
-        Assert.Same(limited, RulesCrafting.Supported(limited));
+        Assert.Same(limited, RulesCrafting.Supported(limited, 0));
+    }
+
+    [Fact]
+    public void NativeCraftAndConsumeHooksEnableTheRulesOneByOne()
+    {
+        var requested = new EffectiveRules { Player = P, FreeCrafting = true, KeepConsumables = true };
+        Assert.Same(requested, RulesCrafting.Supported(requested, RulesNative.HookCraft | RulesNative.HookConsume));
+        var craftOnly = RulesCrafting.Supported(requested, RulesNative.HookCraft);
+        Assert.True(craftOnly.FreeCrafting);
+        Assert.False(craftOnly.KeepConsumables);
+        Assert.Equal(new[] { "keepConsumablesUnavailable" }, craftOnly.Denied);
+        var native = requested.Native.Flags;
+        Assert.Equal(RulesNative.FreeCrafting | RulesNative.KeepConsumables, native & (RulesNative.FreeCrafting | RulesNative.KeepConsumables));
+        Assert.Equal(0u, new EffectiveRules { Player = P }.Native.Flags & (RulesNative.FreeCrafting | RulesNative.KeepConsumables));
     }
 
     [Fact]

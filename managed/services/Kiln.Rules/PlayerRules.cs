@@ -334,7 +334,8 @@ public sealed record EffectiveRules
         (IgnoreNoBuildZones ? RulesNative.IgnoreNoBuildZones : 0) | (IgnoreEnemiesNearby ? RulesNative.IgnoreEnemies : 0) |
         (BuildInShroud ? RulesNative.IgnoreShroud : 0) | (IgnoreBasePermissions ? RulesNative.IgnoreBasePermissions : 0) |
         (FreezeShroudTimer ? RulesNative.ShroudFreeze : 0) | (UnlimitedGliding ? RulesNative.GlideUnlimited : 0) |
-        (GlideBoost is not null ? RulesNative.GlideBoost : 0),
+        (GlideBoost is not null ? RulesNative.GlideBoost : 0) |
+        (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
         (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0));

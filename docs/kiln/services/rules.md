@@ -67,8 +67,8 @@ Every member is optional (null: no opinion).
 | `KeepBuildsOutsideBases` | switch | placements outside bases kept in the save (Kiln.Build's regions); default: with `BuildOutsideBases` | server |
 | `BuildCost` | multiplier | what placing blocks, terrain and props takes (0 = free, which also lifts "missing materials"); 0 also makes upgrading a storage chest in place free | server (+ client for 0) |
 | `BuildRefund` | multiplier | what dismantling and undo give back | server |
-| `FreeCrafting` | switch | currently unavailable: effective rules deny it until crafting can preserve inputs in the game's own transaction | server |
-| `KeepConsumables` | switch | currently unavailable: slot-change notifications cannot prove that an item was consumed | server |
+| `FreeCrafting` | switch | crafting takes nothing and needs nothing: the recipe's payment answers "paid" inside the game's own transaction, the output goes in as usual (crafting from your own inventory; stations and factories pay as usual). In the game's crafting menu the craft buttons stay enabled without the inputs (client hook) | server (+ client for the buttons) |
+| `KeepConsumables` | switch | fired arrows, thrown items (bombs) and staff ammunition are not used up: the game's two consume removals remove nothing. Food, drinks, potions and bandages are still used up (their removal site is not hooked yet) | server |
 | `DigDamage` | multiplier | the damage the player's tools deal to terrain and blocks; 1000 = one hit | server |
 | `Invulnerable` | switch | no damage from hits | server |
 | `NoFallDamage` | switch | no damage and no hard-landing stagger from falls, from any height (Kiln.Combat's fall event, canceled); `Invulnerable` already covers falls | server |
@@ -152,11 +152,33 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
   you like.
 - Creative mode on or off for yourself (admins), and a "Creative" line on the HUD while it is on.
 
+- **Item options** for gear: **Upgrades** (0-5: upgrades unlocked as at the workbench, each one level higher; 5 = all
+  the item has, which its rarity decides) and, for weapons, **Gem slot** (an empty gem slot when the game's roll gave
+  none). With "Only what I have found" the level is capped at your character's level (server side).
+- **World > Map reveal**: the game's range, 200 m, 400 m or the whole map. Client only, for this session while creative
+  mode is on (back to the game's when you leave the world or creative mode ends). What is uncovered stays uncovered
+  for the character: the game saves it. "Whole map" sweeps the map over about a second, not in one frame.
+
 `/creative` requests `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
-`creative.json` says nothing about them. Both are currently disabled: effective rules list `freeCraftingUnavailable`
-and `keepConsumablesUnavailable` in `Denied`. Craft requests cannot safely be replaced by asynchronous gives, and a
-consumable slot changing is not proof of consumption. The game keeps its normal crafting costs and item use.
-`allowFreeCrafting` and `allowKeepConsumables` still deny requests before this availability check. The preset file is unchanged.
+`creative.json` says nothing about them. Both are native hooks inside the game's own transactions (kiln.rules,
+`creative.cpp`; docs/re/creative-mode-146.md "Part 3 research"): no managed event mints or refunds items. On a build where
+a hook is missing the rule stays off and `Denied` lists `freeCraftingUnavailable` / `keepConsumablesUnavailable`, as
+before. `allowFreeCrafting` and `allowKeepConsumables` in rules.json still deny them first. `Rules.Status()` says which
+hooks are installed (`FreeCrafting`, `KeptConsumables`, `MapReveal`, `CraftButtons`) and counts (`CraftsFree`,
+`ConsumablesKept`).
+
+How the hooks decide (all fail soft: a symbol that does not resolve, or a return address that does not follow a call to
+the hooked function, turns that one hook off):
+- **Free crafting**: the recipe function pays through the inventory payment (the one the storage upgrade uses) or, for
+  recipes with flag 0x40, through a second payer. The payment answers 0 ("paid") when it is called from the recipe
+  function (its return address) and the transaction's operator is the inventory owner and has FREE_CRAFTING.
+- **Kept consumables**: the spawn path's `consume` (bows, throwables) and PayUsageCost's `consume` (staffs) each call
+  `InventoryRemoveItems(…, actor, item, slot, 1)` and commit only on "nothing missing". For those two calls and an actor
+  with KEEP_CONSUMABLES the removal answers "nothing missing" without queueing a removal.
+- **Craft buttons** (client): the crafting menu enables its craft actions from the game's craftable-amount lookup; with
+  the local player's FREE_CRAFTING (sent by the server with the other client rules) it answers at least the amount asked.
+- **Map reveal** (client): the fog of war's discover call gets a wider range (its range is a diameter: 200 m = 400), or
+  a grid of 512 m circles over the map, four per frame.
 
 Every action is a request the server checks; the menu shows what the server answers. Taking items needs creative mode
 for that player (only an admin turns it on: `/creative on <player>`); the time and the cycle need the creative
@@ -173,6 +195,7 @@ The same tools from code and commands:
 ```csharp
 CreativeResult r = await CreativeTools.Give(player, item.Id, count: 50);             // refused unless creative mode is on
 await CreativeTools.Give(player, sword.Id, 1, level: 30, rarity: ItemRarity.Epic);
+await CreativeTools.Give(player, sword.Id, 1, 30, ItemRarity.Epic, upgrades: 5, gemSlot: true);  // needs Items.GearOptionsAvailable
 CreativeTools.SetTime(player, 7.5);                  // checks the player's permission
 CreativeTools.SetCycle(player, TimeCycle.Stopped);
 CreativeTools.SetCycle(TimeCycle.Fast, "my mod");    // no check: the console, commands with their own permission
@@ -183,9 +206,16 @@ IReadOnlyList<ItemId>? found = CreativeTools.Found(player);   // journey mode; n
 (docs/kiln/commands.md). The cycle is kiln.time's held clock speed (`Time.SetCycle`, `Time.SetSpeed`;
 docs/kiln/services/time.md).
 
-Historical lab observations from the original commits (`mods/tests/creative-test`, a spawned player character, no client):
-25 PASS, 0 FAIL. The free-crafting fallback tested then has since been disabled for safety. The updated lab test
-checks that both unsafe rules are denied and that native crafting still spends inputs; it needs a separate lab run. The storage upgrade's hook installs (`storage upgrade: free with BuildCost 0`); the
+Lab `wv-creative3-a` (server 26430253, `mods/tests/creative-test`, a spawned player character, no client), 2026-11-07:
+40 PASS, 0 FAIL. `free crafting: the recipe's payments (rva 0x199c80 returns to 0x19a28c; second payer 0x19a9b0)`,
+`kept consumables: the consume removals (rva 0x1b0d90; calls return to 0x42665 and 0x41255)`; `free craft at 1318:
+output 0x55bf8eb8 +1, inputs kept (0x07e67b5b x4, 0x18feb214 x7, 0x98946174 x10)`, `free craft with no inputs at all:
+output +1`, `kiln.rules counted the free crafts (2)`; with creative off `the game's own craft takes the inputs: output
++1, inputs spent True` and `without the rule and without inputs nothing is made (output +0)`. Gear options:
+`plain Epic: perks 0/4 unlocked, level 30`, `all upgrades: perks 4/4, level 34 (asked 30 + 4)`, `the weapon has a gem
+slot (WeaponGemSlot on item entity 2554)`, `two upgrades: perks 2/4, level 32`, `a gem slot on armour is refused`.
+Kept consumables need a player firing a bow (client checklist); the map reveal and the craft buttons are client only.
+The storage upgrade's hook installs (`storage upgrade: free with BuildCost 0`); the
 upgrade itself and journey mode need a joined player. The catalogue lists 4,180 of
 4,213 items; taking is refused without creative mode, gives a stack (`0 -> 7`) and gear at the asked level and rarity
 (`level 55, Epic`) with it; an unknown item is refused; Stopped holds the clock (`15:35 -> 15:35` over 100 steps, scale

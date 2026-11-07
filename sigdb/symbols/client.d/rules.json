@@ -90,6 +90,24 @@
           "pattern": "F3 0F 10 A3 {rules/client.cam.distance:d32} 4C 8D 9C 24 ?? ?? 00 00 F2 0F 10 83 ?? ?? 00 00 0F 28 CC 0F 10 93 {rules/client.cam.pivot:d32}"
         }
       ]
+    },
+    "rules/client.FogDiscover": {
+      "comment": "creative map reveal: FogDiscover(FogOfWar*, const float2* posXZ, float range), the fog_of_war system's per-frame discover call (its only caller); range is a diameter in metres (radius = range / 2). Client 26430625 0x3a2780 (docs/re/creative-mode-146.md Part 3, section 1)",
+      "find": [
+        { "pattern": "40 53 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 79 08 4C 8B F1 F3 0F 10 05 ?? ?? ?? ?? 44 8B CF 0F 29 7C 24 60" }
+      ]
+    },
+    "@rules/client.FogDiscover.caller": {
+      "comment": "the fog_of_war system's call (xmm2 = FogOfWarDiscovery.discoveryRange): FogDiscover is the function it calls",
+      "find": [
+        { "pattern": "F3 0F 59 C6 F3 0F 59 CE F3 0F 11 84 24 80 00 00 00 F3 0F 11 8C 24 84 00 00 00 F3 0F 10 10 E8 {rules/client.FogDiscover:rel32}" }
+      ]
+    },
+    "rules/client.CraftableAmount": {
+      "comment": "creative craft buttons: UiCraftableAmount(gameUi, u32 recipe, u16 cap, const RecipeInputCategorySelections*) -> u32, the crafting menu's (and the flame altar's) craftable count, a cached lookup; the craft actions are enabled from it. Client 26430625 0xb2ddd0",
+      "find": [
+        { "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 70 48 8B 81 ?? ?? 00 00 0F 57 C0 41 0F 10 49 10 48 8B F1 4C 8B 10 49 8B 7A 38 0F 11 44 24 40 48 81 C7 ?? ?? ?? ?? 66 44 89 44 24 44" }
+      ]
     }
   },
   "constants": {
@@ -146,6 +164,12 @@
         "rules/client.cam.offset",
         "rules/client.cam.pivot"
       ]
+    },
+    "rules.map_reveal": {
+      "symbols": ["rules/client.FogDiscover", "@rules/client.FogDiscover.caller"]
+    },
+    "rules.craft_ui": {
+      "symbols": ["rules/client.CraftableAmount"]
     }
   }
 }

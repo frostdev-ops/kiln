@@ -18,7 +18,18 @@ internal enum CreativeAsk : byte
 
 /// <summary>One request: <see cref="Kind"/> says which fields count.</summary>
 internal readonly record struct CreativeRequest(CreativeAsk Kind, uint Item = 0, int Count = 0, int Level = -1, int Rarity = -1,
-    double Value = 0);
+    double Value = 0, int Options = 0);
+
+/// <summary>CreativeRequest.Options of a Give (a trailing field: an older peer neither sends nor reads it).</summary>
+internal static class CreativeGiveOptions
+{
+    public const int UpgradesMask = 0x7;  // 0..5 upgrades unlocked (5: all the item has)
+    public const int GemSlot = 0x100;     // a weapon gets an empty gem slot
+    public const int Journey = 0x200;     // journey mode: gear levels capped at the character's level
+
+    public static int Of(int upgrades, bool gemSlot, bool journey) =>
+        Math.Clamp(upgrades, 0, 5) | (gemSlot ? GemSlot : 0) | (journey ? Journey : 0);
+}
 
 /// <summary>What a player may do in the creative menu, as the server sees it.</summary>
 [Flags]
@@ -86,8 +97,8 @@ internal static class CreativeNet
                 if (!Network.Available) return;
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false, maxMessageBytes: 64 * 1024)
                     .Register<CreativeRequest>(MsgRequest,
-                        static (m, w) => w.Byte((byte)m.Kind).UInt32(m.Item).Int32(m.Count).Int32(m.Level).Int32(m.Rarity).Double(m.Value),
-                        static (ref NetReader r) => new CreativeRequest((CreativeAsk)r.Byte(), r.UInt32(), r.Int32(), r.Int32(), r.Int32(), r.Double()),
+                        static (m, w) => w.Byte((byte)m.Kind).UInt32(m.Item).Int32(m.Count).Int32(m.Level).Int32(m.Rarity).Double(m.Value).Int32(m.Options),
+                        static (ref NetReader r) => DecodeRequest(ref r),
                         static (m, c) => Inbox.Enqueue(c.Player, m, false, c.Sender), NetDirection.ToServer)
                     .Register<CreativeStateMsg>(MsgState,
                         static (m, w) => w.UInt32((uint)m.Access).Byte((byte)m.Cycle).Double(m.Hours).String(m.Rules).String(m.Hooks),
@@ -116,6 +127,12 @@ internal static class CreativeNet
                 ModContext.CurrentMod = outer;
             }
         }
+    }
+
+    internal static CreativeRequest DecodeRequest(ref NetReader r)
+    {
+        var req = new CreativeRequest((CreativeAsk)r.Byte(), r.UInt32(), r.Int32(), r.Int32(), r.Int32(), r.Double());
+        return r.Remaining >= 4 ? req with { Options = r.Int32() } : req;  // a client before 0.2.0-dev.16 sends no options
     }
 
     internal static void EncodeCatalog(CreativeCatalogMsg m, NetWriter w)

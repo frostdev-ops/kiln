@@ -105,7 +105,17 @@ public sealed record ItemInfo(
 /// is <c>rarity</c>, or the lowest allowed one (Common) for an item with <c>generateRarity</c> set (loot weapons). The
 /// game clamps a given level to the item's level range; a crafted item, and a new item unless it opts in to rolled loot, has
 /// one level (docs/kiln/services/content.md "Rarity, level and perks of new gear").</summary>
-public readonly record struct Gear(int? Level = null, ItemRarity? Rarity = null);
+public readonly record struct Gear(int? Level = null, ItemRarity? Rarity = null)
+{
+    /// <summary>Upgrades (perks) unlocked at creation, as the workbench's upgrade does it: each raises the level by 1.
+    /// 1-4, or 5 and more for all the item has (the rarity decides how many: Common 1 .. Legendary 5). Null: none, the
+    /// game's default. Needs <see cref="Items.GearOptionsAvailable"/> (else the give is Unavailable).</summary>
+    public int? Unlocked { get; init; }
+
+    /// <summary>A weapon gets an empty gem slot when the game's own roll at creation gave none (other items are
+    /// unchanged). Needs <see cref="Items.GearOptionsAvailable"/>.</summary>
+    public bool GemSlot { get; init; }
+}
 
 [Flags]
 public enum GiveOptions

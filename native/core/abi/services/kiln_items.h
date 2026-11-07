@@ -58,6 +58,10 @@ enum {
                                             them. Inputs are not taken, a station's requirements count as met.
                                             `done` counts recipe runs, `changes` lists the stacks. Refused with
                                             LEVEL, RARITY or `slot`. Status UNAVAILABLE without feature items.recipe */
+    /* since 0.2.0-dev.16 (feature items.pide_options; without it submit returns KILN_ERR_UNAVAILABLE) */
+    KILN_ITEMS_UNLOCK = 0x0100u,         /* give gear with `unlock` of its upgrades (perks) unlocked, as the workbench's
+                                            upgrade does it (each one raises the level by 1); 255 = all of them */
+    KILN_ITEMS_GEM_SLOT = 0x0200u,       /* give weapons with an empty gem slot when the game's own roll gave none */
 };
 
 typedef struct KilnItemsRequest {
@@ -68,7 +72,8 @@ typedef struct KilnItemsRequest {
     uint32_t count;      /* 1..100000 (give spreads over as many slots as needed) */
     uint32_t level;      /* give with KILN_ITEMS_LEVEL: 1..255 */
     uint8_t rarity;      /* give with KILN_ITEMS_RARITY: 0..4 */
-    uint8_t reserved[3]; /* 0 */
+    uint8_t unlock;      /* give with KILN_ITEMS_UNLOCK: upgrades to unlock, 1..5 or 255 (all); else 0 */
+    uint8_t reserved[2]; /* 0 */
     KilnEntity pide;     /* take with KILN_ITEMS_EXACT_SLOT: the item entity the slot must hold (0 = any) */
     KilnSlotId slot;     /* give: the slot to fill first (0 = the game's choice); take: the slot to take from first
                             (0 = the game's order: a player's held action-bar slot, then everything) */

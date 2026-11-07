@@ -143,7 +143,9 @@ hosting a co-op world, or a world played offline. `Creative.Set(player, on)` doe
   containers kept full, the Shroud timer frozen (the Shroud cannot kill; it counts down again from the same number
   after `/creative off`), and gliding like a plane: unlimited, level flight holds its altitude, looking up climbs and
   looking down dives (climbing costs speed, diving gives it), Shift pushes along that path (up to 35 m/s, climbing at
-  up to 15 m/s), and letting go settles back into a normal glide. Not other players' bases: the server's `rules.json`
+  up to 15 m/s), and letting go settles back into a normal glide; free crafting (the game's crafting menu crafts
+  without the ingredients, nothing is taken) and arrows, thrown items and staff ammunition that are not used up (on a
+  build where Kiln has those hooks; `/creative status` says). Not other players' bases: the server's `rules.json`
   must allow that. It grants no levels, XP,
   skill points or unlocks; it is meant for throwaway or creative worlds.
 - Refused for a player whose game has no Kiln with the rules channel (flight and building need it). The host of a

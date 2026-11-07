@@ -117,21 +117,21 @@ Size: S (hours), M (a day), L (several days). Risk: what breaks on a game update
 | Creative menu window | missing | **done**: Kiln's Creative screen (`F7`, pause-menu entry) | M | overlay window, not game widgets: no game look-alike slots, no drag and drop |
 | Item picker: take 1 / a stack / N | missing (API `Items.Give` only) | **done** (server-checked, any build with kiln.items) | M | low |
 | Item customization: level, rarity | API only | **done** (level, rarity) | S | low |
-| Item customization: upgrades unlocked, gem slot added | missing | missing | M | needs RE of the upgrade attributes; server only |
-| Drag and drop into a backpack slot | missing | missing (Take puts items where the game puts them) | L | game inventory UI hooks, client only |
+| Item customization: upgrades unlocked, gem slot added | missing | **done** (part 3): menu Upgrades 0-5 and Gem slot; `Gear.Unlocked`, `Gear.GemSlot` (kiln.items createPide hook) | M | lab-verified; persistence across a restart not checked |
+| Drag and drop into a backpack slot | missing | missing (Take puts items where the game puts them); what it takes: Part 3 section 7 | L (M for a Kiln-drawn backpack grid) | game inventory UI hooks, client only |
 | Picker filter "without equipment" | missing | **done** | S | low |
-| Journey picker mode (only discovered items, level cap) | missing | **done**: "Only what I have found" (server item-knowledge reads); no level cap | M | knowledge reads need a joined player (not lab-testable) |
+| Journey picker mode (only discovered items, level cap) | missing | **done**: "Only what I have found" (server item-knowledge reads); level capped at the character's level (part 3, server side) | M | knowledge and level reads need a joined player (not lab-testable) |
 | Catalogue hiding debug/unused items | missing | **done** (Kiln's own name rules: 33 of 4,213 left out on svn 1287369) | S | heuristic |
 | Character flight (the character flies) | partial (the game's fly mode anywhere, body carried) | partial | L | locomotion on server and prediction; high risk; glider work in progress elsewhere |
 | Flight only in building areas | has (the game's own fly mode is base-only) | has | - | - |
 | No fall damage | has in `/creative` (its invulnerability cancels falls) | **done**: a standalone `NoFallDamage` rule for other presets | S | server only (Kiln.Combat fall event) |
 | No building costs + missing-materials preview | has (`BuildCost` 0 lifts both) | has | - | - |
 | Free storage-chest upgrade | missing (the upgrade pays outside `ApplyMaterials`) | **done**: `rules.storage` waives the upgrade's own payment with `BuildCost` 0 | S | server hook on the inventory payment, matched by return address |
-| No crafting costs | missing | **done** server side: `FreeCrafting` (craft event canceled, recipe output given); `/creative` turns it on | M | the game's crafting menu still wants the inputs before it sends (client hook not done) |
-| Consumables not used up | missing | **done** for food, drinks, potions, bandages: `KeepConsumables` (the used one is given back); arrows not | M | arrows need the ammo removal site (RE) |
+| No crafting costs | missing | **done** (part 3): `FreeCrafting` as the recipe payment answering "paid" inside the game's transaction (both payers), and the crafting menu's craft buttons (client hook on the craftable amount) | M | server lab-verified; the buttons need the client checklist |
+| Consumables not used up | missing | **partial** (part 3): `KeepConsumables` skips the two consume removals (arrows, thrown items, staff ammunition); food, drinks, potions, bandages: not yet (their removal site is not found) | M | needs a player firing (client checklist) |
 | Time of day jump | has (`Time.Set`) | **done** in the menu and `/creative time` | S | low |
 | Day/night cycle stopped / fast | missing | **done** in kiln.time (`Time.SetCycle`), menu and `/creative cycle` | M | server hook on the daytime speed setter (docs/re/time.md); clients follow the game's own daytime sync |
-| Map reveal radius / whole map | missing | missing | M | client fog-of-war RE; client only, persistent per character |
+| Map reveal radius / whole map | missing | **done** (part 3): World > Map reveal (game's, 200 m, 400 m, whole map; session only, creative on) | M | client only: client checklist |
 | Configurable keys | has (`KeyBindings`, Kiln menu Keys tab) | has | - | - |
 | HUD status line | has (`Hud.Show`) | **done** (creative status line) | S | - |
 | Item stats fix for given items | n/a | n/a | - | Kiln gives through the game's own spawn path |
@@ -141,3 +141,202 @@ Size: S (hours), M (a day), L (several days). Risk: what breaks on a game update
 
 What "done" covers, how it was tested and what is left: `docs/kiln/services/rules.md` ("Creative menu"),
 `docs/kiln/commands.md` (`/creative`).
+
+## Part 3 research (agent creative3, 2026-11-07): the game functions behind the remaining features
+
+Static analysis of the game executables only (Kiln's own work, nothing taken from the mod): client 26430625
+(`enshrouded.exe`, `5d9ef2f1…`), server 26430253 (`enshrouded_server.exe`, `f0d824be…`). RVAs are image-relative, client
+in brackets. Tools: `tools/sigport/exeinfo.py` function tables, capstone, the client's reflection dump
+(`tools/kfc/.out/vfx-build/types/5d9ef2f1….json`) for field names. Tags: **[dis]** disassembly, **[refl]** reflection
+names and offsets, **[inf]** inference, not yet run. Component hashes below are FNV-1a-32 of the reflected type name
+(`keen::ecs::<Name>`), so they hold across builds. Every server-side site below exists unchanged in the client exe too
+(a hosted LOCAL world runs the server world inside the client), and every draft pattern was checked unique on both
+exes unless it says "client only".
+
+**Status (Phase B, 2026-11-07).** Built and lab-verified on the server: free crafting (both payers), gear upgrades and
+gem slot. Built, hook installs, needs a player: kept arrows / thrown items / staff ammunition. Built, client only (client
+checklist): map reveal, craft buttons. Journey level cap: server side, needs a joined player. Not built: character
+flight (research below and a lab probe), food and potions not used up, drag and drop. Code: `native/services/rules/
+creative.cpp`, `native/services/items/pide.cpp`; docs: `docs/kiln/services/rules.md`, `docs/kiln/services/items.md`.
+
+**Public source check (2026-11-07).** Neither Creative Mode nor its "Flame" runtime (`flame.json`, `FlameStartRuntime`)
+has public source: GitHub repository and code searches and a web search found nothing, and the archive carries no
+licence or source link. The clean-room rule stands. The only related open project is Shroudtopia
+(github.com/s0t7x/shroudtopia, MIT, commit `5e734dd`, cloned read-only to `/mnt/Dongus/kiln-wave/creative3/src-ref/`).
+Its `flight_mod` is not character flight: it replaces one float load in the glider code (a 2024 build, svn 637515) to
+change the glide sink. It is of no use for items 1-7 beyond confirming that the glider is the only flight the game
+gives a player. The EML / kfc-parser project (Brabb3l) is a data patcher and exporter (GPL, never copied into Kiln).
+
+### 1. Map reveal (client only)
+- **The fog object** **[dis]**: `FogOfWar` (0x48 B) is created by `[0x3a1970]` (client world setup `[0x3a60b0]`, stored at
+  `clientWorld+0x3dc0` and registered as ECS system data named `"FogOfWar"`): `+0x00 float2` map size in metres, `+0x08
+  uint2` tile counts (`ceil(size × 0.125 / 32)`: one texel per 8 m, 32×32-texel tiles of 1 KiB), `+0x18` tile texels,
+  `+0x20` tile count, `+0x28` a dirty-tile bitset, `+0x40` dirty count (the renderer `[0xd9b970]` uploads dirty tiles; the
+  save is read by `[0x3a1da0]`, "[fog_of_war] …" log lines).
+- **The system** **[dis] [refl]**: ECS program `fog_of_war`, descriptor at `[.rdata 0x1e2b2c0]`: reads
+  `FogOfWarDiscovery` (`discoveryRange` f32 +0), `PlayerState`, `RenderTransform`, `LocalPlayerData`, system data
+  `FogOfWar`; update `[0x30c670]`. Per entity: only the local player (`[0x3bb740]`), not while `PlayerState+0x34` bit
+  `0x40000` is set; position = RenderTransform x/z (32.32 fixed point × 2⁻³²), then the one call below.
+- **`FogDiscover(FogOfWar*, const float2* posXZ, float range)` `[0x3a2780]`** **[dis]**, its only caller is the system:
+  radius in texels = `range × 0.125 × 0.5`, so **`discoveryRange` is a diameter** (a "200 m radius" reveal is
+  `range = 400`). It clamps the circle's bounding box to the map (texel y = `size.y − z`), paints each touched tile
+  with the SIMD circle painter `[0x1c540]` (ISPC-style dispatch), and marks changed tiles dirty. Tiles once painted stay
+  painted; the client saves them with the character.
+- **Plan**: a detour on `FogDiscover` (kiln-rules client side, like `rules/client.*`): Default = untouched; 200 m / 400 m
+  = `range = max(range, 2 × R)`; Whole map = once per `FogOfWar*` (a new pointer after a world load reveals again) call
+  the original with ranges that cover the map. A single call with a huge range would mark every tile dirty in one
+  frame (1,600 tiles for a 10 km map; the upload `[0xd9b970]` allocates a per-frame upload buffer and logs
+  "allocateDynamicUploadBuffer … failed" when it cannot), so sweep it: a grid of circles over a few dozen frames,
+  map size from `+0x00`. Off on an unknown build (the pattern pins the function body). No server part.
+- Draft sigdb (client only):
+  ```json
+  "rules/client.FogDiscover": { "comment": "FogDiscover(FogOfWar*, const float2* posXZ, float range): the fog_of_war system's per-frame discover call; range is a diameter in metres",
+    "find": [ { "pattern": "40 53 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 79 {rules/client.fow.tiles:d8} 4C 8B F1 F3 0F 10 05 ?? ?? ?? ?? 44 8B CF 0F 29 7C 24 60" } ] },
+  "@rules/client.FogDiscover.caller": { "comment": "the system's call: range from FogOfWarDiscovery in xmm2",
+    "find": [ { "pattern": "F3 0F 59 C6 F3 0F 59 CE F3 0F 11 84 24 80 00 00 00 F3 0F 11 8C 24 84 00 00 00 F3 0F 10 10 E8 {rules/client.FogDiscover:rel32}" } ] }
+  ```
+  `rules/client.fow.tiles` = 8 (the map size is the float2 at +0, read with the tile counts as a sanity check).
+
+### 2. Unlocked upgrades and a gem slot on taken gear (server)
+- **createPide** `0x1b1920` `[0x411e20]` (sigdb has none yet; docs/re/items.md section 10) **[dis]** builds a list of
+  component overrides `{u32 componentHash; void* data; u64 size}` (24 B entries; pointer `[rbp-0x68]`, count
+  `[rbp-0x60]`, capacity `[rbp-0x58]` = 8 inline, grown through `[rbp-0x50]`) and spawns the item's pide template with
+  it (`0x5fb340` `[0x95f7f0]`, call at `0x1b1e9d` `[0x41239d]`). Entries, by hash **[refl]**: `UsedItem 0x0b02361d` (4),
+  `ItemState 0x3a2fac75` (20), `OwnerRelationship 0xd7361788` (4), `Level 0xe550da37` (16: dataStorage `u32[2]` at +8,
+  current at index `[0x14c6148]` = 0, max at `[0x14b0de0]` = 1), `FuelPercentageInit 0x6d3a006d` (4),
+  `PerkContainerNew 0xe288d50c` (2: `availablePerks`, `unlockedPerks` = 0), and for `ItemInfo+0xCC == 2` (Weapons)
+  `WeaponGemSlot 0x84ba9b52` (12 B of zeros = an empty `ItemStack`) when the BalancingRegistry chance roll wins or
+  `ItemInfo+0x798 gemSlotOverride` is set.
+- **What an unlock is** **[dis]**: the free perk step of `inventory_actions` (`0x19fe00`) does `unlockedPerks += 1` (only
+  while `< availablePerks`) and the Level attribute (`0x724bf568`) `+= 1` through `0x19d7b0` (AttrFind, write, `0xab970`
+  recompute), then an `ItemPerkChanged`-style event. So a fully upgraded item is `unlocked = available` and
+  `Level.current = base + available` (docs/re/items.md: "LEVEL 54/54 on an instance given at level 50 with 4 perks").
+- **Plan**: a mid hook on that spawn call (kiln.items, which owns createPide's callers and runs every Give inside its
+  program, so a thread-local "this commit's options" set around its `InventoryCommit` is exact). For a Give with
+  `Unlocked`: find the `PerkContainerNew` and `Level` entries in the list and set `unlocked = available`,
+  `current += available`. With `GemSlot`, on a Weapon whose list has no `WeaponGemSlot` and `count < capacity`: append
+  `{0x84ba9b52, &zero12, 12}` (a static zeroed buffer, alive until the spawn copies it). Everything else spawns as the
+  game made it. `rebalance_perks_and_level` later re-clamps `Level − unlocked` into the item's range, which our base
+  level already is. Lab-testable: give, then read `PerkContainerNew`, `Level`, `WeaponGemSlot` back with kiln.world.
+- Draft sigdb (server and client):
+  ```json
+  "items/CreatePide": { "find": [ { "pattern": "48 89 5C 24 20 55 57 41 54 41 55 41 56 48 8D AC 24 50 FF FF FF 48 81 EC B0 01 00 00 45 33 E4 C6 85 F0 00 00 00 FF" } ] },
+  "items/PideSpawnCall": { "comment": "createPide's spawn of the pide template; mid hook on the call: rbp-relative override list, rdi = ItemInfo",
+    "find": [ { "scope": { "symbol": "items/CreatePide", "size": 1600 },
+      "pattern": "48 8B 4D {items/pide.list:d8} 48 8D 97 4C 05 00 00 48 89 8D 80 00 00 00 45 8B CC 48 8B 4D {items/pide.count:d8} 44 8B C3 48 89 8D 88 00 00 00 0F B6 0D ?? ?? ?? ?? 88 4C 24 38 48 8D 8D 80 00 00 00 C6 44 24 30 04 48 89 4C 24 28 48 8B C8 48 89 54 24 20 48 8D 54 24 48 E8",
+      "offset": 76 } ] },
+  "@items/CreatePide.category": { "find": [ { "scope": { "symbol": "items/CreatePide", "size": 1600 }, "pattern": "80 BF {items/item.category:d32} 02 48 8B B5 ?? ?? 00 00 0F 85" } ] }
+  ```
+  `items/pide.list` = -0x68, `items/pide.count` = -0x60 (signed d8), the capacity is the qword after the count;
+  `items/item.category` = 0xCC.
+
+### 3. Crafting without the inputs in the game's crafting menu (client only)
+- **Path of a craft click** **[dis]**: the crafting screen's update `[0xc79250]` (one caller, `[0xc75840]`) asks
+  **`UiCraftableAmount(gameUi, u32 recipeId, u16 cap, const RecipeInputCategorySelections*)` `[0xb2ddd0]`** how many it
+  can make (cap 1 for "craft", 10 for "craft 10"), stores it in the recipe entry and passes it to the button hints
+  (`[0xd21120]`), which enable or disable the craft actions. The action handler `[0xd13120]` only queues a craft when an
+  enabled action of type 0 (one) or 0x1b (ten) is pressed, through **`UiQueueCraftRecipe(ctx, recipeId, station,
+  amount, selections*)` `[0xd6e460]`**, which writes UI command 0x37 (55). The UI dispatcher `[0x85c7f0]` (case 55) turns
+  it into `UiCraftRecipeEvent` (56 B: operator, station, recipe, amount, selections) without checks, and
+  `[0x3af670]` copies UI events into `ClientPlayerInput` for the server.
+- `UiCraftableAmount` itself is a cache lookup (a map at `gameUi[0xd0]→[0]→+0x38 + 0x14f70` keyed by `{1, recipe, cap,
+  selections}`, the count filled in asynchronously; 0 until then). Callers: the crafting screen, the flame altar
+  `[0xbc3f70]`, and `[0xcee020]`, `[0xd90b90]`, `[0xd9a230]` (other recipe views).
+- **Plan**: a client hook on `UiCraftableAmount` returning `max(result, cap)` while the local player's creative
+  FreeCrafting is on (the server tells the client over the `kiln:creative` channel). The server already answers the
+  craft with the output and takes nothing (FreeCrafting). Ingredient rows keep showing "missing" in red (their own
+  per-ingredient counts); only the buttons change. **[inf]** until a client check: whether some view also needs the
+  ingredient counts to enable the button.
+- **The server half, inside the game's own transaction** (FreeCrafting is switched off today because the old
+  "cancel and give" path could not keep the inputs inside the game's transaction): the recipe function
+  `items/RecipeApply` `0x19a1d0` `[0x3f8f30]` pays the inputs with `rules/InventoryPay` `0x199c80` `[0x3f89e0]` (the
+  payment kiln.rules already hooks for the storage upgrade) or, for recipes with flag `0x40`, with a second payer
+  `0x19a9b0` `[0x3f9700]` (same arguments `(tx, costs, owner, multiplier, extra)`, its only caller); flag `0x10` is the
+  game's own "free recipe". Return 0 = paid, then the output goes in through the same transaction **[dis]**. So
+  FreeCrafting can be the payment hook answering 0 when the return address is the recipe function's call
+  (`0x19a28c` `[0x3f8fec]`) and the transaction's operator (`items/tx.operator`) has FreeCrafting, plus a detour on the
+  second payer with the same test. Stations (operator = the station) and everyone else pay as usual. Draft:
+  `"rules/RecipePaid": { "find": [ { "scope": { "symbol": "items/RecipeApply", "size": 256 }, "pattern": "A8 40 75 07 E8 {rules/InventoryPay:rel32} EB 05 E8 {rules/RecipePayAlt:rel32} 85 C0 0F 85", "offset": 9 } ] }`
+  (unique on both exes; `offset` 9 is the return address of the first call, the second payer is captured).
+- Draft sigdb (client only): `"rules/client.CraftableAmount": { "find": [ { "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 70 48 8B 81 ?? ?? 00 00 0F 57 C0 41 0F 10 49 10 48 8B F1 4C 8B 10 49 8B 7A 38 0F 11 44 24 40 48 81 C7 ?? ?? ?? ?? 66 44 89 44 24 44" } ] }`.
+
+### 4. Arrows, spell ammunition and thrown items not used up (server)
+- The two removal sites are **[dis]** the spawn path's `consume` (`0x42390`, SpawnEntityEvent with `consume`: bows,
+  throwables) and the usage-cost payer `0x40d00` (`PayUsageCost.consume`: staffs' spell ammunition) (docs/re/abilities.md).
+  Each builds its own inventory transaction and calls `items/InventoryRemoveItems` (`0x1b0d90` `[0x411360]`) with
+  `owner = current entity` (the actor), the used item and count 1, then commits only when `!out.error && out.value ==
+  0`. After the commit the cost payer re-equips ammunition when the stack ran out (`0x93a5b0`, `equipItem`).
+- **Plan**: like the storage-upgrade payment (`rules.storage`): hook `InventoryRemoveItems` and answer
+  `{error 0, value 0}` without touching the transaction when the return address is one of the two sites below and the
+  owner's rules have `KeepConsumables`. The commit then has no op; nothing is removed and nothing re-equips. Validate
+  each return address (it must follow `E8 rel32` to the hooked function), as `upgrade_call_valid` does. Lab: a spawned
+  character with KeepConsumables and a bow cannot fire without a client; the hook can be driven by an ability test
+  (`Abilities.PlaySequence` has no used item, so check `Kiln.Abilities` first) or verified by return-address resolution
+  and a client checklist.
+- Draft sigdb (server and client; the hook needs the return address = pattern start + 38):
+  ```json
+  "rules/AmmoConsumed": { "comment": "the spawn path's consume: removeItems(out, tx, actor, usedItem, slot, 1); returns here",
+    "find": [ { "pattern": "C7 44 24 28 01 00 00 00 48 8D 95 ?? ?? 00 00 44 8B CF 4C 89 7C 24 20 48 8D 8D ?? ?? 00 00 44 8B 00 E8 {items/InventoryRemoveItems:rel32} 80 BD ?? ?? 00 00 00", "offset": 38 } ] },
+  "rules/CostConsumed": { "comment": "PayUsageCost.consume: removeItems(out, tx, actor, costItem, slot, 1); returns here",
+    "find": [ { "pattern": "45 8B 4C 24 08 48 8D 95 ?? ?? 00 00 C7 44 24 28 01 00 00 00 48 8D 4C 24 30 48 89 5C 24 20 44 8B 00 E8 {items/InventoryRemoveItems:rel32} 44 38 6C 24 30", "offset": 38 } ] }
+  ```
+
+- KeepConsumables is switched off today because slot-change notices cannot prove a use. Skipping the removal inside
+  the game's transaction (above) needs no proof, so the same hook can bring it back. Food, drinks and potions go
+  through other removal sites; the other callers of `InventoryRemoveItems` are `0x75bc0` (a program),
+  `0x14d750`, `0x1a1230` (from `inventory_actions` `0x1a5af0`, writes an event of type `0x103e50ea` after the removal)
+  and the wrapper `0x1b0d60`. Which one is eating and drinking is not confirmed yet **[inf]**.
+
+### 5. Journey level cap (no RE needed)
+The mod caps gear levels at the character's level in Journey mode (feature 2 above). Kiln.Players' `Progression`
+already reads the character's `Level`; the cap is a clamp in `CreativeTools.Give` / the menu when "Only what I have
+found" is on.
+
+### 6. Character flight (server and the player's prediction)
+- **Locomotion states** **[refl]** `keen::ecs::LocomotionState`: Walking 0, Sliding 1, Falling 2, Flying 3, HangGliding 4,
+  HookPulling 5, HookSwinging 6, ClimbingWall 7, ClimbingLadder 8, Swimming 9, Diving 10, BuildingFlying 11. The state
+  is `DynamicLocomotion+0x59`.
+- **The mover dispatch** in `locomotion_execution` (`0x1dcf90` `[0x43d6d0]`, jump tables at `0x1dd98c` / `0x1dd9bc`)
+  **[dis]**: Walking `0x1d4370`/`0x1d4870`, Sliding `0x1d3260`, Falling `0x1d12a0`, HangGliding `0x1d2320` (the glide
+  step), Swimming `0x1d3900`, Diving `0x1d0d70`, **BuildingFlying `0x1d09d0`**; Flying (3), the hook and climbing states
+  have no mover of their own. Then the common step `0x1d16c0`.
+- **The state decision** `LocoNextState` `0x1c5180` `[0x4259a0]`, called from the state program `0x1e0240` (`0x1e043a`
+  `[0x440b7a]`; result written to `+0x59` at `0x1e047a`) **[dis]**: **if the state is BuildingFlying it stays
+  BuildingFlying**, before any other test; then ladder 8, wall 7, hooks 5/6, an actor-state flag 0x27 → Flying 3, …
+  So a player entity whose state is set to 11 keeps it, and moves with the building spark's own mover.
+- **The BuildingFlying mover** `0x1d09d0` **[dis]**: steers `Velocity` toward the desired movement (iterator +0xf8) with
+  an acceleration row picked by two ActorInput flags (`0x35` = Sprint 53, and `0x15`) from the movement config at
+  iterator +0x10 (`0x1d0470` does the step). What feeds the vertical part for the spark (jump / crouch while building)
+  is not traced yet: `player_control_building_fly_mode` copies the player's ActorInput into the spark's; the player's
+  own control writes `desiredLocalMoveInput = (stick.x, 0, stick.y)` (docs/re/rules.md section 7).
+- **Gravity** `gravity_apply_velocity_actor` `0xa0de0` `[0x2a3510]` does not look at the locomotion state: Velocity +=
+  dir × strength × dt unless `Gravity+0x10` (enabled) is 0 or the actor is grounded. So a flying player also needs
+  gravity off. The glider's mid hook sits on the strength selection (`rules/GlideGravity`, `0xa0f13`); a separate mid
+  hook right after the StepDelta call (`0xa0f1f` `[0x2a364f]`, no shared bytes) can zero `xmm6` for flying entities
+  without touching the glide code. Draft: `"rules/FlightGravity": { "find": [ { "pattern": "F3 0F 10 72 40 48 8D 55 ?? 48 8B CF E8 ?? ?? ?? ?? 48 8B 4D ?? 48 8B 18 48 8B 45 ?? F2 0F 10 00 8B 70 08", "offset": 17 } ] }`
+  (unique on both exes; the actor comes from `[rbp + rules/grav.actor]` as for the glider).
+- **Plan, behind its own feature flag (`rules.flight`, off by default)**: entering flight writes state 11 on the
+  player entity (server, from the rule) and the same in the client's prediction (the local player's rule, as the glider
+  hooks do); landing writes Falling (2), and "Building area only" lands the player when the build-zone test fails. A
+  mid hook after `LocoNextState` returns (`0x1e043f`) can hold 11 for a flying entity and drop it otherwise, so the
+  state never sticks without the rule. Open before it can work: the vertical input (Space / C) for a player that is
+  not the spark, how `DynamicNetworkLocomotion.state` replicates 11 to the client and to other players (animation:
+  the player graph has no BuildingFlying animation; `locomotion_animation` picks from a fixed table, docs/re/npc-internals.md),
+  and air-jump / glider / dive inputs while flying. Size L, high risk, as the gap table says.
+  Draft: `"rules/LocoNextState": { "find": [ { "pattern": "48 89 5C 24 10 48 89 6C 24 18 48 89 7C 24 20 41 56 48 83 EC 40 41 80 78 {rules/loco.state:d8} 0B 49 8B E9 49 8B F8 48 8B DA 4C 8B F1 75 ?? B0 0B" } ] }`,
+  `"rules/LocoStateWrite": { "find": [ { "pattern": "E8 {rules/LocoNextState:rel32} 48 8B 55 ?? 0F B6 D8 38 5A {rules/loco.state:d8} 74", "offset": 5 } ] }` (`rules/loco.state` = 0x59).
+
+- **Lab probe** (`mods/tests/creative-test` FlightProbe, INFO only, lab `wv-creative3-a`, 2026-11-07) **[rt]**: a raw write of
+  `DynamicLocomotion+0x59 = 11` on a spawned player character holds: "step 1: state 11 … step 50: state 11" (2 s), and
+  writing 2 (Falling) back lands it ("state 2, grounded True"). So the sticky state is real on a player entity. The
+  character stood on the ground (the probe's 30 m teleport did not apply within 60 steps after the fall test), so whether
+  gravity pulls a BuildingFlying player down is still open; the gravity code says it does.
+
+### 7. Drag and drop from the creative menu into the backpack
+Kiln's creative menu is an ImGui overlay window, not a game widget, so a drag from it cannot land on the game's
+inventory slots: the game's drag and drop lives in its own UI (the HUD screens drawn by `gameui`), which Kiln does not
+draw into. What it would take: either (a) a game-UI drop target, i.e. hooking the inventory screen's drop handler
+and feeding it a synthetic "dragged stack" (client RE of the inventory UI's drag state, plus a server request to put
+the item into the exact slot: kiln.items' `Give` has no slot parameter yet, `InventoryAddItems` takes one), or (b) a
+Kiln-drawn copy of the backpack grid inside the overlay that sends "give into slot N" (needs only the slot parameter
+and the player's inventory read, which kiln.items has). (b) is M, (a) is L with client-only RE. Not built.

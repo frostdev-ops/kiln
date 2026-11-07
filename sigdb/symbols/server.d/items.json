@@ -100,6 +100,26 @@
         { "pattern": "40 53 48 83 EC 50 48 8B D9 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 40 41 B8 24" }
       ]
     },
+    "items/CreatePide": {
+      "comment": "createPide (the commit of a put op for an item with HasPIDE): builds the component overrides {u32 hash; ptr data; u64 size} and spawns the item's pide template. Server 26430253 0x1b1920, client 26430625 0x411e20 (docs/re/items.md section 10, docs/re/creative-mode-146.md Part 3 section 2)",
+      "find": [
+        { "pattern": "48 89 5C 24 20 55 57 41 54 41 55 41 56 48 8D AC 24 50 FF FF FF 48 81 EC B0 01 00 00 45 33 E4 C6 85 F0 00 00 00 FF" }
+      ]
+    },
+    "items/PideSpawn": {
+      "comment": "createPide right before it copies the override list (pointer [rbp+(int8)pide.list], count [rbp+(int8)pide.count], capacity after the count) for the spawn of the pide template; rdi = ItemInfo. The mid hook of KILN_ITEMS_UNLOCK / GEM_SLOT goes here",
+      "find": [
+        { "scope": { "symbol": "items/CreatePide", "size": 1600 },
+          "pattern": "48 8B 4D {items/pide.list:d8} 48 8D 97 4C 05 00 00 48 89 8D 80 00 00 00 45 8B CC 48 8B 4D {items/pide.count:d8} 44 8B C3 48 89 8D 88 00 00 00 0F B6 0D ?? ?? ?? ?? 88 4C 24 38 48 8D 8D 80 00 00 00 C6 44 24 30 04 48 89 4C 24 28 48 8B C8 48 89 54 24 20 48 8D 54 24 48 E8" }
+      ]
+    },
+    "@items/CreatePide.fields": {
+      "comment": "the Level override's value indices (u32 globals: the max, then the current level) and ItemInfo's category (Weapons 2 get the gem slot)",
+      "find": [
+        { "scope": { "symbol": "items/CreatePide", "size": 1600 }, "pattern": "8B 05 {items/PideLevelMaxIndex:rel32} 8B 0B 89 4C 84 58 8B 05 {items/PideLevelIndex:rel32} 89 4C 84 58" },
+        { "scope": { "symbol": "items/CreatePide", "size": 1600 }, "pattern": "80 BF {items/item.category:d32} 02 48 8B B5 ?? ?? 00 00 0F 85" }
+      ]
+    },
     "items/IterBegin": {
       "find": [
         { "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 60 4C 8B 09 48" }
@@ -140,6 +160,9 @@
     }
   },
   "constants": {
+    "items/pide.list": { "min_votes": 1 },
+    "items/pide.count": { "min_votes": 1 },
+    "items/item.category": { "min_votes": 1 },
     "items/tx.result": { "min_votes": 3 },
     "items/tx.touched": { "value": 28992 },
     "items/tx.ops": { "value": 240 },
@@ -183,6 +206,10 @@
     },
     "items.recipe": {
       "symbols": ["items/RecipeApply", "content/RecipeFind"]
+    },
+    "items.pide_options": {
+      "symbols": ["items/CreatePide", "items/PideSpawn", "@items/CreatePide.fields", "items/PideLevelMaxIndex", "items/PideLevelIndex"],
+      "constants": ["items/pide.list", "items/pide.count", "items/item.category"]
     },
     "items.fuel": {
       "symbols": ["items/WriteOther", "items/JobTracker", "items/JobWriteFlag", "items/JobStorage", "items/AttrFind",

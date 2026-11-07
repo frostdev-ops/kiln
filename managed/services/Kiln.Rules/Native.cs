@@ -11,11 +11,29 @@ internal static unsafe class RulesNative
 
     // KilnRulesPlayer.flags
     public const uint FlyAnywhere = 0x01, BuildOutsideBases = 0x02, IgnoreNoBuildZones = 0x04, IgnoreEnemies = 0x08,
-        IgnoreShroud = 0x10, IgnoreBasePermissions = 0x20, ShroudFreeze = 0x40, GlideUnlimited = 0x80, GlideBoost = 0x100;
+        IgnoreShroud = 0x10, IgnoreBasePermissions = 0x20, ShroudFreeze = 0x40, GlideUnlimited = 0x80, GlideBoost = 0x100,
+        FreeCrafting = 0x200, KeepConsumables = 0x400;
 
     // KilnRulesStatus.hooks
     public const uint HookFly = 0x01, HookCursor = 0x02, HookCosts = 0x04, HookDig = 0x08, HookZone = 0x10, HookShroud = 0x20,
-        HookGlide = 0x40;
+        HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400;
+
+    // map_reveal modes
+    public const uint MapDefault = 0, MapRadius = 1, MapWhole = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Creative
+    {
+        public uint Size;
+        public uint MapMode;
+        public float MapRadius;
+        public uint MapRevealed;
+        public ulong MapCalls;
+        public ulong CraftsFree;
+        public ulong CraftUi;
+        public ulong ConsumesKept;
+        public ulong Faults;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Player
@@ -65,6 +83,37 @@ internal static unsafe class RulesNative
         public delegate* unmanaged[Cdecl]<uint, Player*, int> Get;
         public delegate* unmanaged[Cdecl]<Player*, int> SetLocal;
         public delegate* unmanaged[Cdecl]<Status*, int> GetStatus;
+    }
+
+    /// <summary>The same table with the functions added in 0.2.0-dev.16 (an older kiln.rules has no such table).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CreativeTable
+    {
+        public Table V1;
+        public delegate* unmanaged[Cdecl]<uint, float, int> MapReveal;
+        public delegate* unmanaged[Cdecl]<Creative*, int> GetCreative;
+    }
+
+    private static CreativeTable* _c;
+    public static CreativeTable* C => _c != null ? _c : (_c = Services.Get<CreativeTable>(Service, Version));
+    public static bool HasCreative => C != null;
+
+    /// <summary>The installed hooks (0 without the service).</summary>
+    public static uint Hooks
+    {
+        get
+        {
+            if (T == null) return 0;
+            var st = new Status { Size = (uint)sizeof(Status) };
+            return T->GetStatus(&st) == 0 ? st.Hooks : 0;
+        }
+    }
+
+    public static bool CreativeStatus(out Creative c)
+    {
+        c = new Creative { Size = (uint)sizeof(Creative) };
+        if (!HasCreative) return false;
+        fixed (Creative* p = &c) return C->GetCreative(p) == 0;
     }
 
     private static Table* _t;

@@ -47,6 +47,7 @@ public sealed class CreativeTestMod : Mod
             await Crafting(f);
             Found(f);
             await Falls(f);
+            await FlightProbe(f);
         }
         finally
         {
@@ -148,18 +149,71 @@ public sealed class CreativeTestMod : Mod
         r = await CreativeTools.Give(f, new ItemId(0xDEADBEEF), 1);
         Check(!r.Ok, $"an item that does not exist is refused: {r.Message}");
 
+        await GearOptions(f, gear);
+
         var st = CreativeTools.SetTime(f, 3);
         Info($"the character (no permission entry) asks for 03:00: {st.Ok}, {st.Message}");
     }
 
-    // ---- Unsafe managed fallbacks are denied; the game still owns crafting ----
+    // ---- Gear options at creation: upgrades unlocked, a gem slot (kiln.items' createPide hook) ----
+    private async Task GearOptions(EntityId f, ItemInfo gear)
+    {
+        if (!Items.GearOptionsAvailable)
+        {
+            Check(!(await CreativeTools.Give(f, gear.Id, 1, gear.LevelMin, ItemRarity.Epic, 5, true)).Ok,
+                "without the createPide hook, upgrades and gem slots are refused");
+            return;
+        }
+        var helmet = Items.All.FirstOrDefault(i => i.IsGear && i.Category == ItemCategory.Equipment && i.Name.StartsWith("Armor_", StringComparison.Ordinal));
+        if (helmet is not null)
+        {
+            await Steps(10);
+            var no = await CreativeTools.Give(f, helmet.Id, 1, null, null, 0, true);
+            Check(!no.Ok, $"a gem slot on armour is refused: {no.Message}");
+        }
+        async Task<InventorySlot?> GiveAndRead(int level, int upgrades, bool gem)
+        {
+            await Steps(10);  // the take gate: one take per 250 ms
+            var before = Items.Read(f)?.Slots.Where(s => s.Item == gear.Id).Select(s => s.ItemEntity).ToHashSet() ?? new();
+            var r = await CreativeTools.Give(f, gear.Id, 1, level, ItemRarity.Epic, upgrades, gem);
+            await Steps(3);
+            var slot = Items.Read(f)?.Slots.FirstOrDefault(s => s.Item == gear.Id && !before.Contains(s.ItemEntity));
+            Info($"gave {gear.Label} level {level}, Epic, upgrades {upgrades}, gem slot {gem}: {r.Message}");
+            return slot;
+        }
+        (int Avail, int Unlocked) Perks(InventorySlot s) =>
+            World.ReadBytes(s.ItemEntity, "PerkContainerNew") is { Length: >= 2 } b ? (b[0], b[1]) : (-1, -1);
+        bool Gem(InventorySlot s) => World.Has(s.ItemEntity, "WeaponGemSlot");
+
+        var plain = await GiveAndRead(30, 0, false);
+        var full = await GiveAndRead(30, 5, true);
+        var two = await GiveAndRead(30, 2, false);
+        if (!Check(plain is not null && full is not null && two is not null, "three gear items given for the options")) return;
+        var pp = Perks(plain!);
+        var fp = Perks(full!);
+        var tp = Perks(two!);
+        Check(pp.Avail > 0 && pp.Unlocked == 0 && plain!.Level == 30,
+            $"plain Epic: perks {pp.Unlocked}/{pp.Avail} unlocked, level {plain!.Level} (gem slot from the game's roll: {Gem(plain)})");
+        Check(fp.Avail == pp.Avail && fp.Unlocked == fp.Avail && full!.Level == 30 + fp.Avail,
+            $"all upgrades: perks {fp.Unlocked}/{fp.Avail}, level {full!.Level} (asked 30 + {fp.Avail})");
+        Check(Gem(full!), $"the weapon has a gem slot (WeaponGemSlot on item entity {full!.ItemEntity})");
+        Check(tp.Unlocked == Math.Min(2, tp.Avail) && two!.Level == 30 + tp.Unlocked,
+            $"two upgrades: perks {tp.Unlocked}/{tp.Avail}, level {two!.Level}");
+        var st = World.ReadBytes(full!.ItemEntity, "ItemState");
+        Info($"the upgraded item's ItemState: {(st is null ? "unreadable" : Convert.ToHexString(st))}");
+    }
+
+    // ---- Free crafting inside the game's own transaction (kiln.rules' recipe payment hook) ----
     private async Task Crafting(EntityId f)
     {
         if (!Gameplay.Available || !Gameplay.Enable()) { Info("Kiln.Gameplay is not available: crafting skipped"); return; }
         var on = Creative.Set(f, true);
-        Check(Rules.Of(f) is { FreeCrafting: false, KeepConsumables: false } safe &&
-              safe.Denied.Contains("freeCraftingUnavailable") && safe.Denied.Contains("keepConsumablesUnavailable"),
-            $"unsafe free crafting and consumable reimbursement are denied: {Rules.Of(f)} ({on.Message.Length} chars)");
+        var r0 = Rules.Of(f);
+        Info($"rules with creative on: {r0} (denied: {string.Join(", ", r0.Denied)}; {on.Message.Length} chars)");
+        Check(r0.FreeCrafting ? !r0.Denied.Contains("freeCraftingUnavailable") : r0.Denied.Contains("freeCraftingUnavailable"),
+            $"free crafting is on exactly when the native recipe-payment hook is installed (on: {r0.FreeCrafting})");
+        Check(r0.KeepConsumables ? !r0.Denied.Contains("keepConsumablesUnavailable") : r0.Denied.Contains("keepConsumablesUnavailable"),
+            $"kept consumables are on exactly when the native consume hook is installed (on: {r0.KeepConsumables})");
         GameplayRecipe? recipe = null;
         var station = EntityId.None;
         foreach (var s in World.Find("Crafting").Where(e => !e.IsPlayer && !World.Has(e, "FactoryStation")))
@@ -172,29 +226,52 @@ public sealed class CreativeTestMod : Mod
             if (recipe is not null) { station = s; break; }
         }
         if (!Check(recipe is not null, $"a station {station} with a simple recipe 0x{recipe?.Id:x8}")) return;
-        foreach (var i in recipe!.Inputs) await Items.Give(f, new ItemId(i.ItemId), i.Count);
-        await Steps(2);
         int Count(uint id) => Items.Read(f)?.Count(new ItemId(id)) ?? 0;
+        var outId = recipe!.Outputs[0].ItemId;
+        async Task<int> Craft()
+        {
+            var before = Count(outId);
+            Gameplay.Inject.Craft(f, station, recipe.Id);
+            for (var i = 0; i < 40 && Count(outId) == before; i++) await Steps(1);
+            await Steps(3);
+            return Count(outId) - before;
+        }
+        string Inputs() => string.Join(", ", recipe.Inputs.Select(i => $"0x{i.ItemId:x8} x{Count(i.ItemId)}"));
+        foreach (var i in recipe.Inputs) await Items.Give(f, new ItemId(i.ItemId), i.Count);
+        await Steps(2);
         var inBefore = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
-        var outId = recipe.Outputs[0].ItemId;
-        var outBefore = Count(outId);
-        Gameplay.Inject.Craft(f, station, recipe.Id);
-        for (var i = 0; i < 40 && Count(outId) == outBefore; i++) await Steps(1);
-        await Steps(3);
-        var inAfter = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
-        Check(Count(outId) > outBefore && inAfter.Any(kv => kv.Value < inBefore[kv.Key]),
-            $"native crafting still spends inputs at {station}: output 0x{outId:x8} {outBefore} -> {Count(outId)}, inputs " +
-            string.Join(", ", inBefore.Select(kv => $"0x{kv.Key:x8} {kv.Value} -> {inAfter[kv.Key]}")));
+        var made = await Craft();
+        var kept = recipe.Inputs.All(i => Count(i.ItemId) == inBefore[i.ItemId]);
+        if (r0.FreeCrafting)
+        {
+            Check(made > 0 && kept, $"free craft at {station}: output 0x{outId:x8} +{made}, inputs kept ({Inputs()})");
+            foreach (var i in recipe.Inputs)
+                if (Count(i.ItemId) > 0) await Items.Take(f, new ItemId(i.ItemId), Count(i.ItemId));
+            await Steps(2);
+            var none = recipe.Inputs.All(i => Count(i.ItemId) == 0);
+            var bare = await Craft();
+            Check(none && bare > 0, $"free craft with no inputs at all: output +{bare} (inputs {Inputs()})");
+            Check(Rules.Status() is { FreeCrafting: true, CraftsFree: > 0 } st,
+                $"kiln.rules counted the free crafts ({Rules.Status()?.CraftsFree})");
+        }
+        else
+        {
+            Check(made > 0 && !kept, $"without the hook the game's craft spends the inputs: output +{made} ({Inputs()})");
+        }
         Creative.Set(f, false);
         Check(!(await CreativeTools.Give(f, new ItemId(outId), 1)).Ok, "turning creative off refuses subsequent takes");
+        foreach (var i in recipe.Inputs) await Items.Give(f, new ItemId(i.ItemId), i.Count);
         await Steps(3);
-        var outMid = Count(outId);
-        Gameplay.Inject.Craft(f, station, recipe.Id);
-        for (var i = 0; i < 40 && Count(outId) == outMid; i++) await Steps(1);
-        await Steps(3);
-        var spent = recipe.Inputs.Any(i => Count(i.ItemId) < inAfter[i.ItemId]);
-        Check(Count(outId) > outMid ? spent : true,
-            $"without the rule the game's own craft takes the inputs: output {outMid} -> {Count(outId)}, inputs spent {spent}");
+        var inOff = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
+        var madeOff = await Craft();
+        var spent = recipe.Inputs.Any(i => Count(i.ItemId) < inOff[i.ItemId]);
+        Check(madeOff > 0 && spent, $"without the rule the game's own craft takes the inputs: output +{madeOff}, inputs spent {spent}");
+        var bareOff = 0;
+        foreach (var i in recipe.Inputs)
+            if (Count(i.ItemId) > 0) await Items.Take(f, new ItemId(i.ItemId), Count(i.ItemId));
+        await Steps(2);
+        bareOff = await Craft();
+        Check(bareOff == 0, $"without the rule and without inputs nothing is made (output +{bareOff})");
     }
 
     // ---- journey mode: the items the character has found ----
@@ -224,6 +301,31 @@ public sealed class CreativeTestMod : Mod
         (hit, h0, h1) = await Drop(f, 40);
         if (h1 < h0) Check(true, $"without the rule the same drop costs health: {h0} -> {h1}");
         else Info($"without the rule the drop left health at {h1} of {h0}{(hit ? "" : " (no landing seen)")}: the game decided no damage here");
+    }
+
+    // ---- research for character flight (docs/re/creative-mode-146.md Part 3 section 6): INFO only ----
+    // The state decision keeps LocomotionState.BuildingFlying (11) once set, and its mover is the building spark's. What
+    // does a player character do in it, with gravity still on? Raw write of DynamicLocomotion.state (+0x59).
+    private async Task FlightProbe(EntityId f)
+    {
+        const int State = 0x59;
+        if (!World.TryRead<byte>(f, "DynamicLocomotion", out _)) { Info("flight probe: no DynamicLocomotion readable"); return; }
+        var at = World.Position(f)!.Value;
+        await Teleport.To(f, at with { Y = at.Y + 30 }, new TeleportOptions { FindGround = false });
+        for (var i = 0; i < 60 && World.Position(f)!.Value.Y < at.Y + 20; i++) await Steps(1);
+        byte Read() => World.ReadBytes(f, "DynamicLocomotion") is { Length: > State } b ? b[State] : (byte)255;
+        var y0 = World.Position(f)!.Value.Y;
+        Info($"flight probe: 30 m up, state {Read()}, y {y0:0.0}; writing BuildingFlying (11)");
+        World.TryWrite<byte>(f, "DynamicLocomotion", State, 11);
+        for (var i = 1; i <= 50; i++)
+        {
+            await Steps(1);
+            if (i is 1 or 5 or 10 or 25 or 50)
+                Info($"flight probe: step {i}: state {Read()}, y {World.Position(f)!.Value.Y:0.00} ({World.Position(f)!.Value.Y - y0:+0.00;-0.00} m)");
+        }
+        World.TryWrite<byte>(f, "DynamicLocomotion", State, 2);
+        for (var i = 0; i < 200 && !PlayerStates.Is(f, PlayerStateId.Grounded); i++) await Steps(1);
+        Info($"flight probe: back to Falling (2): state {Read()}, grounded {PlayerStates.Is(f, PlayerStateId.Grounded)}, y {World.Position(f)!.Value.Y:0.0}");
     }
 
     private async Task<(bool Landed, int Before, int After)> Drop(EntityId f, double height)

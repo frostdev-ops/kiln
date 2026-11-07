@@ -96,7 +96,10 @@ public static unsafe class Rules
         {
             BuildingZone = (s.Hooks & RulesNative.HookZone) != 0, ShroudTimer = (s.Hooks & RulesNative.HookShroud) != 0,
             Gliding = (s.Hooks & RulesNative.HookGlide) != 0, ZoneForced = s.ZoneForced, ShroudHeld = s.ShroudHeld,
-            GlideChanged = s.GlideChanged,
+            GlideChanged = s.GlideChanged, FreeCrafting = (s.Hooks & RulesNative.HookCraft) != 0,
+            KeptConsumables = (s.Hooks & RulesNative.HookConsume) != 0, MapReveal = (s.Hooks & RulesNative.HookMap) != 0,
+            CraftButtons = (s.Hooks & RulesNative.HookCraftUi) != 0,
+            CraftsFree = RulesCrafting.Counters.Crafts, ConsumablesKept = RulesCrafting.Counters.Kept,
         };
     }
 }
@@ -196,6 +199,24 @@ public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool M
     public ulong ZoneForced { get; init; }
     public ulong ShroudHeld { get; init; }
     public ulong GlideChanged { get; init; }
+
+    /// <summary>The recipe-payment hooks (FreeCrafting): crafts pay nothing inside the game's own transaction.</summary>
+    public bool FreeCrafting { get; init; }
+
+    /// <summary>The two consume removals (KeepConsumables: fired arrows, thrown items, staff ammunition).</summary>
+    public bool KeptConsumables { get; init; }
+
+    /// <summary>Game client: the fog of war's discover call (the creative menu's map reveal).</summary>
+    public bool MapReveal { get; init; }
+
+    /// <summary>Game client: the crafting menu's craftable amount (craft buttons stay enabled with FreeCrafting).</summary>
+    public bool CraftButtons { get; init; }
+
+    /// <summary>Recipe payments answered "paid" so far.</summary>
+    public ulong CraftsFree { get; init; }
+
+    /// <summary>Consume removals skipped so far.</summary>
+    public ulong ConsumablesKept { get; init; }
 }
 
 /// <summary>A player's rules changed (a rule set applied, updated, ended, or an area entered or left). Posted on the tick

@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "pide.h"
 #include "kiln_api.h"
 #include "safetyhook.hpp"
 #include "services/kiln_items.h"
@@ -878,8 +879,14 @@ KilnResult submit(bool take, KilnOwner owner, const KilnItemsRequest* r, KilnIte
         return KILN_ERR_INVALID_ARGUMENT;
     const uint32_t allowed = take ? (KILN_ITEMS_EXACT_SLOT | KILN_ITEMS_DRY_RUN)
                                   : (KILN_ITEMS_LEVEL | KILN_ITEMS_RARITY | KILN_ITEMS_ALL_OR_NOTHING |
-                                     KILN_ITEMS_NOTIFY | KILN_ITEMS_NO_MERGE | KILN_ITEMS_DRY_RUN | KILN_ITEMS_RECIPE);
+                                     KILN_ITEMS_NOTIFY | KILN_ITEMS_NO_MERGE | KILN_ITEMS_DRY_RUN | KILN_ITEMS_RECIPE |
+                                     KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT);
     if (r->flags & ~allowed) return KILN_ERR_INVALID_ARGUMENT;
+    // gear options at creation (pide.cpp): not with a recipe; `unlock` only with UNLOCK (1..5, 255 = all)
+    if ((r->flags & (KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT)) && (r->flags & KILN_ITEMS_RECIPE)) return KILN_ERR_INVALID_ARGUMENT;
+    if ((r->flags & KILN_ITEMS_UNLOCK) ? !((r->unlock >= 1 && r->unlock <= 5) || r->unlock == 255) : r->unlock != 0)
+        return KILN_ERR_INVALID_ARGUMENT;
+    if ((r->flags & (KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT)) && !pide_available()) return KILN_ERR_UNAVAILABLE;
     if ((r->flags & KILN_ITEMS_RECIPE) && ((r->flags & (KILN_ITEMS_LEVEL | KILN_ITEMS_RARITY)) || r->slot))
         return KILN_ERR_INVALID_ARGUMENT;
     if ((r->flags & KILN_ITEMS_RARITY) && r->rarity > 4) return KILN_ERR_INVALID_ARGUMENT;
@@ -1216,6 +1223,8 @@ void resolve() {
     E.program_ok = feat("items.program") && common && sym("items/RegisterProgram", &E.register_program) &&
                    sym("items/RegisterAllPrograms", &E.register_all) && sym("items/IterBegin", &E.iter_begin) &&
                    cst("items/world.program_count", &E.program_count);
+    const bool pide = E.tx_ok && pide_install(g_api);
+    LOGI("gear options at creation (KILN_ITEMS_UNLOCK, KILN_ITEMS_GEM_SLOT): %s", pide ? "on" : "OFF (items.pide_options)");
     E.fuel_ok = E.tx_ok && feat("items.fuel") && sym("items/WriteOther", &E.write_other) &&
                 sym("items/JobTracker", &E.job_tracker) && sym("items/JobWriteFlag", &E.job_write_flag) &&
                 sym("items/AttrFind", &E.attr_find) && sym("items/AttrChanged", &E.attr_changed);

@@ -23,7 +23,15 @@ public static class CreativeTools
     /// <summary>Gives <paramref name="count"/> of <paramref name="item"/> to the player, as a stack the game makes
     /// (gear with a level and rarity when given). Refused (Ok false) unless <see cref="CanGive"/>; the server's catalogue
     /// decides what exists.</summary>
-    public static async Task<CreativeResult> Give(EntityId player, ItemId item, int count = 1, int? level = null, ItemRarity? rarity = null)
+    public static Task<CreativeResult> Give(EntityId player, ItemId item, int count = 1, int? level = null, ItemRarity? rarity = null) =>
+        Give(player, item, count, level, rarity, upgrades: 0, gemSlot: false);
+
+    /// <summary>As <see cref="Give(EntityId, ItemId, int, int?, ItemRarity?)"/>, for gear also with
+    /// <paramref name="upgrades"/> of its upgrades unlocked (5: all; each raises the level by 1, as at the workbench) and,
+    /// for a weapon, an empty gem slot (<paramref name="gemSlot"/>) when the game's roll gave none. Both need
+    /// <see cref="Items.GearOptionsAvailable"/>; without it they are refused.</summary>
+    public static async Task<CreativeResult> Give(EntityId player, ItemId item, int count, int? level, ItemRarity? rarity, int upgrades,
+        bool gemSlot)
     {
         Game.AssertTickThread();
         if (!Creative.IsOn(player)) return new(false, false, "Taking items needs creative mode (/creative).");
@@ -31,15 +39,18 @@ public static class CreativeTools
         var info = Items.Get(item);
         if (info is null) return new(false, true, $"No item {item} in this world's catalogue.");
         if (ValidateGive(info, count, level, rarity) is { } error) return new(false, true, error);
+        if (ValidateExtras(info, upgrades, gemSlot, Items.GearOptionsAvailable) is { } extra) return new(false, true, extra);
         if (!Gives.TryEnter(player, Environment.TickCount64, out var ticket)) return new(false, true, "Wait for your previous take, then try again.");
         var name = NameOf(player);  // continuations without a mod scheduler may run off the tick thread
         try
         {
-            Gear? gear = info.IsGear && (level is not null || rarity is not null)
-                ? new Gear(level, rarity)
+            Gear? gear = info.IsGear && (level is not null || rarity is not null || upgrades > 0 || gemSlot)
+                ? new Gear(level, rarity) { Unlocked = upgrades > 0 ? upgrades : null, GemSlot = gemSlot }
                 : null;
             var r = await Items.Give(player, item, count, gear, GiveOptions.Notify);
-            var what = $"{r.Done} x {info.Label}" + (gear is { } g ? $" (level {g.Level?.ToString() ?? "rolled"}, {g.Rarity?.ToString() ?? "default rarity"})" : "");
+            var what = $"{r.Done} x {info.Label}" + (gear is { } g ? $" (level {g.Level?.ToString() ?? "rolled"}, {g.Rarity?.ToString() ?? "default rarity"}" +
+                                                                     (upgrades > 0 ? (upgrades >= 5 ? ", all upgrades" : $", {upgrades} upgrade(s)") : "") +
+                                                                     (gemSlot ? ", gem slot" : "") + ")" : "");
             RulesRuntime.Log(LogLevel.Info, $"creative: {name} took {what} ({info.Name}, {item}): {r.Status}");
             return r.Status switch
             {
@@ -65,6 +76,24 @@ public static class CreativeTools
         if (level is { } l && (l < lo || l > hi)) return $"Level must be {lo}..{hi}.";
         if (rarity is { } r && !Enum.IsDefined(r)) return "Unknown rarity.";
         return null;
+    }
+
+    internal static string? ValidateExtras(ItemInfo info, int upgrades, bool gemSlot, bool available)
+    {
+        if (upgrades < 0 || upgrades > 5) return "Upgrades must be 0..5 (5: all).";
+        if ((upgrades > 0 || gemSlot) && !info.IsGear) return "Only gear has upgrades or a gem slot.";
+        if (gemSlot && info.Category != ItemCategory.Weapons) return "Only weapons have a gem slot.";
+        if ((upgrades > 0 || gemSlot) && !available) return "This server's game build cannot unlock upgrades or add gem slots.";
+        return null;
+    }
+
+    /// <summary>Journey mode: the level gear is given at, at most the character's level (null: the character's level is
+    /// not known, the request stands).</summary>
+    internal static int? JourneyLevel(int? asked, int characterLevel, int lo, int hi)
+    {
+        if (characterLevel <= 0) return asked;
+        var cap = Math.Clamp(characterLevel, lo, hi);
+        return asked is { } a ? Math.Min(a, cap) : cap;
     }
 
     internal static void WorldClosed() => Gives.Clear();
@@ -274,8 +303,17 @@ internal static class CreativeServer
                 CreativeNet.SendReply(player, new CreativeReplyMsg(false, "Invalid level or rarity."), local);
                 return;
             }
-            r = await CreativeTools.Give(player, new ItemId(req.Item), req.Count,
-                req.Level >= 0 ? req.Level : null, req.Rarity is >= 0 and <= (int)ItemRarity.Legendary ? (ItemRarity)req.Rarity : null);
+            int? level = req.Level >= 0 ? req.Level : null;
+            var journey = (req.Options & CreativeGiveOptions.Journey) != 0;
+            if (journey && Items.Get(new ItemId(req.Item)) is { IsGear: true } gearInfo)
+            {
+                var lv = Progression.Available ? Progression.Get(player)?.Level ?? 0 : 0;
+                int lo = Math.Max(gearInfo.LevelMin, 1), hi = Math.Min(Math.Max(gearInfo.LevelMax, lo), 255);
+                level = CreativeTools.JourneyLevel(level, lv, lo, hi);
+            }
+            r = await CreativeTools.Give(player, new ItemId(req.Item), req.Count, level,
+                req.Rarity is >= 0 and <= (int)ItemRarity.Legendary ? (ItemRarity)req.Rarity : null,
+                req.Options & CreativeGiveOptions.UpgradesMask, (req.Options & CreativeGiveOptions.GemSlot) != 0);
         }
         catch (Exception e)
         {

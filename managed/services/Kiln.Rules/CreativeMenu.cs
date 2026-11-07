@@ -33,7 +33,8 @@ internal static class CreativeMenu
     private static int _page;
     private static int _catalogVersion, _foundVersion, _connectionVersion;
     private static int _seenConnection = -1, _refreshRequested;
-    private static int _count = 1, _level = 1, _rarity;
+    private static int _count = 1, _level = 1, _rarity, _upgrades;
+    private static bool _gemSlot;
     private static float _hours = 12;
     private static List<CreativeItem> _shown = new();
     private static (string, int, bool, int, bool, int) _shownFor = ("", -1, false, -1, false, -1);
@@ -166,6 +167,7 @@ internal static class CreativeMenu
             var access = m?.Access ?? CreativeAccess.None;
             if (_entry != null) _entry.Visible = (access & (CreativeAccess.Admin | CreativeAccess.On)) != 0;
             var on = (access & CreativeAccess.On) != 0;
+            if (!on) CreativeMap.Reset();
             if (on && _hud is null)
             {
                 var outer = ModContext.CurrentMod;
@@ -364,6 +366,10 @@ internal static class CreativeMenu
             else ui.Text($"Level {lo}");
             _level = Math.Clamp(_level, lo, hi);
             ui.Combo("Rarity", ref _rarity, RarityNames);
+            ui.Slider("Upgrades", ref _upgrades, 0, 5);
+            ui.Tooltip("Upgrades unlocked, as at the workbench (each raises the level by 1). 5: all the item has (its rarity decides how many).");
+            if (i.Category == ItemCategory.Weapons) ui.Checkbox("Gem slot", ref _gemSlot);
+            if (_journey) ui.TextDisabled("Only what I have found: the level is capped at your character's level.");
         }
         ui.Slider("Count", ref _count, 1, Math.Min(CreativeTools.MaxGive, max));
         if (!canGive) return;
@@ -378,13 +384,39 @@ internal static class CreativeMenu
     private static void Give(CreativeItem i, int count)
     {
         lock (Lock) _reply = "";
-        CreativeNet.Ask(new CreativeRequest(CreativeAsk.Give, i.Id, count, i.IsGear ? _level : -1, i.IsGear ? _rarity : -1));
+        var options = i.IsGear ? CreativeGiveOptions.Of(_upgrades, _gemSlot && i.Category == ItemCategory.Weapons, _journey) : 0;
+        CreativeNet.Ask(new CreativeRequest(CreativeAsk.Give, i.Id, count, i.IsGear ? _level : -1, i.IsGear ? _rarity : -1, Options: options));
+    }
+
+    private static string? _mapReply;
+
+    private static void DrawMap(UiDraw ui, bool on)
+    {
+        ui.Separator("Map reveal");
+        if (!on)
+        {
+            ui.TextDisabled("Needs creative mode.");
+            return;
+        }
+        if (!CreativeMap.Available)
+        {
+            ui.TextDisabled("This game build has no map reveal (Kiln did not find the fog of war here).");
+            return;
+        }
+        var choice = CreativeMap.Choice;
+        var pick = choice;
+        ui.Combo("Reveal radius", ref pick, CreativeMap.Names);
+        if (pick != choice) _mapReply = CreativeMap.Set(pick);
+        ui.TextDisabled("Uncovers the map around you as you move (Whole map: all of it, once). What is uncovered stays uncovered " +
+                        "for this character, also after creative mode. Set back to the game's when you leave the world.");
+        if (_mapReply is { } r) ui.TextWrapped("Refused: " + r);
     }
 
     private static void DrawWorld(UiDraw ui, CreativeStateMsg s)
     {
         var canTime = (s.Access & CreativeAccess.Time) != 0;
         var canCycle = (s.Access & CreativeAccess.Cycle) != 0;
+        DrawMap(ui, (s.Access & CreativeAccess.On) != 0);
         ui.Separator("Time of day");
         ui.Text(s.Hours >= 0 ? $"It is {Time.Format(s.Hours)}." : "The time of day is not known.");
         if (!canTime)

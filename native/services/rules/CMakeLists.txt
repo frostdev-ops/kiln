@@ -1,1 +1,1 @@
-kiln_service(rules rules.cpp)
+kiln_service(rules rules.cpp creative.cpp)

@@ -12,7 +12,7 @@ internal static unsafe class ItemsNative
 
     // KilnItemsRequest.flags
     public const uint Level = 0x01, Rarity = 0x02, ExactSlot = 0x04, AllOrNothing = 0x08, Notify = 0x10, NoMerge = 0x20,
-        DryRun = 0x40, Recipe = 0x80;
+        DryRun = 0x40, Recipe = 0x80, Unlock = 0x100, GemSlot = 0x200;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Request
@@ -24,7 +24,8 @@ internal static unsafe class ItemsNative
         public uint Count;
         public uint Level;
         public byte Rarity;
-        public byte R0, R1, R2;
+        public byte Unlock;
+        public byte R1, R2;
         public uint Pide;
         public ulong Slot;
     }

@@ -3,6 +3,7 @@
 // its body in __try. Layouts: docs/re/items.md (svn 1285601, cross-checked against EMF 0.3.3's notes for 1269579 /
 // 1273043, MIT).
 #include "engine.h"
+#include "pide.h"
 
 #include <windows.h>
 
@@ -224,6 +225,7 @@ const uint8_t* stack_at(const Access& a, uint64_t slot) {
 }
 
 void run_give(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItemsResult* res) {
+    pide_end();  // a fault inside an earlier commit may have left a scope open
     const auto* setup = static_cast<const uint8_t*>(other(a, A_SETUP, r.entity));
     if (!setup) return fail(res, KILN_ITEMS_NO_INVENTORY, "entity %u has no inventory (no InventorySetup)", r.entity);
     if (!setup[E.setup_initialized])
@@ -262,8 +264,13 @@ void run_give(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItems
     const bool dry = (r.flags & KILN_ITEMS_DRY_RUN) != 0;
     const bool all = (r.flags & KILN_ITEMS_ALL_OR_NOTHING) != 0;
     const bool commit = out.error == 0 && res->done > 0 && !(all && remaining > 0) && !dry;
-    if (commit) E.commit(tx);
-    else E.rollback(tx);
+    if (commit) {
+        pide_begin(r.flags, r.unlock);  // KILN_ITEMS_UNLOCK / GEM_SLOT: createPide runs inside the commit (pide.cpp)
+        E.commit(tx);
+        pide_end();
+    } else {
+        E.rollback(tx);
+    }
     E.free_arrays(tx);
     if (out.error) {
         res->done = 0;

@@ -54,6 +54,12 @@ enum {
     KILN_RULES_SHROUD_FREEZE = 0x0040u,         /* the Shroud timer does not drain, and the Shroud cannot kill */
     KILN_RULES_GLIDE_UNLIMITED = 0x0080u,       /* gliding: no stamina cost, never forced down for lack of it */
     KILN_RULES_GLIDE_BOOST = 0x0100u,           /* gliding like a plane: pitch from the view, sprint pushes (glide_* below) */
+    /* since 0.2.0-dev.16 (creative mode, docs/re/creative-mode-146.md Part 3) */
+    KILN_RULES_FREE_CRAFTING = 0x0200u,         /* crafting pays nothing: the recipe's payment answers "paid" inside the game's
+                                                   own transaction (the operator crafting from its own inventory); client: the
+                                                   crafting menu's craft buttons stay enabled without the inputs */
+    KILN_RULES_KEEP_CONSUMABLES = 0x0400u,      /* fired arrows, thrown items and spell ammunition are not removed */
+    KILN_RULES_CHARACTER_FLIGHT = 0x0800u,      /* reserved: the character flies (feature rules.flight, off by default) */
 };
 
 typedef struct KilnRulesPlayer {
@@ -85,7 +91,31 @@ enum {
     KILN_RULES_HOOK_ZONE = 0x10u,   /* the server cursor's building-zone test (BUILD_OUTSIDE_BASES) */
     KILN_RULES_HOOK_SHROUD = 0x20u, /* the Shroud timer's drain (SHROUD_FREEZE, shroud_floor) */
     KILN_RULES_HOOK_GLIDE = 0x40u,  /* gliding (GLIDE_UNLIMITED, glide_sink, GLIDE_BOOST) */
+    /* since 0.2.0-dev.16 */
+    KILN_RULES_HOOK_MAP = 0x80u,        /* client: the fog of war's discover call (map_reveal) */
+    KILN_RULES_HOOK_CRAFT = 0x100u,     /* the recipe payments (FREE_CRAFTING) */
+    KILN_RULES_HOOK_CRAFT_UI = 0x200u,  /* client: the crafting menu's craftable amount (FREE_CRAFTING) */
+    KILN_RULES_HOOK_CONSUME = 0x400u,   /* the two consume removals (KEEP_CONSUMABLES) */
 };
+
+/* map_reveal modes (client) */
+enum {
+    KILN_RULES_MAP_DEFAULT = 0u, /* the game's own discovery range */
+    KILN_RULES_MAP_RADIUS = 1u,  /* uncover at least `radius` metres around the player each frame */
+    KILN_RULES_MAP_WHOLE = 2u,   /* uncover the whole map once per world (over about a second), then the game's range */
+};
+
+typedef struct KilnRulesCreative {
+    uint32_t size;          /* in: sizeof(KilnRulesCreative) */
+    uint32_t map_mode;      /* KILN_RULES_MAP_* in effect */
+    float map_radius;       /* metres (KILN_RULES_MAP_RADIUS) */
+    uint32_t map_revealed;  /* whole-map sweeps finished this session */
+    uint64_t map_calls;     /* discover calls widened or added */
+    uint64_t crafts_free;   /* recipe payments answered "paid" */
+    uint64_t craft_ui;      /* craftable amounts raised in the client's menu */
+    uint64_t consumes_kept; /* consume removals skipped */
+    uint64_t faults;        /* creative hook bodies that faulted (the game's own path ran) */
+} KilnRulesCreative;
 
 typedef struct KilnRulesStatus {
     uint32_t size;               /* in: sizeof(KilnRulesStatus) */
@@ -119,6 +149,11 @@ typedef struct KilnRulesApi {
     /* Client: the local player's rules (prediction world and the client's cursor). NULL clears. */
     KilnResult(KILN_CALL* set_local)(const KilnRulesPlayer* rules);
     KilnResult(KILN_CALL* status)(KilnRulesStatus* out);
+    /* since 0.2.0-dev.16 (check header.size): client only. How much of the map the fog of war uncovers around the local
+     * player (KILN_RULES_MAP_*; radius in metres for MAP_RADIUS, 50..5000). What is uncovered stays uncovered for the
+     * character, as the game saves it. KILN_ERR_UNAVAILABLE when the hook is off on this build or side. */
+    KilnResult(KILN_CALL* map_reveal)(uint32_t mode, float radius);
+    KilnResult(KILN_CALL* creative)(KilnRulesCreative* out);
 } KilnRulesApi;
 
 #ifdef __cplusplus

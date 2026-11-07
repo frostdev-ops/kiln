@@ -141,6 +141,24 @@
       "find": [
         { "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 0F B6 4C 24 60 49 8B F8 41 0F B6 F1 85 C9" }
       ]
+    },
+    "rules/RecipePaid": {
+      "comment": "creative free crafting: the recipe function's payment (flag 0x10 skips it, flag 0x40 takes the second payer, else rules/InventoryPay); this is the return address of the first call, the second call returns 7 bytes later. Server 26430253 0x19a28c, client 26430625 0x3f8fec (docs/re/creative-mode-146.md Part 3, section 3)",
+      "find": [
+        { "scope": { "symbol": "items/RecipeApply", "size": 256 }, "pattern": "A8 40 75 07 E8 ?? ?? ?? ?? EB 05 E8 {rules/RecipePayAlt:rel32} 85 C0 0F 85", "offset": 9 }
+      ]
+    },
+    "rules/AmmoConsumed": {
+      "comment": "creative kept consumables: the spawn path's consume, InventoryRemoveItems(out, tx, actor, used item, slot, 1); the return address of that call (server 0x42665, client 0x2252a5)",
+      "find": [
+        { "pattern": "C7 44 24 28 01 00 00 00 48 8D 95 ?? ?? 00 00 44 8B CF 4C 89 7C 24 20 48 8D 8D ?? ?? 00 00 44 8B 00 E8 ?? ?? ?? ?? 80 BD ?? ?? 00 00 00", "offset": 38 }
+      ]
+    },
+    "rules/CostConsumed": {
+      "comment": "creative kept consumables: PayUsageCost's consume (staff ammunition), InventoryRemoveItems(out, tx, actor, cost item, slot, 1); the return address of that call (server 0x41255, client 0x223e95)",
+      "find": [
+        { "pattern": "45 8B 4C 24 08 48 8D 95 ?? ?? 00 00 C7 44 24 28 01 00 00 00 48 8D 4C 24 30 48 89 5C 24 20 44 8B 00 E8 ?? ?? ?? ?? 44 38 6C 24 30", "offset": 38 }
+      ]
     }
   },
   "constants": {
@@ -204,6 +222,13 @@
     "rules.storage": {
       "symbols": ["rules/UpgradeStoragePaid", "rules/InventoryPay"],
       "constants": ["items/tx.operator"]
+    },
+    "rules.craft": {
+      "symbols": ["rules/RecipePaid", "rules/RecipePayAlt", "rules/InventoryPay", "items/RecipeApply"],
+      "constants": ["items/tx.operator"]
+    },
+    "rules.consume": {
+      "symbols": ["rules/AmmoConsumed", "rules/CostConsumed", "items/InventoryRemoveItems"]
     },
     "rules.dig": {
       "symbols": ["rules/TerrainDamage", "gameplay/TerraformImpact", "@gameplay/TerraformImpact.args"],
