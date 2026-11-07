@@ -10,7 +10,7 @@ API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C
   (`native/plugins/emf/tests/run.sh`), `client` = only a joined player can show it (client checklist in
   [emf.md](emf.md)), `lab-mod` = a shipped EMF mod uses it in the lab check (`tools/emf/lab-check.py`).
 - Counts: v21 had 61 full, 9 partial, 3 no out of 73; v22-v26's 12 functions were missing and every 0.5 mod was
-  refused (EMF's SDK refuses a table smaller than its own `sizeof(EmfApi)`). Now: **68 full, 14 partial, 3 no
+  refused (EMF's SDK refuses a table smaller than its own `sizeof(EmfApi)`). Now: **67 full, 15 partial, 3 no
   out of 85.**
 
 ## Version negotiation
@@ -18,8 +18,10 @@ API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C
 As EMF 0.5.1 does it: one table, `version = 26`, `size = sizeof(EmfApi) = 688`. Slots are only appended (v22 at
 byte 592, v23 616, v24 624, v25 648, v26 672). A mod's `mod.json` `"emf": N` above 26 is refused ("needs EMF API vN").
 Mods built with EMF's C++ SDK also check `api->size >= sizeof(EmfApi)` of their own header, so a v26 mod needs the
-whole v26 table. Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules): an `EmfUiWidget`
-array is walked by `widget_size`, and a v24/v25 mod's 56-byte widgets read `icon`, `fps` and `height` as 0.
+whole v26 table. The table is a shared, immutable prefix-compatible view; it is not shrunk for an older mod.
+Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules): an `EmfUiWidget` array is walked by
+`widget_size` (44..4096 bytes, at most 256 widgets), and a v24/v25 mod's 56-byte widgets read `icon`, `fps` and
+`height` as 0.
 
 ## C API
 
@@ -67,13 +69,13 @@ array is walked by `widget_size`, and a v24/v25 mod's 56-byte widgets read `icon
 | `world_setting_get/_set/_reset/_info`, `on_world_setting_changed` (21) | `kiln.settings` | `Kiln.Settings` | full | probe, lab-mod (server-admin) |
 | `player_xp_required` (22) | `kiln.progression` `xp_for_level` (cached per session, any thread) | `PlayerProgression` | full | probe |
 | `player_level_cap` (22) | `kiln.progression` | `PlayerProgression` | full | probe |
-| `player_level_set` (22) | `kiln.progression` SET_LEVEL + SET_EXPERIENCE | `PlayerProgression` | partial: applied in the next server step, also from a world callback (EMF: at once there) | probe (refusals), host |
-| `EMF_ATTR_XP_PENDING` / `_XP` / `_XP_REQUIRED` / `_LEVEL` (22) | `kiln.progression` get / ADD_EXPERIENCE | `PlayerProgression` | full | probe (refusals), host |
+| `player_level_set` (22) | `kiln.progression` SET_LEVEL + SET_EXPERIENCE | `PlayerProgression` | partial: level queued for the next server step, even in a world callback (EMF: at once there); nonzero XP is a second request after the level result (several steps later), suppressed if superseded or the session/level changed | probe (refusals), host |
+| `EMF_ATTR_XP_PENDING` / `_XP` / `_XP_REQUIRED` / `_LEVEL` (22) | `kiln.progression` get / ADD_EXPERIENCE | `PlayerProgression` | partial: pending XP is queued, at most 100,000,000 per call (`kiln.progression`); reads require the server thread | probe (refusals), host |
 | `change_component` (23) | kiln-emf's `emf_components` program on `kiln.world` (`queue_add` / `queue_remove`), EMF's list and queue | `Kiln.Api` ECS program `QueueAdd` / `QueueRemove` (low level) | full | probe, host |
 | `window_open`, `window_update`, `window_close` (24) | `kiln.ui` ImGui window, capture, keys | `UiWindow` | partial: no right clicks; plain ImGui look; refused on a dedicated server (as EMF) | probe (server refusal), host, client |
 | `spawn_offer` (25) | `kiln.spawn` + the offer below | — | partial: the prompt appears a step or two after the spawn | probe |
 | `offer`, `offer_remove` (25) | the three offer components through `emf_components`; `InteractionAcceptedEvent` listener | — | full | probe (components), host, client (the prompt, the accept) |
-| `image_load` (26) | `kiln.ui` `image_load` (PNG frames), EMF's limits and paths | `UiImage` | full | host, client |
+| `image_load` (26) | `kiln.ui` `image_load` (PNG frames), EMF's limits and paths; encoded files also limited to 64 MB | `UiImage` | partial: encoded-file limit in addition to EMF's decoded-pixel limit | host, client |
 | `offer_active` (25/26) | kiln-emf's offer registry | — | full | probe, host |
 
 ## Lua API (`emf.*`, run by EMF's `lua` mod on the C API)
@@ -95,7 +97,7 @@ as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/
 | `emf.item`, `emf.item_info`, `emf.give`, `emf.put`, `emf.take`, `emf.move` | items | full |
 | `emf.spawn`, `emf.destroy` | `spawn_ex`, `destroy` | partial: no spawn-time components |
 | `emf.kill`, `emf.health`, `emf.attribute`, `emf.attribute_add`, `emf.damage` | v18 attributes, `damage` | partial: health and XP/level; no stamina, mana |
-| `emf.xp_required`, `emf.level_cap`, `emf.set_level` | v22 | full / full / partial (next step) |
+| `emf.xp_required`, `emf.level_cap`, `emf.set_level` | v22 | full / full / partial (queued level, then XP) |
 | `emf.add_component`, `emf.remove_component` | `change_component` | full |
 | `emf.tell`, `emf.broadcast`, `emf.on_chat`, `emf.request_save` | v19 | full |
 | `emf.teleport` | `teleport` | full |
@@ -104,6 +106,18 @@ as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/
 | `emf.window`, `emf.window_update`, `emf.window_close`, `emf.image` | v24, v26 | partial (as C) |
 | `emf.offer`, `emf.spawn_offer`, `emf.offer_remove`, `emf.offered` | v25, `offer_active` | full / partial / full / full |
 | `world:is_server`, `:is_client`, `:tick`, `:entities`, `:position`, `:get`, `:template`, `:name`, `:account` | worlds, components, `player_name` | full |
+
+## Lifetime and host checks
+
+World teardown closes windows exactly once with `BY_CORE`, `NO_WORLD` and a null world, drops queued clicks and accepts,
+and fails pending component changes with a null world. Image handles are cached for the process as EMF specifies;
+failed multi-frame loads release already decoded frames, and plugin shutdown releases the cache. Offers only remove
+support components they added. Native EMF DLLs remain loaded until process exit; there is no per-mod unload/reload
+entry point in kiln-emf.
+
+`native/plugins/emf/tests/run.sh` checks the frozen x64 ABI slot map, model policy/queues and the production window,
+progression, offer and event adapters with fake Kiln services (ASan/UBSan). These checks do not demonstrate rendering,
+replication or interaction in a running game.
 
 ## What is not in kiln-emf
 

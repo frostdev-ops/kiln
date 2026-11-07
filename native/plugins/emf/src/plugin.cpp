@@ -150,6 +150,21 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     dispatch_server_pre();
 }
 
+void KILN_CALL on_world_event(const KilnWorldEvent* e, void*) {
+    if (!e || e->kind >= KILN_WORLD_KINDS) return;
+    if (e->event == KILN_WORLD_STARTED) {
+        if (e->kind == KILN_WORLD_SERVER) components_world_started();
+        windows_world_started(static_cast<uint8_t>(e->kind));
+        return;
+    }
+    if (e->event != KILN_WORLD_STOPPING) return;
+    if (e->kind == KILN_WORLD_SERVER) {
+        events_world_stopping();
+        components_world_stopping();
+    }
+    windows_world_stopping(static_cast<uint8_t>(e->kind));
+}
+
 void KILN_CALL on_ready(void*) {
     // paths
     P.game = api_path(KILN_PATH_GAME);
@@ -216,12 +231,18 @@ void KILN_CALL on_ready(void*) {
     write_status();
 }
 
-void KILN_CALL on_unload(void*) { write_status(); }
+void KILN_CALL on_unload(void*) {
+    components_world_stopping();
+    windows_shutdown();
+    write_status();
+}
 
 }  // namespace
 
 void install_ticks() {
     KilnHandle h = 0;
+    if (g_api->subscribe_world(g_owner, &on_world_event, nullptr, &h) != KILN_OK)
+        logf(KILN_LOG_WARN, "EMF world cleanup subscription failed");
     const KilnResult a = g_api->subscribe_tick(g_owner, KILN_TICK_POST, &on_post, nullptr, &h);
     const KilnResult b = g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_pre, nullptr, &h);
     if (a != KILN_OK || b != KILN_OK) logf(KILN_LOG_WARN, "server-world ticks unavailable (%d/%d): mods get no on_tick there", a, b);

@@ -60,6 +60,8 @@ static_assert(sizeof(EmfUiEvent) == 40 && sizeof(EmfOffer) == 24 && offsetof(Emf
 
 // The table size a mod built against API `version` checks (api->size >= this); 0 for an unknown version.
 uint32_t api_size_for(uint32_t version);
+// Saturate manifest requirements so a huge future version cannot wrap into a supported version.
+uint32_t api_requirement(uint64_t version);
 
 // ---------------------------------------------------------------------------------------------- v22 ------------
 // What attribute_add may do with an id (EMF's attribute_write_rule): XP, its requirement and the level are kept
@@ -164,6 +166,7 @@ struct ComponentRequest {
     std::string owner;      // the mod (what it added in this session, it may remove)
     bool internal = false;  // kiln-emf's own (E prompts): no policy, an add brings its bytes
     ComponentDone done;
+    std::function<bool()> still_owned; // internal removals: revalidate before pushing into the game
 };
 
 // What the queue needs to know about the server world (the glue reads kiln.world; tests pass fakes).
@@ -188,7 +191,7 @@ class ComponentQueue {
 public:
     bool request(ComponentRequest r, std::string* why);
     void after_step(EmfWorld* world, uint32_t session, const ComponentEnv& env, std::vector<ComponentAnswer>* out);
-    void run(const ComponentPush& push);
+    void run(EmfWorld* world, uint32_t session, const ComponentEnv& env, const ComponentPush& push);
     void end_all(const std::string& why, std::vector<ComponentAnswer>* out);  // FAILED with a NULL world
     size_t pending() const;
     bool enabled = true;
@@ -199,6 +202,8 @@ private:
         int phase = 0;  // 0 check after the next step, 1 push in the program, 2 pushed (verify after the step)
         int tries = 0;
         int verify = 0;
+        uint32_t status = EMF_COMPONENT_FAILED;
+        std::string why;
     };
     mutable std::mutex mu_;
     std::vector<Job> jobs_;
@@ -258,11 +263,13 @@ private:
     };
     struct State {
         int pending = 0;
-        bool range_added = false, removing = false, removes_sent = false;
+        OfferSpec spec;
+        bool runtime_added = false, client_added = false, range_added = false;
+        bool removing = false, removes_sent = false;
     };
     ComponentRequest change_of(EmfWorld* w, uint32_t session, uint32_t entity, uint32_t hash, bool add,
                                std::vector<uint8_t> bytes, bool first);
-    std::vector<ComponentRequest> removes_for(EmfWorld* w, uint32_t session, uint32_t entity, bool range);
+    std::vector<ComponentRequest> removes_for(EmfWorld* w, uint32_t session, uint32_t entity, const State& state);
     bool still_ours(uint32_t entity, const OfferSpec& spec) const;
     void submit(std::vector<ComponentRequest>& reqs);
     void new_session_locked(uint32_t session);
@@ -273,7 +280,8 @@ private:
     int steps_ = 0;
     std::map<uint32_t, Entry> entries_;
     std::map<uint32_t, State> state_;
-    std::map<uint32_t, std::pair<std::string, OfferSpec>> dropped_;
+    struct Dropped { std::string owner; OfferSpec spec; State state; };
+    std::map<uint32_t, Dropped> dropped_;
 };
 
 }  // namespace kemf::v26

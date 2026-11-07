@@ -9,6 +9,10 @@
 
 namespace kemf::v26 {
 
+uint32_t api_requirement(uint64_t version) {
+    return static_cast<uint32_t>(std::clamp<uint64_t>(version, 1, UINT32_MAX));
+}
+
 uint32_t api_size_for(uint32_t version) {
     switch (version) {
         case 21: return kApiV21Size;
@@ -59,7 +63,9 @@ bool copy_text(const char* p, size_t max, std::string* out) {
 EmfUiWidget widget_at(const EmfWindowDef& def, uint32_t i) {
     EmfUiWidget w{};
     const auto* base = reinterpret_cast<const uint8_t*>(def.widgets) + static_cast<size_t>(i) * def.widget_size;
-    std::memcpy(&w, base, def.widget_size < sizeof w ? def.widget_size : sizeof w);
+    std::memcpy(&w, base, std::min<size_t>(def.widget_size, offsetof(EmfUiWidget, fps)));
+    if (def.widget_size >= KEMF_FIELD_END(EmfUiWidget, fps)) std::memcpy(&w.fps, base + offsetof(EmfUiWidget, fps), sizeof w.fps);
+    if (def.widget_size >= KEMF_FIELD_END(EmfUiWidget, height)) std::memcpy(&w.height, base + offsetof(EmfUiWidget, height), sizeof w.height);
     if (def.widget_size < sizeof w) w.icon = 0;  // a v24/v25 mod: icon was reserved there, whatever it holds
     return w;
 }
@@ -80,6 +86,8 @@ bool copy_window_def(const EmfWindowDef* def, bool for_update, WindowRequest* ou
         return false;
     };
     if (!def || def->size < kWindowDefV24Size) return refuse("no window definition, or its size field is too small");
+    if (def->flags) return refuse("unknown window flags");
+    if (def->widget_size > 4096) return refuse("widget_size is too large");
     if (!def->id || !valid_window_id(std::string_view(def->id, strnlen(def->id, kMaxWindowIdLen + 1))))
         return refuse("id must be 1-48 of A-Z a-z 0-9 _ . -");
     if (def->count > kMaxWindowWidgets) return refuse("at most 256 widgets");
@@ -252,11 +260,7 @@ bool ComponentQueue::request(ComponentRequest r, std::string* why) {
     if (!r.world) return refuse("the server world only (a world this game hosts)");
     if (!r.entity) return refuse("no entity");
     std::lock_guard lock(mu_);
-    if (ledger_session_ != r.session) {  // a new session: what mods added before is gone with that world
-        added_.clear();
-        ledger_session_ = r.session;
-    }
-    const bool added_before = added_.count({r.owner, r.entity, r.hash}) != 0;
+    const bool added_before = ledger_session_ == r.session && added_.count({r.owner, r.entity, r.hash}) != 0;
     std::string reason;
     if (!enabled) reason = "changing components is off (see the log)";
     else if (r.internal) {
@@ -283,14 +287,28 @@ bool ComponentQueue::request(ComponentRequest r, std::string* why) {
 
 void ComponentQueue::after_step(EmfWorld* world, uint32_t session, const ComponentEnv& env, std::vector<ComponentAnswer>* out) {
     std::lock_guard lock(mu_);
+    if (ledger_session_ != session) { added_.clear(); ledger_session_ = session; }
+    for (auto it = added_.begin(); it != added_.end();) {
+        if (!env.exists(std::get<1>(*it)) || !env.has(std::get<1>(*it), std::get<2>(*it))) it = added_.erase(it);
+        else ++it;
+    }
     for (auto it = jobs_.begin(); it != jobs_.end();) {
         Job& j = *it;
         auto answer = [&](uint32_t status, const std::string& why) {
             if (j.req.done) out->push_back({j.req.done, world, status, why});
             it = jobs_.erase(it);
         };
-        if (j.req.session != session) {
-            answer(EMF_COMPONENT_FAILED, "the world it was meant for ended");
+        if (j.req.session != session || j.req.world != world) {
+            if (j.req.done) out->push_back({j.req.done, nullptr, EMF_COMPONENT_FAILED, "the world it was meant for ended"});
+            it = jobs_.erase(it);
+            continue;
+        }
+        if (j.phase == 3) {
+            answer(j.status, j.why);
+            continue;
+        }
+        if (j.phase == 0 && j.req.still_owned && !j.req.still_owned()) {
+            answer(EMF_COMPONENT_FAILED, "the offer belongs to the game now");
             continue;
         }
         const bool here = env.exists && env.exists(j.req.entity);
@@ -316,8 +334,9 @@ void ComponentQueue::after_step(EmfWorld* world, uint32_t session, const Compone
             }
         } else {
             const bool has = here && env.has && env.has(j.req.entity, j.req.hash);
-            if (has == j.req.add) {
+            if (here && has == j.req.add) {
                 if (j.req.add && !j.req.internal) added_.insert({j.req.owner, j.req.entity, j.req.hash});
+                if (!j.req.add) added_.erase({j.req.owner, j.req.entity, j.req.hash});
                 answer(EMF_COMPONENT_DONE, "");
                 continue;
             }
@@ -330,10 +349,22 @@ void ComponentQueue::after_step(EmfWorld* world, uint32_t session, const Compone
     }
 }
 
-void ComponentQueue::run(const ComponentPush& push) {
+void ComponentQueue::run(EmfWorld* world, uint32_t session, const ComponentEnv& env, const ComponentPush& push) {
     std::lock_guard lock(mu_);
-    for (auto& j : jobs_)
-        if (j.phase == 1 && push(j.req.entity, j.req.hash, j.req.add, j.req.data)) j.phase = 2;
+    for (auto& j : jobs_) {
+        if (j.phase != 1 || j.req.world != world || j.req.session != session) continue;
+        // A different program may have changed this entity since the post-step check. In particular,
+        // queue_add replaces an existing component's bytes: never push over data already present.
+        const bool here = env.exists && env.exists(j.req.entity);
+        const bool player = env.is_player && env.is_player(j.req.entity);
+        const bool has = here && env.has && env.has(j.req.entity, j.req.hash);
+        const bool ours = !j.req.still_owned || j.req.still_owned();
+        if (!here || player || !ours || has == j.req.add) {
+            j.phase = 3;
+            j.status = here && !player && ours ? EMF_COMPONENT_ALREADY : EMF_COMPONENT_FAILED;
+            j.why = !here ? "the entity is gone" : player ? "never a player" : !ours ? "the offer belongs to the game now" : "";
+        } else if (push(j.req.entity, j.req.hash, j.req.add, j.req.data)) j.phase = 2;
+    }
 }
 
 void ComponentQueue::end_all(const std::string& why, std::vector<ComponentAnswer>* out) {
@@ -401,6 +432,7 @@ void OfferService::new_session_locked(uint32_t session) {
     state_.clear();
     dropped_.clear();
     session_ = session;
+    steps_ = 0;
 }
 
 ComponentRequest OfferService::change_of(EmfWorld* w, uint32_t session, uint32_t entity, uint32_t hash, bool add,
@@ -423,8 +455,14 @@ ComponentRequest OfferService::change_of(EmfWorld* w, uint32_t session, uint32_t
             if (session != session_) return;
             auto st = state_.find(entity);
             if (st != state_.end() && st->second.pending > 0) --st->second.pending;
-            lost = add && hash == kInteractionOfferRuntime &&
-                   (status == EMF_COMPONENT_FAILED || (first && status == EMF_COMPONENT_ALREADY));
+            if (st != state_.end() && add && status == EMF_COMPONENT_DONE) {
+                if (hash == kInteractionOfferRuntime) st->second.runtime_added = true;
+                if (hash == kClientInteractionOffer) st->second.client_added = true;
+                if (hash == kCheckPlayerInRange) st->second.range_added = true;
+            }
+            lost = add && (status == EMF_COMPONENT_FAILED ||
+                          (hash == kInteractionOfferRuntime && first && status == EMF_COMPONENT_ALREADY));
+            if (lost && st != state_.end()) st->second.removing = true;
             if (lost) {
                 auto e = entries_.find(entity);
                 if (e != entries_.end()) {
@@ -434,9 +472,10 @@ ComponentRequest OfferService::change_of(EmfWorld* w, uint32_t session, uint32_t
             }
             if (st != state_.end() && st->second.pending == 0) {
                 if (st->second.removing && !st->second.removes_sent && world) {
-                    later = removes_for(world, session, entity, st->second.range_added);
+                    later = removes_for(world, session, entity, st->second);
                     st->second.removes_sent = true;
                     st->second.pending = static_cast<int>(later.size());
+                    if (later.empty()) state_.erase(st);
                 } else if (st->second.removing || lost) {
                     state_.erase(st);
                 }
@@ -450,11 +489,17 @@ ComponentRequest OfferService::change_of(EmfWorld* w, uint32_t session, uint32_t
     return r;
 }
 
-std::vector<ComponentRequest> OfferService::removes_for(EmfWorld* w, uint32_t session, uint32_t entity, bool range) {
+std::vector<ComponentRequest> OfferService::removes_for(EmfWorld* w, uint32_t session, uint32_t entity, const State& state) {
     std::vector<ComponentRequest> out;
-    out.push_back(change_of(w, session, entity, kInteractionOfferRuntime, false, {}, false));
-    out.push_back(change_of(w, session, entity, kClientInteractionOffer, false, {}, false));
-    if (range) out.push_back(change_of(w, session, entity, kCheckPlayerInRange, false, {}, false));
+    if (state.runtime_added) out.push_back(change_of(w, session, entity, kInteractionOfferRuntime, false, {}, false));
+    if (state.client_added) out.push_back(change_of(w, session, entity, kClientInteractionOffer, false, {}, false));
+    if (state.range_added) out.push_back(change_of(w, session, entity, kCheckPlayerInRange, false, {}, false));
+    for (auto& r : out) {
+        r.still_owned = [this, entity, spec = state.spec] {
+            // An absent runtime is fine (our earlier removal may already have landed). A replacement is not.
+            return !deps_.read_offer || !deps_.read_offer(entity) || still_ours(entity, spec);
+        };
+    }
     return out;
 }
 
@@ -499,31 +544,28 @@ bool OfferService::offer(EmfWorld* w, uint32_t session, uint32_t entity, const O
         }
         if (has(kInteractionOfferRuntime)) {
             const auto d = dropped_.find(entity);
-            if (d != dropped_.end() && d->second.first == owner &&
-                offer_runtime_bytes(d->second.second) == offer_runtime_bytes(spec) &&
-                offer_range_bytes(d->second.second) == offer_range_bytes(spec) && still_ours(entity, spec)) {
+            if (d != dropped_.end() && d->second.owner == owner &&
+                offer_runtime_bytes(d->second.spec) == offer_runtime_bytes(spec) &&
+                offer_range_bytes(d->second.spec) == offer_range_bytes(spec) && still_ours(entity, spec)) {
+                State st = d->second.state;
                 dropped_.erase(d);
                 entries_[entity] = Entry{owner, spec, std::move(cb), 0};
-                State st;
-                st.range_added = has(kCheckPlayerInRange);
                 state_[entity] = st;
                 return true;
             }
             return refuse("it has its own offer from the game (a chest, a bench, a bed...)");
         }
-        bool range_added = false;
         reqs.push_back(change_of(w, session, entity, kInteractionOfferRuntime, true, offer_runtime_bytes(spec), true));
         if (!has(kClientInteractionOffer))
             reqs.push_back(change_of(w, session, entity, kClientInteractionOffer, true, offer_client_bytes(), true));
         if (!has(kCheckPlayerInRange)) {
             reqs.push_back(change_of(w, session, entity, kCheckPlayerInRange, true, offer_range_bytes(spec), true));
-            range_added = true;
         }
         entries_[entity] = Entry{owner, spec, std::move(cb), 0};
         State& st = state_[entity];
         st = State{};
+        st.spec = spec;
         st.pending = static_cast<int>(reqs.size());
-        st.range_added = range_added;
     }
     std::string refused;
     if (!deps_.change || !deps_.change(reqs.front(), &refused)) {
@@ -547,13 +589,19 @@ bool OfferService::remove(EmfWorld* w, uint32_t session, uint32_t entity, const 
             if (why) *why = "this mod has no offer on it";
             return false;
         }
-        entries_.erase(e);
         State& st = state_[entity];
+        if (!st.pending && !still_ours(entity, e->second.spec)) {
+            entries_.erase(e);
+            state_.erase(entity);
+            return true;
+        }
+        entries_.erase(e);
         st.removing = true;
         if (st.pending == 0) {
-            reqs = removes_for(w, session, entity, st.range_added);
+            reqs = removes_for(w, session, entity, st);
             st.removes_sent = true;
             st.pending = static_cast<int>(reqs.size());
+            if (reqs.empty()) state_.erase(entity);
         }
     }
     submit(reqs);
@@ -575,12 +623,15 @@ void OfferService::on_accept(EmfWorld* w, uint32_t session, const void* event, u
     uint32_t guest = 0, host = 0;
     std::memcpy(&guest, static_cast<const uint8_t*>(event) + 8, 4);
     std::memcpy(&host, static_cast<const uint8_t*>(event) + 12, 4);
+    if (!guest || !host) return;
     OfferSpec spec;
     {
         std::lock_guard lock(mu_);
         if (session != session_) return;
         const auto e = entries_.find(host);
         if (e == entries_.end()) return;
+        const auto st = state_.find(host);
+        if (st == state_.end() || st->second.pending || st->second.removing) return;
         spec = e->second.spec;
     }
     if (!still_ours(host, spec)) return;  // the id is another entity's now
@@ -612,7 +663,7 @@ void OfferService::after_step(EmfWorld*, uint32_t session) {
             const bool here = deps_.has && deps_.has(entity, 0);  // hash 0: "the entity has a position"
             if (!here || !still_ours(entity, it->second.spec)) {
                 gone.push_back(std::to_string(entity) + " (" + it->second.owner + (here ? ", its offer is not EMF's now" : "") + ")");
-                if (here) dropped_[entity] = {it->second.owner, it->second.spec};
+                if (here) dropped_[entity] = {it->second.owner, it->second.spec, st != state_.end() ? st->second : State{}};
                 else dropped_.erase(entity);
                 state_.erase(entity);
                 it = entries_.erase(it);

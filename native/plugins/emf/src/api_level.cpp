@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <map>
 
 #include "emf_internal.h"
 #include "v26_model.h"
@@ -23,8 +24,11 @@ namespace {
 std::mutex g_curve_mutex;
 std::vector<uint32_t> g_curve;  // g_curve[level - 1] = XP the level needs; size = the cap
 uint32_t g_curve_session = UINT32_MAX;
+std::mutex g_level_mutex;
+uint64_t g_level_serial = 0;
+std::map<uint32_t, uint64_t> g_level_latest;
 
-bool is_server(EmfWorld* w) { return w && reinterpret_cast<uintptr_t>(w) == g_api->world(KILN_WORLD_SERVER); }
+bool is_server(EmfWorld* w) { return server_requests_allowed() && w && reinterpret_cast<uintptr_t>(w) == g_api->world(KILN_WORLD_SERVER); }
 
 // Reads the curve on the tick thread (once per session, again while it is empty).
 void refresh_curve() {
@@ -32,7 +36,11 @@ void refresh_curve() {
     const uint32_t session = server_session();
     {
         std::lock_guard lock(g_curve_mutex);
-        if (session == g_curve_session && !g_curve.empty()) return;
+        if (session != g_curve_session) {
+            g_curve.clear();
+            g_curve_session = session;
+        }
+        if (!g_curve.empty()) return;
     }
     uint32_t need = 0, cap = 0;
     if (S.progression->xp_for_level(1, &need, &cap) != KILN_OK || cap == 0 || cap > 1000) return;
@@ -50,13 +58,13 @@ void refresh_curve() {
 uint32_t level_cap() {
     refresh_curve();
     std::lock_guard lock(g_curve_mutex);
-    return static_cast<uint32_t>(g_curve.size());
+    return g_curve_session == server_session() ? static_cast<uint32_t>(g_curve.size()) : 0;
 }
 
 uint32_t xp_required(uint32_t level) {
     refresh_curve();
     std::lock_guard lock(g_curve_mutex);
-    return level >= 1 && level <= g_curve.size() ? g_curve[level - 1] : 0;
+    return g_curve_session == server_session() && level >= 1 && level <= g_curve.size() ? g_curve[level - 1] : 0;
 }
 
 uint32_t api_player_level_cap(EmfWorld* w) { return is_server(w) && S.progression ? level_cap() : 0; }
@@ -67,17 +75,24 @@ uint32_t api_player_xp_required(EmfWorld* w, uint32_t level) {
 
 struct LevelSet {
     Mod* mod;
-    uint32_t xp;
+    uint32_t xp, level, session;
+    EmfWorld* world;
+    uint64_t serial;
 };
 
 void KILN_CALL level_set_done(const KilnProgressionResult* r, void* p) {
     std::unique_ptr<LevelSet> ls(static_cast<LevelSet*>(p));
     if (!r) return;
+    std::lock_guard lock(g_level_mutex);
+    auto it = g_level_latest.find(r->entity);
+    if (it == g_level_latest.end() || it->second != ls->serial) return;
+    g_level_latest.erase(it);
+    if (!is_server(ls->world) || ls->session != server_session()) return;
     if (r->status != KILN_OK) {
         mod_logf(ls->mod, KILN_LOG_WARN, "player_level_set(%u) refused later: %s", r->entity, r->reason);
         return;
     }
-    if (ls->xp == 0) return;
+    if (ls->xp == 0 || r->after.level != ls->level) return;
     KilnProgressionRequest q{};
     q.size = sizeof q;
     q.op = KILN_PROG_OP_SET_EXPERIENCE;
@@ -94,14 +109,15 @@ bool api_player_level_set(EmfWorld* w, uint32_t player, uint32_t level, uint32_t
     if (!is_server(w)) return refuse(m, "player_level_set", "server world only"), false;
     const uint32_t cap = level_cap();
     const std::string why = v26::level_set_refusal(level, cap, cap != 0 || !g_api->on_tick_thread());
-    if (!why.empty() && cap != 0) return refuse(m, "player_level_set", why.c_str()), false;
+    if (!why.empty()) return refuse(m, "player_level_set", why.c_str()), false;
     KilnProgressionRequest q{};
     q.size = sizeof q;
     q.op = KILN_PROG_OP_SET_LEVEL;
     q.entity = player;
     q.value = level;
     q.callback = &level_set_done;
-    auto* ls = new LevelSet{m, xp};
+    std::lock_guard lock(g_level_mutex);
+    auto* ls = new LevelSet{m, xp, level, server_session(), w, ++g_level_serial};
     q.user = ls;
     const KilnResult rc = S.progression->submit(m && m->owner ? m->owner : g_owner, &q, nullptr);
     if (rc != KILN_OK) {
@@ -112,13 +128,14 @@ bool api_player_level_set(EmfWorld* w, uint32_t player, uint32_t level, uint32_t
                                             : "the level is out of range");
         return false;
     }
+    g_level_latest[player] = ls->serial;
     return true;
 }
 
 }  // namespace
 
 bool level_attribute_get(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out) {
-    if (!out || !is_server(w)) return false;
+    if (!out || !is_server(w) || !g_api->on_tick_thread()) return false;
     if (!S.progression) return unsupported(m, "attribute_get(XP / level)", "kiln.progression is not available"), false;
     KilnProgression p{};
     p.size = sizeof p;

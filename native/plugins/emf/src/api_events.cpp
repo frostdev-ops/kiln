@@ -526,6 +526,14 @@ void events_after_step(EmfWorld* w, uint8_t kind) {
     }
 }
 
+void events_world_stopping() {
+    std::lock_guard lock(g_ev_mutex);
+    for (auto& [name, t] : g_events) {
+        std::lock_guard queue_lock(t->mu);
+        t->buffer.clear();
+    }
+}
+
 void fill_events(EmfApi* t) {
     t->register_program = &api_register_program;
     t->register_program_def = &api_register_program_def;

@@ -171,5 +171,6 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 - v26 pictures: a mod window with a picture (`image_load` of a PNG in the mod's folder) draws it; a folder of frames
   with `fps` turns.
 - v25 E prompts: a marked stable (beastmaster) shows the game's "E <verb>" prompt within 32 m; pressing E runs the mod's callback (log line), for the host and a joined player.
-- v22: blessings' level reward (`set_level`) changes the level in the character screen after the next step; given XP
+- v22: blessings' level reward (`set_level`) queues the level for the next step; nonzero XP towards that level follows
+  after the result, several steps later (see [parity limits](emf-parity.md)). Given XP
   levels the player up with the game's own level-up message.

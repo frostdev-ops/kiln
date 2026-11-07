@@ -10,6 +10,7 @@
 #include <set>
 
 #include "emf_internal.h"
+#include "v26_model.h"
 #include "nlohmann/json.hpp"
 
 namespace kemf {
@@ -349,7 +350,9 @@ bool read_manifest(const std::filesystem::path& folder, Mod* m) {
             m->reason = "\"emf\" must be a whole number (the lowest EMF API version the mod needs)";
             return false;
         }
-        m->emf_min = static_cast<uint32_t>(std::max<int64_t>(1, j["emf"].get<int64_t>()));
+        m->emf_min = v26::api_requirement(j["emf"].is_number_unsigned()
+                                             ? j["emf"].get<uint64_t>()
+                                             : static_cast<uint64_t>(std::max<int64_t>(1, j["emf"].get<int64_t>())));
     }
     if (j.contains("enabled") && j["enabled"].is_boolean()) m->enabled_default = j["enabled"].get<bool>();
     if (j.contains("depends") && j.contains("dependencies")) {

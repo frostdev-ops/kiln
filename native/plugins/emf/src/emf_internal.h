@@ -223,6 +223,13 @@ void level_after_step(EmfWorld* w, uint8_t kind);
 void components_on_ready();  // before events_on_ready: the emf_components program and the E-prompt listener
 void components_after_step(EmfWorld* w, uint8_t kind);
 void windows_after_step(EmfWorld* w, uint8_t kind);
+void windows_world_stopping(uint8_t kind);
+void windows_world_started(uint8_t kind);
+void events_world_stopping();
+void windows_shutdown();
+void components_world_stopping();
+void components_world_started();
+bool server_requests_allowed();
 bool windows_want_frame();  // a mod window is open (kiln.ui demand)
 // attribute_get / attribute_add of EMF_ATTR_XP* / EMF_ATTR_LEVEL (api_game.cpp hands them over)
 bool level_attribute_get(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out);

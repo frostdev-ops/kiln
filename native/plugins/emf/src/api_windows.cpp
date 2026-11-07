@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <set>
@@ -25,6 +26,8 @@ namespace kemf {
 
 namespace {
 
+struct WindowLifetime { std::atomic<bool> ended{false}; };
+
 struct Pending {
     EmfUiCallback cb;
     void* user;
@@ -32,12 +35,18 @@ struct Pending {
     std::string window, key;
     uint32_t kind, reason;
     uint8_t world_kind;
+    std::shared_ptr<WindowLifetime> lifetime;
 };
 
 std::mutex g_win_mutex;
 std::optional<v26::WindowRequest> g_win;  // the open window
 Mod* g_win_mod = nullptr;
+std::mutex g_ui_mutex;
+std::atomic<bool> g_shutdown{false};
+bool g_stopping[KILN_WORLD_KINDS]{};
 std::deque<Pending> g_events;
+std::shared_ptr<WindowLifetime> g_win_lifetime;
+std::vector<Pending> g_targets; // includes windows whose events are in an in-flight delivery batch
 KilnHandle g_frame = 0, g_key = 0;
 std::atomic<bool> g_open{false};
 
@@ -52,7 +61,10 @@ std::set<std::string> g_image_refused;  // logged once per path
 uint64_t g_image_bytes = 0;
 
 void deliver(Pending& p, EmfWorld* w, bool no_world) {
-    if (!p.cb) return;
+    if (!p.cb || !p.lifetime) return;
+    if (p.kind == EMF_UI_CLOSED) {
+        if (p.lifetime->ended.exchange(true)) return;
+    } else if (p.lifetime->ended.load()) return;
     EmfUiEvent e{};
     e.size = sizeof e;
     e.kind = p.kind;
@@ -79,7 +91,8 @@ void deliver(Pending& p, EmfWorld* w, bool no_world) {
 // Queues an event of the open (or just closed) window `r`. A CLOSED without a world of its kind is delivered now.
 void post_event_locked(const v26::WindowRequest& r, Mod* m, uint32_t kind, const std::string& key, uint32_t reason,
                        std::vector<Pending>* now) {
-    Pending p{r.cb, r.user, m, r.id, key, kind, reason, r.world_kind};
+    Pending p{r.cb, r.user, m, r.id, key, kind, reason, r.world_kind, g_win_lifetime};
+    if (kind != EMF_UI_CLOSED && g_events.size() >= 256) return;
     if (kind == EMF_UI_CLOSED && !g_api->world(r.world_kind)) now->push_back(std::move(p));
     else g_events.push_back(std::move(p));
 }
@@ -121,7 +134,7 @@ void draw_picture(uint32_t icon, uint32_t fps, float w, float h, uint64_t frame_
 
 void KILN_CALL on_frame(const KilnUiFrame* fr, void*) {
     std::vector<Pending> now;
-    std::lock_guard lock(g_win_mutex);
+    std::unique_lock lock(g_win_mutex);
     if (!g_win) return;
     v26::WindowRequest& win = *g_win;
     const float dpi = fr->dpi_scale > 0 ? fr->dpi_scale : 1.0f;
@@ -211,9 +224,9 @@ void KILN_CALL on_frame(const KilnUiFrame* fr, void*) {
     S.ui->end();
     if (!open) {
         close_locked(EMF_UI_BY_PLAYER, &now);
-        g_open = false;
-        S.ui->set_capture(0);
+        set_open(false);
     }
+    lock.unlock();
     run_now(now);
 }
 
@@ -225,17 +238,18 @@ bool KILN_CALL on_key(const KilnUiKey* k, void*) {
         if (!g_win) return false;
         if (k->vk != 0x1B && (!g_win->close_vk || k->vk != g_win->close_vk)) return false;
         close_locked(EMF_UI_BY_PLAYER, &now);
+        set_open(false);
     }
-    set_open(false);
     run_now(now);
     return true;
 }
 
 bool ensure_ui() {
-    if (!S.ui) return false;
+    std::lock_guard lock(g_ui_mutex);
+    if (!S.ui || g_shutdown) return false;
     if (!g_frame && S.ui->subscribe_frame(g_owner, &on_frame, nullptr, &g_frame) != KILN_OK) g_frame = 0;
     if (!g_key && S.ui->subscribe_key(g_owner, &on_key, nullptr, &g_key) != KILN_OK) g_key = 0;
-    return g_frame != 0;
+    return g_frame != 0 && g_key != 0;
 }
 
 const char* no_overlay() {
@@ -259,13 +273,18 @@ bool api_window_open(const EmfWindowDef* def) {
     std::vector<Pending> now;
     {
         std::lock_guard lock(g_win_mutex);
-        if (g_win && g_win->id != r.id)
+        std::erase_if(g_targets, [](const Pending& p) { return p.lifetime->ended.load(); });
+        if (g_targets.size() >= 256) return refuse(m, "window_open", "too many windows awaiting CLOSED"), false;
+        if (g_win && (g_win->id != r.id || g_win_mod != m))
             return refuse(m, "window_open", ("another window is open (" + g_win->id + ")").c_str()), false;
         if (g_win) close_locked(EMF_UI_BY_MOD, &now);
+        if (g_shutdown || g_stopping[r.world_kind]) return false;
         g_win = std::move(r);
         g_win_mod = m;
+        g_win_lifetime = std::make_shared<WindowLifetime>();
+        g_targets.push_back({g_win->cb, g_win->user, m, g_win->id, "", EMF_UI_CLOSED, EMF_UI_BY_CORE, g_win->world_kind, g_win_lifetime});
+        set_open(true);
     }
-    set_open(true);
     run_now(now);
     return true;
 }
@@ -276,23 +295,26 @@ bool api_window_update(const EmfWindowDef* def) {
     std::string why;
     if (!v26::copy_window_def(def, true, &r, &why)) return refuse(m, "window_update", why.c_str()), false;
     std::lock_guard lock(g_win_mutex);
-    if (!g_win || g_win->id != r.id) return false;  // not open (the player closed it): no log, never reopened
+    if (!g_win || g_win->id != r.id || g_win_mod != m) return false;  // not open (the player closed it): no log, never reopened
     r.cb = g_win->cb;
     r.user = g_win->user;
     r.mod = g_win->mod;
+    for (auto& target : g_targets)
+        if (target.lifetime == g_win_lifetime) target.world_kind = r.world_kind;
     g_win = std::move(r);
     return true;
 }
 
 bool api_window_close(const char* id) {
-    if (!id) return false;
+    if (!id || strnlen(id, v26::kMaxWindowIdLen + 1) > v26::kMaxWindowIdLen) return false;
+    Mod* m = caller_mod(_ReturnAddress());
     std::vector<Pending> now;
     {
         std::lock_guard lock(g_win_mutex);
-        if (!g_win || g_win->id != id) return false;
+        if (!g_win || g_win->id != id || g_win_mod != m) return false;
         close_locked(EMF_UI_BY_MOD, &now);
+        set_open(false);
     }
-    set_open(false);
     run_now(now);
     return true;
 }
@@ -311,7 +333,9 @@ std::filesystem::path mod_folder(const void* return_address) {
 uint32_t api_image_load(const char* path) {
     Mod* m = caller_mod(_ReturnAddress());
     if (!path || !*path) return 0;
-    const std::string p(path);
+    const size_t length = strnlen(path, 32768);
+    if (length == 32768) return refuse(m, "image_load", "path is too long", true), 0;
+    const std::string p(path, length);
     std::filesystem::path file;
     std::string key;
     const std::string kPortrait = "portrait:";
@@ -326,6 +350,7 @@ uint32_t api_image_load(const char* path) {
         key = lower(path_utf8(file));
     }
     std::lock_guard lock(g_img_mutex);
+    if (g_shutdown) return 0;
     if (auto it = g_image_keys.find(key); it != g_image_keys.end()) return it->second;
     auto refused = [&](const std::string& why) -> uint32_t {
         if (g_image_refused.insert(key).second) mod_logf(m, KILN_LOG_WARN, "image_load('%s') refused: %s", p.c_str(), why.c_str());
@@ -336,8 +361,13 @@ uint32_t api_image_load(const char* path) {
     std::vector<std::filesystem::path> files;
     std::error_code ec;
     if (std::filesystem::is_directory(file, ec)) {
-        for (const auto& e : std::filesystem::directory_iterator(file, ec))
-            if (lower(to_utf8(e.path().extension().wstring())) == ".png") files.push_back(e.path());
+        std::filesystem::directory_iterator it(file, ec), end;
+        while (!ec && it != end) {
+            if (lower(to_utf8(it->path().extension().wstring())) == ".png") files.push_back(it->path());
+            if (files.size() > v26::kMaxImageFrames) return refused("more than 64 frames");
+            it.increment(ec);
+        }
+        if (ec) return refused("the folder could not be read");
         std::sort(files.begin(), files.end());
         if (files.empty()) return refused("the folder has no .png files");
         if (files.size() > v26::kMaxImageFrames) return refused("more than 64 frames");
@@ -347,11 +377,24 @@ uint32_t api_image_load(const char* path) {
         return refused("no such file or folder");
     }
     Image im;
+    // Roll back every decoded frame if a later frame is refused (including allocation/I/O exceptions).
+    struct Rollback {
+        Image& im;
+        ~Rollback() { for (auto h : im.frames) S.ui->image_free(h); }
+    } rollback{im};
+    im.frames.reserve(files.size());
     uint64_t bytes = 0;
     for (const auto& f : files) {
         std::string data;
         uint32_t w = 0, h = 0;
-        if (!read_file(f, &data) || !v26::png_size(reinterpret_cast<const uint8_t*>(data.data()), data.size(), &w, &h))
+        std::ifstream input(f, std::ios::binary);
+        char chunk[8192];
+        while (input && data.size() <= v26::kMaxImageBytes) {
+            input.read(chunk, sizeof chunk);
+            data.append(chunk, static_cast<size_t>(input.gcount()));
+        }
+        if (data.size() > v26::kMaxImageBytes) return refused("PNG file exceeds 64 MB");
+        if (!input.eof() || !v26::png_size(reinterpret_cast<const uint8_t*>(data.data()), data.size(), &w, &h))
             return refused(path_utf8(f.filename()) + " is not a PNG");
         if (w > v26::kMaxImageSide || h > v26::kMaxImageSide) return refused("larger than 512 x 512 pixels");
         if (im.w && (w != im.w || h != im.h)) return refused("its frames are not all the same size");
@@ -365,6 +408,7 @@ uint32_t api_image_load(const char* path) {
     }
     g_image_bytes += bytes;
     g_images.push_back(std::move(im));
+    im.frames.clear();
     const uint32_t handle = static_cast<uint32_t>(g_images.size());
     g_image_keys[key] = handle;
     return handle;
@@ -388,6 +432,54 @@ void windows_after_step(EmfWorld* w, uint8_t kind) {
         }
     }
     for (auto& p : due) deliver(p, w, false);
+}
+
+// Called before Kiln clears the dying world's pointer: never deliver its clicks into a later session.
+void windows_world_stopping(uint8_t kind) {
+    std::vector<Pending> due;
+    {
+        std::lock_guard lock(g_win_mutex);
+        g_stopping[kind] = true;
+        for (auto it = g_events.begin(); it != g_events.end();) {
+            if (it->world_kind != kind) { ++it; continue; }
+            it = g_events.erase(it);
+        }
+        for (auto it = g_targets.begin(); it != g_targets.end();) {
+            if (it->world_kind != kind) { ++it; continue; }
+            due.push_back(std::move(*it));
+            it = g_targets.erase(it);
+        }
+        if (g_win && g_win->world_kind == kind) {
+            g_win.reset();
+            g_win_mod = nullptr;
+            set_open(false);
+        }
+    }
+    run_now(due); // user code may reenter the API
+}
+
+void windows_world_started(uint8_t kind) {
+    windows_world_stopping(kind); // also discard pending events when an older core missed a stop
+    std::lock_guard lock(g_win_mutex);
+    g_stopping[kind] = false;
+}
+
+void windows_shutdown() {
+    g_shutdown = true;
+    windows_world_stopping(EMF_WORLD_SERVER);
+    windows_world_stopping(EMF_WORLD_CLIENT);
+    if (S.ui) {
+        std::lock_guard ui_lock(g_ui_mutex);
+        if (g_frame) S.ui->unsubscribe(g_frame);
+        if (g_key) S.ui->unsubscribe(g_key);
+        g_frame = g_key = 0;
+        std::lock_guard image_lock(g_img_mutex);
+        for (const auto& im : g_images) for (auto h : im.frames) S.ui->image_free(h);
+        g_images.clear();
+        g_image_keys.clear();
+        g_image_refused.clear();
+        g_image_bytes = 0;
+    }
 }
 
 void fill_windows(EmfApi* t) {

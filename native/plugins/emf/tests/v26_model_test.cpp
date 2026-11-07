@@ -26,6 +26,9 @@ static uint32_t fnv(const char* s) {
 }
 
 static void test_table() {
+    CHECK(api_requirement((uint64_t{1} << 32) + 26) > EMF_API_VERSION);
+    CHECK(api_requirement(UINT64_MAX) > EMF_API_VERSION);
+    CHECK(api_requirement(0)==1 && api_requirement(26)==26);
     CHECK(api_size_for(21) == 592);
     CHECK(api_size_for(26) == sizeof(EmfApi));
     CHECK(api_size_for(27) == 0);
@@ -114,6 +117,17 @@ static void test_windows() {
     CHECK(!copy_window_def(&d, true, &r, &why) && why == "widget 2: unknown type 9");
     d.size = 16;
     CHECK(!copy_window_def(&d, true, &r, &why));
+    d.size=sizeof d;d.count=1;w[0]={};d.widget_size=UINT32_MAX;
+    CHECK(!copy_window_def(&d,true,&r,&why));
+    d.widget_size=sizeof(EmfUiWidget);d.flags=1;
+    CHECK(!copy_window_def(&d,true,&r,&why));
+    d.flags=0;d.count=UINT32_MAX;
+    CHECK(!copy_window_def(&d,true,&r,&why));
+    d.count=1;d.widgets=nullptr;
+    CHECK(!copy_window_def(&d,true,&r,&why));
+    // Partial tail fields must be defaulted as a whole, never assembled from a few bytes.
+    d.widgets=w;d.widget_size=61;w[0].height=1.00001f;
+    CHECK(copy_window_def(&d,true,&r,&why) && r.widgets[0].height==0);
     CHECK(widget_takes_clicks(EMF_UI_IMAGE) && !widget_takes_clicks(EMF_UI_TEXT));
 }
 
@@ -193,7 +207,7 @@ static void test_components() {
         ans.clear();
         q.after_step(W, 1, f.env(), &ans);
         for (auto& a : ans) a.done(a.world, a.status, a.why);
-        q.run(f.push());
+        q.run(W, 1, f.env(), f.push());
     };
     CHECK(q.request(req(5000, kScaleComponent, true, 2.0f), &why));
     CHECK(!q.request(req(5000, kScaleComponent, true, 2.0f), &why) && why.find("under way") != std::string::npos);
@@ -280,7 +294,7 @@ static void test_offers() {
         std::vector<ComponentAnswer> ans;
         q.after_step(W, 1, f.env(), &ans);
         for (auto& a : ans) a.done(a.world, a.status, a.why);
-        q.run(f.push());
+        q.run(W, 1, f.env(), f.push());
         svc.after_step(W, 1);
     };
     int accepted = 0;
@@ -317,11 +331,86 @@ static void test_offers() {
     CHECK(!svc.active(1, 6000, "beastmaster"));
     // a new session forgets everything
     f.entities.insert(6000);
-    CHECK(svc.offer(W, 1, 6000, OfferSpec{}, "m", nullptr, &why) || true);
-    CHECK(!svc.active(2, 6000, "m"));
+    f.comps.clear(); f.data.clear(); // a new world contains none of the previous world's runtime parts
+    CHECK(svc.offer(W, 2, 6000, OfferSpec{}, "m", nullptr, &why));
+    CHECK(svc.active(2, 6000, "m") && !svc.active(1, 6000, "m"));
+}
+
+// A removal must fail if the entity disappeared; old-session work must never reach the command buffer.
+static void test_queue_lifecycle() {
+    ComponentQueue q;
+    FakeWorld f; f.entities={7000};
+    EmfWorld* w=reinterpret_cast<EmfWorld*>(0x1000);
+    ComponentRequest r; r.world=w;r.session=1;r.entity=7000;r.hash=kInteractionOfferRuntime;r.internal=true;
+    r.add=true;r.data=offer_runtime_bytes(OfferSpec{});
+    std::vector<ComponentAnswer> a;
+    CHECK(q.request(r,nullptr)); q.after_step(w,1,f.env(),&a);
+    // Between check and push the game adds its own data: ALREADY must preserve it.
+    f.comps.insert({7000,r.hash}); f.data[r.hash]={42};
+    q.run(w,1,f.env(),f.push());
+    CHECK(f.data[r.hash]==std::vector<uint8_t>{42});
+
+    q.end_all("end",&a);
+    r.add=false;r.data.clear();r.done=[](EmfWorld*,uint32_t,const std::string&){};
+    CHECK(q.request(r,nullptr)); a.clear(); q.after_step(w,1,f.env(),&a);
+    q.run(w,1,f.env(),f.push());
+
+    f.entities.erase(7000); a.clear(); q.after_step(w,1,f.env(),&a);
+    CHECK(a.size()==1 && a[0].status==EMF_COMPONENT_FAILED);
+    r.add=true;r.data=offer_runtime_bytes(OfferSpec{});r.session=1;
+    CHECK(q.request(r,nullptr)); a.clear();q.after_step(w,2,f.env(),&a);
+    CHECK(a.size()==1 && a[0].world==nullptr);
+}
+
+static void test_offer_failures() {
+    EmfWorld* w = reinterpret_cast<EmfWorld*>(0x1000);
+    FakeWorld f; f.entities={8000};
+    // The game already owns the client support component: removal must leave it alone.
+    f.comps.insert({8000,kClientInteractionOffer});
+    ComponentQueue q;
+    bool refuse_range=false, ours=true, foreign=false;
+    OfferDeps d;
+    d.has=[&](uint32_t e,uint32_t h){return h?f.comps.count({e,h})!=0:f.entities.count(e)!=0;};
+    d.change=[&](ComponentRequest& r,std::string* why){return !(refuse_range && r.add && r.hash==kCheckPlayerInRange) && q.request(r,why);};
+    d.read_offer=[&](uint32_t)->std::optional<std::pair<uint32_t,uint32_t>> {
+        if (foreign) return std::make_pair(kOfferDefaultSequence,EMF_VERB_OPEN);
+        if (!ours) return std::nullopt;
+        return std::make_pair(kOfferDefaultSequence,kOfferDefaultVerb);
+    };
+    OfferService svc(d);
+    auto step=[&]{ std::vector<ComponentAnswer> a; q.after_step(w,1,f.env(),&a); for(auto& x:a)x.done(x.world,x.status,x.why); q.run(w,1,f.env(),f.push()); svc.after_step(w,1); };
+    CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr)); step();step();
+    ours=false; for(int i=0;i<kOfferUpkeepSteps;++i)step();
+    CHECK(!svc.active(1,8000,"m"));
+    ours=true; CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr));
+    CHECK(svc.remove(w,1,8000,"m",nullptr)); step();step();
+    CHECK(f.comps.count({8000,kClientInteractionOffer}) && !f.comps.count({8000,kInteractionOfferRuntime}));
+    refuse_range=true;
+    CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr));
+    CHECK(!svc.active(1,8000,"m"));
+    for(int i=0;i<5;++i)step();
+    CHECK(q.pending()==0 && !f.comps.count({8000,kInteractionOfferRuntime}) && f.comps.count({8000,kClientInteractionOffer}));
+    refuse_range=false;
+    CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr));
+    CHECK(svc.remove(w,1,8000,"m",nullptr)); // remove before any add has landed
+    for(int i=0;i<5;++i)step();
+    CHECK(q.pending()==0 && !f.comps.count({8000,kInteractionOfferRuntime}));
+    // A game offer replaces ours between remove() and the queue's push: preserve every part.
+    CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr)); step();step();
+    CHECK(svc.remove(w,1,8000,"m",nullptr));
+    foreign=true; for(int i=0;i<5;++i)step();
+    CHECK(f.comps.count({8000,kInteractionOfferRuntime}) && f.comps.count({8000,kCheckPlayerInRange}));
+    foreign=false; f.comps.erase({8000,kInteractionOfferRuntime}); f.comps.erase({8000,kCheckPlayerInRange});
+    // Game wins the race for the runtime offer: never remove its data during rollback.
+    CHECK(svc.offer(w,1,8000,OfferSpec{},"m",nullptr,nullptr));
+    f.comps.insert({8000,kInteractionOfferRuntime}); f.data[kInteractionOfferRuntime]={99};
+    for(int i=0;i<5;++i)step();
+    CHECK(!svc.active(1,8000,"m") && f.data[kInteractionOfferRuntime]==std::vector<uint8_t>{99});
 }
 
 int main() {
+    test_offer_failures();
+    test_queue_lifecycle();
     test_table();
     test_level();
     test_windows();

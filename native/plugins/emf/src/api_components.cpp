@@ -21,11 +21,11 @@ v26::ComponentQueue g_queue;
 std::unique_ptr<v26::OfferService> g_offers;
 KilnHandle g_program = 0;
 uint32_t g_player_state = 0;  // hash of PlayerState
-uint32_t g_last_session = 0;
+std::atomic<bool> g_stopping{false};
 std::string g_off;  // why changing components is off ("" = on)
 
 EmfWorld* server_world() { return reinterpret_cast<EmfWorld*>(g_api->world(KILN_WORLD_SERVER)); }
-bool is_server(EmfWorld* w) { return w && reinterpret_cast<uintptr_t>(w) == g_api->world(KILN_WORLD_SERVER); }
+bool is_server(EmfWorld* w) { return !g_stopping && w && reinterpret_cast<uintptr_t>(w) == g_api->world(KILN_WORLD_SERVER); }
 std::string owner_key(const Mod* m) { return m ? m->id : std::string("?"); }
 
 bool has_component(uint32_t entity, uint32_t hash) {
@@ -44,7 +44,7 @@ v26::ComponentEnv env() {
 
 void KILN_CALL program_each(KilnProgramCtx* ctx, uint64_t*, KilnEntity, void*) {
     if (!g_queue.pending()) return;
-    g_queue.run([ctx](uint32_t entity, uint32_t hash, bool add, const std::vector<uint8_t>& data) {
+    g_queue.run(server_world(), server_session(), env(), [ctx](uint32_t entity, uint32_t hash, bool add, const std::vector<uint8_t>& data) {
         const KilnResult rc = add ? S.world->queue_add(ctx, entity, hash, data.empty() ? nullptr : data.data(),
                                                        static_cast<uint32_t>(data.size()))
                                   : S.world->queue_remove(ctx, entity, hash);
@@ -60,6 +60,10 @@ void answer_all(std::vector<v26::ComponentAnswer>& ans) {
 
 // change_component's checks that need no world, then the queue.
 bool request_change(v26::ComponentRequest& r, std::string* why) {
+    if (g_stopping) {
+        if (why) *why = "the server world is stopping";
+        return false;
+    }
     if (!g_off.empty()) {
         if (why) *why = "changing components is off: " + g_off;
         return false;
@@ -129,7 +133,7 @@ bool api_change_component(EmfWorld* w, const EmfComponentChange* c) {
 bool offers_on(Mod* m, EmfWorld* w, const char* fn) {
     if (!g_offers) return unsupported(m, fn, g_off.empty() ? "kiln.world is not available" : g_off.c_str()), false;
     if (!is_server(w)) return refuse(m, fn, "the server world only (a world this game hosts)"), false;
-    if (!g_api->on_tick_thread()) return refuse(m, fn, "from a world callback on the server world"), false;
+    if (!g_api->on_tick_thread() || !t_ctx.world_cb || t_ctx.world != w) return refuse(m, fn, "from a world callback on the server world"), false;
     return true;
 }
 
@@ -158,7 +162,8 @@ v26::OfferCallback offer_callback(Mod* m, EmfOfferCallback cb, void* user) {
 bool do_offer(Mod* m, EmfWorld* w, uint32_t entity, const EmfOffer* o, EmfOfferCallback cb, void* user, const char* fn) {
     v26::OfferSpec s;
     if (const std::string bad = v26::offer_spec_from(o, &s); !bad.empty()) return refuse(m, fn, bad.c_str()), false;
-    if (entity >= 1 && entity <= 16) return refuse(m, fn, "never a player"), false;
+    if ((entity >= 1 && entity <= 16) || (g_player_state && has_component(entity, g_player_state)))
+        return refuse(m, fn, "never a player"), false;
     KilnVec3 pos{};
     if (!S.world->exists(entity) || S.world->position(entity, &pos) != KILN_OK)
         return refuse(m, fn, "no such entity (or it has no position)"), false;
@@ -196,9 +201,9 @@ bool api_offer_remove(EmfWorld* w, uint32_t entity) {
     return false;
 }
 
-bool api_offer_active(EmfWorld*, uint32_t entity) {
+bool api_offer_active(EmfWorld* w, uint32_t entity) {
     Mod* m = caller_mod(_ReturnAddress());
-    return g_offers && entity && g_offers->active(server_session(), entity, owner_key(m));
+    return is_server(w) && g_offers && entity && g_offers->active(server_session(), entity, owner_key(m));
 }
 
 void on_accept_event(EmfWorld* w, const void* event, uint32_t size, void*) {
@@ -253,13 +258,21 @@ void components_after_step(EmfWorld* w, uint8_t kind) {
     if (kind != EMF_WORLD_SERVER || !S.world) return;
     std::vector<v26::ComponentAnswer> ans;
     const uint32_t session = server_session();
-    if (session != g_last_session) {
-        if (g_last_session) g_queue.end_all("the world ended (a new world, or the menu)", &ans);
-        g_last_session = session;
-    }
     g_queue.after_step(w, session, env(), &ans);
     answer_all(ans);
     if (g_offers) g_offers->after_step(w, session);
+}
+
+bool server_requests_allowed() { return !g_stopping; }
+void components_world_started() { g_stopping = false; }
+
+void components_world_stopping() {
+    g_stopping = true;
+    std::vector<v26::ComponentAnswer> ans;
+    g_queue.end_all("the world ended (a new world, or the menu)", &ans);
+    // Retain the service object: already extracted internal completion closures refer to it.
+    if (g_offers) g_offers->after_step(nullptr, server_session() + 1);
+    answer_all(ans);
 }
 
 void fill_components(EmfApi* t) {
