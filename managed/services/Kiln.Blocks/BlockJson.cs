@@ -92,6 +92,7 @@ internal static class BlockJson
     /// <summary>Compiles a mod's blocks/*.json: what <see cref="Read"/> read, or reads it now. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
     public static int LoadMod(ModBlocks mod, string directory)
     {
+        if (mod.DataLoaded) return 0;
         Read(mod, directory);
         using var data = mod.Data!;
         mod.Data = null;
@@ -124,6 +125,15 @@ internal static class BlockJson
             }
         }
         return n;
+    }
+
+    /// <summary>Drop cached data of the old lifetime. A revoked mod owner must never be reused by the next data pass.
+    /// A data-only mod keeps its service owner, so repeated reloads don't allocate owners.</summary>
+    internal static void Unloaded(ModBlocks mod)
+    {
+        mod.Reset();
+        if (mod.OwnedByMod) mod.Owner = 0;
+        mod.OwnedByMod = false;
     }
 
     /// <summary>A mod's data files, read: what their blocks are, until each is compiled.</summary>
@@ -176,8 +186,20 @@ internal static class BlocksStartup
         // from the service's own tick, so that the subscription is the service's: a mod's would end with the mod
         _reloads ??= Events.On<ModReloadedEvent>(e =>
         {
-            Done.Remove(e.Id);
-            foreach (var dependent in e.Cascade) Done.Remove(dependent);
+            void Reloaded(string id)
+            {
+                Done.Remove(id);
+                var mod = Blocks.AllMods.FirstOrDefault(m => m.Id == id);
+                // A new OnLoad that defined blocks already reset/read its data (DataLoaded is still false).
+                // Otherwise this is the previous lifetime, even if unload and reload fell between data passes.
+                if (mod != null && (!mod.OwnedByMod || mod.DataLoaded))
+                {
+                    Reskins.Unloaded(id);
+                    BlockJson.Unloaded(mod);
+                }
+            }
+            Reloaded(e.Id);
+            foreach (var dependent in e.Cascade) Reloaded(dependent);
         });
         BlockRuntime.WriteReports();
         BlockRuntime.SubscribeSignals();
@@ -186,16 +208,19 @@ internal static class BlocksStartup
         // An unloaded mod's data files compile again when it is loaded again (a reload clears it through ModReloadedEvent), and its material
         // replacements go (Vfx/Reskins.cs).
         foreach (var m in Mods.All)
-            if (!m.IsLoaded)
+            if (!m.IsLoaded && m.State != ModState.Pending)
             {
                 Done.Remove(m.Id);
                 Reskins.Unloaded(m.Id);
+                var old = Blocks.AllMods.FirstOrDefault(b => b.Id == m.Id);
+                if (old != null && (old.DataLoaded || old.Data != null || old.OwnedByMod)) BlockJson.Unloaded(old);
             }
         foreach (var m in Mods.All)
         {
             if (!m.IsLoaded || m.Directory.Length == 0 || Done.Contains(m.Id) || !Directory.Exists(Path.Combine(m.Directory, "blocks"))) continue;
             Done.Add(m.Id);
             var mod = Blocks.ModFor(m.Id, () => BlocksBridge.ServiceOwner($"blocks:{m.Id}"));
+            if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{m.Id}");
             var n = BlockJson.LoadMod(mod, m.Directory);
             BlocksBridge.Log(LogLevel.Info, $"blocks: {m.Id}: {n} block(s) from blocks/*.json, {mod.Errors.Count} error(s)");
         }

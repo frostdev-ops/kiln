@@ -31,8 +31,8 @@ SWIRL_CODE, SWIRL_REPORT = hooks.link(SWIRL_FILE)
 SWIRL = Sim(SWIRL_CODE)
 
 
-def world(child, user, n=24, ticks=0):
-    block = sprite_block(life=(5, 5), speed=(0.5, 0.5), spread=P["KS_SPREAD_SPHERE"], shape=P["KS_SHAPE_DISC"], shape_size=(1.5, 0, 0), user=user)
+def world(child, user, n=24, ticks=0, **params):
+    block = sprite_block(life=(5, 5), speed=(0.5, 0.5), spread=P["KS_SPREAD_SPHERE"], shape=P["KS_SHAPE_DISC"], shape_size=(1.5, 0, 0), user=user, **params)
     w = World([Entry(EMITTER, depth=0, child=1, state_size=P["KE_STATE_SIZE"], params=emitter_block(duration=0.001, burst=n)),
                Entry(child, depth=1, parent=0, max_count=64, state_size=P["KS_STATE_SIZE"], params=block)], position=(0.0, 0.0, 0.0))
     for _ in range(ticks):
@@ -155,6 +155,17 @@ class Hostile(unittest.TestCase):
         self.assertEqual(w.draws(), [])
         for d in w.draws():
             self.assertTrue(all(math.isfinite(x) for x in d["color"]))
+
+    def test_finite_hook_outputs_cannot_overflow_the_final_draw(self):
+        code, _ = hooks.build_and_link(HEAD +
+            "void up(inout KilnSprite s, KilnContext c) { s.age = 3e38f; s.life = 3.1e38f; }\n"
+            "#define KILN_UPDATE up\n" + TAIL)
+        w = world(Sim(code), [0, 0, 0], n=1, fps=1e6, flipbook=(1 << 16) | 1)
+        # The hook returns finite floats, but age * fps overflows after sanitization.
+        w.tick()
+        w.check()
+        for d in w.draws():
+            self.assertTrue(math.isfinite(d["flipbookTime"]), d)
 
 
 if __name__ == "__main__":

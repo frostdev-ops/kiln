@@ -122,6 +122,131 @@ class Hostile(unittest.TestCase):
         self.assertTrue(r["ok"], r)
         self.assertEqual(r["hooks"], ["update"])
 
+    def test_inserted_index_clamps_are_charged_to_the_budget_at_every_call(self):
+        decl = "%n = OpConstant %uint 1\n%arr = OpTypeArray %float %n\n%pa = OpTypePointer Function %arr\n%idx = OpUndef %uint\n"
+        funcs = ("%burn = OpFunction %void None %fvoid\n%bb = OpLabel\n%a = OpVariable %pa Function\n" +
+                 "".join(f"%x{i} = OpAccessChain %pf %a %idx\n" for i in range(100)) + "OpReturn\nOpFunctionEnd")
+        # Source cost ~10,000; emitted cost >20,000 (100 clamps at each of 100 call sites).
+        self.refused("instructions long", DECL=decl, FUNCS=funcs,
+                     BODY="".join(f"%c{i} = OpFunctionCall %void %burn\n" for i in range(100)) + "OpReturn")
+
+    def test_call_depth_is_bounded_before_native_recursive_walks(self):
+        funcs = "".join(f"%chain{i} = OpFunction %void None %fvoid\n%b{i} = OpLabel\n" +
+                        (f"%r{i} = OpFunctionCall %void %chain{i+1}\n" if i < 99 else "") +
+                        "OpReturn\nOpFunctionEnd\n" for i in range(100))
+        self.refused("call depth", BODY="%r = OpFunctionCall %void %chain0\nOpReturn", FUNCS=funcs)
+
+    def test_cumulative_call_stack_memory_is_bounded(self):
+        decl = "%n = OpConstant %uint 2048\n%arr = OpTypeArray %float %n\n%pa = OpTypePointer Function %arr"
+        funcs = "".join(f"%chain{i} = OpFunction %void None %fvoid\n%b{i} = OpLabel\n%a{i} = OpVariable %pa Function\n" +
+                        (f"%r{i} = OpFunctionCall %void %chain{i+1}\n" if i < 2 else "") +
+                        "OpReturn\nOpFunctionEnd\n" for i in range(3))
+        self.refused("call stack", DECL=decl, FUNCS=funcs, BODY="%r = OpFunctionCall %void %chain0\nOpReturn")
+
+    def test_matrix_shapes_and_undefined_types_are_checked(self):
+        self.refused("matrix", DECL="%v2i = OpTypeVector %uint 2\n%mi = OpTypeMatrix %v2i 2")
+        self.refused("wrong type", DECL="%m2 = OpTypeMatrix %v3 2\n%m3 = OpTypeMatrix %v3 3\n%mx = OpUndef %m2",
+                     BODY="%z = OpTranspose %m3 %mx\nOpReturn")
+        for ty in ("%void", "%fvoid"):
+            self.refused("data type", DECL=f"%bad = OpUndef {ty}")
+        self.refused("data type", DECL="%bad = OpTypeFunction %fvoid")
+
+    def test_matrix_operations_check_every_dimension(self):
+        decl = ("%v2 = OpTypeVector %float 2\n%m2 = OpTypeMatrix %v3 2\n%m3 = OpTypeMatrix %v3 3\n"
+                "%m32 = OpTypeMatrix %v2 3\n%mx = OpUndef %m2\n%my = OpUndef %m3\n%a2 = OpUndef %v2\n%a3 = OpUndef %v3")
+        for good, bad in (
+                ("OpMatrixTimesScalar %m2 %mx %f1", "OpMatrixTimesScalar %m2 %mx %mx"),
+                ("OpVectorTimesMatrix %v2 %a3 %mx", "OpVectorTimesMatrix %v3 %a3 %mx"),
+                ("OpMatrixTimesVector %v3 %mx %a2", "OpMatrixTimesVector %v3 %mx %a3"),
+                ("OpMatrixTimesMatrix %m2 %my %mx", "OpMatrixTimesMatrix %m3 %my %mx"),
+                ("OpOuterProduct %m2 %a3 %a2", "OpOuterProduct %m3 %a3 %a2"),
+                ("OpTranspose %m32 %mx", "OpTranspose %m3 %mx")):
+            self.refused("wrong type", DECL=decl, BODY=f"%z = {bad}\nOpReturn")
+            self.assertTrue(check(assemble(DECL=decl, BODY=f"%z = {good}\nOpReturn"), self.tmp)["ok"], good)
+
+    def test_alignment_promises_cannot_exceed_proven_alignment(self):
+        for alignment in (0, 3, 8, 0x80000000):
+            self.refused("alignment", BODY=f"%x = OpAccessChain %pf %s %int_6\n%v = OpLoad %float %x Aligned {alignment}\nOpReturn")
+            self.refused("alignment", BODY=f"%x = OpAccessChain %pf %s %int_6\nOpStore %x %f1 Aligned {alignment}\nOpReturn")
+
+    def test_nested_arrays_matrices_and_vector_indices_are_all_clamped(self):
+        code = assemble(DECL="%arr = OpTypeArray %v3 %uint_2\n%outer = OpTypeArray %arr %uint_2\n%po = OpTypePointer Function %outer\n"
+                        "%mat = OpTypeMatrix %v3 2\n%pm = OpTypePointer Function %mat\n%idx = OpUndef %int\n%vec = OpUndef %v3",
+                        BODY="%a = OpVariable %po Function\n%m = OpVariable %pm Function\n%x = OpAccessChain %pf %a %idx %idx %idx\n"
+                        "%y = OpAccessChain %pf %m %idx %idx\n%z = OpVectorExtractDynamic %float %vec %idx\n"
+                        "%zi = OpVectorInsertDynamic %v3 %vec %f1 %idx\nOpStore %x %z\nOpStore %y %f1\nOpReturn")
+        r = check(code, self.tmp)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["clampedIndices"], 7)
+
+    def test_phi_has_exactly_one_value_per_predecessor(self):
+        body = ("OpSelectionMerge %m None\nOpBranchConditional %true %a %b\n%a = OpLabel\nOpBranch %m\n"
+                "%b = OpLabel\nOpBranch %m\n%m = OpLabel\n")
+        for incoming in ("%f1 %a", "%f1 %a %f1 %a"):
+            self.refused("predecessor", BODY=body + f"%x = OpPhi %float {incoming}\nOpReturn")
+
+    def test_cap_does_not_add_a_phi_predecessor(self):
+        code = assemble(BODY="OpBranch %h\n%h = OpLabel\nOpLoopMerge %m %ct None\nOpBranch %b\n"
+                        "%b = OpLabel\nOpBranchConditional %true %ct %m\n%ct = OpLabel\nOpBranch %h\n"
+                        "%m = OpLabel\n%x = OpPhi %float %f1 %b\nOpReturn")
+        f, out = Path(self.tmp) / "phi.spv", Path(self.tmp) / "linked.spv"
+        f.write_bytes(code)
+        r = check(code, self.tmp)
+        # Refusing this shape is also safe; an accepted module must not acquire an invalid phi edge.
+        if r["ok"]:
+            run("shader", "link", f, "--out", out)
+            p = subprocess.run(["spirv-val", "--target-env", "vulkan1.2", "--scalar-block-layout", str(out)], capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_cap_does_not_bypass_a_value_definition(self):
+        self.refused("dominate", BODY="OpBranch %h\n%h = OpLabel\nOpLoopMerge %m %ct None\nOpBranch %b\n"
+                     "%b = OpLabel\n%value = OpFAdd %float %f1 %f1\nOpBranchConditional %true %ct %m\n"
+                     "%ct = OpLabel\nOpBranch %h\n%m = OpLabel\n%x = OpAccessChain %pf %s %int_6\nOpStore %x %value\nOpReturn")
+
+    def test_header_metadata_and_decorations_never_reach_the_linked_shader(self):
+        code = assemble(ANNOT="OpDecorate %s Location 7\nOpMemberDecorate %Sprite 0 Offset 65532\nOpDecorate %up BuiltIn Position")
+        words = list(struct.unpack(f"<{len(code) // 4}I", code))
+        at = 5
+        while at < len(words):
+            if words[at] & 0xffff == 15:
+                words[at + 1] = 4  # Fragment entry in the hook; the linked entry must still be Kiln's compute entry.
+            if words[at] & 0xffff == 16:
+                words[at + 3:at + 6] = [4096, 4096, 4096]  # Hook execution modes are discarded too.
+            at += words[at] >> 16
+        code = struct.pack(f"<{len(words)}I", *words)
+        f, out = Path(self.tmp) / "decorated.spv", Path(self.tmp) / "linked.spv"
+        f.write_bytes(code)
+        r = check(code, self.tmp)
+        self.assertTrue(r["ok"], r)  # These annotations are discarded, never applied to shared Kiln types.
+        run("shader", "link", f, "--out", out)
+        p = subprocess.run(["spirv-val", "--target-env", "vulkan1.2", "--scalar-block-layout", str(out)], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_other_import_names_and_truncated_capabilities_are_refused(self):
+        code = assemble().replace(b"GLSL.std.450", b"EVIL.std.450")
+        self.assertIn("instruction set import", check(code, self.tmp)["problem"])
+        code = bytearray(assemble())
+        # Keep the module structurally framed but strip the Shader operand.
+        code[20:28] = struct.pack("<I", (1 << 16) | 17)
+        self.assertIn("capability", check(code, self.tmp)["problem"])
+
+    def test_pointer_forging_opcodes_and_initializers_are_refused(self):
+        for body in ("%x = OpConvertUToPtr %pf %uint_2", "%x = OpBitcast %pf %uint_2",
+                     "%x = OpCopyObject %pS %s", "%x = OpPtrAccessChain %pf %s %uint_2",
+                     "OpCopyMemory %s %c"):
+            r = check(assemble(BODY=body + "\nOpReturn"), self.tmp)
+            self.assertFalse(r["ok"], r)
+        self.refused("initialiser", BODY="%x = OpVariable %pf Function %uint_2\nOpReturn")
+        self.refused("opcode 50", DECL="%x = OpSpecConstant %uint 2")
+        self.refused("returns a pointer", DECL="%bad = OpTypeFunction %pf")
+        self.refused("makes a pointer", BODY="%x = OpPhi %pS %s %u0\nOpReturn")
+
+    def test_mutual_recursion_and_switch_cycles_are_refused(self):
+        self.refused("recursion", BODY="%r = OpFunctionCall %void %other %s %c\nOpReturn",
+                     FUNCS="%other = OpFunction %void None %fup\n%os = OpFunctionParameter %pS\n%oc = OpFunctionParameter %pC\n"
+                           "%b = OpLabel\n%r2 = OpFunctionCall %void %up %os %oc\nOpReturn\nOpFunctionEnd")
+        self.refused("doesn't pass a loop header", BODY="OpBranch %a\n%a = OpLabel\nOpSwitch %uint_2 %b 2 %b\n%b = OpLabel\nOpBranch %a")
+
     def test_a_storage_buffer_and_a_store_into_it(self):
         self.refused("storage class",
                      ANNOT="OpDecorate %blk Block\nOpMemberDecorate %blk 0 Offset 0\nOpDecorate %buf DescriptorSet 1\nOpDecorate %buf Binding 42",

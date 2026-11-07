@@ -249,8 +249,8 @@ class ReplacingMaterial(Base):
         self.assertEqual([s["mod"] for s in c.report["served"]["standby"]], ["first"])
 
     def test_an_unknown_guid_cooks_and_is_left_to_the_game(self):
-        # Offline the builder can't know the game's materials; kiln.assets refuses the override at start and kiln.vfx logs it (the game's
-        # own draws). The block still builds under that GUID.
+        # Offline without a game-key callback the builder cannot know the game's materials; kiln.vfx checks original KFC keys at boot
+        # and refuses unknown targets before handing anything to kiln.assets. The block still builds under that GUID.
         c = cook(self.mod({"x": {"replaces": "00000000-0000-0000-0000-000000000001", "albedo": "t.png"}}), tmp=self.tmp)
         self.assertEqual(c.report["materials"][0]["guid"], "00000000-0000-0000-0000-000000000001")
 

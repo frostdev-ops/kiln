@@ -128,7 +128,9 @@ void cs_main(uint3 id : SV_DispatchThreadID)
                 uint flip = kParamU(p.params + KS_FLIPBOOK);
                 float frames = max((float)((flip & 0xffffu) * (flip >> 16)), 1.0f);
                 float flipTime = fps > 0.0f ? s.age * fps / frames : t * 0.999f;
-                kAppendDraw(p, kParamU(p.params + KS_DRAW_FLAGS), mesh, s.position, rotation, scale, color, alpha, flipTime);
+                // Finite hook outputs can still overflow in these later calculations (notably age * fps). Check the final record.
+                if (kFinite(rotation.xyz) && kFinite1(rotation.w) && kFinite(color) && kFinite1(flipTime))
+                    kAppendDraw(p, kParamU(p.params + KS_DRAW_FLAGS), mesh, s.position, rotation, scale, color, alpha, flipTime);
             }
         }
     }

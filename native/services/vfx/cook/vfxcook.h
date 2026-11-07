@@ -467,6 +467,7 @@ struct CookOptions {
     ReadFile read_file;   // default: std::ifstream
     TextureCache cache;
     std::function<bool(const ContentHash&)> game_has_blob;  // empty: unknown, so what needs a game blob is refused
+    std::function<bool(const Guid&)> game_has_material;  // boot: authoritative game keys, not the assets override map; empty: offline/unknown
     bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
     bool skip_shaders = false;                              // kiln/config/vfx.json "shaders": false: mods' own modules fall back to Kiln's sprite
     std::set<std::string> skip_shader_mods;                 // "skipShaderMods": the same for these mods only

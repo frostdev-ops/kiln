@@ -85,10 +85,10 @@ the compiler or the names in the file: a hand-written module gets the same treat
 | **Pointers only from variables, parameters and access chains**, and loads, stores, calls and access chains are type-checked | Forged or undefined pointers |
 | **Every index is in range.** Constant indices are checked; every computed index into an array, vector or matrix is clamped (`UMin(i, length-1)`) | Out-of-bounds access to local arrays (which a GPU may not fault on) |
 | **Every loop ends.** Every cycle in a function's control flow has to pass a loop header; each header pass adds one to a per-particle counter, and past the cap the loop leaves through its merge block (Kiln checks that this always leads out). The counter is reset before each hook call | Endless or very long loops: a hung GPU, a lost device |
-| **A bounded amount of work.** A hook's straight-line cost (its instructions, every call counted where it is made) times the loop cap stays within 16,384 instructions per call; no recursion | A hook that is short but calls itself, or a chain of calls that doubles at each step |
+| **A bounded amount of work.** A hook's straight-line cost includes inserted index clamps and counter operations, with every callee counted at each call site. Cost must be ≤ 16,384; loop cap = floor(16,384 / cost). Exiting loops can add up to another straight-line traversal; no recursion | A hook that is short but calls itself, or a chain of calls that doubles at each step |
 | **Only plain arithmetic.** An allowlist of opcodes: maths, logic, comparisons, conversions, composites, structured control flow, GLSL.std.450 without its pointer and interpolation forms. Capability `Shader` only; no extensions | Barriers, atomics, images, derivatives, subgroup operations, `OpKill`, anything the device wasn't made for |
-| **Bounded size.** Hook module ≤ 256 KB, local memory ≤ 16 KB per function, private ≤ 4 KB, arrays ≤ 4,096 elements | Huge scratch allocations, slow compiles |
-| **What a hook returns is checked** by Kiln's code before it is used: a particle whose position, velocity, age or life isn't finite dies; other non-finite fields fall back (roll, spin, aux to 0, a look to invisible); velocity, spin and colour are clamped. Kiln's own guards then apply as for every particle (world bounds, scale, the list capacities) | NaN or infinity reaching the draw lists or the stored state |
+| **Bounded size.** Hook module ≤ 256 KB, local memory ≤ 16 KB across a live call stack, call depth ≤ 64, private ≤ 4 KB, arrays ≤ 4,096 elements | Huge scratch allocations, slow compiles |
+| **What a hook returns is checked** by Kiln's code before it is used: a particle whose position, velocity, age or life isn't finite dies; other non-finite fields fall back (roll, spin, aux to 0, a look to invisible); velocity, spin and colour are clamped. Final rotation, colour and flipbook time are checked again after draw calculations, which can overflow even with finite inputs. Kiln's own guards then apply as for every particle (world bounds, scale, the list capacities) | NaN or infinity reaching the draw lists or the stored state |
 | **Fallback, per module.** Any refusal draws the particle with Kiln's own sprite, says why once in kiln.log, and the block keeps its id | A broken mod hiding an effect or stopping the game |
 
 Kiln's own part of the linked module (spawning, the particle lists, culling, the sort key, the draw record, every buffer access) is Kiln's
@@ -97,8 +97,7 @@ shipped code, `shaders/build/kiln_sprite_hooked.spv`, compiled from `kiln_sprite
 **What it can't prevent.** A hook can still make its own effect look wrong, cost GPU time up to the budget (about a millisecond for 32,768
 particles running a hook at the full budget on an RTX 3080 Ti), or, if it is malformed in a way the runtime checks don't cover (the full
 SPIR-V type and structure rules are `spirv-val`'s, run by `shader build` but not at start), make the driver's compiler fail when the effect is
-first played, which can end the game like any crash. That is the same trust a mod's C# already has: the aim is that no hook hangs the GPU,
-loses the device or corrupts anything outside its own particles, not that a mod can't misbehave.
+first played, which can end the game like any crash. These checks bound the supported instruction subset; they are not a complete SPIR-V validator or a guarantee about a driver's handling of malformed input. The instruction budget is not a wall-clock deadline or a guarantee against device loss on every GPU.
 
 ## When it isn't used
 `kiln.log` says why once at start:

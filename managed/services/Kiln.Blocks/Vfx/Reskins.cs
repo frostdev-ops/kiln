@@ -8,20 +8,22 @@ namespace Kiln;
 
 internal static class Reskins
 {
-    private static readonly HashSet<string> Tied = new();
+    private static readonly HashSet<string> Released = new();
     private static readonly object Gate = new();
 
     /// <summary>A replacement of this mod's is registered with kiln.vfx.</summary>
     public static void Registered(string mod)
     {
-        lock (Gate) Tied.Add(mod);
+        lock (Gate) Released.Remove(mod);
     }
 
     /// <summary>The mod is not loaded (Kiln.Blocks' data pass, on the tick thread): its replacements go, once.</summary>
-    public static void Unloaded(string mod)
+    public static void Unloaded(string mod, Action<string>? release = null)
     {
         lock (Gate)
-            if (!Tied.Remove(mod)) return;
+            if (!Released.Add(mod)) return;
+        // Also release boot-only replacements: OnLoad can fail before any material registers with Kiln.Blocks.
+        if (release != null) { release(mod); return; }
         VfxNative.DefineJson($"{{\"format\":1,\"mod\":{JsonSerializer.Serialize(mod)},\"release\":true}}", 0);
     }
 }

@@ -175,4 +175,48 @@ public sealed class VfxAbi2Tests
         Assert.Throws<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<SpawnShape>(shape));
     }
 
+    [Fact]
+    public void Boot_only_reskins_release_once_even_if_onload_never_registered_them()
+    {
+        var id = "failed-boot-reskin-" + Guid.NewGuid();
+        var released = new List<string>();
+        Reskins.Unloaded(id, released.Add);
+        Reskins.Unloaded(id, released.Add);
+        Assert.Equal([id], released);
+        Reskins.Registered(id);
+        Reskins.Unloaded(id, released.Add);
+        Assert.Equal([id, id], released);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Data_pass_compiles_once_and_forgets_the_previous_lifetime(bool modOwner)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-blocks-data-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(dir, "blocks"));
+        try
+        {
+            var file = Path.Combine(dir, "blocks", "data.json");
+            File.WriteAllText(file, """{"format":1,"materials":{"first":{"tint":"#ff0000"}}}""");
+            var mod = new ModBlocks("data-pass-test", 51) { OwnedByMod = modOwner };
+            BlockJson.Read(mod, dir);
+            var early = mod.Pending["first"]();
+            Assert.Equal(1, BlockJson.LoadMod(mod, dir));
+            Assert.Same(early, mod.Handles["first"]);
+            Assert.Equal(0, BlockJson.LoadMod(mod, dir));
+            Assert.Same(early, mod.Handles["first"]);
+            BlockJson.Unloaded(mod);
+            Assert.False(mod.DataLoaded);
+            Assert.False(mod.OwnedByMod);
+            Assert.Equal(modOwner ? 0UL : 51UL, mod.Owner);
+            Assert.Empty(mod.Handles);
+            File.WriteAllText(file, """{"format":1,"materials":{"second":{"tint":"#0000ff"}}}""");
+            Assert.Equal(1, BlockJson.LoadMod(mod, dir));
+            Assert.False(mod.Handles.ContainsKey("first"));
+            Assert.True(mod.Handles.ContainsKey("second"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
 }

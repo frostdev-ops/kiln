@@ -51,7 +51,7 @@ the build at start (`vfx: <mod>: blocks/<file>.json: vfx.<name>.gameSpriteModule
 | `spawnRadius` | metres: start inside a sphere. The same as `"shape": {"sphere": r}` | 0 |
 | `shape` | `"point"`, `{"sphere": r, "inner": r2}`, `{"shell": r}`, `{"hemisphere": r, "inner": r2}`, `{"box": [x, y, z]}` (full sizes), `{"disc": r, "inner": r2}`, `{"ring": r}`, `{"line": length}` (along x), in the effect's space | point |
 | `align`, `stretch` | `"camera"` or `"velocity"`: a camera-facing quad turns to its motion; metres of extra length per m/s, 0 to 100, with `velocity` only | camera, 0 |
-| `shader` | custom code is currently refused with sprite fallback; reserved path, `"shaders/build/x.spv"` or `{"file", "constants": [up to 8]}` ([shaders.md](../modding/shaders.md)). Needs `"advanced": true` in the manifest | Kiln's sprite |
+| `shader` | a verified hook module is linked into Kiln's sprite; any refusal uses sprite fallback. Path: `"shaders/build/x.spv"` or `{"file", "constants": [up to 8]}` ([shaders.md](../modding/shaders.md)). Needs `"advanced": true` in the manifest | Kiln's sprite |
 | `gravity`, `acceleration` | m/s² on world y; `[x, y, z]`, added together | 0 |
 | `drag` | per second | 0 |
 | `spin`, `roll` | degrees per second, degrees at spawn: a number or `[min, max]` | 0 |
@@ -222,7 +222,7 @@ layouts match its reflection, and the fingerprint and budget match its files.
 
 ## Mods' own particle hooks
 A particle's `shader` names a *hook module*: SPIR-V of a mod's hook functions only, built from `kiln_hooks.hlsl` + `kiln_hooks_main.hlsl`.
-`check_mod_module` (`cook/shader.cpp`) reads at most 1 MiB before allocating, then `link_hook_module` (`cook/spvlink.cpp`) verifies it and links
+`read_mod_module` (`cook/shader.cpp`) reads at most 1 MiB before allocating, then `link_hook_module` (`cook/spvlink.cpp`) verifies it and links
 it into `linkable_sprite()` (`shaders/build/kiln_sprite_hooked.spv`, embedded like the starter modules). The VFX entry's `strippedCode` names the
 **linked** module, which is the blob served: never the mod's bytes. The safety model (memory, termination, budget, shape) is in
 [shaders.md](../modding/shaders.md#how-it-is-kept-safe) and the evidence in `docs/re/shaders.md` §1. `advanced: true` is required; `shaders: false`
@@ -234,16 +234,15 @@ A replacement is built under the game material's GUID and listed in `resources` 
 GUID is listed with `standby` (the report's `served.standby`; not in `assets.json`). kiln.vfx serves each override under an owner
 `vfx-reskin:<mod>` (never its own), ties it to the mod's owner when Kiln.Blocks compiles the block (`define_json`'s owner), and on a tick probes
 that owner once a second: when it is revoked (the mod unloaded) the override is removed and the next mod in load order, if any, is served. See
-[materials.md](../modding/materials.md#it-belongs-to-your-mod).
+[materials.md](../modding/materials.md#it-belongs-to-your-mod). Targets are checked against the original KFC material keys before serving, in both boot and define paths; unknown or mod-defined targets are refused by field. If those keys cannot be read, replacements fail closed. The offline cook without a game-key callback cannot validate target existence.
+
+Explicit release of unattached, boot-only replacements requires Kiln.Blocks' data pass to be running. `Kiln.Content/GameData.cs` currently starts it only for a loaded mod with a `blocks/` folder; `Blocks.Define` also starts it. Without either trigger, a mod that fails before attaching its owner can leave its boot replacement unwatched until restart.
 
 ## Cooked ABI compatibility
 The JSON format remains 1. Particle ABI 2 grows the sprite block from 272 to 328 bytes and sprite state from 60 to 64 bytes;
 it adds the five play parameters. Older, self-contained cooked ABI 1 assets keep their original modules by content hash and have
 no play parameters and zero defaults. The offline strict checker accepts that layout as well as ABI 2, rejecting mixed root ABIs.
 Re-cooking source definitions produces ABI 2; do not substitute an ABI 2 module into an ABI 1 asset or merely change its stamp.
-
-Game-material `replaces` is refused, including for nonexistent GUIDs: boot assets belong to the VFX service and cannot currently
-restore the game's material when the requesting mod unloads. New mod materials remain supported.
 
 ## Not done yet
 - The sound of a VFX, decals, fog and custom meshes.

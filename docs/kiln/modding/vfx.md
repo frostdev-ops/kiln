@@ -79,7 +79,7 @@ name or a type that isn't one of the five is an error that names the field.
 
 ### Your own particle code
 Advanced: `"shader": {"file": "shaders/build/swirl.spv", "constants": [...]}` runs your own HLSL hooks on spawn, every tick and before drawing,
-linked into Kiln's sprite at start with every loop capped and no buffer in reach ([shaders.md](shaders.md)). Needs `"advanced": true`; if the
+linked into Kiln's sprite at start with loop counters and restricted memory access; these checks do not replace full SPIR-V validation ([shaders.md](shaders.md)). Needs `"advanced": true`; if the
 module can't be used, Kiln's sprite draws the particle and kiln.log says why.
 
 ## Textures

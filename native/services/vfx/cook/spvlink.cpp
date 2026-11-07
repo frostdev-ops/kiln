@@ -12,15 +12,15 @@
 //     type-checked. Every dynamic array/vector index is clamped (UMin len-1) and every constant one checked, so no access leaves the object.
 //     The values a hook hands back are checked by Kiln's wrapper (kSanitizeSprite, kSanitizeLook) before Kiln writes anything.
 //  2. Time. No recursion (the call graph must be acyclic). Every cycle of every function's CFG must pass through a loop header (every DFS
-//     back edge targets a block with OpLoopMerge); each header increments one shared per-invocation counter and, past the cap, returns
-//     from the function at once. The counter is reset by Kiln's trampoline before each hook call, and the cap is the budget over the
-//     hook's straight-line cost (its instructions with callees counted at every call site), so a hook call runs at most about
+//     back edge targets a block with OpLoopMerge); each header increments one shared per-invocation counter and, past the cap, branches
+//     to its merge (the resulting graph must be acyclic). The counter is reset by Kiln's trampoline before each hook call, and the cap is the budget over the
+//     hook's straight-line cost (including inserted clamps and counter operations, with callees counted at every call site), so a hook call runs at most about
 //     2 x kHookBudget instructions whatever its loops say.
 //  3. Shape. An allowlist of opcodes (arithmetic, logic, composites, structured control flow, GLSL.std.450 without pointer or
 //     interpolation forms) and of capabilities (Shader). No barriers, atomics, images, derivatives, group operations, OpKill or extensions.
 //     Sizes are bounded: the module, its id bound, the local and private memory, array lengths.
 //
-// What it does not do: full type checking of arithmetic or SSA dominance (an ill-typed module can make the driver's compiler fail when
+// What it does not do: full SPIR-V validation (an invalid module can make the driver's compiler fail when
 // the pipeline is created: a crash of the game, which a mod's C# can cause anyway). kiln-vfxcook shader build also runs spirv-val on the
 // linked result when it is installed.
 #include <algorithm>
@@ -74,6 +74,7 @@ constexpr uint64_t kMaxFunctionLocals = 16 * 1024;  // bytes of Function variabl
 constexpr uint64_t kMaxPrivates = 4 * 1024;         // bytes of Private variables in the module
 constexpr uint32_t kMaxStructMembers = 64;
 constexpr uint32_t kMaxFunctionParams = 16;
+constexpr uint32_t kMaxCallDepth = 64;
 
 std::string text_of(const uint32_t* w, size_t words) {
     const char* s = reinterpret_cast<const char*>(w);
@@ -267,6 +268,7 @@ struct Function {
     std::vector<Block> blocks;
     std::set<uint32_t> callees;
     uint64_t own = 0;  // instructions
+    uint64_t locals = 0;  // bytes in this frame; check_calls also bounds the largest live call stack
 };
 
 enum class Kind : uint8_t { None, Type, Value, Label, Function, ExtSet, String };
@@ -568,7 +570,8 @@ private:
                 }
                 case OpTypeMatrix: {
                     const Type* c = type(t.w[0]);
-                    if (!c || !known(t.w[0]) || c->op != OpTypeVector || t.w[1] < 2 || t.w[1] > 4) return "a malformed matrix type";
+                    if (!c || !known(t.w[0]) || c->op != OpTypeVector || type(c->w[0])->op != OpTypeFloat || t.w[1] < 2 || t.w[1] > 4)
+                        return "a malformed matrix type";
                     size = sizes_[t.w[0]] * t.w[1];
                     break;
                 }
@@ -597,6 +600,7 @@ private:
                 case OpTypeFunction: {
                     if (!known(t.w[0])) return "a function type with an unknown return type";
                     if (is_pointer(t.w[0])) return "a function that returns a pointer";
+                    if (!sizes_[t.w[0]] && type(t.w[0])->op != OpTypeVoid) return "a function return that isn't a data type or void";
                     if (t.w.size() - 1 > kMaxFunctionParams) return "a function with more than " + std::to_string(kMaxFunctionParams) + " parameters";
                     for (size_t i = 1; i < t.w.size(); ++i)
                         if (!known(t.w[i]) || (sizes_[t.w[i]] == 0 && !is_pointer(t.w[i]))) return "a function parameter of an unknown type";
@@ -663,6 +667,7 @@ private:
                 privates += bytes(p->w[1]);
             } else if (op == OpUndef || op == OpConstantNull) {
                 if (is_pointer(m_.word(g, 1))) return "a null or undefined pointer";
+                if (!bytes(m_.word(g, 1))) return "a null or undefined value that isn't a data type";
             } else if (op == OpConstant) {
                 const Type* t = type(m_.word(g, 1));
                 if (!t || (t->op != OpTypeInt && t->op != OpTypeFloat)) return "a constant of a type other than a 32-bit number";
@@ -730,9 +735,19 @@ private:
             }
         }
         if (locals > kMaxFunctionLocals) return "local variables of " + std::to_string(locals) + " bytes (at most " + std::to_string(kMaxFunctionLocals) + ")";
+        f.locals = locals;
         std::string why = check_loops(f);
         if (!why.empty()) return why;
-        return check_dominance(f);
+        if ((why = check_dominance(f)).size()) return why;
+        // Instrumentation can branch straight from a header to its merge. Check SSA again with those new edges: even a valid
+        // original module may use a body-defined value at the merge, or have phis without values for the new predecessors.
+        Function instrumented = f;
+        for (Block& b : instrumented.blocks)
+            if (b.header) {
+                const uint32_t merge = m_.word(b.body[b.body.size() - 2], 1);
+                if (std::find(b.succ.begin(), b.succ.end(), merge) == b.succ.end()) b.succ.push_back(merge);
+            }
+        return check_dominance(instrumented);
     }
 
     std::string check_instruction(Function& f, const Inst& in, uint64_t* locals) {
@@ -744,6 +759,15 @@ private:
             const bool pointer_ok = op == OpVariable || op == OpAccessChain || op == OpInBoundsAccessChain;
             if (is_pointer(rt) && !pointer_ok) return "an instruction (opcode " + std::to_string(op) + ") that makes a pointer: only variables and access chains may";
             if (type(rt)->op == OpTypeVoid && op != OpFunctionCall) return "a value of type void";
+            if (!is_pointer(rt) && !bytes(rt) && op != OpFunctionCall) return "a result that isn't a data type";
+        }
+        if (op == OpLoad || op == OpStore) {
+            const uint32_t mask_at = op == OpLoad ? 4 : 3;
+            if (in.wc > mask_at && (m_.word(in, mask_at) & 2)) {
+                const uint32_t alignment = m_.word(in, mask_at + 1);
+                // All allowed objects consist of 32-bit scalars. No access proves more than four-byte alignment.
+                if (!alignment || (alignment & (alignment - 1)) || alignment > 4) return "an unproven memory alignment";
+            }
         }
         // pointer operands of value instructions: only loads, stores, access chains and calls may take pointers
         if (op != OpLoad && op != OpStore && op != OpAccessChain && op != OpInBoundsAccessChain && op != OpFunctionCall && op != OpVariable) {
@@ -828,6 +852,8 @@ private:
                 if (!v || v->op != OpTypeVector) return "a dynamic vector access on something that isn't a vector";
                 const Type* it = type(value_type(m_.word(in, op == OpVectorExtractDynamic ? 4 : 5)));
                 if (!it || it->op != OpTypeInt) return "a vector index that isn't a 32-bit integer";
+                const uint32_t idx = m_.word(in, op == OpVectorExtractDynamic ? 4 : 5);
+                if (m_.constant.count(idx) && m_.constant.at(idx) >= v->w[1]) return "a constant vector index out of range";
                 if (op == OpVectorExtractDynamic && m_.word(in, 1) != v->w[0]) return "a vector extract of another type than the component";
                 if (op == OpVectorInsertDynamic && (m_.word(in, 1) != value_type(m_.word(in, 3)) || value_type(m_.word(in, 4)) != v->w[0]))
                     return "a vector insert of mismatched types";
@@ -965,15 +991,28 @@ private:
                 return r.cls == 'F' && r.count == 1 && a.cls == 'F' && a.count > 1 && value_type(v(1)) == value_type(v(2)) ? "" : bad;
             }
             case 143: case 144: case 145: case 146: case 147: case 84: {  // matrix products, Transpose: float matrices and vectors
-                for (uint32_t k = 1; k <= n; ++k) {
-                    const Type* t = type(value_type(v(k)));
-                    if (!t || !(t->op == OpTypeMatrix || t->op == OpTypeVector || t->op == OpTypeFloat)) return bad;
-                    if (t->op != OpTypeMatrix && shape(v(k)).cls != 'F') return bad;
+                // Dimensions are (rows, columns), with a vector treated as one column.
+                auto dims = [&](uint32_t id) -> std::pair<uint32_t, uint32_t> {
+                    const Type* t = type(id);
+                    if (t && t->op == OpTypeMatrix) return {type(t->w[0])->w[1], t->w[1]};
+                    const Shape s = shape_of_type(id);
+                    return s.cls == 'F' ? std::pair{s.count, 1u} : std::pair{0u, 0u};
+                };
+                auto matrix = [&](uint32_t id) { return type(id)->op == OpTypeMatrix; };
+                const uint32_t a = value_type(v(1));
+                const auto [rr, rc] = dims(rt);
+                const auto [ar, ac] = dims(a);
+                if (op == 84) return matrix(rt) && matrix(a) && rr == ac && rc == ar ? "" : bad;
+                const uint32_t b = value_type(v(2));
+                const auto [br, bc] = dims(b);
+                switch (op) {
+                    case 143: return matrix(rt) && a == rt && br == 1 && bc == 1 ? "" : bad;
+                    case 144: return r.cls == 'F' && rr > 1 && ac == 1 && ar > 1 && matrix(b) && ar == br && rr == bc ? "" : bad;
+                    case 145: return r.cls == 'F' && rr > 1 && matrix(a) && !matrix(b) && br > 1 && ac == br && rr == ar ? "" : bad;
+                    case 146: return matrix(rt) && matrix(a) && matrix(b) && ac == br && rr == ar && rc == bc ? "" : bad;
+                    case 147: return matrix(rt) && !matrix(a) && !matrix(b) && ar > 1 && br > 1 && rr == ar && rc == br ? "" : bad;
                 }
-                const Type* t = type(rt);
-                const bool matrix_result = op == 143 || op == 146 || op == 147 || op == 84;
-                if (!t || (matrix_result ? t->op != OpTypeMatrix : !(t->op == OpTypeVector && shape_of_type(rt).cls == 'F'))) return bad;
-                return "";
+                return bad;
             }
             default:
                 if (op >= 170 && op <= 179) return r.cls == 'B' && all_shape('I', 1, 2) ? "" : bad;   // int comparisons
@@ -1119,20 +1158,24 @@ private:
             return dominates(db, use_block);
         };
         for (size_t bi = 0; bi < nb; ++bi) {
-            if (rpo[bi] < 0) continue;
             const Block& b = f.blocks[bi];
             for (size_t pos = 0; pos < b.body.size(); ++pos) {
                 const Inst& in = b.body[pos];
                 if (m_.op(in) == OpPhi) {
+                    std::set<size_t> incoming;
                     for (uint32_t k = 3; k + 1 < in.wc; k += 2) {
                         const auto pi = index.find(m_.word(in, k + 1));
                         if (pi == index.end()) return "a phi naming a block that isn't a predecessor";
                         if (std::find(preds[bi].begin(), preds[bi].end(), pi->second) == preds[bi].end()) return "a phi naming a block that isn't a predecessor";
+                        if (!incoming.insert(pi->second).second) return "a phi repeats a predecessor";
                         if (rpo[pi->second] >= 0 && !defined_before(m_.word(in, k), static_cast<int>(pi->second), 0, true))
                             return "a phi value not defined on its edge";
                     }
+                    const std::set<size_t> expected(preds[bi].begin(), preds[bi].end());
+                    if (incoming != expected) return "a phi without one value for each predecessor";
                     continue;
                 }
+                if (rpo[bi] < 0) continue;
                 for (size_t k = 0; k < in.kinds.size(); ++k)
                     if (in.kinds[k] == 'V' && !defined_before(m_.word(in, static_cast<uint32_t>(k + 1)), static_cast<int>(bi), static_cast<uint32_t>(pos), false))
                         return "a value used where its definition doesn't dominate";
@@ -1208,17 +1251,30 @@ private:
     std::string check_calls() {
         // no recursion: the call graph is a DAG
         std::vector<uint8_t> state(m_.funcs.size(), 0);
-        std::function<bool(size_t)> visit = [&](size_t i) {
-            if (state[i] == 1) return false;
-            if (state[i] == 2) return true;
+        std::vector<uint32_t> depth(m_.funcs.size(), 0);
+        std::vector<uint64_t> frames(m_.funcs.size(), 0);
+        std::function<std::string(size_t, uint32_t)> visit = [&](size_t i, uint32_t active) -> std::string {
+            if (state[i] == 1) return "recursion: a function calls itself, directly or through others";
+            if (active > kMaxCallDepth) return "call depth exceeds " + std::to_string(kMaxCallDepth);
+            if (state[i] == 2) return "";
             state[i] = 1;
-            for (uint32_t c : m_.funcs[i].callees)
-                if (!visit(m_.func_index.at(c))) return false;
+            uint32_t child_depth = 0;
+            uint64_t child_frame = 0;
+            for (uint32_t c : m_.funcs[i].callees) {
+                const size_t ci = m_.func_index.at(c);
+                if (std::string why = visit(ci, active + 1); !why.empty()) return why;
+                child_depth = std::max(child_depth, depth[ci]);
+                child_frame = std::max(child_frame, frames[ci]);
+            }
+            depth[i] = child_depth + 1;
+            frames[i] = child_frame + m_.funcs[i].locals;
+            if (depth[i] > kMaxCallDepth) return "call depth exceeds " + std::to_string(kMaxCallDepth);
+            if (frames[i] > kMaxFunctionLocals) return "local variables on a call stack exceed " + std::to_string(kMaxFunctionLocals) + " bytes";
             state[i] = 2;
-            return true;
+            return "";
         };
         for (size_t i = 0; i < m_.funcs.size(); ++i)
-            if (!visit(i)) return "recursion: a function calls itself, directly or through others";
+            if (std::string why = visit(i, 1); !why.empty()) return why;
         return "";
     }
 };
@@ -1322,6 +1378,13 @@ public:
             for (const Block& b : h_.funcs[i].blocks)
                 for (const Inst& in : b.body)
                     if (h_.op(in) == OpFunctionCall) c += cost_of(h_.func_index.at(h_.word(in, 3)));
+                    else if (h_.op(in) == OpLoopMerge) c += 6;  // counter load/add/store/compare, plus up to two condition operations
+                    else if (h_.op(in) == OpVectorExtractDynamic || h_.op(in) == OpVectorInsertDynamic) {
+                        if (!h_.constant.count(h_.word(in, h_.op(in) == OpVectorExtractDynamic ? 4 : 5))) ++c;
+                    } else if (h_.op(in) == OpAccessChain || h_.op(in) == OpInBoundsAccessChain) {
+                        for (uint32_t k = 4; k < in.wc; ++k)
+                            if (!h_.constant.count(h_.word(in, k))) ++c;  // one emitted UMin per computed index
+                    }
             c = std::min<uint64_t>(c, 1ull << 40);
             costed[i] = 1;
             return cost[i] = c;

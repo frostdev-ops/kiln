@@ -132,14 +132,16 @@ lifetime:
 | Your mod unloads (`kiln mods unload`, a failed reload, a dependency unloading) | Takes the override off within a second. If another mod replaces the same material, the next one in the load order is served | `vfx: <mod>: material <name> no longer replaces <GUID> (the mod unloaded): the game draws its own material again from the next start` |
 | Your mod loads again | Serves it again (the first in the load order wins back its place) | `vfx: <mod>: material <name> replaces <GUID> again (the mod loaded again)` |
 | Two mods replace one material | The first in the load order draws; the second stands by and draws if the first unloads | `vfx: <second>: material <name>: another mod earlier in the load order replaces <GUID> already: that one draws (this one stands by, ...)` |
-| The GUID is not a material of this game | Nothing replaced; the game's own draws | `vfx: <mod>: material <name>: kiln.assets refused to replace <GUID> (...): not a material of this game build? The game's own draws` |
+| The GUID is not a material of this game | Refused against the original game material keys; mod-defined targets are also refused | `materials.<name>.replaces: not a material of this game build (mod-defined materials cannot be replaced)` |
 
 **What only changes at the next start.** The game reads every material once, when it starts, and keeps it. Taking the override off means
 kiln.assets no longer serves it, so the next start (with your mod disabled) draws the game's own material; models already on screen keep the
 replaced look until then. Kiln does not change any of the game's material state at run time, so there is nothing else to restore. A replacement
 that is new or changed since the start (from code, or an edited file) is kept for the next start, like any new material.
 
-A mod with only data files has no code to unload: its replacement lasts the session.
+Once Kiln.Blocks' data pass is running, data-only mods and mods that fail before their blocks compile are released explicitly when their state becomes unloaded, disabled, failed or skipped. Pending mods keep their boot replacements while waiting to load. Reload clears the old data cache and recompiles once; a revoked code owner is not reused by that data pass.
+
+The data pass currently starts only when some loaded mod has a `blocks/` folder (or code calls `Blocks.Define`). If no mod starts it, a boot replacement from a mod that fails before attaching its owner has no unload watcher and stays served until restart. This startup limitation remains; the normal attached-owner watcher is independent of the data pass.
 
 ## Limits
 | What | Room | Over it |

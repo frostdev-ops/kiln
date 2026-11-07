@@ -169,6 +169,10 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                         const std::string where = mod.id + ": " + file + ": materials." + it.key();
                         MaterialBlock b;
                         if (!parse_material(it.value(), it.key(), where, &b.def, &diag)) continue;
+                        if (b.def.replaces && opt.game_has_material && !opt.game_has_material(*b.def.replaces)) {
+                            diag.errors.push_back(where + ".replaces: not a material of this game build (mod-defined materials cannot be replaced)");
+                            continue;
+                        }
                         if (std::any_of(material_blocks.begin(), material_blocks.end(), [&](const MaterialBlock& o) { return o.def.name == it.key(); })) {
                             diag.warnings.push_back(where + ": a block of this name is already defined; the first stays");
                             continue;

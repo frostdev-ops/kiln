@@ -77,6 +77,7 @@ std::vector<Reskin> g_reskins;                 // under g_mu
 std::map<std::pair<std::string, kvb::Guid>, uint64_t> g_reskin_defs;  // what was built at start, by mod and game material
 std::map<std::string, KilnOwner> g_reskin_owners;
 std::atomic<bool> g_reskin_watch{false};
+std::set<kvb::Guid> g_game_materials;  // original KFC keys only: resource_put accepts unknown overrides before binding
 kvb::GameCounts g_game;
 std::atomic<bool> g_off{false};           // the late check failed
 std::atomic<bool> g_late_done{true};      // nothing to check until something was built
@@ -251,6 +252,40 @@ std::string check_material_layouts() { return kvb::compare_layouts(kvb::read_lay
 
 bool game_has_blob(const kvb::ContentHash& hash) { return kvb::kfc_has_content(to_utf8(to_path(api_path(KILN_PATH_GAME)) / L"enshrouded.kfc"), hash); }
 
+// Read only the original material keys. Looking through kiln.assets here would also find mod-defined and even unbound overrides.
+// Keep allocation bounded and reject truncated tables before accepting any keys. Layout: tools/kfc/kfc/archive.py.
+bool read_game_materials(const fs::path& path, std::set<kvb::Guid>* out) {
+    out->clear();
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return false;
+    const auto size = f.tellg();
+    if (size < 0x70) return false;
+    f.seekg(0);
+    uint8_t head[0x70];
+    if (!f.read(reinterpret_cast<char*>(head), sizeof head) || std::memcmp(head, "KFC4", 4)) return false;
+    uint32_t rel, count;
+    std::memcpy(&rel, head + 0x60, 4);
+    std::memcpy(&count, head + 0x64, 4);
+    const uint64_t first = 0x60ull + rel, length = static_cast<uint64_t>(size);
+    if (first > length || count > (length - first) / 32) return false;
+    f.seekg(static_cast<std::streamoff>(first));
+    std::set<kvb::Guid> keys;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint8_t key[32];
+        if (!f.read(reinterpret_cast<char*>(key), sizeof key)) return false;
+        uint32_t type, part;
+        std::memcpy(&type, key + 16, 4);
+        std::memcpy(&part, key + 20, 4);
+        if (type == kvb::kTypeMaterial && part == 0) {
+            kvb::Guid g;
+            std::memcpy(g.b, key, 16);
+            keys.insert(g);
+        }
+    }
+    *out = std::move(keys);
+    return true;
+}
+
 kvb::GameCounts counts_from_game() {
     const fs::path game = to_path(api_path(KILN_PATH_GAME));
     std::map<uint32_t, kvb::KfcBundle> bundles;
@@ -277,7 +312,7 @@ KilnOwner reskin_owner_locked(const std::string& mod) {
     if (it != g_reskin_owners.end()) return it->second;
     const std::string id = "vfx-reskin:" + mod;
     const KilnOwner o = g_api->owner_create(KilnStr{id.data(), id.size()});
-    g_reskin_owners[mod] = o;
+    if (o) g_reskin_owners[mod] = o;
     return o;
 }
 
@@ -338,7 +373,8 @@ void KILN_CALL reskin_tick(const KilnTickInfo*, void*) {
 
 // Kiln.Blocks compiled a material that replaces `guid` for `mod` under the mod's own owner: watch that owner, and serve it again if an
 // earlier unload released it (a reload). Under g_mu.
-void reskin_attach_locked(const std::string& mod, const kvb::Guid& guid, KilnOwner owner) {
+bool reskin_attach_locked(const std::string& mod, const kvb::Guid& guid, KilnOwner owner) {
+    if (!owner || g_api->post(owner, &reskin_noop, nullptr) == KILN_ERR_REVOKED) return false;
     for (Reskin& r : g_reskins) {
         if (r.mod != mod || r.guid != guid) continue;
         if (owner && r.watch != owner)
@@ -352,7 +388,24 @@ void reskin_attach_locked(const std::string& mod, const kvb::Guid& guid, KilnOwn
         }
         reskin_reconcile_locked(guid);
         if (owner) g_reskin_watch.store(true, std::memory_order_release);
+        return !r.failed;
     }
+    return false;
+}
+
+uint32_t reskin_release_locked(const std::string& mod) {
+    uint32_t released = 0;
+    std::set<kvb::Guid> changed;
+    for (Reskin& r : g_reskins) {
+        if (r.mod != mod || r.released) continue;
+        r.released = true;
+        r.watch = 0;
+        changed.insert(r.guid);
+        ++released;
+        KV_I("vfx: %s unloaded: its material %s no longer claims %s", r.mod.c_str(), r.name.c_str(), kvb::guid_text(r.guid).c_str());
+    }
+    for (const kvb::Guid& g : changed) reskin_reconcile_locked(g);
+    return released;
 }
 
 // Serves the result. false: something can't be served, and then no VFX is registered, since a VFX with a missing blob is fatal.
@@ -389,6 +442,10 @@ bool serve(const kvb::CookResult& r) {
             r.data = s.data;
             r.order = g_reskins.size();  // the cook lists them in load order
             r.owner = reskin_owner_locked(s.mod);
+            if (!r.owner) {
+                KV_W("vfx: %s: cannot allocate a reskin owner: the game's material draws", s.mod.c_str());
+                continue;
+            }
             g_reskins.push_back(std::move(r));
             reskin_reconcile_locked(s.guid);
             continue;
@@ -439,6 +496,8 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
             return;
         }
         g_game = counts_from_game();
+        if (!read_game_materials(to_path(api_path(KILN_PATH_GAME)) / L"enshrouded.kfc", &g_game_materials))
+            KV_W("vfx: original material keys could not be read: material replacements are refused this session");
 
         const std::vector<std::string> skip = skip_list();
         const fs::path pending = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending";
@@ -454,6 +513,7 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         }
         kvb::CookOptions opt;
         opt.game = g_game;
+        opt.game_has_material = [](const kvb::Guid& g) { return g_game_materials.count(g) != 0; };
         opt.read_file = &read_all;
         opt.cache = disk_cache();
         opt.game_has_blob = game_has_blob;
@@ -644,16 +704,7 @@ KilnResult build_define_json(KilnOwner owner, KilnStr json, char* report, size_t
             uint32_t released = 0;
             {
                 std::lock_guard lk(g_mu);
-                std::set<kvb::Guid> changed;
-                for (Reskin& r : g_reskins) {
-                    if (r.mod != mod || r.released) continue;
-                    r.released = true;
-                    r.watch = 0;
-                    changed.insert(r.guid);
-                    ++released;
-                    KV_I("vfx: %s unloaded: its material %s no longer claims %s", r.mod.c_str(), r.name.c_str(), kvb::guid_text(r.guid).c_str());
-                }
-                for (const kvb::Guid& g : changed) reskin_reconcile_locked(g);
+                released = reskin_release_locked(mod);
             }
             result["ok"] = true;
             result["released"] = released;
@@ -694,6 +745,7 @@ KilnResult build_define_json(KilnOwner owner, KilnStr json, char* report, size_t
             kvb::CookOptions opt;
             shader_switches(&opt);
             opt.game = g_game;
+            opt.game_has_material = [](const kvb::Guid& g) { return g_game_materials.count(g) != 0; };
             opt.read_file = &read_all;
             opt.cache = disk_cache();
             opt.game_has_blob = game_has_blob;
@@ -732,7 +784,11 @@ KilnResult build_define_json(KilnOwner owner, KilnStr json, char* report, size_t
                 if (b.replaces ? rd != g_reskin_defs.end() && rd->second == b.definition : it != g_built.end() && it->second.definition == b.definition) {
                     result["materials"][i]["status"] = "registered";
                     // The reskin is now this mod's: unloading the mod takes it off (reskin_tick).
-                    if (b.replaces) reskin_attach_locked(m.id, b.guid, owner);
+                    if (b.replaces && !reskin_attach_locked(m.id, b.guid, owner)) {
+                        result["materials"][i]["status"] = "refused";
+                        result["errors"].push_back("materials." + b.name + ".replaces: material owner has been revoked or the replacement is unavailable");
+                        rc = KILN_ERR_INVALID_ARGUMENT;
+                    }
                     continue;
                 }
                 // The renderer lists the textures of every material once at boot, and a texture it didn't list is fatal: this one is there from the next start.

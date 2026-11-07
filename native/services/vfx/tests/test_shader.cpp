@@ -45,6 +45,32 @@ int main(int argc, char** argv) {
     Bytes again;
     require(link_hook_module(swirl.data(), swirl.size(), &again, nullptr).empty() && again == linked, "linking is deterministic");
 
+    // Boot validates replaces against original KFC keys, not resource_put's deferred success or another mod's synthetic resource.
+    {
+        Guid game;
+        require(parse_guid("39745562-5d58-4749-bc64-582e5630324a", &game), "game GUID parses");
+        ModInput first, second;
+        first.id = "first";
+        first.side = second.side = "client";
+        first.clients = second.clients = "mod";
+        second.id = "second";
+        first.documents.emplace_back("test", R"({"format":1,"materials":{"own":{"tint":"#ff0000"}}})");
+        const Guid custom = block_id("first", "material", "own");
+        second.documents.emplace_back("test", "{\"format\":1,\"materials\":{\"game\":{\"replaces\":\"" + guid_text(game) +
+            "\"},\"unknown\":{\"replaces\":\"00000000-0000-0000-0000-000000000001\"},\"custom\":{\"replaces\":\"" + guid_text(custom) + "\"}}}");
+        CookOptions policy;
+        policy.game_has_material = [game](const Guid& g) { return g == game; };
+        for (const auto& mods : {std::vector<ModInput>{first, second}, std::vector<ModInput>{second, first}}) {
+            const CookResult r = cook_mods(mods, policy);
+            require(r.errors.size() == 2 && r.materials.size() == 2, "unknown and mod-defined replacement targets refused in either load order");
+            require(r.errors[0].find(".replaces:") != std::string::npos, "replacement refusal names the field");
+            for (const ServedResource& s : r.resources)
+                require(!s.override || s.guid == game, "only a known original material is overridden");
+        }
+        policy.game_has_material = [](const Guid&) { return false; };
+        require(cook_mods({second}, policy).materials.empty(), "unreadable original keys fail closed for reskins");
+    }
+
     // Stamping is idempotent and the stamp alone authorises nothing: Kiln's whole sprite with a hook stamp is refused.
     Bytes restamped = swirl;
     std::string sw;
