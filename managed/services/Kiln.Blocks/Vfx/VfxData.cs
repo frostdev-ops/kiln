@@ -13,7 +13,11 @@ using System.Text.Json.Nodes;
 namespace Kiln;
 
 /// <summary>A <see cref="VfxRef"/> at a place in a block: which VFX, on which slot. A game VFX by name has its GUID only once the game's data is there.</summary>
-internal sealed record VfxTarget(string Text, Guid? Known, string? GameName, VfxBlock? Block, Slot Slot, Vector3 Offset, bool Attach, double? Seconds, string Owner, string Path);
+internal sealed record VfxTarget(string Text, Guid? Known, string? GameName, VfxBlock? Block, Slot Slot, Vector3 Offset, bool Attach, double? Seconds, string Owner, string Path)
+{
+    /// <summary>A Kiln VfxBlock's start block (VfxParameterBlock), when the reference sets its parameters: data routes write it as the game's own data does.</summary>
+    public uint[]? Play { get; init; }
+}
 
 /// <summary>A game VFX's name, as the running game answers it.</summary>
 internal sealed record VfxResolved(Guid Vfx, uint[]? Parameters, double? Seconds);
@@ -52,12 +56,12 @@ internal static class VfxData
         if (string.IsNullOrEmpty(name)) throw new BlockError(ctx.Block, path, "a VFX needs a name: a VfxBlock of this mod, \"other-mod:name\", or \"game:<name>\" for one of the game's");
         if (r.Seconds is <= 0) throw new BlockError(ctx.Block, $"{path}.seconds", $"{r.Seconds} must be more than 0");
         var named = r.Parameters is { Count: > 0 };
-        if (named && !parameters)
-            throw new BlockError(ctx.Block, $"{path}.parameters", "this field cannot set a VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have. Put the VFX on an effect, or leave them out");
         var slot = r.Slot is { } s ? SlotOf(s) : defaultSlot;
         var game = name.StartsWith("game:", StringComparison.Ordinal) ? name[5..] : Guid.TryParse(name, out _) ? name : null;
         if (game != null)
         {
+            if (named && !parameters)
+                throw new BlockError(ctx.Block, $"{path}.parameters", "this field cannot set a game VFX's parameters: the game's data takes a block laid out by the VFX, which only clients have. Put the VFX on an effect, or leave them out");
             if (game.Length == 0) throw new BlockError(ctx.Block, path, "\"game:\" needs a name: a template that carries the VFX, a sequence that plays it, or a GUID");
             ctx.Need(ClientsLevel.Kiln, path, "new data that names a VFX has to reach the players' games: Kiln clients get it from the server");
             return new VfxTarget(game, Guid.TryParse(game, out var g) ? g : null, Guid.TryParse(game, out _) ? null : game, null, slot, r.Offset, r.Attach, r.Seconds, ctx.Block, path);
@@ -65,11 +69,12 @@ internal static class VfxData
         var handle = ctx.Find(name, path);
         if (handle is BlockHandle<VfxBlock> v)
         {
-            if (named) throw new BlockError(ctx.Block, $"{path}.parameters", $"\"{name}\" is a VfxBlock, which has no named parameters yet: the game would ignore these. Only a game VFX takes them");
             ctx.Need(ClientsLevel.Mod, path, $"\"{name}\" is a new VFX, which has to be on every player's game: the server does not send assets");
             // what its carrier's id follows from: the same however the reference was written
             var text = v.Mod == ctx.Mod.Id ? v.Name : $"{v.Mod}:{v.Name}";
-            return new VfxTarget(text, v.Guid, null, v.Block, slot, r.Offset, r.Attach, r.Seconds, ctx.Block, path);
+            // Every Kiln VFX has the same parameters, so their block is known here, on a server too.
+            var play = named ? VfxParameterBlock.Of(r.Parameters!, (field, why) => new BlockError(ctx.Block, $"{path}.parameters.{field}", why)) : null;
+            return new VfxTarget(text, v.Guid, null, v.Block, slot, r.Offset, r.Attach, r.Seconds, ctx.Block, path) { Play = play };
         }
         if (handle != null) throw new BlockError(ctx.Block, path, $"\"{name}\" is a {handle.BlockType.Name.Replace("Block", "").ToLowerInvariant()}, not a VFX");
         var own = ctx.Mod.Handles.Where(x => x.Value is BlockHandle<VfxBlock>).Select(x => x.Key).Order();
@@ -92,6 +97,11 @@ internal static class VfxData
         var fields = new JsonObject { [$"{at}.slot"] = v.Slot.ToString(), [$"{at}.attach"] = v.Attach };
         if (time is { } t) fields[$"{at}.time"] = t;
         Offset(fields, $"{at}.notifierOffset.localOffset", v.Offset);
+        if (v.Play is { } play)
+        {
+            fields[$"{at}.hasVfxParameters"] = true;
+            for (var i = 0; i < play.Length; i++) fields[$"{at}.vfxParameters.parameters.data[{i}]"] = play[i];
+        }
         if (v.Known is { } g) fields[$"{at}.vfx"] = g.ToString();
         else
         {
@@ -112,6 +122,8 @@ internal static class VfxData
     /// <summary>The fields of a generated template that make its VFX component play this one, while the entity lives.</summary>
     public static JsonObject Component(BlockContext ctx, VfxTarget v, string template)
     {
+        if (v.Play != null)
+            throw new BlockError(ctx.Block, $"{v.Path}.parameters", "a VFX that an entity carries can't take parameters yet (its template has no parameter component): leave them out, or put the VFX on an effect, a cast or a status");
         var fields = new JsonObject { ["VfxComponent.slot"] = v.Slot.ToString() };
         Offset(fields, "VfxComponent.attachmentOffset.localOffset", v.Offset);
         if (v.Known is { } g) fields["VfxComponentResource.vfx"] = g.ToString();
@@ -130,6 +142,12 @@ internal static class VfxData
         var row = new JsonObject { ["slot"] = v.Slot.ToString(), ["offset.orientationOffset.w"] = 1 };
         Offset(row, "offset.localOffset", v.Offset);
         if (onCreate) row["attach"] = v.Attach;
+        if (v.Play is { } play)
+        {
+            if (onCreate) row["hasVfxParameters"] = true;
+            for (var i = 0; i < play.Length; i++)
+                if (play[i] != 0) row[$"parameters.data[{i}]"] = play[i];
+        }
         if (v.Known is { } g) row["vfx"] = g.ToString();
         else
             ctx.Low!.Late(v, "buffs", buff, (_, r) =>
@@ -147,6 +165,8 @@ internal static class VfxData
     /// time, in the mod that uses it. The game's own pattern, and so what a joiner, range and replication already handle.</summary>
     public static Guid Carrier(BlockContext ctx, VfxTarget v)
     {
+        if (v.Play != null)
+            throw new BlockError(ctx.Block, $"{v.Path}.parameters", "a carrier can't take parameters (its template has no parameter component): an effect with parameters is played by the relay");
         double seconds;
         if (v.Seconds is { } said) seconds = said;
         else if (v.Block is { } block)
@@ -232,6 +252,60 @@ internal static class VfxData
             return read() is JsonArray a && a.Count > 0 ? a.Select(x => x?.GetValue<uint>() ?? 0).ToArray() : null;
         }
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException or ArgumentException) { return null; }
+    }
+}
+
+/// <summary>
+/// The per-play parameters every Kiln VfxBlock has (KX_* in native/services/vfx/shaders/kiln_vfx_params.h), all factors on what the block says:
+/// <c>color</c> (a tint, <c>"#rrggbb"</c> or <c>"#rrggbbaa"</c>; alpha multiplies alpha), <c>size</c>, <c>speed</c>, <c>brightness</c> (particles and light), <c>count</c> (burst and rate), each 0 to 16.
+/// The 64-byte block is the same on every client, so a server lays it out for a sequence or a buff with no VFX of its own.
+/// </summary>
+public static class VfxParameterBlock
+{
+    /// <summary>The names, in the block's order.</summary>
+    public static readonly IReadOnlyList<string> Names = ["color", "size", "speed", "brightness", "count"];
+    private const uint Magic = 0x4e4c494b;   // KX_MAGIC_VALUE, "KILN"
+    private const float MaxFactor = 16;
+
+    /// <summary>The defaults: white, all factors 1, and the word that says the block is Kiln's.</summary>
+    public static uint[] Defaults()
+    {
+        var w = new uint[16];
+        w[0] = 0xffffffff;
+        w[1] = w[2] = w[3] = w[4] = BitConverter.SingleToUInt32Bits(1f);
+        w[15] = Magic;
+        return w;
+    }
+
+    /// <summary>The block with these values over the defaults. <paramref name="error"/> makes the exception for a field and what is wrong with it.</summary>
+    public static uint[] Of(IReadOnlyDictionary<string, VfxValue> values, Func<string, string, Exception> error)
+    {
+        var w = Defaults();
+        foreach (var (name, value) in values)
+        {
+            var index = Names.ToList().IndexOf(name);
+            if (index < 0) throw error(name, $"a Kiln VFX has no parameter \"{name}\"; there are {string.Join(", ", Names)}");
+            if (index == 0)
+            {
+                if (value.Value is not string s || ColourWord(s) is not { } c) throw error(name, "takes a colour: \"#rrggbb\" or \"#rrggbbaa\"");
+                w[0] = c;
+            }
+            else
+            {
+                if (value.Value is not float f || !float.IsFinite(f) || f < 0 || f > MaxFactor) throw error(name, $"takes a number from 0 to {MaxFactor}: it multiplies what the block says");
+                w[index] = BitConverter.SingleToUInt32Bits(f);
+            }
+        }
+        return w;
+    }
+
+    // RGBA8 as the game stores a colour parameter: red in the low byte.
+    private static uint? ColourWord(string s)
+    {
+        var t = s.StartsWith('#') ? s[1..] : s;
+        if (t.Length is not (6 or 8) || !t.All(char.IsAsciiHexDigit)) return null;
+        uint B(int i) => Convert.ToUInt32(t.Substring(i, 2), 16);
+        return B(0) | B(2) << 8 | B(4) << 16 | (t.Length == 8 ? B(6) : 255u) << 24;
     }
 }
 

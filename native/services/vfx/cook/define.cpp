@@ -273,7 +273,7 @@ private:
 const std::set<std::string> kParticleKeys = {"burst",  "rate",     "duration", "delay", "loop",       "maxCount",   "lifetime",  "speed",   "spread",
                                              "spawnRadius", "gravity", "acceleration", "drag",    "spin",  "roll",  "size",  "alpha",  "color",
                                              "intensity",   "texture", "sampler",  "flipbook",    "blend", "lit",   "mesh",  "faceCamera", "depthFade",
-                                             "emissive", "material", "comment"};
+                                             "emissive", "material", "shape", "align", "stretch", "shader", "comment"};
 
 bool address_mode(const std::string& s, uint8_t* out) {
     if (s == "wrap") *out = 0;
@@ -282,6 +282,78 @@ bool address_mode(const std::string& s, uint8_t* out) {
     else if (s == "clampToZero") *out = 3;
     else return false;
     return true;
+}
+
+// {"sphere": r} {"sphere": r, "inner": r2} {"shell": r} {"hemisphere": r} {"box": [x, y, z]} (full sizes) {"disc": r} {"ring": r} {"line": length}
+void parse_shape(P& p, const ojson& v, const std::string& path, ParticleDef* d) {
+    static const char* kinds = "{\"sphere\": r}, {\"shell\": r}, {\"hemisphere\": r}, {\"box\": [x, y, z]}, {\"disc\": r}, {\"ring\": r}, {\"line\": length} or \"point\"";
+    if (v.is_string() && v == "point") {
+        d->shape = KS_SHAPE_POINT;
+        return;
+    }
+    if (!v.is_object() || v.empty()) {
+        p.err(path, std::string("expected ") + kinds + ", got " + v.dump());
+        return;
+    }
+    std::string kind;
+    for (auto it = v.begin(); it != v.end(); ++it)
+        if (it.key() != "inner" && it.key() != "comment") {
+            if (!kind.empty()) {
+                p.err(path, "one shape at a time: " + kind + " and " + it.key());
+                return;
+            }
+            kind = it.key();
+        }
+    const std::string at = path + "." + kind;
+    float r = 0;
+    if (kind == "box") {
+        float size[3];
+        if (!p.vec3(v[kind], at, 0.f, kHuge, size)) return;
+        d->shape = KS_SHAPE_BOX;
+        for (int i = 0; i < 3; ++i) d->shape_size[i] = size[i] * 0.5f;
+    } else if (kind == "sphere" || kind == "shell" || kind == "hemisphere" || kind == "disc" || kind == "ring") {
+        if (!p.number(v[kind], at, 0.f, kHuge, &r)) return;
+        d->shape = kind == "disc" || kind == "ring" ? KS_SHAPE_DISC : kind == "hemisphere" ? KS_SHAPE_HEMISPHERE : KS_SHAPE_SPHERE;
+        d->shape_size[0] = r;
+        d->shape_size[1] = kind == "shell" || kind == "ring" ? r : 0.f;
+    } else if (kind == "line") {
+        if (!p.number(v[kind], at, 0.f, kHuge, &r)) return;
+        d->shape = KS_SHAPE_LINE;
+        d->shape_size[0] = r;
+    } else {
+        p.err(path, std::string("unknown shape \"") + kind + "\"; there are " + kinds);
+        return;
+    }
+    if (v.contains("inner")) {
+        float inner = 0;
+        if (kind != "sphere" && kind != "hemisphere" && kind != "disc") p.err(path + ".inner", "only a sphere, hemisphere or disc has an inner radius");
+        else if (p.number(v["inner"], path + ".inner", 0.f, kHuge, &inner)) {
+            if (inner > r) p.err(path + ".inner", "is larger than the radius");
+            else d->shape_size[1] = inner;
+        }
+    }
+}
+
+// "shaders/build/swirl.spv" or {"file": ..., "constants": [up to 8 numbers]}: a mod's own sprite module. Checked when the mod is built.
+void parse_shader(P& p, const ojson& v, const std::string& path, ParticleDef* d) {
+    if (v.is_string()) {
+        d->shader = v.get<std::string>();
+    } else if (v.is_object()) {
+        p.unknown(v, path, {"file", "constants", "comment"});
+        auto it = v.find("file");
+        if (it != v.end() && it->is_string()) d->shader = it->get<std::string>();
+        else p.err(path + ".file", "expected the path of a compiled .spv in your mod");
+        if ((it = v.find("constants")) != v.end()) {
+            if (!it->is_array() || it->size() > KS_USER_COUNT) p.err(path + ".constants", "expected up to " + std::to_string(KS_USER_COUNT) + " numbers");
+            else
+                for (size_t i = 0; i < it->size(); ++i) p.number((*it)[i], path + ".constants[" + std::to_string(i) + "]", -kHuge, kHuge, &d->user[i]);
+        }
+    } else {
+        p.err(path, "expected the path of a compiled .spv in your mod, or {\"file\", \"constants\"}, got " + v.dump());
+        return;
+    }
+    if (d->shader.empty() || d->shader.size() < 5 || d->shader.compare(d->shader.size() - 4, 4, ".spv") != 0)
+        p.err(path, "expected the path of a compiled .spv in your mod (build it with kiln-vfxcook shader build), got " + v.dump());
 }
 
 void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* d) {
@@ -305,6 +377,7 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
     if ((it = find(v, "spread")) != v.end()) {
         if (it->is_string() && *it == "up") d->spread = KS_SPREAD_UP;
         else if (it->is_string() && *it == "sphere") d->spread = KS_SPREAD_SPHERE;
+        else if (it->is_string() && *it == "outward") d->spread = KS_SPREAD_OUTWARD;
         else if (it->is_object() && it->size() == 1 && it->contains("cone")) {
             float deg = 0;
             if (p.number((*it)["cone"], at("spread") + ".cone", 0.f, 180.f, &deg)) {
@@ -312,10 +385,27 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
                 d->cone = deg * kPi / 180.f;
             }
         } else {
-            p.err(at("spread"), "expected \"up\", \"sphere\" or {\"cone\": degrees}, got " + it->dump());
+            p.err(at("spread"), "expected \"up\", \"sphere\", \"outward\" or {\"cone\": degrees}, got " + it->dump());
         }
     }
-    if ((it = find(v, "spawnRadius")) != v.end()) p.number(*it, at("spawnRadius"), 0.f, kHuge, &d->spawn_radius);
+    if ((it = find(v, "spawnRadius")) != v.end() && p.number(*it, at("spawnRadius"), 0.f, kHuge, &d->spawn_radius) && d->spawn_radius > 0) {
+        d->shape = KS_SHAPE_SPHERE;
+        d->shape_size[0] = d->spawn_radius;
+    }
+    if ((it = find(v, "shape")) != v.end()) {
+        if (find(v, "spawnRadius") != v.end()) p.err(at("shape"), "say either shape or spawnRadius (a sphere): not both");
+        parse_shape(p, *it, at("shape"), d);
+    }
+    if ((it = find(v, "align")) != v.end()) {
+        if (it->is_string() && *it == "velocity") d->align_velocity = true;
+        else if (it->is_string() && *it == "camera") d->align_velocity = false;
+        else p.err(at("align"), "expected \"camera\" or \"velocity\", got " + it->dump());
+    }
+    if ((it = find(v, "stretch")) != v.end()) {
+        p.number(*it, at("stretch"), 0.f, 100.f, &d->stretch);
+        if (!d->align_velocity) p.err(at("stretch"), "stretches along the velocity: it needs \"align\": \"velocity\"");
+    }
+    if ((it = find(v, "shader")) != v.end()) parse_shader(p, *it, at("shader"), d);
     if ((it = find(v, "acceleration")) != v.end()) p.vec3(*it, at("acceleration"), -kHuge, kHuge, d->accel);
     if ((it = find(v, "gravity")) != v.end()) {
         float g = 0;
@@ -391,6 +481,7 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
     }
     d->face_camera = d->mesh == "quad";
     if ((it = find(v, "faceCamera")) != v.end()) p.boolean(*it, at("faceCamera"), &d->face_camera);
+    if (d->align_velocity && !d->face_camera) p.err(at("align"), "\"velocity\" turns a camera-facing quad: it needs faceCamera (a \"quad\" mesh faces the camera unless it says otherwise)");
     if ((it = find(v, "depthFade")) != v.end()) p.number(*it, at("depthFade"), 0.f, kHuge, &d->depth_fade);
     if ((it = find(v, "emissive")) != v.end()) p.number(*it, at("emissive"), 0.f, 1.f, &d->emissive);
 
@@ -510,7 +601,7 @@ bool parse_material(const ojson& value, const std::string& name, const std::stri
         return false;
     }
     p.unknown(value, "", {"kind", "albedo", "tint", "normal", "params", "metallicRoughness", "occlusion", "roughness", "metallic", "reflectance", "emissive", "alphaTest", "doubleSided",
-                          "shadows", "contactShadows", "frost", "snow", "wetness", "vertexColor", "translucent", "dissolve", "uvScale", "shader", "was", "comment"});
+                          "shadows", "contactShadows", "frost", "snow", "wetness", "vertexColor", "translucent", "dissolve", "uvScale", "shader", "was", "replaces", "comment"});
     MaterialDef def;
     def.name = name;
     def.id_name = name;
@@ -620,6 +711,12 @@ bool parse_material(const ojson& value, const std::string& name, const std::stri
     // The place for a surface shader. Nothing can run one yet, so a material that names one must not silently draw without it.
     if ((it = value.find("shader")) != value.end())
         p.err("shader", "surface shaders aren't built yet: a material draws with the game's own shaders. Take this out for now");
+    if ((it = value.find("replaces")) != value.end()) {
+        Guid g;
+        if (it->is_string() && parse_guid(it->get<std::string>(), &g)) def.replaces = g;
+        else p.err("replaces", "expected the GUID of one of the game's materials (kiln catalog, or kfc.py list --type keen::RenderMaterialResource), got " + it->dump());
+        if (value.contains("was")) p.err("replaces", "a material that replaces one of the game's has that one's id: \"was\" has no meaning here");
+    }
     if ((it = value.find("was")) != value.end()) {
         if (it->is_string() && !it->get<std::string>().empty()) def.id_name = it->get<std::string>();
         else p.err("was", "expected the block's old name, got " + it->dump());

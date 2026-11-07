@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "creatures": {
+    "wary-json": {
+      "body": "vukah",
+      "ai": { "like": "vukah", "sight": 30, "nightSight": 0.5, "threat": 1.5, "flee": { "below": 0.25, "min": 12, "max": 24, "seconds": 6 },
+              "relations": { "Player": "neutral", "Scavenger": "hostile" } },
+      "behaviour": {
+        "like": "vukah-melee",
+        "rules": [
+          { "name": "rally", "every": 1, "cooldown": 3,
+            "when": [ { "healthBelow": 0.5 }, { "summonsBelow": 2 } ],
+            "do": [ { "heal": 0.1 }, { "summon": { "creature": "Enemy_Vukah_Melee", "count": 2, "radius": 4, "seconds": 20 } } ] },
+          { "name": "volley", "every": 1, "cooldown": 2,
+            "when": [ { "inCombat": true }, { "hasTarget": true } ],
+            "do": [ { "cast": { "type": "projectile", "speed": 25, "range": 30, "onHit": [ { "damage": { "ice": 25 } } ] } } ] },
+          { "name": "last-stand", "every": 0.5,
+            "when": [ { "healthBelow": 0.15 } ],
+            "do": [ { "immune": true } ] }
+        ]
+      },
+      "stats": { "level": 20 }
+    }
+  }
+}

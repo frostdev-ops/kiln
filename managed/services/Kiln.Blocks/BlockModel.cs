@@ -167,7 +167,9 @@ public sealed record StatusBlock : IBlock, ITweakable
     /// <summary>What it looks like: its icon and body effect. A premade <see cref="StatusLook"/> today; your own with VfxBlock.
     /// Null: a debuff has a timer's icon and a buff a blessing's, and neither has a body effect.</summary>
     public StatusLook? Look { get; init; }
-    /// <summary>The icon, when it is not the look's: a <c>GameBuffs</c> constant, whose icon it takes.</summary>
+    /// <summary>The icon, when it is not the look's: a <c>GameBuffs</c> constant, whose icon it takes, or a PNG in the mod's folder
+    /// (<c>"icons/chill.png"</c>, square, 256x256 as the game's; then <c>clients: mod</c>).</summary>
+    [ClientsModWhen("(?i)\\.png$")]
     public string? Icon { get; init; }
     /// <summary>Applied again while it runs: the timer starts over (true), or the new one replaces the old (false).</summary>
     public bool Refreshes { get; init; } = true;
@@ -307,6 +309,9 @@ public sealed record ProjectileBlock : IDeliveryBlock
     public IReadOnlyList<EffectRef>? OnHit { get; init; }
     /// <summary>It turns toward what it was aimed at. Null: it flies where it was sent.</summary>
     public HomingBlock? Homing { get; init; }
+    /// <summary>How many creatures it flies through, each struck once (<see cref="OnHit"/> on each), before the next one stops it. Anything that is not a creature
+    /// stops it at once. <see cref="OnImpact"/> runs where it stops. 0..8; 0: the first one stops it.</summary>
+    public int Pierce { get; init; }
     /// <summary>Game fields this block does not cover, set on the template it flies as: <c>Tweak = { { GameFields.Templates.LifeTime.LifeTime, 5 } }</c>. It wins over what the block sets.</summary>
     [JsonConverter(typeof(TemplateTweakConverter))]
     public FieldValues Tweak { get; init; } = new();

@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    "glow-sword-json": { "name": "Glow Sword", "class": "sword", "stats": { "level": 3, "power": 12 },
+      "visual": { "vfx": { "name": "826ea0d6-2181-4fea-8aba-3491cd40c39d", "offset": [0, 0.8, 0] } } }
+  }
+}

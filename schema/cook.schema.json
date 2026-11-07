@@ -64,6 +64,7 @@
         "mod": { "type": "string", "minLength": 1, "description": "animcook and skinned models: the mod id in the ids of what it makes. Default: the id in the nearest kiln.mod.json." },
         "game": { "$ref": "#/$defs/game" },
         "guidNamespace": { "$ref": "#/$defs/guid", "description": "soundcook: GUIDs of new sounds are UUIDv5(namespace, \"<op>:<name>\"); pick it once, never change it." },
+        "blockSounds": { "type": "array", "items": { "type": "string" }, "description": "soundcook: the steps `soundcook.py blocks` wrote from the sound blocks of blocks/*.json; it replaces them on its next run. Leave it to the tool." },
         "voiceoverFallback": { "anyOf": [{ "$ref": "#/$defs/voLang" }, { "type": "null" }], "description": "soundcook: the mod-wide default for empty voice slots (null / absent: silence, as the game)." },
         "inputs": {
           "type": "object",
@@ -286,6 +287,27 @@
         "speed": { "type": "number", "exclusiveMinimum": 0, "default": 1 }
       }
     },
+    "animRetarget": {
+      "description": "The file's animations are on a rig of their own: play them on `skeleton` by pairing joints. Each paired joint turns as its source turns away from the reference pose; translations carry over on the hips, scaled by the rigs' heights.",
+      "type": ["object", "boolean"],
+      "properties": {
+        "map": {
+          "oneOf": [ { "type": "object", "additionalProperties": { "type": "string" } }, { "const": "names" } ],
+          "description": "Source joint (the file's) -> target joint (the skeleton's; j<index> on a game skeleton). Joints of the same name pair by themselves."
+        },
+        "byName": { "type": "boolean", "default": true, "description": "Pair joints of the same name that the map leaves out." },
+        "skin": { "type": "integer", "minimum": 0, "description": "Which skin of the file is the source rig." },
+        "root": { "type": "string", "description": "The source rig's root joint, for a file without a skin." },
+        "reference": {
+          "type": "object", "required": ["animation"], "additionalProperties": false,
+          "description": "A pose of the source that shows the target's rest posture (a T-pose clip for a T-pose skeleton). Default: the file's rest pose.",
+          "properties": { "animation": { "type": "string" }, "at": { "type": "number", "minimum": 0, "default": 0 } }
+        },
+        "translate": { "oneOf": [ { "type": "array", "items": { "type": "string" } }, { "const": "all" } ], "description": "Source joints whose movement carries over, or \"all\" (rigs that move props or IK helpers by translation). Default: the topmost paired joints, and the hips below a root bone on the ground." },
+        "scale": { "oneOf": [ { "type": "number", "exclusiveMinimum": 0 }, { "const": "auto" } ], "default": "auto", "description": "How far translations go on the target; auto: the rigs' heights." }
+      },
+      "additionalProperties": false
+    },
     "animStep": {
       "type": "object",
       "required": ["op"],
@@ -321,7 +343,8 @@
               "skeleton": { "type": "string", "description": "A skeleton step's name, or @input for a game skeleton (joints named j<index>, as tools/kfc exports them)." },
               "gltf": { "$ref": "#/$defs/path" },
               "clips": { "type": "object", "additionalProperties": { "$ref": "#/$defs/animClip" } },
-              "tolerance": { "$ref": "#/$defs/animTolerance" }
+              "tolerance": { "$ref": "#/$defs/animTolerance" },
+              "retarget": { "$ref": "#/$defs/animRetarget" }
             },
             "additionalProperties": false
           }

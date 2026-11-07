@@ -80,6 +80,47 @@ get a synthetic root. Space is converted from glTF to the game's left-handed one
 All of glTF's interpolations are read (LINEAR, STEP, CUBICSPLINE) and sampled at 60 frames a second. An animation that moves a
 node outside the skeleton is an error; a joint the animation doesn't touch holds its rest pose.
 
+The step's `retarget` plays a file authored on another rig on `skeleton`: see [Retargeting](#retargeting).
+
+### Retargeting
+
+Without `retarget`, a clips file must carry the skeleton's own joints and rest pose (for a game skeleton, joints `j<index>` from a `kfc.py` export).
+With it, the file may be any rig: an animation pack, another tool's skeleton, a creature of other proportions.
+
+```json
+{ "op": "clips", "skeleton": "@vukah", "gltf": "src/anim-pack.glb",
+  "retarget": { "map": { "mixamorig:Hips": "j1", "mixamorig:Spine": "j2", "mixamorig:Head": "j17" } },
+  "clips": { "idle": { "animation": "Idle", "loop": true } } }
+```
+
+`@vukah` is an input of the recipe of type `keen::ModelHierarchyResource` ([cook.json](schemas/cook.md)); a skeleton step's name works the same.
+
+| Key | Meaning |
+|---|---|
+| `map` | The file's joint -> the skeleton's joint (`j<index>` on a game skeleton). Joints of the same name pair by themselves |
+| `byName` | `false`: only `map` pairs |
+| `skin`, `root` | Which armature of the file is the source rig, as in a `skeleton` step |
+| `reference` | `{ "animation", "at" }`: a frame of the file that shows the skeleton's rest posture, when the file's rest pose doesn't (an A-pose rig for a T-pose skeleton) |
+| `translate` | The file's joints whose movement carries over, or `"all"`. Default: the topmost paired joints, and the hips below a root bone on the ground |
+| `scale` | How far translations go; default `"auto"`, the rigs' hip heights (or whole heights) |
+
+How it works: each paired joint turns in model space as its source joint turns away from the reference pose, so rest orientations and bone lengths
+may differ freely. Joints of the skeleton with no pair keep their rest pose on their parent. Positions come from the skeleton's own bones, except on the
+`translate` joints, whose travel is scaled. Both rigs must face +Z with y up, as glTF files do. The report's `retarget` section lists what paired and what
+didn't.
+
+Not done here: foot or hand IK after the transfer (feet may slide when legs differ in length), and mirroring left onto right.
+
+Proven offline: `tools/animcook/tests/test_retarget.py` plays the sample's animations on rigs with other names, rest frames turned up to 120 degrees, 1.5
+times the size and joints left out or added, and every joint lands where it must within 0.01 mm. `tools/animcook/tests/game_retarget_check.py` takes 55
+of the game's clips on 5 skeletons (4 to 112 joints), re-expresses each on a rig of other names, turned rest frames and 1.3 times the size, and
+retargets it back through the encoder: with `"translate": "all"` it is the game's clip again within 0.32 degrees and 13 mm, the encoder's own tolerance.
+With the default, rotations still match; joints the game moves by translation (props, IK helpers) stay at their rest offset, as designed.
+
+Proven on a dedicated server: `mods/tests/retarget-test` (assets from its `build-assets.py`, no game data) gives a creature a body and clips retargeted
+from a rig of other joint names and 1.3 times its size. Its graph runs, it stands in Idle, and its slam attack raises the engine's right hand to 2.09 m,
+against 2.11 m for the motion as authored on the body's own rig (the bigger rig's bones would give 2.44 m): 5 PASS. Not seen drawn in the client.
+
 ### `graph`
 
 A state's source is one of `clip` or `blend`; a state's id comes from `engine` (a name the engine knows, below), `id`, or
@@ -160,6 +201,7 @@ python3 tools/animcook/animcook.py info FILE.glb                                
 python3 tools/animcook/animcook.py clip cooked/clip_idle.bin                               # a cooked clip, decoded
 python3 tools/kfc/kfc.py graph GUID                                                        # a game graph, readable
 python3 -m unittest discover -s tools/animcook/tests                                       # needs no game
+python3 tools/animcook/tests/game_retarget_check.py                                        # retargeting on the game's clips
 python3 tools/animcook/tests/run_blender_check.py                                          # needs Blender
 ```
 

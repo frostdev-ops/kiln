@@ -1,0 +1,38 @@
+{
+  // A particle effect drawn by this mod's own module (shaders/swirl.hlsl), next to the same effect on Kiln's sprite. Guide: docs/kiln/modding/shaders.md.
+  "format": 1,
+  "vfx": {
+    "swirl": {
+      "particles": [
+        {
+          "rate": 60, "duration": 4, "lifetime": [2, 3], "speed": [0.2, 0.6], "spread": "sphere",
+          "shape": { "disc": 1.5 }, "drag": 0.6,
+          "size": { "keys": [[0, 0], [0.15, 0.12], [1, 0]] }, "color": ["#a0f0ff", "#4060ff"], "alpha": { "linear": [1, 0] },
+          "texture": "vfx/dot.png", "blend": "additive", "emissive": 1,
+          "shader": { "file": "shaders/build/swirl.spv", "constants": [6, 0.8, 0.4] }
+        }
+      ],
+      "light": { "color": "#6080ff", "radius": 5, "brightness": 2, "lifetime": 4, "fadeIn": 0.3, "fadeOut": 1 }
+    },
+    "swirl_plain": {
+      // the same block without its module: what Kiln's own sprite does with it
+      "particles": [
+        {
+          "rate": 60, "duration": 4, "lifetime": [2, 3], "speed": [0.2, 0.6], "spread": "sphere",
+          "shape": { "disc": 1.5 }, "drag": 0.6,
+          "size": { "keys": [[0, 0], [0.15, 0.12], [1, 0]] }, "color": ["#a0f0ff", "#4060ff"], "alpha": { "linear": [1, 0] },
+          "texture": "vfx/dot.png", "blend": "additive", "emissive": 1
+        }
+      ]
+    },
+    "swirl_broken": {
+      // names a module that fails its checks on purpose (shaders/build/broken.spv has no Kiln stamp): Kiln's sprite draws it instead, with a warning
+      "particles": [
+        {
+          "burst": 24, "lifetime": 1, "speed": [1, 2], "spread": "sphere", "size": { "linear": [0.15, 0] }, "color": "#ff40a0",
+          "texture": "vfx/dot.png", "blend": "additive", "shader": "shaders/build/broken.spv"
+        }
+      ]
+    }
+  }
+}

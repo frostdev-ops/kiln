@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "statuses": {
+    "status-png-missing": { "name": "x", "seconds": 1, "icon": "icons/no-such.png", "onApply": [ { "heal": 1 } ] }
+  },
+  "items": {
+    "tool-bad-class": { "name": "x", "tool": { "harvests": "shovel" } },
+    "tool-torch-power": { "name": "x", "tool": { "harvests": "torch", "power": 4 } }
+  },
+  "perks": {
+    "perk-png-bad": { "name": "x", "icon": "icons/not-a-png.png", "modifies": { "strength": 1 } }
+  }
+}

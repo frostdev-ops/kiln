@@ -50,6 +50,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
 | `seats` | object |  | Seats: the game's sitting, comfort of the chair category. |
+| `sounds` | object |  | Sounds of the mod's own: clips and how they play. kiln cook writes their steps into assets/cook.json (tools/soundcook blocks) and cooks them. An effect, a station or code plays one by its name. Players need the mod (clients "mod"). |
 | `spells` | object |  | Staff spells. A charge is one item in the stack. |
 | `stations` | object |  | Stations a player builds: a workbench, or a forge or rack that works on its own. |
 | `statuses` | object |  | Buffs and debuffs, made of effects. |
@@ -89,7 +90,7 @@ Cast on a key, a chat command, an item, or from code. It pays its costs, keeps i
 
 ## action
 
-A rule's action: setPhase, attack, custom, { "effect": ..., "on": "target" \| "self" }, or one of the game's { "type": ... }.
+A rule's action: setPhase, attack, custom, { "effect": ..., "on": "target" \| "self" }, flee, backOff, play, immune, pause, enableFeature, disableFeature, heal, summon, cast, { "apply": ..., "on": ... }, or one of the game's { "type": ... }.
 
 Type: object
 
@@ -100,16 +101,30 @@ How it notices and chases: a game creature's tuning to start from, and what to c
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `aggro` | number |  | Metres. min 0 max 1000 |
+| `callsForHelp` | boolean |  |  |
+| `disable` | string |  | The game's AI features to turn off, comma separated. |
+| `enable` | string |  | The game's AI features to turn on, comma separated (EnemyFeatures names). |
 | `faction` | string |  |  |
 | `fights` | boolean |  |  |
+| `flee` | object |  | How it runs from a fight. |
+| `hearing` | number |  | Share of the game's noise ranges. min 0 max 10 |
+| `hears` | boolean |  | False: it does not react to noise. |
+| `helpRadius` | number |  | Metres. min 0 max 200 |
 | `leash` | number |  | Its home zone's radius, metres. min 0 max 1000 |
 | `like` | `"vukah"` \| `"scavenger"` \| `"heavy"` \| `"still"` |  |  |
 | `moves` | boolean |  |  |
+| `nightSight` | number |  | Share of its sight at night. min 0 max 4 |
 | `pickEvery` | number |  | Seconds. min 0 max 60 |
 | `pickTarget` | string |  | A picker registered with Blocks.Target. |
+| `relations` | object |  | Faction name -> how this creature treats it. |
+| `returnsHome` | boolean |  | False: it never walks home after a fight. |
+| `roam` | object |  | How it wanders (turns the game's Roaming on). |
+| `senseEvery` | number |  | Seconds. min 0.05 max 60 |
+| `senseFilter` | string |  | A sense filter registered with Blocks.SenseFilter. |
 | `sight` | number |  | Metres. min 0 max 1000 |
 | `sightAngle` | number |  | Half its view, degrees. min 0 max 180 |
 | `template` | string |  |  |
+| `threat` | number |  | How much it draws enemies' attention, 1 as the game has it. min 0 max 100 |
 | `tune` | object |  | Any field of the game's AI by path. |
 
 ## ammo
@@ -170,6 +185,7 @@ How a body moves: a glTF of the mod with its clips (cooked when the mod builds),
 | `idleSneak` | [animClip](#animclip) |  |  |
 | `layers` | array of [animLayer](#animlayer) |  |  |
 | `like` | `"vukah"` \| `"scavenger"` \| `"fisher"` \| `"villager"` |  |  |
+| `retarget` | object |  | The clips are authored on a rig of their own: play them on "skeleton" (a body's) by pairing joints. Each paired joint turns as its source turns; translations carry over on the hips, scaled by the rigs' heights. |
 | `run` | [animClip](#animclip) |  |  |
 | `skeleton` | string |  |  |
 | `sneak` | [animClip](#animclip) |  |  |
@@ -420,7 +436,7 @@ What the game's comfort counts, for whoever rests within range. Only the best of
 
 ## condition
 
-A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, or one of the game's { "type": ... }.
+A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, inCombat, state, hasTarget, targetIsPlayer, targetHealthBelow, hitWithin, chance, targetAtHome, enemiesNear, alliesNear, summonsBelow, or one of the game's { "type": ... }.
 
 Type: object
 
@@ -755,7 +771,7 @@ What an item does to what its wearer hits.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `effects` | [effects](#effects) | yes |  |
-| `vfx` |  |  | Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status. |
+| `vfx` | [vfx](#vfx) |  | A VFX where each hit lands. |
 
 ## perk
 
@@ -764,7 +780,7 @@ An enhancement on an item, in its perks: it runs while the item is worn or in ha
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `description` | string |  |  |
-| `icon` | string |  | A game perk, whose icon it takes. min length 1 |
+| `icon` | string |  | A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients "mod"). min length 1 |
 | `modifies` | [modifies](#modifies) |  |  |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  | What every hit they land does to what was hit. |
@@ -826,6 +842,7 @@ It flies. What it strikes gets onHit, and where it stops onImpact happens.
 | `look` | `"ice-bolt"` \| `"fireball"` |  |  |
 | `onHit` | [effects](#effects) |  | On the creature it strikes, if it struck one. |
 | `onImpact` | [effects](#effects) |  | At the place it stops, which has no target of its own: use an area. |
+| `pierce` | integer |  | How many creatures it flies through, each struck once (onHit on each), before the next one stops it. Needs onHit. Anything that is not a creature stops it at once. min 0 max 8 |
 | `range` | number |  | Metres before it fizzles (default 150). |
 | `speed` | number |  | Metres per second (default 30). |
 | `tweak` | [tweak](#tweak) |  |  |
@@ -838,6 +855,7 @@ Something placed that stands there: furniture, a banner, a lamp.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
+| `collider` | object |  | What a player bumps into and hits stop at: one box, in metres. Default with a glTF model: the box around the model. Only with a model of yours. |
 | `comfort` | [ref](#ref) or [comfort](#comfort) |  |  |
 | `description` | string |  |  |
 | `light` | [vfx](#vfx) |  | A VFX on it for as long as it stands: where the game's lamps have their light. |
@@ -848,7 +866,7 @@ Something placed that stands there: furniture, a banner, a lamp.
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `tweak` | [tweak](#tweak) |  |  |
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
-| `visual` | [visualRef](#visualref) | yes | Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves). |
+| `visual` | [visualRef](#visualref) | yes | Its look: like (a game item that places something: model, collision and how it places), or model (a glTF in the mod's folder, which kiln cook makes into the game's model; item:<name>; or the GUID of a model your assets/assets.json serves). |
 | `was` | [name](#name) |  |  |
 
 ## rarity
@@ -959,6 +977,21 @@ A seat: the game's sitting. Starts from the game's wooden chair; visual.like nam
 | `visual` | [visualRef](#visualref) |  | Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves). |
 | `was` | [name](#name) |  |  |
 
+## sound
+
+A sound of the mod's own: one or more clips (each play picks one), how loud and how far it carries.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `clips` | array of string | yes | Audio files in the mod's folder: WAV, FLAC, Ogg Vorbis, MP3. Mono for a sound with a range. min items 1 |
+| `comment` | string |  |  |
+| `loop` | boolean |  | It plays until stopped: a station's running sound, an ambience. |
+| `normalize` | number |  | The sources' active RMS in dBFS, as the cook sets it (the game's effects: about -23). max 0 |
+| `pitchRandomness` | number |  | How much each play's pitch varies. min 0 max 1 |
+| `range` | array of number |  | [min, max] metres: full volume within min, silent beyond max. Without: heard alike everywhere (UI, music). min items 2 max items 2 |
+| `scene` | `"Sfx"` \| `"Music"` \| `"Ui"` \| `"Voice"` |  | The player's volume slider it follows. |
+| `volume` | number |  | The cue's volume. Default 1. min 0 max 1 |
+
 ## spell
 
 | Key | Type | Required | Notes |
@@ -1026,7 +1059,7 @@ A buff or debuff, shown in the game's buff bar. It lasts its seconds, or while a
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `description` | string |  |  |
-| `icon` | string |  | The icon, when it is not the look's: a game status by its id, whose icon it takes. Pattern `^(0x[0-9a-fA-F]{8}\|buff_[0-9a-fA-F]{8})$`. |
+| `icon` | string |  | The icon, when it is not the look's: a game status by its id, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients "mod"). |
 | `kind` | `"debuff"` \| `"buff"` |  |  |
 | `look` | `"frost"` \| `"poison"` \| `"fire"` |  | Its icon and body effect. Default: a timer's icon for a debuff, a blessing's for a buff, and no body effect. |
 | `modifies` | object |  | Stats changed for as long as it runs. Whole-number stats take whole numbers; the rest are shares, 0.1 being 10%. A GUID names any other attribute (as a share). |
@@ -1161,13 +1194,17 @@ Type: object
 
 ## tool
 
-What a tool gets out of the world.
+What a tool does: what it is for, and how well. Each class takes the fields it has a number for.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `harvests` | `"wood"` \| `"stone"` | yes | wood: an axe. stone: a pickaxe, for stone and metal, and it digs. |
-| `power` | integer |  | How hard it bites into what it is for: an axe's wood damage, a pickaxe's stone damage. The rest of what it can do scales along. |
-| `staminaCost` | integer |  | Stamina each swing costs; the tooltip follows. min 0 |
+| `breaksInto` | [itemRef](#itemref) |  | What it becomes when its durability runs out: a game item or an item of this mod. A torch, or a tool with enhancement slots. |
+| `durability` | number |  | Seconds a torch burns while held, the tooltip's Duration (600). Only a torch. |
+| `fishing` | object |  | A fishing rod's pull and stamina. |
+| `harvests` | `"wood"` \| `"stone"` \| `"rake"` \| `"sieve"` \| `"glider"` \| `"grappling-hook"` \| `"fishing-rod"` \| `"torch"` | yes | wood: an axe. stone: a pickaxe, for stone and metal, and it digs. rake: flattens the ground. sieve: the mining sieve. glider, grappling-hook, fishing-rod, torch: the game's. |
+| `power` | integer |  | How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage (the rest scales along), a rake's flattening strength (the game's: 500, 1000). |
+| `range` | number |  | Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5). max 32 |
+| `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. Not for a fishing rod or a torch. min 0 |
 
 ## trigger
 
@@ -1208,7 +1245,7 @@ What an item looks like. Empty: its starter's look.
 | `like` | [itemRef](#itemref) |  | An item whose whole look this takes: held or worn model, dropped model, collection model and icon. |
 | `model` | string |  | The model alone: item:<name>, or the GUID of a model your assets/assets.json serves (then clients "mod"). |
 | `tint` | string |  | The colour of the parts the game lets you tint. Pattern `^#[0-9a-fA-F]{6}$`. |
-| `vfx` |  |  | Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status. |
+| `vfx` | [vfx](#vfx) |  | A VFX on the thing itself while it is there: in the hand while held (right hand, at the grip, by default), or on what stands there for a placed thing. |
 
 ## visualRef
 

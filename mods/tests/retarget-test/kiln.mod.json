@@ -1,0 +1,10 @@
+{
+  "id": "retarget-test",
+  "name": "Retarget lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "RetargetTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Lab test of retargeted animations: a creature whose clips come from a rig of other joint names and other proportions, cooked onto its body's skeleton. The server's animation engine plays them, and the engine's joints must follow the motion as authored on the body's own rig. Its assets are made by build-assets.py. PASS and FAIL lines in kiln.log. Not for distribution."
+}

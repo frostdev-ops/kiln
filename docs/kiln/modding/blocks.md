@@ -82,6 +82,8 @@ A debuff also shows on the health bar over a creature that has it, in white like
 
 `While` puts it on a player for as long as they are in a state, and takes it off after: `While = PlayerStateId.Gliding`, in JSON `"while": "Gliding"`. It needs no `Seconds`. Any of the game's states works: [player-states.md](player-states.md). Such a status shows no time in the buff bar, as the game's own untimed buffs do; one with `Seconds` shows what is left.
 
+`Icon` is a game status's icon (a `GameBuffs` constant), or a PNG in the mod's folder (`"icons/chill.png"`, square, 256x256 as the game's; at most 1024x1024; then `clients: mod`). A PNG is served to each player's game under a GUID that follows from the block, and the status names that GUID. Until a player's game has the picture ready (a few frames after it loads the mod) its buff bar shows the look's icon, never a missing one.
+
 `Modifies` changes stats for as long as it runs, and takes them back after. `Modifies = { [Stat.MoveSpeed] = -0.5, [Stat.Strength] = 5, [Stat.ResistIce] = 0.25 }`.
 
 | Stats | Value |
@@ -100,7 +102,7 @@ How a spell, a wand's attack or an ability gets there. A spell's staff and a wan
 
 | Delivery | Reaches | JSON `type` |
 |---|---|---|
-| `ProjectileBlock` | `Speed`, `Gravity`, `Range`, `Look`, `OnImpact` where it stops, `OnHit` on what it strikes, `Homing` | `projectile` |
+| `ProjectileBlock` | `Speed`, `Gravity`, `Range`, `Look`, `OnImpact` where it stops, `OnHit` on what it strikes, `Homing`, `Pierce` (it flies through that many creatures, 0..8, `OnHit` on each once, and stops at the next or at anything that is not a creature) | `projectile` |
 | `SelfBlock` | The caster | `self` |
 | `AroundBlock` | Everyone within `Radius` of the caster | `around` |
 | `ConeBlock` | Everyone within `Range`, inside `Angle` degrees of the aim | `cone` |
@@ -129,7 +131,7 @@ An enhancement in an item's `Perks`. The game's rule applies: it runs while the 
 var edge = Blocks.Define("frost-edge-perk", new PerkBlock { Name = "Frost Edge", Value = "5%", OnHit = [new EffectBlock { Chance = 0.05, Applies = chilled }] });
 Blocks.Define("glacier", new WeaponBlock { Name = "Glacier", Class = WeaponClass.Sword, Perks = [edge] });
 ```
-`Modifies`, `OnHit`, `OnKill`, `OnHitTaken`, `Description` (yours, what several `Modifies` entries say, or none: never the text of the game perk it starts from). `Value` is the number in front of its name in the tooltip (`"5%"`, `"12"`, `"2.5"`, `"8s"`); left out, it is what one `Modifies` entry or one on-hit effect's `Chance` says. `Icon` takes a game perk's icon.
+`Modifies`, `OnHit`, `OnKill`, `OnHitTaken`, `Description` (yours, what several `Modifies` entries say, or none: never the text of the game perk it starts from). `Value` is the number in front of its name in the tooltip (`"5%"`, `"12"`, `"2.5"`, `"8s"`); left out, it is what one `Modifies` entry or one on-hit effect's `Chance` says. `Icon` takes a game perk's icon, or a PNG in the mod's folder by the status icon's route.
 
 ## Talents
 A `TalentBlock` is a node: in a tree of its own, or in the game's tree with `Game`. `Cost` per level, `MaxLevel`, `Requires`, `Modifies` (per level), `OnHit`, `OnKill`, `OnHitTaken`, `Keeps` a status, `OnStart`, and `Unlocks` an ability only those with it can cast.

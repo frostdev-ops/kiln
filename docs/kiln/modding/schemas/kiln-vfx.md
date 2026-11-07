@@ -78,6 +78,7 @@ A surface on the game's own shaders. Everything has a default: a material with n
 | `occlusion` | [materialPng](#materialpng) |  | Linear, in R. |
 | `params` | [materialPng](#materialpng) |  | The game's own layout, linear: R metallic, G roughness, B occlusion, A reflectance if reflectance says "params". |
 | `reflectance` | [unit](#unit) or `"params"` |  | Non-metal specular, a number. "params" reads it from the alpha of the params map. Default 0.503, what nearly all of the game's materials use. |
+| `replaces` | string |  | The GUID of one of the game's materials: this block draws in its place on every model that uses it (items, props, creatures). Keep its kind: the models carry the original's cutout and double-sided flags. Client-side only; a mod that only replaces may be side client. |
 | `roughness` | [unit](#unit) |  | The value without a map, a factor with one. Default by kind, 0.7 for opaque. |
 | `shader` | string |  | Reserved for surface shaders, which aren't built yet: Kiln refuses a material that names one. min length 1 |
 | `shadows` | boolean |  | Casts a shadow. Default true. |
@@ -114,6 +115,7 @@ A particle emitter. It needs a burst or a rate.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `acceleration` | [vec3](#vec3) |  | Metres per second squared in world space, added to gravity. |
+| `align` | `"camera"` \| `"velocity"` |  | velocity: a camera-facing quad turns to point the way it moves (sparks, rain, streaks). Default camera. |
 | `alpha` | [unitCurve](#unitcurve) |  | 0 to 1 over the particle's life. Default 1. |
 | `blend` | `"alpha"` \| `"additive"` |  | Default alpha. |
 | `burst` | integer |  | Particles at the start, and at each loop. min 0 max 65535 |
@@ -136,11 +138,14 @@ A particle emitter. It needs a burst or a rate.
 | `rate` | number |  | Particles per second. At most 64 spawn per tick. min 0 |
 | `roll` | [value](#value) |  | Degrees at spawn: a number or [min, max]. |
 | `sampler` | `"wrap"` \| `"mirror"` \| `"clamp"` \| `"clampToZero"` |  | How the texture repeats. Default wrap. |
+| `shader` | string or object |  | Advanced: this mod's own particle module, a .spv built with kiln-vfxcook shader build (docs/kiln/modding/shaders.md). Needs "advanced": true in kiln.mod.json. If it can't be used, Kiln's own sprite draws the particle. |
+| `shape` | `"point"` or object or object or object or object or object or object or object |  | Where particles start, in the effect's space (its scale and rotation apply). Sizes in metres. Default: the effect's position. |
 | `size` | [curve](#curve) |  | Metres over the particle's life. Default 0.25. Above 64 is clamped. |
-| `spawnRadius` | number |  | Metres: start inside a sphere this big. Default 0, at the effect's position. min 0 |
+| `spawnRadius` | number |  | Metres: start inside a sphere this big. Default 0, at the effect's position. The same as shape {"sphere": r}: say one or the other. min 0 |
 | `speed` | [value](#value) |  | Metres per second at spawn: a number or [min, max]. Default 1. |
 | `spin` | [value](#value) |  | Degrees per second: a number or [min, max]. |
-| `spread` | `"up"` \| `"sphere"` or object |  | Direction at spawn, around the effect's up. Default up. |
+| `spread` | `"up"` \| `"sphere"` \| `"outward"` or object |  | Direction at spawn, around the effect's up. outward: away from the centre of the shape. Default up. |
+| `stretch` | number |  | With align velocity: extra length in metres per metre per second of speed. min 0 max 100 |
 | `texture` | [png](#png) or object |  | A PNG in your mod, power of two on both sides, 4 to 2048. Without one the particle is white. |
 
 ## png

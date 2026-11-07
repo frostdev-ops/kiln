@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "spells": {
+    "piercing-shard-json": { "name": "Piercing Shard", "cast": { "manaCost": 20 },
+      "delivery": { "type": "projectile", "speed": 40, "pierce": 3, "onHit": [ { "damage": { "ice": 12 } } ], "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "ice": 5 } } ] } } ] } }
+  }
+}

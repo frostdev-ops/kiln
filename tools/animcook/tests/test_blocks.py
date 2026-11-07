@@ -91,6 +91,48 @@ class Blocks(unittest.TestCase):
             R.load(self.mod / "assets" / "cook.json")
         self.assertIn("states.Idle", str(e.exception))
 
+    def write_rig(self):
+        """The golem's animations on a rig of other joint names (models/rig.gltf), as an animation pack from another tool would be."""
+        import base64
+        doc, blob = make_golem.build()
+        for n in doc["nodes"][2:]:
+            n["name"] = "rig:" + n["name"]
+        doc["buffers"][0]["uri"] = "data:application/octet-stream;base64," + base64.b64encode(blob).decode()
+        (self.mod / "models" / "rig.gltf").write_text(json.dumps(doc))
+        return {f"rig:{n}": n for n in ("root", "pelvis", "spine", "head", "arm_r", "hand_r", "arm_l", "hand_l", "leg_r")}
+
+    def test_retargeted_animation_plays_on_the_body_skeleton(self):
+        rig = self.write_rig()
+        moves = {"clips": "models/rig.gltf", "skeleton": "golem", "retarget": {"map": rig}, "idle": "Idle", "walk": "WalkF", "states": {"slam": "Slam"}}
+        self.write({"format": 1, "animations": {"rig-moves": moves}, "bodies": {"golem-body": BODY}})
+        steps = B.steps_from_blocks(self.mod, self.mod / "assets")
+        sks = [s for s in steps if s["op"] == "skeleton"]
+        self.assertEqual([(s["name"], s["gltf"]) for s in sks], [("golem", "../models/golem.glb")], "the skeleton stays the body's")
+        clips = next(s for s in steps if s["op"] == "clips")
+        self.assertEqual(clips["gltf"], "../models/rig.gltf")
+        self.assertEqual(clips["retarget"], {"map": rig})
+        rep = R.Run(self.mod / "assets" / "cook.json", TYPES).run(update_manifest=True)
+        self.assertTrue(rep["ok"], rep)
+        st = next(x for x in rep["steps"] if x["op"] == "clips")
+        self.assertEqual(st["retarget"]["paired"], 9)
+        side = json.loads((self.mod / "assets" / "cooked" / "rig-moves.golem-body.graph.json").read_text())
+        self.assertEqual(side["skeleton"], G.derive("golem-mod", "skeleton", "golem"), "the graph poses the body's model")
+
+    def test_retarget_mistakes(self):
+        rig = self.write_rig()
+        moves = {"clips": "models/rig.gltf", "retarget": {"map": rig}, "idle": "Idle"}
+        for anim, msg in [(moves, "say which skeleton"), (dict(moves, skeleton="nope"), "makes skeleton 'nope'")]:
+            self.write({"format": 1, "animations": {"m": anim}, "bodies": {"golem-body": BODY}})
+            with self.assertRaises(R.RecipeError) as e:
+                R.load(self.mod / "assets" / "cook.json")
+            self.assertIn(msg, str(e.exception))
+        # two files giving one skeleton an animation of the same name
+        self.write({"format": 1, "animations": {"m": dict(moves, skeleton="golem"), "n": dict(ANIM, skeleton="golem", clips="models/golem.glb")},
+                    "bodies": {"golem-body": BODY}})
+        with self.assertRaises(R.RecipeError) as e:
+            R.load(self.mod / "assets" / "cook.json")
+        self.assertIn("rename one", str(e.exception))
+
     def test_no_blocks(self):
         doc = R.load(self.mod / "assets" / "cook.json")
         self.assertEqual(doc["steps"], [], "a mod without blocks keeps its recipe as it is")

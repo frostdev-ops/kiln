@@ -1,0 +1,10 @@
+{
+  "id": "npcai-test",
+  "name": "Creature AI and behaviour lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NpcAiTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "Lab test of kiln.npcai and the AI and behaviour blocks: the world's faction table, a creature's own relations and its SenseFilter through the game's own checks, forced-ready creatures that find (or ignore) each other by themselves, and rules that summon, cast, heal, go immune and flee. PASS and FAIL lines in kiln.log."
+}

@@ -25,7 +25,7 @@ from kfc.archive import ResourceKey
 from kfc.blob import Decoder
 from kfc.blobwrite import Encoder
 
-from . import blocks as B, clips as C, graphgen as G, skeleton as K
+from . import blocks as B, clips as C, graphgen as G, retarget as RT, skeleton as K
 from .gltfdoc import Doc
 
 TOOL = "animcook"
@@ -33,7 +33,7 @@ OPS = ("skeleton", "clips", "graph")
 KNOWN_TOOLS = ("modelcook", "soundcook", "animcook")
 STEP_KEYS = {
     "skeleton": {"tool", "op", "comment", "name", "gltf", "skin", "root", "guid", "mode"},
-    "clips": {"tool", "op", "comment", "skeleton", "gltf", "clips", "tolerance"},
+    "clips": {"tool", "op", "comment", "skeleton", "gltf", "clips", "tolerance", "retarget"},
     "graph": {"tool", "op", "comment", "name", "skeleton", "guid", "mode", "slots", "entry", "states", "layers", "raw"},
 }
 CLIP_KEYS = {"animation", "loop", "rootMotion", "events", "guid", "mode", "tolerance", "comment"}
@@ -212,10 +212,15 @@ class Run:
     def clips_step(self, st):
         sk = self.skeleton_ref(st["skeleton"])
         doc = Doc(self.dir / st["gltf"])
-        if sk.source != "game":
-            problems = K.from_gltf(doc, skin=None, root=sk.names[0] if sk.names[0] != K.SYNTHETIC_ROOT else None).compare(sk) if st["gltf"] else []
+        rt = self.retarget_plan(st, doc, sk) if st.get("retarget") else None
+        if rt is None and sk.source != "game":
+            hint = " (animations of a rig of their own play on it with \"retarget\")"
+            try:
+                problems = K.from_gltf(doc, skin=None, root=sk.names[0] if sk.names[0] != K.SYNTHETIC_ROOT else None).compare(sk) if st["gltf"] else []
+            except K.SkeletonError as e:
+                raise RecipeError(f"{st['gltf']} does not fit skeleton {st['skeleton']}: {e}{hint}") from e
             if problems:
-                raise RecipeError(f"{st['gltf']} does not fit skeleton {st['skeleton']}: " + "; ".join(problems[:6]))
+                raise RecipeError(f"{st['gltf']} does not fit skeleton {st['skeleton']}: " + "; ".join(problems[:6]) + hint)
         results = []
         ok = True
         for name, c in st["clips"].items():
@@ -224,7 +229,12 @@ class Run:
                 rm_cfg = {}
             tol = dict(st.get("tolerance") or {}, **(c.get("tolerance") or {}))
             try:
-                raw, info, rm, lv = C.cook_clip(doc, c.get("animation", name), sk, loop=c.get("loop"), tolerance=tol, root_motion=rm_cfg)
+                if rt is None:
+                    raw, info, rm, lv = C.cook_clip(doc, c.get("animation", name), sk, loop=c.get("loop"), tolerance=tol, root_motion=rm_cfg)
+                else:
+                    src_frames, n = C.sample_animation(doc, c.get("animation", name), rt.src)
+                    raw, info, rm, lv = C.finish_clip([rt.frame(f) for f in src_frames], n, sk, c.get("animation", name), loop=c.get("loop"),
+                                                      tolerance=tol, root_motion=rm_cfg)
             except C.ClipError as e:
                 raise RecipeError(f"clip {name}: {e}") from e
             ref = c.get("guid")
@@ -254,7 +264,21 @@ class Run:
                                 "rootRotation": bool(rm_cfg and rm_cfg.get("rotation")), "events": bool(events), "skeleton": sk.guid}
             self.side["clips"][name] = dict(self.clips[name], frames=info["frames"], bytes=info["bytes"])
             results.append(dict(info, name=name, guid=guid, mode=mode, ok=good))
-        return {"op": "clips", "gltf": st["gltf"], "skeleton": sk.guid, "clips": results, "ok": ok}
+        out = {"op": "clips", "gltf": st["gltf"], "skeleton": sk.guid, "clips": results, "ok": ok}
+        if rt is not None:
+            out["retarget"] = rt.report()
+        return out
+
+    def retarget_plan(self, st, doc, sk):
+        """The step's "retarget": the clips' own rig (its armature, as a skeleton step reads one) paired with the target skeleton."""
+        cfg = st["retarget"] if isinstance(st["retarget"], dict) else {}
+        try:
+            src = K.from_gltf(doc, skin=cfg.get("skin"), root=cfg.get("root"))
+            if cfg.get("reference"):
+                cfg = dict(cfg, referenceFrame=RT.reference_frame(doc, src, cfg["reference"], C.sample_animation))
+            return RT.Plan(src, sk, cfg)
+        except (K.SkeletonError, RT.RetargetError, C.ClipError) as e:
+            raise RecipeError(f"{st['gltf']}: {e}") from e
 
     def graph_step(self, st):
         name = st["name"]

@@ -78,7 +78,7 @@ public sealed partial class BlocksTestMod
         Says("a VFX field naming a status", Refused(() => Blocks.Define("n2", new EffectBlock { Vfx = "hold" })), "effect n2", "\"hold\" is a status");
 
         // a look has no route yet
-        Says("a look's VFX", Refused(() => Blocks.Define("look", new VisualBlock { Vfx = VfxRef.Game(Fireball) })), "visual look", "vfx", "cannot carry");
+        Check(Blocks.Define("look", new VisualBlock { Vfx = VfxRef.Game(Fireball) }) != null, "a look carries a VFX: in the hand of whoever holds the item, on what stands there for a placed thing");
 
         // the blocks themselves, by field, on the side with no builder
         ModBlocks m = SampleMod;
@@ -102,7 +102,7 @@ public sealed partial class BlocksTestMod
         Says("parameters on a cast", Refused(() => Blocks.Define("p1", new SpellBlock { Name = "P", Cast = new CastBlock { ManaCost = 1, Vfx = named }, Delivery = new ProjectileBlock { OnImpact = [new EffectBlock { Vfx = VfxRef.Game(Fireball) }] } })), "spell p1", "cast.vfx.parameters", "cannot set");
         Says("parameters on a projectile", Refused(() => Blocks.Define("p2", new SpellBlock { Name = "P", Cast = new CastBlock { ManaCost = 1 }, Delivery = new ProjectileBlock { Vfx = named, OnImpact = [new EffectBlock { Vfx = VfxRef.Game(Fireball) }] } })), "spell p2", "delivery.vfx.parameters", "cannot set");
         Says("parameters on a status", Refused(() => Blocks.Define("p3", new StatusBlock { Name = "P", Seconds = 1, Vfx = named })), "status p3", "vfx.parameters", "cannot set");
-        Says("parameters on a mod's VFX", Refused(() => Compiler.Define(m, "p4", new EffectBlock { Vfx = new VfxRef("frost_burst") { Parameters = new() { ["radius"] = 3f } } })), "effect p4", "vfx.parameters", "no named parameters");
+        Says("an unknown parameter on a mod's VFX", Refused(() => Compiler.Define(m, "p4", new EffectBlock { Vfx = new VfxRef("frost_burst") { Parameters = new() { ["radius"] = 3f } } })), "effect p4", "vfx.parameters.radius", "has no parameter");
         Says("a parameter that is no colour", Refused(() => Blocks.Define("p5", new EffectBlock { Vfx = VfxRef.Game(Fireball) with { Parameters = new() { ["color"] = "red" } } })), "effect p5", "parameters.color", "colour");
 
         // the builder's report, as it reaches an author: the budget comes from the boot build or from this

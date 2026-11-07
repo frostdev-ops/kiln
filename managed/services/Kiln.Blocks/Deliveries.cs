@@ -44,9 +44,11 @@ internal static partial class Compiler
             ["LifeTime.lifeTime"] = p.Range / p.Speed,
         };
         CheckHoming(ctx, p, path);
+        if (p.Pierce is < 0 or > MaxPierce) throw new BlockError(ctx.Block, $"{path}.pierce", $"{p.Pierce} is outside 0..{MaxPierce}");
+        if (p.Pierce > 0 && p.OnHit is not { Count: > 0 }) throw new BlockError(ctx.Block, $"{path}.pierce", "it would fly through them doing nothing: give it onHit, which runs on each");
         if (p.OnHit is { Count: > 0 } || onCast is { Count: > 0 } || p.Homing != null)
         {
-            var (fp, fblob, fem, flisting) = EffectEmitter.ProjectileProgram(ctx, $"{key}.projectile", onCast, onCastPath, p.OnHit, $"{path}.onHit", primary: primary && em.PrimaryDamage == null);
+            var (fp, fblob, fem, flisting) = EffectEmitter.ProjectileProgram(ctx, $"{key}.projectile", onCast, onCastPath, p.OnHit, $"{path}.onHit", primary: primary && em.PrimaryDamage == null, p.Pierce);
             low.Program(fp, $"{key}.projectile", fblob, flisting);
             flight["Impact.program"] = fp.ToString();
             em.Adopt(fem);
@@ -61,6 +63,9 @@ internal static partial class Compiler
         if (p.Tweak.Count > 0) low.Tweak($"{ctx.Block}, {path}", "templates", $"{mod}.{name}.projectile", p.Tweak);
         return new DeliveryLowered(projectileGuid, p.Speed, em, p.Look.HandItem);
     }
+
+    /// <summary>The most creatures a projectile flies through: each is an entity it remembers.</summary>
+    internal const int MaxPierce = 8;
 
     private static bool OnImpactHasVfx(BlockContext ctx, ProjectileBlock p, string path)
     {

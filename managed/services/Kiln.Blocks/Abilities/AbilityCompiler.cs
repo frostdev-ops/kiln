@@ -185,10 +185,10 @@ internal static partial class Compiler
         var rules = new JsonObject { ["uiValues"] = rows };
         low.Json["perkRules"] = rules.DeepClone();
         low.AfterCommit(() => BlockRuntime.AddRules(ctx.Mod, "perks", game, rules));
-        if (p.Icon is { } icon)
+        if (p.Icon is { } png && png.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            BlockIcons.Own(ctx, low, "perks", game, Content.Perks, PerkStarter, png, key, "icon");
+        else if (p.Icon is { } icon)
         {
-            if (icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                throw new BlockError(ctx.Block, "icon", "a perk cannot have a PNG icon of its own yet: name a game perk, whose icon it takes");
             low.AfterCommit(() => BlockRuntime.AddIcon(ctx.Mod, "perks", game, Content.Perks, icon, ctx.Block));
         }
         return new BlockHandle<PerkBlock>(mod, name, guid, game, p);

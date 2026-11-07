@@ -123,6 +123,34 @@ const ModuleInfo& starter_module(Module m);
 // capabilities the game's own modules use. "" = fine, else why not.
 std::string check_module(const uint8_t* data, size_t size);
 
+// ---- a mod's own particle module (ShaderBlock, level D; cook/shader.cpp, docs/kiln/modding/shaders.md) --------------------------------
+constexpr size_t kMaxModModuleBytes = 1u << 20;   // the game's largest is 1.76 MB; lint warns above 256 KB
+struct ModModuleInfo {
+    size_t size = 0;
+    std::string abi;  // the stamp's ABI, "" without one
+    std::vector<std::pair<uint32_t, uint32_t>> bindings;
+};
+// "kiln-vfx-abi-<KILN_VFX_ABI>": an OpSourceExtension that kiln-vfxcook shader build writes into a module.
+std::string shader_abi_marker();
+const std::set<std::pair<uint32_t, uint32_t>>& shader_allowed_bindings();
+// check_module, then: at most kMaxModModuleBytes, this ABI's stamp, every resource inside what the kit declares. "" = fine.
+std::string check_mod_module(const uint8_t* data, size_t size, ModModuleInfo* info);
+// Writes this ABI's stamp into a module (replacing an older one).
+bool stamp_module(Bytes* spv, std::string* why);
+
+// ---- per-play parameters (KX_* in kiln_vfx_params.h): the same on every Kiln VFX ---------------------------------------------------
+constexpr uint32_t kParamFloat = 0x90b5085du;  // DsTypeId VfxEffectParameterFloat
+constexpr uint32_t kParamColor = 0x53039620u;  // DsTypeId VfxEffectParameterColor: RGBA8, sRGB
+struct PlayParameter {
+    const char* name;
+    uint32_t hash;          // FNV-1a of the name, the game's rule
+    uint32_t type;          // kParam*
+    uint32_t offset, size;  // bytes in the 64-byte user block
+};
+const std::vector<PlayParameter>& play_parameters();
+// defaultParameterData: white, factors 1, and the KX_MAGIC word.
+Bytes play_defaults();
+
 // ---- definition ----------------------------------------------------------------------------------------------------------------
 struct Rangef {
     float min = 0, max = 0;
@@ -136,6 +164,13 @@ struct ParticleDef {
     uint32_t spread = 0;     // KS_SPREAD_*
     float cone = 0;          // radians
     float spawn_radius = 0, drag = 0;
+    uint32_t shape = 0;                 // KS_SHAPE_*; "spawnRadius" is a sphere
+    float shape_size[3] = {0, 0, 0};    // KS_SHAPE_A, B, C
+    bool align_velocity = false;        // "align": "velocity"
+    float stretch = 0;                  // metres per m/s
+    float user[8] = {};                 // KS_USER: "shader".constants
+    std::string shader;                 // a mod's own sprite module: a .spv in the mod folder (docs/kiln/modding/shaders.md); empty: Kiln's
+    ContentHash shader_hash{};          // set by cook_mods once the module passed its checks; empty: Kiln's sprite draws it
     float accel[3] = {0, 0, 0};
     float size[8], alpha[8], color[8][3];
     std::string texture;     // relative to the mod folder; empty: white
@@ -285,7 +320,12 @@ struct MaterialDef {
     float dissolve_width = 0.05f, dissolve_tiling = 0.5f, dissolve_fade = 0.3f;
     float uv_scale[2] = {1, 1};
     std::string shader;                     // a ShaderBlock's name, for when surface shaders exist. Today: refused by name
+    std::optional<Guid> replaces;           // a game material this one draws in place of: built under its GUID, served as an override
 };
+// "6f…-…" (.NET Guid text) -> the game's byte order. false: not a GUID.
+bool parse_guid(const std::string& text, Guid* out);
+// What a material block is registered under: the game material it replaces, else UUIDv5(<mod>:material:<id name>).
+Guid material_guid(const MaterialDef& d, const std::string& mod);
 bool parse_material(const ojson& value, const std::string& name, const std::string& where, MaterialDef* out, Diagnostics* d);
 void material_flags(const MaterialDef& d, uint8_t* render, uint32_t* block);
 // What the game draws a material with, by the flags: names in renderer/renderer.gpc. For reports and tests.
@@ -328,6 +368,7 @@ struct ServedResource {
     uint32_t type = 0;
     Bytes data;
     std::string what;
+    bool override = false;  // replaces a game resource of this GUID (a material's "replaces"): served as an override, not a new key
 };
 
 struct BuiltTexture {
@@ -381,6 +422,7 @@ struct ModInput {
     std::string id;   // the manifest's id
     std::string dir;  // UTF-8, the mod's folder: textures are relative to it
     std::string side = "both", clients = "mod";
+    bool advanced = false;  // the manifest's "advanced": a mod's own particle modules need it
     // (file name for messages, text of a blocks/*.json or a pending definition)
     std::vector<std::pair<std::string, std::string>> documents;
     // The same kind of text, read only so a particle can name a material of its mod: a definition from code comes alone, and its mod's data files are here.
@@ -401,6 +443,7 @@ struct BuiltMaterialBlock {
     uint32_t block_flags = 0;
     uint32_t textures = 0;
     uint64_t definition = 0;
+    bool replaces = false;  // built under a game material's GUID, served as an override
 };
 struct CookOptions {
     GameCounts game;
@@ -409,6 +452,8 @@ struct CookOptions {
     TextureCache cache;
     std::function<bool(const ContentHash&)> game_has_blob;  // empty: unknown, so what needs a game blob is refused
     bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
+    bool skip_shaders = false;                              // kiln/config/vfx.json "shaders": false: mods' own modules fall back to Kiln's sprite
+    std::set<std::string> skip_shader_mods;                 // "skipShaderMods": the same for these mods only
 };
 struct CookResult {
     std::vector<ServedBlob> blobs;
@@ -418,6 +463,7 @@ struct CookResult {
     std::vector<std::string> errors, warnings, notes;
     std::vector<std::string> refused_mods;  // refused by the budget or a manifest rule, whole
     uint32_t mods_with_vfx = 0;
+    uint32_t mod_modules = 0;                // mods' own particle modules served
     uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0, used_materials = 0, used_streamed_textures = 0;
     uint64_t used_mesh_bytes = 0;
     GameCounts game;

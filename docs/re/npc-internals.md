@@ -192,7 +192,7 @@ Both are **sibling resources under the clip's own GUID**: 578 clips have all thr
   They are presentation, plus noise that AI hears. A cooked clip's notify track is one more plain resource.
 - **Foot planting** is these two events plus `footstepSyncRole`/`footstepSyncPolicy` on clips and blend spaces, `IsRightFootNext` nodes. **Feet IK** exists only on two graphs (`BipedFeetIKSolver`, `GenericFeetIKSolver`, `FeetIKSettings`). Not needed for a first custom body.
 - **Overlays:** `SetAnimationOverlayEvent` and `HitReactionConfig.hitReactionOverlay` set an `OverlayId`; `IsOverlayActive` nodes test it. An `AnimationGraphOverlayInputs` ring buffer carries them in the graph inputs. Hit flinches on the Vukah use it: a `Hit_Flinch` state machine additively layered by a `LayerBlend`, driven by overlay `0xc6b6f9d4` (used by 267 graphs).
-- **Retargeting:** `RetargetSolverNodeDefinition` (6 nodes) and `RetargetDataResource` (3; per-bone scale and elongation factors, by index), body-type handling on humanoids. **All 683 creature graph components have `retargetData` empty.** A clip plays on one joint layout; to share clips across different proportions, cook a clip per skeleton: it is cheap now.
+- **Retargeting:** `RetargetSolverNodeDefinition` (6 nodes) and `RetargetDataResource` (3; per-bone scale and elongation factors, by index), body-type handling on humanoids. **All 683 creature graph components have `retargetData` empty.** A clip plays on one joint layout; to share clips across different proportions, cook a clip per skeleton: it is cheap now, and `tools/animcook` retargets at cook time (a clips step's `retarget`: joints paired by name, rest-relative rotations in model space, hips travel scaled; docs/kiln/modding/animations.md).
 
 ### 2.4 Graph: `AnimationGraphResource2_0` (212 B; 279 graphs: 2-2,944 nodes) **[refl] [data] [rt]**
 **It is entirely data.** Fields: parameter id lists (float, uint, int, bool, id), `usedInputIds`, `hierarchy`, `slotBoneIndexMapping[36]` (slot → joint), `rootNode`, `postProcessRootNode`, feet IK node ids, `hasGenderMapping`, `nodeDefinitions`, `clothColliderReference`, `ikChains`, `syncNodes`, `feetIKSettingsReference`. `tools/kfc graph <guid>` prints one. Debug names survive for states, so the Vukah's reads `Idle`, `Walk`, `Run`, `Attack_01`, `Hit_Stagger`...
@@ -391,6 +391,33 @@ Rows the table groups: 53 functions, all unique on all 3 servers with 16-32 byte
 - `npc_active_behavior`: T `ActiveNpcState`, `MovementColliderConfig`, `NpcState`, `PathWalker`; W `DynamicActiveNpcState`, `ActiveNpcStateSaved`, `Actor`, `ActorInput`, `InteractionAttachmentGuest`, `DynamicLocomotion`, `DynamicNetworkLocomotion`, `NpcCommon`, `DynamicNpcState`, `DynamicPathWalker`, `SteeringAgent`, `DynamicSteeringLocomotion`.
 
 **The context all `enemy01` functions take (`rcx`) [dis]:** `+0x00` the ECS program context (`CurrentEntityId` works on it), `+0x08` write records, `+0x28` template slots, `+0x48` `DynamicEnemy01BehaviorState*`, `+0x50` `Enemy01BehaviorState*`, `+0x58` the arsenal record (`attacks` BlobArray at +0x10), `+0x60` time. Already mapped by kiln.creatures (`creatures.md` 11).
+
+### 3.6 Faction relations: four leaves, and how kiln.npcai answers in their place **[dis] [rt]** (npcai, 2026-11-07)
+The relation is not one leaf but a family next to each other (server 26430253 RVAs; sigdb `server.d/npcai.json`, unique on servers 26430253,
+26404334, 1273043 and clients 26430625, 26404966):
+
+| Function | RVA | Answers | Callers |
+|---|---|---|---|
+| `Hostile(Faction* a, Faction* b)` | `0x94a0a0` | a would fight b. Environment (0) never; both on the players' side never; HitAll (1) always; equal never; species exceptions: Vukah–WildBeast, WildBeast–Skeleton, Skeleton–Fogger, Cyclops–Wildlife, Drak–WildBeast ... are not hostile; otherwise hostile | 6, among them `0x13c9e0`, the candidate filter of `enemy_combat_targets`' sight gather `0x13fdf0` |
+| `HostileValue(u8 a, u8 b)` | `0x94a160` | the same by value | 3 |
+| `Friend(Faction* a, Faction* b)` | `0x94a650` | b on a's side: equal, or both on the players' side {7, 8, 11} | 1 |
+| `FriendOpt(a, b, opt*)` | `0x94a690` | the same, plus FarmAnimal (12) on the players' side when `opt[1]` (this is the leaf section 3.1 named) | 6, the sensors among them |
+| `FriendValue(u8, u8)` | `0x94a6f0` | `Friend` by value | 3 |
+
+All are leaves with no `.pdata`; their first 5 to 7 bytes hold only a test and a short forward branch, which safetyhook relocates. The pointer forms
+get the two entities' `Faction` components (one byte, per entity, dynamic): **the same addresses `kiln.world`'s `component()` returns on the tick**.
+So per-entity answers work without knowing the entity in the leaf: in Pre (no job runs) kiln.npcai maps the components of the entities that have
+relations of their own back to them, and the hook looks up the pointer.
+
+Lab, forced-ready creatures, no commands (mods/tests/npcai-test, 45 PASS):
+```
+game step 100: a Combat target 2554; b Combat target 2553          a Vukah and a Scavenger find each other by themselves (step 18)
+neutral: table answers during it: 1868, calls 11731                Relate(Vukah, Scavenger, Neutral): neither targets the other in 300 steps
+hunter: takes a game Vukah as its target by itself (step 30)       its row (Vukah hostile) answered 924 times
+picky: never its target; the filter's pair answered 953 times      SenseFilter refusing one Vukah; allowed again: target at step 18
+```
+Rates with one pair fighting: about 40 hooked calls per step. Custom faction values above 15 would fall through the game's code as "hostile to
+everyone but its own"; `DamageModAgainst_Faction_*` attributes have no slot for them **[hyp]**, not tried.
 
 ## 4. BehaviourBlock: what it decides to do
 
@@ -634,7 +661,8 @@ Join the lab from the DEDICATED SERVER tab, as an admin. Run H6 and H7 from chat
 | Animation: notifies | data | Sibling `AnimationSequenceContainer` + `SequenceResource` | animcook | S | low | high format; client effect unseen |
 | Animation: graph from scratch | data | `animgraph.GraphBuilder` grown to blend spaces, layers, nesting, conditions; JSON or simple templates | graph writer; node reflection covers it | M | low-medium: 212-byte root unchanged, more node kinds possible | high for state machines **[rt]**; blend and layers same writer, untested |
 | Animation: engine input contract | code, fixed | Document and export hashes as constants; custom inputs by GUID | constants in the writer | S | medium: hashes are `.rdata` GUIDs, the kinds may gain entries | high **[dis]** |
-| Animation: feet IK, retargeting | data, on 2 and 6 nodes | Later | graph writer | M | low | medium |
+| Animation: retargeting | cook time | Built: animcook's `retarget` (any rig onto a game or mod skeleton), checked on 55 game clips | animcook | done | low | high offline; client playback unseen |
+| Animation: feet IK | data, on 2 and 6 nodes | Later | graph writer | M | low | medium |
 | **AI:** tuning | data | Existing `Ai.Set`, `templates`; a block-level JSON | kiln.creatures | S | low: reflection paths | high |
 | AI: target choice | code | Built: `c.PreferTarget`, `PickTarget`. Tick writes, section 4.4 | no hook | done | low: fields by reflection | high **[rt]** |
 | AI: aggro, sight | code + data | Mostly data. Hook `0x13cab0` to add or block candidates | 1 hook | S-M | low | medium: inner flow only outlined |

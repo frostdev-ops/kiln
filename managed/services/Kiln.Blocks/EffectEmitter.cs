@@ -448,7 +448,7 @@ internal sealed partial class EffectEmitter
     /// strikes, then as the game's own projectile program (its configs too: the look's template sets them): the material's reaction, the
     /// impact and second templates, the noise, gone.</summary>
     public static (Guid Guid, byte[] Blob, EffectEmitter E, string Listing) ProjectileProgram(BlockContext ctx, string key, IReadOnlyList<EffectRef>? onCast, string onCastPath,
-        IReadOnlyList<EffectRef>? onHit, string onHitPath, bool primary)
+        IReadOnlyList<EffectRef>? onHit, string onHitPath, bool primary, int pierce = 0)
     {
         const uint CfgAmmunition = 0x4baa194c, CfgUsedItem = 0x220e6b10, CfgMaterial = 0xbf09083f, CfgSpawn = 0xf6a785cd, CfgSpawn2 = 0x29aa2976, CfgNoise = 0xa19409b2;
         const uint MaterialWater = 0x69ff9049;
@@ -497,7 +497,10 @@ internal sealed partial class EffectEmitter
         b.Call("filterSameRoot", null, notOurs, yes, notFriends, null);
         b.Pop();
         b.Zero(i);
+        // where this collision is in the stream: Pierce asks for it again
+        var at = pierce > 0 ? b.V("collisionAt", ImpactType.Uint32) : 0;
         b.Mark(next);
+        if (pierce > 0) b.Set(at, i);
         b.Call("forEachCollisionInStream", null, null, struck, pos, normal, null, materialId, null, combat, null, i, notOurs);
         b.IfTrue(collision);
         b.Yield();
@@ -509,12 +512,50 @@ internal sealed partial class EffectEmitter
         b.IfFalse(land);
         b.Goto(next);
         b.Mark(land);
+        // Pierce: it goes through that many creatures, each once (a creature's collider meets it on several steps), and stops at the next, or at anything
+        // that is not a creature
+        var through = pierce > 0 ? b.VBool("through", false) : 0;
+        var hitIt = b.NewLabel();
+        if (pierce > 0)
+        {
+            var stop = b.NewLabel();
+            var back = b.V("collisionAgain", ImpactType.Uint32);
+            b.Load(combat);
+            b.IfFalse(stop);
+            for (var k = 0; k < pierce; k++)
+            {
+                var seen = b.V($"pierced{k}", ImpactType.Entity);
+                var free = b.NewLabel();
+                var other = b.NewLabel();
+                b.Call("isValidEntity", null, seen);
+                b.IfFalse(free);
+                b.Call("isSameEntity", null, struck, seen);
+                b.IfTrue(next);
+                b.Goto(other);
+                b.Mark(free);
+                // an entity can't be copied by a load and a store: the stream gives the same collision again, into this slot
+                b.Set(back, at);
+                b.Call("forEachCollisionInStream", null, null, seen, null, null, null, null, null, null, null, back, notOurs);
+                b.Pop();
+                b.Set(through, yes);
+                b.Goto(hitIt);
+                b.Mark(other);
+            }
+            b.Mark(stop);
+            b.Set(through, no);
+        }
+        b.Mark(hitIt);
         if (onHit is { Count: > 0 })
         {
             b.Load(combat);
             b.IfFalse(noHit);
             e.OnTarget(onHit, struck, onHitPath);
             b.Mark(noHit);
+        }
+        if (pierce > 0)
+        {
+            b.Load(through);
+            b.IfTrue(next);
         }
         foreach (var template in new[] { spawn, spawn2 })
         {

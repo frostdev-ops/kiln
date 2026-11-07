@@ -1,0 +1,6 @@
+# Made on each machine by the cook (kiln build, kiln cook): never committed, never shipped.
+assets/cooked/
+assets/assets.json
+blocks/models_*.materials.json
+bin/
+obj/

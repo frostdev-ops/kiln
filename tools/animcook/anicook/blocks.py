@@ -17,6 +17,9 @@ Names, and so the GUIDs that follow from <mod>:<kind>:<name>, are what Kiln.Bloc
   root motion;
 - graph: the animation block's name, or "<animation>.<body>" for a body on the same skeleton with slots: slots are the graph's;
 - model: the model file's path in the mod without the extension, as a worn look's (cook/worn.py in tools/modelcook).
+
+An animation with "retarget" brings clips authored on a rig of their own and names the "skeleton" they play on, a body's: its clips step pairs the rigs'
+joints (anicook/retarget.py) and the skeleton stays the body's.
 """
 import json
 import os
@@ -141,6 +144,7 @@ def plan(mod_dir):
     Paths are the mod's. Raises BlocksError for what can't be cooked as written."""
     blocks = read(mod_dir)
     skeletons, clips, graphs, models = {}, {}, [], []
+    retargets, wanted = {}, []
 
     def skeleton_of(where, file, b):
         sk = b.get("skeleton") or stem(file)
@@ -167,8 +171,19 @@ def plan(mod_dir):
         where = f"blocks/{fname}: animation {name}"
         if not _in_mod(mod_dir, b["clips"]):
             continue
-        sk = skeleton_of(where, b["clips"], b)
         file = b["clips"]
+        if b.get("retarget") is not None:
+            # clips authored on a rig of their own, played on a skeleton a body (or another animation) of the mod makes
+            if not b.get("skeleton"):
+                raise BlocksError(f"{where}: retarget: say which skeleton the clips play on (\"skeleton\": a body's skeleton, its model file's name)")
+            sk = b["skeleton"]
+            cfg = b["retarget"] if isinstance(b["retarget"], dict) else {}
+            if retargets.get((sk, file), cfg) != cfg:
+                raise BlocksError(f"{where}: retarget: {file} is retargeted onto {sk} by another animation already, with other settings")
+            retargets[(sk, file)] = cfg
+            wanted.append((where, sk))
+        else:
+            sk = skeleton_of(where, file, b)
         own = clips.setdefault((sk, file), {})
 
         def source(role, v, loop_default):
@@ -267,7 +282,16 @@ def plan(mod_dir):
                 g["slots"] = slots
                 g["comment"] = f"{where}, with the slots of body {bname}"
                 graphs.append(g)
-    return {"skeletons": skeletons, "clips": clips, "graphs": graphs, "models": models}
+    for where, sk in wanted:
+        if sk not in skeletons:
+            raise BlocksError(f"{where}: retarget: no body or animation of the mod makes skeleton {sk!r} (has {', '.join(skeletons) or 'none'})")
+    # a clip's GUID follows from <skeleton>.<animation>: two files can't give one skeleton two animations of one name
+    seen = {}
+    for (sk, file), entries in clips.items():
+        for k in entries:
+            if seen.setdefault(k, file) != file:
+                raise BlocksError(f"clip {k}: animation {entries[k]['animation']!r} comes from {seen[k]} and {file}, on skeleton {sk}: rename one of them")
+    return {"skeletons": skeletons, "clips": clips, "graphs": graphs, "models": models, "retargets": retargets}
 
 
 def steps_from_blocks(mod_dir, recipe_dir):
@@ -281,7 +305,10 @@ def steps_from_blocks(mod_dir, recipe_dir):
     for sk, file in p["skeletons"].items():
         out.append({"tool": "animcook", "op": "skeleton", "name": sk, "gltf": rel(file), "comment": "from blocks/*.json"})
     for (sk, file), entries in p["clips"].items():
-        out.append({"tool": "animcook", "op": "clips", "skeleton": sk, "gltf": rel(file), "clips": entries, "comment": "from blocks/*.json"})
+        st = {"tool": "animcook", "op": "clips", "skeleton": sk, "gltf": rel(file), "clips": entries, "comment": "from blocks/*.json"}
+        if (sk, file) in p["retargets"]:
+            st["retarget"] = p["retargets"][(sk, file)]
+        out.append(st)
     for g in p["graphs"]:
         out.append(g)
     for m in p["models"]:

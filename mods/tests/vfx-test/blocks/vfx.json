@@ -12,6 +12,15 @@
         "texture": "vfx/flipbook_0123.png", "blend": "additive"
       } ]
     },
+    // Key 5: a soak. A loop that keeps about 2,000 sprites alive from a ring, with a light, until Kiln stops it after 60 s.
+    "soak": {
+      "particles": [ {
+        "rate": 1000, "lifetime": [1.8, 2.2], "speed": [0.5, 1.5], "shape": { "ring": 2 }, "spread": "outward", "gravity": 1,
+        "size": 0.08, "color": ["#80ff80", "#20a020"], "alpha": { "linear": [1, 0] },
+        "blend": "additive", "maxCount": 2400
+      } ],
+      "light": { "color": "#40ff40", "radius": 6, "brightness": 2 }
+    },
     // Key 4b: the same block on a game module. If this shows and key 4 doesn't, the data path works and Kiln's sprite module is at fault.
     "red_burst_game_module": {
       "gameSpriteModule": true,

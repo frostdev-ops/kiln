@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "comment": "A body (models/figure.glb) and an animation whose clips come from models/pack.gltf: the same motion on a rig whose joints are named pack:<name> and whose bones are 1.3 times as long. build-assets.py writes both.",
+  "animations": {
+    "pack-moves": {
+      "clips": "models/pack.gltf", "skeleton": "figure",
+      "retarget": { "map": {
+        "pack:root": "root", "pack:pelvis": "pelvis", "pack:spine": "spine", "pack:chest": "chest", "pack:head": "head",
+        "pack:arm_r": "arm_r", "pack:forearm_r": "forearm_r", "pack:hand_r": "hand_r", "pack:arm_l": "arm_l", "pack:forearm_l": "forearm_l", "pack:hand_l": "hand_l",
+        "pack:leg_r": "leg_r", "pack:shin_r": "shin_r", "pack:leg_l": "leg_l", "pack:shin_l": "shin_l" } },
+      "idle": "Idle", "walk": "Walk", "run": "Run", "dead": "Dead",
+      "states": { "slam": { "clip": "Attack" } }
+    }
+  },
+  "bodies": {
+    "figure-body": {
+      "model": "models/figure.glb",
+      "slots": { "HandR": "hand_r", "Head": "head", "Pelvis": "pelvis" },
+      "size": { "radius": 0.5, "height": 2.0 },
+      "colliders": [ { "shape": "capsule", "radius": 0.45, "height": 2.0 } ]
+    }
+  },
+  "creatures": {
+    "packling": {
+      "name": "Packling", "body": "figure-body", "animation": "pack-moves",
+      "ai": { "like": "vukah", "faction": "Vukah" },
+      "behaviour": { "attacks": [ { "name": "slam", "plays": "slam", "range": 2.6, "hitAt": 0.5, "onHit": [ { "damage": { "blunt": 10 } } ] } ] },
+      "stats": { "level": 5 }
+    }
+  }
+}

@@ -935,6 +935,12 @@ KilnResult KILN_CALL t_info(char* buf, size_t cap, size_t* len) {
     return cap > doc.size() ? KILN_OK : KILN_ERR_BUFFER_TOO_SMALL;
 }
 
+KilnResult KILN_CALL t_icon_alias(const uint8_t from[16], const uint8_t to[16]) {
+    if (!from || !to) return KILN_ERR_INVALID_ARGUMENT;
+    nc_icon_alias(from, to);
+    return KILN_OK;
+}
+
 const KilnContentApi kTable = {
     {sizeof(KilnContentApi), KILN_CONTENT_VERSION},
     &t_status, &t_count, &t_entry_at, &t_find, &t_field_count, &t_field_at, &t_field_find, &t_enum_name,
@@ -943,6 +949,7 @@ const KilnContentApi kTable = {
     /* v2 */ &t_export_changes,
     /* v3 */ &t_define, &t_definitions,
     /* v4 */ &t_set_ref, &t_undefine_owner, &t_info,
+    /* appended to v4 */ &t_icon_alias,
 };
 
 // ============================================================================================= boot ============

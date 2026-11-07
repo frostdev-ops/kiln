@@ -63,7 +63,7 @@
       "col": 54,
       "file": "blocks/items.json",
       "line": 19,
-      "message": "\"gold\" is not one of \"wood\", \"stone\"",
+      "message": "\"gold\" is not one of \"wood\", \"stone\", \"rake\", \"sieve\", \"glider\", \"grappling-hook\", \"fishing-rod\", \"torch\"",
       "severity": "error"
     },
     {

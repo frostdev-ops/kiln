@@ -66,8 +66,18 @@ public sealed record ParticleBlock
     public VfxRange? Speed { get; init; }
     /// <summary>Direction at spawn, around the effect's up. Default <see cref="Shape.Up"/>.</summary>
     public Shape? Spread { get; init; }
-    /// <summary>Metres: start inside a sphere this big.</summary>
+    /// <summary>Metres: start inside a sphere this big. The same as <c>Shape = SpawnShape.Sphere(r)</c>; say one or the other.</summary>
     public float? SpawnRadius { get; init; }
+    /// <summary>Where particles start, in the effect's space: <see cref="SpawnShape.Sphere"/>, <see cref="SpawnShape.Shell"/>, <see cref="SpawnShape.Hemisphere"/>, <see cref="SpawnShape.Box(Vector3)"/>,
+    /// <see cref="SpawnShape.Disc"/>, <see cref="SpawnShape.Ring"/>, <see cref="SpawnShape.Line"/>. Default: the effect's position. With <see cref="Shape.Outward"/> they fly away from its centre.</summary>
+    public SpawnShape? Shape { get; init; }
+    /// <summary><see cref="ParticleAlign.Velocity"/>: a camera-facing quad turns to point the way it moves (sparks, rain, streaks). Default <see cref="ParticleAlign.Camera"/>.</summary>
+    public ParticleAlign? Align { get; init; }
+    /// <summary>With <see cref="ParticleAlign.Velocity"/>: extra length in metres per metre per second of speed, 0 to 100.</summary>
+    public float? Stretch { get; init; }
+    /// <summary>Advanced: your own particle module, compiled from HLSL against Kiln's particle kit (docs/kiln/modding/shaders.md). Needs <c>"advanced": true</c> in the mod's manifest. If it can't be
+    /// used (missing, built for another Kiln, refused by a check, shaders turned off) Kiln's own sprite draws the particle, so the effect still shows.</summary>
+    public ParticleShader? Shader { get; init; }
     /// <summary>Metres per second squared on world y: negative falls.</summary>
     public float? Gravity { get; init; }
     /// <summary>Metres per second squared in world space, added to <see cref="Gravity"/>.</summary>
@@ -160,7 +170,7 @@ public readonly record struct VfxValue
     public static VfxValue Int(int value) => new() { Value = value };
 }
 
-/// <summary>Where particles head at spawn: <see cref="Up"/>, <see cref="Sphere"/>, or <see cref="Cone"/>.</summary>
+/// <summary>Where particles head at spawn: <see cref="Up"/>, <see cref="Sphere"/>, <see cref="Outward"/>, or <see cref="Cone"/>.</summary>
 [JsonConverter(typeof(ShapeConverter))]
 public sealed record Shape
 {
@@ -169,8 +179,55 @@ public sealed record Shape
 
     public static readonly Shape Up = new() { Word = "up" };
     public static readonly Shape Sphere = new() { Word = "sphere" };
+    /// <summary>Away from the centre of the <see cref="ParticleBlock.Shape"/>: out of a sphere, along a disc's plane, across a line. Up at the very centre.</summary>
+    public static readonly Shape Outward = new() { Word = "outward" };
     /// <summary>A cone around up: half angle in degrees, 0 to 180.</summary>
     public static Shape Cone(float degrees) => new() { Degrees = degrees };
+}
+
+/// <summary>Where particles start, in the effect's space (its scale and rotation apply). Sizes in metres.</summary>
+[JsonConverter(typeof(SpawnShapeConverter))]
+public sealed record SpawnShape
+{
+    internal string Kind { get; private init; } = "point";
+    internal float A { get; private init; }
+    internal float? Inner { get; private init; }
+    internal Vector3 Size { get; private init; }
+
+    /// <summary>At the effect's position (the default).</summary>
+    public static readonly SpawnShape Point = new();
+    /// <summary>Inside a sphere; with <paramref name="inner"/>, outside that radius too.</summary>
+    public static SpawnShape Sphere(float radius, float? inner = null) => new() { Kind = "sphere", A = radius, Inner = inner };
+    /// <summary>On a sphere's surface.</summary>
+    public static SpawnShape Shell(float radius) => new() { Kind = "shell", A = radius };
+    /// <summary>Inside the upper half of a sphere.</summary>
+    public static SpawnShape Hemisphere(float radius, float? inner = null) => new() { Kind = "hemisphere", A = radius, Inner = inner };
+    /// <summary>Inside a box this big, centred.</summary>
+    public static SpawnShape Box(Vector3 size) => new() { Kind = "box", Size = size };
+    /// <summary>Inside a box this big, centred.</summary>
+    public static SpawnShape Box(float x, float y, float z) => Box(new Vector3(x, y, z));
+    /// <summary>On a flat disc in the effect's horizontal plane; with <paramref name="inner"/>, outside that radius too.</summary>
+    public static SpawnShape Disc(float radius, float? inner = null) => new() { Kind = "disc", A = radius, Inner = inner };
+    /// <summary>On a circle in the effect's horizontal plane.</summary>
+    public static SpawnShape Ring(float radius) => new() { Kind = "ring", A = radius };
+    /// <summary>On a line this long along the effect's x, centred.</summary>
+    public static SpawnShape Line(float length) => new() { Kind = "line", A = length };
+}
+
+/// <summary>Which way a camera-facing quad turns.</summary>
+public enum ParticleAlign
+{
+    /// <summary>Upright to the camera, turned by <see cref="ParticleBlock.Roll"/> and <see cref="ParticleBlock.Spin"/>.</summary>
+    Camera,
+    /// <summary>Its up points the way it moves on screen; <see cref="ParticleBlock.Stretch"/> lengthens it with speed.</summary>
+    Velocity,
+}
+
+/// <summary>Advanced: a mod's own particle module. <c>"shaders/build/swirl.spv"</c>, or with <see cref="Constants"/> that the module reads as <c>c.user0</c> and <c>c.user1</c>.</summary>
+[JsonConverter(typeof(ParticleShaderConverter))]
+public sealed record ParticleShader(string File, IReadOnlyList<float>? Constants = null)
+{
+    public static implicit operator ParticleShader(string file) => new(file);
 }
 
 /// <summary>A number over a particle's life: a constant (<c>0.2f</c>), <see cref="Linear"/>, evenly spaced values (<see cref="Of"/>), or <see cref="Keys"/>.</summary>
@@ -334,12 +391,13 @@ internal sealed class ShapeConverter : JsonConverter<Shape>
             {
                 "up" => Shape.Up,
                 "sphere" => Shape.Sphere,
-                var s => throw new JsonException($"\"{s}\" is not a spread; there are \"up\", \"sphere\" and {{\"cone\": degrees}}"),
+                "outward" => Shape.Outward,
+                var s => throw new JsonException($"\"{s}\" is not a spread; there are \"up\", \"sphere\", \"outward\" and {{\"cone\": degrees}}"),
             };
         using var doc = JsonDocument.ParseValue(ref r);
         if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("cone", out var cone) && cone.ValueKind == JsonValueKind.Number)
             return Shape.Cone(cone.GetSingle());
-        throw new JsonException("a spread is \"up\", \"sphere\" or {\"cone\": degrees}");
+        throw new JsonException("a spread is \"up\", \"sphere\", \"outward\" or {\"cone\": degrees}");
     }
 
     public override void Write(Utf8JsonWriter w, Shape v, JsonSerializerOptions o)
@@ -351,6 +409,84 @@ internal sealed class ShapeConverter : JsonConverter<Shape>
         }
         w.WriteStartObject();
         w.WriteNumber("cone", v.Degrees);
+        w.WriteEndObject();
+    }
+}
+
+// "point", {"sphere": r, "inner": r2}, {"shell": r}, {"hemisphere": r}, {"box": [x, y, z]}, {"disc": r}, {"ring": r}, {"line": length}: the builder's shape (cook/define.cpp)
+internal sealed class SpawnShapeConverter : JsonConverter<SpawnShape>
+{
+    public override SpawnShape? Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+    {
+        if (r.TokenType == JsonTokenType.String)
+            return r.GetString() == "point" ? SpawnShape.Point : throw new JsonException("a shape is \"point\" or one of {\"sphere\": r}, {\"shell\": r}, {\"hemisphere\": r}, {\"box\": [x, y, z]}, {\"disc\": r}, {\"ring\": r}, {\"line\": length}");
+        using var doc = JsonDocument.ParseValue(ref r);
+        var e = doc.RootElement;
+        if (e.ValueKind != JsonValueKind.Object) throw new JsonException("a shape is an object such as {\"sphere\": 2}");
+        float? inner = e.TryGetProperty("inner", out var i) ? i.GetSingle() : null;
+        foreach (var p in e.EnumerateObject())
+            switch (p.Name)
+            {
+                case "inner" or "comment": break;
+                case "sphere": return SpawnShape.Sphere(p.Value.GetSingle(), inner);
+                case "shell": return SpawnShape.Shell(p.Value.GetSingle());
+                case "hemisphere": return SpawnShape.Hemisphere(p.Value.GetSingle(), inner);
+                case "disc": return SpawnShape.Disc(p.Value.GetSingle(), inner);
+                case "ring": return SpawnShape.Ring(p.Value.GetSingle());
+                case "line": return SpawnShape.Line(p.Value.GetSingle());
+                case "box" when p.Value.ValueKind == JsonValueKind.Array && p.Value.GetArrayLength() == 3:
+                    return SpawnShape.Box(p.Value[0].GetSingle(), p.Value[1].GetSingle(), p.Value[2].GetSingle());
+                default: throw new JsonException($"\"{p.Name}\" is not a shape; there are sphere, shell, hemisphere, box, disc, ring, line");
+            }
+        throw new JsonException("a shape needs one of sphere, shell, hemisphere, box, disc, ring, line");
+    }
+
+    public override void Write(Utf8JsonWriter w, SpawnShape v, JsonSerializerOptions o)
+    {
+        if (v.Kind == "point")
+        {
+            w.WriteStringValue("point");
+            return;
+        }
+        w.WriteStartObject();
+        if (v.Kind == "box")
+        {
+            w.WriteStartArray("box");
+            w.WriteNumberValue(v.Size.X); w.WriteNumberValue(v.Size.Y); w.WriteNumberValue(v.Size.Z);
+            w.WriteEndArray();
+        }
+        else w.WriteNumber(v.Kind, v.A);
+        if (v.Inner is { } inner) w.WriteNumber("inner", inner);
+        w.WriteEndObject();
+    }
+}
+
+internal sealed class ParticleShaderConverter : JsonConverter<ParticleShader>
+{
+    public override ParticleShader? Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+    {
+        if (r.TokenType == JsonTokenType.String) return r.GetString()!;
+        using var doc = JsonDocument.ParseValue(ref r);
+        var e = doc.RootElement;
+        if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty("file", out var file) || file.GetString() is not { } path)
+            throw new JsonException("a shader is the path of a compiled .spv, or {\"file\": path, \"constants\": [up to 8 numbers]}");
+        foreach (var p in e.EnumerateObject())
+            if (p.Name is not ("file" or "constants" or "comment")) throw new JsonException($"\"{p.Name}\" is not part of a shader; it takes file and constants");
+        return new ParticleShader(path, e.TryGetProperty("constants", out var c) ? c.EnumerateArray().Select(x => x.GetSingle()).ToArray() : null);
+    }
+
+    public override void Write(Utf8JsonWriter w, ParticleShader v, JsonSerializerOptions o)
+    {
+        if (v.Constants is not { Count: > 0 })
+        {
+            w.WriteStringValue(v.File);
+            return;
+        }
+        w.WriteStartObject();
+        w.WriteString("file", v.File);
+        w.WriteStartArray("constants");
+        foreach (var x in v.Constants) w.WriteNumberValue(x);
+        w.WriteEndArray();
         w.WriteEndObject();
     }
 }

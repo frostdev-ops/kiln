@@ -160,6 +160,19 @@ public static unsafe class Assets
         fixed (byte* p = bytes) Check(t->ResourcePut(owner, &k, p, (nuint)bytes.Length, 0), "Register");
     }
 
+    /// <summary>Registers a PNG file as the icon texture with this GUID, as a given owner (Kiln.Blocks: a status's or a perk's icon). The native result: 0 = taken.</summary>
+    internal static int RegisterIconAs(ulong owner, Guid guid, string pngPath)
+    {
+        var t = T;
+        if (t == null) return AssetsNative.Unavailable;
+        byte* g = stackalloc byte[16];
+        WriteGuid(guid, g);
+        var u = new AssetsNative.Utf8(pngPath);
+        int rc = AssetsNative.Unavailable;
+        u.With(s => rc = t->IconRegisterFile(owner, g, s));
+        return rc;
+    }
+
     /// <summary>Override a game resource's bytes for the session.</summary>
     public static void Override(AssetKey key, byte[] bytes) => Register(key, bytes, mustBeNew: false);
 

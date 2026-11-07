@@ -104,6 +104,7 @@ internal static class NpcRules
     public static RuleCondition Condition(RuleCondition c, string mod, BlockContext ctx, string path)
     {
         if (c.Json[Pending] is not JsonObject j) return c;
+        if (AiJson.Condition(j, mod, ctx, path) is { } ai) return ai;   // npcai's forms (Ai/AiJson.cs)
         try
         {
             using var doc = JsonDocument.Parse(j.ToJsonString());
@@ -132,6 +133,7 @@ internal static class NpcRules
             };
             return NpcRuntime.EffectAction(effect, on);
         }
+        if (AiJson.Action(j, mod, ctx, path) is { } ai) return ai;   // npcai's forms (Ai/AiJson.cs)
         try
         {
             using var doc = JsonDocument.Parse(j.ToJsonString());

@@ -35,7 +35,9 @@ public sealed record VisualBlock : IBlock
     public ItemRef? Dropped { get; init; }
     /// <summary><c>#rrggbb</c>: the colour of the parts the game lets you tint. A client check: nothing here draws it.</summary>
     public string? Tint { get; init; }
-    /// <summary>Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status.</summary>
+    /// <summary>A VFX on the thing itself, for as long as it is there: in the hand while it is held (right hand by default, at the grip; <see cref="VfxRef.Offset"/> moves it
+    /// up the blade), or on what stands there for a placed thing, as a prop's light. A VFX of what happens goes on that: an on-hit, a status, an effect.</summary>
+    [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
 }
 
@@ -423,16 +425,38 @@ public sealed record ItemKind : IPremade
     internal bool HoldsWater => Water != null;
 }
 
-/// <summary>What a tool gets out of the world.</summary>
+/// <summary>What a tool does: what it is for, and how well. Each class takes the fields it has a number for, and refuses the others by name.</summary>
 public sealed record ToolBlock
 {
-    /// <summary>What it is for. An axe takes wood, a pickaxe stone and metal and digs. The premades are plain instances.</summary>
+    /// <summary>What it is for: an axe takes wood, a pickaxe stone and metal and digs, a rake flattens the ground, a glider flies, a grappling hook pulls, a fishing rod
+    /// fishes, a torch burns. The premades are plain instances.</summary>
     public required ToolClass Harvests { get; init; }
-    /// <summary>How hard it bites into what it is for: an axe's wood damage, a pickaxe's stone damage. Null: the class's. The rest of what it can do scales along.</summary>
+    /// <summary>How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage, a rake's flattening strength (the game's rakes: 500 and 1000). Null: the class's.
+    /// For an axe or a pickaxe the rest of what it can do scales along.</summary>
     public int? Power { get; init; }
-    /// <summary>Stamina each swing costs; the tooltip follows. Null: the class's.</summary>
+    /// <summary>Stamina each use costs; the tooltip follows. Null: the class's.</summary>
     public int? StaminaCost { get; init; }
+    /// <summary>Metres: how far a rake flattens around where it aims (the game's: 3), how far a grappling hook reaches (13.5). Null: the class's.</summary>
+    public double? Range { get; init; }
+    /// <summary>Seconds a torch burns while it is held, the tooltip's Duration (the game's torch: 600). Then it becomes <see cref="BreaksInto"/>. Null: the class's.</summary>
+    public double? Durability { get; init; }
+    /// <summary>What it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or an item of this mod. Null: the class's.</summary>
+    public ItemRef? BreaksInto { get; init; }
+    /// <summary>A fishing rod's pull and stamina. Null: the class's.</summary>
+    public FishingBlock? Fishing { get; init; }
 }
+
+/// <summary>How a fishing rod fights a fish.</summary>
+public sealed record FishingBlock
+{
+    /// <summary>How hard it pulls: the tooltip's Strength (the game's simple rod: 1, the improved one: 2).</summary>
+    public double? Strength { get; init; }
+    /// <summary>How long it holds out: the tooltip's Endurance (30 and 45).</summary>
+    public double? Endurance { get; init; }
+}
+
+/// <summary>What a tool class does, which decides which <see cref="ToolBlock"/> fields it takes.</summary>
+public enum ToolUse { Harvest, Flatten, Glide, Hook, Fish, Light }
 
 /// <summary>A class of tool, with its starter and the number <see cref="ToolBlock.Power"/> scales from.</summary>
 [JsonConverter(typeof(PremadeConverter<ToolClass>))]
@@ -440,7 +464,24 @@ public sealed record ToolClass(string Key, string Starter, int WoodDamage, int S
 {
     public static readonly ToolClass Axe = new("wood", "Tool_T1_Axe_Scrap_Grassland", 20, 4, 2, 20, 3, false);
     public static readonly ToolClass Pickaxe = new("stone", "Tool_T1_Pickaxe_Scrap_Grassland", 8, 12, 8, 12, 3, true);
-    internal static readonly ToolClass[] All = [Axe, Pickaxe];
+    /// <summary>The game's rake: it flattens the ground where it aims, in a base.</summary>
+    public static readonly ToolClass Rake = new("rake", "Tool_T0_Rake_Wooden", 0, 0, 0, 500, 3, false) { Use = ToolUse.Flatten };
+    /// <summary>The game's mining sieve: stone, metal and wood, and it digs as deep as the game's sieve.</summary>
+    public static readonly ToolClass Sieve = new("sieve", "Tool_T6_GoldSieve_Prospector_Wetlands", 14, 20, 14, 20, 3, false);
+    /// <summary>The game's glider, in its own slot.</summary>
+    public static readonly ToolClass Glider = new("glider", "Tool_Glider_T1", 0, 0, 0, 0, 0, false) { Use = ToolUse.Glide };
+    /// <summary>The game's grappling hook, in its own slot.</summary>
+    public static readonly ToolClass GrapplingHook = new("grappling-hook", "Tool_Grappling_Hook", 0, 0, 0, 0, 0, false) { Use = ToolUse.Hook };
+    /// <summary>The game's simple fishing rod.</summary>
+    public static readonly ToolClass FishingRod = new("fishing-rod", "Tool_T1_FishingRod_basic", 0, 0, 0, 0, 0, false) { Use = ToolUse.Fish };
+    /// <summary>The game's torch: held, it lights and burns down.</summary>
+    public static readonly ToolClass Torch = new("torch", "Tool_Torch01", 3, 1, 1, 3, 0, false) { Use = ToolUse.Light };
+    internal static readonly ToolClass[] All = [Axe, Pickaxe, Rake, Sieve, Glider, GrapplingHook, FishingRod, Torch];
+
+    /// <summary>What it does.</summary>
+    public ToolUse Use { get; init; } = ToolUse.Harvest;
+    /// <summary>It has an item entity with enhancement slots, level and rarity, as the axe's.</summary>
+    internal bool Gear => Slots > 0;
 }
 
 /// <summary>Shorthands for <see cref="ToolBlock.Harvests"/>.</summary>
@@ -450,6 +491,8 @@ public static class Harvest
     public static readonly ToolClass Wood = ToolClass.Axe;
     /// <summary>A pickaxe: stone, metal, and digging.</summary>
     public static readonly ToolClass Stone = ToolClass.Pickaxe;
+    /// <summary>A rake: it flattens the ground.</summary>
+    public static readonly ToolClass Ground = ToolClass.Rake;
 }
 
 /// <summary>What an arrow adds to the bow that shoots it.</summary>

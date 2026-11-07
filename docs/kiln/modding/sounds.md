@@ -233,6 +233,31 @@ Each output is decoded again with tools/kfc and checked:
 The report (`cooked/cook-report.json`) lists every check, the levels (peak, active RMS, gain applied), the
 encoder used, sources and outputs with sha256.
 
+## Sound blocks
+A mod can declare its sounds as blocks instead of writing the steps, in the `sounds` section of `blocks/*.json`:
+```jsonc
+{ "format": 1,
+  "sounds": {
+    "frost-hum": { "clips": ["audio/frost_hum.wav"], "volume": 0.6, "range": [3, 40], "loop": true },
+    "boom":      { "clips": ["audio/boom_1.wav", "audio/boom_2.ogg"], "range": [5, 80], "pitchRandomness": 0.05, "normalize": -23 } },
+  "effects": { "thump": { "sound": "boom" } } }
+```
+| Field | |
+|---|---|
+| `clips` | audio files in the mod's folder; more than one: each play picks one (mono for a sound with a `range`) |
+| `volume` | 0..1 |
+| `range` | `[min, max]` metres; without it the sound is heard alike everywhere (UI, music) |
+| `loop`, `scene` (`Sfx`, `Music`, `Ui`, `Voice`), `pitchRandomness`, `normalize` | as the cue and sound steps above |
+
+`kiln cook` first runs `tools/soundcook/soundcook.py blocks <mod>`, which writes the steps into `assets/cook.json`: a `sound` step `<block>.<n>` per clip and a `cue` step `<block>`. It lists them in the recipe's `blockSounds` and replaces only those on the next run, so your own steps stay. A recipe it makes gets a `guidNamespace` that follows from the mod id. Then the recipe cooks as any other. An effect (`Sound = "frost-hum"`, or the handle), a station's running sound and code (`SoundId.Named`) play a block by its name. Its cue's GUID follows from the recipe's namespace, so a server, which cooks nothing, knows it too.
+
+The same block in C#:
+```csharp
+var hum = Blocks.Define("frost-hum", new SoundBlock { Clips = ["audio/frost_hum.wav"], Volume = 0.6, Range = [3, 40], Loop = true });
+Blocks.Define("humming-rack", new StationBlock { Name = "Humming Rack", Processing = new ProcessingBlock { Running = new RunningBlock { Sound = hum } }, ... });
+```
+A block in code is not visible to the cook: its steps go in `assets/cook.json` by hand, and until they are there the block's warnings say so. A sound block needs `clients: mod`.
+
 ## Playing them
 - **Game data** plays cues by GUID. Point modded data at your cue: a sequence's `SfxNotifierEvent.sound`, a template's
   `AudioResourceComponent`, an item's `equipSfx`, a boss's `BossMusicTag`, as kiln.content references

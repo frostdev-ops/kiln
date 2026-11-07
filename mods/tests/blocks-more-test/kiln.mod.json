@@ -1,0 +1,12 @@
+{
+  "id": "blocks-more-test",
+  "name": "more building blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BlocksMoreTest.dll",
+  "side": "both",
+  "license": "MIT",
+  "clients": "mod",
+  "advanced": true,
+  "description": "PASS/FAIL lines, player-free: status and perk icons of a mod's own, tools of every kind, deliveries that pierce, props with their own collision, and sounds declared as blocks; C# and JSON alike, and the errors a mistake gets."
+}

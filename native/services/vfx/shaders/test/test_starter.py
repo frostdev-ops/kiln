@@ -282,6 +282,184 @@ class Motion(unittest.TestCase):
         self.assertAlmostEqual(w.draws()[0]["scale"][0], 1.0, 5)
 
 
+class Shapes(unittest.TestCase):
+    """ABI 2: where a particle starts, and which way it goes from there."""
+
+    def start(self, shape, size, spread=0, n=64, speed=(0.0, 0.0), scale=None, orientation=(0.0, 0.0, 0.0, 1.0)):
+        w = World(pair(emitter_block(duration=0.001, burst=n), sprite_block(life=(5, 5), speed=speed, spread=spread, shape=shape, shape_size=size)),
+                  position=(0.0, 0.0, 0.0))
+        w.set_instance(scale=scale, orientation=orientation)
+        w.tick()
+        return w, [d["position"] for d in w.draws()]
+
+    def test_point_stays_at_the_instance(self):
+        _, ps = self.start(P["KS_SHAPE_POINT"], (5.0, 0.0, 0.0))
+        for p in ps:
+            self.assertLess(max(abs(c) for c in p), 1e-3)
+
+    def test_sphere_shell_and_inner_radius(self):
+        _, ps = self.start(P["KS_SHAPE_SPHERE"], (2.0, 2.0, 0.0))
+        for p in ps:
+            self.assertAlmostEqual(math.dist(p, (0, 0, 0)), 2.0, 2)
+        _, ps = self.start(P["KS_SHAPE_SPHERE"], (2.0, 1.0, 0.0))
+        rs = [math.dist(p, (0, 0, 0)) for p in ps]
+        self.assertTrue(all(1.0 - 1e-3 <= r <= 2.0 + 1e-3 for r in rs), rs)
+        self.assertTrue(min(p[1] for p in ps) < 0 < max(p[1] for p in ps))
+
+    def test_hemisphere_stays_up(self):
+        _, ps = self.start(P["KS_SHAPE_HEMISPHERE"], (3.0, 0.0, 0.0))
+        self.assertTrue(all(p[1] >= -1e-4 and math.dist(p, (0, 0, 0)) <= 3.0 + 1e-3 for p in ps))
+
+    def test_box(self):
+        _, ps = self.start(P["KS_SHAPE_BOX"], (1.0, 2.0, 3.0))
+        for p in ps:
+            self.assertTrue(abs(p[0]) <= 1.0 + 1e-3 and abs(p[1]) <= 2.0 + 1e-3 and abs(p[2]) <= 3.0 + 1e-3, p)
+        self.assertGreater(max(abs(p[2]) for p in ps), 1.5)
+
+    def test_disc_and_ring_are_flat(self):
+        _, ps = self.start(P["KS_SHAPE_DISC"], (2.0, 0.0, 0.0))
+        self.assertTrue(all(abs(p[1]) < 1e-3 and math.hypot(p[0], p[2]) <= 2.0 + 1e-3 for p in ps))
+        _, ps = self.start(P["KS_SHAPE_DISC"], (2.0, 2.0, 0.0))
+        for p in ps:
+            self.assertAlmostEqual(math.hypot(p[0], p[2]), 2.0, 2)
+
+    def test_line_along_x(self):
+        _, ps = self.start(P["KS_SHAPE_LINE"], (4.0, 0.0, 0.0))
+        self.assertTrue(all(abs(p[1]) < 1e-3 and abs(p[2]) < 1e-3 and abs(p[0]) <= 2.0 + 1e-3 for p in ps))
+        self.assertGreater(max(p[0] for p in ps) - min(p[0] for p in ps), 2.0)
+
+    def test_shape_follows_instance_scale_and_rotation(self):
+        # 90 degrees about z: the line's x becomes y
+        q = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))
+        _, ps = self.start(P["KS_SHAPE_LINE"], (2.0, 0.0, 0.0), scale=(3.0, 3.0, 3.0), orientation=q)
+        self.assertTrue(all(abs(p[0]) < 1e-3 for p in ps))
+        self.assertGreater(max(abs(p[1]) for p in ps), 1.5)
+        self.assertTrue(all(abs(p[1]) <= 3.0 + 1e-3 for p in ps))
+
+    def test_outward_moves_away_from_the_centre(self):
+        # 11 ticks at 5 m/s carry a particle 0.92 m further out than it started
+        for shape, size, least in ((P["KS_SHAPE_SPHERE"], (1.0, 1.0, 0.0), 1.9), (P["KS_SHAPE_DISC"], (1.0, 1.0, 0.0), 1.9),
+                                   (P["KS_SHAPE_BOX"], (0.05, 0.05, 0.05), 0.85)):
+            w, before = self.start(shape, size, spread=P["KS_SPREAD_OUTWARD"], speed=(5.0, 5.0), n=32)
+            for _ in range(10):
+                w.tick()
+            after = [d["position"] for d in w.draws()]
+            self.assertGreater(min(math.dist(p, (0, 0, 0)) for p in after), least, shape)
+            if shape == P["KS_SHAPE_DISC"]:
+                self.assertTrue(all(abs(p[1]) < 1e-3 for p in after))
+
+    def test_bad_shape_data_is_harmless(self):
+        nan = float("nan")
+        for shape, size in ((99, (1.0, 1.0, 1.0)), (P["KS_SHAPE_SPHERE"], (-2.0, 5.0, 0.0)), (P["KS_SHAPE_BOX"], (nan, 1.0, 1.0)),
+                            (P["KS_SHAPE_DISC"], (1e30, 0.0, 0.0))):
+            w = World(pair(emitter_block(duration=0.001, burst=16), sprite_block(life=(5, 5), shape=shape, shape_size=size)))
+            for _ in range(3):
+                w.tick()
+                w.check()
+            for d in w.draws():
+                self.assertTrue(all(math.isfinite(c) for c in d["position"]))
+
+
+class Stretch(unittest.TestCase):
+    def test_aligns_with_velocity_and_stretches(self):
+        flags = P["KS_FLAG_FACE_CAMERA"] | P["KS_FLAG_ALIGN_VELOCITY"]
+        w = World(pair(emitter_block(duration=0.001, burst=1),
+                       sprite_block(life=(5, 5), speed=(4.0, 4.0), spread=P["KS_SPREAD_UP"], flags=flags, stretch=0.25, size=[0.5] * 8)),
+                  position=(0.0, 0.0, 0.0))
+        w.tick()
+        d = w.draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 0.5, 4)
+        self.assertAlmostEqual(d["scale"][1], 0.5 + 0.25 * 4.0, 3)
+        # The quad's +y, turned by its rotation, points along the motion (the camera is the identity in the harness).
+        x, y, z, qw = d["rotation"]
+        up = (2 * (x * y - qw * z), 1 - 2 * (x * x + z * z), 2 * (y * z + qw * x))
+        self.assertGreater(up[1], 0.99)
+
+    def test_sideways_turns_the_quad(self):
+        flags = P["KS_FLAG_FACE_CAMERA"] | P["KS_FLAG_ALIGN_VELOCITY"]
+        w = World(pair(emitter_block(duration=0.001, burst=1),
+                       sprite_block(life=(5, 5), speed=(3.0, 3.0), flags=flags, stretch=0.0)), position=(0.0, 0.0, 0.0))
+        q = (0.0, 0.0, -math.sin(math.pi / 4), math.cos(math.pi / 4))  # up becomes +x
+        w.set_instance(orientation=q)
+        w.tick()
+        x, y, z, qw = w.draws()[0]["rotation"]
+        up = (2 * (x * y - qw * z), 1 - 2 * (x * x + z * z), 2 * (y * z + qw * x))
+        self.assertGreater(up[0], 0.99)
+
+    def test_off_without_the_flag(self):
+        w = World(pair(emitter_block(duration=0.001, burst=1), sprite_block(life=(5, 5), speed=(4.0, 4.0), stretch=1.0)))
+        w.tick()
+        d = w.draws()[0]
+        self.assertAlmostEqual(d["scale"][0], d["scale"][1], 5)
+
+
+class PlayParameters(unittest.TestCase):
+    """KX_*: what a play, a template, a sequence or a buff sets by name."""
+
+    def one(self, **play):
+        w = World(pair(emitter_block(duration=0.001, burst=4), sprite_block(life=(5, 5), speed=(2.0, 2.0), size=[0.5] * 8, color=[(1.0, 1.0, 1.0)] * 8)),
+                  position=(0.0, 0.0, 0.0))
+        if play:
+            w.set_play(**play)
+        w.tick()
+        return w
+
+    def test_no_block_reads_as_defaults(self):
+        d = self.one().draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 0.5, 5)
+        self.assertEqual(d["color"], (1.0, 1.0, 1.0))
+        self.assertAlmostEqual(d["alpha"], 1.0, 5)
+        # garbage without the marker is ignored too
+        d = self.one(color=(0, 0, 0, 0), size=0.0, magic=False).draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 0.5, 5)
+
+    def test_kiln_defaults_change_nothing(self):
+        d = self.one(color=(255, 255, 255, 255)).draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 0.5, 5)
+        for c in d["color"]:
+            self.assertAlmostEqual(c, 1.0, 5)
+
+    def test_colour_size_brightness_alpha(self):
+        d = self.one(color=(255, 0, 128, 128), size=2.0, brightness=3.0).draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 1.0, 5)
+        self.assertAlmostEqual(d["color"][0], 3.0, 4)
+        self.assertAlmostEqual(d["color"][1], 0.0, 5)
+        self.assertAlmostEqual(d["color"][2], 3.0 * ((128 / 255 + 0.055) / 1.055) ** 2.4, 3)
+        self.assertAlmostEqual(d["alpha"], 128 / 255, 3)
+
+    def test_count_scales_the_burst(self):
+        w = self.one(count=2.5)
+        self.assertEqual(len(w.draws()), 10)
+        w = self.one(count=0.0)
+        self.assertEqual(len(w.draws()), 0)
+
+    def test_speed(self):
+        w = self.one(speed=3.0)
+        for _ in range(29):
+            w.tick()
+        y = max(d["position"][1] for d in w.draws())
+        self.assertAlmostEqual(y, 6.0 * 30 / 60, 1)
+
+    def test_wild_values_are_clamped(self):
+        nan = float("nan")
+        d = self.one(size=nan, brightness=float("inf"), speed=-5.0).draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 0.5, 5)
+        self.assertTrue(all(math.isfinite(c) for c in d["color"]))
+        d = self.one(size=1e9).draws()[0]
+        self.assertLessEqual(d["scale"][0], 0.5 * P["KX_MAX_FACTOR"] + 1e-3)
+
+    def test_light_takes_colour_and_brightness(self):
+        w = World(light_only(light_block(radius=6.0, brightness=2.0, color=(0.5, 0.5, 0.5))), position=(1.0, 2.0, 3.0))
+        w.set_play(color=(255, 0, 0, 255), brightness=2.0)
+        w.tick()
+        rec = w.buf[LIGHTS]
+        import struct as _s
+        half = lambda h: _s.unpack("<e", _s.pack("<H", h))[0]
+        rg = rec.u32(16)
+        self.assertAlmostEqual(half(rg >> 16), 0.5 * 2.0 * 2.0, 2)
+        self.assertAlmostEqual(half(rg & 0xffff), 0.0, 3)
+
+
 class Lists(unittest.TestCase):
     def split(self, flags):
         return World(pair(emitter_block(duration=0.001, burst=4), sprite_block(draw_flags=flags)), split=True)

@@ -40,6 +40,17 @@ internal static unsafe class BlocksBridge
     public static bool HasService(string name, uint minVersion) => Backend.Current.Service(name, minVersion) != 0;
 
     /// <summary>A native service's table, for Kiln.Blocks' own bindings. 0: not here.</summary>
+    /// <summary>The UI looks the texture key <paramref name="from"/> up as <paramref name="to"/> until kiln.assets serves an icon under it: a PNG icon of a
+    /// block's own named in game data before the UI cache knows it. False: kiln.content here has no such call (an older build).</summary>
+    public static bool IconAlias(Guid from, Guid to)
+    {
+        var t = Content.T;
+        if (t == null || t->Header.Size < (uint)sizeof(ContentNative.Table) || t->IconAlias == null) return false;
+        var f = from.ToByteArray();
+        var g = to.ToByteArray();
+        fixed (byte* pf = f, pg = g) return t->IconAlias(pf, pg) == 0;
+    }
+
     public static nint ServiceTable(string name, uint minVersion) => (nint)Backend.Current.Service(name, minVersion);
 
     public static IDisposable AddTick(string name, Action<ulong> step) => ServiceTick.Add(name, (in TickInfo t) => step(t.Step));

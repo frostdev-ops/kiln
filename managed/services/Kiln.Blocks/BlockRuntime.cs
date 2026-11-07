@@ -65,6 +65,15 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
+    /// <summary>A status's or a perk's own PNG icon: served on a client, named on both sides, once content is ready.</summary>
+    public static void AddOwnIcon(ModBlocks mod, OwnIcon icon)
+    {
+        lock (Gate) mod.OwnIcons.Add(icon);
+        // at once: the UI cache learns the key a few frames after this, and the sooner the less a buff bar shows the starter's
+        BlockIcons.Serve(mod, icon, text => { lock (mod.Errors) mod.Errors.Add(text); BlocksBridge.Log(LogLevel.Error, $"blocks: {mod.Id}: {text}"); });
+        Hook(mod);
+    }
+
     /// <summary>Something to look at once content is ready: what a block names is known then, and what is wrong with it goes to <paramref name="check"/>'s argument, by name.</summary>
     public static void AddReady(ModBlocks mod, Action<Action<string>> check)
     {
@@ -191,6 +200,15 @@ internal static class BlockRuntime
             }
             var sec = (doc[section] ??= new JsonObject()).AsObject();
             ((sec[entry] ??= new JsonObject()).AsObject())["icon"] = icon.DeepClone();
+        }
+        List<OwnIcon> own;
+        lock (Gate) own = mod.OwnIcons.ToList();
+        foreach (var icon in own)
+        {
+            BlockIcons.Serve(mod, icon, Problem);
+            if (BlockIcons.Rule(mod, icon, Problem) is not { } named) continue;
+            var sec = (doc[icon.Section] ??= new JsonObject()).AsObject();
+            ((sec[icon.Entry] ??= new JsonObject()).AsObject())["icon"] = named;
         }
         // A big document goes in parts: each holds the store lock while it applies, and a game thread that needs the lock (a drop table the
         // game loads) waits for one part at most.

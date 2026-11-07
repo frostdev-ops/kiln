@@ -75,6 +75,9 @@ public sealed record MaterialBlock : IBlock
     public string? Shader { get; init; }
     /// <summary>The name this block had before a rename. Ids come from the oldest name.</summary>
     public string? Was { get; init; }
+    /// <summary>The GUID of one of the game's materials: this block draws in its place on every model that uses it, items, props and creatures alike.
+    /// Keep the original's <see cref="Kind"/>: the models carry its cutout and double-sided flags, and a mismatch draws wrong (never fatally). The block's id is that GUID.</summary>
+    public string? Replaces { get; init; }
 
     /// <inheritdoc cref="VfxBlock.Comment"/>
     [EditorBrowsable(EditorBrowsableState.Never)]

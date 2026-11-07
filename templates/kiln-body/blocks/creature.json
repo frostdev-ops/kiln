@@ -1,0 +1,33 @@
+{
+  // A creature entirely of this mod's files. models/creature.glb is a skinned figure with its animations: replace it with your own export
+  // (Blender: File > Export > glTF 2.0, +Y up, armature at rest, animations as actions). The cook makes its skeleton, clips, graph and model.
+  // docs: docs/kiln/modding/npc-blocks.md, animations.md, models.md#skinned-models
+  "format": 1,
+  "animations": {
+    "kiln-mod-id-moves": {
+      "clips": "models/creature.glb",
+      "idle": "Idle", "walk": "Walk", "run": "Run", "dead": "Dead",
+      "hit": { "clip": "Flinch", "reference": "Ref", "bones": [ "chest", "head" ] },
+      "states": { "slam": { "clip": "Attack" } }
+      // Clips from an animation pack with other joint names: point "clips" at the pack, keep the body's skeleton, pair the joints:
+      //   "clips": "models/pack.glb", "skeleton": "creature", "retarget": { "map": { "mixamorig:Hips": "pelvis", "mixamorig:Head": "head" } }
+    }
+  },
+  "bodies": {
+    "kiln-mod-id-body": {
+      "model": "models/creature.glb",
+      "slots": { "HandR": "hand_r", "HandL": "hand_l", "Head": "head", "Chest": "chest", "Pelvis": "pelvis" },
+      "size": { "radius": 0.5, "height": 2.0 },
+      "colliders": [ { "shape": "capsule", "radius": 0.45, "height": 2.0 } ]
+    }
+  },
+  "creatures": {
+    "kiln-mod-id": {
+      "name": "KilnBody1",
+      "body": "kiln-mod-id-body", "animation": "kiln-mod-id-moves",
+      "ai": { "like": "vukah", "sight": 20, "faction": "Vukah" },
+      "behaviour": { "attacks": [ { "name": "slam", "plays": "slam", "range": 2.6, "hitAt": 0.5, "onHit": [ { "damage": { "blunt": 20 } } ] } ] },
+      "stats": { "level": 8 }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "items": {
+    "ash-json": { "name": "Ash", "stack": 50, "visual": { "like": "Material_T1_Charcoal" } },
+    "garden-rake-json": { "name": "Garden Rake", "tool": { "harvests": "rake", "power": 750, "range": 5, "staminaCost": 1 } },
+    "slow-torch-json": { "name": "Slow Torch", "tool": { "harvests": "torch", "durability": 1200, "breaksInto": "ash-json" } },
+    "kite-json": { "name": "Kite", "tool": { "harvests": "glider", "staminaCost": 2 } },
+    "long-hook-json": { "name": "Long Hook", "tool": { "harvests": "grappling-hook", "range": 20, "staminaCost": 30 } },
+    "strong-rod-json": { "name": "Strong Rod", "tool": { "harvests": "fishing-rod", "fishing": { "strength": 3, "endurance": 60 } } },
+    "fine-sieve-json": { "name": "Fine Sieve", "tool": { "harvests": "sieve", "power": 40 } },
+    "ash-axe-json": { "name": "Ash Axe", "tool": { "harvests": "wood", "power": 30, "breaksInto": "ash-json" } }
+  }
+}

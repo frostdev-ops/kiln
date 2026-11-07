@@ -142,9 +142,20 @@ def _check_kiln(v):
             r = pp["patchPoint"]["resourceDataRange"]
             if not any(s <= r["start"] and r["start"] + r["count"] <= s + c for s, c in ranges):
                 bad.append(f"{arr}[{k}]: {r} is outside every block")
-    for arr in ("springs", "models", "decals", "lightFilters", "sounds", "curves", "parameters", "effectJointCollections"):
+    for arr in ("springs", "models", "decals", "lightFilters", "sounds", "curves", "effectJointCollections"):
         if v[arr]:
             bad.append(f"{arr} is not empty")
+    # The per-play parameters every Kiln VFX describes (KX_* in native/services/vfx/shaders/kiln_vfx_params.h), and their defaults.
+    fnv = lambda s: __import__("functools").reduce(lambda h, b: ((h ^ b) * 0x01000193) & 0xFFFFFFFF, s.encode(), 0x811C9DC5)
+    want = [(fnv("color"), 0x53039620, 0, 4), (fnv("size"), 0x90B5085D, 4, 4), (fnv("speed"), 0x90B5085D, 8, 4),
+            (fnv("brightness"), 0x90B5085D, 12, 4), (fnv("count"), 0x90B5085D, 16, 4)]
+    def _val(x):
+        return x["value"] if isinstance(x, dict) else x
+    got = [(_val(p["nameHash"]), _val(p["typeId"]), p["dataRange"]["start"], p["dataRange"]["count"]) for p in v["parameters"]]
+    if got != want:
+        bad.append(f"parameters are {got}, expected Kiln's {want}")
+    if list(v["defaultParameterData"]["data"]) != [0xFFFFFFFF, 0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000] + [0] * 10 + [0x4E4C494B]:
+        bad.append("defaultParameterData is not Kiln's defaults")
     return bad
 
 

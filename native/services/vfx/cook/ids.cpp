@@ -54,6 +54,24 @@ std::string guid_text(const Guid& g) {
     return s;
 }
 
+bool parse_guid(const std::string& text, Guid* out) {
+    std::string hex;
+    for (char c : text)
+        if (c != '-') hex += c;
+    if (hex.size() != 32 || text.size() != 36 || text[8] != '-' || text[13] != '-' || text[18] != '-' || text[23] != '-') return false;
+    uint8_t be[16];
+    for (int i = 0; i < 16; ++i) {
+        auto nib = [](char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; };
+        const int a = nib(hex[i * 2]), b = nib(hex[i * 2 + 1]);
+        if (a < 0 || b < 0) return false;
+        be[i] = static_cast<uint8_t>(a << 4 | b);
+    }
+    // .NET order: the first three fields little-endian
+    const int order[16] = {3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15};
+    for (int i = 0; i < 16; ++i) out->b[i] = be[order[i]];
+    return true;
+}
+
 Guid block_id(const std::string& mod, const std::string& kind, const std::string& name) {
     // Namespace 6f6d2a44-53c1-5c52-9d51-0a3c6e1f2b77, big-endian as RFC 4122 hashes it.
     static const uint8_t ns[16] = {0x6f, 0x6d, 0x2a, 0x44, 0x53, 0xc1, 0x5c, 0x52, 0x9d, 0x51, 0x0a, 0x3c, 0x6e, 0x1f, 0x2b, 0x77};

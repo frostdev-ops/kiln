@@ -29,6 +29,15 @@ public sealed record PlacementBlock : IBlock
     public bool? Consumed { get; init; }
 }
 
+/// <summary>A collision box, in metres, around the model's origin as the model is drawn.</summary>
+public sealed record BoxCollider
+{
+    /// <summary>Width, height and depth.</summary>
+    public required Vector3 Size { get; init; }
+    /// <summary>Where its centre is. Null: standing on the floor under the origin, so the centre is half the height up.</summary>
+    public Vector3? Center { get; init; }
+}
+
 /// <summary>What the game's comfort counts, for whoever rests within range. The tooltip's Comfort row follows.</summary>
 public sealed record ComfortBlock : IBlock
 {
@@ -53,6 +62,9 @@ public record PropBlock : IBlock, ITweakable
     public PartRef<VisualBlock>? Visual { get; init; }
     public PartRef<PlacementBlock>? Placement { get; init; }
     public PartRef<ComfortBlock>? Comfort { get; init; }
+    /// <summary>What a player bumps into and what hits stop at: one box. Null: with a cooked model of yours, the box around that model; with a game item's look, that item's
+    /// collision. Only a prop with a <see cref="VisualBlock.Model"/> of its own takes one: a game item's look, a station or furniture keeps the collision it starts from.</summary>
+    public BoxCollider? Collider { get; init; }
     /// <summary>What happens when a player uses it: the prompt, what they play, a toggle, what it takes, effects. Furniture has its kind's; this changes what it says.</summary>
     public PartRef<InteractBlock>? OnInteract { get; init; }
     /// <summary>A VFX on it for as long as it stands, which is where the game's lamps have their light. A client check: nothing on a server draws it.</summary>

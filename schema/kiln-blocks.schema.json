@@ -73,6 +73,12 @@
       "additionalProperties": { "$ref": "#/$defs/armorSet" }
     },
     "onHits": { "type": "object", "description": "Parts: what an item does to what its wearer hits.", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/onHit" } },
+    "sounds": {
+      "type": "object",
+      "description": "Sounds of the mod's own: clips and how they play. kiln cook writes their steps into assets/cook.json (tools/soundcook blocks) and cooks them. An effect, a station or code plays one by its name. Players need the mod (clients \"mod\").",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/sound" }
+    },
     "props": {
       "type": "object",
       "description": "Things placed that stand there: furniture, banners, lamps.",
@@ -388,7 +394,7 @@
         "while": { "$ref": "#/$defs/state", "description": "A player has it for as long as they are in this state." },
         "kind": { "enum": ["debuff", "buff"] },
         "look": { "enum": ["frost", "poison", "fire"], "description": "Its icon and body effect. Default: a timer's icon for a debuff, a blessing's for a buff, and no body effect." },
-        "icon": { "type": "string", "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$", "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes." },
+        "icon": { "type": "string", "anyOf": [ { "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$" }, { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" } ], "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
         "refreshes": { "type": "boolean", "description": "Applied again while it runs: the timer starts over (true, the default), or the new one replaces the old." },
         "modifies": {
           "type": "object",
@@ -435,6 +441,7 @@
         "look": { "enum": ["ice-bolt", "fireball"] },
         "onImpact": { "$ref": "#/$defs/effects", "description": "At the place it stops, which has no target of its own: use an area." },
         "onHit": { "$ref": "#/$defs/effects", "description": "On the creature it strikes, if it struck one." },
+        "pierce": { "type": "integer", "minimum": 0, "maximum": 8, "description": "How many creatures it flies through, each struck once (onHit on each), before the next one stops it. Needs onHit. Anything that is not a creature stops it at once." },
         "homing": {
           "type": "object",
           "description": "It turns toward what it was aimed at, as the game's homing projectiles do.",
@@ -487,7 +494,7 @@
           "pattern": "^\\s*-?[0-9]+(\\.[0-9]+)?\\s*(%|s)?\\s*$",
           "description": "The number the tooltip shows in front of the name: \"5%\", \"12\", \"2.5\", \"8s\". Default: what one modifies entry or one on-hit effect's chance says."
         },
-        "icon": { "type": "string", "minLength": 1, "description": "A game perk, whose icon it takes." },
+        "icon": { "type": "string", "minLength": 1, "anyOf": [ { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "description": "A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
         "modifies": { "$ref": "#/$defs/status/properties/modifies" },
         "onHit": { "$ref": "#/$defs/hits", "description": "What every hit they land does to what was hit." },
         "onKill": { "$ref": "#/$defs/hits", "description": "What a hit that kills does to what it killed." },
@@ -670,7 +677,7 @@
         "icon": { "type": "string", "description": "The icon alone: item:<name>, or a PNG in the mod's folder (then clients \"mod\")." },
         "dropped": { "$ref": "#/$defs/itemRef", "description": "An item whose model this shows lying on the ground." },
         "tint": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The colour of the parts the game lets you tint." },
-        "vfx": { "description": "Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status." }
+        "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX on the thing itself while it is there: in the hand while held (right hand, at the grip, by default), or on what stands there for a placed thing." }
       },
       "additionalProperties": false
     },
@@ -681,7 +688,7 @@
       "description": "What an item does to what its wearer hits.",
       "properties": {
         "effects": { "$ref": "#/$defs/effects" },
-        "vfx": { "description": "Not available yet: setting it is an error. A VFX goes on what happens, an on-hit or a status." }
+        "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX where each hit lands." }
       },
       "additionalProperties": false
     },
@@ -881,11 +888,21 @@
     "tool": {
       "type": "object",
       "required": ["harvests"],
-      "description": "What a tool gets out of the world.",
+      "description": "What a tool does: what it is for, and how well. Each class takes the fields it has a number for.",
       "properties": {
-        "harvests": { "enum": ["wood", "stone"], "description": "wood: an axe. stone: a pickaxe, for stone and metal, and it digs." },
-        "power": { "type": "integer", "exclusiveMinimum": 0, "description": "How hard it bites into what it is for: an axe's wood damage, a pickaxe's stone damage. The rest of what it can do scales along." },
-        "staminaCost": { "type": "integer", "minimum": 0, "description": "Stamina each swing costs; the tooltip follows." }
+        "harvests": { "enum": ["wood", "stone", "rake", "sieve", "glider", "grappling-hook", "fishing-rod", "torch"], "description": "wood: an axe. stone: a pickaxe, for stone and metal, and it digs. rake: flattens the ground. sieve: the mining sieve. glider, grappling-hook, fishing-rod, torch: the game's." },
+        "power": { "type": "integer", "exclusiveMinimum": 0, "description": "How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage (the rest scales along), a rake's flattening strength (the game's: 500, 1000)." },
+        "staminaCost": { "type": "integer", "minimum": 0, "description": "Stamina each use costs; the tooltip follows. Not for a fishing rod or a torch." },
+        "range": { "type": "number", "exclusiveMinimum": 0, "maximum": 32, "description": "Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5)." },
+        "durability": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds a torch burns while held, the tooltip's Duration (600). Only a torch." },
+        "breaksInto": { "$ref": "#/$defs/itemRef", "description": "What it becomes when its durability runs out: a game item or an item of this mod. A torch, or a tool with enhancement slots." },
+        "fishing": {
+          "type": "object", "additionalProperties": false, "description": "A fishing rod's pull and stamina.",
+          "properties": {
+            "strength": { "type": "number", "exclusiveMinimum": 0, "description": "The tooltip's Strength (1, 2)." },
+            "endurance": { "type": "number", "exclusiveMinimum": 0, "description": "The tooltip's Endurance (30, 45)." }
+          }
+        }
       },
       "additionalProperties": false
     },
@@ -985,6 +1002,22 @@
       },
       "additionalProperties": false
     },
+    "sound": {
+      "type": "object",
+      "required": ["clips"],
+      "additionalProperties": false,
+      "description": "A sound of the mod's own: one or more clips (each play picks one), how loud and how far it carries.",
+      "properties": {
+        "comment": { "type": "string" },
+        "clips": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\.([wW][aA][vV]|[fF][lL][aA][cC]|[oO][gG][gG]|[mM][pP]3)$", "x-kiln-file": "mod" }, "description": "Audio files in the mod's folder: WAV, FLAC, Ogg Vorbis, MP3. Mono for a sound with a range." },
+        "volume": { "type": "number", "minimum": 0, "maximum": 1, "description": "The cue's volume. Default 1." },
+        "range": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2, "description": "[min, max] metres: full volume within min, silent beyond max. Without: heard alike everywhere (UI, music)." },
+        "loop": { "type": "boolean", "description": "It plays until stopped: a station's running sound, an ambience." },
+        "scene": { "enum": ["Sfx", "Music", "Ui", "Voice"], "description": "The player's volume slider it follows." },
+        "pitchRandomness": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much each play's pitch varies." },
+        "normalize": { "type": "number", "maximum": 0, "description": "The sources' active RMS in dBFS, as the cook sets it (the game's effects: about -23)." }
+      }
+    },
     "prop": {
       "type": "object",
       "required": ["name", "visual"],
@@ -996,7 +1029,15 @@
         "description": { "type": "string" },
         "visual": {
           "$ref": "#/$defs/visualRef",
-          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves)."
+          "description": "Its look: like (a game item that places something: model, collision and how it places), or model (a glTF in the mod's folder, which kiln cook makes into the game's model; item:<name>; or the GUID of a model your assets/assets.json serves)."
+        },
+        "collider": {
+          "type": "object", "required": ["size"], "additionalProperties": false,
+          "description": "What a player bumps into and hits stop at: one box, in metres. Default with a glTF model: the box around the model. Only with a model of yours.",
+          "properties": {
+            "size": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 32 }, "minItems": 3, "maxItems": 3, "description": "[width, height, depth]." },
+            "center": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[x, y, z] of its centre from the model's origin. Default: standing on the floor, half its height up." }
+          }
         },
         "placement": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/placement" } ] },
         "comfort": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/comfort" } ] },
@@ -1191,6 +1232,22 @@
         "like": { "type": "string", "enum": ["vukah", "scavenger", "fisher", "villager"] },
         "clips": { "type": "string", "pattern": "\\.([gG][lL][bB]|[gG][lL][tT][fF])$", "description": "The glTF file, its path in the mod's folder." },
         "skeleton": { "type": "string" },
+        "retarget": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The clips are authored on a rig of their own: play them on \"skeleton\" (a body's) by pairing joints. Each paired joint turns as its source turns; translations carry over on the hips, scaled by the rigs' heights.",
+          "properties": {
+            "map": { "type": "object", "additionalProperties": { "type": "string" }, "description": "The clip file's joint -> the skeleton's joint. Joints of the same name pair by themselves." },
+            "byName": { "type": "boolean", "description": "Pair joints of the same name that map leaves out. Default true." },
+            "translate": { "type": "array", "items": { "type": "string" }, "description": "The clip file's joints whose movement carries over. Default: the hips." },
+            "scale": { "type": "number", "exclusiveMinimum": 0, "description": "How far translations go. Default: the rigs' hip heights." },
+            "reference": {
+              "type": "object", "required": ["animation"], "additionalProperties": false,
+              "description": "A pose of the clip file that shows the body's rest posture, when the file's rest pose doesn't.",
+              "properties": { "animation": { "type": "string" }, "at": { "type": "number", "minimum": 0 } }
+            }
+          }
+        },
         "template": { "type": "string", "description": "A game creature whose graph this is." },
         "states": { "type": "object", "description": "States of your own, by name.", "additionalProperties": { "$ref": "#/$defs/animClip" } },
         "layers": { "type": "array", "items": { "$ref": "#/$defs/animLayer" } },
@@ -1255,14 +1312,44 @@
         "fights": { "type": "boolean" },
         "pickTarget": { "type": "string", "description": "A picker registered with Blocks.Target." },
         "pickEvery": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 60 },
-        "tune": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Any field of the game's AI by path." }
+        "tune": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Any field of the game's AI by path." },
+        "nightSight": { "type": "number", "description": "Share of its sight at night.", "minimum": 0, "maximum": 4 },
+        "hears": { "type": "boolean", "description": "False: it does not react to noise." },
+        "hearing": { "type": "number", "description": "Share of the game's noise ranges.", "minimum": 0, "maximum": 10 },
+        "threat": { "type": "number", "description": "How much it draws enemies' attention, 1 as the game has it.", "minimum": 0, "maximum": 100 },
+        "roam": {
+          "type": "object", "additionalProperties": false, "description": "How it wanders (turns the game's Roaming on).",
+          "properties": {
+            "min": { "type": "number", "minimum": 0, "maximum": 500 }, "max": { "type": "number", "minimum": 0, "maximum": 500 },
+            "fromHome": { "type": "number", "minimum": 0, "maximum": 1000 }
+          }
+        },
+        "flee": {
+          "type": "object", "additionalProperties": false, "description": "How it runs from a fight.",
+          "properties": {
+            "below": { "type": "number", "description": "Share of its health it runs at.", "minimum": 0, "maximum": 1 },
+            "min": { "type": "number", "minimum": 0, "maximum": 500 }, "max": { "type": "number", "minimum": 0, "maximum": 500 },
+            "seconds": { "type": "number", "minimum": 0, "maximum": 600 }, "cooldown": { "type": "number", "minimum": 0, "maximum": 3600 }
+          }
+        },
+        "returnsHome": { "type": "boolean", "description": "False: it never walks home after a fight." },
+        "callsForHelp": { "type": "boolean" },
+        "helpRadius": { "type": "number", "description": "Metres.", "minimum": 0, "maximum": 200 },
+        "enable": { "type": "string", "description": "The game's AI features to turn on, comma separated (EnemyFeatures names)." },
+        "disable": { "type": "string", "description": "The game's AI features to turn off, comma separated." },
+        "relations": {
+          "type": "object", "description": "Faction name -> how this creature treats it.",
+          "additionalProperties": { "type": "string", "enum": [ "game", "hostile", "friendly", "neutral" ] }
+        },
+        "senseFilter": { "type": "string", "description": "A sense filter registered with Blocks.SenseFilter." },
+        "senseEvery": { "type": "number", "description": "Seconds.", "minimum": 0.05, "maximum": 60 }
       }
     },
     "condition": {
       "type": "object",
-      "description": "A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, or one of the game's { \"type\": ... }."
+      "description": "A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, inCombat, state, hasTarget, targetIsPlayer, targetHealthBelow, hitWithin, chance, targetAtHome, enemiesNear, alliesNear, summonsBelow, or one of the game's { \"type\": ... }."
     },
-    "action": { "type": "object", "description": "A rule's action: setPhase, attack, custom, { \"effect\": ..., \"on\": \"target\" | \"self\" }, or one of the game's { \"type\": ... }." },
+    "action": { "type": "object", "description": "A rule's action: setPhase, attack, custom, { \"effect\": ..., \"on\": \"target\" | \"self\" }, flee, backOff, play, immune, pause, enableFeature, disableFeature, heal, summon, cast, { \"apply\": ..., \"on\": ... }, or one of the game's { \"type\": ... }." },
     "rule": {
       "type": "object",
       "additionalProperties": false,

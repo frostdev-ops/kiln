@@ -179,12 +179,34 @@ internal static partial class Compiler
 
     // ---- the parts ----------------------------------------------------------------------------------------------
 
+    /// <summary>The game's one-handed axe with a light: its visual template carries a model, a slot attachment in the right hand and a VFX.</summary>
+    private const string HeldVfxStarter = "Visuals_Axe_02_Light";
+
+    // A VFX on what is held: a visual template of the item's own, a clone of the game's lit axe, with the item's model and this VFX. The model is the one the item
+    // shows: a model of the mod's own by GUID, else the icon model of the item it looks like (or of its starter), which is the same mesh.
+    private static void HeldVfx(Draft d, VisualBlock v, VfxRef vfx, string path)
+    {
+        var ctx = d.Ctx;
+        var template = $"{d.Game}.held";
+        var guid = BlockIds.Derive(ctx.Mod.Id, "template", $"{d.Key}.held");
+        var fields = VfxData.Component(ctx, VfxData.Lower(ctx, vfx, path, Slot.HandR), template);
+        if (d.Model is { } m && Guid.TryParse(m, out _)) fields["ModelResource.model"] = m;
+        d.Low.Clone("templates", guid, template, HeldVfxStarter, fields);
+        if (!(d.Model is { } m2 && Guid.TryParse(m2, out _)))
+        {
+            var from = d.Model is { } im && im.StartsWith("item:", StringComparison.Ordinal) ? im[5..] : d.Starter;
+            d.Low.TemplateRules(template, new JsonObject { ["ModelResource.model"] = $"item:{from}.iconModel" });
+        }
+        d.Refs["equipment.visualEntity"] = guid.ToString();
+        d.Low.Json["held"] = new JsonObject { ["template"] = template, ["vfx"] = vfx.Name };
+    }
+
     private static BlockError NoLookVfx(BlockContext ctx, string path) =>
         new(ctx.Block, path, "a look cannot carry a VFX yet: put it on what happens, an onHit or a status");
 
     private static void CheckVisual(BlockContext ctx, VisualBlock v)
     {
-        if (v.Vfx != null) throw NoLookVfx(ctx, "vfx");
+        if (v.Vfx is { } vfx) VfxData.Lower(ctx, vfx, "vfx", Slot.HandR);
         if (v.Tint is { } t && !IsColour(t)) throw new BlockError(ctx.Block, "tint", $"\"{t}\" is not a colour: #rrggbb");
     }
 
@@ -215,7 +237,6 @@ internal static partial class Compiler
         if (part == null) return;
         var ctx = d.Ctx;
         var v = ctx.Part(part, path);
-        if (v.Vfx != null) throw NoLookVfx(ctx, $"{path}.vfx");
         if (v.Like is { } like)
         {
             var n = ctx.ItemName(like, $"{path}.like");
@@ -242,6 +263,7 @@ internal static partial class Compiler
             d.Fields["itemColorCombinationSetup.color0"] = (double)rgba;
             d.Fields["itemColorCombinationSetup.isSet"] = true;
         }
+        if (v.Vfx is { } held) HeldVfx(d, v, held, $"{path}.vfx");
     }
 
     private static void ApplyLoot(Draft d, LootBlock? l)
@@ -495,6 +517,134 @@ internal static partial class Compiler
     /// (TransferFuelEvent, actor_interaction). A Sint32: the event reads it raw (docs/re/items.md, "Water containers").</summary>
     private const uint ConfigVolume = 0xd8f493f3;
 
+    // A torch's burn time: the tooltip's Duration row reads it (TimeImpactConfig, seconds).
+    private const uint ConfigBurnTime = 0x45ab43e7, ConfigRakePower = 0xadb211a3, ConfigHookRange = 0xb78235f8, ConfigHookRange2 = 0xf76c843c;
+
+    private static void ApplyTool(Draft d, ItemBlock b)
+    {
+        var ctx = d.Ctx;
+        var t = b.Tool!;
+        var c = t.Harvests;
+        void Not(bool has, string field, string why)
+        {
+            if (has) throw new BlockError(ctx.Block, $"tool.{field}", $"a {c.Key} has no {field}: {why}");
+        }
+        Not(t.Power != null && c.Use is not (ToolUse.Harvest or ToolUse.Flatten), "power", "that is for an axe, a pickaxe, a sieve or a rake");
+        Not(t.Range != null && c.Use is not (ToolUse.Flatten or ToolUse.Hook), "range", "that is for a rake or a grappling hook");
+        Not(t.Durability != null && c.Use != ToolUse.Light, "durability", "only the game's torches burn down over time; the game wears the others by its own rule (the world's durability setting), with no number of the item's own");
+        Not(t.BreaksInto != null && !c.Gear && c.Use != ToolUse.Light, "breaksInto", "it has no durability to run out");
+        Not(t.Fishing != null && c.Use != ToolUse.Fish, "fishing", "that is for a fishing rod");
+        if (c.Gear)
+        {
+            // an axe, a pickaxe, a sieve, a rake: an item entity with a level, a rarity and enhancement slots
+            var rarity = b.Rarity ?? Rarity.Common;
+            var lvl = b.Level ?? 1;
+            Gear(d, rarity, lvl, b.Loot, b.Recipe);
+            PerkSlots(d, null, rarity, c.Slots, null, "perks", "rarity");
+            d.Rules[$"impactValues.0x{ConfigLevel:x8}"] = lvl;
+        }
+        else
+        {
+            if (b.Rarity is { } rarity) d.Fields["rarity"] = rarity.ToString();
+            if (b.Loot is { Rolled: true }) throw new BlockError(ctx.Block, "loot.rolled", $"a {c.Key} has no level or enhancements to roll");
+            if (b.Level is { } lvl)
+            {
+                d.Fields["itemLevelRange.minLevel"] = lvl;
+                d.Fields["itemLevelRange.maxLevel"] = lvl;
+            }
+        }
+        if (t.Power is { } p)
+        {
+            if (p <= 0) throw new BlockError(ctx.Block, "tool.power", $"{p} must be more than 0");
+            if (c.Use == ToolUse.Flatten)
+            {
+                // the strength the rake's program flattens with; the tooltip's second row shows it
+                d.Rules[$"impactValues.0x{ConfigRakePower:x8}"] = p;
+            }
+            else
+            {
+                var f = (double)p / c.MainPower;
+                d.Fields["damageSetup.distribution.woodDamage"] = (int)Math.Round(c.WoodDamage * f);
+                d.Fields["damageSetup.distribution.stoneDamage"] = (int)Math.Round(c.StoneDamage * f);
+                d.Fields["damageSetup.distribution.metalDamage"] = (int)Math.Round(c.MetalDamage * f);
+                if (c.Digs)
+                {
+                    // How deep it digs by the hardness of what it hits (Pickaxe T1 to T7 in the game's own data: 80..100, 65..100, 50..100, 30..90, 10..80).
+                    string[] hard = ["softDamage", "slightlyHardDamage", "moderatelyHardDamage", "hardDamage", "veryHardDamage"];
+                    int[] at1 = [80, 65, 50, 30, 10];
+                    for (var i = 0; i < 5; i++)
+                    {
+                        var dig = (int)Math.Min(100, Math.Round(at1[i] * f));
+                        d.Rules[$"impactValues.0x928ebfe3.value.{hard[i]}"] = dig;
+                        d.Rules[$"impactValues.0x6e279a98.value.{hard[i]}"] = dig * 7;
+                    }
+                }
+            }
+        }
+        if (t.StaminaCost is { } stamina)
+        {
+            if (stamina < 0) throw new BlockError(ctx.Block, "tool.staminaCost", $"{stamina} is less than 0");
+            if (c.Use is ToolUse.Fish or ToolUse.Light) throw new BlockError(ctx.Block, "tool.staminaCost", $"a {c.Key} costs no stamina to use");
+            d.Rules[$"impactValues.{ConfigStamina}"] = stamina;
+        }
+        if (t.Range is { } range)
+        {
+            if (double.IsNaN(range) || range <= 0 || range > 32) throw new BlockError(ctx.Block, "tool.range", $"{range} is outside 0..32 metres");
+            if (c.Use == ToolUse.Flatten)
+            {
+                d.Rules["impactValues.RangeTerraforming"] = range;
+                d.Rules["impactValues.RangeTerraformingFlatten"] = range;
+                // the box the cursor shows where it will flatten
+                d.DataRules["equipment.placementColliders[0].dataArray[0].shape.halfSize.x"] = range;
+                d.DataRules["equipment.placementColliders[0].dataArray[0].shape.halfSize.z"] = range;
+            }
+            else
+            {
+                d.Rules[$"impactValues.0x{ConfigHookRange:x8}"] = range;
+                d.Rules[$"impactValues.0x{ConfigHookRange2:x8}"] = range;
+            }
+        }
+        if (t.Durability is { } seconds)
+        {
+            if (double.IsNaN(seconds) || seconds <= 0) throw new BlockError(ctx.Block, "tool.durability", $"{seconds} must be more than 0 seconds");
+            d.Rules[$"impactValues.0x{ConfigBurnTime:x8}"] = seconds;
+            // the torch's second row is its Duration, which doesn't follow the config by itself
+            d.DataRules["uiValues[1].value"] = (int)Math.Round(seconds);
+        }
+        if (t.BreaksInto is { } into)
+        {
+            // a reference by GUID: an item of a mod has its own now, a game item's is known when content is ready
+            var target = ctx.ItemName(into, "tool.breaksInto");
+            // (kiln.content takes a new item's GUID once that item is in the registry; kiln.gamedata only the game's loaded items)
+            if (ctx.Find(into.Value, "tool.breaksInto") is { } own) d.Refs["exchangeOnBroken"] = own.Guid.ToString();
+            else
+            {
+                var mod = ctx.Mod;
+                var block = ctx.Block;
+                var game = d.Game;
+                d.Low.AfterCommit(() => BlockRuntime.AddReady(mod, problem =>
+                {
+                    if (Content.ItemData.Get(target) is not { } item) problem($"block {block}, tool.breaksInto: the game has no item \"{target}\"");
+                    else BlockRuntime.AddRules(mod, "itemdata", game, new JsonObject { ["exchangeOnBroken"] = item.Guid.ToString() });
+                }));
+            }
+            d.Low.Json["breaksInto"] = target;
+        }
+        if (t.Fishing is { } fish)
+        {
+            if (fish.Strength is { } st)
+            {
+                if (double.IsNaN(st) || st <= 0) throw new BlockError(ctx.Block, "tool.fishing.strength", $"{st} must be more than 0");
+                d.Rules["impactValues.FishingStrength"] = st;
+            }
+            if (fish.Endurance is { } en)
+            {
+                if (double.IsNaN(en) || en <= 0) throw new BlockError(ctx.Block, "tool.fishing.endurance", $"{en} must be more than 0");
+                d.Rules["impactValues.FishingEndurance"] = en;
+            }
+        }
+    }
+
     private static ItemKind KindOf(ItemBlock b) => b.Kind
         ?? (b.Tool != null ? ItemKind.Tool : b.Ammo != null ? ItemKind.Ammo : b.Feeds != null ? ItemKind.Food : b.Heals != null || b.OnUse != null ? ItemKind.Consumable : ItemKind.Material);
 
@@ -551,40 +701,7 @@ internal static partial class Compiler
         if (kind.HoldsWater && b.Flow is { } flow)
             d.Rules[$"impactValues.0x{ConfigVolume:x8}"] = Math.Max(1, (int)Math.Round(kind.Volume * flow));   // Volume: the fill and pour programs move this much a step
 
-        if (kind == ItemKind.Tool)
-        {
-            var t = b.Tool!;
-            var rarity = b.Rarity ?? Rarity.Common;
-            var lvl = b.Level ?? 1;
-            Gear(d, rarity, lvl, b.Loot, b.Recipe);
-            PerkSlots(d, null, rarity, t.Harvests.Slots, null, "perks", "rarity");
-            d.Rules[$"impactValues.0x{ConfigLevel:x8}"] = lvl;
-            if (t.Power is { } p)
-            {
-                if (p <= 0) throw new BlockError(ctx.Block, "tool.power", $"{p} must be more than 0");
-                var f = (double)p / t.Harvests.MainPower;
-                d.Fields["damageSetup.distribution.woodDamage"] = (int)Math.Round(t.Harvests.WoodDamage * f);
-                d.Fields["damageSetup.distribution.stoneDamage"] = (int)Math.Round(t.Harvests.StoneDamage * f);
-                d.Fields["damageSetup.distribution.metalDamage"] = (int)Math.Round(t.Harvests.MetalDamage * f);
-                if (t.Harvests.Digs)
-                {
-                    // How deep it digs by the hardness of what it hits (Pickaxe T1 to T7 in the game's own data: 80..100, 65..100, 50..100, 30..90, 10..80).
-                    string[] hard = ["softDamage", "slightlyHardDamage", "moderatelyHardDamage", "hardDamage", "veryHardDamage"];
-                    int[] at1 = [80, 65, 50, 30, 10];
-                    for (var i = 0; i < 5; i++)
-                    {
-                        var dig = (int)Math.Min(100, Math.Round(at1[i] * f));
-                        d.Rules[$"impactValues.0x928ebfe3.value.{hard[i]}"] = dig;
-                        d.Rules[$"impactValues.0x6e279a98.value.{hard[i]}"] = dig * 7;
-                    }
-                }
-            }
-            if (t.StaminaCost is { } stamina)
-            {
-                if (stamina < 0) throw new BlockError(ctx.Block, "tool.staminaCost", $"{stamina} is less than 0");
-                d.Rules[$"impactValues.{ConfigStamina}"] = stamina;
-            }
-        }
+        if (kind == ItemKind.Tool) ApplyTool(d, b);
         else
         {
             if (b.Rarity is { } rarity) d.Fields["rarity"] = rarity.ToString();

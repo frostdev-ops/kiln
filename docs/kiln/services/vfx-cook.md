@@ -47,8 +47,11 @@ the build at start (`vfx: <mod>: blocks/<file>.json: vfx.<name>.gameSpriteModule
 | `delay`, `loop` | seconds; restart after the duration, which must be above 0 | 0, false |
 | `maxCount` | alive at once, 1 to 4096 | what burst, rate and lifetime can keep alive |
 | `lifetime`, `speed` | seconds, m/s: a number or `[min, max]` | 1, 1 |
-| `spread` | `"up"`, `"sphere"`, `{"cone": degrees}` | up |
-| `spawnRadius` | metres: start inside a sphere | 0 |
+| `spread` | `"up"`, `"sphere"`, `"outward"` (away from the shape's centre), `{"cone": degrees}` | up |
+| `spawnRadius` | metres: start inside a sphere. The same as `"shape": {"sphere": r}` | 0 |
+| `shape` | `"point"`, `{"sphere": r, "inner": r2}`, `{"shell": r}`, `{"hemisphere": r, "inner": r2}`, `{"box": [x, y, z]}` (full sizes), `{"disc": r, "inner": r2}`, `{"ring": r}`, `{"line": length}` (along x), in the effect's space | point |
+| `align`, `stretch` | `"camera"` or `"velocity"`: a camera-facing quad turns to its motion; metres of extra length per m/s, 0 to 100, with `velocity` only | camera, 0 |
+| `shader` | advanced: a mod's own sprite module, `"shaders/build/x.spv"` or `{"file", "constants": [up to 8]}` ([shaders.md](../modding/shaders.md)). Needs `"advanced": true` in the manifest | Kiln's sprite |
 | `gravity`, `acceleration` | m/s² on world y; `[x, y, z]`, added together | 0 |
 | `drag` | per second | 0 |
 | `spin`, `roll` | degrees per second, degrees at spawn: a number or `[min, max]` | 0 |
@@ -73,6 +76,21 @@ Light: `color`, `radius` (default 6, clamped at 64), `brightness`, `lifetime` (0
 A mistake names the block and the field: `frost-fx: blocks/x.json: vfx.frost_burst.particles[0].maxCount: 4097 is outside 1..4096`. A wrong block
 registers nothing, and the file's other blocks still load. Unknown fields are errors. A `flipbook` warns when the PNG's size can't divide into the
 grid; a grid that divides but doesn't match the art can't be detected.
+
+## Per-play parameters
+Every `VfxResource` the builder writes describes the same five parameters, with the same defaults, so a play, a template, a sequence or a buff
+can set them by name, and a server can lay the block out without a VFX of its own (`VfxParameterBlock` in Kiln.Blocks):
+
+| Name | DsTypeId | Bytes | Default | Does |
+|---|---|---|---|---|
+| `color` | `VfxEffectParameterColor` `0x53039620`, RGBA8 sRGB | 0–3 | white | tints particles and light; alpha multiplies alpha |
+| `size` | `VfxEffectParameterFloat` `0x90b5085d` | 4–7 | 1 | particle size |
+| `speed` | float | 8–11 | 1 | start speed |
+| `brightness` | float | 12–15 | 1 | particle colour and light |
+| `count` | float | 16–19 | 1 | burst and rate |
+
+Word 15 of the defaults is `KX_MAGIC` ("KILN"): the modules read the block only when it is there, so a start that passed no block can't make an
+effect vanish. Factors are clamped to 0..16; a value that isn't finite reads as 1. Layout: `KX_*` in `native/services/vfx/shaders/kiln_vfx_params.h`.
 
 ## What a block becomes
 Ids follow the rule of all blocks, `UUIDv5(6f6d2a44-53c1-5c52-9d51-0a3c6e1f2b77, "<mod>:vfx:<name>")`, the same as `BlockIds.Derive(mod, "vfx", name)` in
@@ -175,6 +193,9 @@ kiln-vfxcook id MOD KIND NAME              # a block's GUID
 kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
 kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
 kiln-vfxcook material-roundtrip FILE       # {u32 size, bytes} records of RenderMaterialResources, rewritten by the builder's own code
+kiln-vfxcook shader build --mod DIR [--glslc PATH]   # a mod's shaders/*.hlsl -> shaders/build/*.spv against the particle kit, stamped, checked
+kiln-vfxcook shader check FILE.spv ...     # the checks kiln.vfx runs at boot (JSON)
+kiln-vfxcook shader kit --out DIR          # the kit's headers
 ```
 
 `cook` writes what the game would be served: `assets.json`, `cooked/` and `report.json`, the report above plus which file is what. It exits 1 on any error
@@ -198,7 +219,14 @@ layouts match its reflection, and the fingerprint and budget match its files.
 2. If a layout moved, rebuild the modules and the builder against it, and update `expected_layouts` and `kBindingHash`. Mods' JSON and C# need no change.
 3. Run the tests with the game installed. They fail if the game's mesh memory, sound count or streamed textures moved. Those can't be read at boot without decompressing resources, so `GameCounts` holds them as measured.
 
+## Mods' own particle modules
+A particle with `shader` names a module the mod ships. At every boot it is read, checked (`check_mod_module` in `cook/shader.cpp`: SPIR-V ≤ 1.5,
+`cs_main`, `LocalSize 32 1 1`, the game's capabilities, ≤ 1 MiB, every resource inside the kit's bindings, this ABI's stamp) and served under its
+`ContentHash`, and the particle's child entry names it instead of `kiln_sprite`. Anything failing, the manifest without `"advanced": true`, or
+`kiln/config/vfx.json` `"shaders": false` / `"skipShaderMods": [...]` draws the particle with Kiln's sprite instead and logs why once: the block keeps
+its id. `report.json` counts what was served in `modModules`; at boot: `vfx: N particle shader(s) of mods passed their checks and are served`.
+
 ## Not done yet
 - The sound of a VFX, decals, fog and custom meshes.
-- Named parameters: `parameters` in a resource stays empty.
+- Named parameters of a block's own: every Kiln VFX has the five above.
 - A definition from code doesn't take effect until the next start.

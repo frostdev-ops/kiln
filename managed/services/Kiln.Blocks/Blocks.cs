@@ -179,6 +179,7 @@ internal sealed class ModBlocks(string id, ulong owner)
         LateFailed.Clear();
         LateRules.Clear();
         Icons.Clear();
+        OwnIcons.Clear();
         ReadyChecks.Clear();
         PlayerTriggers.Forget(Id);
         VfxRaw.Clear();
@@ -200,6 +201,8 @@ internal sealed class ModBlocks(string id, ulong owner)
     public readonly HashSet<Guid> LateFailed = new();
     public readonly List<(string Section, string Entry, string Path, Guid Program)> LateRules = new();
     public readonly List<(string Section, string Entry, GameDataRegistry Registry, string Source, string Block)> Icons = new();
+    /// <summary>PNG icons of the mod's own statuses and perks.</summary>
+    public readonly List<OwnIcon> OwnIcons = new();
     public bool ReadyHooked;
     public readonly List<Action<Action<string>>> ReadyChecks = new();
     public readonly List<(string Section, string Entry, JsonObject Rules)> ReadyRules = new();

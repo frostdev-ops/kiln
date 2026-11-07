@@ -11,6 +11,10 @@
 //   kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
 //        Layouts and bindings of this game against what the modules were made for (JSON). 0 = match.
 //   kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
+//   kiln-vfxcook shader build --mod DIR [--glslc PATH]
+//        Compiles DIR/shaders/*.hlsl against the particle kit into DIR/shaders/build/*.spv, stamps this ABI, checks each. 0 = all built and fine.
+//   kiln-vfxcook shader check FILE.spv ...   the load-time checks on built modules (JSON). 0 = all fine.
+//   kiln-vfxcook shader kit --out DIR        writes the kit's headers, for an editor or another compiler
 //   kiln-vfxcook material-roundtrip FILE
 //        FILE holds {u32 size, bytes} records of RenderMaterialResources: reads and rewrites each with the builder's own code. JSON; 0 = all byte-identical.
 #include <algorithm>
@@ -22,6 +26,7 @@
 #include <sstream>
 
 #include "vfxcook.h"
+#include "../shaders/kiln_vfx_params.h"
 
 namespace fs = std::filesystem;
 using namespace kvb;
@@ -46,7 +51,7 @@ std::string u8(const fs::path& p) {
 
 struct Args {
     std::vector<std::string> mods;
-    std::string out, kfc, cache, pending, exe, gpc, counts;
+    std::string out, kfc, cache, pending, exe, gpc, counts, glslc;
     std::vector<std::string> rest;
 };
 Args parse(int argc, char** argv, int from) {
@@ -68,6 +73,7 @@ Args parse(int argc, char** argv, int from) {
         else if (s == "--exe") a.exe = next();
         else if (s == "--gpc") a.gpc = next();
         else if (s == "--counts") a.counts = next();
+        else if (s == "--glslc") a.glslc = next();
         else a.rest.push_back(s);
     }
     return a;
@@ -90,6 +96,7 @@ bool read_mod(const std::string& dir, const std::string& pending, ModInput* m, s
     m->dir = u8(d);
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
+    m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
     auto add_folder = [&](const fs::path& folder, const std::string& prefix) {
         std::vector<fs::path> files;
         std::error_code ec;
@@ -206,7 +213,7 @@ int cmd_cook(const Args& a, bool write) {
             e["guid"] = g;
             e["type"] = type_name(s.type);
             e["part"] = 0;
-            e["mode"] = "new";
+            e["mode"] = s.override ? "override" : "new";
             e["file"] = rel;
             e["side"] = "client";
             entries.push_back(e);
@@ -386,11 +393,141 @@ int cmd_material_roundtrip(const Args& a) {
     return identical == total ? 0 : 1;
 }
 
+// ---- shader: a mod's own particle modules (docs/kiln/modding/shaders.md) ----
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wc23-extensions"
+#endif
+const unsigned char kKitVfx[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_vfx.hlsl"
+    , 0};
+const unsigned char kKitParams[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_vfx_params.h"
+    , 0};
+const unsigned char kKitParticle[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_particle.hlsl"
+    , 0};
+const unsigned char kKitMain[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_particle_main.hlsl"
+    , 0};
+
+bool write_kit(const fs::path& dir) {
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const std::pair<const char*, const unsigned char*> files[] = {
+        {"kiln_vfx.hlsl", kKitVfx}, {"kiln_vfx_params.h", kKitParams}, {"kiln_particle.hlsl", kKitParticle}, {"kiln_particle_main.hlsl", kKitMain}};
+    for (const auto& [name, text] : files) spit(dir / name, text, std::strlen(reinterpret_cast<const char*>(text)));
+    return !ec;
+}
+
+std::string quote(const std::string& s) {
+#ifdef _WIN32
+    return "\"" + s + "\"";
+#else
+    std::string q = "'";
+    for (char c : s) q += c == '\'' ? std::string("'\\''") : std::string(1, c);
+    return q + "'";
+#endif
+}
+
+ojson check_one(const Bytes& code) {
+    ModModuleInfo info;
+    const std::string bad = check_mod_module(code.data(), code.size(), &info);
+    ojson o = ojson::object();
+    o["ok"] = bad.empty();
+    if (!bad.empty()) o["problem"] = bad;
+    o["bytes"] = code.size();
+    o["abi"] = info.abi;
+    ojson b = ojson::array();
+    for (const auto& [set, binding] : info.bindings) b.push_back({set, binding});
+    o["bindings"] = b;
+    o["hash"] = content_hash_text(content_hash(code.data(), code.size()));
+    if (code.size() > 256 * 1024) o["warning"] = "above 256 KB: it compiles slowly on the player's first play";
+    return o;
+}
+
+int cmd_shader(const Args& a) {
+    const std::string sub = a.rest.empty() ? "" : a.rest[0];
+    if (sub == "kit") {
+        if (a.out.empty()) {
+            std::fprintf(stderr, "shader kit needs --out DIR\n");
+            return 2;
+        }
+        write_kit(a.out);
+        std::printf("%s\n", u8(fs::path(a.out)).c_str());
+        return 0;
+    }
+    if (sub == "check") {
+        ojson all = ojson::array();
+        bool ok = a.rest.size() > 1;
+        for (size_t i = 1; i < a.rest.size(); ++i) {
+            const std::string text = slurp(a.rest[i]);
+            ojson o = check_one(Bytes(text.begin(), text.end()));
+            o["file"] = a.rest[i];
+            ok = ok && o["ok"].get<bool>();
+            all.push_back(std::move(o));
+        }
+        std::cout << all.dump(1) << "\n";
+        return ok ? 0 : 1;
+    }
+    if (sub != "build" || a.mods.size() != 1) {
+        std::fprintf(stderr, "usage: kiln-vfxcook shader build --mod DIR [--glslc PATH] | shader check FILE.spv ... | shader kit --out DIR\n");
+        return 2;
+    }
+    const fs::path mod = a.mods[0], src = mod / "shaders", outdir = src / "build";
+    std::vector<fs::path> sources;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(src, ec))
+        if (e.path().extension() == ".hlsl") sources.push_back(e.path());
+    std::sort(sources.begin(), sources.end());
+    if (sources.empty()) {
+        std::fprintf(stderr, "%s: no shaders/*.hlsl\n", u8(mod).c_str());
+        return 1;
+    }
+    const fs::path kit = fs::temp_directory_path() / ("kiln-vfx-kit-" + std::to_string(KILN_VFX_ABI));
+    write_kit(kit);
+    const std::string glslc = a.glslc.empty() ? "glslc" : a.glslc;
+    ojson all = ojson::array();
+    bool ok = true;
+    fs::create_directories(outdir, ec);
+    for (const fs::path& s : sources) {
+        const fs::path spv = outdir / (s.stem().string() + ".spv");
+        const std::string cmd = quote(glslc) + " --target-env=vulkan1.2 --target-spv=spv1.5 -O -x hlsl -fshader-stage=compute -fentry-point=cs_main -I " +
+                                quote(u8(kit)) + " -I " + quote(u8(src)) + " " + quote(u8(s)) + " -o " + quote(u8(spv));
+        ojson o = ojson::object();
+        o["source"] = u8(s);
+        o["file"] = u8(spv);
+        if (std::system(cmd.c_str()) != 0) {
+            o["ok"] = false;
+            o["problem"] = "the compiler failed (" + glslc + "; install the Vulkan SDK or pass --glslc): see its messages above";
+            ok = false;
+            all.push_back(std::move(o));
+            continue;
+        }
+        const std::string text = slurp(spv);
+        Bytes code(text.begin(), text.end());
+        std::string why;
+        if (!stamp_module(&code, &why)) {
+            o["ok"] = false;
+            o["problem"] = why;
+            ok = false;
+            all.push_back(std::move(o));
+            continue;
+        }
+        spit(spv, code.data(), code.size());
+        ojson c = check_one(code);
+        for (auto it = c.begin(); it != c.end(); ++it) o[it.key()] = it.value();
+        ok = ok && o["ok"].get<bool>();
+        all.push_back(std::move(o));
+    }
+    std::cout << all.dump(1) << "\n";
+    return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: kiln-vfxcook cook|check|hash|modules|id|fingerprint|budget|material-roundtrip ... (docs/kiln/services/vfx-cook.md)\n");
+        std::fprintf(stderr, "usage: kiln-vfxcook cook|check|hash|modules|id|fingerprint|budget|material-roundtrip|shader ... (docs/kiln/services/vfx-cook.md)\n");
         return 2;
     }
     const std::string cmd = argv[1];
@@ -408,6 +545,7 @@ int main(int argc, char** argv) {
     if (cmd == "fingerprint") return cmd_fingerprint(a);
     if (cmd == "budget") return cmd_budget(a);
     if (cmd == "material-roundtrip") return cmd_material_roundtrip(a);
+    if (cmd == "shader") return cmd_shader(a);
     if (cmd == "id" && a.rest.size() == 3) {
         std::printf("%s\n", guid_text(block_id(a.rest[0], a.rest[1], a.rest[2])).c_str());
         return 0;

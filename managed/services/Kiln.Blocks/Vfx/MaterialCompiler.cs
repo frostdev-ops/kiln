@@ -19,7 +19,9 @@ internal static partial class Compiler
         ctx.Need(ClientsLevel.Mod, null, "a new material has to be on every player's game: the server does not send assets");
         CheckMaterial(ctx, m);
         var mod = ctx.Mod.Id;
-        var guid = BlockIds.Derive(mod, "material", m.Was ?? name);
+        if (m.Replaces != null && !Guid.TryParse(m.Replaces, out _)) throw new BlockError(ctx.Block, "replaces", $"\"{m.Replaces}\" is not the GUID of one of the game's materials");
+        if (m.Replaces != null && m.Was != null) throw new BlockError(ctx.Block, "replaces", "a material that replaces one of the game's has that one's id: \"was\" has no meaning here");
+        var guid = m.Replaces != null ? Guid.Parse(m.Replaces) : BlockIds.Derive(mod, "material", m.Was ?? name);
         var definition = MaterialDefinition(m);
         low.Json["material"] = guid.ToString();
         low.Json["definition"] = definition.DeepClone();

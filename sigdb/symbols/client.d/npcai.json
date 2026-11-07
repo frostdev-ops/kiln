@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.npcai: the game's faction relation leaves (keen::FactionType, one byte per entity in its Faction component). Hostile(Faction*, Faction*) and its by-value twin answer 'does a fight b' (enemy targeting's candidate check 0x13c9e0 calls Hostile, so do the sensors); Friend(Faction*, Faction*[, opt]) and its by-value twin answer 'is b on a's side'. Equal factions and the players' side {Player 7, AutomatedPlayer 8, PlayerAlly 11} are friends; Hostile has the species exceptions (Vukah and WildBeast, Skeleton and Fogger, Cyclops and Wildlife ...). Leaves with no .pdata: inline hooks at their first instruction. Evidence: docs/re/npc-internals.md 3.1 and 3.6 (svn 1287369; the same patterns match the client 26430625 and 26404966 once each, for worlds a client hosts).",
+  "symbols": {
+    "npcai/FactionHostile": {
+      "comment": "bool(const Faction* a, const Faction* b): a would fight b. 6 callers, among them enemy_combat_targets' candidate filter",
+      "find": [
+        { "pattern": "48 85 C9 74 06 44 0F B6 01 EB 03 45 32 C0 48 85 D2 74 05 0F B6 0A EB 02 32 C9 45 84 C0 74 ?? 41 8D 40 F9 A8 FA 75 ?? 41 80 F8 0C 74 ?? 8D 41 F9 A8 FA 75 ?? 80 F9 0C 75 ?? 41 80 F8 01 74" }
+      ]
+    },
+    "npcai/FactionHostileValue": {
+      "comment": "bool(FactionType a, FactionType b): the same answer by value (cl, dl). 3 callers",
+      "find": [
+        { "pattern": "84 C9 74 ?? 8D 41 F9 A8 FA 75 ?? 80 F9 0C 74 ?? 8D 42 F9 A8 FA 75 ?? 80 FA 0C 75 ?? 80 F9 01 74 ?? 3A CA 74 ?? 80 F9 03" }
+      ]
+    },
+    "npcai/FactionFriend": {
+      "comment": "bool(const Faction* a, const Faction* b): b is on a's side (equal, or both on the players' side). 1 caller",
+      "find": [
+        { "pattern": "48 85 C9 74 06 44 0F B6 01 EB 03 45 32 C0 48 85 D2 74 05 0F B6 0A EB 02 32 C9 44 3A C1 75 03 B0 01 C3 41 8D 40 F9 A8 FA 75 ?? 41 80 F8 0C 74 ?? 8D 41 F9 A8 FA 75 ?? 80 F9 0C 75 ?? 32 C0 C3" }
+      ]
+    },
+    "npcai/FactionFriendOpt": {
+      "comment": "bool(const Faction* a, const Faction* b, const Options* o): the same, plus FarmAnimal (12) on the players' side when o->[1] is set. 6 callers (the sensors among them)",
+      "find": [
+        { "pattern": "48 85 C9 74 06 44 0F B6 09 EB 03 45 32 C9 48 85 D2 74 05 0F B6 0A EB 02 32 C9 44 3A C9 74 ?? 41 8D 41 F9 A8 FA 75 ?? 41 80 F9 0C 74 ?? 8D 41 F9 A8 FA 75 ?? 80 F9 0C 75 ?? 32 C0 C3 80 E9 07 80 F9 01 77 ?? 4D 85 C0" }
+      ]
+    },
+    "npcai/FactionFriendValue": {
+      "comment": "bool(FactionType a, FactionType b): FactionFriend by value. 3 callers",
+      "find": [
+        { "pattern": "3A CA 74 ?? 8D 41 F9 A8 FA 75 ?? 80 F9 0C 74 ?? 8D 42 F9 A8 FA 75 ?? 80 FA 0C 75 ?? 32 C0 C3 B0 01 C3" }
+      ]
+    }
+  }
+}

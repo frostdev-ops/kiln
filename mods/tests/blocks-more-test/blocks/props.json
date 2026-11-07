@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "props": {
+    "lantern-prop-json": { "name": "Lantern", "visual": { "model": "models/lantern.glb" }, "recipe": { "needs": { "Material_T1_Twigs": 1 } } }
+  }
+}

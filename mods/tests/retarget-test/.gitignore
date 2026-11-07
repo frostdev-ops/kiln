@@ -1,0 +1,7 @@
+# Made on your machine by build-assets.py and the cook: never committed.
+models/
+assets/cooked/
+assets/assets.json
+blocks/models_*.materials.json
+bin/
+obj/

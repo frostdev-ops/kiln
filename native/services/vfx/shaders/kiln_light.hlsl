@@ -44,7 +44,8 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         // The game's flicker (module 16,836 B).
         float wobble = sin(age * 10.0f + cos(age * 13.0f + sin(age * 17.0f)));
         float brightness = kParamF(p.params + KL_BRIGHTNESS) * fade * (1.0f + kParamF(p.params + KL_FLICKER) * wobble * 0.05f);
-        float3 color = max(kParamF3(p.params + KL_COLOR) * brightness, float3(0.0f, 0.0f, 0.0f));
+        KilnPlay play = kPlay(p.instance);
+        float3 color = max(kParamF3(p.params + KL_COLOR) * play.tint * (brightness * play.brightness), float3(0.0f, 0.0f, 0.0f));
         if (radius > 0.0f && any(color > 0.0f) && kFinite(world) && kFinite(color) && !kCulled(world, radius)) {
             uint counterOff = kUpdateU(KU_POINT_LIGHT_COUNT);
             uint n = kCounterAdd(counterOff, 1u);

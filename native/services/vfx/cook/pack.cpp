@@ -60,9 +60,9 @@ void add_blob(CookResult& r, Shared& sh, const ContentHash& h, const uint8_t* da
     if (!sh.blobs.insert(content_hash_text(h)).second) return;
     r.blobs.push_back({h, Bytes(data, data + size), what});
 }
-void add_resource(CookResult& r, Shared& sh, const Guid& g, uint32_t type, Bytes data, const std::string& what) {
+void add_resource(CookResult& r, Shared& sh, const Guid& g, uint32_t type, Bytes data, const std::string& what, bool override = false) {
     if (!sh.resources.insert(g).second) return;
-    r.resources.push_back({g, type, std::move(data), what});
+    r.resources.push_back({g, type, std::move(data), what, override});
 }
 
 }  // namespace
@@ -169,8 +169,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                             diag.warnings.push_back(where + ": a block of this name is already defined; the first stays");
                             continue;
                         }
-                        if (!material_ids.insert(block_id(mod.id, "material", b.def.id_name)).second) {
-                            diag.errors.push_back(where + ": \"was\" names the id of another block");
+                        if (!material_ids.insert(material_guid(b.def, mod.id)).second) {
+                            diag.errors.push_back(where + (b.def.replaces ? ": another block of this mod replaces the same game material" : ": \"was\" names the id of another block"));
                             continue;
                         }
                         b.definition = fnv64(it.value().dump());
@@ -269,6 +269,34 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                     for (auto& c : p.color)
                         for (int k = 0; k < 3; ++k) c[k] *= m.tint[k];
                 if (!p.lit_set) p.lit = true;
+            }
+
+        // A mod's own particle modules (ShaderBlock). Any problem draws the particle with Kiln's sprite instead, with a warning: the block keeps its
+        // id and still shows, and the game never compiles a module that failed a check.
+        std::map<std::string, Bytes> mod_modules;  // by path, those that passed
+        for (Block& b : blocks)
+            for (size_t i = 0; i < b.def.particles.size(); ++i) {
+                ParticleDef& p = b.def.particles[i];
+                if (p.shader.empty()) continue;
+                const std::string at = b.def.where + ".particles[" + std::to_string(i) + "].shader: " + p.shader + ": ";
+                std::string why;
+                if (b.def.game_sprite) why = "gameSpriteModule draws with the game's module, so this one isn't used";
+                else if (opt.skip_shaders) why = "mods' own particle shaders are off (kiln/config/vfx.json \"shaders\": false)";
+                else if (opt.skip_shader_mods.count(mod.id)) why = "this mod's particle shaders are off (kiln/config/vfx.json \"skipShaderMods\")";
+                else if (!mod.advanced) why = "a mod with its own GPU code has to say \"advanced\": true in kiln.mod.json";
+                else if (!safe_rel(p.shader)) why = "must be relative, inside the mod's folder";
+                if (why.empty() && !mod_modules.count(p.shader)) {
+                    Bytes code;
+                    if (!read(mod.dir + "/" + p.shader, &code, &why)) why = "can't read it (" + why + ")";
+                    else if (std::string bad = check_mod_module(code.data(), code.size(), nullptr); !bad.empty()) why = bad;
+                    else mod_modules[p.shader] = std::move(code);
+                }
+                if (!why.empty()) {
+                    diag.warnings.push_back(at + why + ": Kiln's own sprite draws this particle instead");
+                    continue;
+                }
+                const Bytes& code = mod_modules.at(p.shader);
+                p.shader_hash = content_hash(code.data(), code.size());
             }
 
         // Textures, meshes and the VFX of this mod, kept aside until the budget says yes.
@@ -387,7 +415,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 diag.errors.push_back(b.def.where + ": " + why);
                 continue;
             }
-            ++need.materials;
+            if (!b.def.replaces) ++need.materials;  // a replacement takes the game material's own slot
             for (const MaterialMap& map : m.maps) need.streamed_textures.insert(content_hash_text(content_hash(map.chain.data.data(), map.chain.data.size())));
             m.info.mod = mod.id;
             m.info.name = b.def.name;
@@ -396,6 +424,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             m.info.block_flags = m.built.block_flags;
             m.info.textures = static_cast<uint32_t>(m.maps.size());
             m.info.definition = b.definition;
+            m.info.replaces = b.def.replaces.has_value();
             built_materials.push_back(std::move(m));
         }
         if (built_vfx.empty() && built_materials.empty()) {
@@ -424,7 +453,9 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 const uint8_t* tail = map.chain.data.data() + map.chain.tail_start;
                 add_blob(out, shared, content_hash(tail, tail_size), tail, tail_size, mod.id + " material " + m.info.name + " " + map.what + " mip tail");
             }
-            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name);
+            if (m.info.replaces && shared.resources.count(m.built.guid))
+                diag.warnings.push_back(mod.id + ": material " + m.info.name + ": another mod earlier in the load order replaces " + guid_text(m.built.guid) + " already: that one draws");
+            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces);
             out.materials.push_back(std::move(m.info));
         }
         if (built_vfx.empty()) {
@@ -437,6 +468,10 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 const ModuleInfo& info = starter_module(m);
                 add_blob(out, shared, info.hash, info.data, info.size, info.name);
             }
+        }
+        for (const auto& [path, code] : mod_modules) {
+            add_blob(out, shared, content_hash(code.data(), code.size()), code.data(), code.size(), mod.id + " particle shader " + path);
+            ++out.mod_modules;
         }
         for (const std::string& name : used_meshes) {
             const BuiltMesh& m = meshes.at(name);
@@ -488,6 +523,7 @@ ojson report_json(const CookResult& r) {
         o["blockFlags"] = m.block_flags;
         o["textures"] = m.textures;
         o["pipelines"] = material_pipelines(m.render_flags);
+        if (m.replaces) o["replaces"] = true;
         materials.push_back(std::move(o));
     }
     j["materials"] = std::move(materials);
@@ -495,6 +531,7 @@ ojson report_json(const CookResult& r) {
     j["warnings"] = r.warnings;
     j["notes"] = r.notes;
     j["refusedMods"] = r.refused_mods;
+    j["modModules"] = r.mod_modules;
     ojson b = ojson::object();
     b["vfx"] = {{"game", r.game.vfx}, {"mods", r.used_vfx}, {"capacity", r.capacity.vfx}};
     b["meshes"] = {{"game", r.game.meshes}, {"mods", r.used_meshes}, {"capacity", r.capacity.meshes}};

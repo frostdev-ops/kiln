@@ -7,8 +7,10 @@
 #ifndef KILN_VFX_PARAMS_H
 #define KILN_VFX_PARAMS_H
 
-// Bumped when a block below changes shape. Written to the first word of every block.
-#define KILN_VFX_ABI 1
+// Bumped when a block below changes shape. Written to the first word of every block. A mod's own module (ShaderBlock) is built
+// against one ABI and refused under another (docs/kiln/modding/shaders.md).
+// 2 (2026-11-07): spawn shapes, velocity stretch, user constants, per-play parameters (KX_*).
+#define KILN_VFX_ABI 2
 
 // ---- kiln_emitter: the root entry (depth 0). Spawns into its child entry. ---------------------------------------------
 #define KE_VERSION          0   // u32 KILN_VFX_ABI
@@ -43,7 +45,7 @@
 #define KS_SPEED_MAX       40   // f32
 #define KS_SPREAD_KIND     44   // u32 KS_SPREAD_*
 #define KS_SPREAD_ANGLE    48   // f32 cone half angle, radians
-#define KS_SPAWN_RADIUS    52   // f32 metres: start inside a sphere this big. 0 = at the emitter
+#define KS_SPAWN_RADIUS    52   // f32 metres: ABI 1's sphere. The builder writes KS_SHAPE now and keeps this equal to KS_SHAPE_A for a sphere
 #define KS_ACCEL_X         56   // f32 m/s² in world space (gravity is y)
 #define KS_ACCEL_Y         60   // f32
 #define KS_ACCEL_Z         64   // f32
@@ -61,14 +63,32 @@
 #define KS_SIZE_CURVE     112   // f32[8] metres, evenly spaced over the particle's life
 #define KS_ALPHA_CURVE    144   // f32[8] 0..1
 #define KS_COLOR_CURVE    176   // f32[3][8] linear RGB (may exceed 1), stride 12
-#define KS_BLOCK_SIZE     272
+#define KS_SHAPE          272   // u32 KS_SHAPE_*: where a particle starts, in the instance's space (scaled by its scale)
+#define KS_SHAPE_A        276   // f32 metres: radius (sphere, hemisphere, disc), half width (box), length (line)
+#define KS_SHAPE_B        280   // f32 metres: inner radius (sphere, hemisphere, disc; = A for a shell or ring), half height (box)
+#define KS_SHAPE_C        284   // f32 metres: half depth (box)
+#define KS_STRETCH        288   // f32 extra length in metres per m/s along the velocity (KS_FLAG_ALIGN_VELOCITY)
+#define KS_RESERVED2      292   // u32 0
+#define KS_USER           296   // f32[8] constants for a mod's own module (ShaderBlock "constants"). Kiln's sprite doesn't read them
+#define KS_BLOCK_SIZE     328
 #define KS_CURVE_SAMPLES    8
+#define KS_USER_COUNT       8
 
-#define KS_FLAG_FACE_CAMERA 1   // rotation = camera * roll. Otherwise instance orientation * roll
+#define KS_FLAG_FACE_CAMERA    1   // rotation = camera * roll. Otherwise instance orientation * roll
+#define KS_FLAG_ALIGN_VELOCITY 2   // a camera-facing quad turns so its +y follows the velocity on screen, and stretches by KS_STRETCH
+
+#define KS_SHAPE_POINT      0   // at the instance's position
+#define KS_SHAPE_SPHERE     1   // inside a sphere, outside the inner radius
+#define KS_SHAPE_HEMISPHERE 2   // the same, upper half (+y)
+#define KS_SHAPE_BOX        3   // inside a box
+#define KS_SHAPE_DISC       4   // on a flat disc in the instance's xz plane, outside the inner radius
+#define KS_SHAPE_LINE       5   // on a line along the instance's x, centred
+#define KS_SHAPE_LAST       5
 
 #define KS_SPREAD_UP        0   // along the instance's +y
 #define KS_SPREAD_CONE      1   // around the instance's +y, up to KS_SPREAD_ANGLE
 #define KS_SPREAD_SPHERE    2   // any direction
+#define KS_SPREAD_OUTWARD   3   // away from the shape's centre (in the disc's plane for a disc, across the line for a line); up at the centre
 
 // TransparentInstanceData.flags: the bits the game's Transparent_Forward* fragment shaders test (docs/re/vfx.md §3.3).
 #define KS_DRAW_ADDITIVE    1   // output alpha 0: colour adds to the scene
@@ -84,7 +104,7 @@
 #define KS_S_VEL           40   // f32[3]
 #define KS_S_ROLL          52   // f32
 #define KS_S_SPIN          56   // f32
-#define KS_S_RESERVED      60
+#define KS_S_AUX           60   // f32 a mod module's own (KilnSprite.aux); Kiln's sprite keeps it 0
 #define KS_STATE_SIZE      64
 
 // ---- kiln_light: a root entry with no child. One point light. ---------------------------------------------------------
@@ -105,6 +125,18 @@
 #define KL_S_STOP_AGE      24   // f32 age when the instance stopped, or a negative value
 #define KL_S_RESERVED      28
 #define KL_STATE_SIZE      32
+
+// ---- Per-play parameters (VfxCombinedEffectParameters.user, 64 bytes). Every Kiln VFX describes the same ones, so a play, a template,
+// a sequence or a buff can set them by name (Vfx.Set, VfxParams, VfxRef.Parameters). They multiply what the block says. ---------------
+#define KX_BASE            64   // offset of the user block in VfxCombinedEffectParameters (layout 0x12e19673)
+#define KX_COLOR            0   // u32 RGBA8, sRGB (DsTypeId VfxEffectParameterColor): tints particles and light; alpha multiplies alpha
+#define KX_SIZE             4   // f32: particle size
+#define KX_SPEED            8   // f32: particle start speed
+#define KX_BRIGHTNESS      12   // f32: particle colour and light brightness
+#define KX_COUNT           16   // f32: burst and rate
+#define KX_MAGIC           60   // u32 KX_MAGIC_VALUE in Kiln's defaults. A block without it (a start that passed none) reads as all defaults
+#define KX_MAGIC_VALUE  0x4e4c494bu  // "KILN"
+#define KX_MAX_FACTOR      16.0 // a factor is clamped to 0..this; not finite reads as 1
 
 // ---- Limits the modules enforce, whatever the data says: a shared GPU buffer can't afford a bad effect. -----------------
 #define KILN_VFX_MAX_SPAWNS_PER_TICK 64    // a tick's spawn loop runs at most this many times

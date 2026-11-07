@@ -107,6 +107,22 @@ The cook refuses by name what can't work: an image that isn't a PNG, a size that
 ## On a particle
 A sprite draws with the game's transparent shaders, not a surface's, so a particle takes what fits: `"material": "frost_steel"` gives it the albedo as its texture, the tint in its colour, and `lit`. What the particle says itself wins. It names a material of its own mod.
 
+## In place of one of the game's materials
+`"replaces": "<GUID>"` draws the block wherever the game draws that material: every item, prop or creature model that uses it, with no model
+cooked. The block gets the game material's id, so it takes no new material slot (its textures still count).
+```jsonc
+"materials": { "workbench_frost": { "replaces": "39745562-5d58-4749-bc64-582e5630324a", "kind": "opaque",
+                                    "albedo": "textures/steel.png", "tint": "#bfe0ff", "normal": "textures/steel_n.png" } }
+```
+- Find a GUID with `kfc.py decode <model GUID> keen::RenderModel` (its `materials[].material`) or `kfc.py list --type keen::RenderMaterialResource`;
+  the material's `debugName` says what it is (`npc_props_workbench00` above).
+- **Keep the original's kind.** Models carry their materials' cutout, double-sided and shadow flags, so a replacement that changes them is drawn
+  by the wrong shader variant: never fatal, but holes may fill or the back faces vanish.
+- It is a client-side look: a mod that only replaces materials may be `"side": "client"`. Two mods replacing one material: the first in the load
+  order draws, and the second logs a warning.
+- At boot: `vfx: N material(s) of mods draw in place of the game's own ("replaces")`. A GUID the game doesn't have: kiln.assets logs
+  `... is not in the game; 'override' skipped` and the game's own material draws (a dedicated server always says this: it has no materials).
+
 ## Limits
 | What | Room | Over it |
 |---|---|---|

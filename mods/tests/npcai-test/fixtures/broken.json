@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "creatures": {
+    "bad-flee": { "body": "vukah", "ai": { "like": "vukah", "flee": { "below": 2 } } },
+    "bad-relation": { "body": "vukah", "ai": { "like": "vukah", "relations": { "Player": "angry" } } },
+    "bad-filter": { "body": "vukah", "ai": { "like": "vukah", "senseFilter": "nobody-has-this" } },
+    "bad-summon": { "body": "vukah", "behaviour": { "rules": [ { "do": [ { "summon": { "creature": "Enemy_Vukah_Melee", "count": 99 } } ] } ] } },
+    "bad-chance": { "body": "vukah", "behaviour": { "rules": [ { "when": [ { "chance": 7 } ], "do": [ { "flee": true } ] } ] } }
+  }
+}

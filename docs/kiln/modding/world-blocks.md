@@ -55,7 +55,7 @@ JSON sections: `props`, `stations`, and for parts `placements`, `comforts`, `pro
 
 | Block | Fields |
 |---|---|
-| `PropBlock` | `Visual`, `Placement`, `Comfort`, `Light`, `OnInteract` ([interactions](#furniture-and-interactions)), `Recipe`, `Loot`, `Tweak` (its item), `TweakPlaced` (its template) |
+| `PropBlock` | `Visual`, `Collider`, `Placement`, `Comfort`, `Light`, `OnInteract` ([interactions](#furniture-and-interactions)), `Recipe`, `Loot`, `Tweak` (its item), `TweakPlaced` (its template) |
 | `StationBlock` | all of a prop's, and `Kind`, `Processing`, `Recipes`, `OwnWorkshop`, `Menu` |
 | `PlacementBlock` | `On` (`Surface.Floor`, `Wall`, `Ceiling`, or several: the first is tried first), `InBase`, `Size` (metres), `Snap`, `Water`, `Fog`, `Consumed` |
 | `ComfortBlock` | `Amount`, `Category` (`ComfortCategory`), `Range` (metres, 5), `Warmth` (1) |
@@ -65,7 +65,11 @@ JSON sections: `props`, `stations`, and for parts `placements`, `comforts`, `pro
 All take `Name`, `Description` and `Was`. A field left out is what the block starts from.
 
 - **What it starts from.** A station starts from its `Kind`: `Workbench`, `Carpenter` and `Kitchen` craft at once; `Forge`, `Oven`, `Alchemy`, `DryingRack`, `CharcoalKiln`, `Kiln`, `Smelter`, `Fireplace`, `Grinder`, `Tannery` and `TableSaw` work on their own. A prop starts from its look: `Visual.Like` names a game item that places something, which brings its model, collision and how it places. With only `Visual.Model`, a plain game prop for the surface in `Placement.On` brings the rest.
-- **Its look.** `Visual.Like` or `Visual.Model` (`"item:<name>"`, or the GUID of a model your `assets/assets.json` serves, cooked by `tools/modelcook`: [models.md](models.md)) sets all three places a model shows: what stands, the ghost under the cursor, and the item's picture.
+- **Its look.** `Visual.Like` or `Visual.Model` sets all three places a model shows: what stands, the ghost under the cursor, and the item's picture. `Model` is a glTF in the mod's folder (`"models/lantern.glb"`), `"item:<name>"`, or the GUID of a model your `assets/assets.json` serves ([models.md](models.md)). A glTF in a block of `blocks/*.json` is cooked by `kiln cook` with nothing else to write: modelcook finds it there, cooks it as a rigid model with its glTF materials, and adds it to `assets/assets.json`. Its GUID follows from `<mod>:model:<path without the extension>`, so the block and the cook agree. A glTF in a block written in code needs a model step in `assets/cook.json` (`{ "op": "model", "gltf": "../models/lantern.glb", "mode": "new", "materials": "gltf", "name": "models/lantern" }`). Until it is cooked, a client shows the starter's look and the block's warnings say so.
+- **Its collision.** With a model of your own, what a player bumps into and what hits stop at is one box: the box around the glTF's meshes, or `Collider = new BoxCollider { Size = new Vector3(1, 0.5f, 1) }` (`Center` moves it; default: standing on the floor). It goes on what stands there, on the item's placement check, and on the box the cursor checks (unless `Placement.Size` says otherwise). On a ceiling the starter's collider is a capsule around the same box. A game item's look, a station and furniture keep the collision they start from, and refuse `Collider`.
+```csharp
+Blocks.Define("lantern", new PropBlock { Name = "Lantern", Visual = new VisualBlock { Model = "models/lantern.glb" }, Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Twigs] = 1 } } });
+```
 - **A workshop of its own.** A station that works on its own and has `Processing` or `Recipes` gets one: it runs those recipes and no others, and the game's stations of its kind don't run them. `OwnWorkshop = false` shares its kind's instead: it runs the game's recipes too, and its own also run at the game's stations. A bench shares by default: the server doesn't check a player's craft against the bench's workshop, so one of its own would only change what its menu lists.
 - **Its recipes.** `Recipes` lists what it makes, each with `Output`. An item says the same from its side with `Recipe = new RecipeBlock { Station = thisStation, ... }`. At a workshop of its own a recipe needs `Seconds`: there are no recipes of the game to take a time from. `Seconds` is at the game's normal speed: a world's production speed setting divides it as it does the game's own recipes, so a 4 s recipe takes 2 s in a world set to twice the speed. A cycle takes its inputs when it starts and gives its outputs when it ends; with nothing left it stops, and starts again by itself when given more.
 - **Fuel.** `Burns` lists fuel the way `Needs` lists ingredients. It's an input, as charcoal is in the game's forge, so a station out of fuel stops like one out of anything else. A burn timer that runs on its own isn't a block yet.
@@ -74,7 +78,7 @@ All take `Name`, `Description` and `Was`. A field left out is what the block sta
 - **Where it places.** As its starter: the item is the starter item's in everything the game's placement check reads (box, colliders, angles, base and no-build rules), apart from what `Placement` says.
 - **Comfort.** `Comfort` gives the placed thing the game's comfort, also where its starter had none, and the item's tooltip gets the Comfort row. The game's rule applies: only the best of a category counts near a player.
 - **Rain and roofs.** `GoesOutInRain = false` keeps it lit in any rain. A station that works on its own never checks a roof: the game's don't either, so their recipes refuse `Sheltered`. On a bench recipe, `Sheltered` is the game's own flag.
-- **Light.** A VFX on it for as long as it stands, which is where the game's lamps have their light.
+- **Light.** A VFX on it for as long as it stands, which is where the game's lamps have their light. `Visual.Vfx` says the same from the look; one of the two.
 
 ### From code
 ```csharp
@@ -98,6 +102,8 @@ blocks/forge.json: block station rack, recipes[0].seconds: a station of its own 
 
 ### What players' games need
 `clients: kiln`: a new item, template and recipe. A model of your own, a PNG icon or a cue of your own needs `mod`.
+
+Not proven with a client: a cooked prop model drawn, the cursor's ghost, and bumping into its box. The lab reads the box back from the template and the item (`mods/tests/blocks-more-test`).
 
 ### Test
 `mods/tests/stations-test` runs on a dedicated server with no player: the exact cycle, running out, burning fuel, a workshop of its own, placing clones, comfort through the game's own system, C# and JSON the same, the errors a mistake gets, and that every placed thing of the block samples loaded with it (stations, props, furniture) has its starter's item and template apart from what the block sets. Start it twice: the second run checks what the first one saved. It logs `stations-test: PASS` and `FAIL` lines and `stations-test done: N PASS, M FAIL`.

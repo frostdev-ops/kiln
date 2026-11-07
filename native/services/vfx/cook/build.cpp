@@ -63,7 +63,7 @@ struct Member {
 };
 const std::vector<Member> kEmitterState = {{"age", 1, 0, KE_S_AGE}, {"accum", 1, 0, KE_S_ACCUM}, {"pending", 1, 2, KE_S_PENDING}};
 const std::vector<Member> kSpriteState = {{"age", 1, 0, KS_S_AGE},   {"lifetime", 1, 0, KS_S_LIFE}, {"position", 3, 0, KS_S_POS},
-                                          {"velocity", 3, 0, KS_S_VEL}, {"roll", 1, 0, KS_S_ROLL},  {"spin", 1, 0, KS_S_SPIN}};
+                                          {"velocity", 3, 0, KS_S_VEL}, {"roll", 1, 0, KS_S_ROLL},  {"spin", 1, 0, KS_S_SPIN}, {"aux", 1, 0, KS_S_AUX}};
 const std::vector<Member> kLightState = {{"age", 1, 0, KL_S_AGE}, {"stopAge", 1, 0, KL_S_STOP_AGE}};
 // The game's compact sprite module: its own state, and a block with fixed offsets (docs/re/vfx.md 3.7).
 const std::vector<Member> kGameSpriteState = {{"age", 1, 0, 20}, {"alpha", 1, 0, 24}, {"max_life", 1, 0, 28}, {"offset", 1, 0, 32},
@@ -78,6 +78,7 @@ struct Entry {
     uint32_t parent = 0xffffffffu, child = 0, max_count = 1;
     uint32_t start = 0, count = 0;
     const std::vector<Member>* members = nullptr;
+    ContentHash mod_module{};  // a mod's own sprite module, checked by cook_mods
 };
 
 void put_f(Bytes& d, size_t at, float v) { std::memcpy(&d[at], &v, 4); }
@@ -102,7 +103,7 @@ Bytes sprite_block(const ParticleDef& p) {
     if (p.additive) draw |= KS_DRAW_ADDITIVE;
     if (p.lit) draw |= KS_DRAW_LIT;
     put_u(d, KS_DRAW_FLAGS, draw);
-    put_u(d, KS_FLAGS, p.face_camera ? KS_FLAG_FACE_CAMERA : 0u);
+    put_u(d, KS_FLAGS, (p.face_camera ? KS_FLAG_FACE_CAMERA : 0u) | (p.align_velocity ? KS_FLAG_ALIGN_VELOCITY : 0u));
     // KS_IMAGE, KS_SAMPLER, KS_MESH stay 0: the game writes them through the patch points
     put_f(d, KS_LIFE_MIN, p.life.min);
     put_f(d, KS_LIFE_MAX, p.life.max);
@@ -110,7 +111,13 @@ Bytes sprite_block(const ParticleDef& p) {
     put_f(d, KS_SPEED_MAX, p.speed.max);
     put_u(d, KS_SPREAD_KIND, p.spread);
     put_f(d, KS_SPREAD_ANGLE, p.cone);
-    put_f(d, KS_SPAWN_RADIUS, p.spawn_radius);
+    put_f(d, KS_SPAWN_RADIUS, p.shape == KS_SHAPE_SPHERE ? p.shape_size[0] : 0.0f);
+    put_u(d, KS_SHAPE, p.shape);
+    put_f(d, KS_SHAPE_A, p.shape_size[0]);
+    put_f(d, KS_SHAPE_B, p.shape_size[1]);
+    put_f(d, KS_SHAPE_C, p.shape_size[2]);
+    put_f(d, KS_STRETCH, p.stretch);
+    for (int i = 0; i < KS_USER_COUNT; ++i) put_f(d, KS_USER + i * 4, p.user[i]);
     put_f(d, KS_ACCEL_X, p.accel[0]);
     put_f(d, KS_ACCEL_Y, p.accel[1]);
     put_f(d, KS_ACCEL_Z, p.accel[2]);
@@ -161,6 +168,33 @@ Bytes light_block(const LightDef& l) {
 
 }  // namespace
 
+const std::vector<PlayParameter>& play_parameters() {
+    static const std::vector<PlayParameter> list = [] {
+        auto fnv = [](const char* s) {
+            uint32_t h = 0x811c9dc5u;
+            for (; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 0x01000193u;
+            return h;
+        };
+        return std::vector<PlayParameter>{
+            {"color", fnv("color"), kParamColor, KX_COLOR, 4},       {"size", fnv("size"), kParamFloat, KX_SIZE, 4},
+            {"speed", fnv("speed"), kParamFloat, KX_SPEED, 4},       {"brightness", fnv("brightness"), kParamFloat, KX_BRIGHTNESS, 4},
+            {"count", fnv("count"), kParamFloat, KX_COUNT, 4},
+        };
+    }();
+    return list;
+}
+
+Bytes play_defaults() {
+    Bytes d(64, 0);
+    put_u(d, KX_COLOR, 0xffffffffu);
+    put_f(d, KX_SIZE, 1.0f);
+    put_f(d, KX_SPEED, 1.0f);
+    put_f(d, KX_BRIGHTNESS, 1.0f);
+    put_f(d, KX_COUNT, 1.0f);
+    put_u(d, KX_MAGIC, KX_MAGIC_VALUE);
+    return d;
+}
+
 bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Guid(const ParticleDef&)>& mesh_of,
                const std::function<Guid(const ParticleDef&)>& tex_of, BuiltVfx* out, std::string* why) {
     Bytes data;
@@ -199,6 +233,7 @@ bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Gu
         Entry kid;
         kid.module = Module::Sprite;
         kid.game_module = def.game_sprite;
+        if (!def.game_sprite) kid.mod_module = p.shader_hash;
         kid.depth = 1;
         kid.state = def.game_sprite ? kGameSpriteStateSize : KS_STATE_SIZE;
         kid.parent = root_index;
@@ -275,7 +310,7 @@ bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Gu
     for (size_t i = 0; i < entries.size(); ++i) {
         const Entry& e = entries[i];
         const size_t o = pat + kParticleSize * i;
-        const ContentHash code = e.game_module ? kGameSpriteModule : starter_module(e.module).hash;
+        const ContentHash code = e.game_module ? kGameSpriteModule : e.mod_module.size ? e.mod_module : starter_module(e.module).hash;
         w.string(o + 0x00, guid_text(block_id(mod, "vfx-entry", def.id_name + ":" + std::to_string(i))));
         w.u16(o + 0x08, e.depth);
         w.u16(o + 0x0a, e.state);
@@ -332,7 +367,22 @@ bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Gu
             for (int c = 0; c < 3; ++c) w.u8(at + 24 * i + 0x14 + c, image_patches[i].address[c]);
         }
     }
-    // lightFilters, sounds, curves, parameters, defaults, references, joints: empty and zero
+    // lightFilters, sounds, curves: empty. parameters and defaultParameterData: the per-play parameters every Kiln VFX has (KX_*), so a play,
+    // a template, a sequence or a buff sets them by name. references, joints: empty.
+    const auto& params = play_parameters();
+    {
+        const size_t at = w.reserve(12 * params.size(), 4);
+        w.array(0x6c, at, static_cast<uint32_t>(params.size()));
+        for (size_t i = 0; i < params.size(); ++i) {
+            w.u32(at + 12 * i, params[i].hash);
+            w.u32(at + 12 * i + 4, params[i].type);
+            w.u8(at + 12 * i + 8, static_cast<uint8_t>(params[i].offset));
+            w.u8(at + 12 * i + 9, static_cast<uint8_t>(params[i].size));
+            // jointCollectionIndex 0, as all of vanilla's
+        }
+    }
+    const Bytes defaults = play_defaults();
+    std::memcpy(&w.b[0x74], defaults.data(), defaults.size());
 
     out->guid = block_id(mod, "vfx", def.id_name);
     out->resource = std::move(w.b);

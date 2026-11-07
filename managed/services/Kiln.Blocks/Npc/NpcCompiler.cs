@@ -161,6 +161,7 @@ internal static class NpcCompiler
             return;
         }
         CheckFile(ctx, a.Clips!, Join(path, "clips"));
+        Retargets.Check(ctx, a, path);
         if (a.Idle == null) throw new BlockError(ctx.Block, Join(path, "idle"), "every graph needs the engine's Idle: the clip it stands in");
         foreach (var (state, clip) in a.States)
         {
@@ -200,6 +201,7 @@ internal static class NpcCompiler
             throw new BlockError(ctx.Block, Join(path, "pickTarget"), $"no target picker \"{n}\": register it with Blocks.Target(\"{n}\", npc => ...) in OnLoad");
         if (a.Template != null && Creatures.Available && Creatures.Template(a.Template) is null)
             throw new BlockError(ctx.Block, Join(path, "template"), $"the game has no creature \"{a.Template}\"");
+        AiLowering.Check(ctx, a, path);   // npcai's fields (Ai/AiLowering.cs)
     }
 
     private static void CheckBehaviour(BlockContext ctx, BehaviourBlock b, string path)
@@ -465,6 +467,7 @@ internal static class NpcCompiler
         low.AfterCommit(() =>
         {
             NpcRuntime.Register(info);
+            AiRuntime.Attach(info, ai);   // npcai: relations, sense filter (Ai/AiRuntime.cs)
             NpcServerSide.Post(ctx.Mod, ctx.Block, () => Register(ctx, info, variant, spawns));
         });
         return new CreatureHandle(mod, name, templateGuid == Guid.Empty ? BlockIds.Derive(mod, "creature", key) : templateGuid, template, c, info);
@@ -572,6 +575,7 @@ internal static class NpcCompiler
         if (ai.SightAngle is { } sa) v["combatCommitmentSetup.view.coneHalfAngle"] = N(sa);
         if (ai.Aggro is { } ag) v["combatCommitmentSetup.gain.inRange.range"] = N(ag);
         if (ai.Leash is { } l) v["homeZoneSetup.radius"] = N(l);
+        AiLowering.Values(ai, v);   // npcai's fields; Tune still wins
         foreach (var (k, x) in ai.Tune ?? new Dictionary<string, string>()) v[k] = x;
         return v;
     }
@@ -585,6 +589,7 @@ internal static class NpcCompiler
         var off = own ? OwnStatesOff : EnemyFeatures.None;
         if (!moves) off |= EnemyFeatures.Move | EnemyFeatures.Roaming | EnemyFeatures.Patrol | EnemyFeatures.Run;
         if (ai.Fights == false) off |= EnemyFeatures.Combat;
+        off |= AiLowering.Disabled(ai);   // npcai
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!own)
             foreach (var (k, v) in AiValues(ai)) values[k] = v;   // a game body's template is the game's: the values go on each creature
@@ -598,7 +603,7 @@ internal static class NpcCompiler
         return new CreatureVariant
         {
             Id = info.Variant, Base = info.Template, Name = c.Name, Level = stats.Level, Faction = ai.Faction, Scale = own ? null : (float?)body.Scale,
-            DamageFactor = (float?)stats.Damage, XpFactor = (float?)stats.Experience, Resistances = resist, DisableFeatures = off, Ai = values,
+            DamageFactor = (float?)stats.Damage, XpFactor = (float?)stats.Experience, Resistances = resist, DisableFeatures = off, EnableFeatures = AiLowering.Enabled(ai) & ~off, Ai = values,
         };
     }
 
@@ -642,9 +647,10 @@ internal static class NpcCompiler
         List<(AttackBlock Block, int Index)> attacks, Graph graph, bool own, Part<AnimationBlock> anim, HashSet<string>? phases, NpcCreature info)
     {
         var rules = bh.Rules ?? [];
+        var aiRules = AiLowering.Rules(ai, name);   // npcai: the AI block's own rules (flee)
         var pickTarget = ai.PickTarget ?? (ai.PickTargetName is { } tn ? NpcRuntime.Lookup(NpcRuntime.Targets, tn) : null);
         var pickAttack = bh.PickAttack ?? (bh.PickAttackName is { } an ? NpcRuntime.Lookup(NpcRuntime.AttackPicks, an) : null);
-        if (attacks.Count == 0 && rules.Count == 0 && pickTarget == null && pickAttack == null) return null;
+        if (attacks.Count == 0 && rules.Count == 0 && aiRules.Count == 0 && pickTarget == null && pickAttack == null) return null;
         if (bh.Template != null && Creatures.Available && Creatures.Template(bh.Template) is null)
             throw new BlockError(ctx.Block, "behaviour.template", $"the game has no creature \"{bh.Template}\"");
 
@@ -682,12 +688,14 @@ internal static class NpcCompiler
             {
                 var act = NpcRules.Action(r.Do[k], mod, ctx, $"{path}.do[{k}]");
                 if (NpcRuntime.EffectOf(act) is { } eff) act = EffectAction(ctx, low, mod, key, eff.Effect, eff.On, $"{path}.do[{k}].effect", info);
+                act = AiLowering.Lower(ctx, low, mod, key, name, act, $"{path}.do[{k}]", info) ?? act;   // npcai: casts
                 CheckNames(ctx, act.Json, $"{path}.do[{k}]", mod, phases, names);
                 actions.Add(act);
             }
             foreach (var (cond, k) in when.Select((x, k) => (x, k))) CheckNames(ctx, cond.Json, $"{path}.when[{k}]", mod, phases, null);
             outRules.Add(new ArsenalRule { Name = r.Name ?? $"{name}.rule{i}", When = r.On, Every = r.Every, Cooldown = r.Cooldown, Chance = r.Chance, If = when, Do = actions });
         }
+        outRules.AddRange(aiRules);   // npcai
 
         Func<NpcView, string?>? pick = null;
         if (pickAttack != null)

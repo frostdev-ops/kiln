@@ -44,8 +44,10 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     uint  flags    = kParamU(p.params + KE_FLAGS);
     float duration = kParamF(p.params + KE_DURATION);
     float delay    = kParamF(p.params + KE_DELAY);
-    float rate     = kParamF(p.params + KE_RATE);
-    uint  burst    = kParamU(p.params + KE_BURST);
+    // The per-play "count" scales burst and rate (KX_COUNT, at most KX_MAX_FACTOR times).
+    float count    = kPlay(p.instance).count;
+    float rate     = kParamF(p.params + KE_RATE) * count;
+    uint  burst    = (uint)min((float)kParamU(p.params + KE_BURST) * count + 0.5f, 1048576.0f);
     uint  childSize = min(kParamU(p.params + KE_CHILD_STATE) & ~3u, (uint)KILN_VFX_MAX_CHILD_STATE);
 
     bool  first   = p.tick == 0;

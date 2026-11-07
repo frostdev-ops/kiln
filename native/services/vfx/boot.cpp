@@ -147,6 +147,7 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
     m->dir = dir;
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
+    m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
     auto add_folder = [&](const fs::path& folder, const char* prefix) {
         std::vector<fs::path> files;
         std::error_code e2;
@@ -187,6 +188,20 @@ std::vector<std::string> mod_folders() {
             if (std::find(out.begin(), out.end(), f) == out.end()) out.push_back(std::move(f));
     }
     return out;
+}
+
+// "shaders": false turns every mod's own particle module off (Kiln's sprite draws those particles); "skipShaderMods" lists mods to do that for.
+void shader_switches(kvb::CookOptions* opt) {
+    const std::string dir = api_path(KILN_PATH_CONFIG);
+    if (dir.empty()) return;
+    const ojson j = kvb::parse_relaxed(read_text(to_path(dir) / L"vfx.json"));
+    if (j.is_discarded() || !j.is_object()) return;
+    const auto on = j.find("shaders");
+    if (on != j.end() && on->is_boolean() && !on->get<bool>()) opt->skip_shaders = true;
+    const auto list = j.find("skipShaderMods");
+    if (list != j.end() && list->is_array())
+        for (const ojson& v : *list)
+            if (v.is_string()) opt->skip_shader_mods.insert(v.get<std::string>());
 }
 
 std::vector<std::string> skip_list() {
@@ -257,7 +272,13 @@ bool serve(const kvb::CookResult& r) {
         KilnAssetKey k{};
         std::memcpy(k.guid, s.guid.b, 16);
         k.type = s.type;
-        const KilnResult rc = g_assets->resource_put(g_self, &k, s.data.data(), s.data.size(), KILN_ASSET_PUT_NEW);
+        // A material that replaces one of the game's overrides that key; kiln.assets skips it with a warning if the game has no such material,
+        // and the textures served for it are then simply unused.
+        const KilnResult rc = g_assets->resource_put(g_self, &k, s.data.data(), s.data.size(), s.override ? KILN_ASSET_PUT_OVERRIDE : KILN_ASSET_PUT_NEW);
+        if (rc != KILN_OK && s.override) {
+            KV_W("vfx: %s: kiln.assets refused the replacement (%d): the game's own material draws", s.what.c_str(), static_cast<int>(rc));
+            continue;
+        }
         if (rc != KILN_OK) {
             KV_E("vfx: %s: kiln.assets refused it (%d): no Kiln VFX this session", s.what.c_str(), static_cast<int>(rc));
             return false;
@@ -323,6 +344,7 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         opt.game_has_blob = game_has_blob;
         opt.skip_vfx = !diff.empty();
         opt.skip_materials = !material_diff.empty();
+        shader_switches(&opt);
         const char* fingerprint = diff.empty() && material_diff.empty() ? "ok" : "changed";
         const std::string fingerprint_detail = diff.empty() ? material_diff : diff;
         const uint64_t t0 = GetTickCount64();
@@ -355,11 +377,15 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         if (!r.blocks.empty()) g_own_checks.store(600);
         set_status(fingerprint, fingerprint_detail, &r);
         const kvb::Capacity& cap = r.capacity;
-        if (!r.materials.empty())
+        if (!r.materials.empty()) {
+            const auto replacing = static_cast<unsigned>(std::count_if(r.materials.begin(), r.materials.end(), [](const kvb::BuiltMaterialBlock& m) { return m.replaces; }));
             KV_I("vfx: built %u Kiln material(s): materials %u+%u of %u, streamed textures %u+%u of %u", r.used_materials, g_game.materials, r.used_materials, cap.materials,
                  g_game.streamed_textures, r.used_streamed_textures, cap.streamed_textures);
+            if (replacing) KV_I("vfx: %u material(s) of mods draw in place of the game's own (\"replaces\")", replacing);
+        }
         if (r.blocks.empty()) return;
         g_late_done.store(false);
+        if (r.mod_modules) KV_I("vfx: %u particle shader(s) of mods passed their checks and are served (kiln/config/vfx.json \"shaders\": false turns them off)", r.mod_modules);
         KV_I("vfx: built %u Kiln VFX in %llu ms: VFX %u+%u of %u, meshes %u+%u of %u (%llu of %llu bytes free), sounds %u+%u of %u, curves %u+%u of %u; fingerprint ok",
              r.used_vfx, static_cast<unsigned long long>(GetTickCount64() - t0), g_game.vfx, r.used_vfx, cap.vfx, g_game.meshes, r.used_meshes, cap.meshes,
              static_cast<unsigned long long>(cap.mesh_bytes - g_game.mesh_bytes - r.used_mesh_bytes), static_cast<unsigned long long>(cap.mesh_bytes), g_game.sounds,
@@ -505,8 +531,10 @@ KilnResult build_define_json(KilnOwner, KilnStr json, char* report, size_t cap, 
                 const fs::path pending_root = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending";
                 if (read_mod(m.dir, pending_root, &all))
                     for (auto& [file, text] : all.documents) m.lookup_documents.push_back(std::move(text));
+                m.advanced = all.advanced;  // read from the manifest even when the mod has no data files
             }
             kvb::CookOptions opt;
+            shader_switches(&opt);
             opt.game = g_game;
             opt.read_file = &read_all;
             opt.cache = disk_cache();

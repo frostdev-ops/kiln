@@ -42,7 +42,10 @@ A part is a block of its own. Write it inline, define it once and share the hand
 var blade = Blocks.Define("ember-blade", WeaponClass.Sword with { Visual = emberLook, Stats = veteran });
 Blocks.Define("ember-edge", new WeaponBlock { Name = "Ember Edge", Class = blade, OnHit = searing });
 ```
-A look cannot carry a VFX yet: `VisualBlock.Vfx` is refused with a message. `OnHitBlock.Vfx` plays where a hit lands, and a wand attack's `CastBlock.Vfx` plays on the cast.
+`VisualBlock.Vfx` is a VFX on the thing itself: in the hand of whoever holds the item (in the right hand at the grip by default; `Offset` moves it up the blade), and on what stands there for a placed thing. In the hand it is a visual template of the item's own, a copy of the game's lit axe with the item's model. `OnHitBlock.Vfx` plays where a hit lands, and a wand attack's `CastBlock.Vfx` plays on the cast.
+```csharp
+Blocks.Define("glow-sword", new WeaponBlock { Name = "Glow Sword", Class = WeaponClass.Sword, Visual = new VisualBlock { Vfx = new VfxRef("frost_glow") { Offset = new Vector3(0, 0.8f, 0) } } });
+```
 
 ## Blocks
 | Block | Fields |
@@ -60,7 +63,22 @@ An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arr
 - **Potion.** `Heals` is the game's own drink and the tooltip's Health row. `OnUse` runs your effects on whoever uses it, from a use sequence of its own. Without `Heals`, its tooltip shows the Health, Mana and Stamina a use always gives (an effect with a `Chance` isn't counted).
 - **Food.** `Feeds` names a status. It goes in the game's food slots for the status's `Seconds`, which is also the tooltip's Duration. A game food sets its own time in the item, and eating it uses that time rather than the status's, so Kiln writes the status's time into the item.
 - **Arrow.** `Ammo.Damage` and `Ammo.Power` add to the bow's, as the game's arrows do.
-- **Tool.** `Harvests = Harvest.Wood` is an axe, `Harvest.Stone` a pickaxe. `Power` is its wood or stone damage; the rest of what it can do scales along.
+- **Tool.** `Harvests` says what it is, `ToolClass` or the shorthands in `Harvest`. Each class takes the fields it has a number for, and refuses the others by name:
+
+| Class (JSON) | What it is | Fields |
+|---|---|---|
+| `Axe` (`wood`), `Pickaxe` (`stone`) | The game's axe and pickaxe | `Power` (wood, stone damage; the rest scales along), `StaminaCost`, `BreaksInto` |
+| `Rake` (`rake`) | Flattens the ground where it aims, in a base | `Power` (flattening strength: the game's rakes 500, 1000), `Range` (metres, the box the cursor shows too; 3), `StaminaCost`, `BreaksInto` |
+| `Sieve` (`sieve`) | The game's mining sieve | `Power` (stone damage), `StaminaCost`, `BreaksInto` |
+| `Glider` (`glider`), `GrapplingHook` (`grappling-hook`) | In their own slots | `StaminaCost`; a hook's `Range` (13.5) |
+| `FishingRod` (`fishing-rod`) | The game's simple rod | `Fishing` (`Strength` 1, `Endurance` 30, the tooltip's numbers) |
+| `Torch` (`torch`) | Held, it lights and burns down | `Durability` (seconds it burns while held, the tooltip's Duration: 600), `BreaksInto` |
+
+`BreaksInto` is what it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or one of yours. Only a torch burns down over time; the game wears the other tools by its own rule (the world's durability setting), with no number of the item's own, so `Durability` on them is refused.
+```csharp
+Blocks.Define("garden-rake", new ItemBlock { Name = "Garden Rake", Tool = new ToolBlock { Harvests = ToolClass.Rake, Power = 750, Range = 5 } });
+Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new ToolBlock { Harvests = ToolClass.Torch, Durability = 1200, BreaksInto = "ash" } });
+```
 - **Water container.** `Holds` is its capacity in charges, as the game counts them: its watering can holds 100, its pouch 20 sips. `Flow` is how fast it fills and pours, a multiple of the game's own. See [Water containers](#water-containers).
 - **Wand.** Each attack is a `CastBlock` and a delivery, with a sequence of its own and no ammo item. `CastBlock.ManaCost` is paid by that attack alone. The primary's main damage is the wand's power and the tooltip's number. Heavy and special deal exactly what they say. An attack left out is the primary again; its motion comes from `Moves`, and the hand effect from the starter wand.
 - **Staff spell.** A `SpellBlock`: an ammo item, one charge per item in the stack.

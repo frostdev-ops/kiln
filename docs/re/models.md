@@ -309,7 +309,15 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
 5. **Animations.**
    - `keen::JointAnimation` (5,461) = {u64 hierarchyHash, position/scale factors, headers, compressed `vf32_data`, fps, frameCount, jointCount}.
    - Plus `AnimationSequenceContainer`, `LveAnimation`, `RootMotionAnimation` and the anim graph (`AnimationGraphResource2_0`, 279).
-   - New weapon animations would need the codec (headers + packed data), then sequences. That is research on its own; rigid weapons reuse the base weapon type's animations, which kitbash already chooses through `weaponCategoryReference` / the template.
+   - The codec is solved (5,461 of 5,461 clips byte-identical) and `tools/animcook` cooks glTF clips onto any skeleton, the player's included, with
+     retargeting from another rig (docs/kiln/modding/animations.md). Replacing one of the player's clips works today (`"guid": "@input"`): every
+     state that samples it plays the new one, for every weapon that uses it.
+   - **A weapon's own attacks** need new states in the player's graph (`21319e83…`: 2,944 nodes, 59 state machines). The melee attacks sit in
+     `SM_Melee_Attack_FullBody`, which holds one nested machine per weapon family (`SM_Attack_Sword_Shield_FullBody`, `…Hammer…`, `…Greatsword…`,
+     `…Dual_Daggers…`, `…Unarmed…`), each state entered when the id input `1563163402` equals its state hash (the FNV of the GUID a sequence's
+     `SetAnimationEvent.animationName` names). So the work is: decode the player graph, add a nested machine of the mod's states under
+     `SM_Melee_Attack_FullBody` with the same entry rule, re-encode it as an override, and give the weapon's attack sequences those state GUIDs.
+     The graph is one resource, so the edits of every mod have to be merged into one override at cook or boot time. Not built **[inf]**.
 6. **Validation route.** Done for geometry and skin, over every skinned model (section 6); the client test is open.
 
 ## 8. Open questions

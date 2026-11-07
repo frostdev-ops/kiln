@@ -10,6 +10,8 @@
     soundcook.py info FILE.(sound|cue|vo).bin [--blob F.qoa]   decode a cooked resource (tools/kfc)
     soundcook.py wav FILE.sound.bin [--blob F.qoa] [-o OUT.wav]  decode a cooked sound to 16-bit WAV
     soundcook.py build-native            build kiln-soundcook (tools/soundcook/native/build.sh)
+    soundcook.py blocks MODDIR [--check]  write the sound blocks of MODDIR/blocks/*.json into its assets/cook.json
+                                         (sndcook/blocks.py); then cook that recipe as any other
 
 A mod ships its own audio and assets/cook.json, never game data. The cook runs on the player's machine (today this
 script, later the launcher) and writes assets/cooked/ (gitignored), which the committed assets/assets.json names.
@@ -30,7 +32,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "kfc"))
 
 from kfc import sound as S  # noqa: E402
-from sndcook import pcm as P, recipe, res as R  # noqa: E402
+from sndcook import blocks as SB, pcm as P, recipe, res as R  # noqa: E402
 from sndcook.native import Native, NativeError, build  # noqa: E402
 
 DEFAULT_GAME = Path.home() / ".local/share/Steam/steamapps/common/Enshrouded"
@@ -174,6 +176,18 @@ def cmd_wav(a):
     return 0
 
 
+def cmd_blocks(a):
+    changed, path, _, names = SB.write(a.mod_dir, check=a.check)
+    if not names:
+        print("no sound blocks")
+        return 0
+    if a.check:
+        print(f"{path}: {'behind the blocks' if changed else 'up to date'} ({len(names)} sound block(s))")
+        return 1 if changed else 0
+    print(f"{path}: {'written' if changed else 'up to date'}, {len(names)} sound block(s): {', '.join(names)}")
+    return 0
+
+
 def cmd_build_native(a):
     print(build(_log))
     return 0
@@ -207,11 +221,14 @@ def main(argv=None):
     p.add_argument("--blob")
     p.add_argument("-o")
     sub.add_parser("build-native")
+    p = sub.add_parser("blocks", help="write the sound blocks of MODDIR/blocks/*.json into its assets/cook.json")
+    p.add_argument("mod_dir")
+    p.add_argument("--check", action="store_true", help="only say whether the recipe is behind the blocks")
     a = ap.parse_args(argv)
     try:
         return {"recipe": cmd_recipe, "convert": cmd_convert, "info": cmd_info, "wav": cmd_wav,
-                "build-native": cmd_build_native}[a.cmd](a)
-    except (recipe.RecipeError, NativeError, P.PcmError) as e:
+                "build-native": cmd_build_native, "blocks": cmd_blocks}[a.cmd](a)
+    except (recipe.RecipeError, NativeError, P.PcmError, SB.BlocksError) as e:
         print(f"soundcook: {e}", file=sys.stderr)
         return 2
 

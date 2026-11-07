@@ -1,0 +1,21 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A creature of your own files: blocks/creature.json names a skinned glTF (models/creature.glb) as its body and its animations as its clips.
+       The build cooks the skeleton, clips, state machine and model on your machine (kiln build; kiln cook redoes only the cook).
+       KilnBody1Mod.cs adds an admin command that spawns one next to you.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>]    (or: kiln deploy)
+       Docs: docs/kiln/modding/npc-blocks.md, docs/kiln/modding/animations.md, docs/kiln/modding/models.md (skinned models). -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnBody1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnBody1: a creature with a body and animations of its own, from a glTF.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <KilnSide>both</KilnSide>
+    <!-- Its model, skeleton, clips and graph are read at start on every player's game: players need this mod. -->
+    <KilnClients>mod</KilnClients>
+    <KilnServices>Blocks;Creatures;Spawn;Chat;Players;World</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

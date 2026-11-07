@@ -547,6 +547,8 @@ class Sim:
             return map1(fsafe(math.sin))
         if n == 14:
             return map1(fsafe(math.cos))
+        if n == 25:     # Atan2(y, x)
+            return map2(fsafe(math.atan2))
         if n == 26:
             return map2(fsafe(lambda p, q: p ** q))
         if n == 27:

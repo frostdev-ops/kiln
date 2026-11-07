@@ -1,0 +1,11 @@
+{
+  "id": "shader-sample",
+  "name": "Particle Shader Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ShaderSample.dll",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "Sample for a mod's own particle module (ShaderBlock): a swirl of curl-noise particles drawn by shaders/swirl.hlsl, the same block on Kiln's own sprite to compare, and one naming a module that fails its checks on purpose, which Kiln's sprite draws instead. Advanced: it runs its own code on the player's GPU."
+}

@@ -23,6 +23,20 @@
     "warm_glow": {
       "light": { "color": "#ffb060", "radius": 8, "brightness": 3, "lifetime": 2.5, "fadeIn": 0.2, "fadeOut": 1, "flicker": 0.25 }
     },
+    "spark_ring": {
+      // sparks thrown out of a ring at waist height, each stretched along its path, and dust rising from a disc under it
+      "particles": [
+        {
+          "burst": 48, "lifetime": [0.4, 0.8], "speed": [5, 8], "shape": { "ring": 1 }, "spread": "outward", "gravity": -6, "drag": 1,
+          "align": "velocity", "stretch": 0.05, "size": { "linear": [0.06, 0.02] }, "color": ["#ffffff", "#ffc060"], "intensity": 3,
+          "texture": "vfx/spark.png", "blend": "additive", "emissive": 1
+        },
+        {
+          "burst": 12, "lifetime": [0.8, 1.2], "speed": [0.3, 0.8], "shape": { "disc": 1.2 }, "spread": { "cone": 20 },
+          "size": { "linear": [0.3, 0.9] }, "color": "#8a7a66", "alpha": { "linear": [0.4, 0] }, "texture": "vfx/puff_2x2.png", "flipbook": { "columns": 2, "rows": 2 }, "lit": true
+        }
+      ]
+    },
     "ember_charge": {
       "particles": [ { "burst": 8, "lifetime": 0.3, "speed": [0.2, 0.6], "spread": "sphere", "size": { "linear": [0.08, 0] }, "color": "#ffd080", "texture": "vfx/spark.png", "blend": "additive" } ]
     },
@@ -31,8 +45,15 @@
       "light": { "color": "#ff9040", "radius": 3, "brightness": 2 }
     }
   },
+  "statuses": {
+    // a Kiln VFX recoloured per use: every Kiln VFX takes color, size, speed, brightness and count, so a status, a cast or an effect can set them
+    "vfx_sample_glow": {
+      "name": "Glowing", "description": "A cold light follows you.", "seconds": 6,
+      "vfx": { "name": "warm_glow", "parameters": { "color": "#80c0ff", "brightness": 1.5 } }
+    }
+  },
   "effects": {
-    "ember_hit": { "damage": { "fire": 20 }, "flinch": "light" },
+    "ember_hit": { "damage": { "fire": 20 }, "flinch": "light", "applies": "vfx_sample_glow" },
     // one of the game's VFX by name, recoloured through its own parameters. Only an effect can set them; `kiln catalog search` or a hover in VS Code says which it has
     "orange_flash": { "vfx": { "name": "game:VFX_Dummy_Impact", "parameters": { "radius": 2, "lifetime": 0.8, "color": "#ff9040" } } }
   },

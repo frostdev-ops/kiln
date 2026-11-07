@@ -350,7 +350,7 @@ class FieldValues(Base):
         self.assertEqual(v["killTimeInSeconds"], 10)
         self.assertEqual([x["sizeInBytes"] for x in v["stateInfos"]], [p["stateSizeInBytes"] for p in ps])
         self.assertEqual([m["offsetInBytes"] for m in v["stateInfos"][1]["members"]],
-                         [P["KS_S_AGE"], P["KS_S_LIFE"], P["KS_S_POS"], P["KS_S_VEL"], P["KS_S_ROLL"], P["KS_S_SPIN"]])
+                         [P["KS_S_AGE"], P["KS_S_LIFE"], P["KS_S_POS"], P["KS_S_VEL"], P["KS_S_ROLL"], P["KS_S_SPIN"], P["KS_S_AUX"]])
 
     def test_a_burst_alone_gets_a_small_duration(self):
         _, v, d = self.one({"particles": [{"burst": 24}]})

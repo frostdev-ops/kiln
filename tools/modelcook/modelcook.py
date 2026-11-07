@@ -143,6 +143,8 @@ def cmd_looks(a):
         print(f"{real} cooks the looks: modelcook.py recipe {real}")
         return 0
     path, doc = recipe.looks_recipe(mod_dir, a.mod)
+    # the steps name the mod's files from assets/, which a mod with only blocks may not have yet
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not recipe.own_steps(recipe.load(path, doc)):
         print("no looks")
         return 0

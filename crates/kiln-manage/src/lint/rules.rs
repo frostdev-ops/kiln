@@ -1636,8 +1636,8 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     if files.is_empty() {
         return;
     }
-    const SECTIONS: [(&str, &str); 42] = [
-        ("props", "prop"), ("placements", "placement"), ("comforts", "comfort"), ("processing", "processing"), ("menus", "menu"),
+    const SECTIONS: [(&str, &str); 43] = [
+        ("sounds", "sound"), ("props", "prop"), ("placements", "placement"), ("comforts", "comfort"), ("processing", "processing"), ("menus", "menu"),
         ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("terrainMaterials", "terrain material"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
         ("looks", "look"), ("weaponStats", "weapon stats"), ("armorStats", "armor stats"), ("weaponClasses", "weapon class"), ("armorSlots", "armor slot"), ("armorSets", "armor set"), ("onHits", "on-hit"),
         ("cosmetics", "cosmetic"), ("wornLooks", "worn look"),
@@ -1670,7 +1670,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "class" => (&["weapon class"], "a weapon class", &["sword", "axe", "mace", "greatsword", "greataxe", "hammer", "daggers", "bow", "staff", "shield", "wand"]),
             "slot" => (&["armor slot"], "an armor slot", &["head", "chest", "arms", "legs", "feet", "ring"]),
             "set" => (&["armor set"], "an armor set", &["warrior", "mage", "ranger"]),
-            "look" => (&["worn look"], "a worn look", &[]),
+            "look" => (&["worn look"], "a worn look", &["frost", "poison", "fire"]),  // a status's look is a premade by name
             "station" => (&["station"], "a station", &["hand"]),
             "placement" => (&["placement"], "a placement", &[]),
             "comfort" => (&["comfort"], "a comfort", &[]),

@@ -253,6 +253,9 @@ fn tool_cmd(repo: &Path, tool: &str) -> Option<(PathBuf, &'static str)> {
 /// Runs (or checks) every recipe of the project. `auto`: called by `kiln build`: silent when nothing is to do, and
 /// a recipe whose tool or game is missing only warns.
 fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
+    if !check {
+        write_sound_blocks(p, json);
+    }
     let recipes = p.recipes();
     let mut results = Vec::new();
     let looks = wants_looks(p);
@@ -333,6 +336,31 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         results.extend(entry);
     }
     Ok(json!({"ok": all_ok, "recipes": results}))
+}
+
+/// The sound blocks of blocks/*.json, written as steps into assets/cook.json (`soundcook.py blocks`), so the cook below makes them. Nothing when there are none or the tools are missing.
+fn write_sound_blocks(p: &Project, json: bool) {
+    let has_sounds = std::fs::read_dir(p.dir.join("blocks")).into_iter().flatten().flatten().any(|e| {
+        e.path().extension().is_some_and(|x| x == "json") && std::fs::read_to_string(e.path()).is_ok_and(|t| t.contains("\"sounds\""))
+    });
+    if !has_sounds {
+        return;
+    }
+    let (Some(repo), Ok(py)) = (tools::repo(), tools::python()) else { return };
+    let script = repo.join("tools/soundcook/soundcook.py");
+    if !script.is_file() {
+        return;
+    }
+    match Command::new(&py).arg(&script).arg("blocks").arg(&p.dir).output() {
+        Ok(o) if o.status.success() => {
+            let said = String::from_utf8_lossy(&o.stdout);
+            if said.contains("written") {
+                out::say(json, format!("kiln: {}", said.trim()));
+            }
+        }
+        Ok(o) => out::say(json, format!("kiln: warning: sound blocks: {}", String::from_utf8_lossy(&o.stderr).trim())),
+        Err(e) => out::say(json, format!("kiln: warning: sound blocks: {e}")),
+    }
 }
 
 /// Whether the project's blocks/*.json may hold looks with files the player's game needs cooked: a blocks folder and no assets/cook.json of modelcook's, which cooks them itself.

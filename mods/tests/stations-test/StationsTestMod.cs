@@ -165,9 +165,9 @@ public sealed class StationsTestMod : Mod
         Named("bad-burn", "recipes[0].burns", "less than 1");
         Named("effect-output", "recipes[0].output", "an-effect");
         Named("bad-sound", "processing.running.sound");
-        Named("glb-model", "visual.model", "cook");
+        Named("glb-model", "visual.model", "not in the mod's folder");
         Named("text-model", "visual.model", "a-model");
-        Named("look-vfx", "visual.vfx");
+        Named("look-vfx", "visual.vfx", "no VFX");   // a look's VFX is carried by what stands there; one the game lacks is named when content is ready
         Named("rack-roof", "recipes[0].sheltered", "rain");
         Named("no-such-process", "processing", "gone");
         Named("wrong-process", "processing", "an-effect");
@@ -182,7 +182,7 @@ public sealed class StationsTestMod : Mod
         Named("part-size", "size");
         Named("part-range", "range");
         Named("part-slots", "slots");
-        string[] broken = ["rack-roof", "no-name", "typo-field", "bad-kind", "bench-processing", "many-slots", "no-output", "no-seconds", "bad-seconds", "bench-seconds", "recipe-station", "no-inputs", "bad-burn", "effect-output", "bad-sound", "glb-model", "text-model", "look-vfx", "no-such-process", "wrong-process", "no-such-menu", "bad-comfort", "bad-range", "bad-category", "bad-on", "bad-size", "no-look", "no-prop-name", "part-size", "part-range", "part-slots"];
+        string[] broken = ["rack-roof", "no-name", "typo-field", "bad-kind", "bench-processing", "many-slots", "no-output", "no-seconds", "bad-seconds", "bench-seconds", "recipe-station", "no-inputs", "bad-burn", "effect-output", "bad-sound", "glb-model", "text-model", "no-such-process", "wrong-process", "no-such-menu", "bad-comfort", "bad-range", "bad-category", "bad-on", "bad-size", "no-look", "no-prop-name", "part-size", "part-range", "part-slots"];
         var made = (mine.Blocks ?? []).Intersect(broken).ToList();
         Check(made.Count == 0 && Content.Items.Get("stations-test.many-slots") == null && Content.Templates.Get("stations-test.many-slots.station") == null, $"none of the broken blocks became anything ({string.Join(", ", made)})");
         var late = mine.Errors?.FirstOrDefault(x => x.Contains("not-placed", StringComparison.Ordinal));

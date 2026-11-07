@@ -7,6 +7,7 @@ set(KILN_VFX_COOK_SOURCES
     ${KILN_VFX_COOK_DIR}/ids.cpp
     ${KILN_VFX_COOK_DIR}/budget.cpp
     ${KILN_VFX_COOK_DIR}/starter.cpp
+    ${KILN_VFX_COOK_DIR}/shader.cpp
     ${KILN_VFX_COOK_DIR}/define.cpp
     ${KILN_VFX_COOK_DIR}/build.cpp
     ${KILN_VFX_COOK_DIR}/texture.cpp

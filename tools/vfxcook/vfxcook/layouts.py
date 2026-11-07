@@ -119,13 +119,18 @@ def types():
                 (0x30, "mipChainContentRanges", "keen::BlobArray<keen::Range32>"), (0x38, "bindless", "keen::bool"), (0x39, "isTiled", "keen::bool"),
                 (0x3c, "debugName", "keen::string")),
         _static_array("keen::uint32", 16, 4),
+        _struct("keen::DsTypeId", 4, 4, (0, "value", "keen::uint32")),
+        _struct("keen::Range8", 2, 1, (0, "start", "keen::uint8"), (1, "count", "keen::uint8")),
+        # the per-play parameters every Kiln VFX describes (KX_* in kiln_vfx_params.h)
+        _struct("keen::VfxUserEffectParameterDescription", 12, 4, (0, "nameHash", "keen::HashKey32"), (4, "typeId", "keen::DsTypeId"),
+                (8, "dataRange", "keen::Range8"), (10, "jointCollectionIndex", "keen::uint8")),
+        _blob_array("keen::VfxUserEffectParameterDescription"),
         _object_ref("keen::VfxMeshResource"), _object_ref("keen::RenderTextureResource"), _object_ref("keen::RenderModel"),
         _object_ref("keen::VfxJointCollectionResource"),
     ]
     # Arrays the builder leaves empty: their element types only need a size.
     for name, size in (("keen::VfxSpringResource", 184), ("keen::VfxModelPatchPoint", 20), ("keen::VfxDecalPatchPoint", 20),
-                       ("keen::VfxLightFilterPatchPoint", 20), ("keen::VfxSoundPatchPoint", 20), ("keen::VfxCurvePatchPoint", 20),
-                       ("keen::VfxUserEffectParameterDescription", 12)):
+                       ("keen::VfxLightFilterPatchPoint", 20), ("keen::VfxSoundPatchPoint", 20), ("keen::VfxCurvePatchPoint", 20)):
         ts.append(_struct(name, size, 4))
         ts.append(_blob_array(name))
     for inner in ("keen::VfxParticleResource", "keen::VfxParticleStateBufferInfo", "keen::uint8", "keen::VfxMeshPatchPoint", "keen::VfxImagePatchPoint",

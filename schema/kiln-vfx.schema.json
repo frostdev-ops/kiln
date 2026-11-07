@@ -44,13 +44,44 @@
         "lifetime": { "$ref": "#/$defs/positiveValue", "description": "Seconds a particle lives: a number or [min, max]. Default 1." },
         "speed": { "$ref": "#/$defs/value", "description": "Metres per second at spawn: a number or [min, max]. Default 1." },
         "spread": {
-          "description": "Direction at spawn, around the effect's up. Default up.",
+          "description": "Direction at spawn, around the effect's up. outward: away from the centre of the shape. Default up.",
           "oneOf": [
-            { "enum": ["up", "sphere"] },
+            { "enum": ["up", "sphere", "outward"] },
             { "type": "object", "properties": { "cone": { "type": "number", "minimum": 0, "maximum": 180, "description": "Half angle in degrees." } }, "required": ["cone"], "additionalProperties": false }
           ]
         },
-        "spawnRadius": { "type": "number", "minimum": 0, "description": "Metres: start inside a sphere this big. Default 0, at the effect's position." },
+        "spawnRadius": { "type": "number", "minimum": 0, "description": "Metres: start inside a sphere this big. Default 0, at the effect's position. The same as shape {\"sphere\": r}: say one or the other." },
+        "shape": {
+          "description": "Where particles start, in the effect's space (its scale and rotation apply). Sizes in metres. Default: the effect's position.",
+          "oneOf": [
+            { "const": "point" },
+            { "type": "object", "properties": { "sphere": { "type": "number", "minimum": 0, "description": "Inside a sphere of this radius." }, "inner": { "type": "number", "minimum": 0, "description": "And outside this radius." }, "comment": {} }, "required": ["sphere"], "additionalProperties": false },
+            { "type": "object", "properties": { "shell": { "type": "number", "minimum": 0, "description": "On a sphere's surface." }, "comment": {} }, "required": ["shell"], "additionalProperties": false },
+            { "type": "object", "properties": { "hemisphere": { "type": "number", "minimum": 0, "description": "Inside the upper half of a sphere." }, "inner": { "type": "number", "minimum": 0 }, "comment": {} }, "required": ["hemisphere"], "additionalProperties": false },
+            { "type": "object", "properties": { "box": { "$ref": "#/$defs/vec3", "description": "Inside a box this big, centred." }, "comment": {} }, "required": ["box"], "additionalProperties": false },
+            { "type": "object", "properties": { "disc": { "type": "number", "minimum": 0, "description": "On a flat disc in the effect's horizontal plane." }, "inner": { "type": "number", "minimum": 0 }, "comment": {} }, "required": ["disc"], "additionalProperties": false },
+            { "type": "object", "properties": { "ring": { "type": "number", "minimum": 0, "description": "On a circle in the effect's horizontal plane." }, "comment": {} }, "required": ["ring"], "additionalProperties": false },
+            { "type": "object", "properties": { "line": { "type": "number", "minimum": 0, "description": "On a line this long along the effect's x, centred." }, "comment": {} }, "required": ["line"], "additionalProperties": false }
+          ]
+        },
+        "align": { "enum": ["camera", "velocity"], "description": "velocity: a camera-facing quad turns to point the way it moves (sparks, rain, streaks). Default camera." },
+        "stretch": { "type": "number", "minimum": 0, "maximum": 100, "description": "With align velocity: extra length in metres per metre per second of speed." },
+        "shader": {
+          "description": "Advanced: this mod's own particle module, a .spv built with kiln-vfxcook shader build (docs/kiln/modding/shaders.md). Needs \"advanced\": true in kiln.mod.json. If it can't be used, Kiln's own sprite draws the particle.",
+          "oneOf": [
+            { "type": "string", "pattern": "\\.spv$" },
+            {
+              "type": "object",
+              "properties": {
+                "file": { "type": "string", "pattern": "\\.spv$" },
+                "constants": { "type": "array", "items": { "type": "number" }, "maxItems": 8, "description": "Up to 8 numbers the module reads as c.user0 and c.user1." },
+                "comment": {}
+              },
+              "required": ["file"],
+              "additionalProperties": false
+            }
+          ]
+        },
         "gravity": { "type": "number", "description": "Metres per second squared on world y: negative falls." },
         "acceleration": { "$ref": "#/$defs/vec3", "description": "Metres per second squared in world space, added to gravity." },
         "drag": { "type": "number", "minimum": 0, "description": "Per second: velocity *= exp(-drag * dt)." },
@@ -192,6 +223,7 @@
         },
         "shader": { "type": "string", "minLength": 1, "description": "Reserved for surface shaders, which aren't built yet: Kiln refuses a material that names one." },
         "was": { "type": "string", "minLength": 1, "description": "The block's old name: the id stays the old one, so a model that names it doesn't notice the rename." },
+        "replaces": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", "description": "The GUID of one of the game's materials: this block draws in its place on every model that uses it (items, props, creatures). Keep its kind: the models carry the original's cutout and double-sided flags. Client-side only; a mod that only replaces may be side client." },
         "comment": {}
       },
       "additionalProperties": false,

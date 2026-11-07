@@ -1,0 +1,10 @@
+{
+  "id": "creature-ai",
+  "name": "Creature AI",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "CreatureAi.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "Who fights whom, and rules with more than the game's kinds: Vukahs and Scavengers feud everywhere; the warden (a Vukah) ignores players and hunts Scavengers; the vukah caller summons two Vukahs and throws ice; a ranger fights for the players and leaves Vukahs that carry no weapon alone. Server side, game bodies: vanilla clients watch. Sample for docs/kiln/modding/npc-ai.md."
+}

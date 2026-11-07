@@ -44,7 +44,8 @@
  * Versions: v1 = up to pack_mods; v2 appends export_changes; v3 appends define /
  * definitions (new items and recipes); v4 appends set_ref / undefine_owner / info (kitbash references,
  * per-language texts, loot / drops / knowledge of new items, missing-content placeholders) and the field flag in
- * KilnContentField.reserved[0]. Check header.version (or header.size) before calling an appended function. */
+ * KilnContentField.reserved[0]; icon_alias is appended to v4 (check header.size). Check header.version (or header.size)
+ * before calling an appended function. */
 #ifndef KILN_CONTENT_H
 #define KILN_CONTENT_H
 #include "../kiln_api.h"
@@ -288,6 +289,15 @@ typedef struct KilnContentApi {
     /* JSON: {"languages": [game language keys by keen::LanguageId], "textLanguage": bool (the hooks answer per
      * language), "refs": {pools per reference type}, "placeholders": [...], "distribution": {...}}. Any thread. */
     KilnResult(KILN_CALL* info)(char* buffer, size_t cap, size_t* out_len);
+
+    /* ---- appended to v4 (check header.size) ---- */
+
+    /* icon_alias: the UI looks the texture key `from` up as `to` for as long as kiln.assets does not serve an icon
+     * under `from` (icon_state != KILN_ICON_SERVED), the way a new item's icon falls back to its base item's. For a
+     * UiTexture GUID of a mod's own (a status's or a perk's PNG icon registered with kiln.assets) named in game data
+     * before the UI cache knows it: a key the cache lacks stops the game. Stays for the session. Client; harmless on a
+     * server. Any thread. */
+    KilnResult(KILN_CALL* icon_alias)(const uint8_t from[16], const uint8_t to[16]);
 } KilnContentApi;
 
 #ifdef __cplusplus

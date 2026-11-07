@@ -124,6 +124,7 @@ public sealed class DataClientsTests
         { "abilities", """{ "key": "G", "onCast": [ { "heal": 5 } ] }""", "mod" },
         { "triggers", """{ "on": "Gliding", "do": [ { "heal": 1 } ] }""", null },
         { "screenEffects", """{ "tint": [1, 0, 0], "seconds": 2 }""", null },
+        { "sounds", """{ "clips": ["audio/hum.wav"], "range": [3, 40] }""", "mod" },
         { "materialTweaks", """{ "material": "Stone", "hardness": 2 }""", null },
         { "strengths", """{ "material": "Stone", "hits": 3 }""", null },
         { "surfaces", """{ "material": "Stone", "noiseRange": [0, 1] }""", null },

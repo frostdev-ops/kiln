@@ -156,6 +156,22 @@ internal static partial class Compiler
             if (p.Lifetime is { } life && life.Min <= 0) Fail($"{at}.lifetime", "must be above 0");
             if (p.Spread is { Word: null } cone) Between($"{at}.spread.cone", cone.Degrees, 0, 180);
             Not($"{at}.spawnRadius", p.SpawnRadius, 0);
+            if (p.Shape != null && p.SpawnRadius != null) Fail($"{at}.shape", "say either shape or spawnRadius (a sphere): not both");
+            if (p.Shape is { } shape)
+            {
+                if (shape.A < 0 || shape.Size.X < 0 || shape.Size.Y < 0 || shape.Size.Z < 0) Fail($"{at}.shape", "sizes must not be negative");
+                if (shape.Inner is { } inner && (inner < 0 || inner > shape.A)) Fail($"{at}.shape.inner", "must be between 0 and the radius");
+            }
+            if (p.Stretch != null && p.Align != ParticleAlign.Velocity) Fail($"{at}.stretch", "stretches along the velocity: it needs \"align\": \"velocity\"");
+            Between($"{at}.stretch", p.Stretch, 0, 100);
+            if (p.Align == ParticleAlign.Velocity && (p.FaceCamera == false || (p.Mesh == ParticleMesh.QuadXz && p.FaceCamera != true)))
+                Fail($"{at}.align", "\"velocity\" turns a camera-facing quad: it needs faceCamera (a \"quad\" mesh faces the camera unless it says otherwise)");
+            if (p.Shader is { } shader)
+            {
+                if (!shader.File.EndsWith(".spv", StringComparison.OrdinalIgnoreCase)) Fail($"{at}.shader", $"\"{shader.File}\" is not a compiled .spv in your mod (build it with kiln-vfxcook shader build)");
+                if (shader.File.StartsWith('/') || shader.File.Contains("..", StringComparison.Ordinal) || shader.File.Contains(':')) Fail($"{at}.shader", $"\"{shader.File}\" must be relative, inside the mod's folder");
+                if (shader.Constants is { Count: > 8 }) Fail($"{at}.shader.constants", "up to 8 numbers");
+            }
             Not($"{at}.drag", p.Drag, 0);
             Not($"{at}.intensity", p.Intensity, 0);
             Not($"{at}.depthFade", p.DepthFade, 0);

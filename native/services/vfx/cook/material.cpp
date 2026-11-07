@@ -271,6 +271,12 @@ Bytes pbr_block(const MaterialDef& d, uint32_t flags) {
     return b;
 }
 
+uint32_t first_guid_field(const Guid& g);
+}  // namespace
+
+Guid material_guid(const MaterialDef& d, const std::string& mod) { return d.replaces ? *d.replaces : block_id(mod, "material", d.id_name); }
+
+namespace {
 uint32_t first_guid_field(const Guid& g) {
     uint32_t v;
     std::memcpy(&v, g.b, 4);
@@ -377,7 +383,7 @@ bool build_material(const MaterialDef& d, const std::string& mod, const std::vec
     m.signature = kPbrSignature;
     m.data = pbr_block(d, block);
     m.debug_name = "kiln_" + mod + "_" + d.name;
-    const Guid guid = block_id(mod, "material", d.id_name);
+    const Guid guid = material_guid(d, mod);
     const uint32_t bundle = first_guid_field(guid);
     // In the order the game's own materials list them: the emissive map first, then albedo, normal, params.
     std::vector<uint32_t> feedback;

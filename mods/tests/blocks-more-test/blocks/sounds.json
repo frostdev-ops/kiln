@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "sounds": {
+    "hum-json": { "clips": ["audio/hum.wav"], "volume": 0.6, "range": [3, 40], "loop": true },
+    "ping-json": { "clips": ["audio/ping_1.wav", "audio/ping_2.wav"], "range": [2, 30], "pitchRandomness": 0.05, "normalize": -23 }
+  },
+  "effects": {
+    "ping-effect-json": { "sound": "ping-json" }
+  }
+}

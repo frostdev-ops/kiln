@@ -5,6 +5,7 @@
 //    CraftingInteraction.workshopId is the one a client opens the menu of (it copies it to ClientCraftingInteraction, and the HUD reads that). So a station can run its own recipes and
 //    show an existing station's menu, with no hook. kiln.content lists its recipes in that menu.
 //  - comfort: a ComfortProvider of its own when the starter has none.
+using System.Numerics;
 using System.Text.Json.Nodes;
 
 namespace Kiln;
@@ -39,11 +40,15 @@ internal static partial class Compiler
         public readonly List<string> Add = [];
         /// <summary>The template's own texts, by slot: language -> slot -> text. Its loca fields name them by a tag derived from its GUID.</summary>
         public readonly JsonObject Texts = new();
+        /// <summary>A glTF of the mod's own that it shows, in the mod's folder: its box is the default collision.</summary>
+        public string? ModelFile;
     }
 
     /// <summary>What every placed thing says, on its item and its template.</summary>
     private static void PlacedParts(Placed p, PropBlock b, bool starterIsLook)
     {
+        if (b.Collider != null && b.GetType() != typeof(PropBlock))
+            throw new BlockError(p.Item.Ctx.Block, "collider", "a station or a piece of furniture keeps the collision of the game's it starts from: a box of yours is for a prop with a model of yours");
         PlacedVisual(p, b.Visual, starterIsLook);
         ApplyLoot(p.Item, b.Loot);
         if (b.Placement != null) ApplyPlacement(p.Item, p.Item.Ctx.Part(b.Placement, "placement"));
@@ -59,13 +64,16 @@ internal static partial class Compiler
             p.Item.Rows = new JsonArray { Row(RowComfort, "Normal", c.Amount) };
         }
         if (b.OnInteract != null) ApplyInteract(p, p.Item.Ctx.Part(b.OnInteract, "onInteract"), "onInteract.");
-        if (b.Light is { } light)
+        // a look's VFX on a placed thing is carried by what stands there, as a light is
+        var lookVfx = b.Visual != null ? p.Item.Ctx.Part(b.Visual, "visual").Vfx : null;
+        if (lookVfx != null && b.Light != null) throw new BlockError(p.Item.Ctx.Block, "visual.vfx", "it has a light already: one VFX on what stands there, say it in light or in visual.vfx");
+        if ((b.Light ?? lookVfx) is { } light)
         {
             // a station has these, a prop mostly doesn't. Added ones start zeroed, so the rotation is said.
             p.Add.Add("VfxComponent");
             p.Add.Add("VfxComponentResource");
             p.Fields["VfxComponent.attachmentOffset.orientationOffset.w"] = 1;
-            foreach (var (k, v) in VfxData.Component(p.Item.Ctx, VfxData.Lower(p.Item.Ctx, light, "light"), p.Template)) p.Fields[k] = v?.DeepClone();
+            foreach (var (k, v) in VfxData.Component(p.Item.Ctx, VfxData.Lower(p.Item.Ctx, light, b.Light != null ? "light" : "visual.vfx"), p.Template)) p.Fields[k] = v?.DeepClone();
         }
     }
 
@@ -85,7 +93,6 @@ internal static partial class Compiler
         var d = p.Item;
         var ctx = d.Ctx;
         var v = ctx.Part(part, "visual");
-        if (v.Vfx != null) throw NoLookVfx(ctx, "visual.vfx");
         string? from = null;
         if (v.Like is { } like)
         {
@@ -95,9 +102,28 @@ internal static partial class Compiler
         }
         if (v.Model is { } model)
         {
-            if (model.EndsWith(".glb", StringComparison.OrdinalIgnoreCase) || model.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase))
-                throw new BlockError(ctx.Block, "visual.model", $"\"{model}\": a glTF is cooked before it can be named here: add a model step to assets/cook.json, serve it from assets/assets.json, and give its GUID (docs/kiln/modding/models.md)");
-            if (model.StartsWith("item:", StringComparison.Ordinal)) from = model[5..];
+            if (IsGltf(model))
+            {
+                // a model of the mod's own: kiln cook makes it from the file (tools/modelcook finds it in blocks/*.json), under the GUID that follows from its path
+                if (model.Contains("..") || Path.IsPathRooted(model)) throw new BlockError(ctx.Block, "visual.model", $"\"{model}\": a file in the mod's folder, with a relative path");
+                ctx.Need(ClientsLevel.Mod, "visual.model", "a model of the mod's own has to be on every player's game: nothing can send it (an item's look, \"item:<name>\", asks no more than kiln)");
+                var dir = BlocksBridge.ModDirectory(ctx.Mod.Id);
+                if (dir.Length > 0)
+                {
+                    var full = Path.Combine(dir, model);
+                    if (!File.Exists(full))
+                        throw new BlockError(ctx.Block, "visual.model", $"\"{model}\" is not in the mod's folder. The build copies a mod's folders to where it runs: models/ is one of them (KilnModFolders)");
+                    p.ModelFile = full;
+                    if (BlocksBridge.IsClient && !File.Exists(Path.Combine(dir, "assets", "cooked", WornStem(model) + ".bin")))
+                        lock (ctx.Mod.Warnings) ctx.Mod.Warnings.Add($"block {ctx.Block}, visual.model: {model} is not cooked, so it shows the look it starts from. Run kiln cook: a model in blocks/*.json is found by itself, one in code needs a model step in assets/cook.json");
+                }
+                var guid = WornModelGuid(ctx.Mod.Id, model).ToString();
+                p.Fields["ModelResource.model"] = guid;
+                d.Refs["iconModel"] = guid;
+                d.Refs["equipment.cursorModel"] = guid;
+                d.Low.Json["model"] = new JsonObject { ["file"] = model, ["guid"] = guid };
+            }
+            else if (model.StartsWith("item:", StringComparison.Ordinal)) from = model[5..];
             else if (Guid.TryParse(model, out _))
             {
                 ctx.Need(ClientsLevel.Mod, "visual.model", "a model of the mod's own has to be on every player's game: nothing can send it (an item's look, \"item:<name>\", asks no more than kiln)");
@@ -128,6 +154,68 @@ internal static partial class Compiler
             d.Fields["itemColorCombinationSetup.isSet"] = true;
         }
     }
+
+    // A prop with a model of its own starts from a plain game prop with one collider: a box (floor, wall) or a capsule (ceiling). The box becomes the model's,
+    // on what is placed and on the item's placement check alike. Each collider names a physics shape by a hash; the clone's has its own, so the game can't
+    // take it for the starter's shape.
+    private static void ApplyCollider(Placed p, BoxCollider? c, PlacementBlock? placement, string key)
+    {
+        var ctx = p.Item.Ctx;
+        Vector3 centre, half;
+        if (c != null)
+        {
+            if (c.Size.X <= 0 || c.Size.Y <= 0 || c.Size.Z <= 0 || float.IsNaN(c.Size.X + c.Size.Y + c.Size.Z))
+                throw new BlockError(ctx.Block, "collider.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: a size in metres is more than 0 each way");
+            if (Math.Max(c.Size.X, Math.Max(c.Size.Y, c.Size.Z)) > MaxColliderSize)
+                throw new BlockError(ctx.Block, "collider.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: at most {MaxColliderSize} m each way");
+            half = c.Size / 2;
+            centre = c.Center ?? new Vector3(0, half.Y, 0);
+        }
+        else if (p.ModelFile != null && GltfBounds.Of(p.ModelFile) is var (min, max))
+        {
+            half = Vector3.Max((max - min) / 2, new Vector3(MinHalf));
+            centre = (min + max) / 2;
+        }
+        else return;
+        var capsule = placement?.On is { } on && !on.HasFlag(Surface.Floor) && !on.HasFlag(Surface.Wall);
+        var hash = (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", key));
+        void Put(Action<string, double> set, string at, string jolt)
+        {
+            set($"{at}.offset.x", centre.X);
+            set($"{at}.offset.y", centre.Y);
+            set($"{at}.offset.z", centre.Z);
+            if (capsule)
+            {
+                var r = Math.Max(half.X, half.Z);
+                set($"{at}.shape.radius", r);
+                set($"{at}.shape.length", Math.Max(0, 2 * half.Y - 2 * r));
+            }
+            else
+            {
+                set($"{at}.shape.halfSize.x", half.X);
+                set($"{at}.shape.halfSize.y", half.Y);
+                set($"{at}.shape.halfSize.z", half.Z);
+            }
+            set(jolt, hash);
+        }
+        Put((k, v) => p.Fields[k] = v, "ColliderResourceComponent.colliders[0].dataArray[0]", "ColliderResourceComponent.colliders[0].joltObjects[0].hash");
+        Put((k, v) => p.Item.DataRules[k] = v, "equipment.placementColliders[0].dataArray[0]", "equipment.placementColliders[0].joltObjects[0].hash");
+        if (placement?.Size == null)
+        {
+            foreach (var (axis, lo, hi) in new[] { ("x", centre.X - half.X, centre.X + half.X), ("y", centre.Y - half.Y, centre.Y + half.Y), ("z", centre.Z - half.Z, centre.Z + half.Z) })
+            {
+                p.Item.Fields[$"equipment.placementAABBmin.{axis}"] = (double)lo;
+                p.Item.Fields[$"equipment.placementAABBmax.{axis}"] = (double)hi;
+            }
+        }
+        p.Item.Low.Json["collider"] = new JsonObject
+        {
+            ["shape"] = capsule ? "capsule" : "box", ["center"] = new JsonArray(centre.X, centre.Y, centre.Z), ["half"] = new JsonArray(half.X, half.Y, half.Z),
+            ["from"] = c != null ? "block" : "model",
+        };
+    }
+
+    private const float MaxColliderSize = 32, MinHalf = 0.02f;
 
     private static void CheckPlacement(BlockContext ctx, PlacementBlock p, string path)
     {
@@ -212,6 +300,9 @@ internal static partial class Compiler
             _ => "item:" + starter,
         });
         PlacedParts(p, b, starterIsLook: look.Like != null);
+        if (look.Like != null && b.Collider != null)
+            throw new BlockError(ctx.Block, "collider", "a game item's look brings its own collision: a box of yours goes with a model of yours (visual.model)");
+        if (look.Like == null) ApplyCollider(p, b.Collider, placement, key);
         CommitPlaced(ctx, low, p, b, name, key);
         return new BlockHandle<PropBlock>(mod, name, d.Guid, d.Game, b);
     }
@@ -294,6 +385,8 @@ internal static partial class Compiler
         if (Guid.TryParse(s, out var guid)) return guid;
         if (string.IsNullOrWhiteSpace(s)) throw new BlockError(ctx.Block, Path, "a sound needs a name: a cue of this mod, \"other-mod:name\", or a cue's GUID");
         ctx.Need(ClientsLevel.Mod, Path, "a cue of a mod has to be on every player's game: nothing can send it");
+        // a sound block of this mod: its GUID is known without the cooked index, which a server doesn't have
+        if (!s.Contains(':') && ctx.Find(s, Path) is BlockHandle<SoundBlock> block) return block.Guid;
         var colon = s.IndexOf(':');
         try
         {

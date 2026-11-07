@@ -48,6 +48,10 @@ that spawns at once has them. The play line then ends in `N parameter(s) in its 
 game's setter once there is an instance, and the game ignores it. `Vfx.Set` on a running VFX also uses the setter: only what spawns or is read
 after it changes.
 
+A Kiln VFX (a `VfxBlock`) describes `color`, `size`, `speed`, `brightness` and `count`, all factors on what its block says
+([vfx-cook.md](vfx-cook.md#per-play-parameters)). Colour, size and brightness are read at every draw, so `Vfx.Set` changes them on what is alive;
+count and speed apply to what spawns afterwards.
+
 ## How long an effect runs
 The game reports no "finished", so Kiln stops a one-shot itself. A [VFX block](vfx-cook.md) stops after its delay, duration and longest particle life. Any other
 VFX, and a block that runs until stopped, stops after the length its resource gives: the larger of `killTimeInSeconds` and its `duration` + `lifetime`

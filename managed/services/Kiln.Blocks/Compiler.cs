@@ -138,6 +138,7 @@ internal static partial class Compiler
             BuildingMaterialBlock m => DefineBuildingMaterial(ctx, low, name, m),
             StrengthBlock s => DefineStrength(ctx, low, name, s),
             SurfaceBlock s => DefineSurface(ctx, low, name, s),
+            SoundBlock s => DefineSound(ctx, low, name, s),
             _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
@@ -174,10 +175,10 @@ internal static partial class Compiler
         var (program, blob, listing) = EffectEmitter.StatusProgram(ctx, $"{key}.status", s);
         low.Program(program, $"{key}.status", blob, listing);
         var game = $"{ctx.Mod.Id}.{name}";
-        if (s.Icon is { } icon)
+        if (s.Icon is { } png && png.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            BlockIcons.Own(ctx, low, "buffs", game, Content.Buffs, StatusLook.Of(s).Starter, png, key, "icon");
+        else if (s.Icon is { } icon)
         {
-            if (icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                throw new BlockError(ctx.Block, "icon", "a status cannot have a PNG icon of its own yet: name a game status, whose icon it takes");
             if (!icon.StartsWith("0x", StringComparison.Ordinal) && !icon.StartsWith("buff_", StringComparison.Ordinal))
                 throw new BlockError(ctx.Block, "icon", $"\"{icon}\" is not a game status: a GameBuffs constant");
             low.AfterCommit(() => BlockRuntime.AddIcon(ctx.Mod, game, icon, ctx.Block));

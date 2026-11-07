@@ -135,6 +135,13 @@ def check_clip(clip, frames, default_pose):
 
 def cook_clip(doc, anim_name, skel, loop=None, tolerance=None, root_motion=None):
     """-> (clip bytes, info, root motion value or None, lve value or None). `root_motion`: None, or {joint, axes, rotation}."""
+    frames, n = sample_animation(doc, anim_name, skel)
+    return finish_clip(frames, n, skel, anim_name, loop, tolerance, root_motion)
+
+
+def sample_animation(doc, anim_name, skel):
+    """An animation of the file sampled at FPS on the skeleton's joints -> (frames, n): n + 1 frames of (rots, positions, scales), game space,
+    parent-relative. Joints are found by name (on a game skeleton also by the `keen_joint` extra tools/kfc writes)."""
     anims = doc.animations()
     if anim_name not in anims:
         raise ClipError(f"{doc.path.name}: no animation {anim_name!r} (has {', '.join(anims) or 'none'})")
@@ -155,6 +162,11 @@ def cook_clip(doc, anim_name, skel, loop=None, tolerance=None, root_motion=None)
     t0, t1 = min(times), max(times)
     n = max(1, round((t1 - t0) * FPS))
     frames = [sample_track(doc, chans, skel, node_of_joint, f, n, t0, t1) for f in range(n + 1)]
+    return frames, n
+
+
+def finish_clip(frames, n, skel, anim_name, loop=None, tolerance=None, root_motion=None):
+    """Sampled frames on `skel` -> (clip bytes, info, root motion value or None, lve value or None): what cook_clip returns."""
     dp = skel.default_pose()
     warnings = []
     is_loop = bool(loop)

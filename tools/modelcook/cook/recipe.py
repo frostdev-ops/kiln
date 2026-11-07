@@ -119,6 +119,10 @@ def load(path, given=None):
     # what the mod's blocks ask for; a step of the recipe that names the same file says more, and wins
     named = {st.get("model") for st in doc.get("steps", []) if st.get("op") == "worn"}
     doc["steps"] = doc.get("steps", []) + [st for st in W.steps_from_blocks(_mod_dir(p)) if st["model"] not in named]
+    # the models of placed things the blocks show; a model step of the recipe for the same file says more, and wins
+    from . import placed as PL
+    gltfs = {(p.parent / st["gltf"]).resolve() for st in doc["steps"] if st.get("op") == "model" and "gltf" in st}
+    doc["steps"] += [st for st in PL.steps_from_blocks(_mod_dir(p), p.parent) if (p.parent / st["gltf"]).resolve() not in gltfs]
     return _creature_blocks(doc, p)
 
 

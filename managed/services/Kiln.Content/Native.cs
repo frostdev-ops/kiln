@@ -118,6 +118,9 @@ internal static unsafe class ContentNative
         public delegate* unmanaged[Cdecl]<ulong, uint, uint, NativeStr, NativeStr, uint, byte*, nuint, nuint*, int> SetRef;
         public delegate* unmanaged[Cdecl]<ulong, uint> UndefineOwner;
         public delegate* unmanaged[Cdecl]<byte*, nuint, nuint*, int> Info;
+
+        // ---- appended to v4 (check Header.Size): a UI texture key shown as another until kiln.assets serves it ----
+        public delegate* unmanaged[Cdecl]<byte*, byte*, int> IconAlias;
     }
 
     public const byte FieldRef = 1;

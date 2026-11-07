@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "creatures": {
+    "vukah-caller": {
+      "name": "Vukah Caller",
+      "body": "vukah",
+      "ai": { "like": "vukah", "sight": 28, "nightSight": 0.8, "callsForHelp": true, "flee": { "below": 0.2, "min": 15, "max": 30, "seconds": 8 } },
+      "behaviour": {
+        "like": "vukah-melee",
+        "rules": [
+          { "name": "call", "every": 10, "chance": 0.3,
+            "when": [ { "healthBelow": 0.5 }, { "summonsBelow": 2 } ],
+            "do": [ { "summon": { "creature": "Enemy_Vukah_Melee", "count": 2, "radius": 4, "seconds": 60 } }, { "heal": 0.1 } ] },
+          { "name": "ice", "every": 1, "cooldown": 4,
+            "when": [ { "inCombat": true }, { "hasTarget": true }, { "targetWithin": 25 } ],
+            "do": [ { "cast": { "type": "projectile", "speed": 25, "range": 30, "onHit": [ { "damage": { "ice": 30 } } ] } } ] }
+        ]
+      },
+      "stats": { "level": 18 },
+      "spawns": [ { "replaces": "Enemy_Vukah_Melee", "chance": 0.05 } ]
+    }
+  }
+}

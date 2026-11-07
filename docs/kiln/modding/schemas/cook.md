@@ -41,6 +41,20 @@ One clip of a glTF file. Its name is the key; other steps name it by that.
 | `rootMotion` | boolean or object |  | Moves the joint's motion to the entity: true, or {joint (default the root), axes (default xz), rotation}. |
 | `tolerance` | [animTolerance](#animtolerance) |  |  |
 
+## animRetarget
+
+The file's animations are on a rig of their own: play them on `skeleton` by pairing joints. Each paired joint turns as its source turns away from the reference pose; translations carry over on the hips, scaled by the rigs' heights.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `byName` | boolean |  | Pair joints of the same name that the map leaves out. Default `true`. |
+| `map` | object or `"names"` |  | Source joint (the file's) -> target joint (the skeleton's; j<index> on a game skeleton). Joints of the same name pair by themselves. |
+| `reference` | object |  | A pose of the source that shows the target's rest posture (a T-pose clip for a T-pose skeleton). Default: the file's rest pose. |
+| `root` | string |  | The source rig's root joint, for a file without a skin. |
+| `scale` | number or `"auto"` |  | How far translations go on the target; auto: the rigs' heights. Default `"auto"`. |
+| `skin` | integer |  | Which skin of the file is the source rig. min 0 |
+| `translate` | array of string or `"all"` |  | Source joints whose movement carries over, or "all" (rigs that move props or IK helpers by translation). Default: the topmost paired joints, and the hips below a root bone on the ground. |
+
 ## animSource
 
 What a state or a layer plays: clip, or blend.
@@ -75,6 +89,7 @@ assets/cook.json: model, sound and animation steps.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
+| `blockSounds` | array of string |  | soundcook: the steps `soundcook.py blocks` wrote from the sound blocks of blocks/*.json; it replaces them on its next run. Leave it to the tool. |
 | `game` | [game](#game) |  |  |
 | `guidNamespace` | [guid](#guid) |  | soundcook: GUIDs of new sounds are UUIDv5(namespace, "<op>:<name>"); pick it once, never change it. |
 | `inputs` | object |  | Vanilla inputs read from the installed game: id -> {guid, type, part}. |

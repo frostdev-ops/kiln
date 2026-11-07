@@ -49,6 +49,37 @@ var burst = Blocks.Define("frost_burst", new VfxBlock
 - **Curves** (`size`, `alpha`) are a number, `{"linear": [start, end]}`, a list, or `{"keys": [[t, value], ...]}`. **Colours** are one, a list, or keys.
 - **Renames.** Ids come from your mod's id and the block's name. After a rename say `"was": "old_name"`.
 
+### Where particles start, and which way they go
+`"shape"` places each new particle in the effect's space (its scale and rotation apply): `{"sphere": 2}` (add `"inner": 1` for a hollow
+one), `{"shell": 2}`, `{"hemisphere": 2}`, `{"box": [2, 1, 2]}`, `{"disc": 1.5}`, `{"ring": 1.5}`, `{"line": 4}`. `"spread": "outward"` sends them
+away from the shape's centre: out of a sphere, along a disc's plane, across a line. C#: `Shape = SpawnShape.Ring(1.5f), Spread = Shape.Outward`.
+
+`"align": "velocity"` turns a camera-facing quad to point the way it moves, and `"stretch": 0.05` adds 5 cm of length per m/s: sparks, rain,
+streaks.
+```jsonc
+"spark_ring": { "particles": [ {
+  "burst": 48, "lifetime": [0.4, 0.8], "speed": [5, 8], "shape": { "ring": 1 }, "spread": "outward", "gravity": -6, "drag": 1,
+  "align": "velocity", "stretch": 0.05, "size": { "linear": [0.06, 0.02] }, "color": ["#ffffff", "#ffc060"], "intensity": 3,
+  "texture": "vfx/spark.png", "blend": "additive", "emissive": 1 } ] }
+```
+
+### Per-play parameters
+Every Kiln VFX takes `color` (`"#rrggbb"` or `"#rrggbbaa"`: a tint, and its alpha multiplies alpha), `size`, `speed`, `brightness` (particles and
+light) and `count` (burst and rate). They are factors on what the block says, from 0 to 16, and white or 1 when nobody sets them. So one block
+serves a blue frost and a red ember, a small and a large burst:
+```jsonc
+"statuses": { "glowing": { "name": "Glowing", "seconds": 6, "vfx": { "name": "warm_glow", "parameters": { "color": "#80c0ff", "brightness": 1.5 } } } }
+```
+```csharp
+Vfx.PlayAt(burst, at, parameters: new VfxParams().Set("color", new Color(64, 160, 255)).Set("size", 2f).Set("count", 2f));
+Vfx.Set(handle, "brightness", 0.5f);   // on a running one: colour, size and brightness change at once, count and speed for what spawns next
+```
+A cast, a status and an effect take them on a Kiln VFX; a projectile's or a prop's VFX can't yet (its template has no parameter component). A
+name or a type that isn't one of the five is an error that names the field.
+
+### Your own particle code
+Advanced: [shaders.md](shaders.md). A block's particle can run a module you wrote in HLSL against Kiln's kit (`"shader": "shaders/build/swirl.spv"`).
+
 ## Textures
 A PNG in the mod's `vfx/` folder, both sides a power of two, from 4 to 2048. Kiln compresses it at boot and keeps the result. Draw light on black for `"blend": "additive"`, and use alpha for `"blend": "alpha"`. A white texture takes its colour from `color`. A particle can also take its texture, tint and light from a [material](materials.md) of its mod: `"material": "frost_steel"`.
 
@@ -115,4 +146,5 @@ A mistake names the block and the field: `my-fx: blocks/x.json: vfx.spark.partic
 **If something goes wrong,** `kiln/config/vfx.json` with `{"enabled": false}` skips mods' VFX before the game can see them, and `"skipMods": ["my-fx"]` skips one mod's.
 
 ## Not yet
-A VFX block's own sound, decals, fog, custom meshes, its own named parameters and your own shaders.
+A VFX block's own sound, decals, fog, custom meshes, named parameters of your own (the five above are every Kiln VFX's), a particle that draws a
+model, and surface shaders for models (`docs/re/shaders.md` has the plan).

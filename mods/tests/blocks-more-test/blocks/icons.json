@@ -1,0 +1,10 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "statuses": {
+    "chill-json": { "name": "Chill", "seconds": 6, "look": "frost", "icon": "icons/chill.png", "onTick": [ { "damage": { "ice": 1 } } ] }
+  },
+  "perks": {
+    "ember-edge-json": { "name": "Ember Edge", "icon": "icons/ember.png", "modifies": { "strength": 3 } }
+  }
+}

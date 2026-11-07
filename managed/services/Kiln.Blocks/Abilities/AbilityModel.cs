@@ -123,7 +123,9 @@ public sealed record PerkBlock : IBlock, ITweakable
     public string? Description { get; init; }
     /// <summary>The number the tooltip shows in front of the name: <c>"5%"</c>, <c>"12"</c>, <c>"2.5"</c>, <c>"8s"</c>. Null: what a single <see cref="Modifies"/> entry or a single on-hit effect's chance says, else none.</summary>
     public string? Value { get; init; }
-    /// <summary>The icon, when it is not the starter's: a <c>GamePerks</c> constant, whose icon it takes.</summary>
+    /// <summary>The icon, when it is not the starter's: a <c>GamePerks</c> constant, whose icon it takes, or a PNG in the mod's folder
+    /// (<c>"icons/frost-edge.png"</c>, square, 256x256 as the game's; then <c>clients: mod</c>).</summary>
+    [ClientsModWhen("(?i)\\.png$")]
     public string? Icon { get; init; }
     /// <summary>Stats changed on whoever wears or wields it: <c>Modifies = { [Stat.MaxHealth] = 40 }</c>.</summary>
     public IDictionary<Stat, double> Modifies { get; init; } = new Dictionary<Stat, double>();

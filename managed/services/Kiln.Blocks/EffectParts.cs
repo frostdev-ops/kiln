@@ -63,13 +63,15 @@ public readonly record struct TemplateRef(string Value)
     public override string ToString() => Value;
 }
 
-/// <summary>A sound: the name of a cue in this mod's <c>audio/</c>, <c>"other-mod:name"</c>, or a cue's GUID (<c>GameSounds.Guids</c>).
+/// <summary>A sound: a <see cref="SoundBlock"/> or a cue of this mod's cook recipe by name, <c>"other-mod:name"</c>, or a cue's GUID (<c>GameSounds.Guids</c>).
 /// A cue of the mod's own needs the mod on every client (<c>clients: "mod"</c>).</summary>
 [JsonConverter(typeof(SoundRefConverter))]
 public readonly record struct SoundRef(string Value)
 {
     public static implicit operator SoundRef(string value) => new(value);
     public static implicit operator SoundRef(Guid guid) => new(guid.ToString());
+    /// <summary>A <see cref="SoundBlock"/> of this mod, by its handle.</summary>
+    public static implicit operator SoundRef(BlockHandle<SoundBlock> sound) => new(sound.Name);
     public override string ToString() => Value;
 }
 
@@ -97,9 +99,9 @@ public sealed record VfxRef
     public bool Attach { get; init; } = true;
     /// <summary>On an effect, how long it plays. Null: the VFX's own length; the template's for a game VFX named after one, else 5 s.</summary>
     public double? Seconds { get; init; }
-    /// <summary>Named parameters of a game VFX: <c>["radius"] = 3f, ["color"] = "#ff0000"</c>. Only an effect can set them: anything else starts a VFX from data the server can't lay out,
-    /// as the layout is in the VFX, which only clients have. So an effect with parameters reaches Kiln clients near it through <see cref="Vfx.PlayAt"/>'s relay, and not a joiner. A name
-    /// or type the VFX does not have does nothing.</summary>
+    /// <summary>Named parameters. A game VFX's are its own (<c>["radius"] = 3f, ["color"] = "#ff0000"</c>; a name or type it does not have does nothing). A Kiln VFX (a <c>VfxBlock</c>)
+    /// takes five play settings: <c>color</c>, <c>size</c>, <c>speed</c>, <c>brightness</c>, <c>count</c> (<see cref="VfxParameterBlock.Names"/>). An effect, a cast and a status can set them;
+    /// a projectile's, a look's or a prop's VFX refuses them. An effect's parameters reach Kiln clients near it through <see cref="Vfx.PlayAt"/>'s relay, not a joiner.</summary>
     public Dictionary<string, VfxValue>? Parameters { get; init; }
 
     /// <summary>One of the game's VFX, by its catalog name (<c>GameVfx</c>).</summary>

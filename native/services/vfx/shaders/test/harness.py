@@ -231,6 +231,18 @@ class World:
             for i, v in enumerate(scale):
                 inst.put_f32(base + 32 + i * 4, v)
 
+    def set_play(self, color=None, size=1.0, speed=1.0, brightness=1.0, count=1.0, magic=True, slot=0):
+        """The per-play parameters (KX_*) of an instance, as the game copies a start block or Kiln's defaults into it."""
+        inst = self.buf[INSTANCES]
+        base = 128 * slot + P["KX_BASE"]
+        r, g, b, a = color or (255, 255, 255, 255)
+        inst.put_u32(base + P["KX_COLOR"], r | g << 8 | b << 16 | a << 24)
+        inst.put_f32(base + P["KX_SIZE"], size)
+        inst.put_f32(base + P["KX_SPEED"], speed)
+        inst.put_f32(base + P["KX_BRIGHTNESS"], brightness)
+        inst.put_f32(base + P["KX_COUNT"], count)
+        inst.put_u32(base + P["KX_MAGIC"], 0x4E4C494B if magic else 0)
+
     def assign_instance(self, chunk_index, slot):
         """Move a root entry, and the emitter behind it, to another instance slot (what instance activation does)."""
         c = self.chunks[chunk_index]
@@ -379,7 +391,7 @@ def emitter_block(duration=0.0, delay=0.0, rate=0.0, burst=0, loop=False, child_
 
 def sprite_block(life=(1.0, 1.0), speed=(1.0, 2.0), draw_flags=0, flags=None, image=7, sampler=2, mesh=1, spread=0, angle=0.0,
                  accel=(0.0, 0.0, 0.0), drag=0.0, size=None, alpha=None, color=None, flipbook=0, fps=0.0, emissive=0.0, radius=0.0,
-                 spin=(0.0, 0.0), roll=(0.0, 0.0), depth_fade=0.0):
+                 spin=(0.0, 0.0), roll=(0.0, 0.0), depth_fade=0.0, shape=None, shape_size=(0.0, 0.0, 0.0), stretch=0.0, user=None):
     n = P["KS_CURVE_SAMPLES"]
     size = size or [0.5] * n
     alpha = alpha or [1.0] * n
@@ -400,6 +412,15 @@ def sprite_block(life=(1.0, 1.0), speed=(1.0, 2.0), draw_flags=0, flags=None, im
     pu("KS_SPREAD_KIND", spread)
     pf("KS_SPREAD_ANGLE", angle)
     pf("KS_SPAWN_RADIUS", radius)
+    if shape is None and radius > 0:   # ABI 1's spawnRadius, as the builder writes it now
+        shape, shape_size = P["KS_SHAPE_SPHERE"], (radius, 0.0, 0.0)
+    pu("KS_SHAPE", shape or 0)
+    pf("KS_SHAPE_A", shape_size[0])
+    pf("KS_SHAPE_B", shape_size[1])
+    pf("KS_SHAPE_C", shape_size[2])
+    pf("KS_STRETCH", stretch)
+    for i, v in enumerate(user or []):
+        struct.pack_into("<f", b, P["KS_USER"] + 4 * i, v)
     pf("KS_ACCEL_X", accel[0])
     pf("KS_ACCEL_Y", accel[1])
     pf("KS_ACCEL_Z", accel[2])

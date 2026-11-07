@@ -235,6 +235,7 @@ public sealed class CreatureHandle : BlockHandle<CreatureBlock>
     {
         var e = await Creatures.Spawn(Info.Variant, at, yawDegrees, options);
         NpcRuntime.Spawned(Info, e);
+        AiRuntime.Spawned(Info, e);   // npcai
         return e;
     }
 }

@@ -192,6 +192,8 @@ public sealed record AnimationBlock : INpcBlock, IPremade
     public string? Clips { get; init; }
     /// <summary>The skeleton's name: the file's name without its extension when left out. A body and an animation share a skeleton when they name the same one.</summary>
     public string? Skeleton { get; init; }
+    /// <summary>The clips are authored on a rig of their own: play them on <see cref="Skeleton"/>, a body's, by pairing joints (<see cref="RetargetBlock"/>).</summary>
+    public RetargetBlock? Retarget { get; init; }
     /// <summary>A game creature whose graph this is (the premades).</summary>
     public string? Template { get; init; }
 
@@ -313,7 +315,7 @@ public static class Bodies
 /// where good values come from.
 /// </summary>
 [BlockClients(ClientsLevel.None)]
-public sealed record AIBlock : INpcBlock, IPremade
+public sealed partial record AIBlock : INpcBlock, IPremade
 {
     public string Key { get; init; } = "";
     public string? Like { get; init; }

@@ -40,7 +40,7 @@ public sealed class VfxTestMod : Mod
     {
         var st = Vfx.Status();
         Info($"OnLoad: side {Mods.Side}, {(Client.Available && Client.IsClient ? $"client {Client.State}" : "dedicated server")}, kiln.vfx {(st.Native ? "present" : "absent")}{(st.Simulated ? " (SIMULATED)" : "")}, relay {(st.Relay ? "open" : "off")}");
-        Commands.Register("vfxtest", OnCommand, usage: "status|relay|server|sim|1|2|3|3b|4|4b|life <seconds> [name]|name <name>", description: "kiln.vfx test");
+        Commands.Register("vfxtest", OnCommand, usage: "status|relay|server|sim|1|2|3|3b|4|4b|5|5b|life <seconds> [name]|name <name>", description: "kiln.vfx test");
 
         var sizes = VfxTestSeams.NativeSizes;
         Check(sizes == (128, 88, 64, 112), $"the managed mirror has the C header's sizes: {sizes}");
@@ -65,6 +65,8 @@ public sealed class VfxTestMod : Mod
             KeyBindings.Register("vfx-test.params", "Ctrl+Shift+3", () => Client.Post(CaseParams), "vfx-test 3b: parameters and an immediate stop");
             KeyBindings.Register("vfx-test.red", "Ctrl+4", () => Client.Post(CaseRed), "vfx-test 4: the red burst (built from vfx/)");
             KeyBindings.Register("vfx-test.red-game", "Ctrl+Shift+4", () => Client.Post(CaseRedGameModule), "vfx-test 4b: the red burst on a game module");
+            KeyBindings.Register("vfx-test.soak", "Ctrl+5", () => Client.Post(CaseSoak), "vfx-test 5: about 2,000 sprites for 60 s");
+            KeyBindings.Register("vfx-test.play-params", "Ctrl+Shift+5", () => Client.Post(CasePlayParams), "vfx-test 5b: the red burst, blue, twice the size, three times as many");
         }
         else
         {
@@ -381,6 +383,46 @@ public sealed class VfxTestMod : Mod
     private void CaseRed() => PlayBuilt("red_burst", "4", "Kiln's sprite module");
     private void CaseRedGameModule() => PlayBuilt("red_burst_game_module", "4b", "a game module: shows while 4 doesn't = the shader is at fault, not the data");
 
+    // Key 5: a loop of ~2,000 sprites, stopped by Kiln after 60 s. What to watch is the frame rate and that the counts go back to 0.
+    private void CaseSoak()
+    {
+        var id = VfxId.Named(Context, "soak");
+        if (!Vfx.IsKnown(id))
+        {
+            Info("case 5: soak isn't registered in this game (mods/tests/vfx-test/blocks). Nothing to see");
+            return;
+        }
+        WithPlaceAhead(8, "case 5", at =>
+        {
+            var h = Vfx.PlayAt(id, at, lifetime: Vfx.UntilStopped);
+            Info("case 5: soak plays for 60 s; watch the frame rate");
+            Start(async () =>
+            {
+                Check(await Until(() => Vfx.State(h) == VfxState.Playing), $"case 5: soak plays: {Vfx.Info(h)}");
+                await Task.Delay(60_000);
+                Vfx.Stop(h);
+                Check(await Until(() => Vfx.State(h) == VfxState.Stopped), $"case 5: soak stopped after 60 s: {Vfx.Info(h)}");
+            });
+        });
+    }
+
+    // Key Shift+5: per-play parameters on a Kiln VFX (every one describes color, size, speed, brightness, count).
+    private void CasePlayParams()
+    {
+        var id = VfxId.Named(Context, "red_burst");
+        if (!Vfx.IsKnown(id))
+        {
+            Info("case 5b: red_burst isn't registered in this game. Nothing to see");
+            return;
+        }
+        var p = new VfxParams().Set("color", new Color(40, 120, 255)).Set("size", 2f).Set("count", 3f);
+        WithPlaceAhead(5, "case 5b", at =>
+        {
+            var h = Vfx.PlayAt(id, at, parameters: p);
+            Start(async () => Check(await Until(() => Vfx.State(h) == VfxState.Playing), $"case 5b: red_burst with parameters plays: {Vfx.Info(h)}"));
+        });
+    }
+
     private void PlayBuilt(string name, string key, string what)
     {
         var id = VfxId.Named(Context, name);
@@ -453,8 +495,10 @@ public sealed class VfxTestMod : Mod
             case "3b": Client.Post(CaseParams); break;
             case "4": Client.Post(CaseRed); break;
             case "4b": Client.Post(CaseRedGameModule); break;
+            case "5": Client.Post(CaseSoak); break;
+            case "5b": Client.Post(CasePlayParams); break;
             default:
-                ctx.Reply("usage: /vfxtest status|relay|server|sim|1|2|3|3b|4|4b|life <seconds> [name]|name <name>");
+                ctx.Reply("usage: /vfxtest status|relay|server|sim|1|2|3|3b|4|4b|5|5b|life <seconds> [name]|name <name>");
                 break;
         }
     }

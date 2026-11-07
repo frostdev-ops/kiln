@@ -66,8 +66,22 @@ such a block, says where it belongs, and C# names the data file's block instead.
 | `States` | Your own: `[new AnimState("slam")] = new Clip("Attack") { Speed = 1.2 }`, in JSON `"slam": { "clip": "Attack", "speed": 1.2 }`. `Then` moves on to another state when the clip ends |
 | `Layers` | More clips over the states, always or on an overlay |
 | `Skeleton` | The skeleton's name, the file's name by default: a body and an animation share a skeleton when they name the same one |
+| `Retarget` | The clips are authored on a rig of their own (an animation pack, another tool's skeleton): they play on `Skeleton`, a body's, by pairing joints. See below |
 
 A clip is a glTF animation's name. A state machine takes at most 34 transitions: the cook nests machines past that, and you list states.
+
+**Clips from another rig.** An animation pack rarely uses your body's joint names or proportions. Point `Clips` at the pack, `Skeleton` at the body's
+skeleton, and pair the joints:
+
+```json
+"animations": { "golem-moves": { "clips": "models/anim-pack.glb", "skeleton": "golem",
+    "retarget": { "map": { "mixamorig:Hips": "pelvis", "mixamorig:Spine": "spine", "mixamorig:Head": "head", "mixamorig:RightArm": "arm_r" } },
+    "idle": "Idle", "walk": "Walking" } }
+```
+
+Joints of the same name pair by themselves. The rigs may differ in bone lengths and rest orientations, as long as both rest poses show the same posture
+(a T-pose for a T-pose); when the pack's rest pose doesn't, `reference` names a frame of it that does. Body joints with no pair keep their rest pose. The hips'
+travel is scaled by the rigs' hip heights (`scale` sets it). What each field does: [animations.md](animations.md#retargeting).
 
 ### Body
 `Model`, `Skeleton`, `Scale`, `Slots` (the game's attachment slots on your joints: where gear hangs and where hits come from), `Size` (radius and height,
@@ -108,6 +122,7 @@ What a body of your own gets from the AI's creature, and what Kiln changes so it
 - `PickAttack` (an attack's name, or null for the game's choice) and `AIBlock.PickTarget` replace one decision. In JSON `"pickAttack": "name"` with
   `Blocks.AttackPicker`, `"pickTarget"` with `Blocks.Target`.
 - `Phases`: the phases its rules may name.
+- More kinds (`Is.InCombat`, `Is.TargetIsPlayer`, `Is.EnemiesNear`, `Is.SummonsBelow`, `Act.Flee`, `Act.Immune`, `Act.Summon`, `Act.Cast`, `Act.Heal`, ...): [npc-ai.md](npc-ai.md#behaviourblock-rules).
 
 **`Brain`, opt-in per creature**: `Brain = () => new MyBrain()`, in JSON `"brain": "name"` with `Blocks.Brain("name", () => new MyBrain())`. The game's AI
 is off for that creature, and with it the game's perception: `NpcControl` sees for it (`Seen`, enemies within the AI's `Sight` by the game's faction
@@ -128,7 +143,7 @@ sealed class Sentinel : NpcBrain
 
 ## AI
 `Sight`, `SightAngle`, `Aggro`, `Leash` (its home zone's radius), `Faction`, `Moves`, `Fights`, `PickTarget`, and `Tune` for any other field of the game's AI
-by path (`["combatSetup.preferedDistance"] = "3"`). It starts from a game creature's tuning (`Template`, the Vukah's by default), because hundreds of fields
+by path (`["combatSetup.preferedDistance"] = "3"`). Night sight, hearing, roaming, fleeing, feature switches and **who it fights** (`Relations`, `SenseFilter`, `Factions.Relate`): [npc-ai.md](npc-ai.md). It starts from a game creature's tuning (`Template`, the Vukah's by default), because hundreds of fields
 have no neutral value. A body of your own runs that creature's AI program; a friendly fighter is a creature with `Faction = Faction.PlayerAlly`.
 `Sight` is how far it sees a target by day (`combatCommitmentSetup.view.range`, the field the game's sight check reads; at night times the AI's
 `nightRangeFactor`, the Vukah's 0.6: 18 m by day, 11 m at night), `SightAngle` half its view cone (`combatCommitmentSetup.view.coneHalfAngle`), `Aggro`

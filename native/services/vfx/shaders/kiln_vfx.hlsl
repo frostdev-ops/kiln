@@ -32,6 +32,7 @@ struct KilnPush { uint data; uint breadcrumbMarkerOffset; };
 [[vk::push_constant]] ConstantBuffer<KilnPush> g_push;
 
 // VfxUpdateBuffer, byte offsets (layout hash 0x3609c027)
+#define KU_TIME                   0x000
 #define KU_TIME_STEP              0x004
 #define KU_SPLIT_DRAW_PIPELINES   0x008
 #define KU_EMITTER_STATE_COUNT    0x220
@@ -48,8 +49,10 @@ struct KilnPush { uint data; uint breadcrumbMarkerOffset; };
 #define KU_EXPOSURE_CORRECTION    0x288
 #define KU_CAMERA_POSITION        0x294
 #define KU_CAMERA_WORLD_POSITION  0x2a4
+#define KU_WIND_DIRECTION         0x2b4
 #define KU_CAMERA_ORIENTATION     0x2d0
 #define KU_FRUSTUM_PLANES         0x2e0
+#define KU_SUN_DIRECTION          0x330
 
 // VfxChunkUpdateBuffer, byte offsets (layout hash 0xb7750d24)
 #define KC_STRIDE                 68
@@ -159,6 +162,45 @@ float3 kCameraRelative(float3 world)
 
 // One 32-bit half float from f.
 uint kHalf(float f) { return f32tof16(f) & 0xffffu; }
+
+// Per-play parameters (KX_*), read from the instance's user block. They are factors on what the block says, all 1 (white) when the
+// block isn't Kiln's: a start that passed no block can't make a Kiln effect vanish.
+struct KilnPlay
+{
+    float3 tint;       // linear
+    float  alpha;
+    float  size;
+    float  speed;
+    float  brightness;
+    float  count;
+};
+float kSrgbToLinear(float c) { return c <= 0.04045f ? c / 12.92f : pow((c + 0.055f) / 1.055f, 2.4f); }
+float kPlayFactor(uint inst, uint off)
+{
+    float f = kInstF(inst, KX_BASE + off);
+    return (isnan(f) || isinf(f)) ? 1.0f : clamp(f, 0.0f, (float)KX_MAX_FACTOR);
+}
+KilnPlay kPlay(uint inst)
+{
+    KilnPlay q;
+    q.tint = float3(1.0f, 1.0f, 1.0f);
+    q.alpha = 1.0f;
+    q.size = 1.0f;
+    q.speed = 1.0f;
+    q.brightness = 1.0f;
+    q.count = 1.0f;
+    if (kInstU(inst, KX_BASE + KX_MAGIC) != KX_MAGIC_VALUE)
+        return q;
+    uint c = kInstU(inst, KX_BASE + KX_COLOR);
+    q.tint = float3(kSrgbToLinear((float)(c & 255u) / 255.0f), kSrgbToLinear((float)((c >> 8) & 255u) / 255.0f),
+                    kSrgbToLinear((float)((c >> 16) & 255u) / 255.0f));
+    q.alpha = (float)(c >> 24) / 255.0f;
+    q.size = kPlayFactor(inst, KX_SIZE);
+    q.speed = kPlayFactor(inst, KX_SPEED);
+    q.brightness = kPlayFactor(inst, KX_BRIGHTNESS);
+    q.count = kPlayFactor(inst, KX_COUNT);
+    return q;
+}
 
 // The working set of one particle: what every entry reads first.
 struct KilnParticle
