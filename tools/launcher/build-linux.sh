@@ -56,7 +56,14 @@ rm -rf "$CARGO_TARGET_DIR/$kind/bundle"
 bun x tauri build "${profile[@]}" --bundles "$bundles" --config "{\"bundle\":{\"resources\":$resources}}" "${extra[@]}" "${runner_args[@]}"
 out=$KILN_OUT/bundles/$variant
 mkdir -p "$out"
-rm -f "$out/"*.AppImage "$out/"*.deb "$out/"*.rpm "$out/"*.sig
+# only the kinds this invocation built: release.sh rebuilds the AppImage alone (with its notices) and keeps the deb
+for k in ${bundles//,/ }; do
+  case $k in
+    appimage) rm -f "$out/"*.AppImage "$out/"*.AppImage.sig ;;
+    deb) rm -f "$out/"*.deb ;;
+    rpm) rm -f "$out/"*.rpm ;;
+  esac
+done
 for f in "$CARGO_TARGET_DIR/$kind/bundle/appimage/"*.AppImage "$CARGO_TARGET_DIR/$kind/bundle/deb/"*.deb "$CARGO_TARGET_DIR/$kind/bundle/rpm/"*.rpm; do
   [[ -f $f ]] && cp -f "$f" "$out/" && echo "-> $out/$(basename "$f") ($(du -h "$f" | cut -f1))"
 done
