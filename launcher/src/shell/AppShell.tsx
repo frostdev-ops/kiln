@@ -1,18 +1,20 @@
 // The launcher frame ("Hearth"): the stage behind everything, the header (logo, nav, tasks, Settings, About, the game's
 // state word), the Play page in front of the stage, the sheet that rises over it for every other page, the mouth (the
 // Play button, which shrinks to a pilot light in the corner while a sheet is up), toasts and the splash.
-// Mounts the backend event feeds once.
+// Mounts the backend event feeds once, the first run's game detection, the window-wide mod drop and the Install Kiln
+// confirm.
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api/commands";
-import { qk, useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
-import { Lockup, Skeleton, Splash, TaskTray, Toaster, toast, useTaskFeed } from "../ui";
+import { Lockup, Skeleton, Splash, TaskTray, Toaster, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
 import { UpdateTray } from "./UpdateNotice";
 import { RouteErrorBoundary } from "./ErrorBoundary";
 import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
+import { DropAnywhere, ModpackDropOffer, useAddMods } from "./drop";
+import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallPrompt, useKilnInstall } from "./firstRun";
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
 
@@ -83,22 +85,25 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [hot, setHot] = useState(false);
-  const detect = useMutation({
-    mutationFn: api.gameDetect,
-    onSuccess: (g) => { qc.setQueryData(qk.games, g); if (!g.some((x) => x.kind === "client")) toast.info("No Enshrouded found", "Add its folder on Play."); },
-    onError: (e) => toast.error(e),
-  });
+  const looking = useDetect((s) => s.busy);
+  const kiln = useKilnInstall(ctl.game);
   const v = ctl.view;
   const name = ctl.profileName ?? "Enshrouded";
   let word: string, sub: string, heat: Heat, act: (() => void) | null, aria: string;
-  if (!ctl.game) {
-    word = "Add game"; sub = "Kiln looks in every Steam library"; heat = "unlit"; act = () => detect.mutate(); aria = "Add game: find Enshrouded in your Steam libraries";
+  if (!ctl.game && looking) {
+    word = "Looking"; sub = "for Enshrouded"; heat = "unlit"; act = null; aria = "Looking for Enshrouded in your Steam libraries";
+  } else if (!ctl.game) {
+    word = "Add game"; sub = "Kiln looks in every Steam library"; heat = "unlit"; act = () => void detectGames(qc); aria = "Add game: find Enshrouded in your Steam libraries";
   } else if (v.phase === "none") {
     word = "Play"; sub = "Checking the game"; heat = "unlit"; act = null; aria = "Checking the game";
   } else if (v.phase === "updating") {
     word = "Updating"; sub = "Steam is updating the game"; heat = "low"; act = null; aria = "Steam is updating the game";
+  } else if (!ctl.installed && !ctl.running && kiln.installing) {
+    word = "Installing"; sub = "Kiln goes into the game folder"; heat = "low"; act = null; aria = "Installing Kiln";
   } else if (!ctl.installed && !ctl.running) {
-    word = "Install"; sub = "Kiln goes into the game folder"; heat = "unlit"; act = () => nav("/runtime?install=1"); aria = "Install Kiln";
+    // the main action of a first start: the install's confirm opens right here (ShroudForge's switch is typed, on Runtime)
+    word = "Install"; sub = "Kiln goes into the game folder"; heat = "idle"; aria = "Install Kiln";
+    act = kiln.shroudforge ? () => nav("/runtime") : () => useInstallPrompt.getState().show();
   } else if (ctl.starting) {
     word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; act = null; aria = "Starting";
   } else if (ctl.running) {
@@ -113,7 +118,7 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   stageInput.game = !!ctl.running && !ctl.starting;
   const subTone = v.phase === "vanilla" ? " k-tone-info" : v.phase === "updating" || v.label === "Safe idle" ? " k-tone-warn" : "";
   return (
-    <button type="button" className={`k-door ${isPlay ? "play" : "pilot"} heat-${heat}${hot && act ? " hot" : ""}`} disabled={!act || detect.isPending}
+    <button type="button" className={`k-door ${isPlay ? "play" : "pilot"} heat-${heat}${hot && act ? " hot" : ""}`} disabled={!act}
       onClick={() => act?.()} onMouseEnter={() => setHot(true)} onMouseLeave={() => setHot(false)} aria-label={aria} title={isPlay ? undefined : aria}>
       <span className="k-door-fire" aria-hidden />
       <span className="k-door-lab" aria-hidden>
@@ -134,6 +139,8 @@ export function AppShell() {
   const outlet = useOutlet();
   useTaskFeed();
   useBackendEvents();
+  useAutoDetect();
+  const addMods = useAddMods();
   const ctl = usePlayControl();
   const [minShown, setMinShown] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMinShown(true), 650); return () => clearTimeout(t); }, []);
@@ -172,6 +179,9 @@ export function AppShell() {
       </main>
       <Mouth isPlay={isPlay} ctl={ctl} />
       <GameArtAuto />
+      <DropAnywhere add={(p) => void addMods(p)} />
+      <InstallKilnModal onAdd={(p) => void addMods(p)} />
+      <ModpackDropOffer />
       <Toaster />
       <Splash done={ready} />
     </div>

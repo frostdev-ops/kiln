@@ -6,6 +6,7 @@
 
 pub mod assets;
 pub mod commands;
+pub mod deck;
 pub mod events;
 pub mod selftest;
 pub mod selfupdate;
@@ -147,7 +148,14 @@ pub fn run() {
             commands::update::update_install,
             commands::update::update_restart,
             commands::update::update_skip,
-            commands::update::update_ack
+            commands::update::update_ack,
+            commands::library::library_add,
+            commands::profile::profile_revert,
+            commands::profile::profile_ensure_default,
+            commands::deck::deck_browse,
+            commands::deck::deck_gamepad,
+            commands::deck::deck_fullscreen,
+            commands::deck::deck_quit
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Kiln Launcher");

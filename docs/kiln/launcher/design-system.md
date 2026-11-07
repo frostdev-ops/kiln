@@ -71,7 +71,9 @@ game's state word), the Play page in front of the stage, the sheet that rises ov
 `cubic-bezier(.2,1,.25,1)`; it drops in 460 ms), the mouth, toasts and the splash. The mouth (`.k-door`, an arch) is
 the Play button: on Play it is `min(500, 40% of the window)` wide, 84 above the bottom and 48 from the right; on a
 sheet page it shrinks to the pilot light (36 wide, 24 from the right, 7 from the top) and is still the Play button.
-By game state: no game or no Kiln: unlit, "Add game" or "Install"; updating: embers, amber word; stopped: idle fire;
+By game state: no game: unlit, "Add game" ("Looking" while the first start looks for it); no Kiln: idle fire,
+"Install" (the first start's press: it opens Install Kiln's confirm right on Play; ShroudForge: Runtime), low fire
+"Installing" while it runs; updating: embers, amber word; stopped: idle fire;
 starting: flare and cones; running: the elapsed time, dim (counted from the game process's start, `GameStatus.started`,
 also when Steam started it); vanilla: cobalt word; safe idle: low fire, amber word.
 `shell/play.ts` (`usePlayControl`) shares the state and `launch_play` between the mouth and the Play page.
@@ -100,13 +102,14 @@ A soft warm light follows the pointer across the sheet (`--mx`, `--my`).
 | `FlameToggle` | `on`, `onChange`, `label` | light a mod or put it out (mod lists) |
 | `Modal` | `open`, `onClose`, `title`, `footer`, `width`, `locked`, `arch` | working dialog: Soot 2, Grenze 36 title, actions bottom right; `arch`: the pointed arch, warnings only |
 | `ConfirmDanger`, `ArchText` | `title`, `message`, `word`, `action`, `onConfirm` | in the arch; the danger fill enables when the word matches |
-| `toast.ok/info/error`, `Toaster` | | bottom left; 2.6 s; errors stay until closed |
+| `toast.ok/info/error`, `Toaster` | `(title, detail?, {actions?, ms?})` | bottom left; a title, a line at most, buttons when there is something to do (Undo, Install Kiln); 2.6 s, 8 s with buttons; errors stay until closed; a button closes its toast |
 | `TaskProgress`, `TaskTray`, `Cones`, `Cone`, `runTask` | `step` | pyrometric cones in place of a progress bar (upright, bending, slumped); the tray is the header's label and three small cones |
 | `LogView` | `lines \| text`, `follow`, `fill`, `filter` | Inconsolata in a well; [E] iron red, [W] amber, [I] Ash 1, [D] Ash 2; matches get a 22% flame fill; new lines cool from flame to ash in 900 ms |
 | `TickChart`, `Sparkline` | `values`, `onHover` | flame line 2 px, 16% area, gold diamond at the end, faint grid, crosshair; never two y-scales |
 | `EmptyState` | `title`, `hint`, `action`, `page` | in a table: one italic line; `page`: a small unlit arch, Grenze 36, one line, one action |
 | `Skeleton` | | rows at real height in Soot 2, no shimmer; a spinner only inside a busy button |
 | `DropZone` | `onPaths`, `variant: niche \| row`, `busy` | the niche is an arch that fills with fire while something is dragged over it or imports |
+| `DropAnywhere` (shell) | `add` | files dragged over the window: the burning niche, larger, over a dimmed window ("Drop to add", "Into <profile>"); never over a DropZone or a dialog |
 | `SchemaForm` | see below | |
 | `SortableList`, `Menu`, `JsonView`, `PathPicker` | | row actions sit in a labelled `···` menu unless there is only one |
 | `Mark`, `Lockup`, `Splash` | | `branding/logo`; never recoloured or stretched |

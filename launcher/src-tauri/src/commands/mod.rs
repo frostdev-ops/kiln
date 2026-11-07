@@ -15,6 +15,7 @@ pub mod server;
 pub mod admin;
 pub mod modpack;
 pub mod update;
+pub mod deck;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -131,6 +132,13 @@ pub const NAMES: &[&str] = &[
     "update_restart",
     "update_skip",
     "update_ack",
+    "library_add",
+    "profile_revert",
+    "profile_ensure_default",
+    "deck_browse",
+    "deck_gamepad",
+    "deck_fullscreen",
+    "deck_quit",
 ];
 
 #[cfg(test)]

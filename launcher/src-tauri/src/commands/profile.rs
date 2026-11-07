@@ -5,6 +5,7 @@ use crate::state::{blocking, dirs};
 use kiln_manage::Error;
 use kiln_manage::manifest::RunSide;
 use kiln_manage::profile::{self, Activation, Profile, ProfileSummary, ResolvePreview};
+use kiln_manage::quick::ProfileChange;
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -91,7 +92,7 @@ pub async fn profile_resolve(profile_id: String, side: RunSide) -> Result<Resolv
 
 /// The game's fresh status, from its own thread: the activation answers as soon as profile.json is written (the
 /// status hashes files and lists processes, which used to hold the answer, and Play's header with it, for seconds).
-fn emit_status_later(app: AppHandle, game_id: String) {
+pub(crate) fn emit_status_later(app: AppHandle, game_id: String) {
     std::thread::spawn(move || crate::watch::emit_status(&app, &game_id));
 }
 
@@ -124,4 +125,43 @@ pub async fn profile_deactivate(app: AppHandle, game_id: String) -> Result<(), E
 #[tauri::command]
 pub async fn profile_active(game_id: String) -> Result<Option<Activation>, Error> {
     blocking(move || profile::active(&dirs()?, &crate::state::game(&game_id)?)).await
+}
+
+/// Undoes a `library_add` (its toast's Undo): the changed entries go back (kiln_manage::quick::revert), then, like
+/// profile_save, the game's profile.json is written again where this profile is active. The library copies stay.
+#[tauri::command]
+pub async fn profile_revert(app: AppHandle, profile_id: String, changes: Vec<ProfileChange>) -> Result<Profile, Error> {
+    let (saved, applied) = blocking(move || {
+        let d = dirs()?;
+        let saved = kiln_manage::quick::revert(&d, &profile_id, &changes)?;
+        Ok((saved.clone(), reapply_where_active(&d, &saved.id)))
+    })
+    .await?;
+    for g in applied {
+        emit_status_later(app.clone(), g);
+    }
+    Ok(saved)
+}
+
+/// The profile the simple flow uses in a game (kiln_manage::quick::ensure_default): the active one; with no profile at
+/// all, a new "My mods" (every drop-in folder on), activated. Null when profiles exist but none is active here. Play
+/// calls it after it installed Kiln.
+#[tauri::command]
+pub async fn profile_ensure_default(app: AppHandle, game_id: String) -> Result<Option<Activation>, Error> {
+    let id = game_id.clone();
+    let (activation, created) = blocking(move || {
+        let d = dirs()?;
+        let g = crate::state::game(&id)?;
+        match kiln_manage::quick::ensure_default(&d, &g)? {
+            None => Ok((None, false)),
+            Some(t) if t.created => Ok((t.activation, true)),
+            Some(_) => Ok((profile::active(&d, &g)?, false)),
+        }
+    })
+    .await?;
+    if created {
+        crate::commands::app::launcher_log("profile", &format!("{} made and activated in {game_id}", kiln_manage::quick::DEFAULT_PROFILE));
+        emit_status_later(app, game_id);
+    }
+    Ok(activation)
 }

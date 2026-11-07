@@ -8,6 +8,7 @@ import { qk, useAppInfo, useGame, useGameStatus, useSettings } from "../api/hook
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import { UpdatesCard } from "../components/UpdateSettings";
+import { DeckModeCard } from "../deck/mode";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
   Toggle, errorText, fmtAgo, fmtBytes, toast,
@@ -25,6 +26,7 @@ export default function SettingsPage() {
         <GamesCard />
         <AppearanceCard />
         <UpdatesCard />
+        <DeckModeCard />
       </div>
       <KilnJsonCard />
       <AssetsCard />
@@ -55,6 +57,8 @@ function LauncherCard() {
       <Field label="Save backups to keep" hint="Per game." htmlFor="st-keep">
         <NumberInput id="st-keep" integer min={1} max={100} value={v.savesKeep} onCommit={(n) => set({ savesKeep: n })} style={{ width: 120 }} />
       </Field>
+      <Toggle checked={v.addToActiveProfile !== false} onChange={(on) => set({ addToActiveProfile: on })} label="Add new mods to the active profile"
+        hint="A dropped mod is ready at the next Play. Off: it only goes into the library." />
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">
         <div className="k-stack">

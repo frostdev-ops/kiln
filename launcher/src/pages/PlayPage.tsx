@@ -1,6 +1,8 @@
 // / Play: in front of the stage. The active profile's name (a button: change profile), one live sentence, "Just once"
 // (vanilla, without mods, another profile), the boot stages while the game starts, four facts, and the game folder.
 // The mouth (shell/AppShell.tsx) is the Play button. Banners (refusal, launch option, Steam update) sit above the name.
+// A first start: the launcher looks for the game by itself (shell/firstRun.tsx), then Install Kiln runs right here (the
+// mouth and the link open its confirm; the task shows in place of the sentence's links).
 // The modpack offer is a working dialog (src/pages/servers/ModpackOffer.tsx, loaded when it exists).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
@@ -10,9 +12,10 @@ import type { BootState, GameInstall, LastServer } from "../api/commands";
 import {
   invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
+import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import {
-  ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, errorText, toast,
+  ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, TaskProgress, errorText, toast,
 } from "../ui";
 
 /** Windows (WebView2): path examples in Windows form. */
@@ -30,25 +33,25 @@ export default function PlayPage() {
   return <PlayFor game={ctl.game} ctl={ctl} />;
 }
 
+/** No client known: the launcher is looking by itself (once per start), or found nothing: Add a folder, Look again. */
 function NoGame({ error, hasOther }: { error: unknown; hasOther: boolean }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
-  const detect = useMutation({
-    mutationFn: api.gameDetect,
-    onSuccess: (g) => { qc.setQueryData(qk.games, g); if (!g.some((x) => x.kind === "client")) toast.info("No Enshrouded found", "Add its folder by hand."); },
-    onError: (e) => toast.error(e),
-  });
+  const { busy, tried } = useDetect();
+  const looking = busy || (!tried && !error);
   return (
     <>
       <section className="k-hero" aria-label="Play">
-        <div className="k-hero-kicker">{hasOther ? "No client found" : "No game yet"}</div>
+        <div className="k-hero-kicker">{looking ? "First start" : hasOther ? "No client found" : "Not found"}</div>
         <h1 className="k-hero-name"><span className="k-title static">Enshrouded</span></h1>
         <div className="k-hero-state">
-          <p className="k-hero-say">{error ? errorText(error) : "Kiln looks for the game in every Steam library."}</p>
-          <div className="k-hero-once">
-            <button type="button" className="k-link" disabled={detect.isPending} onClick={() => detect.mutate()}>{detect.isPending ? "Looking…" : "Detect"}</button>
-            <button type="button" className="k-link" onClick={() => setAdding(true)}>Add a folder</button>
-          </div>
+          <p className="k-hero-say" role="status">{error ? errorText(error) : looking ? "Looking for Enshrouded in your Steam libraries." : "Kiln did not find Enshrouded in your Steam libraries."}</p>
+          {!looking && (
+            <div className="k-hero-once">
+              <button type="button" className="k-link" onClick={() => setAdding(true)}>Add a folder</button>
+              <button type="button" className="k-link" onClick={() => void detectGames(qc)}>Look again</button>
+            </div>
+          )}
         </div>
       </section>
       <AddGameModal open={adding} onClose={() => setAdding(false)} />
@@ -103,12 +106,18 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const setGameId = useGameSel((x) => x.setGameId);
   const clients = games.filter((g) => g.kind === "client");
   const lib = useLibrary("kiln");
+  const kilnInstall = useKilnInstall(game);
+  const installTask = kilnInstall.installing ? kilnInstall.change?.taskId ?? null : null;
+  const askInstall = () => (kilnInstall.shroudforge ? nav("/runtime") : useInstallPrompt.getState().show());
 
   // the live sentence
   let say: string;
+  const modCount = cur ? cur.counts.kiln + cur.counts.native + cur.counts.emf + cur.counts.plugin : 0;
   if (!s) say = "Checking the game.";
-  else if (!rt?.installed) say = rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Kiln replaces it on Runtime." : "Kiln is not in this game yet. Install puts it in the game folder.";
+  else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Kiln replaces it on Runtime." : "Kiln is not in this game yet.";
+  else if (!cur && !list.length) say = "Drop a mod anywhere on this window to add it.";
   else if (!cur) say = "No profile is active: Kiln loads the mods in the game folder.";
+  else if (!modCount) say = "No mods yet. Drop one anywhere on this window.";
   else if (preview.data) {
     const order = preview.data.kiln.order;
     const total = order.length + preview.data.kiln.rejected.filter((r) => r.state !== "disabled").length;
@@ -142,7 +151,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
           )}
         </div>
         <Banners game={game} ctl={ctl} pending={pending.data ?? null} onOffer={() => setOfferOpen(true)} boot={fresh ? boot : null} />
-        <ProfileName gameId={game.id} name={cur?.name ?? (rt?.installed ? "Drop-in mods" : "Vanilla")} running={ctl.running} />
+        {!rt?.installed && !list.length ? (
+          <h1 className="k-hero-name"><span className="k-title static">Enshrouded</span></h1>
+        ) : (
+          <ProfileName gameId={game.id} name={cur?.name ?? (rt?.installed ? "Drop-in mods" : "Vanilla")} running={ctl.running} />
+        )}
         {starting ? (
           <div className="k-hero-state" key="start">
             <p className="k-hero-say">Waiting for Kiln to boot.</p>
@@ -170,9 +183,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => ctl.play("no-mods")}>Without mods</button>
                 <button type="button" className="k-link" disabled={!ctl.canPlay || !list.length} onClick={() => setOnceOpen(true)}>Another profile</button>
               </div>
+            ) : installTask ? (
+              <div className="k-hero-task"><TaskProgress taskId={installTask} cancel={false} /></div>
             ) : s && (
               <div className="k-hero-once">
-                <button type="button" className="k-link" onClick={() => nav("/runtime?install=1")}>Install Kiln</button>
+                <button type="button" className="k-link" disabled={!ctl.canPlay || kilnInstall.installing} onClick={askInstall}>Install Kiln</button>
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => setVanillaOpen(true)}>Play vanilla</button>
               </div>
             )}

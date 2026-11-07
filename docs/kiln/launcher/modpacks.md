@@ -47,6 +47,12 @@ launcher downloads, checks and installs it into a profile. Formats: [contracts.m
      `server {id, name, address, modpack}`;
    - unless `activate: false`: a save backup (reason `modpack`), then activation. The modal then offers Launch.
 
+## A modpack zip dropped on the launcher
+A drop anywhere on the window (`library_add`) never imports a zip with `kiln-modpack.json` at its root: it opens the
+same consent (`ModpackDropOffer` in `launcher/src/shell/drop.tsx`): the file, the server and modpack it names, what is
+new, native code, "This runs code on your PC" and a box to tick; then `modpack_install(gameId, {source: {path},
+consent: true, activate: true})` (verify, import, the profile bound to its server, a save backup, activation), as above.
+
 ## Checks done
 `cargo test -p kiln-manage --all-features --lib modpack`: deterministic build (two builds, same bytes), verify, a
 tampered file (`hash_mismatch`) and an unlisted entry (`refused`), the required list against the manifest, extraction,

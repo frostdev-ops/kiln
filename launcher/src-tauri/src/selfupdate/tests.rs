@@ -92,24 +92,13 @@ fn manifest(version: &str, file_url: &str, sha256: Option<&str>) -> Vec<u8> {
 
 /// A feed that offers `version` with `body` as the file (and `sha256` listed, if given).
 fn feed(version: &str, body: &[u8], sha256: Option<&str>) -> Server {
-    // the manifest needs the server's own port: reserve, then serve
+    // the manifest names the server's own port: bind first and keep the listener (dropping it and binding again let
+    // a parallel test take the port in between: "port … stayed busy")
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
-    drop(l);
     let file = format!("http://127.0.0.1:{port}/files/kiln.AppImage");
     let m = manifest(version, &file, sha256);
-    serve_on(port, vec![("/dev/latest.json".into(), 200, m.clone()), ("/stable/latest.json".into(), 200, m), ("/files/kiln.AppImage".into(), 200, body.to_vec())])
-}
-
-/// A server on a port reserved earlier (its manifest names its own port).
-fn serve_on(port: u16, routes: Vec<(String, u16, Vec<u8>)>) -> Server {
-    for _ in 0..40 {
-        if let Ok(l) = TcpListener::bind(("127.0.0.1", port)) {
-            return Server::serve(l, routes);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    panic!("port {port} stayed busy");
+    Server::serve(l, vec![("/dev/latest.json".into(), 200, m.clone()), ("/stable/latest.json".into(), 200, m), ("/files/kiln.AppImage".into(), 200, body.to_vec())])
 }
 
 fn tampered() -> Vec<u8> {
@@ -263,9 +252,8 @@ fn a_failed_download_or_a_wrong_sha256_falls_back() {
     // the manifest is there, the file is not
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
-    drop(l);
     let m = manifest("0.2.0-dev.2", &format!("http://127.0.0.1:{port}/files/missing.AppImage"), None);
-    let f = serve_on(port, vec![("/dev/latest.json".into(), 200, m)]);
+    let f = Server::serve(l, vec![("/dev/latest.json".into(), 200, m)]);
     let (got, failures) = run(acquire(app.handle(), &[f.source("frostdev.io"), g.source("GitHub")], Channel::Dev, Arc::new(Mutex::new(None))));
     assert_eq!(got.unwrap().0, "GitHub");
     assert_eq!(steps(&failures), [("frostdev.io", Step::Download)]);

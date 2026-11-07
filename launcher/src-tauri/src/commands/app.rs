@@ -29,6 +29,10 @@ pub struct AppInfo {
     /// (the fallback a machine without WebGL gets; for tests and weak GPUs).
     #[serde(default)]
     pub no_webgl: bool,
+    /// Steam Deck / SteamOS / gamescope detection and the `--deck` / `--desktop` flag: which UI to start in
+    /// (crate::deck::detect; docs/kiln/launcher/deck.md).
+    #[serde(default)]
+    pub deck: crate::deck::DeckInfo,
 }
 
 /// `<data>/settings.json`
@@ -53,6 +57,14 @@ pub struct LauncherSettings {
     /// The fire on Play (WebGL). Off: the plain Play button (Settings, Appearance).
     #[serde(default = "yes")]
     pub animated_fire: bool,
+    /// A dropped mod goes into the game's active profile (import, add, apply: `library_add`); off: it is only imported
+    /// into the library (Settings, Launcher).
+    #[serde(default = "yes")]
+    pub add_to_active_profile: bool,
+    /// The UI to start in: "deck" (the controller UI), "desktop", or "auto"/absent (Deck UI on a Steam Deck, SteamOS
+    /// or gamescope). `--deck` / `--desktop` win for one start (docs/kiln/launcher/deck.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_mode: Option<String>,
 }
 
 impl Default for LauncherSettings {
@@ -65,6 +77,8 @@ impl Default for LauncherSettings {
             update_check: true,
             update_channel: None,
             animated_fire: true,
+            add_to_active_profile: true,
+            ui_mode: None,
         }
     }
 }
@@ -258,6 +272,7 @@ pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
         commit: option_env!("KILN_GIT_COMMIT").filter(|c| !c.is_empty()).map(String::from),
         mock: false,
         no_webgl: no_webgl(),
+        deck: crate::deck::detect::current(),
     })
 }
 

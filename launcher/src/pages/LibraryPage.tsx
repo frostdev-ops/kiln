@@ -1,11 +1,14 @@
-// /library: every imported mod by version. Drop a zip, folder or DLL on the niche (detection, then the import task);
-// filter by kind; remove a version (typed); clean up versions no profile uses (typed).
+// /library: every imported mod by version. Drop a zip, folder or DLL on the niche: with Settings "Add new mods to the
+// active profile" on (the default) it goes the way of a drop anywhere on the window (shell/drop.tsx: import, add to the
+// active profile, apply); off: detection, then the import task only. Filter by kind; remove a version (typed); clean
+// up versions no profile uses (typed).
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import * as api from "../api/commands";
 import type { Detected, ImportReport, LibraryEntry, ModKind } from "../api/commands";
-import { qk, useLibrary, useProfiles } from "../api/hooks";
+import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
+import { useAddMods } from "../shell/drop";
 import {
   Badge, Button, ConfirmDanger, DropZone, EmptyState, Menu, Modal, NameId, Page, PageHeader, Segmented, Skeleton, SplitPage, Table, WellInput,
   errorText, fmtAgo, fmtBytes, runTask, shortHash, toast, type Column, type Tone,
@@ -30,13 +33,28 @@ export default function LibraryPage() {
   const [importing, setImporting] = useState(false);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const usage = useUsage();
+  const settings = useSettings();
+  const addMods = useAddMods();
+  const toProfile = settings.data?.addToActiveProfile !== false;
 
   const all = lib.data ?? [];
   const rows = useMemo(() => all.filter((e) => (kind === "all" || e.kind === kind) && (!q || (e.name + e.id).toLowerCase().includes(q.toLowerCase()))), [all, kind, q]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["library_list"] });
   const unusedMods = all.filter((e) => usage.count(e.kind, e.id) === 0).length;
 
+  const flash = (refs: { kind: ModKind; id: string }[]) => {
+    setFresh(new Set(refs.map((x) => `${x.kind}/${x.id}`)));
+    setTimeout(() => setFresh(new Set()), 2200);
+  };
   const onPaths = async (paths: string[]) => {
+    if (toProfile) {
+      setImporting(true);
+      try {
+        const r = await addMods(paths);
+        if (r) { await refresh(); flash([...r.import.imported, ...r.import.existing]); }
+      } finally { setImporting(false); }
+      return;
+    }
     try { setDetected(await Promise.all(paths.map((p) => api.libraryDetect(p)))); }
     catch (e) { toast.error(e, "Can't read that"); }
   };
@@ -46,8 +64,7 @@ export default function LibraryPage() {
     try {
       const r = await runTask<ImportReport>(() => api.libraryImport(paths), { failed: "Import failed" });
       await refresh();
-      setFresh(new Set(r.imported.map((x) => `${x.kind}/${x.id}`)));
-      setTimeout(() => setFresh(new Set()), 2200);
+      flash(r.imported);
       if (r.skipped.length || r.existing.length) setReport(r);
       else toast.ok(`Imported ${r.imported.length}`, "Add it to a profile to use it.");
     } catch { /* toasted */ } finally { setImporting(false); }
@@ -87,7 +104,7 @@ export default function LibraryPage() {
       <SplitPage aside={<>
         <DropZone onPaths={onPaths} title="Drop mods" hint="Zip, folder or DLL. Kiln, native, EMF, plugins, modpacks." pickFolder busy={importing ? "Firing" : undefined}
           pick={{ filters: [{ name: "Mods", extensions: ["zip", "dll"] }] }} />
-        <p className="k-hint" style={{ fontSize: 16 }}>Kiln reads what it is first, then imports it by version. Nothing reaches a profile until you add it.</p>
+        <p className="k-hint" style={{ fontSize: 16 }}>{toProfile ? "It goes into the active profile too. Drops anywhere on the window do the same." : "Kiln reads what it is first, then imports it by version. Nothing reaches a profile until you add it."}</p>
       </>}>
         <PageHeader title="Library" sub={say} actions={<Button onClick={() => setGc(unused())} disabled={!usage.ready || !all.length}>Clean up</Button>} />
         <div className="k-row" style={{ gap: "8px 20px" }}>

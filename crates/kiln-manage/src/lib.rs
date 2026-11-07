@@ -25,6 +25,7 @@
 //! | [`resolver`] | port of Resolver.cs |
 //! | [`library`] | the content-addressed mod library, import detection |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
+//! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
 //! | [`playonce`] | `kiln/play-once.ini` |
 //! | [`config`] | offline mod configs, `.schema/` snapshots, `config/native.json` |
 //! | [`jsonc`] | JSONC CST value edits |
@@ -64,6 +65,7 @@ pub mod library;
 pub mod manifest;
 pub mod playonce;
 pub mod profile;
+pub mod quick;
 pub mod resolver;
 pub mod semver;
 

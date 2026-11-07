@@ -440,6 +440,27 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
 5. Record the activation in `<data>/installs/<installId>.json`; emit `kiln://game` `{kind: "status"}`.
 Deactivate: move `profile.json` to `kiln/backups/profile-<ts>.json`, clear `[profile]`: the legacy layout.
 
+### Add a mod (`library_add`: a drop anywhere on the launcher window)
+1. Refuse at once (no task) when the game has no `kiln/` folder (`unsupported`: install Kiln first).
+2. Where the mods go is decided before anything changes: the profile the game's `profile.json` names (when this data
+   folder has it); else, with no profile at all, "My mods" (made below); else nowhere (profiles exist but none is active
+   in this game, or another data folder's profile is: those players are left alone, the files are only imported).
+   "My mods" while the game runs is refused (`game_running`) before the import.
+3. Modpack zips (`kiln-modpack.json` at the root) are not imported: the result lists them (`modpacks`) for the consent
+   flow (`modpack_inspect`/`modpack_install` with `{path}`). A modpack folder is skipped ("drop its zip").
+4. `library::import` the rest; every entry imported or already there is added to the profile, enabled: new, or
+   replacing another version of the same id, or switching a disabled entry on (`changes`, with what each replaced).
+5. "My mods": `profile::create`, `dropins` every kind (what the legacy layout loaded still loads), activated
+   (activation flow). A failed activation removes it.
+6. Save the profile, then `profile::refresh_active` writes `profile.json` again (not while the game runs: Play does it
+   before the next start). When that write fails, the profile change is undone (a "My mods" made for it is removed)
+   and the task fails; the library keeps what it imported.
+7. `missing`: what the added Kiln mods (non-optional `dependencies`, not `kiln`) and native mods (`requires`) need and
+   the profile lacks (enabled, any version).
+Undo is `profile_revert(profileId, changes)`: each changed entry goes back (removed when it was new), newest first; an
+entry changed since is left alone; then `profile.json` is written again where the profile is active.
+`profile_ensure_default(gameId)` is step 2 and 5 alone (Play runs it after it installed Kiln).
+
 ### Launch (`launch_play`)
 1. Refuse while the game runs (`game_running`).
 2. Mode `profile`: nothing to write (Steam's Play button does the same). Modes `vanilla`/`no-mods`: write
@@ -503,7 +524,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`} |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
 | app | `app_open_path` | path: string | null |
@@ -613,11 +634,25 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | update | `update_restart` | - | null (restarts into the update that is ready; Windows: runs its installer; returns only on failure) |
 | update | `update_skip` | version: string \| null | `UpdateStatus` (null: un-skips) |
 | update | `update_ack` | - | `UpdateStatus` (clears `justUpdated`) |
+| library | `library_add` | gameId, paths: string[] | `TaskId` -> `AddReport` (import + add to the game's active profile + write profile.json, section 7 "Add a mod"; rejects at once with `unsupported` when the game has no `kiln/`) |
+| profile | `profile_revert` | profileId, changes: ProfileChange[] | `Profile` (undoes a `library_add`; profile.json follows where the profile is active, as after `profile_save`) |
+| profile | `profile_ensure_default` | gameId | `Activation \| null` (the active profile's; with no profile at all: "My mods" made and activated; null when profiles exist but none is active in the game) |
+| deck | `deck_browse` | dir: string \| null | `DeckFolder` (one folder for the Deck's Add mods, null: Downloads (XDG download dir, else `~/Downloads`, else home): `{dir, name, parent, folders: {name, path}[] (not mods; hidden ones left out), mods: DeckFoundMod {path, file, folder, size, modified, detected: Detected}[] (what `library_detect` recognises: kiln, native, plugin, emf, bare-dll, modpack, or a zip/folder holding mods; newest first; zips listing no manifest or DLL, zips over 512 MiB and DLLs over 96 MiB are not opened), other (files left out), truncated (only the newest 400 entries looked at), hasGame (enshrouded.exe here), places: {name, path, kind: 'downloads'\|'home'\|'desktop'\|'card'\|'games'}[]}`; read-only; [deck.md](deck.md)) |
+| deck | `deck_gamepad` | on: boolean | `GamepadStatus` {native (Linux: the evdev reader exists), running, devices: {device, name, vendor, product}[], denied (gamepads in /dev/input that could not be opened)} (starts or stops the reader; events in `kiln://gamepad`) |
+| deck | `deck_fullscreen` | on: boolean | boolean (the main window's fullscreen state after the change) |
+| deck | `deck_quit` | - | null (exits the launcher: Game Mode has no window buttons) |
+
+`AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
+AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs: applies at the next
+start), activation, missing: {id, range, by}[], modpacks: string[]}`, `AddedMod {kind, id, version, hash, name}`,
+`ProfileChange {kind, before: ProfileMod | null, after: ProfileMod}` (`kiln_manage::quick`).
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
 KILN_LAUNCHER_NO_WEBGL=1 for this start), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
 allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"
-(absent: the running build's channel), animatedFire: boolean (default true)}` (`checkUpdates`, never used, is gone;
+(absent: the running build's channel), animatedFire: boolean (default true), addToActiveProfile: boolean (default true;
+a dropped mod goes through `library_add`; off: `library_import` only), uiMode?: "auto"|"deck"|"desktop" (the UI to start
+in; absent or auto: the Deck UI when `AppInfo.deck.detected`; [deck.md](deck.md))}` (`checkUpdates`, never used, is gone;
 readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md)),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,
 message: string|null, started, finished: string|null, result?, error?: KilnError}`, `BootState {boot: BootJson|null,
@@ -626,6 +661,12 @@ kiln.log's `[E` lines of the run that wrote boot.json).
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
 folders) and exits 0/1; used under Wine for the NSIS build.
+
+`DeckInfo` (`launcher/src-tauri/src/deck/detect.rs`): `{detected: boolean, signals: string[] ("SteamDeck=1", "SteamOS=1",
+"XDG_CURRENT_DESKTOP=gamescope", "GAMESCOPE_WAYLAND_DISPLAY", "dmi:Jupiter" | "dmi:Galileo", "os-release:steamos"), gamescope:
+boolean, device: "jupiter"|"galileo"|null, forced: "deck"|"desktop"|null}` (`forced`: `--deck` / `--desktop` on the command
+line, the last one wins, else `KILN_LAUNCHER_UI=deck|desktop`). The UI: `forced`, else `uiMode` when not auto, else
+`detected`, else the desktop UI ([deck.md](deck.md)).
 
 ## 10. Events
 Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `KilnEvents` with the payload types.
@@ -640,6 +681,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://admin` | `{session, serverId, event: {kind: 'push', topic, seq, data} \| {kind: 'closed', reason, retry} \| {kind: 'error', message} \| {kind: 'ready', transport, ops, topics}}` (`ready` after every (re)connect; `closed.retry`: the hub reconnects) |
 | `kiln://update` | `UpdateStatus` (at every change of the self-update: check, download progress, ready, skip) |
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
+| `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 
 ## 11. Errors
 Every command rejects with `KilnError = {code, message, detail?}` (`kiln_manage::Error`, serialized as is). `message`
@@ -699,6 +741,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `resolver` | `resolve(&[Candidate], &Environment) -> Result<Resolution>`; `Candidate`, `Environment`, `ModState`, `Rejection`, `Resolution` |
 | `library` | `list(&DataDirs, Option<ModKind>)`, `detect(&Path)`, `import(&DataDirs, &[PathBuf], &mut dyn Progress)`, `remove(&DataDirs, &LibraryRef, bool)`, `path_of`; `LibraryRef`, `LibraryEntry`, `LibraryVersion`, `ImportSource`, `DetectKind`, `Detected`, `ImportReport`, `Skipped` |
 | `profile` | `list`, `get`, `create(&DataDirs, &str, Option<&str>)`, `save`, `delete`, `resolve_preview`, `activate(&DataDirs, &str, &GameInstall) -> Result<Activation>`, `deactivate`, `active`, `render`, `read_game_profile`, `fingerprint(&Profile)`; `ProfileFile`, `ProfileFileMods`, `FolderMod`, `PluginMod`, `Dropins`, `BoundServer`, `ModpackRef`, `Profile`, `ProfileMods`, `ProfileMod`, `DataDirMode`, `ProfileSummary`, `ProfileCounts`, `Activation`, `ResolvePreview`, `NativePlanEntry` |
+| `quick` | `add(&DataDirs, &GameInstall, &[PathBuf], &mut dyn Progress) -> Result<AddReport>`, `add_with` (running given), `ensure_default`, `ensure_default_with`, `revert(&DataDirs, &str, &[ProfileChange]) -> Result<Profile>`, `is_modpack`, `DEFAULT_PROFILE`; `AddReport`, `AddedMod`, `MissingMod`, `ProfileChange`, `Target` |
 | `playonce` | `render(&PlayOnce) -> String`, `decide(&[u8], i64, bool, bool)`, `write(&Path, &PlayOnce)`, `pending(&Path)`, `new_nonce()`; `PlayOnce`, `PlayOnceMode`, `PlayOnceStatus` |
 | `config` | `snapshot_path`, `list`, `read`, `set`, `write`, `reset`, `validate`, `read_native_state`, `write_native_state`; `ConfigTarget`, `SchemaSnapshot`, `SnapshotSection`, `SnapshotEntry`, `SnapshotSource`, `ValueFormat`, `NativeUserState`, `NativeModSwitch`, `ConfigFileInfo`, `ConfigDocument`, `ValidationError` |
 | `jsonc` | `split_path(&str) -> Vec<PathSeg>`, `parse`, `set_value`, `remove_value` |
@@ -730,7 +773,7 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
   `--k-line-hot`), `--k-radius-{s,m,l}`, `--k-font-{display,ui,label,mono}` (Grenze Gotisch, Alegreya Sans, Alegreya
   Sans SC, Inconsolata; bundled locally, no web-font URLs), `--k-text-on-ember: #170803` (text on ember or gold fills
   is never white), `--k-ember-text-on-light`.
-- Routes: Play `/`; Client `/profiles/:id/{mods,native,emf,configs,saves}`, `/library`, `/runtime`,
+- Routes: Deck UI `/deck`, `/deck/{mods,add,kiln,help,settings}` (its own frame outside the shell, [deck.md](deck.md)); Play `/`; Client `/profiles/:id/{mods,native,emf,configs,saves}`, `/library`, `/runtime`,
   `/logs`, `/saves`, `/editor`, `/settings`, `/about`; Servers `/servers/:id/{overview,logs,ticks,settings,configs,mods,
   backups,modpack}`; Admin `/servers/:id/admin/{players,map,zones,items,spawn,world,combat,creatures,gamedata,permissions,
   content,saves,crashes}` (`admin/configs`, `admin/mods` and `admin/console` redirect to the merged server pages).

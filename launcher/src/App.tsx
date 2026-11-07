@@ -3,7 +3,7 @@
 //   src/pages/servers/ServersPage.tsx   default export: the /servers index (else: redirect to the first server)
 //   src/pages/servers/ServerLayout.tsx  default export: a layout with <Outlet/> around every /servers/:id/* page
 //   src/pages/servers/ModpackOffer.tsx  default export: the modpack consent modal Play opens (see PlayPage)
-import { lazy, type ComponentType } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AppShell } from "./shell/AppShell";
 import { NotFound } from "./shell/NotFound";
@@ -38,6 +38,9 @@ const AdminRoutes = lazy(() => import("./admin").then((m) => ({ default: m.Admin
 // The save editor is big (its game data): loaded on first visit.
 const EditorPage = lazy(() => import("./pages/EditorPage"));
 
+// The Steam Deck UI (src/deck/, docs/kiln/launcher/deck.md): its own frame, outside the desktop shell; loaded only when used.
+const DeckApp = lazy(() => import("./deck/DeckApp"));
+
 const slots = import.meta.glob<{ default: ComponentType }>(["./pages/servers/ServersPage.tsx", "./pages/servers/ServerLayout.tsx"]);
 const slot = (name: string, fallback: ComponentType): ComponentType => {
   const load = slots[`./pages/servers/${name}.tsx`];
@@ -49,6 +52,7 @@ const ServerLayout = slot("ServerLayout", Outlet);
 export default function App() {
   return (
     <Routes>
+      <Route path="deck/*" element={<Suspense fallback={null}><DeckApp /></Suspense>} />
       <Route element={<AppShell />}>
         <Route index element={<PlayPage />} />
         <Route path="profiles" element={<ProfilesPage />} />

@@ -4,15 +4,16 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected,
+  Activation, AddReport, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected,
   EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
-  LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModsJson, NativeJson, NativePlanEntry,
-  NativeUserState, Profile, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
+  LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
+  NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
 import { adminMockHandlers } from "../admin/mock";
 import { serverMockHandlers } from "../pages/servers/mockServers";
 import { updateMockHandlers } from "./mockUpdate";
+import { deckMockHandlers } from "../deck/mockDeck";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -41,19 +42,25 @@ function reject(code: KilnError["code"], message: string, detail?: unknown): nev
   throw { code, message, ...(detail !== undefined ? { detail } : {}) } satisfies KilnError;
 }
 
+// ---------------------------------------------------------------- first run
+
+/** `?mock=fresh`: a first start: no game known yet (Detect finds the Steam one), no Kiln in it, no profiles, an empty
+ *  library. `?mock=empty`: the same, and Detect finds nothing. Anything else: the seeded launcher below. */
+const MODE = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mock") : null;
+const FRESH = MODE === "fresh" || MODE === "empty";
+
 // ---------------------------------------------------------------- games
 
 const STEAM = "/home/player/.local/share/Steam";
-const games: GameInstall[] = [
-  {
-    id: "client-steam", kind: "client", path: `${STEAM}/steamapps/common/Enshrouded`, exe: "enshrouded.exe", appId: 1203620,
-    library: STEAM, platform: "proton", prefix: `${STEAM}/steamapps/compatdata/1203620/pfx`, buildId: "26404966",
-    exeSha256: "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618", steamFlavor: "native", pathMode: "z", source: "steam",
-  },
-];
+const steamGame: GameInstall = {
+  id: "client-steam", kind: "client", path: `${STEAM}/steamapps/common/Enshrouded`, exe: "enshrouded.exe", appId: 1203620,
+  library: STEAM, platform: "proton", prefix: `${STEAM}/steamapps/compatdata/1203620/pfx`, buildId: "26404966",
+  exeSha256: "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618", steamFlavor: "native", pathMode: "z", source: "steam",
+};
+const games: GameInstall[] = FRESH ? [] : [steamGame];
 const baseReceipt = receiptExample as unknown as InstallReceipt;
 const kilnProxy: ProxyClass = { kind: "kiln", version: "0.2.0-dev", abi: 2, sha256: hex("proxy"), size: 98304, detail: "export KilnProxyInfo" };
-const runtime: Record<string, InstallState> = {
+const runtime: Record<string, InstallState> = FRESH ? {} : {
   "client-steam": { installed: true, receipt: baseReceipt, proxy: kilnProxy, modified: [], upgradeAvailable: null },
 };
 const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null } | null> = {};
@@ -98,7 +105,7 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   plugin: [{ id: "my-plugin", name: "my-plugin.dll", version: "1.0.0", side: "client" }],
 };
 
-const library: LibraryEntry[] = KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
+const library: LibraryEntry[] = FRESH ? [] : KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
 
 function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: string): LibraryEntry {
   const hash = kdh(kind + m.id + m.version);
@@ -126,7 +133,7 @@ const pm = (kind: ModKind, id: string, enabled = true) => {
   return { id, version: m.version, hash: kdh(kind + m.id + m.version), enabled };
 };
 
-const profiles = new Map<string, Profile>([
+const profiles = new Map<string, Profile>(FRESH ? [] : [
   ["ember-run", {
     format: 1, id: "ember-run", name: "Ember run", created: "2026-11-01T10:00:00Z", updated: "2026-11-04T12:00:00Z", generation: 7, notes: "",
     mods: {
@@ -166,7 +173,7 @@ function activate(pid: string, gameId: string): Activation {
   activations[gameId] = a;
   return a;
 }
-activate("ember-run", "client-steam");
+if (!FRESH) activate("ember-run", "client-steam");
 
 function summary(p: Profile): ProfileSummary {
   return {
@@ -249,8 +256,12 @@ function gameOf(id: unknown): GameInstall {
   return games.find((g) => g.id === id) ?? reject("not_found", `No game '${String(id)}'.`);
 }
 
+/** Games started in this session (a first run has no boot.json before its first start). */
+const launched = new Set<string>();
+
 function bootFor(gameId: string): BootJson | null {
   const r = running[gameId];
+  if (!r && FRESH && !launched.has(gameId)) return null;
   if (!r || Date.now() - r.at < 2500 || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
   const b = clone(bootExample as unknown as BootJson);
   b.pid = r.pid;
@@ -290,6 +301,7 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   let backup: SaveBackup | null = null;
   if (!req.skipBackup && req.mode !== "vanilla") backup = makeBackup(gameId, "launch", null, profile);
   running[gameId] = { pid, mode: req.mode, nonce, at: Date.now(), profile };
+  launched.add(gameId);
   setTimeout(() => emitGame(gameId, "started"), 300);
   setTimeout(() => emitGame(gameId, "boot"), 2600);
   setTimeout(() => emitGame(gameId, "mods"), 3200);
@@ -313,7 +325,7 @@ export function mockStopGame(gameId = "client-steam") {
 // ---------------------------------------------------------------- last server (Play's refusal banner)
 
 // <game>/kiln/state/last-server.json and dismissed.json, filtered like commands/modpack.rs (worth_showing).
-let lastServer: LastServer | null = clone(lastServerExample as unknown as LastServer);
+let lastServer: LastServer | null = FRESH ? null : clone(lastServerExample as unknown as LastServer);
 const dismissedOffers: Record<string, string> = {};
 const dismissKey = (l: LastServer) => (l.modpack ? l.modpack.sha256 : `refused ${l.written}`);
 function pendingLastServer(): LastServer | null {
@@ -334,7 +346,7 @@ const saveSlots: SaveSlot[] = [
   { kind: "world", file: "3ad85aea-1", path: "userdata/12345678/1203620/remote/3ad85aea-1", modified: "2026-11-04T09:30:00Z", size: 2_880_000, steamId: "12345678" },
   { kind: "character", file: "characters", path: "userdata/12345678/1203620/remote/characters", modified: "2026-11-04T09:40:00Z", size: 96_220, steamId: "12345678" },
 ];
-const backups: Record<string, SaveBackup[]> = {
+const backups: Record<string, SaveBackup[]> = FRESH ? {} : {
   "client-steam": [
     { id: "20261104T094000Z", created: "2026-11-04T09:40:00Z", reason: "launch", profileId: "ember-run", fingerprint: "kms1:" + hex("a"), note: null, files: 3, bytes: 5_860_332 },
     { id: "20261103T201500Z", created: "2026-11-03T20:15:00Z", reason: "modpack", profileId: "server-ember-isles", fingerprint: "kms1:" + hex("b"), note: null, files: 3, bytes: 5_812_004 },
@@ -474,7 +486,8 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 // ---------------------------------------------------------------- settings, servers
 
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
-let settings: LauncherSettings = { steamRoots: [], defaultGameId: "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true };
+let settings: LauncherSettings = { steamRoots: [], defaultGameId: FRESH ? null : "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true,
+  addToActiveProfile: true };
 
 const server: ServerInstance = {
   id: "lab", name: "Lab server", kind: "local", dir: "/home/player/srv/enshrouded/lab", port: 26090, queryPort: 26091,
@@ -515,12 +528,18 @@ const handlers: Record<string, Handler> = {
 
   // game
   game_list: () => games,
-  game_detect: () => games,
+  // a first start: Detect takes a moment, then finds the Steam install (or nothing, `?mock=empty`)
+  game_detect: async () => {
+    if (!FRESH) return games;
+    await new Promise((ok) => setTimeout(ok, 1600));
+    if (MODE === "fresh" && !games.some((g) => g.id === steamGame.id)) games.push(steamGame);
+    return games;
+  },
   game_add: (a) => {
     const path = S(a.path).replace(/\/+$/, "");
     if (!path) reject("invalid_argument", "Give a game folder.");
     if (games.some((g) => g.path === path)) reject("already_exists", "That folder is already listed.");
-    const g: GameInstall = { ...games[0], id: `client-${hex(path).slice(0, 8)}`, path, library: null, source: "manual", buildId: null, steamFlavor: null };
+    const g: GameInstall = { ...(games[0] ?? steamGame), id: `client-${hex(path).slice(0, 8)}`, path, library: null, source: "manual", buildId: null, steamFlavor: null };
     games.push(g);
     return g;
   },
@@ -621,6 +640,35 @@ const handlers: Record<string, Handler> = {
   },
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
+  profile_revert: (a) => {
+    const id = S(a.profileId);
+    const p = clone(profiles.get(id) ?? reject("not_found", `No profile '${id}'.`));
+    let changed = false;
+    for (const c of [...((a.changes as ProfileChange[]) ?? [])].reverse()) {
+      const list = p.mods[c.kind];
+      const i = list.findIndex((m) => m.id === c.after.id);
+      if (i < 0 || list[i].version !== c.after.version || list[i].hash !== c.after.hash) continue;
+      if (c.before) list[i] = c.before; else list.splice(i, 1);
+      changed = true;
+    }
+    if (!changed) return p;
+    const next = { ...p, generation: p.generation + 1, updated: now() };
+    profiles.set(id, next);
+    reapplyWhereActive(id);
+    return clone(next);
+  },
+  profile_ensure_default: (a) => {
+    const gameId = S(a.gameId);
+    gameOf(gameId);
+    if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
+    if (activations[gameId]) return activations[gameId];
+    if (profiles.size) return null;
+    if (running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
+    makeDefault();
+    const r = activate("my-mods", gameId);
+    emitGame(gameId, "status");
+    return r;
+  },
 
   // library
   library_list: (a) => clone(a.kind ? library.filter((l) => l.kind === a.kind) : library),
@@ -630,6 +678,17 @@ const handlers: Record<string, Handler> = {
     if (!paths.length) reject("invalid_argument", "Nothing to import.");
     return startTask("library_import", paths.length === 1 ? `Import ${paths[0].split(/[\\/]/).pop()}` : `Import ${paths.length} items`,
       ["Reading", "Hashing", "Detecting", "Copying"], () => importPaths(paths), 300);
+  },
+  library_add: (a) => {
+    const gameId = S(a.gameId);
+    const paths = (a.paths as string[]) ?? [];
+    if (!paths.length) reject("invalid_argument", "Nothing to add.");
+    gameOf(gameId);
+    if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
+    const makeIt = !activations[gameId] && profiles.size === 0;
+    if (makeIt && running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
+    return startTask("library_add", paths.length === 1 ? `Add ${paths[0].split(/[\\/]/).pop()}` : `Add ${paths.length} items`,
+      ["Reading", "Hashing", "Adding to the profile", "Writing profile.json"], () => quickAdd(gameId, paths, makeIt), 300);
   },
   library_lint: () => ({ format: 1, tool: "kiln-lint", version: "mock", ok: true, checked: [], summary: { errors: 0, warnings: 0, infos: 0, hints: 0 }, catalog: null, diagnostics: [] }),
   library_remove: (a) => {
@@ -782,17 +841,103 @@ const handlers: Record<string, Handler> = {
   },
   admin_sessions: () => [],
   ...serverMockHandlers,
+  // the consent flow's install (Play's offer, or a modpack zip dropped on the window): a profile bound to the server
+  modpack_install: (a) => {
+    const gameId = S(a.gameId);
+    const req = a.request as ModpackInstallRequest;
+    if (!req?.consent) reject("consent_required", "Installing a modpack runs code from the server on your PC: confirm first.");
+    if (running[gameId]) reject("game_running", "Close the game first.");
+    return startTask("modpack_install", "path" in req.source ? `Installing modpack ${req.source.path.split(/[\\/]/).pop()}` : `Installing modpack from ${req.source.url}`,
+      ["Checking the modpack", "Importing into the library", "Setting up the profile", "Backing up saves"], (): ModpackInstallResult => {
+        const report = importPaths(["ember-lanterns-1.1.0.zip", "isle-weather-0.4.0.zip"]);
+        const refs = [...report.imported, ...report.existing];
+        const bound = [...profiles.values()].find((p) => p.server?.id === "srv-4b8e2c");
+        const p: Profile = bound ? clone(bound) : { format: 1, id: slug("Server: Ember Isles"), name: "Server: Ember Isles", created: now(), updated: now(), generation: 1, notes: "",
+          mods: { kiln: [], native: [], plugin: [], emf: [] }, dropins: [], dataDir: "profile", server: { id: "srv-4b8e2c", name: "Ember Isles" } };
+        p.mods = { kiln: [], native: [], plugin: [], emf: [] };
+        for (const r of refs) p.mods[r.kind].push({ id: r.id, version: r.version, hash: r.hash, enabled: true });
+        p.generation += bound ? 1 : 0;
+        profiles.set(p.id, p);
+        const backup = req.activate === false ? null : makeBackup(gameId, "modpack", null, p.id);
+        const activation = req.activate === false ? null : activate(p.id, gameId);
+        emitGame(gameId, "status");
+        return { profile: clone(p), imported: report.imported, backup, activation };
+      });
+  },
   // after the server mocks: Play's Dismiss has to stick
   modpack_dismiss: (a) => { if (lastServer && (lastServer.server.id ?? "") === S(a.serverId)) dismissedOffers[S(a.serverId)] = dismissKey(lastServer); return null; },
 };
 Object.assign(handlers, adminMockHandlers(mockEmit));
 Object.assign(handlers, updateMockHandlers(mockEmit));
+Object.assign(handlers, deckMockHandlers(handlers));
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
 let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
 function editorFixture() {
   editorFix ??= fetch(EDITOR_FIXTURE + "index.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
   return editorFix;
+}
+
+/** "My mods": the profile a first-time player gets (every drop-in folder on, like kiln_manage::quick). */
+function makeDefault(): Profile {
+  const p: Profile = { format: 1, id: slug("My mods"), name: "My mods", created: now(), updated: now(), generation: 2, notes: "",
+    mods: { kiln: [], native: [], plugin: [], emf: [] }, dropins: [...KINDS], dataDir: "shared", server: null };
+  profiles.set(p.id, p);
+  return p;
+}
+
+/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again. */
+function reapplyWhereActive(pid: string) {
+  for (const [g, act] of Object.entries(activations)) {
+    if (act?.profileId !== pid || running[g]) continue;
+    activate(pid, g);
+    emitGame(g, "status");
+  }
+}
+
+/** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
+function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
+  const r: AddReport = { import: { imported: [], existing: [], skipped: [] }, profileId: null, profileName: null, created: false, added: [], already: [],
+    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [] };
+  const files: string[] = [];
+  for (const p of paths) {
+    if (detect(p).kind !== "modpack") files.push(p);
+    else if (/\.zip$/i.test(p)) r.modpacks.push(p);
+    else r.import.skipped.push({ path: p, reason: "a modpack folder: drop its zip to install it" });
+  }
+  if (files.length) { const rep = importPaths(files); r.import = { ...rep, skipped: [...rep.skipped, ...r.import.skipped] }; }
+  const refs = [...r.import.imported, ...r.import.existing];
+  if (!refs.length) return r;
+  const active = activations[gameId]?.profileId ?? null;
+  let p: Profile;
+  if (active) p = clone(profiles.get(active)!);
+  else if (makeIt) {
+    p = makeDefault();
+    r.activation = activate(p.id, gameId);
+    r.created = r.applied = true;
+  } else return r;
+  r.profileId = p.id;
+  r.profileName = p.name;
+  const named = (x: { kind: ModKind; id: string; version: string; hash: string }): AddedMod =>
+    ({ kind: x.kind, id: x.id, version: x.version, hash: x.hash, name: library.find((l) => l.kind === x.kind && l.id === x.id)?.name ?? x.id });
+  for (const ref of refs) {
+    const after: ProfileMod = { id: ref.id, version: ref.version, hash: ref.hash, enabled: true };
+    const list = p.mods[ref.kind];
+    const i = list.findIndex((m) => m.id === ref.id);
+    if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(after)) { r.already.push(named(ref)); continue; }
+    r.changes.push({ kind: ref.kind, before: i >= 0 ? list[i] : null, after });
+    if (i >= 0) list[i] = after; else list.push(after);
+  }
+  if (!r.changes.length) return r;
+  profiles.set(p.id, { ...p, generation: p.generation + 1, updated: now() });
+  if (!running[gameId]) { r.activation = activate(p.id, gameId); r.applied = true; emitGame(gameId, "status"); }
+  const has = (id: string) => p.mods.kiln.some((m) => m.enabled && m.id === id) || p.mods.native.some((m) => m.enabled && m.id === id);
+  for (const c of r.changes) {
+    for (const [dep, range] of Object.entries(manifestOf(c.kind, c.after.id, c.after.version)?.requires ?? {}))
+      if (!has(dep) && !r.missing.some((m) => m.id === dep)) r.missing.push({ id: dep, range, by: c.after.id });
+  }
+  r.added = r.changes.map((c) => named({ kind: c.kind, ...c.after }));
+  return r;
 }
 
 function detect(path: string): Detected {
@@ -826,7 +971,9 @@ function importPaths(paths: string[]): ImportReport {
     const hash = kdh(kind + d.id + version);
     const ref: LibraryRef = { kind, id: d.id, version, hash };
     if (ex?.versions.some((v) => v.version === version)) { report.existing.push(ref); continue; }
-    const m: MockManifest = { id: d.id, name: d.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), version, side: "both", phase: kind === "native" ? "early" : undefined };
+    // a seed mod's file ("more-hotbars-2.1.0.zip") keeps the seed's manifest (its name, requires, side)
+    const seed = seedMods[kind].find((x) => x.id === d.id);
+    const m: MockManifest = seed ? { ...seed, version } : { id: d.id, name: d.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), version, side: "both", phase: kind === "native" ? "early" : undefined };
     const fresh = entryFor(kind, m, now(), p);
     if (ex) ex.versions.unshift(fresh.versions[0]);
     else library.push(fresh);

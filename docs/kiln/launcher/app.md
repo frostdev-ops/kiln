@@ -8,7 +8,7 @@ events). Design system: [design-system.md](design-system.md).
 | Path | What |
 |---|---|
 | `src/main.tsx`, `src/App.tsx` | entry, routes (HashRouter). Server/admin pages load lazily; optional server slots via `import.meta.glob` (below) |
-| `src/shell/` | AppShell (the stage, the header with nav, tasks and the game's state word, the Play page in front of the stage, the sheet for every other page, the mouth: the Play button and pilot light; toasts, splash, route error boundary), `play.ts` (the Play control shared by the mouth and the Play page), `gameState.ts`, `nav.ts`, `serverNav.ts` (a server's grouped list) |
+| `src/shell/` | AppShell (the stage, the header with nav, tasks and the game's state word, the Play page in front of the stage, the sheet for every other page, the mouth: the Play button and pilot light; toasts, splash, route error boundary), `play.ts` (the Play control shared by the mouth and the Play page), `firstRun.tsx` (the automatic game detection, Install Kiln on Play), `drop.tsx` (a mod dropped anywhere on the window, the dropped-modpack consent), `runtimeChange.ts` (the runtime install task shared by Runtime and Play), `gameState.ts`, `nav.ts`, `serverNav.ts` (a server's grouped list) |
 | `src/ui/` | the design system |
 | `src/components/` | `ConfigEditor`, `SaveBackups` (shared with server pages) |
 | `src/pages/` | client pages (Play, Profiles + tabs, Library, Runtime, Logs, Saves, Editor, Settings, About) |
@@ -31,19 +31,43 @@ events). Design system: [design-system.md](design-system.md).
 ## Pages
 | Route | Page | Backend |
 |---|---|---|
-| `/` | Play, in front of the stage: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors, the mods that failed in mods.json/native.json and the `[E` lines of kiln.log, all of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, "Update Kiln" (`GameStatus.newerMods`: the active profile's mods whose `kilnBuild` is newer than the game's runtime: "<ids> needs a newer Kiln." with Update, which opens Runtime), safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
+| `/` | Play, in front of the stage. First start ("The first run" below): looking for the game by itself, then Install Kiln right here. Then: the active profile's name (opens the profile list), one live sentence (what loads), "Just once": vanilla (warns first in the arch: Kiln gear can crash), without mods, another profile; boot stages while it starts; four facts (Kiln with its build date and "update ready/failed", proxy, runs on, last boot: boot.json's errors, the mods that failed in mods.json/native.json and the `[E` lines of kiln.log, all of the same run, linking to Logs); the game folder with Open, Detect, Add. Banners above the name: refusal (`last-server.json`) with the modpack offer, Steam launch-option advice, Steam updating, "Update Kiln" (`GameStatus.newerMods`: the active profile's mods whose `kilnBuild` is newer than the game's runtime: "<ids> needs a newer Kiln." with Update, which opens Runtime), safe idle. The mouth (shell) is the Play button | `game_*`, `launch_play`, `launch_state`, `profile_active/activate/deactivate`, `profile_resolve`, `modpack_pending/dismiss` |
 | `/profiles` | list, create, duplicate, delete (typed), activate | `profile_*` |
 | `/profiles/:id/mods` | the Kiln mods as the resolver's load order (client or server side): numerals, flame toggles, why a mod stays out; add from the library, other versions, remove | `profile_save`, `profile_resolve`, `library_list` |
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
 | `/profiles/:id/emf`, `/configs`, `/saves` | EMF mods; the profile's config folder (SchemaForm/raw); backups made with this profile | `config_*`, `saves_*` |
-| `/library` | drop zip/folder/DLL → detection → import task; versions; remove (typed, force when used); clean up unused | `library_*` |
+| `/library` | drop zip/folder/DLL: as a drop anywhere (into the active profile; below), or with Settings "Add new mods to the active profile" off, detection → import task; versions; remove (typed, force when used); clean up unused | `library_*` |
 | `/runtime` | install/update/rollback per bundle (bundles of one version and day are ordered by when they were built, never by the git id), uninstall (typed), proxy chain (receipt + live `boot.json` chain), switch from ShroudForge (typed), add bundle | `runtime_*` |
 | `/logs` | kiln.log, game log, proxy.log, mod logs (follow, filter), crash reports, tick stats (sparklines) | `logs_*` |
 | `/saves` | save files, backups, manual backup, restore (refused while running; Steam Cloud hint), delete | `saves_*` |
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
-| `/settings` | launcher settings, Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
+| `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
 | `/about` | versions, CREDITS.md, "Theme and design: frostdev" | `app_info` |
 | `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
+
+## The first run and dropping a mod
+For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the
+window, Play. Library and Profiles stay as they are for everyone else.
+- **Finding the game** (`shell/firstRun.tsx`, `useAutoDetect`): when no client is known, the shell runs `game_detect`
+  once per start by itself. Play says "Looking for Enshrouded in your Steam libraries." (the mouth: "Looking"), then
+  either the game, or "Kiln did not find Enshrouded…" with Add a folder and Look again.
+- **Install Kiln on Play**: the game is there but Kiln is not: the mouth is lit and says Install; it (and the Install
+  Kiln link) opens one confirm (`InstallKilnModal`: the version, Install), which runs the Runtime page's install task
+  (`shell/runtimeChange.ts`: the newest client bundle, default parts) with its cones in place of the links. When it is
+  done, `profile_ensure_default` makes "My mods" and activates it when there is no profile at all, and Play is ready
+  ("No mods yet. Drop one anywhere on this window."). ShroudForge's switch stays on Runtime (typed).
+- **Drop a mod anywhere** (`shell/drop.tsx`): files dragged over the window (Tauri's drag-drop events; HTML5 drag
+  events in the browser mock) show the niche over a dimmed window, "Drop to add", "Into <profile>". The drop runs
+  `library_add` (import, add to the active profile, write profile.json; contracts.md section 7 "Add a mod"). The toast
+  is the mod's name and Undo (`profile_revert`; the library copy stays), "Needs <ids>." when requirements are missing,
+  "Applies at the next start." while the game runs. Before Kiln is installed: "Install Kiln first" with Install Kiln
+  (the dropped files are added once the install is done). With profiles but none active: imported only, "No profile is
+  active." with Profiles. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
+  `modpack_install` with `{path}`). A drop on a DropZone (Library's niche, Runtime's bundle row) or while a dialog is
+  open is not the window's. Settings "Add new mods to the active profile" off: drops are only imported.
+- Browser mock: `?mock=fresh` starts as a first run (no game known, Detect finds the Steam one, no Kiln, no profiles,
+  an empty library), `?mock=empty` finds nothing. `tests/firstrun.spec.ts` covers the flow (screenshots in
+  `.out/simple/shots/`).
 
 Optional slots for server pages (picked up by `import.meta.glob`, no route edit needed):
 `src/pages/servers/ServersPage.tsx` (the `/servers` index), `ServerLayout.tsx` (wraps `/servers/:id/*`),
@@ -99,7 +123,7 @@ bun run dev                         # browser mock on http://localhost:1420
 bun x tauri dev                     # the desktop app (debug), same dev server
 bun x tsc --noEmit && bun run build # typecheck + production web build (tsc covers every page)
 bun run check:schemas
-bun run test:smoke                  # Playwright, mock mode; screenshots to .out/launcher/shots/
+bun run test:smoke                  # Playwright, mock mode; screenshots to .out/launcher/shots/ (KILN_DEV_PORT: another port)
 CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher
 tools/launcher/fetch-editor-assets.sh   # dev: local editor game assets for the vite dev server (gitignored)
 ```

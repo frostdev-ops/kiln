@@ -74,6 +74,8 @@ export interface AppInfo {
   mock: boolean;
   /** KILN_LAUNCHER_NO_WEBGL=1 for this start: the plain Play button, no WebGL fire. */
   noWebgl?: boolean;
+  /** Steam Deck / SteamOS / gamescope detection and `--deck` / `--desktop` (src/deck/mode.tsx chooses the UI). */
+  deck?: DeckInfo;
 }
 export interface LauncherSettings {
   steamRoots: string[];
@@ -86,6 +88,10 @@ export interface LauncherSettings {
   updateChannel?: UpdateChannel | null;
   /** The WebGL fire on Play (default on); off draws the plain Play button. */
   animatedFire?: boolean;
+  /** A dropped mod goes into the active profile (library_add; default on); off: it is only imported. */
+  addToActiveProfile?: boolean;
+  /** The UI to start in; "auto" or absent: the Deck UI on a Steam Deck, SteamOS or gamescope (docs/kiln/launcher/deck.md). */
+  uiMode?: UiMode | null;
 }
 export type TaskState = "queued" | "running" | "done" | "failed" | "canceled";
 export interface Task<R = unknown> {
@@ -330,6 +336,42 @@ export interface ImportReport {
   imported: LibraryRef[];
   existing: LibraryRef[];
   skipped: { path: string; reason: string }[];
+}
+/** library_add's result (kiln_manage::quick::AddReport): what the library took, and what reached the profile. */
+export interface AddedMod {
+  kind: ModKind;
+  id: string;
+  version: string;
+  hash: string;
+  name: string;
+}
+/** One profile entry an add changed; profile_revert puts `before` back (null: the entry was new). */
+export interface ProfileChange {
+  kind: ModKind;
+  before: ProfileMod | null;
+  after: ProfileMod;
+}
+export interface AddReport {
+  import: ImportReport;
+  /** The profile the mods went into; null: nothing to add, or profiles exist but none is active in this game. */
+  profileId: ProfileId | null;
+  profileName: string | null;
+  /** "My mods" was made now (and activated). */
+  created: boolean;
+  /** Now in the profile and enabled (new, another version, or switched on). */
+  added: AddedMod[];
+  /** Already in the profile as they are. */
+  already: AddedMod[];
+  changes: ProfileChange[];
+  /** The game's profile.json was written now. */
+  applied: boolean;
+  /** The game runs: saved, applies at the next start. */
+  running: boolean;
+  activation: Activation | null;
+  /** Mods the added ones require that the profile lacks. */
+  missing: { id: string; range: string; by: string }[];
+  /** Modpack zips among the paths: not imported, they go through the consent flow (modpack_install). */
+  modpacks: string[];
 }
 // kiln lint: schema/lint-report.schema.json
 export type LintSeverity = "error" | "warning" | "info" | "hint";
@@ -887,12 +929,20 @@ export const profileResolve = (profileId: ProfileId, side: RunSide) => call<Reso
 export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
 export const profileDeactivate = (gameId: GameId) => call<null>("profile_deactivate", { gameId });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
+/** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
+export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
+/** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
+ *  but none is active in this game. */
+export const profileEnsureDefault = (gameId: GameId) => call<Activation | null>("profile_ensure_default", { gameId });
 
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
 /** Task result: ImportReport. */
 export const libraryImport = (paths: string[]) => call<TaskId>("library_import", { paths });
+/** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
+ *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
+export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
 export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
 /** One entry (with profileId: checked against the profile's other mods), or a whole profile (entry null). */
 export const libraryLint = (entry: LibraryRef | null, profileId: ProfileId | null = null) => call<LintReport>("library_lint", { entry, profileId });
@@ -1005,6 +1055,67 @@ export const modpackInspect = (gameId: GameId, source: ModpackSource | null = nu
 export const modpackInstall = (gameId: GameId, request: ModpackInstallRequest) => call<TaskId>("modpack_install", { gameId, request });
 export const modpackDismiss = (gameId: GameId, serverId: ServerId) => call<null>("modpack_dismiss", { gameId, serverId });
 
+// deck.rs: the Steam Deck UI (docs/kiln/launcher/deck.md; src/deck/)
+export type UiMode = "auto" | "deck" | "desktop";
+export interface DeckInfo {
+  /** A Steam Deck, SteamOS or gamescope was seen (any signal). */
+  detected: boolean;
+  /** "SteamDeck=1", "SteamOS=1", "XDG_CURRENT_DESKTOP=gamescope", "GAMESCOPE_WAYLAND_DISPLAY", "dmi:Jupiter", "os-release:steamos". */
+  signals: string[];
+  /** Inside a gamescope session (Game Mode). */
+  gamescope: boolean;
+  /** The Deck model from DMI: "jupiter" (LCD), "galileo" (OLED). */
+  device: string | null;
+  /** `--deck` / `--desktop` (or KILN_LAUNCHER_UI) for this start: wins over the setting and the detection. */
+  forced: "deck" | "desktop" | null;
+}
+export interface DeckPlace { name: string; path: string; kind: "downloads" | "home" | "desktop" | "card" | "games" }
+export interface DeckFoundMod {
+  path: string;
+  /** The file or folder name. */
+  file: string;
+  folder: boolean;
+  size: number;
+  modified: string | null;
+  /** library_detect's answer (kind kiln, native, plugin, emf, bare-dll, modpack, or unknown with items). */
+  detected: Detected;
+}
+export interface DeckFolder {
+  dir: string;
+  name: string;
+  parent: string | null;
+  /** Sub-folders that are not mods, by name. */
+  folders: { name: string; path: string }[];
+  /** What the library recognises here, newest first. */
+  mods: DeckFoundMod[];
+  /** Other files left out. */
+  other: number;
+  truncated: boolean;
+  /** enshrouded.exe is here. */
+  hasGame: boolean;
+  places: DeckPlace[];
+}
+export interface GamepadStatus {
+  /** The native reader exists here (Linux). */
+  native: boolean;
+  running: boolean;
+  devices: { device: string; name: string; vendor: number; product: number }[];
+  /** Gamepads that could not be opened (permissions). */
+  denied: number;
+}
+export type PadButton = "a" | "b" | "x" | "y" | "lb" | "rb" | "lt" | "rt" | "select" | "start" | "guide" | "ls" | "rs" | "up" | "down" | "left" | "right";
+export type GamepadEvent =
+  | { kind: "button"; button: PadButton; pressed: boolean; repeat: boolean; device: string }
+  | { kind: "axis"; axis: "rx" | "ry"; value: number; device: string }
+  | { kind: "connected"; device: string; name: string; vendor: number; product: number }
+  | { kind: "disconnected"; device: string; name: string };
+/** One folder for Add mods (null: Downloads): the mods the library recognises, sub-folders, places. */
+export const deckBrowse = (dir: string | null = null) => call<DeckFolder>("deck_browse", { dir });
+/** Starts (on) or stops the native gamepad reader; events arrive as kiln://gamepad. */
+export const deckGamepad = (on: boolean) => call<GamepadStatus>("deck_gamepad", { on });
+export const deckFullscreen = (on: boolean) => call<boolean>("deck_fullscreen", { on });
+export const deckQuit = () => call<null>("deck_quit");
+
 /** Every command name (the Rust side registers the same list; mock.ts answers or rejects each). */
 export const COMMANDS = [
   "app_info", "app_settings_get", "app_settings_set", "app_open_path", "app_open_url", "task_list", "task_get", "task_cancel",
@@ -1030,6 +1141,8 @@ export const COMMANDS = [
   "app_assets_status", "app_assets_import",
   "server_console_open", "server_console_close",
   "update_status", "update_check", "update_install", "update_restart", "update_skip", "update_ack",
+  "library_add", "profile_revert", "profile_ensure_default",
+  "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -1045,6 +1158,8 @@ export interface KilnEvents {
   /** `reset`: `lines` replace everything shown (a start, a stop, a start outside the launcher). */
   "kiln://console": { subscription: string; serverId: ServerId; reset: boolean; source: ConsoleSource; path: string | null; truncated: boolean; lines: ConsoleLine[] };
   "kiln://update": UpdateStatus;
+  /** The Deck UI's native gamepad reader (src-tauri/src/deck/gamepad.rs). */
+  "kiln://gamepad": GamepadEvent;
 }
 export type KilnEventName = keyof KilnEvents;
 

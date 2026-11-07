@@ -6,10 +6,11 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import * as api from "../api/commands";
 import type { BootJson, InstallState, RunSide, RuntimeBundle } from "../api/commands";
-import { invalidateGame, qk, useGame, useGameStatus, useLaunchState, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
+import { qk, useGame, useGameStatus, useLaunchState, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
+import { installBundle, isOlder, runRuntimeChange } from "../shell/runtimeChange";
 import {
   Banner, Button, Card, ConfirmDanger, DropZone, EmptyState, Modal, Page, PageHeader, Skeleton, Table,
-  TaskProgress, Toggle, errorText, fmtAgo, installNote, runTask, toast, useTasks, type Column,
+  TaskProgress, Toggle, errorText, fmtAgo, toast, useTasks, type Column,
 } from "../ui";
 
 export default function RuntimePage() {
@@ -24,7 +25,7 @@ export default function RuntimePage() {
   const [switchSf, setSwitchSf] = useState<RuntimeBundle | null>(null);
   const [pick, setPick] = useState<RuntimeBundle | null>(null);
   const change = useRuntimeChanges((s) => (game ? s.last[game.id] : undefined));
-  const { put, clear } = useRuntimeChanges.getState();
+  const { clear } = useRuntimeChanges.getState();
   const busy = change?.state === "running";
 
   const importB = useMutation({
@@ -53,31 +54,10 @@ export default function RuntimePage() {
   const newest = bundles.data?.[0];
 
   // the change is kept per game (useRuntimeChanges): its outcome outlives this page, and Play shows a failure
-  const go = async (what: string, version: string | null, label: string, start: () => Promise<string>) => {
-    const gid = game.id;
-    const base: RuntimeChange = { what, version, taskId: null, state: "running", error: null, at: Date.now() };
-    put(gid, base);
-    try {
-      const r = await runTask<api.InstallResult | null>(async () => { const id = await start(); put(gid, { ...base, taskId: id }); return id; }, { done: label, detail: installNote });
-      put(gid, { ...(useRuntimeChanges.getState().last[gid] ?? base), state: "done" });
-      if (r?.runtime) {
-        // the task checked the game folder against this receipt: show it now (re-hashing for the page's own status
-        // takes a while), the refetch below confirms it
-        const newer = (bundles.data ?? []).find((b) => b.sides.includes(game.kind) && isOlder(r.runtime.version, b.version, bundles.data ?? []))?.version ?? null;
-        const fix = (s: InstallState | undefined) => s && { ...s, installed: true, receipt: r, modified: [], upgradeAvailable: newer };
-        qc.setQueryData<InstallState>(qk.runtimeStatus(gid), fix);
-        qc.setQueryData<api.GameStatus>(qk.gameStatus(gid), (s) => s && { ...s, runtime: fix(s.runtime)! });
-      }
-    } catch (e) {
-      put(gid, { ...(useRuntimeChanges.getState().last[gid] ?? base), state: "failed", error: api.toKilnError(e) });
-    }
-    invalidateGame(qc, gid);
-  };
-  const install = (b: RuntimeBundle, opts: api.InstallOptions = {}) => {
-    const back = !!current && b.version !== current && isOlder(b.version, current, bundles.data ?? []);
-    const what = !current ? `Install of ${b.version}` : back ? `Rollback to ${b.version}` : `Update to ${b.version}`;
-    return go(what, b.version, `Kiln ${b.version} installed`, () => (back ? api.runtimeRollback(game.id, b.version) : api.runtimeInstall(game.id, b.version, opts)));
-  };
+  // (shell/runtimeChange.ts, shared with Play's Install Kiln)
+  const go = (what: string, version: string | null, label: string, start: () => Promise<string>) =>
+    runRuntimeChange(qc, game, bundles.data ?? [], what, version, label, start).then(() => undefined);
+  const install = (b: RuntimeBundle, opts: api.InstallOptions = {}) => installBundle(qc, game, b, bundles.data ?? [], current, opts).then(() => undefined);
 
   const cols: Column<RuntimeBundle>[] = [
     { key: "v", header: "Version", width: "minmax(0, 1.3fr)", render: (b) => (
@@ -213,18 +193,6 @@ function ChangeOutcome({ change, installed, onDismiss }: { change: RuntimeChange
   return task ? <TaskProgress task={task} /> : (
     <TaskProgress cancel={false} task={{ id: "starting", kind: "runtime", title: change.what, state: "running", progress: null, message: "Starting", started: new Date(change.at).toISOString(), finished: null }} />
   );
-}
-
-/** `a` is older than `b`. runtime_list sorts newest first (the version, its build date, then when the bundle was
- *  built), so the list decides; a version not in it compares by version and build date. Never by the git id: two
- *  builds of one day differ only in when they were built. */
-function isOlder(a: string, b: string, list: RuntimeBundle[]): boolean {
-  const i = list.findIndex((x) => x.version === a), j = list.findIndex((x) => x.version === b);
-  if (i >= 0 && j >= 0) return i > j;
-  const key = (v: string) => { const [base, build = ""] = v.split("+"); return { n: base.split("-")[0].split(".").map(Number), date: build.split(".")[0] }; };
-  const [x, y] = [key(a), key(b)];
-  for (let k = 0; k < 3; k++) if ((x.n[k] ?? 0) !== (y.n[k] ?? 0)) return (x.n[k] ?? 0) < (y.n[k] ?? 0);
-  return x.date < y.date;
 }
 
 function ChainView({ st, boot, live, build }: { st: InstallState | undefined; boot: BootJson | null; live: boolean; build: string | null }) {

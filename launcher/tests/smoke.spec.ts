@@ -72,7 +72,12 @@ test("server and admin routes render inside the shell", async ({ page }) => {
 
 test("import → add to profile → light → resolver preview", async ({ page }) => {
   const errors = await collectErrors(page, async () => {
-    await open(page, "/library");
+    // the power user's way: Settings "Add new mods to the active profile" off, a drop on Library is detected, then
+    // imported only (the default, a drop that lands in the active profile: tests/firstrun.spec.ts)
+    await open(page, "/settings");
+    await page.getByText("Add new mods to the active profile", { exact: true }).click();
+    await expect(page.getByRole("switch", { name: /^Add new mods to the active profile/ })).not.toBeChecked();
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Library" }).click();
     // drop a mod zip on the niche (mock mode: the file name stands in for the path)
     const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
     await page.locator("[data-drop]").dispatchEvent("drop", { dataTransfer: dt });

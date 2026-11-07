@@ -25,11 +25,11 @@ function target(i: typeof stageInput): number {
   }
 }
 
-const VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
+export const VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
 
 // uR canvas size; uT time; uH heat; uF flicker; uD mouth (centre x, bottom y, half width, height) in canvas px;
 // uM pointer (-1..1); uS canvas px per CSS px; uL floor height (CSS px); uK 0 on Play, 1 as the pilot light.
-const FRAG = [
+export const FRAG = [
   "#ifdef GL_FRAGMENT_PRECISION_HIGH",
   "precision highp float;",
   "#else",
@@ -79,7 +79,7 @@ const FRAG = [
   "col+=(hash(px+fract(uT))-.5)*.012;gl_FragColor=vec4(col,1.);}",
 ].join("\n");
 
-const UNIFORMS = ["uR", "uT", "uH", "uF", "uD", "uM", "uS", "uL", "uK"] as const;
+export const UNIFORMS = ["uR", "uT", "uH", "uF", "uD", "uM", "uS", "uL", "uK"] as const;
 
 /** The canvas behind everything. `root` is .k-app: its size, its --k and --fire, data-gl, and the .k-door it moves.
  *  `enabled` false takes the no-WebGL path without asking for a context (give the canvas a new key to turn it back on). */
