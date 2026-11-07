@@ -28,7 +28,7 @@ while (($#)); do
     --bundles) bundles=$2; shift 2 ;;
     --runtime) runtime=$2; shift 2 ;;
     --version) extra+=(--config "{\"version\":\"$2\"}"); shift 2 ;;
-    --features) features=$2; extra+=(--features "$2"); shift 2 ;;
+    --features) features+=" $2"; extra+=(--features "$2"); shift 2 ;;
     --config) extra+=(--config "$2"); shift 2 ;;
     --nexus) nexus=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -39,7 +39,7 @@ done
 runner_args=()
 variant=linux
 if ((nexus)); then
-  [[ $features == *update-test-feeds* || $features == *self-update* ]] && { echo "--nexus has no self-update: drop --features $features" >&2; exit 2; }
+  [[ $features == *update-test-feeds* || $features == *self-update* || $features == *tauri-plugin-updater* ]] && { echo "--nexus has no self-update: drop --features $features" >&2; exit 2; }
   extra+=(--config "$repo/launcher/src-tauri/tauri.nexus.conf.json")
   runner_args=(-- --no-default-features)
   variant=linux-nexus
@@ -50,10 +50,13 @@ cd "$repo/launcher"
 # AppImage: linuxdeploy runs as an AppImage itself; without FUSE it can extract and run
 export APPIMAGE_EXTRACT_AND_RUN=${APPIMAGE_EXTRACT_AND_RUN:-1}
 export NO_STRIP=${NO_STRIP:-true}
-bun x tauri build "${profile[@]}" --bundles "$bundles" --config "{\"bundle\":{\"resources\":$resources}}" "${extra[@]}" "${runner_args[@]}"
+# Tauri reuses these paths across distributions. Copy only packages from this invocation.
 kind=release; ((${#profile[@]})) && kind=debug
+rm -rf "$CARGO_TARGET_DIR/$kind/bundle"
+bun x tauri build "${profile[@]}" --bundles "$bundles" --config "{\"bundle\":{\"resources\":$resources}}" "${extra[@]}" "${runner_args[@]}"
 out=$KILN_OUT/bundles/$variant
 mkdir -p "$out"
+rm -f "$out/"*.AppImage "$out/"*.deb "$out/"*.rpm "$out/"*.sig
 for f in "$CARGO_TARGET_DIR/$kind/bundle/appimage/"*.AppImage "$CARGO_TARGET_DIR/$kind/bundle/deb/"*.deb "$CARGO_TARGET_DIR/$kind/bundle/rpm/"*.rpm; do
   [[ -f $f ]] && cp -f "$f" "$out/" && echo "-> $out/$(basename "$f") ($(du -h "$f" | cut -f1))"
 done

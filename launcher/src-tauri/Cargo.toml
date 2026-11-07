@@ -29,6 +29,7 @@ update-test-feeds = ["self-update"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
+serde_json = "1"
 
 [dependencies]
 kiln-manage = { path = "../../crates/kiln-manage", features = ["full"] }

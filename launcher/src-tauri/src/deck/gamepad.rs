@@ -131,20 +131,20 @@ pub struct Range {
 impl Range {
     /// -1..1 (centred axes: sticks).
     pub fn centred(&self, v: i32) -> f32 {
-        let span = (self.max - self.min) as f32;
+        let span = self.max as f64 - self.min as f64;
         if span <= 0.0 {
             return 0.0;
         }
-        (((v - self.min) as f32 / span) * 2.0 - 1.0).clamp(-1.0, 1.0)
+        ((((v as f64 - self.min as f64) / span) * 2.0 - 1.0).clamp(-1.0, 1.0)) as f32
     }
 
     /// 0..1 (triggers).
     pub fn unit(&self, v: i32) -> f32 {
-        let span = (self.max - self.min) as f32;
+        let span = self.max as f64 - self.min as f64;
         if span <= 0.0 {
             return 0.0;
         }
-        ((v - self.min) as f32 / span).clamp(0.0, 1.0)
+        (((v as f64 - self.min as f64) / span).clamp(0.0, 1.0)) as f32
     }
 }
 
@@ -284,7 +284,7 @@ pub struct Router {
     held: HashMap<(String, Source, Button), ()>,
     /// The direction that repeats: (button, device, held since, next repeat).
     repeat: Option<(Button, String, Instant, Instant)>,
-    axes: HashMap<Axis, (f32, Option<Instant>)>,
+    axes: HashMap<(String, Axis), (f32, Option<Instant>)>,
 }
 
 impl Router {
@@ -314,14 +314,15 @@ impl Router {
             }
             Raw::Axis(a, v) => {
                 let v = if v.abs() < SCROLL_DEADZONE { 0.0 } else { v };
-                let (last, at) = self.axes.get(&a).copied().unwrap_or((0.0, None));
+                let key = (device.to_string(), a);
+                let (last, at) = self.axes.get(&key).copied().unwrap_or((0.0, None));
                 let due = at.is_none_or(|t| now.duration_since(t) >= SCROLL_EVERY);
                 if (v != 0.0 && due) || (v == 0.0 && last != 0.0) {
                     out.push(PadEvent::Axis { axis: a, value: (v * 100.0).round() / 100.0, device: device.to_string() });
-                    self.axes.insert(a, (v, Some(now)));
+                    self.axes.insert(key, (v, Some(now)));
                 } else if v != 0.0 {
                     // keep the latest value for the next due send
-                    self.axes.insert(a, (v, at));
+                    self.axes.insert(key, (v, at));
                 }
             }
         }
@@ -336,9 +337,9 @@ impl Router {
                 self.repeat = Some((b, dev, since, now + every));
             }
         }
-        for (a, (v, at)) in self.axes.iter_mut() {
+        for ((device, a), (v, at)) in self.axes.iter_mut() {
             if *v != 0.0 && at.is_none_or(|t| now.duration_since(t) >= SCROLL_EVERY) {
-                out.push(PadEvent::Axis { axis: *a, value: (*v * 100.0).round() / 100.0, device: String::new() });
+                out.push(PadEvent::Axis { axis: *a, value: (*v * 100.0).round() / 100.0, device: device.clone() });
                 *at = Some(now);
             }
         }
@@ -349,6 +350,20 @@ impl Router {
         let keys: Vec<_> = self.held.keys().filter(|(d, _, _)| d == device).cloned().collect();
         for (d, s, b) in keys {
             self.feed(&d, Raw::Release(s, b), now, out);
+        }
+        self.axes.retain(|(d, a), (v, _)| {
+            if d != device { return true; }
+            if *v != 0.0 {
+                out.push(PadEvent::Axis { axis: *a, value: 0.0, device: d.clone() });
+            }
+            false
+        });
+        if let Some((b, dev, _, _)) = &mut self.repeat {
+            if dev == device {
+                if let Some((remaining, _, _)) = self.held.keys().find(|(_, _, held)| held == b) {
+                    *dev = remaining.clone();
+                }
+            }
         }
     }
 }
@@ -386,11 +401,14 @@ mod reader {
 
     struct Shared {
         stop: Option<Arc<AtomicBool>>,
+        thread: Option<std::thread::JoinHandle<()>>,
         devices: Vec<DeviceInfo>,
         denied: usize,
     }
 
-    static STATE: LazyLock<Mutex<Shared>> = LazyLock::new(|| Mutex::new(Shared { stop: None, devices: vec![], denied: 0 }));
+    static STATE: LazyLock<Mutex<Shared>> = LazyLock::new(|| Mutex::new(Shared { stop: None, thread: None, devices: vec![], denied: 0 }));
+    // Joining under STATE would deadlock the worker's final status update. Serialize start/stop separately.
+    static CONTROL: Mutex<()> = Mutex::new(());
 
     struct Open {
         id: String,
@@ -399,22 +417,23 @@ mod reader {
         map: Mapper,
     }
 
-    /// A gamepad: it has BTN_SOUTH (keyboards and mice don't; the Deck's touchpads and motion sensors are separate
-    /// devices without it).
+    /// A gamepad has face buttons and both stick axes; a lone BTN_SOUTH capability is not sufficient.
     fn is_gamepad(dev: &evdev::Device) -> bool {
-        dev.supported_keys().is_some_and(|k| k.contains(evdev::KeyCode(BTN_SOUTH)))
+        dev.supported_keys().is_some_and(|k| k.contains(evdev::KeyCode(BTN_SOUTH)) && k.contains(evdev::KeyCode::BTN_EAST))
+            && dev.supported_absolute_axes().is_some_and(|a| a.contains(evdev::AbsoluteAxisCode::ABS_X) && a.contains(evdev::AbsoluteAxisCode::ABS_Y))
     }
 
     fn open(path: &Path) -> std::io::Result<Option<Open>> {
+        use std::os::unix::fs::FileTypeExt;
+        if !std::fs::symlink_metadata(path)?.file_type().is_char_device() { return Ok(None); }
         let dev = evdev::Device::open(path)?;
         if !is_gamepad(&dev) {
             return Ok(None);
         }
         dev.set_nonblocking(true)?;
         let ranges: Vec<(u16, Range)> = dev
-            .get_absinfo()
-            .map(|it| it.map(|(c, i)| (c.0, Range { min: i.minimum(), max: i.maximum() })).collect())
-            .unwrap_or_default();
+            .get_absinfo()?
+            .map(|(c, i)| (c.0, Range { min: i.minimum(), max: i.maximum() })).collect();
         let id = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = dev.name().unwrap_or("Gamepad").to_string();
         Ok(Some(Open { id, name, dev, map: Mapper::new(ranges) }))
@@ -434,34 +453,48 @@ mod reader {
 
     pub fn status() -> GamepadStatus {
         let s = STATE.lock().unwrap();
-        GamepadStatus { native: true, running: s.stop.is_some(), devices: s.devices.clone(), denied: s.denied }
+        GamepadStatus { native: true, running: s.thread.as_ref().is_some_and(|t| !t.is_finished()), devices: s.devices.clone(), denied: s.denied }
     }
 
     pub fn stop() {
-        if let Some(f) = STATE.lock().unwrap().stop.take() {
-            f.store(true, Ordering::Relaxed);
-        }
+        let _control = CONTROL.lock().unwrap();
+        stop_inner();
+    }
+
+    fn stop_inner() {
+        let thread = {
+            let mut s = STATE.lock().unwrap();
+            if let Some(f) = s.stop.take() { f.store(true, Ordering::Relaxed); }
+            s.thread.take()
+        };
+        if let Some(t) = thread { let _ = t.join(); }
+        let mut s = STATE.lock().unwrap();
+        s.devices.clear();
+        s.denied = 0;
     }
 
     pub fn start(input_dir: PathBuf, emit: impl Fn(PadEvent) + Send + 'static) {
+        let _control = CONTROL.lock().unwrap();
+        if status().running { return; }
+        stop_inner();
         let mut s = STATE.lock().unwrap();
-        if s.stop.is_some() {
-            return;
-        }
         let stop = Arc::new(AtomicBool::new(false));
         s.stop = Some(stop.clone());
-        drop(s);
-        std::thread::Builder::new()
+        match std::thread::Builder::new()
             .name("kiln-gamepad".into())
-            .spawn(move || run(&input_dir, &stop, &emit))
-            .ok();
+            .spawn(move || run(&input_dir, &stop, &emit)) {
+            Ok(t) => s.thread = Some(t),
+            Err(e) => {
+                s.stop = None;
+                crate::commands::app::launcher_log("gamepad", &format!("reader could not start: {e}"));
+            }
+        }
     }
 
     fn run(dir: &Path, stop: &AtomicBool, emit: &dyn Fn(PadEvent)) {
         let mut open: Vec<Open> = Vec::new();
-        // nodes that opened but are not gamepads: skipped until /dev/input changes. Nodes that did not open are tried
-        // again at every scan: udev applies a new pad's access rights (uaccess) a moment after its node appears.
-        let mut not_pads: Vec<PathBuf> = Vec::new();
+        // Probe unopened nodes each scan: udev can grant access later, and hotplug can reuse a former non-pad's
+        // event number without changing the set of paths in /dev/input.
         let mut denied = usize::MAX;
         let mut router = Router::default();
         let mut last_scan: Option<Instant> = None;
@@ -475,13 +508,12 @@ mod reader {
                 let nodes = event_nodes(dir);
                 let mut changed = nodes != nodes_seen;
                 if changed {
-                    not_pads.retain(|p| nodes.contains(p));
                     nodes_seen = nodes.clone();
                 }
                 let mut no_access = 0;
                 for p in nodes {
                     let id = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    if open.iter().any(|o| o.id == id) || not_pads.contains(&p) {
+                    if open.iter().any(|o| o.id == id) {
                         continue;
                     }
                     match open_node(&p) {
@@ -491,7 +523,7 @@ mod reader {
                             open.push(o);
                             changed = true;
                         }
-                        Ok(None) => not_pads.push(p),
+                        Ok(None) => {},
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::PermissionDenied && looks_like_gamepad(&p) {
                                 no_access += 1;
@@ -512,7 +544,7 @@ mod reader {
                             o.map.feed(ev.event_type().0, ev.code(), ev.value(), &mut raws);
                         }
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => {}
                     Err(_) => gone.push(i),
                 }
                 for r in raws.drain(..) {
@@ -535,10 +567,17 @@ mod reader {
             for e in out.drain(..) {
                 emit(e);
             }
-            std::thread::sleep(Duration::from_millis(8));
+            std::thread::sleep(Duration::from_millis(if open.is_empty() { 100 } else { 8 }));
         }
+        let now = Instant::now();
+        for o in &open {
+            router.forget(&o.id, now, &mut out);
+            out.push(PadEvent::Disconnected { device: o.id.clone(), name: o.name.clone() });
+        }
+        for e in out { emit(e); }
         let mut s = STATE.lock().unwrap();
         s.devices.clear();
+        s.denied = 0;
     }
 
     fn open_node(p: &Path) -> std::io::Result<Option<Open>> {
@@ -552,7 +591,7 @@ mod reader {
         use std::os::unix::fs::MetadataExt;
         let rdev = meta.rdev();
         let (major, minor) = (((rdev >> 8) & 0xfff) as u32, ((rdev & 0xff) | ((rdev >> 12) & 0xfff00)) as u32);
-        std::fs::read_to_string(format!("/run/udev/data/c{major}:{minor}")).is_ok_and(|t| t.contains("ID_INPUT_JOYSTICK=1"))
+        std::fs::read_to_string(format!("/run/udev/data/c{major}:{minor}")).is_ok_and(|t| t.lines().any(|l| l == "E:ID_INPUT_JOYSTICK=1"))
     }
 
     fn publish(open: &[Open], denied: usize) {
@@ -562,6 +601,27 @@ mod reader {
             .map(|o| DeviceInfo { device: o.id.clone(), name: o.name.clone(), vendor: o.dev.input_id().vendor(), product: o.dev.input_id().product() })
             .collect();
         s.denied = denied;
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn regular_nodes_are_ignored_and_stop_joins_before_restart() {
+            let t = kiln_manage::library::TempDir::new(&std::env::temp_dir(), "pad-lifecycle").unwrap();
+            let path = t.path().join("event0");
+            std::fs::write(&path, b"not an input device").unwrap();
+            assert!(open(&path).unwrap().is_none());
+            for _ in 0..5 {
+                start(t.path().to_path_buf(), |_| {});
+                assert!(status().running);
+                stop();
+                let s = status();
+                assert!(!s.running && s.devices.is_empty() && s.denied == 0);
+                assert!(STATE.lock().unwrap().thread.is_none());
+            }
+        }
     }
 }
 
@@ -745,6 +805,30 @@ mod tests {
         out.clear();
         r.tick(t0 + Duration::from_secs(1), &mut out);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn unplugging_stops_scroll_without_clearing_another_pad() {
+        let now = Instant::now();
+        let mut r = Router::default();
+        let mut out = vec![];
+        r.feed("first", Raw::Axis(Axis::Ry, 0.8), now, &mut out);
+        r.feed("second", Raw::Axis(Axis::Ry, -0.6), now, &mut out);
+        out.clear();
+        r.forget("first", now, &mut out);
+        assert!(out.iter().any(|e| matches!(e, PadEvent::Axis { device, value: 0.0, .. } if device == "first")));
+        out.clear();
+        r.tick(now + SCROLL_EVERY, &mut out);
+        assert_eq!(out.len(), 1);
+        assert!(matches!(&out[0], PadEvent::Axis { device, value, .. } if device == "second" && *value < 0.0));
+    }
+
+    #[test]
+    fn axis_ranges_cannot_overflow_on_kernel_values() {
+        let range = Range { min: i32::MIN, max: i32::MAX };
+        assert_eq!(range.centred(i32::MIN), -1.0);
+        assert_eq!(range.centred(i32::MAX), 1.0);
+        assert_eq!(range.unit(i32::MAX), 1.0);
     }
 
     #[test]

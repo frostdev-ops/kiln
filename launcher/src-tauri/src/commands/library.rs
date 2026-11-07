@@ -18,7 +18,11 @@ pub async fn library_list(kind: Option<ModKind>) -> Result<Vec<LibraryEntry>, Er
 
 #[tauri::command]
 pub async fn library_detect(path: String) -> Result<Detected, Error> {
-    blocking(move || library::detect(std::path::Path::new(&path))).await
+    blocking(move || {
+        let path = std::path::Path::new(&path);
+        kiln_manage::quick::validate_import_path(path)?;
+        library::detect(path)
+    }).await
 }
 
 #[tauri::command]
@@ -31,7 +35,10 @@ pub async fn library_import(app: AppHandle, paths: Vec<String>) -> Result<TaskId
         many => format!("Import {} items", many.len()),
     };
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    Ok(spawn_task(&app, "library_import", title, move |p| to_value(library::import(&dirs()?, &paths, p)?)))
+    Ok(spawn_task(&app, "library_import", title, move |p| {
+        for path in &paths { kiln_manage::quick::validate_import_path(path)?; }
+        to_value(library::import(&dirs()?, &paths, p)?)
+    }))
 }
 
 /// The simple flow (kiln_manage::quick::add): imports `paths`, adds what they hold to the game's active profile

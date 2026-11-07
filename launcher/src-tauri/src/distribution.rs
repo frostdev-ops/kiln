@@ -22,6 +22,16 @@ pub enum Distribution {
 /// This build's distribution.
 pub const CURRENT: Distribution = if cfg!(feature = "self-update") { Distribution::Direct } else { Distribution::Nexus };
 
+// The release scanner requires this positive identity in every launcher executable. Black-box the reference so
+// optimizers and stripping cannot fold away the marker used by the headless selftest.
+pub fn build_marker() -> &'static str {
+    #[cfg(feature = "self-update")]
+    const MARKER: &str = "KILN-LAUNCHER-DISTRIBUTION:direct:self-update=1";
+    #[cfg(not(feature = "self-update"))]
+    const MARKER: &str = "KILN-LAUNCHER-DISTRIBUTION:nexus:self-update=0";
+    std::hint::black_box(MARKER)
+}
+
 /// The Kiln page on Nexus Mods: where a Nexus build's new versions are (opened in the browser; nothing is fetched).
 pub const NEXUS_PAGE: &str = "https://www.nexusmods.com/enshrouded/mods/301";
 
@@ -52,6 +62,7 @@ mod tests {
     #[test]
     fn the_feature_is_the_distribution() {
         assert_eq!(CURRENT.self_updates(), cfg!(feature = "self-update"));
+        assert!(build_marker().contains(&format!(":{}:self-update={}", CURRENT.as_str(), u8::from(CURRENT.self_updates()))));
         assert_eq!(CURRENT.as_str(), if cfg!(feature = "self-update") { "direct" } else { "nexus" });
         assert_eq!(serde_json::to_value(Distribution::Nexus).unwrap(), "nexus");
         assert_eq!(serde_json::to_value(Distribution::Direct).unwrap(), "direct");

@@ -4,6 +4,22 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 fn main() {
+    // Plain `cargo build --no-default-features` must be safe too; do not rely on the packaging wrapper to remove
+    // the updater key. Both tauri-build and generate_context! read this same final RFC 7396 merge patch.
+    println!("cargo:rerun-if-changed=tauri.nexus.conf.json");
+    let mut config: serde_json::Value = std::env::var("TAURI_CONFIG")
+        .map(|s| serde_json::from_str(&s).expect("TAURI_CONFIG must be JSON"))
+        .unwrap_or_else(|_| serde_json::json!({}));
+    if std::env::var_os("CARGO_FEATURE_SELF_UPDATE").is_none() {
+        config["plugins"]["updater"] = serde_json::Value::Null;
+        config["bundle"]["createUpdaterArtifacts"] = false.into();
+        let patch = serde_json::to_string(&config).unwrap();
+        // This build script is single threaded; no threads or subprocesses have been started yet.
+        unsafe { std::env::set_var("TAURI_CONFIG", &patch); }
+        println!("cargo:rustc-env=TAURI_CONFIG={patch}");
+    } else if config.get("plugins").and_then(|p| p.get("updater")).is_some_and(|v| v.is_null()) {
+        panic!("The Nexus Tauri config requires --no-default-features and no self-update feature");
+    }
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     // KILN_GIT names the commit when there is no .git (a release builds from a `git archive` export)
     let commit = std::env::var("KILN_GIT").ok().filter(|c| !c.trim().is_empty()).unwrap_or_else(|| {

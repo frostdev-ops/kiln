@@ -109,6 +109,23 @@ fn a_new_version_replaces_the_old_one_and_undo_puts_it_back() {
 }
 
 #[test]
+fn a_drop_with_multiple_versions_is_idempotent_even_with_mixed_imported_and_existing() {
+    let t = tmp("multi-version");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let old = kiln_mod(&t.0, "same", "1.0.0", "");
+    let new = kiln_mod(&t.0, "same", "2.0.0", "");
+    library::import(&dirs, &[old.clone()], &mut NoProgress).unwrap();
+    let first = quick::add_with(&dirs, &g, &[old.clone(), new.clone()], false, &mut NoProgress).unwrap();
+    assert_eq!(first.added.len(), 1);
+    assert_eq!(game_mods(&g), [("same".into(), "2.0.0".into())]);
+    let generation = profile::read_game_profile(&g.path).unwrap().unwrap().generation;
+    let again = quick::add_with(&dirs, &g, &[new, old], false, &mut NoProgress).unwrap();
+    assert!(again.changes.is_empty() && !again.applied);
+    assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().generation, generation);
+}
+
+#[test]
 fn a_switched_off_mod_is_switched_on() {
     let t = tmp("enable");
     let dirs = DataDirs::at(t.0.join("data"));
@@ -202,6 +219,19 @@ fn missing_requirements_are_named() {
     // dropping the requirement too: nothing missing
     let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "ui-lib", "1.3.0", "")], false, &mut NoProgress).unwrap();
     assert!(r.missing.is_empty());
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "needs-v2", "1.0.0", r#", "dependencies": { "ui-lib": "^2.0" }"#)], false, &mut NoProgress).unwrap();
+    assert_eq!(r.missing.iter().map(|m| (m.id.as_str(), m.range.as_str())).collect::<Vec<_>>(), [("ui-lib", "^2.0")]);
+}
+
+#[test]
+fn failed_initial_activation_cleans_up_its_profile() {
+    let t = tmp("activation-error");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    std::fs::create_dir_all(g.path.join("kiln/chain.ini")).unwrap();
+    assert!(quick::ensure_default_with(&dirs, &g, false).is_err());
+    assert!(profile::list(&dirs).unwrap().is_empty());
+    assert!(profile::read_game_profile(&g.path).unwrap().is_none());
 }
 
 #[test]
@@ -263,6 +293,119 @@ fn ensure_default_makes_my_mods_once() {
     assert!(!second.created && second.activation.is_none());
     assert_eq!(second.profile.id, first.profile.id);
     assert_eq!(profile::list(&dirs).unwrap().len(), 1);
+}
+
+#[test]
+fn undo_preserves_a_later_enabled_change() {
+    let t = tmp("undo-toggle");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "lamp", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    let mut p = profile::get(&dirs, "my-mods").unwrap();
+    p.mods.kiln[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    let after = quick::revert(&dirs, "my-mods", &r.changes).unwrap();
+    assert_eq!(after, p, "Undo must not erase a subsequent edit");
+}
+
+#[test]
+fn corrupt_active_profile_is_an_error_and_is_not_replaced() {
+    let t = tmp("corrupt");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    quick::ensure_default_with(&dirs, &g, false).unwrap();
+    put(&dirs.profile("my-mods"), "meta.json", b"{broken");
+    let before = std::fs::read(g.path.join("kiln/profile.json")).unwrap();
+    assert!(quick::ensure_default_with(&dirs, &g, false).is_err());
+    assert!(quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "a", "1.0.0", "")], false, &mut NoProgress).is_err());
+    assert!(library::list(&dirs, None).unwrap().is_empty());
+    assert_eq!(std::fs::read(g.path.join("kiln/profile.json")).unwrap(), before);
+}
+
+#[test]
+fn concurrent_first_runs_make_one_default() {
+    let t = tmp("concurrent");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    std::thread::scope(|s| {
+        let a = s.spawn(|| quick::ensure_default_with(&dirs, &g, false).unwrap().unwrap());
+        let b = s.spawn(|| quick::ensure_default_with(&dirs, &g, false).unwrap().unwrap());
+        assert_eq!(a.join().unwrap().profile.id, b.join().unwrap().profile.id);
+    });
+    assert_eq!(profile::list(&dirs).unwrap().len(), 1);
+}
+
+#[test]
+fn special_oversized_deep_and_non_utf8_sources_are_refused_before_import() {
+    let t = tmp("unsafe");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let huge = t.0.join("huge.dll");
+    std::fs::File::create(&huge).unwrap().set_len(quick::MAX_IMPORT_FILE + 1).unwrap();
+    assert_eq!(quick::add_with(&dirs, &g, &[huge], false, &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+    let deep = t.0.join("deep");
+    let mut leaf = deep.clone();
+    for _ in 0..=quick::MAX_IMPORT_DEPTH { leaf.push("d"); }
+    std::fs::create_dir_all(&leaf).unwrap();
+    assert!(quick::validate_import_path(&deep).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::{ffi::OsStringExt, fs::symlink};
+        let m = kiln_mod(&t.0, "cycle", "1.0.0", "");
+        symlink(&m, m.join("loop")).unwrap();
+        assert_eq!(quick::add_with(&dirs, &g, &[m], false, &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+        let bad = t.0.join(std::ffi::OsString::from_vec(b"bad-\xff.dll".to_vec()));
+        std::fs::write(&bad, b"MZ").unwrap();
+        assert_eq!(quick::validate_import_path(&bad).unwrap_err().code, ErrorCode::InvalidArgument);
+    }
+    assert!(library::list(&dirs, None).unwrap().is_empty());
+    assert!(profile::list(&dirs).unwrap().is_empty());
+}
+
+#[test]
+fn wrapped_modpack_folder_never_bypasses_consent() {
+    let t = tmp("wrapped");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let wrapper = t.0.join("wrapper");
+    put(&wrapper, "pack/kiln-modpack.json", b"{}");
+    kiln_mod(&wrapper.join("pack"), "consent", "1.0.0", "");
+    assert_eq!(quick::add_with(&dirs, &g, &[wrapper], false, &mut NoProgress).unwrap_err().code, ErrorCode::ConsentRequired);
+    assert!(library::list(&dirs, None).unwrap().is_empty());
+}
+
+#[cfg(feature = "zip")]
+#[test]
+fn unsafe_zip_paths_links_and_wrapped_modpacks_are_refused() {
+    use std::io::Write;
+    let t = tmp("zip-paths");
+    for (i, name) in ["../escaped.dll", "a/../../escaped.dll", "pack/kiln-modpack.json", "pack/KILN-MODPACK.JSON"].iter().enumerate() {
+        let path = t.0.join(format!("bad{i}.zip"));
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        z.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"{}").unwrap();
+        z.finish().unwrap();
+        assert!(quick::validate_import_path(&path).is_err(), "{name}");
+    }
+    let path = t.0.join("link.zip");
+    let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    z.add_symlink("link", "outside", zip::write::SimpleFileOptions::default()).unwrap();
+    z.finish().unwrap();
+    assert!(quick::validate_import_path(&path).is_err());
+    assert!(!t.0.join("escaped.dll").exists());
+    let path = t.0.join("uppercase-pack.zip");
+    let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    z.start_file("KILN-MODPACK.JSON", zip::write::SimpleFileOptions::default()).unwrap();
+    z.write_all(b"{}").unwrap();
+    z.finish().unwrap();
+    assert!(quick::is_modpack(&path), "case-insensitive Windows paths must still require consent");
+    let path = t.0.join("many.zip");
+    let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    for i in 0..=quick::MAX_IMPORT_ENTRIES {
+        z.start_file(i.to_string(), zip::write::SimpleFileOptions::default()).unwrap();
+    }
+    z.finish().unwrap();
+    assert_eq!(quick::validate_import_path(&path).unwrap_err().code, ErrorCode::Refused);
 }
 
 /// The shapes the launcher's TypeScript reads and sends back (launcher/src/api/commands.ts `AddReport`,

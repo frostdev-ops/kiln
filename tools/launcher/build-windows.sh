@@ -61,10 +61,12 @@ case $webview in
   *) echo "--webview bootstrapper|skip" >&2; exit 2 ;;
 esac
 echo "WebView2 install mode: $webview"
-bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config" "${extra[@]}" "${runner_args[@]}"
 kind=release; ((${#profile[@]})) && kind=debug
+rm -rf "$CARGO_TARGET_DIR/$target/$kind/bundle"
+bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config" "${extra[@]}" "${runner_args[@]}"
 out=$KILN_OUT/bundles/$variant
 mkdir -p "$out"
+rm -f "$out/"*.sig
 setup=$(ls -t "$CARGO_TARGET_DIR/$target/$kind/bundle/nsis/"*-setup.exe | head -1)
 cp -f "$setup" "$out/kiln-launcher-setup.exe"
 cp -f "$CARGO_TARGET_DIR/$target/$kind/kiln-launcher.exe" "$out/kiln-launcher.exe"

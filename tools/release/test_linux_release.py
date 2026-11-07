@@ -5,6 +5,7 @@
 KILN_RELEASE_TEST_ROOT can point at an immutable export to reproduce failures before the fix.
 """
 import contextlib
+import base64
 import gzip
 import importlib.util
 import io
@@ -77,6 +78,85 @@ class LinuxReleaseTests(unittest.TestCase):
         p = self.dir / name
         p.write_bytes(b"\x7fELF" + b"\0" * 508)
         return p
+
+    def updater_check(self, data, absent=True):
+        pub = base64.b64encode(b"untrusted comment: generated test key\n" + base64.b64encode(b"Ed" + os.urandom(40)) + b"\n")
+        needles = release.updater_needles(pubkey=pub)
+        binary = self.dir / "kiln-launcher"
+        binary.write_bytes(data)
+        result = release.updater_scan(str(binary), binary.name, needles, str(self.dir))
+        return release.updater_problems(result, binary.name, needles, absent)
+
+    def test_updater_scan_requires_native_binary_and_positive_distribution(self):
+        marker = release.BUILD_MARKERS["nexus"]
+        self.assertTrue(self.updater_check(marker))
+        self.assertTrue(self.updater_check(b"\x7fELF" + bytes(60)))
+        self.assertFalse(self.updater_check(b"\x7fELF" + bytes(60) + marker))
+        self.assertTrue(self.updater_check(b"\x7fELF" + bytes(60) + release.BUILD_MARKERS["direct"]))
+
+    def test_updater_scan_checks_every_binary_and_deeply_nested_archives(self):
+        pub = base64.b64encode(b"untrusted comment: generated test key\n" + base64.b64encode(b"Ed" + os.urandom(40)) + b"\n")
+        needles = release.updater_needles(pubkey=pub)
+        nested = io.BytesIO()
+        with zipfile.ZipFile(nested, "w") as z:
+            z.writestr("renamed.dll", b"MZ" + b"tauri-plugin-updater")
+        data = nested.getvalue()
+        for _ in range(6):
+            nested = io.BytesIO()
+            with zipfile.ZipFile(nested, "w") as z: z.writestr("next.zip", data)
+            data = nested.getvalue()
+        path = self.dir / "nested.zip"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("kiln-launcher", b"\x7fELF" + bytes(60) + release.BUILD_MARKERS["nexus"])
+            z.writestr("nested.zip", data)
+        result = release.updater_scan(str(path), path.name, needles, str(self.dir))
+        problems = release.updater_problems(result, path.name, needles, True)
+        self.assertTrue(any("updater plugin" in p for p in problems), problems)
+
+    def test_updater_scan_depth_limit_and_external_symlink_fail_closed(self):
+        needles = release.updater_needles(pubkey=b"generated-public-key")
+        path = self.dir / "next.zip"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("kiln-launcher", b"\x7fELF" + release.BUILD_MARKERS["nexus"])
+        result = release.updater_scan(str(path), path.name, needles, str(self.dir), depth=32)
+        self.assertTrue(any("nesting" in p for p in result["problems"]))
+        link = self.dir / "kiln-launcher"
+        link.symlink_to("/bin/true")
+        result = release.updater_scan(str(link), link.name, needles, str(self.dir))
+        self.assertTrue(any("symlink" in p for p in result["problems"]))
+
+    def test_updater_scan_catches_utf16_feeds_and_each_direct_binary_must_have_its_feeds(self):
+        marker = b"\x7fELF" + bytes(60) + release.BUILD_MARKERS["nexus"]
+        self.assertTrue(self.updater_check(marker + "frostdev.io/kiln/updates".encode("utf-16le")))
+        self.assertTrue(self.updater_check(b"\x7fELF" + release.BUILD_MARKERS["direct"], absent=False))
+
+    def test_nexus_upload_gate_rejects_a_direct_build_even_in_nexus_folder(self):
+        spec = importlib.util.spec_from_file_location("nexus_gate", HERE / "nexus.py")
+        nexus = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(nexus)
+        repo = self.dir / "repo"
+        cfg = repo / "launcher/src-tauri"
+        cfg.mkdir(parents=True)
+        (cfg / "tauri.conf.json").write_text(json.dumps({"plugins": {"updater": {"pubkey": base64.b64encode(os.urandom(42)).decode()}}}))
+        scan_dir = repo / "tools/release/lib"
+        scan_dir.mkdir(parents=True)
+        shutil.copy(HERE / "lib/release.py", scan_dir)
+        path = self.dir / "nexus.zip"
+        for dist in ("nexus", "direct"):
+            with zipfile.ZipFile(path, "w") as z:
+                z.writestr("kiln-launcher", b"\x7fELF" + bytes(60) + release.BUILD_MARKERS[dist])
+            if dist == "nexus":
+                nexus.validate_launcher_archive(str(path), str(repo))
+            else:
+                with self.assertRaises(nexus.Fail):
+                    nexus.validate_launcher_archive(str(path), str(repo))
+
+    def test_selftest_report_requires_the_matching_compiled_marker(self):
+        report = self.dir / "selftest.json"
+        for marker, ok in [(release.BUILD_MARKERS["nexus"].decode(), True), (None, False), (release.BUILD_MARKERS["direct"].decode(), False)]:
+            report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [], "buildMarker": marker}))
+            r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
+            self.assertEqual(r.returncode == 0, ok, r.stderr)
 
     def test_only_glibc_requirements_not_definitions_or_filename(self):
         out = (b"/tmp/GLIBC_99.0: file format elf64-x86-64\nVersion definitions:\n"

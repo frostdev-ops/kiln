@@ -18,7 +18,7 @@ pub struct Folder {
     pub dir: String,
     /// The folder's own name ("Downloads").
     pub name: String,
-    /// null at the file system's root.
+    /// null at an allowed browsing root.
     pub parent: Option<String>,
     /// Sub-folders that are not mods themselves (to open), by name; hidden ones left out.
     pub folders: Vec<Entry>,
@@ -111,23 +111,42 @@ static CACHE: LazyLock<Mutex<HashMap<CacheKey, Option<Detected>>>> = LazyLock::n
 /// One folder: `dir` null is Downloads (Home when there is no Downloads folder).
 pub fn browse(dir: Option<&Path>, env: &Env) -> Result<Folder, Error> {
     let dir = match dir {
-        Some(d) if !d.as_os_str().is_empty() => kiln_manage::util::expand(&d.to_string_lossy(), &env.home),
+        Some(d) if !d.as_os_str().is_empty() => kiln_manage::util::expand(d.to_str().ok_or_else(|| Error::invalid("Folder paths must be valid UTF-8."))?, &env.home),
         _ => {
             let d = env.downloads_dir();
             if d.is_dir() { d } else { env.home.clone() }
         }
     };
+    let places = places(env);
+    let roots: Vec<PathBuf> = places.iter().filter_map(|p| std::fs::canonicalize(&p.path).ok()).collect();
+    let dir = std::fs::canonicalize(&dir).map_err(kiln_manage::util::io_at(&dir, "opening"))?;
+    let allowed = |p: &Path| roots.iter().any(|r| p.starts_with(r));
+    if dir.to_str().is_none() || !allowed(&dir) {
+        return Err(Error::new(ErrorCode::Refused, "Browse within Home, Downloads, Steam games or a mounted card."));
+    }
     let rd = std::fs::read_dir(&dir).map_err(|e| {
         let code = if e.kind() == std::io::ErrorKind::NotFound { ErrorCode::NotFound } else if e.kind() == std::io::ErrorKind::PermissionDenied { ErrorCode::Permission } else { ErrorCode::Io };
         Error::new(code, format!("Can't open {}.", dir.display())).with_detail(e.to_string())
     })?;
-    let mut items: Vec<(PathBuf, std::fs::Metadata)> = rd
-        .flatten()
-        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-        .filter_map(|e| std::fs::metadata(e.path()).ok().map(|m| (e.path(), m)))
-        .collect();
+    let mut items: Vec<(PathBuf, std::fs::Metadata)> = Vec::new();
+    let mut count = 0;
+    for e in rd {
+        let e = e.map_err(kiln_manage::util::io_at(&dir, "reading"))?;
+        if e.file_name().to_str().is_none_or(|s| s.starts_with('.')) { continue; }
+        let Ok(path) = std::fs::canonicalize(e.path()) else { continue };
+        if !allowed(&path) { continue; }
+        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        if !meta.is_file() && !meta.is_dir() { continue; }
+        count += 1;
+        items.push((path, meta));
+        // Keep memory bounded even in a folder with millions of entries.
+        if items.len() >= MAX_ENTRIES * 2 {
+            items.sort_by(|a, b| b.1.modified().ok().cmp(&a.1.modified().ok()).then_with(|| a.0.cmp(&b.0)));
+            items.truncate(MAX_ENTRIES);
+        }
+    }
     items.sort_by(|a, b| b.1.modified().ok().cmp(&a.1.modified().ok()).then_with(|| a.0.cmp(&b.0)));
-    let truncated = items.len() > MAX_ENTRIES;
+    let truncated = count > MAX_ENTRIES;
     items.truncate(MAX_ENTRIES);
 
     let mut folders = Vec::new();
@@ -151,14 +170,14 @@ pub fn browse(dir: Option<&Path>, env: &Env) -> Result<Folder, Error> {
     folders.sort_by_key(|f| f.name.to_lowercase());
     Ok(Folder {
         name: dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string()),
-        parent: dir.parent().map(|p| p.display().to_string()),
+        parent: dir.parent().filter(|p| allowed(p)).map(|p| p.display().to_string()),
         has_game: dir.join("enshrouded.exe").is_file(),
         dir: dir.display().to_string(),
         folders,
         mods,
         other,
         truncated,
-        places: places(env),
+        places,
     })
 }
 
@@ -171,8 +190,12 @@ fn detect_cached(path: &Path, meta: &std::fs::Metadata, dir: bool) -> Option<Det
             return hit.clone();
         }
     }
-    let found = if dir { folder_candidate(path) } else { file_candidate(path, meta.len()) };
-    let d = found.then(|| kiln_manage::library::detect(path).ok()).flatten().filter(recognised);
+    // Validate before even opening the central directory or recursively detecting a folder.
+    let safe = kiln_manage::quick::validate_import_path(path).is_ok();
+    let found = safe && if dir { folder_candidate(path) } else { file_candidate(path, meta.len()) };
+    let d = found.then(|| {
+        kiln_manage::library::detect(path).ok()
+    }).flatten().filter(recognised);
     if !dir {
         let mut c = CACHE.lock().unwrap();
         if c.len() > 2000 {
@@ -239,12 +262,12 @@ pub fn places(env: &Env) -> Vec<Place> {
     let mut cards: Vec<PathBuf> = Vec::new();
     for e in std::fs::read_dir(&env.media).into_iter().flatten().flatten() {
         let p = e.path();
-        if !p.is_dir() {
+        if !e.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
         // /run/media/<user>/<label> (udisks) or /run/media/<device> (SteamOS' SD card)
         if env.user.as_deref().is_some_and(|u| e.file_name().to_string_lossy() == u) {
-            cards.extend(std::fs::read_dir(&p).into_iter().flatten().flatten().map(|x| x.path()).filter(|x| x.is_dir()));
+            cards.extend(std::fs::read_dir(&p).into_iter().flatten().flatten().filter(|x| x.file_type().is_ok_and(|t| t.is_dir())).map(|x| x.path()));
         } else {
             cards.push(p);
         }
@@ -359,12 +382,12 @@ mod tests {
     fn browsing_finds_the_game_and_the_parent() {
         let t = Tmp::new("game");
         let e = env(&t);
-        let g = t.0.join("lib/steamapps/common/Enshrouded");
+        let g = e.home.join("lib/steamapps/common/Enshrouded");
         std::fs::create_dir_all(&g).unwrap();
         std::fs::write(g.join("enshrouded.exe"), b"MZ").unwrap();
         let f = browse(Some(&g), &e).unwrap();
         assert!(f.has_game);
-        assert_eq!(f.parent.as_deref(), Some(t.0.join("lib/steamapps/common").display().to_string().as_str()));
+        assert_eq!(f.parent.as_deref(), Some(e.home.join("lib/steamapps/common").display().to_string().as_str()));
         assert!(f.mods.is_empty());
         assert!(matches!(browse(Some(&t.0.join("nope")), &e), Err(err) if err.code == ErrorCode::NotFound));
     }
@@ -377,6 +400,24 @@ mod tests {
         let f = browse(None, &e).unwrap();
         assert_eq!(f.dir, e.home.display().to_string());
         assert_eq!(f.folders.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["Desktop"]);
+        assert_eq!(f.parent, None);
+    }
+
+    #[test]
+    fn traversal_and_links_cannot_escape_places() {
+        let t = Tmp::new("roots");
+        let e = env(&t);
+        std::fs::create_dir_all(&e.home).unwrap();
+        let outside = t.0.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        assert_eq!(browse(Some(&outside), &e).unwrap_err().code, ErrorCode::Refused);
+        assert_eq!(browse(Some(&e.home.join("../outside")), &e).unwrap_err().code, ErrorCode::Refused);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, e.home.join("escape")).unwrap();
+            assert_eq!(browse(Some(&e.home.join("escape")), &e).unwrap_err().code, ErrorCode::Refused);
+            assert!(browse(Some(&e.home), &e).unwrap().folders.is_empty());
+        }
     }
 
     #[test]

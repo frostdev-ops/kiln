@@ -33,10 +33,12 @@ import base64
 import difflib
 import hashlib
 import http.client
+import importlib.util
 import json
 import os
 import re
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -186,6 +188,26 @@ def make_zip(folder, kind, version, out_dir):
                 while chunk := f.read(1 << 20):
                     dst.write(chunk)
     return path
+
+
+def validate_launcher_archive(path, repo):
+    """Validate the immutable upload zip, not just its directory name or the source files before packaging."""
+    spec = importlib.util.spec_from_file_location("kiln_release_scan", os.path.join(repo, "tools", "release", "lib", "release.py"))
+    scan = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scan)
+    try:
+        with open(os.path.join(repo, "launcher", "src-tauri", "tauri.conf.json"), encoding="utf-8") as f:
+            pubkey = json.load(f)["plugins"]["updater"]["pubkey"].encode("ascii")
+        needles = scan.updater_needles(pubkey=pubkey)
+        with tempfile.TemporaryDirectory(prefix="kiln-nexus-check-") as tmp:
+            report = scan.updater_scan(path, path, needles, tmp)
+            problems = scan.updater_problems(report, path, needles, absent=True)
+        with zipfile.ZipFile(path) as z:
+            problems.extend(f"{n}: updater signature in Nexus upload" for n in z.namelist() if n.lower().endswith(".sig"))
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as e:
+        raise Fail(f"cannot validate Nexus launcher archive {path}: {e}") from e
+    if problems:
+        raise Fail("Nexus launcher archive rejected: " + "; ".join(problems))
 
 
 def md5_of(path):
@@ -349,6 +371,8 @@ def run(argv=None):
         for k in kinds:
             category, name, desc = KINDS[k]
             z = make_zip(folder, k, version, work)
+            if k in LAUNCHER_KINDS:
+                validate_launcher_archive(z, repo)
             # the page's own listing first: its ids are the ones /mod-files/{id} takes (POST /mod-files answers with
             # another id, which 0.2.0-dev.10 stored and dev.11 then could not add a version to)
             fid = (by_name.get(name) or {}).get("id") or state.get("files", {}).get(k)

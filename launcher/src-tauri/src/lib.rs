@@ -188,8 +188,11 @@ pub fn run() {
             commands::nexus::nexus_handler_status,
             commands::nexus::nexus_handler_set
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the Kiln Launcher");
+        .build(tauri::generate_context!())
+        .expect("error while building the Kiln Launcher")
+        .run(|_, event| {
+            if matches!(event, tauri::RunEvent::Exit) { deck::gamepad::stop(); }
+        });
 }
 
 /// Debug builds (and QA builds with the `dev-eval` feature) only: runs every `*.js` dropped into `$KILN_DEV_EVAL_DIR`
@@ -216,6 +219,14 @@ fn dev_eval(app: tauri::AppHandle, dir: std::path::PathBuf) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn embedded_updater_config_matches_the_feature() {
+        let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        assert_eq!(context.config().plugins.0.contains_key("updater"), cfg!(feature = "self-update"));
+        #[cfg(feature = "self-update")]
+        assert!(context.config().plugins.0["updater"].get("pubkey").is_some());
+    }
+
     #[test]
     fn selftest_passes() {
         assert_eq!(crate::selftest::run(&["kiln-launcher".into(), "--selftest".into()]), 0);

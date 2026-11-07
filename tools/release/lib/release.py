@@ -470,12 +470,18 @@ UPDATE_FEEDS = [
 ]
 UPDATER_PLUGIN = ("the updater plugin (tauri-plugin-updater)", b"tauri-plugin-updater")
 LAUNCHER_BINARIES = ("kiln-launcher", "kiln-launcher.exe")
+BUILD_MARKERS = {
+    "direct": b"KILN-LAUNCHER-DISTRIBUTION:direct:self-update=1",
+    "nexus": b"KILN-LAUNCHER-DISTRIBUTION:nexus:self-update=0",
+}
 
 
-def updater_needles(pubkey_file):
-    """(what, bytes, binary only): the feeds and the key anywhere in the build, the plugin's crate name only in the
-    launcher binary (the bundled THIRD-PARTY-NOTICES.txt names every crate of the workspace)."""
-    pub = open(pubkey_file, "rb").read().strip()
+def updater_needles(pubkey_file=None, *, pubkey=None):
+    """(what, bytes, binary only): feeds and key anywhere; plugin signatures in native binaries only
+    (the bundled THIRD-PARTY-NOTICES.txt names every crate of the workspace)."""
+    pub = pubkey if pubkey is not None else open(pubkey_file, "rb").read().strip()
+    if not pub:
+        raise ValueError("empty updater public key")
     needles = [(w, n, False) for w, n in UPDATE_FEEDS]
     needles.append(("the updater public key (tauri.conf.json)", pub, False))
     try:  # the key itself: the second line of the base64-decoded minisign public key file
@@ -485,36 +491,84 @@ def updater_needles(pubkey_file):
     except Exception:  # noqa: BLE001
         pass
     needles.append((*UPDATER_PLUGIN, True))
+    needles.append(("the updater plugin's Rust symbols", b"tauri_plugin_updater", True))
+    needles.append(("the updater IPC plugin", b"plugin:updater|", True))
     return needles
 
 
-def updater_scan(path, label, needles, tmp, depth=0, out=None):
+def updater_scan(path, label, needles, tmp, depth=0, out=None, root=None, seen=None):
     """{"binaries": [where], "found": [(what, where)]} for one launcher build and everything inside it."""
-    out = out if out is not None else {"binaries": [], "found": []}
+    out = out if out is not None else {"binaries": [], "found": [], "markers": {}, "problems": []}
+    root = os.path.realpath(root or os.path.dirname(os.path.abspath(path)))
+    seen = seen if seen is not None else set()
+    if os.path.islink(path):
+        target = os.path.realpath(path)
+        if not target.startswith(root + os.sep) or not os.path.isfile(target):
+            out["problems"].append(f"{label}: dangling or external symlink")
+            return out
+        path = target
+    if path in seen:
+        return out
+    seen.add(path)
     with open(path, "rb") as f:
         data = f.read()
-    is_bin = os.path.basename(path).lower() in LAUNCHER_BINARIES
-    if is_bin:
+    # Names are not evidence: a text file named kiln-launcher must not make the absence scan pass. Check every
+    # native binary for plugin code, including renamed executables and shared libraries.
+    is_bin = data.startswith(b"\x7fELF") or data.startswith(b"MZ")
+    kind = archive_kind(path, data) or (GlibcScan.archive(path, data[:512]) if not is_bin else None)
+    is_launcher = os.path.basename(path).lower() in LAUNCHER_BINARIES and is_bin and kind is None
+    if is_launcher:
         out["binaries"].append(label)
+        out["markers"][label] = {dist for dist, marker in BUILD_MARKERS.items() if marker in data}
     for what, needle, binary_only in needles:
-        if (is_bin or not binary_only) and needle in data:
+        if (is_bin or not binary_only) and (needle in data or needle.decode("ascii").encode("utf-16le") in data):
             out["found"].append((what, label))
-    kind = archive_kind(path, data) if depth < 4 else None
+    if is_bin and BUILD_MARKERS["direct"] in data:
+        out["found"].append(("the direct build's compiled self-update feature", label))
     del data
     if kind:
+        if depth >= 32:
+            out["problems"].append(f"{label}: archive nesting exceeds 32; contents not checked")
+            return out
         d = tempfile.mkdtemp(dir=tmp)
         try:
-            extract(kind, path, d)
+            GlibcScan.extract(kind, path, d)
             for base, dirs, files in os.walk(d):
                 dirs.sort()
+                for n in dirs:
+                    p = os.path.join(base, n)
+                    if os.path.islink(p):
+                        target = os.path.realpath(p)
+                        if not target.startswith(d + os.sep) or not os.path.isdir(target):
+                            out["problems"].append(f"{label}!{n}: external directory symlink")
                 for n in sorted(files):
                     p = os.path.join(base, n)
-                    if os.path.islink(p) or not os.path.isfile(p):
+                    if not os.path.islink(p) and not os.path.isfile(p):
                         continue
-                    updater_scan(p, f"{label}!{os.path.relpath(p, d)}", needles, tmp, depth + 1, out)
+                    updater_scan(p, f"{label}!{os.path.relpath(p, d)}", needles, tmp, depth + 1, out, d, seen)
+        except Exception as e:  # noqa: BLE001
+            out["problems"].append(f"{label}: cannot inspect {kind}: {e}")
         finally:
             shutil.rmtree(d, ignore_errors=True)
     return out
+
+
+def updater_problems(r, label, needles, absent):
+    problems = list(r["problems"])
+    if not r["binaries"]:
+        problems.append(f"{label}: no launcher binary ({' or '.join(LAUNCHER_BINARIES)}) found inside: nothing was checked")
+    expected = "nexus" if absent else "direct"
+    for binary in r["binaries"]:
+        if r["markers"][binary] != {expected}:
+            problems.append(f"{binary}: missing or conflicting compiled distribution marker (expected {expected})")
+        if not absent:
+            in_bin = {what for what, where in r["found"] if where == binary}
+            # Plugin source paths are a secondary absence check, not guaranteed by optimized Rust builds.
+            required = [what for what, _, binary_only in needles if not binary_only and "decoded" not in what]
+            problems.extend(f"{binary}: the launcher binary lacks {what}" for what in required if what not in in_bin)
+    if absent:
+        problems.extend(f"{where}: {what}" for what, where in sorted(set(r["found"])))
+    return problems
 
 
 def cmd_updater(a):
@@ -529,14 +583,7 @@ def cmd_updater(a):
             for what, _, _ in needles:
                 hits = [w for x, w in found if x == what]
                 print(f"  found  {what}: {', '.join(hits[:4])}" if hits else f"  absent {what}")
-            if not r["binaries"]:
-                problems.append(f"{f}: no launcher binary ({' or '.join(LAUNCHER_BINARIES)}) found inside: nothing was checked")
-            elif a.absent:
-                problems += [f"{w}: {what}" for what, w in found]
-            else:
-                in_bin = {what for what, w in found if os.path.basename(w.split("!")[-1]).lower() in LAUNCHER_BINARIES}
-                missing = [what for what, _, _ in needles if what not in in_bin and "decoded" not in what]
-                problems += [f"{f}: the launcher binary lacks {what}" for what in missing]
+            problems.extend(updater_problems(r, f, needles, a.absent))
         for d in a.no_sig or []:
             for base, _, files in os.walk(d):
                 problems += [f"{os.path.join(base, n)}: an updater signature (.sig) in a build without self-update"

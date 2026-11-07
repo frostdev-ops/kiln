@@ -37,6 +37,7 @@ struct Report {
     kiln: &'static str,
     /// "direct" (updates itself) or "nexus" (no self-update): crate::distribution.
     distribution: &'static str,
+    build_marker: &'static str,
     platform: &'static str,
     arch: &'static str,
     temp: String,
@@ -445,6 +446,7 @@ pub fn run(args: &[String]) -> i32 {
         launcher: env!("CARGO_PKG_VERSION"),
         kiln: kiln_manage::VERSION,
         distribution: crate::distribution::CURRENT.as_str(),
+        build_marker: crate::distribution::build_marker(),
         platform: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         temp: t.display().to_string(),

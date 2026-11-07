@@ -20,6 +20,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,14 @@ spec.loader.exec_module(nexus)
 
 KEY = "test-key-not-real-0123456789"
 MOD = "4242"
+
+
+def launcher_fixture(dist, size):
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("usr/bin/kiln-launcher", b"\x7fELF" + bytes(60) +
+                   f"KILN-LAUNCHER-DISTRIBUTION:{dist}:self-update={int(dist == 'direct')}".encode() + os.urandom(size))
+    return data.getvalue()
 
 
 class Mock:
@@ -203,10 +212,10 @@ class NexusTests(unittest.TestCase):
             "README.txt": b"Kiln readme: the launcher updates itself\n",
             "RELEASE-NOTES.md": f"# Kiln {version}\n\n- Self-update.\n- Fixes.\n".encode(),
             # the direct build (updates itself): never for Nexus
-            f"linux/kiln-launcher_{version}_amd64.AppImage": b"DIRECT" + os.urandom(5000),
+            f"linux/kiln-launcher_{version}_amd64.AppImage": launcher_fixture("direct", 5000),
             f"linux/kiln-launcher_{version}_amd64.AppImage.sig": b"sig",
-            f"linux/kiln-launcher_{version}_amd64.deb": b"DIRECT" + os.urandom(3000),
-            f"windows/kiln-launcher_{version}_x64-setup.exe": b"DIRECT" + os.urandom(1200),
+            f"linux/kiln-launcher_{version}_amd64.deb": launcher_fixture("direct", 3000),
+            f"windows/kiln-launcher_{version}_x64-setup.exe": launcher_fixture("direct", 1200),
             f"windows/kiln-launcher_{version}_x64-setup.exe.sig": b"sig",
             f"runtime/kiln-runtime-{version}.zip": os.urandom(900),
             "runtime/INSTALL-RUNTIME.txt": b"install\n",
@@ -217,9 +226,9 @@ class NexusTests(unittest.TestCase):
         }
         if nexus:  # the Nexus build: no self-update
             files.update({
-                f"nexus/linux/kiln-launcher_{version}_amd64.AppImage": b"NEXUS" + os.urandom(5000),
-                f"nexus/linux/kiln-launcher_{version}_amd64.deb": b"NEXUS" + os.urandom(3000),
-                f"nexus/windows/kiln-launcher_{version}_x64-setup.exe": b"NEXUS" + os.urandom(1200),
+                f"nexus/linux/kiln-launcher_{version}_amd64.AppImage": launcher_fixture("nexus", 5000),
+                f"nexus/linux/kiln-launcher_{version}_amd64.deb": launcher_fixture("nexus", 3000),
+                f"nexus/windows/kiln-launcher_{version}_x64-setup.exe": launcher_fixture("nexus", 1200),
                 "nexus/README.txt": b"Kiln (Nexus Mods): this build does not update itself\n",
             })
         for rel, data in files.items():
@@ -326,7 +335,7 @@ class NexusTests(unittest.TestCase):
             self.assertEqual(sorted(files), sorted([name, "README.txt"]), prefix)
             with open(os.path.join(rel, "nexus", "linux" if "windows" not in prefix else "windows", name), "rb") as f:
                 self.assertEqual(files[name], f.read(), prefix)
-            self.assertTrue(files[name].startswith(b"NEXUS"), prefix)
+            self.assertIn(b"KILN-LAUNCHER-DISTRIBUTION:nexus:self-update=0", files[name], prefix)
             self.assertIn(b"does not update itself", files["README.txt"], prefix)
         # the SDK zip carries the Nexus README too; the runtime is as before
         self.assertIn(b"does not update itself", self.zip_of("kiln-sdk")["README.txt"])

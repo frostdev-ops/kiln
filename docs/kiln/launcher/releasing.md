@@ -26,6 +26,9 @@ the same runtime and notices:
   the distribution (`direct` with it, `nexus` without). `tools/launcher/build-linux.sh --nexus` and
   `build-windows.sh --nexus` build without it (`tauri build ... -- --no-default-features`) and merge
   `src-tauri/tauri.nexus.conf.json` last; their files go to `$KILN_OUT/bundles/{linux,windows}-nexus/`.
+  Plain Cargo builds without `self-update` also remove `plugins.updater` and disable updater artifacts in
+  `build.rs`, including any updater config supplied through `TAURI_CONFIG`. Building the Nexus overlay with
+  `self-update` enabled is refused. Packaging wrappers clear old bundle output before each build.
 - **Nothing else updates the launcher:** the only code that downloads or replaces the launcher is `src/selfupdate/`.
   The other network use, the server modpack download (`kiln_manage::modpack::download`, after the player's explicit
   consent), fetches mods, never the launcher. So does the Nexus Mods catalog (`kiln_manage::nexus`, [catalog.md](catalog.md)):
@@ -169,9 +172,13 @@ launcher's built-in key and version; the AppImage's `--selftest` on a private X 
 silently under Wine into a scratch prefix, then `--selftest` (both also for the Nexus build, in its own folders and
 prefix; each report must name its distribution, `direct` or `nexus`); `release.py updater --absent` on the Nexus
 build: its AppImage (unpacked), its deb, the exe inside its setup (7z) and the exe the setup installed under Wine
-hold none of the update feeds, the updater key (base64 and decoded) or the updater plugin (`tauri-plugin-updater` in
-the launcher binary), and nexus/ holds no `.sig`; `release.py updater --present` on the direct build (the feeds, the
-key and the plugin are in its binaries); the deb's control fields and files (both builds); the rpm's files;
+hold none of the update feeds, the updater key (base64 and decoded) or updater plugin signatures (in every native
+binary, including renamed files), and nexus/ holds no `.sig`. Every launcher executable must contain the compiled
+distribution marker `KILN-LAUNCHER-DISTRIBUTION:nexus:self-update=0`; the direct build's marker is rejected even
+when no feed string survived optimization. Uninspectable archives, excessive nesting and external symlinks fail
+the check. `release.py updater --present` requires the direct marker and all feeds and the public key in each
+launcher executable; plugin panic-path strings are an additional absence check, not required evidence in an
+optimized direct build. The deb's control fields and files (both builds); the rpm's files;
 `kilnctl bundle verify`; `kilnctl`/`kiln --version`, the Windows builds under Wine; every Linux ELF file (the
 AppImage unpacked with unsquashfs, the deb's and rpm's files, kilnctl, kiln, and nested zip/tar/compressed archives) needing no
 glibc requirement above 2.35 (`objdump -p` version references, including ABI markers; definitions do not count;
@@ -283,7 +290,7 @@ Each release:
    uploads the Nexus build (nexus/), never the direct one.
 
 github-draft.sh stages only linux/ and windows/ (the direct build); publish.sh uploads the folder to frostdev.io
-without nexus/, with a SHA256SUMS that lists what goes up.
+without nexus/ or updates/ (manifests are published separately), with a SHA256SUMS that lists the download files.
 
 A hotfix stable release while a newer dev build is out: `publish.sh --no-dev-channel`, so dev users keep the newer
 build. A bad release: publish a fixed, higher version; launchers never go back by themselves.
@@ -305,6 +312,8 @@ publishing status.
 - **The launchers are always the Nexus build** (no self-update; "The two builds"). A release folder without nexus/ is
   refused for the launcher and SDK kinds. The zips carry `nexus/README.txt` (no self-update; new versions from the
   Files tab), never the folder's README.txt, which describes the self-update.
+  Before any upload, `nexus.py` inspects each completed launcher zip with the same distribution-marker and updater
+  scan as the release checks. A direct build copied into nexus/, missing identity or an unreadable package is refused.
 - **Older versions:** a launcher's new version is created with `archive_existing_file: true`, so the version it
   replaces moves to the archived files (the runtime and SDK keep the default, false). The API has nothing else for
   older versions: no endpoint changes a version's category, hides or deletes it (`PUT /mod-files/{id}` only renames
@@ -331,6 +340,8 @@ publishing status.
   API and storage: single part, multipart, polling, new file and new version, a file found by name, the description,
   the dry run, a missing key; the launchers taken from nexus/ with its README, `archive_existing_file` on the
   launchers' new versions only, a folder without nexus/ refused).
+  `python3 -I tools/release/test_linux_release.py` also checks the updater scanner and upload gate offline, using
+  generated throwaway public keys (no release credentials, sockets or Docker daemon).
 
 ## Testing the self-update
 - The Nexus build: `cargo test -p kiln-launcher --no-default-features` (no selfupdate module; the `update_*` commands

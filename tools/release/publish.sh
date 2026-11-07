@@ -52,8 +52,8 @@ gh release view "$tag" --repo "$gh_repo" --json isDraft -q .isDraft | grep -qx t
 echo "== frostdev.io ($host:$remote)"
 if ask "Upload $version to $host:$remote/downloads/$version and switch the $channel manifest?"; then
   ssh "$host" mkdir -p "$remote/downloads" "$remote/updates/stable" "$remote/updates/dev"
-  # nexus/ is for Nexus Mods only; SHA256SUMS without its lines
-  grep -v '^[0-9a-f]*  nexus/' "$dir/SHA256SUMS" >"$sums"
+  # The download folder excludes Nexus builds and update manifests (published separately).
+  grep -Ev '^[0-9a-f]+  (nexus|updates)/' "$dir/SHA256SUMS" >"$sums"
   rsync -a --chmod=D755,F644 --exclude updates/ --exclude /nexus/ --exclude /SHA256SUMS "$dir/" "$host:$remote/downloads/$version/"
   rsync -a --chmod=F644 "$sums" "$host:$remote/downloads/$version/SHA256SUMS"
   for f in "$dir"/updates/frostdev.io/*/latest.json; do
