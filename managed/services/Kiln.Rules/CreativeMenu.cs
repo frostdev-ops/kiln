@@ -21,17 +21,19 @@ internal static class CreativeMenu
     private static bool _replyOk = true;
     private static readonly List<CreativeItem> Catalog = new();
     private static int _catalogTotal = -1;
+    private static HashSet<uint>? _found;      // journey mode: the items the player has found (null: not asked or unknown)
+    private static bool _foundUnavailable;
     private static DateTime _askedState, _askedCatalog;
 
     // the menu's own inputs (render thread)
     private static string _search = "";
     private static int _category;
-    private static bool _noEquipment;
+    private static bool _noEquipment, _journey;
     private static int _selected = -1;
     private static int _count = 1, _level = 1, _rarity;
     private static float _hours = 12;
     private static List<CreativeItem> _shown = new();
-    private static (string, int, bool, int) _shownFor = ("", -1, false, -1);
+    private static (string, int, bool, int, bool, int) _shownFor = ("", -1, false, -1, false, -1);
 
     private static readonly (string Name, ItemCategory? Category)[] Categories =
     [
@@ -94,6 +96,7 @@ internal static class CreativeMenu
             _state = null;
             Catalog.Clear();
             _catalogTotal = -1;
+            _found = null;
             _reply = "";
         }
         Apply(null);
@@ -124,9 +127,19 @@ internal static class CreativeMenu
             Catalog.AddRange(m.Items);
             _catalogTotal = m.Total;
             if (Catalog.Count < m.Total && m.Items.Count > 0) next = Catalog.Count;
-            _shownFor = ("", -1, false, -1);
+            _shownFor = ("", -1, false, -1, false, -1);
         }
         if (next >= 0) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Catalog, Count: next));
+    }
+
+    public static void OnFound(CreativeFoundMsg m)
+    {
+        lock (Lock)
+        {
+            _found = m.Available ? new HashSet<uint>(m.Items) : null;
+            _foundUnavailable = !m.Available;
+            _shownFor = ("", -1, false, -1, false, -1);
+        }
     }
 
     // The pause-menu entry shows for those who may use the menu; a HUD line while creative mode is on.
@@ -166,6 +179,7 @@ internal static class CreativeMenu
     {
         _askedState = DateTime.UtcNow;
         CreativeNet.Ask(new CreativeRequest(CreativeAsk.State));
+        if (catalog && _journey) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Found));
         bool need;
         lock (Lock) need = catalog && (_catalogTotal < 0 || Catalog.Count < _catalogTotal) && DateTime.UtcNow - _askedCatalog > TimeSpan.FromSeconds(5);
         if (!need) return;
@@ -245,6 +259,9 @@ internal static class CreativeMenu
         ui.InputText("Search", ref _search, 64);
         ui.SameLine();
         ui.Checkbox("Without equipment", ref _noEquipment);
+        ui.SameLine();
+        if (ui.Checkbox("Only what I have found", ref _journey) && _journey) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Found));
+        ui.Tooltip("Journey: items you have picked up, crafted or used. Find or craft the first one as the game intends, then take as many as you like.");
         ui.Combo("Category", ref _category, CategoryNames);
         List<CreativeItem> shown;
         int total, have;
@@ -252,18 +269,20 @@ internal static class CreativeMenu
         {
             total = _catalogTotal;
             have = Catalog.Count;
-            var key = (_search, _category, _noEquipment, have);
+            var key = (_search, _category, _noEquipment, have, _journey, _found?.Count ?? -1);
             if (key != _shownFor)
             {
                 var cat = Categories[Math.Clamp(_category, 0, Categories.Length - 1)].Category;
                 _shown = Catalog.Where(i => (cat is null || i.Category == cat) &&
                                             (!_noEquipment || !CreativeCatalog.IsEquipment(i.Category, i.IsGear)) &&
+                                            (!_journey || _found is null || _found.Contains(i.Id)) &&
                                             CreativeCatalog.Matches(_search, i.Label, i.Name)).ToList();
                 _shownFor = key;
                 if (_selected >= 0 && !_shown.Any(i => i.Id == (uint)_selected)) _selected = -1;
             }
             shown = _shown;
         }
+        if (_journey && _foundUnavailable) ui.TextDisabled("This server cannot tell which items you have found: showing every item.");
         if (total < 0) ui.TextDisabled("Loading the catalogue...");
         else if (have < total) ui.Progress(total == 0 ? 1 : (float)have / total, $"{have} of {total} items");
         else ui.TextDisabled($"{shown.Count} of {total} items");
@@ -286,7 +305,7 @@ internal static class CreativeMenu
         if (ui.BeginChild("item", 0, h))
         {
             var sel = shown.FirstOrDefault(i => i.Id == (uint)_selected);
-            if (sel.Id == 0) ui.TextWrapped(shown.Count == 0 && have > 0 ? "No items match." : "Pick an item.");
+            if (sel.Id == 0) ui.TextWrapped(shown.Count == 0 && have > 0 ? (_journey ? "Nothing found here yet: pick up or craft items first." : "No items match.") : "Pick an item.");
             else DrawItem(ui, sel, canGive);
         }
         ui.EndChild();

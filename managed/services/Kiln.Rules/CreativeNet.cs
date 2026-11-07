@@ -15,6 +15,7 @@ internal enum CreativeAsk : byte
     Cycle = 3,
     Creative = 4,
     Catalog = 5,
+    Found = 6,
 }
 
 /// <summary>One request: <see cref="Kind"/> says which fields count.</summary>
@@ -48,11 +49,15 @@ internal readonly record struct CreativeItem(uint Id, string Name, string Label,
 
 internal readonly record struct CreativeCatalogMsg(int Start, int Total, IReadOnlyList<CreativeItem> Items);
 
+/// <summary>The items a player has found (picked up, crafted, used or looked at: the game's item knowledge), for the
+/// menu's journey mode. <see cref="Available"/> false: this server cannot read knowledge.</summary>
+internal readonly record struct CreativeFoundMsg(bool Available, IReadOnlyList<uint> Items);
+
 internal static class CreativeNet
 {
     public const string ChannelName = "kiln:creative";
     public const string ChannelVersion = "1";
-    private const ushort MsgRequest = 0, MsgState = 1, MsgReply = 2, MsgCatalog = 3;
+    private const ushort MsgRequest = 0, MsgState = 1, MsgReply = 2, MsgCatalog = 3, MsgFound = 4;
     private static readonly object Lock = new();
     private static NetChannel? _channel;
 
@@ -87,7 +92,9 @@ internal static class CreativeNet
                         static (ref NetReader r) => new CreativeReplyMsg(r.Bool(), r.String() ?? ""),
                         static (m, _) => CreativeMenu.OnReply(m), NetDirection.ToClient)
                     .Register<CreativeCatalogMsg>(MsgCatalog, EncodeCatalog, DecodeCatalog,
-                        static (m, _) => CreativeMenu.OnCatalog(m), NetDirection.ToClient);
+                        static (m, _) => CreativeMenu.OnCatalog(m), NetDirection.ToClient)
+                    .Register<CreativeFoundMsg>(MsgFound, EncodeFound, DecodeFound,
+                        static (m, _) => CreativeMenu.OnFound(m), NetDirection.ToClient);
                 Network.ServerReady += _ => CreativeMenu.OnServerReady();
                 Network.Disconnected += _ => CreativeMenu.OnDisconnected();
                 Events.On<NetPeerReadyEvent>(e => Inbox.Enqueue((e.Peer.Player, new CreativeRequest(CreativeAsk.State), false)),
@@ -111,6 +118,21 @@ internal static class CreativeNet
             w.UInt32(i.Id).String(i.Name).String(i.Label == i.Name ? "" : i.Label).Byte((byte)i.Category).Byte((byte)i.Rarity)
                 .Bool(i.IsGear).Byte((byte)Math.Clamp(i.LevelMin, 0, 255)).Byte((byte)Math.Clamp(i.LevelMax, 0, 255))
                 .UInt16((ushort)Math.Clamp(i.MaxStack, 0, ushort.MaxValue));
+    }
+
+    internal static void EncodeFound(CreativeFoundMsg m, NetWriter w)
+    {
+        w.Bool(m.Available).Int32(m.Items.Count);
+        foreach (var id in m.Items) w.UInt32(id);
+    }
+
+    internal static CreativeFoundMsg DecodeFound(ref NetReader r)
+    {
+        var ok = r.Bool();
+        var n = Math.Clamp(r.Int32(), 0, 16384);
+        var list = new uint[n];
+        for (var i = 0; i < n; i++) list[i] = r.UInt32();
+        return new CreativeFoundMsg(ok, list);
     }
 
     internal static CreativeCatalogMsg DecodeCatalog(ref NetReader r)
@@ -198,6 +220,12 @@ internal static class CreativeNet
     public static void SendCatalog(EntityId player, CreativeCatalogMsg m, bool local)
     {
         if (local || IsHost(player)) CreativeMenu.OnCatalog(m);
+        else Send(player, m);
+    }
+
+    public static void SendFound(EntityId player, CreativeFoundMsg m, bool local)
+    {
+        if (local || IsHost(player)) CreativeMenu.OnFound(m);
         else Send(player, m);
     }
 

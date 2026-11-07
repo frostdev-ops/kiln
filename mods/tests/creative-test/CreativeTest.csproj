@@ -21,6 +21,7 @@
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Time/Kiln.Time.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Gameplay/Kiln.Gameplay.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Build/Kiln.Build.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />

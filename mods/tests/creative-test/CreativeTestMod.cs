@@ -44,6 +44,8 @@ public sealed class CreativeTestMod : Mod
         try
         {
             await Take(f);
+            await Crafting(f);
+            Found(f);
             await Falls(f);
         }
         finally
@@ -144,6 +146,58 @@ public sealed class CreativeTestMod : Mod
 
         var st = CreativeTools.SetTime(f, 3);
         Info($"the character (no permission entry) asks for 03:00: {st.Ok}, {st.Message}");
+    }
+
+    // ---- FreeCrafting: a craft request answered with the output, the inputs stay ----
+    private async Task Crafting(EntityId f)
+    {
+        if (!Gameplay.Available || !Gameplay.Enable()) { Info("Kiln.Gameplay is not available: crafting skipped"); return; }
+        var on = Creative.Set(f, true);
+        Check(Rules.Of(f) is { FreeCrafting: true, KeepConsumables: true },
+            $"/creative adds free crafting and kept consumables to the preset: {Rules.Of(f)} ({on.Message.Length} chars)");
+        GameplayRecipe? recipe = null;
+        var station = EntityId.None;
+        foreach (var s in World.Find("Crafting").Where(e => !e.IsPlayer && !World.Has(e, "FactoryStation")))
+        {
+            var b = World.ReadBytes(s, "Crafting");
+            if (b is not { Length: >= 0x14 }) continue;
+            recipe = Gameplay.WorkshopRecipes(BitConverter.ToUInt32(b, 0x10)).Select(Gameplay.Recipe)
+                .FirstOrDefault(r => r is { HasCategoryInputs: false, RequiredProps: 0 } && r.Inputs.Count is > 0 and <= 3 &&
+                                     r.Inputs.All(i => i.Count <= 20) && r.Outputs.Count > 0);
+            if (recipe is not null) { station = s; break; }
+        }
+        if (!Check(recipe is not null, $"a station {station} with a simple recipe 0x{recipe?.Id:x8}")) return;
+        foreach (var i in recipe!.Inputs) await Items.Give(f, new ItemId(i.ItemId), i.Count);
+        await Steps(2);
+        int Count(uint id) => Items.Read(f)?.Count(new ItemId(id)) ?? 0;
+        var inBefore = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
+        var outId = recipe.Outputs[0].ItemId;
+        var outBefore = Count(outId);
+        Gameplay.Inject.Craft(f, station, recipe.Id);
+        for (var i = 0; i < 40 && Count(outId) == outBefore; i++) await Steps(1);
+        await Steps(3);
+        var inAfter = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
+        Check(Count(outId) > outBefore && inAfter.All(kv => kv.Value == inBefore[kv.Key]),
+            $"free craft at {station}: output 0x{outId:x8} {outBefore} -> {Count(outId)}, inputs " +
+            string.Join(", ", inBefore.Select(kv => $"0x{kv.Key:x8} {kv.Value} -> {inAfter[kv.Key]}")));
+        Creative.Set(f, false);
+        await Steps(3);
+        var outMid = Count(outId);
+        Gameplay.Inject.Craft(f, station, recipe.Id);
+        for (var i = 0; i < 40 && Count(outId) == outMid; i++) await Steps(1);
+        await Steps(3);
+        var spent = recipe.Inputs.Any(i => Count(i.ItemId) < inAfter[i.ItemId]);
+        Check(Count(outId) > outMid ? spent : true,
+            $"without the rule the game's own craft takes the inputs: output {outMid} -> {Count(outId)}, inputs spent {spent}");
+    }
+
+    // ---- journey mode: the items the character has found ----
+    private void Found(EntityId f)
+    {
+        var found = CreativeTools.Found(f);
+        Info(found is null
+            ? "the found items of the character are not readable (it is not a joined player: knowledge has no player slot for it)"
+            : $"the character has found {found.Count} catalogue items");
     }
 
     // ---- NoFallDamage ----

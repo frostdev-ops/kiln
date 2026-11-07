@@ -92,6 +92,49 @@ public class CreativeTests
     }
 
     [Fact]
+    public void FreeCraftingAndKeepConsumablesCombineLikeSwitches()
+    {
+        var on = Combine(RulesLimits.Default, new PlayerRules { FreeCrafting = true, KeepConsumables = true });
+        Assert.True(on.FreeCrafting);
+        Assert.True(on.KeepConsumables);
+        Assert.Contains("free crafting", on.ToString());
+        Assert.Contains("consumables kept", on.ToString());
+        Assert.False(Combine(RulesLimits.Default, new PlayerRules { FreeCrafting = true }, new PlayerRules { FreeCrafting = false }).FreeCrafting);
+        var denied = Combine(RulesLimits.Default with { AllowFreeCrafting = false, AllowKeepConsumables = false },
+            new PlayerRules { FreeCrafting = true, KeepConsumables = true });
+        Assert.False(denied.FreeCrafting || denied.KeepConsumables);
+        Assert.Contains("freeCrafting", denied.Denied);
+        Assert.Contains("keepConsumables", denied.Denied);
+    }
+
+    [Fact]
+    public void CreativeAddsItsExtrasWherethePresetSaysNothing()
+    {
+        // what /creative applies: the extras, then the preset on top (an explicit false in the file wins)
+        var applied = PlayerRules.CreativeExtras.With(PlayerRules.Creative);
+        Assert.True(applied.FreeCrafting);
+        Assert.True(applied.KeepConsumables);
+        Assert.Equal(PlayerRules.Creative.BuildCost, applied.BuildCost);
+        var edited = PlayerRules.CreativeExtras.With(PlayerRules.FromJson("""{ "buildCost": 0, "freeCrafting": false }"""));
+        Assert.False(edited.FreeCrafting);
+        Assert.True(edited.KeepConsumables);
+        // the preset itself (and so the file Kiln writes) is unchanged
+        Assert.Null(PlayerRules.Creative.FreeCrafting);
+        Assert.DoesNotContain("freeCrafting", PlayerRules.Creative.ToJson());
+    }
+
+    [Fact]
+    public void FoundItemsRoundTrip()
+    {
+        var w = new NetWriter();
+        CreativeNet.EncodeFound(new CreativeFoundMsg(true, [1u, 0x43108313u]), w);
+        var r = new NetReader(w.ToArray());
+        var back = CreativeNet.DecodeFound(ref r);
+        Assert.True(back.Available);
+        Assert.Equal(new uint[] { 1, 0x43108313 }, back.Items);
+    }
+
+    [Fact]
     public void FastCycleTakesAboutNinetySeconds()
     {
         // the game's default day 30 min, night 12 min: one cycle in 90 s

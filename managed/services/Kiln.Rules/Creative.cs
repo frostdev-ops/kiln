@@ -51,7 +51,7 @@ public static class Creative
         PlayerRules rules;
         try
         {
-            rules = Rules.Preset(PresetName) ?? PlayerRules.Creative;
+            rules = PlayerRules.CreativeExtras.With(Rules.Preset(PresetName) ?? PlayerRules.Creative);
         }
         catch (System.Text.Json.JsonException e)
         {

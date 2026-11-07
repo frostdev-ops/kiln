@@ -14,6 +14,7 @@ internal static class RulesFalls
     /// <summary>Called when a player's rules change (tick thread).</summary>
     public static void Changed(EffectiveRules rules)
     {
+        RulesCrafting.Changed(rules);
         if (!rules.NoFallDamage || _sub is not null) return;
         try
         {

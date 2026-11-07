@@ -130,6 +130,12 @@
         { "pattern": "40 55 56 48 83 EC 78 48 8B F2 48 8B E9 0F B6 11 85 D2 0F 84 ?? ?? 00 00 83 EA 01 74 ?? 83 FA 01 74 ?? 32 C0" }
       ]
     },
+    "rules/UpgradeStoragePaid": {
+      "comment": "the return address of the storage-chest upgrade's own call to the inventory payment (UpgradeStorageAction, the function that logs '[UpgradeStorageAction] Could not find recipe info'); the payment is (transaction, costs {ptr, count}, owner, multiplier, extra) -> 0 when paid. docs/re/rules.md 3.",
+      "find": [
+        { "pattern": "48 89 74 24 20 E8 {rules/InventoryPay:rel32} 85 C0 48 8D 8D ?? ?? ?? ?? 40 0F 94 C7 45 33 C0 33 D2 E8", "offset": 10 }
+      ]
+    },
     "rules/TerrainDamage": {
       "comment": "damage of one terraforming hit on one material: setup[hardness] x the server's miningDamageFactor x the class modifier -> {u8 error; u32; float damage}",
       "find": [
@@ -194,6 +200,9 @@
     "rules.costs": {
       "symbols": ["rules/ApplyMaterials"],
       "constants": ["items/tx.operator", "world/programs.table", "world/programs.stride", "world/programs.count"]
+    },
+    "rules.storage": {
+      "symbols": ["rules/UpgradeStoragePaid", "rules/InventoryPay"]
     },
     "rules.dig": {
       "symbols": ["rules/TerrainDamage", "gameplay/TerraformImpact", "@gameplay/TerraformImpact.args"],

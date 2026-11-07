@@ -106,6 +106,34 @@ public static class CreativeTools
         return _catalog;
     }
 
+    /// <summary>The catalogue items <paramref name="player"/> has found: the game's item knowledge (keyed by the item
+    /// id; set when the player picks the item up, crafts, uses or inspects it) is not empty. Null when this server
+    /// cannot read knowledge (kiln.knowledge) or the player is not in game. The creative menu's journey mode lists only
+    /// these.</summary>
+    public static IReadOnlyList<ItemId>? Found(EntityId player)
+    {
+        Game.AssertTickThread();
+        try
+        {
+            return FoundIn(player, Catalog());
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or NotSupportedException or InvalidOperationException)
+        {
+            RulesRuntime.Log(LogLevel.Info, $"creative: the items {NameOf(player)} has found are not known here: {e.Message}");
+            return null;
+        }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static IReadOnlyList<ItemId>? FoundIn(EntityId player, IReadOnlyList<ItemInfo> catalog)
+    {
+        if (!Knowledge.Available) return null;
+        var found = new List<ItemId>();
+        foreach (var i in catalog)
+            if (Knowledge.Get(player, i.Id.Value) is { Value: not 0 }) found.Add(i.Id);
+        return found;
+    }
+
     private static IReadOnlyList<ItemInfo> _catalog = Array.Empty<ItemInfo>();
     private static IReadOnlyList<ItemInfo>? _catalogFrom;
 
@@ -201,6 +229,10 @@ internal static class CreativeServer
                 return;
             case CreativeAsk.Catalog:
                 SendPage(player, req.Count, local);
+                return;
+            case CreativeAsk.Found:
+                var found = CreativeTools.Found(player);
+                CreativeNet.SendFound(player, new CreativeFoundMsg(found is not null, found?.Select(i => i.Value).ToArray() ?? []), local);
                 return;
         }
     }

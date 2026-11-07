@@ -189,6 +189,15 @@ placement outside bases to Kiln.Build's kept regions.
   terraforming loot, the two impact natives (`0x17b8d0`, `0x189ce0`; what they buy was not followed). A client's
   prediction (mode 1, 2) is not changed: a client may show the items leave and come back.
 
+### 3.1 The storage-chest upgrade (svn 1287369)
+Upgrading or converting a storage chest in place does not go through `ApplyMaterials`. `UpgradeStorageAction` (server
+`0x1a5af0`, the function that logs `[UpgradeStorageAction] Could not find recipe info with ID %k`) calls the inventory
+payment directly at `0x1a74a6` (client `0x4061a6`): `InventoryPay(transaction, costs {ptr, count}, owner, multiplier,
+extra)` (server `0x199c80`), 0 when paid; the action goes on only when it returns 0. The same payment is what
+`ApplyMaterials` uses to take (`0x22d55d`), plus five other callers. Kiln hooks the payment and waives only the call
+whose return address is the upgrade's (`rules/UpgradeStoragePaid`, feature `rules.storage`) for an owner with
+`BuildCost` 0: it returns 0 and nothing enters the transaction. Not run in a lab (an upgrade needs a player at a chest).
+
 ## 4. Mining damage **[dis] [dec]**
 `rules/TerrainDamage` (`0x22c970`, client `0x495410`) `{u8 error; u32; float damage}* (out, settings, setup, u8
 hardness, u8 class)`: `setup[hardness]` (5 categories), times `miningDamageFactor` (`0x93df20`: the server settings'

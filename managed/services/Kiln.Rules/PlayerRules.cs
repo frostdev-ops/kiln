@@ -65,6 +65,14 @@ public sealed record PlayerRules
     /// and dismantling turns into a material source.</summary>
     public double? BuildRefund { get; init; }
 
+    /// <summary>Crafting takes nothing from the inventory: a craft request the player's game sends is answered with the
+    /// recipe's output, and the inputs stay (Kiln.Gameplay's craft event, then Kiln.Items). The game's own crafting menu
+    /// still asks for the inputs before it sends the request.</summary>
+    public bool? FreeCrafting { get; init; }
+
+    /// <summary>Food, drinks, potions and bandages come back after use (the server gives the used one back).</summary>
+    public bool? KeepConsumables { get; init; }
+
     // ---- mining ----
 
     /// <summary>x the damage the player's tools deal to terrain and building blocks (1000 breaks anything breakable in
@@ -120,6 +128,10 @@ public sealed record PlayerRules
     /// <summary>The player's water containers get water back (Kiln.Items' refill policies).</summary>
     public WaterRule? Water { get; init; }
 
+    /// <summary>What <c>/creative</c> adds to the <c>creative</c> preset where the preset says nothing (an explicit
+    /// <c>false</c> in the preset file keeps it off): rules newer than the preset file.</summary>
+    public static PlayerRules CreativeExtras { get; } = new() { FreeCrafting = true, KeepConsumables = true };
+
     /// <summary>Kiln's built-in "creative" preset: free flight and building anywhere outside other players' bases,
     /// nothing costs or runs out, tools break blocks in one hit, no damage. No levels, XP, skill points or unlocks.</summary>
     public static PlayerRules Creative { get; } = new()
@@ -162,7 +174,8 @@ public sealed record PlayerRules
         IgnoreEnemiesNearby = other.IgnoreEnemiesNearby ?? IgnoreEnemiesNearby, BuildInShroud = other.BuildInShroud ?? BuildInShroud,
         IgnoreBasePermissions = other.IgnoreBasePermissions ?? IgnoreBasePermissions,
         KeepBuildsOutsideBases = other.KeepBuildsOutsideBases ?? KeepBuildsOutsideBases,
-        BuildCost = other.BuildCost ?? BuildCost, BuildRefund = other.BuildRefund ?? BuildRefund, DigDamage = other.DigDamage ?? DigDamage,
+        BuildCost = other.BuildCost ?? BuildCost, BuildRefund = other.BuildRefund ?? BuildRefund,
+        FreeCrafting = other.FreeCrafting ?? FreeCrafting, KeepConsumables = other.KeepConsumables ?? KeepConsumables, DigDamage = other.DigDamage ?? DigDamage,
         Invulnerable = other.Invulnerable ?? Invulnerable, NoFallDamage = other.NoFallDamage ?? NoFallDamage, MinHealth = other.MinHealth ?? MinHealth,
         MinStamina = other.MinStamina ?? MinStamina, MinMana = other.MinMana ?? MinMana,
         FreezeShroudTimer = other.FreezeShroudTimer ?? FreezeShroudTimer, MinShroudTime = other.MinShroudTime ?? MinShroudTime,
@@ -288,6 +301,8 @@ public sealed record EffectiveRules
     public bool KeepBuildsOutsideBases { get; init; }
     public double BuildCost { get; init; } = 1;
     public double BuildRefund { get; init; } = 1;
+    public bool FreeCrafting { get; init; }
+    public bool KeepConsumables { get; init; }
     public double DigDamage { get; init; } = 1;
     public bool Invulnerable { get; init; }
     public bool NoFallDamage { get; init; }
@@ -311,7 +326,7 @@ public sealed record EffectiveRules
 
     /// <summary>True when nothing differs from the game's own rules.</summary>
     public bool IsDefault => !FlyAnywhere && !BuildOutsideBases && !IgnoreNoBuildZones && !IgnoreEnemiesNearby && !BuildInShroud &&
-                             !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && DigDamage == 1 &&
+                             !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && !FreeCrafting && !KeepConsumables && DigDamage == 1 &&
                              !Invulnerable && !NoFallDamage && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
                              MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null;
 
@@ -340,6 +355,8 @@ public sealed record EffectiveRules
         if (IgnoreBasePermissions) parts.Add("build in others' bases");
         if (BuildCost != 1) parts.Add(BuildCost == 0 ? "free building" : $"building x{BuildCost:0.##}");
         if (BuildRefund != 1) parts.Add($"refunds x{BuildRefund:0.##}");
+        if (FreeCrafting) parts.Add("free crafting");
+        if (KeepConsumables) parts.Add("consumables kept");
         if (DigDamage != 1) parts.Add(DigDamage >= 1000 ? "instant mining" : $"dig x{DigDamage:0.##}");
         if (Invulnerable) parts.Add("invulnerable");
         else if (NoFallDamage) parts.Add("no fall damage");
@@ -402,6 +419,8 @@ internal static class RulesMath
             KeepBuildsOutsideBases = Switch(r => r.KeepBuildsOutsideBases, fallback: outside),
             BuildCost = Product(r => r.BuildCost),
             BuildRefund = Product(r => r.BuildRefund),
+            FreeCrafting = Switch(r => r.FreeCrafting),
+            KeepConsumables = Switch(r => r.KeepConsumables),
             DigDamage = Product(r => r.DigDamage),
             Invulnerable = Switch(r => r.Invulnerable),
             NoFallDamage = Switch(r => r.NoFallDamage),
@@ -461,7 +480,7 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
     bool AllowInvulnerable = true, double MinBuildCost = 0, double MaxDigDamage = 1000, double MaxStaminaFloor = 1,
     double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
     double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60,
-    bool AllowNoFallDamage = true)
+    bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true)
 {
     public static readonly RulesLimits Default = new();
 
@@ -485,6 +504,8 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
             IgnoreBasePermissions = Cap(e.IgnoreBasePermissions, AllowIgnoreBasePermissions, "ignoreBasePermissions"),
             Invulnerable = Cap(e.Invulnerable, AllowInvulnerable, "invulnerable"),
             NoFallDamage = Cap(e.NoFallDamage, AllowNoFallDamage, "noFallDamage"),
+            FreeCrafting = Cap(e.FreeCrafting, AllowFreeCrafting, "freeCrafting"),
+            KeepConsumables = Cap(e.KeepConsumables, AllowKeepConsumables, "keepConsumables"),
             BuildCost = Math.Max(e.BuildCost, Math.Max(MinBuildCost, 0)),
             DigDamage = Math.Min(e.DigDamage, Math.Max(MaxDigDamage, 0)),
             MinHealth = Math.Min(e.MinHealth, MaxHealthFloor),

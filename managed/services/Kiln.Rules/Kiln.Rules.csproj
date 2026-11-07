@@ -25,5 +25,6 @@
     <ProjectReference Include="../Kiln.Permissions/Kiln.Permissions.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Time/Kiln.Time.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Quests/Kiln.Quests.csproj" Private="false" />
   </ItemGroup>
 </Project>

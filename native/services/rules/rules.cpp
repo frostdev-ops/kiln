@@ -250,6 +250,11 @@ struct Layout {
 
 SafetyHookMid h_fly, h_zone, h_shroud, h_grav, h_stam, h_ray, h_cam;
 SafetyHookInline h_cursor, h_apply, h_damage, h_terraform, h_glide;
+// The storage-chest upgrade (UpgradeStorageAction) pays with the inventory payment directly, not through
+// ApplyMaterials: the payment is hooked, and only the call from that action (its return address) is waived.
+using InventoryPayFn = uint32_t(__fastcall*)(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra);
+SafetyHookInline h_pay;
+uintptr_t g_upgrade_ret = 0;
 const KilnClientApi* g_client = nullptr;
 std::atomic<uint32_t> g_hooks{0};
 std::mutex g_detail_mu;
@@ -737,6 +742,33 @@ bool __fastcall hk_apply(uint8_t* cost, int64_t* list, uint8_t take) {
     }
     if (empty) return true;  // nothing left to take or give
     return h_apply.call<bool>(cost, scaled, take);
+}
+
+// The chest upgrade: free for an operator whose building is free (BuildCost 0). Returning 0 is the payment's "paid";
+// nothing goes into the transaction. Every other payment runs as the game made it.
+bool upgrade_free(uint32_t owner) {
+    KilnRulesPlayer s{};
+    return player_rules(owner, &s) && s.build_cost == 0.0f;
+}
+
+bool upgrade_free_guarded(uint32_t owner, unsigned long* code) {
+    __try {
+        return upgrade_free(owner);
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+uint32_t __fastcall hk_pay(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
+    if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_upgrade_ret && g_upgrade_ret) {
+        unsigned long code = 0;
+        if (upgrade_free_guarded(owner, &code)) {
+            S.costs.fetch_add(1, std::memory_order_relaxed);
+            return 0;
+        }
+        if (code) S.faults.fetch_add(1, std::memory_order_relaxed);
+    }
+    return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
 }
 
 // ============================================================================================= mining ==========
@@ -1287,6 +1319,17 @@ void install() {
         inline_hook(h_apply, reinterpret_cast<void*>(fn.apply), reinterpret_cast<void*>(&hk_apply), "ApplyMaterials"))
         g_hooks |= KILN_RULES_HOOK_COSTS;
     else note("costs (rules.costs)");
+    // the storage-chest upgrade's payment (counted with the costs)
+    uintptr_t pay = 0;
+    if (feat("rules.storage") && sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) &&
+        inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))
+        logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
+             static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
+             static_cast<unsigned long long>(g_upgrade_ret - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+    else {
+        g_upgrade_ret = 0;
+        note("storage upgrade (rules.storage)");
+    }
     // mining
     if (feat("rules.dig") && sym("rules/TerrainDamage", &fn.damage) && sym("gameplay/TerraformImpact", &fn.terraform) &&
         cst("gameplay/impact.arg_offset", &L.arg_offset) && cst("gameplay/impact.arg_base", &L.arg_base) &&

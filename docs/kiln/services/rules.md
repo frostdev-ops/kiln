@@ -10,7 +10,7 @@ belong to this service, so they work wherever a world runs (a dedicated server, 
 |---|---|
 | C table | `native/core/abi/services/kiln_rules.h` (`kiln.rules` v1) |
 | Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider) |
-| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
+| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.storage`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
 | Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`) |
 | Uses | Kiln.Items (water refill policies), Kiln.Abilities (vitals), Kiln.Combat (invulnerability), Kiln.World (moving the character), Kiln.Build (keeping builds), Kiln.Network (the client's half) |
 | Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test` (lab) |
@@ -65,8 +65,10 @@ Every member is optional (null: no opinion).
 | `BuildInShroud` | switch | "inside the Shroud" lifted | server + client |
 | `IgnoreBasePermissions` | switch | "no permission" (other players' bases) lifted; only when the server's rules.json allows it | server + client |
 | `KeepBuildsOutsideBases` | switch | placements outside bases kept in the save (Kiln.Build's regions); default: with `BuildOutsideBases` | server |
-| `BuildCost` | multiplier | what placing blocks, terrain and props takes (0 = free, which also lifts "missing materials") | server (+ client for 0) |
+| `BuildCost` | multiplier | what placing blocks, terrain and props takes (0 = free, which also lifts "missing materials"); 0 also makes upgrading a storage chest in place free | server (+ client for 0) |
 | `BuildRefund` | multiplier | what dismantling and undo give back | server |
+| `FreeCrafting` | switch | crafting takes nothing: the player's craft request is answered with the recipe's output and the inputs stay (Kiln.Gameplay's craft event, Kiln.Items); the game's crafting menu still wants the inputs before it sends | server |
+| `KeepConsumables` | switch | food, drinks, potions and bandages come back after use (the server gives the used one back); not arrows | server |
 | `DigDamage` | multiplier | the damage the player's tools deal to terrain and blocks; 1000 = one hit | server |
 | `Invulnerable` | switch | no damage from hits | server |
 | `NoFallDamage` | switch | no damage and no hard-landing stagger from falls, from any height (Kiln.Combat's fall event, canceled); `Invulnerable` already covers falls | server |
@@ -131,7 +133,7 @@ could name a preset too (an item that applies one while held, a quest reward of 
 `allowBuildInShroud`, `allowIgnoreBasePermissions` (**false** by default: other players' bases stay theirs),
 `allowInvulnerable`, `allowWater`, `minBuildCost`, `maxDigDamage`, `maxHealthFloor`, `maxStaminaFloor`, `maxManaFloor`,
 `allowFreezeShroudTimer`, `maxShroudFloor`, `allowUnlimitedGliding`, `allowGlideBoost`, `maxGlideSpeed` (60 m/s),
-`allowNoFallDamage`.
+`allowNoFallDamage`, `allowFreeCrafting`, `allowKeepConsumables`.
 Edits apply within a second.
 
 ## Creative menu
@@ -145,7 +147,14 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
   stands still; sleeping doesn't move it), **Fast** (a whole day and night in about 90 s). Admins only; for the whole
   world, until it is set back or the server restarts.
 - **Rules**: what creative mode gives you now, and which hooks work on this build.
+- **Only what I have found** (journey): the list shows only items you have picked up, crafted or used (the game's
+  item knowledge, read on the server), so you find or craft the first one as the game intends and then take as many as
+  you like.
 - Creative mode on or off for yourself (admins), and a "Creative" line on the HUD while it is on.
+
+`/creative` also turns on `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
+`creative.json` says nothing about them; `"freeCrafting": false` there keeps crafting at its cost. The preset file
+itself is unchanged.
 
 Every action is a request the server checks; the menu shows what the server answers. Taking items needs creative mode
 for that player (only an admin turns it on: `/creative on <player>`); the time and the cycle need the creative
@@ -159,12 +168,16 @@ CreativeTools.SetTime(player, 7.5);                  // checks the player's perm
 CreativeTools.SetCycle(player, TimeCycle.Stopped);
 CreativeTools.SetCycle(TimeCycle.Fast, "my mod");    // no check: the console, commands with their own permission
 IReadOnlyList<ItemInfo> list = CreativeTools.Catalog();
+IReadOnlyList<ItemId>? found = CreativeTools.Found(player);   // journey mode; null when knowledge can't be read
 ```
 `/creative give <player> <item> [count] [level]`, `/creative time <time>`, `/creative cycle normal|stopped|fast`
 (docs/kiln/commands.md). The cycle is kiln.time's held clock speed (`Time.SetCycle`, `Time.SetSpeed`;
 docs/kiln/services/time.md).
 
-Lab (`mods/tests/creative-test`, a spawned player character, no client): 21 PASS, 0 FAIL. The catalogue lists 4,180 of
+Lab (`mods/tests/creative-test`, a spawned player character, no client): 25 PASS, 0 FAIL. FreeCrafting: a craft
+request at a workbench made the output (`0 -> 1`) with the inputs unchanged (`4 -> 4, 7 -> 7, 10 -> 10`); without the
+rule the game's own craft took them. The storage upgrade's hook installs (`storage upgrade: free with BuildCost 0`); the
+upgrade itself and journey mode need a joined player. The catalogue lists 4,180 of
 4,213 items; taking is refused without creative mode, gives a stack (`0 -> 7`) and gear at the asked level and rarity
 (`level 55, Epic`) with it; an unknown item is refused; Stopped holds the clock (`15:35 -> 15:35` over 100 steps, scale
 0, counter unchanged while the game's requests are refused), Fast runs it at x46.7 (`15:36 -> 16:27`), Normal gives it

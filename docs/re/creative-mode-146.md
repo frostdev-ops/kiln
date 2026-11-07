@@ -120,15 +120,15 @@ Size: S (hours), M (a day), L (several days). Risk: what breaks on a game update
 | Item customization: upgrades unlocked, gem slot added | missing | missing | M | needs RE of the upgrade attributes; server only |
 | Drag and drop into a backpack slot | missing | missing (Take puts items where the game puts them) | L | game inventory UI hooks, client only |
 | Picker filter "without equipment" | missing | **done** | S | low |
-| Journey picker mode (only discovered items, level cap) | missing | missing | M | needs the player's item-knowledge bits on the server (kiln.knowledge reads) |
+| Journey picker mode (only discovered items, level cap) | missing | **done**: "Only what I have found" (server item-knowledge reads); no level cap | M | knowledge reads need a joined player (not lab-testable) |
 | Catalogue hiding debug/unused items | missing | **done** (Kiln's own name rules: 33 of 4,213 left out on svn 1287369) | S | heuristic |
 | Character flight (the character flies) | partial (the game's fly mode anywhere, body carried) | partial | L | locomotion on server and prediction; high risk; glider work in progress elsewhere |
 | Flight only in building areas | has (the game's own fly mode is base-only) | has | - | - |
 | No fall damage | has in `/creative` (its invulnerability cancels falls) | **done**: a standalone `NoFallDamage` rule for other presets | S | server only (Kiln.Combat fall event) |
 | No building costs + missing-materials preview | has (`BuildCost` 0 lifts both) | has | - | - |
-| Free storage-chest upgrade | unknown | unknown | S | check whether `rules.costs` covers it (client checklist) |
-| No crafting costs | missing | missing | M | server payment hook plus the client's "missing ingredients" check |
-| Consumables not used up | missing | missing | M | two server removal sites (arrows, used consumables) |
+| Free storage-chest upgrade | missing (the upgrade pays outside `ApplyMaterials`) | **done**: `rules.storage` waives the upgrade's own payment with `BuildCost` 0 | S | server hook on the inventory payment, matched by return address |
+| No crafting costs | missing | **done** server side: `FreeCrafting` (craft event canceled, recipe output given); `/creative` turns it on | M | the game's crafting menu still wants the inputs before it sends (client hook not done) |
+| Consumables not used up | missing | **done** for food, drinks, potions, bandages: `KeepConsumables` (the used one is given back); arrows not | M | arrows need the ammo removal site (RE) |
 | Time of day jump | has (`Time.Set`) | **done** in the menu and `/creative time` | S | low |
 | Day/night cycle stopped / fast | missing | **done** in kiln.time (`Time.SetCycle`), menu and `/creative cycle` | M | server hook on the daytime speed setter (docs/re/time.md); clients follow the game's own daytime sync |
 | Map reveal radius / whole map | missing | missing | M | client fog-of-war RE; client only, persistent per character |
