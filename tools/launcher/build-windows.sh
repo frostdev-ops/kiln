@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Cross-builds the Kiln Launcher for Windows from Linux: NSIS installer via cargo-xwin.
 #   tools/launcher/build-windows.sh [--debug] [--selftest] [--webview bootstrapper|skip] [--runtime ZIP|none] [--version V]
-#                                   [--config JSON|FILE]...
+#                                   [--config JSON|FILE]... [--nexus]
+# --nexus: the Nexus Mods build: no self-update at all (cargo --no-default-features drops the self-update feature and
+#   tauri-plugin-updater; src-tauri/tauri.nexus.conf.json drops the updater key from the config). Output in
+#   bundles/windows-nexus/. docs/kiln/launcher/releasing.md, "The two builds".
 # --version: the launcher's version (a release: tools/release/version.sh). --config: more Tauri config to merge, in order
 #   (a release passes bundle.windows.signCommand when it signs with Authenticode).
 # --runtime: the Kiln runtime to ship (shipped-runtime.sh). Default: built from this tree; --selftest ships none.
@@ -25,6 +28,7 @@ selftest=0
 webview=
 runtime=
 extra=()
+nexus=0
 source "$here/shipped-runtime.sh"
 while (($#)); do
   case $1 in
@@ -34,10 +38,19 @@ while (($#)); do
     --selftest) selftest=1; shift ;;
     --webview) webview=$2; shift 2 ;;
     --runtime) runtime=$2; shift 2 ;;
+    --nexus) nexus=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 ((selftest)) && runtime=${runtime:-none}
+# the Nexus Mods build: no self-update feature and no updater key in the config (its config goes last)
+runner_args=()
+variant=windows
+if ((nexus)); then
+  extra+=(--config "$repo/launcher/src-tauri/tauri.nexus.conf.json")
+  runner_args=(-- --no-default-features)
+  variant=windows-nexus
+fi
 resources=$(shipped_runtime_resources "$runtime")
 cd "$repo/launcher"
 [[ -d node_modules ]] || bun install --frozen-lockfile
@@ -48,9 +61,9 @@ case $webview in
   *) echo "--webview bootstrapper|skip" >&2; exit 2 ;;
 esac
 echo "WebView2 install mode: $webview"
-bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config" "${extra[@]}"
+bun x tauri build "${profile[@]}" --runner cargo-xwin --target "$target" --bundles nsis --config "$config" "${extra[@]}" "${runner_args[@]}"
 kind=release; ((${#profile[@]})) && kind=debug
-out=$KILN_OUT/bundles/windows
+out=$KILN_OUT/bundles/$variant
 mkdir -p "$out"
 setup=$(ls -t "$CARGO_TARGET_DIR/$target/$kind/bundle/nsis/"*-setup.exe | head -1)
 cp -f "$setup" "$out/kiln-launcher-setup.exe"

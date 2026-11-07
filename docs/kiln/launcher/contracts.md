@@ -524,7 +524,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus"} |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
 | app | `app_open_path` | path: string | null |
@@ -634,6 +634,13 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | update | `update_restart` | - | null (restarts into the update that is ready; Windows: runs its installer; returns only on failure) |
 | update | `update_skip` | version: string \| null | `UpdateStatus` (null: un-skips) |
 | update | `update_ack` | - | `UpdateStatus` (clears `justUpdated`) |
+
+The Nexus Mods build (`AppInfo.distribution` "nexus", built without the `self-update` feature; [releasing.md](releasing.md)
+"The two builds") has the same six commands with no self-update behind them: `update_status`, `update_check`,
+`update_skip` and `update_ack` return the same `UpdateStatus` with `phase: "disabled"`, `distribution: "nexus"`,
+`auto: false`, `install.inPlace: false` and `page` = the Kiln page on Nexus Mods, and change nothing; `update_install`
+and `update_restart` reject with `unsupported` (detail: that page). Nothing in that build reads the network for updates
+or emits `kiln://update`; its UI calls none of these commands.
 | library | `library_add` | gameId, paths: string[] | `TaskId` -> `AddReport` (import + add to the game's active profile + write profile.json, section 7 "Add a mod"; rejects at once with `unsupported` when the game has no `kiln/`) |
 | profile | `profile_revert` | profileId, changes: ProfileChange[] | `Profile` (undoes a `library_add`; profile.json follows where the profile is active, as after `profile_save`) |
 | profile | `profile_ensure_default` | gameId | `Activation \| null` (the active profile's; with no profile at all: "My mods" made and activated; null when profiles exist but none is active in the game) |
@@ -648,19 +655,23 @@ start), activation, missing: {id, range, by}[], modpacks: string[]}`, `AddedMod 
 `ProfileChange {kind, before: ProfileMod | null, after: ProfileMod}` (`kiln_manage::quick`).
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
-KILN_LAUNCHER_NO_WEBGL=1 for this start), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
+KILN_LAUNCHER_NO_WEBGL=1 for this start; `distribution`: "direct" for the frostdev.io/GitHub build that updates itself,
+"nexus" for the Nexus Mods build, which has no self-update and whose UI shows only a link to the Kiln page there
+(`src-tauri/src/distribution.rs`; absent from an older backend: direct)), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
 allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"
 (absent: the running build's channel), animatedFire: boolean (default true), addToActiveProfile: boolean (default true;
 a dropped mod goes through `library_add`; off: `library_import` only), uiMode?: "auto"|"deck"|"desktop" (the UI to start
 in; absent or auto: the Deck UI when `AppInfo.deck.detected`; [deck.md](deck.md))}` (`checkUpdates`, never used, is gone;
-readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md)),
+readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md); `distribution`
+"direct", or in the Nexus build "nexus" with `phase: "disabled"`, `commands/update.rs`),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,
 message: string|null, started, finished: string|null, result?, error?: KilnError}`, `BootState {boot: BootJson|null,
 mods: ModsJson|null, native: NativeJson|null, stale: boolean, log: {errors: number, first: string[]}|null}` (`log`:
 kiln.log's `[E` lines of the run that wrote boot.json).
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
-folders) and exits 0/1; used under Wine for the NSIS build.
+folders) and exits 0/1; used under Wine for the NSIS build. Its report has `distribution` ("direct" or "nexus"; also
+the line `distribution: <d>` on stdout), and its `self_update` check names it.
 
 `DeckInfo` (`launcher/src-tauri/src/deck/detect.rs`): `{detected: boolean, signals: string[] ("SteamDeck=1", "SteamOS=1",
 "XDG_CURRENT_DESKTOP=gamescope", "GAMESCOPE_WAYLAND_DISPLAY", "dmi:Jupiter" | "dmi:Galileo", "os-release:steamos"), gamescope:
@@ -679,7 +690,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://last-server` | `{gameId, lastServer: LastServer}` |
 | `kiln://server` | `{serverId, status: ServerStatus}` |
 | `kiln://admin` | `{session, serverId, event: {kind: 'push', topic, seq, data} \| {kind: 'closed', reason, retry} \| {kind: 'error', message} \| {kind: 'ready', transport, ops, topics}}` (`ready` after every (re)connect; `closed.retry`: the hub reconnects) |
-| `kiln://update` | `UpdateStatus` (at every change of the self-update: check, download progress, ready, skip) |
+| `kiln://update` | `UpdateStatus` (at every change of the self-update: check, download progress, ready, skip; never in the Nexus Mods build) |
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 | `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 

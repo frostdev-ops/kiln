@@ -1,10 +1,13 @@
 // Launcher updates in Settings (automatic checks, channel, Check now) and in About (the state and Check now). The
 // state comes from the shell's update feed (api/update.ts). Short words only; details are in launcher.log.
+// The Nexus Mods build (api/distribution.ts) has none of that: one line, "New versions: Nexus Mods", whose link opens
+// the Kiln page there; no update command is called.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import * as api from "../api/commands";
 import type { LauncherSettings, UpdateChannel, UpdateStatus } from "../api/commands";
-import { qk, useSettings } from "../api/hooks";
+import { NEXUS_PAGE } from "../api/distribution";
+import { qk, useAppInfo, useDistribution, useSettings } from "../api/hooks";
 import { useUpdate, useUpdateStore } from "../api/update";
 import { Button, Card, Field, Select, Skeleton, Toggle, toast } from "../ui";
 
@@ -40,7 +43,34 @@ function useCheckNow() {
   return { busy, run };
 }
 
+/** The Nexus build's whole update UI: where new versions are, as a link (opened in the browser, nothing fetched). */
+export function NexusVersionsLink() {
+  return (
+    <button type="button" className="k-link" data-testid="nexus-page" title={NEXUS_PAGE}
+      onClick={() => api.appOpenUrl(NEXUS_PAGE).catch(() => toast.error({ code: "internal", message: "Could not open the page" }))}>
+      Nexus Mods
+    </button>
+  );
+}
+
+/** Settings > Updates: the self-update's settings (direct builds), or the Nexus line. */
 export function UpdatesCard() {
+  const dist = useDistribution();
+  if (dist === "nexus") return <NexusUpdatesCard />;
+  if (dist === "direct") return <SelfUpdatesCard />;
+  return <Card title="Updates"><Skeleton /></Card>;
+}
+
+function NexusUpdatesCard() {
+  const info = useAppInfo();
+  return (
+    <Card title="Updates" sub={<span className="k-mono">{info.data?.version}</span>}>
+      <span className="k-hint" data-testid="nexus-versions">New versions: <NexusVersionsLink /></span>
+    </Card>
+  );
+}
+
+function SelfUpdatesCard() {
   const qc = useQueryClient();
   const s = useUpdate();
   const settings = useSettings();
@@ -73,7 +103,7 @@ export function UpdatesCard() {
   );
 }
 
-/** About: the state and Check now. */
+/** About: the state and Check now (direct builds); the Nexus build's row is "New versions: Nexus Mods" (AboutPage). */
 export function UpdateAboutLine() {
   const s = useUpdate();
   const check = useCheckNow();

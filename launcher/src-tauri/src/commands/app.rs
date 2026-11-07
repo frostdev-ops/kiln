@@ -33,6 +33,10 @@ pub struct AppInfo {
     /// (crate::deck::detect; docs/kiln/launcher/deck.md).
     #[serde(default)]
     pub deck: crate::deck::DeckInfo,
+    /// "direct" (frostdev.io, GitHub: updates itself) or "nexus" (Nexus Mods: no self-update, the UI links to the Kiln
+    /// page instead): the build's `self-update` feature (crate::distribution).
+    #[serde(default)]
+    pub distribution: crate::distribution::Distribution,
 }
 
 /// `<data>/settings.json`
@@ -273,6 +277,7 @@ pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
         mock: false,
         no_webgl: no_webgl(),
         deck: crate::deck::detect::current(),
+        distribution: crate::distribution::CURRENT,
     })
 }
 

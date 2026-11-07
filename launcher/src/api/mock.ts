@@ -4,7 +4,7 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected,
+  Activation, AddReport, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
   EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
@@ -48,6 +48,11 @@ function reject(code: KilnError["code"], message: string, detail?: unknown): nev
  *  library. `?mock=empty`: the same, and Detect finds nothing. Anything else: the seeded launcher below. */
 const MODE = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mock") : null;
 const FRESH = MODE === "fresh" || MODE === "empty";
+/** `?dist=nexus`: the Nexus Mods build (app_info.distribution "nexus": no self-update; mockUpdate.ts answers
+ *  "disabled"). Anything else: a direct build. */
+export const MOCK_DISTRIBUTION: Distribution = typeof location !== "undefined" && new URLSearchParams(location.search).get("dist") === "nexus" ? "nexus" : "direct";
+/** Every URL app_open_url was asked to open (tests: `__kilnMock.opened()`). */
+const openedUrls: string[] = [];
 
 // ---------------------------------------------------------------- games
 
@@ -514,11 +519,12 @@ const S = (v: unknown) => String(v ?? "");
 
 const handlers: Record<string, Handler> = {
   // app
-  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false }),
+  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false,
+    distribution: MOCK_DISTRIBUTION }),
   app_settings_get: () => settings,
   app_settings_set: (a) => (settings = { ...(a.settings as LauncherSettings) }),
   app_open_path: () => null,
-  app_open_url: (a) => (S(a.url).startsWith("https://") ? null : reject("refused", "Only https links open.")),
+  app_open_url: (a) => { if (!S(a.url).startsWith("https://")) reject("refused", "Only https links open."); openedUrls.push(S(a.url)); return null; },
   task_list: () => [...tasks.values()],
   task_get: (a) => tasks.get(S(a.taskId)) ?? reject("not_found", "No such task."),
   task_cancel: (a) => { cancels.add(S(a.taskId)); return null; },
@@ -868,7 +874,7 @@ const handlers: Record<string, Handler> = {
   modpack_dismiss: (a) => { if (lastServer && (lastServer.server.id ?? "") === S(a.serverId)) dismissedOffers[S(a.serverId)] = dismissKey(lastServer); return null; },
 };
 Object.assign(handlers, adminMockHandlers(mockEmit));
-Object.assign(handlers, updateMockHandlers(mockEmit));
+Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
@@ -1009,6 +1015,6 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
-  startOutside: mockStartOutside, setServer: mockSetServer,
+  startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

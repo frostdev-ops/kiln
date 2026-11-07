@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 """Tests for nexus.py against a local mock of the Nexus Mods API v3 and its upload storage:
 single-part and multipart uploads, finalise and polling, the first release (new files) and the next (new versions),
-a file found on the page by name, the description sync, the dry run (GET only) and a missing key.
+a file found on the page by name, the description sync, the dry run (GET only) and a missing key. The launchers are
+the Nexus build (nexus/ of the release folder, never linux/ or windows/, which update themselves) with nexus/README.txt,
+their new versions archive the previous one (archive_existing_file), and a folder without nexus/ is refused.
 
   python3 -I tools/release/test_nexus.py
 """
@@ -154,6 +156,10 @@ def handler_for(mock, base):
                 f = next((f for f in mock.files if f["id"] == mv.group(1)), None)
                 if not f or mock.uploads[req["upload_id"]]["state"] != "available":
                     return self._send(404, {"title": "no such file"})
+                if "archive_existing_file" in req and not isinstance(req["archive_existing_file"], bool):
+                    return self._send(422, {"title": "archive_existing_file must be a boolean"})
+                if req.get("archive_existing_file"):
+                    f["archived"] = f.get("archived", 0) + 1  # the API: the version this one replaces is archived
                 f["versions"] += 1
                 mock.versions.append((f["id"], req))
                 return self._send(201, {"data": {"file": {"id": f["id"], "game_scoped_id": "1", "name": f["name"], "file_category": req["file_category"]},
@@ -190,15 +196,18 @@ class NexusTests(unittest.TestCase):
         self.server.server_close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def release(self, version):
+    def release(self, version, nexus=True):
         d = os.path.join(self.tmp, f"kiln-{version}")
         files = {
             "updates/github/latest.json": json.dumps({"version": version}).encode(),
-            "README.txt": b"Kiln readme\n",
+            "README.txt": b"Kiln readme: the launcher updates itself\n",
             "RELEASE-NOTES.md": f"# Kiln {version}\n\n- Self-update.\n- Fixes.\n".encode(),
-            f"linux/kiln-launcher_{version}_amd64.AppImage": os.urandom(5000),
-            f"linux/kiln-launcher_{version}_amd64.deb": os.urandom(3000),
-            f"windows/kiln-launcher_{version}_x64-setup.exe": os.urandom(1200),
+            # the direct build (updates itself): never for Nexus
+            f"linux/kiln-launcher_{version}_amd64.AppImage": b"DIRECT" + os.urandom(5000),
+            f"linux/kiln-launcher_{version}_amd64.AppImage.sig": b"sig",
+            f"linux/kiln-launcher_{version}_amd64.deb": b"DIRECT" + os.urandom(3000),
+            f"windows/kiln-launcher_{version}_x64-setup.exe": b"DIRECT" + os.urandom(1200),
+            f"windows/kiln-launcher_{version}_x64-setup.exe.sig": b"sig",
             f"runtime/kiln-runtime-{version}.zip": os.urandom(900),
             "runtime/INSTALL-RUNTIME.txt": b"install\n",
             "runtime/kilnctl": os.urandom(400),
@@ -206,6 +215,13 @@ class NexusTests(unittest.TestCase):
             "sdk/Kiln.Sdk.0.2.0.nupkg": os.urandom(300),
             "sdk/kiln": os.urandom(300),
         }
+        if nexus:  # the Nexus build: no self-update
+            files.update({
+                f"nexus/linux/kiln-launcher_{version}_amd64.AppImage": b"NEXUS" + os.urandom(5000),
+                f"nexus/linux/kiln-launcher_{version}_amd64.deb": b"NEXUS" + os.urandom(3000),
+                f"nexus/windows/kiln-launcher_{version}_x64-setup.exe": b"NEXUS" + os.urandom(1200),
+                "nexus/README.txt": b"Kiln (Nexus Mods): this build does not update itself\n",
+            })
         for rel, data in files.items():
             p = os.path.join(d, rel)
             os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -291,6 +307,64 @@ class NexusTests(unittest.TestCase):
         self.assertEqual(sorted(fid for fid, _ in self.mock.versions), ["F1", "F2", "F3", "F4", "F5"])
         self.assertTrue(all(req["version"] == "0.2.0-dev.10" for _, req in self.mock.versions))
         self.assertEqual(self.mock.errors, [])
+
+    def zip_of(self, prefix):
+        import zipfile
+        u = next(u for u in self.mock.uploads.values() if u["req"]["filename"].startswith(prefix))
+        z = zipfile.ZipFile(io.BytesIO(u["data"]))
+        return {i.filename: z.read(i) for i in z.infolist()}
+
+    def test_launchers_are_the_nexus_build_and_archive_the_previous_version(self):
+        rel = self.release("0.2.0-dev.9")
+        code, out, err = self.run_nexus(rel, "--publish")
+        self.assertEqual(code, 0, out + err)
+        # every launcher zip holds the Nexus build and its README, nothing of the direct build (no .sig either)
+        for prefix, name in [("kiln-launcher-linux", "kiln-launcher_0.2.0-dev.9_amd64.AppImage"),
+                             ("kiln-launcher-deb", "kiln-launcher_0.2.0-dev.9_amd64.deb"),
+                             ("kiln-launcher-windows", "kiln-launcher_0.2.0-dev.9_x64-setup.exe")]:
+            files = self.zip_of(prefix)
+            self.assertEqual(sorted(files), sorted([name, "README.txt"]), prefix)
+            with open(os.path.join(rel, "nexus", "linux" if "windows" not in prefix else "windows", name), "rb") as f:
+                self.assertEqual(files[name], f.read(), prefix)
+            self.assertTrue(files[name].startswith(b"NEXUS"), prefix)
+            self.assertIn(b"does not update itself", files["README.txt"], prefix)
+        # the SDK zip carries the Nexus README too; the runtime is as before
+        self.assertIn(b"does not update itself", self.zip_of("kiln-sdk")["README.txt"])
+        self.assertIn("kilnctl", self.zip_of("kiln-runtime-standalone"))
+        # the first release creates the files: nothing to archive yet
+        self.assertTrue(all("archive_existing_file" not in f["req"] for f in self.mock.files))
+        self.assertIn("from nexus/linux/kiln-launcher_0.2.0-dev.9_amd64.AppImage, nexus/README.txt", out)
+        # the next release: the launchers' new versions archive the previous ones; the runtime and SDK do not
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.10"), "--publish")
+        self.assertEqual(code, 0, out + err)
+        by_file = {next(f["name"] for f in self.mock.files if f["id"] == fid): req for fid, req in self.mock.versions}
+        for name in ["Kiln Launcher (Windows)", "Kiln Launcher (Linux)", "Kiln Launcher (Linux .deb)"]:
+            self.assertIs(by_file[name]["archive_existing_file"], True, name)
+        for name in ["Kiln runtime (manual install)", "Kiln SDK (mod authors)"]:
+            self.assertNotIn("archive_existing_file", by_file[name], name)
+        self.assertEqual(sorted(f["name"] for f in self.mock.files if f.get("archived")),
+                         ["Kiln Launcher (Linux .deb)", "Kiln Launcher (Linux)", "Kiln Launcher (Windows)"])
+        self.assertIn("the previous version archived", out)
+        self.assertEqual(self.mock.errors, [])
+
+    def test_the_dry_run_says_what_it_would_archive(self):
+        self.mock.files.append({"id": "F7", "name": "Kiln Launcher (Linux)", "versions": 3, "req": {}})
+        self.mock.files.append({"id": "F8", "name": "Kiln runtime (manual install)", "versions": 3, "req": {}})
+        code, out, _ = self.run_nexus(self.release("0.2.0-dev.9"), "--only", "launcher-linux,runtime")
+        self.assertEqual(code, 0, out)
+        self.assertIn("new version of file F7, archiving its previous version", out)
+        self.assertIn("new version of file F8, optional", out)
+        self.assertTrue(all(m == "GET" for m, _, _ in self.mock.requests))
+
+    def test_a_folder_without_the_nexus_build_is_refused(self):
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.9", nexus=False), "--publish")
+        self.assertEqual(code, 2)
+        self.assertIn("no Nexus Mods build (nexus/)", err)
+        self.assertEqual([m for m, _, _ in self.mock.requests if m != "GET"], [])
+        self.assertEqual(self.mock.uploads, {})
+        # the runtime alone needs no launcher build
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.9", nexus=False), "--only", "runtime")
+        self.assertEqual(code, 0, out + err)
 
     def test_a_file_already_on_the_page_gets_a_version(self):
         self.mock.files.append({"id": "F7", "name": "Kiln Launcher (Linux)", "versions": 1, "req": {}})

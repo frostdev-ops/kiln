@@ -11,6 +11,8 @@
 # 2. frostdev.io: uploads the folder to <host>:/opt/frostdev-downloads/kiln/downloads/<version>/, then the manifests
 #    (updates/frostdev.io/<channel>/latest.json) to /opt/frostdev-downloads/kiln/updates/<channel>/, each through a
 #    temporary name, so a manifest never points at files that are not there yet. Then reads them back over https.
+#    Never nexus/ (the Nexus Mods build, no self-update: only nexus.py uploads it); the SHA256SUMS that goes up lists
+#    what goes up.
 # 3. GitHub: publishes the draft v<version> (a pre-release for dev builds; "latest" for a stable one) and points the
 #    dev channel at it: the `updates-dev` pre-release holds the dev channel's latest.json (created when missing).
 # The nginx locations for /kiln/updates/ and /kiln/downloads/ must be live on the host first (releasing.md).
@@ -38,8 +40,8 @@ remote=${KILN_RELEASE_DIR:-/opt/frostdev-downloads/kiln}
 
 echo "== checking $dir ($version, $channel)"
 python3 "$here/lib/release.py" sums "$dir" --check
-pub=$(mktemp)
-trap 'rm -f "$pub"' EXIT
+pub=$(mktemp) sums=$(mktemp)
+trap 'rm -f "$pub" "$sums"' EXIT
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["plugins"]["updater"]["pubkey"])' \
   "$repo_dir/launcher/src-tauri/tauri.conf.json" >"$pub"
 mapfile -t signed < <(find "$dir/linux" "$dir/windows" -name '*.sig' | sed 's/\.sig$//')
@@ -50,7 +52,10 @@ gh release view "$tag" --repo "$gh_repo" --json isDraft -q .isDraft | grep -qx t
 echo "== frostdev.io ($host:$remote)"
 if ask "Upload $version to $host:$remote/downloads/$version and switch the $channel manifest?"; then
   ssh "$host" mkdir -p "$remote/downloads" "$remote/updates/stable" "$remote/updates/dev"
-  rsync -a --chmod=D755,F644 --exclude updates/ "$dir/" "$host:$remote/downloads/$version/"
+  # nexus/ is for Nexus Mods only; SHA256SUMS without its lines
+  grep -v '^[0-9a-f]*  nexus/' "$dir/SHA256SUMS" >"$sums"
+  rsync -a --chmod=D755,F644 --exclude updates/ --exclude /nexus/ --exclude /SHA256SUMS "$dir/" "$host:$remote/downloads/$version/"
+  rsync -a --chmod=F644 "$sums" "$host:$remote/downloads/$version/SHA256SUMS"
   for f in "$dir"/updates/frostdev.io/*/latest.json; do
     ch=$(basename "$(dirname "$f")")
     [[ $ch == dev && $channel == stable && $dev_channel == 0 ]] && continue

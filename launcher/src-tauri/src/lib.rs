@@ -1,14 +1,18 @@
 //! Kiln Launcher backend.
 //! Every command is registered here; `commands::NAMES` and launcher/src/api/commands.ts list the same names (tested).
 //! Also: the background watcher (`kiln://game`, `kiln://last-server`, `kiln://log`), the `kiln-asset` protocol that
-//! serves the save editor's local game assets, the self-update (`kiln://update`, selfupdate/) and the headless
+//! serves the save editor's local game assets, the self-update (`kiln://update`, selfupdate/; only in builds with the
+//! `self-update` feature, the direct builds: the Nexus Mods build has none, distribution.rs) and the headless
 //! `--selftest` mode.
 
 pub mod assets;
 pub mod commands;
 pub mod deck;
+pub mod distribution;
 pub mod events;
 pub mod selftest;
+/// The self-update: only in direct builds (feature `self-update`); the Nexus Mods build compiles none of it.
+#[cfg(feature = "self-update")]
 pub mod selfupdate;
 pub mod state;
 pub mod watch;
@@ -20,9 +24,10 @@ pub fn selftest() -> i32 {
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "self-update")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
             watch::start(app.handle().clone());
@@ -31,7 +36,13 @@ pub fn run() {
             // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
             commands::modpack::watch_last_server(app.handle());
             // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
+            #[cfg(feature = "self-update")]
             selfupdate::start(app.handle().clone());
+            // the Nexus Mods build never updates itself (crate::distribution); launcher.log says so once
+            #[cfg(not(feature = "self-update"))]
+            commands::app::launcher_log("update", &format!(
+                "Kiln Launcher {} (pid {}), Nexus Mods build: no self-update, no update checks; new versions: {}",
+                app.package_info().version, std::process::id(), distribution::NEXUS_PAGE));
             #[cfg(any(debug_assertions, feature = "dev-eval"))]
             if let Some(dir) = std::env::var_os("KILN_DEV_EVAL_DIR").filter(|d| !d.is_empty()) {
                 dev_eval(app.handle().clone(), dir.into());

@@ -16,6 +16,9 @@
 //! - Windows: the installer's temp folder (`%TEMP%\Kiln Launcher-<version>-updater-<random>\`) outlives the update;
 //!   the next start removes such folders ([`cleanup`]).
 //! Every state change is sent as `kiln://update` with the whole [`UpdateStatus`].
+//!
+//! Compiled only with the `self-update` feature (the direct builds). The Nexus Mods build has none of this module, no
+//! updater plugin and no updater key (crate::distribution, commands/update.rs).
 
 pub mod cleanup;
 pub mod feed;
@@ -123,6 +126,8 @@ pub struct Updated {
 pub struct UpdateStatus {
     /// This launcher's version.
     pub current: String,
+    /// Always `direct` here (the Nexus build has no self-update: commands/update.rs).
+    pub distribution: crate::distribution::Distribution,
     pub channel: Channel,
     /// Automatic checks are on (setting `updateCheck`).
     pub auto: bool,
@@ -202,6 +207,7 @@ fn state() -> std::sync::MutexGuard<'static, Inner> {
 fn initial_status(current: &str, install: InstallInfo) -> UpdateStatus {
     UpdateStatus {
         current: current.into(),
+        distribution: crate::distribution::Distribution::Direct,
         channel: Channel::of_build(current),
         auto: true,
         install,

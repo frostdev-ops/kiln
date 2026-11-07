@@ -24,11 +24,16 @@
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
+#   nexus/    the Nexus Mods build of the launcher: the same launcher without its self-update (Nexus Mods does not allow
+#             programs that update themselves): linux/ AppImage + deb, windows/ setup, README.txt; no .sig, no
+#             manifest. Only nexus.py uploads it; github-draft.sh and publish.sh leave it out.
 # Signing: the updater key ~/.config/kiln-release/updater.key (+ updater.key.password); Windows Authenticode only when
 #   ~/.config/kiln-release/authenticode.env exists (tools/release/authenticode.sh). Neither is ever printed.
 # Checks it runs on its own output (all of them; it fails at the end when one failed): SHA256SUMS, the updater
 #   signatures against the launcher's built-in key, the AppImage's --selftest on a private display, the NSIS setup
-#   installed silently under Wine + --selftest, the deb's control and files, the rpm's files, `kilnctl bundle verify`,
+#   installed silently under Wine + --selftest (both for the Nexus build too, which must say distribution nexus), the
+#   Nexus builds holding none of the self-update (feeds, updater key, plugin) and the direct ones all of it, the deb's
+#   control and files, the rpm's files, `kilnctl bundle verify`,
 #   kilnctl/kiln --version (Windows builds under Wine), every Linux ELF (in the AppImage, deb and rpm too) needing no
 #   glibc symbol version above 2.35, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway container:
 #   --selftest and the launcher's window), a mod from the packed templates built against the packed SDK,
@@ -247,6 +252,24 @@ if ((!skip_windows)); then
   sign_pe "$CARGO_TARGET_DIR/$win/release/kilnctl.exe" "$CARGO_TARGET_DIR/$win/release/kiln.exe"
 fi
 
+# the Nexus Mods build: the same launcher, runtime and notices without the self-update. Nexus Mods does not allow
+# programs that update themselves, so it has no self-update feature (cargo --no-default-features: no updater plugin, no
+# update feeds) and no updater key in its config (launcher/src-tauri/tauri.nexus.conf.json); it is never signed for
+# the updater and has no manifest. The bundle folders are emptied first: the direct build's files must not be taken.
+step "launcher: Nexus Mods build, Linux (no self-update)"
+rm -rf "$lin_target/release/bundle"
+(cd "$src" && quiet linux tools/launcher/build-linux.sh --nexus --bundles appimage,deb --runtime "$runtime_zip" --version "$version" \
+  --config "$(resources "$notices")")
+nexus_appimage=$(ls -t "$KILN_OUT"/bundles/linux-nexus/*.AppImage | head -1)
+nexus_deb=$(ls -t "$KILN_OUT"/bundles/linux-nexus/*.deb | head -1)
+nexus_setup=""
+if ((!skip_windows)); then
+  step "launcher: Nexus Mods build, Windows (no self-update)"
+  rm -rf "$CARGO_TARGET_DIR/$win/release/bundle"
+  (cd "$src" && quiet low tools/launcher/build-windows.sh --nexus "${wargs[@]}")
+  nexus_setup=$KILN_OUT/bundles/windows-nexus/kiln-launcher-setup.exe
+fi
+
 # ---------------------------------------------------------------- 6. SDK, VS Code, samples
 step "SDK packages"
 quiet low "$src/managed/Kiln.Sdk/pack.sh"
@@ -311,6 +334,11 @@ cp "$vsix" "$out/sdk/"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
 cp "$src/LICENSE" "$src/CREDITS.md" "$notices" "$out/"
 cp "$work/source/kiln-$version-src.tar.gz" "$out/source/"
+# the Nexus Mods build (nexus.py uploads these; never GitHub or frostdev.io)
+mkdir -p "$out/nexus/linux"
+cp "$nexus_appimage" "$out/nexus/linux/$A" && chmod 755 "$out/nexus/linux/$A"
+cp "$nexus_deb" "$out/nexus/linux/$D"
+[[ -n $nexus_setup ]] && mkdir -p "$out/nexus/windows" && cp "$nexus_setup" "$out/nexus/windows/$S"
 
 # release notes
 if [[ -n $notes ]]; then cp "$notes" "$out/RELEASE-NOTES.md"; else
@@ -380,7 +408,13 @@ open(sys.argv[2], "w", encoding="utf-8").write(t)
 PY
 }
 fill "$here/templates/INSTALL-RUNTIME.txt" "$out/runtime/INSTALL-RUNTIME.txt"
+# the Nexus build's README (in its Nexus zips): no self-update; the files' SHA256 in it (the zips carry no SHA256SUMS)
+export R_NEXUS_SUMS
+R_NEXUS_SUMS=$(cd "$out/nexus" && for f in linux/* windows/*; do [[ -f $f ]] && printf '  %s  %s\n' "$(sha256sum <"$f" | cut -d' ' -f1)" "${f#*/}"; done; true)
+fill "$here/templates/README-nexus.txt" "$out/nexus/README.txt"
+unset R_NEXUS_SUMS
 fill "$here/templates/README.txt" "$out/README.txt.tmp"
+# the file list: what GitHub and frostdev.io get (nexus/ is only for Nexus Mods and has its own README)
 python3 - "$out" <<'PY'
 import os, sys
 root = sys.argv[1]
@@ -389,7 +423,7 @@ for d, dirs, files in os.walk(root):
     dirs.sort()
     for n in sorted(files):
         rel = os.path.relpath(os.path.join(d, n), root)
-        if rel in ("README.txt.tmp", "SHA256SUMS"):
+        if rel in ("README.txt.tmp", "SHA256SUMS") or rel.startswith("nexus" + os.sep):
             continue
         s = os.path.getsize(os.path.join(d, n))
         rows.append(f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB")
@@ -430,5 +464,6 @@ Release $version is in $out (log: $log). Nothing is published.
 Next (by hand, see docs/kiln/launcher/releasing.md):
   tools/release/github-draft.sh $out        a DRAFT GitHub release with the files (needs the commit pushed)
   tools/release/publish.sh $out             publish: the GitHub release, the dev channel pointer, frostdev.io
+  python3 -I tools/release/nexus.py $out    Nexus Mods (dry run; --publish uploads): the nexus/ build, no self-update
 EOF
 if printf '%s\n' "${results[@]}" | grep -q '^FAIL'; then exit 1; fi

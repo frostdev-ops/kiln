@@ -1,7 +1,7 @@
 // /about: the lockup, versions, the credits (CREDITS.md) and the launcher's own third-party pieces.
 import * as api from "../api/commands";
-import { useAppInfo } from "../api/hooks";
-import { UpdateAboutLine } from "../components/UpdateSettings";
+import { useAppInfo, useDistribution } from "../api/hooks";
+import { NexusVersionsLink, UpdateAboutLine } from "../components/UpdateSettings";
 import { KeyValue, Lockup, Page, SplitPage } from "../ui";
 import credits from "../../../CREDITS.md?raw";
 
@@ -31,6 +31,7 @@ const LAUNCHER = [
 
 export default function AboutPage() {
   const info = useAppInfo();
+  const dist = useDistribution();
   const { rows, notes } = parseCredits(credits);
   const i = info.data;
   return (
@@ -42,7 +43,8 @@ export default function AboutPage() {
           ["Kiln", <span className="k-mono">{i?.kiln ?? "-"}</span>],
           i?.commit && ["Commit", <span className="k-mono">{i.commit}</span>],
           ["Platform", i ? `${i.platform} ${i.arch}` : "-"],
-          ["Updates", <UpdateAboutLine />],
+          // the Nexus Mods build does not update itself: where new versions are, nothing else (api/distribution.ts)
+          dist === "nexus" ? ["New versions", <NexusVersionsLink />] : ["Updates", dist === "direct" ? <UpdateAboutLine /> : "-"],
           i?.mock && ["Backend", "Browser mock"],
         ]} />
         {i?.dataDir && <><span className="k-label" style={{ fontSize: 16, marginTop: 6 }}>Data</span><span className="k-mono" style={{ fontSize: 14.5, overflowWrap: "anywhere" }}>{i.dataDir}</span></>}

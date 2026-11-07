@@ -1,6 +1,8 @@
 # Sourced by release.sh: the checks a release folder must pass. Each check's output goes to the release log; the
 # summary is PASS/FAIL per check. Everything runs in $work/checks with its own HOME, data dir, Wine prefix, NuGet
 # cache and dbus session, on a private X display: nothing reaches the desktop or the user's own setup.
+# The Nexus Mods build (nexus/) gets the same --selftest runs as the direct one (in their own folders and Wine prefix),
+# and both must say which distribution they are: direct (updates itself) or nexus (no self-update at all).
 
 ck=""
 ck_display() { # starts Xvfb on a free display; prints the display number
@@ -10,50 +12,78 @@ ck_display() { # starts Xvfb on a free display; prints the display number
   echo "$n $!"
 }
 
-check_appimage() {
-  local d n xvfb code
+# a --selftest report: every check passed, and the build is the distribution it should be
+ck_report() { # report.json distribution
+  python3 -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+print("\n".join(("PASS " if c["ok"] else "FAIL ") + c["name"] + ": " + c["detail"] for c in r["checks"]))
+print("distribution:", r.get("distribution"), "(expected " + sys.argv[2] + ")")
+sys.exit(0 if r["ok"] and r.get("distribution") == sys.argv[2] else 1)' "$1" "$2"
+}
+
+check_appimage() { # [AppImage folder-name distribution]: default the direct build
+  local app=${1:-$out/linux/$A} name=${2:-appimage} dist=${3:-direct} n xvfb code
   read -r n xvfb < <(ck_display)
   sleep 1
-  mkdir -p "$ck/appimage"/{home,data,tmp}
+  mkdir -p "$ck/$name"/{home,data,tmp}
   set +e
-  env -i PATH=/usr/bin:/bin HOME="$ck/appimage/home" TMPDIR="$ck/appimage/tmp" XDG_RUNTIME_DIR="$ck/appimage/tmp" DISPLAY=":$n" \
-    KILN_DATA_DIR="$ck/appimage/data" KILN_STEAM_ROOTS="$ck/appimage/steam" \
-    dbus-run-session -- "$out/linux/$A" --selftest --out "$ck/appimage/selftest.json"
+  env -i PATH=/usr/bin:/bin HOME="$ck/$name/home" TMPDIR="$ck/$name/tmp" XDG_RUNTIME_DIR="$ck/$name/tmp" DISPLAY=":$n" \
+    KILN_DATA_DIR="$ck/$name/data" KILN_STEAM_ROOTS="$ck/$name/steam" \
+    dbus-run-session -- "$app" --selftest --out "$ck/$name/selftest.json"
   code=$?
   set -e
   kill "$xvfb" 2>/dev/null || true
-  python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("\n".join(("PASS " if c["ok"] else "FAIL ")+c["name"] for c in r["checks"])); sys.exit(0 if r["ok"] else 1)' \
-    "$ck/appimage/selftest.json" && ((code == 0))
+  ck_report "$ck/$name/selftest.json" "$dist" && ((code == 0))
 }
 
-ck_wine() { # wine in the check prefix, on the private display $ck_n
-  env WINEPREFIX="$ck/wine-pfx" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" DISPLAY=":$ck_n" \
+ck_pfx=wine-pfx
+ck_wine() { # wine in the check prefix ($ck/$ck_pfx), on the private display $ck_n
+  env WINEPREFIX="$ck/$ck_pfx" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" DISPLAY=":$ck_n" \
     HOME="$ck/wine-home" wine "$@"
 }
 
-check_nsis() {
-  local xvfb exe report code
+check_nsis() { # [setup prefix-name distribution]: default the direct build in $ck/wine-pfx
+  local setup_exe=${1:-$out/windows/$S} dist=${3:-direct} xvfb exe report code
+  ck_pfx=${2:-wine-pfx}
   read -r ck_n xvfb < <(ck_display)
   sleep 1
-  mkdir -p "$ck/wine-pfx" "$ck/wine-home"
+  mkdir -p "$ck/$ck_pfx" "$ck/wine-home"
   ck_wine wineboot -i >/dev/null 2>&1
   # tell the installer WebView2 is there, so it downloads nothing (the selftest does not use it)
   ck_wine reg add 'HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' \
     /v pv /t REG_SZ /d 120.0.0.0 /f >/dev/null 2>&1
-  ck_wine "$out/windows/$S" /S
-  env WINEPREFIX="$ck/wine-pfx" wineserver -w
-  exe=$(find "$ck/wine-pfx/drive_c" -iname kiln-launcher.exe -path '*Kiln*' | head -1)
-  [[ -n $exe ]] || { echo "the setup installed no kiln-launcher.exe"; kill "$xvfb"; return 1; }
+  ck_wine "$setup_exe" /S
+  env WINEPREFIX="$ck/$ck_pfx" wineserver -w
+  exe=$(find "$ck/$ck_pfx/drive_c" -iname kiln-launcher.exe -path '*Kiln*' | head -1)
+  [[ -n $exe ]] || { echo "the setup installed no kiln-launcher.exe"; kill "$xvfb"; ck_pfx=wine-pfx; return 1; }
   echo "installed: ${exe#"$ck"/}"
-  report=$ck/selftest-windows.json
+  report=$ck/selftest-windows-$dist.json
   set +e
-  ck_wine "$exe" --selftest --out "$(env WINEPREFIX="$ck/wine-pfx" winepath -w "$report")"
+  ck_wine "$exe" --selftest --out "$(env WINEPREFIX="$ck/$ck_pfx" winepath -w "$report")"
   code=$?
   set -e
-  env WINEPREFIX="$ck/wine-pfx" wineserver -w
+  env WINEPREFIX="$ck/$ck_pfx" wineserver -w
   kill "$xvfb" 2>/dev/null || true
-  python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("\n".join(("PASS " if c["ok"] else "FAIL ")+c["name"] for c in r["checks"])); sys.exit(0 if r["ok"] else 1)' \
-    "$report" && ((code == 0))
+  ck_pfx=wine-pfx
+  ck_report "$report" "$dist" && ((code == 0))
+}
+
+# The Nexus Mods build has none of the self-update: no update feed, no updater key, no updater plugin in its AppImage
+# (unpacked), its deb, the exe inside its setup and the exe the setup installed under Wine; no .sig in nexus/. The
+# direct build has all of it (the same scan, the other way round).
+check_nexus_updater() {
+  local files=("$out/nexus/linux/$A" "$out/nexus/linux/$D") installed
+  [[ -n $nexus_setup ]] && files+=("$out/nexus/windows/$S")
+  installed=$(find "$ck/wine-pfx-nexus/drive_c" -iname kiln-launcher.exe -path '*Kiln*' 2>/dev/null | head -1)
+  [[ -n $installed ]] && files+=("$installed")
+  [[ -z $nexus_setup || -n $installed ]] || { echo "no installed Nexus kiln-launcher.exe (the Wine install check failed)"; return 1; }
+  python3 "$lib/release.py" updater --absent --pubkey "$ck/embedded.pub" --no-sig "$out/nexus" --tmp "$ck" "${files[@]}"
+}
+
+check_direct_updater() {
+  local files=("$out/linux/$A" "$out/linux/$D")
+  [[ -n $setup ]] && files+=("$out/windows/$S")
+  python3 "$lib/release.py" updater --present --pubkey "$ck/embedded.pub" --tmp "$ck" "${files[@]}"
 }
 
 check_wine_cli() {
@@ -114,7 +144,9 @@ check_authenticode() {
   local d; d=$(mktemp -d -p "$ck")
   local files=("$out/runtime/kilnctl.exe" "$out/sdk/kiln.exe")
   [[ -n $setup ]] && files+=("$out/windows/$S")
+  [[ -n $nexus_setup ]] && files+=("$out/nexus/windows/$S")
   (cd "$d" && 7z x -y "$out/windows/$S" >/dev/null 2>&1) || true
+  [[ -n $nexus_setup ]] && { (mkdir -p "$d/nexus" && cd "$d/nexus" && 7z x -y "$out/nexus/windows/$S" >/dev/null 2>&1) || true; }
   mapfile -t inner < <(find "$d" -iname '*.exe' -not -iname '*webview*' | sort)
   (cd "$d" && mkdir rt && cd rt && unzip -q "$out/runtime/kiln-runtime-$version.zip")
   mapfile -t rt < <(find "$d/rt" -type f \( -iname '*.dll' -o -iname '*.exe' \) -not -path '*/kiln/dotnet/*' | sort)
@@ -129,12 +161,21 @@ run_checks() {
     "$src/launcher/src-tauri/tauri.conf.json" >"$ck/embedded.pub"
   check "updater signatures verify against the launcher's built-in key, signed for $version" \
     python3 "$lib/release.py" verify --pubkey "$ck/embedded.pub" --version "$version" "${updater_files[@]}"
-  check "AppImage --selftest on a private display" check_appimage
+  check "AppImage --selftest on a private display (distribution direct)" check_appimage
+  check "Nexus AppImage --selftest on a private display (distribution nexus)" check_appimage "$out/nexus/linux/$A" appimage-nexus nexus
   if [[ -n $setup ]]; then
-    check "NSIS setup installs silently under Wine and passes --selftest" check_nsis
+    check "NSIS setup installs silently under Wine and passes --selftest (distribution direct)" check_nsis
     check "kilnctl.exe and kiln.exe --version under Wine" check_wine_cli
   fi
+  if [[ -n $nexus_setup ]]; then
+    check "Nexus NSIS setup installs silently under Wine and passes --selftest (distribution nexus)" \
+      check_nsis "$out/nexus/windows/$S" wine-pfx-nexus nexus
+  fi
   check "deb control and files (dpkg-deb -I/-c equivalent)" python3 "$lib/release.py" deb "$out/linux/$D" --version "$version" --need usr/bin/kiln-launcher
+  check "Nexus deb control and files" python3 "$lib/release.py" deb "$out/nexus/linux/$D" --version "$version" --need usr/bin/kiln-launcher
+  check "the Nexus builds hold none of the self-update (update feeds, updater key, updater plugin; no .sig): AppImage, deb, setup, installed exe" \
+    check_nexus_updater
+  check "the direct builds still hold their self-update (feeds, updater key, plugin)" check_direct_updater
   [[ -n $rpm ]] && check "rpm contains usr/bin/kiln-launcher" check_rpm
   check "kilnctl bundle verify on the runtime zip" "$out/runtime/kilnctl" bundle verify "$out/runtime/kiln-runtime-$version.zip"
   check "kilnctl and kiln --version (Linux)" check_cli_versions

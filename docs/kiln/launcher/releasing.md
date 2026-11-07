@@ -1,7 +1,40 @@
 # Releasing Kiln, and the launcher's self-update
 
 A Kiln release is one folder with everything for players, server owners and mod authors, built from one commit.
-The launcher in it updates itself from frostdev.io, with GitHub Releases as the backup.
+The launcher in it comes in two builds from the same source: the direct build (frostdev.io, GitHub Releases) updates
+itself from frostdev.io, with GitHub Releases as the backup; the Nexus Mods build has no self-update at all ("The two
+builds" below).
+
+## The two builds: direct and Nexus Mods
+Nexus Mods does not allow programs that update themselves (or download and replace their own files). The launcher on
+the Kiln page there (Enshrouded mod 301) is therefore its own build, made by `release.sh` from the same export, with
+the same runtime and notices:
+
+| | direct (`linux/`, `windows/`) | Nexus Mods (`nexus/linux/`, `nexus/windows/`) |
+|---|---|---|
+| Where | frostdev.io, GitHub Releases | Nexus Mods only (`nexus.py`); never GitHub or frostdev.io |
+| Cargo feature `self-update` (default) | on | off (`--no-default-features`) |
+| `tauri-plugin-updater`, `src/selfupdate/` | compiled in | not compiled in |
+| Update feeds (frostdev.io, GitHub `updates-dev` / `latest`) | in the binary | not in the binary |
+| Updater key (`plugins.updater` in the config) | `tauri.conf.json` | removed by `tauri.nexus.conf.json` (`"updater": null`) |
+| `.sig` files, `latest.json` | yes | none |
+| `app_info.distribution`, `--selftest` | `direct` | `nexus` |
+| `update_*` commands | the self-update | phase `disabled`; `update_install`/`update_restart` reject `unsupported`; no network |
+| UI | the Update word and notice, Settings > Updates, About's Check now, Deck Settings' Launcher updates | none of it: Settings, About and Deck Settings show one line, "New versions: Nexus Mods", a link to the Kiln page (opened in the browser, nothing fetched) |
+
+- **The switch:** `launcher/src-tauri/Cargo.toml` feature `self-update` (`default`); `src/distribution.rs` turns it into
+  the distribution (`direct` with it, `nexus` without). `tools/launcher/build-linux.sh --nexus` and
+  `build-windows.sh --nexus` build without it (`tauri build ... -- --no-default-features`) and merge
+  `src-tauri/tauri.nexus.conf.json` last; their files go to `$KILN_OUT/bundles/{linux,windows}-nexus/`.
+- **Nothing else updates the launcher:** the only code that downloads or replaces the launcher is `src/selfupdate/`.
+  The other network use, the server modpack download (`kiln_manage::modpack::download`, after the player's explicit
+  consent), fetches mods, never the launcher. kilnctl and `kiln` (the SDK CLI) have no self-update: nothing in them
+  downloads or replaces their own binary, and neither links an HTTP client (kiln-manage without its `http` feature).
+  Their only network use is through other programs: kilnctl's `update` runs SteamCMD for the game server, `kiln build`
+  runs `dotnet` (NuGet restore).
+- **A Nexus user** gets new versions from the Files tab: the AppImage is replaced, the .deb installed, the setup run
+  over the old install (the same app id and data folder as the direct build, so either replaces the other). Its
+  README (`nexus/README.txt`, in the Nexus zips) says so and lists the files' SHA256.
 
 ## Versions
 `VERSION` holds the version being worked on, for example `0.2.0-dev`. Releases take their version from it:
@@ -20,6 +53,7 @@ The runtime keeps its own version, `<VERSION>+<yyyymmdd>.<commit>` (bundle.md). 
 after the release: `runtime/kiln-runtime-<release version>.zip`.
 
 ## The self-update
+Direct builds only (the Nexus Mods build has none, above).
 - **Sources, in order:** frostdev.io, then GitHub Releases.
 
   | Channel | frostdev.io | GitHub |
@@ -115,7 +149,11 @@ kiln-<version>/
   samples/   <mod>-<version>.zip for each sample that builds
   updates/   frostdev.io/<channel>/latest.json, github/latest.json
   source/    kiln-<v>-src.tar.gz
+  nexus/     the Nexus Mods build (no self-update; only nexus.py uploads it): README.txt,
+             linux/kiln-launcher_<v>_amd64.AppImage, linux/kiln-launcher_<v>_amd64.deb, windows/kiln-launcher_<v>_x64-setup.exe
 ```
+SHA256SUMS lists every file, nexus/ included; README.txt's file list leaves nexus/ out (it describes what GitHub and
+frostdev.io get). The Nexus build is never signed for the updater and has no manifest.
 THIRD-PARTY-NOTICES.txt comes from the build: the Rust crates of the launcher, kilnctl and kiln (cargo metadata, both
 platforms), the npm production dependencies of the launcher and the VS Code extension, the NuGet packages of the
 shipped projects, `native/third_party`, the fonts, `licenses/`, the .NET runtime's notices, and the system libraries
@@ -124,7 +162,12 @@ inside the AppImage (owners and licences from the system's package manager). A c
 
 The checks (all run; the script fails at the end if one failed): SHA256SUMS; the updater signatures against the
 launcher's built-in key and version; the AppImage's `--selftest` on a private X display; the NSIS setup installed
-silently under Wine into a scratch prefix, then `--selftest`; the deb's control fields and files; the rpm's files;
+silently under Wine into a scratch prefix, then `--selftest` (both also for the Nexus build, in its own folders and
+prefix; each report must name its distribution, `direct` or `nexus`); `release.py updater --absent` on the Nexus
+build: its AppImage (unpacked), its deb, the exe inside its setup (7z) and the exe the setup installed under Wine
+hold none of the update feeds, the updater key (base64 and decoded) or the updater plugin (`tauri-plugin-updater` in
+the launcher binary), and nexus/ holds no `.sig`; `release.py updater --present` on the direct build (the feeds, the
+key and the plugin are in its binaries); the deb's control fields and files (both builds); the rpm's files;
 `kilnctl bundle verify`; `kilnctl`/`kiln --version`, the Windows builds under Wine; every Linux ELF file (the
 AppImage unpacked with `--appimage-extract`, the deb's and rpm's files, kilnctl, kiln, any inside the zips) needing no
 glibc symbol version above 2.35 (`objdump -T -p`; `release.py glibc`, see "Linux builds"); kilnctl, kiln and the
@@ -213,7 +256,11 @@ Each release:
 6. After a stable release: raise `VERSION` to the next `-dev` version.
 
 7. Nexus Mods (optional): `python3 -I tools/release/nexus.py ~/Kiln-release/kiln-$V` shows what would go up (a dry
-   run, GET calls only; release.sh runs it at the end when the key is there), then add `--publish` to upload.
+   run, GET calls only; release.sh runs it at the end when the key is there), then add `--publish` to upload. It
+   uploads the Nexus build (nexus/), never the direct one.
+
+github-draft.sh stages only linux/ and windows/ (the direct build); publish.sh uploads the folder to frostdev.io
+without nexus/, with a SHA256SUMS that lists what goes up.
 
 A hotfix stable release while a newer dev build is out: `publish.sh --no-dev-channel`, so dev users keep the newer
 build. A bad release: publish a fixed, higher version; launchers never go back by themselves.
@@ -226,11 +273,21 @@ publishing status.
 
 | File (kind) | Category | Name on Nexus | In the zip |
 |---|---|---|---|
-| `launcher-windows` | main | Kiln Launcher (Windows) | the NSIS setup, README.txt |
-| `launcher-linux` | main | Kiln Launcher (Linux) | the AppImage (executable bit kept), README.txt |
-| `launcher-deb` | optional | Kiln Launcher (Linux .deb) | the .deb, README.txt (the page description offers it) |
+| `launcher-windows` | main | Kiln Launcher (Windows) | the Nexus build's NSIS setup (`nexus/windows/`), `nexus/README.txt` |
+| `launcher-linux` | main | Kiln Launcher (Linux) | the Nexus build's AppImage (executable bit kept), `nexus/README.txt` |
+| `launcher-deb` | optional | Kiln Launcher (Linux .deb) | the Nexus build's .deb, `nexus/README.txt` (the page description offers it) |
 | `runtime` | optional | Kiln runtime (manual install) | `kiln-runtime-<v>.zip`, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt |
-| `sdk` | optional | Kiln SDK (mod authors) | the nupkgs, kiln, kiln.exe, the vsix, README.txt |
+| `sdk` | optional | Kiln SDK (mod authors) | the nupkgs, kiln, kiln.exe, the vsix, `nexus/README.txt` |
+
+- **The launchers are always the Nexus build** (no self-update; "The two builds"). A release folder without nexus/ is
+  refused for the launcher and SDK kinds. The zips carry `nexus/README.txt` (no self-update; new versions from the
+  Files tab), never the folder's README.txt, which describes the self-update.
+- **Older versions:** a launcher's new version is created with `archive_existing_file: true`, so the version it
+  replaces moves to the archived files (the runtime and SDK keep the default, false). The API has nothing else for
+  older versions: no endpoint changes a version's category, hides or deletes it (`PUT /mod-files/{id}` only renames
+  a file, `/mod-file-versions/move` and `move-to-new-mod-file` only reorder or regroup versions, quarantine is for
+  Nexus moderation services). Versions uploaded before the Nexus build (0.2.0-dev.10 to dev.14 had the self-update)
+  are archived or deleted by hand on the page (Files > Manage).
 
 - Nexus takes archives (the API speaks of "the archive being uploaded" and repacks archives), so every file goes up
   as a zip, `kiln-<kind>-<version>.zip` (the runtime: `kiln-runtime-standalone-<version>.zip`), made in `RELEASE_DIR.nexus/`.
@@ -249,9 +306,14 @@ publishing status.
   https), never to the storage URLs the uploads go to, and never printed or written.
 - `--only launcher-linux,runtime` limits the files. Tests: `python3 -I tools/release/test_nexus.py` (a local mock of the
   API and storage: single part, multipart, polling, new file and new version, a file found by name, the description,
-  the dry run, a missing key).
+  the dry run, a missing key; the launchers taken from nexus/ with its README, `archive_existing_file` on the
+  launchers' new versions only, a folder without nexus/ refused).
 
 ## Testing the self-update
+- The Nexus build: `cargo test -p kiln-launcher --no-default-features` (no selfupdate module; the `update_*` commands
+  answer `disabled` and refuse to install), `bun x playwright test tests/nexus.spec.ts` (browser mock `?dist=nexus`:
+  no update word, notice, settings or Check now in the desktop and Deck UI, no `update_*` call, the "New versions:
+  Nexus Mods" link in Settings, About and Deck Settings; the direct build unchanged), and the release checks above.
 - `cargo test -p kiln-launcher selfupdate`: source order and fallback, manifest parsing, versions and channels, bad and
   wrong-version signatures, sha256, install kinds (.deb is manual), against local HTTP servers with the real updater
   plugin on a mock app and a throwaway key (`selfupdate/testdata/`).

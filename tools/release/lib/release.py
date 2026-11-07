@@ -11,6 +11,9 @@
   offset     print where the squashfs of an AppImage starts (for unsquashfs -o)
   glibc      check every Linux ELF of a folder (in the AppImage, deb, rpm and zips too) needs no glibc symbol version
              above a limit (objdump -T -p), so the builds run on older distros (Steam Deck, Ubuntu 22.04)
+  updater    look inside launcher builds (AppImage, deb, NSIS setup, an installed exe) for the self-update: its update
+             feeds, the updater key, the updater plugin. --absent: the Nexus Mods build must have none of it;
+             --present: a direct build must have it all
 """
 import argparse
 import base64
@@ -432,6 +435,98 @@ def cmd_scan(a):
     print("scan: clean")
 
 
+# ---------------------------------------------------------------- updater (the self-update in a launcher build)
+
+# what the self-update leaves in a launcher binary (launcher/src-tauri/src/selfupdate/feed.rs, tauri.conf.json): the
+# update feeds (frostdev.io, GitHub's stable and dev channels), the updater's public key (in the embedded config),
+# and the updater plugin's crate (its source paths in panic messages). The Nexus Mods build has none of them.
+UPDATE_FEEDS = [
+    ("the frostdev.io update feed", b"frostdev.io/kiln/updates"),
+    ("the GitHub stable update feed", b"/releases/latest/download/latest.json"),
+    ("the GitHub dev update feed", b"/releases/download/updates-dev"),
+]
+UPDATER_PLUGIN = ("the updater plugin (tauri-plugin-updater)", b"tauri-plugin-updater")
+LAUNCHER_BINARIES = ("kiln-launcher", "kiln-launcher.exe")
+
+
+def updater_needles(pubkey_file):
+    """(what, bytes, binary only): the feeds and the key anywhere in the build, the plugin's crate name only in the
+    launcher binary (the bundled THIRD-PARTY-NOTICES.txt names every crate of the workspace)."""
+    pub = open(pubkey_file, "rb").read().strip()
+    needles = [(w, n, False) for w, n in UPDATE_FEEDS]
+    needles.append(("the updater public key (tauri.conf.json)", pub, False))
+    try:  # the key itself: the second line of the base64-decoded minisign public key file
+        key_line = base64.b64decode(pub).splitlines()[1].strip()
+        if len(key_line) >= 40:
+            needles.append(("the updater public key (decoded)", key_line, False))
+    except Exception:  # noqa: BLE001
+        pass
+    needles.append((*UPDATER_PLUGIN, True))
+    return needles
+
+
+def updater_scan(path, label, needles, tmp, depth=0, out=None):
+    """{"binaries": [where], "found": [(what, where)]} for one launcher build and everything inside it."""
+    out = out if out is not None else {"binaries": [], "found": []}
+    with open(path, "rb") as f:
+        data = f.read()
+    is_bin = os.path.basename(path).lower() in LAUNCHER_BINARIES
+    if is_bin:
+        out["binaries"].append(label)
+    for what, needle, binary_only in needles:
+        if (is_bin or not binary_only) and needle in data:
+            out["found"].append((what, label))
+    kind = archive_kind(path, data) if depth < 4 else None
+    del data
+    if kind:
+        d = tempfile.mkdtemp(dir=tmp)
+        try:
+            extract(kind, path, d)
+            for base, dirs, files in os.walk(d):
+                dirs.sort()
+                for n in sorted(files):
+                    p = os.path.join(base, n)
+                    if os.path.islink(p) or not os.path.isfile(p):
+                        continue
+                    updater_scan(p, f"{label}!{os.path.relpath(p, d)}", needles, tmp, depth + 1, out)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+def cmd_updater(a):
+    needles = updater_needles(a.pubkey)
+    tmp = tempfile.mkdtemp(prefix="kiln-updater-", dir=a.tmp)
+    problems = []
+    try:
+        for f in a.files:
+            r = updater_scan(f, f, needles, tmp)
+            found = sorted(set(r["found"]))
+            print(f"{f}: launcher binaries {', '.join(r['binaries']) or 'none'}")
+            for what, _, _ in needles:
+                hits = [w for x, w in found if x == what]
+                print(f"  found  {what}: {', '.join(hits[:4])}" if hits else f"  absent {what}")
+            if not r["binaries"]:
+                problems.append(f"{f}: no launcher binary ({' or '.join(LAUNCHER_BINARIES)}) found inside: nothing was checked")
+            elif a.absent:
+                problems += [f"{w}: {what}" for what, w in found]
+            else:
+                in_bin = {what for what, w in found if os.path.basename(w.split("!")[-1]).lower() in LAUNCHER_BINARIES}
+                missing = [what for what, _, _ in needles if what not in in_bin and "decoded" not in what]
+                problems += [f"{f}: the launcher binary lacks {what}" for what in missing]
+        for d in a.no_sig or []:
+            for base, _, files in os.walk(d):
+                problems += [f"{os.path.join(base, n)}: an updater signature (.sig) in a build without self-update"
+                             for n in files if n.endswith(".sig")]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if problems:
+        for p in problems:
+            print(f"updater: {p}", file=sys.stderr)
+        sys.exit(1)
+    print("updater: " + ("none of the self-update in these builds" if a.absent else "every build has its self-update"))
+
+
 # ---------------------------------------------------------------- glibc
 
 GLIBC_VER = re.compile(rb"\bGLIBC_([0-9]+(?:\.[0-9]+)+|PRIVATE|ABI_[A-Z0-9_]+)\b")
@@ -555,7 +650,7 @@ def cmd_glibc(a):
     s = GlibcScan(a.max, tmp)
     try:
         paths = a.files or [os.path.join(a.dir, r) for r in release_files(a.dir)
-                            if not r.startswith(("source/", "windows/", "updates/"))]
+                            if not r.startswith(("source/", "windows/", "updates/", "nexus/windows/"))]
         top = os.path.abspath(a.dir)
         for p in paths:
             ap = os.path.abspath(p)
@@ -612,8 +707,17 @@ def main():
     o = sub.add_parser("offset")
     o.add_argument("file")
     o.set_defaults(fn=cmd_offset)
+    u = sub.add_parser("updater")
+    u.add_argument("files", nargs="+", help="launcher builds: AppImage, deb, NSIS setup, an installed kiln-launcher(.exe)")
+    u.add_argument("--pubkey", required=True, help="the updater public key (base64, as in tauri.conf.json)")
+    how = u.add_mutually_exclusive_group(required=True)
+    how.add_argument("--absent", action="store_true", help="the Nexus Mods build: none of the self-update may be in it")
+    how.add_argument("--present", action="store_true", help="a direct build: its launcher binary has the feeds and the key")
+    u.add_argument("--no-sig", action="append", help="a folder that must hold no .sig files (repeatable)")
+    u.add_argument("--tmp", default=None)
+    u.set_defaults(fn=cmd_updater)
     g = sub.add_parser("glibc")
-    g.add_argument("dir", help="a release folder (every file but source/, windows/, updates/)")
+    g.add_argument("dir", help="a release folder (every file but source/, windows/, updates/, nexus/windows/)")
     g.add_argument("files", nargs="*", help="only these files (paths)")
     g.add_argument("--max", default="2.35", help="the newest GLIBC_ symbol version allowed (default 2.35: Ubuntu 22.04)")
     g.add_argument("--tmp")

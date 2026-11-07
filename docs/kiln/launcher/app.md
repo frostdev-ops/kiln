@@ -42,7 +42,7 @@ events). Design system: [design-system.md](design-system.md).
 | `/saves` | save files, backups, manual backup, restore (refused while running; Steam Cloud hint), delete | `saves_*` |
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
 | `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
-| `/about` | versions, CREDITS.md, "Theme and design: frostdev" | `app_info` |
+| `/about` | versions, CREDITS.md, "Theme and design: frostdev"; Updates (the state, Check now), in the Nexus Mods build "New versions: Nexus Mods" | `app_info` |
 | `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
 
 ## The first run and dropping a mod
@@ -125,6 +125,7 @@ bun x tsc --noEmit && bun run build # typecheck + production web build (tsc cove
 bun run check:schemas
 bun run test:smoke                  # Playwright, mock mode; screenshots to .out/launcher/shots/ (KILN_DEV_PORT: another port)
 CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher
+CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher --no-default-features   # the Nexus Mods build (no self-update)
 tools/launcher/fetch-editor-assets.sh   # dev: local editor game assets for the vite dev server (gitignored)
 ```
 Test runs against game copies: `KILN_DATA_DIR=<scratch>` and `KILN_STEAM_ROOTS=<fake Steam root>` keep the app away
@@ -155,14 +156,23 @@ dropped there in the webview (headless checks on Xvfb drive the real app with it
 - Wine test environments for servers: never `mscoree=` in `WINEDLLOVERRIDES` (the .NET host then fails with
   `0x8007007E`, linux-server.md); `mscoree=` is fine for `--selftest`, which starts no .NET.
 - Both scripts take `--version V` (a release version, [releasing.md](releasing.md)), `--config JSON|FILE` (more Tauri
-  config, merged in order) and, on Linux, `--features` (QA builds: `dev-eval`, `update-test-feeds`) and an rpm in
-  `--bundles`. A release is `tools/release/release.sh` (the whole release folder, signed and checked).
+  config, merged in order), `--nexus` (the Nexus Mods build: no self-update; `bundles/{linux,windows}-nexus/`) and, on
+  Linux, `--features` (QA builds: `dev-eval`, `update-test-feeds`) and an rpm in `--bundles`. A release is
+  `tools/release/release.sh` (the whole release folder with both builds, signed and checked).
 
 ## Self-update
 The launcher updates itself from frostdev.io, with GitHub Releases as the backup, signed with Kiln's updater key: a
 word in the header and a notice under it when an update is found, Settings > Updates (automatic checks, channel,
 Check now). Sources, channels, versions, keys and the release steps: [releasing.md](releasing.md). Code:
 `src-tauri/src/selfupdate/`, `src/shell/UpdateNotice.tsx`, `src/components/UpdateSettings.tsx`.
+
+The Nexus Mods build has none of it ([releasing.md](releasing.md), "The two builds"): built without the cargo feature
+`self-update` (no updater plugin, no `selfupdate/`, no feeds) and with `src-tauri/tauri.nexus.conf.json` (no updater
+key); `app_info.distribution` is "nexus" and the `update_*` commands answer `disabled`. The UI reads the distribution
+(`useDistribution()`, `src/api/distribution.ts`): no header word or notice, no update feed, no Settings > Updates
+controls, no Check now; Settings > Updates and About show "New versions: Nexus Mods", Deck Settings a "New versions"
+row, each opening the Kiln page on Nexus Mods in the browser (`app_open_url`). Browser mock: `?dist=nexus`
+(`tests/nexus.spec.ts`).
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

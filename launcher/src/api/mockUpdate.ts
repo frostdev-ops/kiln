@@ -4,18 +4,30 @@
 //   justUpdated("0.2.0-dev.42")           as after a restart into an update this launcher installed
 //   failNextInstall([{source, step, message}])  the next download fails at these sources
 //   set({...})                            any part of the status, then kiln://update
-import type { KilnError, Task, UpdateFailure, UpdateStatus } from "./commands";
+//   calls()                               the update_* commands called so far (the Nexus build's UI calls none)
+// `?dist=nexus` (the Nexus Mods build): like the backend without the self-update feature (commands/update.rs): the
+// status is "disabled", update_check changes nothing, update_install and update_restart reject with `unsupported`.
+import type { Distribution, KilnError, Task, UpdateFailure, UpdateStatus } from "./commands";
+import { NEXUS_PAGE } from "./distribution";
 
 type Emit = (name: string, payload: unknown) => void;
 type Args = Record<string, unknown>;
 
-export function updateMockHandlers(emit: Emit): Record<string, (a: Args) => unknown> {
+export function updateMockHandlers(emit: Emit, distribution: Distribution = "direct"): Record<string, (a: Args) => unknown> {
   const now = () => new Date().toISOString();
-  let status: UpdateStatus = {
-    current: "0.2.0-dev.42", channel: "dev", auto: true, install: { kind: "appimage", inPlace: true, reason: null },
+  const nexus = distribution === "nexus";
+  const noSelfUpdate = "This build comes from Nexus Mods and does not update itself: new versions are on the Kiln page there.";
+  let status: UpdateStatus = nexus ? {
+    current: "0.2.0-dev.42", distribution: "nexus", channel: "dev", auto: false, install: { kind: "appimage", inPlace: false, reason: noSelfUpdate },
+    page: NEXUS_PAGE, phase: "disabled", checked: null, available: null, failures: [], progress: null,
+    ready: null, skipped: null, justUpdated: null, taskId: null, error: null,
+  } : {
+    current: "0.2.0-dev.42", distribution: "direct", channel: "dev", auto: true, install: { kind: "appimage", inPlace: true, reason: null },
     page: "https://frostdev.io/kiln", phase: "upToDate", checked: now(), available: null, failures: [], progress: null,
     ready: null, skipped: null, justUpdated: null, taskId: null, error: null,
   };
+  const calls: string[] = [];
+  const refuse = (): never => { throw { code: "unsupported", message: noSelfUpdate, detail: NEXUS_PAGE } satisfies KilnError; };
   let offer: UpdateStatus["available"] = null;
   let failNext: UpdateFailure[] | null = null;
   let seq = 0;
@@ -71,10 +83,18 @@ export function updateMockHandlers(emit: Emit): Record<string, (a: Args) => unkn
       justUpdated: { from, to: status.current, at: now(), source: "frostdev.io", notes }, phase: "upToDate", available: null, ready: null,
     }),
     failNextInstall: (f: UpdateFailure[]) => { failNext = f; },
+    calls: () => [...calls],
   };
   if (typeof window !== "undefined") (window as unknown as { __kilnUpdateMock?: typeof api }).__kilnUpdateMock = api;
 
-  return {
+  const handlers: Record<string, (a: Args) => unknown> = nexus ? {
+    update_status: () => structuredClone(status),
+    update_check: () => structuredClone(status),
+    update_install: () => refuse(),
+    update_restart: () => refuse(),
+    update_skip: () => structuredClone(status),
+    update_ack: () => structuredClone(status),
+  } : {
     update_status: () => status,
     update_check: () => check(),
     update_install: () => install(),
@@ -91,4 +111,6 @@ export function updateMockHandlers(emit: Emit): Record<string, (a: Args) => unkn
     },
     update_ack: () => put({ justUpdated: null }),
   };
+  // every update_* call is recorded (tests check the Nexus build's UI makes none)
+  return Object.fromEntries(Object.entries(handlers).map(([name, h]) => [name, (a: Args) => { calls.push(name); return h(a); }]));
 }

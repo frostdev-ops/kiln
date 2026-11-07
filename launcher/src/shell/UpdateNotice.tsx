@@ -5,12 +5,14 @@
 //   downloading   "Updating…" and a bar
 //   ready         "Ready to restart"       Later, Restart
 //   just updated  "Updated to <version>"   Later, Update game (installs the runtime it brought; held while the game runs)
+// Only in builds that update themselves: the Nexus Mods build (app_info.distribution "nexus") has no word, no notice
+// and no update feed (api/distribution.ts).
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import * as api from "../api/commands";
 import type { UpdateStatus } from "../api/commands";
-import { invalidateGame, useGame, useGameStatus } from "../api/hooks";
+import { invalidateGame, useDistribution, useGame, useGameStatus } from "../api/hooks";
 import { useUpdate, useUpdateFeed, useUpdateStore } from "../api/update";
 import { Button, IconButton, ProgressBar, installNote, runTask, toast, useTasks, waitTask } from "../ui";
 import "./update.css";
@@ -26,7 +28,12 @@ function wordFor(s: UpdateStatus): { text: string; tone: "info" | "ember" | "ok"
   return null;
 }
 
+/** The header's update word and notice: direct builds only (none in the Nexus build, nor before app_info answers). */
 export function UpdateTray() {
+  return useDistribution() === "direct" ? <SelfUpdateTray /> : null;
+}
+
+function SelfUpdateTray() {
   useUpdateFeed();
   const s = useUpdate();
   const open = useUpdateStore((x) => x.open);

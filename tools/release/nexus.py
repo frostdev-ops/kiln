@@ -10,12 +10,16 @@ and post. With --publish it uploads, creates the files or their new versions, an
 docs/kiln/launcher/nexus-description.bbcode (without --publish it prints the difference).
 
 Files (each a zip: Nexus takes archives; the zip keeps the AppImage's executable bit):
-  launcher-windows  main      "Kiln Launcher (Windows)"   the NSIS setup
-  launcher-linux    main      "Kiln Launcher (Linux)"     the AppImage
-  launcher-deb      optional  "Kiln Launcher (Linux .deb)"  the .deb
+  launcher-windows  main      "Kiln Launcher (Windows)"   the NSIS setup of the Nexus build (nexus/windows/)
+  launcher-linux    main      "Kiln Launcher (Linux)"     the AppImage of the Nexus build (nexus/linux/)
+  launcher-deb      optional  "Kiln Launcher (Linux .deb)"  the .deb of the Nexus build (nexus/linux/)
   runtime           optional  "Kiln runtime (manual install)"  kiln-runtime zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt
   sdk               optional  "Kiln SDK (mod authors)"    nupkgs, kiln, kiln.exe, the VS Code extension
-The main files set the page's version to the release version (update_mod_version).
+The launchers are always the Nexus build: the same launcher without its self-update (Nexus Mods does not allow
+programs that update themselves); a folder without nexus/ is refused. Their zips and the SDK's carry nexus/README.txt
+(no self-update, new versions on the Kiln page), never the folder's README.txt. A new launcher version archives the
+file's previous one (archive_existing_file). The main files set the page's version to the release version
+(update_mod_version).
 
 The first release creates the files (POST /mod-files); later ones add versions to them (POST /mod-files/{id}/versions).
 Their ids are kept in the state file (default ~/.config/kiln-release/nexus-state.json); a missing id is looked up on
@@ -46,9 +50,9 @@ SINGLE_PART_MAX = 100 * 1024 * 1024
 CONFIG = os.path.expanduser("~/.config/kiln-release")
 
 KINDS = {
-    "launcher-windows": ("main", "Kiln Launcher (Windows)", "The Kiln Launcher for Windows: run the setup (per-user install)."),
-    "launcher-linux": ("main", "Kiln Launcher (Linux)", "The Kiln Launcher for Linux: one AppImage, no install."),
-    "launcher-deb": ("optional", "Kiln Launcher (Linux .deb)", "The Kiln Launcher as a .deb package for Debian and Ubuntu. Updates come from the Files tab."),
+    "launcher-windows": ("main", "Kiln Launcher (Windows)", "The Kiln Launcher for Windows: run the setup (per-user install). New versions come from the Files tab."),
+    "launcher-linux": ("main", "Kiln Launcher (Linux)", "The Kiln Launcher for Linux: one AppImage, no install. New versions come from the Files tab."),
+    "launcher-deb": ("optional", "Kiln Launcher (Linux .deb)", "The Kiln Launcher as a .deb package for Debian and Ubuntu. New versions come from the Files tab."),
     "runtime": ("optional", "Kiln runtime (manual install)", "The Kiln runtime alone, with kilnctl, for dedicated servers and manual installs."),
     "sdk": ("optional", "Kiln SDK (mod authors)", "The Kiln SDK packages, the kiln command line and the VS Code extension."),
 }
@@ -140,10 +144,17 @@ def one(folder, pattern):
     return hits[0]
 
 
+# the launcher kinds: the Nexus build (nexus/ in the release folder), which has no self-update; they archive the
+# file's previous version when they add one (the versions up to 0.2.0-dev.14 had the self-update)
+LAUNCHER_KINDS = ("launcher-windows", "launcher-linux", "launcher-deb")
+
+
 def members(folder, kind, version):
     """The files that go into a kind's zip: (path, name in the zip, executable)."""
-    lin, win, rt, sdk = (os.path.join(folder, d) for d in ("linux", "windows", "runtime", "sdk"))
-    readme = os.path.join(folder, "README.txt")
+    rt, sdk = (os.path.join(folder, d) for d in ("runtime", "sdk"))
+    # the launchers come from the Nexus build only, never linux/ or windows/ (those update themselves)
+    lin, win = (os.path.join(folder, "nexus", d) for d in ("linux", "windows"))
+    readme = os.path.join(folder, "nexus", "README.txt")
     if kind == "launcher-windows":
         return [(one(win, r".*_x64-setup\.exe"), None, False), (readme, "README.txt", False)]
     if kind == "launcher-linux":
@@ -313,7 +324,10 @@ def run(argv=None):
         for k in kinds:
             if k not in KINDS:
                 raise Fail(f"unknown kind {k}")
-        win = os.path.join(folder, "windows")
+        if any(k in LAUNCHER_KINDS + ("sdk",) for k in kinds) and not os.path.isfile(os.path.join(folder, "nexus", "README.txt")):
+            raise Fail(f"{folder} has no Nexus Mods build (nexus/): the launchers on Nexus must not update themselves; "
+                       "build the release with tools/release/release.sh")
+        win = os.path.join(folder, "nexus", "windows")
         if not (os.path.isdir(win) and any(n.endswith("-setup.exe") for n in os.listdir(win))):
             kinds = [k for k in kinds if k != "launcher-windows"]  # a build without Windows
 
@@ -342,8 +356,12 @@ def run(argv=None):
             plan.append((k, category, name, desc, z, fid))
             how = "single part" if size <= a.single_part_max else "multipart"
             target = f"new version of file {fid}" if fid else "a new file"
+            if fid and k in LAUNCHER_KINDS:
+                target += ", archiving its previous version"
+            inside = ", ".join(os.path.relpath(src, folder) for src, _, _ in members(folder, k, version))
             log(f"{k}: {os.path.basename(z)} ({size / 1048576:.1f} MB, {how}, md5 {md5_of(z).hexdigest()}) -> {target}, "
                 f"{category}, name {name!r}, version {version!r}" + (", sets the page version" if category == "main" else ""))
+            log(f"  from {inside}")
         notes = notes_for(folder, version)
         log(f"changelog for {version}: {len(notes)} characters, first line: {notes.splitlines()[0][:100]!r}")
 
@@ -368,8 +386,10 @@ def run(argv=None):
                     "allow_mod_manager_download": False, "primary_mod_manager_download": False,
                     "update_mod_version": category == "main"}
             if fid:
-                r = api.call("POST", f"/mod-files/{fid}/versions", body)["data"]
-                log(f"  version {r['version']['id']} added to file {fid}")
+                # a launcher's new version (no self-update) archives the previous one (which may have had it)
+                vbody = {**body, "archive_existing_file": True} if k in LAUNCHER_KINDS else body
+                r = api.call("POST", f"/mod-files/{fid}/versions", vbody)["data"]
+                log(f"  version {r['version']['id']} added to file {fid}" + (", the previous version archived" if k in LAUNCHER_KINDS else ""))
             else:
                 r = api.call("POST", "/mod-files", {**body, "mod_id": a.mod})["data"]
                 listed = {f["name"]: f for f in api.call("GET", f"/mods/{a.mod}/files")["data"]["mod_files"]}

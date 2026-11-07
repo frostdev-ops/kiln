@@ -15,11 +15,17 @@ name = "kiln-launcher"
 path = "src/main.rs"
 
 [features]
+default = ["self-update"]
+# The launcher's self-update (src/selfupdate: tauri-plugin-updater, the frostdev.io and GitHub Releases feeds). On in
+# the direct builds (frostdev.io, GitHub); off in the Nexus Mods build (--no-default-features, with
+# tauri.nexus.conf.json), because Nexus Mods does not allow programs that update themselves. The feature is the
+# distribution: on = "direct", off = "nexus" (src/distribution.rs, docs/kiln/launcher/releasing.md).
+self-update = ["dep:tauri-plugin-updater"]
 # QA builds only: the KILN_DEV_EVAL_DIR hook (always on in debug builds). Never in shipped bundles.
 dev-eval = []
 # Update tests only: KILN_UPDATE_FEEDS may point the self-update at loopback feeds (always on in debug builds). Never in
 # shipped bundles.
-update-test-feeds = []
+update-test-feeds = ["self-update"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
@@ -28,8 +34,8 @@ tauri-build = { version = "2.7", features = [] }
 kiln-manage = { path = "../../crates/kiln-manage", features = ["full"] }
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.8"
-# Self-update (src/selfupdate): signed (minisign) updates of the AppImage and the NSIS install
-tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
+# Self-update (src/selfupdate, feature self-update): signed (minisign) updates of the AppImage and the NSIS install
+tauri-plugin-updater = { version = "2.14", optional = true, default-features = false, features = ["rustls-tls", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Deck UI (src/deck/browse.rs): a zip's file list before the library unpacks it (the same zip kiln-manage builds)

@@ -76,7 +76,12 @@ export interface AppInfo {
   noWebgl?: boolean;
   /** Steam Deck / SteamOS / gamescope detection and `--deck` / `--desktop` (src/deck/mode.tsx chooses the UI). */
   deck?: DeckInfo;
+  /** "direct" (frostdev.io, GitHub: updates itself) or "nexus" (Nexus Mods: no self-update; the UI shows no update
+   *  checks, notices or buttons, only a link to the Kiln page there). Absent (an older backend): direct. */
+  distribution?: Distribution;
 }
+/** Where this launcher build comes from (src-tauri/src/distribution.rs, api/distribution.ts). */
+export type Distribution = "direct" | "nexus";
 export interface LauncherSettings {
   steamRoots: string[];
   defaultGameId: GameId | null;
@@ -861,13 +866,17 @@ export const appAssetsStatus = () => call<AssetsStatus>("app_assets_status");
 export const appAssetsImport = (kind: "editor" | "admin", from: string | null = null) => call<TaskId>("app_assets_import", { kind, from });
 
 // update.rs: the launcher's self-update (frostdev.io, then GitHub; signed). Changes arrive as kiln://update.
+// The Nexus Mods build has the same commands without a self-update: phase "disabled", install/restart reject with
+// `unsupported`, nothing is fetched (and the UI calls none of them there: api/distribution.ts).
 export type UpdateChannel = "stable" | "dev";
-export type UpdatePhase = "idle" | "checking" | "upToDate" | "available" | "skipped" | "failed" | "downloading" | "ready";
+export type UpdatePhase = "idle" | "checking" | "upToDate" | "available" | "skipped" | "failed" | "downloading" | "ready" | "disabled";
 export type UpdateInstallKind = "appimage" | "nsis" | "msi" | "deb" | "rpm" | "unbundled";
 export interface UpdateFailure { source: string; step: "manifest" | "download" | "signature" | "hash"; message: string }
 export interface UpdateStatus {
   /** This launcher's version. */
   current: string;
+  /** "nexus": the build has no self-update (phase "disabled", `page` is the Kiln page on Nexus Mods). */
+  distribution?: Distribution;
   channel: UpdateChannel;
   /** Automatic checks are on. */
   auto: boolean;

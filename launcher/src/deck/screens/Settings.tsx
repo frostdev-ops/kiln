@@ -1,11 +1,14 @@
 // Deck Settings: the desktop UI (now, and which UI to start in), button glyphs, launcher updates, fullscreen, Quit.
 // The last line names what the Deck detection saw (for testers' reports).
+// The Nexus Mods build (api/distribution.ts) has no launcher updates: its row is "New versions: Nexus Mods" (A opens
+// the Kiln page there in the browser), and no update command is called.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { UiMode, UpdateStatus } from "../../api/commands";
-import { useAppInfo, useSettings } from "../../api/hooks";
+import { NEXUS_PAGE } from "../../api/distribution";
+import { useAppInfo, useDistribution, useSettings } from "../../api/hooks";
 import { runTask, toast } from "../../ui";
 import { QuitDialog } from "../dialogs";
 import { useGlyphPref, type GlyphPref } from "../glyphs";
@@ -26,12 +29,15 @@ export default function Settings() {
   const pads = usePads();
   const [quit, setQuit] = useState(false);
   const [full, setFull] = useState<boolean | null>(null);
-  const up = useQuery({ queryKey: ["update_status"], queryFn: api.updateStatus, retry: false });
+  const dist = useDistribution();
+  const selfUpdates = dist === "direct";
+  const up = useQuery({ queryKey: ["update_status"], queryFn: api.updateStatus, retry: false, enabled: selfUpdates });
   useEffect(() => {
+    if (!selfUpdates) return;
     let off: (() => void) | undefined, live = true;
     api.onKilnEvent("kiln://update", (s: UpdateStatus) => qc.setQueryData(["update_status"], s)).then((f) => (live ? (off = f) : f()));
     return () => { live = false; off?.(); };
-  }, [qc]);
+  }, [qc, selfUpdates]);
   const mode: UiMode = settings.data?.uiMode === "deck" || settings.data?.uiMode === "desktop" ? settings.data.uiMode : "auto";
   const d = info.data?.deck;
   const u = up.data;
@@ -69,10 +75,16 @@ export default function Settings() {
           <Row id="set-full" title="Fullscreen" a="Change" end={<Word tone="ember">{full === false ? "Off" : "On"}</Word>}
             onClick={() => api.deckFullscreen(full === false).then(setFull).catch((e) => toast.error(e))} />
         )}
-        <Row id="set-update" title="Launcher updates" a={u?.ready ? "Restart" : u?.available && u.install.inPlace ? "Install" : "Check"}
-          sub={u ? `Kiln Launcher ${u.current}` : undefined} end={upWord ? <Word tone={upTone}>{upWord}</Word> : undefined}
-          disabled={u?.phase === "checking" || u?.phase === "downloading"}
-          onClick={() => void (u?.ready ? restart() : u?.available && u.install.inPlace ? install() : check())} />
+        {selfUpdates && (
+          <Row id="set-update" title="Launcher updates" a={u?.ready ? "Restart" : u?.available && u.install.inPlace ? "Install" : "Check"}
+            sub={u ? `Kiln Launcher ${u.current}` : undefined} end={upWord ? <Word tone={upTone}>{upWord}</Word> : undefined}
+            disabled={u?.phase === "checking" || u?.phase === "downloading"}
+            onClick={() => void (u?.ready ? restart() : u?.available && u.install.inPlace ? install() : check())} />
+        )}
+        {dist === "nexus" && (
+          <Row id="set-versions" title="New versions" a="Open" sub={info.data ? `Kiln Launcher ${info.data.version}` : undefined}
+            end={<Word tone="info">Nexus Mods</Word>} onClick={() => void api.appOpenUrl(NEXUS_PAGE).catch((e) => toast.error(e))} />
+        )}
         <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
       </div>
       <p className="deck-foot-note" data-testid="deck-detection">

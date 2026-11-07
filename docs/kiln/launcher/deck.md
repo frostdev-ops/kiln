@@ -96,7 +96,7 @@ Native events are ignored while the launcher's window has no focus: once the gam
 | Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, DLLs and mod folders), newest first, "In profile" when it is there; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, add to the active profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
-| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart), Quit; the last line shows the version, what the detection saw and the controller | A |
+| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Quit; the last line shows the version, what the detection saw and the controller | A |
 
 Text input is avoided everywhere. Where Steam needs typing (launch options), Help says Steam + X opens the keyboard.
 Notices are a short title and buttons.

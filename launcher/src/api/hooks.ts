@@ -4,7 +4,8 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { useEffect } from "react";
 import { create } from "zustand";
 import * as api from "./commands";
-import type { GameId, GameInstall, ModKind, ProfileId } from "./commands";
+import type { Distribution, GameId, GameInstall, ModKind, ProfileId } from "./commands";
+import { distributionOf } from "./distribution";
 
 /** Query keys, one place. */
 export const qk = {
@@ -40,6 +41,12 @@ export const useGameSel = create<GameSel>((set) => ({
 }));
 
 export const useAppInfo = () => useQuery({ queryKey: qk.appInfo, queryFn: api.appInfo, staleTime: Infinity, retry: false });
+/** This build's distribution (api/distribution.ts): "direct" updates itself, "nexus" never does (no update UI at all).
+ *  null until app_info answers: show neither the update UI nor the Nexus line then. */
+export function useDistribution(): Distribution | null {
+  const info = useAppInfo();
+  return info.data ? distributionOf(info.data) : null;
+}
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.appSettingsGet });
 export const useGames = () => useQuery({ queryKey: qk.games, queryFn: api.gameList });
 

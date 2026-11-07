@@ -5,7 +5,8 @@
 //! JSONC edits (kiln.json), zstd, play-once; on Windows also profile activation with native paths (spaces, non-ASCII)
 //! and the process lookup (+ the Steam roots the registry names, only listed). It never touches the real Steam
 //! folders, games or launcher data.
-//! Exit code 0 = all checks passed. The report is JSON (stdout and `--out`).
+//! Exit code 0 = all checks passed. The report is JSON (stdout and `--out`); its `distribution` (and the line
+//! `distribution: direct|nexus`) says whether this build updates itself (crate::distribution).
 
 use kiln_manage::game::{self, GameInstall, GameKind, PathMode, Platform};
 use kiln_manage::paths::DataDirs;
@@ -34,6 +35,8 @@ struct Report {
     ok: bool,
     launcher: &'static str,
     kiln: &'static str,
+    /// "direct" (updates itself) or "nexus" (no self-update): crate::distribution.
+    distribution: &'static str,
     platform: &'static str,
     arch: &'static str,
     temp: String,
@@ -368,6 +371,7 @@ fn winpath(_t: &Path) -> R {
 
 /// The self-update's fixed parts: the sources are https and in order, and this binary knows what it was bundled as
 /// (Tauri patches the bundle type into each package's binary; the AppImage and NSIS builds update in place).
+#[cfg(feature = "self-update")]
 fn self_update(_: &Path) -> R {
     use crate::selfupdate::feed::{self, Channel};
     let s = feed::release_sources();
@@ -383,7 +387,16 @@ fn self_update(_: &Path) -> R {
         }
     }
     let bundle = tauri::utils::platform::bundle_type().map(|b| format!("{b:?}")).unwrap_or_else(|| "none (not a bundle)".into());
-    Ok(format!("sources frostdev.io, GitHub (https); bundled as {bundle}"))
+    Ok(format!("distribution direct; sources frostdev.io, GitHub (https); bundled as {bundle}"))
+}
+
+/// The Nexus Mods build: no self-update compiled in (crate::distribution); the update commands report it disabled.
+#[cfg(not(feature = "self-update"))]
+fn self_update(_: &Path) -> R {
+    use crate::distribution::{Distribution, CURRENT, NEXUS_PAGE};
+    ensure(CURRENT == Distribution::Nexus, format!("distribution {}", CURRENT.as_str()))?;
+    let bundle = tauri::utils::platform::bundle_type().map(|b| format!("{b:?}")).unwrap_or_else(|| "none (not a bundle)".into());
+    Ok(format!("distribution nexus: no self-update in this build, new versions on {NEXUS_PAGE}; bundled as {bundle}"))
 }
 
 pub fn run(args: &[String]) -> i32 {
@@ -431,6 +444,7 @@ pub fn run(args: &[String]) -> i32 {
         ok: failed == 0,
         launcher: env!("CARGO_PKG_VERSION"),
         kiln: kiln_manage::VERSION,
+        distribution: crate::distribution::CURRENT.as_str(),
         platform: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         temp: t.display().to_string(),
@@ -445,6 +459,7 @@ pub fn run(args: &[String]) -> i32 {
             return 2;
         }
     }
+    println!("distribution: {}", crate::distribution::CURRENT.as_str());
     println!("{}", if failed == 0 { "selftest: ok" } else { "selftest: FAILED" });
     if !keep {
         let _ = fs::remove_dir_all(&t);

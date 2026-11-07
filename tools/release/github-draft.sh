@@ -9,6 +9,8 @@
 #   kiln-runtime-<v>.zip, kilnctl-<v>-linux-x86_64, kilnctl-<v>-windows-x86_64.exe, kiln-<v>-linux-x86_64,
 #   kiln-<v>-windows-x86_64.exe, the nupkgs, the vsix, kiln-samples-<v>.zip, the source tarball, README.txt,
 #   INSTALL-RUNTIME.txt, THIRD-PARTY-NOTICES.txt, SHA256SUMS.
+# Never nexus/: the Nexus Mods build of the launcher (no self-update) goes only to Nexus Mods (nexus.py). GitHub gets
+# the direct build, which updates itself.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$here/../.." && pwd)
@@ -35,6 +37,7 @@ pre=(); [[ $version == *-* ]] && pre=(--prerelease)
 stage=$dir.github
 rm -rf "$stage" && mkdir -p "$stage"
 put() { ln "$1" "$stage/$2" 2>/dev/null || cp "$1" "$stage/$2"; }
+# the direct build only (linux/, windows/); nexus/ stays out
 for f in "$dir"/linux/* "$dir"/windows/*; do put "$f" "$(basename "$f")"; done
 put "$dir/updates/github/latest.json" latest.json
 put "$dir/runtime/kiln-runtime-$version.zip" "kiln-runtime-$version.zip"
