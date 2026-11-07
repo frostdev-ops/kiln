@@ -69,6 +69,54 @@ work and cancellable watchers; it cannot terminate foreign threads or reclaim tr
 Fault guards cover synchronous loader-invoked initialization and lifecycle calls. Mod-owned threads and
 arbitrary-signature detours execute directly and can still crash the process.
 
+## When another engine hooks first
+
+Several engines inline-hook game functions: Enshwick, EMF, ShroudForge, SET, a shroudlink core, and others that hook
+through Kiln's API. A hook writes a `jmp` over the function's first bytes. Kiln shares the process with them in two
+ways.
+
+**Finding functions.** Kiln matches its signatures against the exe's code **as the file on disk has it**, not the
+live code, and hooks the live address (details: [../sigport.md](../sigport.md#which-bytes-the-core-matches-the-exe-file-not-the-live-code)).
+An engine that hooked first therefore hides nothing from Kiln. Before 2026-11-07, an Enshwick that started first
+turned off `chat.send`, `chat.receive`, `gameplay.discard`, `gameplay.intercept`, `quests.client_input` and
+`time.sync_probe`. These now resolve. kiln.log names every function whose live code differs from the file, and what
+it jumps to:
+
+```
+[kiln] sigdb: symbol gameplay/InventoryTransfer matched on the file's code; its live bytes differ at rva 0x19e860 (jmp to enshwick.dll+0x11ea80): hooked or patched by someone else
+```
+
+`sigdb-report.json` lists the same symbols under `code.live_differs_symbols`, with a `"live"` entry on each. If the
+file can't be used (unreadable, or a different build than the one loaded), Kiln scans the live code as before and
+logs a warning.
+
+**Hooking the same function.** Kiln's hooks use safetyhook. safetyhook decodes at least 5 bytes at the target and
+moves them into its trampoline. A `jmp rel32` (E9, Enshwick's 5-byte hook) or a `jmp [rip+0]` (FF 25, a 14-byte
+absolute hook) there is IP-relative, so it is copied with its displacement rewritten. The trampoline still reaches
+the other engine's hook. A call then runs:
+
+1. the hook armed last (Kiln's, when the other engine started first);
+2. its call to the original, which enters the other engine's hook;
+3. the real function, once.
+
+Mid hooks behave the same way. When Kiln unhooks a function the other engine hooked *before* Kiln, Kiln restores the
+other engine's `jmp`. Enshwick's decoder does the same with Kiln's `jmp` when Kiln hooks first.
+`native/spikes/hookchain/run.sh` (Wine, no game) checks all of these cases.
+
+The other order is not safe to undo. safetyhook's unhook writes its saved bytes back without checking them. If Kiln
+hooked first and another engine hooked over Kiln's `jmp`, a Kiln unhook removes the other engine's hook too, and the
+other engine's trampoline then leads into freed memory. Kiln's hooks stay armed for the life of the process, so this
+only matters for the few that a service turns off at runtime (npcai's lifetime observers).
+
+One limit: safetyhook needs its trampoline within ±2 GB of both the target and the other engine's relay (a 5-byte
+`jmp` already keeps the relay within ±2 GB of the target). If no such memory is free, safetyhook falls back to a
+14-byte absolute hook, which refuses to move an IP-relative instruction. The hook then fails, and kiln.log says
+`hooks: safetyhook could not detour <address>` (or a service names the hook it could not arm). The other engine's
+hook keeps working.
+
+What can still clash is **code patches**: two engines changing the same bytes in place, not a hook. Enshwick compares
+the bytes before it patches and skips a patch when Kiln got there first ([enshwick.md](enshwick.md#hooks-next-to-kiln)).
+
 ## Status files and logs
 
 Each plugin writes `kiln/state/<engine>.json` (every mod, its status and reason) and logs under its own tag in

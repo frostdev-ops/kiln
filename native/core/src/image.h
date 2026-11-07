@@ -18,6 +18,10 @@ struct ImageInfo {
     uint32_t timestamp = 0; // COFF TimeDateStamp
     uint32_t side = KILN_SIDE_SERVER;  // KILN_SIDE_*: from the PDB name, else the exe file name
     std::string side_source;           // what decided the side ("pdb enshrouded.pdb", "exe name ...", "default")
+    // The exe file as on disk, mapped copy-on-write for the life of the process (writes stay private): the bytes the
+    // sha256 is taken over, and the .text sigdb scans (sigdb.cpp). Null when the file could not be mapped.
+    uint8_t* file = nullptr;
+    size_t file_size = 0;
 };
 
 // "server" / "client": the sigdb definitions (<side>.json), build records (builds/<side>/) and kiln.json section.

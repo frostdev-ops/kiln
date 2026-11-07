@@ -39,6 +39,68 @@ Edits keep the files' hand formatting: values are replaced in place (`defs.py` l
 (`client.json` + `client.d` overlays of `server.d`), a changed symbol that comes from a shared `server.d` file goes into
 the `client.d/<x>.json` overlay (created with `"extends"` if needed), so a client port never edits server definitions.
 
+## Which bytes the core matches: the exe file, not the live code
+
+sigport and `sigdb_check.py` read the exe file. Since 2026-11-07 the core's resolver (`native/core/src/sigdb.cpp`)
+does too, so the patterns sigport writes match the same bytes in the game:
+
+- `init_image` maps the exe once, copy-on-write, for the life of the process. It hashes the build's sha256 over that
+  view, so the file is still read only once.
+- sigdb parses the view's `.text` (`native/core/src/pe_text.h`) and applies the base relocations that touch `.text` to
+  its private copy, with the delta between the preferred `ImageBase` (0x140000000) and the live base. Under Wine the
+  server loads at 0x6FFFFC670000. Neither the server nor the client has a fixup in `.text` today, but if one is
+  added, the copy still equals the live code.
+- Every pattern scans that copy. A hit at file offset `o` becomes the live address `base + text_rva + (o - text_raw)`.
+  A rel32 hole's target is computed from that live address. d8/d16/d32/s32 holes are instruction bytes, which are the
+  same in both copies once relocated. Scopes work the other way round: a scope symbol's live address is translated
+  into the copy.
+- The uniqueness rule (exactly one hit), constant votes, fixed values, features, build records and the
+  verified-build policy are unchanged. They run on the same results.
+- **Fallback.** sigdb scans the live `.text` as before, and logs a warning, when the file can't be mapped or parsed,
+  its `.text` isn't the loaded one (RVA or size differ), or more than 1% of its bytes differ from the live code.
+- **Speed.** Unscoped strategies (each one a scan of all of `.text`) run up front on up to 8 threads. The copy can't
+  change under them, even while another engine is still writing its hooks into the live code.
+
+What it buys: an engine that hooks first (Enshwick, EMF, ShroudForge, SET, a shroudlink core) writes a `jmp` over
+the prologue of the functions it hooks. A pattern that covers such a prologue no longer matches the live code, but it
+still matches the file. See [engines/README.md](engines/README.md#when-another-engine-hooks-first).
+
+**Diagnostics.** After resolving, sigdb compares each resolved symbol's matched bytes, and the first 5 bytes at its
+address, with the live code. Where they differ, someone hooked or patched that function before Kiln looked. sigdb
+follows the live `jmp` (relays and trampolines too) to the module it ends in:
+
+```
+[kiln] sigdb: scanning the exe file's code (.text 0xbd3bcc bytes, 0 base relocations applied); live code differs in 147 bytes, 28 runs (hooks or patches made before this check) (0.8 ms)
+[kiln] sigdb: symbol chat/ChatLogAdd matched on the file's code; its live bytes differ at rva 0x9151f0 (jmp to 0x5590240): hooked or patched by someone else
+[kiln] sigdb: symbol gameplay/InventoryTransfer matched on the file's code; its live bytes differ at rva 0x19e860 (jmp to enshwick.dll+0x11ea80): hooked or patched by someone else
+[kiln] sigdb: 432/432 symbols, 529/529 constants resolved in 90.3 ms
+[kiln] sigdb: 11 symbols resolved on the file's code whose live bytes differ (hooked first by someone else; Kiln's hooks chain behind theirs)
+```
+
+(A lab server with Enshwick started first. A bare address means the jmp ends in a relay stub outside any module.
+"bytes changed in place" means a patch, not a jmp. With no other engine, the 14 differing bytes are the proxy's entry
+gate, which touches no symbol.)
+
+**Boot time** (lab server, interleaved runs of the same lab with only kiln-core.dll swapped): sigdb 653–677 ms on
+the live scan before, 90–93 ms after. Most of the gain comes from the parallel unscoped scans; the file check
+costs 0.8 ms. Kiln's boot (`starting` to `boot complete`) went from 1241–1444 ms to 607–713 ms. Hashing is
+unchanged (60–71 ms), now from the mapped view.
+
+`sigdb-report.json` carries the same information:
+
+- a top-level `"code"` object: `source` (`disk` or `live`), `note`, `base_relocations_applied`, `live_differs_bytes`,
+  `live_differs_runs` and `live_differs_symbols`;
+- per symbol, `"live": {"differs_at": "<rva>", "by": "jmp to <module>+0x..."}`.
+
+Mod fragments (`kiln.hooks` `LoadSymbols`) resolve the same way at runtime. Kiln's own hooks are armed by then, so a
+fragment report also lists the functions Kiln hooked (`by: jmp to kiln-core.dll+...`). The hooks API's `Scan` and
+`ScanHole` (`h_scan`, `h_scan_hole`) also match on the file's code and return live addresses.
+
+Tests: `native/core/tests/test-sigdisk.sh [--server <exe>] [--client <exe>]` covers parsing, relocations (a test PE
+loaded at another base, including a fixup that straddles the end of `.text`), translation and rel32 captures. With
+the exes, it also hooks every resolved function in a copy and shows that a live scan loses them while the file scan
+keeps them all.
+
 ## How it works
 ### 1. Function features (`exeinfo.py`, cached per exe sha in `~/.cache/kiln/sigport/`)
 Functions from `.pdata` with chained unwind entries folded into their primary function, plus leaf functions found as

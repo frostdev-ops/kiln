@@ -13,12 +13,19 @@
 // Fragments: a mod may ship its own definitions (kiln.hooks loads <mod>/sigdb/server.json). Every name a fragment
 // defines or captures carries the prefix "<id>/" (probes "@<id>/"); its strategies may be scoped to core symbols.
 // A fragment resolves against the running exe with exactly the rules above, in its own namespace, at runtime.
+//
+// Which bytes: patterns match the exe's .text as the file on disk has it (mapped once by init_image, relocated like
+// the live image), and each hit is translated to its live address (image base + RVA). Another engine's inline hook
+// (a jmp over a prologue) therefore cannot hide a function from Kiln. When the file can't be used (unreadable, or its
+// .text is not the loaded one) the live .text is scanned, as before. A symbol whose live bytes differ from the file's
+// is reported (kiln.log, sigdb-report.json "live"): someone hooked or patched it.
 #pragma once
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "common.h"
+#include "sigdb_pattern.h"  // Hole, Pattern, parse_pattern, scan, hole_value
 
 namespace kiln::sigdb {
 
@@ -50,21 +57,10 @@ bool any_symbol(std::string_view name, uintptr_t* out);
 bool any_constant(std::string_view name, int64_t* out);
 bool any_feature(std::string_view name);
 
-// Exposed for tests and kiln.hooks.
-struct Hole {
-    std::string name;
-    enum Kind { U8, U16, U32, S32, Rel32 } kind;
-    size_t offset;
-    size_t width;
-};
-struct Pattern {
-    std::vector<int> bytes;  // -1 = any byte
-    std::vector<Hole> holes;
-    size_t anchor_offset = 0, anchor_length = 0;
-};
-bool parse_pattern(std::string_view text, Pattern& out, std::string& error);
-std::vector<const uint8_t*> scan(const Pattern& p, const uint8_t* begin, const uint8_t* end, size_t limit);
-// Value of hole `name` in a match of `p` at `match` (rel32: the absolute target). False when there is no such hole.
-bool hole_value(const Pattern& p, const uint8_t* match, std::string_view name, int64_t* out);
+// The code sigdb scans (see above), for kiln.hooks' scan API: matches of `p` in .text as live addresses, at most
+// `limit`, and a hole's value at a live match address, read from the same bytes the match was found in.
+std::vector<uintptr_t> scan_code(const Pattern& p, size_t limit);
+bool hole_value_at(const Pattern& p, uintptr_t live_match, std::string_view name, int64_t* out);
+bool code_from_disk();  // true when the file's .text is in use, false on the live fallback
 
 }  // namespace kiln::sigdb

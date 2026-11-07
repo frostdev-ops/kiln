@@ -3,6 +3,7 @@
 
 #include <bcrypt.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -14,34 +15,67 @@ namespace {
 
 ImageInfo g_image;
 
-std::string sha256_file(const std::filesystem::path& file) {
+std::string hex_digest(const uint8_t (&digest)[32]) {
+    std::string hex;
+    char b[3];
+    for (uint8_t d : digest) {
+        std::snprintf(b, sizeof b, "%02x", d);
+        hex += b;
+    }
+    return hex;
+}
+
+// Hashes `size` bytes at `data`, or (data == nullptr) the file read in 1 MiB chunks.
+std::string sha256_of(const std::filesystem::path& file, const uint8_t* data, size_t size) {
     BCRYPT_ALG_HANDLE alg = nullptr;
     BCRYPT_HASH_HANDLE hash = nullptr;
     std::string hex;
     if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) != 0) return hex;
     if (BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0) == 0) {
-        HANDLE h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                               FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        if (h != INVALID_HANDLE_VALUE) {
-            std::vector<uint8_t> buf(1 << 20);
-            DWORD got = 0;
-            bool ok = true;
-            while (ReadFile(h, buf.data(), static_cast<DWORD>(buf.size()), &got, nullptr) && got)
-                ok = ok && BCryptHashData(hash, buf.data(), got, 0) == 0;
-            CloseHandle(h);
-            uint8_t digest[32];
-            if (ok && BCryptFinishHash(hash, digest, sizeof digest, 0) == 0) {
-                char b[3];
-                for (uint8_t d : digest) {
-                    std::snprintf(b, sizeof b, "%02x", d);
-                    hex += b;
-                }
+        bool ok = true, read = true;
+        if (data) {
+            for (size_t off = 0; ok && off < size; off += 1 << 24) {
+                const ULONG n = static_cast<ULONG>(std::min<size_t>(size - off, 1 << 24));
+                ok = BCryptHashData(hash, const_cast<PUCHAR>(data + off), n, 0) == 0;
+            }
+        } else {
+            HANDLE h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                                   OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+            read = h != INVALID_HANDLE_VALUE;
+            if (read) {
+                std::vector<uint8_t> buf(1 << 20);
+                DWORD got = 0;
+                while (ReadFile(h, buf.data(), static_cast<DWORD>(buf.size()), &got, nullptr) && got)
+                    ok = ok && BCryptHashData(hash, buf.data(), got, 0) == 0;
+                CloseHandle(h);
             }
         }
+        uint8_t digest[32];
+        if (read && ok && BCryptFinishHash(hash, digest, sizeof digest, 0) == 0) hex = hex_digest(digest);
         BCryptDestroyHash(hash);
     }
     BCryptCloseAlgorithmProvider(alg, 0);
     return hex;
+}
+
+// Maps the exe copy-on-write for the life of the process: sigdb scans its .text (another engine's hooks in the live
+// code don't show there), and the sha256 is taken over the same bytes, so the file is read once.
+bool map_file(const std::filesystem::path& file) {
+    HANDLE h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size{};
+    HANDLE m = GetFileSizeEx(h, &size) && size.QuadPart > 0
+                   ? CreateFileMappingW(h, nullptr, PAGE_WRITECOPY, 0, 0, nullptr)
+                   : nullptr;
+    CloseHandle(h);  // the mapping keeps the file open
+    if (!m) return false;
+    void* view = MapViewOfFile(m, FILE_MAP_COPY, 0, 0, 0);
+    CloseHandle(m);  // the view keeps the mapping
+    if (!view) return false;
+    g_image.file = static_cast<uint8_t*>(view);
+    g_image.file_size = static_cast<size_t>(size.QuadPart);
+    return true;
 }
 
 struct CvInfo {
@@ -117,7 +151,8 @@ bool init_image() {
     }
     detect_side();
     const double t0 = now_ms();
-    g_image.sha256 = sha256_file(paths().exe);
+    if (map_file(paths().exe)) g_image.sha256 = sha256_of(paths().exe, g_image.file, g_image.file_size);
+    else g_image.sha256 = sha256_of(paths().exe, nullptr, 0);  // sigdb falls back to the live code
     KLOG_I("game image: base=%p size=0x%zx .text=0x%zx bytes sha256=%s codeview=%s (hashed in %.0f ms)",
            reinterpret_cast<void*>(g_image.base), g_image.size, g_image.text_size, g_image.sha256.c_str(),
            g_image.codeview.empty() ? "-" : g_image.codeview.c_str(), now_ms() - t0);

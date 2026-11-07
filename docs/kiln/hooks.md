@@ -54,6 +54,8 @@ Hooks.Mid("GetEntityTransform", (ref Registers r) => Log.Info($"entity arg r8 = 
 - `Symbols.Get(name)` / `TryGet` — a sigdb symbol's absolute address (core names, or `<modid>/name` from a shipped
   fragment). `Symbols.Find(pattern)` / `FindAll` — scan the image with sigdb pattern syntax (holes act as wildcards).
   `Symbols.Hole(pattern, match, hole)` — read a captured hole (rel32 gives the absolute target). `Symbols.ImageBase`.
+  Like sigdb, `Find` and `Hole` match the exe file's code and return live addresses, so another engine's hooks don't
+  hide a match ([sigport.md](sigport.md#which-bytes-the-core-matches-the-exe-file-not-the-live-code)).
 - `Constants.Get(name)` — a sigdb layout constant.
 
 ## Mod-shipped symbols (coremods that survive game updates)

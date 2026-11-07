@@ -239,15 +239,14 @@ KilnResult KILN_CALL h_scan(KilnStr pattern, uintptr_t* out, uint32_t cap, uint3
     sigdb::Pattern p;
     std::string err;
     if (!sigdb::parse_pattern(sv(pattern), p, err)) return KILN_ERR_INVALID_ARGUMENT;
-    const uint8_t* begin = image().text;
-    const uint8_t* end = begin + image().text_size;
-    const auto hits = sigdb::scan(p, begin, end, cap ? cap + 1u : 64u);
+    // The exe file's code (sigdb.h), so another engine's hooks don't hide a match; the hits are live addresses.
+    const auto hits = sigdb::scan_code(p, cap ? cap + 1u : 64u);
     if (hits.empty()) {
         if (count) *count = 0;
         return KILN_ERR_NOT_FOUND;
     }
     const uint32_t writable = out ? std::min<uint32_t>(cap, static_cast<uint32_t>(hits.size())) : 0;
-    for (uint32_t i = 0; i < writable; ++i) out[i] = reinterpret_cast<uintptr_t>(hits[i]);
+    for (uint32_t i = 0; i < writable; ++i) out[i] = hits[i];
     if (count) *count = writable;
     return hits.size() > cap ? KILN_ERR_BUFFER_TOO_SMALL : KILN_OK;
 }
@@ -257,7 +256,7 @@ KilnResult KILN_CALL h_scan_hole(KilnStr pattern, uintptr_t match, KilnStr hole,
     std::string err;
     if (!sigdb::parse_pattern(sv(pattern), p, err)) return KILN_ERR_INVALID_ARGUMENT;
     if (match < image().base || match >= image().base + image().size) return KILN_ERR_INVALID_ARGUMENT;
-    return sigdb::hole_value(p, reinterpret_cast<const uint8_t*>(match), sv(hole), out) ? KILN_OK : KILN_ERR_NOT_FOUND;
+    return sigdb::hole_value_at(p, match, sv(hole), out) ? KILN_OK : KILN_ERR_NOT_FOUND;
 }
 
 KilnResult KILN_CALL h_load_symbols(KilnOwner owner, KilnStr modid, KilnStr json_path, KilnHooksSigSummary* summary) {

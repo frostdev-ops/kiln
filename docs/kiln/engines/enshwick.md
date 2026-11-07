@@ -93,23 +93,28 @@ All of these work exactly as under Enshwick, because they are Enshwick's code:
 
 ## Hooks next to Kiln
 
-Enshwick and Kiln each find game code by byte patterns in the live code, and each arms its own inline hooks: Enshwick
-a 5-byte `jmp` to a relay, Kiln safetyhook detours. Each decoder moves a prologue that already begins with the other's
-jump into its trampoline, so on a function both hook, both chains run, in the order they were armed. Matching is the
-weak spot. A pattern that covers a prologue the other side has already hooked no longer matches. Measured on a lab
-server (Steam build 26430253):
+Enshwick finds game code by byte patterns in the live code. Kiln matches its patterns against the exe file's code and
+hooks the live address ([../sigport.md](../sigport.md#which-bytes-the-core-matches-the-exe-file-not-the-live-code)).
+Each arms its own inline hooks: Enshwick a 5-byte `jmp` to a relay, Kiln safetyhook detours. Each decoder moves a
+prologue that already begins with the other's jump into its trampoline, so on a function both hook, both chains run,
+in the order they were armed. Matching was the weak spot: a pattern that covers a prologue the other side has already
+hooked no longer matches the live code. Kiln has matched on the file since 2026-11-07, so it is now only Enshwick's
+weak spot. Measured on a lab server (Steam build 26430253):
 
 | Start | Enshwick entries found | Kiln symbols / features |
 |---|---|---|
 | Enshwick alone (its own stub, Kiln off) | 580 of 580 | - |
 | Kiln first (`"start": "ready"`) | 528 of 580: content off; chat, daytime, events, game events, saves, textures partly or wholly off | 432 / 139, all |
-| Enshwick first (`"start": "early"`, the default; also Enshwick's own stub next to Kiln) | 580 of 580 | 426 / 133: off are `chat.send`, `chat.receive`, `gameplay.discard`, `gameplay.intercept`, `quests.client_input`, `time.sync_probe` |
+| Enshwick first (`"start": "early"`, the default; also Enshwick's own stub next to Kiln), Kiln before 2026-11-07 (live scan) | 580 of 580 | 426 / 133: off are `chat.send`, `chat.receive`, `gameplay.discard`, `gameplay.intercept`, `quests.client_input`, `time.sync_probe` |
+| Enshwick first, Kiln matching on the exe file | 580 of 580 (28 hook targets armed) | 432 / all. kiln.log names the 11 symbols whose live code Enshwick changed (`sigdb: symbol ... live bytes differ ... (jmp to enshwick.dll+...)`) |
 
-The default keeps Enshwick whole, which data packs need (they go through its content feature). The Kiln features that
-go off are the ones whose functions Enshwick hooks: chat lines, inventory transfers and discards, knowledge input and
-the server-info send. The same happens today when Enshwick's own stub runs next to Kiln. The full fix is on Kiln's side:
-match signatures against the exe's code as it is on disk and hook the live address. Until then, choose
-`"start": "ready"` when those Kiln features matter more than Enshwick's content.
+The default, `"early"`, keeps both whole: Enshwick finds all its entries, and Kiln resolves every symbol from the
+file. Kiln's hooks on the functions Enshwick hooked (chat lines, inventory transfers and discards, knowledge input,
+the server-info send, the resource service) chain behind Enshwick's. In the lab, Kiln's settings and assets hooks ran on
+functions Enshwick had hooked first, and Enshwick's content feature served its data pack through the same resource
+functions. The same holds when Enshwick's own stub runs
+next to Kiln. `"start": "ready"` (Kiln first) still costs Enshwick the entries listed above, because Enshwick scans
+the live code.
 
 | Other overlap | What happens |
 |---|---|
