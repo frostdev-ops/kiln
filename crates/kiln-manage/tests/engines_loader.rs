@@ -21,7 +21,8 @@ fn a_registered_loader_takes_its_kind() {
     std::fs::write(d.join("mod.json"), br#"{"id":"find","name":"Find","version":"1.0.0","dll":"find.dll"}"#).unwrap();
     std::fs::write(d.join("find.dll"), build_test_dll(&["GreeneyeModStart"], b"")).unwrap();
     let dirs = DataDirs::at(t.join("data"));
-    assert!(engines::register_loader(DetectKind::Greeneye, Loader { name: "test", import: record_skip }).is_none());
+    // replaces the built-in importer (engine_mods) for this test binary
+    assert_eq!(engines::register_loader(DetectKind::Greeneye, Loader { name: "test", import: record_skip }).map(|l| l.name), Some("kiln-greeneye"));
     assert!(DetectKind::Greeneye.importable());
     assert!(library::detect(&d).unwrap().reason.contains("Library importer: test"));
     let rep = library::import(&dirs, std::slice::from_ref(&d), &mut NoProgress).unwrap();

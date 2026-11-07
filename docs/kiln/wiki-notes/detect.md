@@ -11,10 +11,12 @@ What changed for players:
   (EML, SET, Greeneye, Shroudtopia, Live Map, Shared XP) are left alone.
 - **The Library says what a file is.** Mods for EML, ShroudForge, SET, Enshwick, Greeneye, Shroudtopia and Flame
   (Creative Mode), saves, Cheat Engine tables, ReShade presets, `.kfc` files and `.asi` plugins are recognised. When
-  Kiln can't load one yet, it says which engine it is for and that support is coming. These files are no longer
+  Kiln can't import one yet, it says which engine it is for and that no Library importer is registered. These files are no longer
   imported as plain DLLs that never start.
+- **EML packages keep their identity.** `capabilities` is shared by EML and ShroudForge. `mod.json` plus `src/mod.lua`
+  is EML unless the package has SF-specific metadata; a legacy extension with `launcher: "EML"` stays EML.
 
 Suggested guide text (FAQ, "I dropped a mod and it was skipped"):
-> Kiln tells you what the file is made for. "a Greeneye Loader mod. Kiln can't run Greeneye Loader mods yet; support
-> is coming" means the mod needs that engine. Kiln is adding the engines one by one. Until then, keep using the
-> engine's own loader: Kiln chains it and doesn't remove it.
+> Kiln tells you what the file is made for. "Kiln can't import Greeneye Loader mods into the Library yet; no importer
+> is registered" describes Library support. Keep the mod in its engine's game-folder layout and use that engine's
+> loader, or a compatible Kiln runtime plugin. Kiln chains loaders displaced from dinput8.dll and preserves the others.

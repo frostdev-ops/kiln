@@ -8,18 +8,19 @@ import { useMemo, useState } from "react";
 import * as api from "../api/commands";
 import type { Detected, ImportReport, LibraryEntry, ModKind } from "../api/commands";
 import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
+import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, isEngineKind } from "../api/kinds";
 import { useAddMods } from "../shell/drop";
 import {
-  Badge, Button, ConfirmDanger, DropZone, EmptyState, Menu, Modal, NameId, Page, PageHeader, Segmented, Skeleton, SplitPage, Table, WellInput,
-  errorText, fmtAgo, fmtBytes, runTask, shortHash, toast, type Column, type Tone,
+  Badge, Button, ConfirmDanger, DropZone, EmptyState, Menu, Modal, NameId, Page, PageHeader, Segmented, Select, Skeleton, SplitPage, Table, WellInput,
+  errorText, fmtAgo, fmtBytes, runTask, shortHash, toast, type Column,
 } from "../ui";
 
-type KindFilter = "all" | ModKind;
-const KIND_LABEL: Record<ModKind, string> = { kiln: "Kiln", native: "Native", emf: "EMF", plugin: "Plugin" };
-const KIND_TONE: Record<ModKind, Tone> = { kiln: "ember", native: "info", emf: "ok", plugin: "idle" };
+// "engines": every other engine's kind (the Engine select narrows it to one)
+type KindFilter = "all" | "engines" | ModKind;
 // a zip or folder holding mods in subfolders (a KilnPack's <id>/ folder) detects as unknown with items: the import takes them
 const importable = (d: Detected): boolean =>
-  ["kiln", "native", "plugin", "emf", "bare-dll", "modpack"].includes(d.kind) || (d.kind === "unknown" && d.items.some(importable));
+  ["kiln", "native", "plugin", "emf", "bare-dll", "modpack", ...IMPORTED_KINDS].includes(d.kind) || (d.kind === "unknown" && d.items.some(importable));
+const kindMatch = (f: KindFilter, k: ModKind) => f === "all" || f === k || (f === "engines" && isEngineKind(k) && k !== "emf");
 
 export default function LibraryPage() {
   const qc = useQueryClient();
@@ -38,7 +39,9 @@ export default function LibraryPage() {
   const toProfile = settings.data?.addToActiveProfile !== false;
 
   const all = lib.data ?? [];
-  const rows = useMemo(() => all.filter((e) => (kind === "all" || e.kind === kind) && (!q || (e.name + e.id).toLowerCase().includes(q.toLowerCase()))), [all, kind, q]);
+  const engineKinds = ENGINE_KINDS.filter((k) => all.some((e) => e.kind === k));
+  const engineFilter = kind === "engines" || ENGINE_KINDS.includes(kind as ModKind);
+  const rows = useMemo(() => all.filter((e) => kindMatch(kind, e.kind) && (!q || (e.name + e.id).toLowerCase().includes(q.toLowerCase()))), [all, kind, q]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["library_list"] });
   const unusedMods = all.filter((e) => usage.count(e.kind, e.id) === 0).length;
 
@@ -76,7 +79,8 @@ export default function LibraryPage() {
 
   const cols: Column<LibraryEntry>[] = [
     { key: "name", header: "Mod", sort: (a, b) => a.name.localeCompare(b.name), render: (e) => <NameId name={e.name} id={e.id} /> },
-    { key: "kind", header: "Kind", width: "56px", sort: (a, b) => a.kind.localeCompare(b.kind), render: (e) => <Badge tone={KIND_TONE[e.kind]}>{KIND_LABEL[e.kind]}</Badge> },
+    { key: "kind", header: "Kind", width: engineKinds.length ? "96px" : "56px", sort: (a, b) => a.kind.localeCompare(b.kind),
+      render: (e) => <Badge tone={KIND_TONE[e.kind]} title={isEngineKind(e.kind) && e.kind !== "emf" ? `${KIND_NAME[e.kind]} mod, run by Kiln` : undefined}>{KIND_SHORT[e.kind]}</Badge> },
     { key: "ver", header: "Version", width: "150px", render: (e) => {
       const v = e.versions[0];
       return v ? (
@@ -106,13 +110,18 @@ export default function LibraryPage() {
   return (
     <Page fill>
       <SplitPage aside={<>
-        <DropZone onPaths={onPaths} title="Drop mods" hint="Zip, folder or DLL. Kiln, native, EMF, plugins, modpacks." pickFolder busy={importing ? "Firing" : undefined}
+        <DropZone onPaths={onPaths} title="Drop mods" hint="Zip, folder or DLL. Kiln, native, EMF, plugins, modpacks, and other engines' mods." pickFolder busy={importing ? "Firing" : undefined}
           pick={{ filters: [{ name: "Mods", extensions: ["zip", "dll"] }] }} />
         <p className="k-hint" style={{ fontSize: 16 }}>{toProfile ? "It goes into the active profile too. Drops anywhere on the window do the same." : "Kiln reads what it is first, then imports it by version. Nothing reaches a profile until you add it."}</p>
       </>}>
         <PageHeader title="Library" sub={say} actions={<Button onClick={() => setGc(unused())} disabled={!usage.ready || !all.length}>Clean up</Button>} />
         <div className="k-row" style={{ gap: "8px 20px" }}>
-          <Segmented aria-label="Kind" value={kind} onChange={setKind} options={[{ id: "all", label: "All" }, { id: "kiln", label: "Kiln" }, { id: "native", label: "Native" }, { id: "emf", label: "EMF" }, { id: "plugin", label: "Plugin" }]} />
+          <Segmented aria-label="Kind" value={engineFilter ? "engines" : kind} onChange={setKind} options={[{ id: "all", label: "All" }, { id: "kiln", label: "Kiln" }, { id: "native", label: "Native" }, { id: "emf", label: "EMF" }, { id: "plugin", label: "Plugin" },
+            ...(engineKinds.length ? [{ id: "engines" as const, label: "Other engines" }] : [])]} />
+          {engineFilter && engineKinds.length > 1 && (
+            <Select aria-label="Engine" value={kind} onChange={(v) => setKind(v as KindFilter)} style={{ height: 32, width: 200 }}
+              options={[{ value: "engines", label: "Every engine" }, ...engineKinds.map((k) => ({ value: k, label: KIND_NAME[k] }))]} />
+          )}
           <WellInput label="Filter" compact value={q} onChange={(e) => setQ(e.target.value)} wellStyle={{ flex: "1 1 140px", marginLeft: "auto" }} />
         </div>
         {lib.isLoading ? <Skeleton lines={6} /> : lib.error ? <EmptyState title="The library is not readable" hint={errorText(lib.error)} /> : (

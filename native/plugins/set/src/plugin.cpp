@@ -28,6 +28,7 @@
 #include "kiln_api.h"
 #include "level.h"
 #include "lua_api.h"
+#include "services/kiln_profile.h"
 #include "services/kiln_ui.h"
 
 namespace kset {
@@ -144,6 +145,17 @@ void KILN_CALL on_ready(void*) {
     if (!g_aside.empty()) {
         log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
         return;
+    }
+    // play-once without mods and an invalid profile load no mod of any engine (the launcher places a profile's SET
+    // mods in shrouded_engine_tweaks/mods, so an active profile needs nothing else here)
+    if (const auto* prof = static_cast<const KilnProfileApi*>(
+            g_api->service(KilnStr{KILN_PROFILE_SERVICE, sizeof(KILN_PROFILE_SERVICE) - 1}, 1))) {
+        const uint32_t mode = prof->mode();
+        if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) {
+            log(KILN_LOG_INFO, std::string("kiln-set: no SET mods this start (") +
+                                   (mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid") + ")");
+            return;
+        }
     }
     const std::string missing = kset::bind(g_api);
     if (!missing.empty()) log(KILN_LOG_WARN, "kiln-set: unavailable here: " + missing + " (the matching Lua functions raise an error)");

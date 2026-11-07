@@ -55,7 +55,11 @@ export type GameId = string;
 export type ProfileId = string;
 export type ServerId = string;
 export type TaskId = string;
-export type ModKind = "kiln" | "native" | "plugin" | "emf";
+/** kiln_manage::manifest::ModKind: Kiln's own four, then other engines' mods (eml ... shroudtopia run by Kiln's engine
+ *  plugins), then the reserved kinds (no importer yet). Labels and helpers: ./kinds.ts. */
+export type ModKind = "kiln" | "native" | "plugin" | "emf"
+  | "eml" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
+  | "enshwick" | "shroudlink" | "ember";
 export type Side = "server" | "client" | "both";
 export type RunSide = "server" | "client";
 export type Clients = "none" | "kiln" | "mod";
@@ -965,6 +969,43 @@ export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) =>
  *  but none is active in this game. */
 export const profileEnsureDefault = (gameId: GameId) => call<Activation | null>("profile_ensure_default", { gameId });
 
+// engines.rs: other engines' mods (docs/kiln/engines.md)
+/** kiln_manage::engine_mods::EngineSettings. `format` "extended.mod.json" (ShroudForge: JSON Schema with x-kiln-* hints),
+ *  "shroudtopia.json" (schema derived from the values), or "none" (`note` says why). */
+export interface EngineSettings {
+  kind: ModKind;
+  /** The key the settings live under (Shroudtopia: the mod's key in shroudtopia.json `mods`). */
+  id: string;
+  format: "extended.mod.json" | "shroudtopia.json" | "none" | string;
+  file: string | null;
+  schema: Json;
+  values: Json;
+  note?: string | null;
+}
+/** One engine plugin's state file `kiln/state/<engine>.json` (null: not written yet). */
+export interface EngineStatus {
+  kind: ModKind;
+  plugin: string;
+  state: Json | null;
+  file: string;
+}
+/** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
+export interface EmlBackup {
+  file: string;
+  backup: string;
+  patched: boolean;
+}
+export const engineSettingsGet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null = null) =>
+  call<EngineSettings>("engine_settings_get", { kind, id, profileId, gameId });
+/** One top-level key; rejects with `unsupported` for kinds without settings, `not_found` for a ShroudForge mod not
+ *  placed yet (activate the profile first). */
+export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null, key: string, value: Json) =>
+  call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
+export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
+export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
+/** Copies each `.kfc.bak` over its patched `.kfc`; the files restored. Rejects with game_running while the game runs. */
+export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1174,6 +1215,7 @@ export const COMMANDS = [
   "library_add", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_key_set", "nexus_key_clear", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
+  "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

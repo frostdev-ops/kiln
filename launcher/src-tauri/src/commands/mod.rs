@@ -17,6 +17,7 @@ pub mod modpack;
 pub mod update;
 pub mod deck;
 pub mod nexus;
+pub mod engines;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -152,6 +153,11 @@ pub const NAMES: &[&str] = &[
     "nexus_link_dismiss",
     "nexus_handler_status",
     "nexus_handler_set",
+    "engine_settings_get",
+    "engine_settings_set",
+    "engine_status",
+    "eml_backup",
+    "eml_restore",
 ];
 
 #[cfg(test)]

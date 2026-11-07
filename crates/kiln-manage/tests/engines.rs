@@ -46,7 +46,8 @@ fn eml_capabilities_and_legacy_extensions_do_not_imply_shroudforge() {
         let found = detect(&d);
         assert_eq!(found.kind, kind, "{found:?}");
         assert!(found.reason.contains(if kind == DetectKind::Eml { "EML" } else { "ShroudForge" }));
-        assert!(found.reason.contains("can't"), "the library has no importer: {found:?}");
+        assert!(found.reason.contains("Library importer"), "engine_mods imports it: {found:?}");
+        assert!(found.kind.importable());
     }
 }
 
@@ -164,7 +165,7 @@ fn every_engine_kind_is_detected_with_its_reason() {
             put(&d, "creative.dll", &build_test_dll(&["FlameStartRuntime"], b""));
             put(&d, "sigs/26430625.json", b"{}");
             d
-        }, DetectKind::Flame, Some(Engine::Flame), "Creative Mode: a Flame mod. Kiln can't import Flame mods into the Library yet; no importer is registered"),
+        }, DetectKind::Flame, Some(Engine::Flame), "Creative Mode: a Flame mod (Library importer: kiln-flame)"),
         // ShroudForge package: EML layout + extended.mod.json
         ({
             let d = r.join("sfpkg");
@@ -234,7 +235,9 @@ fn every_engine_kind_is_detected_with_its_reason() {
         assert_eq!((d.kind, d.engine), (kind, engine), "{}: {}", path.display(), d.reason);
         assert!(d.reason.contains(words), "{}: {:?} lacks {words:?}", path.display(), d.reason);
         assert!(!d.reason.ends_with('.'), "{}: the launcher adds the period: {:?}", path.display(), d.reason);
-        assert!(!d.kind.importable(), "{}: no loader is registered for {:?}", path.display(), d.kind);
+        // importable: the engine kinds Kiln runs (engine_mods); never the reserved kinds, loaders or files
+        let runs = kiln_manage::manifest::ModKind::of_detect(d.kind).is_some_and(|k| kiln_manage::engine_mods::IMPORTED.contains(&k));
+        assert_eq!(d.kind.importable(), runs, "{}: {:?}", path.display(), d.kind);
     }
     // Kiln's own kinds are untouched: a stand-alone dinput8 mod and a plain DLL stay bare DLLs
     assert_eq!(detect(&put(r, "s/dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"sprint toggle"))).kind, DetectKind::BareDll);
@@ -242,7 +245,8 @@ fn every_engine_kind_is_detected_with_its_reason() {
 }
 
 /// Creative Mode's zip as it is laid out: the Flame loader as dinput8.dll and mods/creative/. Before, both were imported
-/// as plain DLLs that never started; now neither is imported and the player reads why.
+/// as plain DLLs that never started; now the mod goes into the library as a Flame mod (kiln-flame runs it) and the
+/// loader is skipped with its reason.
 #[cfg(feature = "zip")]
 #[test]
 fn creative_mode_is_never_imported_as_plain_dlls() {
@@ -257,12 +261,14 @@ fn creative_mode_is_never_imported_as_plain_dlls() {
     assert_eq!(d.kind, DetectKind::Unknown);
     let kinds: Vec<(DetectKind, Option<Engine>)> = d.items.iter().map(|i| (i.kind, i.engine)).collect();
     assert_eq!(kinds, [(DetectKind::Proxy, Some(Engine::Flame)), (DetectKind::Flame, Some(Engine::Flame))]);
-    assert!(d.reason.contains("Flame"), "{}", d.reason);
+    assert!(d.reason.contains("1 importable item(s) and 1 Kiln can't load"), "{}", d.reason);
     let dirs = DataDirs::at(t.0.join("data"));
     let rep = library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap();
-    assert!(rep.imported.is_empty() && rep.existing.is_empty(), "{rep:?}");
-    assert_eq!(rep.skipped.len(), 2);
-    assert!(rep.skipped.iter().all(|s| s.reason.contains("not a mod to import") || s.reason.contains("no importer is registered")), "{:?}", rep.skipped);
-    assert!(library::list(&dirs, None).unwrap().is_empty());
+    assert_eq!(rep.imported.iter().map(|r| (r.kind, r.id.as_str())).collect::<Vec<_>>(), [(kiln_manage::manifest::ModKind::Flame, "creative")], "{rep:?}");
+    assert_eq!(rep.skipped.len(), 1);
+    assert!(rep.skipped[0].reason.contains("not a mod to import"), "{:?}", rep.skipped);
+    let l = library::list(&dirs, None).unwrap();
+    assert_eq!(l.len(), 1);
+    assert!(l[0].versions[0].folder.join("creative.dll").is_file() && l[0].versions[0].folder.join("flame.json").is_file());
 }
 

@@ -91,6 +91,9 @@ void parse(const std::string& text) {
                 bool known = false;
                 for (uint32_t i = 0; i < KILN_PROFILE_KINDS; ++i)
                     if (k.is_string() && k.get<std::string>() == kKinds[i]) drop |= 1u << i, known = true;
+                // engine kinds: their plugins read "dropins" from json() themselves
+                for (uint32_t i = 0; i < kEngineKindCount; ++i)
+                    if (k.is_string() && k.get<std::string>() == kEngineKinds[i]) known = true;
                 if (!known) bad("\"dropins\" holds an unknown kind " + k.dump());
             }
         } else if (!d.is_null()) {
@@ -98,12 +101,14 @@ void parse(const std::string& text) {
         }
     }
     if (!doc.contains("mods") || !doc["mods"].is_object()) bad("\"mods\" must be an object");
-    std::vector<Entry> mods[KILN_PROFILE_KINDS];
+    std::vector<Entry> mods[KILN_PROFILE_KINDS + kEngineKindCount];
     for (const auto& [kind_name, list] : doc["mods"].items()) {
-        uint32_t kind = KILN_PROFILE_KINDS;
+        uint32_t kind = KILN_PROFILE_KINDS + kEngineKindCount;
         for (uint32_t i = 0; i < KILN_PROFILE_KINDS; ++i)
             if (kind_name == kKinds[i]) kind = i;
-        if (kind == KILN_PROFILE_KINDS) {
+        for (uint32_t i = 0; i < kEngineKindCount; ++i)
+            if (kind_name == kEngineKinds[i]) kind = KILN_PROFILE_KINDS + i;
+        if (kind == KILN_PROFILE_KINDS + kEngineKindCount) {
             KLOG_W("profile: unknown mod kind \"mods.%s\" ignored (a newer launcher?)", kind_name.c_str());
             continue;
         }
@@ -134,18 +139,21 @@ void parse(const std::string& text) {
         g_state.data_dir_set = true;
     }
     std::error_code ec;
-    for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k) {
+    for (uint32_t k = 0; k < KILN_PROFILE_KINDS + kEngineKindCount; ++k) {
         for (auto& e : mods[k]) {
             const fs::path p = resolve(e.path);
             e.path = u8(p);
-            const bool present = k == KILN_PROFILE_KIND_PLUGIN ? fs::is_regular_file(p, ec) : fs::is_directory(p, ec);
+            // a Shroudtopia entry may name the mod DLL itself
+            const bool present = k == KILN_PROFILE_KIND_PLUGIN ? fs::is_regular_file(p, ec)
+                                 : fs::is_directory(p, ec) || (k >= KILN_PROFILE_KINDS && fs::is_regular_file(p, ec));
             if (!present) {
-                KLOG_W("profile: %s mod %s: %s %s is missing; skipped", kKinds[k], e.id.empty() ? "(plugin)" : e.id.c_str(),
+                KLOG_W("profile: %s mod %s: %s %s is missing; skipped", kind_name(k), e.id.empty() ? "(plugin)" : e.id.c_str(),
                        k == KILN_PROFILE_KIND_PLUGIN ? "DLL" : "folder", e.path.c_str());
                 g_state.missing.push_back({k, e.id, e.path});
                 continue;
             }
-            g_state.mods[k].push_back(std::move(e));
+            if (k < KILN_PROFILE_KINDS) g_state.mods[k].push_back(std::move(e));
+            else g_state.engine_mods[k - KILN_PROFILE_KINDS].push_back(std::move(e));
         }
     }
 }
@@ -194,7 +202,11 @@ const char* mode_name(uint32_t mode) {
     }
 }
 
-const char* kind_name(uint32_t kind) { return kind < KILN_PROFILE_KINDS ? kKinds[kind] : "?"; }
+const char* kind_name(uint32_t kind) {
+    if (kind < KILN_PROFILE_KINDS) return kKinds[kind];
+    if (kind < KILN_PROFILE_KINDS + kEngineKindCount) return kEngineKinds[kind - KILN_PROFILE_KINDS];
+    return "?";
+}
 
 bool dropins(uint32_t kind) { return kind < KILN_PROFILE_KINDS && (g_state.dropins & (1u << kind)) != 0; }
 
@@ -236,6 +248,12 @@ void load() {
     }
     set_config_dir(config);
     if (g_state.mode == KILN_PROFILE_ACTIVE || g_state.mode == KILN_PROFILE_ONCE) {
+        std::string engines;  // "eml 2, shroudforge 1": the lists each engine's plugin reads
+        for (uint32_t i = 0; i < kEngineKindCount; ++i)
+            if (!g_state.engine_mods[i].empty())
+                engines += (engines.empty() ? "" : ", ") + std::string(kEngineKinds[i]) + " " +
+                           std::to_string(g_state.engine_mods[i].size());
+        if (!engines.empty()) KLOG_I("profile: other engines' mods (their plugins load them): %s", engines.c_str());
         KLOG_I("profile: %s '%s'%s%s%s generation %llu from %s: %zu kiln, %zu native, %zu plugin, %zu emf mod(s), "
                "%zu missing, drop-ins %s",
                mode_name(g_state.mode), g_state.id.c_str(), g_state.name.empty() ? "" : " (", g_state.name.c_str(),

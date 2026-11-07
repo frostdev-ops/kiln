@@ -246,6 +246,7 @@ internal static partial class NetAdvertise
                 if (ClientsOf(manifest, "client") != "mod") continue;
                 if (NativeIdentity(manifest) is { } ident) candidates.Add(new Candidate("native", ident.Id, ident.Version, ident.Name, dir));
             }
+        candidates.AddRange(EngineCandidates(kilnRoot));  // other engines' mods (AdvertiseEngines.cs)
         var oldKilnClient = _kilnClientMods;
         _kilnClientMods = [.. kilnClient.Distinct()];
         _statedModClients = [.. statedMod.Distinct()];

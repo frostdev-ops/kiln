@@ -110,3 +110,46 @@ kiln_manage::engines::register_loader(DetectKind::Greeneye, Loader { name: "kiln
 below `dirs.library()`, then calls `library::commit_folder(dirs, prepared, ImportRecord { kind, .. }, report)`, or
 pushes a `Skipped` entry. With a loader registered, `DetectKind::importable()` is true, and the Deck, drops and Nexus
 installs take the kind.
+
+## Managing every engine's mods
+
+Code: `crates/kiln-manage/src/engine_mods.rs`; formats: [launcher/contracts.md](launcher/contracts.md) 5.1 ("Other
+engines' mods") and 5.8.
+
+- **Library.** `engines::builtin_loaders` registers `engine_mods::import_engine_mod` for `eml`, `shroudforge`, `set`,
+  `greeneye`, `flame` and `shroudtopia`. The item goes to `library/<kind>/<id>/<version>+<hash8>/` with its kdh1,
+  like a Kiln mod. A lone Greeneye or Shroudtopia DLL gets the `mod.json` its loader needs, a lone Flame DLL a
+  `flame.json`. `side`/`clients` come from the mod's `mod.json` when it states them, else the kind's default (EML,
+  ShroudForge, Flame: `both`/`mod`, since both sides need the same data; Greeneye: `client`/`none`; others
+  `both`/`none`). `enshwick`, `shroudlink` and `ember` are reserved kinds: still skipped with their reason.
+- **Profiles.** `ModKind` has one kind per engine, and `Profile.mods.<kind>` and profile.json `mods.<kind>` have one
+  list each. Activation writes each list for its plugin. ShroudForge and SET read only their own folder, so
+  activation copies the profile's mods there (`engine_mods::place`, marker `.kiln-library.json`). It sets ShroudForge's
+  `extended.mod.json` switch as the profile says, switches off Kiln's copies the profile dropped (their settings
+  stay), and removes Kiln's copies of SET mods that are off. A folder of the same name without the marker belongs to
+  the player and is never touched.
+- **Settings.** `engine_mods::settings` / `set_setting`. ShroudForge: the settings in `extended.mod.json` (the copy in
+  ShroudForge's mods folder), as a JSON Schema with Kiln's `x-kiln-*` hints. Shroudtopia: `mods.<key>` in
+  `<configDir>/shroudtopia/shroudtopia.json`, with the types taken from the values. EMF keeps its ini editor. EML,
+  SET, Greeneye and Flame mods declare no settings.
+- **Status.** `engine_mods::status`: `kiln/state/{emf,eml,shroudforge,greeneye,flame,shroudtopia,set}.json`.
+- **Restore vanilla game data.** `engine_mods::eml_backup` / `eml_restore_vanilla`: copies `<exe>.kfc.bak` over a
+  patched `<exe>.kfc`, which is what kiln-eml does itself when no EML mod is left.
+- **Servers** keep the legacy layout. The server mod sync (`server::control`) copies each kind into the folder its
+  plugin reads without a profile (`engine_mods::server_root`):
+
+  | Kind | Folder |
+  |---|---|
+  | `emf` | `emf/mods` |
+  | `eml` | `kiln/eml/mods` |
+  | `shroudforge` | ShroudForge's mods folder |
+  | `set` | `shrouded_engine_tweaks/mods` |
+  | `greeneye` | `greeneye` |
+  | `flame`, `shroudtopia` | `mods` |
+
+  Each copy carries the `.kiln-source.json` marker. Engines have no common off switch, so a switched-off engine mod
+  moves to `kiln/disabled/<kind>/<id>`. Modpacks (`modpack::client_mods`, `build`) carry the engine mods whose
+  `clients` is `mod`, as `<kind>/<id>/` with their kdh1. Kiln.Network adds the same mods to the advertised
+  `required[]`, each with its `kind` (`AdvertiseEngines.cs`), so a joining player's launcher learns what the server
+  runs. The HELLO check still covers Kiln mods only: clients don't announce other engines' mods.
+- **Licences.** The launcher (MIT) only copies files. It never links or runs EML's GPL code or any other engine's code.

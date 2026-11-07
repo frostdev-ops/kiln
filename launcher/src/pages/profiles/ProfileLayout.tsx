@@ -9,6 +9,7 @@ import type { ModKind } from "../../api/commands";
 import { invalidateGame, showActive, useActiveProfile, useGame, useGameStatus } from "../../api/hooks";
 import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
+import { ENGINE_KINDS, KIND_SHORT } from "../../api/kinds";
 
 interface Ctx { aside: HTMLElement | null }
 
@@ -52,7 +53,7 @@ export default function ProfileLayout() {
 
   if (query.isLoading) return <Page><Skeleton lines={5} /></Page>;
   if (!profile) return <Page><EmptyState page title="No such profile" hint={query.error ? errorText(query.error) : id} action={<Link to="/profiles"><Button>All profiles</Button></Link>} /></Page>;
-  const n = (k: ModKind) => profile.mods[k].length;
+  const n = (k: ModKind) => (profile.mods[k] ?? []).length;
   return (
     <Page fill>
       <div className="k-split-page">
@@ -68,6 +69,7 @@ export default function ProfileLayout() {
               { to: "mods", label: "Mods", count: n("kiln") },
               { to: "native", label: "Native", count: n("native") + n("plugin") },
               { to: "emf", label: "EMF", count: n("emf") },
+              { to: "engines", label: "Engines", count: ENGINE_KINDS.reduce((c, k) => c + n(k), 0) },
               { to: "configs", label: "Configs" },
               { to: "saves", label: "Saves" },
             ]} />
@@ -135,7 +137,8 @@ export function ProfileFacts({ hint }: { hint: ReactNode }) {
     <ProfileAside>
       <span className="k-label" style={{ fontSize: 16 }}>In this profile</span>
       <p style={{ fontSize: 19, lineHeight: 1.28, color: "var(--k-head)" }}>
-        {m.kiln.length} Kiln, {m.native.length} native, {m.plugin.length} plugin{m.plugin.length === 1 ? "" : "s"}, {m.emf.length} EMF.
+        {m.kiln.length} Kiln, {m.native.length} native, {m.plugin.length} plugin{m.plugin.length === 1 ? "" : "s"}, {m.emf.length} EMF
+        {ENGINE_KINDS.filter((k) => (m[k] ?? []).length).map((k) => `, ${(m[k] ?? []).length} ${KIND_SHORT[k]}`).join("")}.
       </p>
       <p className="k-hint" style={{ fontSize: 16 }}>{hint}</p>
       <div className="k-row" style={{ marginTop: "auto", gap: 8 }}>

@@ -203,12 +203,7 @@ pub struct Target {
 }
 
 fn mods_of(m: &mut ProfileMods, k: ModKind) -> &mut Vec<ProfileMod> {
-    match k {
-        ModKind::Kiln => &mut m.kiln,
-        ModKind::Native => &mut m.native,
-        ModKind::Plugin => &mut m.plugin,
-        ModKind::Emf => &mut m.emf,
-    }
+    m.list_mut(k)
 }
 
 fn kiln_in_game(install: &GameInstall) -> Result<()> {

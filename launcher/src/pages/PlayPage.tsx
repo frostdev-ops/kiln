@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
+import { totalCount } from "../api/kinds";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
 import {
   invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
@@ -118,7 +119,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
 
   // the live sentence
   let say: string;
-  const modCount = cur ? cur.counts.kiln + cur.counts.native + cur.counts.emf + cur.counts.plugin : 0;
+  const modCount = cur ? totalCount(cur.counts) : 0;
   if (!s) say = status.error ? errorText(status.error) : "Checking the game.";
   else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Switch on Runtime to let Kiln take over its dinput8.dll." : "Kiln is not in this game yet.";
   else if (!cur && !list.length) say = "Drop a mod anywhere on this window to add it.";
@@ -360,7 +361,7 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
             {list.map((p) => (
               <button key={p.id} type="button" role="option" aria-selected={p.id === cur} className="k-menu-item" disabled={running} onClick={() => pick(p.id)}>
                 <span style={{ fontWeight: p.id === cur ? 700 : 400 }}>{p.name}</span>
-                <span className="k-mono">{p.counts.kiln + p.counts.native + p.counts.emf + p.counts.plugin} mods</span>
+                <span className="k-mono">{totalCount(p.counts)} mods</span>
               </button>
             ))}
             <button type="button" role="option" aria-selected={!cur} className="k-menu-item" disabled={running} onClick={() => pick("")}>

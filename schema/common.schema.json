@@ -24,7 +24,10 @@
     "side": { "enum": ["server", "client", "both"] },
     "runSide": { "enum": ["server", "client"], "description": "The side a process runs as." },
     "clients": { "enum": ["none", "kiln", "mod"], "description": "What joining players need (manifest 'clients')." },
-    "kind": { "enum": ["kiln", "native", "plugin", "emf"], "description": "Library / profile mod kind." },
+    "kind": {
+      "enum": ["kiln", "native", "plugin", "emf", "eml", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"],
+      "description": "Library / profile mod kind: Kiln's own (kiln, native, plugin) or the engine whose Kiln plugin runs the mod (emf, eml, shroudforge, set, greeneye, flame, shroudtopia; enshwick, shroudlink and ember are reserved)."
+    },
     "gamePath": {
       "type": "string",
       "minLength": 1,

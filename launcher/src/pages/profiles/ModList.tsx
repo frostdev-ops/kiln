@@ -5,7 +5,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
-import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, type Column } from "../../ui";
+import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, type Column, type MenuItem } from "../../ui";
 
 export function libName(lib: LibraryEntry[] | undefined, kind: ModKind, id: string) {
   return lib?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
@@ -24,9 +24,13 @@ export interface ModListProps {
   emptyHint?: string;
   /** Fill the parent's height (the list scrolls inside). */
   fill?: boolean;
+  /** More row menu items (before Remove), e.g. Settings. */
+  actions?: (m: ProfileMod) => MenuItem[];
+  /** The table's accessible name (default "<kind> mods"). */
+  label?: string;
 }
 
-export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extra, emptyHint, fill }: ModListProps) {
+export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extra, emptyHint, fill, actions, label }: ModListProps) {
   const lib = useLibrary(kind);
   const [adding, setAdding] = useState(false);
   const columns: Column<ProfileMod>[] = [
@@ -43,6 +47,7 @@ export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extr
       return (
         <Menu label={`More for ${libName(lib.data, kind, m.id)}`} icon={<MoreHorizontal />} size="s" items={[
           ...vs.filter((v) => v.version !== m.version).map((v) => ({ label: `Use ${v.version}`, onSelect: () => onVersion(m.id, v.version, v.hash) })),
+          ...(actions?.(m) ?? []),
           { label: "Remove from this profile", danger: true, onSelect: () => onRemove(m.id) },
         ]} />
       );
@@ -50,7 +55,7 @@ export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extr
   ];
   return (
     <>
-      <Table aria-label={`${kind} mods`} columns={columns} rows={mods} rowKey={(m) => m.id} fill={fill}
+      <Table aria-label={label ?? `${kind} mods`} columns={columns} rows={mods} rowKey={(m) => m.id} fill={fill}
         empty={<EmptyState title={emptyHint ?? "None in this profile."} action={<Button size="s" onClick={() => setAdding(true)}>Add from the library</Button>} />} />
       {mods.length > 0 && <div><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>}
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind={kind} have={mods.map((m) => m.id)} lib={lib.data ?? []}

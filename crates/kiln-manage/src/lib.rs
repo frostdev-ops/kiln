@@ -27,6 +27,7 @@
 //! | [`library`] | the content-addressed mod library, import detection |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
 //! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
+//! | [`engine_mods`] | other engines' mods in the launcher: importers, placing SF/SET mods, settings, plugin status (owner: wire) |
 //! | [`shroudforge`] | ShroudForge mods next to Kiln: install detection, mod packages, switches, settings, status (owner: sf) |
 //! | [`playonce`] | `kiln/play-once.ini` |
 //! | [`config`] | offline mod configs, `.schema/` snapshots, `config/native.json` |
@@ -70,6 +71,7 @@ pub mod manifest;
 pub mod playonce;
 pub mod profile;
 pub mod quick;
+pub mod engine_mods;
 pub mod shroudforge;
 pub mod resolver;
 pub mod semver;

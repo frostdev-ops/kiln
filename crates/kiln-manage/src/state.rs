@@ -413,10 +413,17 @@ pub struct RequiredMod {
     pub id: String,
     pub version: String,
     pub hash: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// None for `kiln` from older servers, and for a kind this launcher doesn't know (a newer server's): such an entry
+    /// is still listed, it just can't be matched against the library.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_kind")]
     pub kind: Option<crate::manifest::ModKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+fn lenient_kind<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<crate::manifest::ModKind>, D::Error> {
+    let v: Option<serde_json::Value> = Option::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_str().and_then(crate::manifest::ModKind::parse)))
 }
 
 /// `kiln/state/last-server.json`

@@ -33,7 +33,9 @@ enum {
 };
 
 /* Mod kinds: count(kind), get(kind, ...), and the bits of dropins(). Same names as the launcher library's folders
- * (library/{kiln,native,plugin,emf}). */
+ * (library/{kiln,native,plugin,emf}). Other engines' lists (profile.json mods.eml, mods.shroudforge, mods.set,
+ * mods.greeneye, mods.flame, mods.shroudtopia; reserved enshwick, shroudlink, ember) are not kinds here: each engine's
+ * plugin reads its own list from json(). The core validates them like these and counts them in kiln.log/boot.json. */
 enum {
     KILN_PROFILE_KIND_KILN = 0,   /* managed Kiln mods (kiln.mod.json folders), loaded by Kiln.Host */
     KILN_PROFILE_KIND_NATIVE = 1, /* native mods (native.json folders, kiln_native.h) */

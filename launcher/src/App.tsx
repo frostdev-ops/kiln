@@ -14,6 +14,7 @@ import ProfileLayout from "./pages/profiles/ProfileLayout";
 import ProfileModsPage from "./pages/profiles/ProfileModsPage";
 import ProfileNativePage from "./pages/profiles/ProfileNativePage";
 import ProfileEmfPage from "./pages/profiles/ProfileEmfPage";
+import ProfileEnginesPage from "./pages/profiles/ProfileEnginesPage";
 import ProfileConfigsPage from "./pages/profiles/ProfileConfigsPage";
 import ProfileSavesPage from "./pages/profiles/ProfileSavesPage";
 import LibraryPage from "./pages/LibraryPage";
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="mods" element={<ProfileModsPage />} />
           <Route path="native" element={<ProfileNativePage />} />
           <Route path="emf" element={<ProfileEmfPage />} />
+          <Route path="engines" element={<ProfileEnginesPage />} />
           <Route path="configs" element={<ProfileConfigsPage />} />
           <Route path="saves" element={<ProfileSavesPage />} />
         </Route>

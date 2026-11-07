@@ -80,10 +80,11 @@ export function useProfileEdit(id: string) {
   };
 
   const setMods = (kind: ModKind, mods: ProfileMod[]) => update((p) => { p.mods[kind] = mods; });
+  // `?? []`: an older backend's profile may lack the other engines' lists
   const toggle = (kind: ModKind, modId: string, enabled: boolean) =>
-    update((p) => { p.mods[kind] = p.mods[kind].map((m) => (m.id === modId ? { ...m, enabled } : m)); });
-  const remove = (kind: ModKind, modId: string) => update((p) => { p.mods[kind] = p.mods[kind].filter((m) => m.id !== modId); });
-  const add = (kind: ModKind, mod: ProfileMod) => update((p) => { p.mods[kind] = [...p.mods[kind].filter((m) => m.id !== mod.id), mod]; });
+    update((p) => { p.mods[kind] = (p.mods[kind] ?? []).map((m) => (m.id === modId ? { ...m, enabled } : m)); });
+  const remove = (kind: ModKind, modId: string) => update((p) => { p.mods[kind] = (p.mods[kind] ?? []).filter((m) => m.id !== modId); });
+  const add = (kind: ModKind, mod: ProfileMod) => update((p) => { p.mods[kind] = [...(p.mods[kind] ?? []).filter((m) => m.id !== mod.id), mod]; });
 
   return { profile: q.data, query: q, saving, update, setMods, toggle, remove, add };
 }

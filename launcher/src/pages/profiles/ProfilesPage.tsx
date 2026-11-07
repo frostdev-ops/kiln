@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ProfileSummary } from "../../api/commands";
 import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatus, useProfiles } from "../../api/hooks";
+import { ENGINE_KINDS, KIND_SHORT } from "../../api/kinds";
 import { Button, ConfirmDanger, EmptyState, Field, Menu, Modal, NameId, Page, PageHeader, Select, Skeleton, Table, TextInput, errorText, fmtAgo, toast, type Column } from "../../ui";
 
 export default function ProfilesPage() {
@@ -31,7 +32,7 @@ export default function ProfilesPage() {
   const cols: Column<ProfileSummary>[] = [
     { key: "name", header: "Profile", sort: (a, b) => a.name.localeCompare(b.name), render: (p) => <NameId name={p.name} id={p.id} /> },
     { key: "mods", header: "Mods", width: "minmax(0, 220px)", render: (p) => (
-      <span className="k-muted" style={{ fontSize: 15.5 }}>{(["kiln", "native", "emf", "plugin"] as const).filter((k) => p.counts[k]).map((k) => `${p.counts[k]} ${k === "emf" ? "EMF" : k}`).join(", ") || "None"}</span>
+      <span className="k-muted" style={{ fontSize: 15.5 }}>{([...(["kiln", "native", "emf", "plugin"] as const), ...ENGINE_KINDS]).filter((k) => p.counts[k]).map((k) => `${p.counts[k]} ${k === "emf" ? "EMF" : ENGINE_KINDS.includes(k) ? KIND_SHORT[k] : k}`).join(", ") || "None"}</span>
     ) },
     { key: "server", header: "For", width: "minmax(0, 150px)", render: (p) => (p.server ? <span className="k-tone-info">{p.server.name ?? p.server.id}</span> : <span className="k-muted">Any</span>) },
     { key: "when", header: "Changed", width: "110px", sort: (a, b) => a.updated.localeCompare(b.updated), render: (p) => <span className="k-muted" style={{ fontSize: 15.5 }}>{fmtAgo(p.updated)}</span> },

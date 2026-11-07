@@ -24,7 +24,9 @@ import endpointExample from "../../../schema/examples/admin-endpoint.json";
 import bigStacksSchema from "../../../schema/examples/config-schema.json";
 import beastmasterSchema from "../../../schema/examples/config-schema-emf.json";
 import kilnJsonSnapshot from "../data/kiln-json.snapshot.json";
+import { MOD_KINDS, emptyMods } from "./kinds";
 
+/** Kiln's own four kinds (the drop-in folders); MOD_KINDS (./kinds.ts) has every kind. */
 const KINDS: ModKind[] = ["kiln", "native", "plugin", "emf"];
 const now = () => new Date().toISOString();
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -117,9 +119,17 @@ const seedMods: Record<ModKind, MockManifest[]> = {
     { id: "emf-teleport", name: "Teleport", version: "0.2.0", side: "client" },
   ],
   plugin: [{ id: "my-plugin", name: "my-plugin.dll", version: "1.0.0", side: "client" }],
+  // other engines' mods (engine_mods::import_engine_mod): one per imported kind
+  eml: [{ id: "loot-tables-x", name: "Loot Tables X", version: "1.2.0", side: "both", clients: "mod" }],
+  shroudforge: [{ id: "better-chests", name: "Better Chests", version: "0.4.1", side: "both", clients: "mod" }],
+  set: [{ id: "fov-tweak", name: "FOV Tweak", version: "1.0.0", side: "both", clients: "none" }],
+  greeneye: [{ id: "zoom-out", name: "Zoom Out", version: "0.2.0", side: "client", clients: "none" }],
+  flame: [{ id: "creative-build", name: "Creative Build", version: "3.1.0", side: "both", clients: "mod" }],
+  shroudtopia: [{ id: "fly-mode", name: "Fly Mode", version: "1.0.3", side: "both", clients: "none" }],
+  enshwick: [], shroudlink: [], ember: [],
 };
 
-const library: LibraryEntry[] = FRESH ? [] : KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
+const library: LibraryEntry[] = FRESH ? [] : MOD_KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
 
 function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: string): LibraryEntry {
   const hash = kdh(kind + m.id + m.version);
@@ -155,23 +165,25 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
       native: [pm("native", "fps-unlock"), pm("native", "creative-mode"), pm("native", "hud-tweaks"), pm("native", "free-cam", false)],
       plugin: [],
       emf: [pm("emf", "beastmaster")],
+      eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
+      flame: [], shroudtopia: [pm("shroudtopia", "fly-mode")], enshwick: [], shroudlink: [], ember: [],
     },
     dropins: [], dataDir: "shared", server: null,
   }],
   ["vanilla-plus", {
     format: 1, id: "vanilla-plus", name: "Vanilla plus", created: "2026-11-02T08:00:00Z", updated: "2026-11-03T21:15:00Z", generation: 2, notes: "",
-    mods: { kiln: [pm("kiln", "weather-plus")], native: [], plugin: [], emf: [] }, dropins: [], dataDir: "shared", server: null,
+    mods: { ...emptyMods(), kiln: [pm("kiln", "weather-plus")] }, dropins: [], dataDir: "shared", server: null,
   }],
   ["server-ember-isles", {
     format: 1, id: "server-ember-isles", name: "Server: Ember Isles", created: "2026-11-03T20:00:00Z", updated: "2026-11-03T20:00:00Z", generation: 1, notes: "",
-    mods: { kiln: [pm("kiln", "new-items")], native: [], plugin: [], emf: [] }, dropins: [], dataDir: "profile",
+    mods: { ...emptyMods(), kiln: [pm("kiln", "new-items")] }, dropins: [], dataDir: "profile",
     server: { id: "srv-4b8e2c", name: "Ember Isles", address: "203.0.113.7:15636" },
   }],
 ]);
 const activations: Record<string, Activation | null> = {};
 
 function fingerprint(p: Profile): string {
-  const parts = KINDS.flatMap((k) => p.mods[k].filter((m) => m.enabled).map((m) => `${k}\0${m.id}\0${m.version}\0${m.hash}`)).sort();
+  const parts = MOD_KINDS.flatMap((k) => (p.mods[k] ?? []).filter((m) => m.enabled).map((m) => `${k}\0${m.id}\0${m.version}\0${m.hash}`)).sort();
   return "kms1:" + hex(parts.join("\n"));
 }
 
@@ -192,7 +204,7 @@ if (!FRESH) activate("ember-run", "client-steam");
 function summary(p: Profile): ProfileSummary {
   return {
     id: p.id, name: p.name, updated: p.updated, server: p.server,
-    counts: Object.fromEntries(KINDS.map((k) => [k, p.mods[k].filter((m) => m.enabled).length])) as Record<ModKind, number>,
+    counts: Object.fromEntries(MOD_KINDS.map((k) => [k, (p.mods[k] ?? []).filter((m) => m.enabled).length])) as Record<ModKind, number>,
     active: Object.entries(activations).filter(([, a]) => a?.profileId === p.id).map(([g]) => g),
   };
 }
@@ -234,6 +246,53 @@ function resolve(p: Profile, side: "client" | "server"): ResolvePreview {
   const warnings: string[] = [];
   if (native.some((n) => n.enabled && n.phase === "dllmain")) warnings.push("dllmain mods load inside the proxy; a bad one can hang the start.");
   return { side, kiln: { order, rejected: rejected.sort((a, b) => a.dir.localeCompare(b.dir)) }, native, warnings };
+}
+
+// ---------------------------------------------------------------- other engines' mods
+
+/** ShroudForge `extended.mod.json` settings of the placed copies (settings_schema: JSON Schema with x-kiln-* hints). */
+const sfSettings: Record<string, { schema: Json; values: Record<string, Json> }> = {
+  "better-chests": {
+    schema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema", title: "Better Chests", description: "Bigger, tidier chests", type: "object", additionalProperties: false,
+      properties: {
+        stackMultiplier: { type: "integer", title: "Stack multiplier", description: "Items per chest slot, times the game's", default: 2, minimum: 1, maximum: 10, "x-kiln-group": "Storage" },
+        autoSort: { type: "boolean", title: "Sort on open", default: false, "x-kiln-group": "Storage" },
+        layout: { type: "string", title: "Layout", enum: ["compact", "wide"], "x-kiln-enum-labels": ["Compact", "Wide"], default: "compact", "x-kiln-restart": true },
+      },
+    },
+    values: { stackMultiplier: 2, autoSort: false, layout: "compact" },
+  },
+};
+/** `<profile configDir>/shroudtopia/shroudtopia.json` `mods`, by profile. */
+const shroudtopiaFiles = new Map<string, Record<string, Record<string, Json>>>();
+/** EML patched enshrouded.kfc (its `.kfc.bak` is the vanilla file). */
+let emlPatched = true;
+
+function schemaFromValues(v: Json): Json {
+  if (v && typeof v === "object" && !Array.isArray(v)) return { type: "object", properties: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, schemaFromValues(x)])) };
+  if (typeof v === "boolean") return { type: "boolean" };
+  if (typeof v === "number") return { type: Number.isInteger(v) ? "integer" : "number" };
+  if (typeof v === "string") return { type: "string" };
+  if (Array.isArray(v)) return { type: "array" };
+  return {};
+}
+
+function engineSettings(kind: ModKind, id: string, pid: string) {
+  if (!profiles.has(pid)) reject("not_found", `No profile '${pid}'.`);
+  const none = (note: string) => ({ kind, id, format: "none", file: null, schema: { type: "object", properties: {} }, values: {}, note });
+  const g = games[0];
+  if (kind === "shroudforge") {
+    const sf = sfSettings[id];
+    if (!sf) return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: { type: "object", properties: {} }, values: {}, note: "this mod declares no settings" };
+    return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: sf.schema, values: clone(sf.values), note: null };
+  }
+  if (kind === "shroudtopia") {
+    const values = shroudtopiaFiles.get(pid)?.[id] ?? { active: true, flySpeed: 1.5, hotkey: "F6" };
+    return { kind, id, format: "shroudtopia.json", file: `/home/player/.local/share/kiln/profiles/${pid}/config/shroudtopia/shroudtopia.json`, schema: schemaFromValues(values), values: clone(values), note: null };
+  }
+  if (kind === "emf") return none("EMF settings: use the EMF ini editor");
+  return none("this engine's mods declare no settings");
 }
 
 // ---------------------------------------------------------------- tasks
@@ -627,7 +686,7 @@ const handlers: Record<string, Handler> = {
     if (!name) reject("invalid_argument", "Give the profile a name.");
     const from = a.copyFrom ? profiles.get(S(a.copyFrom)) ?? reject("not_found", "No such profile to copy.") : null;
     const p: Profile = { format: 1, id: slug(name), name, created: now(), updated: now(), generation: 1, notes: "",
-      mods: from ? clone(from.mods) : { kiln: [], native: [], plugin: [], emf: [] }, dropins: from ? [...from.dropins] : [], dataDir: from?.dataDir ?? "shared", server: null };
+      mods: from ? clone(from.mods) : emptyMods(), dropins: from ? [...from.dropins] : [], dataDir: from?.dataDir ?? "shared", server: null };
     profiles.set(p.id, p);
     return clone(p);
   },
@@ -717,6 +776,51 @@ const handlers: Record<string, Handler> = {
     e!.versions = e!.versions.filter((v) => v.version !== r.version);
     if (!e!.versions.length) library.splice(library.indexOf(e!), 1);
     return null;
+  },
+
+  // other engines' mods (kiln_manage::engine_mods)
+  engine_settings_get: (a) => engineSettings(a.kind as ModKind, S(a.id), S(a.profileId)),
+  engine_settings_set: (a) => {
+    const kind = a.kind as ModKind, id = S(a.id), pid = S(a.profileId), key = S(a.key), value = a.value as Json;
+    const cur = engineSettings(kind, id, pid);
+    if (cur.format === "none") reject("unsupported", `${kind} mods have no settings Kiln can edit`);
+    const old = (cur.values as Record<string, Json>)[key];
+    if (old !== undefined && typeof old !== typeof value) reject("invalid_argument", `${key}: expected the same type as ${JSON.stringify(old)}`);
+    if (kind === "shroudforge") {
+      const sf = sfSettings[id] ?? reject("not_found", `ShroudForge mod ${id} is not in ShroudForge's mods folder: activate the profile first`);
+      sf.values[key] = value;
+    } else {
+      const file = shroudtopiaFiles.get(pid) ?? {};
+      file[cur.id] = { ...(cur.values as Record<string, Json>), [key]: value };
+      shroudtopiaFiles.set(pid, file);
+    }
+    return engineSettings(kind, id, pid);
+  },
+  engine_status: (a) => {
+    const g = gameOf(S(a.gameId));
+    const st = (k: ModKind, file: string, state: Json | null) => ({ kind: k, plugin: `kiln-${k}`, state, file: `${g.path}/kiln/state/${file}` });
+    return [
+      st("emf", "emf.json", { mods: [{ id: "beastmaster", state: "loaded" }] }),
+      st("eml", "eml.json", emlPatched
+        ? { phase: "done", patched: 3, ms: 1263, mods: [{ id: "loot-tables-x", name: "Loot Tables X", state: "disabled", reason: "disabled in the profile" }] }
+        : { phase: "idle", mods: [] }),
+      st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }),
+      st("set", "set.json", null),
+      st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
+      st("flame", "flame.json", null),
+      st("shroudtopia", "shroudtopia.json", { mods: [{ name: "Fly Mode", status: "active", updates: 120 }], refused: [] }),
+    ];
+  },
+  eml_backup: (a) => {
+    const g = gameOf(S(a.gameId));
+    return FRESH ? [] : [{ file: `${g.path}/enshrouded.kfc`, backup: `${g.path}/enshrouded.kfc.bak`, patched: emlPatched }];
+  },
+  eml_restore: (a) => {
+    const g = gameOf(S(a.gameId));
+    if (running[S(a.gameId)]) reject("game_running", "Close the game first.");
+    const done = emlPatched && !FRESH ? [`${g.path}/enshrouded.kfc`] : [];
+    emlPatched = false;
+    return done;
   },
 
   // configs
@@ -870,8 +974,8 @@ const handlers: Record<string, Handler> = {
         const refs = [...report.imported, ...report.existing];
         const bound = [...profiles.values()].find((p) => p.server?.id === "srv-4b8e2c");
         const p: Profile = bound ? clone(bound) : { format: 1, id: slug("Server: Ember Isles"), name: "Server: Ember Isles", created: now(), updated: now(), generation: 1, notes: "",
-          mods: { kiln: [], native: [], plugin: [], emf: [] }, dropins: [], dataDir: "profile", server: { id: "srv-4b8e2c", name: "Ember Isles" } };
-        p.mods = { kiln: [], native: [], plugin: [], emf: [] };
+          mods: emptyMods(), dropins: [], dataDir: "profile", server: { id: "srv-4b8e2c", name: "Ember Isles" } };
+        p.mods = emptyMods();
         for (const r of refs) p.mods[r.kind].push({ id: r.id, version: r.version, hash: r.hash, enabled: true });
         p.generation += bound ? 1 : 0;
         profiles.set(p.id, p);
@@ -899,7 +1003,7 @@ function editorFixture() {
 /** "My mods": the profile a first-time player gets (every drop-in folder on, like kiln_manage::quick). */
 function makeDefault(): Profile {
   const p: Profile = { format: 1, id: slug("My mods"), name: "My mods", created: now(), updated: now(), generation: 2, notes: "",
-    mods: { kiln: [], native: [], plugin: [], emf: [] }, dropins: [...KINDS], dataDir: "shared", server: null };
+    mods: emptyMods(), dropins: [...KINDS], dataDir: "shared", server: null };
   profiles.set(p.id, p);
   return p;
 }

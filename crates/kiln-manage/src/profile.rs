@@ -89,6 +89,8 @@ pub struct PluginMod {
     pub enabled: bool,
 }
 
+/// `mods` of profile.json. The engine lists (eml ... ember) are left out of the file when empty, so a profile with Kiln
+/// mods only is the same file older Kilns wrote. Each engine's plugin reads its own list from the profile's text.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileFileMods {
@@ -100,6 +102,63 @@ pub struct ProfileFileMods {
     pub emf: Vec<FolderMod>,
     #[serde(default)]
     pub plugin: Vec<PluginMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub eml: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shroudforge: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub set: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub greeneye: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flame: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shroudtopia: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enshwick: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shroudlink: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ember: Vec<FolderMod>,
+}
+
+impl ProfileFileMods {
+    /// The folder list of a kind (None for `plugin`, whose entries are DLLs).
+    pub fn folders(&self, k: ModKind) -> Option<&Vec<FolderMod>> {
+        Some(match k {
+            ModKind::Plugin => return None,
+            ModKind::Kiln => &self.kiln,
+            ModKind::Native => &self.native,
+            ModKind::Emf => &self.emf,
+            ModKind::Eml => &self.eml,
+            ModKind::ShroudForge => &self.shroudforge,
+            ModKind::Set => &self.set,
+            ModKind::Greeneye => &self.greeneye,
+            ModKind::Flame => &self.flame,
+            ModKind::Shroudtopia => &self.shroudtopia,
+            ModKind::Enshwick => &self.enshwick,
+            ModKind::Shroudlink => &self.shroudlink,
+            ModKind::Ember => &self.ember,
+        })
+    }
+
+    pub fn folders_mut(&mut self, k: ModKind) -> Option<&mut Vec<FolderMod>> {
+        Some(match k {
+            ModKind::Plugin => return None,
+            ModKind::Kiln => &mut self.kiln,
+            ModKind::Native => &mut self.native,
+            ModKind::Emf => &mut self.emf,
+            ModKind::Eml => &mut self.eml,
+            ModKind::ShroudForge => &mut self.shroudforge,
+            ModKind::Set => &mut self.set,
+            ModKind::Greeneye => &mut self.greeneye,
+            ModKind::Flame => &mut self.flame,
+            ModKind::Shroudtopia => &mut self.shroudtopia,
+            ModKind::Enshwick => &mut self.enshwick,
+            ModKind::Shroudlink => &mut self.shroudlink,
+            ModKind::Ember => &mut self.ember,
+        })
+    }
 }
 
 /// `<game>/kiln/profile.json` (and `kiln/profile.once.json`), format 1.
@@ -145,6 +204,7 @@ pub struct ProfileMod {
     pub enabled: bool,
 }
 
+/// One list per [`ModKind`]. Older meta.json files have only the first four; the others default to empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileMods {
@@ -156,6 +216,63 @@ pub struct ProfileMods {
     pub plugin: Vec<ProfileMod>,
     #[serde(default)]
     pub emf: Vec<ProfileMod>,
+    #[serde(default)]
+    pub eml: Vec<ProfileMod>,
+    #[serde(default)]
+    pub shroudforge: Vec<ProfileMod>,
+    #[serde(default)]
+    pub set: Vec<ProfileMod>,
+    #[serde(default)]
+    pub greeneye: Vec<ProfileMod>,
+    #[serde(default)]
+    pub flame: Vec<ProfileMod>,
+    #[serde(default)]
+    pub shroudtopia: Vec<ProfileMod>,
+    #[serde(default)]
+    pub enshwick: Vec<ProfileMod>,
+    #[serde(default)]
+    pub shroudlink: Vec<ProfileMod>,
+    #[serde(default)]
+    pub ember: Vec<ProfileMod>,
+}
+
+impl ProfileMods {
+    /// The list of a kind.
+    pub fn list(&self, k: ModKind) -> &Vec<ProfileMod> {
+        match k {
+            ModKind::Kiln => &self.kiln,
+            ModKind::Native => &self.native,
+            ModKind::Plugin => &self.plugin,
+            ModKind::Emf => &self.emf,
+            ModKind::Eml => &self.eml,
+            ModKind::ShroudForge => &self.shroudforge,
+            ModKind::Set => &self.set,
+            ModKind::Greeneye => &self.greeneye,
+            ModKind::Flame => &self.flame,
+            ModKind::Shroudtopia => &self.shroudtopia,
+            ModKind::Enshwick => &self.enshwick,
+            ModKind::Shroudlink => &self.shroudlink,
+            ModKind::Ember => &self.ember,
+        }
+    }
+
+    pub fn list_mut(&mut self, k: ModKind) -> &mut Vec<ProfileMod> {
+        match k {
+            ModKind::Kiln => &mut self.kiln,
+            ModKind::Native => &mut self.native,
+            ModKind::Plugin => &mut self.plugin,
+            ModKind::Emf => &mut self.emf,
+            ModKind::Eml => &mut self.eml,
+            ModKind::ShroudForge => &mut self.shroudforge,
+            ModKind::Set => &mut self.set,
+            ModKind::Greeneye => &mut self.greeneye,
+            ModKind::Flame => &mut self.flame,
+            ModKind::Shroudtopia => &mut self.shroudtopia,
+            ModKind::Enshwick => &mut self.enshwick,
+            ModKind::Shroudlink => &mut self.shroudlink,
+            ModKind::Ember => &mut self.ember,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +313,24 @@ pub struct ProfileCounts {
     pub native: u32,
     pub plugin: u32,
     pub emf: u32,
+    #[serde(default)]
+    pub eml: u32,
+    #[serde(default)]
+    pub shroudforge: u32,
+    #[serde(default)]
+    pub set: u32,
+    #[serde(default)]
+    pub greeneye: u32,
+    #[serde(default)]
+    pub flame: u32,
+    #[serde(default)]
+    pub shroudtopia: u32,
+    #[serde(default)]
+    pub enshwick: u32,
+    #[serde(default)]
+    pub shroudlink: u32,
+    #[serde(default)]
+    pub ember: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,12 +455,7 @@ pub fn id_from_name(name: &str) -> String {
 }
 
 fn list_of(p: &ProfileMods, k: ModKind) -> &Vec<ProfileMod> {
-    match k {
-        ModKind::Kiln => &p.kiln,
-        ModKind::Native => &p.native,
-        ModKind::Plugin => &p.plugin,
-        ModKind::Emf => &p.emf,
-    }
+    p.list(k)
 }
 
 fn lref(kind: ModKind, m: &ProfileMod) -> LibraryRef {
@@ -372,7 +502,21 @@ pub fn get(dirs: &DataDirs, id: &str) -> Result<Profile> {
 
 fn counts(p: &Profile) -> ProfileCounts {
     let n = |k| list_of(&p.mods, k).len() as u32;
-    ProfileCounts { kiln: n(ModKind::Kiln), native: n(ModKind::Native), plugin: n(ModKind::Plugin), emf: n(ModKind::Emf) }
+    ProfileCounts {
+        kiln: n(ModKind::Kiln),
+        native: n(ModKind::Native),
+        plugin: n(ModKind::Plugin),
+        emf: n(ModKind::Emf),
+        eml: n(ModKind::Eml),
+        shroudforge: n(ModKind::ShroudForge),
+        set: n(ModKind::Set),
+        greeneye: n(ModKind::Greeneye),
+        flame: n(ModKind::Flame),
+        shroudtopia: n(ModKind::Shroudtopia),
+        enshwick: n(ModKind::Enshwick),
+        shroudlink: n(ModKind::Shroudlink),
+        ember: n(ModKind::Ember),
+    }
 }
 
 pub fn list(dirs: &DataDirs) -> Result<Vec<ProfileSummary>> {
@@ -571,7 +715,7 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
         native.push(NativePlanEntry { id: r.id, version, phase, enabled: false, reason: Some(r.reason) });
     }
     ordered.extend(native);
-    for k in [ModKind::Plugin, ModKind::Emf] {
+    for k in ModKind::ALL.into_iter().filter(|k| *k == ModKind::Plugin || k.is_engine()) {
         for m in list_of(&profile.mods, k) {
             let p = crate::library::path_of(dirs, &lref(k, m)).ok();
             if !p.as_ref().is_some_and(|p| p.exists()) {
@@ -604,15 +748,18 @@ const COPY_ROOT_REL: &str = "profiles";
 pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: PathMode) -> Result<ProfileFile> {
     let pid = &profile.id;
     let mut mods = ProfileFileMods::default();
-    for k in [ModKind::Kiln, ModKind::Native, ModKind::Emf] {
+    for k in ModKind::ALL.into_iter().filter(|k| *k != ModKind::Plugin) {
         for m in list_of(&profile.mods, k) {
             let folder = crate::library::path_of(dirs, &lref(k, m))?;
-            let path = game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?;
+            // ShroudForge and SET read their mods from their own folder in the game: the copy placed there
+            // (their plugins take the list as "this profile uses the engine"; copy mode keeps the relative copy path)
+            let path = match crate::engine_mods::placed_folder(k, &install.path, &m.id) {
+                Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
+                _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
+            };
             let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled: m.enabled };
-            match k {
-                ModKind::Kiln => mods.kiln.push(fm),
-                ModKind::Native => mods.native.push(fm),
-                _ => mods.emf.push(fm),
+            if let Some(list) = mods.folders_mut(k) {
+                list.push(fm);
             }
         }
     }
@@ -630,7 +777,8 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
     };
     let dropins = match profile.dropins.len() {
         0 => Dropins::All(false),
-        _ if ModKind::ALL.iter().all(|k| profile.dropins.contains(k)) => Dropins::All(true),
+        // every Kiln kind: true (the engine plugins read their own folders then too), as older launchers wrote it
+        _ if ModKind::CORE.iter().all(|k| profile.dropins.contains(k)) => Dropins::All(true),
         _ => Dropins::Kinds(profile.dropins.clone()),
     };
     Ok(ProfileFile {
@@ -802,6 +950,8 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         }
     }
     write_native_switches(&config_host_dir(dirs, profile, install, mode), profile)?;
+    // ShroudForge and SET read their mods from their own folder in the game
+    crate::engine_mods::place(dirs, profile, &install.path)?;
     Ok((file, mode, copied))
 }
 
@@ -924,12 +1074,7 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
 /// kms1 over the profile's enabled entries (hash::fingerprint).
 pub fn fingerprint(profile: &Profile) -> String {
     let entries = ModKind::ALL.iter().flat_map(|k| {
-        let list = match k {
-            ModKind::Kiln => &profile.mods.kiln,
-            ModKind::Native => &profile.mods.native,
-            ModKind::Plugin => &profile.mods.plugin,
-            ModKind::Emf => &profile.mods.emf,
-        };
+        let list = profile.mods.list(*k);
         list.iter().filter(|m| m.enabled).map(move |m| crate::hash::FingerprintEntry {
             kind: k.as_str().into(),
             id: m.id.clone(),

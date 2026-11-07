@@ -29,6 +29,10 @@ play-once.ini.
   `<game>/kiln/` (copy mode: `profiles/<id>/kiln/<mod>`). `/` and `\` both work; `..` is refused.
 - An entry whose folder (or plugin DLL) is **missing** is skipped: `kiln.log` warns and boot.json lists it in
   `profile.missing[]`.
+- **Other engines' mods** have their own lists (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`;
+  `enshwick`, `shroudlink` and `ember` are reserved). Each engine's plugin reads its list. ShroudForge and SET mods
+  are copied into those engines' own folders at activation. Details: [engines.md](engines.md) "Managing every engine's
+  mods" and contracts.md 5.1.
 - `enabled: false`: listed but off. Managed mods show as `skipped` ("disabled in profile"), native mods as `disabled`.
   A mod that requires it fails with the reason.
 - The profile entry's `id` must be the mod's own id (`kiln.mod.json` / `native.json`); otherwise that mod fails

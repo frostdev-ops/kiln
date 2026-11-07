@@ -111,8 +111,12 @@ pub const ENGINES: &[EngineInfo] = &[
         exports: &[], texts: &["shroudtopia"], what: "a DLL mod loader (also its Shroudweave fork)" },
     EngineInfo { engine: Engine::Flame, word: "flame", name: "Flame", proxies: &["dinput8.dll", "powrprof.dll"],
         exports: &[], texts: &["flamestartruntime", "flame.json"], what: "Creative Mode's loader" },
+    // shroudlink 0.8 (github.com/bjck/shroudlink, MIT): the server proxy renames Steam's DLL to steam_api64_o.dll and
+    // logs to shroudlink.log (mod/server/src/steam_proxy.rs, lib.rs)
     EngineInfo { engine: Engine::Shroudlink, word: "shroudlink", name: "shroudlink", proxies: &["steam_api64.dll", "dinput8.dll"],
-        exports: &[], texts: &["shroudlink"], what: "a server mod framework" },
+        exports: &[], texts: &["shroudlink", "steam_api64_o.dll", "shroudlink.log"], what: "a server mod framework" },
+    // Ember has no loader release: its ember-loader crate holds no identifying string yet, so the crate name (in Rust's
+    // panic paths) stays the marker until a release shows better ones
     EngineInfo { engine: Engine::Ember, word: "ember", name: "Ember (server SDK)",
         proxies: &["powrprof.dll", "iphlpapi.dll", "dbghelp.dll"], exports: &[], texts: &["ember-loader", "ember_loader"],
         what: "a server mod framework" },
@@ -273,9 +277,10 @@ pub fn scan_proxies(game_dir: &Path) -> Vec<ProxySlot> {
 /// "<what it is>: <why it cannot load yet>" for an engine's mod (no final period: the launcher adds one).
 pub fn mod_reason(engine: Engine, what: &str) -> String {
     let n = engine.name();
+    let a = if n.starts_with(['A', 'E', 'I', 'O', 'U']) { "an" } else { "a" };
     match loader_for(engine_kind(engine)) {
-        Some(loader) => format!("{what}: a {n} mod (Library importer: {})", loader.name),
-        None => format!("{what}: a {n} mod. Kiln can't import {n} mods into the Library yet; no importer is registered"),
+        Some(loader) => format!("{what}: {a} {n} mod (Library importer: {})", loader.name),
+        None => format!("{what}: {a} {n} mod. Kiln can't import {n} mods into the Library yet; no importer is registered"),
     }
 }
 
@@ -306,6 +311,8 @@ const GREENEYE_MOD_EXPORT: &str = "GreeneyeModStart";
 const ENSHWICK_MOD_EXPORTS: [&str; 3] = ["enshwick_mod_abi", "enshwick_mod_query", "enshwick_mod_init"];
 const SHROUDTOPIA_MOD_EXPORT: &str = "CreateModInstance";
 const FLAME_MOD_EXPORT: &str = "FlameStartRuntime";
+/// shroudlink's mod DLLs (its server looks for `shroudlink_mod_v2`, then `_v1`).
+const SHROUDLINK_MOD_EXPORTS: [&str; 2] = ["shroudlink_mod_v2", "shroudlink_mod_v1"];
 
 fn detected(kind: DetectKind, engine: Option<Engine>, path: &Path, reason: String) -> Detected {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
@@ -339,6 +346,9 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     }
     if has(SHROUDTOPIA_MOD_EXPORT) {
         return mod_dll(Engine::Shroudtopia);
+    }
+    if SHROUDLINK_MOD_EXPORTS.iter().any(|e| has(e)) {
+        return mod_dll(Engine::Shroudlink);
     }
     let class = crate::pe::classify_bytes(bytes);
     let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)?; // Kiln's own proxy: library's rule
@@ -525,7 +535,10 @@ fn registry() -> &'static RwLock<HashMap<DetectKind, Loader>> {
 
 /// Loaders built into kiln-manage. Support for an engine's mods adds one line here:
 /// `m.insert(DetectKind::Greeneye, crate::greeneye::LOADER);`
-fn builtin_loaders(_m: &mut HashMap<DetectKind, Loader>) {}
+/// EML, ShroudForge, SET, Greeneye, Flame and Shroudtopia: `engine_mods::import_engine_mod` (content-addressed copy).
+fn builtin_loaders(m: &mut HashMap<DetectKind, Loader>) {
+    crate::engine_mods::builtin_loaders(m);
+}
 
 /// Registers (or replaces) the loader of a Library kind at run time. Returns the previous one.
 pub fn register_loader(kind: DetectKind, loader: Loader) -> Option<Loader> {
@@ -559,6 +572,7 @@ mod tests {
         assert_eq!(kind_of(&["timeGetTime"], b"shroudtopia.dll"), ProxyKind::Shroudtopia);
         assert_eq!(kind_of(&[d8], b"FlameStartRuntime\0flame.json"), ProxyKind::Flame);
         assert_eq!(kind_of(&["SteamAPI_Init"], b"shroudlink server"), ProxyKind::Shroudlink);
+        assert_eq!(kind_of(&["SteamAPI_Init"], b"LoadLibraryW steam_api64_o.dll"), ProxyKind::Shroudlink);
         assert_eq!(kind_of(&["PowerGetActiveScheme"], b"crates\\ember-loader\\src\\lib.rs"), ProxyKind::Ember);
         assert_eq!(kind_of(&[d8], &utf16("ChainLoader.ini")), ProxyKind::ModLoaderProxy);
         assert_eq!(kind_of(&[d8, "IsUltimateASILoader"], b""), ProxyKind::UltimateAsiLoader);
@@ -608,9 +622,11 @@ mod tests {
         fn noop(_: &mut ImportCtx) -> Result<()> {
             Ok(())
         }
-        assert!(loader_for(DetectKind::Shroudtopia).is_none());
-        assert!(register_loader(DetectKind::Shroudtopia, Loader { name: "test", import: noop }).is_none());
-        assert_eq!(loader_for(DetectKind::Shroudtopia).map(|l| l.name), Some("test"));
-        registry().write().unwrap().remove(&DetectKind::Shroudtopia);
+        // the reserved kinds have no built-in loader; the ones Kiln runs do (engine_mods)
+        assert_eq!(loader_for(DetectKind::Shroudtopia).map(|l| l.name), Some("kiln-shroudtopia"));
+        assert!(loader_for(DetectKind::Shroudlink).is_none());
+        assert!(register_loader(DetectKind::Shroudlink, Loader { name: "test", import: noop }).is_none());
+        assert_eq!(loader_for(DetectKind::Shroudlink).map(|l| l.name), Some("test"));
+        registry().write().unwrap().remove(&DetectKind::Shroudlink);
     }
 }

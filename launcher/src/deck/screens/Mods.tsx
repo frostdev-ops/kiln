@@ -10,8 +10,10 @@ import { ProfileDialog } from "../dialogs";
 import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
 import { KIND_WORD } from "../status";
 import type { DeckAction } from "../layers";
+import { ENGINE_KINDS } from "../../api/kinds";
 
-const KINDS: ModKind[] = ["kiln", "native", "emf", "plugin"];
+// Kiln's own kinds first, then other engines' mods (each row says its engine: "ShroudForge mod")
+const KINDS: ModKind[] = ["kiln", "native", "emf", "plugin", ...ENGINE_KINDS];
 
 export default function Mods() {
   const nav = useNavigate();
@@ -29,7 +31,7 @@ export default function Mods() {
   const installed = !!status.data?.runtime.installed;
   const p = pid ? edit.profile : null;
   const nameOf = (kind: ModKind, id: string) => lib.data?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
-  const rows = p ? KINDS.flatMap((kind) => p.mods[kind].map((mod) => ({ kind, mod }))) : [];
+  const rows = p ? KINDS.flatMap((kind) => (p.mods[kind] ?? []).map((mod) => ({ kind, mod }))) : [];
   const on = rows.filter((r) => r.mod.enabled).length;
   const hasProfiles = (profiles.data?.length ?? 0) > 0;
 

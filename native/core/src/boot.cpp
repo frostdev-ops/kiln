@@ -162,6 +162,8 @@ void write_boot_json(const BootFacts& f) {
     };
     for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k)
         if (profile::dropins(k)) doc["profile"]["dropins"].push_back(profile::kind_name(k));
+    for (uint32_t i = 0; i < profile::kEngineKindCount; ++i)  // other engines' lists, when the profile has them
+        if (!prof.engine_mods[i].empty()) doc["profile"]["counts"][profile::kEngineKinds[i]] = prof.engine_mods[i].size();
     if (!write_file_atomic(paths().state / L"boot.json", doc.dump(2) + "\n"))
         KLOG_W("state: cannot write %s", u8(paths().state / L"boot.json").c_str());
 }

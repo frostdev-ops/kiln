@@ -9,13 +9,10 @@ use kiln_manage::profile::ProfileMod;
 use std::path::PathBuf;
 
 pub fn parse_kind(s: &str) -> Result<ModKind> {
-    Ok(match s {
-        "kiln" => ModKind::Kiln,
-        "native" => ModKind::Native,
-        "plugin" => ModKind::Plugin,
-        "emf" => ModKind::Emf,
-        _ => bail!("kind {s:?}: kiln, native, plugin or emf"),
-    })
+    match ModKind::parse(s) {
+        Some(k) => Ok(k),
+        None => bail!("kind {s:?}: {}", ModKind::ALL.map(|k| k.as_str()).join(", ")),
+    }
 }
 
 pub fn import(paths: Vec<PathBuf>) -> Result<i32> {
@@ -63,12 +60,7 @@ pub fn add(profile: &str, mods: &[String], disabled: bool) -> Result<i32> {
         let Some(e) = entries.iter().find(|e| e.id == id) else { bail!("{} {id} is not in the library (kilnctl library import)", kind.as_str()) };
         let Some(v) = e.versions.iter().find(|v| version.is_none_or(|w| v.version == w)) else { bail!("{id}: no version {}", version.unwrap_or("?")) };
         let m = ProfileMod { id: id.into(), version: v.version.clone(), hash: v.hash.clone(), enabled: !disabled };
-        let list = match kind {
-            ModKind::Kiln => &mut p.mods.kiln,
-            ModKind::Native => &mut p.mods.native,
-            ModKind::Plugin => &mut p.mods.plugin,
-            ModKind::Emf => &mut p.mods.emf,
-        };
+        let list = p.mods.list_mut(kind);
         list.retain(|x| x.id != m.id);
         list.push(m);
     }
@@ -81,8 +73,9 @@ pub fn show(profile: &str, side: &str) -> Result<i32> {
     let dirs = data_dirs()?;
     let p = kiln_manage::profile::get(&dirs, profile).km()?;
     println!("profile {} ({}), generation {}, updated {}", p.id, p.name, p.generation, p.updated);
-    for (k, list) in [("kiln", &p.mods.kiln), ("native", &p.mods.native), ("plugin", &p.mods.plugin), ("emf", &p.mods.emf)] {
-        for m in list {
+    for kind in ModKind::ALL {
+        let k = kind.as_str();
+        for m in p.mods.list(kind) {
             println!("  {k:<7} {:<24} {:<10} {}{}", m.id, m.version, m.hash, if m.enabled { "" } else { "  (disabled)" });
         }
     }

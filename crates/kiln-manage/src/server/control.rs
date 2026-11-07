@@ -19,8 +19,28 @@ fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
     match kind {
         ModKind::Kiln => Ok(server.join("kiln/mods")),
         ModKind::Native => Ok(server.join("kiln/native")),
-        _ => Err(Error::new(ErrorCode::Unsupported, format!("{} mods are not synced to servers", kind.as_str()))),
+        // other engines' mods go where that engine's plugin reads them on a server (engine_mods::server_root)
+        k => crate::engine_mods::server_root(k, server)
+            .ok_or_else(|| Error::new(ErrorCode::Unsupported, format!("{} mods are not synced to servers", kind.as_str()))),
     }
+}
+
+/// The kinds a server takes: Kiln's managed and native mods, then every engine kind with a server folder.
+fn server_kinds() -> impl Iterator<Item = ModKind> {
+    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || (k.is_engine() && !k.is_reserved()))
+}
+
+/// The folders of `kind` in `dir` (a root several engines may share: each folder is checked for the kind).
+fn kind_dirs(dir: &Path, kind: ModKind) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut dirs: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && !p.file_name().and_then(|n| n.to_str()).unwrap_or(".").starts_with('.'))
+        .filter(|p| !kind.is_engine() || read_marker(p).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, p))
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 fn read_marker(dir: &Path) -> Option<SourceMarker> {
@@ -36,16 +56,29 @@ pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
     let server = instance.local_dir()?;
     let states = crate::state::read_mods(server).ok().flatten().map(|m| m.mods).unwrap_or_default();
     let mut out = Vec::new();
-    for kind in [ModKind::Kiln, ModKind::Native] {
+    for kind in server_kinds() {
         let r = root(server, kind)?;
-        let Ok(rd) = std::fs::read_dir(&r) else { continue };
-        let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
-        dirs.sort();
-        for d in dirs {
-            let folder = d.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-            if folder.starts_with('.') {
-                continue;
+        if kind.is_engine() {
+            // engine mods: on in the engine's folder, off in kiln/disabled/<kind>/
+            let off = crate::engine_mods::server_disabled_root(kind, server);
+            for (d, enabled) in kind_dirs(&r, kind).into_iter().map(|d| (d, true)).chain(kind_dirs(&off, kind).into_iter().map(|d| (d, false))) {
+                let folder = d.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let (id, version, _) = crate::engine_mods::identity(&d);
+                out.push(ServerMod {
+                    id,
+                    version,
+                    enabled,
+                    source: read_marker(&d).map(|m| m.library),
+                    clients: Some(crate::engine_mods::clients_of(kind, &d).1),
+                    state: None,
+                    folder,
+                    kind: Some(kind),
+                });
             }
+            continue;
+        }
+        for d in kind_dirs(&r, kind) {
+            let folder = d.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
             let (id, version, clients) = match kind {
                 ModKind::Kiln => match crate::manifest::read_kiln(&d) {
                     Ok(m) => (m.id, Some(m.version), Some(m.clients)),
@@ -96,13 +129,19 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
     let server = instance.local_dir()?.to_path_buf();
     let live = admin(instance);
     let mut conflicts = Vec::new();
-    // 1. removals: synced folders no longer wanted
-    for kind in [ModKind::Kiln, ModKind::Native] {
+    // 1. removals: synced folders no longer wanted (engine kinds: also their switched-off copies)
+    for kind in server_kinds() {
         let r = root(&server, kind)?;
-        let Ok(rd) = std::fs::read_dir(&r) else { continue };
-        for e in rd.flatten() {
+        let mut places = vec![r];
+        if kind.is_engine() {
+            places.push(crate::engine_mods::server_disabled_root(kind, &server));
+        }
+        for e in places.iter().filter_map(|p| std::fs::read_dir(p).ok()).flat_map(|rd| rd.flatten()) {
             let d = e.path();
             let Some(m) = read_marker(&d) else { continue };
+            if m.library.kind != kind {
+                continue; // a root several engines share: another kind's synced folder
+            }
             if mods.iter().any(|x| x.kind == kind && x.id == m.library.id) {
                 continue;
             }
@@ -119,7 +158,14 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             return Err(Error::new(ErrorCode::Canceled, "canceled"));
         }
         progress.report(Some(i as f32 / mods.len().max(1) as f32), &format!("{} {}", r.id, r.version));
-        let dst_root = root(&server, r.kind)?;
+        let mut dst_root = root(&server, r.kind)?;
+        if r.kind.is_engine() {
+            // a switched-off engine mod stays off: its new version goes to kiln/disabled/<kind>/
+            let off = crate::engine_mods::server_disabled_root(r.kind, &server);
+            if read_marker(&off.join(&r.id)).is_some() {
+                dst_root = off;
+            }
+        }
         std::fs::create_dir_all(&dst_root).map_err(crate::util::io_at(&dst_root, "creating"))?;
         if !folder_ok(&r.id) {
             return Err(Error::invalid(format!("mod id {:?} cannot be a folder name", r.id)));
@@ -169,6 +215,29 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
     mods_of(instance)
 }
 
+/// An engine mod: moved between the engine's folder and `kiln/disabled/<kind>/` (a folder the launcher synced, or
+/// one the engine's folder holds for that kind).
+fn set_engine_enabled(server: &Path, folder: &str, enabled: bool) -> Result<()> {
+    for kind in server_kinds().filter(|k| k.is_engine()) {
+        let Ok(on_root) = root(server, kind) else { continue };
+        let off_root = crate::engine_mods::server_disabled_root(kind, server);
+        let (on, off) = (on_root.join(folder), off_root.join(folder));
+        let (from, to) = if enabled { (off, on) } else { (on, off) };
+        if !from.is_dir() || !(read_marker(&from).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, &from)) {
+            continue;
+        }
+        if to.exists() {
+            return Err(Error::new(ErrorCode::Conflict, format!("{} exists already", to.display())));
+        }
+        if let Some(p) = to.parent() {
+            std::fs::create_dir_all(p).map_err(crate::util::io_at(p, "creating"))?;
+        }
+        return crate::util::rename_replace(&from, &to);
+    }
+    let on_off = if enabled { "switched-off" } else { "" };
+    Err(Error::not_found(format!("no {on_off} mod folder {folder}")))
+}
+
 fn mods_of(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
     mods(instance)
 }
@@ -180,10 +249,9 @@ pub fn set_enabled(instance: &ServerInstance, folder: &str, enabled: bool) -> Re
         return Err(Error::invalid(format!("{folder:?} is not a mod folder name")));
     }
     let server = instance.local_dir()?;
-    let dir = [server.join("kiln/mods").join(folder), server.join("kiln/native").join(folder)]
-        .into_iter()
-        .find(|d| d.is_dir())
-        .ok_or_else(|| Error::not_found(format!("no mod folder {folder}")))?;
+    let Some(dir) = [server.join("kiln/mods").join(folder), server.join("kiln/native").join(folder)].into_iter().find(|d| d.is_dir()) else {
+        return set_engine_enabled(server, folder, enabled);
+    };
     let flag = dir.join(DISABLED);
     if enabled {
         if flag.exists() {

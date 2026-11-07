@@ -44,7 +44,9 @@ impl Clients {
     }
 }
 
-/// Library / profile kinds (`library/<kind>/`, profile.json `mods.<kind>`).
+/// Library / profile kinds (`library/<kind>/`, profile.json `mods.<kind>`). The first four are Kiln's own; the rest
+/// hold mods made for other engines, run by Kiln's plugin for that engine (docs/kiln/engines.md, "Library kinds").
+/// `enshwick`, `shroudlink` and `ember` are reserved: profiles and the library accept them, no importer exists yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModKind {
@@ -52,10 +54,45 @@ pub enum ModKind {
     Native,
     Plugin,
     Emf,
+    /// EML data/Lua mods (`mod.json` + `src/mod.lua`), run by kiln-eml (GPL plugin).
+    Eml,
+    /// ShroudForge packages, run by kiln-shroudforge from ShroudForge's mods folder.
+    #[serde(rename = "shroudforge")]
+    ShroudForge,
+    /// Shrouded Engine Tweaks Lua mods, run by kiln-set from `shrouded_engine_tweaks/mods`.
+    Set,
+    /// Greeneye Loader DLL mods, run by kiln-greeneye.
+    Greeneye,
+    /// Flame mods (Creative Mode), run by kiln-flame.
+    Flame,
+    /// Shroudtopia / Shroudweave DLL mods, run by kiln-shroudtopia.
+    Shroudtopia,
+    /// Reserved: Enshwick mods.
+    Enshwick,
+    /// Reserved: shroudlink server mods.
+    Shroudlink,
+    /// Reserved: Ember server SDK mods.
+    Ember,
 }
 
 impl ModKind {
-    pub const ALL: [ModKind; 4] = [ModKind::Kiln, ModKind::Native, ModKind::Plugin, ModKind::Emf];
+    pub const ALL: [ModKind; 13] = [
+        ModKind::Kiln,
+        ModKind::Native,
+        ModKind::Plugin,
+        ModKind::Emf,
+        ModKind::Eml,
+        ModKind::ShroudForge,
+        ModKind::Set,
+        ModKind::Greeneye,
+        ModKind::Flame,
+        ModKind::Shroudtopia,
+        ModKind::Enshwick,
+        ModKind::Shroudlink,
+        ModKind::Ember,
+    ];
+    /// Kiln's own kinds (kiln-core's `kiln.profile` service counts these: KILN_PROFILE_KIND_*).
+    pub const CORE: [ModKind; 4] = [ModKind::Kiln, ModKind::Native, ModKind::Plugin, ModKind::Emf];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -63,6 +100,99 @@ impl ModKind {
             ModKind::Native => "native",
             ModKind::Plugin => "plugin",
             ModKind::Emf => "emf",
+            ModKind::Eml => "eml",
+            ModKind::ShroudForge => "shroudforge",
+            ModKind::Set => "set",
+            ModKind::Greeneye => "greeneye",
+            ModKind::Flame => "flame",
+            ModKind::Shroudtopia => "shroudtopia",
+            ModKind::Enshwick => "enshwick",
+            ModKind::Shroudlink => "shroudlink",
+            ModKind::Ember => "ember",
+        }
+    }
+
+    /// `"eml"` -> Eml (the profile/library folder names).
+    pub fn parse(s: &str) -> Option<ModKind> {
+        ModKind::ALL.into_iter().find(|k| k.as_str() == s)
+    }
+
+    /// A kind for another engine's mods (not one of Kiln's own four).
+    pub fn is_engine(self) -> bool {
+        !ModKind::CORE.contains(&self)
+    }
+
+    /// Reserved kinds: listed in the formats, no importer yet.
+    pub fn is_reserved(self) -> bool {
+        matches!(self, ModKind::Enshwick | ModKind::Shroudlink | ModKind::Ember)
+    }
+
+    /// The engine whose plugin runs this kind (EMF for `emf`; None for Kiln's own kinds).
+    pub fn engine(self) -> Option<crate::engines::Engine> {
+        use crate::engines::Engine;
+        Some(match self {
+            ModKind::Kiln | ModKind::Native | ModKind::Plugin => return None,
+            ModKind::Emf => Engine::Emf,
+            ModKind::Eml => Engine::Eml,
+            ModKind::ShroudForge => Engine::ShroudForge,
+            ModKind::Set => Engine::Set,
+            ModKind::Greeneye => Engine::Greeneye,
+            ModKind::Flame => Engine::Flame,
+            ModKind::Shroudtopia => Engine::Shroudtopia,
+            ModKind::Enshwick => Engine::Enshwick,
+            ModKind::Shroudlink => Engine::Shroudlink,
+            ModKind::Ember => Engine::Ember,
+        })
+    }
+
+    /// The library kind a detected item is imported as (None: a kind that is not a mod, e.g. a save or a proxy).
+    pub fn of_detect(k: crate::library::DetectKind) -> Option<ModKind> {
+        use crate::library::DetectKind as D;
+        Some(match k {
+            D::Kiln => ModKind::Kiln,
+            D::Native | D::BareDll => ModKind::Native,
+            D::Plugin => ModKind::Plugin,
+            D::Emf => ModKind::Emf,
+            D::Eml => ModKind::Eml,
+            D::ShroudForge => ModKind::ShroudForge,
+            D::Set => ModKind::Set,
+            D::Greeneye => ModKind::Greeneye,
+            D::Flame => ModKind::Flame,
+            D::Shroudtopia => ModKind::Shroudtopia,
+            D::Enshwick => ModKind::Enshwick,
+            D::Shroudlink => ModKind::Shroudlink,
+            D::Ember => ModKind::Ember,
+            _ => return None,
+        })
+    }
+
+    /// The Library detection kind of this mod kind.
+    pub fn detect_kind(self) -> crate::library::DetectKind {
+        use crate::library::DetectKind as D;
+        match self {
+            ModKind::Kiln => D::Kiln,
+            ModKind::Native => D::Native,
+            ModKind::Plugin => D::Plugin,
+            ModKind::Emf => D::Emf,
+            ModKind::Eml => D::Eml,
+            ModKind::ShroudForge => D::ShroudForge,
+            ModKind::Set => D::Set,
+            ModKind::Greeneye => D::Greeneye,
+            ModKind::Flame => D::Flame,
+            ModKind::Shroudtopia => D::Shroudtopia,
+            ModKind::Enshwick => D::Enshwick,
+            ModKind::Shroudlink => D::Shroudlink,
+            ModKind::Ember => D::Ember,
+        }
+    }
+
+    /// The name players see for the kind ("Kiln", "EML", "ShroudForge" ...).
+    pub fn label(self) -> &'static str {
+        match self {
+            ModKind::Kiln => "Kiln",
+            ModKind::Native => "Native",
+            ModKind::Plugin => "Plugin",
+            k => k.engine().map(|e| e.name()).unwrap_or("?"),
         }
     }
 }

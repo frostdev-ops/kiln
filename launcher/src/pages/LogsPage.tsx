@@ -7,9 +7,10 @@ import type { LogFile, LogTarget } from "../api/commands";
 import { qk, useGame } from "../api/hooks";
 import { Button, EmptyState, LogView, Page, PageHeader, Select, Skeleton, Table, Tabs, WellInput, errorText, fmtAgo, fmtBytes, toast, type Column } from "../ui";
 import { TICKS, TickStats } from "./ticks";
+import { EngineStatusList, RestoreVanillaOffer } from "../components/EngineStatus";
 
-export type LogTab = "kiln" | "game" | "proxy" | "mods" | "crash" | "ticks";
-const TAB_LABEL: Record<LogTab, string> = { kiln: "Kiln", game: "Game", proxy: "Proxy", mods: "Mods", crash: "Crashes", ticks: "Tick stats" };
+export type LogTab = "kiln" | "game" | "proxy" | "mods" | "crash" | "ticks" | "engines";
+const TAB_LABEL: Record<LogTab, string> = { kiln: "Kiln", game: "Game", proxy: "Proxy", mods: "Mods", crash: "Crashes", ticks: "Tick stats", engines: "Engines" };
 
 export default function LogsPage() {
   const { game } = useGame();
@@ -18,7 +19,9 @@ export default function LogsPage() {
 }
 
 /** Logs of a game or a server. `embedded`: inside a layout with its own title (a server); `tabs`: which tabs show. */
-export function LogsFor({ target, folder, embedded, tabs = ["kiln", "game", "proxy", "mods", "crash", "ticks"] }: { target: LogTarget; folder?: string; embedded?: boolean; tabs?: LogTab[] }) {
+export function LogsFor({ target, folder, embedded, tabs: wanted = ["kiln", "game", "proxy", "mods", "crash", "ticks", "engines"] }: { target: LogTarget; folder?: string; embedded?: boolean; tabs?: LogTab[] }) {
+  // Engines: the engine plugins' state files, a game's only (engine_status)
+  const tabs = "game" in target ? wanted : wanted.filter((t) => t !== "engines");
   const files = useQuery({ queryKey: qk.logs(target), queryFn: () => api.logsList(target), refetchInterval: 10000 });
   const [tab, setTab] = useState<LogTab>(tabs[0]);
   const [chosen, setChosen] = useState<Partial<Record<LogTab, string>>>({});
@@ -33,8 +36,9 @@ export function LogsFor({ target, folder, embedded, tabs = ["kiln", "game", "pro
   const tabFiles = ofTab(tab);
   const mods = ofTab("mods");
   const file = tabFiles.find((f) => f.name === chosen[tab]) ?? tabFiles[0];
-  const isFile = tab !== "crash" && tab !== "ticks";
-  const say = files.error ? errorText(files.error) : !isFile ? (tab === "ticks" ? "Kiln writes a line each minute a world runs." : "Kiln writes one when a mod faults too often.")
+  const isFile = tab !== "crash" && tab !== "ticks" && tab !== "engines";
+  const say = files.error ? errorText(files.error) : !isFile ? (tab === "ticks" ? "Kiln writes a line each minute a world runs." : tab === "engines" ? "Other engines' plugins: what each one did at the last start."
+    : "Kiln writes one when a mod faults too often.")
     : file ? `${file.name.split("/").pop()}, ${fmtBytes(file.size)}, written ${fmtAgo(file.modified)}.` : "Not written yet: it appears after the next start.";
   const openFolder = folder && <Button onClick={() => api.appOpenPath(folder).catch((e) => toast.error(e))}>Open folder</Button>;
   const body = (
@@ -42,7 +46,12 @@ export function LogsFor({ target, folder, embedded, tabs = ["kiln", "game", "pro
       {!embedded && <PageHeader title="Logs" sub={say} actions={openFolder} />}
       {tabs.length > 1 && <Tabs aria-label="Log" value={tab} onChange={setTab} items={tabs.map((t) => ({ id: t, label: TAB_LABEL[t], count: t === "mods" ? mods.length : undefined }))} />}
       {files.error ? <EmptyState title="The logs are not readable" hint={errorText(files.error)} /> : files.isLoading ? <Skeleton /> : (
-        tab === "crash" ? <Crashes target={target} /> : tab === "ticks" ? <TickStats target={target} fill /> : (
+        tab === "engines" && "game" in target ? (
+          <div className="k-scroll k-stack" style={{ gap: 14 }}>
+            <RestoreVanillaOffer gameId={target.game} />
+            <EngineStatusList gameId={target.game} />
+          </div>
+        ) : tab === "crash" ? <Crashes target={target} /> : tab === "ticks" ? <TickStats target={target} fill /> : (
           <>
             <div className="k-console-bar">
               {embedded && <span className="k-mono" style={{ color: "var(--k-text-1)" }} title={file?.path}>{file ? file.name.split("/").pop() : "No file"}</span>}

@@ -29,6 +29,15 @@ struct Missing {
     std::string id, path;
 };
 
+// Mod kinds of other engines (profile.json mods.<kind>, schema/profile.schema.json). They are not kiln.profile kinds:
+// each engine's plugin reads its own list from json(). The core validates them like the others (a broken entry makes
+// the profile INVALID), counts them for kiln.log and boot.json, and reports missing folders. Internal kind numbers
+// for Missing: KILN_PROFILE_KINDS + index into kEngineKinds.
+inline constexpr uint32_t kEngineKindCount = 9;
+inline constexpr const char* kEngineKinds[kEngineKindCount] = {"eml",         "shroudforge", "set",
+                                                               "greeneye",    "flame",       "shroudtopia",
+                                                               "enshwick",    "shroudlink",  "ember"};
+
 struct State {
     uint32_t mode = KILN_PROFILE_LEGACY;
     std::string id, name;
@@ -40,13 +49,14 @@ struct State {
     bool data_dir_set = false;
     uint32_t dropins = 0;  // bits 1u << KILN_PROFILE_KIND_*
     std::vector<Entry> mods[KILN_PROFILE_KINDS];
+    std::vector<Entry> engine_mods[kEngineKindCount];  // kEngineKinds order; present folders only
     std::vector<Missing> missing;
 };
 
 void load();  // boot: after load_config(); sets KILN_PATH_CONFIG
 const State& state();
 const char* mode_name(uint32_t mode);  // legacy | active | once | no-mods | invalid
-const char* kind_name(uint32_t kind);  // kiln | native | plugin | emf
+const char* kind_name(uint32_t kind);  // kiln | native | plugin | emf, then kEngineKinds (KILN_PROFILE_KINDS + i)
 bool dropins(uint32_t kind);           // load that kind's drop-in folder too
 
 // A game-side path: absolute (X:\..., \\server\...) as is, anything else relative to <game>\kiln\. '/' = '\'.

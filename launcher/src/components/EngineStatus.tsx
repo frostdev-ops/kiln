@@ -1,0 +1,125 @@
+// Other engines' plugins at a glance (engine_status: `kiln/state/<engine>.json`), and EML's "Restore vanilla game data"
+// (eml_backup / eml_restore). Used by the Logs page's Engines tab and the profile's Engines tab. docs/kiln/engines.md.
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import * as api from "../api/commands";
+import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
+import { useActiveProfile, useGameStatus, useProfile } from "../api/hooks";
+import { KIND_NAME, KIND_SHORT, KIND_TONE, MOD_KINDS } from "../api/kinds";
+import { Badge, Banner, Button, EmptyState, Modal, Skeleton, errorText, toast, type Tone } from "../ui";
+
+type Obj = Record<string, Json>;
+const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
+const str = (v: Json | undefined): string | null => (typeof v === "string" && v ? v : typeof v === "number" ? String(v) : null);
+
+/** The state word of a plugin's state file: EML `phase`, ShroudForge `mode`, else `state`/`status`. */
+export function headline(state: Json | null): string | null {
+  if (!isObj(state)) return null;
+  return str(state.phase) ?? str(state.mode) ?? str(state.state) ?? str(state.status);
+}
+
+const toneOf = (word: string | null): Tone => {
+  if (!word) return "idle";
+  if (/fail|error|refus/i.test(word)) return "err";
+  if (/aside|off|not-installed|skip|disabled|idle/i.test(word)) return "idle";
+  if (/done|hosted|loaded|running|active|started|ok/i.test(word)) return "ok";
+  return "info";
+};
+
+export interface ModLine { id: string; state: string | null; reason: string | null }
+
+/** The `mods` list of a state file, each as {id, state, reason} (EML: id/state/reason; Greeneye: status; Shroudtopia: name). */
+export function modLines(state: Json | null): ModLine[] {
+  if (!isObj(state) || !Array.isArray(state.mods)) return [];
+  return state.mods.filter(isObj).map((m) => ({
+    id: str(m.id) ?? str(m.name) ?? "?",
+    state: str(m.state) ?? str(m.status) ?? (typeof m.active === "boolean" ? (m.active ? "active" : "off") : null),
+    reason: str(m.reason) ?? str(m.detail) ?? str(m.error),
+  }));
+}
+
+export const engineStatusKey = (gameId: GameId) => ["engine_status", gameId] as const;
+
+/** One compact row per engine plugin that wrote a state file or has mods in the active profile. */
+export function EngineStatusList({ gameId }: { gameId: GameId }) {
+  const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: 10_000 });
+  const active = useActiveProfile(gameId);
+  const profile = useProfile(active.data?.profileId);
+  const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
+  if (q.isLoading) return <Skeleton lines={3} />;
+  if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
+  const rows = (q.data ?? []).filter((s) => s.state !== null || inProfile(s.kind))
+    .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
+  if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
+  return (
+    <div className="k-list" aria-label="Engine plugins">
+      {rows.map((s) => <EngineRow key={s.kind} s={s} />)}
+    </div>
+  );
+}
+
+function EngineRow({ s }: { s: EngineStatus }) {
+  const word = headline(s.state);
+  const reason = isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null;
+  const mods = modLines(s.state);
+  return (
+    <div className="k-list-item" data-engine={s.kind} style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }} title={s.file}>
+      <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
+      <span className="k-mono k-muted">{s.plugin}</span>
+      <span className="k-spacer" />
+      {s.state === null ? <span className="k-hint">Not run yet</span> : (
+        <>
+          {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
+          {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}
+        </>
+      )}
+      {(reason || mods.length > 0) && (
+        <span className="k-hint" style={{ flexBasis: "100%" }}>
+          {reason && <span>{reason}. </span>}
+          {mods.map((m, i) => (
+            <span key={m.id + i}>{i ? ", " : ""}<span className="k-mono">{m.id}</span>{m.state ? ` ${m.state}` : ""}{m.reason ? ` (${m.reason})` : ""}</span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** "Restore vanilla game data": offered when EML's backup says a `.kfc` is patched and the active profile runs no EML
+ *  mod (nothing would patch it again, so the game would keep stale EML changes). */
+export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
+  const qc = useQueryClient();
+  const backup = useQuery({ queryKey: ["eml_backup", gameId], queryFn: () => api.emlBackup(gameId) });
+  const active = useActiveProfile(gameId);
+  const profile = useProfile(active.data?.profileId);
+  const status = useGameStatus(gameId);
+  const [confirm, setConfirm] = useState(false);
+  const restore = useMutation({
+    mutationFn: () => api.emlRestore(gameId),
+    onSuccess: (files) => {
+      toast.ok("Vanilla game data back", files.length ? files.map((f) => f.split(/[\\/]/).pop()).join(", ") : "Nothing needed restoring.");
+      setConfirm(false);
+      qc.invalidateQueries({ queryKey: ["eml_backup", gameId] });
+      qc.invalidateQueries({ queryKey: engineStatusKey(gameId) });
+    },
+    onError: (e) => toast.error(e, "Not restored"),
+  });
+  const patched = (backup.data ?? []).filter((b) => b.patched);
+  const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
+  if (!patched.length || active.isLoading || (active.data && !profile.data) || emlOn) return null;
+  const running = !!status.data?.running;
+  const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
+  return (
+    <>
+      <Banner tone="warn" title="EML changes still in the game data"
+        actions={<Button size="s" disabled={running} title={running ? "Close the game first" : undefined} onClick={() => setConfirm(true)}>Restore vanilla game data</Button>}>
+        {names} still {patched.length === 1 ? "has" : "have"} EML's patches, and no EML mod is on in the active profile.
+      </Banner>
+      <Modal open={confirm} onClose={() => setConfirm(false)} title="Restore vanilla game data?" width={500} locked={restore.isPending}
+        footer={<><Button variant="ghost" onClick={() => setConfirm(false)}>Cancel</Button>
+          <Button variant="primary" loading={restore.isPending} disabled={running} onClick={() => restore.mutate()}>Restore</Button></>}>
+        EML's backup of the original file goes back over {names}. Turn an EML mod on later and kiln-eml patches it again.
+      </Modal>
+    </>
+  );
+}

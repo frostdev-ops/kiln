@@ -126,7 +126,7 @@ test.describe("controls", () => {
     for (let i = 0; i < 12; i++) await pad(page, "down");
     const last = await focused(page);
     const box = await page.locator(`[data-deck-id="${last}"]`).boundingBox();
-    expect(box!.y + box!.height).toBeLessThanOrEqual(736);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(736.5); // sub-pixel: the list scrolled to its end
   });
 
   test("every screen is reachable with L1/R1 and the menu, and B goes back to Home", async ({ page }) => {

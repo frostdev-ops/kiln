@@ -6,6 +6,7 @@ import * as api from "../api/commands";
 import type { DeckFolder, GameInstall } from "../api/commands";
 import { invalidateGame, qk, showActive, useActiveProfile, useGameSel, useGameStatus, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast, runTask } from "../ui";
+import { totalCount } from "../api/kinds";
 import { useKilnInstall } from "../shell/firstRun";
 import { installBundle } from "../shell/runtimeChange";
 import { focusEl, focusFirst } from "./focus";
@@ -39,7 +40,7 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
     <Dialog name="profiles" title="Profile" onClose={onClose} wide>
       <div className="deck-list">
         {list.map((p) => {
-          const n = p.counts.kiln + p.counts.native + p.counts.emf + p.counts.plugin;
+          const n = totalCount(p.counts);
           return (
             <Row key={p.id} id={`profile-${p.id}`} title={p.name} end={p.id === cur ? <Word tone="ember">Active</Word> : `${n} mod${n === 1 ? "" : "s"}`}
               disabled={blocked || activate.isPending} a="Use" onClick={() => pick(p.id)} />

@@ -458,7 +458,7 @@ fn unpack(zip: &Path, _dest: &Path) -> Result<()> {
 }
 
 /// Copies a mod folder without its dot entries (not part of its kdh1); symlinks are refused.
-fn copy_mod_tree(from: &Path, to: &Path) -> Result<u64> {
+pub(crate) fn copy_mod_tree(from: &Path, to: &Path) -> Result<u64> {
     std::fs::create_dir_all(to).map_err(io(to, "creating"))?;
     let mut size = 0;
     for e in std::fs::read_dir(from).map_err(io(from, "reading"))? {
@@ -695,6 +695,7 @@ fn read_manifest_json(kind: ModKind, folder: &Path) -> Option<serde_json::Value>
         ModKind::Native => crate::manifest::NATIVE_MANIFEST,
         ModKind::Emf => EMF_MANIFEST,
         ModKind::Plugin => return None,
+        _ => return crate::engine_mods::manifest_json(folder),
     };
     crate::jsonc::parse(&crate::manifest::read_text(&folder.join(file)).ok()?).ok()
 }
@@ -750,12 +751,7 @@ pub fn users(dirs: &DataDirs, r: &LibraryRef) -> Vec<String> {
     let mut out = Vec::new();
     for e in std::fs::read_dir(dirs.profiles()).into_iter().flatten().flatten() {
         let Ok(Some(p)) = crate::util::read_json::<crate::profile::Profile>(&e.path().join("meta.json")) else { continue };
-        let list = match r.kind {
-            ModKind::Kiln => &p.mods.kiln,
-            ModKind::Native => &p.mods.native,
-            ModKind::Plugin => &p.mods.plugin,
-            ModKind::Emf => &p.mods.emf,
-        };
+        let list = p.mods.list(r.kind);
         if list.iter().any(|m| m.id == r.id && m.version == r.version && m.hash == r.hash) {
             out.push(p.id);
         }

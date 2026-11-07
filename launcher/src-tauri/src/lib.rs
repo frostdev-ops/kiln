@@ -186,7 +186,12 @@ pub fn run() {
             commands::nexus::nexus_link_install,
             commands::nexus::nexus_link_dismiss,
             commands::nexus::nexus_handler_status,
-            commands::nexus::nexus_handler_set
+            commands::nexus::nexus_handler_set,
+            commands::engines::engine_settings_get,
+            commands::engines::engine_settings_set,
+            commands::engines::engine_status,
+            commands::engines::eml_backup,
+            commands::engines::eml_restore
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")

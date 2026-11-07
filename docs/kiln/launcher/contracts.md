@@ -72,7 +72,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | Path | What |
 |---|---|
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
-| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
+| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`; reserved `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size}` |
 | `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`) |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/` and `native.json` |
@@ -101,7 +101,8 @@ Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `
 | `play-once.ini` | section 5.2 |
 | `chain.ini`, `chain/` (displaced proxies, `once.ini`) | section 5.3 |
 | `native/<id>/` | native mod drop-in folder (a folder with `native.json`) |
-| `profiles/<pid>/{kiln,native,plugin,emf}/<id>/`, `profiles/<pid>/config/` | copy mode (section 6) |
+| `profiles/<pid>/<kind>/<id>/`, `profiles/<pid>/config/` | copy mode (section 6) |
+| `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1). Folders without the marker are the player's and are never touched |
 | `state/` | status files for the launcher (section 5.9); created by kiln-core at boot (`KILN_PATH_STATE`) |
 | `.install.json` | install receipt (section 5.7) |
 | `backups/install-<yyyymmddThhmmssZ>/` | what the installer replaced, byte-identical |
@@ -110,7 +111,10 @@ Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `
 
 Servers keep their layout: the launcher syncs library mods into `<server>/kiln/mods/<id>/` with
 `.kiln-source.json` (`{format, library:{kind,id,version,hash}, synced, by}`) and switches them off with an empty
-`.disabled` file; native mods go to `<server>/kiln/native/<id>/`. Profiles are a client feature.
+`.disabled` file; native mods go to `<server>/kiln/native/<id>/`. Other engines' mods go to the folder their plugin
+reads on a server (`engine_mods::server_root`: `emf/mods`, `kiln/eml/mods`, ShroudForge's mods folder,
+`shrouded_engine_tweaks/mods`, `greeneye`, `mods`) with the same marker; switched off, they move to
+`<server>/kiln/disabled/<kind>/<id>/`. Profiles are a client feature.
 
 World data (`kiln/data/worlds`) is never per profile and never moves with `dataDir`.
 
@@ -127,7 +131,9 @@ World data (`kiln/data/worlds`) is never per profile and never moves with `dataD
     "kiln":   [{ "id": "new-items", "version": "1.0.0", "path": "Z:\\…\\library\\kiln\\new-items\\1.0.0+3f2a9c1d", "hash": "kdh1:…", "enabled": true }],
     "native": [{ "id": "creative-mode", "version": "1.3.0", "path": "Z:\\…\\library\\native\\creative-mode\\1.3.0+0badc0de" }],
     "emf":    [{ "id": "beastmaster", "version": "0.3.3", "path": "Z:\\…\\library\\emf\\beastmaster\\0.3.3+c0ffee00" }],
-    "plugin": [{ "path": "Z:\\…\\library\\plugin\\my-plugin\\1.0.0+12345678\\my-plugin.dll" }]
+    "plugin": [{ "path": "Z:\\…\\library\\plugin\\my-plugin\\1.0.0+12345678\\my-plugin.dll" }],
+    "eml":    [{ "id": "bigger-stacks", "version": "0.1.0", "path": "Z:\\…\\library\\eml\\bigger-stacks\\0.1.0+0a1b2c3d" }],
+    "shroudforge": [{ "id": "sfpkg", "version": "1.0.0", "path": "Z:\\…\\Enshrouded\\mods\\sfpkg", "enabled": false }]
   }
 }
 ```
@@ -151,6 +157,29 @@ Rules:
   mods of any kind, mode INVALID, the error in `kiln.log`, `state/boot.json` `profile.error` and the
   `kiln.profile.json()` text. Never fall back to the drop-ins silently.
 - `profile.once.json` has the same format; kiln-core reads it instead when play-once `mode=profile` (section 5.2).
+
+**Other engines' mods** (`mods.<kind>`, same entry shape as `emf`). kiln-core validates these lists like its own (a
+broken entry makes the profile INVALID), counts them in `kiln.log` and `boot.json` `profile.counts.<kind>` and lists
+missing folders in `profile.missing[]`, but `kiln.profile` `count()/get()` cover only the four Kiln kinds (no ABI
+change): each engine's plugin reads its own list from `kiln.profile.json()`. Older cores warn
+`unknown mod kind "mods.<kind>" ignored` and run on. A list is written only when it has entries, so a Kiln-only
+profile is byte-identical to older launchers' files. `dropins` may name engine kinds; `true` is written when the
+profile turns on all four Kiln kinds (as before), and the engine plugins then read their own folders too.
+
+| Kind | Plugin | Entry `path` | How the plugin takes the list |
+|---|---|---|---|
+| `emf` | kiln-emf | library folder | `kiln.profile` `get(KILN_PROFILE_KIND_EMF)` |
+| `eml` | kiln-eml (GPL) | library folder | `discover::profile_candidates` over `json()`; `enabled: false` = disabled |
+| `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes its `extended.mod.json` `enabled` (`shroudforge::apply_switches`); Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
+| `set` | kiln-set | the placed copy in `shrouded_engine_tweaks/mods/` | kiln-set reads that folder. Activation places the enabled mods and removes Kiln's copies of disabled or unlisted ones (SET has no switch). kiln-set loads nothing under play-once no-mods or an invalid profile |
+| `greeneye` | kiln-greeneye | library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
+| `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
+| `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
+| `enshwick`, `shroudlink`, `ember` | reserved | - | accepted, no importer or plugin yet |
+
+`compat.h`'s rule for Greeneye, Flame and Shroudtopia: with a `mods.<kind>` list the profile's entries load and the
+engine's own folder is read only when `dropins` is `true`; without the list the folder is read (mods the player put
+there by hand keep working).
 
 ### 5.2 `play-once.ini`
 ```ini
@@ -202,16 +231,18 @@ Grammar (same dialect as 5.2):
 - One DLL per line. A `key = value` line counts by its value. Only values ending in `.dll` (case-insensitive) count;
   other lines are ignored.
 - Paths: absolute (`Z:\…` under Proton, real paths on Windows, UNC) or relative to `<game>/kiln/`; `/` is read as `\`.
-- At most 256 entries per section; the rest are REFUSED with detail `too-many`.
+- At most 256 entries per section: the first entry past the limit is reported as REFUSED with detail `too-many`, and
+  any further entries are discarded (not reported).
 - Writers: the installer owns `[chain]`, profile activation owns `[profile]`; each rewrites the whole file atomically
   and keeps the other section's lines byte-identical. The launcher writes `once.ini` (its `[profile]`) together with
   play-once.ini for launch mode once and deletes it at the next activation.
 
 Load order, all in the proxy's `DllMain` before it installs the gate (so entry patches unwind last-in, first-out):
 1. `kiln/chain.ini [chain]`;
-2. `<game>/dinput8-chain.ini` with EMF's rules (`[Chain]` and lines before any section, `;`/`#`/`//` comments, a
-   `key=value` counts by its value, only DLLs inside the game folder: an entry outside is REFUSED `outside`, at most
-   256);
+2. `<game>/dinput8-chain.ini` with EMF's rules (`[Chain]`, lines before any section, and `[EMF]` (the DLLs EMF 0.5's
+   installer renamed), in file order; `;`/`#`/`//` comments, a `key=value` counts by its value, only DLLs inside the
+   game folder: an entry outside is REFUSED `outside`; at most 256 entries across both sections, with the same
+   overflow rule as above);
 3. `kiln/chain.ini [profile]`, or `kiln/chain/once.ini` for play-once mode=profile.
 
 Decisions per entry (`KilnChainEntry`, `state/boot.json` `chain[]`): dedupe by canonical path (`duplicate`, loaded
@@ -230,15 +261,45 @@ else the proxy's own `c_dfDIJoystick`), and `const KilnProxyInfoData* __cdecl Ki
 have no export and count as abi 1.
 
 Proxy classification (`kiln_manage::pe::classify_proxy` -> `ProxyKind`, the installer's table, and the proxy's
-refusals use the same markers):
+refusals use the same markers). Every DLL under a proxy name next to the game (`dinput8`, `dbghelp`, `dbgcore`,
+`umpdc`, `cfgmgr32`, `winmm`, `powrprof`, `iphlpapi`, `version`, `xinput1_4`, `xinput9_1_0`, `dxgi`, `steam_api64`;
+`engines::scan_proxies`) gets one kind; checks in this order, the first match wins; texts match as ASCII or UTF-16LE,
+case ignored. Table and markers: `engines::ENGINES` ([engines.md](../engines.md)).
 
-| Kind | Markers | Installer | Proxy |
+| Kind | Markers | Installer (`dinput8.dll`) | Proxy |
 |---|---|---|---|
-| `kiln` | export `KilnProxyInfo`, or ASCII `KilnProxy/2 <semver>`, or UTF-16LE `\kiln\kiln-core.dll` (old proxies) | replace | refuse (`kiln`) |
-| `shroudforge` | ASCII `shroudforge/shroudforge-runtime.dll` or `shroudforge/config/modloader-config.json`, or export `ShroudforgeSetDinput8Provider` | refuse unless "switch from ShroudForge" (then backed up, never chained) | refuse (`shroudforge`) |
-| `emf` | exports `emf_loader_identity` / `emf_loader_play_once` | move to `kiln/chain/` + `[chain]` | load |
-| `unknown` | any other 64-bit PE DLL | move to `kiln/chain/` + `[chain]` | load |
+| `kiln` | export `KilnProxyInfo`, ASCII `KilnProxy/<abi>`, UTF-16LE `\kiln\kiln-core.dll` | replace | refuse (`kiln`) |
+| `emf` | exports `emf_loader_identity` / `emf_loader_play_once`, text `EMF-LOADER-7d3c9f` (checked before ShroudForge: EMF 0.4+ also exports `ShroudforgeSetDinput8Provider`) | chain | load |
+| `shroudforge` | `shroudforge/shroudforge-runtime.dll`, `shroudforge/config/modloader-config.json`, export `ShroudforgeSetDinput8Provider`, text `shroudforge` | refuse unless "switch from ShroudForge" (then backed up, never chained; `dbghelp.dll`, `winmm.dll`, `shroudforge/` stay) | refuse (`shroudforge`) |
+| `eml` | `EML_LOG_FILE_PATH` | chain | load |
+| `set` | `shrouded_engine_tweaks` | chain | load |
+| `enshwick` | `enshwick` | chain | load |
+| `greeneye` | `greeneye` | chain | load |
+| `shroudtopia` | `shroudtopia` (Shroudweave too) | chain | load |
+| `flame` | `FlameStartRuntime`, `flame.json` | chain | load |
+| `shroudlink` | `shroudlink` | chain | load |
+| `ember` | `ember-loader`, `ember_loader` | chain | load |
+| `modloaderproxy` | `modloader-proxy.dll`, `chainloader.ini` | chain | load |
+| `ultimateasiloader` | export or text `IsUltimateASILoader` | chained as `..\xinput9_1_0.dll` next to the game (refused when that name is taken) | load |
+| `aldrich`, `livemap`, `sharedxp`, `reshade` | `aldrich` / `livemap.ini` / `xpshare.ini` / `reshade` | chain | load |
+| `chainloader` | `dinput8-chain.ini` | chain | load |
+| `unknown` | any other 64-bit PE DLL | chain | load |
 | `notdll` / `none` | not a 64-bit PE DLL / no file | refuse / nothing to do | refuse (`not-dll`) |
+
+Kiln owns only `dinput8.dll`; DLLs under the other proxy names are never moved (EML's `dbghelp.dll`, Shroudtopia's
+`winmm.dll`, SET's `powrprof.dll` keep running next to Kiln). "chain" = moved to `kiln/chain/<word>-dinput8.dll` +
+`[chain]` (an occupied name gets a numbered suffix).
+
+**Library detection** (`library::detect` -> `Detected {kind, path, id, version, name, reason, items, engine}`;
+`engine` = the `Engine` it was made for, kebab-case like `ProxyKind`). `DetectKind` besides Kiln's own (`kiln`,
+`native`, `plugin`, `emf`, `modpack`, `runtime`, `bare-dll`, `unknown`): `eml`, `shroudforge`, `set`, `enshwick`,
+`greeneye`, `shroudtopia`, `flame`, `shroudlink`, `ember` (mods for those engines), `proxy` (another engine's loader or
+a tool: never imported), `data`, `save`, `reshade`, `cheat-table`, `asi`. EML vs ShroudForge: both use `mod.json` +
+Lua and the same `capabilities`; a package is ShroudForge's only with SF-specific `extended.mod.json` metadata or an
+SF schema (`shroudforge::is_sf_own_mod`); `launcher: "EML"` stays EML. A kind is imported only through its registered
+loader (`engines::builtin_loaders`: `engine_mods::import_engine_mod` for `eml`, `shroudforge`, `set`, `greeneye`,
+`flame`, `shroudtopia`), into `library/<kind>/`; the others are skipped with their `reason`. The launcher (MIT) only
+copies files: it never links or runs an engine's code.
 
 ### 5.4 `native.json` and `<configDir>/native.json`
 ```jsonc
@@ -298,8 +359,10 @@ A parity test checks the bundle's tree against `tools/deploy-server.sh`'s output
 Fields: `format`, `installId` (uuid, stable across upgrades), `installed`, `updated`, `installer`,
 `runtime{version, sha256, components}`, `side`, `platform` (`proton|wine|windows`), `game{exe, sha256, steamBuild}`,
 `files[]` (`{path, sha256, size, component, config}`), `replaced[]` (`{path, sha256, size, class, action, chainPath,
-backup}`; `class`: `kiln|shroudforge|emf|unknown|file`; `action`: `chained|backed-up|replaced|adopted`; every path that existed
-before the install is recorded: `adopted` = the bundle's exact bytes (or a config file), kept by uninstall).
+backup, engine}`; `class`: `kiln|shroudforge|emf|unknown|file`; `engine`: the 5.3 `ProxyKind` when Kiln knows the
+file's engine (`eml`, `set`, `flame` ...), absent otherwise, so older readers keep their five classes; `action`:
+`chained|backed-up|replaced|adopted`; every path that existed before the install is recorded: `adopted` = the
+bundle's exact bytes (or a config file), kept by uninstall).
 Install:
 1. Refuse while the game runs (`game_running`) or Steam updates it (`steam_updating`).
 2. Stage into `kiln/.staging-<random>/` and verify every sha256.
@@ -316,13 +379,17 @@ from `<data>/runtime/`.
 Zip layout: `kiln-modpack.json` + `kiln/<id>/…`, `native/<id>/…`, `emf/<id>/…`, `plugin/<file>.dll`; deterministic.
 `kiln-modpack.json`: `format`, `name`, `version` (free text), `created`, `server{id,name}`, `kiln` (range players
 need), `mods[]` (`{kind, id, version, name, path, hash, clients, side}`; `hash` = the folder's kdh1, a plugin's sha256).
-Contents: the server's mods with `clients: "mod"`.
+Contents: the server's mods with `clients: "mod"`. Other engines' mods ride along as `<kind>/<id>/…` (`eml/`,
+`shroudforge/`, `flame/` …) with their kdh1, taken from each engine's server folder (`engine_mods::server_root`) when
+their `clients` is `mod` (stated in their `mod.json`, else the kind's default: `eml`, `shroudforge`, `flame`). A player's
+install imports them into the library under their kind and lists them in the profile "Server: <name>".
 
 Server (`kiln/config/network.json`, Kiln.Network) adds:
 `serverId` (default: generated once into `kiln/data/kiln-network/server-id`), `serverName` (default: the
 enshrouded_server.json name), `modpack{url, sha256, name, version}`, `advertise` (default true). REJECT and WELCOME
-gain trailing properties: server id/name, Kiln version, modpack, `required[]` (`{id, version, hash}` of the
-`clients: "mod"` mods), truncated so the frame stays <= 7 KB (`kiln.required.more` = how many were left out); old
+gain trailing properties: server id/name, Kiln version, modpack, `required[]` (`{id, version, hash, kind}` of the
+`clients: "mod"` mods; `kind` is absent for `kiln`, else `native` or an engine kind such as `eml` or `flame`: other
+engines' mods are advertised so the launcher can tell the player, while the HELLO check covers Kiln mods only), truncated so the frame stays <= 7 KB (`kiln.required.more` = how many were left out); old
 clients still decode them. Property keys (`kiln.server.*`, `kiln.modpack.*`, `kiln.required[.n]`, `.count`, `.more`,
 `.pending`): docs/kiln/network.md "Server modpacks".
 
@@ -523,7 +590,7 @@ them to the Rust snake_case parameters). Every command rejects with `KilnError` 
 a background task and return its id at once; the task's `result` (in `kiln://task`) has the type given after `->`.
 
 Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage unless noted):
-`GameId`, `ProfileId`, `ServerId`, `TaskId`, `ModKind = 'kiln'|'native'|'plugin'|'emf'`, `RunSide = 'server'|'client'`,
+`GameId`, `ProfileId`, `ServerId`, `TaskId`, `ModKind = 'kiln'|'native'|'plugin'|'emf'|'eml'|'shroudforge'|'set'|'greeneye'|'flame'|'shroudtopia'|'enshwick'|'shroudlink'|'ember'` (section 5.1), `RunSide = 'server'|'client'`,
 `LogTarget = {game: GameId} | {server: ServerId}`, `ConfigTarget = {profile: ProfileId} | {server: ServerId} |
 {game: GameId}`.
 
@@ -665,6 +732,11 @@ or emits `kiln://update`; its UI calls none of these commands.
 | nexus | `nexus_link_dismiss` | linkId | null |
 | nexus | `nexus_handler_status` | - | `HandlerStatus {supported, registered, active (the system's handler is Kiln now), previous: string \| null (its name)}` |
 | nexus | `nexus_handler_set` | on: boolean | `HandlerStatus` (on: remember the current nxm handler, register the launcher; off: give it back; only on the user's click) |
+| engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?}` (`engine_mods::settings`: ShroudForge reads the copy in SF's mods folder of `gameId`, else the profile's library folder; Shroudtopia the profile's `config/shroudtopia/shroudtopia.json` `mods.<key>`; other kinds `format: "none"` with a note) |
+| engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one top-level key; `unsupported` for kinds without settings, `not_found` for a ShroudForge mod not placed yet: activate the profile first) |
+| engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file}` (the engine plugins' `kiln/state/<engine>.json`, null when not written) |
+| engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ) |
+| engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
 
 `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
 AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs: applies at the next
@@ -812,6 +884,9 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
 - React 18 + TypeScript + Vite, bun. Router: `HashRouter`. Data: TanStack Query; state: zustand.
 - `src/api/commands.ts`: one typed function per command (section 9) + the shared types + `KilnEvents`. Names and
   argument shapes are the contract; pages import from here, never call `invoke` directly.
+- `src/api/kinds.ts`: the 13 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS`, `RESERVED_KINDS`,
+  `ENGINE_KINDS`, `KIND_NAME` (= `ModKind::label`), `KIND_SHORT` (badges), `KIND_TONE`, `KIND_PLUGIN`, `emptyMods()`,
+  `totalCount(counts)`.
 - `src/api/mock.ts`: used automatically when `window.__TAURI_INTERNALS__` is absent (plain browser, Playwright mock
   mode): every command answers from in-memory fixtures (built on `schema/examples/`), unknown ones reject with
   `not_implemented`.
@@ -824,7 +899,7 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
   `--k-line-hot`), `--k-radius-{s,m,l}`, `--k-font-{display,ui,label,mono}` (Grenze Gotisch, Alegreya Sans, Alegreya
   Sans SC, Inconsolata; bundled locally, no web-font URLs), `--k-text-on-ember: #170803` (text on ember or gold fills
   is never white), `--k-ember-text-on-light`.
-- Routes: Deck UI `/deck`, `/deck/{mods,add,catalog,kiln,help,settings}` (its own frame outside the shell, [deck.md](deck.md)); Play `/`; Client `/profiles/:id/{mods,native,emf,configs,saves}`, `/library`, `/catalog`, `/runtime`,
+- Routes: Deck UI `/deck`, `/deck/{mods,add,catalog,kiln,help,settings}` (its own frame outside the shell, [deck.md](deck.md)); Play `/`; Client `/profiles/:id/{mods,native,emf,engines,configs,saves}`, `/library`, `/catalog`, `/runtime`,
   `/logs`, `/saves`, `/editor`, `/settings`, `/about`; Servers `/servers/:id/{overview,logs,ticks,settings,configs,mods,
   backups,modpack}`; Admin `/servers/:id/admin/{players,map,zones,items,spawn,world,combat,creatures,gamedata,permissions,
   content,saves,crashes}` (`admin/configs`, `admin/mods` and `admin/console` redirect to the merged server pages).
