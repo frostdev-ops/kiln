@@ -99,6 +99,35 @@ fn outside_kiln(dir: &Path) -> Vec<(String, String)> {
 }
 
 #[test]
+fn every_compatibility_component_is_default_on_both_sides() {
+    use kiln_manage::manifest::RunSide;
+    let t = tmp("compat-defaults");
+    let s = stage(&t.0, "compat", false);
+    let manifest = s.join("kiln-runtime.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for (component, file) in [
+        ("eml", "kiln/plugins/kiln-eml.dll"),
+        ("shroudforge", "kiln/plugins/shroudforge/shroudforge-runtime.dll"),
+        ("enshwick", "kiln/plugins/enshwick/enshwick.dll"),
+    ] {
+        m["components"][component] = serde_json::json!({"sides": ["server", "client"], "default": true, "requires": ["core"]});
+        put(&s, &format!("{component}/{file}"), b"compatibility runtime");
+    }
+    std::fs::write(manifest, serde_json::to_vec(&m).unwrap()).unwrap();
+    let zip = bundle::create(&s, &t.0.join("out"), &opts(1_793_793_600, "0f1ffa6")).unwrap();
+    let m = bundle::verify(&zip, &mut NoProgress).unwrap();
+    for (side, sigdb) in [(RunSide::Client, "sigdb-client"), (RunSide::Server, "sigdb-server")] {
+        assert_eq!(install::select_components(&m, side, None).unwrap(), ["core", "emf", "eml", "enshwick", "shroudforge", sigdb]);
+        let plan = install::plan(&m, side, None).unwrap();
+        for comp in ["emf", "eml", "enshwick", "shroudforge"] {
+            assert!(plan.iter().any(|f| f.component == comp), "{comp} missing for {side:?}");
+        }
+        // Explicit selections remain respected; the installer adds core once and deduplicates the request.
+        assert_eq!(install::select_components(&m, side, Some(&["enshwick".into(), "enshwick".into()])).unwrap(), ["core", "enshwick"]);
+    }
+}
+
+#[test]
 fn bundles_are_deterministic_and_verified() {
     let t = tmp("det");
     let s = stage(&t.0, "a", false);

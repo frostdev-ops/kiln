@@ -12,16 +12,22 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
+import zlib
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 spec = importlib.util.spec_from_file_location("plugins", HERE / "lib" / "plugins.py")
 pl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pl)
+spec = importlib.util.spec_from_file_location("notices", HERE / "lib" / "notices.py")
+notices = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(notices)
 
 BOTH = ["server", "client"]
 COMPONENTS = {
@@ -44,6 +50,17 @@ def runtime(path, exp, drop=(), components=None, sizes=None):
 
 
 class ExpectedTests(unittest.TestCase):
+    def test_uninitialized_shroudforge_is_still_required(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d)
+            adapter = src / "native/plugins/shroudforge/CMakeLists.txt"
+            adapter.parent.mkdir(parents=True)
+            adapter.write_text("kiln_plugin(shroudforge src/plugin.cpp)\n")
+            exp = dict(pl.expected(d))
+            self.assertIn("kiln/plugins/shroudforge/shroudforge-runtime.dll", exp)
+            rt = runtime(src / "rt.zip", list(exp.items()))
+            self.assertEqual(pl.main(["check", "--src", d, rt]), 1)
+
     def test_every_compatibility_plugin_is_expected(self):
         exp = dict(pl.expected(str(ROOT)))
         for p in ("greeneye", "flame", "shroudtopia", "set", "enshwick", "shroudlink", "ember", "shroudforge"):
@@ -113,6 +130,59 @@ class CheckTests(unittest.TestCase):
 
 
 class WiringTests(unittest.TestCase):
+    def test_native_service_copy_errors_are_not_swallowed(self):
+        script = (ROOT / "tools/package/stage.sh").read_text()
+        start = script.index("rsync -a --include='*.dll' --include='*.pdb' --exclude='*' \"$bin/services/\"")
+        command = script[start:script.index("\nrsync -a --include='Kiln.*'", start)]
+        r = subprocess.run(["bash", "-c", 'set -euo pipefail; bin=/fixture; k=/stage; '
+                            'rsync() { return 23; }; miss() { echo "$*" >&2; exit 1; };\n' + command],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("native services", r.stderr)
+
+    def test_successful_builds_must_produce_every_required_output(self):
+        # Exercise only stage's output checks; no stage, compiler, network or release entry point is run.
+        script = (ROOT / "tools/package/stage.sh").read_text()
+        checks = script.split("# every plugin the bundle must hold", 1)[1].split("dotnet_root=", 1)[0]
+        checks = "# every plugin the bundle must hold" + checks
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in ("native/services/foo/CMakeLists.txt", "managed/services/Kiln.Foo/Kiln.Foo.csproj"):
+                f = root / "repo" / name
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.touch()
+            required = ("cmake/bin/plugins/kiln-eml.dll", "host/Kiln.Eml.dll", "cmake/bin/services/kiln-foo.dll",
+                        "host/Kiln.Foo.dll", "host/Kiln.Game.dll", "host/Kiln.Api.dll",
+                        "mods/kiln-admin/Kiln.Admin.dll", "mods/kiln-admin/kiln.mod.json",
+                        "mods/hello/Hello.dll", "mods/hello/kiln.mod.json", "cmake/bin/kiln-native-hello.dll")
+            for name in required:
+                f = root / "out" / name
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b"fixture")
+            def run():
+                return subprocess.run(["bash", "-c", 'set -euo pipefail; repo=$1; out=$2; bin=$out/cmake/bin; '
+                                       'miss() { echo "$*" >&2; exit 1; };\n' + checks,
+                                       "test", str(root / "repo"), str(root / "out")], capture_output=True, text=True)
+            self.assertEqual(run().returncode, 0)
+            for name in required:
+                with self.subTest(missing=name):
+                    f = root / "out" / name
+                    f.unlink()
+                    r = run()
+                    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                    self.assertIn(str(f), r.stderr)
+                    f.write_bytes(b"fixture")
+
+    def test_release_requires_enshwick_notice_provenance(self):
+        script = (HERE / "release.sh").read_text()
+        checks = "ew_version=" + script.split("\new_version=", 1)[1].split('\npython3 "$lib/notices.py"', 1)[0]
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(["bash", "-c", 'set -euo pipefail; stage=$1; KILN_OUT=$1/out; nuget_args=(); '
+                                'die() { echo "$*" >&2; exit 1; };\n' + checks, "test", d],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("Enshwick", r.stderr)
+
     def test_stage_is_strict_and_defaults(self):
         s = (ROOT / "tools/package/stage.sh").read_text()
         self.assertNotIn('warn "native plugin', s)
@@ -127,6 +197,16 @@ class WiringTests(unittest.TestCase):
         self.assertIn('"$lib/plugins.py" check --src "$src" "$runtime_zip"', (HERE / "release.sh").read_text())
         self.assertIn('"$lib/plugins.py" check --src "$src"', (HERE / "checks.sh").read_text())
         self.assertNotIn("--allow-missing", (HERE / "release.sh").read_text())
+        self.assertIn("KILN_RELEASE_BUILD=1", (HERE / "release.sh").read_text())
+
+    def test_release_refuses_lenient_stage_before_any_build(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(["bash", str(ROOT / "tools/package/stage.sh"), d + "/stage", "--allow-missing"],
+                               env={**os.environ, "KILN_RELEASE_BUILD": "1", "KILN_OUT": d + "/out"},
+                               capture_output=True, text=True, timeout=10)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("never a release", r.stderr)
+            self.assertFalse((Path(d) / "out").exists())
 
     def test_enshwick_notice_wiring(self):
         self.assertIn("--enshwick-src", (HERE / "release.sh").read_text())
@@ -166,6 +246,213 @@ class EnshwickPinTests(unittest.TestCase):
             r = self.run_script(Path(d), "--tag", "v9.9.9")
             self.assertEqual(r.returncode, 1)
             self.assertIn("go together", r.stderr)
+
+
+class EnshwickBuildTests(unittest.TestCase):
+    """Real Git repositories, local transport only; Cargo records what it would compile."""
+    SCRIPT = EnshwickPinTests.SCRIPT
+    REPO = "https://github.com/enshwick/enshwick.git"
+    TAG = "v-test"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="kiln-enshwick-build-")
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.out = self.dir / "out with spaces"
+        self.src = self.out / "runtime-src" / ("enshwick-" + self.TAG)
+        self.upstream = self.dir / "upstream"
+        self.upstream.mkdir()
+        self.git_bin = shutil.which("git")
+        self.git(self.upstream, "init", "-q")
+        for name, body in {"LICENSE": "upstream copyright\n", "Cargo.lock": "# pinned lock\n", "Cargo.toml": "[workspace]\n"}.items():
+            (self.upstream / name).write_text(body)
+        self.commit = self.commit_upstream()
+        self.git(self.upstream, "tag", self.TAG)
+        self.src.parent.mkdir(parents=True)
+        subprocess.run([self.git_bin, "clone", "-q", str(self.upstream), str(self.src)], check=True)
+        self.git(self.src, "remote", "set-url", "origin", self.REPO)
+        self.bin = self.dir / "bin"
+        self.bin.mkdir()
+        # Rewrite transport only, so get-url and config inspection still see the real upstream URL.
+        self.executable("git", '''#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+if "status" in args and os.environ.get("TEST_STATUS_FAIL"):
+    sys.exit(128)
+if "clone" in args or "fetch" in args:
+    args = ["-c", "url." + os.environ["TEST_UPSTREAM"] + ".insteadOf=" + os.environ["TEST_REPO"]] + args
+os.execv(os.environ["TEST_GIT"], [os.environ["TEST_GIT"], *args])
+''')
+        self.executable("cargo", '''#!/usr/bin/env python3
+import json, os, pathlib, sys
+root = pathlib.Path.cwd()
+if os.environ.get("TEST_SWAP"):
+    src = pathlib.Path(os.environ["TEST_SOURCE"])
+    src.rename(src.with_name(src.name + "-old"))
+    src.mkdir()
+    (src / "LICENSE").write_text("swapped copyright")
+record = {"args": sys.argv[1:], "flags": os.environ.get("CARGO_ENCODED_RUSTFLAGS", "").split("\\x1f"),
+          "license": (root / "LICENSE").read_text(), "lock": (root / "Cargo.lock").read_text(), "cwd": str(root)}
+pathlib.Path(os.environ["TEST_RECORD"]).write_text(json.dumps(record))
+dest = pathlib.Path(os.environ["CARGO_TARGET_DIR"]) / "x86_64-pc-windows-msvc/release"
+dest.mkdir(parents=True, exist_ok=True)
+(dest / "enshwick_loader.dll").write_bytes(b"MZ fixture")
+''')
+        self.record = self.dir / "cargo.json"
+        self.env = {**os.environ, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                    "TEST_GIT": self.git_bin, "TEST_UPSTREAM": str(self.upstream), "TEST_REPO": self.REPO,
+                    "TEST_RECORD": str(self.record), "TEST_SOURCE": str(self.src),
+                    "KILN_OUT": str(self.out), "CARGO_TARGET_DIR": str(self.out / "cargo")}
+        self.env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+        self.env.pop("RUSTFLAGS", None)
+
+    def git(self, repo, *args):
+        return subprocess.check_output([self.git_bin, "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                                        "-c", "commit.gpgsign=false", *args], text=True).strip()
+
+    def commit_upstream(self):
+        self.git(self.upstream, "add", ".")
+        self.git(self.upstream, "commit", "-qm", "fixture")
+        return self.git(self.upstream, "rev-parse", "HEAD")
+
+    def executable(self, name, body):
+        path = self.bin / name
+        path.write_text(body)
+        path.chmod(0o755)
+
+    def run_build(self, **env):
+        return subprocess.run(["bash", str(self.SCRIPT), "--tag", self.TAG, "--commit", self.commit],
+                              env={**self.env, **env}, capture_output=True, text=True, timeout=30)
+
+    def refused(self, **env):
+        r = self.run_build(**env)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self.record.exists(), r.stdout + r.stderr)
+        return r
+
+    def test_changed_remote_is_refused(self):
+        self.git(self.src, "remote", "set-url", "origin", "https://example.invalid/swapped.git")
+        self.assertIn("remote", self.refused().stderr)
+
+    def test_git_status_failure_is_not_treated_as_a_clean_checkout(self):
+        self.refused(TEST_STATUS_FAIL="1")
+
+    def test_fresh_clone_uses_the_tag_and_pin(self):
+        shutil.rmtree(self.src)
+        r = self.run_build()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.out / "enshwick-runtime/enshwick-version.txt").read_text(), self.TAG + "\n" + self.commit + "\n")
+
+    def test_reused_checkout_refetches_tag_and_refuses_a_moved_tag(self):
+        (self.upstream / "LICENSE").write_text("changed upstream\n")
+        self.commit_upstream()
+        self.git(self.upstream, "tag", "-f", self.TAG)
+        self.assertIn("pinned", self.refused().stderr)
+
+    def test_dirty_ignored_and_index_hidden_changes_are_refused(self):
+        for kind in ("tracked", "untracked", "ignored", "assume-unchanged", "skip-worktree"):
+            with self.subTest(kind=kind):
+                if kind in ("tracked", "assume-unchanged", "skip-worktree"):
+                    if kind != "tracked":
+                        self.git(self.src, "update-index", "--" + kind, "LICENSE")
+                    (self.src / "LICENSE").write_text("tampered\n")
+                else:
+                    (self.src / "injected").write_text("tampered\n")
+                    if kind == "ignored":
+                        (self.src / ".git/info/exclude").write_text("injected\n")
+                self.refused()
+                self.git(self.src, "update-index", "--no-assume-unchanged", "--no-skip-worktree", "LICENSE")
+                self.git(self.src, "reset", "--hard", "HEAD")
+                self.git(self.src, "clean", "-fdx")
+
+    def test_checkout_symlink_is_refused(self):
+        moved = self.src.with_name("other")
+        self.src.rename(moved)
+        self.src.symlink_to(moved, target_is_directory=True)
+        self.refused()
+
+    def test_cached_git_objects_cannot_impersonate_the_pinned_bytes(self):
+        oid = self.git(self.src, "rev-parse", "HEAD:LICENSE")
+        data = b"tampered copyright\n"
+        obj = self.src / ".git/objects" / oid[:2] / oid[2:]
+        replacement = obj.with_suffix(".tmp")
+        replacement.write_bytes(zlib.compress(b"blob " + str(len(data)).encode() + b"\0" + data))
+        replacement.replace(obj)  # break the fixture clone's hardlink without altering the upstream
+        (self.src / "LICENSE").write_bytes(data)
+        self.git(self.src, "update-index", "--assume-unchanged", "LICENSE")
+        self.refused()
+
+    def test_pinned_submodule_and_lfs_are_refused(self):
+        for kind in ("submodule", "lfs"):
+            with self.subTest(kind=kind):
+                if kind == "submodule":
+                    self.git(self.upstream, "update-index", "--add", "--cacheinfo", "160000," + self.commit + ",nested")
+                    self.git(self.upstream, "commit", "-qm", "gitlink")
+                else:
+                    self.git(self.upstream, "rm", "--cached", "nested")
+                    (self.upstream / ".gitattributes").write_text("*.dat filter=lfs diff=lfs merge=lfs -text\n")
+                    (self.upstream / "large.dat").write_text("version https://git-lfs.github.com/spec/v1\noid sha256:" + "a" * 64 + "\nsize 99\n")
+                    self.commit_upstream()
+                self.commit = self.git(self.upstream, "rev-parse", "HEAD")
+                self.git(self.upstream, "tag", "-f", self.TAG)
+                self.git(self.src, "fetch", str(self.upstream), "HEAD")
+                self.git(self.src, "reset", "--hard", "FETCH_HEAD")
+                self.refused()
+
+    def test_locked_build_preserves_release_and_plain_rustflags(self):
+        for flags in ({"CARGO_ENCODED_RUSTFLAGS": "--remap-path-prefix=/home/person=/build\x1f-Cdebuginfo=0"},
+                      {"RUSTFLAGS": "--remap-path-prefix=/home/person=/build -Cdebuginfo=0"}):
+            with self.subTest(flags=flags):
+                r = self.run_build(**flags)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                record = json.loads(self.record.read_text())
+                self.assertIn("--locked", record["args"])
+                self.assertEqual(record["lock"], "# pinned lock\n")
+                self.assertNotEqual(record["cwd"], str(self.src))
+                self.assertIn("--remap-path-prefix=" + record["cwd"] + "=/enshwick", record["flags"])
+                for flag in ("--remap-path-prefix=/home/person=/build", "-Cdebuginfo=0", "-Ctarget-feature=+crt-static", "-Ctarget-cpu=x86-64-v2"):
+                    self.assertIn(flag, record["flags"])
+
+    def test_swapping_cached_path_cannot_change_the_built_source_or_license(self):
+        r = self.run_build(TEST_SWAP="1")
+        if r.returncode == 0:
+            self.assertEqual((self.out / "enshwick-runtime/LICENSE").read_text(), "upstream copyright\n")
+        else:
+            self.assertFalse((self.out / "enshwick-runtime/enshwick.dll").exists())
+
+
+class EnshwickNoticeTests(unittest.TestCase):
+    def test_reachable_workspace_and_external_crates_keep_their_actual_notices(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".git").mkdir()
+            (root / "LICENSE").write_text("Copyright upstream\nMIT permission\n")
+            packages = []
+            for name in ("enshwick-loader", "enshwick-api", "dependency", "build-only"):
+                directory = root / name
+                directory.mkdir()
+                (directory / "Cargo.toml").touch()
+                if name in ("dependency", "build-only"):
+                    (directory / "LICENSE").write_text("Copyright " + name)
+                packages.append({"id": name, "name": name, "version": "1", "license": "MIT",
+                                 "manifest_path": str(directory / "Cargo.toml")})
+            meta = {"packages": packages, "workspace_members": ["enshwick-loader", "enshwick-api"],
+                    "resolve": {"nodes": [
+                        {"id": "enshwick-loader", "deps": [{"pkg": "enshwick-api", "dep_kinds": [{"kind": None}]},
+                                                            {"pkg": "build-only", "dep_kinds": [{"kind": "build"}]}]},
+                        {"id": "enshwick-api", "deps": [{"pkg": "dependency", "dep_kinds": [{"kind": None}]}]},
+                        {"id": "dependency", "deps": []}, {"id": "build-only", "deps": []}]}}
+            with patch.object(notices.subprocess, "check_output", side_effect=["a" * 40, json.dumps(meta).encode()]):
+                entries = notices.enshwick_entries(d)
+            by_name = {e[0]: e for e in entries}
+            self.assertIn("enshwick-api", by_name)
+            self.assertNotIn("build-only", by_name)
+            self.assertIn(("LICENSE", "Copyright dependency"), by_name["dependency"][4])
+            self.assertIn(("LICENSE", "Copyright upstream\nMIT permission"), by_name["enshwick-api"][4])
+            (root / "dependency/LICENSE").unlink()
+            with patch.object(notices.subprocess, "check_output", side_effect=["a" * 40, json.dumps(meta).encode()]):
+                with self.assertRaisesRegex(RuntimeError, "dependency.*licence"):
+                    notices.enshwick_entries(d)
 
 
 if __name__ == "__main__":

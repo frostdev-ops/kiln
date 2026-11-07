@@ -88,6 +88,26 @@ class Base(unittest.TestCase):
 
 
 class FixtureTests(Base):
+    def test_all_compatibility_components_match_installer_defaults(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        with zipfile.ZipFile(rt) as z:
+            comps = json.loads(z.read(sp.MANIFEST))["components"]
+        extra = {}
+        for comp, path in (("eml", "kiln/plugins/kiln-eml.dll"),
+                           ("shroudforge", "kiln/plugins/shroudforge/shroudforge-runtime.dll"),
+                           ("enshwick", "kiln/plugins/enshwick/enshwick.dll")):
+            comps[comp] = {"sides": ["server", "client"], "default": True, "requires": ["core"]}
+            extra[path] = (comp, b"MZ compatibility runtime")
+        runtime_fixture(rt, {**FILES, **extra}, components=comps)
+        out, result = self.build(rt)
+        again, _ = self.build(rt, name="again.zip")
+        self.assertEqual(result["components"], ["admin", "core", "emf", "eml", "enshwick", "shroudforge", "sigdb-server"])
+        self.assertEqual(out.read_bytes(), again.read_bytes())
+        with zipfile.ZipFile(out) as z:
+            for path in extra:
+                self.assertEqual(z.read(path), extra[path][1])
+        self.assertEqual(sp.check(str(out), str(rt), TEMPLATE, "9.9.9-test", EPOCH), [])
+
     def rewrite(self, rt, manifest=None, info=None):
         with zipfile.ZipFile(rt) as z:
             entries = [(i, z.read(i)) for i in z.infolist()]

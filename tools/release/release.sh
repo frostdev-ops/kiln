@@ -234,11 +234,16 @@ nuget_args=()
 for a in "${assets[@]}"; do nuget_args+=(--nuget-assets "$a"); done
 # Enshwick's loader (component enshwick, MIT): its licence and crates come from the pinned checkout it was built from
 ew_version=$stage/enshwick/kiln/plugins/enshwick/enshwick-version.txt
-if [[ -f $ew_version ]]; then
-  ew_src=$KILN_OUT/runtime-src/enshwick-$(sed -n 1p "$ew_version")
-  [[ $(git -C "$ew_src" rev-parse HEAD 2>/dev/null) == "$(sed -n 2p "$ew_version")" ]] || die "Enshwick's checkout $ew_src is not the commit the loader was built from"
-  nuget_args+=(--enshwick-src "$ew_src")
-fi
+[[ -s $ew_version ]] || die "Enshwick loader has no provenance for THIRD-PARTY-NOTICES: $ew_version"
+mapfile -t ew_pin < "$ew_version"
+[[ ${#ew_pin[@]} == 2 && ${ew_pin[0]} =~ ^[A-Za-z0-9._-]+$ && ${ew_pin[1]} =~ ^[0-9a-f]{40}$ ]] \
+  || die "invalid Enshwick loader provenance: $ew_version"
+ew_src=$KILN_OUT/runtime-src/enshwick-${ew_pin[0]}
+[[ $(git -C "$ew_src" rev-parse HEAD 2>/dev/null) == "${ew_pin[1]}" ]] || die "Enshwick's checkout $ew_src is not the commit the loader was built from"
+ew_status=$(git -C "$ew_src" -c core.fsmonitor=false status --porcelain --untracked-files=all --ignored) \
+  || die "cannot verify Enshwick's source for notices: $ew_src"
+[[ -z $ew_status ]] || die "Enshwick's source changed since the loader build: $ew_src"
+nuget_args+=(--enshwick-src "$ew_src")
 python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
   "${nuget_args[@]}" | tee -a "$log"
 if [[ -f $stage/eml/kiln/plugins/kiln-eml.dll ]]; then

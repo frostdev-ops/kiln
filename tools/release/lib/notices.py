@@ -314,9 +314,11 @@ def sf_crates(src):
 def enshwick_entries(root):
     """Enshwick's loader (component enshwick, kiln/plugins/enshwick/enshwick.dll, MIT), built from the pinned checkout
     native/plugins/enshwick/tools/build-runtime.sh made: one entry for the loader (its LICENSE, tag and commit), then
-    the crates of its Windows build that are not part of Enshwick's own workspace."""
+    all normal crates of its Windows build, including its workspace crates."""
     if not os.path.isdir(os.path.join(root, ".git")) or not os.path.isfile(os.path.join(root, "LICENSE")):
         raise RuntimeError(f"notices: no Enshwick checkout with a LICENSE at {root}")
+    if not read(os.path.join(root, "LICENSE")):
+        raise RuntimeError(f"notices: Enshwick has an empty licence at {root}")
     try:
         version = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
     except (OSError, subprocess.CalledProcessError) as e:
@@ -342,11 +344,15 @@ def enshwick_entries(root):
         for dep in nodes[key]["deps"]:
             if any(k["kind"] is None for k in dep["dep_kinds"]):
                 stack.append(dep["pkg"])
-    for pkg in sorted((packages[k] for k in seen if k not in members), key=lambda p: (p["name"], p["version"])):
+    for pkg in sorted((packages[k] for k in seen if k != loader["id"]), key=lambda p: (p["name"], p["version"])):
         directory = os.path.dirname(pkg["manifest_path"])
         files = license_files(directory)
         if pkg.get("license_file") and os.path.isfile(os.path.join(directory, pkg["license_file"])):
             files.append(os.path.join(directory, pkg["license_file"]))
+        if not files and pkg["id"] in members:
+            files = license_files(root)  # workspace crates share the repository's licence unless they provide one
+        if not files or not any(read(f) for f in files):
+            raise RuntimeError(f"notices: Enshwick dependency {pkg['name']} has no licence text in {directory}")
         entries.append((pkg["name"], pkg["version"], pkg.get("license") or "see the licence file", pkg.get("repository") or "",
                         [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
     return entries

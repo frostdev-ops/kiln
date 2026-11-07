@@ -88,6 +88,20 @@ for dir in "$repo"/native/plugins/*/; do
 done
 [[ -s $bin/plugins/kiln-eml.dll ]] || miss "plugin kiln-eml: no $bin/plugins/kiln-eml.dll"
 [[ -s $out/host/Kiln.Eml.dll ]] || miss "managed service Kiln.Eml: no $out/host/Kiln.Eml.dll"
+# A successful command (or --no-build) is not evidence that its required output exists.
+for dir in "$repo"/native/services/*/; do
+  svc=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
+  [[ -s $bin/services/kiln-$svc.dll ]] || miss "native service kiln-$svc: no $bin/services/kiln-$svc.dll"
+done
+for proj in "$repo"/managed/services/*/*.csproj; do
+  [[ -f $proj ]] || continue
+  name=$(basename "$proj" .csproj)
+  [[ -s $out/host/$name.dll ]] || miss "managed service $name: no $out/host/$name.dll"
+done
+for required in host/Kiln.Api.dll host/Kiln.Game.dll mods/kiln-admin/Kiln.Admin.dll mods/kiln-admin/kiln.mod.json \
+                mods/hello/Hello.dll mods/hello/kiln.mod.json cmake/bin/kiln-native-hello.dll; do
+  [[ -s $out/$required ]] || miss "required build output: no $out/$required"
+done
 dotnet_root=$repo/.cache/dotnet-win-x64/root
 
 rm -rf "$stage"
@@ -97,7 +111,8 @@ c=$stage/core k=$stage/core/kiln
 mkdir -p "$k"/{services,plugins,host,dotnet}
 install -m 644 "$bin/dinput8.dll" "$c/dinput8.dll"
 install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"
-rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" 2>/dev/null || true
+rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" \
+  || miss "could not stage native services from $bin/services"
 rsync -a --include='Kiln.*' --exclude='*' "$out/host/" "$k/host/"
 rsync -a "$dotnet_root/" "$k/dotnet/"
 printf '{\n  "policy": "verified-only",\n  "clr": true,\n  "plugins": true,\n  "log_level": "info"\n}\n' > "$k/kiln.json"
@@ -176,7 +191,7 @@ PY
   done
   return 0
 }
-if [[ -f $out/mods/kiln-admin/kiln.mod.json ]]; then stage_mod "$out/mods/kiln-admin" admin kiln-admin; else warn "no Kiln.Admin build: no admin component"; fi
+if [[ -f $out/mods/kiln-admin/kiln.mod.json ]]; then stage_mod "$out/mods/kiln-admin" admin kiln-admin; else miss "no Kiln.Admin build: no admin component"; fi
 for extra in "$out"/mods/*/; do
   id=$(basename "$extra")
   [[ $id == hello || $id == kiln-admin || ! -f $extra/kiln.mod.json ]] && continue

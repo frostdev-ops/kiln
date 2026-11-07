@@ -9,7 +9,7 @@ The expected list comes from the source tree, so a new plugin is expected as soo
     that CMakeLists.txt says "Builds no plugin" (native/plugins/compat: the plugins' shared code and host tests);
   - kiln/plugins/<name>.dll for each GPL plugin gpl/<name>/Cargo.toml (component eml for kiln-eml);
   - ShroudForge's runtime kiln/plugins/shroudforge/{shroudforge-runtime,kfc-runtime}.dll (component shroudforge),
-    when third_party/shroudforge/kiln/build.sh is in the tree;
+    whenever its adapter is in the tree (an uninitialized submodule is an error, never an opt-out);
   - Enshwick's loader kiln/plugins/enshwick/enshwick.dll and its LICENSE.txt (component enshwick), which
     kiln-enshwick runs when the game has no copy of its own (needs native/plugins/enshwick).
 
@@ -43,11 +43,13 @@ def expected(src):
     for ws in sorted(glob.glob(os.path.join(src, "gpl", "*", "Cargo.toml"))):
         name = os.path.basename(os.path.dirname(ws))
         out.append((f"kiln/plugins/{name}.dll", "eml" if name == "kiln-eml" else name))
-    if os.path.isfile(os.path.join(src, "third_party", "shroudforge", "kiln", "build.sh")):
+    if (os.path.isdir(os.path.join(src, "native", "plugins", "shroudforge"))
+            or os.path.isfile(os.path.join(src, "third_party", "shroudforge", "kiln", "build.sh"))):
         out += [("kiln/plugins/shroudforge/shroudforge-runtime.dll", "shroudforge"),
                 ("kiln/plugins/shroudforge/kfc-runtime.dll", "shroudforge")]
     if os.path.isdir(os.path.join(src, "native", "plugins", "enshwick")):
-        out += [("kiln/plugins/enshwick/enshwick.dll", "enshwick"), ("kiln/plugins/enshwick/LICENSE.txt", "enshwick")]
+        out += [("kiln/plugins/enshwick/enshwick.dll", "enshwick"), ("kiln/plugins/enshwick/LICENSE.txt", "enshwick"),
+                ("kiln/plugins/enshwick/enshwick-version.txt", "enshwick")]
     return out
 
 
@@ -116,6 +118,9 @@ def main(argv=None):
         return 1
     components, files = from_stage(a.runtime) if os.path.isdir(a.runtime) else from_zip(a.runtime)
     bad = problems(exp, components, files)
+    if (any(comp == "shroudforge" for _, comp in exp)
+            and not os.path.isfile(os.path.join(a.src, "third_party", "shroudforge", "kiln", "build.sh"))):
+        bad.append("ShroudForge source is missing: initialize third_party/shroudforge (git submodule update --init --recursive)")
     for p in bad:
         print(f"plugins: {p}", file=sys.stderr)
     if bad:
