@@ -11,9 +11,9 @@ internal static unsafe class RulesNet
     private static NetChannel? _channel;
     private static RulesNativePart _local = RulesNativePart.Default;
 
-    // v2 (0.2.0-dev.15): + the Shroud floor and the glider values
+    // v2 (0.2.0-dev.15): + the Shroud floor and the glider values; v3 (0.2.0-dev.16): + the glider's climb rate
     private readonly record struct RulesMsg(uint Flags, float BuildCost, float BuildRefund, float DigDamage, float ShroudFloor,
-        float GlideSink, float GlideThrust, float GlideMaxSpeed, float GlideLift, float GlideCoast);
+        float GlideSink, float GlideThrust, float GlideMaxSpeed, float GlideLift, float GlideCoast, float GlideClimb);
 
     public static bool Open => _channel is not null;
 
@@ -29,13 +29,13 @@ internal static unsafe class RulesNet
             ModContext.CurrentMod = null;
             try
             {
-                _channel = Network.Channel(Rules.ChannelName, "2", required: false)
+                _channel = Network.Channel(Rules.ChannelName, "3", required: false)
                     .Register<RulesMsg>(MsgRules,
                         static (m, w) => w.UInt32(m.Flags).Single(m.BuildCost).Single(m.BuildRefund).Single(m.DigDamage)
                             .Single(m.ShroudFloor).Single(m.GlideSink).Single(m.GlideThrust).Single(m.GlideMaxSpeed).Single(m.GlideLift)
-                            .Single(m.GlideCoast),
+                            .Single(m.GlideCoast).Single(m.GlideClimb),
                         static (ref NetReader r) => new RulesMsg(r.UInt32(), r.Single(), r.Single(), r.Single(), r.Single(), r.Single(),
-                            r.Single(), r.Single(), r.Single(), r.Single()),
+                            r.Single(), r.Single(), r.Single(), r.Single(), r.Single()),
                         static (m, _) => OnRules(m), NetDirection.ToClient);
                 Network.Disconnected += _ => SetLocal(RulesNativePart.Default);
             }
@@ -62,7 +62,8 @@ internal static unsafe class RulesNet
             // no kiln.client
         }
         SetLocal(new RulesNativePart(m.Flags, Clean(m.BuildCost), Clean(m.BuildRefund), Clean(m.DigDamage), Clean(m.ShroudFloor, 0f),
-            Clean(m.GlideSink), Clean(m.GlideThrust, 0f), Clean(m.GlideMaxSpeed, 0f), Clean(m.GlideLift, 0f), Clean(m.GlideCoast, 0f)));
+            Clean(m.GlideSink), Clean(m.GlideThrust, 0f), Clean(m.GlideMaxSpeed, 0f), Clean(m.GlideLift, 0f), Clean(m.GlideCoast, 0f),
+            Clean(m.GlideClimb, 0f)));
     }
 
     private static float Clean(float v, float fallback = 1f) => float.IsFinite(v) && v >= 0 ? v : fallback;
@@ -76,7 +77,9 @@ internal static unsafe class RulesNet
         var p = RulesNative.Of(part);
         t->SetLocal(part.IsDefault ? null : &p);
         RulesRuntime.Log(LogLevel.Info, $"local player's rules: flags 0x{part.Flags:x}, build cost x{part.BuildCost}, glide sink x{part.GlideSink}" +
-            ((part.Flags & RulesNative.GlideBoost) != 0 ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}" : ""));
+            ((part.Flags & RulesNative.GlideBoost) != 0
+                ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}, climb {part.GlideClimb} m/s"
+                : ""));
     }
 
     /// <summary>Server: sends a player's rules to their game; false when it has no Kiln with this channel.</summary>
@@ -87,7 +90,7 @@ internal static unsafe class RulesNet
         try
         {
             return ch.SendTo(player, new RulesMsg(part.Flags, part.BuildCost, part.BuildRefund, part.DigDamage, part.ShroudFloor,
-                part.GlideSink, part.GlideThrust, part.GlideMaxSpeed, part.GlideLift, part.GlideCoast));
+                part.GlideSink, part.GlideThrust, part.GlideMaxSpeed, part.GlideLift, part.GlideCoast, part.GlideClimb));
         }
         catch (Exception)
         {

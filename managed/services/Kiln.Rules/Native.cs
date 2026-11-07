@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_rules.h (kiln.rules v1, the 48-byte player struct). Blittable only; the native side static_asserts the sizes.
+// Mirror of native/core/abi/services/kiln_rules.h (kiln.rules v1, the 56-byte player struct). Blittable only; the native side static_asserts the sizes.
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -32,6 +32,8 @@ internal static unsafe class RulesNative
         public float GlideMaxSpeed;
         public float GlideLift;
         public float GlideCoast;
+        public float GlideClimb;
+        public uint Reserved2;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -72,7 +74,7 @@ internal static unsafe class RulesNative
     {
         Size = (uint)sizeof(Player), Flags = p.Flags, BuildCost = p.BuildCost, BuildRefund = p.BuildRefund, DigDamage = p.DigDamage,
         ShroudFloor = p.ShroudFloor, GlideSink = p.GlideSink, GlideThrust = p.GlideThrust, GlideMaxSpeed = p.GlideMaxSpeed,
-        GlideLift = p.GlideLift, GlideCoast = p.GlideCoast,
+        GlideLift = p.GlideLift, GlideCoast = p.GlideCoast, GlideClimb = p.GlideClimb,
     };
 
     public static string Text(byte* p, int max)
@@ -86,7 +88,7 @@ internal static unsafe class RulesNative
 /// <summary>The part of a player's rules the native hooks apply (and a Kiln client gets).</summary>
 internal readonly record struct RulesNativePart(uint Flags, float BuildCost, float BuildRefund, float DigDamage,
     float ShroudFloor = 0f, float GlideSink = 1f, float GlideThrust = 0f, float GlideMaxSpeed = 0f, float GlideLift = 0f,
-    float GlideCoast = 0f)
+    float GlideCoast = 0f, float GlideClimb = 0f)
 {
     public static readonly RulesNativePart Default = new(0, 1f, 1f, 1f);
     public bool IsDefault => this == Default;
@@ -99,5 +101,6 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
     public RulesNativePart WithoutGlide => this with
     {
         Flags = Flags & ~GlideFlags, GlideSink = 1f, GlideThrust = 0f, GlideMaxSpeed = 0f, GlideLift = 0f, GlideCoast = 0f,
+        GlideClimb = 0f,
     };
 }

@@ -46,7 +46,9 @@
 #include "services/kiln_rules.h"
 #include "services/kiln_world.h"
 
-static_assert(sizeof(KilnRulesPlayer) == 48);
+#include "glide_math.h"
+
+static_assert(sizeof(KilnRulesPlayer) == 56);
 static_assert(sizeof(KilnRulesStatus) == 256 && offsetof(KilnRulesStatus, detail) == 64 &&
               offsetof(KilnRulesStatus, zone_forced) == 224);
 
@@ -82,6 +84,7 @@ struct Slot {
     std::atomic<uint32_t> max_speed{0};
     std::atomic<uint32_t> lift{0};
     std::atomic<uint32_t> coast{0};
+    std::atomic<uint32_t> climb{0};
     std::atomic<bool> any{false};
 };
 constexpr uint32_t kMaxPlayer = 1023;
@@ -110,7 +113,7 @@ constexpr float kMaxGlideAccel = 100.0f;   // thrust, lift, coast, m/s^2
 constexpr float kMaxGlideSpeed = 120.0f;   // the boost's cap, m/s
 constexpr float kMaxKilnSpeed = 150.0f;    // any velocity a glider hook writes, m/s
 
-constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0};
 
 bool is_default(const KilnRulesPlayer& r) {
     return r.flags == 0 && r.build_cost == 1.0f && r.build_refund == 1.0f && r.dig_damage == 1.0f && r.shroud_floor == 0.0f &&
@@ -124,6 +127,7 @@ bool read_in(const KilnRulesPlayer* r, KilnRulesPlayer* out) {
     if (r->size < KILN_RULES_PLAYER_V1_SIZE || r->reserved != 0) return false;
     std::memcpy(out, r, std::min<size_t>(r->size, sizeof *out));
     out->size = sizeof *out;
+    out->reserved2 = 0;
     return true;
 }
 
@@ -141,6 +145,7 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     d.glide_max_speed = std::min(clean(d.glide_max_speed, 0.0f), kMaxGlideSpeed);
     d.glide_lift = std::min(clean(d.glide_lift, 0.0f), kMaxGlideAccel);
     d.glide_coast = std::min(clean(d.glide_coast, 0.0f), kMaxGlideAccel);
+    d.glide_climb = std::min(clean(d.glide_climb, 0.0f), kMaxGlideSpeed);
     s.flags.store(d.flags, std::memory_order_relaxed);
     s.cost.store(std::bit_cast<uint32_t>(d.build_cost), std::memory_order_relaxed);
     s.refund.store(std::bit_cast<uint32_t>(d.build_refund), std::memory_order_relaxed);
@@ -151,6 +156,7 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     s.max_speed.store(std::bit_cast<uint32_t>(d.glide_max_speed), std::memory_order_relaxed);
     s.lift.store(std::bit_cast<uint32_t>(d.glide_lift), std::memory_order_relaxed);
     s.coast.store(std::bit_cast<uint32_t>(d.glide_coast), std::memory_order_relaxed);
+    s.climb.store(std::bit_cast<uint32_t>(d.glide_climb), std::memory_order_relaxed);
     s.any.store(!is_default(d), std::memory_order_release);
 }
 
@@ -166,6 +172,7 @@ void load(const Slot& s, KilnRulesPlayer* out) {
     out->glide_max_speed = rd(s.max_speed);
     out->glide_lift = rd(s.lift);
     out->glide_coast = rd(s.coast);
+    out->glide_climb = rd(s.climb);
 }
 
 struct Stats {
@@ -213,6 +220,7 @@ struct Layout {
     int64_t glide_input = 0, glide_xform = 0, glide_velocity = 0, glide_player_input = 0, xform_rotation = 0,
             input_trigger = 0, input_mask = 0;
     int64_t grav_actor = 0;  // gravity_apply_velocity_actor: the Actor slot, rbp + (int8)
+    int64_t input_camera_rot = -1;  // PlayerInput: the camera's orientation (fromClient.camera), for the plane's pitch
     int64_t tx_operator = 0;                // InventoryTx: the acting entity
     int64_t arg_offset = 0, arg_base = 0, arg_stride = 0;
     int64_t programs_table = 0, programs_stride = 0, programs_count = 0;
@@ -415,40 +423,39 @@ void glide_post(uint8_t* it, const GlidePre& g) {
 
     const Slot& s = *g.s;
     const uint32_t flags = s.flags.load(std::memory_order_relaxed);
-    const bool boost = flags & KILN_RULES_GLIDE_BOOST;
-    const uint64_t held = *reinterpret_cast<const uint64_t*>(g.input + L.input_mask + 8);
-    const bool sprint = boost && ((held >> kSprint) & 1);
-    const float vf = v[0] * F[0] + v[1] * F[1] + v[2] * F[2];
-    const float vf0 = g.v0[0] * F[0] + g.v0[1] * F[1] + g.v0[2] * F[2];
-    const float fdt = static_cast<float>(dt);
-    float target = vf;
-    bool changed = false;
-    if (sprint) {
-        // a clean push: the game's drag along the heading is replaced by the thrust, up to the cap
-        const float top = std::max(vf, std::min(rd(s.max_speed), std::max(vf, vf0) + rd(s.thrust) * fdt));
-        target = std::max(vf, top);
-        if (const float lift = rd(s.lift); lift > 0.0f) {
-            v[1] += lift * fdt;
-            changed = true;
+    const bool hold = rd(s.sink) == 0.0f;
+    float next[3] = {v[0], v[1], v[2]};
+    if (flags & KILN_RULES_GLIDE_BOOST) {
+        // like a plane (glide_math.h): the path's pitch from the camera (PlayerInput's copy of it: the same in the
+        // server world and in the player's prediction), the energy trade, the thrust while sprint is held
+        kiln_glide::Step st;
+        std::memcpy(st.v0, g.v0, sizeof st.v0);
+        std::memcpy(st.v, v, sizeof st.v);
+        std::memcpy(st.heading, F, sizeof st.heading);
+        if (L.input_camera_rot >= 0) {
+            fn.quat_rotate(st.view, reinterpret_cast<const float*>(g.input + L.input_camera_rot), fwd);
+            if (!finite3(st.view)) st.view[0] = st.view[1] = st.view[2] = 0.0f;
         }
-    } else if (boost) {
-        if (const float coast = rd(s.coast); coast > 0.0f) target = std::max(vf, vf0 - coast * fdt);
+        st.dt = static_cast<float>(dt);
+        const uint64_t held = *reinterpret_cast<const uint64_t*>(g.input + L.input_mask + 8);
+        st.boost = (held >> kSprint) & 1;
+        kiln_glide::Params pr;
+        pr.thrust = rd(s.thrust);
+        pr.max_speed = rd(s.max_speed);
+        pr.lift = rd(s.lift);
+        pr.coast = rd(s.coast);
+        pr.climb = rd(s.climb);
+        pr.hold_altitude = hold;
+        kiln_glide::plane_step(st, pr, next);
+    } else if (hold && F[1] > -0.2f && next[1] < 0.0f) {
+        // sink 0: hold altitude unless the glider points down (looking down still descends)
+        next[1] = 0.0f;
     }
-    if (target != vf) {
-        const float d = target - vf;
-        for (int i = 0; i < 3; ++i) v[i] += F[i] * d;
-        changed = true;
-    }
-    // sink 0: hold altitude unless the glider points down (looking down still descends)
-    if (rd(s.sink) == 0.0f && !sprint && F[1] > -0.2f && v[1] < 0.0f) {
-        v[1] = 0.0f;
-        changed = true;
-    }
-    if (!changed) return;
-    if (!safe_velocity(v, out)) return;
-    out[0] = v[0];
-    out[1] = v[1];
-    out[2] = v[2];
+    if (next[0] == v[0] && next[1] == v[1] && next[2] == v[2]) return;
+    if (!safe_velocity(next, out)) return;
+    out[0] = next[0];
+    out[1] = next[1];
+    out[2] = next[2];
     S.glide.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -1310,6 +1317,11 @@ void install() {
         cst("rules/glide.velocity", &L.glide_velocity) && cst("rules/loco.player_input", &L.glide_player_input) &&
         cst("rules/xform.rotation", &L.xform_rotation) && cst("rules/input.trigger", &L.input_trigger) &&
         cst("rules/input.mask", &L.input_mask) && cst("rules/grav.actor", &L.grav_actor)) {
+        // the camera's orientation for the plane's pitch: optional (without it the glider's own pitch is used)
+        if (!(feat("rules.glide_view") && cst("rules/input.camera_rot", &L.input_camera_rot))) {
+            L.input_camera_rot = -1;
+            LOGW("gliding: the camera's orientation is not found on this build: a boosted glider takes its pitch from the glider");
+        }
         h_grav = safetyhook::create_mid(reinterpret_cast<void*>(fn.grav_site), &hk_grav);
         h_stam = safetyhook::create_mid(reinterpret_cast<void*>(fn.stam_site), &hk_stam);
         const bool step = inline_hook(h_glide, reinterpret_cast<void*>(fn.glide), reinterpret_cast<void*>(&hk_glide), "the glide step");

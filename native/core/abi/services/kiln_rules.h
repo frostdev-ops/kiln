@@ -23,8 +23,10 @@
  *    the Shroud's kill; shroud_floor holds the timer at a fraction of its max. Server world only (the HUD shows the
  *    server's replicated value).
  *  - gliding: the glider's step (locomotion_execution), its gravity and its stamina: GLIDE_UNLIMITED drains no stamina,
- *    glide_sink scales the sink, GLIDE_BOOST pushes along the heading while sprint is held. Server world and the
- *    client's prediction world (the same values on both, or the client is corrected every step).
+ *    glide_sink scales the sink, GLIDE_BOOST flies like a plane: the path takes its pitch from the camera, climbing
+ *    trades speed for height and diving height for speed, sprint pushes along the path (up to glide_max_speed, climbing
+ *    at most glide_climb). Server world and the client's prediction world (the same values on both, or the client is
+ *    corrected every step).
  *
  * Sides: on a server (and a client that hosts a world) rules are per player entity of the server world (set). On a
  * client, the prediction world and the client's own cursor act only for the local player: set_local gives its rules.
@@ -51,11 +53,11 @@ enum {
     KILN_RULES_IGNORE_BASE_PERMISSIONS = 0x0020u, /* cursor: NoPermission cleared (other players' bases) */
     KILN_RULES_SHROUD_FREEZE = 0x0040u,         /* the Shroud timer does not drain, and the Shroud cannot kill */
     KILN_RULES_GLIDE_UNLIMITED = 0x0080u,       /* gliding: no stamina cost, never forced down for lack of it */
-    KILN_RULES_GLIDE_BOOST = 0x0100u,           /* gliding: holding sprint pushes along the view (glide_* below) */
+    KILN_RULES_GLIDE_BOOST = 0x0100u,           /* gliding like a plane: pitch from the view, sprint pushes (glide_* below) */
 };
 
 typedef struct KilnRulesPlayer {
-    uint32_t size;        /* sizeof(KilnRulesPlayer); KILN_RULES_PLAYER_V1_SIZE (24) is still accepted */
+    uint32_t size;        /* sizeof(KilnRulesPlayer); KILN_RULES_PLAYER_V1_SIZE (24) and 48 (dev.15) are still accepted */
     uint32_t flags;       /* KILN_RULES_* */
     float build_cost;     /* x what placing takes (1 = the game's; 0 = free: also clears "missing materials") */
     float build_refund;   /* x what dismantling and undo give back (1 = the game's) */
@@ -68,6 +70,9 @@ typedef struct KilnRulesPlayer {
     float glide_max_speed; /* GLIDE_BOOST: the push accelerates up to this speed, m/s (speed from a dive stays) */
     float glide_lift;      /* GLIDE_BOOST: upward acceleration while sprint is held, m/s^2 */
     float glide_coast;     /* GLIDE_BOOST: without sprint, slow down along the heading at most this fast, m/s^2 (0 = the game's drag) */
+    /* since 0.2.0-dev.16 (size 56) */
+    float glide_climb;     /* GLIDE_BOOST: the highest climb rate while the player looks up, m/s (0 = never climbs) */
+    uint32_t reserved2;    /* 0 */
 } KilnRulesPlayer;
 #define KILN_RULES_PLAYER_V1_SIZE 24u
 

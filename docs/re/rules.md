@@ -266,11 +266,15 @@ thread. Kiln notes the impact's player argument (arg 0, read as kiln.gameplay do
 **Kiln's change** (three hooks, all keyed on the entity's rules; the same in the server world and a client's
 prediction, so the server agrees with what the player sees):
 - `rules/GlideStep` (inline wrap): before, the velocity is copied (v0) and the ActorInput trigger read; after, unless
-  the game aborted the glide in this step: with sprint held and `GLIDE_BOOST`, the speed along F becomes
-  `max(v.F, min(MaxSpeed, max(v.F, v0.F) + Thrust dt))` (the game's drag along F replaced by the thrust, so the push is
-  the same with every glider) and `Lift dt` is added upward; without sprint, the speed along F falls at most `Coast dt`
-  per step; with `glide_sink` 0 and the glider not pointing down (F.y > -0.2), a downward velocity is set to 0. The game
-  has already marked Velocity written in this step.
+  the game aborted the glide in this step: with `GLIDE_BOOST` the glider flies like a plane (`glide_math.h`): a path
+  with F's horizontal heading and the camera's pitch (the camera's forward = `QuatRotate(PlayerInput +
+  input.camera_rot, (0,0,1))`, the replicated `fromClient.camera.orientation`, so the server and the player's prediction
+  see the same; `@rules/Input.camera`, the same turn `player_deflect_parried_projectiles` makes, `0xd2cde` / client
+  `0x2e6d3e`); the speed along it changes by `-g sin pitch`, plus `Thrust` while sprint is held (up to `MaxSpeed`),
+  minus `Coast` above the path's own glide speed; the climb rate is capped at `glide_climb`; no faster than the
+  game's own horizontal glide speed, the game's velocity stands. Without `GLIDE_BOOST`: with `glide_sink` 0 and the
+  glider not pointing down (F.y > -0.2), a downward velocity is set to 0. The game has already marked Velocity written
+  in this step.
 - `rules/GlideGravity` (mid hook, `0xa0f13` / `0x2a3643`, before `StepDelta`): for a HangGliding actor, xmm6 (the
   gravity strength) x `glide_sink`^2 (the steady sink goes with the root of gravity under quadratic drag). rdi is the
   context; the Actor is at `[rbp + (int8)grav.actor]` (`0xaf` = -0x51).
@@ -299,6 +303,7 @@ client's two guards (docs/re/client.md):
 | `rules/ShroudDrain` (offset 101; `rules/fog.actor` 0x48, `rules/fog.attr` 0x78, `rules/fog.state` 0xbf8) | `0xc1f35` | `0x2d5f95` | `rules.shroud` |
 | `rules/GlideStep` (+ `@rules/GlideStep.abort/.xform/.velocity`, `@rules/Loco.input`, `@rules/Input.mask`, `@rules/Input.trigger`; `QuatRotate`, `StepDelta` captured) | `0x1d2320` | `0x432a80` | `rules.glide` |
 | `rules/GlideGravity` (offset 133; `rules/grav.actor` 0xaf) | `0xa0f13` | `0x2a3643` | `rules.glide` |
+| `@rules/Input.camera` (`rules/input.camera_rot` 0x40, `rules/input.attack_dir` 0x5ad fixed; `QuatRotate` captured again) | `0xd2cde` | `0x2e6d3e` | `rules.glide_view` (optional: without it the plane takes F's pitch) |
 | `rules/GlideStamina` (offset 88) | `0xdcfda` | `0x2f103a` | `rules.glide` |
 | `rules/ApplyMaterials` | `0x22d480` | `0x495f20` | `rules.costs` (+ `items/tx.operator`, `world/programs.*`) |
 | `rules/TerrainDamage` | `0x22c970` | `0x495410` | `rules.dig` (+ `gameplay/TerraformImpact` and its argument constants) |

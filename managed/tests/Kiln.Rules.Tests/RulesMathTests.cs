@@ -112,6 +112,64 @@ public class RulesMathTests
         Assert.Equal(0f, n.GlideSink);
         Assert.Equal((float)GlideBoostRule.Default.Thrust, n.GlideThrust);
         Assert.Equal((float)GlideBoostRule.Default.MaxSpeed, n.GlideMaxSpeed);
+        Assert.Equal(15, e.GlideBoost!.Climb);  // like a plane: boosting while looking up climbs at up to 15 m/s
+        Assert.Equal(15f, n.GlideClimb);
+    }
+
+    [Fact]
+    public void GlidingLikeAPlaneCombinesAndIsChecked()
+    {
+        var a = new PlayerRules { GlideBoost = new GlideBoostRule { Climb = 5 } };
+        var b = new PlayerRules { GlideBoost = new GlideBoostRule { Climb = 25, MaxSpeed = 20 } };
+        var e = Combine(a, b);
+        Assert.Equal(25, e.GlideBoost!.Climb);  // the most generous
+        Assert.Equal(35, e.GlideBoost.MaxSpeed);
+        Assert.Equal(25f, e.Native.GlideClimb);
+        Assert.Equal(0f, Combine(new PlayerRules { GlideBoost = new GlideBoostRule { Climb = 0 } }).Native.GlideClimb);  // never climbs
+        // the server's speed limit holds the climb rate too
+        var held = RulesMath.Combine(default, [(null, b)], RulesLimits.Default with { MaxGlideSpeed = 10 });
+        Assert.Equal(10, held.GlideBoost!.Climb);
+        Assert.Equal(10, held.GlideBoost.MaxSpeed);
+        // values that make no sense are refused by name
+        Assert.Contains(new PlayerRules { GlideBoost = new GlideBoostRule { Climb = -1 } }.Problems(), p => p.Contains("glideBoost.climb"));
+        Assert.Contains(new PlayerRules { GlideBoost = new GlideBoostRule { Climb = double.NaN } }.Problems(), p => p.Contains("glideBoost.climb"));
+        Assert.Contains(new PlayerRules { GlideBoost = new GlideBoostRule { Climb = 500 } }.Problems(), p => p.Contains("glideBoost.climb"));
+        Assert.Empty(PlayerRules.Creative.Problems());
+        // JSON: a boost without "climb" climbs at the default; "climb": 0 never climbs
+        Assert.Equal(15, PlayerRules.FromJson("{ \"glideBoost\": { \"thrust\": 10 } }").GlideBoost!.Climb);
+        Assert.Equal(0, PlayerRules.FromJson("{ \"glideBoost\": { \"climb\": 0 } }").GlideBoost!.Climb);
+        // the client's half: without the glide rules (a client without the rules channel) nothing of the climb stays
+        Assert.Equal(0f, Combine(PlayerRules.Creative).Native.WithoutGlide.GlideClimb);
+    }
+
+    [Fact]
+    public void Dev15sCreativePresetIsUpgradedForTheClimb()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var outer = RulesPresets.FolderOverride;
+        RulesPresets.FolderOverride = dir;
+        try
+        {
+            var file = Path.Combine(dir, "creative.json");
+            // 0.2.0-dev.15 wrote the boost without "climb": the same values today (climb's default), the member missing
+            var dev15 = PlayerRules.Creative.ToJson().Replace(",\n    \"climb\": 15", "");
+            Assert.DoesNotContain("climb", dev15);
+            File.WriteAllText(file, "// Kiln's \"creative\" rules\n" + dev15 + "\n");
+            Assert.True(RulesPresets.IsEarlierDefault("creative", file));
+            Assert.Equal(PlayerRules.Creative, RulesPresets.Get("creative"));
+            Assert.Contains("\"climb\"", File.ReadAllText(file));  // rewritten: the owner sees the new knob
+            Assert.False(RulesPresets.IsEarlierDefault("creative", file));  // and it stays (no rewrite on every read)
+            // an edited dev.15 file stays the owner's
+            File.WriteAllText(file, dev15.Replace("\"thrust\": 15", "\"thrust\": 20"));
+            Assert.False(RulesPresets.IsEarlierDefault("creative", file));
+            Assert.Equal(20, RulesPresets.Get("creative")!.GlideBoost!.Thrust);
+        }
+        finally
+        {
+            RulesPresets.FolderOverride = outer;
+            Directory.Delete(dir, true);
+        }
     }
 
     [Fact]

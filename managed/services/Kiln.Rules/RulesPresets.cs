@@ -84,7 +84,9 @@ internal static class RulesPresets
     }
 
     // What earlier Kiln versions wrote as a preset file. A file that still reads exactly so was never edited: it gets the
-    // current defaults (new rules reach existing worlds); an edited file stays as the owner left it.
+    // current defaults (new rules reach existing worlds); an edited file stays as the owner left it. A file with this
+    // version's values that lacks one of its members (a member added since, read as its default) is an earlier Kiln's
+    // too: 0.2.0-dev.15's creative preset before glideBoost.climb.
     private static readonly Dictionary<string, PlayerRules[]> Earlier = new(StringComparer.OrdinalIgnoreCase)
     {
         // 0.2.0-dev.14: before the Shroud timer and gliding rules
@@ -132,15 +134,36 @@ internal static class RulesPresets
 
     internal static bool IsEarlierDefault(string name, string file)
     {
-        if (!Earlier.TryGetValue(name, out var earlier)) return false;
+        if (!BuiltIn.TryGetValue(name, out var current)) return false;
         try
         {
-            var r = PlayerRules.FromJson(File.ReadAllText(file));
-            return earlier.Any(e => e == r);
+            var text = File.ReadAllText(file);
+            var r = PlayerRules.FromJson(text);
+            if (Earlier.TryGetValue(name, out var earlier) && earlier.Any(e => e == r)) return true;
+            return r == current && !Members(current.ToJson()).IsSubsetOf(Members(text));
         }
         catch (JsonException)
         {
             return false;
         }
+    }
+
+    // Every member path in a JSON object ("glideBoost.climb"), case ignored as the reader ignores it.
+    private static HashSet<string> Members(string json)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        void Walk(JsonElement e, string prefix)
+        {
+            if (e.ValueKind != JsonValueKind.Object) return;
+            foreach (var p in e.EnumerateObject())
+            {
+                var path = prefix.Length == 0 ? p.Name : prefix + "." + p.Name;
+                set.Add(path);
+                Walk(p.Value, path);
+            }
+        }
+        Walk(doc.RootElement, "");
+        return set;
     }
 }

@@ -106,8 +106,9 @@ public sealed record PlayerRules
     /// values.</summary>
     public double? GlideSink { get; init; }
 
-    /// <summary>Holding the sprint key while gliding pushes the player along the view direction, up to a speed cap;
-    /// letting go glides on as usual. The most generous of every rule set wins (each value separately).</summary>
+    /// <summary>The glider flies like a plane: it climbs and dives where the player looks (climbing costs speed, diving
+    /// gives it), and holding the sprint key pushes it along that path, up to a speed cap and a climb rate; letting go
+    /// glides on and settles into the game's glide. The most generous of every rule set wins (each value separately).</summary>
     public GlideBoostRule? GlideBoost { get; init; }
 
     // ---- water ----
@@ -192,7 +193,9 @@ public sealed record PlayerRules
             Mult("glideBoost.maxSpeed", g.MaxSpeed);
             Mult("glideBoost.lift", g.Lift);
             Mult("glideBoost.coast", g.Coast);
+            Mult("glideBoost.climb", g.Climb);
             if (g.MaxSpeed > GlideBoostRule.SpeedLimit) p.Add($"glideBoost.maxSpeed: {g.MaxSpeed} is over {GlideBoostRule.SpeedLimit} m/s");
+            if (g.Climb > GlideBoostRule.SpeedLimit) p.Add($"glideBoost.climb: {g.Climb} is over {GlideBoostRule.SpeedLimit} m/s");
         }
         if (Water is { } w && (double.IsNaN(w.ChargesPerSecond) || w.ChargesPerSecond <= 0))
             p.Add($"water.chargesPerSecond: {w.ChargesPerSecond} must be more than 0 (Infinity keeps the containers full)");
@@ -230,8 +233,10 @@ public sealed record WaterRule
         (KeepsFull ? "keep full" : $"{ChargesPerSecond:0.##} charges/s") + (Items is { Count: > 0 } ? $" ({string.Join(", ", Items)})" : "");
 }
 
-/// <summary>The push a glider gets while the sprint key is held (<see cref="PlayerRules.GlideBoost"/>). It runs the same
-/// way in the server's world and the player's own prediction, so the server agrees with what the player sees.</summary>
+/// <summary>Gliding like a plane (<see cref="PlayerRules.GlideBoost"/>): the glider's path takes its pitch from where the
+/// player looks (a view within about 5 degrees of level flies level), climbing trades speed for height and diving height
+/// for speed, and the sprint key pushes along the path. It runs the same way in the server's world and the player's own
+/// prediction, so the server agrees with what the player sees.</summary>
 public sealed record GlideBoostRule
 {
     /// <summary>The fastest any rule may make a boosted glider, m/s.</summary>
@@ -253,10 +258,16 @@ public sealed record GlideBoostRule
     /// to a plain glide; 0 = the game's drag, which stops a fast glider almost at once).</summary>
     public double Coast { get; init; } = 8;
 
+    /// <summary>The fastest the glider climbs while the player looks up, m/s (default 15; 0 = it never climbs: looking up
+    /// then only slows it). Boosting while looking up climbs at up to this rate; without the boost a climb lasts as long
+    /// as the speed it trades.</summary>
+    public double Climb { get; init; } = 15;
+
     public static GlideBoostRule Default { get; } = new();
 
     public override string ToString() =>
-        $"boost {Thrust:0.#} m/s² up to {MaxSpeed:0.#} m/s" + (Lift > 0 ? $", lift {Lift:0.#} m/s²" : "") + $", coast {Coast:0.#} m/s²";
+        $"boost {Thrust:0.#} m/s² up to {MaxSpeed:0.#} m/s" + (Lift > 0 ? $", lift {Lift:0.#} m/s²" : "") + $", coast {Coast:0.#} m/s²" +
+        (Climb > 0 ? $", climbs up to {Climb:0.#} m/s" : ", no climbing");
 }
 
 /// <summary>A player's rules after every rule set that applies was combined, and the server's limits held.</summary>
@@ -307,7 +318,7 @@ public sealed record EffectiveRules
         (GlideBoost is not null ? RulesNative.GlideBoost : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
-        (float)(GlideBoost?.Coast ?? 0));
+        (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0));
 
     /// <summary>The same values, ignoring <see cref="From"/>.</summary>
     public bool SameAs(EffectiveRules o) => this with { From = o.From, Denied = o.Denied } == o;
@@ -410,11 +421,11 @@ internal static class RulesMath
             if (b is null) continue;
             static double V(double v) => double.IsFinite(v) && v > 0 ? v : 0;
             best = best is null
-                ? new GlideBoostRule { Thrust = V(b.Thrust), MaxSpeed = V(b.MaxSpeed), Lift = V(b.Lift), Coast = V(b.Coast) }
+                ? new GlideBoostRule { Thrust = V(b.Thrust), MaxSpeed = V(b.MaxSpeed), Lift = V(b.Lift), Coast = V(b.Coast), Climb = V(b.Climb) }
                 : new GlideBoostRule
                 {
                     Thrust = Math.Max(best.Thrust, V(b.Thrust)), MaxSpeed = Math.Max(best.MaxSpeed, V(b.MaxSpeed)),
-                    Lift = Math.Max(best.Lift, V(b.Lift)), Coast = Math.Max(best.Coast, V(b.Coast)),
+                    Lift = Math.Max(best.Lift, V(b.Lift)), Coast = Math.Max(best.Coast, V(b.Coast)), Climb = Math.Max(best.Climb, V(b.Climb)),
                 };
         }
         return best;
@@ -474,7 +485,11 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
             MinShroudTime = Math.Min(e.MinShroudTime, MaxShroudFloor),
             UnlimitedGliding = Cap(e.UnlimitedGliding, AllowUnlimitedGliding, "unlimitedGliding"),
             GlideBoost = e.GlideBoost is { } g && Cap(true, AllowGlideBoost, "glideBoost")
-                ? g with { MaxSpeed = Math.Min(g.MaxSpeed, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)) }
+                ? g with
+                {
+                    MaxSpeed = Math.Min(g.MaxSpeed, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)),
+                    Climb = Math.Min(g.Climb, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)),
+                }
                 : null,
             Water = AllowWater ? e.Water : null,
         };

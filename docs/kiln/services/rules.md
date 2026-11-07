@@ -10,7 +10,7 @@ belong to this service, so they work wherever a world runs (a dedicated server, 
 |---|---|
 | C table | `native/core/abi/services/kiln_rules.h` (`kiln.rules` v1) |
 | Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider) |
-| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.dig`, `rules.shroud`, `rules.glide`; the client uses the same file) |
+| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
 | Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`) |
 | Uses | Kiln.Items (water refill policies), Kiln.Abilities (vitals), Kiln.Combat (invulnerability), Kiln.World (moving the character), Kiln.Build (keeping builds), Kiln.Network (the client's half) |
 | Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test` (lab) |
@@ -74,7 +74,7 @@ Every member is optional (null: no opinion).
 | `MinShroudTime` | fraction 0..1 | the Shroud timer is kept at least this full (below it, it recovers at the game's 25 s per second) | server |
 | `UnlimitedGliding` | switch | gliding costs no stamina, so the glider is never forced down for lack of it | server + client |
 | `GlideSink` | multiplier | how fast the glider sinks (0 = holds altitude unless it points down) | server + client |
-| `GlideBoost` | `GlideBoostRule` | holding sprint while gliding pushes along the glider's heading: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8) | server + client |
+| `GlideBoost` | `GlideBoostRule` | gliding like a plane: the path's pitch follows the view, climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs) | server + client |
 | `Water` | `WaterRule` | the player's water containers refilled: `WaterRule.KeepFull(items)`, `WaterRule.Rate(chargesPerSecond, items)`; no items = every container | server |
 
 **How rule sets combine** (several mods, scopes and times at once):
@@ -82,7 +82,7 @@ Every member is optional (null: no opinion).
   that bans flight beats creative mode);
 - multipliers multiply (two half-cost rules make a quarter);
 - floors take the highest;
-- `GlideBoost` takes the most generous of each value;
+- `GlideBoost` takes the most generous of each value (the server's `maxGlideSpeed` holds `MaxSpeed` and `Climb`);
 - water takes the fastest rate and the items of every rule set (one rule set without items means every container);
 - then the server's limits (`<configDir>/rules.json`) hold: a switch it denies is off for everyone (`EffectiveRules.Denied`
   names it), multipliers and floors are clamped.
@@ -147,19 +147,29 @@ A game hosting a world (co-op or offline) is both sides in one process: the host
 prediction and cursor hooks, with no network message. Nothing on either side needs Kiln.Admin (a server-only mod).
 A vanilla game gets only the server-side half: its own prediction refuses the flight and its cursor refuses the
 placement, so it should not be given those rules (`/creative` refuses it). The glider's rules are held back on the
-server until the player's game has the rules channel (version 2): a boost only the server applied would be corrected on
-the player's screen every step.
+server until the player's game has the rules channel (version 3 since the climb rate): a boost only the server applied
+would be corrected on the player's screen every step.
 
 ## Gliding
 The game's glider is its own thrust against air drag, with gravity for the sink (docs/re/rules.md 7). Kiln wraps the
-glide step and changes nothing the game would not predict the same way: `GlideBoost` replaces the drag along the
-glider's heading with the thrust while sprint is held (the same acceleration with every glider), up to `MaxSpeed`
-(speed from a dive is not taken away), adds `Lift`, and after letting go slows the glider at most by `Coast` (the
-game's drag alone would stop a fast glider almost at once). `GlideSink` scales gravity for a gliding character (0: no
-gravity, and a glider that is not pointing down holds its altitude). `UnlimitedGliding` zeroes the glider's stamina
-drain. The glider turns toward where the player looks, so the push follows the view. Hits, landing, water and letting
-go still end a glide, as in the game; Kiln's landing teleport belongs to the fly mode only, so a glide that ends on the
-ground never snaps the character anywhere.
+glide step and changes nothing the game would not predict the same way (the math: `native/services/rules/glide_math.h`,
+tested on the build machine by `native/services/rules/test-glide-math.sh`).
+
+`GlideBoost` flies like a plane. Each step the glider follows a path with the glider's own heading (the game turns it
+toward where the player looks) and the camera's pitch: a view within about 5 degrees of level is level flight, the
+path climbs at 60 degrees at most.
+- Along the path the speed changes by gravity's share (-9.81 m/s² x sin pitch): climbing costs speed and diving gives it.
+- Holding sprint adds `Thrust` up to `MaxSpeed` (a dive's speed is not taken away); `Lift` adds an upward push.
+- Without sprint, `Coast` slows what is over the path's own glide speed: the game's glide when level or climbing, more
+  the steeper the dive (a dive settles at a speed for its angle, at most 2 x `MaxSpeed`). `Coast` 0 is the game's drag.
+- The climb rate never passes `Climb` (0: looking up only slows the glider).
+- Once the path is no faster than the game's own glide (after letting go, or a climb that ran out of speed), the
+  game's glide stands again: releasing everything settles into a normal glide, and a plain glide does not climb.
+`GlideSink` scales gravity for a gliding character (0: no gravity, and a glider that is not pointing down holds its
+altitude; with a sink above 0 a boosted glider also sinks by that gravity). `UnlimitedGliding` zeroes the glider's
+stamina drain. Hits, landing, water and letting go still end a glide, as in the game; Kiln's landing teleport belongs to
+the fly mode only, so a glide that ends on the ground never snaps the character anywhere. Without `GlideBoost` the glide
+is the game's (with `GlideSink` and `UnlimitedGliding`).
 
 ## The flight
 The game's fly mode puts the player's input into a flying spark and leaves the character sitting where it was
@@ -239,9 +249,11 @@ the same works for an admin who joins with Kiln.
 12. Shroud: with creative on, walk into the Shroud and stay 2 minutes: the timer on the HUD does not move (note any
     flicker). `/creative off` there: it counts down again from the same number. Back on before it runs out.
 13. Gliding: with creative on, jump off a height and glide a long way: no height lost while looking level, stamina does
-    not drop. Hold Shift: smooth acceleration where you look, up to about 35 m/s; let go: back to a normal glide within
-    2-3 s. Look down: the glider descends. Land: no snap back. `/creative off`: the game's glide (sinks, uses stamina).
-    kiln.log: `local player's rules: flags 0x1df, … glide sink x0, boost 15 m/s² to 35 m/s`.
+    not drop. Hold Shift looking level: smooth acceleration up to about 35 m/s, the altitude holds. Hold Shift looking
+    up: the glider climbs (at most 15 m/s up). Let go after a boost and look up: it climbs while it slows, then glides on
+    normally. Look down: it dives and speeds up; level out and it slows back to a normal glide within a few seconds.
+    Land: no snap back. `/creative off`: the game's glide (sinks, uses stamina). kiln.log: `local player's rules: flags
+    0x1df, … glide sink x0, boost 15 m/s² to 35 m/s, lift 0, climb 15 m/s`.
 ## Client guards (the game client only)
 Not rules: two guards against a broken game camera, in kiln-rules because it already hooks the client's programs
 (docs/re/client.md, "The camera, health-bar line of sight, and a frozen client"; `sigdb/symbols/client.d/rules.json`).

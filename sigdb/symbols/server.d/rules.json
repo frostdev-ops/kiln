@@ -93,6 +93,12 @@
         { "pattern": "40 53 48 83 EC 20 48 8B D9 33 D2 48 83 C1 22 41 B8 56 01 00 00 E8 ?? ?? ?? ?? 0F 10 05 ?? ?? ?? ?? 66 C7 43 {rules/input.trigger:d8} 18 00" }
       ]
     },
+    "@rules/Input.camera": {
+      "comment": "player_deflect_parried_projectiles turns (0,0,1) by the player's camera orientation (PlayerInput.fromClient.camera, a Quaternion) before reading fromClientSettings.attackDirectionInput: the camera's forward, which a boosted glider takes its pitch from",
+      "find": [
+        { "pattern": "48 8B 5D ?? 4C 8D 85 ?? ?? 00 00 F2 0F 10 35 ?? ?? ?? ?? 48 8D 8D ?? ?? 00 00 8B 35 ?? ?? ?? ?? F2 0F 11 B5 ?? ?? 00 00 48 8D 53 {rules/input.camera_rot:d8} 89 B5 ?? ?? 00 00 E8 {rules/QuatRotate:rel32} 0F B6 8B {rules/input.attack_dir:d32}" }
+      ]
+    },
     "rules/GlideGravity": {
       "comment": "gravity_apply_velocity_actor: after the gravity strength (xmm6, PlayerLocomotion's rising/falling override) is chosen, at lea rdx / mov rcx,rdi before StepDelta; rdi = ProgramContext, the Actor at [rbp + (int8)grav.actor]",
       "find": [
@@ -136,7 +142,9 @@
     "rules/input.stick": { "min_votes": 1 },
     "rules/input.mask": { "min_votes": 1 },
     "rules/input.trigger": { "min_votes": 1 },
-    "rules/grav.actor": { "min_votes": 1 }
+    "rules/grav.actor": { "min_votes": 1 },
+    "rules/input.camera_rot": { "value": 64 },
+    "rules/input.attack_dir": { "value": 1453 }
   },
   "features": {
     "rules.fly": {
@@ -161,6 +169,10 @@
                   "rules/StepDelta", "rules/ActorStateTest", "rules/CurrentEntityId", "items/JobStorage"],
       "constants": ["rules/glide.actor_input", "rules/glide.xform", "rules/xform.rotation", "rules/glide.velocity", "rules/loco.player_input",
                     "rules/input.mask", "rules/input.trigger", "rules/grav.actor", "storage.kind"]
+    },
+    "rules.glide_view": {
+      "symbols": ["@rules/Input.camera", "rules/QuatRotate"],
+      "constants": ["rules/input.camera_rot", "rules/input.attack_dir"]
     },
     "rules.costs": {
       "symbols": ["rules/ApplyMaterials"],
