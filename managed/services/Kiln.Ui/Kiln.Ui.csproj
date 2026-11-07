@@ -9,6 +9,9 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Ui.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
     <!-- the Network tab's sync status (ContentSync) -->

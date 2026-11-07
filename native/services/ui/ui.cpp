@@ -15,6 +15,7 @@
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
 #include "safetyhook.hpp"
+#include "services/kiln_render.h"
 #include "ui.h"
 
 namespace kui {
@@ -155,6 +156,7 @@ void set_error(const char* fmt, ...) {
 }
 
 bool imgui_ready() { return g_imgui; }
+bool in_frame() { return t_in_frame; }
 
 bool imgui_create(HWND hwnd, float dpi) {
     if (g_imgui) return true;
@@ -540,6 +542,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     }
     // the game's own UI (screens, menu entries, crafting): independent of the overlay's Vulkan hooks
     const bool game = game_install();
+    render_install();  // kiln.render's camera (screen drawing works without it)
     info->on_ready = [](void*) { game_ready(); };
     // the cursor import slots are patched once vulkan-1.dll loads (vk_install), long after the exe's own start-up code
     if (GetModuleHandleW(L"vulkan-1.dll")) {
@@ -555,5 +558,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         logf(KILN_LOG_INFO, "ui: waiting for the game to load vulkan-1.dll (LoadLibraryExW hooked)");
     }
     if (game) api->register_service(owner, KilnStr{KILN_UI_TICK_SERVICE, sizeof(KILN_UI_TICK_SERVICE) - 1}, &kTickTable);
+    api->register_service(owner, KilnStr{KILN_RENDER_SERVICE, sizeof(KILN_RENDER_SERVICE) - 1}, render_table());
     return api->register_service(owner, KilnStr{KILN_UI_SERVICE, sizeof(KILN_UI_SERVICE) - 1}, &kTable);
 }

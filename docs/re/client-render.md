@@ -97,3 +97,34 @@ Verified, with a synthetic absolute pointer and a virtual keyboard:
    `WM_MOUSEMOVE` came for 250 ms. **Verified with a real mouse:** Kiln windows opened by a key during play (the game screen stayed Play/1) counted
    1014 `WM_MOUSEMOVE`, 2251 raw and 10 clicks in 7 s. The synthetic pointer stays without motion there (join session: 0 raw in 26 s).
 7. Not verified: resize / alt-tab / minimise / fullscreen toggle, HDR (format 64, expected too bright), Windows.
+
+## The camera
+Client 26430625 (`enshrouded.exe` sha256 `5d9ef2f1…`). Static (python capstone, sigdb_check); not yet watched at run time.
+Used by kiln.render (`sigdb/symbols/client.d/render.json`, feature `render.camera`; usage `docs/kiln/render.md`).
+- **Where:** `0x3af340` fills the local player's `ClientPlayerInput` each client frame on the main thread
+  ([client.md](client.md), "The camera, health-bar line of sight"). With `rbp` = the client game and `r14` = the
+  `ClientPlayerInput`: `[rbp+0x5c8]` is the 3C camera object (null: the block is skipped); `0x3af4e5` calls the
+  camera transform (`0xe98ea0`); `0x3af4f5..0x3af55b` store `ClientPlayerInput.camera` (`keen::ecs::ClientCamera`):
+  | Offset in `ClientPlayerInput` | Field | Source in the camera object |
+  |---|---|---|
+  | +0x20 | position, `WorldPosition` (3 x int64, 32.32 fixed point metres) | transform |
+  | +0x38 | rotation, quaternion x y z w (camera space to world; +z is the view direction) | transform |
+  | +0x48 | distance (third-person, camera to pivot) | +0x14a4 |
+  | +0x4c | fovY | +0x20c4 |
+  | +0x50 | aspect | +0x20b8 |
+  | +0x54 / +0x58 | near / far | +0x20bc / +0x20c0 |
+- **kiln.render's hook:** a read-only mid hook at `0x3af578` (`lea r8, [rbp+0x2c68]`, after the call at `0x3af573`),
+  reached by both branches; `r14` and `rbp` are unchanged there (`r14` is read again at `0x3af5a1`). kiln.rules'
+  camera check hooks `0x3af55f` (a 7-byte instruction), so the two never overlap. The pattern captures every store's
+  offset and fixes it, so a build with another layout turns the feature off.
+- **Units:** the camera object's constructor (`0x8388df..0x8388fd`) sets aspect 1.0, near 0.1, far 100.0 and **fovY
+  60.0**: degrees. kiln.render takes a value above pi as degrees. Whether the game's aspect value is kept up to date was
+  not found statically: kiln.render projects with the swapchain's width / height.
+- **Spaces:** left-handed, x east, y up, z north ([models.md](models.md)); `kiln.rules` rotates (0, 0, 1) by the
+  camera's quaternion for the view direction (its glide pitch), which fixes the forward axis.
+- **Not in it:** `player_camera_transform` (`0x2b7900`) adds camera shake (a glider wobble) to the render camera only.
+- **Threads:** written on the main thread; presents run on the render thread, typically a frame behind. kiln.render
+  copies the camera under a sequence lock and hands every reader a whole copy.
+- **To confirm in the game:** that the vertical fov reading is right (markers stay on their spot at the screen's
+  edges; `Render.FieldOfViewIsHorizontal` flips it for the check) and how far behind the scene markers lag while
+  turning fast.

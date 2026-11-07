@@ -1,0 +1,9 @@
+{
+  "id": "rendersample",
+  "name": "Render sample",
+  "version": "1.0.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "RenderSample.dll",
+  "side": "client",
+  "description": "Render events sample: an FPS counter, a compass and waypoint markers in the world (Ctrl+J drops one, Ctrl+Shift+J removes the nearest, Ctrl+Alt+J hides all)."
+}

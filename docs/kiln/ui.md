@@ -146,7 +146,9 @@ Hud.Show("mymod.status", () => $"temp {_temp:F1}", HudAnchor.TopRight, Color.Ora
 var line = Hud.Show("mymod.msg", "static text");  line.Text = "changed";  line.Dispose();
 Hud.Toast("Saved!", ToastKind.Success, seconds: 3);  // any thread
 ```
-`Ui.Frame += ui => …` runs every overlay frame for custom drawing.
+`Ui.Frame += ui => …` runs every overlay frame for custom drawing. For drawing shapes, text and images every frame,
+in pixels or at world positions with the game's camera, use `RenderFrameEvent` ([render.md](render.md)): it draws under
+Kiln's windows and turns off a handler that is too slow.
 
 Kiln's own toast: when a server refuses this client (Kiln.Network's REJECT), Kiln.Ui shows who refused and the mods it
 named (else its reason) for 20 s, over the game's login error dialog that follows, and again for 30 s when the game is

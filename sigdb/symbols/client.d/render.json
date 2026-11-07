@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.render's camera on the client (docs/re/client-render.md, 'The camera'). The client fills the local player's ClientPlayerInput.camera (keen::ecs::ClientCamera: WorldPosition 3 x int64 32.32, quaternion x y z w, distance, fovY, aspect, near, far) from its 3C camera object once per client frame on the main thread. kiln.render reads it right after the write, a few instructions past kiln.rules' read-only camera check (rules/client.CameraInput), so both hooks coexist. The field offsets are captured from the stores and fixed, so a build with another layout refuses the feature. Found on client 26430625 (5d9ef2f1...).",
+  "symbols": {
+    "render/client.CameraWritten": {
+      "comment": "rbp = the client game (camera object at [rbp + cam.obj], null when there is none: then the stores are skipped), r14 = the local player's ClientPlayerInput (camera at +cpi.camera); the mid hook goes on 'lea r8, [rbp + ...]' after the call that follows the camera block, reached by both branches",
+      "find": [
+        {
+          "pattern": "48 8B 8D {render/client.cam.obj:d32} 48 85 C9 0F 84 ?? ?? ?? ?? 41 0F B6 96 ?? ?? ?? ?? E8 ?? ?? ?? ?? 66 0F 6F 0D ?? ?? ?? ?? 48 8D 4C 24 ?? 48 8B 95 {render/client.cam.obj:d32} 0F 57 C0 F3 0F 7F 44 24 ?? 48 C7 44 24 ?? 00 00 00 00 0F 11 4C 24 ?? C7 84 24 ?? ?? 00 00 00 00 80 3F C7 84 24 ?? ?? 00 00 00 00 80 3F C7 84 24 ?? ?? 00 00 00 00 80 3F E8 ?? ?? ?? ?? 0F 10 44 24 ?? F2 0F 10 4C 24 ?? 41 0F 11 46 {render/client.cpi.camera:d8} 0F 10 44 24 ?? F2 41 0F 11 4E {render/client.cpi.position_z:d8} 41 0F 11 46 {render/client.cpi.rotation:d8} 48 8B 85 {render/client.cam.obj:d32} 8B 88 ?? ?? ?? ?? 41 89 4E {render/client.cpi.distance:d8} 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E {render/client.cpi.fov_y:d8} 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E {render/client.cpi.aspect:d8} 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E {render/client.cpi.near:d8} 48 8B 85 ?? ?? ?? ?? 8B 88 ?? ?? ?? ?? 41 89 4E {render/client.cpi.far:d8} 48 8B 8D ?? ?? ?? ?? 48 8B 95 ?? ?? ?? ?? 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8D 85",
+          "offset": 252
+        }
+      ]
+    }
+  },
+  "constants": {
+    "render/client.cam.obj": {
+      "value": 1480
+    },
+    "render/client.cpi.camera": {
+      "value": 32
+    },
+    "render/client.cpi.position_z": {
+      "value": 48
+    },
+    "render/client.cpi.rotation": {
+      "value": 56
+    },
+    "render/client.cpi.distance": {
+      "value": 72
+    },
+    "render/client.cpi.fov_y": {
+      "value": 76
+    },
+    "render/client.cpi.aspect": {
+      "value": 80
+    },
+    "render/client.cpi.near": {
+      "value": 84
+    },
+    "render/client.cpi.far": {
+      "value": 88
+    }
+  },
+  "features": {
+    "render.camera": {
+      "symbols": [
+        "render/client.CameraWritten"
+      ],
+      "constants": [
+        "render/client.cam.obj",
+        "render/client.cpi.camera",
+        "render/client.cpi.position_z",
+        "render/client.cpi.rotation",
+        "render/client.cpi.distance",
+        "render/client.cpi.fov_y",
+        "render/client.cpi.aspect",
+        "render/client.cpi.near",
+        "render/client.cpi.far"
+      ]
+    }
+  }
+}

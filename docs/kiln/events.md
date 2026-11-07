@@ -101,3 +101,8 @@ Services add their own event classes in their assemblies (combat, gameplay, save
 docs. Added in docs/kiln/services/combat.md and gameplay.md: `EntityKnockbackEvent`, `EntityFallEvent`,
 `EntityHealEvent.Cause` (Hit, Kiln, Regeneration, Attribute) in Kiln.Combat; `EntityJoinLevelEvent`,
 `EntityLeaveLevelEvent` (every entity, filtered by `Gameplay.WatchEntities`) and `ItemTossEvent` in Kiln.Gameplay.
+
+### Render thread (Kiln.Ui, client)
+One event is posted **outside the tick thread**: `RenderFrameEvent`, once per presented frame on the game's render
+thread, while a handler subscribes to that class (a `KilnEvent` catch-all does not get it). Handlers draw through it
+and get a time budget per frame; a slow or throwing one is turned off. Details: [render.md](render.md).

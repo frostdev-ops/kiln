@@ -430,4 +430,13 @@ void image_free(KilnHandle h) {
     g_images.erase(it);
 }
 
+// For kiln.render (render.cpp): the texture of an image once it exists (render thread, inside a frame).
+bool image_texture(KilnHandle h, ImTextureRef* out) {
+    std::lock_guard lk(g_img_mu);
+    auto it = g_images.find(h);
+    if (it == g_images.end() || !it->second->tex) return false;
+    *out = it->second->tex->GetTexRef();
+    return true;
+}
+
 }  // namespace kui

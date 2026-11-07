@@ -499,6 +499,11 @@ public static class Events
         lock (Lock) return HandlersForLocked(type);
     }
 
+    /// <summary>The handlers <see cref="Post{T}"/> would run for <paramref name="type"/>, in order (a cached array: the
+    /// same instance until a subscription changes). For services that dispatch an event on a thread of their own
+    /// (Kiln.Ui's render events on the render thread). Any thread.</summary>
+    internal static EventSubscription[] HandlersOf(Type type) => HandlersFor(type);
+
     private static EventSubscription[] HandlersForLocked(Type type)
     {
         if (Resolved.TryGetValue(type, out var cached)) return cached;

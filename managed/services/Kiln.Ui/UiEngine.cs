@@ -283,6 +283,7 @@ internal static unsafe class UiEngine
     {
         Draw.Frame = f;
         var ui = Draw;
+        RenderDispatch.Frame(ui);  // RenderFrameEvent handlers (they draw on the background list, under everything below)
         if (f.MenuOpen != 0) Menu(ui);
         UiWindow[] windows;
         HudLine[] hud;

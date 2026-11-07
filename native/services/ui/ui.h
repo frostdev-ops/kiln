@@ -27,7 +27,11 @@ extern std::atomic<bool> g_text_input;       // ImGui wants text input (last fra
 extern std::atomic<bool> g_want_mouse;       // ImGui wants the mouse (last frame)
 inline bool capturing() { return g_menu_open.load(std::memory_order_relaxed) || g_interactive.load(std::memory_order_relaxed) > 0; }
 // Something to draw this frame. The native fallback menu counts too.
-inline bool want_draw() { return capturing() || g_demand.load(std::memory_order_relaxed) > 0; }
+extern std::atomic<uint32_t> g_render_demand;  // kiln.render acquire_frames handles (render.cpp)
+inline bool want_draw() {
+    return capturing() || g_demand.load(std::memory_order_relaxed) > 0 || g_render_demand.load(std::memory_order_relaxed) > 0;
+}
+bool in_frame();  // the calling thread is inside the overlay frame's callbacks (drawing calls work)
 
 void set_error(const char* fmt, ...);
 KilnHandle next_handle();                    // one handle space for every kiln.ui subscription (any thread)
@@ -78,6 +82,14 @@ bool image_size(KilnHandle h, uint32_t* w, uint32_t* hgt);
 void image_draw(KilnHandle h, float w, float hgt);
 bool image_button(const char* id, KilnHandle h, float w, float hgt);
 void image_free(KilnHandle h);
+}  // namespace kui
+struct ImTextureRef;
+namespace kui {
+bool image_texture(KilnHandle h, ImTextureRef* out);  // render thread
+
+// ---- render.cpp (kiln.render: drawing for mods, the game's camera) ----
+bool render_install();                 // plugin main: the camera hook (feature render.camera)
+const void* render_table();            // the KilnRenderApi
 
 // ---- vk.cpp ----
 bool vk_install();  // called once vulkan-1.dll is loaded (from the LoadLibraryExW hook)
