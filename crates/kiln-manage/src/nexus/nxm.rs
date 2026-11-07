@@ -43,11 +43,11 @@ impl NxmLink {
 
     /// The key has expired (with a minute's slack for clocks).
     pub fn expired(&self, now_unix: i64) -> bool {
-        self.expires.is_some_and(|e| e + 60 < now_unix)
+        self.expires.is_some_and(|e| e.saturating_add(60) < now_unix)
     }
 }
 
-fn pct_decode(s: &str) -> String {
+fn pct_decode(s: &str) -> Option<String> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -59,17 +59,24 @@ fn pct_decode(s: &str) -> String {
             i += 3;
             continue;
         }
+        if b[i] == b'%' { return None; }
         out.push(if b[i] == b'+' { b' ' } else { b[i] });
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).ok()
 }
 
 /// The game domain of any nxm link (also collections), lower case; None when it is not an nxm link.
 pub fn game_of(url: &str) -> Option<String> {
-    let rest = strip_scheme(url.trim())?;
+    if !safe_url(url) { return None; }
+    let rest = strip_scheme(url)?;
     let game = rest.split(['/', '?']).next()?.to_ascii_lowercase();
-    (!game.is_empty()).then_some(game)
+    (!game.is_empty() && game.len() <= 100 && game.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then_some(game)
+}
+
+/// A bounded URI safe to pass as one argument to another handler. Other games are forwarded unchanged.
+pub fn safe_url(url: &str) -> bool {
+    url.len() <= 8192 && !url.is_empty() && !url.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '#' | '`'))
 }
 
 fn strip_scheme(url: &str) -> Option<&str> {
@@ -80,10 +87,11 @@ fn strip_scheme(url: &str) -> Option<&str> {
 /// Parses a mod file link. Refuses anything else (collections, other shapes, ids that are not numbers).
 pub fn parse(url: &str) -> Result<NxmLink> {
     let bad = |why: &str| Error::new(ErrorCode::InvalidArgument, format!("not a Mod Manager Download link: {why}"));
-    let rest = strip_scheme(url.trim()).ok_or_else(|| bad("it does not start with nxm://"))?;
+    if !safe_url(url) { return Err(bad("invalid URI characters or length")); }
+    let rest = strip_scheme(url).ok_or_else(|| bad("it does not start with nxm://"))?;
     let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
     let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
-    let digits = |s: &str| !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit());
+    let digits = |s: &str| !s.is_empty() && s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit()) && s.parse::<u64>().is_ok_and(|n| n > 0);
     let link = match parts.as_slice() {
         [game, m, mod_id, f, file_id] if m.eq_ignore_ascii_case("mods") && f.eq_ignore_ascii_case("files") && digits(mod_id) && digits(file_id) => NxmLink {
             game: game.to_ascii_lowercase(),
@@ -95,18 +103,29 @@ pub fn parse(url: &str) -> Result<NxmLink> {
         [_, c, ..] if c.eq_ignore_ascii_case("collections") => return Err(bad("collections are not supported")),
         _ => return Err(bad("expected nxm://<game>/mods/<id>/files/<id>")),
     };
-    if link.game.is_empty() || !link.game.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+    if link.game != "enshrouded" {
         return Err(bad("the game name"));
     }
     let mut link = link;
     for pair in query.split('&').filter(|p| !p.is_empty()) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         match k {
-            "key" => link.key = Some(pct_decode(v)).filter(|k| !k.is_empty() && k.len() <= 256),
-            "expires" => link.expires = v.parse().ok(),
+            "key" => {
+                if link.key.is_some() { return Err(bad("duplicate key")); }
+                let key = pct_decode(v).ok_or_else(|| bad("invalid key encoding"))?;
+                if key.is_empty() || key.len() > 256 || !key.bytes().all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\\' | b'&' | b'#')) {
+                    return Err(bad("invalid download key"));
+                }
+                link.key = Some(key);
+            }
+            "expires" => {
+                if link.expires.is_some() || !v.bytes().all(|b| b.is_ascii_digit()) { return Err(bad("invalid expiry")); }
+                link.expires = Some(v.parse::<i64>().ok().filter(|e| *e > 0).ok_or_else(|| bad("invalid expiry"))?);
+            }
             _ => {}
         }
     }
+    if link.key.is_some() != link.expires.is_some() { return Err(bad("key and expires must be supplied together")); }
     Ok(link)
 }
 
@@ -129,6 +148,19 @@ mod tests {
         // premium: no key at all
         let p = parse("nxm://enshrouded/mods/301/files/9").unwrap();
         assert_eq!((p.key, p.expires), (None, None));
+    }
+
+    #[test]
+    fn rejects_malformed_download_authorization() {
+        for tail in ["?key=x", "?expires=1", "?key=&expires=1", "?key=x&expires=bad", "?key=x&expires=-1", "?key=x&expires=0", "?key=x&expires=9223372036854775808", "?key=x&key=y&expires=1", "?key=x&expires=1&expires=2", "?key=%zz&expires=1", "?key=%00&expires=1", "?key=%22&expires=1", "#fragment"] {
+            assert!(parse(&format!("nxm://enshrouded/mods/1/files/2{tail}")).is_err(), "{tail}");
+        }
+        assert!(parse("nxm://skyrim/mods/1/files/2").is_err());
+        assert!(parse("nxm://enshrouded/mods/0/files/2").is_err());
+        assert!(parse("nxm://enshrouded/mods/18446744073709551616/files/2").is_err());
+        let link = parse("nxm://enshrouded/mods/1/files/2?key=x&expires=9223372036854775807").unwrap();
+        assert!(!link.expired(i64::MAX));
+        assert!(game_of("nxm://skyrim/mods/1/files/2?key=\" --bad").is_none());
     }
 
     #[test]

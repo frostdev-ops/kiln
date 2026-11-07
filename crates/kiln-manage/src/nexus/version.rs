@@ -12,7 +12,7 @@ fn clean(v: &str) -> &str {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Chunk {
-    Num(u64),
+    Num(String),
     Word(String),
 }
 
@@ -24,7 +24,7 @@ fn chunks(v: &str) -> Vec<Chunk> {
         if cur.is_empty() {
             return;
         }
-        out.push(if digits { Chunk::Num(cur.parse().unwrap_or(u64::MAX)) } else { Chunk::Word(cur.to_ascii_lowercase()) });
+        out.push(if digits { Chunk::Num(cur.trim_start_matches('0').to_string()) } else { Chunk::Word(cur.to_ascii_lowercase()) });
         cur.clear();
     };
     for c in v.chars() {
@@ -43,24 +43,73 @@ fn chunks(v: &str) -> Vec<Chunk> {
     out
 }
 
+fn numeric(a: &str, b: &str) -> Ordering {
+    let (a, b) = (a.trim_start_matches('0'), b.trim_start_matches('0'));
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
+
+/// Like Kiln's partial semver parser, but without its C# int32 limits: Nexus versions are free text and numeric
+/// prerelease identifiers may be arbitrarily large under semver. Preserve identifier case for semver precedence.
+fn semantic(v: &str) -> Option<([&str; 3], Vec<&str>)> {
+    let (release, pre) = v.split_once('-').map_or((v, None), |(r, p)| (r, Some(p)));
+    let parts: Vec<_> = release.split('.').collect();
+    let number = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && (s.len() == 1 || !s.starts_with('0'));
+    if parts.is_empty() || parts.len() > 3 || !parts.iter().all(|s| number(s)) {
+        return None;
+    }
+    let mut numbers = ["0"; 3];
+    numbers[..parts.len()].copy_from_slice(&parts);
+    let pre: Vec<_> = pre.map(|p| p.split('.').collect()).unwrap_or_default();
+    if pre.iter().any(|s: &&str| s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || (s.bytes().all(|b| b.is_ascii_digit()) && !number(s)))
+    {
+        return None;
+    }
+    Some((numbers, pre))
+}
+
+fn semantic_compare(a: ([&str; 3], Vec<&str>), b: ([&str; 3], Vec<&str>)) -> Ordering {
+    for (x, y) in a.0.iter().zip(b.0.iter()) {
+        let c = numeric(x, y);
+        if c != Ordering::Equal {
+            return c;
+        }
+    }
+    if a.1.is_empty() || b.1.is_empty() {
+        return b.1.len().cmp(&a.1.len());
+    }
+    for (x, y) in a.1.iter().zip(b.1.iter()) {
+        let c = match (x.bytes().all(|v| v.is_ascii_digit()), y.bytes().all(|v| v.is_ascii_digit())) {
+            (true, true) => numeric(x, y),
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => x.cmp(y),
+        };
+        if c != Ordering::Equal {
+            return c;
+        }
+    }
+    a.1.len().cmp(&b.1.len())
+}
+
 /// Compares two versions as written on Nexus Mods.
 pub fn compare(a: &str, b: &str) -> Ordering {
     let (a, b) = (clean(a), clean(b));
-    if let (Some(x), Some(y)) = (crate::semver::SemVersion::try_parse(a), crate::semver::SemVersion::try_parse(b)) {
-        return x.compare(&y);
+    if let (Some(x), Some(y)) = (semantic(a), semantic(b)) {
+        return semantic_compare(x, y);
     }
     let (ca, cb) = (chunks(a), chunks(b));
     let n = ca.len().max(cb.len());
     for i in 0..n {
         let o = match (ca.get(i), cb.get(i)) {
-            (Some(Chunk::Num(x)), Some(Chunk::Num(y))) => x.cmp(y),
+            (Some(Chunk::Num(x)), Some(Chunk::Num(y))) => numeric(x, y),
             (Some(Chunk::Word(x)), Some(Chunk::Word(y))) => x.cmp(y),
             // a number beats a word at the same place ("1.2.1" > "1.2.beta")
             (Some(Chunk::Num(_)), Some(Chunk::Word(_))) => Ordering::Greater,
             (Some(Chunk::Word(_)), Some(Chunk::Num(_))) => Ordering::Less,
             // "1.2" vs "1.2.0": equal when the rest is zeros; "1.2" vs "1.2-beta": the release is newer
-            (None, Some(Chunk::Num(y))) => 0.cmp(y),
-            (Some(Chunk::Num(x)), None) => x.cmp(&0),
+            (None, Some(Chunk::Num(y))) => numeric("0", y),
+            (Some(Chunk::Num(x)), None) => numeric(x, "0"),
             (None, Some(Chunk::Word(_))) => Ordering::Greater,
             (Some(Chunk::Word(_)), None) => Ordering::Less,
             (None, None) => Ordering::Equal,
@@ -95,5 +144,16 @@ mod tests {
         assert!(!is_newer("1.0", "1.0"));
         assert!(!is_newer("1.0-beta", "1.0"));
         assert!(is_newer("1.2.1", "1.2.beta"));
+    }
+
+    #[test]
+    fn numeric_components_do_not_overflow_or_change_semver_precedence() {
+        assert!(is_newer("1.0.0-10000000000", "1.0.0-9999999999"));
+        assert!(is_newer("1.0.0-alpha", "1.0.0-9999999999999999999999999999"));
+        assert!(is_newer("18446744073709551617", "18446744073709551616"));
+        assert!(is_newer("build18446744073709551617", "build18446744073709551616"));
+        assert!(is_newer("1.0.0-alpha.2", "1.0.0-alpha.1"));
+        assert!(is_newer("1.0.0-alpha.1", "1.0.0-alpha"));
+        assert!(is_newer("1.0.0-a", "1.0.0-A"));
     }
 }

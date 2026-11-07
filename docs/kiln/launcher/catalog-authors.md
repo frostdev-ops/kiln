@@ -7,7 +7,7 @@ button (everyone else). How the launcher does it: [catalog.md](catalog.md).
 ## The rule
 Your mod shows up as a Kiln mod when **a file on its Nexus page holds a `kiln.mod.json`**:
 - The file is active: main, update, optional or miscellaneous (not archived). The launcher looks at your three most
-  recently updated files and at each one's newest version.
+  recently updated listed files and at each one's newest version, among at most eight active file chains inspected.
 - The `kiln.mod.json` is at the root of the zip or in one folder (`MyMod/kiln.mod.json`, the way `kiln pack` makes it).
 - The page was created or updated after 2026-11-01.
 

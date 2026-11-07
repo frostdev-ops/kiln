@@ -535,7 +535,7 @@ fn previous_handler_labels_and_command_lines() {
     assert_eq!(handler::split_command(r#""C:\V\Vortex.exe" -d "x""#), (r"C:\V\Vortex.exe".into(), r#"-d "x""#.into()));
     assert_eq!(handler::exec_argv(r#""/opt/My App/vortex" --flag %u %i"#, "nxm://a"), ["/opt/My App/vortex", "--flag", "nxm://a"]);
     assert_eq!(handler::exec_argv("nxmhandler", "nxm://a"), ["nxmhandler", "nxm://a"]);
-    assert_eq!(handler::exec_quote(r#"/a b/"x"$y"#), r#""/a b/\"x\"\$y""#);
+    assert_eq!(handler::exec_quote(r#"/a b/"x"$y"#), r#""/a b/\\"x\\"\\$y""#);
 }
 
 /// The real xdg-mime in private XDG folders: Kiln becomes the nxm default, the old one comes back.
@@ -624,6 +624,9 @@ fn the_key_goes_to_the_keyring_else_a_private_file() {
 
     let broken = Arc::new(FakeRing { broken: true, ..Default::default() });
     let ks = KeyStore::with_backend(&t.0, Some(Box::new(broken)));
+    assert!(ks.set(KEY).is_err());
+    assert!(!ks.file_path().exists());
+    let ks = KeyStore::with_backend(&t.0, None);
     assert_eq!(ks.set(KEY).unwrap(), KeyPlace::File);
     assert_eq!(ks.get().unwrap(), Some((KEY.into(), KeyPlace::File)));
     #[cfg(unix)]

@@ -30,14 +30,21 @@ pub const NXM_EVENT: &str = "kiln://nxm";
 static APP_VERSION: OnceLock<String> = OnceLock::new();
 static CATALOG: Mutex<Option<Arc<Catalog>>> = Mutex::new(None);
 /// The account of the stored key, checked once per start (and when the key changes).
-static ACCOUNT: Mutex<Option<Result<Account, Error>>> = Mutex::new(None);
+static ACCOUNT: Mutex<Option<CachedAccount>> = Mutex::new(None);
 static LINKS: LazyLock<Mutex<Vec<Pending>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static INSTANCE: Mutex<Option<handler::Instance>> = Mutex::new(None);
+static NEXT_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 struct Pending {
     id: String,
     link: NxmLink,
     received: String,
+}
+
+struct CachedAccount {
+    catalog: usize,
+    checked: std::time::Instant,
+    result: Result<Account, Error>,
 }
 
 fn root() -> Result<std::path::PathBuf, Error> {
@@ -57,7 +64,7 @@ fn the_catalog() -> Result<Arc<Catalog>, Error> {
     if let Some(c) = c.as_ref() {
         return Ok(c.clone());
     }
-    let key = keystore()?.get().ok().flatten().map(|(k, _)| k);
+    let key = keystore()?.get()?.map(|(k, _)| k);
     let cat = Arc::new(Catalog::new(root()?, kiln_manage::nexus::client(key, &version())));
     *c = Some(cat.clone());
     Ok(cat)
@@ -73,10 +80,12 @@ fn account_cached(cat: &Catalog) -> Option<Result<Account, Error>> {
         return None;
     }
     let mut a = ACCOUNT.lock().unwrap();
-    if a.is_none() {
-        *a = Some(cat.client().validate());
+    let id = cat as *const Catalog as usize;
+    let stale = a.as_ref().is_none_or(|a| a.catalog != id || (a.result.as_ref().is_err_and(|e| e.code != ErrorCode::AuthFailed) && a.checked.elapsed() >= std::time::Duration::from_secs(60)));
+    if stale {
+        *a = Some(CachedAccount { catalog: id, checked: std::time::Instant::now(), result: cat.client().validate() });
     }
-    a.clone()
+    a.as_ref().map(|a| a.result.clone())
 }
 
 /// What Settings and the catalog show about the account. No key, ever.
@@ -96,7 +105,7 @@ pub struct NexusAccount {
 }
 
 fn account_now() -> Result<NexusAccount, Error> {
-    let place = keystore()?.get().ok().flatten().map(|(_, p)| p);
+    let place = keystore()?.get()?.map(|(_, p)| p);
     let cat = the_catalog()?;
     let acc = account_cached(&cat);
     let (name, premium, error) = match acc {
@@ -118,6 +127,9 @@ pub async fn nexus_account() -> Result<NexusAccount, Error> {
 pub async fn nexus_key_set(key: String) -> Result<NexusAccount, Error> {
     blocking(move || {
         let key = key.trim().to_string();
+        if key.is_empty() || key.len() > 1024 || key.chars().any(char::is_whitespace) || key.chars().any(char::is_control) {
+            return Err(Error::invalid("That does not look like a Nexus Mods API key."));
+        }
         let probe = kiln_manage::nexus::client(Some(key.clone()), &version());
         let acc = match probe.validate() {
             Err(e) if e.code == ErrorCode::AuthFailed => return Err(e),
@@ -125,7 +137,8 @@ pub async fn nexus_key_set(key: String) -> Result<NexusAccount, Error> {
         };
         keystore()?.set(&key)?;
         reset();
-        *ACCOUNT.lock().unwrap() = Some(acc);
+        let cat = the_catalog()?;
+        *ACCOUNT.lock().unwrap() = Some(CachedAccount { catalog: Arc::as_ptr(&cat) as usize, checked: std::time::Instant::now(), result: acc });
         launcher_log("nexus", "API key saved");
         account_now()
     })
@@ -192,6 +205,7 @@ fn run_install(app: &AppHandle, game: kiln_manage::game::GameInstall, req: Insta
 pub async fn nexus_download(app: AppHandle, game_id: String, mod_id: String, file_id: String) -> Result<TaskId, Error> {
     let (g, title) = blocking(move || {
         catalog::refuse_kiln(&mod_id)?;
+        nxm::parse(&format!("nxm://enshrouded/mods/{mod_id}/files/{file_id}"))?;
         let cat = the_catalog()?;
         if !cat.client().has_key() {
             return Err(Error::new(ErrorCode::AuthFailed, "Add your Nexus Mods API key in Settings first."));
@@ -232,14 +246,26 @@ pub async fn nexus_links() -> Result<Vec<PendingLink>, Error> {
 #[tauri::command]
 pub async fn nexus_link_install(app: AppHandle, game_id: String, link_id: String) -> Result<TaskId, Error> {
     let link = {
-        let mut l = LINKS.lock().unwrap();
-        let i = l.iter().position(|p| p.id == link_id).ok_or_else(|| Error::not_found("That link is gone. Click Mod Manager Download again."))?;
-        l.remove(i).link
+        let l = LINKS.lock().unwrap();
+        l.iter().find(|p| p.id == link_id).ok_or_else(|| Error::not_found("That link is gone. Click Mod Manager Download again."))?.link.clone()
     };
     if link.expired(kiln_manage::util::now_unix()) {
         return Err(Error::new(ErrorCode::Refused, "The download link has expired. Click Mod Manager Download on the site again."));
     }
-    let g = blocking(move || game_with_kiln(&game_id)).await?;
+    let g = blocking(move || {
+        let g = game_with_kiln(&game_id)?;
+        if !the_catalog()?.client().has_key() {
+            return Err(Error::new(ErrorCode::AuthFailed, "Add your Nexus Mods API key in Settings first."));
+        }
+        Ok(g)
+    }).await?;
+    // Only claim the link once prerequisites are met; invalid game selections must not consume it. Two overlapping
+    // commands may validate concurrently, but exactly one removes it and starts an install.
+    {
+        let mut l = LINKS.lock().unwrap();
+        let i = l.iter().position(|p| p.id == link_id).ok_or_else(|| Error::not_found("That link is already being handled."))?;
+        l.remove(i);
+    }
     let req = InstallRequest { mod_id: link.mod_id.clone(), file_id: link.file_id.clone(), key: link.key.clone(), expires: link.expires, source: "nxm".into() };
     Ok(run_install(&app, g, req, "Add from Nexus Mods".into()))
 }
@@ -292,10 +318,9 @@ pub fn nxm_entry(url: &str) -> bool {
     match nxm::game_of(url) {
         None => return true,
         Some(g) if g != catalog::GAME => {
-            let shown = url.split('?').next().unwrap_or(url);
             match handler::forward(&r, handler::platform().as_ref(), url) {
-                Ok(to) => launcher_log("nexus", &format!("{shown}: another game, handed to {to}")),
-                Err(e) => launcher_log("nexus", &format!("{shown}: another game, not handled: {}", e.message)),
+                Ok(_) => launcher_log("nexus", "another game's link handed to the previous handler"),
+                Err(_) => launcher_log("nexus", "another game's link could not be handed to the previous handler"),
             }
             return false;
         }
@@ -326,28 +351,32 @@ pub fn start(app: &AppHandle) {
         if inst.is_none() {
             *inst = handler::acquire_instance(&r).ok().flatten();
         }
+        // A normally-started second UI may remain open, but must not race the lock owner for queued links.
+        if inst.is_none() {
+            return;
+        }
     }
     let app = app.clone();
     std::thread::spawn(move || loop {
         let urls = handler::take_links(&r);
         let mut added = 0;
         for url in urls {
-            let shown = url.split('?').next().unwrap_or(&url).to_string();
             match nxm::parse(&url) {
                 Ok(link) if link.game == catalog::GAME => {
                     launcher_log("nexus", &format!("link {}", link.redacted()));
-                    let id = format!("nxm-{}-{}", link.file_id, kiln_manage::util::now_unix());
+                    let id = format!("nxm-{}-{}", kiln_manage::util::now_unix(), NEXT_LINK.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
                     let mut l = LINKS.lock().unwrap();
-                    l.retain(|p| p.link.file_id != link.file_id);
+                    l.retain(|p| p.link.file_id != link.file_id || p.link.mod_id != link.mod_id);
+                    if l.len() >= 100 { l.remove(0); }
                     l.push(Pending { id, link, received: kiln_manage::util::now_rfc3339() });
                     added += 1;
                 }
                 Ok(_) | Err(_) if nxm::game_of(&url).is_some_and(|g| g != catalog::GAME) => {
                     let _ = handler::forward(&r, handler::platform().as_ref(), &url);
-                    launcher_log("nexus", &format!("{shown}: another game, handed on"));
+                    launcher_log("nexus", "another game's link handed on");
                 }
                 Ok(_) => {}
-                Err(e) => launcher_log("nexus", &format!("{shown}: {}", e.message)),
+                Err(_) => launcher_log("nexus", "invalid Mod Manager Download link refused"),
             }
         }
         if added > 0 {

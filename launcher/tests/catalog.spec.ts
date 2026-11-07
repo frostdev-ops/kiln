@@ -98,6 +98,16 @@ test.describe("desktop", () => {
     await expect(page.locator(".k-toast").filter({ hasText: "Removed Cozy Camp" })).toBeVisible();
   });
 
+  test("a waiting nxm link resumes when Kiln becomes ready", async ({ page }) => {
+    await open(page, "?mock=fresh", "/");
+    await expect(page.locator(".k-door")).toHaveAccessibleName("Install Kiln", { timeout: 8000 });
+    await nxm(page, `nxm://enshrouded/mods/313/files/1003?key=abc&expires=${future()}`);
+    await expect(page.locator(".k-toast").filter({ hasText: "A Nexus Mods download is waiting" })).toBeVisible();
+    await page.locator(".k-door").click();
+    await page.getByRole("dialog", { name: "Install Kiln" }).getByRole("button", { name: "Install", exact: true }).click();
+    await expect(page.locator(".k-toast").filter({ hasText: "Added Night Sky" })).toBeVisible({ timeout: 12_000 });
+  });
+
   test("premium: Add downloads here; Update is a click", async ({ page }) => {
     await open(page, "?nexus=premium");
     await card(page, "Weather Plus").click();
@@ -214,5 +224,44 @@ test.describe("Deck mode", () => {
     await expect(added).toContainText("Added Night Sky");
     await pad(page, "a");
     await expect(added).toHaveCount(0);
+  });
+
+  test("a running Add keeps the dialog open from keyboard and pad controls", async ({ page }) => {
+    await page.goto("/?deck=steamdeck&nexus=premium#/deck/catalog");
+    await expect.poll(() => focused(page)).toBe("cat-310");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => focused(page)).toBe("mod-add");
+    await page.keyboard.press("Enter");
+    const d = page.locator('[data-deck-dialog="catalog-mod"]');
+    await expect(d.getByRole("button", { name: "Adding…" })).toBeVisible();
+    await expect(d.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(d).toBeVisible();
+    await expect(page.locator('[data-deck-dialog="catalog-added"]')).toContainText("Added Lantern Glow");
+  });
+
+  test("each nxm result keeps its Undo dialog until acknowledged", async ({ page }) => {
+    await page.goto("/?deck=steamdeck#/deck/catalog");
+    await expect.poll(() => focused(page)).toBe("cat-310");
+    await nxm(page, `nxm://enshrouded/mods/313/files/1003?key=k&expires=${future()}`);
+    const added = page.locator('[data-deck-dialog="catalog-added"]');
+    await expect(added).toContainText("Added Night Sky");
+    await nxm(page, `nxm://enshrouded/mods/317/files/1017?key=k&expires=${future()}`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __kilnNexusMock: { state: () => { installed: unknown[] } } }).__kilnNexusMock.state().installed.length)).toBe(3);
+    await expect(added).toContainText("Added Night Sky");
+    await page.keyboard.press("Enter");
+    await expect(added).toContainText("Added Cozy Camp");
+    await expect.poll(() => focused(page)).toBe("added-ok");
+    await page.keyboard.press("Enter");
+    await expect(added).toHaveCount(0);
+  });
+
+  test("switching UI during an nxm task preserves the added dialog", async ({ page }) => {
+    await open(page, "", "/");
+    await nxm(page, `nxm://enshrouded/mods/313/files/1003?key=k&expires=${future()}`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __kilnNexusMock: { state: () => { links: number } } }).__kilnNexusMock.state().links)).toBe(0);
+    await page.evaluate(() => { location.hash = "#/deck"; });
+    await expect(page.locator(".deck")).toBeVisible();
+    await expect(page.locator('[data-deck-dialog="catalog-added"]')).toContainText("Added Night Sky");
   });
 });

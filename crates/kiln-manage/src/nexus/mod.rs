@@ -12,7 +12,7 @@
 //! | [`version`] | comparing Nexus's free-text versions |
 //!
 //! Files: `<data>/nexus/` holds `apikey.json` (only without a keyring), `handler.json`, `verdicts.json`,
-//! `installs.json`, `latest.json`, `inbox/`, `downloads/`, `instance.lock`.
+//! `installs.json`, `latest.json`, `inbox/`, `downloads/`, `instance.lock`, and state transaction locks.
 
 pub mod api;
 pub mod catalog;

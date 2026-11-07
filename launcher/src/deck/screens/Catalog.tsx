@@ -97,10 +97,10 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
     <Dialog name="catalog-mod" wide title={m?.name ?? "Mod"} onClose={onClose} locked={busy}
       // both loaded first: the dialog's first focus goes to its primary button, which needs the account
       buttons={m && acc && <>
-        <DeckButton id="mod-close" onClick={onClose}>Close</DeckButton>
+        <DeckButton id="mod-close" disabled={busy} onClick={onClose}>Close</DeckButton>
         {id !== "301" && (acc?.premium
           ? <DeckButton id="mod-add" primary autoFocus disabled={busy || !m.bestFile} a={update ? "Update" : "Add"} onClick={go}>{busy ? "Adding…" : update ? `Update to ${m.installed?.latestVersion ?? ""}` : m.installed?.inLibrary ? "Add again" : "Add"}</DeckButton>
-          : <DeckButton id="mod-site" primary autoFocus disabled={!acc?.keySet} a="Open" onClick={go}>Open on Nexus Mods</DeckButton>)}
+          : <DeckButton id="mod-site" primary autoFocus disabled={busy || !acc?.keySet} a="Open" onClick={go}>Open on Nexus Mods</DeckButton>)}
       </>}>
       {d.isLoading ? <p className="deck-note">Asking Nexus Mods…</p> : d.error ? <p className="deck-note">{api.toKilnError(d.error).message}</p> : m && (
         <div className="deck-catalog-mod">
@@ -133,8 +133,10 @@ export function AddedDialog({ report, onClose, onGet }: { report: InstallReport;
 /** Mod Manager Download links in Deck mode: each added mod shows its dialog (Get opens the Catalog on that mod). */
 export function DeckNxm() {
   const nav = useNavigate();
-  const [report, setReport] = useState<InstallReport | null>(null);
-  useNxmLinks(setReport);
+  const [reports, setReports] = useState<InstallReport[]>([]);
+  useNxmLinks((r) => setReports((pending) => [...pending, r]));
+  const report = reports[0];
+  const dismiss = () => setReports((pending) => pending.slice(1));
   if (!report) return null;
-  return <AddedDialog report={report} onClose={() => setReport(null)} onGet={(mid) => { setReport(null); nav(`/deck/catalog?mod=${mid}`); }} />;
+  return <AddedDialog report={report} onClose={dismiss} onGet={(mid) => { dismiss(); nav(`/deck/catalog?mod=${mid}`); }} />;
 }

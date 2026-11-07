@@ -21,12 +21,28 @@ fn attach_parent_console() {
     }
 }
 
+/// URL invocations have their own argument shape. A quote in an OS-supplied link must never turn into a launcher
+/// option (especially the console helper or selftest). The registered handlers pass exactly one link.
+fn nxm_argument(args: &[String]) -> Result<Option<&str>, ()> {
+    let is_url = |s: &str| s.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("nxm://"));
+    if !args.iter().skip(1).any(|a| a == "--nxm" || is_url(a)) { return Ok(None); }
+    match args {
+        [_, flag, url] if flag == "--nxm" && is_url(url) => Ok(Some(url)),
+        [_, url] if is_url(url) => Ok(Some(url)),
+        _ => Err(()),
+    }
+}
+
 fn main() {
     // `<launcher> --kiln-ctrl-c <pid>`: the short-lived helper that sends a Windows server its Ctrl-C (Stop), so the
     // launcher itself never attaches to the server's console (kiln_manage::server::run::set_ctrl_c_helper)
     let args: Vec<String> = std::env::args().collect();
-    if let Some(i) = args.iter().position(|a| a == kiln_manage::server::run::CTRL_C_HELPER_ARG) {
-        let pid = args.get(i + 1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+    let nxm = match nxm_argument(&args) {
+        Ok(link) => link,
+        Err(()) => std::process::exit(1),
+    };
+    if args.len() == 3 && args[1] == kiln_manage::server::run::CTRL_C_HELPER_ARG {
+        let pid = args[2].parse::<u32>().unwrap_or(0);
         std::process::exit(if pid == 0 { 1 } else { kiln_manage::server::run::ctrl_c_helper_main(pid) });
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -34,14 +50,12 @@ fn main() {
     }
     // `--nxm <link>` (what Kiln registers as the nxm:// handler) or a bare `nxm://` argument: the link goes to the
     // running launcher (or to another game's mod manager) and this process ends; else it starts with the link queued
-    let nxm = args.iter().position(|a| a == "--nxm").and_then(|i| args.get(i + 1).cloned())
-        .or_else(|| args.iter().skip(1).find(|a| a.to_ascii_lowercase().starts_with("nxm://")).cloned());
     if let Some(url) = nxm
-        && !kiln_launcher_lib::nxm_entry(&url)
+        && !kiln_launcher_lib::nxm_entry(url)
     {
         std::process::exit(0);
     }
-    if std::env::args().any(|a| a == "--selftest") {
+    if nxm.is_none() && args.iter().any(|a| a == "--selftest") {
         #[cfg(windows)]
         attach_parent_console();
         std::process::exit(kiln_launcher_lib::selftest());
@@ -54,4 +68,20 @@ fn main() {
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }
     kiln_launcher_lib::run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn args(tail: &[&str]) -> Vec<String> { std::iter::once("kiln").chain(tail.iter().copied()).map(str::to_string).collect() }
+    #[test]
+    fn nxm_invocations_cannot_inject_launcher_options() {
+        let url = "nxm://enshrouded/mods/1/files/2";
+        assert_eq!(nxm_argument(&args(&["--nxm", url])), Ok(Some(url)));
+        assert_eq!(nxm_argument(&args(&[url])), Ok(Some(url)));
+        assert_eq!(nxm_argument(&args(&["--selftest"])), Ok(None));
+        for tail in [vec!["--nxm"], vec!["--nxm", "--selftest"], vec!["--nxm", url, "--kiln-ctrl-c", "1"], vec!["--kiln-ctrl-c", "1", url], vec![url, "--selftest"]] {
+            assert!(nxm_argument(&args(&tail)).is_err());
+        }
+    }
 }

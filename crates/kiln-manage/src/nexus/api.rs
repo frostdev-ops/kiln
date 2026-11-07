@@ -29,7 +29,7 @@ pub const RESERVE: i64 = 20;
 
 // ---------------------------------------------------------------- transport
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpRequest {
     pub method: &'static str,
     pub url: String,
@@ -37,11 +37,27 @@ pub struct HttpRequest {
     pub body: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, Default)]
+impl std::fmt::Debug for HttpRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Both the API header and signed download URLs carry credentials. Bodies and response text can echo them.
+        f.debug_struct("HttpRequest").field("method", &self.method)
+            .field("url", &self.url.split(['?', '#']).next().unwrap_or("<hidden>"))
+            .field("headers", &"<hidden>").field("body", &"<hidden>").finish()
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct HttpResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+impl std::fmt::Debug for HttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpResponse").field("status", &self.status).field("headers", &"<hidden>")
+            .field("body", &"<hidden>").finish()
+    }
 }
 
 impl HttpResponse {
@@ -78,6 +94,7 @@ impl UreqTransport {
             .http_status_as_error(false)
             .timeout_connect(Some(Duration::from_secs(20)))
             .timeout_recv_response(Some(Duration::from_secs(60)))
+            .timeout_per_read(Some(Duration::from_secs(60)))
             .max_redirects(5)
             .user_agent(user_agent)
             .build()
@@ -87,25 +104,36 @@ impl UreqTransport {
 }
 
 #[cfg(feature = "http")]
-fn net(url: &str, e: impl std::fmt::Display) -> Error {
-    // the URL never carries the API key (a header); download links carry Nexus's signature, so only the host is named
-    let host = url.split("://").nth(1).and_then(|r| r.split('/').next()).unwrap_or("Nexus Mods");
-    Error::new(ErrorCode::Network, format!("{host}: {e}"))
+fn net(_url: &str, _e: impl std::fmt::Display) -> Error {
+    // Transport diagnostics may contain the full signed URL or a rejected secret header value.
+    Error::new(ErrorCode::Network, "The Nexus Mods network request failed. Check your connection and try again.")
+}
+
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+fn api_url(url: &str) -> bool {
+    url.strip_prefix(API_ORIGIN).is_some_and(|rest| rest.starts_with('/'))
 }
 
 #[cfg(feature = "http")]
 impl Transport for UreqTransport {
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
+        let credentialed = req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey"));
+        if credentialed && !api_url(&req.url) {
+            return Err(Error::new(ErrorCode::Refused, "API keys may only be sent to the Nexus Mods API."));
+        }
+        // ureq strips Authorization on redirects, but preserves custom headers such as apikey. Never follow a
+        // credentialed redirect, even to a same-origin URL that could then redirect elsewhere.
+        let redirects = if credentialed { 0 } else { 5 };
         let mut resp = match req.method {
             "POST" => {
-                let mut b = self.agent.post(&req.url);
+                let mut b = self.agent.post(&req.url).config().max_redirects(redirects).build();
                 for (k, v) in &req.headers {
                     b = b.header(k.as_str(), v.as_str());
                 }
                 b.send(req.body.as_deref().unwrap_or_default()).map_err(|e| net(&req.url, e))?
             }
             _ => {
-                let mut b = self.agent.get(&req.url);
+                let mut b = self.agent.get(&req.url).config().max_redirects(redirects).build();
                 for (k, v) in &req.headers {
                     b = b.header(k.as_str(), v.as_str());
                 }
@@ -119,6 +147,9 @@ impl Transport for UreqTransport {
     }
 
     fn open(&self, url: &str, headers: &[(String, String)]) -> Result<HttpStream> {
+        if headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey")) {
+            return Err(Error::new(ErrorCode::Refused, "Downloads must not carry an API key."));
+        }
         let mut b = self.agent.get(url);
         for (k, v) in headers {
             b = b.header(k.as_str(), v.as_str());
@@ -402,6 +433,8 @@ struct Gate {
     blocked_until: Option<Instant>,
     hourly_remaining: Option<i64>,
     daily_remaining: Option<i64>,
+    hourly_reset: Option<Instant>,
+    daily_reset: Option<Instant>,
     calls: u64,
 }
 
@@ -423,6 +456,7 @@ pub struct Client {
     key: Option<String>,
     app: AppId,
     gate: Mutex<Gate>,
+    request_lock: Mutex<()>,
     gap: Duration,
 }
 
@@ -432,21 +466,20 @@ impl std::fmt::Debug for Client {
     }
 }
 
-fn problem(body: &[u8]) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let d = v.get("detail").and_then(|d| d.as_str()).or_else(|| v.get("message").and_then(|d| d.as_str())).or_else(|| v.get("title").and_then(|d| d.as_str()))?;
-    Some(d.chars().take(300).collect())
-}
-
 impl Client {
     pub fn new(transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
-        Client::with_origin(API_ORIGIN, transport, key, app)
+        Self::build(API_ORIGIN, transport, key, app)
     }
 
     /// Tests point the client at a mock origin.
+    #[cfg(test)]
     pub fn with_origin(origin: &str, transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
+        Self::build(origin, transport, key, app)
+    }
+
+    fn build(origin: &str, transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
         let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
-        Client { origin: origin.trim_end_matches('/').to_string(), transport, key, app, gate: Mutex::new(Gate::default()), gap: MIN_GAP }
+        Client { origin: origin.trim_end_matches('/').to_string(), transport, key, app, gate: Mutex::new(Gate::default()), request_lock: Mutex::new(()), gap: MIN_GAP }
     }
 
     /// Tests: no gap between requests.
@@ -488,6 +521,15 @@ impl Client {
     /// Waits for the gap, refuses while blocked or out of budget.
     fn admit(&self) -> Result<()> {
         let mut g = self.gate.lock().unwrap();
+        let now = Instant::now();
+        if g.hourly_reset.is_some_and(|t| now >= t) {
+            g.hourly_remaining = None;
+            g.hourly_reset = None;
+        }
+        if g.daily_reset.is_some_and(|t| now >= t) {
+            g.daily_remaining = None;
+            g.daily_reset = None;
+        }
         if let Some(t) = g.blocked_until {
             let left = t.saturating_duration_since(Instant::now());
             if !left.is_zero() {
@@ -495,7 +537,7 @@ impl Client {
             }
             g.blocked_until = None;
         }
-        if g.hourly_remaining.is_some_and(|n| n < RESERVE) && g.daily_remaining.is_some_and(|n| n < RESERVE) {
+        if g.hourly_remaining.is_some_and(|n| n < RESERVE) || g.daily_remaining.is_some_and(|n| n < RESERVE) {
             return Err(Error::new(ErrorCode::Busy, "Nexus Mods' request limit for your key is nearly used up. Try again later."));
         }
         if let Some(last) = g.last {
@@ -514,13 +556,14 @@ impl Client {
         let num = |h: &str| resp.header(h).and_then(|v| v.trim().parse::<i64>().ok());
         if let Some(n) = num("x-rl-hourly-remaining") {
             g.hourly_remaining = Some(n);
+            g.hourly_reset = Some(deadline(reset_seconds(resp.header("x-rl-hourly-reset"), 3600)));
         }
         if let Some(n) = num("x-rl-daily-remaining") {
             g.daily_remaining = Some(n);
+            g.daily_reset = Some(deadline(reset_seconds(resp.header("x-rl-daily-reset"), 86400)));
         }
         if resp.status == 429 {
-            let secs = num("retry-after").unwrap_or(60).clamp(1, 3600) as u64;
-            g.blocked_until = Some(Instant::now() + Duration::from_secs(secs));
+            g.blocked_until = Some(deadline(retry_seconds(resp.header("retry-after"))));
         }
     }
 
@@ -528,6 +571,7 @@ impl Client {
         if need_key && self.key.is_none() {
             return Err(Error::new(ErrorCode::AuthFailed, "Add your Nexus Mods API key in Settings first."));
         }
+        let _request = self.request_lock.lock().unwrap();
         self.admit()?;
         let mut headers = self.app_headers();
         headers.push(("Accept".into(), "application/json".into()));
@@ -541,16 +585,15 @@ impl Client {
         let req = HttpRequest { method, url: format!("{}{}", self.origin, path), headers, body };
         let resp = self.transport.send(&req)?;
         self.note(&resp);
-        let detail = || problem(&resp.body);
         match resp.status {
             200..=299 => Ok(resp),
             401 => Err(Error::new(ErrorCode::AuthFailed, "Nexus Mods did not accept the API key. Check it in Settings.")),
-            403 => Err(Error::new(ErrorCode::Refused, detail().unwrap_or_else(|| "Nexus Mods refused this.".into()))),
-            404 => Err(Error::not_found(detail().unwrap_or_else(|| "Not found on Nexus Mods.".into()))),
+            403 => Err(Error::new(ErrorCode::Refused, "Nexus Mods refused this request. Check your account and download permissions.")),
+            404 => Err(Error::not_found("Not found on Nexus Mods.")),
             410 => Err(Error::new(ErrorCode::Refused, "The download link has expired. Click Mod Manager Download on the site again.")),
             429 => Err(Error::new(ErrorCode::Busy, format!("Nexus Mods asked Kiln to slow down. Try again in {} s.", self.rate().blocked_for.max(1)))),
             451 => Err(Error::new(ErrorCode::Refused, "Nexus Mods withholds this mod in your country without age verification.")),
-            s => Err(Error::new(ErrorCode::Network, format!("Nexus Mods answered {s}{}", detail().map(|d| format!(": {d}")).unwrap_or_default()))),
+            s => Err(Error::new(ErrorCode::Network, format!("Nexus Mods answered {s}."))),
         }
     }
 
@@ -559,11 +602,12 @@ impl Client {
         struct Wrap<T> {
             data: T,
         }
-        serde_json::from_slice::<Wrap<T>>(&resp.body).map(|w| w.data).map_err(|e| Error::new(ErrorCode::Parse, format!("Nexus Mods {what}: {e}")))
+        serde_json::from_slice::<Wrap<T>>(&resp.body).map(|w| w.data).map_err(|_| Error::new(ErrorCode::Parse, format!("Nexus Mods {what}: invalid response")))
     }
 
     /// One page of `POST /mods/search` for `game` (cursor paging, `page_size` ≤ 100).
     pub fn search(&self, game: &str, sort: &str, adult: &str, cursor: Option<&str>, page_size: u32) -> Result<SearchPage> {
+        check_game(game)?;
         let mut pagination = serde_json::json!({"type": "cursor", "page_size": page_size.clamp(1, 100)});
         if let Some(c) = cursor {
             pagination["cursor"] = c.into();
@@ -591,13 +635,14 @@ impl Client {
             #[serde(default)]
             meta: Option<Meta>,
         }
-        let w: Whole = serde_json::from_slice(&resp.body).map_err(|e| Error::new(ErrorCode::Parse, format!("Nexus Mods search: {e}")))?;
+        let w: Whole = serde_json::from_slice(&resp.body).map_err(|_| Error::new(ErrorCode::Parse, "Nexus Mods search: invalid response"))?;
         let meta = w.meta.unwrap_or_default();
         Ok(SearchPage { mods: w.data.mods, next_cursor: meta.next_cursor.filter(|c| !c.is_empty()), total: meta.total_count })
     }
 
     /// `GET /games/{game}/mods/{id}` (no key needed).
     pub fn mod_details(&self, game: &str, gsid: &str) -> Result<ModDetails> {
+        check_game(game)?;
         check_digits(gsid)?;
         Self::data(&self.request("GET", &format!("/v3/games/{game}/mods/{gsid}"), None, false)?, "mod")
     }
@@ -624,6 +669,7 @@ impl Client {
 
     /// `GET /games/{game}/mod-file-versions/{gsid}`: the version an nxm link names.
     pub fn file_version_by_gsid(&self, game: &str, gsid: &str) -> Result<FileVersion> {
+        check_game(game)?;
         check_digits(gsid)?;
         Self::data(&self.request("GET", &format!("/v3/games/{game}/mod-file-versions/{gsid}"), None, true)?, "file version")
     }
@@ -633,15 +679,19 @@ impl Client {
         check_digits(version_id)?;
         let resp = self.request("GET", &format!("/v3/mod-file-versions/{version_id}/dependencies"), None, true)?;
         // documented without the data wrapper; accept both
-        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|e| Error::new(ErrorCode::Parse, format!("Nexus Mods dependencies: {e}")))?;
+        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|_| Error::new(ErrorCode::Parse, "Nexus Mods dependencies: invalid response"))?;
         let defs = v.get("data").unwrap_or(&v).get("dependency_definitions").cloned().unwrap_or(serde_json::Value::Array(vec![]));
-        serde_json::from_value(defs).map_err(|e| Error::new(ErrorCode::Parse, format!("Nexus Mods dependencies: {e}")))
+        serde_json::from_value(defs).map_err(|_| Error::new(ErrorCode::Parse, "Nexus Mods dependencies: invalid response"))
     }
 
     /// `GET /games/{game}/mod-file-versions/{gsid}/download-link`: signed CDN links (4 h). `key`/`expires` from an nxm
     /// link; premium users need neither.
     pub fn download_links(&self, game: &str, gsid: &str, key: Option<&str>, expires: Option<i64>) -> Result<Vec<DownloadLink>> {
+        check_game(game)?;
         check_digits(gsid)?;
+        if key.is_some() != expires.is_some() || key.is_some_and(|k| k.is_empty() || k.len() > 256 || k.chars().any(char::is_control)) || expires.is_some_and(|e| e <= 0) {
+            return Err(Error::invalid("Invalid Mod Manager Download credentials."));
+        }
         let mut path = format!("/v3/games/{game}/mod-file-versions/{gsid}/download-link");
         if let (Some(k), Some(e)) = (key, expires) {
             path.push_str(&format!("?key={}&expires={e}", urlencode(k)));
@@ -660,7 +710,7 @@ impl Client {
     /// v1 `GET /v1/users/validate.json`: the key's account (name, premium). Nothing else of the answer is kept.
     pub fn validate(&self) -> Result<Account> {
         let resp = self.request("GET", "/v1/users/validate.json", None, true)?;
-        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|e| Error::new(ErrorCode::Parse, format!("Nexus Mods account: {e}")))?;
+        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|_| Error::new(ErrorCode::Parse, "Nexus Mods account: invalid response"))?;
         let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
         Ok(Account { name: v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(), premium: flag("is_premium") || flag("is_premium?") })
     }
@@ -676,7 +726,7 @@ impl Client {
         if resp.status != 200 {
             return Err(Error::new(ErrorCode::Network, format!("the archive manifest answered {}", resp.status)));
         }
-        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|e| Error::new(ErrorCode::Parse, format!("archive manifest: {e}")))?;
+        let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|_| Error::new(ErrorCode::Parse, "archive manifest: invalid response"))?;
         Ok(parse_manifest(&v))
     }
 
@@ -694,10 +744,37 @@ impl Client {
 }
 
 fn check_digits(id: &str) -> Result<()> {
-    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) || id.len() > 24 {
-        return Err(Error::invalid(format!("'{id}' is not a Nexus Mods id")));
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) || id.len() > 24 || id.bytes().all(|b| b == b'0') {
+        return Err(Error::invalid("Invalid Nexus Mods id."));
     }
     Ok(())
+}
+
+fn check_game(game: &str) -> Result<()> {
+    if game == super::catalog::GAME { Ok(()) } else { Err(Error::invalid("Only Enshrouded is supported.")) }
+}
+
+fn reset_seconds(value: Option<&str>, fallback: u64) -> u64 {
+    value.and_then(|s| s.trim().parse::<i64>().ok().or_else(|| crate::util::parse_rfc3339(s.trim())))
+        .map(|t| t.saturating_sub(crate::util::now_unix()).max(1) as u64).unwrap_or(fallback)
+}
+
+fn retry_seconds(value: Option<&str>) -> u64 {
+    let Some(value) = value else { return 60 };
+    if let Ok(n) = value.trim().parse::<u64>() { return n.max(1); }
+    // Retry-After also permits IMF-fixdate (HTTP date), not just a delta in seconds.
+    let parts: Vec<_> = value.split_ascii_whitespace().collect();
+    if let [_, day, month, year, time, "GMT"] = parts.as_slice()
+        && let Some(month) = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].iter().position(|m| m == month)
+        && let Some(t) = crate::util::parse_rfc3339(&format!("{year}-{:02}-{day}T{time}Z", month + 1))
+    { return t.saturating_sub(crate::util::now_unix()).max(1) as u64; }
+    60
+}
+
+fn deadline(seconds: u64) -> Instant {
+    let now = Instant::now();
+    // Unrepresentable server values must still block instead of disabling the gate or panicking.
+    now.checked_add(Duration::from_secs(seconds)).unwrap_or_else(|| now + Duration::from_secs(365 * 86400))
 }
 
 pub fn urlencode(s: &str) -> String {
@@ -759,4 +836,112 @@ fn walk(v: &serde_json::Value, prefix: &str, out: &mut Vec<ManifestEntry>, depth
 /// check files (only exact integers are).
 fn parse_size(s: &str) -> Option<u64> {
     s.trim().parse::<u64>().ok()
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Reply {
+        response: HttpResponse,
+        calls: AtomicUsize,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    impl Transport for Reply {
+        fn send(&self, _: &HttpRequest) -> Result<HttpResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(5));
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
+        fn open(&self, _: &str, _: &[(String, String)]) -> Result<HttpStream> { unreachable!() }
+    }
+
+    fn client(response: HttpResponse) -> (Arc<Reply>, Client) {
+        let reply = Arc::new(Reply { response, calls: AtomicUsize::new(0), active: AtomicUsize::new(0), peak: AtomicUsize::new(0) });
+        let client = Client::new(reply.clone(), Some("test-secret".into()), AppId::kiln_launcher("test")).without_gap();
+        (reply, client)
+    }
+
+    #[test]
+    fn errors_and_debug_output_do_not_echo_credentials() {
+        let response = HttpResponse { status: 403, body: br#"{"detail":"test-secret"}"#.to_vec(), ..Default::default() };
+        let (_, c) = client(response.clone());
+        assert!(!format!("{:?}", c.validate().unwrap_err()).contains("test-secret"));
+        assert!(!format!("{response:?}").contains("test-secret"));
+        let request = HttpRequest { method: "GET", url: format!("{API_ORIGIN}/v3/test?key=test-secret"), headers: vec![("apikey".into(), "test-secret".into())], body: Some(b"test-secret".to_vec()) };
+        assert!(!format!("{request:?}").contains("test-secret"));
+        let response = HttpResponse { status: 200, body: br#"{"data":{"id":"test-secret"}}"#.to_vec(), ..Default::default() };
+        assert!(!format!("{:?}", Client::data::<u32>(&response, "test").unwrap_err()).contains("test-secret"));
+        #[cfg(feature = "http")]
+        assert!(!net("https://test-secret@cdn.test/?key=test-secret", "test-secret").message.contains("test-secret"));
+    }
+
+    #[test]
+    fn either_budget_stops_requests_until_its_reset() {
+        for header in ["x-rl-hourly-remaining", "x-rl-daily-remaining"] {
+            let (reply, c) = client(HttpResponse { status: 200, headers: vec![(header.into(), "3".into())], body: br#"{"name":"test"}"#.to_vec() });
+            c.validate().unwrap();
+            assert_eq!(c.validate().unwrap_err().code, ErrorCode::Busy);
+            assert_eq!(reply.calls.load(Ordering::SeqCst), 1);
+            {
+                let mut g = c.gate.lock().unwrap();
+                g.hourly_reset = Some(Instant::now());
+                g.daily_reset = Some(Instant::now());
+            }
+            c.validate().unwrap();
+            assert_eq!(reply.calls.load(Ordering::SeqCst), 2);
+        }
+    }
+
+    #[test]
+    fn concurrent_callers_serialize_through_the_response_budget() {
+        let (reply, c) = client(HttpResponse { status: 200, headers: vec![], body: br#"{"name":"test"}"#.to_vec() });
+        std::thread::scope(|scope| {
+            for _ in 0..8 { scope.spawn(|| c.validate().unwrap()); }
+        });
+        assert_eq!(reply.calls.load(Ordering::SeqCst), 8);
+        assert_eq!(reply.peak.load(Ordering::SeqCst), 1);
+        let (reply, c) = client(HttpResponse { status: 429, headers: vec![("Retry-After".into(), "7200".into())], body: vec![] });
+        std::thread::scope(|scope| {
+            for _ in 0..8 { scope.spawn(|| assert_eq!(c.validate().unwrap_err().code, ErrorCode::Busy)); }
+        });
+        assert_eq!(reply.calls.load(Ordering::SeqCst), 1);
+        assert!(c.rate().blocked_for > 3600);
+    }
+
+    #[test]
+    fn rate_dates_and_unrepresentable_delays_are_bounded_without_disabling_the_gate() {
+        assert_eq!(retry_seconds(Some("Thu, 01 Jan 2099 00:00:00 GMT")), crate::util::parse_rfc3339("2099-01-01T00:00:00Z").unwrap().saturating_sub(crate::util::now_unix()) as u64);
+        assert!(reset_seconds(Some("2099-01-01T00:00:00Z"), 1) > 3600);
+        assert!(deadline(u64::MAX) > Instant::now());
+        assert_eq!(retry_seconds(Some("invalid")), 60);
+    }
+
+    #[test]
+    fn invalid_game_ids_and_authorization_never_reach_transport() {
+        let (reply, c) = client(HttpResponse::default());
+        assert!(c.mod_details("enshrouded/../../users", "1").is_err());
+        assert!(c.mod_details("enshrouded", "0").is_err());
+        assert!(c.download_links("enshrouded", "1", Some("x"), None).is_err());
+        assert!(c.download_links("enshrouded", "1", Some("x\n"), Some(1)).is_err());
+        assert_eq!(reply.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn real_transport_refuses_api_key_to_foreign_origins_before_connecting() {
+        let transport = UreqTransport::new("Kiln-test");
+        for url in ["http://api.nexusmods.com/test", "https://api.nexusmods.com.evil.test/test", "https://api.nexusmods.com@evil.test/test", "https://cdn.test/test"] {
+            let req = HttpRequest { method: "GET", url: url.into(), headers: vec![("APIKEY".into(), "test-secret".into())], body: None };
+            assert_eq!(transport.send(&req).unwrap_err().code, ErrorCode::Refused);
+        }
+        assert!(api_url("https://api.nexusmods.com/v3/mods/search"));
+        assert!(transport.open("https://cdn.test/file", &[("apikey".into(), "test-secret".into())]).is_err());
+    }
 }

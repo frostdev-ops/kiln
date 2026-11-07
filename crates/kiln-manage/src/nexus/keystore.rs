@@ -3,7 +3,7 @@
 //! `<data>/nexus/apikey.json`, readable by the user only (0600 on Unix). Never in settings.json: that file goes to the
 //! UI through `app_settings_get`. The key is never logged.
 //!
-//! `KILN_NO_KEYRING=1` skips the keyring (tests, or a keyring that misbehaves).
+//! `KILN_NO_KEYRING=1` explicitly skips the keyring (tests or a host without a usable keyring).
 
 use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
@@ -52,44 +52,57 @@ impl KeyStore {
         &self.file
     }
 
-    /// The key and where it was found (the keyring first).
+    /// Reads the keyring, migrating an old fallback file when a backend becomes available.
+    /// Backend failures never cause a silent downgrade to plaintext.
     pub fn get(&self) -> Result<Option<(String, KeyPlace)>> {
-        if let Some(k) = &self.keyring
-            && let Ok(Some(s)) = k.get()
-            && !s.trim().is_empty()
-        {
-            return Ok(Some((s.trim().to_string(), KeyPlace::Keyring)));
+        if let Some(k) = &self.keyring {
+            if let Some(s) = k.get()?.filter(|s| !s.trim().is_empty()) {
+                self.remove_file()?;
+                return Ok(Some((s.trim().to_string(), KeyPlace::Keyring)));
+            }
+            if let Some(f) = crate::util::read_json::<KeyFile>(&self.file)? {
+                let key = f.key.trim();
+                if !key.is_empty() {
+                    self.set(key)?;
+                    return Ok(Some((key.to_string(), KeyPlace::Keyring)));
+                }
+            }
+            return Ok(None);
         }
         Ok(crate::util::read_json::<KeyFile>(&self.file)?.map(|f| f.key.trim().to_string()).filter(|k| !k.is_empty()).map(|k| (k, KeyPlace::File)))
     }
 
-    /// Stores the key: in the keyring when it takes it (then the file goes), else in the file.
+    /// Stores in the keyring when configured; only hosts without a backend use the private file.
     pub fn set(&self, key: &str) -> Result<KeyPlace> {
         let key = key.trim();
-        if key.is_empty() || key.len() > 1024 || key.chars().any(|c| c.is_control() || c == ' ') {
+        if key.is_empty() || key.len() > 1024 || key.chars().any(|c| c.is_control() || c.is_whitespace()) {
             return Err(Error::invalid("That does not look like a Nexus Mods API key."));
         }
-        if let Some(k) = &self.keyring
-            && k.set(key).is_ok()
-            && k.get().ok().flatten().as_deref() == Some(key)
-        {
-            let _ = std::fs::remove_file(&self.file);
+        if let Some(k) = &self.keyring {
+            k.set(key)?;
+            if k.get()?.as_deref().map(str::trim) != Some(key) {
+                return Err(Error::new(ErrorCode::Io, "The keyring did not retain the Nexus Mods API key."));
+            }
+            self.remove_file()?;
             return Ok(KeyPlace::Keyring);
         }
         write_private(&self.file, &KeyFile { format: 1, key: key.to_string() })?;
         Ok(KeyPlace::File)
     }
 
-    /// Forgets the key everywhere.
-    pub fn clear(&self) -> Result<()> {
-        if let Some(k) = &self.keyring {
-            let _ = k.clear();
-        }
+    fn remove_file(&self) -> Result<()> {
         match std::fs::remove_file(&self.file) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(crate::util::io_at(&self.file, "removing")(e)),
         }
+    }
+
+    /// Forgets the key everywhere; report a failure instead of claiming it was removed.
+    pub fn clear(&self) -> Result<()> {
+        let ring = self.keyring.as_ref().map(|k| k.clear()).transpose();
+        self.remove_file()?;
+        ring.map(|_| ())
     }
 }
 
@@ -98,8 +111,7 @@ pub fn write_private<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     use std::io::Write;
     let dir = path.parent().ok_or_else(|| Error::invalid("no folder"))?;
     std::fs::create_dir_all(dir).map_err(crate::util::io_at(dir, "creating"))?;
-    let tmp = crate::util::with_suffix(path, ".tmp");
-    let _ = std::fs::remove_file(&tmp);
+    let tmp = dir.join(format!(".nexus-{}.tmp", crate::hash::hex(&crate::util::random_bytes::<16>()?)));
     let mut o = std::fs::OpenOptions::new();
     o.write(true).create_new(true);
     #[cfg(unix)]
@@ -108,10 +120,16 @@ pub fn write_private<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         o.mode(0o600);
     }
     let mut f = o.open(&tmp).map_err(crate::util::io_at(&tmp, "writing"))?;
-    f.write_all(&serde_json::to_vec_pretty(value)?)?;
-    f.sync_all()?;
-    drop(f);
-    crate::util::rename_replace(&tmp, path)
+    let result = (|| {
+        f.write_all(&serde_json::to_vec_pretty(value)?)?;
+        f.sync_all()?;
+        drop(f);
+        crate::util::rename_replace(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 #[cfg(not(any(target_os = "linux", windows)))]
@@ -184,7 +202,8 @@ impl SecretBackend for SecretTool {
         if ok { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "the keyring refused the key")) }
     }
     fn clear(&self) -> Result<()> {
-        self.run(&["clear"], None).map(|_| ())
+        let (ok, _) = self.run(&["clear"], None)?;
+        if ok || self.get()?.is_none() { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring could not remove the Nexus Mods API key.")) }
     }
 }
 
@@ -214,11 +233,15 @@ impl SecretBackend for WinCred {
         let mut p: *mut CREDENTIALW = std::ptr::null_mut();
         // SAFETY: target is NUL-terminated; on success p points to a CREDENTIALW the API allocated, freed below.
         unsafe {
-            if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut p) == 0 || p.is_null() {
-                return Ok(None);
+            if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut p) == 0 {
+                let code = windows_sys::Win32::Foundation::GetLastError();
+                return if code == windows_sys::Win32::Foundation::ERROR_NOT_FOUND { Ok(None) } else { Err(Error::new(ErrorCode::Io, "Credential Manager could not read the Nexus Mods API key.")) };
+            }
+            if p.is_null() {
+                return Err(Error::new(ErrorCode::Io, "Credential Manager returned no credential."));
             }
             let c = &*p;
-            let blob = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
+            let blob = if c.CredentialBlobSize == 0 { &[] } else { std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize) };
             let s = String::from_utf8_lossy(blob).into_owned();
             CredFree(p as *const core::ffi::c_void);
             Ok(Some(s))
@@ -246,7 +269,97 @@ impl SecretBackend for WinCred {
         use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredDeleteW};
         let target = wide(TARGET);
         // SAFETY: NUL-terminated target.
-        unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
-        Ok(())
+        let ok = unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+        if ok != 0 || unsafe { windows_sys::Win32::Foundation::GetLastError() } == windows_sys::Win32::Foundation::ERROR_NOT_FOUND {
+            Ok(())
+        } else {
+            Err(Error::new(ErrorCode::Io, "Credential Manager could not remove the Nexus Mods API key."))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct Ring {
+        value: Mutex<Option<String>>,
+        fail_set: bool,
+        fail_get: bool,
+        fail_clear: bool,
+    }
+    impl SecretBackend for Arc<Ring> {
+        fn get(&self) -> Result<Option<String>> {
+            if self.fail_get { return Err(Error::new(ErrorCode::Io, "locked")); }
+            Ok(self.value.lock().unwrap().clone())
+        }
+        fn set(&self, value: &str) -> Result<()> {
+            if self.fail_set { return Err(Error::new(ErrorCode::Io, "locked")); }
+            *self.value.lock().unwrap() = Some(value.into());
+            Ok(())
+        }
+        fn clear(&self) -> Result<()> {
+            if self.fail_clear { return Err(Error::new(ErrorCode::Io, "locked")); }
+            *self.value.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+    fn temp() -> crate::library::TempDir {
+        crate::library::TempDir::new(&std::env::temp_dir(), "nexus-keystore-test").unwrap()
+    }
+
+    #[test]
+    fn a_present_but_failing_keyring_never_creates_plaintext() {
+        for ring in [Ring { fail_set: true, ..Default::default() }, Ring { fail_get: true, ..Default::default() }] {
+            let dir = temp();
+            let ks = KeyStore::with_backend(dir.path(), Some(Box::new(Arc::new(ring))));
+            assert!(ks.set("test-secret").is_err());
+            assert!(!ks.file_path().exists());
+        }
+    }
+
+    #[test]
+    fn legacy_plaintext_is_migrated_and_removed_when_keyring_returns() {
+        let dir = temp();
+        let file = KeyStore::with_backend(dir.path(), None);
+        assert_eq!(file.set("test-secret").unwrap(), KeyPlace::File);
+        let ring = Arc::new(Ring::default());
+        let ks = KeyStore::with_backend(dir.path(), Some(Box::new(ring.clone())));
+        assert_eq!(ks.get().unwrap(), Some(("test-secret".into(), KeyPlace::Keyring)));
+        assert_eq!(ring.value.lock().unwrap().as_deref(), Some("test-secret"));
+        assert!(!ks.file_path().exists());
+    }
+
+    #[test]
+    fn clear_reports_keyring_failure() {
+        let dir = temp();
+        let ring = Ring { fail_clear: true, ..Default::default() };
+        let ks = KeyStore::with_backend(dir.path(), Some(Box::new(Arc::new(ring))));
+        assert!(ks.clear().is_err());
+    }
+
+    #[test]
+    fn private_writes_do_not_share_or_remove_another_writers_temporary_file() {
+        let dir = temp();
+        let path = dir.path().join("state.json");
+        let old_tmp = dir.path().join("state.json.tmp");
+        std::fs::write(&old_tmp, b"someone else's write").unwrap();
+        std::thread::scope(|scope| {
+            for n in 0..12 {
+                let path = &path;
+                scope.spawn(move || write_private(path, &vec![n; 100]).unwrap());
+            }
+        });
+        let data: Vec<u8> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(data.len(), 100);
+        assert!(data.iter().all(|n| *n == data[0]));
+        assert_eq!(std::fs::read(old_tmp).unwrap(), b"someone else's write");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
     }
 }
