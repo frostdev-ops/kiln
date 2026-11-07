@@ -2,9 +2,14 @@
 //! same list for its refusals):
 //! - Kiln: the export `KilnProxyInfo` (`KilnProxyInfoData.abi` = 2), or the ASCII text
 //!   `KilnProxy/2 <semver>`, or the UTF-16LE text `\kiln\kiln-core.dll` (older proxies, abi 1).
+//! - EMF's loader: the exports `emf_loader_identity` / `emf_loader_play_once`, or its marker text
+//!   `EMF-LOADER-7d3c9f`. Chained. Checked before ShroudForge: EMF 0.4 and later also export
+//!   `ShroudforgeSetDinput8Provider` (EMF's loader can host ShroudForge's chain).
 //! - ShroudForge: ASCII `shroudforge/shroudforge-runtime.dll` or `shroudforge/config/modloader-config.json`, or the
 //!   export `ShroudforgeSetDinput8Provider`. Refused by the installer unless the user switches; never chained.
-//! - EMF's loader: the exports `emf_loader_identity` / `emf_loader_play_once`. Chained.
+//! - Every other engine Kiln knows (EML, SET, Enshwick, Greeneye, Shroudtopia, Flame, shroudlink, Ember, ModLoader
+//!   Proxy, Ultimate ASI Loader, ...): its own kind, from `engines::classify_markers`. Chained when it holds
+//!   `dinput8.dll`; left in place under any other name.
 //! - Anything else that is a 64-bit PE DLL: Unknown (chained). Not a 64-bit PE DLL: NotDll.
 //!
 //! The checks run in that order (a file with Kiln's markers is Kiln's, whatever else it has).
@@ -19,6 +24,8 @@ pub const KILN_MARKER_UTF16: &str = "\\kiln\\kiln-core.dll";
 pub const SHROUDFORGE_MARKERS: [&str; 2] = ["shroudforge/shroudforge-runtime.dll", "shroudforge/config/modloader-config.json"];
 pub const SHROUDFORGE_EXPORT: &str = "ShroudforgeSetDinput8Provider";
 pub const EMF_EXPORTS: [&str; 2] = ["emf_loader_identity", "emf_loader_play_once"];
+/// The text EMF's loader exports as `emf_loader_identity` (EMF `src/loader/loader_id.h`).
+pub const EMF_LOADER_MARKER: &str = "EMF-LOADER-7d3c9f";
 /// Wine writes this at offset 0x40 of its builtin PE DLLs (the proxy refuses them as `system`).
 pub const WINE_BUILTIN_MARKER: &str = "Wine builtin DLL";
 /// Exported by a Kiln plugin DLL (library import detection).
@@ -36,6 +43,36 @@ pub enum ProxyKind {
     Kiln,
     ShroudForge,
     Emf,
+    /// EML's loader (dbghelp.dll, or dinput8.dll as its fallback).
+    Eml,
+    /// Shrouded Engine Tweaks (powrprof.dll).
+    Set,
+    /// Enshwick's stub (powrprof.dll).
+    Enshwick,
+    /// Greeneye Loader (dbgcore.dll, umpdc.dll, cfgmgr32.dll).
+    Greeneye,
+    /// Shroudtopia or its Shroudweave fork (winmm.dll).
+    Shroudtopia,
+    /// Flame, Creative Mode's loader (dinput8.dll; powrprof.dll on servers).
+    Flame,
+    /// shroudlink (steam_api64.dll on servers, dinput8.dll client addon).
+    Shroudlink,
+    /// Ember's server loader (powrprof.dll, iphlpapi.dll, dbghelp.dll).
+    Ember,
+    /// ModLoader Proxy (chainloader.ini).
+    ModLoaderProxy,
+    /// Ultimate ASI Loader (.asi plugins; runs only under its own proxy names).
+    UltimateAsiLoader,
+    /// Aldrich Mod Menu.
+    Aldrich,
+    /// Live Map, a stand-alone server mod (iphlpapi.dll).
+    LiveMap,
+    /// Shared XP, a stand-alone server mod (powrprof.dll).
+    SharedXp,
+    /// ReShade (dxgi.dll).
+    ReShade,
+    /// A loader that reads dinput8-chain.ini (XHL-Core, Auto Loot Plus and others).
+    ChainLoader,
     /// Some other DLL mod or proxy.
     Unknown,
     /// Not a 64-bit PE DLL.
@@ -218,6 +255,16 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
         c.detail = Some("UTF-16 marker \\kiln\\kiln-core.dll (older proxy)".into());
         return c;
     }
+    if let Some(e) = EMF_EXPORTS.iter().find(|e| has(e)) {
+        c.kind = ProxyKind::Emf;
+        c.detail = Some(format!("export {e}"));
+        return c;
+    }
+    if contains(b, EMF_LOADER_MARKER.as_bytes()).is_some() {
+        c.kind = ProxyKind::Emf;
+        c.detail = Some(format!("marker {EMF_LOADER_MARKER}"));
+        return c;
+    }
     if let Some(m) = SHROUDFORGE_MARKERS.iter().find(|m| contains(b, m.as_bytes()).is_some()) {
         c.kind = ProxyKind::ShroudForge;
         c.detail = Some(format!("marker {m}"));
@@ -228,9 +275,11 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
         c.detail = Some(format!("export {SHROUDFORGE_EXPORT}"));
         return c;
     }
-    if let Some(e) = EMF_EXPORTS.iter().find(|e| has(e)) {
-        c.kind = ProxyKind::Emf;
-        c.detail = Some(format!("export {e}"));
+    if b.get(0x40..0x40 + WINE_BUILTIN_MARKER.len()) != Some(WINE_BUILTIN_MARKER.as_bytes())
+        && let Some((engine, marker)) = crate::engines::classify_markers(b, &info.exports)
+    {
+        c.kind = engine.proxy_kind();
+        c.detail = Some(marker);
         return c;
     }
     c.kind = ProxyKind::Unknown;
@@ -355,6 +404,15 @@ mod tests {
         assert_eq!(k(&["DirectInput8Create", "emf_loader_identity"], b"").kind, ProxyKind::Emf);
         assert_eq!(k(&["emf_loader_play_once"], b"").kind, ProxyKind::Emf);
         assert_eq!(k(&["DirectInput8Create"], b"").kind, ProxyKind::Unknown);
+        // EMF 0.4+ exports ShroudForge's chain-host function too: still EMF (fixture shaped like EMF 0.5.1's loader)
+        let emf051 = k(
+            &["DirectInput8Create", "DllCanUnloadNow", "DllGetClassObject", "DllRegisterServer", "DllUnregisterServer",
+              "GetdfDIJoystick", "ShroudforgeSetDinput8Provider", "emf_loader_identity", "emf_loader_play_once"],
+            b"EMF-LOADER-7d3c9f\0EMF-PLAY-ONCE\0shroudforge/shroudforge-runtime.dll\0dinput8-chain.ini\0[EMF]\0",
+        );
+        assert_eq!((emf051.kind, emf051.detail.as_deref()), (ProxyKind::Emf, Some("export emf_loader_identity")));
+        // a build that keeps only the marker text (exports stripped) is EMF too, also next to ShroudForge's export
+        assert_eq!(k(&["DirectInput8Create", "ShroudforgeSetDinput8Provider"], b"EMF-LOADER-7d3c9f").kind, ProxyKind::Emf);
         // Kiln's markers win over the others
         assert_eq!(k(&["KilnProxyInfo", "emf_loader_identity"], b"").kind, ProxyKind::Kiln);
         // a 32-bit DLL is not a proxy for a 64-bit game

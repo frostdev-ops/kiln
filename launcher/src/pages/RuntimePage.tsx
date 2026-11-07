@@ -82,7 +82,7 @@ export default function RuntimePage() {
   const when = st?.receipt?.updated ? `updated ${fmtAgo(st.receipt.updated)}` : `installed ${fmtAgo(st?.receipt?.installed)}`;
   const say = !st ? "Reading the game folder." : st.installed
     ? `Kiln ${current ?? ""} is in the game folder: ${files} files, ${when}.${st.upgradeAvailable ? ` ${st.upgradeAvailable} is ready to install.` : ""}`
-    : sf ? "ShroudForge is in this game. Kiln replaces it." : "Kiln is not in this game yet.";
+    : sf ? "ShroudForge is in this game. Kiln can take over its dinput8.dll." : "Kiln is not in this game yet.";
   const live = !!boot.data?.boot && !boot.data.stale;
   return (
     <Page>
@@ -95,7 +95,7 @@ export default function RuntimePage() {
       {status.data?.steamUpdating && <Banner tone="warn" title="Updating">Steam has an update queued for Enshrouded. Installs wait until it is done.</Banner>}
       {sf && (
         <Banner tone="err" title="ShroudForge" actions={newest && <Button size="s" variant="danger" disabled={running || busy} onClick={() => setSwitchSf(newest)}>Switch from ShroudForge</Button>}>
-          Kiln replaces it. Its files go to backups and are never chained.
+          Kiln takes over its dinput8.dll (kept in backups, put back on uninstall). ShroudForge's own dbghelp.dll, winmm.dll and folder stay where they are.
         </Banner>
       )}
       {!!st?.modified.length && <Banner tone="warn" title="Changed">{st.modified.length} file{st.modified.length > 1 ? "s" : ""} changed since the install: <span className="k-mono">{st.modified.slice(0, 3).join(", ")}{st.modified.length > 3 ? " …" : ""}</span></Banner>}
@@ -119,7 +119,7 @@ export default function RuntimePage() {
         message="This removes Kiln's files from the game folder. The original dinput8.dll comes back; kiln/ (configs, data, logs) stays."
         onConfirm={() => { setUninstall(false); return go("Uninstall", null, "Kiln removed", () => api.runtimeUninstall(game.id)); }} />
       <ConfirmDanger open={!!switchSf} onClose={() => setSwitchSf(null)} title="Switch from ShroudForge?" word="switch" action="Switch"
-        message={<>ShroudForge moves to <span className="k-mono">kiln/backups/</span> and Kiln {switchSf?.kiln} goes in. ShroudForge mods stop loading.</>}
+        message={<>ShroudForge's dinput8.dll moves to <span className="k-mono">kiln/backups/</span> and Kiln {switchSf?.kiln} goes in. The rest of ShroudForge stays in place.</>}
         onConfirm={() => { const b = switchSf!; setSwitchSf(null); return install(b, { switchFromShroudforge: true }); }} />
     </Page>
   );

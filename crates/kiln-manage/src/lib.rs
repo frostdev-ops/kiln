@@ -14,6 +14,7 @@
 //! | [`steam`] | Steam roots, libraryfolders, app manifests, compat tool, launch options (read-only) |
 //! | [`game`] | game installs: detection, platform, path mode |
 //! | [`pe`] | PE exports, `classify_proxy` |
+//! | [`engines`] | every mod engine Kiln knows: proxy names, markers, Library detection of their mods, loaders |
 //! | [`proc`] | process list (Linux /proc, Windows Toolhelp) |
 //! | [`launch`] | steam:// URIs, the launch flow |
 //! | [`winpath`] | host <-> game path translation (Z:, copy mode) |
@@ -26,6 +27,7 @@
 //! | [`library`] | the content-addressed mod library, import detection |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
 //! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
+//! | [`shroudforge`] | ShroudForge mods next to Kiln: install detection, mod packages, switches, settings, status (owner: sf) |
 //! | [`playonce`] | `kiln/play-once.ini` |
 //! | [`config`] | offline mod configs, `.schema/` snapshots, `config/native.json` |
 //! | [`jsonc`] | JSONC CST value edits |
@@ -52,6 +54,7 @@ pub mod game;
 pub mod hash;
 pub mod launch;
 pub mod paths;
+pub mod engines;
 pub mod pe;
 pub mod proc;
 pub mod steam;
@@ -67,6 +70,7 @@ pub mod manifest;
 pub mod playonce;
 pub mod profile;
 pub mod quick;
+pub mod shroudforge;
 pub mod resolver;
 pub mod semver;
 

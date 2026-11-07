@@ -36,7 +36,7 @@ export default function Kiln() {
   if (!game) say = "No game yet.";
   else if (!rt) say = "Reading the game folder.";
   else if (rt.installed) say = `Kiln ${kilnLabel(current ?? "")} is in the game.`;
-  else if (k.shroudforge) say = "ShroudForge is in this game.";
+  else if (k.shroudforge) say = "ShroudForge is in this game. Kiln loads every engine's mods: switch in the desktop UI.";
   else say = "Kiln is not in the game yet.";
 
   return (

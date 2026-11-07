@@ -6,6 +6,8 @@
 //                     order of patching: Kiln, then the last patcher, then the first, then the real entry.
 //   TEST_FAIL         DllMain returns FALSE (LoadLibrary fails with ERROR_DLL_INIT_FAILED, 1114)
 //   TEST_SHROUDFORGE  carries ShroudForge's marker text: the proxy must refuse it without loading it
+//   TEST_EMF05        shaped like EMF 0.5's loader: exports emf_loader_identity (EMF's marker text) and
+//                     ShroudforgeSetDinput8Provider; the proxy must load it as EMF, not refuse it as ShroudForge
 #include <cstring>
 
 #include "harness.h"
@@ -19,6 +21,11 @@ char g_name[64];
 
 #ifdef TEST_SHROUDFORGE
 extern "C" __declspec(dllexport) const char proxyhost_marker[] = "shroudforge/shroudforge-runtime.dll";
+#endif
+
+#ifdef TEST_EMF05
+extern "C" __declspec(dllexport) const char emf_loader_identity[] = "EMF-LOADER-7d3c9f";
+extern "C" __declspec(dllexport) void ShroudforgeSetDinput8Provider(void*) {}
 #endif
 
 #ifdef TEST_ENTRY_PATCH

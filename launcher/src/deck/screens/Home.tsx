@@ -39,7 +39,7 @@ export default function Home() {
   else if (v.phase === "none") { word = "Play"; sub = status.error ? errorText(status.error) : "Checking the game"; heat = "unlit"; }
   else if (v.phase === "updating") { word = "Updating"; sub = "Steam is updating the game"; heat = "low"; }
   else if (!ctl.installed && !ctl.running && kiln.installing) { word = "Installing"; sub = "Kiln goes into the game folder"; heat = "low"; }
-  else if (!ctl.installed && !ctl.running && kiln.shroudforge) { word = "ShroudForge"; sub = "Switch in the desktop UI"; heat = "unlit"; act = () => nav("/deck/kiln"); }
+  else if (!ctl.installed && !ctl.running && kiln.shroudforge) { word = "ShroudForge"; sub = "Kiln can take over: switch in the desktop UI"; heat = "unlit"; act = () => nav("/deck/kiln"); }
   else if (!ctl.installed && !ctl.running) { word = "Install"; sub = "Kiln goes into the game folder"; act = () => setOpen("install"); }
   else if (ctl.starting) { word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; }
   else if (ctl.running) { word = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label; sub = v.label; heat = "embers"; }

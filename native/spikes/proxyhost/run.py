@@ -261,6 +261,59 @@ kiln\\chain\\chain-b.dll
     return g
 
 
+def s_emf():
+    """EMF 0.5: its loader (which also exports ShroudForge's chain-host name) loads as EMF; dinput8-chain.ini [EMF]
+    (the DLLs EMF's installer renamed) loads with [Chain] in file order, with the same dedupe and refusals."""
+    g = Game("emf")
+    g.dll("fake-emf05", "kiln/chain/emf-dinput8.dll")
+    g.dll("emf-x", "mods/emf-x.dll")
+    g.dll("emf-y", "emf-y.dll")
+    g.dll("chain-a", "chain-a.dll")
+    g.dll("chain-b", "chain-b.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain\\emf-dinput8.dll\n")
+    g.write("dinput8-chain.ini", """[Chain]
+mods\\emf-x.dll
+[EMF]
+emf-y.dll
+mods\\EMF-X.dll
+C:\\abs\\renamed.dll
+..\\renamed.dll
+dinput8.dll
+[Other]
+chain-b.dll
+[emf]
+chain-a.dll
+""")
+    g.run()
+    print(f"[emf] rc {g.rc}")
+    c = g.chain()
+    expect = [  # (status, source, detail, path suffix)
+        ("0", "0", "0", "\\kiln\\chain\\emf-dinput8.dll"),
+        ("0", "2", "0", "\\mods\\emf-x.dll"),
+        ("0", "2", "0", "\\emf-y.dll"),
+        ("4", "2", "0", "\\mods\\emf-x.dll"),
+        ("3", "2", "6", "\\abs\\renamed.dll"),
+        ("3", "2", "6", "\\renamed.dll"),
+        ("3", "2", "1", "\\dinput8.dll"),
+        ("0", "2", "0", "\\chain-a.dll"),
+    ]
+    check(g, len(c) == len(expect), f"{len(expect)} chain entries (got {len(c)})")
+    for i, (st, src, det, suffix) in enumerate(expect):
+        if i >= len(c):
+            break
+        e = c[i]
+        ok = e["status"] == st and e["source"] == src and e["detail"] == det and e["path"].lower().endswith(suffix.lower())
+        check(g, ok, f"entry {i}: status {st} source {src} detail {det} {suffix} "
+                     f"(got {e['status']}/{e['source']}/{e['detail']} {e['path']})")
+    check(g, has(g.lines, "dll fake-emf05 attach"), "EMF 0.5's loader is loaded, not refused as ShroudForge")
+    check(g, ordered(g.lines, ["dll fake-emf05 attach", "dll emf-x attach", "dll emf-y attach", "dll chain-a attach",
+                               "core boot", "main reached"]),
+          "order: [chain], then dinput8-chain.ini [Chain] and [EMF] in file order; core; main")
+    check(g, not has(g.lines, "dll chain-b"), "other sections of dinput8-chain.ini are not loaded")
+    check(g, sum(1 for line in g.lines if line.startswith("dll emf-x attach")) == 1, "emf-x attached once (dedupe)")
+    return g
+
+
 def s_vanilla():
     g = Game("vanilla")
     g.dll("chain-a", "kiln/chain/chain-a.dll")
@@ -668,7 +721,7 @@ def s_realcore():
     return g
 
 
-SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
+SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore)}
 

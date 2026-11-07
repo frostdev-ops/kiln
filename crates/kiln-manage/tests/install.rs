@@ -291,8 +291,11 @@ fn shroudforge_is_refused_unless_switching_and_never_chained() {
     put(&game, "enshrouded.exe", b"MZ");
     let sf = build_test_dll(&["DirectInput8Create"], b"shroudforge/shroudforge-runtime.dll");
     put(&game, "dinput8.dll", &sf);
-    put(&game, "winmm.dll", b"sf winmm");
-    put(&game, "dbghelp.dll", b"sf dbghelp");
+    let sf_winmm = build_test_dll(&["timeGetTime"], b"shroudforge helper");
+    let sf_dbghelp = build_test_dll(&["MiniDumpWriteDump"], b"shroudforge/shroudforge-runtime.dll");
+    put(&game, "winmm.dll", &sf_winmm);
+    put(&game, "dbghelp.dll", &sf_dbghelp);
+    put(&game, "shroudforge/shroudforge-runtime.dll", b"runtime");
     let before = outside_kiln(&game);
     let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
     let inst = client(&game);
@@ -300,10 +303,14 @@ fn shroudforge_is_refused_unless_switching_and_never_chained() {
     assert_eq!(e.code, ErrorCode::Refused);
     assert_eq!(outside_kiln(&game), before, "a refused install changes nothing");
     let r = install::install(&dirs, &inst, &b, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
-    assert!(!game.join("winmm.dll").exists() && !game.join("dbghelp.dll").exists());
+    // only its dinput8.dll moves: Kiln's proxy takes the name; its loader, helper and folder stay for Kiln's plugin
+    assert_eq!(std::fs::read(game.join("winmm.dll")).unwrap(), sf_winmm);
+    assert_eq!(std::fs::read(game.join("dbghelp.dll")).unwrap(), sf_dbghelp);
+    assert!(game.join("shroudforge/shroudforge-runtime.dll").exists());
     assert!(chain::read(&game).unwrap().chain.is_empty(), "ShroudForge is never chained");
-    assert_eq!(r.replaced.len(), 3);
-    assert!(r.replaced.iter().all(|x| x.action == install::ReplacedAction::BackedUp));
+    assert_eq!(r.replaced.len(), 1);
+    assert_eq!((r.replaced[0].path.as_str(), r.replaced[0].action, r.replaced[0].class),
+               ("dinput8.dll", install::ReplacedAction::BackedUp, Some(install::ReplacedClass::ShroudForge)));
     install::uninstall(&dirs, &inst, &mut NoProgress).unwrap();
     assert_eq!(outside_kiln(&game), before);
 }
@@ -316,7 +323,7 @@ fn other_proxies_and_kiln_proxies() {
     // an unknown proxy is chained as unknown-dinput8.dll
     let g1 = t.0.join("g1");
     put(&g1, "enshrouded.exe", b"MZ");
-    put(&g1, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"reshade-ish"));
+    put(&g1, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"some dinput8 mod"));
     install::install(&dirs, &client(&g1), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
     assert_eq!(chain::read(&g1).unwrap().chain[0].path, "chain\\unknown-dinput8.dll");
     // an older Kiln proxy (abi 1, deployed by hand) is replaced and backed up, not chained
@@ -523,4 +530,94 @@ fn one_install_at_a_time_per_game_folder() {
     assert!(!lock.exists(), "released after the install");
     install::uninstall(&dirs, &inst, &mut NoProgress).unwrap();
     assert!(!lock.exists(), "released after the uninstall");
+}
+
+/// "Switch from ShroudForge" with EML's dbghelp.dll and Shroudtopia's winmm.dll next to it: only ShroudForge's
+/// dinput8.dll moves, the other loaders keep their names, uninstall restores everything byte-identically.
+#[test]
+fn switching_from_shroudforge_leaves_other_loaders_in_place() {
+    let t = tmp("sf-others");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "dinput8.dll", &build_test_dll(&["DirectInput8Create", "ShroudforgeSetDinput8Provider"], b""));
+    let eml = build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH");
+    let topia = build_test_dll(&["timeGetTime"], b"shroudtopia.dll");
+    let set = build_test_dll(&["PowerGetActiveScheme"], b"shrouded_engine_tweaks\\plugins");
+    put(&game, "dbghelp.dll", &eml);
+    put(&game, "winmm.dll", &topia);
+    put(&game, "powrprof.dll", &set);
+    assert_eq!(kiln_manage::pe::classify_proxy(&game.join("dbghelp.dll")).unwrap().kind, kiln_manage::pe::ProxyKind::Eml);
+    assert_eq!(kiln_manage::pe::classify_proxy(&game.join("winmm.dll")).unwrap().kind, kiln_manage::pe::ProxyKind::Shroudtopia);
+    let slots = kiln_manage::engines::scan_proxies(&game);
+    assert_eq!(slots.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["dinput8.dll", "dbghelp.dll", "winmm.dll", "powrprof.dll"]);
+    assert_eq!(slots[3].class.kind, kiln_manage::pe::ProxyKind::Set);
+    let before = outside_kiln(&game);
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    let r = install::install(&dirs, &inst, &b, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("dbghelp.dll")).unwrap(), eml, "EML's dbghelp.dll stays");
+    assert_eq!(std::fs::read(game.join("winmm.dll")).unwrap(), topia, "Shroudtopia's winmm.dll stays");
+    assert_eq!(std::fs::read(game.join("powrprof.dll")).unwrap(), set, "SET's powrprof.dll stays");
+    assert_eq!(r.replaced.len(), 1);
+    assert!(chain::read(&game).unwrap().chain.is_empty());
+    install::uninstall(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(outside_kiln(&game), before);
+}
+
+/// EMF 0.4+ exports ShroudForge's chain-host function too: it is chained as EMF, never refused as ShroudForge.
+#[test]
+fn emf_0_5_is_chained_not_refused_as_shroudforge() {
+    let t = tmp("emf05");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    let emf = build_test_dll(
+        &["DirectInput8Create", "DllCanUnloadNow", "DllGetClassObject", "DllRegisterServer", "DllUnregisterServer", "GetdfDIJoystick",
+          "ShroudforgeSetDinput8Provider", "emf_loader_identity", "emf_loader_play_once"],
+        b"EMF-LOADER-7d3c9f\0shroudforge/shroudforge-runtime.dll\0",
+    );
+    put(&game, "dinput8.dll", &emf);
+    put(&game, "dinput8-chain.ini", b"[EMF]\nshroudforge.dll\n");
+    let before = outside_kiln(&game);
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    let r = install::install(&dirs, &inst, &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(chain::read(&game).unwrap().chain[0].path, "chain\\emf-dinput8.dll");
+    assert_eq!((r.replaced[0].class, r.replaced[0].action), (Some(install::ReplacedClass::Emf), install::ReplacedAction::Chained));
+    install::uninstall(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(outside_kiln(&game), before);
+    assert_eq!(std::fs::read(game.join("dinput8.dll")).unwrap(), emf);
+}
+
+/// Other engines' dinput8.dll are chained under their own word; Ultimate ASI Loader under xinput9_1_0.dll.
+#[test]
+fn other_engines_are_chained_under_their_word() {
+    let t = tmp("engines");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    for (tag, dll, line, engine) in [
+        ("flame", build_test_dll(&["DirectInput8Create"], b"FlameStartRuntime\0flame.json"), "chain\\flame-dinput8.dll", kiln_manage::pe::ProxyKind::Flame),
+        ("mlp", build_test_dll(&["DirectInput8Create"], b"modloader-proxy.dll"), "chain\\modloader-proxy-dinput8.dll", kiln_manage::pe::ProxyKind::ModLoaderProxy),
+        ("asi", build_test_dll(&["DirectInput8Create", "IsUltimateASILoader"], b""), "..\\xinput9_1_0.dll", kiln_manage::pe::ProxyKind::UltimateAsiLoader),
+    ] {
+        let g = t.0.join(tag);
+        put(&g, "enshrouded.exe", b"MZ");
+        put(&g, "dinput8.dll", &dll);
+        let before = outside_kiln(&g);
+        let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+        assert_eq!(chain::read(&g).unwrap().chain[0].path, line, "{tag}");
+        assert_eq!((r.replaced[0].action, r.replaced[0].engine), (install::ReplacedAction::Chained, Some(engine)), "{tag}");
+        install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+        assert_eq!(outside_kiln(&g), before, "{tag}: uninstall restores the folder");
+        assert!(chain::read(&g).unwrap().chain.is_empty());
+    }
+    // the name Ultimate ASI Loader needs is taken: refused, nothing changed
+    let g = t.0.join("asi-taken");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &build_test_dll(&["DirectInput8Create", "IsUltimateASILoader"], b""));
+    put(&g, "xinput9_1_0.dll", b"something else");
+    let before = outside_kiln(&g);
+    assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(outside_kiln(&g), before);
 }

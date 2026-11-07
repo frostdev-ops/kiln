@@ -245,6 +245,8 @@ fn recognised(d: &Detected) -> bool {
         DetectKind::Kiln | DetectKind::Native | DetectKind::Plugin | DetectKind::Emf | DetectKind::Modpack | DetectKind::BareDll => true,
         DetectKind::Runtime => false,
         DetectKind::Unknown => d.items.iter().any(recognised),
+        // another engine's mod: listed, so adding it shows why it can't load yet (or loads, once supported)
+        k => k.is_engine(),
     }
 }
 

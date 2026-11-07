@@ -1,7 +1,10 @@
 //! Install / upgrade / uninstall / rollback of a runtime bundle into a game folder (contracts.md, "Install").
 //! Refuses while the game runs or Steam updates it. Stages in `kiln/.staging-*`, verifies, classifies the existing
-//! `dinput8.dll` (pe::classify_proxy: Kiln -> replace; ShroudForge -> refuse unless `switch_from_shroudforge`;
-//! EMF/unknown -> `kiln/chain/` + chain.ini [chain]), backs up what it replaces to
+//! `dinput8.dll` (pe::classify_proxy: Kiln -> replace; ShroudForge -> refuse unless `switch_from_shroudforge`, then
+//! only its dinput8.dll goes to the backup; EMF and every other engine or unknown DLL -> `kiln/chain/<word>-dinput8.dll`
+//! plus chain.ini [chain]; Ultimate ASI Loader -> `xinput9_1_0.dll` next to the game, the name it runs under), never
+//! touches DLLs under other proxy names (dbghelp.dll, winmm.dll, powrprof.dll ... stay where they are and keep
+//! working), backs up what it replaces to
 //! `kiln/backups/install-<yyyymmddThhmmssZ>/`, puts `dinput8.dll` last, writes the receipt `kiln/.install.json`.
 //! One install or uninstall at a time per game folder (`kiln/.install.lock`).
 
@@ -108,6 +111,9 @@ pub struct ReplacedFile {
     pub chain_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
+    /// The engine it belongs to (pe::ProxyKind), when it is one Kiln knows; `class` stays one of the five classes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<ProxyKind>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,7 +122,8 @@ pub struct InstallOptions {
     /// None: the bundle's default components for this side (an upgrade keeps the installed selection).
     #[serde(default)]
     pub components: Option<Vec<String>>,
-    /// Move ShroudForge's dinput8.dll to the backup (never chained) instead of refusing.
+    /// Move ShroudForge's dinput8.dll to the backup (never chained) instead of refusing. Its dbghelp.dll, winmm.dll
+    /// and `shroudforge/` stay in place (Kiln's ShroudForge plugin drives the installed runtime).
     #[serde(default)]
     pub switch_from_shroudforge: bool,
     /// The receipt's `installer` (default `kiln-manage <VERSION>`); the launcher passes `kiln-launcher <version>`.
@@ -158,8 +165,12 @@ use crate::ErrorCode;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-/// ShroudForge's proxy set in a game folder (its proxy DLLs): moved to the backup together.
+/// ShroudForge's proxy names. Only its dinput8.dll is ever moved (by "switch from ShroudForge"); the others are its
+/// own loader and helper, and the same names belong to EML (dbghelp.dll) and Shroudtopia (winmm.dll) in other setups.
 pub const SHROUDFORGE_DLLS: [&str; 3] = ["dbghelp.dll", "dinput8.dll", "winmm.dll"];
+/// The name Ultimate ASI Loader is chained under (it refuses to run under names it does not know; the game loads
+/// nothing by this name). EMF's installer does the same.
+pub const ASI_LOADER_NAME: &str = "xinput9_1_0.dll";
 pub const PROXY: &str = "dinput8.dll";
 
 pub fn read_receipt(game_dir: &Path) -> Result<Option<InstallReceipt>> {
@@ -470,9 +481,21 @@ fn chain_slot(game_dir: &Path, kind: &str, sha: &str) -> String {
     unreachable!()
 }
 
-/// `kiln/chain/x.dll` -> the chain.ini line (relative to kiln/, backslashes).
+/// `kiln/chain/x.dll` -> the chain.ini line (relative to kiln/, backslashes); a game-folder path outside kiln/
+/// (`xinput9_1_0.dll`) -> `..\xinput9_1_0.dll`.
 fn chain_line(chain_rel: &str) -> String {
-    chain_rel.strip_prefix("kiln/").unwrap_or(chain_rel).replace('/', "\\")
+    match chain_rel.strip_prefix("kiln/") {
+        Some(rest) => rest.replace('/', "\\"),
+        None => format!("..\\{}", chain_rel.replace('/', "\\")),
+    }
+}
+
+/// The file-name word of a chained proxy's kind (`kiln/chain/<word>-dinput8.dll`).
+fn chain_word(kind: ProxyKind) -> &'static str {
+    match crate::engines::Engine::of_proxy(kind) {
+        Some(e) => crate::engines::info(e).word,
+        None => "unknown",
+    }
 }
 
 /// Installs or upgrades (an existing receipt: deletes obsolete files only when unchanged).
@@ -571,6 +594,7 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                     action: ReplacedAction::Replaced,
                     chain_path: None,
                     backup: Some(backup),
+                    engine: Some(ProxyKind::Kiln),
                 });
             }
             ProxyKind::ShroudForge => {
@@ -582,30 +606,51 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                     )
                     .with_detail(serde_json::json!({ "detail": class.detail })));
                 }
-                for dll in SHROUDFORGE_DLLS {
-                    let p = game_dir.join(dll);
-                    let Some((sha, size)) = file_sha(&p) else { continue };
-                    let backup = copy_into_backup(game_dir, &backup_rel, dll, Some(&mirror))?;
-                    let hold = prev_dir.join(dll);
-                    std::fs::create_dir_all(&prev_dir).map_err(io_at(&prev_dir, "creating"))?;
-                    std::fs::rename(&p, &hold).map_err(io_at(&p, "moving"))?;
-                    steps.push(Step::Moved { from: p, to: hold });
-                    replaced.push(ReplacedFile {
-                        path: dll.into(),
-                        sha256: sha,
-                        size: Some(size),
-                        class: Some(if dll == PROXY { ReplacedClass::ShroudForge } else { ReplacedClass::File }),
-                        action: ReplacedAction::BackedUp,
-                        chain_path: None,
-                        backup: Some(backup),
-                    });
-                }
-            }
-            ProxyKind::Emf | ProxyKind::Unknown if class.detail.as_deref() != Some("Wine builtin DLL") => {
-                let kind = if class.kind == ProxyKind::Emf { "emf" } else { "unknown" };
-                let sha = class.sha256.clone().unwrap_or_default();
+                // only ShroudForge's dinput8.dll: Kiln's proxy takes that name. Its dbghelp.dll, winmm.dll and
+                // shroudforge/ stay (Kiln's ShroudForge plugin drives the installed runtime; its repair check only
+                // looks for the files)
+                let (sha, size) = file_sha(&proxy_path).ok_or_else(|| Error::not_found(format!("{} vanished", proxy_path.display())))?;
                 let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
-                let chain_rel = chain_slot(game_dir, kind, &sha);
+                let hold = prev_dir.join(PROXY);
+                std::fs::create_dir_all(&prev_dir).map_err(io_at(&prev_dir, "creating"))?;
+                std::fs::rename(&proxy_path, &hold).map_err(io_at(&proxy_path, "moving"))?;
+                steps.push(Step::Moved { from: proxy_path.clone(), to: hold });
+                replaced.push(ReplacedFile {
+                    path: PROXY.into(),
+                    sha256: sha,
+                    size: Some(size),
+                    class: Some(ReplacedClass::ShroudForge),
+                    action: ReplacedAction::BackedUp,
+                    chain_path: None,
+                    backup: Some(backup),
+                    engine: Some(ProxyKind::ShroudForge),
+                });
+            }
+            ProxyKind::NotDll => {
+                return Err(Error::new(
+                    ErrorCode::Refused,
+                    format!("{} is not a 64-bit DLL ({}); move it away first", proxy_path.display(), class.detail.unwrap_or_default()),
+                ));
+            }
+            _ if class.detail.as_deref() != Some("Wine builtin DLL") => {
+                // EMF, every other engine Kiln knows, or an unknown DLL mod: chained, never displaced
+                let kind = chain_word(class.kind);
+                let sha = class.sha256.clone().unwrap_or_default();
+                let chain_rel = if class.kind == ProxyKind::UltimateAsiLoader {
+                    match file_sha(&game_dir.join(ASI_LOADER_NAME)) {
+                        None => ASI_LOADER_NAME.to_string(),
+                        Some((h, _)) if h == sha => ASI_LOADER_NAME.to_string(),
+                        Some(_) => {
+                            return Err(Error::new(
+                                ErrorCode::Refused,
+                                format!("Ultimate ASI Loader (dinput8.dll) can only be chained as {ASI_LOADER_NAME}, and another file has that name; move one of them away first"),
+                            ));
+                        }
+                    }
+                } else {
+                    chain_slot(game_dir, kind, &sha)
+                };
+                let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
                 let dst = game_dir.join(&chain_rel);
                 if let Some(p) = dst.parent() {
                     std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
@@ -623,9 +668,10 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                     action: ReplacedAction::Chained,
                     chain_path: Some(chain_rel),
                     backup: Some(backup),
+                    engine: crate::engines::Engine::of_proxy(class.kind).map(|_| class.kind),
                 });
             }
-            ProxyKind::Emf | ProxyKind::Unknown => {
+            _ => {
                 // a Wine builtin copied into the folder: kept in the backup, never chained
                 let backup = copy_into_backup(game_dir, &backup_rel, PROXY, Some(&mirror))?;
                 replaced.push(ReplacedFile {
@@ -636,13 +682,14 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                     action: ReplacedAction::BackedUp,
                     chain_path: None,
                     backup: Some(backup),
+                    engine: None,
                 });
             }
-            ProxyKind::NotDll => {
-                return Err(Error::new(
-                    ErrorCode::Refused,
-                    format!("{} is not a 64-bit DLL ({}); move it away first", proxy_path.display(), class.detail.unwrap_or_default()),
-                ));
+        }
+        // every other loader under its own proxy name keeps running next to Kiln: left in place, said once
+        for slot in crate::engines::scan_proxies(game_dir).iter().filter(|s| !s.name.eq_ignore_ascii_case(PROXY)) {
+            if let Some(e) = crate::engines::Engine::of_proxy(slot.class.kind) {
+                progress.report(None, &format!("{} ({}) stays in place and keeps running next to Kiln", slot.name, e.name()));
             }
         }
         // 2. every other file, dinput8.dll last. Every path that existed before is recorded: identical bytes (and
@@ -679,6 +726,7 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                             action: ReplacedAction::Adopted,
                             chain_path: None,
                             backup: None,
+                            engine: None,
                         });
                     } else if !f.config && *h != f.sha256 {
                         let backup = copy_into_backup(game_dir, &backup_rel, &f.path, Some(&mirror))?;
@@ -690,6 +738,7 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                             action: ReplacedAction::Replaced,
                             chain_path: None,
                             backup: Some(backup),
+                            engine: None,
                         });
                     }
                 } else if *h != f.sha256 && !f.config

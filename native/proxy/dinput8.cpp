@@ -17,11 +17,12 @@
 //        mode=profile  kiln/chain/once.ini instead of kiln/chain.ini; the core boots from kiln/profile.once.json.
 //   3. Chain loading (docs/kiln/launcher/contracts.md, "chain.ini"), in this order:
 //        kiln/chain.ini [chain]    proxies the installer displaced (EMF's loader, unknown dinput8 mods)
-//        <game>/dinput8-chain.ini  EMF's chain file, [Chain] and lines before any section, EMF's rules
+//        <game>/dinput8-chain.ini  EMF's chain file, [Chain], [EMF] (the DLLs EMF 0.5's installer renamed) and lines
+//                                  before any section, in file order, EMF's rules
 //        kiln/chain.ini [profile]  native mods of the profile with phase "dllmain"
 //      Each DLL: resolved, deduplicated by canonical path (GetFinalPathNameByHandleW), checked through a read-only file
 //      mapping (never loaded for that) and refused when it is this proxy, the system dinput8, another Kiln proxy or
-//      ShroudForge's dinput8, then LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH) under an SEH guard. Never FreeLibrary.
+//      ShroudForge's dinput8 (EMF's loader, which also exports ShroudForge's chain-host name, is accepted), then LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH) under an SEH guard. Never FreeLibrary.
 //      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log).
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
@@ -462,6 +463,11 @@ uint32_t classify(const wchar_t* path) {
                 else if (contains(b, n, kCore, sizeof kCore - sizeof(wchar_t)) ||
                          contains(b, n, "KilnProxy/", 10) || contains(b, n, "kiln_boot", 10))
                     result = kKiln;
+                // EMF's loader before ShroudForge: EMF 0.4 and later also export ShroudforgeSetDinput8Provider (its
+                // loader can host ShroudForge's chain). Its marker text EMF-LOADER-7d3c9f is the data it exports as
+                // emf_loader_identity (older EMF loaders have no ShroudForge export and are accepted anyway).
+                else if (contains(b, n, "EMF-LOADER-7d3c9f", 17))
+                    result = kAccept;
                 else if (contains(b, n, "shroudforge/shroudforge-runtime.dll", 35) ||
                          contains(b, n, "shroudforge/config/modloader-config.json", 40) ||
                          contains(b, n, "ShroudforgeSetDinput8Provider", 29))
@@ -726,8 +732,8 @@ bool profile_well_formed(const wchar_t* file) {
     return result;
 }
 
-// kiln\chain.ini [chain] (lines before any section count as [chain]) -> <game>\dinput8-chain.ini ([Chain] and lines
-// before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
+// kiln\chain.ini [chain] (lines before any section count as [chain]) -> <game>\dinput8-chain.ini ([Chain], [EMF] and
+// lines before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
 // ([profile], lines before any section count) in place of chain.ini [profile].
 void load_chain(bool profile_once, bool skip) {
     wchar_t buf[kPath];
@@ -751,8 +757,10 @@ void load_chain(bool profile_once, bool skip) {
     }
     lstrcpynW(file, g_game, kPath - 32);
     lstrcatW(file, L"\\dinput8-chain.ini");
-    const Section emf_sections[] = {{L"chain", &emf}};
-    read_dll_list(file, &emf, emf_sections, 1);
+    // [EMF]: the DLLs EMF 0.5's installer renamed (only EMF's loader read them). One list with [Chain], in file
+    // order, as EMF's own reader takes them; a DLL that EMF's chained loader also starts is loaded once by Windows.
+    const Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
+    read_dll_list(file, &emf, emf_sections, 2);
     const uint32_t total = chain.count + emf.count + profile.count;
     if (total == 0) return;
     g_chain = static_cast<KilnChainEntry*>(halloc(total * sizeof(KilnChainEntry)));

@@ -352,7 +352,7 @@ pub fn install(catalog: &Catalog, dirs: &DataDirs, game: &GameInstall, req: &Ins
     check.sha256 = sha;
     check.size = size;
     let detected = crate::library::detect(&path)?;
-    let loadable = |d: &crate::library::Detected| !matches!(d.kind, crate::library::DetectKind::Unknown | crate::library::DetectKind::Runtime);
+    let loadable = |d: &crate::library::Detected| d.kind.importable();
     if !loadable(&detected) && !detected.items.iter().any(loadable) {
         return Err(Error::new(ErrorCode::Unsupported, format!("{name}: {}. Kiln can't load it.", detected.reason)));
     }

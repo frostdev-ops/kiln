@@ -54,7 +54,7 @@ pub struct LibraryEntry {
     pub versions: Vec<LibraryVersion>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DetectKind {
     Kiln,
@@ -65,6 +65,56 @@ pub enum DetectKind {
     Runtime,
     BareDll,
     Unknown,
+    // Mods made for other engines, and other things players drop (engines.rs detects them). Each is imported only
+    // through a loader registered for it (engines::register_loader); without one it is skipped with its reason.
+    /// An EML mod (`mod.json` + `src/mod.lua`).
+    Eml,
+    /// A ShroudForge package (EML layout + `extended.mod.json`, or SF's `capabilities`).
+    #[serde(rename = "shroudforge")]
+    ShroudForge,
+    /// A Shrouded Engine Tweaks mod (`init.lua`).
+    Set,
+    /// An Enshwick mod (a DLL with `enshwick_mod_*` exports, or a `pack.toml` data/Luau pack).
+    Enshwick,
+    /// A Greeneye Loader mod (`mod.json` + a DLL exporting `GreeneyeModStart`).
+    Greeneye,
+    /// A Shroudtopia/Shroudweave mod (a DLL exporting `CreateModInstance`, or `shroudtopia.json`).
+    Shroudtopia,
+    /// A Flame mod (`flame.json`, a DLL exporting `FlameStartRuntime`): Creative Mode.
+    Flame,
+    /// A shroudlink mod.
+    Shroudlink,
+    /// An Ember server mod.
+    Ember,
+    /// Another engine's loader or a tool under a proxy name (`engine` says which): never a mod to import.
+    Proxy,
+    /// Patched game data files (`.kfc`).
+    Data,
+    /// A save file (`*.ksd`, `characters`, a world save).
+    Save,
+    /// A ReShade preset.
+    Reshade,
+    /// A Cheat Engine table (`.ct`, `.cetrainer`).
+    CheatTable,
+    /// An `.asi` plugin (Ultimate ASI Loader).
+    Asi,
+}
+
+impl DetectKind {
+    /// A kind made for another engine or tool (detected by engines.rs).
+    pub fn is_engine(self) -> bool {
+        !matches!(self, DetectKind::Kiln | DetectKind::Native | DetectKind::Plugin | DetectKind::Emf | DetectKind::Modpack
+            | DetectKind::Runtime | DetectKind::BareDll | DetectKind::Unknown)
+    }
+
+    /// Can the library import it now: Kiln's own kinds, and engine kinds with a registered loader.
+    pub fn importable(self) -> bool {
+        match self {
+            DetectKind::Kiln | DetectKind::Native | DetectKind::Plugin | DetectKind::Emf | DetectKind::Modpack | DetectKind::BareDll => true,
+            DetectKind::Runtime | DetectKind::Unknown => false,
+            k => crate::engines::loader_for(k).is_some(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +130,9 @@ pub struct Detected {
     /// A zip or folder holding several mods.
     #[serde(default)]
     pub items: Vec<Detected>,
+    /// The engine it was made for (other engines' kinds, and loaders under proxy names).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<crate::engines::Engine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,10 +188,10 @@ fn detect_dll(path: &Path) -> Detected {
     let stem_id = id_from_name(path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default().as_str());
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
-        Err(e) => return Detected { kind: DetectKind::Unknown, path: p, id: None, version: None, name: None, reason: e.to_string(), items: vec![] },
+        Err(e) => return Detected { kind: DetectKind::Unknown, path: p, id: None, version: None, name: None, reason: e.to_string(), items: vec![], engine: None },
     };
     if !crate::pe::is_pe64_dll(&bytes) {
-        return Detected { kind: DetectKind::Unknown, path: p, id: None, version: None, name: None, reason: "not a 64-bit Windows DLL".into(), items: vec![] };
+        return Detected { kind: DetectKind::Unknown, path: p, id: None, version: None, name: None, reason: "not a 64-bit Windows DLL".into(), items: vec![], engine: None };
     }
     let exports = crate::pe::parse(&bytes).map(|i| i.exports).unwrap_or_default();
     let has = |e: &str| exports.iter().any(|x| x == e);
@@ -150,12 +203,17 @@ fn detect_dll(path: &Path) -> Detected {
         name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
         reason: reason.into(),
         items: vec![],
+        engine: None,
     };
     if has(crate::pe::KILN_PLUGIN_EXPORT) {
         return d(DetectKind::Plugin, "a Kiln plugin (exports kiln_plugin_main)");
     }
     if has(crate::pe::EMF_MOD_EXPORT) {
         return d(DetectKind::Emf, "an EMF mod DLL (exports emf_mod_load); a mod.json is generated");
+    }
+    // another engine's mod DLL or loader: never imported as a plain DLL
+    if let Some(e) = crate::engines::detect_dll(path, &bytes, &exports) {
+        return Detected { id: Some(stem_id.clone()), version: Some("0.0.0".into()), ..e };
     }
     if has(crate::pe::DINPUT8_EXPORT) {
         let c = crate::pe::classify_bytes(&bytes);
@@ -202,7 +260,7 @@ fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
 fn detect_folder(dir: &Path) -> Detected {
     let p = dir.display().to_string();
     let mk = |kind, id: Option<String>, version: Option<String>, name: Option<String>, reason: String| Detected {
-        kind, path: p.clone(), id, version, name, reason, items: vec![],
+        kind, path: p.clone(), id, version, name, reason, items: vec![], engine: None,
     };
     if dir.join(crate::bundle::MANIFEST).is_file() {
         return mk(DetectKind::Runtime, None, None, None, "a staged Kiln runtime (kiln-runtime.json)".into());
@@ -228,10 +286,23 @@ fn detect_folder(dir: &Path) -> Detected {
         let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
         return mk(DetectKind::Emf, s("id"), s("version"), s("name"), format!("an EMF mod (mod.json, EMF API {})", v["emf"]));
     }
+    if let Some(d) = crate::engines::detect_folder(dir) {
+        return d;
+    }
     // a folder of mods (an unpacked zip): what is inside
     let items = children(dir);
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
-        let mut d = mk(DetectKind::Unknown, None, None, None, format!("a folder with {} importable item(s)", items.iter().filter(|i| i.kind != DetectKind::Unknown).count()));
+        let n = items.iter().filter(|i| i.kind.importable()).count();
+        let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable()).count();
+        let reason = if other == 0 {
+            format!("a folder with {n} importable item(s)")
+        } else if n == 0 {
+            // nothing Kiln can load: the first item says what it is and why
+            items.iter().find(|i| i.kind != DetectKind::Unknown).map(|i| i.reason.clone()).unwrap_or_default()
+        } else {
+            format!("a folder with {n} importable item(s) and {other} Kiln can't load yet")
+        };
+        let mut d = mk(DetectKind::Unknown, None, None, None, reason);
         d.items = items;
         return d;
     }
@@ -256,6 +327,8 @@ fn children(dir: &Path) -> Vec<Detected> {
             }
         } else if name.to_lowercase().ends_with(".dll") {
             out.push(detect_dll(&e));
+        } else if let Some(d) = crate::engines::detect_file(&e) {
+            out.push(d);
         }
     }
     out
@@ -276,6 +349,9 @@ pub fn detect(path: &Path) -> Result<Detected> {
         relabel(&mut d, tmp.path(), path);
         return Ok(d);
     }
+    if let Some(d) = crate::engines::detect_file(path) {
+        return Ok(d);
+    }
     Ok(Detected {
         kind: DetectKind::Unknown,
         path: path.display().to_string(),
@@ -284,6 +360,7 @@ pub fn detect(path: &Path) -> Result<Detected> {
         name: None,
         reason: "not a folder, .zip or .dll".into(),
         items: vec![],
+        engine: None,
     })
 }
 
@@ -389,6 +466,12 @@ fn kind_dir(dirs: &DataDirs, kind: ModKind) -> PathBuf {
 /// Moves a prepared folder into the library as `<kind>/<id>/<version>+<hash8>` with its record. Existing entries
 /// (same hash) are kept as they are (content addressed: same name, same bytes).
 fn commit(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report: &mut ImportReport) -> Result<()> {
+    commit_folder(dirs, prepared, rec, report)
+}
+
+/// For engine loaders (engines::Loader): moves a prepared folder (made in a [`TempDir`] below `dirs.library()`) into
+/// the library as `<kind>/<id>/<version>+<hash8>` with its record; an entry with the same hash is kept.
+pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report: &mut ImportReport) -> Result<()> {
     let r = LibraryRef { kind: rec.kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
     let folder = dirs.library_entry(rec.kind, &rec.id, &rec.version, &rec.hash)?;
     if folder.is_dir() && record_path(&folder).is_file() {
@@ -496,6 +579,13 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             skip(report, "a Kiln runtime: import it on the Runtime page (bundle::import)".into());
             Ok(())
         }
+        k if k.is_engine() => match crate::engines::loader_for(k) {
+            Some(l) => (l.import)(&mut crate::engines::ImportCtx { dirs, detected: d, src, from, report }),
+            None => {
+                skip(report, d.reason.clone());
+                Ok(())
+            }
+        },
         _ => {
             skip(report, d.reason.clone());
             Ok(())
