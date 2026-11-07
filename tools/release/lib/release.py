@@ -10,7 +10,7 @@
              keys, passwords, tokens
   offset     print where the squashfs of an AppImage starts (for unsquashfs -o)
   glibc      check every Linux ELF of a folder (in the AppImage, deb, rpm and zips too) needs no glibc symbol version
-             above a limit (objdump -T -p), so the builds run on older distros (Steam Deck, Ubuntu 22.04)
+             above a limit (objdump -p version references), so the builds run on older distros (Steam Deck, Ubuntu 22.04)
   updater    look inside launcher builds (AppImage, deb, NSIS setup, an installed exe) for the self-update: its update
              feeds, the updater key, the updater plugin. --absent: the Nexus Mods build must have none of it;
              --present: a direct build must have it all
@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -278,7 +279,8 @@ def secrets_from_files(paths):
         p = os.path.expanduser(p)
         if not os.path.isfile(p):
             continue
-        text = open(p, "rb").read()
+        with open(p, "rb") as f:
+            text = f.read()
         if p.endswith(".env"):
             for line in text.splitlines():
                 if b"=" in line and not line.lstrip().startswith(b"#"):
@@ -287,7 +289,7 @@ def secrets_from_files(paths):
                         out.append(v)
         else:
             v = text.strip()
-            if len(v) >= 8:
+            if len(v) >= 8 or (v and p.endswith(".password")):
                 out.append(v)
                 if p.endswith(".key") and _is_b64(v):
                     lines = base64.b64decode(v).splitlines()
@@ -322,12 +324,8 @@ class Scanner:
                 continue  # distro libraries (GnuTLS) carry public self-test keys
             m = rx.search(data)
             if m:
-                ctx = data[max(0, m.start() - 40): m.end() + 40]
-                ctx = re.sub(rb"[^\x20-\x7e]", b".", ctx).decode()
-                if what in ("a home path",):
-                    self.bad(where, f"{what}: ...{ctx}...")
-                else:
-                    self.bad(where, what)
+                # Do not print surrounding bytes: even a home-path match may sit next to a password/key.
+                self.bad(where, what)
         for lit in self.literals:
             if lit in data:
                 self.bad(where, "a release secret (key password or credential)")
@@ -383,13 +381,20 @@ def archive_kind(path, data):
 def extract(kind, path, dest):
     if kind == "zip":
         with zipfile.ZipFile(path) as z:
+            links = []
             for m in z.infolist():
                 if m.is_dir():
                     continue
                 target = os.path.join(dest, os.path.normpath(m.filename).lstrip("/\\").replace("..", "_"))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
+                if stat.S_ISLNK(m.external_attr >> 16):
+                    links.append((target, os.fsdecode(z.read(m))))
+                    continue
                 with z.open(m) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
+            # Parents were all created before any links, so no archive write follows a link out of dest.
+            for target, link in links:
+                os.symlink(link, target)
     elif kind == "tgz":
         with tarfile.open(path) as t:
             t.extractall(dest, filter="data")
@@ -404,16 +409,34 @@ def extract(kind, path, dest):
         off = appimage_offset(path)
         subprocess.run(["unsquashfs", "-q", "-n", "-no-xattrs", "-o", str(off), "-d", os.path.join(dest, "squashfs-root"), path],
                        check=True, stdout=subprocess.DEVNULL)
-    elif kind in ("nsis", "rpm"):
+    elif kind == "rpm":
+        # Unwrap by content, not the payload filename (.cpio, .cpio.zstd, or no useful suffix).
+        payload = os.path.join(dest, "rpm-payload")
+        with open(payload, "wb") as f:
+            subprocess.run(["7z", "x", "-so", "--", path], check=True, stdout=f, stderr=subprocess.PIPE)
+        for level in range(4):
+            with open(payload, "rb") as f:
+                head = f.read(8)
+            cpio = head.startswith((b"070701", b"070702", b"070707", b"\xc7q", b"q\xc7"))
+            if not cpio and not head.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd")):
+                raise ValueError("unrecognized RPM payload; expected compressed cpio")
+            sub = os.path.join(dest, f"payload-{level}")
+            os.mkdir(sub)
+            subprocess.run(["7z", "x", "-y", f"-o{sub}", "--", payload], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            os.remove(payload)
+            if cpio:
+                break
+            files = os.listdir(sub)
+            if len(files) != 1:
+                raise ValueError("compressed RPM payload did not yield one cpio archive")
+            payload = os.path.join(sub, files[0])
+            if os.path.islink(payload) or not os.path.isfile(payload):
+                raise ValueError("compressed RPM payload is not a regular file")
+        else:
+            raise ValueError("too many compression layers in RPM payload")
+    elif kind == "nsis":
         subprocess.run(["7z", "x", "-y", f"-o{dest}", path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if kind == "rpm":  # 7z gives the cpio payload
-            for n in os.listdir(dest):
-                p = os.path.join(dest, n)
-                if n.endswith(".cpio") or n.endswith(".cpio.gz") or n.endswith(".cpio.zst") or n.endswith(".cpio.xz"):
-                    sub = os.path.join(dest, "payload")
-                    os.makedirs(sub, exist_ok=True)
-                    subprocess.run(["7z", "x", "-y", f"-o{sub}", p], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    os.remove(p)
 
 
 def cmd_scan(a):
@@ -529,7 +552,6 @@ def cmd_updater(a):
 
 # ---------------------------------------------------------------- glibc
 
-GLIBC_VER = re.compile(rb"\bGLIBC_([0-9]+(?:\.[0-9]+)+|PRIVATE|ABI_[A-Z0-9_]+)\b")
 # glibc's non-numeric version markers and the release that brought them (an unknown one counts as too new)
 GLIBC_ABI = {"ABI_DT_RELR": "2.36"}
 
@@ -539,17 +561,16 @@ def _ver(s):
 
 
 def elf_glibc(path):
-    """The GLIBC_ versions an ELF names: its dynamic symbols' (objdump -T) and its version references (-p: they also
-    hold markers no symbol carries, such as GLIBC_ABI_DT_RELR), and for glibc's own libraries the ones they define.
-    Returns (set of versions, objdump's error or None)."""
-    r = subprocess.run(["objdump", "-T", "-p", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    """Only version requirements, including symbol-less ABI markers. Definitions and filenames are not needs.
+    objdump -p succeeds for static executables too; an objdump error must never turn into an empty success."""
+    r = subprocess.run(["objdump", "-p", os.path.abspath(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       env={**os.environ, "LC_ALL": "C"})
     if r.returncode != 0:
         err = r.stderr.decode(errors="replace").strip()
-        # a static executable (the AppImage runtime) has no dynamic symbol table: nothing to need
-        if b"not a dynamic object" in r.stderr or b"no symbols" in r.stderr:
-            return set(), None
         return set(), err or f"objdump exit {r.returncode}"
-    return {m.decode() for m in GLIBC_VER.findall(r.stdout)}, None
+    refs = r.stdout.partition(b"Version References:\n")[2]
+    return {m.decode() for m in re.findall(rb"^\s+0x[0-9a-f]+\s+0x[0-9a-f]+\s+\S+\s+GLIBC_(\S+)\s*$",
+                                          refs, re.M)}, None
 
 
 class GlibcScan:
@@ -559,22 +580,31 @@ class GlibcScan:
         self.rows = []      # (top-level file, max version or "-", ELF count)
         self.problems = []  # "where: what"
 
-    def scan_top(self, path, rel):
+    def scan_top(self, path, rel, root=None):
         self.elfs, self.max = 0, None
-        self.walk(path, rel, 0)
+        self.walk(path, rel, 0, root or os.path.dirname(os.path.abspath(path)))
         self.rows.append((rel, ".".join(map(str, self.max)) if self.max else "-", self.elfs))
 
-    def walk(self, path, where, depth):
+    def walk(self, path, where, depth, root):
+        if os.path.islink(path):
+            target = os.path.realpath(path)
+            if not target.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(target):
+                self.problems.append(f"{where}: dangling symlink or target outside the scanned tree")
+            else:
+                self.walk(target, where, depth, root)
+            return
         with open(path, "rb") as f:
-            head = f.read(16)
+            head = f.read(512)
         if head[:4] == b"\x7fELF":
             self.check_elf(path, where)
-        if depth > 3:
-            return
         kind = self.archive(path, head)
         if not kind:
             return
+        if depth >= 32:
+            self.problems.append(f"{where}: archive nesting exceeds 32; contents not checked")
+            return
         d = tempfile.mkdtemp(dir=self.tmp)
+        before = self.elfs
         try:
             try:
                 self.extract(kind, path, d)
@@ -583,43 +613,48 @@ class GlibcScan:
                 return
             for base, dirs, files in os.walk(d):
                 dirs.sort()
+                for n in dirs:
+                    p = os.path.join(base, n)
+                    if os.path.islink(p):
+                        target = os.path.realpath(p)
+                        if (target != d and not target.startswith(d + os.sep)) or not os.path.isdir(target):
+                            self.problems.append(f"{where}!{os.path.relpath(p, d)}: dangling or external directory symlink")
                 for n in sorted(files):
                     p = os.path.join(base, n)
-                    if os.path.islink(p) or not os.path.isfile(p):
+                    if not os.path.islink(p) and not os.path.isfile(p):
                         continue
-                    self.walk(p, f"{where}!{os.path.relpath(p, d)}", depth + 1)
+                    self.walk(p, f"{where}!{os.path.relpath(p, d)}", depth + 1, d)
+            if kind in ("rpm", "deb", "appimage") and self.elfs == before:
+                self.problems.append(f"{where}: no ELF files found inside the {kind}")
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     @staticmethod
     def archive(path, head):
-        n = path.lower()
         if head[:4] == b"\x7fELF" and head[8:11] == b"AI\x02":
             return "appimage"
-        if head[:8] == b"!<arch>\n" and n.endswith(".deb"):
+        if head[:8] == b"!<arch>\n" and path.lower().endswith(".deb"):
             return "deb"
         if head[:4] == b"\xed\xab\xee\xdb":
             return "rpm"
-        if head[:4] in (b"PK\x03\x04", b"PK\x05\x06") and n.endswith((".zip", ".nupkg", ".vsix")):
+        if head[:4] in (b"PK\x03\x04", b"PK\x05\x06"):
             return "zip"
-        return None  # the NSIS setup and the source tarball hold no Linux binaries
+        if head[257:262] == b"ustar":
+            return "tar"
+        if head.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd", b"070701", b"070702", b"070707")):
+            return "packed"  # gzip/bzip2/xz/zstd and cpio, also inside an RPM
+        return None
 
     @staticmethod
     def extract(kind, path, dest):
-        if kind == "appimage":
-            # the AppImage's own runtime unpacks it (no FUSE needed): what a user with --appimage-extract gets
-            exe = os.path.abspath(path)
-            if not os.access(exe, os.X_OK):
-                exe = os.path.join(dest, "app.AppImage")
-                shutil.copyfile(path, exe)
-                os.chmod(exe, 0o755)
-            subprocess.run([exe, "--appimage-extract"], cwd=dest, check=True, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "TMPDIR": dest})
-            if exe.startswith(dest):
-                os.remove(exe)
-        elif kind == "deb" and shutil.which("dpkg-deb"):
-            subprocess.run(["dpkg-deb", "-x", path, dest], check=True)
+        if kind == "tar":
+            with tarfile.open(path) as t:
+                t.extractall(dest, filter="data")
+        elif kind == "packed":
+            subprocess.run(["7z", "x", "-y", f"-o{dest}", "--", os.path.abspath(path)], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         else:
+            # Static inspection: never execute a release binary just to audit its glibc requirements.
             extract(kind, path, dest)
 
     def check_elf(self, path, where):
@@ -630,12 +665,12 @@ class GlibcScan:
             return
         if "PRIVATE" in vers:
             self.problems.append(f"{where}: needs GLIBC_PRIVATE (tied to one exact glibc build)")
-        for v in sorted(x for x in vers if x.startswith("ABI_")):
-            if v not in GLIBC_ABI:
-                self.problems.append(f"{where}: needs GLIBC_{v} (a glibc marker this check does not know: newer than 2.36)")
+        for v in sorted(vers):
+            if v != "PRIVATE" and v not in GLIBC_ABI and not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", v):
+                self.problems.append(f"{where}: needs unknown GLIBC_{v}")
         # (version, name): GLIBC_ABI_DT_RELR counts as 2.36
         nums = sorted(((_ver(GLIBC_ABI.get(v, v)), v if v in GLIBC_ABI else GLIBC_ABI.get(v, v)) for v in vers
-                       if v != "PRIVATE" and (not v.startswith("ABI_") or v in GLIBC_ABI)), reverse=True)
+                       if v in GLIBC_ABI or re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", v)), reverse=True)
         if not nums:
             return
         if self.max is None or nums[0][0] > self.max:
@@ -649,12 +684,31 @@ def cmd_glibc(a):
     tmp = tempfile.mkdtemp(prefix="kiln-glibc-", dir=a.tmp)
     s = GlibcScan(a.max, tmp)
     try:
-        paths = a.files or [os.path.join(a.dir, r) for r in release_files(a.dir)
-                            if not r.startswith(("source/", "windows/", "updates/", "nexus/windows/"))]
+        paths = a.files
         top = os.path.abspath(a.dir)
+        if not paths:
+            paths = []
+            visited = set()
+            for base, dirs, files in os.walk(top, followlinks=True):
+                dirs.sort()
+                resolved = os.path.realpath(base)
+                if resolved in visited:
+                    dirs[:] = []
+                    continue
+                visited.add(resolved)
+                for n in list(dirs):
+                    p = os.path.join(base, n)
+                    rel = os.path.relpath(p, top).replace(os.sep, "/")
+                    if rel in ("source", "windows", "updates", "nexus/windows"):
+                        dirs.remove(n)
+                    elif os.path.realpath(p) != os.path.realpath(top) and not os.path.realpath(p).startswith(os.path.realpath(top) + os.sep):
+                        s.problems.append(f"{rel}: directory symlink outside the release")
+                        dirs.remove(n)
+                paths.extend(os.path.join(base, n) for n in sorted(files) if n != "SHA256SUMS")
         for p in paths:
             ap = os.path.abspath(p)
-            s.scan_top(p, os.path.relpath(ap, top) if ap.startswith(top + os.sep) else p)
+            s.scan_top(p, os.path.relpath(ap, top) if ap.startswith(top + os.sep) else p,
+                       top if not a.files else os.path.dirname(ap))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"glibc: limit GLIBC_{a.max}; the newest glibc symbol version each file (and everything inside it) needs:")

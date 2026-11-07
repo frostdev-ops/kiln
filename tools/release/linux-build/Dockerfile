@@ -1,26 +1,32 @@
-# syntax=docker/dockerfile:1
 # SPDX-License-Identifier: MIT
 # Kiln's Linux release build environment (docs/kiln/launcher/releasing.md, "Linux builds"). release.sh compiles and
 # bundles every Linux ELF of a release in here: the launcher (AppImage, deb, rpm), kilnctl and kiln. A binary needs the
 # glibc it was linked against or newer, and the AppImage carries the build system's libraries (WebKitGTK, GTK,
 # sqlite, ...), so building on Ubuntu 22.04 (glibc 2.35, the oldest base Tauri 2's WebKitGTK 4.1 exists on) gives
-# builds that run on every distro since: SteamOS on the Steam Deck, Ubuntu 22.04+, Debian 12+, Fedora 36+, Arch.
+# a glibc baseline suitable for SteamOS and newer distros; their other desktop libraries are still required.
 # A build on a rolling distro needs its brand-new glibc (2.44 on the build machine in 2026-11) and fails everywhere else.
 #
 # The image is tagged kiln-linux-build:<first 12 hex of this file's sha256> (tools/release/linux-build/image.sh), so an
 # edit here makes a new image. Keep the versions in step with the host's (there is no rust-toolchain file): Rust is
-# the host's stable, bun the host's bun (2026-11-06: 1.99.1, 1.4.2). The apt packages are whatever Ubuntu 22.04 has when the image is
-# built: `image.sh --rebuild` takes the current security updates (WebKitGTK's above all) without editing this file.
+# the host's stable, bun the host's bun (2026-11-06: 1.99.1, 1.4.2). Advance APT_SNAPSHOT deliberately for security
+# updates (especially WebKitGTK); rebuilding an unchanged Dockerfile uses the same archive snapshot.
 
 # ubuntu:22.04 (jammy), pinned by the digest of its multi-arch index (2026-10-25 build)
 FROM ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG APT_SNAPSHOT=20261106T000000Z
 # Tauri 2's Linux prerequisites (libwebkit2gtk-4.1-dev brings GTK 3, libsoup 3 and JavaScriptCore), the tray library
 # (libayatana-appindicator3-dev), dbus (the `dbus` crate), the AppImage tools' needs (file, patchelf, the gdk-pixbuf
 # loaders and SVG support the GTK plugin bundles), python3 for notices.py (the AppImage's libraries come from this
-# image's dpkg database).
+# image's dpkg database). The snapshot service is https only and the base image has no CA certificates, so
+# ca-certificates comes first from the base image's own archive; everything else (ca-certificates again included)
+# comes from the pinned snapshot.
 RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && sed -i "s/^deb /deb [snapshot=${APT_SNAPSHOT}] /" /etc/apt/sources.list \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential pkg-config ca-certificates curl unzip file patchelf \
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev \
@@ -39,7 +45,7 @@ RUN curl -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${
  && chmod +x /tmp/rustup-init \
  && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}" \
  && rm /tmp/rustup-init \
- && chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME" \
+ && chmod -R a+rX "$RUSTUP_HOME" "$CARGO_HOME" \
  && rustc --version && cargo --version
 
 # bun: runs the Tauri CLI and the launcher's web build (build-linux.sh), as on the host

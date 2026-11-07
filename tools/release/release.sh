@@ -44,6 +44,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 lib=$here/lib
+source "$here/linux-build/paths.sh"
 
 version="" commit=HEAD out="" work="" notes="" worktree=0 skip_windows=0 checks=1 force=0 host_build=0 nexus=1
 while (($#)); do
@@ -68,6 +69,19 @@ done
 case $version in *-*) channel=dev ;; *) channel=stable ;; esac
 out=$(realpath -m "${out:-$HOME/Kiln-release/kiln-$version}")
 work=$(realpath -m "${work:-$repo/.out/release-work}")
+(( $(id -u) != 0 )) || { echo "release: run as the release owner, not root" >&2; exit 1; }
+safe_dir "$out"
+safe_dir "$work"
+disjoint_dirs "$out" "$work"
+for d in "$out" "$work"; do
+  [[ $repo != "$d" && $repo != "$d/"* ]] || { echo "release: directory contains the repository: $d" >&2; exit 2; }
+done
+if ((!host_build)); then
+  glibc=$(realpath -ms "${KILN_GLIBC_DIR:-$repo/.out/glibc}")
+  safe_dir "$glibc"
+  disjoint_dirs "$glibc" "$work"
+  disjoint_dirs "$glibc" "$out"
+fi
 key=$HOME/.config/kiln-release/updater.key
 [[ -f $key && -f $key.password ]] || { echo "no updater key at $key (+ .password): see releasing.md" >&2; exit 1; }
 if [[ -e $out && -n $(ls -A "$out" 2>/dev/null) ]]; then
@@ -75,6 +89,11 @@ if [[ -e $out && -n $(ls -A "$out" 2>/dev/null) ]]; then
   rm -rf "$out"
 fi
 mkdir -p "$out" "$work"
+cleanup_release() { rm -rf -- "$work/appimage-root"; }
+trap cleanup_release EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 log=$work/release.log
 : >"$log"
 # KILN_RELEASE_NICE=1: build at the lowest CPU and IO priority (on a machine someone is using)
@@ -121,7 +140,8 @@ export KILN_SDK_VERSION=$version
 rm -rf "$KILN_OUT" && mkdir -p "$KILN_OUT"
 # no build paths in the binaries: the home folder and the export become neutral prefixes; KILN_RELEASE_BUILD drops
 # the "tree this was built from" defaults of kilnctl and kiln
-export RUSTFLAGS="--remap-path-prefix=$HOME=/build --remap-path-prefix=$src=/kiln" KILN_RELEASE_BUILD=1
+unset RUSTFLAGS
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/build"$'\x1f'"--remap-path-prefix=$src=/kiln" KILN_RELEASE_BUILD=1
 export ContinuousIntegrationBuild=true DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NO_STRIP=${NO_STRIP:-true}
 cache=${KILN_RELEASE_CACHE:-$HOME/.cache/kiln-release}
 mkdir -p "$cache"
@@ -136,7 +156,7 @@ nc=$(sed -n 's/^const VERSION = "\(.*\)";/\1/p' "$src/tools/vscode/scripts/fetch
 seed "netcoredbg-$nc-win64.zip" "$KILN_OUT/vscode/netcoredbg/$nc/netcoredbg-win64.zip" "$repo"/.out/*/netcoredbg/"$nc"/netcoredbg-win64.zip
 signing=0
 if "$here/authenticode.sh" available; then signing=1; note "Authenticode: signing Windows files"; else note "Windows files unsigned (no authenticode.env)"; fi
-sign_pe() { ((signing)) && "$here/authenticode.sh" sign "$@" | tee -a "$log"; return 0; }
+sign_pe() { if ((signing)); then "$here/authenticode.sh" sign "$@" | tee -a "$log"; fi; }
 # linux COMMAND...: runs a Linux build command (cargo, build-linux.sh, notices.py for the AppImage) where the Linux files
 # are built: the Ubuntu 22.04 container (tools/release/linux-build/run.sh; $src, $work and tools/release mounted at
 # their own paths), or this machine with --host-build. $lin_target is its cargo target dir. The updater key never goes
@@ -147,22 +167,23 @@ if ((host_build)); then
   linux() { low "$@"; }
   note "--host-build: the Linux files are built on this machine (glibc $(ldd --version | sed -n '1s/.* //p')): NOT portable, never publish this folder"
 else
-  glibc=$(realpath -ms "${KILN_GLIBC_DIR:-$repo/.out/glibc}")
   export KILN_GLIBC_DIR=$glibc
   lin_target=$glibc/cargo
   # the container's crate cache shows as /build/.cargo, like the host's ~/.cargo under the /build prefix above
-  lin_rustflags="$RUSTFLAGS --remap-path-prefix=$glibc/cargo-home=/build/.cargo"
+  lin_rustflags="$CARGO_ENCODED_RUSTFLAGS"$'\x1f'"--remap-path-prefix=$glibc/cargo-home=/build/.cargo"
   linux() {
     local nice=()
     [[ ${KILN_RELEASE_NICE:-} == 1 ]] && nice=(--nice)
-    CARGO_TARGET_DIR=$lin_target RUSTFLAGS=$lin_rustflags "$here/linux-build/run.sh" "${nice[@]}" \
+    CARGO_TARGET_DIR=$lin_target CARGO_ENCODED_RUSTFLAGS=$lin_rustflags "$here/linux-build/run.sh" "${nice[@]}" \
       --mount "$src" --mount "$work" --ro "$here" \
-      --env KILN_GIT --env SOURCE_DATE_EPOCH --env KILN_OUT --env CARGO_TARGET_DIR --env KILN_SDK_VERSION --env RUSTFLAGS \
+      --env KILN_GIT --env SOURCE_DATE_EPOCH --env KILN_OUT --env CARGO_TARGET_DIR --env KILN_SDK_VERSION --env CARGO_ENCODED_RUSTFLAGS \
       --env KILN_RELEASE_BUILD --env ContinuousIntegrationBuild --env NO_STRIP -- "$@"
   }
   step "Linux build image (Ubuntu 22.04, glibc $glibc_max)"
   image=$("$here/linux-build/image.sh" 2>>"$log") || { tail -40 "$log" >&2; die "the Linux build image did not build"; }
-  note "Linux files: built in $image; cargo target $lin_target"
+  KILN_LINUX_IMAGE=$(docker image inspect --format '{{.Id}}' "$image")
+  export KILN_LINUX_IMAGE
+  note "Linux files: built in $image ($KILN_LINUX_IMAGE); cargo target $lin_target"
 fi
 
 # ---------------------------------------------------------------- 3. dependencies, command-line tools
@@ -214,7 +235,7 @@ runtime_version=$(basename "$runtime_zip" .zip); runtime_version=${runtime_versi
 note "runtime $runtime_version"
 
 # ---------------------------------------------------------------- 5. launcher
-resources() { printf '{"bundle":{"resources":{"%s":"THIRD-PARTY-NOTICES.txt","%s":"LICENSE.txt"}}}' "$1" "$src/LICENSE"; }
+resources() { python3 -c 'import json,sys; print(json.dumps({"bundle":{"resources":{sys.argv[1]:"THIRD-PARTY-NOTICES.txt",sys.argv[2]:"LICENSE.txt"}}}))' "$1" "$src/LICENSE"; }
 step "launcher: Linux"
 # rpm versions can't hold "-": a dev build (X.Y.Z-dev.N) has no rpm
 bundles=appimage,deb
@@ -222,7 +243,8 @@ bundles=appimage,deb
 rm -rf "$lin_target/release/bundle"
 if ! (cd "$src" && linux tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" \
     --config "$(resources "$notices")" >>"$log" 2>&1); then
-  note "the rpm did not build; building AppImage and deb only"
+  [[ $bundles == *,rpm ]] || die "the Linux launcher build failed (see $log)"
+  note "the build with rpm failed; building AppImage and deb only"
   bundles=appimage,deb
   (cd "$src" && quiet linux tools/launcher/build-linux.sh --bundles $bundles --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
 fi
@@ -233,8 +255,8 @@ appimage=$(ls -t "$lin"/*.AppImage | head -1)
 step "notices for the AppImage's bundled libraries"
 rm -rf "$work/appimage-root" && mkdir -p "$work/appimage-root"
 unsquashfs -q -n -o "$(python3 "$lib/release.py" offset "$appimage")" -d "$work/appimage-root/r" "$appimage" >/dev/null
-(cd "$src" && linux python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" \
-  --dotnet-root "$src/.cache/dotnet-win-x64/root" "${nuget_args[@]}" --appimage-root "$work/appimage-root/r") | tee -a "$log"
+(cd "$src" && linux python3 "$lib/notices.py" --src "$src" --out "$notices" \
+  --append-appimage --appimage-root "$work/appimage-root/r") | tee -a "$log"
 rm -rf "$work/appimage-root"
 (cd "$src" && quiet linux tools/launcher/build-linux.sh --bundles appimage --runtime "$runtime_zip" --version "$version" --config "$(resources "$notices")")
 appimage=$(ls -t "$lin"/*.AppImage | head -1)
@@ -365,7 +387,7 @@ pass_file=$key.password
 updater_files=("$out/linux/$A")
 [[ -n $setup ]] && updater_files+=("$out/windows/$S")
 for f in "${updater_files[@]}"; do
-  (cd "$src/launcher" && TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "$pass_file")" \
+  (set +x; cd "$src/launcher" && TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "$pass_file")" \
     bun x tauri signer sign -f "$key" --app-version "$version" "$f" >/dev/null 2>&1) || die "signing $f failed"
   note "signed $(basename "$f")"
 done

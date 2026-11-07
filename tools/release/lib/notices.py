@@ -253,7 +253,8 @@ def appimage_libs(root):
             for cmd in (["pacman", "-Qqo", sys_path], ["dpkg", "-S", sys_path], ["dpkg", "-S", re.sub(r"^/usr/lib/", "/lib/", sys_path)]):
                 try:
                     out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True).strip()
-                    pkg = out.split(":")[0].strip() if cmd[0] == "dpkg" else out.splitlines()[0]
+                    # Keep the multiarch qualifier for dpkg-query (libfoo:amd64: /path).
+                    pkg = out.splitlines()[0].rsplit(": ", 1)[0].strip() if cmd[0] == "dpkg" else out.splitlines()[0]
                     break
                 except (OSError, subprocess.CalledProcessError):
                     continue
@@ -272,7 +273,7 @@ def appimage_libs(root):
                     ver, url = (out.split("\t", 1) + [""])[:2]
                 except (OSError, subprocess.CalledProcessError):
                     pass
-            for d in (f"/usr/share/licenses/{pkg}", f"/usr/share/doc/{pkg}"):
+            for d in (f"/usr/share/licenses/{pkg}", f"/usr/share/doc/{pkg.split(':')[0]}"):
                 for p in license_files(d):
                     texts.append((os.path.basename(p), read(p)))
             for spdx in re.split(r"[ ,()]+", lic):
@@ -290,8 +291,18 @@ def main():
     ap.add_argument("--version", default="")
     ap.add_argument("--dotnet-root")
     ap.add_argument("--appimage-root")
+    ap.add_argument("--append-appimage", action="store_true", help="append only the bundled system libraries to existing host notices")
     ap.add_argument("--nuget-assets", action="append", default=[])
     a = ap.parse_args()
+    if a.append_appimage:
+        if not a.appimage_root or not os.path.isfile(a.out):
+            ap.error("--append-appimage needs --appimage-root and an existing --out")
+        n = Notices()
+        n.add("System libraries bundled in the Linux AppImage", appimage_libs(a.appimage_root))
+        with open(a.out, "a", encoding="utf-8") as f:
+            f.write("\n" + n.render(""))
+        print(f"notices: appended AppImage libraries to {a.out}")
+        return
     src = os.path.abspath(a.src)
     n = Notices()
     n.add("Rust crates (the launcher, kilnctl and the kiln CLI; Linux and Windows)", cargo_crates(src))

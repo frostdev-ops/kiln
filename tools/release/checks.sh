@@ -99,23 +99,31 @@ check_wine_cli() {
 }
 
 check_rpm() {
-  local listing
-  listing=$(7z l "$out/linux/$R")
-  echo "$listing" | tail -20
-  local d; d=$(mktemp -d -p "$ck")
-  (cd "$d" && 7z x -y "$out/linux/$R" >/dev/null && 7z x -y ./*.cpio* >/dev/null 2>&1 || true)
-  find "$d" -path '*usr/bin/kiln-launcher' | grep -q .
+  python3 -I - "$lib/release.py" "$out/linux/$R" "$ck" <<'PY'
+import importlib.util, os, sys, tempfile
+spec = importlib.util.spec_from_file_location("release", sys.argv[1])
+r = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(r)
+with tempfile.TemporaryDirectory(dir=sys.argv[3]) as d:
+    r.extract("rpm", sys.argv[2], d)
+    if not any(os.path.isfile(os.path.join(base, "kiln-launcher")) and base.endswith("/usr/bin")
+               for base, _, _ in os.walk(d)):
+        sys.exit("rpm has no usr/bin/kiln-launcher")
+PY
 }
 
 check_cli_versions() {
   local a b
-  a=$("$out/runtime/kilnctl" --version) b=$("$out/sdk/kiln" --version)
+  a=$("$out/runtime/kilnctl" --version) || return
+  b=$("$out/sdk/kiln" --version) || return
   echo "kilnctl: $a; kiln: $b"
-  [[ $a == kilnctl* && $b == kiln* ]]
+  [[ $a == 'kilnctl '* && $b == 'kiln '* ]]
 }
 
 check_start_ubuntu() { # the Linux files on a clean Ubuntu 22.04 (start-test.sh: a throwaway container, needs network)
-  "$here/linux-build/start-test.sh" "$out" --distro ubuntu22 --out "$ck/start-ubuntu22" --wait 5
+  local dist=${1:-direct} suffix=""
+  [[ $dist == direct ]] || suffix=-nexus
+  "$here/linux-build/start-test.sh" "$out" --distro ubuntu22 --distribution "$dist" --out "$ck/start-ubuntu22$suffix" --wait 5
 }
 
 check_template() {
@@ -181,14 +189,17 @@ run_checks() {
   check "kilnctl and kiln --version (Linux)" check_cli_versions
   # every Linux ELF (the AppImage's own files, the deb's, the rpm's, kilnctl, kiln) must run on glibc $glibc_max: the
   # Steam Deck and Ubuntu 22.04 (release.sh builds them in the Ubuntu 22.04 container; --host-build fails here)
-  check "every Linux ELF needs glibc ${glibc_max:-2.35} at most (objdump -T -p, AppImage/deb/rpm unpacked)" \
+  check "every Linux ELF needs glibc ${glibc_max:-2.35} at most (objdump -p requirements, archives unpacked)" \
     python3 "$lib/release.py" glibc "$out" --max "${glibc_max:-2.35}" --tmp "$ck"
   check "kilnctl, kiln and the AppImage start on a clean Ubuntu 22.04 (--selftest, the launcher's window; screenshot in checks/start-ubuntu22)" \
     check_start_ubuntu
+  check "Nexus AppImage starts on a clean Ubuntu 22.04 (distribution nexus; screenshot in checks/start-ubuntu22-nexus)" \
+    check_start_ubuntu nexus
   check "dotnet new kiln-mod from the packed templates builds against the packed SDK (local feed)" check_template
   check "the vsix lists its files" check_vsix
   if ((signing)); then check "Authenticode signatures verify" check_authenticode; fi
   check "no game data, home paths, keys, passwords or tokens in any file or archive" \
     python3 "$lib/release.py" scan "$out" --tmp "$ck" --secret-file "$key.password" --secret-file "$key" \
-    --secret-file "$HOME/.config/kiln-release/authenticode.env"
+    --secret-file "${KILN_AUTHENTICODE_ENV:-$HOME/.config/kiln-release/authenticode.env}" \
+    --secret-file "$HOME/.config/kiln-release/nexus.env"
 }
