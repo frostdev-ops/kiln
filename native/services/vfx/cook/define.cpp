@@ -506,8 +506,8 @@ void parse_particle(P& p, const ojson& v, const std::string& path, ParticleDef* 
         double need = 0;
         const double life = d->life.max;
         const double loops = d->loop && d->duration > 0 ? std::ceil(life / d->duration) + 1 : 1;
-        need += d->burst * loops;
-        need += std::ceil(d->rate * life) + (d->rate > 0 ? 1 : 0);
+        need += d->burst * loops * KX_MAX_FACTOR;
+        need += std::ceil(d->rate * KX_MAX_FACTOR * life) + (d->rate > 0 ? 1 : 0);
         if (need > KILN_VFX_MAX_PARTICLES)
             p.warn(path, "wants " + std::to_string(static_cast<int64_t>(need)) + " particles alive at once; held to " + std::to_string(KILN_VFX_MAX_PARTICLES));
         d->max_count = static_cast<uint32_t>(std::clamp(need, 1.0, static_cast<double>(KILN_VFX_MAX_PARTICLES)));

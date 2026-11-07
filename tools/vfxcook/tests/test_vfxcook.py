@@ -374,17 +374,17 @@ class FieldValues(Base):
 
     def test_max_count_follows_what_the_block_can_keep_alive(self):
         _, v, _ = self.one({"particles": [{"burst": 24, "lifetime": 1}]})
-        self.assertEqual(v["particles"][1]["maxCount"], 24)
+        self.assertEqual(v["particles"][1]["maxCount"], 24 * 16)
 
     def test_max_count_derived_with_a_rate(self):
         c = cook(Mod(self.tmp / "r", "r", {"x": {"particles": [{"rate": 100, "lifetime": 2}]}}), tmp=self.tmp / "r")
         v = c.decoded(c.blocks()["x"]["guid"], "keen::VfxResource")
-        self.assertEqual(v["particles"][1]["maxCount"], 201)
+        self.assertEqual(v["particles"][1]["maxCount"], 3201)
 
     def test_loops_and_bursts_overlap(self):
         c = cook(Mod(self.tmp / "r", "r", {"x": {"particles": [{"burst": 10, "loop": True, "duration": 0.5, "lifetime": 1}]}}), tmp=self.tmp / "r")
         v = c.decoded(c.blocks()["x"]["guid"], "keen::VfxResource")
-        self.assertEqual(v["particles"][1]["maxCount"], 30)
+        self.assertEqual(v["particles"][1]["maxCount"], 30 * 16)
 
     def test_a_derived_count_holds_at_the_limit(self):
         c = cook(Mod(self.tmp / "r", "r", {"x": {"particles": [{"rate": 10000, "lifetime": 10}]}}), tmp=self.tmp / "r")

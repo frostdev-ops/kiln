@@ -47,6 +47,8 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         KilnPlay play = kPlay(p.instance);
         float3 color = max(kParamF3(p.params + KL_COLOR) * play.tint * (brightness * play.brightness), float3(0.0f, 0.0f, 0.0f));
         if (radius > 0.0f && any(color > 0.0f) && kFinite(world) && kFinite(color) && !kCulled(world, radius)) {
+            // The draw record stores colour as half floats; a finite f32 can still overflow that format to infinity.
+            color = min(color, float3(65504.0f, 65504.0f, 65504.0f));
             uint counterOff = kUpdateU(KU_POINT_LIGHT_COUNT);
             uint n = kCounterAdd(counterOff, 1u);
             if (n >= kUpdateU(KU_POINT_LIGHT_CAP)) {

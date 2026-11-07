@@ -8,7 +8,7 @@ the game.
 ## Short answer
 | Kind of shader | What it gives a mod | Feasible | Status (2026-11-07) |
 |---|---|---|---|
-| **Particle compute module** (level D, `ShaderBlock`) | Its own per-particle code: motion, forces, spawn placement, colour, size, rotation. Drawn by the game's own sprite shaders | **Yes, built** | Kit, build tool, checks, fallback, sample. Proven on the CPU harness; not yet in the game (checklist P1–P5) |
+| **Particle compute module** (level D, `ShaderBlock`) | Its own per-particle code: motion, forces, spawn placement, colour, size, rotation. Drawn by the game's own sprite shaders | **Yes** | Built (0.2.0-dev.16) as *hooks*: a verified hook module linked into Kiln's sprite at start (§1); CPU and GPU harness, not yet seen in the game |
 | **Transparent surface shader, one slot** (E1) | A model drawn with a mod's own fragment code, unlit, 10 parameters from its material | **Yes, not built** | Design and plan below (job M, ~2–3 sessions) |
 | Many transparent / particle pixel shaders (E2) | A pixel look per sprite or per material | Yes, at more cost | Plan in `docs/kiln/vfx-plan.md` (L) |
 | Opaque surface shaders (F1/F2) | Any model's G-buffer code, vertex displacement | Yes, with a large blast radius | Plan in `docs/kiln/vfx-plan.md` (L–XL) |
@@ -22,26 +22,50 @@ mod's SPIR-V needs no hook at all, only data. Every surface path needs code subs
   group size `{32,1,1}` (`docs/re/vfx.md` §6.3, §6.4). Kiln's three starter modules use exactly this; a mod's module is one more blob.
 - The ABI is fixed by the layout: set 1 bindings 0–90, push constant `VfxPushConstants`. Every one of the game's 2,921 modules fits it, and the
   kit declares a subset (`native/services/vfx/shaders/kiln_vfx.hlsl`).
-- **Risk that stays:** a module runs on shared buffers (counters, free lists, draw lists). The kit puts every protocol step in Kiln's code
-  (`kiln_particle_main.hlsl`); a mod writes only hooks that change a particle's state and look. A hook can still produce wild values; the kit
-  then kills the particle (non-finite, out of the world) and clamps scale. It can also loop for a long time: a GPU hang is possible with a
-  deliberately bad module. That is why it needs `"advanced": true` (decision #5 of the plan) and has off switches.
+- **Trust boundary:** the kit alone cannot sandbox a whole module: helpers can be bypassed and SPIR-V hand-edited, so an allowed binding
+  still exposes a whole shared buffer, and a stamp, a binding list or `spirv-val` prove nothing about termination. (That was the first design;
+  a review refused it, and until 0.2.0-dev.16 mod modules always fell back.) The design now is that a mod never ships a particle module:
+  it ships **hook functions**, and Kiln builds the module.
 
-### What Kiln checks before the game sees a mod's module
-`native/services/vfx/cook/shader.cpp`, at cook and at every boot; anything failing falls back to Kiln's own sprite (the block keeps its id
-and still shows, and the game never compiles the module):
+### What Kiln does with a mod's hook module (`native/services/vfx/cook/spvlink.cpp`)
+At every start (and in `kiln-vfxcook shader build|check|link`, the same code), before the game or the driver sees anything:
 
+| Step | What | Why |
+|---|---|---|
+| Parse | Every instruction against an allowlist with its operand layout (opcode, word count, which words are ids, types, labels, literals); SPIR-V's section order; ids defined once, within the bound (≤ 2^20); hook module ≤ 256 KB | Nothing unknown reaches the linker; a truncated or garbled module is refused, never read past its end (fuzzed under ASan/UBSan: 8,000 mutants of the final code, no crash or sanitizer report) |
+| Memory | Only Function and Private pointer types; only Private globals; pointers produced only by variables, parameters and access chains; loads, stores, calls, access chains, composites, phis and returns type-checked; values used only in their own function, where their definition dominates | Hook code can't express a buffer access, a forged pointer or an undefined value |
+| Indices | Struct indices constant and in range; constant array/vector indices in range; dynamic ones clamped at link time with `GLSL.std.450 UMin(i, n-1)` (also `OpVectorExtractDynamic`/`InsertDynamic`) | No out-of-bounds access to local memory |
+| Termination | No recursion (acyclic call graph). Every DFS back edge targets a block with `OpLoopMerge`. With each header's edges replaced by the edge to its merge block, the CFG must be acyclic. At link time each header increments a Private counter and branches to its merge once the counter passes the cap; `OpUnreachable` (which follows an endless loop's merge) becomes a return. Kiln's trampoline resets the counter before each hook call | Before the cap: at most `cap` header passes, and header-free paths are acyclic. After the cap: execution follows the acyclic graph above. So every hook call ends |
+| Budget | Straight-line cost = instructions + the callee's cost at every call site; must be ≤ 16,384; loop cap = 16,384 / cost | A hook call runs at most about 2 × 16,384 instructions |
+| Shape | Capability `Shader` only, no extensions, memory model Logical GLSL450; arithmetic, logic, conversions, composites, structured control flow, GLSL.std.450 without pointer, interpolation or 64-bit forms; operand shapes of each checked like `spirv-val` | No barriers, atomics, images, derivatives, subgroups, `OpKill`, or ill-typed arithmetic for the driver |
+| Link | Hook types deduplicated against Kiln's undecorated types; constants and functions renumbered after Kiln's ids; the hooks' signatures must equal Kiln's link points; the stub bodies of `kiln_hook_spawn/update/draw` in `kiln_sprite_hooked.spv` become trampolines; new Private variables join the entry point's interface | The served module is Kiln's sprite plus the hooks, and passes Kiln's own module check (entry `cs_main`, `LocalSize 32 1 1`, capabilities) |
+
+Kiln's sprite sanitizes what a hook hands back (`kSanitizeSprite`, `kSanitizeLook` in `kiln_particle.hlsl`) before it writes state or a draw
+record. `kiln_sprite_hooked.spv` is built with `glslangValidator -Od` (to keep the link points apart), the link points marked `DontInline`,
+then `spirv-opt -O` (`shaders/build.sh`). Hook modules are built with `glslangValidator -Od` too: glslc's HLSL legalisation always inlines.
+
+Not checked at start: SPIR-V's structured control-flow rules (a merge or continue target used from outside its construct) and the rest of
+`spirv-val`. A module that breaks them can only fail in the driver's compiler (a crash when the effect is first played); termination and memory
+safety above don't depend on them. `shader build` runs `spirv-val` on the linked module. Fuzzing the final code found 3 such accepted-but-invalid
+mutants in 8,000 (all structured-CFG rules: a continue target or back edge spirv-val's structural pass rejects), none that runs out of bounds or
+forever.
+
+Evidence: `tools/vfxcook/tests/test_shader_safety.py` (hand-written hostile modules: storage buffers, inputs, workgroup memory, barriers,
+atomics, headerless loops, merge blocks that lead back, recursion, pointer selects, undefined ids, huge arrays and modules, images, extensions,
+capabilities, `OpKill`, wrong signatures; truncations; random mutations), `native/services/vfx/shaders/test/test_mod_module.py` (the linked
+sample and hostile hooks run in the SPIR-V interpreter, which faults on any out-of-buffer access) and `test_gpu.py --stage hooks` (endless and
+nested endless loops, wild indices, NaN everywhere and a full-budget hook at 32,768 particles on an RTX 3080 Ti: worst tick 0.84 ms, no
+timeout, lists and state intact).
+
+### What Kiln checks on the linked module
 | Check | Why |
 |---|---|
 | SPIR-V ≤ 1.5, one entry `cs_main`, compute, `LocalSize 32 1 1` | What pipeline creation assumes (`0x1af940` hard-codes the group size); a mismatch is a fatal compile |
 | Capabilities `Shader`, `GroupNonUniform`, `GroupNonUniformArithmetic`, `SignedZeroInfNanPreserve`; extension `SPV_KHR_float_controls` only | What the game's own modules use, so what its device was created for |
-| ≤ 1 MiB (lint warns above 256 KB) | Compile time on the player's first play: the game's largest (1.76 MB) takes 9.9 s on an RTX 3080 Ti (`docs/re/vfx.md` §3.8) |
-| Every resource variable inside set 0 binding 2 and set 1 bindings 0–4, 9, 10, 13, 17, 39–42 | What the kit declares and Kiln has tested; no buffer device addresses |
-| An `OpSourceExtension "kiln-vfx-abi-N"` stamp equal to this Kiln's `KILN_VFX_ABI` | A module built against another parameter layout reads the wrong words. `kiln-vfxcook shader build` writes the stamp |
+| ≤ 1 MiB | Compile time on the player's first play: the game's largest (1.76 MB) takes 9.9 s on an RTX 3080 Ti (`docs/re/vfx.md` §3.8) |
+| An `OpSourceExtension "kiln-vfx-hooks-N"` stamp on the hook module equal to this Kiln's `KILN_HOOKS_ABI` | Only for a clear "rebuild" message: the stamp authorises nothing |
 | The mod's manifest says `"advanced": true` | Decision #5 |
 | `kiln/config/vfx.json` `"shaders": false` / `"skipShaderMods"` | Off switches that keep the effect (Kiln's sprite draws it) |
-
-`spirv-val --target-env vulkan1.2 --scalar-block-layout` passes on what the build tool writes (it isn't run at boot: no validator ships).
 
 ## 2. Surface shaders: what selects a raster pipeline **[refl] [data] [spv]**
 - Materials don't name shaders. `RenderEffectId` (11 values) and the flags pick among fixed pipelines in `renderer/renderer.gpc` (132 raster
@@ -79,7 +103,7 @@ Either way a bad module is a fatal compile ("Error compiling gpc pipeline", `0xa
   already names. The builder writes a `RenderMaterialResource` with effect Grid, `GridRfxRenderMaterial` data from up to 10 constants, no
   textures. `material.cpp`'s `build_material` is the one place that sets `Effect Pbr` today; the schema already reserves `shader`.
 - **Kit:** `kiln_surface.hlsl`: the fragment interface above, `KILN_SURFACE(float2 uv, KilnSurfaceParams p) -> float4`, built by
-  `kiln-vfxcook shader build` with `-fshader-stage=fragment -fentry-point=fs_main`, stamped like particle modules.
+  a hook function like the particle kit's, linked into a Kiln-owned `fs_main` by the same verifier and linker (`spvlink.cpp`).
 - **One shader per game:** there is one Grid pipeline, so one surface module per mod set. With several mods, each mod's function is linked into
   one module that switches on a constant in the material (an id word): that is E2's linker in small, and the reason E1 stops at one slot.
 - **Substitution:** way B in `native/services/vfx/surface.cpp`, through a callback kiln.ui would expose for shader-module creation (a request to
@@ -97,8 +121,7 @@ Either way a bad module is a fatal compile ("Error compiling gpc pipeline", `0xa
 | 4. `surface.cpp`: match, check, substitute; `kiln_surface.hlsl`; build tool stage | M | Harness: the substituted module draws in a headless Vulkan pipeline with the game's `vs_main` (as `tools/vfxcook/tests/material_gpu.py` does for G-buffer) |
 | 5. Builder, schema, C#, modelcook field, sample, checklist | S–M | Lab: built and served; client: the model shows the mod's pattern |
 
-Total M (2–3 sessions) plus one client RE session for step 1. Risk: a fatal compile on a module that passes the checks but that the driver
-refuses; mitigated by the interface check and by the module being built from the kit only.
+This is a feasibility plan. Its trust boundary would be the particle path's: mods supply verified hook functions, Kiln owns the entry point and every resource access.
 
 ## 4. What wasn't looked at
 The global descriptor set's layout (needed for time or light in a surface shader); the OIT variants' fragment interface (E2); `culling_2.gpc`

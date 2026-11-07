@@ -8,6 +8,7 @@ set(KILN_VFX_COOK_SOURCES
     ${KILN_VFX_COOK_DIR}/budget.cpp
     ${KILN_VFX_COOK_DIR}/starter.cpp
     ${KILN_VFX_COOK_DIR}/shader.cpp
+    ${KILN_VFX_COOK_DIR}/spvlink.cpp
     ${KILN_VFX_COOK_DIR}/define.cpp
     ${KILN_VFX_COOK_DIR}/build.cpp
     ${KILN_VFX_COOK_DIR}/texture.cpp
@@ -20,6 +21,7 @@ set(KILN_VFX_COOK_SOURCES
 function(kiln_vfx_cook_properties target)
     set_source_files_properties(${KILN_VFX_COOK_DIR}/starter.cpp PROPERTIES OBJECT_DEPENDS
         "${KILN_VFX_COOK_DIR}/../shaders/build/kiln_emitter.spv;${KILN_VFX_COOK_DIR}/../shaders/build/kiln_sprite.spv;${KILN_VFX_COOK_DIR}/../shaders/build/kiln_light.spv")
+    set_source_files_properties(${KILN_VFX_COOK_DIR}/spvlink.cpp PROPERTIES OBJECT_DEPENDS "${KILN_VFX_COOK_DIR}/../shaders/build/kiln_sprite_hooked.spv")
     if(MSVC)
         set_source_files_properties(${KILN_VFX_THIRD_PARTY}/bc7enc/bc7enc.cpp ${KILN_VFX_THIRD_PARTY}/bc7enc/rgbcx.cpp ${KILN_VFX_COOK_DIR}/texture.cpp PROPERTIES COMPILE_OPTIONS "/w")
     else()

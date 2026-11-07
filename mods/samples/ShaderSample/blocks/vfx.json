@@ -1,5 +1,6 @@
 {
-  // A particle effect drawn by this mod's own module (shaders/swirl.hlsl), next to the same effect on Kiln's sprite. Guide: docs/kiln/modding/shaders.md.
+  // A particle effect moved by this mod's own hooks (shaders/swirl.hlsl, linked into Kiln's sprite at start), next to the same effect on Kiln's sprite alone.
+  // Guide: docs/kiln/modding/shaders.md.
   "format": 1,
   "vfx": {
     "swirl": {
@@ -26,7 +27,8 @@
       ]
     },
     "swirl_broken": {
-      // names a module that fails its checks on purpose (shaders/build/broken.spv has no Kiln stamp): Kiln's sprite draws it instead, with a warning
+      // names a hook module that fails its checks on purpose (shaders/build/broken.spv was built without kiln-vfxcook, so it has no Kiln stamp):
+      // Kiln's sprite draws it instead, with a warning
       "particles": [
         {
           "burst": 24, "lifetime": 1, "speed": [1, 2], "spread": "sphere", "size": { "linear": [0.15, 0] }, "color": "#ff40a0",

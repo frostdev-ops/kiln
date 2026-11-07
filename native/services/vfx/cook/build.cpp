@@ -284,7 +284,7 @@ bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Gu
         if (p.loop || (p.duration <= 0 && p.rate > 0)) {
             loops = true;
         } else {
-            const float spawning = std::ceil(static_cast<float>(p.burst) / KILN_VFX_MAX_SPAWNS_PER_TICK) / 60.0f;
+            const float spawning = std::ceil(static_cast<float>(p.burst) * KX_MAX_FACTOR / KILN_VFX_MAX_SPAWNS_PER_TICK) / 60.0f;
             stop_after = std::max(stop_after, p.delay + p.duration + spawning + p.life.max);
         }
     }

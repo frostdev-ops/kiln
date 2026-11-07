@@ -60,9 +60,13 @@ void add_blob(CookResult& r, Shared& sh, const ContentHash& h, const uint8_t* da
     if (!sh.blobs.insert(content_hash_text(h)).second) return;
     r.blobs.push_back({h, Bytes(data, data + size), what});
 }
-void add_resource(CookResult& r, Shared& sh, const Guid& g, uint32_t type, Bytes data, const std::string& what, bool override = false) {
-    if (!sh.resources.insert(g).second) return;
-    r.resources.push_back({g, type, std::move(data), what, override});
+void add_resource(CookResult& r, Shared& sh, const Guid& g, uint32_t type, Bytes data, const std::string& what, bool override = false,
+                  const std::string& mod = {}) {
+    const bool fresh = sh.resources.insert(g).second;
+    // A second replacement of the same game material is kept on standby (kiln.vfx serves it if the first one's mod unloads); anything else
+    // under a GUID that is taken is dropped.
+    if (!fresh && !override) return;
+    r.resources.push_back({g, type, std::move(data), what, override, override ? mod : std::string(), !fresh});
 }
 
 }  // namespace
@@ -271,8 +275,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 if (!p.lit_set) p.lit = true;
             }
 
-        // A mod's own particle modules (ShaderBlock). Any problem draws the particle with Kiln's sprite instead, with a warning: the block keeps its
-        // id and still shows, and the game never compiles a module that failed a check.
+        // A mod's own particle hooks (ShaderBlock), verified and linked into Kiln's sprite (cook/spvlink.cpp). Any problem draws the particle with
+        // Kiln's sprite instead, with a warning: the block keeps its id and still shows, and the game never compiles a module that failed a check.
         std::map<std::string, Bytes> mod_modules;  // by path, those that passed
         for (Block& b : blocks)
             for (size_t i = 0; i < b.def.particles.size(); ++i) {
@@ -287,9 +291,18 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 else if (!safe_rel(p.shader)) why = "must be relative, inside the mod's folder";
                 if (why.empty() && !mod_modules.count(p.shader)) {
                     Bytes code;
-                    if (!read(mod.dir + "/" + p.shader, &code, &why)) why = "can't read it (" + why + ")";
-                    else if (std::string bad = check_mod_module(code.data(), code.size(), nullptr); !bad.empty()) why = bad;
-                    else mod_modules[p.shader] = std::move(code);
+                    Bytes linked;
+                    ModModuleInfo info;
+                    if (!read_mod_module(mod.dir + "/" + p.shader, &code, &why)) why = "can't read it (" + why + ")";
+                    else if (std::string bad = check_mod_module(code.data(), code.size(), &info, &linked); !bad.empty()) why = bad;
+                    else {
+                        // What the game compiles is Kiln's sprite with the verified hooks linked in, never the mod's bytes.
+                        std::string hooks;
+                        for (const std::string& h : info.hooks) hooks += (hooks.empty() ? "" : ", ") + h;
+                        diag.notes.push_back(mod.id + ": " + p.shader + ": hooks " + hooks + " linked into Kiln's sprite (" + std::to_string(info.cost) +
+                                             " instructions" + (info.loop_cap ? ", loops capped at " + std::to_string(info.loop_cap) + " passes" : "") + ")");
+                        mod_modules[p.shader] = std::move(linked);
+                    }
                 }
                 if (!why.empty()) {
                     diag.warnings.push_back(at + why + ": Kiln's own sprite draws this particle instead");
@@ -454,8 +467,9 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 add_blob(out, shared, content_hash(tail, tail_size), tail, tail_size, mod.id + " material " + m.info.name + " " + map.what + " mip tail");
             }
             if (m.info.replaces && shared.resources.count(m.built.guid))
-                diag.warnings.push_back(mod.id + ": material " + m.info.name + ": another mod earlier in the load order replaces " + guid_text(m.built.guid) + " already: that one draws");
-            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces);
+                diag.warnings.push_back(mod.id + ": material " + m.info.name + ": another mod earlier in the load order replaces " + guid_text(m.built.guid) +
+                                        " already: that one draws (this one stands by, and draws if that mod unloads)");
+            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces, mod.id);
             out.materials.push_back(std::move(m.info));
         }
         if (built_vfx.empty()) {

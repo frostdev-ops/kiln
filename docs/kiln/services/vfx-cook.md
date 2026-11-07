@@ -45,13 +45,13 @@ the build at start (`vfx: <mod>: blocks/<file>.json: vfx.<name>.gameSpriteModule
 | `rate` | per second; at most 64 spawn per tick | 0 |
 | `duration` | seconds of emission. 0 with a rate: until stopped | |
 | `delay`, `loop` | seconds; restart after the duration, which must be above 0 | 0, false |
-| `maxCount` | alive at once, 1 to 4096 | what burst, rate and lifetime can keep alive |
+| `maxCount` | alive at once, 1 to 4096 | capacity for count=16, capped at 4096 |
 | `lifetime`, `speed` | seconds, m/s: a number or `[min, max]` | 1, 1 |
 | `spread` | `"up"`, `"sphere"`, `"outward"` (away from the shape's centre), `{"cone": degrees}` | up |
 | `spawnRadius` | metres: start inside a sphere. The same as `"shape": {"sphere": r}` | 0 |
 | `shape` | `"point"`, `{"sphere": r, "inner": r2}`, `{"shell": r}`, `{"hemisphere": r, "inner": r2}`, `{"box": [x, y, z]}` (full sizes), `{"disc": r, "inner": r2}`, `{"ring": r}`, `{"line": length}` (along x), in the effect's space | point |
 | `align`, `stretch` | `"camera"` or `"velocity"`: a camera-facing quad turns to its motion; metres of extra length per m/s, 0 to 100, with `velocity` only | camera, 0 |
-| `shader` | advanced: a mod's own sprite module, `"shaders/build/x.spv"` or `{"file", "constants": [up to 8]}` ([shaders.md](../modding/shaders.md)). Needs `"advanced": true` in the manifest | Kiln's sprite |
+| `shader` | custom code is currently refused with sprite fallback; reserved path, `"shaders/build/x.spv"` or `{"file", "constants": [up to 8]}` ([shaders.md](../modding/shaders.md)). Needs `"advanced": true` in the manifest | Kiln's sprite |
 | `gravity`, `acceleration` | m/s² on world y; `[x, y, z]`, added together | 0 |
 | `drag` | per second | 0 |
 | `spin`, `roll` | degrees per second, degrees at spawn: a number or `[min, max]` | 0 |
@@ -147,7 +147,7 @@ The report is JSON. The result is `KILN_OK`, `KILN_ERR_INVALID_ARGUMENT` when so
 
 - `notes`: what a block chose on purpose and is still worth knowing (`gameSpriteModule`). Kiln.Blocks logs only the `warnings`.
 - `status`: `"registered"` means the game has this block with this definition; `"pending"` means it's there from the next start. A block with errors isn't listed.
-- `stopAfterSeconds`: how long a one-shot runs: its delay, duration and longest particle life. `Vfx.PlayAt` without a `lifetime` applies it on its own. It's absent when `loops` is true: such an effect keeps the rule for other VFX ([vfx.md](vfx.md)), so pass `Vfx.UntilStopped` to keep it going.
+- `stopAfterSeconds`: a conservative one-shot lifetime: delay, duration, longest particle life and spawn time at count=16. `Vfx.PlayAt` without a `lifetime` applies it on its own. It's absent when `loops` is true: such an effect keeps the rule for other VFX ([vfx.md](vfx.md)), so pass `Vfx.UntilStopped` to keep it going.
 - `budget`: this document alone, against the game's numbers. The boot count over all mods is what decides; `build_status` returns it in the same shape, with `"fingerprint"`.
 - The manifest rule (`clients`) is checked at boot, not here. A pending file stays until deleted, even if the mod stops defining that block.
 
@@ -193,9 +193,10 @@ kiln-vfxcook id MOD KIND NAME              # a block's GUID
 kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
 kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
 kiln-vfxcook material-roundtrip FILE       # {u32 size, bytes} records of RenderMaterialResources, rewritten by the builder's own code
-kiln-vfxcook shader build --mod DIR [--glslc PATH]   # a mod's shaders/*.hlsl -> shaders/build/*.spv against the particle kit, stamped, checked
-kiln-vfxcook shader check FILE.spv ...     # the checks kiln.vfx runs at boot (JSON)
-kiln-vfxcook shader kit --out DIR          # the kit's headers
+kiln-vfxcook shader build --mod DIR [--glslang PATH] [--linked]   # a mod's shaders/*.hlsl -> hook modules shaders/build/*.spv: stamped, verified, test-linked
+kiln-vfxcook shader check FILE.spv ...     # the verify-and-link kiln.vfx runs at boot (JSON: hooks, cost, loop cap, clamped indices)
+kiln-vfxcook shader link FILE.spv --out LINKED.spv   # the linked module the game would compile (for the harnesses)
+kiln-vfxcook shader kit --out DIR          # the hook kit's headers
 ```
 
 `cook` writes what the game would be served: `assets.json`, `cooked/` and `report.json`, the report above plus which file is what. It exits 1 on any error
@@ -219,12 +220,30 @@ layouts match its reflection, and the fingerprint and budget match its files.
 2. If a layout moved, rebuild the modules and the builder against it, and update `expected_layouts` and `kBindingHash`. Mods' JSON and C# need no change.
 3. Run the tests with the game installed. They fail if the game's mesh memory, sound count or streamed textures moved. Those can't be read at boot without decompressing resources, so `GameCounts` holds them as measured.
 
-## Mods' own particle modules
-A particle with `shader` names a module the mod ships. At every boot it is read, checked (`check_mod_module` in `cook/shader.cpp`: SPIR-V ≤ 1.5,
-`cs_main`, `LocalSize 32 1 1`, the game's capabilities, ≤ 1 MiB, every resource inside the kit's bindings, this ABI's stamp) and served under its
-`ContentHash`, and the particle's child entry names it instead of `kiln_sprite`. Anything failing, the manifest without `"advanced": true`, or
-`kiln/config/vfx.json` `"shaders": false` / `"skipShaderMods": [...]` draws the particle with Kiln's sprite instead and logs why once: the block keeps
-its id. `report.json` counts what was served in `modModules`; at boot: `vfx: N particle shader(s) of mods passed their checks and are served`.
+## Mods' own particle hooks
+A particle's `shader` names a *hook module*: SPIR-V of a mod's hook functions only, built from `kiln_hooks.hlsl` + `kiln_hooks_main.hlsl`.
+`check_mod_module` (`cook/shader.cpp`) reads at most 1 MiB before allocating, then `link_hook_module` (`cook/spvlink.cpp`) verifies it and links
+it into `linkable_sprite()` (`shaders/build/kiln_sprite_hooked.spv`, embedded like the starter modules). The VFX entry's `strippedCode` names the
+**linked** module, which is the blob served: never the mod's bytes. The safety model (memory, termination, budget, shape) is in
+[shaders.md](../modding/shaders.md#how-it-is-kept-safe) and the evidence in `docs/re/shaders.md` §1. `advanced: true` is required; `shaders: false`
+and `skipShaderMods` force the fallback to Kiln's sprite. The report's notes say what linked: `<mod>: <file>: hooks update, draw linked into
+Kiln's sprite (N instructions, loops capped at M passes)`.
+
+## Mods' materials in place of the game's ("replaces")
+A replacement is built under the game material's GUID and listed in `resources` with `override` and its `mod`; a second mod replacing the same
+GUID is listed with `standby` (the report's `served.standby`; not in `assets.json`). kiln.vfx serves each override under an owner
+`vfx-reskin:<mod>` (never its own), ties it to the mod's owner when Kiln.Blocks compiles the block (`define_json`'s owner), and on a tick probes
+that owner once a second: when it is revoked (the mod unloaded) the override is removed and the next mod in load order, if any, is served. See
+[materials.md](../modding/materials.md#it-belongs-to-your-mod).
+
+## Cooked ABI compatibility
+The JSON format remains 1. Particle ABI 2 grows the sprite block from 272 to 328 bytes and sprite state from 60 to 64 bytes;
+it adds the five play parameters. Older, self-contained cooked ABI 1 assets keep their original modules by content hash and have
+no play parameters and zero defaults. The offline strict checker accepts that layout as well as ABI 2, rejecting mixed root ABIs.
+Re-cooking source definitions produces ABI 2; do not substitute an ABI 2 module into an ABI 1 asset or merely change its stamp.
+
+Game-material `replaces` is refused, including for nonexistent GUIDs: boot assets belong to the VFX service and cannot currently
+restore the game's material when the requesting mod unloads. New mod materials remain supported.
 
 ## Not done yet
 - The sound of a VFX, decals, fog and custom meshes.

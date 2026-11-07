@@ -124,13 +124,19 @@ class ModModule(Base):
         h = v["particles"][1]["strippedCode"]["hash"]
         return (h["size"], h["hash0"], h["hash1"], h["hash2"])
 
-    def test_served_and_named_by_its_entry(self):
+    def test_linked_and_served_never_the_mods_bytes(self):
         c = cook(self.mod(), tmp=self.tmp)
         self.assertEqual(c.report["modModules"], 1)
         code = self.entry_code(c, "a")
         self.assertNotEqual(code, self.entry_code(c, "plain"))
-        self.assertEqual(code[0], len(self.module()))
-        self.assertEqual(c.blob(dict(zip(("size", "hash0", "hash1", "hash2"), code))), self.module())
+        served = c.blob(dict(zip(("size", "hash0", "hash1", "hash2"), code)))
+        self.assertNotEqual(served, self.module())
+        self.assertGreater(len(served), len(self.module()))
+        self.assertTrue(any("hooks update, draw linked into Kiln's sprite" in n for n in c.report["notes"]), c.report["notes"])
+        # what is served is what shader link writes
+        out = Path(self.tmp) / "linked.spv"
+        run("shader", "link", SAMPLE / "shaders/build/swirl.spv", "--out", out)
+        self.assertEqual(served, out.read_bytes())
         _, b = block_words(c, "a")
         self.assertEqual([struct.unpack_from("<f", b, P["KS_USER"] + 4 * i)[0] for i in range(4)], [1, 2, 3, 0])
 
@@ -146,11 +152,16 @@ class ModModule(Base):
         self.falls_back(cook(self.mod(files={}), tmp=self.tmp), "can't read it")
 
     def test_unstamped_falls_back(self):
-        self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": (SAMPLE / "shaders/build/broken.spv").read_bytes()}), tmp=self.tmp), "no Kiln ABI stamp")
+        self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": (SAMPLE / "shaders/build/broken.spv").read_bytes()}), tmp=self.tmp), "no Kiln hook stamp")
 
-    def test_other_abi_falls_back(self):
-        code = self.module().replace(b"kiln-vfx-abi-%d" % P["KILN_VFX_ABI"], b"kiln-vfx-abi-9")
-        self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": code}), tmp=self.tmp), "built for particle ABI 9")
+    def test_other_hook_abi_falls_back(self):
+        code = self.module().replace(b"kiln-vfx-hooks-%d" % P["KILN_HOOKS_ABI"], b"kiln-vfx-hooks-9")
+        self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": code}), tmp=self.tmp), "built for hook ABI 9")
+
+    def test_an_old_whole_module_falls_back_with_a_rebuild_hint(self):
+        old = bytearray((REPO / "native/services/vfx/shaders/build/kiln_sprite.spv").read_bytes())
+        from test_shader_safety import stamped
+        self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": stamped(bytes(old), "kiln-vfx-abi-2")}), tmp=self.tmp), "rebuild it")
 
     def test_garbage_falls_back(self):
         self.falls_back(cook(self.mod(files={"shaders/build/swirl.spv": b"\x03\x02\x23\x07" + b"\0" * 64}), tmp=self.tmp), "Kiln's own sprite")
@@ -162,37 +173,40 @@ class ModModule(Base):
         p = run("shader", "check", SAMPLE / "shaders/build/swirl.spv", SAMPLE / "shaders/build/broken.spv", ok=(1,))
         r = json.loads(p.stdout)
         self.assertEqual([x["ok"] for x in r], [True, False])
-        self.assertEqual(r[0]["abi"], str(P["KILN_VFX_ABI"]))
-        allowed = {(0, 2), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 9), (1, 10), (1, 13), (1, 17), (1, 39), (1, 40), (1, 41), (1, 42)}
-        self.assertTrue({tuple(b) for b in r[0]["bindings"]} <= allowed)
+        self.assertEqual(r[0]["abi"], str(P["KILN_HOOKS_ABI"]))
+        self.assertEqual(r[0]["hooks"], ["update", "draw"])
+        self.assertLessEqual(r[0]["cost"], r[0]["budget"])
 
-    @unittest.skipUnless(shutil.which("glslc"), "glslc not installed")
-    def test_build_command_stamps_and_refuses_an_extra_binding(self):
+    @unittest.skipUnless(shutil.which("glslangValidator"), "glslangValidator not installed")
+    def test_build_command_stamps_links_and_refuses_a_buffer(self):
         mod = Path(self.tmp) / "src"
         (mod / "shaders").mkdir(parents=True)
-        (mod / "shaders" / "good.hlsl").write_text('#include "kiln_particle.hlsl"\n'
+        (mod / "shaders" / "good.hlsl").write_text('#include "kiln_hooks.hlsl"\n'
                                                   'void up(inout KilnSprite s, KilnContext c) { s.velocity.y += c.user0.x * c.dt; }\n'
-                                                  '#define KILN_UPDATE up\n#include "kiln_particle_main.hlsl"\n')
-        (mod / "shaders" / "reach.hlsl").write_text('#include "kiln_particle.hlsl"\n'
-                                                   '[[vk::binding(22, 1)]] Texture3D<float> g_noise;\n'
-                                                   'void up(inout KilnSprite s, KilnContext c) { s.aux = g_noise.Load(int4(0, 0, 0, 0)); }\n'
-                                                   '#define KILN_UPDATE up\n#include "kiln_particle_main.hlsl"\n')
-        p = run("shader", "build", "--mod", mod, ok=(1,))
+                                                  '#define KILN_UPDATE up\n#include "kiln_hooks_main.hlsl"\n')
+        # the old kit's names still build a hook module
+        (mod / "shaders" / "old.hlsl").write_text('#include "kiln_particle.hlsl"\n'
+                                                 'void up(inout KilnSprite s, KilnContext c) { s.aux += 1.0f; }\n'
+                                                 '#define KILN_UPDATE up\n#include "kiln_particle_main.hlsl"\n')
+        (mod / "shaders" / "reach.hlsl").write_text('#include "kiln_hooks.hlsl"\n'
+                                                   '[[vk::binding(42, 1)]] RWByteAddressBuffer g_state;\n'
+                                                   'void up(inout KilnSprite s, KilnContext c) { g_state.Store(0, 1u); }\n'
+                                                   '#define KILN_UPDATE up\n#include "kiln_hooks_main.hlsl"\n')
+        p = run("shader", "build", "--mod", mod, "--linked", ok=(1,))
         r = {Path(x["source"]).name: x for x in json.loads(p.stdout)}
         self.assertTrue(r["good.hlsl"]["ok"], r)
+        self.assertTrue(r["old.hlsl"]["ok"], r)
+        self.assertIn(r["good.hlsl"]["validated"], ("spirv-val passed", "spirv-val not installed"))
         self.assertFalse(r["reach.hlsl"]["ok"])
-        self.assertIn("set 1 binding 22", r["reach.hlsl"]["problem"])
-        self.assertIn(b"kiln-vfx-abi-", (mod / "shaders/build/good.spv").read_bytes())
+        self.assertRegex(r["reach.hlsl"]["problem"], "storage class|outside what a hook module may use")
+        self.assertIn(b"kiln-vfx-hooks-", (mod / "shaders/build/good.spv").read_bytes())
+        self.assertTrue((mod / "shaders/build/good.linked.spv").exists())
 
     def test_sample_cooks(self):
         c = cook(SAMPLE, tmp=self.tmp)
         self.assertEqual(c.report["modModules"], 1)
         self.assertEqual(set(c.blocks()), {"swirl", "swirl_plain", "swirl_broken"})
-        self.assertTrue(any("swirl_broken" in w and "no Kiln ABI stamp" in w for w in c.report["warnings"]))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertTrue(any("swirl_broken" in w and "no Kiln hook stamp" in w for w in c.report["warnings"]))
 
 
 class ReplacingMaterial(Base):
@@ -203,7 +217,7 @@ class ReplacingMaterial(Base):
         (m.dir / "blocks" / "b.json").write_text(json.dumps({"format": 1, "materials": materials}))
         return m
 
-    def test_built_under_the_game_guid_and_served_as_an_override(self):
+    def test_built_under_the_game_guid_and_served_as_an_override_of_its_mod(self):
         c = cook(self.mod({"bench": {"replaces": self.GAME, "albedo": "t.png"}, "own": {"albedo": "t.png"}}), tmp=self.tmp)
         mats = {m["name"]: m for m in c.report["materials"]}
         self.assertEqual(mats["bench"]["guid"], self.GAME)
@@ -212,15 +226,62 @@ class ReplacingMaterial(Base):
         modes = {e["guid"]: e["mode"] for e in c.manifest["entries"] if e["kind"] == "resource"}
         self.assertEqual(modes[self.GAME], "override")
         self.assertEqual(modes[mats["own"]["guid"]], "new")
+        # served under the mod (kiln.vfx gives it an owner of that mod's), never under the service
+        served = {r["guid"]: r for r in c.report["served"]["resources"]}
+        self.assertEqual(served[self.GAME]["mod"], "rep")
+        self.assertNotIn("mod", served[mats["own"]["guid"]])
         # a replacement takes the game material's own slot
         self.assertEqual(c.report["budget"]["materials"]["mods"], 1)
         v = c.decoded(self.GAME, "keen::RenderMaterialResource")
         self.assertEqual([i["texture"]["content"]["bundleId"] for i in v["images"]][0], 0x39745562)
 
-    def test_mistakes(self):
+    def test_two_mods_replacing_one_material_first_in_load_order_draws_second_stands_by(self):
+        a = self.mod({"bench": {"replaces": self.GAME, "albedo": "t.png", "tint": "#ff0000"}}, name="first")
+        b = self.mod({"bench": {"replaces": self.GAME, "albedo": "t.png", "tint": "#0000ff"}}, name="second")
+        c = cook(a, b, tmp=self.tmp)
+        overrides = [e for e in c.manifest["entries"] if e.get("mode") == "override"]
+        self.assertEqual(len(overrides), 1)
+        self.assertEqual(c.report["served"]["resources"][[r["guid"] for r in c.report["served"]["resources"]].index(self.GAME)]["mod"], "first")
+        self.assertEqual([(s["mod"], s["guid"]) for s in c.report["served"]["standby"]], [("second", self.GAME)])
+        self.assertTrue(any("second: material bench" in w and "stands by" in w for w in c.report["warnings"]), c.report["warnings"])
+        # the other order: the other one draws (deterministic by load order)
+        c = cook(b, a, tmp=self.tmp)
+        self.assertEqual([s["mod"] for s in c.report["served"]["standby"]], ["first"])
+
+    def test_an_unknown_guid_cooks_and_is_left_to_the_game(self):
+        # Offline the builder can't know the game's materials; kiln.assets refuses the override at start and kiln.vfx logs it (the game's
+        # own draws). The block still builds under that GUID.
+        c = cook(self.mod({"x": {"replaces": "00000000-0000-0000-0000-000000000001", "albedo": "t.png"}}), tmp=self.tmp)
+        self.assertEqual(c.report["materials"][0]["guid"], "00000000-0000-0000-0000-000000000001")
+
+    def test_mistakes_name_the_replaces_field(self):
         c = cook(self.mod({"a": {"replaces": "workbench"}, "b": {"replaces": self.GAME, "was": "x"},
                            "c": {"replaces": self.GAME}, "d": {"replaces": self.GAME}}), tmp=self.tmp, ok=(1,))
         text = "\n".join(c.report["errors"])
         self.assertIn("materials.a.replaces", text)
         self.assertIn("materials.b.replaces", text)
         self.assertIn("another block of this mod replaces the same game material", text)
+
+
+class ParameterCapacity(Base):
+    def test_derived_capacity_and_timing_allow_the_maximum_count_factor(self):
+        from test_vfxcook import World, entries_of, patched
+        c = cook(Mod(self.tmp, "count", {"a": {"particles": [sprite(burst=8)]}}), tmp=self.tmp)
+        v = c.decoded(c.blocks()["a"]["guid"], "keen::VfxResource")
+        self.assertEqual(v["particles"][1]["maxCount"], 128)
+        self.assertAlmostEqual(c.blocks()["a"]["stopAfterSeconds"], 0.001 + 2 / 60 + 0.5, 5)
+        w = World(entries_of(c, v), resource=patched(v))
+        w.set_play(count=16)
+        for _ in range(2):
+            w.tick()
+            w.check()
+        self.assertEqual(len(w.draws()), 128)
+
+    def test_explicit_max_count_remains_a_hard_limit(self):
+        c = cook(Mod(self.tmp, "limit", {"a": {"particles": [sprite(maxCount=12)]}}), tmp=self.tmp)
+        v = c.decoded(c.blocks()["a"]["guid"], "keen::VfxResource")
+        self.assertEqual(v["particles"][1]["maxCount"], 12)
+
+
+if __name__ == "__main__":
+    unittest.main()

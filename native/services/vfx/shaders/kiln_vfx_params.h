@@ -11,6 +11,9 @@
 // against one ABI and refused under another (docs/kiln/modding/shaders.md).
 // 2 (2026-11-07): spawn shapes, velocity stretch, user constants, per-play parameters (KX_*).
 #define KILN_VFX_ABI 2
+// The layout of KilnSprite, KilnContext and KilnLook (kiln_hooks.hlsl) that a mod's hook module is built against. Stamped into the module
+// as "kiln-vfx-hooks-<n>" by kiln-vfxcook shader build; another one is refused and falls back to Kiln's sprite.
+#define KILN_HOOKS_ABI 1
 
 // ---- kiln_emitter: the root entry (depth 0). Spawns into its child entry. ---------------------------------------------
 #define KE_VERSION          0   // u32 KILN_VFX_ABI

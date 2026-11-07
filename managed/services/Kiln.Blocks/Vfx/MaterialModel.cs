@@ -76,7 +76,9 @@ public sealed record MaterialBlock : IBlock
     /// <summary>The name this block had before a rename. Ids come from the oldest name.</summary>
     public string? Was { get; init; }
     /// <summary>The GUID of one of the game's materials: this block draws in its place on every model that uses it, items, props and creatures alike.
-    /// Keep the original's <see cref="Kind"/>: the models carry its cutout and double-sided flags, and a mismatch draws wrong (never fatally). The block's id is that GUID.</summary>
+    /// Keep the original's <see cref="Kind"/>: the models carry its cutout and double-sided flags, and a mismatch draws wrong (never fatally). The block's id is that GUID.
+    /// The replacement belongs to this mod: unloading the mod takes it off (the game draws its own again from the next start), and if two mods replace the same
+    /// material the first in the load order draws (docs/kiln/modding/materials.md).</summary>
     public string? Replaces { get; init; }
 
     /// <inheritdoc cref="VfxBlock.Comment"/>

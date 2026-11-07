@@ -26,7 +26,7 @@ from gpu import GpuWorld, OUT  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--device", default="NVIDIA")
-ap.add_argument("--stage", default="suite")
+ap.add_argument("--stage", default="suite", help="suite|stress|compile|render|cooked|hooks")
 ap.add_argument("--cooked", help="for --stage cooked: a kiln-vfxcook --out folder")
 ap.add_argument("--validate", nargs="?", const="sync", choices=["sync", "gpuav"],
                 help="run under VK_LAYER_KHRONOS_validation: sync adds synchronization validation (default), gpuav adds GPU-assisted "
@@ -228,10 +228,52 @@ def compile_times():
     (RES / "compile.json").write_text(json.dumps(dict(device=DEV.info, ms=out, time=time.ctime()), indent=1))
 
 
+def hostile_hooks():
+    """Mods' hook modules written to hang or corrupt, linked as the cook links them, dispatched on the GPU at full particle counts. A hang
+    or a lost device ends the process with exit code 3 (gpu.py's 2 s fence timeout); a corrupted list or state fails the checks."""
+    import hooks
+    if not hooks.HAVE_GLSLANG:
+        print("hooks: glslangValidator not installed: skipped", flush=True)
+        return
+    head, tail = '#include "kiln_hooks.hlsl"\n', '#include "kiln_hooks_main.hlsl"\n'
+    cases = {
+        "endless loop": "while (true) { s.aux += 1.0f; }",
+        "three nested endless loops": "for (;;) { for (;;) { do { s.spin += 1.0f; } while (s.spin > -1.0f); } }",
+        "wild indices": "float a[4] = {1.0f, 2.0f, 3.0f, 4.0f}; int k = (int)(s.position.x * 1e9f); a[k] = 5.0f; "
+                        "s.velocity.x += 1e-3f * (a[k + 7] + c.user0[k] + s.position[k]);",
+        "NaN everywhere": "s.position = asfloat(0x7fc00000u); s.velocity = 1.0f / 0.0f; s.age = asfloat(0x7fc00000u);",
+        "the budget's worth of work": "for (int i = 0; i < 100000000; i++) { s.aux = sin(s.aux + 1.0f); }",
+    }
+    results = {}
+    for name, body in cases.items():
+        code, report = hooks.build_and_link(head + f"void up(inout KilnSprite s, KilnContext c) {{ {body} }}\n#define KILN_UPDATE up\n" + tail)
+        DEV.tag(f"hooks: {name}")
+        entries = []
+        for i in range(8):
+            entries += [Entry(EMITTER, depth=0, child=2 * i + 1, state_size=P["KE_STATE_SIZE"], params=emitter_block(burst=4096, duration=5.0)),
+                        Entry(code, depth=1, parent=2 * i, max_count=4096, state_size=P["KS_STATE_SIZE"], params=sprite_block(life=(5, 5)))]
+        w = World(entries, cap=8192)
+        peak = 0
+        for t in range(72):   # 64 spawns per tick: every slot is alive from tick 64
+            w.tick()
+            if t % 8 == 7:
+                w.check()
+                check_draws(w, f"{name} tick {t}", 8192)
+            peak = max(peak, sum(w.counter(w.active_counter(c)) for c, e in zip(w.chunks, w.entries) if e.depth == 1))
+        ms = w.gpu_ms
+        results[name] = dict(loops=report["loops"], loop_cap=report["loopCap"], clamped=report["clampedIndices"], peak_particles=peak,
+                             gpu_ms_avg=round(sum(ms) / len(ms), 3), gpu_ms_max=round(max(ms), 3))
+        print(name, results[name], flush=True)
+    (RES / "hooks.json").write_text(json.dumps(dict(device=DEV.info, results=results, time=time.ctime()), indent=1))
+    print("hooks ok", flush=True)
+
+
 if args.stage == "suite":
     run_suite()
 elif args.stage == "stress":
     stress()
+elif args.stage == "hooks":
+    hostile_hooks()
 elif args.stage == "compile":
     compile_times()
 elif args.stage == "render":

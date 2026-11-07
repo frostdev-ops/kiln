@@ -118,10 +118,28 @@ cooked. The block gets the game material's id, so it takes no new material slot 
   the material's `debugName` says what it is (`npc_props_workbench00` above).
 - **Keep the original's kind.** Models carry their materials' cutout, double-sided and shadow flags, so a replacement that changes them is drawn
   by the wrong shader variant: never fatal, but holes may fill or the back faces vanish.
-- It is a client-side look: a mod that only replaces materials may be `"side": "client"`. Two mods replacing one material: the first in the load
-  order draws, and the second logs a warning.
-- At boot: `vfx: N material(s) of mods draw in place of the game's own ("replaces")`. A GUID the game doesn't have: kiln.assets logs
-  `... is not in the game; 'override' skipped` and the game's own material draws (a dedicated server always says this: it has no materials).
+- It is a client-side look: a mod that only replaces materials may be `"side": "client"`.
+- `"was"` has no meaning on a replacement (its id is the game's), and one mod can replace a material once.
+
+### It belongs to your mod
+The replacement is built at start, like every material, and kiln.assets serves it as an override owned by **your mod** (an owner named
+`vfx-reskin:<mod>`), never by kiln.vfx. When Kiln.Blocks compiles the block as your mod loads, kiln.vfx ties the override to your mod's own
+lifetime:
+
+| What happens | What Kiln does | In kiln.log |
+|---|---|---|
+| The game starts | Serves the override | `vfx: <mod>: material <name> draws in place of the game material <GUID>` |
+| Your mod unloads (`kiln mods unload`, a failed reload, a dependency unloading) | Takes the override off within a second. If another mod replaces the same material, the next one in the load order is served | `vfx: <mod>: material <name> no longer replaces <GUID> (the mod unloaded): the game draws its own material again from the next start` |
+| Your mod loads again | Serves it again (the first in the load order wins back its place) | `vfx: <mod>: material <name> replaces <GUID> again (the mod loaded again)` |
+| Two mods replace one material | The first in the load order draws; the second stands by and draws if the first unloads | `vfx: <second>: material <name>: another mod earlier in the load order replaces <GUID> already: that one draws (this one stands by, ...)` |
+| The GUID is not a material of this game | Nothing replaced; the game's own draws | `vfx: <mod>: material <name>: kiln.assets refused to replace <GUID> (...): not a material of this game build? The game's own draws` |
+
+**What only changes at the next start.** The game reads every material once, when it starts, and keeps it. Taking the override off means
+kiln.assets no longer serves it, so the next start (with your mod disabled) draws the game's own material; models already on screen keep the
+replaced look until then. Kiln does not change any of the game's material state at run time, so there is nothing else to restore. A replacement
+that is new or changed since the start (from code, or an edited file) is kept for the next start, like any new material.
+
+A mod with only data files has no code to unload: its replacement lasts the session.
 
 ## Limits
 | What | Room | Over it |

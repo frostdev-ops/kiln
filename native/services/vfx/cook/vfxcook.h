@@ -123,19 +123,33 @@ const ModuleInfo& starter_module(Module m);
 // capabilities the game's own modules use. "" = fine, else why not.
 std::string check_module(const uint8_t* data, size_t size);
 
-// ---- a mod's own particle module (ShaderBlock, level D; cook/shader.cpp, docs/kiln/modding/shaders.md) --------------------------------
-constexpr size_t kMaxModModuleBytes = 1u << 20;   // the game's largest is 1.76 MB; lint warns above 256 KB
-struct ModModuleInfo {
-    size_t size = 0;
-    std::string abi;  // the stamp's ABI, "" without one
-    std::vector<std::pair<uint32_t, uint32_t>> bindings;
+// ---- a mod's own particle hooks (ShaderBlock, level D; cook/shader.cpp, cook/spvlink.cpp, docs/kiln/modding/shaders.md) -------------
+// A mod ships a *hook module*: SPIR-V of its hook functions only (kiln_hooks.hlsl + kiln_hooks_main.hlsl), never a whole particle module.
+// The cook verifies it and links it into Kiln's own sprite (linkable_sprite()); what the game compiles is that linked module.
+constexpr size_t kMaxModModuleBytes = 1u << 20;   // the linked module; the game's largest is 1.76 MB
+constexpr uint64_t kHookBudget = 16384;           // instructions one hook call may run: its straight-line cost times the loop cap
+struct HookLinkInfo {
+    std::string abi;                 // the stamp's hook ABI, "" without one
+    std::vector<std::string> hooks;  // "spawn", "update", "draw": those linked
+    uint32_t instructions = 0;       // in the hook module's functions
+    uint64_t cost = 0;               // the longest hook's straight-line instructions, callees counted at every call
+    uint32_t loops = 0;              // loop headers in linked code, each capped
+    uint32_t loop_cap = 0;           // loop header passes allowed per hook call (0: no loops)
+    uint32_t clamped = 0;            // dynamic indices clamped
+    size_t linked_size = 0;
 };
-// "kiln-vfx-abi-<KILN_VFX_ABI>": an OpSourceExtension that kiln-vfxcook shader build writes into a module.
-std::string shader_abi_marker();
-const std::set<std::pair<uint32_t, uint32_t>>& shader_allowed_bindings();
-// check_module, then: at most kMaxModModuleBytes, this ABI's stamp, every resource inside what the kit declares. "" = fine.
-std::string check_mod_module(const uint8_t* data, size_t size, ModModuleInfo* info);
-// Writes this ABI's stamp into a module (replacing an older one).
+using ModModuleInfo = HookLinkInfo;
+// "kiln-vfx-hooks-<KILN_HOOKS_ABI>": an OpSourceExtension that kiln-vfxcook shader build writes into a hook module.
+std::string hook_abi_marker();
+// shaders/build/kiln_sprite_hooked.spv: Kiln's sprite with three empty, separate kiln_hook_* functions (the link points).
+const ModuleInfo& linkable_sprite();
+// Bounded file read before allocating the module's bytes (untrusted mod input).
+bool read_mod_module(const std::string& path, Bytes* out, std::string* why);
+// Verifies an untrusted hook module and links it into linkable_sprite(). "" = fine and *linked holds the module to serve; else why not.
+std::string link_hook_module(const uint8_t* data, size_t size, Bytes* linked, HookLinkInfo* info);
+// The same, for the cook and kiln-vfxcook shader check.
+std::string check_mod_module(const uint8_t* data, size_t size, ModModuleInfo* info, Bytes* linked = nullptr);
+// Writes this hook ABI's stamp into a hook module (replacing an older one).
 bool stamp_module(Bytes* spv, std::string* why);
 
 // ---- per-play parameters (KX_* in kiln_vfx_params.h): the same on every Kiln VFX ---------------------------------------------------
@@ -369,6 +383,8 @@ struct ServedResource {
     Bytes data;
     std::string what;
     bool override = false;  // replaces a game resource of this GUID (a material's "replaces"): served as an override, not a new key
+    std::string mod;        // with override: the mod it belongs to. kiln.vfx serves it under an owner of that mod's, never its own
+    bool standby = false;   // with override: an earlier mod in the load order replaces the same material; this one draws only if that one unloads
 };
 
 struct BuiltTexture {

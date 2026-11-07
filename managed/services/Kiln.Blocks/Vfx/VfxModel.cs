@@ -75,7 +75,7 @@ public sealed record ParticleBlock
     public ParticleAlign? Align { get; init; }
     /// <summary>With <see cref="ParticleAlign.Velocity"/>: extra length in metres per metre per second of speed, 0 to 100.</summary>
     public float? Stretch { get; init; }
-    /// <summary>Advanced: your own particle module, compiled from HLSL against Kiln's particle kit (docs/kiln/modding/shaders.md). Needs <c>"advanced": true</c> in the mod's manifest. If it can't be
+    /// <summary>Advanced: this mod's own particle hooks, a hook module built from HLSL with <c>kiln-vfxcook shader build</c> and linked into Kiln's sprite at start (docs/kiln/modding/shaders.md). Needs <c>"advanced": true</c> in the mod's manifest. If it can't be
     /// used (missing, built for another Kiln, refused by a check, shaders turned off) Kiln's own sprite draws the particle, so the effect still shows.</summary>
     public ParticleShader? Shader { get; init; }
     /// <summary>Metres per second squared on world y: negative falls.</summary>
@@ -223,7 +223,7 @@ public enum ParticleAlign
     Velocity,
 }
 
-/// <summary>Advanced: a mod's own particle module. <c>"shaders/build/swirl.spv"</c>, or with <see cref="Constants"/> that the module reads as <c>c.user0</c> and <c>c.user1</c>.</summary>
+/// <summary>Advanced: a mod's own particle hooks (a hook module). <c>"shaders/build/swirl.spv"</c>, or with <see cref="Constants"/> that the hooks read as <c>c.user0</c> and <c>c.user1</c>.</summary>
 [JsonConverter(typeof(ParticleShaderConverter))]
 public sealed record ParticleShader(string File, IReadOnlyList<float>? Constants = null)
 {
@@ -423,22 +423,32 @@ internal sealed class SpawnShapeConverter : JsonConverter<SpawnShape>
         using var doc = JsonDocument.ParseValue(ref r);
         var e = doc.RootElement;
         if (e.ValueKind != JsonValueKind.Object) throw new JsonException("a shape is an object such as {\"sphere\": 2}");
-        float? inner = e.TryGetProperty("inner", out var i) ? i.GetSingle() : null;
+        string? kind = null;
+        JsonElement value = default;
         foreach (var p in e.EnumerateObject())
-            switch (p.Name)
-            {
-                case "inner" or "comment": break;
-                case "sphere": return SpawnShape.Sphere(p.Value.GetSingle(), inner);
-                case "shell": return SpawnShape.Shell(p.Value.GetSingle());
-                case "hemisphere": return SpawnShape.Hemisphere(p.Value.GetSingle(), inner);
-                case "disc": return SpawnShape.Disc(p.Value.GetSingle(), inner);
-                case "ring": return SpawnShape.Ring(p.Value.GetSingle());
-                case "line": return SpawnShape.Line(p.Value.GetSingle());
-                case "box" when p.Value.ValueKind == JsonValueKind.Array && p.Value.GetArrayLength() == 3:
-                    return SpawnShape.Box(p.Value[0].GetSingle(), p.Value[1].GetSingle(), p.Value[2].GetSingle());
-                default: throw new JsonException($"\"{p.Name}\" is not a shape; there are sphere, shell, hemisphere, box, disc, ring, line");
-            }
-        throw new JsonException("a shape needs one of sphere, shell, hemisphere, box, disc, ring, line");
+        {
+            if (p.Name is "inner" or "comment") continue;
+            if (kind != null) throw new JsonException("one shape at a time");
+            kind = p.Name;
+            value = p.Value;
+        }
+        float Number(JsonElement x) => x.ValueKind == JsonValueKind.Number && x.TryGetSingle(out var n) && float.IsFinite(n)
+            ? n : throw new JsonException("shape sizes must be finite numbers");
+        float? inner = e.TryGetProperty("inner", out var i) ? Number(i) : null;
+        if (inner != null && kind is not ("sphere" or "hemisphere" or "disc"))
+            throw new JsonException("inner applies only to sphere, hemisphere or disc");
+        return kind switch
+        {
+            "sphere" => SpawnShape.Sphere(Number(value), inner),
+            "shell" => SpawnShape.Shell(Number(value)),
+            "hemisphere" => SpawnShape.Hemisphere(Number(value), inner),
+            "disc" => SpawnShape.Disc(Number(value), inner),
+            "ring" => SpawnShape.Ring(Number(value)),
+            "line" => SpawnShape.Line(Number(value)),
+            "box" when value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 3
+                => SpawnShape.Box(Number(value[0]), Number(value[1]), Number(value[2])),
+            _ => throw new JsonException("a shape needs one of sphere, shell, hemisphere, box, disc, ring, line"),
+        };
     }
 
     public override void Write(Utf8JsonWriter w, SpawnShape v, JsonSerializerOptions o)

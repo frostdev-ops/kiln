@@ -78,7 +78,7 @@ A surface on the game's own shaders. Everything has a default: a material with n
 | `occlusion` | [materialPng](#materialpng) |  | Linear, in R. |
 | `params` | [materialPng](#materialpng) |  | The game's own layout, linear: R metallic, G roughness, B occlusion, A reflectance if reflectance says "params". |
 | `reflectance` | [unit](#unit) or `"params"` |  | Non-metal specular, a number. "params" reads it from the alpha of the params map. Default 0.503, what nearly all of the game's materials use. |
-| `replaces` | string |  | The GUID of one of the game's materials: this block draws in its place on every model that uses it (items, props, creatures). Keep its kind: the models carry the original's cutout and double-sided flags. Client-side only; a mod that only replaces may be side client. |
+| `replaces` | string |  | The GUID of one of the game's materials: this block draws in its place on every model that uses it (items, props, creatures). Keep its kind: the models carry the original's cutout and double-sided flags. Client-side only; a mod that only replaces may be side client. It belongs to this mod: unloading the mod takes it off (the game draws its own again from the next start); with two mods replacing one material the first in the load order draws. |
 | `roughness` | [unit](#unit) |  | The value without a map, a factor with one. Default by kind, 0.7 for opaque. |
 | `shader` | string |  | Reserved for surface shaders, which aren't built yet: Kiln refuses a material that names one. min length 1 |
 | `shadows` | boolean |  | Casts a shadow. Default true. |
@@ -138,7 +138,7 @@ A particle emitter. It needs a burst or a rate.
 | `rate` | number |  | Particles per second. At most 64 spawn per tick. min 0 |
 | `roll` | [value](#value) |  | Degrees at spawn: a number or [min, max]. |
 | `sampler` | `"wrap"` \| `"mirror"` \| `"clamp"` \| `"clampToZero"` |  | How the texture repeats. Default wrap. |
-| `shader` | string or object |  | Advanced: this mod's own particle module, a .spv built with kiln-vfxcook shader build (docs/kiln/modding/shaders.md). Needs "advanced": true in kiln.mod.json. If it can't be used, Kiln's own sprite draws the particle. |
+| `shader` | string or object |  | Advanced: this mod's own particle hooks, a hook module (.spv) built with kiln-vfxcook shader build and linked into Kiln's sprite at start (docs/kiln/modding/shaders.md). Needs "advanced": true in kiln.mod.json. If it can't be used, Kiln's own sprite draws the particle. |
 | `shape` | `"point"` or object or object or object or object or object or object or object |  | Where particles start, in the effect's space (its scale and rotation apply). Sizes in metres. Default: the effect's position. |
 | `size` | [curve](#curve) |  | Metres over the particle's life. Default 0.25. Above 64 is clamped. |
 | `spawnRadius` | number |  | Metres: start inside a sphere this big. Default 0, at the effect's position. The same as shape {"sphere": r}: say one or the other. min 0 |

@@ -79,9 +79,9 @@ class Sample(unittest.TestCase):
 
     def test_what_kiln_blocks_takes_for_a_length_is_what_the_builder_says(self):
         blocks = self.cooked.blocks()
-        # VfxTiming in Kiln.Blocks: delay + duration (0.001 for a burst alone) + ceil(burst / 64) / 60 + the longest life
-        self.assertAlmostEqual(blocks["frost_burst-json"]["stopAfterSeconds"], 0.001 + 1 / 60 + 0.9, places=4)
-        self.assertAlmostEqual(blocks["frost_charge-json"]["stopAfterSeconds"], 0.001 + 1 / 60 + 0.3, places=4)
+        # VfxTiming in Kiln.Blocks: delay + duration (0.001 for a burst alone) + ceil(burst * 16 / 64) / 60 + the longest life
+        self.assertAlmostEqual(blocks["frost_burst-json"]["stopAfterSeconds"], 0.001 + 6 / 60 + 0.9, places=4)
+        self.assertAlmostEqual(blocks["frost_charge-json"]["stopAfterSeconds"], 0.001 + 2 / 60 + 0.3, places=4)
         self.assertTrue(blocks["frost_trail-json"]["loops"])
         self.assertTrue(blocks["frost_aura-json"]["loops"])
 

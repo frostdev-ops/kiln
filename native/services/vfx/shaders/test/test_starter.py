@@ -310,6 +310,22 @@ class Shapes(unittest.TestCase):
         _, ps = self.start(P["KS_SHAPE_HEMISPHERE"], (3.0, 0.0, 0.0))
         self.assertTrue(all(p[1] >= -1e-4 and math.dist(p, (0, 0, 0)) <= 3.0 + 1e-3 for p in ps))
 
+    def test_tiny_shell_preserves_its_inner_radius(self):
+        w, _ = self.start(P["KS_SHAPE_SPHERE"], (1e-8, 1e-8, 0), n=32)
+        # Draw positions use fixed point; inspect the floating point state instead.
+        for i in range(32):
+            state = w.chunks[1].states + i * P["KS_STATE_SIZE"]
+            radius = math.sqrt(sum(w.buf[STATE].f32(state + P["KS_S_POS"] + j * 4) ** 2 for j in range(3)))
+            self.assertAlmostEqual(radius / 1e-8, 1, 5)
+
+    def test_zero_radius_outward_uses_up(self):
+        for shape in (P["KS_SHAPE_SPHERE"], P["KS_SHAPE_DISC"], P["KS_SHAPE_LINE"]):
+            _, ps = self.start(shape, (0, 0, 0), spread=P["KS_SPREAD_OUTWARD"], speed=(6, 6), n=16)
+            for x, y, z in ps:
+                self.assertAlmostEqual(x, 0, 5)
+                self.assertAlmostEqual(y, 0.1, 4)
+                self.assertAlmostEqual(z, 0, 5)
+
     def test_box(self):
         _, ps = self.start(P["KS_SHAPE_BOX"], (1.0, 2.0, 3.0))
         for p in ps:
@@ -374,6 +390,16 @@ class Stretch(unittest.TestCase):
         x, y, z, qw = d["rotation"]
         up = (2 * (x * y - qw * z), 1 - 2 * (x * x + z * z), 2 * (y * z + qw * x))
         self.assertGreater(up[1], 0.99)
+
+    def test_instance_scale_does_not_multiply_world_speed_twice(self):
+        flags = P["KS_FLAG_FACE_CAMERA"] | P["KS_FLAG_ALIGN_VELOCITY"]
+        w = World(pair(emitter_block(duration=0.001, burst=1),
+                       sprite_block(life=(5, 5), speed=(4, 4), flags=flags, stretch=0.25, size=[0.5] * 8)))
+        w.set_instance(scale=(3, 3, 3))
+        w.tick()
+        d = w.draws()[0]
+        self.assertAlmostEqual(d["scale"][0], 1.5, 4)
+        self.assertAlmostEqual(d["scale"][1], 1.5 + 0.25 * 12, 4)
 
     def test_sideways_turns_the_quad(self):
         flags = P["KS_FLAG_FACE_CAMERA"] | P["KS_FLAG_ALIGN_VELOCITY"]
@@ -447,6 +473,16 @@ class PlayParameters(unittest.TestCase):
         self.assertTrue(all(math.isfinite(c) for c in d["color"]))
         d = self.one(size=1e9).draws()[0]
         self.assertLessEqual(d["scale"][0], 0.5 * P["KX_MAX_FACTOR"] + 1e-3)
+
+    def test_light_brightness_is_finite_in_the_half_float_draw_record(self):
+        w = World(light_only(light_block(brightness=1e6)), position=(1, 2, 3))
+        w.set_play(brightness=16)
+        w.tick()
+        words = w.buf[LIGHTS]
+        for half in (words.u32(16) >> 16, words.u32(16) & 0xffff, words.u32(20) >> 16):
+            value = struct.unpack("<e", struct.pack("<H", half))[0]
+            self.assertTrue(math.isfinite(value))
+            self.assertEqual(value, 65504)
 
     def test_light_takes_colour_and_brightness(self):
         w = World(light_only(light_block(radius=6.0, brightness=2.0, color=(0.5, 0.5, 0.5))), position=(1.0, 2.0, 3.0))

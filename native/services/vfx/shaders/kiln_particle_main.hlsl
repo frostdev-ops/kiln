@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// The particle kit, part 2: Kiln's sprite module, calling the hooks a mod's module defined (see kiln_particle.hlsl). The child entry of
+// The particle kit, part 2: Kiln's sprite module, calling the hooks (kiln_sprite_hooked.hlsl: link points for a mod's hook module). The child entry of
 // a ParticleBlock: simulates, then appends one TransparentInstanceData that the game's Transparent_Forward* shaders draw.
 #include "kiln_particle.hlsl"
 
@@ -53,6 +53,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         s.rng = p.rng;
         c.t = 0.0f;
         KILN_SPAWN(s, c);
+        kSanitizeSprite(s);
         p.rng = s.rng;
 #endif
     } else {
@@ -75,6 +76,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
 #ifdef KILN_UPDATE
     s.rng = p.rng;
     KILN_UPDATE(s, c);
+    kSanitizeSprite(s);
     p.rng = s.rng;
     s.life = max(s.life, 0.001f);
     c.t = saturate(s.age / s.life);
@@ -103,10 +105,11 @@ void cs_main(uint3 id : SV_DispatchThreadID)
             float3 v = kQuatRotate(float4(-camera.xyz, camera.w), s.velocity);
             if (v.x * v.x + v.y * v.y > 1.0e-8f)
                 look.roll = atan2(-v.x, v.y);
-            look.scale.y = size + max(kParamF(p.params + KS_STRETCH), 0.0f) * length(s.velocity) * c.scale;
+            look.scale.y = size + max(kParamF(p.params + KS_STRETCH), 0.0f) * length(s.velocity);
         }
 #ifdef KILN_DRAW
         KILN_DRAW(look, s, c);
+        kSanitizeLook(look);
 #endif
         float3 scale = clamp(look.scale, float3(0.0f, 0.0f, 0.0f), float3(KILN_VFX_MAX_SCALE, KILN_VFX_MAX_SCALE, KILN_VFX_MAX_SCALE));
         float alpha = saturate(look.alpha);

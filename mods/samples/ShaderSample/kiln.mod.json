@@ -7,5 +7,5 @@
   "side": "both",
   "clients": "mod",
   "advanced": true,
-  "description": "Sample for a mod's own particle module (ShaderBlock): a swirl of curl-noise particles drawn by shaders/swirl.hlsl, the same block on Kiln's own sprite to compare, and one naming a module that fails its checks on purpose, which Kiln's sprite draws instead. Advanced: it runs its own code on the player's GPU."
+  "description": "Sample for a mod's own particle hooks (ShaderBlock): a swirl of curl-noise particles moved by shaders/swirl.hlsl (linked into Kiln's sprite at start, every loop capped and no buffer in reach), the same block on Kiln's own sprite to compare, and one naming a hook module that fails its checks on purpose, which Kiln's sprite draws instead. Advanced: it runs its own code on the player's GPU."
 }

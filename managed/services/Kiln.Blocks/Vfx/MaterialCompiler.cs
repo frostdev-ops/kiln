@@ -21,6 +21,7 @@ internal static partial class Compiler
         var mod = ctx.Mod.Id;
         if (m.Replaces != null && !Guid.TryParse(m.Replaces, out _)) throw new BlockError(ctx.Block, "replaces", $"\"{m.Replaces}\" is not the GUID of one of the game's materials");
         if (m.Replaces != null && m.Was != null) throw new BlockError(ctx.Block, "replaces", "a material that replaces one of the game's has that one's id: \"was\" has no meaning here");
+        // A replacement is served under this mod's lifetime by kiln.vfx: the mod's owner (passed with the definition) unloading takes it off.
         var guid = m.Replaces != null ? Guid.Parse(m.Replaces) : BlockIds.Derive(mod, "material", m.Was ?? name);
         var definition = MaterialDefinition(m);
         low.Json["material"] = guid.ToString();
@@ -30,6 +31,7 @@ internal static partial class Compiler
         // from a data file: the bytes the boot build read, so an unchanged block is known to be the same one
         ctx.Mod.VfxRaw.Remove(name, out var raw);
         handle.Status = BuildMaterial(ctx, low, name, raw ?? definition.ToJsonString(), guid);
+        if (m.Replaces != null && handle.Status == VfxBlockStatus.Registered) Reskins.Registered(mod);
         return handle;
     }
 

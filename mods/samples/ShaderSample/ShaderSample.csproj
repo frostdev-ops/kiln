@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Sample: a mod's own particle module (docs/kiln/modding/shaders.md). The effects are in blocks/vfx.json (kiln.vfx builds them natively at boot), the module's
+  <!-- Sample: a mod's own particle hooks (docs/kiln/modding/shaders.md). The effects are in blocks/vfx.json (kiln.vfx builds them natively at boot), the hooks'
        source in shaders/swirl.hlsl and what ships in shaders/build/swirl.spv: rebuild it with kiln-vfxcook shader build (mod folder mods/samples/ShaderSample). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>

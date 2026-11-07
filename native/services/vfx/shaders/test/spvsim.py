@@ -109,29 +109,38 @@ class Sim:
         self.fn = []
         self.labels = {}
         self.ext = set()
-        self.locals_decl = []
+        self.locals_decl = []      # the entry function's
+        self.privates = []         # Private globals: (pointer type, id, initialiser or None)
+        self.funcs = {}            # function id -> [first instruction, parameter ids, local declarations]
         self.builtins = {}
         for v in self.m.variables:
             d = self.m.dec.get(v, {})
             if 11 in d:
                 self.builtins[v] = d[11]
-        in_fn = False
+        entry = next((a[1] for op, a in self.ins if op == 15), None)   # OpEntryPoint
+        cur = None
         for op, a in self.ins:
             if op == 54:
-                in_fn = True
+                cur = [len(self.fn), [], []]
+                self.funcs[a[1]] = cur
                 continue
             if op == 56:
-                in_fn = False
+                cur = None
                 continue
-            if in_fn:
+            if cur is not None:
+                if op == 55:
+                    cur[1].append(a[1])
+                    continue
                 if op == 248:
                     self.labels[a[0]] = len(self.fn)
                 if op == 59:
-                    self.locals_decl.append(a)
+                    cur[2].append(a)
                     continue
                 self.fn.append((op, a))
             else:
                 self._global(op, a)
+        self.entry = entry
+        self.locals_decl = self.funcs[entry][2] if entry in self.funcs else []
         self.steps = 0
 
     def _global(self, op, a):
@@ -150,6 +159,8 @@ class Sim:
             self.const[a[1]] = self._null(a[0])
         elif op == 11:    # OpExtInstImport
             self.ext.add(a[0])
+        elif op == 59 and a[2] == 6:   # a Private variable
+            self.privates.append((a[0], a[1], a[3] if len(a) > 3 else None))
 
     def _null(self, t):
         ty = self.m.types[t]
@@ -291,11 +302,21 @@ class Sim:
                 else:
                     raise Unsupported(f"builtin {b}")
                 roots[v] = Ptr("local", t, var=v)
-        for a in self.locals_decl:
-            pt, rid = a[0], a[1]
+        for pt, rid, init in self.privates:
             t = self.m.types[pt][2]
-            frame[rid] = self.const[a[3]] if len(a) > 3 else self._null(t)
+            frame[rid] = self.const[init] if init is not None else self._null(t)
             roots[rid] = Ptr("local", t, var=rid)
+
+        def declare(decls):
+            # a call's locals start fresh (SPIR-V for shaders has no recursion, so one slot per variable is enough)
+            for a in decls:
+                pt, rid = a[0], a[1]
+                t = self.m.types[pt][2]
+                frame[rid] = self.const[a[3]] if len(a) > 3 else self._null(t)
+                roots[rid] = Ptr("local", t, var=rid)
+
+        declare(self.locals_decl)
+        calls = []   # (return pc, prev, cur, result id)
 
         def val(x):
             if x in vals:
@@ -307,7 +328,7 @@ class Sim:
             raise Unsupported(f"value %{x}")
 
         fn = self.fn
-        pc_i = 0
+        pc_i = self.funcs[self.entry][0] if self.entry in self.funcs else 0
         prev = cur = None
         steps = 0
         GLSL = self._glsl
@@ -340,9 +361,23 @@ class Sim:
                         tgt = a[i + 1]
                         break
                 pc_i = self.labels[tgt]
-            elif op == 253:
-                self.steps += steps
-                return
+            elif op == 253 or op == 254:   # OpReturn, OpReturnValue
+                if not calls:
+                    self.steps += steps
+                    return
+                ret = val(a[0]) if op == 254 else None
+                pc_i, prev, cur, rid = calls.pop()
+                if op == 254:
+                    vals[rid] = ret
+            elif op == 57:      # OpFunctionCall
+                start, params, decls = self.funcs[a[2]]
+                args_ = [val(x) for x in a[3:]]
+                calls.append((pc_i, prev, cur, a[1]))
+                for pid, v in zip(params, args_):
+                    vals[pid] = v
+                declare(decls)
+                pc_i = start
+                prev = cur = None
             elif op == 61:      # OpLoad
                 p = val(a[2])
                 vals[a[1]] = self._load_mem(p.buf, p.off, p.ty) if p.kind == "mem" else self._local_get(p, frame)

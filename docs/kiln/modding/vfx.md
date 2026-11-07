@@ -78,7 +78,9 @@ A cast, a status and an effect take them on a Kiln VFX; a projectile's or a prop
 name or a type that isn't one of the five is an error that names the field.
 
 ### Your own particle code
-Advanced: [shaders.md](shaders.md). A block's particle can run a module you wrote in HLSL against Kiln's kit (`"shader": "shaders/build/swirl.spv"`).
+Advanced: `"shader": {"file": "shaders/build/swirl.spv", "constants": [...]}` runs your own HLSL hooks on spawn, every tick and before drawing,
+linked into Kiln's sprite at start with every loop capped and no buffer in reach ([shaders.md](shaders.md)). Needs `"advanced": true`; if the
+module can't be used, Kiln's sprite draws the particle and kiln.log says why.
 
 ## Textures
 A PNG in the mod's `vfx/` folder, both sides a power of two, from 4 to 2048. Kiln compresses it at boot and keeps the result. Draw light on black for `"blend": "additive"`, and use alpha for `"blend": "alpha"`. A white texture takes its colour from `color`. A particle can also take its texture, tint and light from a [material](materials.md) of its mod: `"material": "frost_steel"`.

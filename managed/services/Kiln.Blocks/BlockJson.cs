@@ -183,6 +183,14 @@ internal static class BlocksStartup
         BlockRuntime.SubscribeSignals();
         AbilityRuntime.Subscribe();
         PlayerTriggers.Subscribe();
+        // An unloaded mod's data files compile again when it is loaded again (a reload clears it through ModReloadedEvent), and its material
+        // replacements go (Vfx/Reskins.cs).
+        foreach (var m in Mods.All)
+            if (!m.IsLoaded)
+            {
+                Done.Remove(m.Id);
+                Reskins.Unloaded(m.Id);
+            }
         foreach (var m in Mods.All)
         {
             if (!m.IsLoaded || m.Directory.Length == 0 || Done.Contains(m.Id) || !Directory.Exists(Path.Combine(m.Directory, "blocks"))) continue;

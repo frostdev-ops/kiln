@@ -1,21 +1,12 @@
 // SPDX-License-Identifier: MIT
-// The particle kit, part 1: types and helpers of Kiln's sprite module. A mod's own particle module (ShaderBlock) includes this file,
-// defines any of the hooks below, then includes kiln_particle_main.hlsl, which is Kiln's sprite module calling them. Kiln's own
-// kiln_sprite.hlsl is exactly that with no hooks. Guide: docs/kiln/modding/shaders.md. Parameters: KS_* in kiln_vfx_params.h.
-//
-//   #include "kiln_particle.hlsl"
-//   void swirl(inout KilnSprite s, KilnContext c) { s.velocity += kiln_curl(s.position * 0.5f, s.age) * c.dt; }
-//   #define KILN_UPDATE swirl
-//   #include "kiln_particle_main.hlsl"
-//
-// Hooks, all optional:
-//   KILN_SPAWN(inout KilnSprite s, KilnContext c)                  once, when the particle is born, after Kiln chose its start
-//   KILN_UPDATE(inout KilnSprite s, KilnContext c)                 every tick, after Kiln moved it. s.alive = false kills it
-//   KILN_DRAW(inout KilnLook l, KilnSprite s, KilnContext c)       before it is drawn. l.visible = false skips this frame's draw
-// Kiln does the rest: the particle protocol, spawning, list appends, culling, the sort key. A hook can't break those.
+// The particle kit, part 1 (Kiln's side): what Kiln's sprite module needs beyond kiln_hooks.hlsl: curves, the draw list append and the
+// spawn shapes. Kiln's kiln_sprite.hlsl is kiln_particle_main.hlsl with no hooks; kiln_sprite_hooked.hlsl is the same module with empty,
+// separate hook functions, which the cook links a mod's hook module into (cook/spvlink.cpp, docs/kiln/modding/shaders.md).
+// A mod never includes this file: its hook module is built from kiln_hooks.hlsl and kiln_hooks_main.hlsl only.
 #ifndef KILN_PARTICLE_HLSL
 #define KILN_PARTICLE_HLSL
 #include "kiln_vfx.hlsl"
+#include "kiln_hooks.hlsl"
 
 float kCurve(uint base, float t)
 {
@@ -126,10 +117,10 @@ float3 kSpawnOffset(uint params, inout uint rng, out float3 outward)
         float t = kRandomRange(rng, 0.0f, 6.28318548f);
         float s = sqrt(saturate(1.0f - z * z));
         float3 n = float3(s * cos(t), z, s * sin(t));   // z is the height: a hemisphere stays above the instance
-        float inner = min(b, a) / max(a, 1.0e-6f);
+        float inner = a > 0.0f ? min(b / a, 1.0f) : 0.0f;
         float r = a * pow(lerp(inner * inner * inner, 1.0f, kRandom(rng)), 0.33333334f);
         o = n * r;
-        outward = n;
+        outward = r > 0.0f ? n : float3(0.0f, 1.0f, 0.0f);
     } else if (shape == KS_SHAPE_BOX) {
         o = float3(kRandomRange(rng, -a, a), kRandomRange(rng, -b, b), kRandomRange(rng, -c, c));
         if (dot(o, o) > 1.0e-12f)
@@ -140,97 +131,42 @@ float3 kSpawnOffset(uint params, inout uint rng, out float3 outward)
         float r = sqrt(lerp(inner * inner, a * a, kRandom(rng)));
         float3 n = float3(cos(t), 0.0f, sin(t));
         o = n * r;
-        outward = n;
+        outward = r > 0.0f ? n : float3(0.0f, 1.0f, 0.0f);
     } else if (shape == KS_SHAPE_LINE) {
         o = float3(kRandomRange(rng, -0.5f, 0.5f) * a, 0.0f, 0.0f);
         float t = kRandomRange(rng, 0.0f, 6.28318548f);
-        outward = float3(0.0f, cos(t), sin(t));
+        outward = o.x != 0.0f ? float3(0.0f, cos(t), sin(t)) : float3(0.0f, 1.0f, 0.0f);
     }
     return o;
 }
 
-// ---- what a hook sees -----------------------------------------------------------------------------------------------------------
-// One particle. Kiln keeps position, velocity, age, life, roll, spin and aux from tick to tick; rng is the particle's random state.
-struct KilnSprite
+// A float that is neither NaN nor infinite. A comparison, not isnan/isinf: a driver's fast-math can't fold it away.
+bool kFinite1(float x) { return abs(x) <= 3.4028234e38f; }
+// What a hook handed back, before Kiln's code uses it: a particle whose clock or place is not finite dies, other fields fall back to
+// harmless values. Kiln's own sprite runs it too (it is a no-op on what Kiln computes).
+void kSanitizeSprite(inout KilnSprite s)
 {
-    float3 position;   // world, metres
-    float3 velocity;   // world, m/s
-    float  age;        // seconds since birth
-    float  life;       // seconds it lives
-    float  roll;       // radians, around the view axis for a camera-facing quad
-    float  spin;       // radians per second
-    float  aux;        // yours: kept from tick to tick, 0 at birth
-    uint   rng;        // kiln_random(s) draws from it
-    bool   alive;      // false: it dies at the end of this tick
-};
-// The tick and the effect.
-struct KilnContext
-{
-    float  dt;         // seconds this tick
-    float  t;          // age / life, 0..1
-    uint   time;       // the game's VFX clock (VfxUpdateBuffer.time; its unit is unverified: use s.age for a clock you can trust)
-    float3 origin;     // the effect's position, world
-    float4 rotation;   // the effect's orientation, a quaternion
-    float  scale;      // the effect's scale
-    float3 wind;       // the game's wind direction
-    float3 sun;        // towards the sun
-    KilnPlay play;     // the per-play parameters (color, size, speed, brightness, count)
-    float4 user0;      // the block's "shader".constants[0..3]
-    float4 user1;      // [4..7]
-    uint   params;     // the parameter block, for kParamF(c.params + KS_...)
-};
-// How it is drawn this frame. Kiln has filled it from the block's curves; change what you like.
-struct KilnLook
-{
-    float3 scale;      // metres; a camera-facing quad uses x and y
-    float3 color;      // linear, may exceed 1
-    float  alpha;      // 0..1
-    float  roll;       // radians
-    bool   visible;
-};
-
-float  kiln_random(inout KilnSprite s) { return kRandom(s.rng); }
-float  kiln_random_range(inout KilnSprite s, float a, float b) { return kRandomRange(s.rng, a, b); }
-float3 kiln_random_direction(inout KilnSprite s)
-{
-    float z = kRandomRange(s.rng, -1.0f, 1.0f);
-    float a = kRandomRange(s.rng, 0.0f, 6.28318548f);
-    float r = sqrt(saturate(1.0f - z * z));
-    return float3(r * cos(a), z, r * sin(a));
+    bool ok = kFinite(s.position) && kFinite(s.velocity) && kFinite1(s.age) && kFinite1(s.life);
+    s.position = ok ? s.position : float3(0.0f, 0.0f, 0.0f);
+    s.velocity = ok ? clamp(s.velocity, -1.0e6f, 1.0e6f) : float3(0.0f, 0.0f, 0.0f);
+    s.age = ok ? s.age : 0.0f;
+    s.life = ok ? s.life : 0.001f;
+    s.roll = kFinite1(s.roll) ? s.roll : 0.0f;
+    s.spin = kFinite1(s.spin) ? clamp(s.spin, -1.0e6f, 1.0e6f) : 0.0f;
+    s.aux = kFinite1(s.aux) ? s.aux : 0.0f;
+    s.alive = s.alive && ok;
 }
+void kSanitizeLook(inout KilnLook l)
+{
+    bool ok = kFinite(l.scale) && kFinite(l.color) && kFinite1(l.alpha) && kFinite1(l.roll);
+    l.scale = ok ? l.scale : float3(0.0f, 0.0f, 0.0f);
+    l.color = ok ? clamp(l.color, float3(0.0f, 0.0f, 0.0f), float3(65504.0f, 65504.0f, 65504.0f)) : float3(0.0f, 0.0f, 0.0f);
+    l.alpha = ok ? l.alpha : 0.0f;
+    l.roll = ok ? l.roll : 0.0f;
+    l.visible = l.visible && ok;
+}
+
+// For Kiln's own code only: a hook module has no buffers to read a curve from.
 float  kiln_curve(uint base, float t) { return kCurve(base, t); }
-// The rotation of a vector by the effect's orientation (local to world).
-float3 kiln_rotate(float4 q, float3 v) { return kQuatRotate(q, v); }
-
-// Value noise in -1..1, smooth, pure arithmetic (no texture), period 289.
-float  kiln_hash(float3 p)
-{
-    p = frac(p * 0.3183099f + 0.1f);
-    p *= 17.0f;
-    return frac(p.x * p.y * p.z * (p.x + p.y + p.z)) * 2.0f - 1.0f;
-}
-float  kiln_noise(float3 p)
-{
-    float3 i = floor(p);
-    float3 f = p - i;
-    float3 u = f * f * (3.0f - 2.0f * f);
-    float n000 = kiln_hash(i), n100 = kiln_hash(i + float3(1, 0, 0)), n010 = kiln_hash(i + float3(0, 1, 0)), n110 = kiln_hash(i + float3(1, 1, 0));
-    float n001 = kiln_hash(i + float3(0, 0, 1)), n101 = kiln_hash(i + float3(1, 0, 1)), n011 = kiln_hash(i + float3(0, 1, 1)), n111 = kiln_hash(i + float3(1, 1, 1));
-    return lerp(lerp(lerp(n000, n100, u.x), lerp(n010, n110, u.x), u.y), lerp(lerp(n001, n101, u.x), lerp(n011, n111, u.x), u.y), u.z);
-}
-// A divergence-free swirl from three noise fields: particles following it curl around without bunching up.
-float3 kiln_curl(float3 p, float time)
-{
-    const float e = 0.1f;
-    float3 q = p + float3(0.0f, time * 0.3f, 0.0f);
-    float3 a = float3(31.4f, 0.0f, 0.0f), b = float3(0.0f, 47.2f, 0.0f), c = float3(0.0f, 0.0f, 13.7f);
-    float dzdy = kiln_noise(q + c + float3(0, e, 0)) - kiln_noise(q + c - float3(0, e, 0));
-    float dydz = kiln_noise(q + b + float3(0, 0, e)) - kiln_noise(q + b - float3(0, 0, e));
-    float dxdz = kiln_noise(q + a + float3(0, 0, e)) - kiln_noise(q + a - float3(0, 0, e));
-    float dzdx = kiln_noise(q + c + float3(e, 0, 0)) - kiln_noise(q + c - float3(e, 0, 0));
-    float dydx = kiln_noise(q + b + float3(e, 0, 0)) - kiln_noise(q + b - float3(e, 0, 0));
-    float dxdy = kiln_noise(q + a + float3(0, e, 0)) - kiln_noise(q + a - float3(0, e, 0));
-    return float3(dzdy - dydz, dxdz - dzdx, dydx - dxdy) / (2.0f * e);
-}
 
 #endif

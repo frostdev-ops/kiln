@@ -39,7 +39,7 @@ const ModuleInfo& starter_module(Module m) {
 }
 
 std::string check_module(const uint8_t* data, size_t size) {
-    if (size < 20 || size % 4) return "not whole SPIR-V words";
+    if (!data || size < 20 || size % 4) return "not whole SPIR-V words";
     const size_t n = size / 4;
     auto word = [&](size_t i) {
         uint32_t v;
@@ -48,13 +48,14 @@ std::string check_module(const uint8_t* data, size_t size) {
     };
     if (word(0) != kMagic) return "no SPIR-V magic";
     const uint32_t version = word(1);
-    if (version > 0x00010500u) return "SPIR-V newer than 1.5";
+    if (version < 0x00010000u || version > 0x00010500u || (version & 0xffu)) return "SPIR-V version is outside 1.0..1.5";
     bool entry = false, local = false;
     uint32_t entry_id = 0;
     for (size_t i = 5; i < n;) {
         const uint32_t w = word(i), op = w & 0xffff, wc = w >> 16;
         if (wc == 0 || i + wc > n) return "a broken instruction";
         if (op == kOpCapability) {
+            if (wc != 2) return "a broken capability instruction";
             const uint32_t c = word(i + 1);
             // Shader, GroupNonUniform, GroupNonUniformArithmetic, SignedZeroInfNanPreserve: all that the game's 2,921 modules use
             if (c != 1 && c != 61 && c != 63 && c != 4466) return "capability " + std::to_string(c) + " is outside what the game's modules use";

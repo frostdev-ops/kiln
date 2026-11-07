@@ -127,11 +127,11 @@ internal static partial class Compiler
         void Fail(string field, string text) => throw new BlockError(ctx.Block, field, text);
         void Between(string field, double? x, double lo, double hi)
         {
-            if (x is { } n && (n < lo || n > hi)) Fail(field, $"{n} is outside {lo}..{hi}");
+            if (x is { } n && (!double.IsFinite(n) || n < lo || n > hi)) Fail(field, $"{n} is outside {lo}..{hi}");
         }
         void Not(string field, double? x, double lo)
         {
-            if (x is { } n && n < lo) Fail(field, $"{n} is less than {lo}");
+            if (x is { } n && (!double.IsFinite(n) || n < lo)) Fail(field, $"{n} is less than {lo}");
         }
         void Colour(string field, string? c)
         {
@@ -159,8 +159,8 @@ internal static partial class Compiler
             if (p.Shape != null && p.SpawnRadius != null) Fail($"{at}.shape", "say either shape or spawnRadius (a sphere): not both");
             if (p.Shape is { } shape)
             {
-                if (shape.A < 0 || shape.Size.X < 0 || shape.Size.Y < 0 || shape.Size.Z < 0) Fail($"{at}.shape", "sizes must not be negative");
-                if (shape.Inner is { } inner && (inner < 0 || inner > shape.A)) Fail($"{at}.shape.inner", "must be between 0 and the radius");
+                if (!float.IsFinite(shape.A) || !float.IsFinite(shape.Size.X) || !float.IsFinite(shape.Size.Y) || !float.IsFinite(shape.Size.Z) || shape.A < 0 || shape.A > 1e6f || shape.Size.X < 0 || shape.Size.X > 1e6f || shape.Size.Y < 0 || shape.Size.Y > 1e6f || shape.Size.Z < 0 || shape.Size.Z > 1e6f) Fail($"{at}.shape", "sizes must be finite and within 0..1000000");
+                if (shape.Inner is { } inner && (!float.IsFinite(inner) || inner < 0 || inner > shape.A)) Fail($"{at}.shape.inner", "must be between 0 and the radius");
             }
             if (p.Stretch != null && p.Align != ParticleAlign.Velocity) Fail($"{at}.stretch", "stretches along the velocity: it needs \"align\": \"velocity\"");
             Between($"{at}.stretch", p.Stretch, 0, 100);
@@ -170,6 +170,7 @@ internal static partial class Compiler
             {
                 if (!shader.File.EndsWith(".spv", StringComparison.OrdinalIgnoreCase)) Fail($"{at}.shader", $"\"{shader.File}\" is not a compiled .spv in your mod (build it with kiln-vfxcook shader build)");
                 if (shader.File.StartsWith('/') || shader.File.Contains("..", StringComparison.Ordinal) || shader.File.Contains(':')) Fail($"{at}.shader", $"\"{shader.File}\" must be relative, inside the mod's folder");
+                if (shader.Constants != null && shader.Constants.Any(x => !float.IsFinite(x) || MathF.Abs(x) > 1e6f)) Fail($"{at}.shader.constants", "numbers must be finite and within -1000000..1000000");
                 if (shader.Constants is { Count: > 8 }) Fail($"{at}.shader.constants", "up to 8 numbers");
             }
             Not($"{at}.drag", p.Drag, 0);

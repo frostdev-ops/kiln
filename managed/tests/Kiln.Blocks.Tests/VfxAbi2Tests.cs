@@ -108,4 +108,71 @@ public sealed class VfxAbi2Tests
         Assert.Equal(0x4e4c494bu, w[15]);
         Assert.Equal(["color", "size", "speed", "brightness", "count"], VfxParameterBlock.Names);
     }
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    [InlineData(float.MaxValue)]
+    [InlineData(-1f)]
+    public void Nonfinite_and_out_of_range_play_factors_are_refused_by_name(float value)
+    {
+        foreach (var name in VfxParameterBlock.Names.Skip(1))
+        {
+            var error = Assert.Throws<ArgumentException>(() => VfxParameterBlock.Of(
+                new Dictionary<string, VfxValue> { [name] = value }, (field, why) => new ArgumentException(why, field)));
+            Assert.Equal(name, error.ParamName);
+        }
+    }
+
+    [Theory]
+    [InlineData("39745562-5d58-4749-bc64-582e5630324a")]
+    [InlineData("00000000-0000-0000-0000-000000000001")]
+    public void A_replacement_takes_the_game_materials_guid(string target)
+    {
+        // Which material that is, and whether this game has it, is kiln.vfx's to check when it serves the override under the mod's owner.
+        var (h, low, _) = Compiler.Lower(new ModBlocks("vfx-abi2", 1), "replacement", new MaterialBlock { Replaces = target });
+        Assert.Equal(Guid.Parse(target), h.Guid);
+        Assert.Equal(target, low.Json["material"]!.GetValue<string>());
+        Assert.Equal(target, low.Json["definition"]!["replaces"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Replacement_mistakes_name_the_field()
+    {
+        foreach (var m in new[] { new MaterialBlock { Replaces = "workbench" }, new MaterialBlock { Replaces = "39745562-5d58-4749-bc64-582e5630324a", Was = "old" } })
+        {
+            var e = Assert.Throws<BlockError>(() => Compiler.Lower(new ModBlocks("vfx-abi2", 1), "bad", m));
+            Assert.Contains("replaces", e.Message);
+        }
+    }
+
+    [Fact]
+    public void Timing_accounts_for_the_maximum_play_count()
+    {
+        var (seconds, loops) = VfxTiming.Of(new VfxBlock { Particles = [Spark] });
+        Assert.False(loops);
+        Assert.Equal(0.001 + 2.0 / 60 + 0.5, seconds, 5);
+    }
+
+    [Fact]
+    public void Nonfinite_shape_and_shader_values_name_the_field()
+    {
+        foreach (var p in new[] { Spark with { Shape = SpawnShape.Shell(float.NaN) },
+                                Spark with { Shape = SpawnShape.Box(1, float.PositiveInfinity, 1) },
+                                Spark with { Shader = new ParticleShader("s.spv", [float.NaN]) } })
+        {
+            var e = Assert.Throws<BlockError>(() => Compiler.Lower(new ModBlocks("vfx-abi2", 1), "bad", new VfxBlock { Particles = [p] }));
+            Assert.Contains("particles[0]", e.Message);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"sphere\":1,\"box\":[1,1,1]}")]
+    [InlineData("{\"sphere\":1,\"typo\":2}")]
+    [InlineData("{\"line\":1,\"inner\":0.5}")]
+    public void Shape_json_cannot_silently_drop_fields(string shape)
+    {
+        Assert.Throws<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<SpawnShape>(shape));
+    }
+
 }

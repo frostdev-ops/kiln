@@ -11,9 +11,12 @@
 //   kiln-vfxcook fingerprint --exe EXE [--gpc FILE] [--kfc FILE]
 //        Layouts and bindings of this game against what the modules were made for (JSON). 0 = match.
 //   kiln-vfxcook budget [--kfc FILE] [--counts vfx=N,meshes=N,curves=N,sounds=N,meshBytes=N,materials=N,streamedTextures=N]
-//   kiln-vfxcook shader build --mod DIR [--glslc PATH]
-//        Compiles DIR/shaders/*.hlsl against the particle kit into DIR/shaders/build/*.spv, stamps this ABI, checks each. 0 = all built and fine.
-//   kiln-vfxcook shader check FILE.spv ...   the load-time checks on built modules (JSON). 0 = all fine.
+//   kiln-vfxcook shader build --mod DIR [--glslang PATH] [--linked]
+//        Compiles DIR/shaders/*.hlsl against the hook kit into hook modules DIR/shaders/build/*.spv (glslangValidator -Od), stamps the hook ABI,
+//        verifies and links each into Kiln's sprite as the game would (and runs spirv-val on the result when it is installed). --linked also
+//        writes the linked module as build/*.linked.spv, for inspection. 0 = all built and fine.
+//   kiln-vfxcook shader check FILE.spv ...   the load-time verify-and-link on built hook modules (JSON). 0 = all fine.
+//   kiln-vfxcook shader link FILE.spv --out LINKED.spv   writes the linked module the game would compile (for the harnesses)
 //   kiln-vfxcook shader kit --out DIR        writes the kit's headers, for an editor or another compiler
 //   kiln-vfxcook material-roundtrip FILE
 //        FILE holds {u32 size, bytes} records of RenderMaterialResources: reads and rewrites each with the builder's own code. JSON; 0 = all byte-identical.
@@ -51,7 +54,8 @@ std::string u8(const fs::path& p) {
 
 struct Args {
     std::vector<std::string> mods;
-    std::string out, kfc, cache, pending, exe, gpc, counts, glslc;
+    std::string out, kfc, cache, pending, exe, gpc, counts, glslc, glslang;
+    bool linked = false;
     std::vector<std::string> rest;
 };
 Args parse(int argc, char** argv, int from) {
@@ -74,6 +78,8 @@ Args parse(int argc, char** argv, int from) {
         else if (s == "--gpc") a.gpc = next();
         else if (s == "--counts") a.counts = next();
         else if (s == "--glslc") a.glslc = next();
+        else if (s == "--glslang") a.glslang = next();
+        else if (s == "--linked") a.linked = true;
         else a.rest.push_back(s);
     }
     return a;
@@ -204,8 +210,13 @@ int cmd_cook(const Args& a, bool write) {
             entries.push_back(e);
             blobs.push_back({{"what", b.what}, {"hash", text}, {"file", rel}, {"size", b.data.size()}});
         }
+        ojson standby = ojson::array();
         for (const ServedResource& s : r.resources) {
             const std::string g = guid_text(s.guid);
+            if (s.standby) {  // a second mod's replacement of the same game material: kiln.vfx serves it only if the first mod unloads
+                standby.push_back({{"what", s.what}, {"guid", g}, {"mod", s.mod}, {"size", s.data.size()}});
+                continue;
+            }
             const std::string rel = std::string("cooked/") + type_short(s.type) + "-" + g + ".bin";
             spit(out / rel, s.data.data(), s.data.size());
             ojson e = ojson::object();
@@ -218,13 +229,14 @@ int cmd_cook(const Args& a, bool write) {
             e["side"] = "client";
             entries.push_back(e);
             resources.push_back({{"what", s.what}, {"guid", g}, {"type", type_name(s.type)}, {"file", rel}, {"size", s.data.size()}});
+            if (s.override) resources.back()["mod"] = s.mod;
         }
         ojson manifest = ojson::object();
         manifest["format"] = 1;
         manifest["entries"] = entries;
         const std::string ms = manifest.dump(2) + "\n";
         spit(out / "assets.json", ms.data(), ms.size());
-        report["served"] = {{"blobs", blobs}, {"resources", resources}};
+        report["served"] = {{"blobs", blobs}, {"resources", resources}, {"standby", standby}};
         const std::string rs = report.dump(1) + "\n";
         spit(out / "report.json", rs.data(), rs.size());
     }
@@ -397,25 +409,30 @@ int cmd_material_roundtrip(const Args& a) {
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wc23-extensions"
 #endif
-const unsigned char kKitVfx[] = {
-#embed "../../../../native/services/vfx/shaders/kiln_vfx.hlsl"
+const unsigned char kKitHooks[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_hooks.hlsl"
+    , 0};
+const unsigned char kKitHooksMain[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_hooks_main.hlsl"
+    , 0};
+const unsigned char kKitMath[] = {
+#embed "../../../../native/services/vfx/shaders/kiln_math.hlsl"
     , 0};
 const unsigned char kKitParams[] = {
 #embed "../../../../native/services/vfx/shaders/kiln_vfx_params.h"
     , 0};
-const unsigned char kKitParticle[] = {
-#embed "../../../../native/services/vfx/shaders/kiln_particle.hlsl"
-    , 0};
-const unsigned char kKitMain[] = {
-#embed "../../../../native/services/vfx/shaders/kiln_particle_main.hlsl"
-    , 0};
+// Sources written for the old whole-module kit include these two names: they now build a hook module unchanged.
+const char kKitParticleShim[] = "// The hook kit under its old name: see kiln_hooks.hlsl.\n#include \"kiln_hooks.hlsl\"\n";
+const char kKitMainShim[] = "// The hook kit under its old name: see kiln_hooks_main.hlsl.\n#include \"kiln_hooks_main.hlsl\"\n";
 
 bool write_kit(const fs::path& dir) {
     std::error_code ec;
     fs::create_directories(dir, ec);
-    const std::pair<const char*, const unsigned char*> files[] = {
-        {"kiln_vfx.hlsl", kKitVfx}, {"kiln_vfx_params.h", kKitParams}, {"kiln_particle.hlsl", kKitParticle}, {"kiln_particle_main.hlsl", kKitMain}};
-    for (const auto& [name, text] : files) spit(dir / name, text, std::strlen(reinterpret_cast<const char*>(text)));
+    const std::pair<const char*, const char*> files[] = {
+        {"kiln_hooks.hlsl", reinterpret_cast<const char*>(kKitHooks)}, {"kiln_hooks_main.hlsl", reinterpret_cast<const char*>(kKitHooksMain)},
+        {"kiln_math.hlsl", reinterpret_cast<const char*>(kKitMath)},   {"kiln_vfx_params.h", reinterpret_cast<const char*>(kKitParams)},
+        {"kiln_particle.hlsl", kKitParticleShim},                      {"kiln_particle_main.hlsl", kKitMainShim}};
+    for (const auto& [name, text] : files) spit(dir / name, text, std::strlen(text));
     return !ec;
 }
 
@@ -429,20 +446,49 @@ std::string quote(const std::string& s) {
 #endif
 }
 
-ojson check_one(const Bytes& code) {
+#ifdef _WIN32
+const char* kNull = " >NUL 2>&1";
+#else
+const char* kNull = " >/dev/null 2>&1";
+#endif
+
+ojson check_one(const Bytes& code, Bytes* linked_out = nullptr) {
     ModModuleInfo info;
-    const std::string bad = check_mod_module(code.data(), code.size(), &info);
+    Bytes linked;
+    const std::string bad = check_mod_module(code.data(), code.size(), &info, &linked);
     ojson o = ojson::object();
     o["ok"] = bad.empty();
     if (!bad.empty()) o["problem"] = bad;
     o["bytes"] = code.size();
     o["abi"] = info.abi;
-    ojson b = ojson::array();
-    for (const auto& [set, binding] : info.bindings) b.push_back({set, binding});
-    o["bindings"] = b;
-    o["hash"] = content_hash_text(content_hash(code.data(), code.size()));
-    if (code.size() > 256 * 1024) o["warning"] = "above 256 KB: it compiles slowly on the player's first play";
+    o["hooks"] = info.hooks;
+    o["instructions"] = info.instructions;
+    o["cost"] = info.cost;
+    o["budget"] = kHookBudget;
+    o["loops"] = info.loops;
+    o["loopCap"] = info.loop_cap;
+    o["clampedIndices"] = info.clamped;
+    if (bad.empty()) {
+        o["linkedBytes"] = linked.size();
+        o["hash"] = content_hash_text(content_hash(linked.data(), linked.size()));
+        if (linked.size() > 256 * 1024) o["warning"] = "the linked module is above 256 KB: it compiles slowly on the player's first play";
+    }
+    if (linked_out) *linked_out = std::move(linked);
     return o;
+}
+
+// spirv-val on a linked module, when it is installed: true = valid or not installed (o says which).
+bool validate(const Bytes& linked, const fs::path& tmp, ojson& o) {
+    if (std::system((std::string("spirv-val --version") + kNull).c_str()) != 0) {
+        o["validated"] = "spirv-val not installed";
+        return true;
+    }
+    spit(tmp, linked.data(), linked.size());
+    const bool good = std::system(("spirv-val --target-env vulkan1.2 --scalar-block-layout " + quote(u8(tmp))).c_str()) == 0;
+    std::error_code ec;
+    fs::remove(tmp, ec);
+    o["validated"] = good ? "spirv-val passed" : "spirv-val failed: see its messages above";
+    return good;
 }
 
 int cmd_shader(const Args& a) {
@@ -456,12 +502,28 @@ int cmd_shader(const Args& a) {
         std::printf("%s\n", u8(fs::path(a.out)).c_str());
         return 0;
     }
+    if (sub == "link") {
+        // One hook module -> the linked module the game would compile, for the harnesses (test_mod_module.py, test_gpu.py).
+        if (a.rest.size() != 2 || a.out.empty()) {
+            std::fprintf(stderr, "usage: kiln-vfxcook shader link HOOKS.spv --out LINKED.spv\n");
+            return 2;
+        }
+        Bytes code, linked;
+        std::string why;
+        ojson o = read_mod_module(a.rest[1], &code, &why) ? check_one(code, &linked) : ojson{{"ok", false}, {"problem", why}};
+        if (o["ok"].get<bool>()) spit(fs::absolute(a.out), linked.data(), linked.size());
+        std::cout << o.dump(1) << "\n";
+        return o["ok"].get<bool>() ? 0 : 1;
+    }
     if (sub == "check") {
         ojson all = ojson::array();
         bool ok = a.rest.size() > 1;
         for (size_t i = 1; i < a.rest.size(); ++i) {
-            const std::string text = slurp(a.rest[i]);
-            ojson o = check_one(Bytes(text.begin(), text.end()));
+            Bytes code;
+            std::string why;
+            const bool read = read_mod_module(a.rest[i], &code, &why);
+            ojson o = check_one(code);
+            if (!read) { o["ok"] = false; o["problem"] = why; }
             o["file"] = a.rest[i];
             ok = ok && o["ok"].get<bool>();
             all.push_back(std::move(o));
@@ -470,7 +532,11 @@ int cmd_shader(const Args& a) {
         return ok ? 0 : 1;
     }
     if (sub != "build" || a.mods.size() != 1) {
-        std::fprintf(stderr, "usage: kiln-vfxcook shader build --mod DIR [--glslc PATH] | shader check FILE.spv ... | shader kit --out DIR\n");
+        std::fprintf(stderr, "usage: kiln-vfxcook shader build --mod DIR [--glslang PATH] [--linked] | shader check FILE.spv ... | shader kit --out DIR\n");
+        return 2;
+    }
+    if (!a.glslc.empty()) {
+        std::fprintf(stderr, "shader build: hook modules are built with glslangValidator (glslc always inlines HLSL): pass --glslang PATH\n");
         return 2;
     }
     const fs::path mod = a.mods[0], src = mod / "shaders", outdir = src / "build";
@@ -483,39 +549,48 @@ int cmd_shader(const Args& a) {
         std::fprintf(stderr, "%s: no shaders/*.hlsl\n", u8(mod).c_str());
         return 1;
     }
-    const fs::path kit = fs::temp_directory_path() / ("kiln-vfx-kit-" + std::to_string(KILN_VFX_ABI));
+    const fs::path kit = fs::temp_directory_path() / ("kiln-vfx-hook-kit-" + std::to_string(KILN_HOOKS_ABI));
     write_kit(kit);
-    const std::string glslc = a.glslc.empty() ? "glslc" : a.glslc;
+    const std::string glslang = a.glslang.empty() ? "glslangValidator" : a.glslang;
     ojson all = ojson::array();
     bool ok = true;
     fs::create_directories(outdir, ec);
     for (const fs::path& s : sources) {
         const fs::path spv = outdir / (s.stem().string() + ".spv");
-        const std::string cmd = quote(glslc) + " --target-env=vulkan1.2 --target-spv=spv1.5 -O -x hlsl -fshader-stage=compute -fentry-point=cs_main -I " +
-                                quote(u8(kit)) + " -I " + quote(u8(src)) + " " + quote(u8(s)) + " -o " + quote(u8(spv));
+        // -Od keeps the hook functions apart (HLSL legalisation would inline them into the stub entry); the driver optimises the linked module.
+        const std::string cmd = quote(glslang) + " -V -D -Od -e cs_main -S comp --target-env vulkan1.2 -I" + quote(u8(kit)) + " -I" + quote(u8(src)) + " " +
+                                quote(u8(s)) + " -o " + quote(u8(spv)) + kNull;
         ojson o = ojson::object();
         o["source"] = u8(s);
         o["file"] = u8(spv);
-        if (std::system(cmd.c_str()) != 0) {
-            o["ok"] = false;
-            o["problem"] = "the compiler failed (" + glslc + "; install the Vulkan SDK or pass --glslc): see its messages above";
-            ok = false;
-            all.push_back(std::move(o));
-            continue;
-        }
-        const std::string text = slurp(spv);
-        Bytes code(text.begin(), text.end());
-        std::string why;
-        if (!stamp_module(&code, &why)) {
+        auto fail = [&](const std::string& why) {
             o["ok"] = false;
             o["problem"] = why;
             ok = false;
             all.push_back(std::move(o));
+        };
+        if (std::system(cmd.c_str()) != 0) {
+            // run it again with its messages shown
+            std::system((quote(glslang) + " -V -D -Od -e cs_main -S comp --target-env vulkan1.2 -I" + quote(u8(kit)) + " -I" + quote(u8(src)) + " " + quote(u8(s)) +
+                         " -o " + quote(u8(spv)) + " 1>&2").c_str());
+            fail("the compiler failed (" + glslang + "; install the Vulkan SDK or glslang, or pass --glslang): see its messages above");
             continue;
         }
+        Bytes code;
+        std::string why;
+        if (!read_mod_module(u8(spv), &code, &why)) { fail(why); continue; }
+        if (!stamp_module(&code, &why)) { fail(why); continue; }
         spit(spv, code.data(), code.size());
-        ojson c = check_one(code);
+        Bytes linked;
+        ojson c = check_one(code, &linked);
         for (auto it = c.begin(); it != c.end(); ++it) o[it.key()] = it.value();
+        if (o["ok"].get<bool>()) {
+            if (a.linked) spit(outdir / (s.stem().string() + ".linked.spv"), linked.data(), linked.size());
+            if (!validate(linked, outdir / (s.stem().string() + ".linked.tmp"), o)) {
+                o["ok"] = false;
+                o["problem"] = "the linked module fails spirv-val: send the source to Kiln, this is Kiln's bug or a construct the linker should refuse";
+            }
+        }
         ok = ok && o["ok"].get<bool>();
         all.push_back(std::move(o));
     }

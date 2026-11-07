@@ -112,8 +112,10 @@ def check_vfx(v, strict=False):
 def _check_kiln(v):
     """What kiln-vfxcook promises beyond the game's own rules."""
     bad = []
-    n = len(resource_data(v))
+    data = resource_data(v)
+    n = len(data)
     entries = v["particles"]
+    versions = set()
     ranges = []
     for i, p in enumerate(entries):
         where = f"particles[{i}]"
@@ -129,6 +131,8 @@ def _check_kiln(v):
         if ini["count"] != 0 or ini["start"] != e["start"]:
             bad.append(f"{where}: its initialise range should be empty")
         ranges.append((e["start"], e["count"]))
+        if p["depth"] == 0 and e["count"] >= 4 and 0 <= e["start"] <= n - 4:
+            versions.add(struct.unpack_from("<I", data, e["start"])[0])
     # the blocks, in order, with nothing between them
     pos = 0
     for start, count in ranges:
@@ -145,6 +149,13 @@ def _check_kiln(v):
     for arr in ("springs", "models", "decals", "lightFilters", "sounds", "curves", "effectJointCollections"):
         if v[arr]:
             bad.append(f"{arr} is not empty")
+    legacy = versions == {1}
+    if versions not in ({1}, {2}):
+        bad.append(f"unsupported or mixed Kiln particle ABIs: {sorted(versions)}")
+    if legacy:
+        if v["parameters"] or any(v["defaultParameterData"]["data"]):
+            bad.append("ABI 1 must have no play parameters and zero defaults")
+        return bad
     # The per-play parameters every Kiln VFX describes (KX_* in native/services/vfx/shaders/kiln_vfx_params.h), and their defaults.
     fnv = lambda s: __import__("functools").reduce(lambda h, b: ((h ^ b) * 0x01000193) & 0xFFFFFFFF, s.encode(), 0x811C9DC5)
     want = [(fnv("color"), 0x53039620, 0, 4), (fnv("size"), 0x90B5085D, 4, 4), (fnv("speed"), 0x90B5085D, 8, 4),

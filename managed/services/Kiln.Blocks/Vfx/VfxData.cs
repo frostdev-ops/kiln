@@ -331,7 +331,7 @@ internal static class VfxTiming
                 continue;
             }
             if (rate <= 0 && duration <= 0) duration = BurstDuration;
-            var spawning = MathF.Ceiling((float)(p.Burst ?? 0) / MaxSpawnsPerTick) / TicksPerSecond;
+            var spawning = MathF.Ceiling((float)(p.Burst ?? 0) * 16 / MaxSpawnsPerTick) / TicksPerSecond;
             stop = Math.Max(stop, (p.Delay ?? 0) + duration + spawning + (p.Lifetime?.Max ?? 1));
         }
         if (block.Light is { } light)

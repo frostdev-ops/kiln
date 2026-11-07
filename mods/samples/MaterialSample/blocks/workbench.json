@@ -1,6 +1,7 @@
 {
   // A game material drawn differently: the workbench props' wood (npc_props_workbench00) becomes the frost steel of materials.json, on every model that uses it.
-  // Its kind stays the original's (opaque): the models carry the original's flags. Delete this file to keep the game's workbench.
+  // Its kind stays the original's (opaque): the models carry the original's flags. The replacement belongs to this mod: unloading the mod takes it off
+  // (the game draws its own wood again from the next start). Delete this file to keep the game's workbench.
   "format": 1,
   "materials": {
     "workbench_frost": {
