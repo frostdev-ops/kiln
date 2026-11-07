@@ -868,7 +868,10 @@ std::vector<SafetyHookInline*> g_leaked;
 int g_installs = 0;
 
 uint8_t g_hook_bytes[16] = {};  // the first bytes of the checked export right after our patch
+uint8_t g_orig_bytes[16] = {};  // ... and right before it: what a freshly loaded vulkan-1.dll has there
+bool g_have_orig = false;
 std::atomic<bool> g_vulkan_unloaded{false};
+bool g_told_foreign = false, g_told_notice = false;
 
 bool read16(const void* at, uint8_t* out) {
     __try {
@@ -879,10 +882,30 @@ bool read16(const void* at, uint8_t* out) {
     }
 }
 
-bool hooks_intact(void* check_now) {
-    if (!g_present_target || check_now != g_present_target || g_vulkan_unloaded.load()) return false;
+// What the checked export holds now. Hooking again is right only for fresh code: a new address, or the bytes it had
+// before our patch. Our own patch means the hooks are still live (an unload notice can come from another module named
+// vulkan-1.dll: it matches by name). Someone else's patch (an overlay hooking vkQueuePresentKHR after us) still calls
+// through ours. Hooking again over either stacked Kiln on its own live hooks: every R.* original then points at the
+// newest trampoline, which jumps back into the older hook, so the calls loop. On a Steam Deck that hung the game on a
+// white window right after "install #3" (0.2.0-dev.15/16).
+enum class Canary { Moved, Ours, Pristine, Foreign, Unreadable };
+const char* canary_name(Canary c) {
+    switch (c) {
+        case Canary::Moved: return "at a new address";
+        case Canary::Ours: return "still Kiln's patch";
+        case Canary::Pristine: return "fresh code";
+        case Canary::Foreign: return "patched by another module";
+        default: return "unreadable";
+    }
+}
+Canary canary(void* check_now) {
+    if (!check_now) return Canary::Unreadable;
+    if (!g_present_target || check_now != g_present_target) return Canary::Moved;
     uint8_t b[16];
-    return read16(check_now, b) && std::memcmp(b, g_hook_bytes, sizeof b) == 0;
+    if (!read16(check_now, b)) return Canary::Unreadable;
+    if (std::memcmp(b, g_hook_bytes, sizeof b) == 0) return Canary::Ours;
+    if (g_have_orig && std::memcmp(b, g_orig_bytes, sizeof b) == 0) return Canary::Pristine;
+    return Canary::Foreign;
 }
 
 struct LdrUStr {
@@ -939,12 +962,31 @@ bool vk_install() {
     // vkGetInstanceProcAddr call recursed through its own detour (the Windows start crash of 0.2.0-dev.10).
     void* check_now = g_wine ? present_now : reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkGetInstanceProcAddr"));
     watch_unloads();
-    if (g_installed.load() && hooks_intact(check_now)) return true;
     if (g_installed.load()) {
-        logf(KILN_LOG_INFO, "ui: vulkan-1.dll was reloaded (%s at %p, hooked %p): hooking again", g_wine ? "vkQueuePresentKHR" : "vkGetInstanceProcAddr",
-             check_now, g_present_target);
+        const bool notice = g_vulkan_unloaded.exchange(false);
+        const Canary c = canary(check_now);
+        const char* export_name = g_wine ? "vkQueuePresentKHR" : "vkGetInstanceProcAddr";
+        if (c == Canary::Ours) {
+            if (notice && !g_told_notice) {
+                g_told_notice = true;
+                logf(KILN_LOG_INFO, "ui: an unload notice for a vulkan-1.dll, but %s is still Kiln's patch: the hooks stay", export_name);
+            }
+            return true;
+        }
+        if (c == Canary::Foreign || c == Canary::Unreadable) {
+            if (!g_told_foreign) {
+                g_told_foreign = true;
+                logf(KILN_LOG_INFO, "ui: %s at %p is %s%s: Kiln's hooks stay under it, not hooked again", export_name, check_now, canary_name(c),
+                     notice ? " (after an unload notice)" : "");
+            }
+            return true;
+        }
+        logf(KILN_LOG_INFO, "ui: vulkan-1.dll was reloaded (%s at %p, hooked %p, %s%s): hooking again", export_name, check_now, g_present_target,
+             canary_name(c), notice ? ", unload notice" : "");
         retire_hooks();
     }
+    // the export's bytes before our patch: a later fresh load of the same image has them again
+    g_have_orig = read16(check_now, g_orig_bytes);
     g_installed = true;
     ++g_installs;
     if (g_installs == 1) input_install_iat();
