@@ -198,16 +198,21 @@ tested on the build machine by `native/services/rules/test-glide-math.sh`).
 as it always does) and a pitch from the movement keys, like a plane's stick; the mouse is free (looking around never
 climbs or dives):
 - Holding **S** (back) pitches up and climbs, at 60 degrees at most; holding **W** (forward) pitches down into a dive,
-  at 60 degrees at most; neither returns to level flight, which holds the altitude. An analog stick pitches in
-  proportion (a small dead zone keeps drift level).
+  at 60 degrees at most; neither returns to level flight, which holds the altitude with `Lift` and `GlideSink` both 0.
+  An analog stick pitches in proportion after a 0.2 dead zone; non-finite input counts as centred and finite input
+  outside -1..1 is clamped.
 - The pitch moves at 0.8 rad/s (about 46 degrees a second) at most, both ways: 60 degrees takes about 1.3 s, and
   letting go of S levels out just as smoothly. It starts from the pitch the glider is actually flying (its velocity),
-  so the server and the player's prediction compute the same ramp from the same replicated input
-  (`PlayerInput.fromClient.movementStick`, sigdb feature `rules.glide_stick`).
+  so the server and the player's prediction compute the same ramp from the same velocity, rules, replicated input
+  (`PlayerInput.fromClient.movementStick`, sigdb feature `rules.glide_stick`) and simulation step time (capped at 0.25 s).
+  The climb and 60-degree caps and the return to the game's glide take priority over that pitch rate. An updraft can
+  nudge the pitch up; after it ends, the stick brings the path back toward its target.
 - On a game build where the movement stick is not found, the camera's pitch is used as before (a view within about
   5 degrees of level is level flight), and the log says so once at startup.
 - Along the path the speed changes by gravity's share (-9.81 m/s² x sin pitch): climbing costs speed and diving gives it.
-- Holding sprint adds `Thrust` up to `MaxSpeed` (a dive's speed is not taken away); `Lift` adds an upward push.
+- Holding sprint adds `Thrust` up to `MaxSpeed` (a dive's speed is not taken away). With stick control, `Lift` offsets
+  the target's vertical velocity by `Lift x dt`, within the pitch rate and caps; it does not accumulate into a climb.
+  The camera fallback keeps its direct upward push.
 - Without sprint, `Coast` slows what is over the path's own glide speed: the game's glide when level or climbing, more
   the steeper the dive (a dive settles at a speed for its angle, at most 2 x `MaxSpeed`). `Coast` 0 is the game's drag.
 - The climb rate never passes `Climb` (0: holding S only slows the glider). The final velocity, including `Lift`,

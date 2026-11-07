@@ -9,6 +9,7 @@
 //    down toward kMaxDivePitch, neither returns to level (the altitude holds); an analog stick pitches in proportion;
 //  - the pitch moves toward that target at kPitchRate at most, from the pitch of the velocity the step starts with (the
 //    replicated state the server and the player's prediction share, so no per-player ramp state exists);
+//    lift offsets the current target, not an assumed previous step's velocity; hard caps and the game handoff win;
 //  - on a build without the stick (Step.has_stick false) the pitch comes from the camera as before (stick_pitch is not
 //    used, path_pitch is);
 //  - the speed along the path changes by gravity's share of it (-g x sin pitch): climbing costs speed, diving gives it
@@ -56,6 +57,7 @@ constexpr float kSpeedLimit = 120.0f;     // m/s, any path speed
 constexpr float kMaxDivePitch = 0.866f;   // stick: the path dives at 60 degrees at most
 constexpr float kPitchRate = 0.8f;        // stick: rad/s, how fast the path's pitch follows the stick (60 deg in 1.3 s)
 constexpr float kStickDeadZone = 0.2f;    // stick: |forward axis| below this is centred (an analog stick's drift)
+constexpr float kMaxStep = 0.25f;         // s: the same budget as the glide wrapper
 
 inline float len3(const float* a) { return std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); }
 inline bool finite3(const float* a) { return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]); }
@@ -73,28 +75,32 @@ inline float path_pitch(const Step& s) {
     return std::min(y, kMaxClimbPitch);
 }
 
-// The path's pitch (sine) from the stick: the velocity's pitch at the start of the step moved toward the stick's target
-// by kPitchRate x dt at most. `lift` is the boost's upward push the last step added on top of its path (lift x dt while
-// boosting), taken off again so it does not count as pitch. Non-finite stick values count as centred.
-inline float stick_pitch(const Step& s, float lift) {
+// The path's pitch (sine) from the stick, ramped from the actual incoming velocity. A previous lift impulse cannot be
+// inferred from today's sprint bit, dt or rules (and the climb/speed caps may have removed it). Instead, the current
+// lift offsets the target's vertical velocity at this step's path speed; it never accumulates as extra pitch state.
+// Non-finite stick values count as centred. `speed` and `lift` are zero for the unlifted energy-trade path.
+inline float stick_pitch(const Step& s, float lift, float speed = 0.0f) {
     float y = s.stick[1];
     if (!std::isfinite(y) || !std::isfinite(s.stick[0])) y = 0.0f;
     y = std::clamp(y, -1.0f, 1.0f);
     const float a = std::fabs(y);
     const float k = a <= kStickDeadZone ? 0.0f : (a - kStickDeadZone) / (1.0f - kStickDeadZone);
     const float max_up = std::asin(kMaxClimbPitch), max_down = std::asin(kMaxDivePitch);
-    const float target = y < 0.0f ? k * max_up : -k * max_down;  // back (S) climbs, forward (W) dives
-    float cur = 0.0f;
-    const float sp = len3(s.v0);
-    if (sp > 1e-3f && std::isfinite(sp)) {
-        float vy = s.v0[1];
-        if (s.boost && lift > 0.0f && std::isfinite(lift)) vy -= lift * s.dt;
-        cur = std::asin(std::clamp(vy / sp, -1.0f, 1.0f));
+    float target = y < 0.0f ? k * max_up : -k * max_down;  // back (S) climbs, forward (W) dives
+    const float dt = std::clamp(s.dt, 0.0f, kMaxStep);
+    if (s.boost && lift > 0.0f && std::isfinite(lift) && speed > 1e-3f && std::isfinite(speed)) {
+        target = std::atan2(std::sin(target) * speed + lift * dt, std::cos(target) * speed);
+        target = std::clamp(target, -max_down, max_up);
     }
-    const float step = kPitchRate * std::min(s.dt, 1.0f);
-    const float next = cur + std::clamp(target - cur, -step, step);
+    float cur = 0.0f;
+    const float horizontal = std::hypot(s.v0[0], s.v0[2]);
+    if (std::hypot(horizontal, s.v0[1]) > 1e-3f)
+        cur = std::atan2(s.v0[1], horizontal);
+    const float step = kPitchRate * dt;
+    // Arrive at the exact target, including zero, rather than leaving cancellation residue at analog targets.
+    const float next = std::fabs(target - cur) <= step ? target : cur + std::copysign(step, target - cur);
     if (!std::isfinite(next)) return 0.0f;
-    return std::min(std::sin(next), kMaxClimbPitch);
+    return std::clamp(std::sin(next), -kMaxDivePitch, kMaxClimbPitch);
 }
 
 // The game's glide, with the altitude hold when asked (as before the plane: unless the glider points down).
@@ -105,9 +111,11 @@ inline Result game_glide(const Step& s, const Params& p, float out[3]) {
 }
 
 // out = the velocity to use. Non-finite input never builds a path (the game's velocity stands).
-inline Result plane_step(const Step& s, const Params& p, float out[3]) {
+inline Result plane_step(const Step& input, const Params& p, float out[3]) {
+    Step s = input;
     if (!finite3(s.v0) || !finite3(s.v) || !finite3(s.heading) || !(s.dt > 0.0f) || !std::isfinite(s.dt))
         return game_glide(s, p, out);
+    s.dt = std::min(s.dt, kMaxStep);
     if (!s.boost && !(p.coast > 0.0f)) return game_glide(s, p, out);  // coast 0: the game's drag after a boost
     // horizontal direction: the glider's heading (else the view's, else the motion's)
     float hx = s.heading[0], hz = s.heading[2];
@@ -116,8 +124,7 @@ inline Result plane_step(const Step& s, const Params& p, float out[3]) {
     if (hl < 1e-3f || !std::isfinite(hl)) hx = s.v0[0], hz = s.v0[2], hl = std::sqrt(hx * hx + hz * hz);
     if (hl < 1e-3f || !std::isfinite(hl)) hx = 0.0f, hz = 1.0f, hl = 1.0f;
     hx /= hl, hz /= hl;
-    const float sp = s.has_stick ? stick_pitch(s, p.lift) : path_pitch(s);
-    const float c = std::sqrt(std::max(0.0f, 1.0f - sp * sp));
+    const float sp = s.has_stick ? stick_pitch(s, 0.0f) : path_pitch(s);
     // the game's own glide speed: its horizontal speed after its step (its thrust and drag set that; the vertical part
     // is ours from the last step, or the game's sink)
     const float s0 = len3(s.v0), sg = std::sqrt(s.v[0] * s.v[0] + s.v[2] * s.v[2]);
@@ -133,10 +140,12 @@ inline Result plane_step(const Step& s, const Params& p, float out[3]) {
     if (s.boost) speed = std::min(speed, std::max(s0, cap));  // the thrust only up to its cap; a dive's speed stays
     speed = std::min(speed, dive_top);
     if (!(speed > sg)) return game_glide(s, p, out);  // no faster than the game's own glide: the game glides
+    const float final_pitch = s.has_stick ? stick_pitch(s, p.lift, speed) : sp;
+    const float c = std::sqrt(std::max(0.0f, 1.0f - final_pitch * final_pitch));
     out[0] = hx * c * speed;
-    out[1] = sp * speed;
+    out[1] = final_pitch * speed;
     out[2] = hz * c * speed;
-    if (s.boost && p.lift > 0.0f) out[1] += p.lift * s.dt;
+    if (!s.has_stick && s.boost && p.lift > 0.0f) out[1] += p.lift * s.dt;
     out[1] = std::min(out[1], std::max(0.0f, p.climb));
     if (!finite3(out)) return game_glide(s, p, out);
     // Lift changes the speed as well as the climb rate. Apply the speed budget to the final vector too, keeping

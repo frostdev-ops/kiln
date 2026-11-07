@@ -229,6 +229,160 @@ int main() {
                     }
         check(bounded, "stick: any speed, pitch and step time keep finite, bounded velocities");
     }
+    {
+        // Lift cannot be recovered from velocity using the current sprint bit, dt or climb cap: the last step may
+        // have had different values, and its final vector may have been clamped. Use the actual flight angle.
+        Step s;
+        s.heading[2] = 1, s.has_stick = true, s.boost = true, s.dt = 0.25f;
+        s.v0[2] = 35, s.v[2] = 20;
+        Params q = p;
+        q.lift = 100, q.climb = 0;
+        float out[3];
+        plane_step(s, q, out);
+        check(out[1] == 0.0f, "stick: engaging lift with climb 0 cannot invent a dive from level flight");
+        q.climb = 120;
+        plane_step(s, q, out);
+        check(out[1] > 0 && pitch_of(out) <= kPitchRate * s.dt + 1e-5f,
+              "stick: lift starts upward from actual velocity within the pitch rate");
+
+        bool settling = true;
+        for (bool boost : {false, true}) {
+            float v[3] = {0, 2.5f, 35};  // a previous 0.25 s step's lift, or an updraft: no hidden history
+            for (int i = 0; i < 240; ++i) {
+                s.dt = i % 2 ? dt : 1.0f / 240.0f;
+                s.boost = boost;
+                game(s, v);
+                q.lift = 10;
+                plane_step(s, q, out);
+                const float before = pitch_of(v), after = pitch_of(out);
+                settling = settling && after >= 0 && std::fabs(after - before) <= kPitchRate * s.dt + 1e-5f;
+                std::copy(out, out + 3, v);
+            }
+            settling = settling && v[1] <= (boost ? q.lift * dt + 1e-3f : 1e-5f);
+        }
+        check(settling, "stick: variable dt and sprint release settle lift without crossing level or accumulating");
+
+        // At the speed budget, normalization used to destroy the assumed lift offset too.
+        s.dt = dt, s.boost = true, s.v0[1] = 0, s.v0[2] = 35, s.v[1] = 0, s.v[2] = 20;
+        q.lift = 100;
+        bool bounded_lift = true;
+        for (int i = 0; i < 300; ++i) {
+            game(s, s.v0);
+            plane_step(s, q, out);
+            bounded_lift = bounded_lift && out[1] >= 0 && out[1] <= q.lift * dt + 1e-3f &&
+                           len3(out) <= q.max_speed + 1e-3f;
+            std::copy(out, out + 3, s.v0);
+        }
+        check(bounded_lift, "stick: lift at the speed budget stays an offset instead of feeding back into pitch");
+    }
+    {
+        // A vertical arrival is possible after the game's other programs, independently of the stick target.
+        bool capped = true;
+        for (float vy : {-40.0f, 40.0f}) {
+            Step s;
+            s.heading[2] = 1, s.has_stick = true, s.boost = true, s.dt = dt;
+            s.v0[1] = vy, s.v[2] = 20;
+            Params q = p;
+            q.climb = 120, q.max_speed = 60;
+            float out[3];
+            plane_step(s, q, out);
+            const float angle = pitch_of(out);
+            capped = capped && finite3(out) && angle >= -std::asin(kMaxDivePitch) - 1e-5f && angle <= rad60 + 1e-5f;
+        }
+        check(capped, "stick: vertical incoming velocity respects both 60-degree caps");
+        Step s;
+        s.heading[2] = 1, s.has_stick = true, s.boost = true, s.dt = 0.25f;
+        s.v0[2] = 11, s.v[2] = 5;
+        Params q = p;
+        q.lift = 100, q.climb = 120;
+        float out[3];
+        plane_step(s, q, out);
+        check(pitch_of(out) <= kPitchRate * s.dt + 1e-5f && pitch_of(out) <= rad60 + 1e-5f,
+              "stick: a large lift cannot push the final velocity past the pitch rate or climb angle cap");
+    }
+    {
+        // Releasing a tiny climb or sink must reach exactly level without crossing or oscillating around it.
+        bool level = true;
+        for (float vy : {-0.001f, 0.001f}) {
+            Step s;
+            s.heading[2] = 1, s.has_stick = true, s.boost = true, s.dt = dt;
+            s.v0[1] = vy, s.v0[2] = 35, s.v[2] = 20;
+            float out[3];
+            plane_step(s, p, out);
+            level = level && out[1] == 0;
+        }
+        check(level, "stick: a slight climb or sink releases to exactly level without overshoot");
+
+        // The glide step can change the vertical velocity; the ramp starts from v0, not the game's changed value.
+        Step a;
+        a.heading[2] = 1, a.has_stick = true, a.boost = true, a.dt = dt, a.v0[2] = 35, a.v[2] = 20;
+        Step b = a;
+        a.v[1] = 25, b.v[1] = -25;
+        float va[3], vb[3];
+        plane_step(a, p, va);
+        plane_step(b, p, vb);
+        check(va[1] == 0 && std::equal(va, va + 3, vb), "stick: the game's vertical drag does not become ramp state");
+
+        // An updraft pulse becomes actual pitch, then unwinds; it does not persist as extra ramp state.
+        Params q = p;
+        q.climb = 120, q.max_speed = 60;
+        float v[3] = {0, 45, 35};
+        Track t;
+        fly(v, 3, 0, true, q, nullptr, nullptr, kCentred, &t);
+        check(v[1] == 0 && t.max_pitch <= rad60 + 1e-5f, "stick: an updraft pulse is bounded and settles back to level");
+
+        // The climb cap and normal-glide handoff are deliberate constraints on the ramp, not hidden history.
+        q.climb = 0;
+        a.stick[1] = -1;
+        plane_step(a, q, va);
+        std::copy(va, va + 3, a.v0);
+        a.stick[1] = 0;
+        plane_step(a, q, vb);
+        check(va[1] == 0 && vb[1] == 0, "stick: releasing after a climb cap uses the actual capped velocity");
+        a.boost = false, a.v0[1] = 2, a.v0[2] = 10, a.v[1] = -2, a.v[2] = 11;
+        check(plane_step(a, p, va) == Result::Game && va[1] == 0 && va[2] == 11,
+              "stick: the coast hands back to the game's glide with altitude hold");
+    }
+    {
+        // Malicious finite values saturate at the same target; the dead zone includes both endpoints.
+        bool saturated = true, centred = true, proportional = true, tiny = true;
+        for (float sign : {-1.0f, 1.0f}) {
+            Step s;
+            s.heading[2] = 1, s.has_stick = true, s.boost = true, s.dt = 0.25f;
+            s.v0[2] = 40, s.v[2] = 20;
+            s.v0[1] = sign * 30;
+            Params q = p;
+            q.climb = 120, q.max_speed = 60;
+            float a[3], b[3];
+            s.stick[1] = sign;
+            plane_step(s, q, a);
+            s.stick[0] = -std::numeric_limits<float>::max(), s.stick[1] = sign * std::numeric_limits<float>::max();
+            plane_step(s, q, b);
+            saturated = saturated && std::equal(a, a + 3, b);
+            s.v0[1] = 0, s.stick[1] = sign * kStickDeadZone;
+            plane_step(s, q, a);
+            centred = centred && a[1] == 0;
+            float v[3] = {0, 0, 40};
+            fly(v, 3, 0, true, q, nullptr, nullptr, Stick{true, sign * 0.6f});
+            proportional = proportional && std::fabs(pitch_of(v) + sign * rad60 * 0.5f) < 1e-4f;
+            s.stick[1] = sign, s.v0[2] = 1e-10f, s.v[2] = 0;
+            plane_step(s, q, a);
+            tiny = tiny && finite3(a) && std::fabs(pitch_of(a)) <= kPitchRate * s.dt + 1e-5f;
+        }
+        check(saturated, "stick: out-of-range finite axes saturate before use");
+        check(centred, "stick: both dead-zone boundaries are centred");
+        check(proportional, "stick: half-range analog pitch is proportional in both directions");
+        check(tiny, "stick: near-zero velocity starts the ramp from level");
+
+        Step s;
+        s.heading[2] = 1, s.has_stick = true, s.boost = true, s.stick[1] = -1;
+        s.v0[2] = 35, s.v[2] = 20, s.dt = 0.25f;
+        float a[3], b[3];
+        plane_step(s, p, a);
+        s.dt = 10;
+        plane_step(s, p, b);
+        check(std::equal(a, a + 3, b), "stick: all math shares the runtime's 0.25 s dt clamp");
+    }
     // ---------------------------------------------------------------- camera fallback (a build without the stick)
     {
         // boost while looking 30 degrees up: climbs, no faster than `climb`, speed up to the cap

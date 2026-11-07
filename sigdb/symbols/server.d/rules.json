@@ -100,9 +100,10 @@
       ]
     },
     "@rules/Input.stick": {
-      "comment": "the player control program after player_control_building_fly_mode (server 0xcd6c1, client 0x2e1721), unless the actor is Dead: ActorInput.desiredLocalMoveInput (+0x18c, float3) = (movementStick.x, 0, movementStick.y), PlayerInput.fromClient.movementStick (float2 at PlayerInput+0x2c0) - the stick's y is the local forward axis (W +1, S -1). Pins rules/input.stick (a second capture beside @rules/Loco.input) and that y is forward, for the boosted glider's pitch",
+      "comment": "the player control program after player_control_building_fly_mode (server 0xcd6c1, client 0x2e1721), unless the actor is Dead: ActorInput.desiredLocalMoveInput (+0x18c, float3) = (movementStick.x, 0, movementStick.y), PlayerInput.fromClient.movementStick (float2 at PlayerInput+0x2c0) - the stick's y is the local forward axis (W +1, S -1). Captures rules/input.stick again beside @rules/Loco.input; the second strategy pins the adjacent x/y loads (+0x2c0/+0x2c4), so neither can drift independently and still enable stick pitch",
       "find": [
-        { "pattern": "84 C0 0F 85 ?? ?? ?? ?? F3 0F 10 83 {rules/input.stick:d32} F3 0F 10 93 ?? ?? ?? ?? 41 0F 14 C7 F2 0F 11 87 8C 01 00 00 F3 0F 11 97 94 01 00 00" }
+        { "pattern": "84 C0 0F 85 ?? ?? ?? ?? F3 0F 10 83 {rules/input.stick:d32} F3 0F 10 93 C4 02 00 00 41 0F 14 C7 F2 0F 11 87 8C 01 00 00 F3 0F 11 97 94 01 00 00" },
+        { "pattern": "F3 0F 10 83 C0 02 00 00 F3 0F 10 93 C4 02 00 00 41 0F 14 C7 F2 0F 11 87 8C 01 00 00 F3 0F 11 97 94 01 00 00" }
       ]
     },
     "@rules/Input.camera": {

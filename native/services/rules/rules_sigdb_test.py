@@ -113,18 +113,47 @@ def check_guard_failures(image, doc, symbols, constants):
         check(features[unaffected], unaffected + " remains available with the other guard's pattern missing")
 
 
-def check_glide_stick(side, image, doc, symbols, constants):
+def check_glide_stick(side, image, doc, symbols, constants, baseline):
     # The boosted glider's pitch stick: PlayerInput.fromClient.movementStick, pinned by two patterns that must agree.
     check(constants["rules/input.stick"]["ok"] and constants["rules/input.stick"]["value"] == 0x2C0,
           side + " movement stick resolves to PlayerInput+0x2c0 from both captures")
     spec = doc["symbols"]["@rules/Input.stick"]["find"][0]
     at, holes = matches(image, symbols, spec)
+    for fingerprint in doc["symbols"]["@rules/Input.stick"]["find"][1:]:
+        matches(image, symbols, fingerprint)
+    loco_spec = doc["symbols"]["@rules/Loco.input"]["find"][0]
+    loco_at, loco_holes = matches(image, symbols, loco_spec)
+    for site, captures in [(at, holes), (loco_at, loco_holes)]:
+        offset = next(offset for name, kind, offset in captures if name == "rules/input.stick" and kind == "d32")
+        check(int.from_bytes(image.img[site + offset:site + offset + 4], "little") == 0x2C0,
+              side + " each independent movement-stick capture is PlayerInput+0x2c0")
+
+    # Do not trust a wildcarded second movss: reading another field into local +z would no longer prove stick.y
+    # is forward. A changed forward field must disable this optional feature while preserving every other feature.
+    decoder = Cs(CS_ARCH_X86, CS_MODE_64)
+    size = parse(spec["pattern"])[2]
+    forward = next(i for i in decoder.disasm(image.img[at:at + size], at) if i.bytes[:4] == b"\xf3\x0f\x10\x93")
+    forward_offset = forward.address + 4
+    check(int.from_bytes(image.img[forward_offset:forward_offset + 4], "little") == 0x2C4,
+          side + " local forward input comes from movementStick.y at +0x2c4")
+    _, _, features = Resolver(changed(image, [(forward_offset, (0x2C8).to_bytes(4, "little"))]), doc).run()
+    check(not features["rules.glide_stick"] and all(features[n] == ok for n, ok in baseline.items() if n != "rules.glide_stick"),
+          side + " a changed forward-axis load disables only rules.glide_stick")
+    edits = []
+    for site, captures in [(at, holes), (loco_at, loco_holes)]:
+        offset = next(offset for name, kind, offset in captures if name == "rules/input.stick")
+        edits.append((site + offset, (0x2C8).to_bytes(4, "little")))
+    _, consts, features = Resolver(changed(image, edits), doc).run()
+    check(consts["rules/input.stick"]["ok"] and not features["rules.glide_stick"] and
+          all(features[n] == ok for n, ok in baseline.items() if n != "rules.glide_stick"),
+          side + " agreeing base captures cannot drift away from the pinned forward-axis field")
     syms, consts, features = Resolver(changed(image, [(at, b"\x90")]), doc).run()
     check(not features["rules.glide_stick"] and features["rules.glide"] and features["rules.glide_view"],
           side + " without the stick pattern only rules.glide_stick is off (the camera pitch stands)")
     hole = next((offset, kind) for name, kind, offset in holes if name == "rules/input.stick")
     syms, consts, features = Resolver(changed(image, [(at + hole[0], (0x2C8).to_bytes(WIDTH[hole[1]], "little"))]), doc).run()
-    check(not consts["rules/input.stick"]["ok"] and not features["rules.glide_stick"] and features["rules.glide"],
+    check(not consts["rules/input.stick"]["ok"] and not features["rules.glide_stick"] and features["rules.glide"] and
+          features["rules.glide_view"],
           side + " a disagreeing stick offset turns only rules.glide_stick off")
 
 
@@ -143,7 +172,7 @@ def run(side, path):
     check(symbols["@rules/ShroudDrain.delta"]["ok"] and symbols["rules/StepDelta"]["ok"],
           side + " Shroud duration capture agrees with the glider's StepDelta")
     check_boundaries(side, image, tree.doc, symbols)
-    check_glide_stick(side, image, tree.doc, symbols, constants)
+    check_glide_stick(side, image, tree.doc, symbols, constants, features)
     if side == "client":
         check_guard_failures(image, tree.doc, symbols, constants)
 

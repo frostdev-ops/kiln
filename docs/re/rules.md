@@ -260,7 +260,7 @@ thread. Kiln notes the impact's player argument (arg 0, read as kiln.gameplay do
   right after `player_control_building_fly_mode` (server `0xcd6c1`, client `0x2e1721`) writes, unless the actor is Dead,
   `ActorInput.desiredLocalMoveInput` (+0x18c, float3) = `(stick.x, 0, stick.y)` (xmm15 is zeroed earlier in the
   function), so stick.y is the local forward axis (local +z, the heading's (0,0,1)): W +1, S -1 **[dis]** (the sign by
-  the engine's forward convention; the client checklist confirms it). `locomotion_execution` reads the same field for
+  the engine's forward convention; a live client flight is still unverified). `locomotion_execution` reads the same field for
   |stick|² (`@rules/Loco.input`). The vanilla glide step itself never reads the stick or ActorInput's move input.
 - **Iterator** of `locomotion_execution`: +0 ProgramContext, +0x20 CurrentTransform (rotation +0x18, `keen::Quaternion
   {x,y,z,w}`), +0x50 PlayerInput (null for anything but a player), +0x98 ActorInput, +0xf8 DynamicLocomotion, +0x158
@@ -277,13 +277,18 @@ prediction, so the server agrees with what the player sees):
 - `rules/GlideStep` (inline wrap): before, the velocity is copied (v0) and the ActorInput trigger read; after, unless
   the game aborted the glide in this step: with `GLIDE_BOOST` the glider flies like a plane (`glide_math.h`): a path
   with F's horizontal heading and a pitch from the movement stick (`PlayerInput + input.stick`, y: S -1 climbs toward
-  60 degrees, W +1 dives toward 60 degrees, centred = level; dead zone 0.2), moved toward that target at 0.8 rad/s at
-  most from the pitch of v0 (the velocity the step starts with, less the last step's `Lift x dt` while boosting), so the
-  ramp's state is the replicated velocity, not a per-player variable. Fallback when `rules.glide_stick` does not
+  60 degrees, W +1 dives toward 60 degrees, centred = level; dead zone 0.2; non-finite stick = centred, finite forward
+  axis clamped to -1..1 before use). Pitch starts at `atan2(v0.y, hypot(v0.x, v0.z))`, or level below 0.001 m/s; no previous
+  lift is inferred or subtracted. While boosting, the target angle is the angle of the stick's target path velocity
+  plus `Lift x dt` vertically, capped to +/-60 degrees. The actual pitch moves toward that target at 0.8 rad/s at most;
+  climb/pitch caps and the normal-glide handoff take priority. An updraft feeds into v0, then unwinds toward the target
+  after the updraft ends. All math uses the wrapper's step-time budget of at most 0.25 s. The ramp has no per-player
+  variable: the same velocity, input, rules and simulation dt produce the same result (different dt subdivisions are
+  not promised to match). Fallback when `rules.glide_stick` does not
   resolve: the camera's pitch (the camera's forward = `QuatRotate(PlayerInput + input.camera_rot, (0,0,1))`, the
   replicated `fromClient.camera.orientation`, so the server and the player's prediction see the same;
   `@rules/Input.camera`, the same turn `player_deflect_parried_projectiles` makes, `0xd2cde` / client `0x2e6d3e`);
-  the speed along it changes by `-g sin pitch`, plus `Thrust` while sprint is held (up to `MaxSpeed`),
+  the speed along the unlifted ramp changes by `-g sin pitch`, plus `Thrust` while sprint is held (up to `MaxSpeed`),
   minus `Coast` above the path's own glide speed; the climb rate is capped at `glide_climb`; no faster than the
   game's own horizontal glide speed, the game's velocity stands. Without `GLIDE_BOOST`: with `glide_sink` 0 and the
   glider not pointing down (F.y > -0.2), a downward velocity is set to 0. The game has already marked Velocity written
