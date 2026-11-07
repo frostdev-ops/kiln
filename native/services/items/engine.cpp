@@ -225,7 +225,6 @@ const uint8_t* stack_at(const Access& a, uint64_t slot) {
 }
 
 void run_give(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItemsResult* res) {
-    pide_end();  // a fault inside an earlier commit may have left a scope open
     const auto* setup = static_cast<const uint8_t*>(other(a, A_SETUP, r.entity));
     if (!setup) return fail(res, KILN_ITEMS_NO_INVENTORY, "entity %u has no inventory (no InventorySetup)", r.entity);
     if (!setup[E.setup_initialized])
@@ -265,9 +264,7 @@ void run_give(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItems
     const bool all = (r.flags & KILN_ITEMS_ALL_OR_NOTHING) != 0;
     const bool commit = out.error == 0 && res->done > 0 && !(all && remaining > 0) && !dry;
     if (commit) {
-        pide_begin(r.flags, r.unlock);  // KILN_ITEMS_UNLOCK / GEM_SLOT: createPide runs inside the commit (pide.cpp)
-        E.commit(tx);
-        pide_end();
+        pide_commit(tx, E.commit, r.flags, r.unlock, r.item); // createPide runs inside the commit
     } else {
         E.rollback(tx);
     }

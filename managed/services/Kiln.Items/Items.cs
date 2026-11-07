@@ -137,7 +137,8 @@ public static unsafe partial class Items
             }
             if (g.Unlocked is { } un)
             {
-                if (un < 0) return Invalid(target, item, count, "unlocked upgrades must be 0 or more");
+                if (un is < 0 or > 5 && un != 255)
+                    return Invalid(target, item, count, "unlocked upgrades must be 0-5, or 255 for all");
                 if (un > 0)
                 {
                     r.Flags |= ItemsNative.Unlock;

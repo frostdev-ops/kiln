@@ -27,6 +27,9 @@ internal static class CreativeGiveOptions
     public const int GemSlot = 0x100;     // a weapon gets an empty gem slot
     public const int Journey = 0x200;     // journey mode: gear levels capped at the character's level
 
+    public static bool Valid(int options) => (options & ~(UpgradesMask | GemSlot | Journey)) == 0 &&
+        (options & UpgradesMask) <= 5;
+
     public static int Of(int upgrades, bool gemSlot, bool journey) =>
         Math.Clamp(upgrades, 0, 5) | (gemSlot ? GemSlot : 0) | (journey ? Journey : 0);
 }
@@ -132,7 +135,17 @@ internal static class CreativeNet
     internal static CreativeRequest DecodeRequest(ref NetReader r)
     {
         var req = new CreativeRequest((CreativeAsk)r.Byte(), r.UInt32(), r.Int32(), r.Int32(), r.Int32(), r.Double());
-        return r.Remaining >= 4 ? req with { Options = r.Int32() } : req;  // a client before 0.2.0-dev.16 sends no options
+        // Legacy requests can carry up to three zero bytes from kiln.net's word-aligned game transport.
+        // Nonzero incomplete options must not silently turn a Journey request into an unrestricted give.
+        if (r.Remaining == 0) return req;
+        if (r.Remaining < 4)
+        {
+            if (r.Rest().IndexOfAnyExcept((byte)0) < 0) return req;
+            throw new NetFormatException("Truncated creative options.");
+        }
+        var options = r.Int32();
+        if (!CreativeGiveOptions.Valid(options)) throw new NetFormatException("Invalid creative options.");
+        return req with { Options = options };
     }
 
     internal static void EncodeCatalog(CreativeCatalogMsg m, NetWriter w)
@@ -315,7 +328,8 @@ internal sealed class CreativeInbox
 
     public bool Enqueue(EntityId player, CreativeRequest req, bool local, NetPeer? peer = null, long? at = null)
     {
-        if (player.IsNone || !Enum.IsDefined(req.Kind)) return false;
+        if (player.IsNone || !Enum.IsDefined(req.Kind) ||
+            (req.Kind == CreativeAsk.Give && !CreativeGiveOptions.Valid(req.Options))) return false;
         var now = at ?? Environment.TickCount64;
         lock (_queue)
         {

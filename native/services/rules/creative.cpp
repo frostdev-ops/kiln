@@ -138,7 +138,13 @@ void __fastcall hk_fog(void* fow, const float* pos, float range) {
     const uint32_t mode = g_map_mode.load(std::memory_order_relaxed);
     const float r = creative_math::fog_range(mode, g_map_radius.load(std::memory_order_relaxed), range);
     if (r != range) S.map.fetch_add(1, std::memory_order_relaxed);
-    h_fog.call<void>(fow, pos, r);
+    if (r != range) {
+        if (!call_fog(fow, pos, r)) {
+            S.faults.fetch_add(1, std::memory_order_relaxed);
+            h_fog.call<void>(fow, pos, range);
+            return;
+        }
+    } else h_fog.call<void>(fow, pos, range);
     if (mode == KILN_RULES_MAP_WHOLE && fow) sweep_step(fow);
 }
 
@@ -166,7 +172,8 @@ bool craft_free(void* tx, uint32_t owner) {
 }
 
 uint32_t __fastcall hk_alt(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
-    if (craft_free(tx, owner)) {
+    // This payer must be scoped just as tightly as InventoryPay: other callers must still pay.
+    if (g_recipe_ret && reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_recipe_ret + 7 && craft_free(tx, owner)) {
         S.crafts.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
@@ -202,16 +209,25 @@ using RemoveFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t owner,
 SafetyHookInline h_remove;
 uintptr_t g_ammo_ret = 0, g_cost_ret = 0;
 
-Result12* __fastcall hk_remove(Result12* out, void* tx, uint32_t owner, uint32_t item, uint64_t slot, uint32_t count) {
-    const auto ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
-    if (out && (ret == g_ammo_ret || ret == g_cost_ret) && ret) {
+bool keep_removal(Result12* out, uintptr_t ret, uint32_t owner, uint32_t count) {
+    __try {
+        if (!out || !ret || (ret != g_ammo_ret && ret != g_cost_ret) || count != 1) return false;
         KilnRulesPlayer r{};
         if (owner && kiln_rules_bridge::rules_of(owner, &r) && (r.flags & KILN_RULES_KEEP_CONSUMABLES) != 0) {
             std::memset(out, 0, sizeof *out);
             S.consumes.fetch_add(1, std::memory_order_relaxed);
-            return out;
+            return true;
         }
+        return false;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        S.faults.fetch_add(1, std::memory_order_relaxed);
+        return false;
     }
+}
+
+Result12* __fastcall hk_remove(Result12* out, void* tx, uint32_t owner, uint32_t item, uint64_t slot, uint32_t count) {
+    const auto ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    if (tx && item && keep_removal(out, ret, owner, count)) return out;
     return h_remove.call<Result12*>(out, tx, owner, item, slot, count);
 }
 
@@ -302,6 +318,13 @@ KilnResult KILN_CALL map_reveal(uint32_t mode, float radius) {
     }
     if (was != mode) logf(KILN_LOG_INFO, "map reveal: %s", mode == KILN_RULES_MAP_WHOLE ? "the whole map" : mode == KILN_RULES_MAP_RADIUS ? "a wider circle" : "the game's range");
     return KILN_OK;
+}
+
+void reset_map() {
+    std::lock_guard lock(g_sweep_mu);
+    g_map_mode = KILN_RULES_MAP_DEFAULT;
+    g_done_fow = g_sweep_fow = nullptr;
+    g_sweep_next = 0;
 }
 
 KilnResult KILN_CALL creative_status(KilnRulesCreative* out) {

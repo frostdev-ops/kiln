@@ -97,6 +97,12 @@
         { "pattern": "40 53 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 79 08 4C 8B F1 F3 0F 10 05 ?? ?? ?? ?? 44 8B CF 0F 29 7C 24 60" }
       ]
     },
+    "@rules/client.FogDiscover.body": {
+      "comment": "Require the body fingerprint independently: the caller's rel32 capture can otherwise rescue a missing or ambiguous FogDiscover definition.",
+      "find": [
+        { "pattern": "40 53 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 79 08 4C 8B F1 F3 0F 10 05 ?? ?? ?? ?? 44 8B CF 0F 29 7C 24 60" }
+      ]
+    },
     "@rules/client.FogDiscover.caller": {
       "comment": "the fog_of_war system's call (xmm2 = FogOfWarDiscovery.discoveryRange): FogDiscover is the function it calls",
       "find": [
@@ -166,7 +172,7 @@
       ]
     },
     "rules.map_reveal": {
-      "symbols": ["rules/client.FogDiscover", "@rules/client.FogDiscover.caller"]
+      "symbols": ["rules/client.FogDiscover", "@rules/client.FogDiscover.body", "@rules/client.FogDiscover.caller"]
     },
     "rules.craft_ui": {
       "symbols": ["rules/client.CraftableAmount"]

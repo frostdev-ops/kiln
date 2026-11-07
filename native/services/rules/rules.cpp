@@ -1163,6 +1163,8 @@ void clear_all() {
 }
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
+    if (ev->kind == KILN_WORLD_CLIENT && (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING))
+        kiln_rules_creative::reset_map();
     if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STARTED) {
         if (g_client_guards && (g_rays_guarded.load() || g_rays_long.load())) {
             LOGI("client guard: last session: %llu health-bar ray(s) from a camera outside the world and %llu over %.0f m "
@@ -1344,8 +1346,8 @@ void install() {
     g_hooks |= kiln_rules_creative::install(g_api, off);
     // the storage-chest upgrade's payment (counted with the costs); the same hook serves free crafting
     uintptr_t pay = 0;
-    if ((g_hooks & KILN_RULES_HOOK_CRAFT) && sym("rules/InventoryPay", &pay) &&
-        !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")) {
+    if ((g_hooks & KILN_RULES_HOOK_CRAFT) && (!sym("rules/InventoryPay", &pay) ||
+        !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))) {
         g_hooks &= ~KILN_RULES_HOOK_CRAFT;
         kiln_rules_creative::pay_hook_failed();
         note("free crafting (payment hook failed)");

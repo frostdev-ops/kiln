@@ -205,6 +205,68 @@ def check_time_scale(side, image, doc, symbols):
               side + " " + reason + " scale hook preserves the existing time API")
 
 
+def check_creative(side, image, doc, symbols):
+    names = ["rules.storage", "rules.craft", "rules.consume", "items.pide_options"]
+    if side == "client":
+        names += ["rules.map_reveal", "rules.craft_ui"]
+    selected = set()
+    for name in names:
+        selected.update(doc["features"][name].get("symbols", []))
+    # Follow scoped definitions; captured-only targets (InventoryPay, RecipePayAlt, level indices) have no definition.
+    pending = list(selected)
+    while pending:
+        for spec in doc["symbols"].get(pending.pop(), {}).get("find", []):
+            dep = spec.get("scope", {}).get("symbol")
+            if dep and dep not in selected:
+                selected.add(dep)
+                pending.append(dep)
+    subset = {"symbols": {n: doc["symbols"][n] for n in selected if n in doc["symbols"]},
+              "constants": {n: doc["constants"][n] for name in names
+                            for n in doc["features"][name].get("constants", [])},
+              "features": {n: doc["features"][n] for n in names}}
+    _, _, baseline = Resolver(image, subset).run()
+    check(all(baseline.values()), side + " creative hooks and gear options resolve independently")
+
+    calls = [("rules/RecipePaid", "rules/InventoryPay", 0),
+             ("rules/RecipePaid", "rules/RecipePayAlt", 7),
+             ("rules/AmmoConsumed", "items/InventoryRemoveItems", 0),
+             ("rules/CostConsumed", "items/InventoryRemoveItems", 0)]
+    decoder = Cs(CS_ARCH_X86, CS_MODE_64)
+    for name, target, delta in calls:
+        ret = symbols[name]["rva"] + delta
+        instruction = next(decoder.disasm(image.img[ret - 5:ret], ret - 5))
+        check(instruction.mnemonic == "call" and int(instruction.op_str, 16) == symbols[target]["rva"],
+              side + " " + name + f"+{delta}: direct call returns from the expected target")
+    spawn = symbols["items/PideSpawn"]["rva"]
+    start = symbols["items/CreatePide"]["rva"]
+    check(any(i.address == spawn for i in decoder.disasm(image.img[start:spawn + 16], start)),
+          side + " gear options mid hook is on an instruction boundary inside createPide")
+    current = int.from_bytes(image.img[symbols["items/PideLevelIndex"]["rva"]:][:4], "little")
+    maximum = int.from_bytes(image.img[symbols["items/PideLevelMaxIndex"]["rva"]:][:4], "little")
+    check({current, maximum} == {0, 1}, side + " the Level override has distinct in-bounds current and max indices")
+
+    cases = [("rules/UpgradeStoragePaid", "rules.storage"), ("rules/RecipePaid", "rules.craft"),
+             ("rules/AmmoConsumed", "rules.consume"), ("rules/CostConsumed", "rules.consume"),
+             ("items/PideSpawn", "items.pide_options"), ("@items/CreatePide.fields", "items.pide_options")]
+    if side == "client":
+        cases += [("@rules/client.FogDiscover.body", "rules.map_reveal"),
+                  ("@rules/client.FogDiscover.caller", "rules.map_reveal"),
+                  ("rules/client.CraftableAmount", "rules.craft_ui")]
+    for name, feature in cases:
+        spec = subset["symbols"][name]["find"][0]
+        at, _ = matches(image, symbols, spec)
+        size = parse(spec["pattern"])[2]
+        duplicate = image.text_va + len(image.text) - size
+        if "scope" in spec:
+            duplicate = symbols[spec["scope"]["symbol"]]["rva"] + spec["scope"]["size"] - size
+        check(duplicate >= at + size or duplicate + size <= at, name + " mutation does not overlap its original pattern")
+        for edits, reason in [([(at, b"\x90")], "missing"),
+                              ([(duplicate, image.img[at:at + size])], "ambiguous")]:
+            _, _, features = Resolver(changed(image, edits), subset).run()
+            check(not features[feature] and all(ok for n, ok in features.items() if n != feature),
+                  side + " " + reason + " " + name + " disables only " + feature)
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
@@ -221,6 +283,7 @@ def run(side, path):
           side + " Shroud duration capture agrees with the glider's StepDelta")
     check_storage(side, image, tree.doc, symbols, constants)
     check_time_scale(side, image, tree.doc, symbols)
+    check_creative(side, image, tree.doc, symbols)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
     if side == "client":

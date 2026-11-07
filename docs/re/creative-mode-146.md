@@ -211,8 +211,9 @@ gives a player. The EML / kfc-parser project (Brabb3l) is a data patcher and exp
   while `< availablePerks`) and the Level attribute (`0x724bf568`) `+= 1` through `0x19d7b0` (AttrFind, write, `0xab970`
   recompute), then an `ItemPerkChanged`-style event. So a fully upgraded item is `unlocked = available` and
   `Level.current = base + available` (docs/re/items.md: "LEVEL 54/54 on an instance given at level 50 with 4 perks").
-- **Plan**: a mid hook on that spawn call (kiln.items, which owns createPide's callers and runs every Give inside its
-  program, so a thread-local "this commit's options" set around its `InventoryCommit` is exact). For a Give with
+- **Implementation**: a mid hook on that spawn call (kiln.items runs every Give inside its own program). The
+  thread-local options scope around `InventoryCommit` checks the `UsedItem` override against the give's item id and
+  ends even when the commit faults; ordinary loot and crafting have no scope. For a Give with
   `Unlocked`: find the `PerkContainerNew` and `Level` entries in the list and set `unlocked = available`,
   `current += available`. With `GemSlot`, on a Weapon whose list has no `WeaponGemSlot` and `count < capacity`: append
   `{0x84ba9b52, &zero12, 12}` (a static zeroed buffer, alive until the spawn copies it). Everything else spawns as the
@@ -247,8 +248,7 @@ gives a player. The EML / kfc-parser project (Brabb3l) is a data patcher and exp
   craft with the output and takes nothing (FreeCrafting). Ingredient rows keep showing "missing" in red (their own
   per-ingredient counts); only the buttons change. **[inf]** until a client check: whether some view also needs the
   ingredient counts to enable the button.
-- **The server half, inside the game's own transaction** (FreeCrafting is switched off today because the old
-  "cancel and give" path could not keep the inputs inside the game's transaction): the recipe function
+- **The server half, inside the game's own transaction** (replacing the disabled "cancel and give" path): the recipe function
   `items/RecipeApply` `0x19a1d0` `[0x3f8f30]` pays the inputs with `rules/InventoryPay` `0x199c80` `[0x3f89e0]` (the
   payment kiln.rules already hooks for the storage upgrade) or, for recipes with flag `0x40`, with a second payer
   `0x19a9b0` `[0x3f9700]` (same arguments `(tx, costs, owner, multiplier, extra)`, its only caller); flag `0x10` is the
@@ -281,16 +281,17 @@ gives a player. The EML / kfc-parser project (Brabb3l) is a data patcher and exp
     "find": [ { "pattern": "45 8B 4C 24 08 48 8D 95 ?? ?? 00 00 C7 44 24 28 01 00 00 00 48 8D 4C 24 30 48 89 5C 24 20 44 8B 00 E8 {items/InventoryRemoveItems:rel32} 44 38 6C 24 30", "offset": 38 } ] }
   ```
 
-- KeepConsumables is switched off today because slot-change notices cannot prove a use. Skipping the removal inside
-  the game's transaction (above) needs no proof, so the same hook can bring it back. Food, drinks and potions go
+- KeepConsumables uses these two call sites instead of slot-change notices, which cannot prove a use. Food, drinks and potions go
   through other removal sites; the other callers of `InventoryRemoveItems` are `0x75bc0` (a program),
   `0x14d750`, `0x1a1230` (from `inventory_actions` `0x1a5af0`, writes an event of type `0x103e50ea` after the removal)
   and the wrapper `0x1b0d60`. Which one is eating and drinking is not confirmed yet **[inf]**.
 
 ### 5. Journey level cap (no RE needed)
 The mod caps gear levels at the character's level in Journey mode (feature 2 above). Kiln.Players' `Progression`
-already reads the character's `Level`; the cap is a clamp in `CreativeTools.Give` / the menu when "Only what I have
-found" is on.
+already reads the character's `Level`; `CreativeServer.GiveAsync` applies `CreativeTools.JourneyLevel` when the
+request's Journey option is set. The base level leaves room for the requested upgrades (bounded by the requested
+rarity's perk count, or five when rarity is unset). Unknown character levels and gear whose minimum cannot fit are
+refused. This checks the final level on the server, including requests with no explicit base level.
 
 ### 6. Character flight (server and the player's prediction)
 - **Locomotion states** **[refl]** `keen::ecs::LocomotionState`: Walking 0, Sliding 1, Falling 2, Flying 3, HangGliding 4,
@@ -337,6 +338,6 @@ Kiln's creative menu is an ImGui overlay window, not a game widget, so a drag fr
 inventory slots: the game's drag and drop lives in its own UI (the HUD screens drawn by `gameui`), which Kiln does not
 draw into. What it would take: either (a) a game-UI drop target, i.e. hooking the inventory screen's drop handler
 and feeding it a synthetic "dragged stack" (client RE of the inventory UI's drag state, plus a server request to put
-the item into the exact slot: kiln.items' `Give` has no slot parameter yet, `InventoryAddItems` takes one), or (b) a
-Kiln-drawn copy of the backpack grid inside the overlay that sends "give into slot N" (needs only the slot parameter
-and the player's inventory read, which kiln.items has). (b) is M, (a) is L with client-only RE. Not built.
+the item into the exact slot: kiln.items' `Give` already has a slot parameter), or (b) a
+Kiln-drawn copy of the backpack grid inside the overlay that sends "give into slot N" (kiln.items has both slot
+selection and inventory reads; the creative request would need to carry the slot). (b) is M, (a) is L with client-only RE. Not built.

@@ -51,6 +51,7 @@ internal static unsafe class CreativeMap
     /// <summary>Back to the game's range (world left, creative mode off).</summary>
     public static void Reset()
     {
-        if (Choice != 0) Set(0);
+        if (Interlocked.Exchange(ref _choice, 0) == 0) return;
+        if (Available) RulesNative.C->MapReveal(RulesNative.MapDefault, 0);
     }
 }

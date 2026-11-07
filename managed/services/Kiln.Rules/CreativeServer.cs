@@ -87,12 +87,14 @@ public static class CreativeTools
         return null;
     }
 
-    /// <summary>Journey mode: the level gear is given at, at most the character's level (null: the character's level is
-    /// not known, the request stands).</summary>
-    internal static int? JourneyLevel(int? asked, int characterLevel, int lo, int hi)
+    /// <summary>Journey mode's base level, reserving room under the character's level for the requested upgrades.
+    /// Refuses an unknown character level or gear whose minimum cannot fit.</summary>
+    internal static int? JourneyLevel(int? asked, int characterLevel, int lo, int hi, int upgrades = 0, ItemRarity? rarity = null)
     {
-        if (characterLevel <= 0) return asked;
-        var cap = Math.Clamp(characterLevel, lo, hi);
+        if (characterLevel <= 0) throw new InvalidOperationException("The character's level is unavailable for Journey mode.");
+        var added = Math.Min(upgrades, rarity is { } r ? (int)r + 1 : 5);
+        var cap = Math.Min(characterLevel - added, hi);
+        if (lo > cap) throw new InvalidOperationException("This gear's minimum level and upgrades exceed the character's level.");
         return asked is { } a ? Math.Min(a, cap) : cap;
     }
 
@@ -298,9 +300,9 @@ internal static class CreativeServer
         CreativeResult r;
         try
         {
-            if (req.Level < -1 || req.Rarity < -1 || req.Rarity > (int)ItemRarity.Legendary)
+            if (req.Level < -1 || req.Rarity < -1 || req.Rarity > (int)ItemRarity.Legendary || !CreativeGiveOptions.Valid(req.Options))
             {
-                CreativeNet.SendReply(player, new CreativeReplyMsg(false, "Invalid level or rarity."), local);
+                CreativeNet.SendReply(player, new CreativeReplyMsg(false, "Invalid level, rarity or gear options."), local);
                 return;
             }
             int? level = req.Level >= 0 ? req.Level : null;
@@ -309,7 +311,8 @@ internal static class CreativeServer
             {
                 var lv = Progression.Available ? Progression.Get(player)?.Level ?? 0 : 0;
                 int lo = Math.Max(gearInfo.LevelMin, 1), hi = Math.Min(Math.Max(gearInfo.LevelMax, lo), 255);
-                level = CreativeTools.JourneyLevel(level, lv, lo, hi);
+                level = CreativeTools.JourneyLevel(level, lv, lo, hi, req.Options & CreativeGiveOptions.UpgradesMask,
+                    req.Rarity >= 0 ? (ItemRarity)req.Rarity : null);
             }
             r = await CreativeTools.Give(player, new ItemId(req.Item), req.Count, level,
                 req.Rarity is >= 0 and <= (int)ItemRarity.Legendary ? (ItemRarity)req.Rarity : null,

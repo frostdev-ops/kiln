@@ -9,10 +9,10 @@
 namespace kitems {
 bool pide_install(const KilnApi* api);  // feature items.pide_options; false: the options are refused
 bool pide_available();
-// Between begin and end, item entities this thread creates get the give's options (set around the transaction's
-// commit; plain calls, as the engine's functions run under structured-exception guards: run_give ends any leftover
-// scope before it starts).
-void pide_begin(uint32_t flags, uint8_t unlock);
+bool pide_request_valid(uint32_t flags, uint8_t unlock);
+// Scoped to this give's item and thread. Cleanup also runs when the engine commit raises a structured exception.
+void pide_commit(void* tx, void(KILN_CALL* commit)(void*), uint32_t flags, uint8_t unlock, uint32_t item);
+void pide_begin(uint32_t flags, uint8_t unlock, uint32_t item);
 void pide_end();
 void pide_counters(uint64_t* unlocked, uint64_t* gems, uint64_t* faults);
 }  // namespace kitems

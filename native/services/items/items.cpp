@@ -883,9 +883,7 @@ KilnResult submit(bool take, KilnOwner owner, const KilnItemsRequest* r, KilnIte
                                      KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT);
     if (r->flags & ~allowed) return KILN_ERR_INVALID_ARGUMENT;
     // gear options at creation (pide.cpp): not with a recipe; `unlock` only with UNLOCK (1..5, 255 = all)
-    if ((r->flags & (KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT)) && (r->flags & KILN_ITEMS_RECIPE)) return KILN_ERR_INVALID_ARGUMENT;
-    if ((r->flags & KILN_ITEMS_UNLOCK) ? !((r->unlock >= 1 && r->unlock <= 5) || r->unlock == 255) : r->unlock != 0)
-        return KILN_ERR_INVALID_ARGUMENT;
+    if (!pide_request_valid(r->flags, r->unlock)) return KILN_ERR_INVALID_ARGUMENT;
     if ((r->flags & (KILN_ITEMS_UNLOCK | KILN_ITEMS_GEM_SLOT)) && !pide_available()) return KILN_ERR_UNAVAILABLE;
     if ((r->flags & KILN_ITEMS_RECIPE) && ((r->flags & (KILN_ITEMS_LEVEL | KILN_ITEMS_RARITY)) || r->slot))
         return KILN_ERR_INVALID_ARGUMENT;

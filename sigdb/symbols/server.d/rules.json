@@ -145,7 +145,7 @@
     "rules/RecipePaid": {
       "comment": "creative free crafting: the recipe function's payment (flag 0x10 skips it, flag 0x40 takes the second payer, else rules/InventoryPay); this is the return address of the first call, the second call returns 7 bytes later. Server 26430253 0x19a28c, client 26430625 0x3f8fec (docs/re/creative-mode-146.md Part 3, section 3)",
       "find": [
-        { "scope": { "symbol": "items/RecipeApply", "size": 256 }, "pattern": "A8 40 75 07 E8 ?? ?? ?? ?? EB 05 E8 {rules/RecipePayAlt:rel32} 85 C0 0F 85", "offset": 9 }
+        { "scope": { "symbol": "items/RecipeApply", "size": 256 }, "pattern": "A8 40 75 07 E8 {rules/InventoryPay:rel32} EB 05 E8 {rules/RecipePayAlt:rel32} 85 C0 0F 85", "offset": 9 }
       ]
     },
     "rules/AmmoConsumed": {

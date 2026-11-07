@@ -154,7 +154,8 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
 
 - **Item options** for gear: **Upgrades** (0-5: upgrades unlocked as at the workbench, each one level higher; 5 = all
   the item has, which its rarity decides) and, for weapons, **Gem slot** (an empty gem slot when the game's roll gave
-  none). With "Only what I have found" the level is capped at your character's level (server side).
+  none). With "Only what I have found" the final level, including upgrades, is capped at your character's level
+  (server side). Gear is refused if its minimum plus the requested upgrades cannot fit, or the character's level is unavailable.
 - **World > Map reveal**: the game's range, 200 m, 400 m or the whole map. Client only, for this session while creative
   mode is on (back to the game's when you leave the world or creative mode ends). What is uncovered stays uncovered
   for the character: the game saves it. "Whole map" sweeps the map over about a second, not in one frame.
@@ -174,7 +175,8 @@ the hooked function, turns that one hook off):
   function (its return address) and the transaction's operator is the inventory owner and has FREE_CRAFTING.
 - **Kept consumables**: the spawn path's `consume` (bows, throwables) and PayUsageCost's `consume` (staffs) each call
   `InventoryRemoveItems(…, actor, item, slot, 1)` and commit only on "nothing missing". For those two calls and an actor
-  with KEEP_CONSUMABLES the removal answers "nothing missing" without queueing a removal.
+  with KEEP_CONSUMABLES the one-item removal answers "nothing missing" without queueing a removal. Other removal
+  callers and counts keep the game's behavior.
 - **Craft buttons** (client): the crafting menu enables its craft actions from the game's craftable-amount lookup; with
   the local player's FREE_CRAFTING (sent by the server with the other client rules) it answers at least the amount asked.
 - **Map reveal** (client): the fog of war's discover call gets a wider range (its range is a diameter: 200 m = 400), or

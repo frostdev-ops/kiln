@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: MIT
+// Execute the production hook bodies with fake trampolines and the real synchronized rule snapshots.
+#define KILN_RULES_HOST_TEST
+#include "rules.cpp"
+#include "creative.cpp"
+
+#include <cstdlib>
+#include <thread>
+
+namespace {
+int failures = 0, payments = 0, removals = 0, fog_calls = 0;
+void check(bool ok, const char* message) {
+    std::printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+    failures += !ok;
+}
+uint32_t pay(void*, int64_t*, uint32_t, uint32_t, void*) { ++payments; return 9; }
+kiln_rules_creative::Result12* remove_items(kiln_rules_creative::Result12* out, void*, uint32_t, uint32_t, uint64_t, uint32_t) {
+    ++removals; out->error = 1; out->value = 1; return out;
+}
+uint32_t craftable(void*, uint32_t, uint32_t, const void*) { return 2; }
+void fog(void*, const float*, float range) {
+    ++fog_calls;
+    if (range > 120) throw 1; // widened discovery can fault while the game's original range still works
+}
+void fog_record(void*, const float*, float) { ++fog_calls; }
+}
+
+int main() {
+    namespace c = kiln_rules_creative;
+    auto rules = kDefault;
+    rules.flags = KILN_RULES_FREE_CRAFTING | KILN_RULES_KEEP_CONSUMABLES;
+    store(g_players[3], &rules);
+    alignas(16) uint8_t tx[256]{};
+    c::g_tx_operator = 224;
+    auto& actor = *reinterpret_cast<uint32_t*>(tx + 224);
+    actor = 3;
+    uint8_t before[sizeof tx];
+    std::memcpy(before, tx, sizeof tx);
+    c::g_recipe_ret = 100;
+    c::h_alt.target = reinterpret_cast<void*>(&pay);
+    check(c::pay_free(100, tx, 3), "only the recipe payment by its authorized inventory owner is free");
+    check(!storage_payment_free(400, 400, 3, 3), "free crafting alone never makes a storage upgrade free");
+    check(!c::pay_free(101, tx, 3) && !c::pay_free(100, tx, 4) && !c::pay_free(100, tx, 2000),
+          "trades, upgrades, building, other players and station inventories cannot borrow a waiver");
+    actor = 4;
+    check(!c::pay_free(100, tx, 4), "a second player's craft still pays");
+    actor = 2000;
+    check(!c::pay_free(100, tx, 2000), "an autonomous station still pays");
+    actor = 3;
+    test_return_address = 107;
+    check(c::hk_alt(tx, nullptr, 3, 10, nullptr) == 0, "flagged recipe payer accepts its exact recipe call");
+    test_return_address = 108;
+    check(c::hk_alt(tx, nullptr, 3, 1, nullptr) == 9, "flagged recipe payer refuses unrelated return addresses");
+    c::g_recipe_ret = 0;
+    test_return_address = 7;
+    check(c::hk_alt(tx, nullptr, 3, 1, nullptr) == 9 && !c::pay_free(100, tx, 3),
+          "a missing recipe call disables both waivers");
+    check(payments == 2, "both refused alternate payments ran the original payer exactly once");
+    check(std::memcmp(before, tx, sizeof tx) == 0, "waivers never queue removals or outputs, including multi-craft payments");
+    c::g_recipe_ret = 100;
+    check(!c::pay_free(100, nullptr, 3), "a missing transaction does not get a free payment");
+    store(g_players[3], nullptr);
+    check(!c::pay_free(100, tx, 3), "revoking free crafting takes effect on the next repeated craft");
+    store(g_players[3], &rules);
+
+    c::h_remove.target = reinterpret_cast<void*>(&remove_items);
+    c::g_ammo_ret = 200;
+    c::g_cost_ret = 300;
+    c::Result12 out{};
+    for (auto ret : {uintptr_t{200}, uintptr_t{300}}) {
+        test_return_address = ret;
+        out = {1, {}, 1, 1};
+        check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1) == &out && out.error == 0 && out.zero == 0 && out.value == 0,
+              "each consume site returns success with no removal for the rule's player");
+    }
+    test_return_address = 201;
+    check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "other inventory-removal callers still remove items");
+    test_return_address = 200;
+    check(c::hk_remove(&out, tx, 4, 7, uint64_t{8}, 1)->error == 1, "consumption by another player still removes items");
+    check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 2)->error == 1, "consume waiver requires the pinned one-item removal");
+    store(g_players[3], nullptr);
+    check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "revoking kept consumables takes effect immediately");
+    check(removals == 4, "unrelated removals ran the game's path exactly once each");
+
+    c::h_craftable.target = reinterpret_cast<void*>(&craftable);
+    store(g_local, nullptr);
+    check(c::hk_craftable(nullptr, 7, 10, nullptr) == 2, "a server player's rule cannot enable the local craft buttons");
+    store(g_local, &rules);
+    check(c::hk_craftable(nullptr, 7, 10, nullptr) == 10 && c::hk_craftable(nullptr, 7, 1, nullptr) == 2,
+          "only the local free-crafting rule raises the buttons, without lowering the game's count");
+    check(c::hk_craftable(nullptr, 7, 0x1000a, nullptr) == 10, "the UI cap uses only the game's u16 argument");
+    store(g_local, nullptr);
+    check(c::hk_craftable(nullptr, 7, 10, nullptr) == 2, "local rule revocation restores the game's buttons");
+
+    c::h_fog.target = reinterpret_cast<void*>(&fog);
+    c::g_map_mode = KILN_RULES_MAP_RADIUS;
+    c::g_map_radius = 200;
+    bool fault = false;
+    try { c::hk_fog(nullptr, nullptr, 120); } catch (...) { fault = true; }
+    check(!fault && fog_calls == 2, "a widened discovery fault falls back to the game's original range");
+    c::g_sweep_fow = c::g_done_fow = tx;
+    c::reset_map();
+    check(c::g_map_mode == KILN_RULES_MAP_DEFAULT && !c::g_sweep_fow && !c::g_done_fow,
+          "world lifecycle clears the map mode and sweep identity even if the next world reuses the address");
+    c::h_fog.target = reinterpret_cast<void*>(&fog_record);
+    c::g_map_mode = KILN_RULES_MAP_WHOLE;
+    float map[2] = {10240, 10240};
+    bool bounded = true;
+    for (int frame = 0; frame < 120; ++frame) {
+        const auto was = fog_calls;
+        c::hk_fog(map, nullptr, 120);
+        bounded &= fog_calls - was <= 1 + creative_math::kSweepPerFrame;
+    }
+    check(bounded && c::g_done_fow == map, "the whole map completes with at most four added discover calls per frame");
+    const auto was = fog_calls;
+    c::hk_fog(map, nullptr, 120);
+    check(fog_calls == was + 1, "a completed sweep adds no more discovery work");
+    c::reset_map();
+    c::g_map_mode = KILN_RULES_MAP_WHOLE;
+    map[0] = 0;
+    const auto faults = c::S.faults.load();
+    c::hk_fog(map, nullptr, 120);
+    check(c::S.faults == faults + 1 && c::g_done_fow == map, "an unknown map layout disables the sweep for that object");
+    c::g_hooks = KILN_RULES_HOOK_CRAFT | KILN_RULES_HOOK_CONSUME;
+    c::pay_hook_failed();
+    check(c::g_hooks == KILN_RULES_HOOK_CONSUME && !c::h_alt && !c::pay_free(100, tx, 3),
+          "failure to install the shared payer disables both recipe waivers while leaving consumption available");
+    std::printf("creative hooks: %d failure(s)\n", failures);
+    return failures ? EXIT_FAILURE : EXIT_SUCCESS;
+}

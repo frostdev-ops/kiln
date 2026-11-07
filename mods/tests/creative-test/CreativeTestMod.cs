@@ -222,16 +222,18 @@ public sealed class CreativeTestMod : Mod
             if (b is not { Length: >= 0x14 }) continue;
             recipe = Gameplay.WorkshopRecipes(BitConverter.ToUInt32(b, 0x10)).Select(Gameplay.Recipe)
                 .FirstOrDefault(r => r is { HasCategoryInputs: false, RequiredProps: 0 } && r.Inputs.Count is > 0 and <= 3 &&
-                                     r.Inputs.All(i => i.Count <= 20) && r.Outputs.Count > 0);
+                                     r.Inputs.All(i => i.Count <= 20) && r.Outputs.Count > 0 &&
+                                     r.Outputs.All(o => r.Inputs.All(i => i.ItemId != o.ItemId)));
             if (recipe is not null) { station = s; break; }
         }
         if (!Check(recipe is not null, $"a station {station} with a simple recipe 0x{recipe?.Id:x8}")) return;
         int Count(uint id) => Items.Read(f)?.Count(new ItemId(id)) ?? 0;
         var outId = recipe!.Outputs[0].ItemId;
-        async Task<int> Craft()
+        var perRun = recipe.Outputs.Where(o => o.ItemId == outId).Sum(o => o.Count);
+        async Task<int> Craft(int amount = 1)
         {
             var before = Count(outId);
-            Gameplay.Inject.Craft(f, station, recipe.Id);
+            Gameplay.Inject.Craft(f, station, recipe.Id, amount);
             for (var i = 0; i < 40 && Count(outId) == before; i++) await Steps(1);
             await Steps(3);
             return Count(outId) - before;
@@ -244,15 +246,38 @@ public sealed class CreativeTestMod : Mod
         var kept = recipe.Inputs.All(i => Count(i.ItemId) == inBefore[i.ItemId]);
         if (r0.FreeCrafting)
         {
-            Check(made > 0 && kept, $"free craft at {station}: output 0x{outId:x8} +{made}, inputs kept ({Inputs()})");
+            Check(made == perRun && kept, $"free craft at {station}: exactly {perRun} output, got {made}, inputs kept ({Inputs()})");
+            var repeated = await Craft(2);
+            Check(repeated == 2 * perRun && recipe.Inputs.All(i => Count(i.ItemId) == inBefore[i.ItemId]),
+                $"repeated multi-craft: exactly {2 * perRun} output, got {repeated}, inputs unchanged");
             foreach (var i in recipe.Inputs)
                 if (Count(i.ItemId) > 0) await Items.Take(f, new ItemId(i.ItemId), Count(i.ItemId));
             await Steps(2);
             var none = recipe.Inputs.All(i => Count(i.ItemId) == 0);
             var bare = await Craft();
-            Check(none && bare > 0, $"free craft with no inputs at all: output +{bare} (inputs {Inputs()})");
+            Check(none && bare == perRun, $"free craft with no inputs at all: exactly {perRun} output, got {bare} (inputs {Inputs()})");
             Check(Rules.Status() is { FreeCrafting: true, CraftsFree: > 0 } st,
                 $"kiln.rules counted the free crafts ({Rules.Status()?.CraftsFree})");
+            // A rejected output must not be replaced by an asynchronous give. Fill this transient character's bag
+            // with another material after removing any mergeable output stacks, then try two crafts.
+            foreach (var o in recipe.Outputs)
+                if (Count(o.ItemId) > 0) await Items.Take(f, new ItemId(o.ItemId), Count(o.ItemId));
+            var filler = Items.All.FirstOrDefault(i => i.Category == ItemCategory.Materials && !i.IsGear && i.MaxStack > 1 &&
+                recipe.Outputs.All(o => o.ItemId != i.Id.Value) && recipe.Inputs.All(o => o.ItemId != i.Id.Value));
+            if (filler is not null && Items.Read(f) is { } inventory)
+            {
+                var oldFiller = Count(filler.Id.Value);
+                await Items.Give(f, filler.Id, Math.Min(100000, Math.Max(1, filler.MaxStack) * inventory.Slots.Count),
+                    options: GiveOptions.NoMerge);
+                await Steps(3);
+                Check(Items.Read(f)?.FreeSlots() == 0, "the transient test backpack is full for the failed-output check");
+                var failed = await Craft(2);
+                await Steps(10);
+                Check(failed == 0 && recipe.Outputs.All(o => Count(o.ItemId) == 0) && recipe.Inputs.All(i => Count(i.ItemId) == 0),
+                    "failed output creates no items or delayed reimbursement, even after repeated crafts");
+                var addedFiller = Count(filler.Id.Value) - oldFiller;
+                if (addedFiller > 0) await Items.Take(f, filler.Id, addedFiller);
+            }
         }
         else
         {
@@ -272,6 +297,13 @@ public sealed class CreativeTestMod : Mod
         await Steps(2);
         bareOff = await Craft();
         Check(bareOff == 0, $"without the rule and without inputs nothing is made (output +{bareOff})");
+        // Partial payment cannot mint extra outputs: provide exactly one run's inputs and request two runs.
+        foreach (var i in recipe.Inputs) await Items.Give(f, new ItemId(i.ItemId), i.Count);
+        await Steps(2);
+        var partial = await Craft(2);
+        Check(partial is >= 0 && partial <= perRun && partial % perRun == 0 &&
+              recipe.Inputs.All(i => Count(i.ItemId) == i.Count * (1 - partial / perRun)),
+            $"a partial paid craft matches outputs to spent inputs, or rolls back both (output +{partial})");
     }
 
     // ---- journey mode: the items the character has found ----

@@ -5,10 +5,11 @@ What changed for the public guide (Creative mode page; mod authors: Items, Rules
 ## Suggested text: "The creative menu" (additions)
 > **Items**: weapons and armour have two more options. **Upgrades** unlocks upgrades as the workbench does, each one
 > level higher (5 = all the item has; its rarity decides how many). **Gem slot** gives a weapon an empty gem slot when
-> it did not roll one. With **Only what I have found** on, gear comes at most at your character's level.
+> it did not roll one. With **Only what I have found** on, gear's final level, including upgrades, is at most your
+> character's level. Gear that cannot fit under that cap is refused; the character's level must be readable.
 >
 > **World > Map reveal** uncovers the map around you as you move: the game's own range, 200 m, 400 m, or the whole map
-> at once. It lasts while you are in the world with creative mode on. What it uncovers stays uncovered for that
+> in a sweep over several frames. It lasts while you are in the world with creative mode on. What it uncovers stays uncovered for that
 > character, as the game saves it, so use it on a creative character.
 >
 > **Free crafting**: with creative mode on, crafting takes nothing and needs nothing. The game's crafting menu lets you

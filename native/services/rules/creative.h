@@ -22,5 +22,6 @@ bool pay_free(uintptr_t ret, void* tx, uint32_t owner);
 // rules.cpp could not hook the payment: free crafting goes off (the second payer too).
 void pay_hook_failed();
 KilnResult KILN_CALL map_reveal(uint32_t mode, float radius);
+void reset_map();  // client world lifecycle; object addresses may be reused by the next world
 KilnResult KILN_CALL creative_status(KilnRulesCreative* out);
 }  // namespace kiln_rules_creative
