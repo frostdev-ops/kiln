@@ -61,6 +61,11 @@ if ((build)); then
 fi
 bin=$out/cmake/bin
 [[ -f $bin/dinput8.dll && -f $bin/kiln-core.dll && -f $out/host/Kiln.Host.dll ]] || die "no Kiln build in $out (run without --no-build)"
+if ((build)); then
+  for required in "$bin/plugins/kiln-eml.dll" "$bin/plugins/kiln-shroudforge.dll" "$out/host/Kiln.Eml.dll"; do
+    [[ -s $required ]] || die "required component build failed to produce $required"
+  done
+fi
 dotnet_root=$repo/.cache/dotnet-win-x64/root
 
 rm -rf "$stage"
@@ -95,13 +100,14 @@ if ((build)); then
   [[ -x $sfsrc/kiln/build.sh ]] || die "missing ShroudForge source: $sfsrc/kiln/build.sh"
   "$sfsrc/kiln/build.sh" "$out/shroudforge-build" || die "ShroudForge runtime build failed"
 fi
-if [[ -f $out/shroudforge-build/shroudforge/shroudforge-runtime.dll ]]; then
-  for required in kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt LICENSES/ShroudForge-MIT.txt; do
+if [[ -d $out/shroudforge-build/shroudforge ]]; then
+  for required in shroudforge-runtime.dll kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt LICENSES/ShroudForge-MIT.txt; do
     [[ -s $out/shroudforge-build/shroudforge/$required ]] || die "incomplete ShroudForge component: $required"
   done
   mkdir -p "$stage/shroudforge/kiln/plugins"
   rsync -a --delete "$out/shroudforge-build/shroudforge/" "$stage/shroudforge/kiln/plugins/shroudforge/"
 else
+  ((build == 0)) || die "ShroudForge build failed to produce shroudforge-runtime.dll"
   warn "no ShroudForge runtime build ($sfsrc/kiln/build.sh): no shroudforge component"
 fi
 # sigdb per side

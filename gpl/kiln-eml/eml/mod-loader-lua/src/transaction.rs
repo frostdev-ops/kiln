@@ -5,6 +5,9 @@ use std::{fs::{self, File, OpenOptions}, io, path::{Path, PathBuf}, rc::Rc};
 use kfc::{container::{KFCFile, KFCWriter, KFCWriteError}, reflection::TypeRegistry};
 
 pub type Writer = KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>;
+pub(crate) const VANILLA_HEADER: &str = ".vanilla-header";
+#[cfg(test)]
+thread_local! { pub(crate) static BEFORE_PUBLISH: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 
 pub fn regular(path: &Path) -> io::Result<()> {
     let m = fs::symlink_metadata(path)?;
@@ -20,8 +23,28 @@ pub fn regular(path: &Path) -> io::Result<()> {
 
 fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)] { File::open(dir)?.sync_all()?; }
-    #[cfg(not(unix))] { let _ = dir; }
+    #[cfg(windows)] {
+        if under_wine() {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Wine's MoveFileEx ignores WRITE_THROUGH. A writable directory handle maps FlushFileBuffers to
+            // fsync(dirfd), making the vanilla-header barrier and each subsequent rename durable on Unix too.
+            OpenOptions::new().read(true).write(true).custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
+                .open(dir)?.sync_all()?;
+        }
+    }
+    #[cfg(not(any(unix, windows)))] { let _ = dir; }
     Ok(())
+}
+
+#[cfg(windows)]
+fn under_wine() -> bool {
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
+        fn GetProcAddress(module: *mut std::ffi::c_void, name: *const u8) -> *mut std::ffi::c_void;
+    }
+    let name: Vec<u16> = "ntdll.dll".encode_utf16().chain(Some(0)).collect();
+    let ntdll = unsafe { GetModuleHandleW(name.as_ptr()) };
+    !ntdll.is_null() && !unsafe { GetProcAddress(ntdll, c"wine_get_version".as_ptr().cast()) }.is_null()
 }
 
 pub fn replace(src: &Path, dst: &Path) -> io::Result<()> {
@@ -52,6 +75,20 @@ pub fn atomic_copy(src: &Path, dst: &Path) -> io::Result<()> {
     result
 }
 
+pub fn atomic_write(dst: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    let tmp = dst.with_extension(format!("kiln-{}", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        replace(&tmp, dst)
+    })();
+    let _ = fs::remove_file(tmp);
+    result
+}
+
 pub struct PatchWriter {
     pub writer: Option<Writer>,
     pub stage: PathBuf,
@@ -71,6 +108,8 @@ impl Drop for PatchWriter {
 impl PatchWriter {
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
         self.writer.take().unwrap().finalize()?;
+        #[cfg(test)]
+        BEFORE_PUBLISH.with(|check| { if let Some(check) = check.take() { check(&self.game); } });
         self.publish(|_| Ok(()))?;
         Ok(())
     }
@@ -79,10 +118,11 @@ impl PatchWriter {
     fn publish(&self, mut boundary: impl FnMut(usize) -> io::Result<()>) -> io::Result<()> {
         let header = format!("{}.kfc", self.name);
         let mut data = fs::read_dir(&self.stage)?.map(|e| e.map(|e| e.path())).collect::<io::Result<Vec<_>>>()?;
+        data.retain(|p| p.file_name() != Some(std::ffi::OsStr::new(VANILLA_HEADER)));
         data.sort();
         for p in &data { regular(p)?; OpenOptions::new().read(true).write(true).open(p)?.sync_all()?; }
         // No old patched header may refer to the containers we are about to replace.
-        atomic_copy(&self.game.join(format!("{header}.bak")), &self.game.join(&header))?;
+        atomic_copy(&self.stage.join(VANILLA_HEADER), &self.game.join(&header))?;
         boundary(0)?;
         let mut n = 1;
         for p in data.iter().filter(|p| p.file_name() != Some(std::ffi::OsStr::new(&header))) {
@@ -99,6 +139,13 @@ impl PatchWriter {
 mod tests {
     use super::*;
     #[test]
+    fn directory_barrier_propagates_sync_errors() {
+        #[cfg(windows)]
+        if !under_wine() { return; } // native Windows uses MoveFileEx's WRITE_THROUGH instead
+        let absent = std::env::temp_dir().join(format!("kiln-missing-directory-{}", uuid::Uuid::new_v4()));
+        assert!(sync_dir(&absent).is_err());
+    }
+    #[test]
     fn interrupted_publication_keeps_vanilla_until_header_is_ready() {
         for fail in 0..=3 {
             let game = std::env::temp_dir().join(format!("kiln-transaction-{}", uuid::Uuid::new_v4()));
@@ -110,11 +157,49 @@ mod tests {
             for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] {
                 fs::write(stage.join(n), b).unwrap();
             }
+            fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
             let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
             assert!(w.publish(|n| if n == fail { Err(io::Error::other("power loss")) } else { Ok(()) }).is_err());
             assert_eq!(fs::read(game.join("g.kfc")).unwrap(), if fail == 3 { b"new patch".as_slice() } else { b"vanilla".as_slice() });
             assert!(fs::read(game.join("g.kfc_resources")).unwrap().starts_with(b"base"));
             drop(w);
+            fs::remove_dir_all(game).unwrap();
+        }
+    }
+    #[test]
+    fn real_kfc_is_readable_at_every_publication_boundary() {
+        use kfc::{container::KFCReader, guid::ContentHash};
+        for fail in 0..=3 {
+            let game = std::env::temp_dir().join(format!("kiln-real-transaction-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&game).unwrap();
+            File::create(game.join("g.kfc")).unwrap();
+            File::create(game.join("g.kfc_resources")).unwrap();
+            let types = Rc::new(TypeRegistry::default());
+            let mut vanilla = Writer::new(&game, "g", types.clone(), "fixture").unwrap();
+            vanilla.write_content(&ContentHash::from_data(b"original"), b"original").unwrap();
+            vanilla.finalize().unwrap();
+            let header = fs::read(game.join("g.kfc")).unwrap();
+            let resources = fs::read(game.join("g.kfc_resources")).unwrap();
+            let dir = camino::Utf8Path::from_path(&game).unwrap();
+            crate::load::create_backup(dir.join("g.kfc")).unwrap();
+            let base = Rc::new(KFCFile::from_path(game.join("g.kfc.bak"), false).unwrap());
+            let mut patch = crate::load::create_writer(dir, "g", &types, &base).unwrap();
+            patch.write_content(&ContentHash::from_data(b"new content"), b"new content").unwrap();
+            patch.writer.take().unwrap().finalize().unwrap();
+            // The barrier must use the validated private snapshot, even if the public backup changes mid-run.
+            fs::write(game.join("g.kfc.bak"), b"damaged after preparation").unwrap();
+            assert!(patch.publish(|n| if n == fail { Err(io::Error::other("interrupted")) } else { Ok(()) }).is_err());
+            let live = KFCFile::from_path(game.join("g.kfc"), false).unwrap();
+            for (index, info) in live.containers().iter().enumerate() {
+                assert_eq!(game.join(format!("g_{index:03}.dat")).metadata().unwrap().len(), info.size);
+            }
+            assert!(fs::read(game.join("g.kfc_resources")).unwrap().starts_with(&resources));
+            let mut reader = KFCReader::new(&game, "g").unwrap().into_cursor().unwrap();
+            assert_eq!(reader.read_content(&ContentHash::from_data(b"original")).unwrap().unwrap(), b"original");
+            if fail < 3 { assert_eq!(fs::read(game.join("g.kfc")).unwrap(), header); }
+            else { assert_eq!(reader.read_content(&ContentHash::from_data(b"new content")).unwrap().unwrap(), b"new content"); }
+            drop(reader);
+            drop(patch);
             fs::remove_dir_all(game).unwrap();
         }
     }

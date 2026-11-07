@@ -60,7 +60,7 @@ mkdir -p "$(dirname "$tarball")"
 # gzip -n also removes the compressor's timestamp/name. Publish only a fully written archive.
 archive_tmp=$(mktemp "${tarball}.XXXXXX")
 trap 'rm -rf -- "$tmp"; rm -f -- "$archive_tmp"' EXIT
-tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" -C "$tmp" -cf - "$name" | gzip -n > "$archive_tmp"
+tar --sort=name --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX' --mtime="@$epoch" -C "$tmp" -cf - "$name" | gzip -n > "$archive_tmp"
 mv -- "$archive_tmp" "$tarball"
 if [[ -n $extract ]]; then
   mkdir -p "$extract"

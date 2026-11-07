@@ -7,7 +7,7 @@ mod track;
 
 const BUILD_ID: &str = env!("BUILD_ID");
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileStateCache {
     build_id: String,
     files: HashMap<PathBuf, (u64, u128, u64)>,
@@ -24,7 +24,9 @@ impl Default for FileStateCache {
 
 impl FileStateCache {
 
-    pub fn configuration(&mut self, key: &str) { self.build_id.push_str(key); }
+    pub fn configuration(&mut self, key: &str) {
+        if !self.build_id.is_empty() { self.build_id.push_str(key); }
+    }
 
     pub fn error() -> Self {
         Self {
@@ -149,6 +151,7 @@ mod tests {
         assert!(a.diff(&b).is_some());
         std::fs::remove_file(&p).unwrap();
         let mut c = FileStateCache::default(); c.track(&p);
+        c.configuration("options");
         assert!(c.diff(&c).is_some());
     }
 }

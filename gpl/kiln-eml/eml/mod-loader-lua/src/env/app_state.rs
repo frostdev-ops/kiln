@@ -16,7 +16,7 @@ pub struct AppState {
     type_registry: Rc<TypeRegistry>,
 
     ref_file: Rc<KFCFile>,
-    reader: RefCell<KFCCursor<KFCReader>>,
+    reader: RefCell<Option<KFCCursor<KFCReader>>>,
     // kiln-eml: write to a private stage; publish only after successful finalization.
     writer: RefCell<Option<crate::transaction::PatchWriter>>,
 
@@ -139,7 +139,7 @@ impl AppState {
             type_registry,
 
             ref_file,
-            reader: RefCell::new(reader),
+            reader: RefCell::new(Some(reader)),
             writer: RefCell::new(Some(writer)),
 
             new_contents: RefCell::new(HashMap::new()),
@@ -201,8 +201,10 @@ impl AppState {
 
     #[inline]
     pub fn reader(&self) -> RefMut<KFCCursor<KFCReader>> {
-        self.reader.borrow_mut()
+        RefMut::map(self.reader.borrow_mut(), |reader| reader.as_mut().expect("KFC reader closed for publication"))
     }
+
+    pub fn close_reader(&self) { self.reader.borrow_mut().take(); }
 
     #[inline]
     pub fn take_writer(
@@ -336,7 +338,7 @@ impl AppState {
             Ok(Some(value.clone()))
         } else {
             // OPTIMIZE: consider using a reader for this
-            Ok(self.reader.borrow_mut().read_content(guid)?)
+            Ok(self.reader().read_content(guid)?)
         }
     }
 

@@ -74,7 +74,7 @@ if ((build)); then
 fi
 sfb=$out/shroudforge-build/shroudforge
 if [[ -d $sfb ]]; then
-  for required in shroudforge-runtime.dll kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt; do
+  for required in shroudforge-runtime.dll kfc-runtime.dll NOTICE.txt SOURCE.txt version.json LICENSES/kfc-parser-GPL-3.0.txt LICENSES/ShroudForge-MIT.txt; do
     [[ -s $sfb/$required ]] || { echo "deploy: incomplete ShroudForge component: $required" >&2; exit 1; }
   done
 fi

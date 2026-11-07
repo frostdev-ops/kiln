@@ -7,6 +7,29 @@ use crate::{cache::FileStateCache, log::warn};
 
 impl FileStateCache {
 
+    /// Inputs which publication must never change. Compare these around Lua execution and publication as well
+    /// as recording the final output files: otherwise a changed input can be cached alongside an older patch.
+    pub fn track_game_inputs(&mut self, game_dir: &Path, file_name: &str, vanilla_containers: usize) {
+        self.track(game_dir.join(format!("{file_name}.kfc.bak")));
+        for suffix in ["exe", "kfc_resources.bak", "kfc.bak.integrity"] {
+            let path = game_dir.join(format!("{file_name}.{suffix}"));
+            if !matches!(path.try_exists(), Ok(false)) { self.track(path); }
+        }
+        let config = game_dir.join("eml.json");
+        if !matches!(config.try_exists(), Ok(false)) { self.track(config); }
+        for index in 0..vanilla_containers { self.track(game_dir.join(format!("{file_name}_{index:03}.dat"))); }
+    }
+
+    pub fn only_game_inputs(mut self, game_dir: &Path, file_name: &str, vanilla_containers: usize) -> Self {
+        let mut paths: std::collections::HashSet<_> = ["exe", "kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"]
+            .map(|suffix| game_dir.join(format!("{file_name}.{suffix}"))).into_iter().collect();
+        paths.insert(game_dir.join("eml.json"));
+        paths.extend((0..vanilla_containers).map(|index| game_dir.join(format!("{file_name}_{index:03}.dat"))));
+        self.files.retain(|p, _| paths.contains(p));
+        if !self.build_id.is_empty() { self.build_id = super::BUILD_ID.into(); }
+        self
+    }
+
     pub fn track_game_files(
         &mut self,
         game_dir: impl AsRef<Path>,
@@ -44,7 +67,7 @@ impl FileStateCache {
             let extension = path.extension().and_then(|ext| ext.to_str());
 
             if let Some(ext) = extension {
-                if matches!(ext, "dat" | "kfc" | "kfc_resources" | "exe" | "bak") || path.file_name().is_some_and(|n| n == "eml.json") {
+                if matches!(ext, "dat" | "kfc" | "kfc_resources" | "exe" | "bak" | "integrity") || path.file_name().is_some_and(|n| n == "eml.json") {
                     self.track(path);
                 }
             }

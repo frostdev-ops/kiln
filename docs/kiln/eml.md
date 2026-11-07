@@ -132,12 +132,23 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   options. Switching a mod off re-patches. Reading those fingerprints has I/O cost on large installs; export passes
   always run. Unreadable inputs and inputs changed during a run cannot produce a reusable cache entry.
 - **The header backup is EML's own** `<exe>.kfc.bak`. New backups also save `<exe>.kfc_resources.bak` for exact
-  resource-file restoration. Backups are atomically replaced and same-version malformed backups are refused.
+  resource-file restoration. `<exe>.kfc.bak.integrity` records both files' lengths and CRC64 checksums and is
+  published durably before patching. Malformed or checksum-mismatched backups are refused. An interrupted seal
+  update can be repaired only when both backups still match the untouched live files. Older unsealed resource
+  backups must match the live vanilla prefix before adoption; legacy header-only backups cannot restore the
+  resource file byte for byte.
 - **Publication:** the writer builds privately in the game filesystem, flushes every output, publishes the vanilla
-  header before replacing mod-owned containers/resources, and publishes the patched header last. Vanilla containers
+  header from its validated private snapshot before replacing mod-owned containers/resources, and publishes the
+  patched header last. Vanilla containers
   and the resource prefix stay immutable. Interrupted publication leaves either vanilla or the complete patch.
-  The per-install OS lock is held until process exit; on Windows an already-running game from the same install is
-  also refused. Unmanaged loaders must still be kept from starting during patch preparation.
+  Windows uses `FlushFileBuffers` and `MoveFileExW(MOVEFILE_WRITE_THROUGH)`. Wine additionally flushes a writable
+  directory handle after each rename, since its move implementation ignores that flag; live reader handles are
+  closed before publication so Wine can replace the resource file.
+  Detected changes to immutable game inputs during Lua execution refuse publication; changes during publication prevent
+  cache reuse. The per-install OS lock is held until process exit; on Windows an already-running game from the same
+  install is also refused. Failure to acquire the install lock stops this start before the game entry point, since
+  continuing as a reader could race the lock holder's publication. Unmanaged loaders must still be kept from starting
+  during patch preparation; a process scan cannot prevent a later unmanaged Steam start.
 - **Paths:** profile entries resolve against `<game>/kiln` (including relative paths); each explicitly listed
   folder/zip authorizes its resulting mod root. `add_mod` still requires an absolute path under a game mod root or
   an explicit profile root. Check the root itself and everything below it for links/junctions, traversal and special
@@ -153,6 +164,7 @@ It fails soft:
   so the error names the mod. The other mods still patch.
 - **A failure that names no mod** (a write error, a panic): a compatible valid backup restores vanilla, and the
   cache is dropped so the next start re-runs. Restore failures are reported as failures; they are never labelled idle.
+  An install-lock failure stops startup instead of entering the game alongside a possible active writer.
 - **No EML mods (left):** if a `.kfc.bak` exists and differs, `<exe>.kfc` is restored from it byte for byte, once.
   Otherwise kiln-eml touches nothing (`idle`).
 
@@ -369,6 +381,9 @@ that only knows the v1 prefix cover compatibility.
 - ShroudForge retains its own startup writer. Its early export validates the selected runtime pair and reserves
   `kiln.eml` v2 before calling `shroudforge_prepare_startup`. kiln-eml publishes `aside` and does not rewrite SF's
   result. SF's Lua loop starts at early `on_ready`, after preparation, and continues independently of Kiln hooks.
+- Without kiln-eml installed, the adapter acquires the same lifetime install lock itself and checks for another
+  game from that install before preparing data. A busy or uninspectable install stops this start. The reservation
+  remains closed after a preparation failure: a second writer cannot safely assume SF left the files untouched.
 - A bundled SF DLL alone does not claim an EML-only legacy installation: hosting needs an enabled SF package or
   previous SF startup state, an active SF profile, or `KILN_SHROUDFORGE=1`.
 - When SF owns startup, EML packages must live in SF's configured mods folder. Kiln-only EML profile paths and

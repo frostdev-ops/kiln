@@ -14,9 +14,15 @@ extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t*) { mark
 extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) { mark("update"); if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr); return h && std::isfinite(dt) && dt >= 0; }
 extern "C" __declspec(dllexport) void shroudforge_destroy(void*) { mark("destroy"); }
 #elif TEST_eml
-static KilnResult reserve(KilnStr reason) { mark(reason.ptr && reason.len ? "reserve" : "bad-reason"); return KILN_OK; }
+static KilnResult reserve(KilnStr reason) {
+    mark(reason.ptr && reason.len ? "reserve" : "bad-reason");
+    return GetEnvironmentVariableW(L"KILN_SF_DENY_RESERVATION", nullptr, 0) ? KILN_ERR_UNAVAILABLE : KILN_OK;
+}
 static KilnEmlApi table{{sizeof(KilnEmlApi), 2}, nullptr, nullptr, nullptr, reserve};
-extern "C" __declspec(dllexport) const KilnEmlApi* kiln_eml_service(uint32_t version) { return version <= 2 ? &table : nullptr; }
+extern "C" __declspec(dllexport) const KilnEmlApi* kiln_eml_service(uint32_t version) {
+    if (GetEnvironmentVariableW(L"KILN_SF_SHORT_EML_TABLE", nullptr, 0)) table.header.size = offsetof(KilnEmlApi, stand_aside);
+    return version <= 2 ? &table : nullptr;
+}
 #else
 extern "C" __declspec(dllexport) uint32_t KfcRuntimeAbi() { 
 #if TEST_bad_kfc

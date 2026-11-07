@@ -13,7 +13,7 @@ build, adapter = map(lambda p: Path(p).resolve(), sys.argv[1:3])
 with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) as tmp:
     root = Path(tmp)
     env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1')
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False):
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None):
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -36,11 +36,27 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         call_env = dict(env, KILN_SF_TEST_LOG='Z:' + str(log).replace('/', '\\'))
         if fault:
             call_env['KILN_SF_FAULT_UPDATE'] = '1'
+        if busy:
+            call_env['KILN_SF_BUSY_LOCK'] = '1'
+        if reservation:
+            call_env['KILN_SF_' + reservation] = '1'
         cmd = ['wine', str(build / 'sfhost.exe'), str(game), str(adapter)] + (['early'] if early else [])
         result = subprocess.run(cmd, env=call_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=40)
+        if busy:
+            assert result.returncode == 32, (name, result.returncode, result.stdout)
+            assert not log.exists(), 'a busy install must never reach prepare or the game entry point'
+            assert json.loads((game / 'kiln/state/shroudforge.json').read_text())['mode'] == 'failed'
+            print('PASS', name)
+            return
         if result.returncode:
             raise RuntimeError(f'{name}: host exit {result.returncode}\n{result.stdout.decode(errors="replace")}')
         status = json.loads((game / 'kiln/state/shroudforge.json').read_text())
+        if reservation:
+            calls = log.read_text().splitlines() if log.exists() else []
+            assert status['mode'] == 'failed', (name, status)
+            assert calls == (['reserve'] if reservation == 'DENY_RESERVATION' else []), (name, calls)
+            print('PASS', name)
+            return
         calls = log.read_text().splitlines()
         assert status['source'] == ('installed' if name == 'bundled-corrupt' else 'bundled'), (name, status)
         assert calls.count('prepare') == calls.count('create') == calls.count('destroy') == calls.count('shutdown') == 1, (name, calls)
@@ -57,3 +73,6 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('early-reservation', installed='corrupt', early=True)
     case('faulted-update', installed='corrupt', fault=True)
     case('linked-layout', installed='corrupt', linked_layout=True)
+    case('standalone-busy-install', busy=True)
+    case('closed-reservation', installed='corrupt', early=True, reservation='DENY_RESERVATION')
+    case('short-eml-table', installed='corrupt', early=True, reservation='SHORT_EML_TABLE')

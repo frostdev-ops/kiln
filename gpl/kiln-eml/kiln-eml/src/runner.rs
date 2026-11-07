@@ -51,6 +51,9 @@ impl Phase {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Outcome {
+    /// Internal gate result: a failed lock must never hand control to a concurrent reader of the live files.
+    #[serde(skip)]
+    pub start_blocked: bool,
     pub format: u32,
     pub pid: u32,
     #[serde(rename = "kilnEml")]
@@ -71,6 +74,7 @@ pub struct Outcome {
 impl Outcome {
     pub fn new(phase: Phase, mods: Vec<Entry>) -> Self {
         Self {
+            start_blocked: false,
             format: 1,
             pid: std::process::id(),
             kiln_eml: crate::VERSION,
@@ -231,6 +235,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     };
     out.file = Some(file.clone());
     if let Err(e) = lock_game(&cfg.game_dir) {
+        out.start_blocked = true;
         out.phase = Phase::Failed;
         out.error = Some(format!("game data is in use or cannot be locked: {e}"));
         return finish(out);
@@ -411,6 +416,24 @@ mod tests {
             .args(["--exact", "runner::tests::holds_install_lock_against_a_second_process"])
             .env("KILN_EML_LOCK_TEST_CHILD", d.as_str()).status().unwrap();
         assert!(status.success());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn an_exited_process_leaves_no_stale_install_lock() {
+        const CHILD: &str = "KILN_EML_EXIT_LOCK_TEST";
+        if let Ok(path) = std::env::var(CHILD) {
+            lock_game(Utf8Path::new(&path)).unwrap();
+            std::process::exit(0); // no Rust destructors: the kernel, not lock-file deletion, must release it
+        }
+        let d = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-exit-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "runner::tests::an_exited_process_leaves_no_stale_install_lock"])
+            .env(CHILD, d.as_str()).status().unwrap();
+        assert!(status.success());
+        assert!(d.join(".kiln-eml.lock").exists());
+        lock_game(&d).unwrap();
         let _ = std::fs::remove_dir_all(d);
     }
 

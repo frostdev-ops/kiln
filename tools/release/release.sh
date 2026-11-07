@@ -128,7 +128,7 @@ fi
 # the source as exported, before any build writes into it
 mkdir -p "$work/source"
 rm -f "$work"/source/*.tar.gz
-tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" -C "$work" \
+tar --sort=name --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX' --mtime="@$SOURCE_DATE_EPOCH" -C "$work" \
   --transform "s|^src|kiln-$version|" -czf "$work/source/kiln-$version-src.tar.gz" src
 [[ $(sed 's/[-+].*//' "$src/VERSION") == "${version%%-*}" ]] || die "VERSION in the export is $(cat "$src/VERSION"), not for $version"
 # ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so

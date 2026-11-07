@@ -21,6 +21,14 @@ static uint32_t side() { return KILN_SIDE_SERVER; }
 int main(int argc, char** argv) {
     if (argc < 3) return 2;
     game = std::filesystem::absolute(argv[1]);
+    if (GetEnvironmentVariableW(L"KILN_SF_BUSY_LOCK", nullptr, 0)) {
+        HANDLE lock = CreateFileW((game / L".kiln-eml.lock").c_str(), GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        OVERLAPPED overlapped{};
+        if (lock == INVALID_HANDLE_VALUE || !LockFileEx(lock, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                                                       0, MAXDWORD, MAXDWORD, &overlapped)) return 7;
+        // Deliberately retained while the adapter tries a different handle, simulating another process's lock.
+    }
     auto dll = std::filesystem::absolute(argv[2]);
     if (argc > 3 && std::string(argv[3]) == "early") LoadLibraryW((game / L"kiln/plugins/kiln-eml.dll").c_str());
     HMODULE h = LoadLibraryW(dll.c_str()); if (!h) return 3;

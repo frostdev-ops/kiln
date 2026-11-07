@@ -77,6 +77,7 @@ HANDLE g_worker = nullptr;
 bool g_initialized = false;
 bool g_early = false;
 bool g_prepared = false;
+HANDLE g_install_lock = INVALID_HANDLE_VALUE; // lifetime lock when kiln-eml is not installed
 
 // DLL exports are foreign code. SEH guards use POD-only frames; C++ exceptions are caught at the worker boundary.
 template<class F, class R, class... A> bool invoke(F fn, R* result, A... args) {
@@ -477,7 +478,47 @@ void start_worker() {
 
 bool reserve_writer() {
     HMODULE eml = GetModuleHandleW(L"kiln-eml.dll");
-    if (!eml) return true;
+    if (!eml) {
+        // SF is also supported without the optional EML DLL. Use the same OS lock as Rust's File::try_lock,
+        // and retain it until process exit. A busy install must not proceed into the game as a reader either.
+        const auto path = g_game / L".kiln-eml.lock";
+        HANDLE lock = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                  nullptr, OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        BY_HANDLE_FILE_INFORMATION info{};
+        OVERLAPPED overlapped{};
+        bool available = lock != INVALID_HANDLE_VALUE && GetFileInformationByHandle(lock, &info) &&
+                         !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+                         LockFileEx(lock, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0,
+                                    MAXDWORD, MAXDWORD, &overlapped);
+        DWORD pids[65536], needed = 0;
+        if (available) {
+            available = K32EnumProcesses(pids, sizeof pids, &needed) && needed < sizeof pids;
+            std::error_code ec;
+            const auto game = std::filesystem::canonical(g_game, ec);
+            if (ec) available = false;
+            for (DWORD i = 0; available && i < needed / sizeof(DWORD); ++i) {
+                if (!pids[i] || pids[i] == GetCurrentProcessId()) continue;
+                HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]);
+                if (!process) continue;
+                wchar_t name[32768]; DWORD len = 32768;
+                const bool queried = QueryFullProcessImageNameW(process, 0, name, &len);
+                CloseHandle(process);
+                if (!queried) continue;
+                const auto image = std::filesystem::canonical(std::filesystem::path(std::wstring(name, len)), ec);
+                if (ec) continue;
+                const auto file = image.filename().wstring();
+                if ((!_wcsicmp(file.c_str(), L"enshrouded.exe") || !_wcsicmp(file.c_str(), L"enshrouded_server.exe")) &&
+                    !_wcsicmp(image.parent_path().c_str(), game.c_str())) available = false;
+            }
+        }
+        if (!available) {
+            if (lock != INVALID_HANDLE_VALUE) CloseHandle(lock);
+            finish("failed", "game data is in use or cannot be locked; stopping this start");
+            ExitProcess(ERROR_SHARING_VIOLATION);
+        }
+        g_install_lock = lock;
+        return true;
+    }
     auto get = reinterpret_cast<KilnEmlServiceFn>(GetProcAddress(eml, KILN_EML_SERVICE_EXPORT));
     const KilnEmlApi* table = nullptr;
     if (!get || !invoke(get, &table, KILN_EML_VERSION) || !table || table->header.version < 2 ||

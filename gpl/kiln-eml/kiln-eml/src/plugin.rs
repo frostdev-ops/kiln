@@ -401,6 +401,8 @@ fn run_now() {
             out.file.as_deref().unwrap_or("?"),
             out.ms
         ),
+        Phase::Failed if out.start_blocked => format!("kiln-eml: {}; stopping this start before the game entry point",
+            out.error.as_deref().unwrap_or("install lock failed")),
         _ => format!(
             "kiln-eml: the EML run failed ({}); game data {}; the game and other mods run on",
             out.error.as_deref().unwrap_or("unknown"),
@@ -409,6 +411,14 @@ fn run_now() {
     };
     klog(if out.phase == Phase::Failed { 1 } else { 3 }, &summary);
     publish(&out, state.as_deref());
+    enforce_startup_safety(&out);
+}
+
+fn enforce_startup_safety(out: &Outcome) {
+    if out.start_blocked {
+        klog(1, "kiln-eml: stopping this start: the install cannot be locked; another process may still be publishing game data");
+        std::process::exit(1);
+    }
 }
 
 fn guarded_run() {
@@ -569,6 +579,25 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_busy_install_cannot_return_to_the_game_entry_point() {
+        const CHILD: &str = "KILN_EML_BUSY_START_TEST";
+        if let Ok(game) = std::env::var(CHILD) {
+            let game = Utf8PathBuf::from(game);
+            let out = runner::run(&RunConfig { game_dir: game.clone(), cache_dir: game.join("cache"),
+                file_name: Some("enshrouded".into()), patch: true, ..Default::default() }, Vec::new(), Vec::new());
+            enforce_startup_safety(&out);
+            panic!("the game entry point was reached while another process owned the install");
+        }
+        let game = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-busy-start-{}", std::process::id()));
+        std::fs::create_dir_all(&game).unwrap();
+        runner::lock_game(&game).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "plugin::tests::a_busy_install_cannot_return_to_the_game_entry_point"])
+            .env(CHILD, game.as_str()).status().unwrap();
+        assert_eq!(result.code(), Some(1));
+        let _ = std::fs::remove_dir_all(game);
+    }
     #[test]
     fn rejects_short_and_old_abi_tables_without_reading_slots() {
         let mut info = [0u64; 16];

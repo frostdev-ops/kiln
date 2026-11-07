@@ -64,6 +64,8 @@ pub fn profile_dropins(profile_json: &str) -> bool {
 
 /// The entries of a drop-in folder, sorted by name: folders and `.zip` files, without hidden ones (EML's rule).
 pub fn folder_candidates(dir: &Utf8Path, source: &str) -> Vec<Candidate> {
+    // A drop-in authorizes this directory, not each enumerated child as a new independent root.
+    if !checked_metadata(dir).is_ok_and(|m| m.is_dir()) { return Vec::new(); }
     let mut out: Vec<Candidate> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -147,7 +149,7 @@ fn checked_metadata(path: &Utf8Path) -> Result<std::fs::Metadata, String> {
 }
 
 fn validate_under(path: &Utf8Path, root: &Utf8Path, relative: &Utf8Path) -> Result<(), String> {
-    if relative.components().any(|p| !matches!(p, camino::Utf8Component::Normal(_))) {
+    if relative.components().any(|p| !matches!(p, camino::Utf8Component::Normal(_)) || p.as_str().contains(':')) {
         return Err("parent traversal is not allowed inside a mod root".into());
     }
     // Start at the authorized root. Its ancestors may include Steam library and Wine drive links.
@@ -183,7 +185,8 @@ fn validate_under(path: &Utf8Path, root: &Utf8Path, relative: &Utf8Path) -> Resu
 /// Ancestors above that boundary belong to the player's layout and are not inspected. Final resolved paths must
 /// remain contained. Wine hides Unix file links; the installer must exclude those (engines/README.md path policy).
 pub fn validate_path(path: &Utf8Path, roots: &[Utf8PathBuf]) -> Result<(), String> {
-    if !path.is_absolute() || path.as_str().contains('\0') {
+    if !path.is_absolute() || path.as_str().contains('\0') || path.components().any(|p|
+        matches!(p, camino::Utf8Component::Normal(s) if s.contains(':'))) {
         return Err("mod path must be absolute without NUL".into());
     }
     let mut error = "mod path is outside the authorized roots".to_owned();
@@ -471,6 +474,21 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn dropins_refuse_a_linked_root_but_allow_a_linked_ancestor() {
+        let d = tmp("dropin-root");
+        let real = d.join("real");
+        eml_mod(&real, "mods/a", "a");
+        let layout = d.join("layout");
+        std::os::unix::fs::symlink(&real, &layout).unwrap();
+        assert_eq!(folder_candidates(&layout.join("mods"), "game-mods").len(), 1);
+        let linked_root = d.join("mods");
+        std::os::unix::fs::symlink(real.join("mods"), &linked_root).unwrap();
+        assert!(resolve(&folder_candidates(&linked_root, "game-mods")).0.is_empty());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     #[test]
     fn profile_paths_resolve_against_kiln_and_remain_authorized() {
         let d = tmp("relative-profile");
@@ -495,6 +513,11 @@ mod tests {
         assert!(!resolve_profile_path("", &kiln).is_absolute());
         let wrong_root = eml_mod(&d, "game/mods-other/third", "third");
         assert!(validate_path(&wrong_root, &[d.join("game/mods")]).is_err());
+        #[cfg(unix)] {
+            let stream = eml_mod(&d, "game/mods/a:stream", "stream");
+            assert!(validate_path(&stream, &[d.join("game/mods")]).is_err());
+            assert!(validate_path(&stream, &[stream.clone()]).is_err());
+        }
         std::fs::remove_dir_all(d).unwrap();
     }
 

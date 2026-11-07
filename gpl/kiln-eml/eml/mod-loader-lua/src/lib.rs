@@ -56,6 +56,7 @@ pub fn run(
     info!("Running lua with options: {:?}", args);
 
     let cache_key = format!("{}|{:?}", args.file_name, args.options);
+    let file_name = args.file_name.clone();
     let mut mods_before = FileStateCache::default();
     track_mods(&mut mods_before, env);
 
@@ -97,6 +98,9 @@ pub fn run(
         Ok(context) => context,
         Err(_) => anyhow::bail!("Failed to create AppState"),
     };
+    let vanilla_containers = app_state.kfc_file().containers().len();
+    let mut inputs_before = FileStateCache::default();
+    inputs_before.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
 
     // setup and run all mods
 
@@ -120,6 +124,11 @@ pub fn run(
     let mut patched = 0;
 
     if app_state.has_feature(AppFeatures::PATCH) {
+        let mut inputs_now = FileStateCache::default();
+        inputs_now.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
+        if inputs_before.diff(&inputs_now).is_some() {
+            anyhow::bail!("Game inputs changed or became unreadable during patch preparation");
+        }
         info!("Applying patches...");
 
         let mut buf = Vec::new();
@@ -161,6 +170,9 @@ pub fn run(
             }
         }
 
+        // Wine refuses to replace the live resource file while our vanilla reader still has it open.
+        // All Lua/resource reads are complete; close it before publishing any game files.
+        app_state.close_reader();
         writer.finalize()?;
 
         info!("Applied {} patches", applied_resources);
@@ -170,15 +182,15 @@ pub fn run(
     // create a new cache file
 
     if app_state.has_feature(AppFeatures::PATCH) {
-        let mut new_cache = FileStateCache::default();
+        let mut mods_after = FileStateCache::default();
+        track_mods(&mut mods_after, env);
+        let mut new_cache = mods_after.clone();
         new_cache.configuration(&cache_key);
 
         new_cache.track_game_files(env.game_dir());
-        track_mods(&mut new_cache, env);
-
-        let mut mods_after = FileStateCache::default();
-        track_mods(&mut mods_after, env);
-        if mods_before.diff(&mods_after).is_none() { new_cache.write(env.cache_dir()); }
+        // Reuse the exact fingerprints being saved; a second independent after-snapshot can hide an ABA edit.
+        let inputs_after = new_cache.clone().only_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
+        if mods_before.diff(&mods_after).is_none() && inputs_before.diff(&inputs_after).is_none() { new_cache.write(env.cache_dir()); }
         else { let _ = std::fs::remove_file(env.cache_dir().join("files.json")); }
 
     }

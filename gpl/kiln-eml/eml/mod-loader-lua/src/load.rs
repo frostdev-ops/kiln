@@ -60,6 +60,8 @@ pub fn create_writer(
         writer: None, stage: stage.clone().into_std_path_buf(), game: dir.into(), name: file_name.into(),
     };
     crate::transaction::atomic_copy(dir.join(format!("{file_name}.kfc.bak")).as_std_path(),
+        stage.join(crate::transaction::VANILLA_HEADER).as_std_path()).map_err(|_| ())?;
+    crate::transaction::atomic_copy(stage.join(crate::transaction::VANILLA_HEADER).as_std_path(),
         stage.join(format!("{file_name}.kfc")).as_std_path()).map_err(|_| ())?;
     let resources_backup = dir.join(format!("{file_name}.kfc_resources.bak"));
     let resources = if resources_backup.exists() { resources_backup } else { dir.join(format!("{file_name}.kfc_resources")) };
@@ -107,6 +109,11 @@ pub fn create_backup(
     // kiln-eml: reject links and malformed data; a version change refreshes the backup atomically.
     crate::transaction::regular(path.as_std_path()).map_err(|_| ())?;
     if bak_path.exists() { crate::transaction::regular(bak_path.as_std_path()).map_err(|_| ())?; }
+    // A crash can leave the old seal after both new backups were published. Only repair it when both backups
+    // are byte-identical to the untouched live files; never bless a mismatching backup from a patched install.
+    if bak_path.exists() && !validate_backup(path, bak_path) && backups_equal_live(path, bak_path) {
+        write_backup_seal(path, bak_path)?;
+    }
     if bak_path.exists() && !validate_backup(path, bak_path) {
         let old = KFCFile::get_version_tag(bak_path).map_err(|_| ())?;
         let current = KFCFile::get_version_tag(path).map_err(|_| ())?;
@@ -120,6 +127,10 @@ pub fn create_backup(
         let resources_backup = path.with_extension("kfc_resources.bak");
         crate::transaction::atomic_copy(resources.as_std_path(), resources_backup.as_std_path()).map_err(|_| ())?;
         crate::transaction::atomic_copy(path.as_std_path(), bak_path.as_std_path()).map_err(|_| ())?;
+        write_backup_seal(path, bak_path)?;
+    } else if path.with_extension("kfc_resources.bak").exists() && !seal_path(path).exists() {
+        // Adopt a legacy unsealed pair only after validate_backup checked its live resource prefix.
+        write_backup_seal(path, bak_path)?;
     }
 
     Ok(bak_path.to_path_buf())
@@ -187,6 +198,7 @@ pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
 ) -> bool {
+    if crate::transaction::regular(kfc_path_bak.as_std_path()).is_err() { return false; }
     let version_bak = match KFCFile::from_path(kfc_path_bak, false) {
         Ok(file) => file.game_version().to_owned(),
         Err(_) => return false,
@@ -201,12 +213,73 @@ pub fn validate_backup(
     let Ok(backup) = KFCFile::from_path(kfc_path_bak, false) else { return false; };
     let resource_backup = kfc_path.with_extension("kfc_resources.bak");
     if resource_backup.exists() {
+        if crate::transaction::regular(resource_backup.as_std_path()).is_err() { return false; }
         let Ok(meta) = resource_backup.metadata() else { return false; };
         if backup.resource_chunks().iter().any(|c| c.offset.checked_add(c.size).is_none_or(|end| end > meta.len())) {
             return false;
         }
+        let seal = seal_path(kfc_path);
+        if seal.exists() {
+            if crate::transaction::regular(seal.as_std_path()).is_err() { return false; }
+            if !seal.metadata().is_ok_and(|m| m.len() <= 1024) { return false; }
+            let Ok(bytes) = std::fs::read(&seal) else { return false; };
+            let Ok(expected) = serde_json::from_slice::<BackupSeal>(&bytes) else { return false; };
+            if backup_seal(kfc_path, kfc_path_bak).ok().as_ref() != Some(&expected) { return false; }
+        } else {
+            // Old versions had no checksum. Refuse to replace an intact live prefix with different, unverified
+            // bytes. New pairs are sealed before the first patch, including exact file lengths and padding.
+            use std::io::Read;
+            let len = backup.resource_chunks().iter().map(|c| c.offset + c.size).max().unwrap_or(0);
+            let Ok(live) = File::open(kfc_path.with_extension("kfc_resources")) else { return false; };
+            let Ok(saved) = File::open(&resource_backup) else { return false; };
+            let (Ok(a), Ok(b)) = (fingerprint_reader(live.take(len)), fingerprint_reader(saved.take(len))) else { return false; };
+            if a != b || a.0 != len { return false; }
+        }
+    } else if seal_path(kfc_path).exists() {
+        return false; // a sealed pair must never silently degrade to a legacy header-only backup
     }
     true
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+struct BackupSeal { header: (u64, u64), resources: (u64, u64) }
+
+fn seal_path(path: &Path) -> PathBuf { path.with_extension("kfc.bak.integrity") }
+
+fn fingerprint_reader(mut reader: impl std::io::Read) -> std::io::Result<(u64, u64)> {
+    let crc = crc::Crc::<u64>::new(&crc::CRC_64_ECMA_182);
+    let mut digest = crc.digest();
+    let mut len = 0;
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 { return Ok((len, digest.finalize())); }
+        len += n as u64;
+        digest.update(&buf[..n]);
+    }
+}
+
+fn backup_seal(path: &Path, bak: &Path) -> std::io::Result<BackupSeal> {
+    Ok(BackupSeal {
+        header: fingerprint_reader(File::open(bak)?)?,
+        resources: fingerprint_reader(File::open(path.with_extension("kfc_resources.bak"))?)?,
+    })
+}
+
+fn write_backup_seal(path: &Path, bak: &Path) -> Result<(), ()> {
+    let bytes = serde_json::to_vec(&backup_seal(path, bak).map_err(|_| ())?).map_err(|_| ())?;
+    crate::transaction::atomic_write(seal_path(path).as_std_path(), &bytes).map_err(|_| ())
+}
+
+fn backups_equal_live(path: &Path, bak: &Path) -> bool {
+    let resources = path.with_extension("kfc_resources");
+    let resource_backup = path.with_extension("kfc_resources.bak");
+    [path, bak, &resources, &resource_backup].iter().all(|p| crate::transaction::regular(p.as_std_path()).is_ok())
+        && KFCFile::from_path(path, false).is_ok()
+        && (|| -> std::io::Result<bool> {
+            Ok(fingerprint_reader(File::open(path)?)? == fingerprint_reader(File::open(bak)?)?
+                && fingerprint_reader(File::open(resources)?)? == fingerprint_reader(File::open(resource_backup)?)?)
+        })().unwrap_or(false)
 }
 
 pub fn load_type_registry(
@@ -449,6 +522,57 @@ mod kiln_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn corrupt_resource_backup_is_rejected_without_changing_live_files() {
+        let dir = fixture();
+        let kfc = dir.join("g.kfc");
+        create_backup(&kfc).unwrap();
+        let resources = dir.join("g.kfc_resources");
+        let original = std::fs::read(&resources).unwrap();
+        let mut bad = original.clone();
+        bad[0] ^= 1; // still the same length, with all header chunk bounds intact
+        std::fs::write(dir.join("g.kfc_resources.bak"), bad).unwrap();
+        assert!(!validate_backup(&kfc, &dir.join("g.kfc.bak")));
+        assert!(create_backup(&kfc).is_err());
+        assert!(restore_backup(&kfc).is_err());
+        assert_eq!(std::fs::read(resources).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn interrupted_backup_seal_publication_can_be_recovered_before_patching() {
+        let dir = fixture();
+        let kfc = dir.join("g.kfc");
+        let bak = create_backup(&kfc).unwrap();
+        // Simulate a new game's complete backup pair with the preceding generation's seal still present.
+        KFCWriter::<Rc<KFCFile>, _>::new(&dir, "g", Rc::new(TypeRegistry::default()), "updated fixture")
+            .unwrap().finalize().unwrap();
+        std::fs::copy(&kfc, &bak).unwrap();
+        assert!(!validate_backup(&kfc, &bak));
+        create_backup(&kfc).unwrap();
+        assert!(validate_backup(&kfc, &bak));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn a_changed_game_input_cannot_be_published_or_cached() {
+        let dir = fixture();
+        let cache = dir.join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let mut types = TypeRegistry::default(); types.version = "fixture".into();
+        std::fs::write(cache.join("g-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+        let mod_dir = dir.join("mods/a");
+        std::fs::create_dir_all(mod_dir.join("src")).unwrap();
+        std::fs::write(mod_dir.join("mod.json"), r#"{"id":"a","name":"a","version":"1.0.0","capabilities":["patch","export"]}"#).unwrap();
+        std::fs::write(mod_dir.join("src/mod.lua"), r#"io.export("eml.json", "{}")"#).unwrap();
+        let env = mod_loader::ModEnvironment::load_from(&dir, &cache, vec![mod_dir]).unwrap();
+        let original = std::fs::read(dir.join("g.kfc")).unwrap();
+        let args = crate::RunArgs { file_name: "g".into(), options: crate::RunOptions {
+            patch: true, export: true, export_dir: Some(dir.clone().into_std_path_buf()), ..Default::default() } };
+        let error = crate::run(&env, args).unwrap_err().to_string();
+        assert!(error.contains("Game inputs changed"), "{error}");
+        assert_eq!(std::fs::read(dir.join("g.kfc")).unwrap(), original);
+        assert!(!cache.join("files.json").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn patch_cache_is_bound_to_the_selected_game_file() {
         let dir = fixture();
         let cache = dir.join("cache");
@@ -461,6 +585,19 @@ mod kiln_tests {
         std::fs::write(mod_dir.join("src/mod.lua"), "-- fixture").unwrap();
         let env = mod_loader::ModEnvironment::load_from(&dir, &cache, vec![mod_dir]).unwrap();
         let args = crate::RunArgs { file_name: "g".into(), options: crate::RunOptions { patch: true, ..Default::default() } };
+        crate::transaction::BEFORE_PUBLISH.with(|check| check.set(Some(|game| {
+            let resources = game.join("g.kfc_resources");
+            #[cfg(target_os = "linux")]
+            for fd in std::fs::read_dir("/proc/self/fd").unwrap() {
+                assert_ne!(std::fs::read_link(fd.unwrap().path()).ok().as_ref(), Some(&resources),
+                    "the vanilla reader must close its live file before publication");
+            }
+            #[cfg(windows)] {
+                use std::os::windows::fs::OpenOptionsExt;
+                // Windows/Wine sharing rules provide a direct check for any lingering reader.
+                std::fs::OpenOptions::new().read(true).share_mode(0).open(resources).unwrap();
+            }
+        })));
         assert!(!crate::run(&env, args.clone()).unwrap().cached);
         assert!(crate::run(&env, args.clone()).unwrap().cached);
         let other = crate::RunArgs { file_name: "other".into(), ..args };
