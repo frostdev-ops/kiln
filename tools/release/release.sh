@@ -131,6 +131,14 @@ rm -f "$work"/source/*.tar.gz
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" -C "$work" \
   --transform "s|^src|kiln-$version|" -czf "$work/source/kiln-$version-src.tar.gz" src
 [[ $(sed 's/[-+].*//' "$src/VERSION") == "${version%%-*}" ]] || die "VERSION in the export is $(cat "$src/VERSION"), not for $version"
+# ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so
+# export the fork at the pinned commit with its own submodules, ship that as its corresponding source, and build from it
+sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge 2>/dev/null | awk '$2 == "commit" {print $3}')
+if [[ -n $sfpin ]]; then
+  "$lib/sf-source.sh" "$repo/third_party/shroudforge" "$sfpin" "$work/source/shroudforge-kiln-${sfpin:0:12}-src.tar.gz" \
+    "$src/third_party/shroudforge" >>"$log" 2>&1 || die "cannot export ShroudForge's source at $sfpin (git submodule update --init --recursive third_party/shroudforge)"
+  note "ShroudForge runtime source: source/shroudforge-kiln-${sfpin:0:12}-src.tar.gz"
+fi
 date_iso=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)
 
 # ---------------------------------------------------------------- 2. environment
@@ -220,6 +228,12 @@ nuget_args=()
 for a in "${assets[@]}"; do nuget_args+=(--nuget-assets "$a"); done
 python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
   "${nuget_args[@]}" | tee -a "$log"
+if [[ -d $stage/shroudforge/kiln/plugins/shroudforge ]]; then
+  # the GPL-3 component's notice; its own licences ship in kiln/plugins/shroudforge/LICENSES
+  { printf '\n%s\n' "ShroudForge runtime (component \"shroudforge\", kiln/plugins/shroudforge/)"
+    cat "$stage/shroudforge/kiln/plugins/shroudforge/NOTICE.txt"
+    printf 'Corresponding source: source/shroudforge-kiln-%s-src.tar.gz in this release, and\nhttps://github.com/frostdev-ops/shroudforge at commit %s.\n' "${sfpin:0:12}" "$sfpin"; } >>"$notices"
+fi
 install -m 644 "$notices" "$stage/core/kiln/THIRD-PARTY-NOTICES.txt"
 install -m 644 "$src/LICENSE" "$stage/core/kiln/LICENSE.txt"
 if ((signing)); then

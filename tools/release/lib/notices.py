@@ -231,6 +231,46 @@ def nuget_entries(assets_files):
     return entries
 
 
+def gpl_plugins(src):
+    """GPL plugins: gpl/<name>/ is its own Cargo workspace with its own LICENSE and NOTICE.txt, shipped as
+    kiln/plugins/<name>.dll (docs/kiln/eml.md). One entry for the plugin (its licence and notice: the plugin and the
+    vendored GPL crates it is built from), then the crates.io crates of its Windows build."""
+    entries = []
+    for ws in sorted(glob.glob(os.path.join(src, "gpl", "*", "Cargo.toml"))):
+        d = os.path.dirname(ws)
+        name = os.path.basename(d)
+        texts = [(f, read(os.path.join(d, f))) for f in ("NOTICE.txt", "LICENSE") if os.path.isfile(os.path.join(d, f))]
+        entries.append((f"{name}.dll (gpl/{name}, built from its own source in that folder)", "", "GPL-3.0-or-later",
+                        "https://github.com/frostdev-ops/kiln/tree/main/gpl/" + name, texts))
+        try:
+            meta = json.loads(subprocess.check_output(
+                ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", "x86_64-pc-windows-msvc"],
+                cwd=d, stderr=subprocess.DEVNULL))
+        except (OSError, subprocess.CalledProcessError) as e:
+            print(f"notices: WARNING: cargo metadata failed in gpl/{name} ({e}); its crates are not listed", file=sys.stderr)
+            continue
+        by_id = {p["id"]: p for p in meta["packages"]}
+        nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+        members = set(meta["workspace_members"])
+        seen, stack = set(), [i for i in members if by_id[i]["name"] == name]
+        while stack:
+            i = stack.pop()
+            if i in seen:
+                continue
+            seen.add(i)
+            for dep in nodes[i]["deps"]:
+                if any(k["kind"] is None for k in dep["dep_kinds"]):
+                    stack.append(dep["pkg"])
+        for p in sorted((by_id[i] for i in seen if i not in members), key=lambda p: (p["name"], p["version"])):
+            pd = os.path.dirname(p["manifest_path"])
+            files = license_files(pd)
+            if p.get("license_file") and os.path.isfile(os.path.join(pd, p["license_file"])):
+                files.append(os.path.join(pd, p["license_file"]))
+            entries.append((p["name"], p["version"], p.get("license") or "see the licence file", p.get("repository") or "",
+                            [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
+    return entries
+
+
 def tree_entries(items):
     """items: (name, version, license, url, [paths])"""
     return [(n, v, l, u, [(os.path.basename(p), read(p)) for p in ps if os.path.isfile(p)]) for n, v, l, u, ps in items]
@@ -320,6 +360,8 @@ def main():
     lic = os.path.join(src, "licenses")
     n.add("Credited projects (CREDITS.md; netcoredbg ships in the VS Code extension)", tree_entries(
         [(os.path.basename(p).rsplit(".", 1)[0], "", "", "", [p]) for p in sorted(glob.glob(os.path.join(lic, "*")))]))
+    if glob.glob(os.path.join(src, "gpl", "*", "Cargo.toml")):
+        n.add("GPL plugins (separate programs under GPL-3.0-or-later, source in gpl/: kiln-eml runs EML mods)", gpl_plugins(src))
     if a.dotnet_root:
         n.add(".NET runtime (kiln/dotnet in the runtime)", tree_entries(
             [(".NET runtime", "", "MIT", "https://github.com/dotnet/runtime",

@@ -1,0 +1,10 @@
+{
+  "id": "kiln-sf-probe",
+  "name": "Kiln ShroudForge probe",
+  "version": "0.1.0",
+  "description": "Lab probe for kiln-shroudforge: writes ecs::GameSettings.enableDurability through ShroudForge's runtime.overrides and reports ShroudForge's confirmed readback. Lab only.",
+  "authors": ["Kiln contributors"],
+  "license": "MIT",
+  "dependencies": [],
+  "capabilities": ["runtime"]
+}

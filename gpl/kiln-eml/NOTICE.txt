@@ -1,0 +1,17 @@
+kiln-eml.dll: EML (Enshrouded Mod Loader) as a Kiln plugin
+
+kiln-eml.dll is free software under the GNU General Public License, version 3 or (at your option) any later
+version: kiln-eml.LICENSE.txt next to this file. It is a separate program from Kiln (MIT): Kiln loads it as a plugin
+and talks to it only through its exported functions.
+
+It is built from:
+  - EML / kfc-parser v0.2.0 by Brabb3l, GPL-3.0-or-later,
+    https://github.com/Brabb3l/kfc-parser (tag v0.2.0, commit 16708594d686b030d909f2d835b199d879ea9ad8),
+    with the changes listed in gpl/kiln-eml/README.md (each marked "kiln-eml:" in the code);
+  - kiln-eml's own code (gpl/kiln-eml/kiln-eml), GPL-3.0-or-later;
+  - the Rust crates in gpl/kiln-eml/Cargo.lock, each under its own licence (THIRD-PARTY-NOTICES.txt).
+
+Corresponding source: the folder gpl/kiln-eml in Kiln's source archive of this release (kiln-<version>-src.tar.gz,
+also https://github.com/frostdev-ops/kiln at the release tag). Build it with gpl/kiln-eml/build.sh (cargo xwin).
+
+There is no warranty, to the extent permitted by law (GPL-3.0 sections 15 and 16).

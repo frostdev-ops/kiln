@@ -11,7 +11,8 @@
   "kiln": "0.2.0-dev",
   "sections": [
     { "path": "native", "comment": "Native mods", "synced": false },
-    { "path": "mods", "comment": "Managed mods", "synced": false }
+    { "path": "mods", "comment": "Managed mods", "synced": false },
+    { "path": "shroudforge", "comment": "ShroudForge mods", "synced": false }
   ],
   "entries": [
     { "path": "policy", "type": "enum", "comment": "Hook only verified game builds, or any build", "default": "verified-only", "options": ["verified-only", "any"], "requiresRestart": false, "synced": false },
@@ -23,6 +24,7 @@
     { "path": "mods.fault_window_s", "type": "float", "comment": "Fault window in seconds (0 = ever)", "default": 60, "min": 0, "max": 3600, "requiresRestart": false, "synced": false },
     { "path": "mods.stop_timeout_ms", "type": "int", "comment": "Time a mod gets to stop", "default": 5000, "min": 0, "max": 60000, "requiresRestart": false, "synced": false },
     { "path": "mods.test_timeout_s", "type": "float", "comment": "Time a mod test gets", "default": 30, "min": 1, "max": 600, "requiresRestart": false, "synced": false },
-    { "path": "mods.crash_reports", "type": "bool", "comment": "Write crash reports", "default": true, "requiresRestart": false, "synced": false }
+    { "path": "mods.crash_reports", "type": "bool", "comment": "Write crash reports", "default": true, "requiresRestart": false, "synced": false },
+    { "path": "shroudforge.useInstalled", "type": "bool", "comment": "Use my installed ShroudForge instead of Kiln's bundled one", "default": false, "requiresRestart": true, "synced": false }
   ]
 }

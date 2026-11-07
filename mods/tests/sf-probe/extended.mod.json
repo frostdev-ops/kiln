@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "targets": ["server"],
+  "settings": {
+    "disableDurability": {
+      "value": true,
+      "label": "Disable durability",
+      "description": "Writes ecs::GameSettings.enableDurability = false while on; ShroudForge restores the original when off."
+    }
+  },
+  "groups": [{"label": "Probe", "settings": ["disableDurability"]}]
+}

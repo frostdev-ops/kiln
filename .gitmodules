@@ -1,0 +1,4 @@
+[submodule "third_party/shroudforge"]
+	path = third_party/shroudforge
+	url = https://github.com/frostdev-ops/shroudforge.git
+	branch = kiln

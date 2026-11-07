@@ -61,6 +61,7 @@ file(GLOB KILN_SERVICE_SOURCES CONFIGURE_DEPENDS core/src/services/*.cpp)
 target_sources(kiln-core PRIVATE ${KILN_SERVICE_SOURCES})
 # Native mod loader and profiles.
 target_sources(kiln-core PRIVATE core/src/native_mods.cpp core/src/profile.cpp)
+target_sources(kiln-core PRIVATE core/src/early_plugins.cpp)  # plugins exporting kiln_plugin_early
 target_include_directories(kiln-core PRIVATE core/abi core/src third_party "${KILN_GENERATED_DIR}")
 target_link_libraries(kiln-core PRIVATE kiln-safetyhook bcrypt)
 

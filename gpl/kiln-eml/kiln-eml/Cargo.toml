@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "kiln-eml"
+# kiln-eml's own version; the EML it carries is eml/* (0.2.0)
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors = ["Brabb3l (EML)", "Kiln contributors (kiln-eml)"]
+description = "EML (Enshrouded Mod Loader) as a Kiln plugin"
+publish = false
+
+[lib]
+name = "kiln_eml"
+# cdylib: kiln-eml.dll (build.sh renames kiln_eml.dll); rlib: kiln-eml-run and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kiln-eml-run"
+path = "src/kiln_eml_run.rs"
+
+[dependencies]
+mod-loader.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+camino.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zip = "4.2.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

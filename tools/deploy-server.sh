@@ -60,6 +60,8 @@ if ((build)); then
   dotnet build "$repo/mods/samples/Hello/Hello.csproj" -c Release -o "$out/mods/hello" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null \
     || warn "Hello sample failed to build"
   if ((loader_samples)); then "$repo/mods/samples/build.sh" >/dev/null || warn "loader samples failed to build"; fi
+  # kiln-eml, the GPL-3 EML plugin (gpl/kiln-eml, docs/kiln/eml.md): into bin/plugins like Kiln's own plugins
+  if [[ -x $repo/gpl/kiln-eml/build.sh ]]; then "$repo/gpl/kiln-eml/build.sh" >/dev/null 2>&1 || warn "kiln-eml (GPL plugin) failed to build; skipped"; fi
 fi
 bin=$out/cmake/bin
 k=$server/kiln
@@ -69,6 +71,14 @@ install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"
 rsync -a --delete --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" 2>/dev/null || true
 # Kiln's own plugins (native/plugins/*, e.g. kiln-emf.dll); other plugins already in kiln/plugins stay.
 [[ -d $bin/plugins ]] && rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/plugins/" "$k/plugins/"
+# kiln-eml ships with its GPL-3 licence and notice (as the runtime bundle's eml component does)
+if [[ -f $k/plugins/kiln-eml.dll ]]; then
+  install -m 644 "$repo/gpl/kiln-eml/LICENSE" "$k/plugins/kiln-eml.LICENSE.txt"
+  install -m 644 "$repo/gpl/kiln-eml/NOTICE.txt" "$k/plugins/kiln-eml.NOTICE.txt"
+fi
+# ShroudForge's runtime (GPL-3 component) when it was built: third_party/shroudforge/kiln/build.sh $KILN_OUT/shroudforge-build
+sfb=$out/shroudforge-build/shroudforge
+[[ -f $sfb/shroudforge-runtime.dll ]] && rsync -a --delete "$sfb/" "$k/plugins/shroudforge/"
 install -m 644 "$repo/sigdb/symbols/server.json" "$k/sigdb/server.json"
 rm -rf "$k/sigdb/server.d" && mkdir -p "$k/sigdb/server.d"
 cp "$repo"/sigdb/symbols/server.d/*.json "$k/sigdb/server.d/" 2>/dev/null || true

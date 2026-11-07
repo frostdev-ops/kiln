@@ -3,7 +3,8 @@
 # their game-relative paths, plus kiln-runtime.json without files[] (kilnctl bundle create hashes and zips them).
 #   tools/package/stage.sh <stage dir> [--no-build]
 # Components: core (proxy, kiln-core, services, host, .NET, kiln.json, Kiln's other plugins), sigdb-server,
-# sigdb-client, admin (Kiln.Admin), emf (kiln-emf plugin), samples (hello mod + native hello plugin). The layout
+# sigdb-client, admin (Kiln.Admin), emf (kiln-emf plugin), samples (hello mod + native hello plugin), shroudforge
+# (ShroudForge's runtime, GPL-3, kiln/plugins/shroudforge/, from third_party/shroudforge). The layout
 # rules are tools/deploy-server.sh's (same rsync filters), so a server install of core + sigdb-server + admin (+ emf,
 # + samples) gives the tree deploy-server.sh gives (tools/package/parity.sh checks it).
 # KILN_OUT (default <repo>/.out/package) holds the build; the .NET runtime comes from tools/package/fetch-dotnet.sh.
@@ -44,6 +45,10 @@ if ((build)); then
   dn "$repo/managed/Kiln.Game/Kiln.Game.csproj" -o "$out/host" >/dev/null 2>&1 || warn "Kiln.Game failed to build; skipped"
   dn "$repo/mods/samples/Hello/Hello.csproj" -o "$out/mods/hello" >/dev/null || warn "Hello sample failed to build"
   dn "$repo/mods/Kiln.Admin/Kiln.Admin.csproj" -o "$out/mods/kiln-admin" >/dev/null || warn "Kiln.Admin failed to build"
+  # kiln-eml: the GPL-3 EML plugin, its own Cargo workspace in gpl/kiln-eml (docs/kiln/eml.md); lands in bin/plugins
+  if [[ -x $repo/gpl/kiln-eml/build.sh ]]; then
+    "$repo/gpl/kiln-eml/build.sh" >/dev/null 2>&1 || warn "kiln-eml (GPL plugin) failed to build; no eml component"
+  fi
 fi
 bin=$out/cmake/bin
 [[ -f $bin/dinput8.dll && -f $bin/kiln-core.dll && -f $out/host/Kiln.Host.dll ]] || die "no Kiln build in $out (run without --no-build)"
@@ -64,10 +69,27 @@ printf '{\n  "policy": "verified-only",\n  "clr": true,\n  "plugins": true,\n  "
 if [[ -d $bin/plugins ]]; then
   for f in "$bin"/plugins/*.dll "$bin"/plugins/*.pdb; do
     [[ -f $f ]] || continue
-    case $(basename "$f") in kiln-emf.*) comp=emf ;; *) comp=core ;; esac
+    case $(basename "$f") in kiln-emf.*) comp=emf ;; kiln-eml.*) comp=eml ;; *) comp=core ;; esac
     mkdir -p "$stage/$comp/kiln/plugins"
     install -m 644 "$f" "$stage/$comp/kiln/plugins/"
   done
+fi
+# kiln-eml (component eml): the GPL-3 licence and where its source is go next to the DLL
+if [[ -f $stage/eml/kiln/plugins/kiln-eml.dll ]]; then
+  install -m 644 "$repo/gpl/kiln-eml/LICENSE" "$stage/eml/kiln/plugins/kiln-eml.LICENSE.txt"
+  install -m 644 "$repo/gpl/kiln-eml/NOTICE.txt" "$stage/eml/kiln/plugins/kiln-eml.NOTICE.txt"
+fi
+# ShroudForge runtime: a separate GPL-3 component built from the frostdev-ops/shroudforge fork (third_party/shroudforge,
+# or KILN_SHROUDFORGE_SRC); kiln-shroudforge.dll (MIT, core) drives it. docs/kiln/shroudforge-compat.md
+sfsrc=${KILN_SHROUDFORGE_SRC:-$repo/third_party/shroudforge}
+if ((build)) && [[ -x $sfsrc/kiln/build.sh ]]; then
+  "$sfsrc/kiln/build.sh" "$out/shroudforge-build" >/dev/null || warn "the ShroudForge runtime failed to build; no shroudforge component"
+fi
+if [[ -f $out/shroudforge-build/shroudforge/shroudforge-runtime.dll ]]; then
+  mkdir -p "$stage/shroudforge/kiln/plugins"
+  rsync -a --delete "$out/shroudforge-build/shroudforge/" "$stage/shroudforge/kiln/plugins/shroudforge/"
+else
+  warn "no ShroudForge runtime build ($sfsrc/kiln/build.sh): no shroudforge component"
 fi
 # sigdb per side
 s=$stage/sigdb-server/kiln/sigdb
@@ -134,6 +156,10 @@ known = {
             "description": "kiln-emf: runs EMF mods on Kiln's services"},
     "samples": {"sides": ["server"], "default": False, "requires": ["core"],
                 "description": "the hello sample mod and the native hello plugin"},
+    "eml": {"sides": ["server", "client"], "default": True, "requires": ["core"],
+            "description": "kiln-eml (GPL-3.0, gpl/kiln-eml): runs EML mods (Enshrouded Mod Loader) before the game starts"},
+    "shroudforge": {"sides": ["server", "client"], "default": True, "requires": ["core"],
+                    "description": "ShroudForge's runtime (frostdev-ops/shroudforge fork, GPL-3.0): runs ShroudForge mods through kiln-shroudforge"},
 }
 present = {d for d in os.listdir(stage) if os.path.isdir(os.path.join(stage, d))}
 unknown = present - set(known)

@@ -27,6 +27,8 @@ components=core,sigdb-server
 ((samples)) && { args+=(--samples); components+=,samples; }
 [[ -f $KILN_OUT/mods/kiln-admin/kiln.mod.json ]] && components+=,admin
 [[ -f $KILN_OUT/cmake/bin/plugins/kiln-emf.dll ]] && components+=,emf
+[[ -f $KILN_OUT/cmake/bin/plugins/kiln-eml.dll ]] && components+=,eml
+[[ -f $KILN_OUT/shroudforge-build/shroudforge/shroudforge-runtime.dll ]] && components+=,shroudforge
 "$repo/tools/deploy-server.sh" "$work/deploy" "${args[@]}" >/dev/null
 KILN_DATA_DIR=$work/data "$kilnctl" bundle install "$zip" --dir "$work/bundle" --components "$components" >/dev/null
 if diff -r -x .install.json -x backups "$work/deploy" "$work/bundle"; then

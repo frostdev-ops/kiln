@@ -8,6 +8,7 @@
 #include "image.h"
 #include "log.h"
 #include "native_mods.h"
+#include "early_plugins.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
 #include "sigdb.h"
@@ -193,6 +194,7 @@ void boot() {
     // Native mods: discovered and resolved now; phase early runs before anything is hooked (also in safe idle).
     native_mods::discover(verified);
     native_mods::run_early();
+    early_plugins::run();  // kiln/plugins/kiln-*.dll exporting kiln_plugin_early (EML's pre-game patching)
 
     const auto definitions = paths().sigdb / to_wide(std::string(side_name(side)) + ".json");  // + <side>.d/*.json
     const bool resolved = sigdb::load_and_resolve(definitions);
