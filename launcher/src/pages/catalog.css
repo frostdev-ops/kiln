@@ -1,0 +1,65 @@
+/* The Catalog page (pages/CatalogPage.tsx): a grid of mod cards and the details dialog. Ember theme tokens only. */
+.k-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 2px 4px 12px 2px;
+}
+.k-cat-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: var(--k-bg-2);
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius-m);
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--k-text-0);
+  font: inherit;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.k-cat-card:hover, .k-cat-card:focus-visible {
+  border-color: var(--k-line-hot);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 22px #ff6a1a1f;
+  outline: none;
+}
+.k-cat-thumb {
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, var(--k-bg-3), var(--k-bg-1));
+}
+.k-cat-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.k-cat-body { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; flex: 1; }
+.k-cat-name { font-weight: 700; font-size: 17px; line-height: 1.2; }
+.k-cat-by { color: var(--k-text-2); font-size: 14px; }
+.k-cat-sum {
+  color: var(--k-text-1);
+  font-size: 14.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 2px 0 6px;
+}
+.k-cat-foot { display: flex; align-items: center; gap: 12px; margin-top: auto; flex-wrap: wrap; }
+.k-cat-stat { display: inline-flex; align-items: center; gap: 4px; color: var(--k-text-2); font-size: 14px; }
+.k-cat-badges { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+
+.k-cat-detail { display: flex; flex-direction: column; gap: 14px; max-height: 64vh; overflow-y: auto; padding-right: 4px; }
+.k-cat-gallery { display: flex; flex-direction: column; gap: 8px; }
+.k-cat-hero { width: 100%; max-height: 300px; object-fit: cover; border-radius: var(--k-radius-m); border: 1px solid var(--k-line); }
+.k-cat-thumbs { display: flex; gap: 6px; overflow-x: auto; }
+.k-cat-thumbs button { padding: 0; border: 2px solid transparent; border-radius: var(--k-radius-s); background: none; cursor: pointer; flex: 0 0 auto; }
+.k-cat-thumbs button.on { border-color: var(--k-gold-400); }
+.k-cat-thumbs img { width: 96px; height: 54px; object-fit: cover; display: block; border-radius: 4px; }
+.k-cat-lead { font-size: 17px; color: var(--k-text-0); margin: 0; }
+.k-cat-reqs, .k-cat-files { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.k-cat-reqs li, .k-cat-files li { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: var(--k-bg-1); border: 1px solid var(--k-line); border-radius: var(--k-radius-s); }
+.k-cat-reqs li > span:first-child, .k-cat-files li > span:first-child { flex: 1; }
+.k-cat-desc { white-space: pre-wrap; color: var(--k-text-1); font-size: 15.5px; line-height: 1.45; border-top: 1px solid var(--k-line); padding-top: 12px; }

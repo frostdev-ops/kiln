@@ -14,6 +14,7 @@ import { UpdateTray } from "./UpdateNotice";
 import { RouteErrorBoundary } from "./ErrorBoundary";
 import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
 import { DropAnywhere, ModpackDropOffer, useAddMods } from "./drop";
+import { NxmListener } from "./catalogInstall";
 import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallPrompt, useKilnInstall } from "./firstRun";
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
@@ -182,6 +183,7 @@ export function AppShell() {
       <DropAnywhere add={(p) => void addMods(p)} />
       <InstallKilnModal onAdd={(p) => void addMods(p)} />
       <ModpackDropOffer />
+      <NxmListener />
       <Toaster />
       <Splash done={ready} />
     </div>

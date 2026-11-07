@@ -11,7 +11,7 @@ events). Design system: [design-system.md](design-system.md).
 | `src/shell/` | AppShell (the stage, the header with nav, tasks and the game's state word, the Play page in front of the stage, the sheet for every other page, the mouth: the Play button and pilot light; toasts, splash, route error boundary), `play.ts` (the Play control shared by the mouth and the Play page), `firstRun.tsx` (the automatic game detection, Install Kiln on Play), `drop.tsx` (a mod dropped anywhere on the window, the dropped-modpack consent), `runtimeChange.ts` (the runtime install task shared by Runtime and Play), `gameState.ts`, `nav.ts`, `serverNav.ts` (a server's grouped list) |
 | `src/ui/` | the design system |
 | `src/components/` | `ConfigEditor`, `SaveBackups` (shared with server pages) |
-| `src/pages/` | client pages (Play, Profiles + tabs, Library, Runtime, Logs, Saves, Editor, Settings, About) |
+| `src/pages/` | client pages (Play, Profiles + tabs, Library, Catalog, Runtime, Logs, Saves, Editor, Settings, About) |
 | `src/api/commands.ts` | typed wrappers for every command + `KilnEvents` (contract) |
 | `src/api/hooks.ts` | TanStack Query hooks, query keys, the selected game (zustand), `useBackendEvents` |
 | `src/api/mock.ts` | in-memory backend for the browser (stateful: profiles, library, tasks, a fake running game) |
@@ -37,11 +37,12 @@ events). Design system: [design-system.md](design-system.md).
 | `/profiles/:id/native` | native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins | same |
 | `/profiles/:id/emf`, `/configs`, `/saves` | EMF mods; the profile's config folder (SchemaForm/raw); backups made with this profile | `config_*`, `saves_*` |
 | `/library` | drop zip/folder/DLL: as a drop anywhere (into the active profile; below), or with Settings "Add new mods to the active profile" off, detection → import task; versions; remove (typed, force when used); clean up unused | `library_*` |
+| `/catalog` | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)): Kiln mods (default), All Enshrouded, Installed; search, sort; cards with endorsements, downloads, what the mod is and its state (Installed, Update <version>); an updates banner; `?mod=<id>` opens a mod's details (pictures, description, requirements, files, Add / Update / Download on Nexus Mods, Open on Nexus Mods). Mod Manager Download links are taken anywhere in the app (`shell/catalogInstall.tsx`, `NxmListener`) | `nexus_*` |
 | `/runtime` | install/update/rollback per bundle (bundles of one version and day are ordered by when they were built, never by the git id), uninstall (typed), proxy chain (receipt + live `boot.json` chain), switch from ShroudForge (typed), add bundle | `runtime_*` |
 | `/logs` | kiln.log, game log, proxy.log, mod logs (follow, filter), crash reports, tick stats (sparklines) | `logs_*` |
 | `/saves` | save files, backups, manual backup, restore (refused while running; Steam Cloud hint), delete | `saves_*` |
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
-| `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*` |
+| `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Nexus Mods (the API key, the account, "Mod Manager Download links"; `components/NexusSettings.tsx`), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*`, `nexus_account`, `nexus_key_*`, `nexus_handler_*` |
 | `/about` | versions, CREDITS.md, "Theme and design: frostdev"; Updates (the state, Check now), in the Nexus Mods build "New versions: Nexus Mods" | `app_info` |
 | `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
 
@@ -72,6 +73,12 @@ window, Play. Library and Profiles stay as they are for everyone else.
 Optional slots for server pages (picked up by `import.meta.glob`, no route edit needed):
 `src/pages/servers/ServersPage.tsx` (the `/servers` index), `ServerLayout.tsx` (wraps `/servers/:id/*`),
 `ModpackOffer.tsx` (props `{gameId, lastServer, open, onClose}`; Play opens it from the refusal banner).
+
+## The catalog and Mod Manager Download
+[catalog.md](catalog.md): which mods count as Kiln mods, Nexus's rules for apps (headers, the key, rate limits, free
+downloads through the site), adding with Undo, updates on a click, the opt-in nxm handler (`--nxm <link>`, the link
+inbox, other games forwarded), tests and the real-API checklist. Mod authors: [catalog-authors.md](catalog-authors.md).
+`tauri.conf.json`'s CSP allows images from `staticdelivery.nexusmods.com` and `images.nexusmods.com` (mod pictures).
 
 ## Commands beyond the contract
 - `config_kiln_read(gameId)`, `config_kiln_set(gameId, path, value)`, `config_kiln_reset(gameId, path)` →
@@ -124,6 +131,7 @@ bun x tauri dev                     # the desktop app (debug), same dev server
 bun x tsc --noEmit && bun run build # typecheck + production web build (tsc covers every page)
 bun run check:schemas
 bun run test:smoke                  # Playwright, mock mode; screenshots to .out/launcher/shots/ (KILN_DEV_PORT: another port)
+bun x playwright test tests/catalog.spec.ts   # the catalog, desktop and Deck (?nexus=free|premium|nokey)
 CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher
 CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher --no-default-features   # the Nexus Mods build (no self-update)
 tools/launcher/fetch-editor-assets.sh   # dev: local editor game assets for the vite dev server (gitignored)

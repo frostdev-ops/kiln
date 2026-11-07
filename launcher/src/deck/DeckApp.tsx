@@ -21,6 +21,7 @@ import { DeckToaster, Dialog, Row } from "./ui";
 import Home from "./screens/Home";
 import Mods from "./screens/Mods";
 import AddMods from "./screens/AddMods";
+import Catalog, { DeckNxm } from "./screens/Catalog";
 import Kiln from "./screens/Kiln";
 import Help from "./screens/Help";
 import Settings from "./screens/Settings";
@@ -30,6 +31,7 @@ export const TABS = [
   { to: "/deck", label: "Home" },
   { to: "/deck/mods", label: "Mods" },
   { to: "/deck/add", label: "Add mods" },
+  { to: "/deck/catalog", label: "Catalog" },
   { to: "/deck/kiln", label: "Kiln" },
   { to: "/deck/help", label: "Help" },
   { to: "/deck/settings", label: "Settings" },
@@ -184,6 +186,7 @@ export default function DeckApp() {
           <Route index element={<Home />} />
           <Route path="mods" element={<Mods />} />
           <Route path="add" element={<AddMods />} />
+          <Route path="catalog" element={<Catalog />} />
           <Route path="kiln" element={<Kiln />} />
           <Route path="help" element={<Help />} />
           <Route path="settings" element={<Settings />} />
@@ -193,6 +196,7 @@ export default function DeckApp() {
       <HintBar press={press} />
       {menu && <MenuDialog onClose={() => setMenu(false)} />}
       <div className="deck-overlays" />
+      <DeckNxm />
       <DeckToaster />
     </div>
   );

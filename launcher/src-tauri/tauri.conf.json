@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob: asset: http://asset.localhost kiln-asset: http://kiln-asset.localhost; font-src 'self' data: kiln-asset: http://kiln-asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost kiln-asset: http://kiln-asset.localhost"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob: asset: http://asset.localhost kiln-asset: http://kiln-asset.localhost https://staticdelivery.nexusmods.com https://images.nexusmods.com; font-src 'self' data: kiln-asset: http://kiln-asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost kiln-asset: http://kiln-asset.localhost"
     }
   },
   "plugins": {

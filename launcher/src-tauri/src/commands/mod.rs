@@ -16,6 +16,7 @@ pub mod admin;
 pub mod modpack;
 pub mod update;
 pub mod deck;
+pub mod nexus;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -139,6 +140,18 @@ pub const NAMES: &[&str] = &[
     "deck_gamepad",
     "deck_fullscreen",
     "deck_quit",
+    "nexus_account",
+    "nexus_key_set",
+    "nexus_key_clear",
+    "nexus_search",
+    "nexus_mod",
+    "nexus_installed",
+    "nexus_download",
+    "nexus_links",
+    "nexus_link_install",
+    "nexus_link_dismiss",
+    "nexus_handler_status",
+    "nexus_handler_set",
 ];
 
 #[cfg(test)]

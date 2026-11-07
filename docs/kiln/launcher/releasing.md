@@ -28,7 +28,9 @@ the same runtime and notices:
   `src-tauri/tauri.nexus.conf.json` last; their files go to `$KILN_OUT/bundles/{linux,windows}-nexus/`.
 - **Nothing else updates the launcher:** the only code that downloads or replaces the launcher is `src/selfupdate/`.
   The other network use, the server modpack download (`kiln_manage::modpack::download`, after the player's explicit
-  consent), fetches mods, never the launcher. kilnctl and `kiln` (the SDK CLI) have no self-update: nothing in them
+  consent), fetches mods, never the launcher. So does the Nexus Mods catalog (`kiln_manage::nexus`, [catalog.md](catalog.md)):
+  it downloads only mod files the user picks (Add, Update, a Mod Manager Download link), in both builds, and refuses
+  the Kiln page's own files (mod 301). kilnctl and `kiln` (the SDK CLI) have no self-update: nothing in them
   downloads or replaces their own binary, and neither links an HTTP client (kiln-manage without its `http` feature).
   Their only network use is through other programs: kilnctl's `update` runs SteamCMD for the game server, `kiln build`
   runs `dotnet` (NuGet restore).

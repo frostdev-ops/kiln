@@ -14,6 +14,7 @@ import { adminMockHandlers } from "../admin/mock";
 import { serverMockHandlers } from "../pages/servers/mockServers";
 import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
+import { nexusMockHandlers } from "./mockNexus";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -876,6 +877,7 @@ const handlers: Record<string, Handler> = {
 Object.assign(handlers, adminMockHandlers(mockEmit));
 Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
+Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
 let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;

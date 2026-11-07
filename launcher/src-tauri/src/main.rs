@@ -32,6 +32,15 @@ fn main() {
     if let Ok(exe) = std::env::current_exe() {
         kiln_manage::server::run::set_ctrl_c_helper(exe);
     }
+    // `--nxm <link>` (what Kiln registers as the nxm:// handler) or a bare `nxm://` argument: the link goes to the
+    // running launcher (or to another game's mod manager) and this process ends; else it starts with the link queued
+    let nxm = args.iter().position(|a| a == "--nxm").and_then(|i| args.get(i + 1).cloned())
+        .or_else(|| args.iter().skip(1).find(|a| a.to_ascii_lowercase().starts_with("nxm://")).cloned());
+    if let Some(url) = nxm
+        && !kiln_launcher_lib::nxm_entry(&url)
+    {
+        std::process::exit(0);
+    }
     if std::env::args().any(|a| a == "--selftest") {
         #[cfg(windows)]
         attach_parent_console();

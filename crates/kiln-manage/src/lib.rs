@@ -41,6 +41,7 @@
 //! | [`gameart`] | game art from the installed client's KFC4 data (save editor icons, UI, fonts) |
 //! | [`catalog`] | local game-data catalogs (items, templates, ...) for the linter, VS Code, Kiln.GameIds |
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
+//! | [`nexus`] | the online mod catalog on Nexus Mods, Mod Manager Download (nxm://) links, the API key store |
 
 pub mod error;
 pub mod task;
@@ -92,6 +93,9 @@ pub mod catalog;
 
 // kiln lint (default build, no extra dependency)
 pub mod lint;
+
+// the online catalog on Nexus Mods (network calls need feature `http`)
+pub mod nexus;
 
 pub use error::{Error, ErrorCode, Result};
 

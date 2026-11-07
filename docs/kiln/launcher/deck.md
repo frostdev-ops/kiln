@@ -94,6 +94,7 @@ Native events are ignored while the launcher's window has no focus: once the gam
 | Home | the active profile's name, the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("12 mods loaded", "11 mods loaded, 1 failed", safe idle, no mods) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Switch profile, Pick folder, One Steam setting (to Help) as the state needs; Y profile; X play once (without mods, vanilla) |
 | Mods | the active profile's mods (Kiln, native, EMF, plugins), a flame per mod | A on/off; X remove (confirm; the library keeps it); Y switch profile. No profile yet: Choose a profile / Add mods |
 | Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, DLLs and mod folders), newest first, "In profile" when it is there; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, add to the active profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
+| Catalog | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. No API key: All Enshrouded only, the key goes in the desktop Settings |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
 | Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Quit; the last line shows the version, what the detection saw and the controller | A |
@@ -119,6 +120,8 @@ steps instead:
   os-release files (Game Mode env alone, Desktop Mode by DMI, SteamOS, flags); the evdev mapping (xpad faces, hats,
   stick hysteresis on signed and unsigned ranges, triggers), merging and repeat timing, unplugging, the right stick's
   throttle; the folder browser on temp folders (zips, unpacked mods, a folder holding a mod, junk, Places, XDG).
+- `bun x playwright test tests/catalog.spec.ts` (Deck part): the Catalog tab with the pad, X and Y, a mod's page, Add,
+  the added dialog with Undo and Get, a free account's Open on Nexus Mods, an nxm link's dialog.
 - `bun run test:smoke` (`tests/deck.spec.ts`, 1280×800, mock mode): the UI choice (Game Mode env, `--deck`,
   `--desktop`, the setting), spatial focus, every screen reachable and left with B, Start menu, View, keyboard, the
   browser Gamepad API with a fake pad, touch, Play, adding from Downloads, browsing Places and folders, the modpack
@@ -158,7 +161,8 @@ steps instead:
   servers and admin, rollback, "switch from ShroudForge" (typed), runtime bundle import, the save editor. Settings has
   "Desktop UI" for those.
 - The game-art extraction (`GameArtAuto`) does not run in Deck mode (only the save editor and the admin map use it).
-- No on-screen keyboard of our own: no screen needs typing.
+- No on-screen keyboard of our own: no screen needs typing. The Catalog has no text search in Deck mode (X and Y
+  filter and sort), and the Nexus Mods API key is pasted in the desktop UI's Settings.
 - Rumble, gyro and the trackpads are not used. Steam's virtual controller sends the Deck's buttons; with Steam
   Input off, the Deck's own `hid-steam` device works the same.
 - WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, `WEBKIT_DISABLE_COMPOSITING_MODE=1`

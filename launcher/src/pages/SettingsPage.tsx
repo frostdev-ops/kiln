@@ -9,6 +9,7 @@ import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import { UpdatesCard } from "../components/UpdateSettings";
 import { DeckModeCard } from "../deck/mode";
+import { NexusCard } from "../components/NexusSettings";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
   Toggle, errorText, fmtAgo, fmtBytes, toast,
@@ -27,6 +28,7 @@ export default function SettingsPage() {
         <AppearanceCard />
         <UpdatesCard />
         <DeckModeCard />
+        <NexusCard />
       </div>
       <KilnJsonCard />
       <AssetsCard />

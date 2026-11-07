@@ -10,6 +10,7 @@ export const NAV_MAIN: NavItem[] = [
   { label: "Play", to: "/" },
   { label: "Profiles", to: "/profiles" },
   { label: "Library", to: "/library" },
+  { label: "Catalog", to: "/catalog" },
   { label: "Runtime", to: "/runtime" },
   { label: "Logs", to: "/logs" },
   { label: "Saves", to: "/saves" },

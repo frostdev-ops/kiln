@@ -23,6 +23,12 @@ pub fn selftest() -> i32 {
     selftest::run(&args)
 }
 
+/// The launcher was started with an nxm:// link: queue it (or hand another game's link on). False: exit, the link went
+/// to the running launcher or to another mod manager (commands/nexus.rs).
+pub fn nxm_entry(url: &str) -> bool {
+    commands::nexus::nxm_entry(url)
+}
+
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "self-update")]
@@ -35,6 +41,8 @@ pub fn run() {
             std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
             // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
             commands::modpack::watch_last_server(app.handle());
+            // nxm:// links (Nexus Mods' Mod Manager Download): the instance lock and the link inbox (commands/nexus.rs)
+            commands::nexus::start(app.handle());
             // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
             #[cfg(feature = "self-update")]
             selfupdate::start(app.handle().clone());
@@ -166,7 +174,19 @@ pub fn run() {
             commands::deck::deck_browse,
             commands::deck::deck_gamepad,
             commands::deck::deck_fullscreen,
-            commands::deck::deck_quit
+            commands::deck::deck_quit,
+            commands::nexus::nexus_account,
+            commands::nexus::nexus_key_set,
+            commands::nexus::nexus_key_clear,
+            commands::nexus::nexus_search,
+            commands::nexus::nexus_mod,
+            commands::nexus::nexus_installed,
+            commands::nexus::nexus_download,
+            commands::nexus::nexus_links,
+            commands::nexus::nexus_link_install,
+            commands::nexus::nexus_link_dismiss,
+            commands::nexus::nexus_handler_status,
+            commands::nexus::nexus_handler_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Kiln Launcher");
