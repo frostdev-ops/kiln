@@ -40,6 +40,14 @@ def launcher_fixture(dist, size):
     return data.getvalue()
 
 
+def zip_bytes(entries):
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for name, value in entries.items():
+            z.writestr(name, value)
+    return data.getvalue()
+
+
 class Mock:
     def __init__(self):
         self.requests = []  # (method, path, has_key)
@@ -205,7 +213,7 @@ class NexusTests(unittest.TestCase):
         self.server.server_close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def release(self, version, nexus=True):
+    def release(self, version, nexus=True, server=False):
         d = os.path.join(self.tmp, f"kiln-{version}")
         files = {
             "updates/github/latest.json": json.dumps({"version": version}).encode(),
@@ -230,6 +238,13 @@ class NexusTests(unittest.TestCase):
                 f"nexus/linux/kiln-launcher_{version}_amd64.deb": launcher_fixture("nexus", 3000),
                 f"nexus/windows/kiln-launcher_{version}_x64-setup.exe": launcher_fixture("nexus", 1200),
                 "nexus/README.txt": b"Kiln (Nexus Mods): this build does not update itself\n",
+            })
+        if server:  # the server pack and kilnctl's systemd units (releases since the pack)
+            files.update({
+                f"runtime/kiln-server-{version}.zip": zip_bytes({"dinput8.dll": b"MZ", "KILN-SERVER-README.txt": b"readme"}),
+                "runtime/kiln@.service": b"[Service]\n",
+                "runtime/kiln-backup@.service": b"[Service]\n",
+                "runtime/kiln-backup@.timer": b"[Timer]\n",
             })
         for rel, data in files.items():
             p = os.path.join(d, rel)
@@ -381,6 +396,29 @@ class NexusTests(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertEqual([fid for fid, _ in self.mock.versions], ["F7"])
         self.assertEqual(len(self.mock.files), 1)
+
+    def test_the_server_pack_goes_up_as_it_is(self):
+        rel = self.release("0.2.0-dev.9", server=True)
+        code, out, err = self.run_nexus(rel, "--publish")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.mock.errors, [])
+        cats = {f["name"]: f["req"]["file_category"] for f in self.mock.files}
+        self.assertEqual(cats["Kiln server pack"], "optional")
+        self.assertEqual(len(self.mock.files), 6)
+        server = next(u for u in self.mock.uploads.values() if u["req"]["filename"].startswith("kiln-server"))
+        self.assertEqual(server["req"]["filename"], "kiln-server-0.2.0-dev.9.zip")
+        with open(os.path.join(rel, "runtime", "kiln-server-0.2.0-dev.9.zip"), "rb") as f:
+            self.assertEqual(server["data"], f.read())  # the pack itself, not a zip around it
+        runtime = self.zip_of("kiln-runtime-standalone")
+        for unit in ("kiln@.service", "kiln-backup@.service", "kiln-backup@.timer"):
+            self.assertIn(unit, runtime)
+        # a folder without the pack: skipped, unless asked for by name
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.10"), "--only", "server")
+        self.assertEqual(code, 2)
+        self.assertIn("has no server pack", err)
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.10"))
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("server:", out)
 
     def test_sync_description_publish(self):
         code, out, err = self.run_nexus(self.release("0.2.0-dev.9"), "--publish", "--sync-description", "--only", "sdk")

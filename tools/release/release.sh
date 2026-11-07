@@ -19,7 +19,9 @@
 # The folder: README.txt, RELEASE-NOTES.md, SHA256SUMS, LICENSE, CREDITS.md, THIRD-PARTY-NOTICES.txt,
 #   linux/    the AppImage (+ .sig, the updater signature), .deb, .rpm
 #   windows/  the NSIS setup (+ .sig)
-#   runtime/  kiln-runtime-VERSION.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt
+#   runtime/  kiln-runtime-VERSION.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt, kiln-server-VERSION.zip (the server
+#             pack: the server components as a flat zip to unzip into a server folder, lib/serverpack.py), and the
+#             systemd units for kilnctl (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
 #   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
@@ -35,8 +37,9 @@
 #   Nexus builds holding none of the self-update (feeds, updater key, plugin) and the direct ones all of it, the deb's
 #   control and files, the rpm's files, `kilnctl bundle verify`,
 #   kilnctl/kiln --version (Windows builds under Wine), every Linux ELF (in the AppImage, deb and rpm too) needing no
-#   glibc symbol version above 2.35, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway container:
-#   --selftest and the launcher's window), a mod from the packed templates built against the packed SDK,
+#   glibc symbol version above 2.35, the server pack (only the server components, the runtime's bytes, rebuilt
+#   byte-identically) and the systemd units, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway
+#   container: --selftest and the launcher's window),a mod from the packed templates built against the packed SDK,
 #   the vsix's files, Authenticode signatures (when signed), and a scan of every file and archive for game data, home
 #   paths, keys, passwords and tokens.
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
@@ -369,6 +372,12 @@ cp "$deb" "$out/linux/$D"
 [[ -n $rpm ]] && cp "$rpm" "$out/linux/$R"
 [[ -n $setup ]] && cp "$setup" "$out/windows/$S"
 cp "$runtime_zip" "$out/runtime/kiln-runtime-$version.zip"
+# the server pack: the components kilnctl deploy --bundle installs on a server, as a flat zip a rented host's owner
+# unzips into the server folder over FTP (docs/kiln/dedicated-servers.md); deterministic, like the runtime zip
+python3 "$lib/serverpack.py" build "$out/runtime/kiln-runtime-$version.zip" --out "$out/runtime/kiln-server-$version.zip" \
+  --readme "$here/templates/KILN-SERVER-README.txt" --version "$version" --epoch "$SOURCE_DATE_EPOCH" | tee -a "$log"
+# kilnctl's systemd user units (docs/kiln/kilnctl.md "systemd"), next to kilnctl
+install -m 644 "$src"/runner/systemd/*.service "$src"/runner/systemd/*.timer "$out/runtime/"
 install -m 755 "$lin_target/release/kilnctl" "$out/runtime/kilnctl"
 install -m 755 "$lin_target/release/kiln" "$out/sdk/kiln"
 if ((!skip_windows)); then

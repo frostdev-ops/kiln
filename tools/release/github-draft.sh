@@ -6,7 +6,8 @@
 # which must be pushed). GitHub release files have one flat namespace, so the upload set is staged first in
 # <RELEASE_DIR>.github/ with unique names and its own SHA256SUMS:
 #   the AppImage, deb, rpm, setup.exe and their .sig files, latest.json (the update manifest with GitHub URLs),
-#   kiln-runtime-<v>.zip, kilnctl-<v>-linux-x86_64, kilnctl-<v>-windows-x86_64.exe, kiln-<v>-linux-x86_64,
+#   kiln-runtime-<v>.zip, kiln-server-<v>.zip (the server pack), kiln-systemd-units-<v>.tar.gz (kilnctl's systemd
+#   units: GitHub would rename kiln@.service, so they go up as one tarball), kilnctl-<v>-linux-x86_64, kilnctl-<v>-windows-x86_64.exe, kiln-<v>-linux-x86_64,
 #   kiln-<v>-windows-x86_64.exe, the nupkgs, the vsix, kiln-samples-<v>.zip, the source tarball, README.txt,
 #   INSTALL-RUNTIME.txt, THIRD-PARTY-NOTICES.txt, SHA256SUMS.
 # Never nexus/: the Nexus Mods build of the launcher (no self-update) goes only to Nexus Mods (nexus.py). GitHub gets
@@ -42,6 +43,14 @@ for f in "$dir"/linux/* "$dir"/windows/*; do put "$f" "$(basename "$f")"; done
 put "$dir/updates/github/latest.json" latest.json
 put "$dir/runtime/kiln-runtime-$version.zip" "kiln-runtime-$version.zip"
 put "$dir/runtime/INSTALL-RUNTIME.txt" INSTALL-RUNTIME.txt
+[[ -f $dir/runtime/kiln-server-$version.zip ]] && put "$dir/runtime/kiln-server-$version.zip" "kiln-server-$version.zip"
+# GitHub replaces "@" in file names, which systemd template units need: the units go up as one tarball
+units=()
+for f in "$dir"/runtime/*.service "$dir"/runtime/*.timer; do [[ -f $f ]] && units+=("$(basename "$f")"); done
+if ((${#units[@]})); then
+  tar --sort=name --owner=0 --group=0 --numeric-owner --mode=0644 --mtime="@$(git -C "$repo_dir" log -1 --format=%ct "$target")" \
+    -C "$dir/runtime" -cf - "${units[@]}" | gzip -n >"$stage/kiln-systemd-units-$version.tar.gz"
+fi
 put "$dir/runtime/kilnctl" "kilnctl-$version-linux-x86_64"
 put "$dir/sdk/kiln" "kiln-$version-linux-x86_64"
 [[ -f $dir/runtime/kilnctl.exe ]] && put "$dir/runtime/kilnctl.exe" "kilnctl-$version-windows-x86_64.exe"

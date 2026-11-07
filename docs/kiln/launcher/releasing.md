@@ -149,7 +149,8 @@ kiln-<version>/
   README.txt  RELEASE-NOTES.md  SHA256SUMS  LICENSE  CREDITS.md  THIRD-PARTY-NOTICES.txt
   linux/     kiln-launcher_<v>_amd64.AppImage (+ .sig), kiln-launcher_<v>_amd64.deb, kiln-launcher-<v>.x86_64.rpm
   windows/   kiln-launcher_<v>_x64-setup.exe (+ .sig)
-  runtime/   kiln-runtime-<v>.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt
+  runtime/   kiln-runtime-<v>.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt, kiln-server-<v>.zip (the server pack),
+             kiln@.service, kiln-backup@.service, kiln-backup@.timer (kilnctl's systemd units, from runner/systemd/)
   sdk/       Kiln.Api, Kiln.Sdk, Kiln.Templates .<v>.nupkg (the release's version: NuGet never re-fetches a version), kiln, kiln.exe, kiln-vscode-<x>.vsix
   samples/   <mod>-<version>.zip for each sample that builds
   updates/   frostdev.io/<channel>/latest.json, github/latest.json
@@ -157,6 +158,16 @@ kiln-<version>/
   nexus/     the Nexus Mods build (no self-update; only nexus.py uploads it): README.txt,
              linux/kiln-launcher_<v>_amd64.AppImage, linux/kiln-launcher_<v>_amd64.deb, windows/kiln-launcher_<v>_x64-setup.exe
 ```
+The server pack (`tools/release/lib/serverpack.py build`, [../dedicated-servers.md](../dedicated-servers.md)) is the
+runtime zip's server components as a flat zip with `KILN-SERVER-README.txt` (template
+`tools/release/templates/KILN-SERVER-README.txt`) at its root: unzipped into a server folder, it is a working install,
+for rented hosts with only FTP or a file manager. Its components are the ones `kilnctl deploy --bundle` installs: those
+of `kiln-runtime.json` with `server` in `sides` and `default: true`, plus what they require (0.2.0-dev.17: core,
+sigdb-server, admin; a runtime that adds default server components, such as eml or shroudforge, puts them in too).
+Every file keeps its manifest path and is checked against the manifest's size and sha256; `kiln-runtime.json` stays
+out. Deterministic like the runtime zip: sorted entries, one time from `SOURCE_DATE_EPOCH`, deflate 6, mode 0644. On
+dev.17: 380 files, 117 MB unpacked, 50 MB zipped; unzipped, it equals `kilnctl bundle install`'s tree file for file
+(only the receipt and the empty standard folders, which Kiln makes at boot, differ).
 SHA256SUMS lists every file, nexus/ included; README.txt's file list leaves nexus/ out (it describes what GitHub and
 frostdev.io get). The Nexus build is never signed for the updater and has no manifest.
 THIRD-PARTY-NOTICES.txt comes from the build: the Rust crates of the launcher, kilnctl and kiln (cargo metadata, both
@@ -179,7 +190,9 @@ when no feed string survived optimization. Uninspectable archives, excessive nes
 the check. `release.py updater --present` requires the direct marker and all feeds and the public key in each
 launcher executable; plugin panic-path strings are an additional absence check, not required evidence in an
 optimized direct build. The deb's control fields and files (both builds); the rpm's files;
-`kilnctl bundle verify`; `kilnctl`/`kiln --version`, the Windows builds under Wine; every Linux ELF file (the
+`kilnctl bundle verify`; the server pack (`serverpack.py check`: only the server components, each file the runtime's
+bytes at its manifest path, safe names, sorted, one time, and a second build byte-identical) and the systemd units
+(the source's bytes); `kilnctl`/`kiln --version`, the Windows builds under Wine; every Linux ELF file (the
 AppImage unpacked with unsquashfs, the deb's and rpm's files, kilnctl, kiln, and nested zip/tar/compressed archives) needing no
 glibc requirement above 2.35 (`objdump -p` version references, including ABI markers; definitions do not count;
 `release.py glibc`, see "Linux builds"); kilnctl, kiln and the
@@ -289,7 +302,9 @@ Each release:
    run, GET calls only; release.sh runs it at the end when the key is there), then add `--publish` to upload. It
    uploads the Nexus build (nexus/), never the direct one.
 
-github-draft.sh stages only linux/ and windows/ (the direct build); publish.sh uploads the folder to frostdev.io
+github-draft.sh stages only linux/ and windows/ (the direct build) of the launchers, plus the runtime files: the server
+pack as `kiln-server-<v>.zip`, and the systemd units as one `kiln-systemd-units-<v>.tar.gz` (GitHub replaces the `@`
+in asset names, which template units need); publish.sh uploads the folder to frostdev.io
 without nexus/ or updates/ (manifests are published separately), with a SHA256SUMS that lists the download files.
 
 A hotfix stable release while a newer dev build is out: `publish.sh --no-dev-channel`, so dev users keep the newer
@@ -306,7 +321,8 @@ publishing status.
 | `launcher-windows` | main | Kiln Launcher (Windows) | the Nexus build's NSIS setup (`nexus/windows/`), `nexus/README.txt` |
 | `launcher-linux` | main | Kiln Launcher (Linux) | the Nexus build's AppImage (executable bit kept), `nexus/README.txt` |
 | `launcher-deb` | optional | Kiln Launcher (Linux .deb) | the Nexus build's .deb, `nexus/README.txt` (the page description offers it) |
-| `runtime` | optional | Kiln runtime (manual install) | `kiln-runtime-<v>.zip`, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt |
+| `runtime` | optional | Kiln runtime (manual install) | `kiln-runtime-<v>.zip`, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt, the systemd units |
+| `server` | optional | Kiln server pack | `runtime/kiln-server-<v>.zip` itself, not wrapped in another zip (it is the archive owners unzip into the server folder); skipped for a release folder without it, refused with `--only server` |
 | `sdk` | optional | Kiln SDK (mod authors) | the nupkgs, kiln, kiln.exe, the vsix, `nexus/README.txt` |
 
 - **The launchers are always the Nexus build** (no self-update; "The two builds"). A release folder without nexus/ is
@@ -339,7 +355,10 @@ publishing status.
 - `--only launcher-linux,runtime` limits the files. Tests: `python3 -I tools/release/test_nexus.py` (a local mock of the
   API and storage: single part, multipart, polling, new file and new version, a file found by name, the description,
   the dry run, a missing key; the launchers taken from nexus/ with its README, `archive_existing_file` on the
-  launchers' new versions only, a folder without nexus/ refused).
+  launchers' new versions only, a folder without nexus/ refused, the server pack uploaded as it is).
+  `python3 -I tools/release/test_serverpack.py`: the server pack builder (only the server components, manifest paths
+  and bytes, deterministic, safe names, tampered or unlisted files refused), also against the published dev.17 runtime
+  zip when it is there (`KILN_SERVERPACK_RUNTIME`).
   `python3 -I tools/release/test_linux_release.py` also checks the updater scanner and upload gate offline, using
   generated throwaway public keys (no release credentials, sockets or Docker daemon).
 

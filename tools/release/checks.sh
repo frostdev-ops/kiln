@@ -113,6 +113,18 @@ with tempfile.TemporaryDirectory(dir=sys.argv[3]) as d:
 PY
 }
 
+# the server pack: only the components kilnctl deploy --bundle installs on a server, every file the runtime zip's bytes
+# at its manifest path, safe names, sorted, one time, and a second build byte-identical; the systemd units beside it
+check_server_pack() {
+  python3 "$lib/serverpack.py" check "$out/runtime/kiln-server-$version.zip" --runtime "$out/runtime/kiln-runtime-$version.zip" \
+    --readme "$here/templates/KILN-SERVER-README.txt" --version "$version" --epoch "$SOURCE_DATE_EPOCH" || return
+  local u
+  for u in kiln@.service kiln-backup@.service kiln-backup@.timer; do
+    cmp "$src/runner/systemd/$u" "$out/runtime/$u" || { echo "runtime/$u missing or not the source's"; return 1; }
+  done
+  echo "systemd units: OK"
+}
+
 check_cli_versions() {
   local a b
   a=$("$out/runtime/kilnctl" --version) || return
@@ -188,6 +200,8 @@ run_checks() {
   [[ -n $rpm ]] && check "rpm contains usr/bin/kiln-launcher" check_rpm
   check "kilnctl bundle verify on the runtime zip" "$out/runtime/kilnctl" bundle verify "$out/runtime/kiln-runtime-$version.zip"
   check "kilnctl and kiln --version (Linux)" check_cli_versions
+  check "server pack: only the server components, the runtime's files, rebuilt byte-identically; systemd units" \
+    check_server_pack
   # every Linux ELF (the AppImage's own files, the deb's, the rpm's, kilnctl, kiln) must run on glibc $glibc_max: the
   # Steam Deck and Ubuntu 22.04 (release.sh builds them in the Ubuntu 22.04 container; --host-build fails here)
   check "every Linux ELF needs glibc ${glibc_max:-2.35} at most (objdump -p requirements, archives unpacked)" \

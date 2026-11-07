@@ -13,7 +13,11 @@ Files (each a zip: Nexus takes archives; the zip keeps the AppImage's executable
   launcher-windows  main      "Kiln Launcher (Windows)"   the NSIS setup of the Nexus build (nexus/windows/)
   launcher-linux    main      "Kiln Launcher (Linux)"     the AppImage of the Nexus build (nexus/linux/)
   launcher-deb      optional  "Kiln Launcher (Linux .deb)"  the .deb of the Nexus build (nexus/linux/)
-  runtime           optional  "Kiln runtime (manual install)"  kiln-runtime zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt
+  runtime           optional  "Kiln runtime (manual install)"  kiln-runtime zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt,
+                                                               kilnctl's systemd units
+  server            optional  "Kiln server pack"          runtime/kiln-server-<v>.zip as it is (no zip around it: it is
+                                                          the archive server owners unzip into the server folder);
+                                                          skipped for a folder without it (releases before the pack)
   sdk               optional  "Kiln SDK (mod authors)"    nupkgs, kiln, kiln.exe, the VS Code extension
 The launchers are always the Nexus build: the same launcher without its self-update (Nexus Mods does not allow
 programs that update themselves); a folder without nexus/ is refused. Their zips and the SDK's carry nexus/README.txt
@@ -37,6 +41,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -57,6 +62,8 @@ KINDS = {
     "launcher-deb": ("optional", "Kiln Launcher (Linux .deb)", "The Kiln Launcher as a .deb package for Debian and Ubuntu. New versions come from the Files tab."),
     "runtime": ("optional", "Kiln runtime (manual install)", "The Kiln runtime alone, with kilnctl, for dedicated servers and manual installs."),
     "sdk": ("optional", "Kiln SDK (mod authors)", "The Kiln SDK packages, the kiln command line and the VS Code extension."),
+    "server": ("optional", "Kiln server pack", "Kiln for a dedicated server, also a rented one with only FTP: unzip it into "
+               "the server folder (the one with enshrouded_server.exe). Steps in KILN-SERVER-README.txt inside."),
 }
 
 
@@ -168,13 +175,29 @@ def members(folder, kind, version):
                (os.path.join(rt, "kilnctl"), None, True)]
         if os.path.isfile(os.path.join(rt, "kilnctl.exe")):
             out.append((os.path.join(rt, "kilnctl.exe"), None, False))
+        # kilnctl's systemd user units (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
+        out += [(os.path.join(rt, n), None, False) for n in sorted(os.listdir(rt)) if n.endswith((".service", ".timer"))]
         return out
+    if kind == "server":
+        return [(server_pack(folder, version), None, False)]
     if kind == "sdk":
         return [(os.path.join(sdk, n), None, n == "kiln") for n in sorted(os.listdir(sdk))] + [(readme, "README.txt", False)]
     raise Fail(f"unknown kind {kind}")
 
 
+def server_pack(folder, version):
+    return os.path.join(folder, "runtime", f"kiln-server-{version}.zip")
+
+
 def make_zip(folder, kind, version, out_dir):
+    if kind == "server":
+        # already the archive to unzip into a server folder: it goes up as it is, never inside another zip
+        src = server_pack(folder, version)
+        if not os.path.isfile(src):
+            raise Fail(f"missing {src}")
+        path = os.path.join(out_dir, os.path.basename(src))
+        shutil.copyfile(src, path)
+        return path
     name = f"kiln-{'runtime-standalone' if kind == 'runtime' else kind}-{version}.zip"
     path = os.path.join(out_dir, name)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
@@ -352,6 +375,10 @@ def run(argv=None):
         win = os.path.join(folder, "nexus", "windows")
         if not (os.path.isdir(win) and any(n.endswith("-setup.exe") for n in os.listdir(win))):
             kinds = [k for k in kinds if k != "launcher-windows"]  # a build without Windows
+        if "server" in kinds and not os.path.isfile(server_pack(folder, version)):
+            if a.only:
+                raise Fail(f"{folder} has no server pack (runtime/kiln-server-{version}.zip)")
+            kinds = [k for k in kinds if k != "server"]  # a release from before the server pack
 
         mode = "PUBLISH" if a.publish else "dry run (GET only)"
         log(f"Nexus Mods: Kiln {version} from {folder} [{mode}]")

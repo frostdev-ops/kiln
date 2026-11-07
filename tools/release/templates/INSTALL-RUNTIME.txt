@@ -27,21 +27,28 @@ Game client
 
 Dedicated server
 ----------------
+  Only FTP or a file manager (a rented server), or no kilnctl: kiln-server-@VERSION@.zip, the server pack, holds just
+  the server parts. Unzip it into the folder with enshrouded_server.exe; KILN-SERVER-README.txt inside has the steps.
+
   A kilnctl server on Linux (Wine):   ./kilnctl deploy <name> --bundle kiln-runtime-@VERSION@.zip
   Any server folder (Linux or Windows):
     kilnctl bundle install kiln-runtime-@VERSION@.zip --dir "<server folder>" --components core,sigdb-server,admin
 
   The server parts are core, sigdb-server and admin (Kiln.Admin, for the launcher's server pages). Add emf for EMF
   mods and samples for the hello sample. A folder inside a Steam library also needs --real.
+  To keep a kilnctl server running and start it at boot: the systemd user units next to kilnctl (kiln@.service,
+  kiln-backup@.service, kiln-backup@.timer; see docs/kiln/kilnctl.md, "systemd").
 
 
 By hand, without kilnctl
 ------------------------
 The zip holds the files at their place in the game folder (dinput8.dll, kiln/...) plus kiln-runtime.json, which lists
 every file with its sha256 and component. Unzipping it into the game or server folder works, but nothing is backed up
-and an existing dinput8.dll (another mod loader) is overwritten instead of chained. Prefer kilnctl.
+and an existing dinput8.dll (another mod loader) is overwritten instead of chained. Prefer kilnctl. Unzipped raw, this
+zip also puts every optional and client part into the folder; for a server, unzip kiln-server-@VERSION@.zip instead.
 
 
 Where to read more
 ------------------
-https://frostdev.io/kiln/wiki and docs/kiln/ in the source (kilnctl.md, launcher/bundle.md, linux-server.md).
+https://frostdev.io/kiln/wiki and docs/kiln/ in the source (dedicated-servers.md, kilnctl.md, launcher/bundle.md,
+linux-server.md).

@@ -142,7 +142,10 @@ Files in `runner/systemd/`:
   SIGKILLed), `TimeoutStopSec=90`, `Restart=on-failure`, `RestartSec=15`, at most 5 starts in 10 minutes.
 - `kiln-backup@.service` + `kiln-backup@.timer`: `kilnctl backup %i` daily (randomised by 30 min, `Persistent=true`).
 
-Install (nothing of this is done for you):
+A release ships the three units next to kilnctl (`runtime/`; on GitHub as `kiln-systemd-units-<version>.tar.gz`):
+install those with `install -Dm644 -t ~/.config/systemd/user kiln@.service kiln-backup@.service kiln-backup@.timer`
+and kilnctl with `install -Dm755 kilnctl ~/.local/bin/kilnctl`; [dedicated-servers.md](dedicated-servers.md) walks server
+owners through it. From a checkout (nothing of this is done for you):
 ```sh
 cargo install --path runner/kilnctl --root ~/.local
 install -Dm644 -t ~/.config/systemd/user runner/systemd/kiln@.service runner/systemd/kiln-backup@.service runner/systemd/kiln-backup@.timer

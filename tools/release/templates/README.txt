@@ -27,8 +27,11 @@ Then open the launcher, let it find Enshrouded in your Steam libraries, and pres
 carries the matching Kiln runtime (@RUNTIME_VERSION@).
 
 Server owners and tinkerers:
+  runtime/kiln-server-@VERSION@.zip    the server pack: unzip it into a dedicated server's folder (also over FTP on a
+                                       rented server); KILN-SERVER-README.txt inside
   runtime/kiln-runtime-@VERSION@.zip   the Kiln runtime alone, for a dedicated server or a manual install
   runtime/kilnctl, runtime/kilnctl.exe  the command line that installs it (runtime/INSTALL-RUNTIME.txt)
+  runtime/*.service, runtime/*.timer   systemd user units for a kilnctl server on Linux
 
 Mod authors:
   sdk/*.nupkg                    the Kiln SDK (Kiln.Sdk, Kiln.Api, Kiln.Templates @SDK_VERSION@) for `dotnet new kiln-mod`
