@@ -48,7 +48,7 @@ public sealed record RoamBlock
 
 public sealed partial record AIBlock
 {
-    /// <summary>0..1: the share of <see cref="Sight"/> it sees at night (<c>combatCommitmentSetup.view.nightRangeFactor</c>; the Vukah's 0.6).</summary>
+    /// <summary>0..4: the share of <see cref="Sight"/> it sees at night (<c>combatCommitmentSetup.view.nightRangeFactor</c>; the Vukah's 0.6).</summary>
     public double? NightSight { get; init; }
     /// <summary>False: it does not react to noise (<c>noiseListenerSetup.isEnabled</c>).</summary>
     public bool? Hears { get; init; }

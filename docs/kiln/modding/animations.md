@@ -109,6 +109,9 @@ may differ freely. Joints of the skeleton with no pair keep their rest pose on t
 `translate` joints, whose travel is scaled. Both rigs must face +Z with y up, as glTF files do. The report's `retarget` section lists what paired and what
 didn't.
 
+`retarget: {}` enables pairing by name with the defaults; `false` disables retargeting. Invalid parent chains, zero joint scales and non-finite
+transforms are refused. If both rigs have zero usable height, automatic translation scaling uses 1; an explicit positive, finite `scale` overrides it.
+
 Not done here: foot or hand IK after the transfer (feet may slide when legs differ in length), and mirroring left onto right.
 
 Proven offline: `tools/animcook/tests/test_retarget.py` plays the sample's animations on rigs with other names, rest frames turned up to 120 degrees, 1.5

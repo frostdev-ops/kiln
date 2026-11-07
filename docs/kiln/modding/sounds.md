@@ -258,6 +258,10 @@ Blocks.Define("humming-rack", new StationBlock { Name = "Humming Rack", Processi
 ```
 A block in code is not visible to the cook: its steps go in `assets/cook.json` by hand, and until they are there the block's warnings say so. A sound block needs `clients: mod`.
 
+`kiln cook --check` compares the sound blocks with their generated recipe steps without writing. Removing the last sound block removes its generated
+steps on the next cook. `blockSounds` records each generated operation and name (`sound:boom.1`, `cue:boom`), so an author's step of another operation
+with the same name is preserved. Source paths, including symbolic links, must stay inside the mod folder; ranges and volume values must be finite.
+
 ## Playing them
 - **Game data** plays cues by GUID. Point modded data at your cue: a sequence's `SfxNotifierEvent.sound`, a template's
   `AudioResourceComponent`, an item's `equipSfx`, a boss's `BossMusicTag`, as kiln.content references

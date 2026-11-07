@@ -12,6 +12,7 @@ internal sealed class AiCreature
     public Func<NpcView, EntityId, bool>? Filter;
     public double Every = 0.5;
     public double Range = 30;
+    public ModContext? Context;
 }
 
 internal static class AiRuntime
@@ -20,7 +21,14 @@ internal static class AiRuntime
     private static readonly object Gate = new();
     private static readonly Dictionary<string, AiCreature> ByVariant = new(StringComparer.Ordinal);
     private static readonly Dictionary<uint, Tracked> Live = new();
-    private static readonly Dictionary<uint, List<(EntityId E, long Until)>> Summons = new();
+    private sealed record Summoned(EntityId E, long Until, ulong Lifetime, int Depth, AiLimits.Lease Lease);
+    private static readonly Dictionary<(uint Entity, ulong Life), List<Summoned>> Summons = new();
+    private static readonly AiLimits Limits = new();
+    private static readonly Dictionary<string, ModContext?> FilterContexts = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> FilterMods = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, ModInfo?> Instances = new(StringComparer.Ordinal);
+    private static ulong _step;
+    private static readonly HashSet<string> LifetimeWarnings = new(StringComparer.Ordinal);
     private static readonly HashSet<string> Watched = new(StringComparer.Ordinal);
     private static IDisposable? _tick;
     private static long _now;
@@ -34,6 +42,8 @@ internal static class AiRuntime
         public required AiCreature Creature;
         public required EntityId Entity;
         public long NextLook;
+        public ulong Lifetime;
+        public bool FilterFailed, LookPending;
         public readonly HashSet<uint> Refused = new();
     }
 
@@ -42,7 +52,8 @@ internal static class AiRuntime
     /// <summary>A creature block compiled: what of its AI needs the runtime. Nothing when it has no relations, filter or flee of its own.</summary>
     internal static void Attach(NpcCreature info, AIBlock ai)
     {
-        var filter = ai.SenseFilter ?? (ai.SenseFilterName is { } n ? NpcRuntime.Lookup(Filters, n) : null);
+        Watch(info.Mod);
+        var filter = ai.SenseFilter ?? (ai.SenseFilterName is { } n ? FindFilter(info.Mod, n) : null);
         byte[]? row = null;
         if (ai.Relations is { Count: > 0 } rel)
         {
@@ -56,9 +67,9 @@ internal static class AiRuntime
                 ByVariant.Remove(info.Variant);
                 return;
             }
-            ByVariant[info.Variant] = new AiCreature { Info = info, Row = row, Filter = filter, Every = ai.SenseEvery ?? 0.5, Range = Math.Max(ai.Sight ?? info.Sight, 8) * 1.25 };
+            ByVariant[info.Variant] = new AiCreature { Info = info, Row = row, Filter = filter, Context = ai.SenseFilterName is { } fn ? FilterContext(info.Mod, fn) ?? info.Owner.Mod : info.Owner.Mod, Every = ai.SenseEvery ?? 0.5, Range = Math.Max(ai.Sight ?? info.Sight, 8) * 1.25 };
         }
-        Watch(info.Mod);
+        if (filter != null) ObserveUnload(info.Mod, filter);
         EnsureTick();
     }
 
@@ -72,14 +83,21 @@ internal static class AiRuntime
 
     internal static void Watch(string mod)
     {
-        lock (Gate) Watched.Add(mod);
+        var instance = Mods.Get(mod)?.Info;
+        lock (Gate)
+        {
+            if (Watched.Contains(mod) && !ReferenceEquals(Instances.GetValueOrDefault(mod), instance)) Retire(mod);
+            Watched.Add(mod);
+            Instances[mod] = instance;
+        }
         EnsureTick();
     }
 
     internal static void Released(string mod)
     {
-        lock (Gate) Watched.Remove(mod);
-        AiNative.Forget(mod);
+        // Reset clears native relations, but registered filters still need unload cleanup.
+        lock (Gate)
+            foreach (var tr in Live.Values.Where(x => x.Creature.Info.Mod == mod)) tr.Refused.Clear();
     }
 
     private static void EnsureTick()
@@ -89,9 +107,16 @@ internal static class AiRuntime
 
     private static unsafe void Track(AiCreature c, EntityId e)
     {
+        var lifetime = AiNative.Lifetime(e);
+        if (lifetime == 0) return;
         lock (Gate)
-            if (Live.ContainsKey(e.Value))
-                return;
+        {
+            if (Live.TryGetValue(e.Value, out var old))
+            {
+                if (old.Lifetime == lifetime && ReferenceEquals(old.Creature, c)) return;
+                Forget(old);
+            }
+        }
         var t = AiNative.T;
         if (c.Row != null && t != null)
         {
@@ -102,7 +127,7 @@ internal static class AiRuntime
                 else BlocksBridge.Log(LogLevel.Warn, $"blocks: creature {c.Info.Name}: its relations could not be set for {e}: {AiNative.Describe(rc)}");
             }
         }
-        lock (Gate) Live[e.Value] = new Tracked { Creature = c, Entity = e };
+        lock (Gate) Live[e.Value] = new Tracked { Creature = c, Entity = e, Lifetime = lifetime };
     }
 
     // ---- the tick ----
@@ -110,22 +135,34 @@ internal static class AiRuntime
     internal static void OnTick(ulong step)
     {
         if (!NpcServerSide.Now) return;
+        _step = step;
+        BeginBudget();
         _now = Clock.ElapsedMilliseconds;
+        CheckMods();
         if (step % 24 == 11) Poll();
-        if (step % 48 == 23) CheckMods();
         List<Tracked> live;
         lock (Gate) live = Live.Values.ToList();
         foreach (var tr in live)
         {
-            if (!World.Exists(tr.Entity) || Dead(tr.Entity))
+            if (!World.Exists(tr.Entity) || Dead(tr.Entity) || tr.Lifetime != AiNative.Lifetime(tr.Entity))
             {
                 Forget(tr);
                 continue;
             }
-            if (tr.Creature.Filter is { } filter && _now >= tr.NextLook)
+            if (!tr.FilterFailed && !tr.LookPending && tr.Creature.Filter is { } filter && _now >= tr.NextLook)
             {
                 tr.NextLook = _now + (long)(tr.Creature.Every * 1000);
-                Look(tr, filter);
+                // Scheduler establishes the owning mod's context as well as the tick thread. Unload drops queued work.
+                if (tr.Creature.Context is { } context)
+                {
+                    tr.LookPending = true;
+                    context.Scheduler.Post(() =>
+                    {
+                        tr.LookPending = false;
+                        if (NpcServerSide.Now && World.Exists(tr.Entity) && tr.Lifetime == AiNative.Lifetime(tr.Entity) &&
+                            Live.TryGetValue(tr.Entity.Value, out var current) && ReferenceEquals(current, tr)) Look(tr, filter);
+                    });
+                }
             }
         }
         ExpireSummons();
@@ -161,29 +198,74 @@ internal static class AiRuntime
         }
     }
 
-    /// <summary>A mod that set relations unloaded: what it set goes.</summary>
-    private static unsafe void CheckMods()
+    internal static void RegisterFilter(string name, Func<NpcView, EntityId, bool> filter)
+    {
+        var context = Creatures.OwnerKey.Caller.Mod;
+        var mod = context?.Info.Id ?? BlocksBridge.CallerModId ?? "kiln";
+        Watch(mod);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(filter);
+        var key = context == null || name.Contains(':') ? name : $"{mod}:{name}";
+        lock (Gate)
+        {
+            Filters[key] = filter;
+            FilterContexts[key] = context;
+            FilterMods[key] = mod;
+        }
+        ObserveUnload(mod, filter);
+    }
+
+    private static string FilterKey(string mod, string name) => !name.Contains(':') && Filters.ContainsKey($"{mod}:{name}") ? $"{mod}:{name}" : name;
+
+    internal static Func<NpcView, EntityId, bool>? FindFilter(string mod, string name)
+    {
+        lock (Gate) return Filters.GetValueOrDefault(FilterKey(mod, name));
+    }
+
+    private static ModContext? FilterContext(string mod, string name)
+    {
+        lock (Gate) return FilterContexts.GetValueOrDefault(FilterKey(mod, name));
+    }
+
+    private static void ObserveUnload(string mod, Delegate callback)
+    {
+        if (System.Runtime.Loader.AssemblyLoadContext.GetLoadContext(callback.Method.Module.Assembly) is { IsCollectible: true } alc)
+            alc.Unloading += _ => Retire(mod);
+    }
+
+    private static void CheckMods()
     {
         List<string> gone;
-        lock (Gate) gone = Watched.Where(m => !Mods.IsLoaded(m)).ToList();
-        foreach (var m in gone)
+        lock (Gate) gone = Watched.Where(m => !Mods.IsLoaded(m) || !ReferenceEquals(Instances.GetValueOrDefault(m), Mods.Get(m)?.Info)).ToList();
+        foreach (var mod in gone) Retire(mod);
+    }
+
+    internal static unsafe void Retire(string mod)
+    {
+        var t = AiNative.T;
+        if (t != null) t->OwnerRelease(AiNative.Owner(mod));
+        lock (Gate)
         {
-            var t = AiNative.T;
-            if (t != null) t->OwnerRelease(AiNative.Owner(m));
-            lock (Gate)
+            Watched.Remove(mod);
+            Instances.Remove(mod);
+            foreach (var v in ByVariant.Where(x => x.Value.Info.Mod == mod).Select(x => x.Key).ToList()) ByVariant.Remove(v);
+            foreach (var k in Live.Where(x => x.Value.Creature.Info.Mod == mod).Select(x => x.Key).ToList()) Live.Remove(k);
+            foreach (var name in FilterMods.Where(x => x.Value == mod).Select(x => x.Key).ToList())
             {
-                Watched.Remove(m);
-                foreach (var v in ByVariant.Where(x => x.Value.Info.Mod == m).Select(x => x.Key).ToList()) ByVariant.Remove(v);
-                foreach (var k in Live.Where(x => x.Value.Creature.Info.Mod == m).Select(x => x.Key).ToList()) Live.Remove(k);
+                Filters.Remove(name);
+                FilterContexts.Remove(name);
+                FilterMods.Remove(name);
             }
-            AiNative.Forget(m);
-            BlocksBridge.Log(LogLevel.Info, $"blocks: {m} unloaded: its creature relations went with it");
+            Limits.Release(mod);
+            LifetimeWarnings.Remove(mod);
         }
+        AiNative.Forget(mod);
     }
 
     /// <summary>The SenseFilter's look: everything it could notice within its range, asked once each; what it refuses it ignores until asked again.</summary>
     private static unsafe void Look(Tracked tr, Func<NpcView, EntityId, bool> filter)
     {
+        if (!NpcServerSide.Now) return;
         var t = AiNative.T;
         if (t == null || !World.TryGetPosition(tr.Entity, out var at)) return;
         var owner = AiNative.Owner(tr.Creature.Info.Mod);
@@ -192,14 +274,16 @@ internal static class AiRuntime
         var hold = (float)Math.Max(tr.Creature.Every * 4, 2);
         void Ask(EntityId other)
         {
-            if (other == tr.Entity || !seen.Add(other.Value)) return;
+            if (tr.FilterFailed || seen.Count >= 256 || other == tr.Entity || !seen.Add(other.Value)) return;
             bool ok;
             Interlocked.Increment(ref FilterCalls);
             try { ok = filter(view, other); }
             catch (Exception x)
             {
                 BlocksBridge.Log(LogLevel.Error, $"blocks: creature {tr.Creature.Info.Name}: its sense filter threw, and is off for {tr.Entity}: {x.Message}");
-                tr.Creature.Filter = null;
+                tr.FilterFailed = true;
+                tr.Refused.Clear();
+                t->PairClear(owner, tr.Entity.Value);
                 return;
             }
             if (!ok)
@@ -262,28 +346,64 @@ internal static class AiRuntime
     internal static IReadOnlyList<EntityId> SummonList(EntityId summoner)
     {
         lock (Gate)
-            return Summons.TryGetValue(summoner.Value, out var l) ? l.Select(x => x.E).Where(World.Exists).ToList() : [];
+            return Summons.TryGetValue((summoner.Value, AiNative.Lifetime(summoner)), out var l) ? l.Where(Alive).Select(x => x.E).ToList() : [];
     }
 
     internal static int SummonsOf(EntityId summoner)
     {
         lock (Gate)
-            return Summons.TryGetValue(summoner.Value, out var l) ? l.Count(x => World.Exists(x.E) && !Dead(x.E)) : 0;
+            return Summons.TryGetValue((summoner.Value, AiNative.Lifetime(summoner)), out var l) ? l.Count(Alive) : 0;
     }
 
     // ---- actions ----
 
-    internal static void Heal(NpcView npc, double fraction)
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RuleAction, object> BoundedActions = new();
+
+    internal static RuleAction? Bounded(RuleAction action)
     {
-        if (npc.HealthMax <= 0 || npc.Health <= 0) return;
-        Combat.Heal(npc.Entity, Math.Max(1, (int)Math.Round(npc.HealthMax * fraction)));
+        if (BoundedActions.TryGetValue(action, out _)) return action;
+        if (action.Use?.Fn is not { } run) return null;
+        EnsureTick();
+        var bounded = Act.Custom(npc =>
+        {
+            BeginBudget();
+            if (NpcServerSide.Now && World.Exists(npc.Entity) && !Dead(npc.Entity) && Limits.Action(npc.Entity.Value)) run(npc);
+        });
+        BoundedActions.Add(bounded, new object());
+        return bounded;
     }
 
-    internal static RuleAction SummonAction(SummonSpec spec) => Act.Custom(npc => _ = Summon(spec, npc));
+    private static void BeginBudget()
+    {
+        var step = AiNative.Step;
+        Limits.Begin(step == 0 ? _step : step);
+    }
+
+    internal static void Heal(NpcView npc, double fraction)
+    {
+        if (fraction <= 0 || npc.HealthMax <= 0 || npc.Health <= 0) return;
+        Combat.Heal(npc.Entity, (int)Math.Clamp(Math.Round(npc.HealthMax * fraction), 0, int.MaxValue));
+    }
+
+    internal static RuleAction SummonAction(SummonSpec spec) => Bounded(Act.Custom(npc => _ = SummonGuarded(spec, npc)))!;
+
+    private static async Task SummonGuarded(SummonSpec spec, NpcView npc)
+    {
+        try { await Summon(spec, npc); }
+        catch (Exception x) { BlocksBridge.Log(LogLevel.Warn, $"blocks: {spec.Mod}: a summon failed: {x.Message}"); }
+    }
 
     private static async Task Summon(SummonSpec s, NpcView npc)
     {
-        if (!World.TryGetPosition(npc.Entity, out var at)) return;
+        if (!NpcServerSide.Now || !World.TryGetPosition(npc.Entity, out var at)) return;
+        Watch(s.Mod);
+        var parentLife = AiNative.Lifetime(npc.Entity);
+        if (parentLife == 0)
+        {
+            if (LifetimeWarnings.Add(s.Mod)) BlocksBridge.Log(LogLevel.Warn, $"blocks: {s.Mod}: summon refused: entity lifetime tracking is unavailable on this build");
+            return;
+        }
+        var depth = Summons.Values.SelectMany(x => x).FirstOrDefault(x => x.E == npc.Entity && x.Lifetime == parentLife)?.Depth ?? 0;
         var (variant, handle) = Resolve(s);
         if (variant == null)
         {
@@ -292,38 +412,68 @@ internal static class AiRuntime
         }
         var side = s.Side == SummonSide.Summoner ? SafeFaction(npc.Entity) : Faction.None;
         var target = npc.Target;
+        var targetLife = target.IsNone ? 0 : AiNative.Lifetime(target);
         var rng = Random.Shared;
         for (var i = 0; i < s.Count; i++)
         {
-            var a = rng.NextDouble() * Math.PI * 2;
-            var d = s.Radius * (0.5 + 0.5 * rng.NextDouble());
-            var pos = new WorldPosition(at.X + Math.Cos(a) * d, at.Y, at.Z + Math.Sin(a) * d);
-            EntityId e;
-            try { e = await Creatures.Spawn(variant, pos, (float)(rng.NextDouble() * 360), new CreatureSpawnOptions { Tag = $"blocks:{s.Mod}:summon", Flags = SpawnFlags.Transient }); }
-            catch (Exception x) when (x is ArgumentException or KeyNotFoundException or InvalidOperationException or NotSupportedException)
-            {
-                BlocksBridge.Log(LogLevel.Warn, $"blocks: {s.Mod}: a summon of \"{s.Creature}\" failed: {x.Message}");
-                return;
-            }
-            Interlocked.Increment(ref SummonsMade);
-            if (handle != null)
-            {
-                NpcRuntime.Spawned(handle.Info, e);
-                Spawned(handle.Info, e);
-            }
-            lock (Gate)
-            {
-                if (!Summons.TryGetValue(npc.Entity.Value, out var list)) Summons[npc.Entity.Value] = list = new();
-                list.Add((e, s.Seconds > 0 ? Clock.ElapsedMilliseconds + (long)(s.Seconds * 1000) : 0));
-            }
+            if (!NpcServerSide.Now || parentLife != AiNative.Lifetime(npc.Entity) || Dead(npc.Entity)) return;
+            BeginBudget();
+            var lease = Limits.Reserve(s.Mod, npc.Entity.Value, depth, parentLife);
+            if (lease == null) return;
+            var claimed = false;
+            EntityId made = default;
+            ulong madeLife = 0;
             try
             {
-                var c = Creatures.Of(e);
-                if (side != Faction.None) c.Faction = side;
-                if (!target.IsNone && World.Exists(target)) c.Command.Attack(target, 5000);
+                var a = rng.NextDouble() * Math.PI * 2;
+                var d = s.Radius * (0.5 + 0.5 * rng.NextDouble());
+                var pos = new WorldPosition(at.X + Math.Cos(a) * d, at.Y, at.Z + Math.Sin(a) * d);
+                EntityId e;
+                try { e = await Creatures.Spawn(variant, pos, (float)(rng.NextDouble() * 360), new CreatureSpawnOptions { Tag = $"blocks:{s.Mod}:summon", Flags = SpawnFlags.Transient }); }
+                catch (Exception x) when (x is ArgumentException or KeyNotFoundException or InvalidOperationException or NotSupportedException)
+                {
+                    BlocksBridge.Log(LogLevel.Warn, $"blocks: {s.Mod}: a summon of \"{s.Creature}\" failed: {x.Message}");
+                    return;
+                }
+                made = e;
+                madeLife = AiNative.Lifetime(e);
+                if (!NpcServerSide.Now || !lease.Active || parentLife != AiNative.Lifetime(npc.Entity))
+                {
+                    if (NpcServerSide.Now) Spawn.Destroy(e);
+                    return;
+                }
+                var childLife = madeLife;
+                if (childLife == 0) { Spawn.Destroy(e); return; }
+                Interlocked.Increment(ref SummonsMade);
+                if (handle != null)
+                {
+                    NpcRuntime.Spawned(handle.Info, e);
+                    Spawned(handle.Info, e);
+                }
+                lock (Gate)
+                {
+                    if (!Summons.TryGetValue((npc.Entity.Value, parentLife), out var list)) Summons[(npc.Entity.Value, parentLife)] = list = new();
+                    list.Add(new Summoned(e, s.Seconds > 0 ? Clock.ElapsedMilliseconds + (long)(s.Seconds * 1000) : 0, childLife, depth + 1, lease));
+                }
+                claimed = true;
+                try
+                {
+                    var c = Creatures.Of(e);
+                    if (side != Faction.None) c.Faction = side;
+                    if (!target.IsNone && targetLife != 0 && targetLife == AiNative.Lifetime(target)) c.Command.Attack(target, 5000);
+                }
+                catch (Exception x) when (x is NotSupportedException or InvalidOperationException or KeyNotFoundException or ArgumentException) { }
             }
-            catch (Exception x) when (x is NotSupportedException or InvalidOperationException or KeyNotFoundException or ArgumentException) { }
+            finally
+            {
+                if (!claimed)
+                {
+                    lease.Dispose();
+                    if (NpcServerSide.Now && madeLife != 0 && madeLife == AiNative.Lifetime(made)) Spawn.Destroy(made);
+                }
+            }
         }
+        Watch(s.Mod);
         EnsureTick();
     }
 
@@ -342,21 +492,35 @@ internal static class AiRuntime
         return (Creatures.Template(s.Creature) != null ? s.Creature : null, null);
     }
 
+    private static bool Alive(Summoned x) => x.Lease.Active && World.Exists(x.E) && x.Lifetime == AiNative.Lifetime(x.E) && !Dead(x.E);
+
     private static void ExpireSummons()
     {
-        List<EntityId> drop = [];
+        List<Summoned> drop = [];
         lock (Gate)
         {
             if (Summons.Count == 0) return;
             foreach (var (k, list) in Summons.ToList())
             {
-                foreach (var x in list.Where(x => x.Until > 0 && x.Until <= _now)) drop.Add(x.E);
-                list.RemoveAll(x => (x.Until > 0 && x.Until <= _now) || !World.Exists(x.E));
+                foreach (var x in list.ToList())
+                {
+                    var alive = World.Exists(x.E) && x.Lifetime == AiNative.Lifetime(x.E);
+                    if (alive && (!x.Lease.Active || x.Until > 0 && x.Until <= _now)) drop.Add(x);
+                    if (!Alive(x) || x.Until > 0 && x.Until <= _now)
+                    {
+                        x.Lease.Dispose();
+                        list.Remove(x);
+                    }
+                }
                 if (list.Count == 0) Summons.Remove(k);
             }
         }
-        foreach (var e in drop)
-            try { Spawn.Destroy(e); } catch (Exception) { }
+        foreach (var x in drop)
+            try
+            {
+                if (World.Exists(x.E) && x.Lifetime == AiNative.Lifetime(x.E)) Spawn.Destroy(x.E);
+            }
+            catch (Exception) { }
     }
 
     internal static void Cast(NpcCreature c, Guid program, NpcView npc)
@@ -371,9 +535,17 @@ internal static class AiRuntime
             Root = npc.Entity, YawDegrees = yaw, Tag = $"blocks:{c.Mod}:{c.Name}:cast",
             Configs = target.IsNone ? null : new ImpactConfigs { [$"0x{EffectEmitter.CfgTarget:x8}"] = target },
         };
-        var t = Abilities.RunProgram(program, at, options);
-        if (t.IsFaulted) BlocksBridge.Log(LogLevel.Warn, $"blocks: creature {c.Name}: a cast did not start: {t.Exception?.GetBaseException().Message}");
-        else Interlocked.Increment(ref CastsRun);
+        _ = RunCast(c, program, at, options);
+    }
+
+    private static async Task RunCast(NpcCreature c, Guid program, WorldPosition at, ImpactOptions options)
+    {
+        try
+        {
+            await Abilities.RunProgram(program, at, options);
+            Interlocked.Increment(ref CastsRun);
+        }
+        catch (Exception x) { BlocksBridge.Log(LogLevel.Warn, $"blocks: creature {c.Name}: a cast did not start: {x.Message}"); }
     }
 }
 
@@ -389,6 +561,10 @@ public static class AiStats
     public static long Summons => Interlocked.Read(ref AiRuntime.SummonsMade);
     /// <summary>Casts started by rules.</summary>
     public static long Casts => Interlocked.Read(ref AiRuntime.CastsRun);
-    /// <summary>The creatures this one summoned that still live.</summary>
-    public static IReadOnlyList<EntityId> SummonsOf(EntityId summoner) => AiRuntime.SummonList(summoner);
+    /// <summary>The creatures this one summoned that still live. Tick thread.</summary>
+    public static IReadOnlyList<EntityId> SummonsOf(EntityId summoner)
+    {
+        Game.AssertTickThread();
+        return AiRuntime.SummonList(summoner);
+    }
 }

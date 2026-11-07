@@ -1,0 +1,37 @@
+{
+  "description": "Retarget recipes validate missing and wrong-type skeleton inputs without treating animation names as inputs.",
+  "diagnostics": [
+    {
+      "code": "KL511",
+      "col": 34,
+      "file": "assets/cook.json",
+      "line": 5,
+      "message": "@missing: no such input",
+      "severity": "error"
+    },
+    {
+      "code": "KL516",
+      "col": 34,
+      "file": "assets/cook.json",
+      "line": 6,
+      "message": "step 1 (clips): skeleton @wrong is a keen::RenderModel, needs keen::ModelHierarchyResource",
+      "severity": "error"
+    },
+    {
+      "code": "KL516",
+      "col": 51,
+      "file": "assets/cook.json",
+      "line": 7,
+      "message": "step 2 (graph): no skeleton step is named \"absent\" in this recipe (a game skeleton is @input)",
+      "severity": "error"
+    },
+    {
+      "code": "KL901",
+      "col": 1,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "no game-data catalog: 1 reference(s) to the game's items, templates, ... were not checked (make one with `kiln catalog`, or pass --catalog)",
+      "severity": "info"
+    }
+  ]
+}

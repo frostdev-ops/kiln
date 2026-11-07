@@ -37,6 +37,17 @@ public sealed class RetargetTests
     }
 
     [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void Retarget_numbers_must_be_finite(double value)
+    {
+        var a = new AnimationBlock { Clips = "pack.glb", Skeleton = "body", Retarget = new() { Scale = value } };
+        Assert.Equal("retarget.scale", Assert.Throws<BlockError>(() => Retargets.Check(Ctx(), a, "")).Field);
+        a = a with { Retarget = new() { Reference = new RetargetPose("Ref", value) } };
+        Assert.Equal("retarget.reference", Assert.Throws<BlockError>(() => Retargets.Check(Ctx(), a, "")).Field);
+    }
+
+    [Theory]
     [InlineData("noskeleton", "say which skeleton")]
     [InlineData("noclips", "say clips")]
     [InlineData("scale", "not above 0")]

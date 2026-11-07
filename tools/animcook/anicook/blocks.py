@@ -172,7 +172,7 @@ def plan(mod_dir):
         if not _in_mod(mod_dir, b["clips"]):
             continue
         file = b["clips"]
-        if b.get("retarget") is not None:
+        if b.get("retarget") is not None and b.get("retarget") is not False:
             # clips authored on a rig of their own, played on a skeleton a body (or another animation) of the mod makes
             if not b.get("skeleton"):
                 raise BlocksError(f"{where}: retarget: say which skeleton the clips play on (\"skeleton\": a body's skeleton, its model file's name)")

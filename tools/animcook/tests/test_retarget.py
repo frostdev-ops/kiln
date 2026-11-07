@@ -175,6 +175,32 @@ class Plan(Base):
             RT.Plan(self.src, dst, {"byName": False})
         self.assertIn("no joint", str(e.exception))
 
+    def test_degenerate_hierarchies_are_refused_before_walking_ancestors(self):
+        for parents in ([1, 0], [-1, 0], [0xFFFF, 9]):
+            sk = K.Skeleton(["a", "b"], parents, [RT.IDENTITY, RT.IDENTITY])
+            with self.assertRaises(RT.RetargetError):
+                RT.Plan(sk, sk)
+
+    def test_zero_height_has_a_finite_identity_scale(self):
+        sk = K.Skeleton(["root"], [0xFFFF], [RT.IDENTITY])
+        plan = RT.Plan(sk, sk)
+        self.assertEqual(plan.scale, 1)
+        self.assertEqual(plan.frame(RT.rest_frame(sk)), RT.rest_frame(sk))
+
+    def test_non_finite_values_and_zero_scales_are_refused(self):
+        for value in (float("nan"), float("inf"), True):
+            with self.assertRaisesRegex(RT.RetargetError, "retarget.scale"):
+                RT.Plan(self.src, self.src, {"scale": value})
+        for rest in (((0, 0, 0), (0, 0, 0, 1), (1, 0, 1)),
+                     ((0, float("inf"), 0), (0, 0, 0, 1), (1, 1, 1)),
+                     ((0, 0, 0), (0, 0, 0, 0), (1, 1, 1))):
+            sk = K.Skeleton(["root"], [0xFFFF], [rest])
+            with self.assertRaises(RT.RetargetError):
+                RT.Plan(sk, sk)
+        for at in (-1, float("nan"), float("inf")):
+            with self.assertRaisesRegex(RT.RetargetError, "reference.at"):
+                RT.reference_frame(self.doc, self.src, {"animation": "Idle", "at": at}, C.sample_animation)
+
 
 class Recipe(Base):
     """A rig of other names and 1.5 times the size, cooked onto the golem's own skeleton through a recipe."""
@@ -242,6 +268,11 @@ class Recipe(Base):
         with self.assertRaises(R.RecipeError) as e:
             R.Run(self.r, TYPES).run()
         self.assertIn("no joint of the clips' rig pairs", str(e.exception))
+
+    def test_empty_settings_still_request_retargeting(self):
+        self.r.write_text(json.dumps(self.recipe({})))
+        with self.assertRaisesRegex(R.RecipeError, "no joint of the clips' rig pairs"):
+            R.Run(self.r, TYPES).run()
 
     def test_without_retarget_the_rig_does_not_fit(self):
         rec = self.recipe({})

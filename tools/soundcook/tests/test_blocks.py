@@ -6,6 +6,7 @@
 import json
 import sys
 import tempfile
+import subprocess
 import unittest
 import uuid
 from pathlib import Path
@@ -68,6 +69,72 @@ class Blocks(unittest.TestCase):
             d = mod(t, {"bad": {"clips": ["../outside.wav"]}})
             with self.assertRaisesRegex(SB.BlocksError, r"sounds.bad.clips\[0\]"):
                 SB.write(d)
+
+    def test_check_detects_namespace_only_changes_without_writing(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            _, path, existing, _ = SB.write(d)
+            del existing["guidNamespace"]
+            path.write_text(json.dumps(existing))
+            before = path.read_bytes()
+            changed, _, doc, _ = SB.write(d, check=True)
+            self.assertTrue(changed)
+            self.assertIn("guidNamespace", doc)
+            self.assertEqual(existing["steps"], doc["steps"])
+            self.assertEqual(before, path.read_bytes())
+            SB.write(d)
+            self.assertFalse(SB.write(d, check=True)[0])
+
+    def test_owned_steps_do_not_delete_a_different_op_with_the_same_name(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            _, path, doc, _ = SB.write(d)
+            own = {"op": "sound", "name": "hum", "src": "../audio/a.wav"}
+            doc["steps"].append(own)
+            path.write_text(json.dumps(doc))
+            self.assertIn(own, SB.write(d)[2]["steps"])
+
+    def test_legacy_ownership_records_preserve_other_operations_too(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            _, path, doc, _ = SB.write(d)
+            doc["blockSounds"] = ["hum.1", "hum"]
+            own = [{"op": "sound", "name": "hum", "src": "../audio/a.wav"}, {"op": "cue", "name": "hum.1", "sounds": ["hum"]}]
+            doc["steps"] += own
+            path.write_text(json.dumps(doc))
+            updated = SB.write(d)[2]
+            self.assertTrue(all(st in updated["steps"] for st in own))
+            self.assertEqual(updated["blockSounds"], ["sound:hum.1", "cue:hum"])
+
+    def test_deleting_the_last_block_invalidates_the_recipe_check(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            SB.write(d)
+            (d / "blocks/s.json").unlink()
+            script = Path(__file__).resolve().parents[1] / "soundcook.py"
+            r = subprocess.run([sys.executable, str(script), "blocks", str(d), "--check"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn("behind the blocks", r.stdout)
+            SB.write(d)
+            self.assertFalse(SB.write(d, check=True)[0])
+
+    def test_invalid_ranges_and_missing_files_are_reported_before_writing(self):
+        for b in ({"clips": ["audio/missing.wav"]}, {"clips": ["audio/a.wav"], "range": [4, 2]},
+                  {"clips": ["audio/a.wav"], "volume": float("nan")}):
+            with tempfile.TemporaryDirectory() as t:
+                d = mod(t, {"hum": b})
+                with self.assertRaises(SB.BlocksError):
+                    SB.write(d)
+                self.assertFalse((d / "assets/cook.json").exists())
+
+    def test_build_supplied_mod_id_is_used_before_a_manifest_exists(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            (d / "kiln.mod.json").unlink()
+            _, _, doc, _ = SB.write(d, mod="the-sdk-id")
+            self.assertEqual(doc["guidNamespace"], SB.derived_namespace("the-sdk-id"))
+
+    def test_recipe_collisions_are_reported(self):
         with tempfile.TemporaryDirectory() as t:
             d = mod(t, {"click": {"clips": ["audio/a.wav"]}}, {"format": 1, "tool": "soundcook", "guidNamespace": str(uuid.uuid4()),
                                                               "steps": [{"op": "cue", "name": "click", "sounds": []}]})

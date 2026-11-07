@@ -1,1 +1,1 @@
-{ "format": 1, "tool": "animcook", "out": "cooked", "comment": "The body and animation in blocks/*.json are cooked by themselves (kiln build, kiln cook): no steps needed.", "steps": [] }
+{ "format": 1, "tool": "animcook", "mod": "kiln-mod-id", "out": "cooked", "comment": "The body and animation in blocks/*.json are cooked by themselves (kiln build, kiln cook): no steps needed.", "steps": [] }

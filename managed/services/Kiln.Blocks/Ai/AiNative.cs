@@ -38,6 +38,8 @@ internal static unsafe class AiNative
         public delegate* unmanaged<uint, uint, uint*, uint*, int> Query;
         public delegate* unmanaged<byte, byte, uint*, uint*, int> QueryFactions;
         public delegate* unmanaged<Status*, int> GetStatus;
+        public delegate* unmanaged<uint, ulong> EntityLifetime;
+        public delegate* unmanaged<ulong> TickStep;
     }
 
     private static Table* _t;
@@ -83,6 +85,21 @@ internal static unsafe class AiNative
     public static void Forget(string mod)
     {
         lock (Owners) Owners.Remove(mod);
+    }
+
+    public static ulong Lifetime(EntityId e)
+    {
+        var t = T;
+        return t != null && t->HeaderSize >= 8 + 11 * sizeof(nint) && t->EntityLifetime != null ? t->EntityLifetime(e.Value) : 0;
+    }
+
+    public static ulong Step
+    {
+        get
+        {
+            var t = T;
+            return t != null && t->HeaderSize >= sizeof(Table) && t->TickStep != null ? t->TickStep() : 0;
+        }
     }
 
     public static string Describe(int rc) => rc switch

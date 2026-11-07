@@ -1347,9 +1347,43 @@
     },
     "condition": {
       "type": "object",
-      "description": "A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, inCombat, state, hasTarget, targetIsPlayer, targetHealthBelow, hitWithin, chance, targetAtHome, enemiesNear, alliesNear, summonsBelow, or one of the game's { \"type\": ... }."
+      "description": "A rule's condition: healthBelow, healthAbove, targetWithin, targetBeyond, hasBuff, time, night, day, inPhase, custom, not, inCombat, state, hasTarget, targetIsPlayer, targetHealthBelow, hitWithin, chance, targetAtHome, enemiesNear, alliesNear, summonsBelow, or one of the game's { \"type\": ... }.",
+      "minProperties": 1,
+      "oneOf": [
+        {"anyOf": [{"required": ["type"]}, {"not": {"anyOf": [{"required": ["inCombat"]}, {"required": ["state"]}, {"required": ["hasTarget"]}, {"required": ["targetIsPlayer"]}, {"required": ["targetHealthBelow"]}, {"required": ["hitWithin"]}, {"required": ["chance"]}, {"required": ["targetAtHome"]}, {"required": ["enemiesNear"]}, {"required": ["alliesNear"]}, {"required": ["summonsBelow"]}, {"required": ["not"]}]}}]},
+        {"type": "object", "required": ["inCombat"], "additionalProperties": false, "properties": {"inCombat": {"type": "boolean"}}},
+        {"type": "object", "required": ["state"], "additionalProperties": false, "properties": {"state": {"oneOf": [{"type": "string", "minLength": 1, "pattern": "^[A-Za-z][A-Za-z0-9]*$"}, {"type": "array", "items": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z][A-Za-z0-9]*$"}, "minItems": 1}]}}},
+        {"type": "object", "required": ["hasTarget"], "additionalProperties": false, "properties": {"hasTarget": {"type": "boolean"}}},
+        {"type": "object", "required": ["targetIsPlayer"], "additionalProperties": false, "properties": {"targetIsPlayer": {"type": "boolean"}}},
+        {"type": "object", "required": ["targetHealthBelow"], "additionalProperties": false, "properties": {"targetHealthBelow": {"type": "number", "minimum": 0, "maximum": 1}}},
+        {"type": "object", "required": ["hitWithin"], "additionalProperties": false, "properties": {"hitWithin": {"type": "number", "minimum": 0}}},
+        {"type": "object", "required": ["chance"], "additionalProperties": false, "properties": {"chance": {"type": "number", "minimum": 0, "maximum": 1}}},
+        {"type": "object", "required": ["targetAtHome"], "additionalProperties": false, "properties": {"targetAtHome": {"type": "boolean"}}},
+        {"type": "object", "required": ["enemiesNear"], "additionalProperties": false, "properties": {"enemiesNear": {"oneOf": [{"type": "array", "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "number", "minimum": 0}], "minItems": 2, "maxItems": 2}, {"type": "object", "required": ["within"], "additionalProperties": false, "properties": {"count": {"type": "integer", "minimum": 0}, "within": {"type": "number", "minimum": 0}}}]}}},
+        {"type": "object", "required": ["alliesNear"], "additionalProperties": false, "properties": {"alliesNear": {"oneOf": [{"type": "array", "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "number", "minimum": 0}], "minItems": 2, "maxItems": 2}, {"type": "object", "required": ["within"], "additionalProperties": false, "properties": {"count": {"type": "integer", "minimum": 0}, "within": {"type": "number", "minimum": 0}}}]}}},
+        {"type": "object", "required": ["summonsBelow"], "additionalProperties": false, "properties": {"summonsBelow": {"type": "integer", "minimum": 0}}},
+        {"type": "object", "required": ["not"], "additionalProperties": false, "properties": {"not": {"$ref": "#/$defs/condition"}}}
+      ]
     },
-    "action": { "type": "object", "description": "A rule's action: setPhase, attack, custom, { \"effect\": ..., \"on\": \"target\" | \"self\" }, flee, backOff, play, immune, pause, enableFeature, disableFeature, heal, summon, cast, { \"apply\": ..., \"on\": ... }, or one of the game's { \"type\": ... }." },
+    "action": {
+      "type": "object",
+      "description": "A rule's action: setPhase, attack, custom, { \"effect\": ..., \"on\": \"target\" | \"self\" }, flee, backOff, play, immune, pause, enableFeature, disableFeature, heal, summon, cast, { \"apply\": ..., \"on\": ... }, or one of the game's { \"type\": ... }.",
+      "minProperties": 1,
+      "oneOf": [
+        {"anyOf": [{"required": ["type"]}, {"not": {"anyOf": [{"required": ["flee"]}, {"required": ["backOff"]}, {"required": ["play"]}, {"required": ["immune"]}, {"required": ["pause"]}, {"required": ["enableFeature"]}, {"required": ["disableFeature"]}, {"required": ["heal"]}, {"required": ["summon"]}, {"required": ["cast"]}, {"required": ["apply"]}]}}]},
+        {"type": "object", "required": ["flee"], "additionalProperties": false, "properties": {"flee": {"const": true}}},
+        {"type": "object", "required": ["backOff"], "additionalProperties": false, "properties": {"backOff": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 2, "maxItems": 2}}},
+        {"type": "object", "required": ["play"], "additionalProperties": false, "properties": {"play": {"type": "string", "format": "uuid"}, "wait": {"type": "boolean"}}},
+        {"type": "object", "required": ["immune"], "additionalProperties": false, "properties": {"immune": {"type": "boolean"}}},
+        {"type": "object", "required": ["pause"], "additionalProperties": false, "properties": {"pause": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 2, "maxItems": 2}}},
+        {"type": "object", "required": ["enableFeature"], "additionalProperties": false, "properties": {"enableFeature": {"type": "string", "minLength": 1, "pattern": "\\S"}}},
+        {"type": "object", "required": ["disableFeature"], "additionalProperties": false, "properties": {"disableFeature": {"type": "string", "minLength": 1, "pattern": "\\S"}}},
+        {"type": "object", "required": ["heal"], "additionalProperties": false, "properties": {"heal": {"type": "number", "minimum": 0, "maximum": 1}}},
+        {"type": "object", "required": ["summon"], "additionalProperties": false, "properties": {"summon": {"oneOf": [{"type": "string", "minLength": 1, "pattern": "\\S"}, {"type": "object", "required": ["creature"], "additionalProperties": false, "properties": {"creature": {"type": "string", "minLength": 1, "pattern": "\\S"}, "count": {"type": "integer", "minimum": 1, "maximum": 16}, "radius": {"type": "number", "minimum": 0, "maximum": 200}, "seconds": {"type": "number", "minimum": 0, "maximum": 86400}, "side": {"enum": ["summoner", "own"]}}}]}}},
+        {"type": "object", "required": ["cast"], "additionalProperties": false, "properties": {"cast": {"$ref": "#/$defs/delivery"}}},
+        {"type": "object", "required": ["apply"], "additionalProperties": false, "properties": {"apply": {"$ref": "#/$defs/applies"}, "on": {"enum": ["self", "target"]}}}
+      ]
+    },
     "rule": {
       "type": "object",
       "additionalProperties": false,

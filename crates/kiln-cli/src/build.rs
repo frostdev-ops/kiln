@@ -253,9 +253,7 @@ fn tool_cmd(repo: &Path, tool: &str) -> Option<(PathBuf, &'static str)> {
 /// Runs (or checks) every recipe of the project. `auto`: called by `kiln build`: silent when nothing is to do, and
 /// a recipe whose tool or game is missing only warns.
 fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
-    if !check {
-        write_sound_blocks(p, json);
-    }
+    let sound_current = write_sound_blocks(p, json, check, auto)?;
     let recipes = p.recipes();
     let mut results = Vec::new();
     let looks = wants_looks(p);
@@ -263,7 +261,7 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         if !auto {
             out::say(json, "no cook recipes (*/cook.json) in this project");
         }
-        return Ok(json!({"ok": true, "recipes": results}));
+        return Ok(json!({"ok": sound_current, "recipes": results}));
     }
     let repo = match tools::repo() {
         Some(r) => r,
@@ -275,7 +273,7 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
     };
     let py = tools::python()?;
     let game = game.map(Path::to_path_buf).or_else(tools::client_dir);
-    let mut all_ok = true;
+    let mut all_ok = sound_current;
     for r in recipes {
         let doc = std::fs::read_to_string(&r).ok().and_then(|t| crate::project::jsonc(&t).ok()).unwrap_or(Value::Null);
         let tool = doc["tool"].as_str().unwrap_or("modelcook").to_string();
@@ -338,28 +336,57 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
     Ok(json!({"ok": all_ok, "recipes": results}))
 }
 
-/// The sound blocks of blocks/*.json, written as steps into assets/cook.json (`soundcook.py blocks`), so the cook below makes them. Nothing when there are none or the tools are missing.
-fn write_sound_blocks(p: &Project, json: bool) {
+/// Include recipes with old generated steps so deleting the last block also removes its steps.
+fn has_sound_blocks(p: &Project) -> bool {
     let has_sounds = std::fs::read_dir(p.dir.join("blocks")).into_iter().flatten().flatten().any(|e| {
-        e.path().extension().is_some_and(|x| x == "json") && std::fs::read_to_string(e.path()).is_ok_and(|t| t.contains("\"sounds\""))
+        e.path().extension().is_some_and(|x| x == "json")
+            && std::fs::read_to_string(e.path()).ok().and_then(|t| crate::project::jsonc(&t).ok()).is_some_and(|d| d.get("sounds").is_some())
     });
-    if !has_sounds {
-        return;
+    has_sounds || std::fs::read_to_string(p.dir.join("assets/cook.json")).ok()
+        .and_then(|t| crate::project::jsonc(&t).ok()).is_some_and(|d| d.get("blockSounds").is_some())
+}
+
+/// Update or compare the generated sound steps before checking the recipe's cook report.
+fn write_sound_blocks(p: &Project, json: bool, check: bool, auto: bool) -> Result<bool> {
+    if !has_sound_blocks(p) {
+        return Ok(true);
     }
-    let (Some(repo), Ok(py)) = (tools::repo(), tools::python()) else { return };
+    let Some(repo) = tools::repo() else {
+        if auto {
+            out::say(json, "kiln: warning: sound blocks need the cook tools (KILN_REPO)");
+            return Ok(false);
+        }
+        return Err(tools::need_repo("kiln cook").unwrap_err());
+    };
+    let py = tools::python()?;
     let script = repo.join("tools/soundcook/soundcook.py");
-    if !script.is_file() {
-        return;
+    let mut cmd = Command::new(&py);
+    cmd.arg(&script).arg("blocks").arg(&p.dir);
+    if check {
+        cmd.arg("--check");
     }
-    match Command::new(&py).arg(&script).arg("blocks").arg(&p.dir).output() {
-        Ok(o) if o.status.success() => {
+    if !p.dir.join("kiln.mod.json").is_file() && matches!(p.kind, Kind::Dotnet) {
+        let id = p.property("KilnModId")?;
+        if !id.is_empty() {
+            cmd.arg("--mod").arg(id);
+        }
+    }
+    let error = match cmd.output() {
+        Ok(o) if o.status.success() || (check && o.status.code() == Some(1)) => {
             let said = String::from_utf8_lossy(&o.stdout);
-            if said.contains("written") {
+            if check || said.contains("written") || said.contains("removed") {
                 out::say(json, format!("kiln: {}", said.trim()));
             }
+            return Ok(o.status.success());
         }
-        Ok(o) => out::say(json, format!("kiln: warning: sound blocks: {}", String::from_utf8_lossy(&o.stderr).trim())),
-        Err(e) => out::say(json, format!("kiln: warning: sound blocks: {e}")),
+        Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        Err(e) => e.to_string(),
+    };
+    if auto {
+        out::say(json, format!("kiln: warning: sound blocks: {error}"));
+        Ok(false)
+    } else {
+        Err(CliError::new("cook_failed", format!("sound blocks: {error}")).into())
     }
 }
 
@@ -417,4 +444,35 @@ fn cook_looks(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: b
     out::say(json, format!("kiln: cooking the looks of {}", where_.display()));
     let ok = tools::run_passthrough(&mut cmd, json)?.success();
     Ok((ok, Some(json!({"recipe": where_, "tool": "modelcook", "ok": ok, "cooked": true}))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_blocks_are_checked_updated_and_removed_without_a_game() {
+        let dir = std::env::temp_dir().join(format!("kiln-sound-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("blocks")).unwrap();
+        std::fs::create_dir_all(dir.join("audio")).unwrap();
+        std::fs::write(dir.join("kiln.mod.json"), r#"{"id":"test-sounds"}"#).unwrap();
+        std::fs::write(dir.join("audio/a.wav"), "RIFF").unwrap();
+        std::fs::write(dir.join("blocks/sounds.json"), r#"{"sounds":{"ping":{"clips":["audio/a.wav"]}}}"#).unwrap();
+        let p = Project { kind: Kind::Native, path: dir.clone(), dir: dir.clone() };
+        assert!(!write_sound_blocks(&p, false, true, false).unwrap());
+        assert!(!dir.join("assets/cook.json").exists());
+        assert!(write_sound_blocks(&p, false, false, false).unwrap());
+        assert!(write_sound_blocks(&p, false, true, false).unwrap());
+        std::fs::remove_file(dir.join("blocks/sounds.json")).unwrap();
+        assert!(!write_sound_blocks(&p, false, true, false).unwrap());
+        assert!(write_sound_blocks(&p, false, false, false).unwrap());
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("assets/cook.json")).unwrap()).unwrap();
+        assert_eq!(doc["steps"], json!([]));
+        assert!(doc.get("blockSounds").is_none());
+        // An invalid block must fail an explicit cook instead of silently cooking the old recipe.
+        std::fs::write(dir.join("blocks/sounds.json"), r#"{"sounds":{"ping":{"clips":[]}}}"#).unwrap();
+        assert!(write_sound_blocks(&p, false, false, false).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

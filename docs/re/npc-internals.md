@@ -392,7 +392,7 @@ Rows the table groups: 53 functions, all unique on all 3 servers with 16-32 byte
 
 **The context all `enemy01` functions take (`rcx`) [dis]:** `+0x00` the ECS program context (`CurrentEntityId` works on it), `+0x08` write records, `+0x28` template slots, `+0x48` `DynamicEnemy01BehaviorState*`, `+0x50` `Enemy01BehaviorState*`, `+0x58` the arsenal record (`attacks` BlobArray at +0x10), `+0x60` time. Already mapped by kiln.creatures (`creatures.md` 11).
 
-### 3.6 Faction relations: four leaves, and how kiln.npcai answers in their place **[dis] [rt]** (npcai, 2026-11-07)
+### 3.6 Faction relations: five leaves, and how kiln.npcai answers in their place **[dis] [rt]** (npcai, 2026-11-07)
 The relation is not one leaf but a family next to each other (server 26430253 RVAs; sigdb `server.d/npcai.json`, unique on servers 26430253,
 26404334, 1273043 and clients 26430625, 26404966):
 

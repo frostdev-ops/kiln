@@ -50,13 +50,13 @@ Every creature of the block gets its own copy of the values (kiln.creatures' pri
 | `Tune` | Any other field by path; wins over the fields above | `Enemy01BehaviorState.*` |
 
 ### Who fights whom
-The game decides it in four small functions over the factions (`keen::FactionType`): "would a fight b" (enemy targeting's candidate check and the
+The game decides it in five small functions over the factions (`keen::FactionType`): "would a fight b" (enemy targeting's candidate check and the
 sensors ask it) and "is b on a's side". Equal factions and the players' side (Player, AutomatedPlayer, PlayerAlly) are friends; most others fight; a
 few species leave each other alone (Vukahs and wild beasts). kiln.npcai answers in their place, from three layers, most specific first:
 
 1. **`AIBlock.SenseFilter`**: one creature about one other creature or player. `(npc, other) => bool` runs on the tick thread every `SenseEvery`
-   seconds (0.5) for everything within 1.25 × its sight; false makes it ignore that one (neutral) until asked again. The game's targeting reads the
-   answer. In JSON a name: `"senseFilter": "tokens"` with `Blocks.SenseFilter("tokens", (npc, other) => ...)` in `OnLoad`.
+   seconds (0.5) for up to 256 candidates within 1.25 × max(sight, 8 metres); false makes it ignore that one (neutral) until asked again. The game's targeting reads the
+   answer. Calls are posted through the owning mod's scheduler; no managed delegate runs in a native faction hook. An exception disables that creature's filter and clears its answers. In JSON a name: `"senseFilter": "tokens"` with `Blocks.SenseFilter("tokens", (npc, other) => ...)` in `OnLoad`.
 2. **`AIBlock.Relations`**: one creature about a faction. `{ [Faction.Vukah] = Relation.Hostile }` makes a Vukah-bodied creature hunt Vukahs.
 3. **`Factions.Relate(a, b, relation, mutual: true)`**: the world's table, for every creature of faction a. `Factions.Reset()` gives back what
    your mod set; it all goes when the mod unloads. Two mods on one pair: the last set wins.
@@ -66,8 +66,13 @@ relations and filter are **its own view**: a Scavenger still fights a creature t
 Scavenger's own block says otherwise. `Factions.Between(a, b)` answers what the game's checks say now; `Factions.Fights(a, b)` and `Friends` by faction;
 `Factions.Status` counts what Kiln answered.
 
-The faction hooks go in with the first relation and come out with the last; a build where they are not found turns them off with a log line, and
-creatures fight as the game decides. A friendly fighter is a creature block with `Faction = Faction.PlayerAlly` (an `NpcBlock` villager has no
+The five faction hooks go in at the next Pre with the first effective relation and come out at the next Pre after the last is cleared or expires.
+Rows and pairs apply to pointer forms, which carry the creatures' Faction component addresses; value forms see only the world table.
+World lifecycle support must be available, and all five checks must resolve and install; a missing pattern or failed installation leaves the game's answers in place, with a log line. A failed
+installation is not retried each tick. Disabled trampolines stay allocated until process exit so concurrent calls can finish safely.
+Per-creature overrides also require an entity-destruction observer. When it is unavailable those overrides are refused. The observer invalidates
+lifetime tokens before storage is reused (a refused destroy conservatively drops overrides too). World stops clear entity state and the world table; register persistent host-world relations from `ServerStartedEvent`. Native workers
+read retained immutable snapshots and atomic table cells. A creature's row and pair changes reach the hooks at the next Pre. A friendly fighter is a creature block with `Faction = Faction.PlayerAlly` (an `NpcBlock` villager has no
 combat AI to change).
 
 ## BehaviourBlock rules
@@ -106,15 +111,27 @@ can mix the game's kinds and Kiln's, and an unknown kind is ignored safely. Thre
 - `Act.Cast(delivery)`: a delivery (a projectile ...) from where it stands at its target, without an animation; compiled with the creature.
   `{ "cast": { "type": "projectile", "speed": 25, "range": 30, "onHit": [ ... ] } }`. For a cast with an animation, give it an attack with that
   `Delivery` and `Act.Attack`.
-- `Act.Heal(fraction)`: `{ "heal": 0.1 }`.
+- `Act.Heal(fraction)`: `{ "heal": 0.1 }`. A fraction of zero does nothing.
 - `Act.Apply(status, on)`: `{ "apply": "chilled", "on": "self" }`; `Act.Effect(effect, on)` for any effect.
 - `Act.Custom(npc => ...)`: anything, with the whole API.
+
+Queued actions are limited to 4 per creature and 64 globally per tick; excess work is dropped. Summons reserve capacity before awaiting a spawn:
+at most 16 living or pending summons per summoner, 128 per mod, and 256 globally; at most 16 starts per tick. Summons may call helpers through three
+generations. Summoning also requires the native lifetime observer; without it the action logs a refusal and skips the spawn. Failed spawns, deaths and unloads release capacity. These limits apply even without an `Is.SummonsBelow` condition. Summon radius is
+0..200 metres and lifetime is 0..86400 seconds (finite). Use rule intervals and cooldowns for predictable pacing.
+
+The shared kiln.creatures action queue carries entity IDs without generation checks. If an entity is destroyed and its ID reused before an action
+is drained, that older action can reach the replacement. Relation rows, sense pairs, and summon continuations use lifetime tokens; the shared
+rule queue still needs that protection.
 
 ## Mistakes, refused by name
 `block creature warden, ai.flee.below: 2 is outside 0..1`; `ai.senseFilter: no sense filter "tokens": register it with Blocks.SenseFilter(...)`;
 `behaviour.rules[0].do[0].summon: count 99 is outside 1..16`; `behaviour.rules[1].do[0].cast.onImpact[0]: this place has no target of its own ...`;
-`behaviour.rules[0].when[0].chance: 7 is outside 0..1`. `kiln lint` checks the JSON fields against the schema.
+`behaviour.rules[0].when[0].chance: 7 is outside 0..1`. Each JSON condition or action names one kind; extra keys, null payloads, fractional counts, unknown states/features and reversed min/max pairs
+are refused with the block and field. JSON property order does not matter. `kiln lint` checks the AI and rule shapes against the schema.
 
 ## Costs
-The faction hooks cost about 65 ns a call while any relation is set, none otherwise (they come out). A SenseFilter is your code, once per thing in
-range every `SenseEvery`. Summons and casts are tick-thread work when a rule fires. Lab numbers: [npc-internals.md](../../re/npc-internals.md) 3.6.
+Faction hooks retain a snapshot for each pointer check and read atomic table cells. With no effective relations the five hooks are disabled.
+The destruction observer remains while lifetime tokens are tracked. A SenseFilter is tick-thread work: keep it short and avoid blocking.
+Summons, casts, heals and status effects also run on the tick thread. The older timings in [npc-internals.md](../../re/npc-internals.md) 3.6 predate
+snapshot lifetime protection and are not measurements of the current implementation.

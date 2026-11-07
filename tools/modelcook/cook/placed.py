@@ -26,15 +26,18 @@ def files_from_blocks(mod_dir):
     docs = []
     for f in sorted((Path(mod_dir) / "blocks").glob("*.json")):
         try:
-            docs.append(json.loads(MB._relaxed(f.read_text())))
+            doc = json.loads(MB._relaxed(f.read_text()))
+            if isinstance(doc, dict):
+                docs.append(doc)
         except ValueError:
             continue  # the block loader and kiln lint say what is wrong with it
     looks = {}
     for doc in docs:
-        looks.update({k: v for k, v in (doc.get("looks") or {}).items() if isinstance(v, dict)})
+        if isinstance(doc.get("looks"), dict):
+            looks.update({k: v for k, v in doc["looks"].items() if isinstance(v, dict)})
     for doc in docs:
         for section in SECTIONS:
-            for block in (doc.get(section) or {}).values():
+            for block in (doc.get(section) if isinstance(doc.get(section), dict) else {}).values():
                 if not isinstance(block, dict):
                     continue
                 visual = block.get("visual")
@@ -49,5 +52,5 @@ def files_from_blocks(mod_dir):
 
 def steps_from_blocks(mod_dir, base_dir):
     """The model steps of those files, with paths relative to the recipe's folder."""
-    return [{"op": "model", "gltf": os.path.relpath(Path(mod_dir) / f, base_dir), "lods": [], "mode": "new", "materials": "gltf",
+    return [{"tool": "modelcook", "op": "model", "gltf": os.path.relpath(Path(mod_dir) / f, base_dir), "lods": [], "mode": "new", "materials": "gltf",
              "name": W.name_of(f), "stem": W.stem_of(f), "fromBlocks": True, "placed": f} for f in files_from_blocks(mod_dir)]

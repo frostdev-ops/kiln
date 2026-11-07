@@ -1315,7 +1315,7 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
     for (i, s) in steps.iter().enumerate() {
         let tool = tool_of(s, impact, file_tool);
         let op = s.str_of("op").unwrap_or("");
-        if !matches!(tool, "modelcook" | "soundcook" | "impact") {
+        if !matches!(tool, "modelcook" | "soundcook" | "animcook" | "impact") {
             continue;
         }
         // @input references anywhere in the step
@@ -1328,7 +1328,17 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
             }
         }
         let mut refs = Vec::new();
-        at_refs(s, &mut refs);
+        if tool == "animcook" {
+            // Animation and joint names may begin with '@'; only resource references name recipe inputs.
+            for key in ["skeleton", "guid"] {
+                if let Some(n) = s.get(key) { at_refs(n, &mut refs); }
+            }
+            for clip in s.get("clips").and_then(Node::as_object).into_iter().flatten() {
+                if let Some(n) = clip.value.get("guid") { at_refs(n, &mut refs); }
+            }
+        } else {
+            at_refs(s, &mut refs);
+        }
         for n in refs {
             let id = &n.as_str().unwrap_or("")[1..];
             // @player is the player's skeleton, with no input to declare (tools/modelcook)
@@ -1396,16 +1406,16 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
             }
             continue; // soundcook writes its own assets.json entries
         }
-        if op == "model"
+        if ((tool == "modelcook" && op == "model") || (tool == "animcook" && matches!(op, "clips" | "graph")))
             && let Some(sk) = s.get("skeleton")
             && let Some(name) = sk.as_str()
         {
             if let Some(id) = name.strip_prefix('@') {
                 if let Some(t) = inputs.get(id).filter(|t| !t.is_empty() && **t != "keen::ModelHierarchyResource") {
-                    out.push(Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} (model): skeleton @{id} is a {t}, needs keen::ModelHierarchyResource")));
+                    out.push(Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} ({op}): skeleton @{id} is a {t}, needs keen::ModelHierarchyResource")));
                 }
             } else if !skeleton_names.contains(name) {
-                let mut d = Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} (model): no skeleton step is named \"{name}\" in this recipe (a game skeleton is @input)"));
+                let mut d = Diagnostic::new(&f.display, codes::COOK_SKELETON, sk.span, &format!("step {i} ({op}): no skeleton step is named \"{name}\" in this recipe (a game skeleton is @input)"));
                 let c: Vec<&str> = skeleton_names.iter().copied().collect();
                 if let Some(b) = suggest::best(name, &c) {
                     d.message.push_str(&format!("; did you mean \"{b}\"?"));
@@ -1414,6 +1424,7 @@ fn cook(out: &mut Out, m: &LMod, f: &LFile) {
                 out.push(d);
             }
         }
+        if tool == "animcook" { continue; } // animcook writes its own assets.json entries
         if let Some(b) = s.get("base") {
             let want = match (impact, op) {
                 (false, "model") => "keen::RenderModel",
@@ -1670,7 +1681,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "class" => (&["weapon class"], "a weapon class", &["sword", "axe", "mace", "greatsword", "greataxe", "hammer", "daggers", "bow", "staff", "shield", "wand"]),
             "slot" => (&["armor slot"], "an armor slot", &["head", "chest", "arms", "legs", "feet", "ring"]),
             "set" => (&["armor set"], "an armor set", &["warrior", "mage", "ranger"]),
-            "look" => (&["worn look"], "a worn look", &["frost", "poison", "fire"]),  // a status's look is a premade by name
+            "look" => (&["worn look"], "a worn look", &[]),
             "station" => (&["station"], "a station", &["hand"]),
             "placement" => (&["placement"], "a placement", &[]),
             "comfort" => (&["comfort"], "a comfort", &[]),
@@ -1685,6 +1696,18 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     fn walk(n: &Node, field: Option<&str>, out: &mut Vec<(String, &'static [&'static str], &'static str, Span)>) {
         if let Some(obj) = n.as_object() {
             for mm in obj {
+                // Status looks are premades. The same words in a cosmetic's look still name worn-look blocks.
+                if mm.key == "statuses" {
+                    for b in mm.value.as_object().into_iter().flatten() {
+                        for x in b.value.as_object().into_iter().flatten() {
+                            if x.key == "look" && x.value.as_str().is_some_and(|s| ["frost", "poison", "fire"].contains(&s)) {
+                                continue;
+                            }
+                            walk(&x.value, Some(x.key.as_str()), out);
+                        }
+                    }
+                    continue;
+                }
                 // a cosmetic's slot is a vanity slot, not an armor slot block
                 if mm.key == "slot" && obj.iter().any(|x| x.key == "look") {
                     continue;

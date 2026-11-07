@@ -79,15 +79,18 @@ internal static class AiLowering
             Range(f.Cooldown, 0, 3600, "flee.cooldown");
             if (f.Min > f.Max) throw new BlockError(ctx.Block, P("flee"), $"min {f.Min} is more than max {f.Max}");
         }
-        if (a.Enable is { } en && a.Disable is { } dis && (en & dis) != 0)
-            throw new BlockError(ctx.Block, P("enable"), $"{en & dis} is both turned on and off");
+        var knownFeatures = Enum.GetValues<EnemyFeatures>().Aggregate(EnemyFeatures.None, (all, f) => all | f);
+        if (((Enabled(a) | Disabled(a)) & ~knownFeatures) != 0)
+            throw new BlockError(ctx.Block, P("enable"), "unknown AI feature bits");
+        if ((Enabled(a) & Disabled(a)) is { } both && both != 0)
+            throw new BlockError(ctx.Block, P("enable"), $"{both} is both turned on and off");
         foreach (var (k, rel) in a.Relations ?? new Dictionary<Faction, Relation>())
         {
-            if (k == Faction.None) throw new BlockError(ctx.Block, P("relations"), "Faction.None is not a faction");
+            if (k == Faction.None || !Enum.IsDefined(k)) throw new BlockError(ctx.Block, P("relations"), $"{k} is not a defined faction");
             if (!Enum.IsDefined(rel)) throw new BlockError(ctx.Block, P($"relations[{k}]"), $"{(int)rel} is not a relation: game, hostile, friendly or neutral");
         }
         if (a.SenseFilter != null && a.SenseFilterName != null) throw new BlockError(ctx.Block, P("senseFilter"), "a sense filter from code or by name, not both");
-        if (a.SenseFilterName is { } n && NpcRuntime.Lookup(AiRuntime.Filters, n) == null)
+        if (a.SenseFilterName is { } n && AiRuntime.FindFilter(ctx.Mod.Id, n) == null)
             throw new BlockError(ctx.Block, P("senseFilter"), $"no sense filter \"{n}\": register it with Blocks.SenseFilter(\"{n}\", (npc, other) => ...) in OnLoad");
         if ((a.Relations is { Count: > 0 } || a.SenseFilter != null || a.SenseFilterName != null) && !AiNative.Loaded && Lifecycle.IsServerRunning)
             BlocksBridge.Log(LogLevel.Warn, $"blocks: {ctx.Mod.Id}: {ctx.Block}: {P("relations")}: kiln.npcai is not loaded on this build: the creature fights as the game decides");
@@ -110,7 +113,7 @@ internal static class AiLowering
     // ---- casts: a placeholder until the creature compiles ----
 
     private static readonly object Gate = new();
-    private static readonly Dictionary<int, IDeliveryBlock> PendingCasts = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RuleAction, IDeliveryBlock> PendingCasts = new();
     private static int _next = 1;
 
     internal static RuleAction CastAction(IDeliveryBlock d)
@@ -118,8 +121,9 @@ internal static class AiLowering
         lock (Gate)
         {
             var id = _next++;
-            PendingCasts[id] = d;
-            return new RuleAction(new JsonObject { ["blocksCast"] = id });
+            var action = new RuleAction(new JsonObject { ["blocksCast"] = id });
+            PendingCasts.Add(action, d);
+            return action;
         }
     }
 
@@ -127,9 +131,9 @@ internal static class AiLowering
     /// comes back null.</summary>
     internal static RuleAction? Lower(BlockContext ctx, Lowered low, string mod, string key, string name, RuleAction act, string path, NpcCreature info)
     {
-        if (act.Json["blocksCast"]?.GetValue<int>() is not { } id) return null;
+        if (act.Json["blocksCast"]?.GetValue<int>() is not { }) return AiRuntime.Bounded(act);
         IDeliveryBlock? d;
-        lock (Gate) PendingCasts.TryGetValue(id, out d);
+        lock (Gate) PendingCasts.TryGetValue(act, out d);
         if (d == null) throw new BlockError(ctx.Block, path, "a cast that is not one of this process's: write it as Act.Cast(...) in the rule");
         var tag = path.Replace('[', '.').Replace("]", "");
         var ckey = $"{key}.{tag}.cast";
@@ -137,14 +141,14 @@ internal static class AiLowering
         var (program, blob, listing) = EffectEmitter.LauncherProgram(ctx, $"{ckey}.launch", lowered.PlacedEntity, lowered.Speed);
         low.Program(program, $"{ckey}.launch", blob, listing);
         var creature = info;
-        return Act.Custom(npc => AiRuntime.Cast(creature, program, npc));
+        return AiRuntime.Bounded(Act.Custom(npc => AiRuntime.Cast(creature, program, npc)));
     }
 
     /// <summary>A cast written in a data file: <c>{ "cast": { "type": "projectile", ... } }</c>.</summary>
     internal static RuleAction CastFromJson(JsonNode d, BlockContext ctx, string path)
     {
         IDeliveryBlock delivery;
-        try { delivery = d.Deserialize<IDeliveryBlock>(BlockJsonAccess.Options)!; }
+        try { delivery = d.Deserialize<IDeliveryBlock>(BlockJsonAccess.Options) ?? throw new JsonException("cast needs a delivery"); }
         catch (System.Text.Json.JsonException e) { throw new BlockError(ctx.Block, $"{path}.cast", e.Message); }
         return CastAction(delivery);
     }

@@ -2,6 +2,7 @@
 """The cook steps a mod's blocks/*.json asks for (anicook/blocks.py), with no game files: the sample golem in a temp mod, its animation and body as
 blocks, the steps the recipe gains and the graph they cook to. `python3 -m unittest discover -s tools/animcook/tests -v`."""
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -136,6 +137,18 @@ class Blocks(unittest.TestCase):
     def test_no_blocks(self):
         doc = R.load(self.mod / "assets" / "cook.json")
         self.assertEqual(doc["steps"], [], "a mod without blocks keeps its recipe as it is")
+
+    def test_body_template_cooks_before_its_first_build_writes_a_manifest(self):
+        template = ROOT.parents[1] / "templates" / "kiln-body"
+        target = self.mod / "fresh-body"
+        shutil.copytree(template, target)
+        (self.mod / "kiln.mod.json").unlink()
+        path = target / "assets" / "cook.json"
+        self.assertEqual(R.mod_id(R.load(path), path), "kiln-mod-id")
+        rep = R.Run(path, TYPES).run(update_manifest=True)
+        self.assertTrue(rep["ok"], rep)
+        self.assertEqual(rep["mod"], "kiln-mod-id")
+        self.assertTrue(any(step["op"] == "skeleton" for step in rep["steps"]))
 
 
 if __name__ == "__main__":

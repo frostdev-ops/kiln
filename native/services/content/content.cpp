@@ -937,8 +937,7 @@ KilnResult KILN_CALL t_info(char* buf, size_t cap, size_t* len) {
 
 KilnResult KILN_CALL t_icon_alias(const uint8_t from[16], const uint8_t to[16]) {
     if (!from || !to) return KILN_ERR_INVALID_ARGUMENT;
-    nc_icon_alias(from, to);
-    return KILN_OK;
+    return nc_icon_alias(from, to) ? KILN_OK : KILN_ERR_UNAVAILABLE;
 }
 
 const KilnContentApi kTable = {

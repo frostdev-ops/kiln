@@ -177,13 +177,13 @@ def cmd_wav(a):
 
 
 def cmd_blocks(a):
-    changed, path, _, names = SB.write(a.mod_dir, check=a.check)
-    if not names:
-        print("no sound blocks")
-        return 0
+    changed, path, _, names = SB.write(a.mod_dir, check=a.check, mod=a.mod)
     if a.check:
         print(f"{path}: {'behind the blocks' if changed else 'up to date'} ({len(names)} sound block(s))")
         return 1 if changed else 0
+    if not names:
+        print("removed sound block steps" if changed else "no sound blocks")
+        return 0
     print(f"{path}: {'written' if changed else 'up to date'}, {len(names)} sound block(s): {', '.join(names)}")
     return 0
 
@@ -223,6 +223,7 @@ def main(argv=None):
     sub.add_parser("build-native")
     p = sub.add_parser("blocks", help="write the sound blocks of MODDIR/blocks/*.json into its assets/cook.json")
     p.add_argument("mod_dir")
+    p.add_argument("--mod", help="mod id when the build has not written kiln.mod.json yet")
     p.add_argument("--check", action="store_true", help="only say whether the recipe is behind the blocks")
     a = ap.parse_args(argv)
     try:

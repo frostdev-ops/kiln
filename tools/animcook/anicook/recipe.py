@@ -212,7 +212,7 @@ class Run:
     def clips_step(self, st):
         sk = self.skeleton_ref(st["skeleton"])
         doc = Doc(self.dir / st["gltf"])
-        rt = self.retarget_plan(st, doc, sk) if st.get("retarget") else None
+        rt = self.retarget_plan(st, doc, sk) if st.get("retarget") is not None and st.get("retarget") is not False else None
         if rt is None and sk.source != "game":
             hint = " (animations of a rig of their own play on it with \"retarget\")"
             try:
@@ -235,7 +235,7 @@ class Run:
                     src_frames, n = C.sample_animation(doc, c.get("animation", name), rt.src)
                     raw, info, rm, lv = C.finish_clip([rt.frame(f) for f in src_frames], n, sk, c.get("animation", name), loop=c.get("loop"),
                                                       tolerance=tol, root_motion=rm_cfg)
-            except C.ClipError as e:
+            except (C.ClipError, RT.RetargetError) as e:
                 raise RecipeError(f"clip {name}: {e}") from e
             ref = c.get("guid")
             if isinstance(ref, str) and ref.startswith("@"):
@@ -271,6 +271,8 @@ class Run:
 
     def retarget_plan(self, st, doc, sk):
         """The step's "retarget": the clips' own rig (its armature, as a skeleton step reads one) paired with the target skeleton."""
+        if not isinstance(st["retarget"], dict) and st["retarget"] is not True:
+            raise RecipeError(f"{st['gltf']}: retarget: expected an object of settings or true")
         cfg = st["retarget"] if isinstance(st["retarget"], dict) else {}
         try:
             src = K.from_gltf(doc, skin=cfg.get("skin"), root=cfg.get("root"))

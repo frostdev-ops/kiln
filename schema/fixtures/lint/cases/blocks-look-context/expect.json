@@ -1,0 +1,13 @@
+{
+  "description": "A status look premade is not a worn-look block for a cosmetic.",
+  "diagnostics": [
+    {
+      "code": "KL314",
+      "col": 66,
+      "file": "blocks/looks.json",
+      "line": 4,
+      "message": "no worn look block \"frost\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:frost\"",
+      "severity": "warning"
+    }
+  ]
+}

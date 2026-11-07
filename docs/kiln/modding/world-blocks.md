@@ -88,6 +88,9 @@ Stations.Status(rack);                                               // State (R
 ```
 A station's template is `<mod>.<block>.station`, a prop's `<mod>.<block>.prop`. `Build.PlaceProp` sets what dismantling gives back to the block's item.
 
+A prop collider is at most 32 m along each axis, including one derived from a model. Centers and dimensions must be finite. Changing its dimensions
+or center changes the physics-shape hash too, so a reload uses the new collision instead of a shape cached from the previous definition.
+
 ### Saves and limits
 - Ids come from the mod id and the block's name, the workshop's too: placed stations and what they hold come back after a restart, still running. Inside a base, that is: one placed outside a base by `Build.PlaceProp` didn't come back, with or without its item.
 - The game reserves its workshop map once, with room for 128, and uses 46. Kiln keeps a quarter free so lookups stay short, which leaves 50 new workshops for all mods. A station past that is refused with its name.

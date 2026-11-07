@@ -4159,7 +4159,11 @@ bool nc_is_new(uint32_t kind, uint32_t id) {
 
 // A UI texture key looked up as another until kiln.assets serves an icon under it (hk_uitex): a block's PNG icon on a
 // status or a perk, whose key the UI cache only knows once the icon is SERVED. Stays for the session, as an item's.
-void nc_icon_alias(const uint8_t from[16], const uint8_t to[16]) { set_alias(from, to); }
+bool nc_icon_alias(const uint8_t from[16], const uint8_t to[16]) {
+    if (!N.uitex) return false;
+    set_alias(from, to);
+    return true;
+}
 
 uint32_t nc_undefine_owner(KilnOwner owner) {
     uint32_t n = 0;

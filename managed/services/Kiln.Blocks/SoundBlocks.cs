@@ -39,19 +39,19 @@ internal static partial class Compiler
     {
         ctx.Need(ClientsLevel.Mod, null, "a sound of the mod's own has to be on every player's game: nothing can send it");
         if (s.Clips is not { Count: > 0 }) throw new BlockError(ctx.Block, "clips", "a sound needs one or more audio files");
-        if (s.Volume is < 0 or > 1) throw new BlockError(ctx.Block, "volume", $"{s.Volume} is outside 0..1");
-        if (s.PitchRandomness is < 0 or > 1) throw new BlockError(ctx.Block, "pitchRandomness", $"{s.PitchRandomness} is outside 0..1");
-        if (s.Range is { } r && (r.Length != 2 || r[0] < 0 || r[1] <= r[0]))
+        if (s.Volume is { } volume && (!double.IsFinite(volume) || volume is < 0 or > 1)) throw new BlockError(ctx.Block, "volume", $"{s.Volume} is outside 0..1");
+        if (s.PitchRandomness is { } pitch && (!double.IsFinite(pitch) || pitch is < 0 or > 1)) throw new BlockError(ctx.Block, "pitchRandomness", $"{s.PitchRandomness} is outside 0..1");
+        if (s.Normalize is { } normalize && !double.IsFinite(normalize)) throw new BlockError(ctx.Block, "normalize", "must be finite dBFS");
+        if (s.Range is { } r && (r.Length != 2 || r.Any(v => !double.IsFinite(v) || v > float.MaxValue) || r[0] < 0 || r[1] <= r[0]))
             throw new BlockError(ctx.Block, "range", $"[{string.Join(", ", r)}]: [min, max] in metres, max more than min");
         if (s.Scene is { } scene && !Scenes.Contains(scene)) throw new BlockError(ctx.Block, "scene", $"\"{scene}\" is not a scene; there are {string.Join(", ", Scenes)}");
         var dir = BlocksBridge.ModDirectory(ctx.Mod.Id);
         for (var i = 0; i < s.Clips.Count; i++)
         {
             var clip = s.Clips[i];
-            if (clip.Contains("..") || Path.IsPathRooted(clip) || !AudioExtensions.Any(e => clip.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+            if (clip == null || !AudioExtensions.Any(e => clip.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
                 throw new BlockError(ctx.Block, $"clips[{i}]", $"\"{clip}\" is not an audio file in the mod's folder (wav, flac, ogg, mp3), with a relative path");
-            if (dir.Length > 0 && !File.Exists(Path.Combine(dir, clip)))
-                throw new BlockError(ctx.Block, $"clips[{i}]", $"\"{clip}\" is not in the mod's folder. The build copies a mod's folders to where it runs: audio/ is one of them (KilnModFolders)");
+            BlockFiles.InMod(ctx, clip, $"clips[{i}]", dir);
         }
         var (cue, recipe) = SoundCue(ctx.Mod.Id, dir, name);
         low.Json["sound"] = new JsonObject { ["cue"] = cue.ToString(), ["clips"] = new JsonArray(s.Clips.Select(c => (JsonNode?)c).ToArray()) };

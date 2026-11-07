@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT
- * kiln.npcai v1: who fights whom. The game decides it in four small functions over keen::FactionType (one byte in each
+ * kiln.npcai v1: who fights whom. The game decides it in five small functions over keen::FactionType (one byte in each
  * entity's Faction component): Hostile(a, b) "a would fight b" (enemy targeting's candidate filter and the sensors call
  * it) and Friend(a, b) "b is on a's side", each by pointer and by value. kiln.npcai hooks them and answers from:
  *   1. pairs:     one entity toward one other entity (a creature's SenseFilter),
@@ -8,7 +8,7 @@
  * and otherwise lets the game answer. Rows and pairs work on the pointer forms only (the game passes the Faction
  * components of the two entities; Kiln maps them back in Pre, when no job runs); the by-value forms see the table.
  * Relations are directional: a's answer about b. Hooks go in when the first relation is set and come out when the last
- * is gone. docs/kiln/modding/npc-ai.md, docs/re/npc-internals.md 3.6. */
+ * is gone. World stops discard all settings. docs/kiln/modding/npc-ai.md, docs/re/npc-internals.md 3.6. */
 #ifndef KILN_NPCAI_H
 #define KILN_NPCAI_H
 #include "../kiln_api.h"
@@ -33,8 +33,8 @@ typedef struct KilnNpcAiStatus {
     uint32_t rows;            /* entities with relations of their own */
     uint32_t pairs;           /* entity pairs set */
     uint32_t mapped;          /* Faction components mapped back to entities in the last Pre */
-    uint32_t reserved;
-    uint64_t calls;           /* hooked calls, all four */
+    uint32_t reserved;        /* bit 0: hook installation failed; overrides are disabled for this process */
+    uint64_t calls;           /* hooked calls, all five */
     uint64_t answered;        /* of those, answered by Kiln (not the game) */
     uint64_t by_pair, by_row, by_table;
 } KilnNpcAiStatus;
@@ -53,7 +53,7 @@ typedef struct KilnNpcAiApi {
     /* Entity e toward every faction: 256 relations (KILN_REL_*), or NULL to clear. One owner per entity: the last wins.
      * Tick thread. */
     KilnResult(KILN_CALL* entity_row)(uint32_t owner, KilnEntity e, const uint8_t* row);
-    /* Entity e toward entity other, for `seconds` (0: until cleared). KILN_REL_GAME clears. Tick thread. */
+    /* Entity e toward entity other, for `seconds` (0..86400, finite; 0: until cleared). KILN_REL_GAME clears. Tick thread. */
     KilnResult(KILN_CALL* pair_set)(uint32_t owner, KilnEntity e, KilnEntity other, uint32_t relation, float seconds);
     /* Clears every pair of e this owner set. Tick thread. */
     KilnResult(KILN_CALL* pair_clear)(uint32_t owner, KilnEntity e);
@@ -62,7 +62,13 @@ typedef struct KilnNpcAiApi {
     KilnResult(KILN_CALL* query)(KilnEntity a, KilnEntity b, uint32_t* hostile, uint32_t* friendly);
     /* The same by faction value, the table, else HostileValue(a, b) and FriendValue(a, b). Any thread. */
     KilnResult(KILN_CALL* query_factions)(uint8_t a, uint8_t b, uint32_t* hostile, uint32_t* friendly);
+    /* Thread-safe; entity counts and mapped count describe the last Pre. */
     KilnResult(KILN_CALL* status)(KilnNpcAiStatus* out);
+    /* Added in v1; check header.size. Tick thread. Nonzero lifetime token, changed after destruction even when
+     * the id and component addresses are reused. 0: no entity or lifetime observer unavailable. */
+    uint64_t(KILN_CALL* entity_lifetime)(KilnEntity e);
+    /* Added in v1; check header.size. Current server step, including calls before this service's Pre. 0: no tick. */
+    uint64_t(KILN_CALL* tick_step)(void);
 } KilnNpcAiApi;
 
 #ifdef __cplusplus

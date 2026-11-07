@@ -10,6 +10,8 @@ joint stands on the ground (a root bone at the origin), its paired children as w
 
 Everything is in the game's space (after the mirror on X), where both rigs face +Z with y up, as glTF files do.
 """
+import math
+
 from .gltfdoc import compose, qinv, qmul, qnorm, qrot
 
 
@@ -28,16 +30,30 @@ def rest_frame(skel):
 def model_space(skel, frame):
     """(position, rotation, scale) per joint in model space, for one frame of (rots, positions, scales)."""
     rots, poss, scls = frame
+    if any(len(v) != len(skel) for v in frame):
+        raise RetargetError("retarget: pose and skeleton have different joint counts")
     out = [None] * len(skel)
     for j in _order(skel):
+        for v, size in ((rots[j], 4), (poss[j], 3), (scls[j], 3)):
+            if len(v) != size or any(not isinstance(x, (int, float)) or not math.isfinite(x) for x in v):
+                raise RetargetError(f"retarget: joint {skel.names[j]!r} has a non-finite or malformed transform")
+        norm = sum(x * x for x in rots[j])
+        if not math.isfinite(norm) or norm < 1e-12 or any(abs(x) < 1e-12 for x in scls[j]):
+            raise RetargetError(f"retarget: joint {skel.names[j]!r} has a zero rotation or scale")
         local = (tuple(poss[j]), qnorm(tuple(rots[j])), tuple(scls[j]))
         p = skel.parents[j]
         out[j] = local if p == 0xFFFF else compose(out[p], local)
+        if any(not math.isfinite(x) for v in out[j] for x in v) or any(abs(x) < 1e-12 for x in out[j][2]):
+            raise RetargetError(f"retarget: joint {skel.names[j]!r} has a degenerate model transform")
     return out
 
 
 def _order(skel):
     """Joint indices parents first (the skeletons Kiln makes are already in this order; a game skeleton is checked, not assumed)."""
+    if len(skel.parents) != len(skel) or len(skel.rest) != len(skel):
+        raise RetargetError("retarget: skeleton arrays have different joint counts")
+    if any(p != 0xFFFF and (not isinstance(p, int) or p < 0 or p >= len(skel) or p == j) for j, p in enumerate(skel.parents)):
+        raise RetargetError("retarget: skeleton has an invalid parent joint")
     if all(p == 0xFFFF or p < j for j, p in enumerate(skel.parents)):
         return range(len(skel))
     kids = {}
@@ -57,8 +73,13 @@ class Plan:
     """What a retarget pairs and moves: `pairs` target joint -> source joint, `translate` target joints whose position follows the source's, `scale`."""
 
     def __init__(self, src, dst, cfg=None):
-        cfg = cfg or {}
+        cfg = {} if cfg is None or cfg is True else cfg
+        if not isinstance(cfg, dict):
+            raise RetargetError("retarget: expected an object of settings or true")
         self.src, self.dst = src, dst
+        # Validate before walking ancestors to find the hips: a cyclic rig must fail, not hang.
+        self.ref = model_space(src, cfg["referenceFrame"] if "referenceFrame" in cfg else rest_frame(src))
+        self.dst_rest = model_space(dst, rest_frame(dst))
         m = cfg.get("map", "names")
         if m == "names":
             m = {}
@@ -68,7 +89,7 @@ class Plan:
         for s, d in m.items():
             if s not in src.index:
                 raise RetargetError(f"retarget.map: {s!r} is not a joint of the clips' rig (has {', '.join(src.names[:12])}{'...' if len(src) > 12 else ''})")
-            if d not in dst.index:
+            if not isinstance(d, str) or d not in dst.index:
                 raise RetargetError(f"retarget.map: {s!r} -> {d!r}: {d!r} is not a joint of the target skeleton (has {', '.join(dst.names[:12])}"
                                     f"{'...' if len(dst) > 12 else ''})")
             if dst.index[d] in pairs:
@@ -108,12 +129,10 @@ class Plan:
                 if s not in src.index or src.index[s] not in inv:
                     raise RetargetError(f"retarget.translate: {s!r} is not a paired joint of the clips' rig")
                 self.translate.append(inv[src.index[s]])
-        self.ref = model_space(src, cfg["referenceFrame"]) if cfg.get("referenceFrame") else model_space(src, rest_frame(src))
-        self.dst_rest = model_space(dst, rest_frame(dst))
         sc = cfg.get("scale", "auto")
         if sc == "auto":
             sc = self._auto_scale()
-        if not isinstance(sc, (int, float)) or sc <= 0:
+        if isinstance(sc, bool) or not isinstance(sc, (int, float)) or not math.isfinite(sc) or sc <= 0:
             raise RetargetError('retarget.scale is a number above 0, or "auto"')
         self.scale = float(sc)
 
@@ -158,11 +177,15 @@ class Plan:
                 cur = gs[s][0]
                 want = tuple(rp[i] + k * (cur[i] - sp[i]) for i in range(3))
                 d = qrot(qinv(pq), tuple(want[i] - pt[i] for i in range(3)))
-                lt = tuple(d[i] / (ps[i] or 1.0) for i in range(3))
+                if any(abs(v) < 1e-12 for v in ps):
+                    raise RetargetError(f"retarget: joint {dst.names[j]!r} has a zero parent scale")
+                lt = tuple(d[i] / ps[i] for i in range(3))
             else:
                 lt = tuple(rt)
             rots[j], poss[j], scls[j] = list(lq), list(lt), list(rs)
             glob[j] = compose((pt, pq, ps), (lt, lq, tuple(rs)))
+            if any(not math.isfinite(v) for part in glob[j] for v in part):
+                raise RetargetError(f"retarget: joint {dst.names[j]!r} produced a non-finite transform")
         return rots, poss, scls
 
     def report(self):
@@ -174,8 +197,13 @@ class Plan:
 def reference_frame(doc, src, spec, sample_animation):
     """The source pose `{"animation": name, "at": seconds}` names, as one frame: the pose that shows the target's rest posture."""
     from .clips import FPS
+    if not isinstance(spec, dict) or not isinstance(spec.get("animation"), str) or not spec["animation"]:
+        raise RetargetError("retarget.reference: name an animation")
+    at = spec.get("at", 0)
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at) or at < 0:
+        raise RetargetError("retarget.reference.at: a finite time from 0 seconds")
     frames, n = sample_animation(doc, spec["animation"], src)
-    f = min(n, max(0, round(float(spec.get("at", 0)) * FPS)))
+    f = min(n, round(min(at, n / FPS) * FPS))
     return frames[f]
 
 

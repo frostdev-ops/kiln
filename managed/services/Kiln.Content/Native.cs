@@ -123,6 +123,13 @@ internal static unsafe class ContentNative
         public delegate* unmanaged[Cdecl]<byte*, byte*, int> IconAlias;
     }
 
+    // v4 before IconAlias is still a complete content service. Check the appended slot separately at its call site.
+    internal static Table* FromService(nint address)
+    {
+        var t = (Table*)address;
+        return t != null && t->Header.Size >= (uint)Marshal.OffsetOf<Table>(nameof(Table.IconAlias)) ? t : null;
+    }
+
     public const byte FieldRef = 1;
     public const uint RefAllowGame = 1;
 

@@ -38,8 +38,8 @@ internal static class Retargets
         if (a.Clips == null) throw new BlockError(ctx.Block, at, "retarget plays clips of a glTF on a skeleton: say clips");
         if (string.IsNullOrWhiteSpace(a.Skeleton))
             throw new BlockError(ctx.Block, at, "say which skeleton the clips play on: Skeleton = the body's (its model file's name without the extension)");
-        if (r.Scale is { } s && !(s > 0)) throw new BlockError(ctx.Block, at + ".scale", $"{s} is not above 0");
-        if (r.Reference is { } p && (string.IsNullOrWhiteSpace(p.Animation) || p.At < 0))
+        if (r.Scale is { } s && (!double.IsFinite(s) || !(s > 0))) throw new BlockError(ctx.Block, at + ".scale", $"{s} is not above 0 and finite");
+        if (r.Reference is { } p && (string.IsNullOrWhiteSpace(p.Animation) || !double.IsFinite(p.At) || p.At < 0))
             throw new BlockError(ctx.Block, at + ".reference", "an animation of the clip file and a time from 0 seconds");
         var targets = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (from, to) in r.Map)

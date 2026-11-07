@@ -202,4 +202,170 @@ public sealed class NpcAiTests : IDisposable
         Assert.Contains("\"kiln\":\"code\"", text, StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => Act.Summon("x", 0));
     }
+    [Theory]
+    [InlineData("{\"summon\":null}", "summon")]
+    [InlineData("{\"summon\":{\"creature\":\"x\",\"seconds\":-1}}", "summon")]
+    [InlineData("{\"summon\":{\"creature\":\" \"}}", "summon")]
+    [InlineData("{\"summon\":{\"creature\":\"x\",\"side\":\"99\"}}", "summon")]
+    [InlineData("{\"summon\":{\"creature\":\"x\",\"count\":null}}", "summon")]
+    [InlineData("{\"summon\":{\"creature\":\"x\",\"side\":\"0\"}}", "summon")]
+    [InlineData("{\"enableFeature\":\"1\"}", "enableFeature")]
+    [InlineData("{\"pause\":[3,1]}", "pause")]
+    [InlineData("{\"backOff\":[null,1]}", "backOff")]
+    [InlineData("{\"flee\":false}", "flee")]
+    [InlineData("{\"heal\":0.1,\"summon\":\"x\"}", "heal")]
+    [InlineData("{\"on\":\"self\",\"apply\":null}", "apply")]
+    public void Malformed_actions_report_the_block_and_field(string action, string field)
+    {
+        var json = "{\"body\":\"vukah\",\"behaviour\":{\"rules\":[{\"do\":[" + action + "]}]}}";
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var error = Assert.Throws<BlockError>(() => BlockJson.Make<CreatureBlock>(Mod("ai-refuse"), "bad", doc.RootElement));
+        Assert.Contains("bad", error.Message, StringComparison.Ordinal);
+        Assert.Contains("do[0]." + field, error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("{\"summonsBelow\":1.5}", "summonsBelow")]
+    [InlineData("{\"enemiesNear\":[-1,4]}", "enemiesNear")]
+    [InlineData("{\"state\":\"999\"}", "state")]
+    [InlineData("{\"state\":\"4\"}", "state")]
+    [InlineData("{\"alliesNear\":{\"count\":null,\"within\":2}}", "alliesNear")]
+    [InlineData("{\"chance\":0.5,\"hasTarget\":true}", "chance")]
+    [InlineData("{\"hitWithin\":null}", "hitWithin")]
+    [InlineData("{\"not\":null}", "not")]
+    public void Malformed_conditions_report_the_field(string condition, string field)
+    {
+        var json = "{\"body\":\"vukah\",\"behaviour\":{\"rules\":[{\"when\":[" + condition + "],\"do\":[{\"flee\":true}]}]}}";
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var error = Assert.Throws<BlockError>(() => BlockJson.Make<CreatureBlock>(Mod("ai-condition-refuse"), "bad", doc.RootElement));
+        Assert.Contains("when[0]." + field, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Pending_summons_count_toward_caps_and_failed_spawns_release_capacity()
+    {
+        var limits = new AiLimits();
+        limits.Begin(1);
+        var leases = Enumerable.Range(0, AiLimits.PerCreature).Select(_ => limits.Reserve("a", 1, 0)).ToList();
+        Assert.All(leases, x => Assert.NotNull(x));
+        limits.Begin(2);
+        Assert.Null(limits.Reserve("a", 1, 0));
+        leases[0]!.Dispose();
+        Assert.NotNull(limits.Reserve("a", 1, 0));
+        limits.Release("a");
+        Assert.All(leases, x => Assert.False(x!.Active));
+        Assert.NotNull(limits.Reserve("a", 1, 0));
+    }
+
+    [Fact]
+    public void Population_is_bounded_across_creatures_mods_and_recursive_summons()
+    {
+        var limits = new AiLimits();
+        for (uint i = 0; i < AiLimits.Total; i++)
+        {
+            limits.Begin(i);
+            Assert.NotNull(limits.Reserve(i < AiLimits.PerMod ? "a" : "b", i, 0));
+        }
+        limits.Begin(999);
+        Assert.Null(limits.Reserve("a", 1000, 0));
+        Assert.Null(limits.Reserve("c", 1000, 0));
+        limits.Release("a");
+        Assert.NotNull(limits.Reserve("c", 1000, AiLimits.MaxDepth - 1));
+        Assert.Null(limits.Reserve("c", 1000, AiLimits.MaxDepth));
+    }
+
+    [Fact]
+    public void Queued_actions_and_summon_births_have_per_tick_budgets()
+    {
+        var limits = new AiLimits();
+        limits.Begin(1);
+        for (var i = 0; i < 4; i++) Assert.True(limits.Action(1));
+        Assert.False(limits.Action(1));
+        limits.Begin(1); // another handler on the same tick cannot reset the budget
+        Assert.False(limits.Action(1));
+        for (uint i = 2; i <= 16; i++)
+            for (var j = 0; j < 4; j++) Assert.True(limits.Action(i));
+        Assert.False(limits.Action(17));
+        for (uint i = 0; i < 16; i++) Assert.NotNull(limits.Reserve("a", i, 0));
+        Assert.Null(limits.Reserve("a", 16, 0));
+        limits.Begin(2);
+        Assert.True(limits.Action(1));
+        Assert.NotNull(limits.Reserve("a", 16, 0));
+    }
+
+    [Fact]
+    public void CSharp_rejects_invalid_values_before_registering_deferred_code()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Is.EnemiesNear(-1, 10));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Is.AlliesNear(1, double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Is.SummonsBelow(-1));
+        Assert.Throws<ArgumentException>(() => Act.BackOff(8, 2));
+        Assert.Throws<ArgumentException>(() => Act.Pause(8, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Act.Summon("x", seconds: double.NaN));
+        Assert.Throws<ArgumentException>(() => Act.Summon("x", side: (SummonSide)99));
+        Assert.Throws<ArgumentException>(() => Act.EnableFeature((EnemyFeatures)0x80000000));
+        Assert.Throws<ArgumentException>(() => Is.InState(new[] { (EnemyState)254 }));
+    }
+
+    // Loaded through a collectible context below; its delegate must not root that context after unload.
+    public static bool CollectibleFilter(NpcView npc, EntityId other) => true;
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference RegisterCollectibleFilter()
+    {
+        var context = new System.Runtime.Loader.AssemblyLoadContext("npcai-filter-cleanup", isCollectible: true);
+        var assembly = context.LoadFromAssemblyPath(typeof(NpcAiTests).Assembly.Location);
+        var method = assembly.GetType(typeof(NpcAiTests).FullName!)!.GetMethod(nameof(CollectibleFilter))!;
+        var filter = method.CreateDelegate<Func<NpcView, EntityId, bool>>();
+        AiRuntime.RegisterFilter("collectible-filter", filter);
+        Assert.NotNull(AiRuntime.FindFilter("kiln", "collectible-filter"));
+        context.Unload();
+        Assert.Null(AiRuntime.FindFilter("kiln", "collectible-filter"));
+        return new WeakReference(context);
+    }
+
+    [Fact]
+    public void Unloading_removes_named_filters_and_releases_the_collectible_context()
+    {
+        var context = RegisterCollectibleFilter();
+        for (var i = 0; i < 10 && context.IsAlive; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        Assert.False(context.IsAlive);
+    }
+
+    [Fact]
+    public void Json_action_modifier_order_does_not_change_the_action()
+    {
+        var mod = Mod("ai-order");
+        using var doc = System.Text.Json.JsonDocument.Parse("""{ "body": "vukah", "behaviour": { "rules": [ { "do": [ { "wait": true, "play": "11111111-1111-1111-1111-111111111111" } ] } ] } }""");
+        BlockJson.Make<CreatureBlock>(mod, "ordered", doc.RootElement);
+        Assert.Contains("PlayActionSequenceAction", Rules(mod, "ordered").ToJsonString(), StringComparison.Ordinal);
+        Assert.Contains("waitUntilFinished", Rules(mod, "ordered").ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Raw_game_kinds_can_have_fields_that_are_also_shorthand_names()
+    {
+        var mod = Mod("ai-raw-kinds");
+        using var doc = System.Text.Json.JsonDocument.Parse("""{ "body": "vukah", "behaviour": { "rules": [ { "when": [ { "type": "RandomChanceConstrain", "chance": 0.5 } ], "do": [ { "type": "SetImmuneAction", "immune": true } ] } ] } }""");
+        BlockJson.Make<CreatureBlock>(mod, "raw", doc.RootElement);
+        var text = Rules(mod, "raw").ToJsonString();
+        Assert.Contains("RandomChanceConstrain", text, StringComparison.Ordinal);
+        Assert.Contains("SetImmuneAction", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Json_not_recurses_into_AI_conditions()
+    {
+        var mod = Mod("ai-not");
+        using var doc = System.Text.Json.JsonDocument.Parse("""{ "body": "vukah", "behaviour": { "rules": [ { "when": [ { "not": { "inCombat": true } } ], "do": [ { "flee": true } ] } ] } }""");
+        BlockJson.Make<CreatureBlock>(mod, "negated", doc.RootElement);
+        var text = Rules(mod, "negated").ToJsonString();
+        Assert.Contains("StateConstrain", text, StringComparison.Ordinal);
+        Assert.Contains("\"negated\":true", text, StringComparison.Ordinal);
+    }
+
 }

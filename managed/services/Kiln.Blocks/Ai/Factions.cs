@@ -27,7 +27,7 @@ public static unsafe class Factions
             var t = AiNative.T;
             if (t == null) return false;
             var s = new AiNative.Status { Size = (uint)sizeof(AiNative.Status) };
-            return t->GetStatus(&s) == AiNative.Ok && (s.Resolved & 1) != 0;
+            return t->GetStatus(&s) == AiNative.Ok && (s.Resolved & 31) == 31 && (s.Reserved & 1) == 0;
         }
     }
 
@@ -93,7 +93,7 @@ public static unsafe class Factions
             if (t == null) return null;
             var s = new AiNative.Status { Size = (uint)sizeof(AiNative.Status) };
             if (t->GetStatus(&s) != AiNative.Ok) return null;
-            return new FactionStatus((s.Resolved & 1) != 0, (s.Installed & 1) != 0, (int)s.Relations, (int)s.Rows, (int)s.Pairs, (int)s.Mapped, s.Calls, s.Answered,
+            return new FactionStatus((s.Resolved & 31) == 31 && (s.Reserved & 1) == 0, (s.Installed & 1) != 0, (int)s.Relations, (int)s.Rows, (int)s.Pairs, (int)s.Mapped, s.Calls, s.Answered,
                 s.ByPair, s.ByRow, s.ByTable);
         }
     }
@@ -104,8 +104,8 @@ public static unsafe class Factions
         var t = Require("Factions.Relate");
         RequireTick("Factions.Relate");
         var mod = CallerMod("Factions.Relate");
-        AiNative.Check(t->RelationSet(AiNative.Owner(mod), (byte)a, (byte)b, (uint)r), $"Factions.Relate({a}, {b}, {r})");
         AiRuntime.Watch(mod);
+        AiNative.Check(t->RelationSet(AiNative.Owner(mod), (byte)a, (byte)b, (uint)r), $"Factions.Relate({a}, {b}, {r})");
     }
 
     internal static AiNative.Table* Require(string api)

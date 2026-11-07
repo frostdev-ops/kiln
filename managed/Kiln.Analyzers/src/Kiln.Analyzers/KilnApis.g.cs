@@ -36,6 +36,7 @@ internal static partial class KilnApis
         "M:Kiln.AiAccess.Set(System.String,System.Boolean)", // AiAccess.Set(string, bool): via AiAccess.Set(string, string)
         "M:Kiln.AiAccess.Set(System.String,System.Double)", // AiAccess.Set(string, double): via AiAccess.Set(string, string)
         "M:Kiln.AiAccess.Set(System.String,System.String)", // AiAccess.Set(string, string): via Creatures.Tick(string)
+        "M:Kiln.AiStats.SummonsOf(Kiln.EntityId)", // AiStats.SummonsOf(EntityId): Game.AssertTickThread
         "M:Kiln.Arsenals.Define(System.String,Kiln.ArsenalSpec)", // Arsenals.Define(string, ArsenalSpec): via Arsenals.Write(Guid, ArsenalSpec, Creatures.OwnerKey, string, string)
         "M:Kiln.Arsenals.Extend(System.Guid,Kiln.ArsenalSpec)", // Arsenals.Extend(Guid, ArsenalSpec): via Arsenals.Write(Guid, ArsenalSpec, Creatures.OwnerKey, string, string)
         "M:Kiln.Arsenals.Extend(System.String,Kiln.ArsenalSpec)", // Arsenals.Extend(string, ArsenalSpec): via Arsenals.Extend(Guid, ArsenalSpec)

@@ -33,7 +33,7 @@ public static class AiRulesApi
         /// <summary>Its AI is in one of these states (<c>StateConstrain</c>).</summary>
         public static RuleCondition InState(params EnemyState[] states)
         {
-            if (states.Length == 0) throw new ArgumentException("name at least one state");
+            if (states.Length == 0 || states.Any(s => !Enum.IsDefined(s) || s == EnemyState.Invalid)) throw new ArgumentException("name at least one state");
             return StateIs(states);
         }
 
@@ -60,15 +60,25 @@ public static class AiRulesApi
 
         /// <summary>At least <paramref name="count"/> creatures or players it would fight are within <paramref name="metres"/>, by the game's own check
         /// (with Kiln's relations in it). Looked at every half second.</summary>
-        public static RuleCondition EnemiesNear(int count, double metres) =>
-            Is.Custom(npc => AiRuntime.CountNear(npc.Entity, Positive(metres, "EnemiesNear"), enemies: true) >= count, 0.5);
+        public static RuleCondition EnemiesNear(int count, double metres)
+        {
+            Count(count, "EnemiesNear"); Positive(metres, "EnemiesNear");
+            return Is.Custom(npc => AiRuntime.CountNear(npc.Entity, metres, enemies: true) >= count, 0.5);
+        }
 
         /// <summary>At least <paramref name="count"/> creatures on its side are within <paramref name="metres"/> (itself not counted).</summary>
-        public static RuleCondition AlliesNear(int count, double metres) =>
-            Is.Custom(npc => AiRuntime.CountNear(npc.Entity, Positive(metres, "AlliesNear"), enemies: false) >= count, 0.5);
+        public static RuleCondition AlliesNear(int count, double metres)
+        {
+            Count(count, "AlliesNear"); Positive(metres, "AlliesNear");
+            return Is.Custom(npc => AiRuntime.CountNear(npc.Entity, metres, enemies: false) >= count, 0.5);
+        }
 
-        /// <summary>Fewer than <paramref name="count"/> of the creatures it summoned (<see cref="Act.Summon(string, int, double, double, SummonSide)"/>) are alive.</summary>
-        public static RuleCondition SummonsBelow(int count) => Is.Custom(npc => AiRuntime.SummonsOf(npc.Entity) < count, 0.5);
+        /// <summary>Fewer than <paramref name="count"/> of the creatures it summoned (<c>Act.Summon</c>) are alive.</summary>
+        public static RuleCondition SummonsBelow(int count)
+        {
+            Count(count, "SummonsBelow");
+            return Is.Custom(npc => AiRuntime.SummonsOf(npc.Entity) < count, 0.5);
+        }
     }
 
     extension(Act)
@@ -79,7 +89,7 @@ public static class AiRulesApi
         public static RuleAction Flee() => Act.Game("TriggerStateConditionAction", ("condition", "WantsToFlee"));
 
         /// <summary>It backs away from its target, between these metres, and fights on (<c>RunAwayAction</c>).</summary>
-        public static RuleAction BackOff(double min, double max) => Act.Game("RunAwayAction", ("minDistance", Positive(min, "BackOff")), ("maxDistance", Positive(max, "BackOff")));
+        public static RuleAction BackOff(double min, double max) => Act.Game("RunAwayAction", ("minDistance", MinMax(min, max, "BackOff")), ("maxDistance", Positive(max, "BackOff")));
 
         /// <summary>Plays one of the game's sequences (an attack, a shout) by its GUID, without choosing an attack (<c>PlayActionSequenceAction</c>).</summary>
         public static RuleAction Play(Guid sequence, bool wait = false) => Act.Game("PlayActionSequenceAction", ("sequence", sequence), ("waitUntilFinished", wait));
@@ -89,7 +99,7 @@ public static class AiRulesApi
 
         /// <summary>Stands still for a while, facing its target (<c>PauseAction</c>).</summary>
         public static RuleAction Pause(double minSeconds, double maxSeconds) =>
-            Act.Game("PauseAction", ("minDuration", Positive(minSeconds, "Pause")), ("maxDuration", Positive(maxSeconds, "Pause")), ("lookAtCombatTarget", true));
+            Act.Game("PauseAction", ("minDuration", MinMax(minSeconds, maxSeconds, "Pause")), ("maxDuration", Positive(maxSeconds, "Pause")), ("lookAtCombatTarget", true));
 
         /// <summary>Turns one of the game's AI features on (<c>EnableFeatureAction</c>).</summary>
         public static RuleAction EnableFeature(EnemyFeatures feature) => Act.Game("EnableFeatureAction", ("feature", Single(feature)));
@@ -103,20 +113,17 @@ public static class AiRulesApi
         public static RuleAction Heal(double fraction)
         {
             Fraction(fraction, "Heal");
-            return Act.Custom(npc => AiRuntime.Heal(npc, fraction));
+            return AiRuntime.Bounded(Act.Custom(npc => AiRuntime.Heal(npc, fraction)))!;
         }
 
         /// <summary>
         /// Calls <paramref name="count"/> creatures around it: a creature block of this mod (<c>"imp"</c>), of another (<c>"mod:imp"</c>), a kiln.creatures
         /// variant or a game creature (<c>GameTemplates</c>), within <paramref name="radius"/> metres. They go after its target, live
-        /// <paramref name="seconds"/> (0: until killed) and count for <see cref="Is.SummonsBelow"/>.
+        /// <paramref name="seconds"/> (0: until killed) and count for <c>Is.SummonsBelow</c>.
         /// </summary>
         public static RuleAction Summon(string creature, int count = 1, double radius = 3, double seconds = 0, SummonSide side = SummonSide.Summoner)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(creature);
-            if (count is < 1 or > 16) throw new ArgumentException($"count {count} is outside 1..16");
-            var mod = BlocksBridge.CallerModId ?? "kiln";
-            return AiRuntime.SummonAction(new SummonSpec(creature, mod, count, Positive(radius, "Summon"), Math.Max(0, seconds), side));
+            return AiRuntime.SummonAction(SummonSpec(creature, BlocksBridge.CallerModId ?? "kiln", count, radius, seconds, side));
         }
 
         /// <summary>
@@ -137,7 +144,28 @@ public static class AiRulesApi
     extension(Blocks)
     {
         /// <summary>A sense filter for data files: <c>"senseFilter": "name"</c>. Runs on the tick thread, as <see cref="AIBlock.SenseFilter"/>.</summary>
-        public static void SenseFilter(string name, Func<NpcView, EntityId, bool> filter) => NpcRuntime.Named(AiRuntime.Filters, name, filter);
+        public static void SenseFilter(string name, Func<NpcView, EntityId, bool> filter) => AiRuntime.RegisterFilter(name, filter);
+    }
+
+    internal static SummonSpec SummonSpec(string creature, string mod, int count, double radius, double seconds, SummonSide side)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(creature);
+        if (count is < 1 or > 16) throw new ArgumentException($"count {count} is outside 1..16");
+        Positive(radius, "radius"); Positive(seconds, "seconds");
+        if (radius > 200 || seconds > 86400) throw new ArgumentException("summon radius must be at most 200 metres and seconds at most 86400");
+        if (!Enum.IsDefined(side)) throw new ArgumentException($"{side}: unknown summon side (summoner or own)");
+        return new SummonSpec(creature, mod, count, radius, seconds, side);
+    }
+
+    private static void Count(int count, string what)
+    {
+        if (count < 0) throw new ArgumentOutOfRangeException(what, "count must be 0 or more");
+    }
+
+    private static double MinMax(double min, double max, string what)
+    {
+        Positive(min, what); Positive(max, what);
+        return min <= max ? min : throw new ArgumentException($"{what}: min must not exceed max");
     }
 
     internal static double Fraction(double v, string what) =>
@@ -148,7 +176,7 @@ public static class AiRulesApi
 
     private static string Single(EnemyFeatures f)
     {
-        if (f == EnemyFeatures.None || ((uint)f & ((uint)f - 1)) != 0) throw new ArgumentException($"{f}: one feature at a time");
+        if (!Enum.IsDefined(f) || f == EnemyFeatures.None || ((uint)f & ((uint)f - 1)) != 0) throw new ArgumentException($"{f}: one feature at a time");
         return f.ToString();
     }
 }

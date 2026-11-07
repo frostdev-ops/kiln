@@ -11,7 +11,13 @@ public sealed class CreatureAiMod : Mod
     {
         // The world's table: every Vukah and every Scavenger fight each other (the game already has them hostile; this makes it a feud both ways
         // even where a species rule would not).
-        Events.On<ServerStartedEvent>(_ => Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile));
+        void Relate()
+        {
+            if (Factions.Available) Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile);
+            else Log.Warn("Faction relations are unavailable on this game build.");
+        }
+        Events.On<ServerStartedEvent>(_ => Relate());
+        if (Lifecycle.IsServerRunning) Relate();
 
         // A Vukah with its own view: players are none of its business, Scavengers are.
         Blocks.Define("warden", new CreatureBlock

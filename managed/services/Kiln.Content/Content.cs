@@ -36,7 +36,7 @@ public static unsafe partial class Content
         {
             if (_table == null)
             {
-                _table = Services.Get<ContentNative.Table>(ContentNative.Service, ContentNative.Version);
+                _table = ContentNative.FromService((nint)Backend.Current.Service(ContentNative.Service, ContentNative.Version));
                 if (_table != null) Init();
             }
             return _table;

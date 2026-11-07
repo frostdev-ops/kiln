@@ -105,14 +105,11 @@ internal static partial class Compiler
             if (IsGltf(model))
             {
                 // a model of the mod's own: kiln cook makes it from the file (tools/modelcook finds it in blocks/*.json), under the GUID that follows from its path
-                if (model.Contains("..") || Path.IsPathRooted(model)) throw new BlockError(ctx.Block, "visual.model", $"\"{model}\": a file in the mod's folder, with a relative path");
+                var full = BlockFiles.InMod(ctx, model, "visual.model");
                 ctx.Need(ClientsLevel.Mod, "visual.model", "a model of the mod's own has to be on every player's game: nothing can send it (an item's look, \"item:<name>\", asks no more than kiln)");
                 var dir = BlocksBridge.ModDirectory(ctx.Mod.Id);
                 if (dir.Length > 0)
                 {
-                    var full = Path.Combine(dir, model);
-                    if (!File.Exists(full))
-                        throw new BlockError(ctx.Block, "visual.model", $"\"{model}\" is not in the mod's folder. The build copies a mod's folders to where it runs: models/ is one of them (KilnModFolders)");
                     p.ModelFile = full;
                     if (BlocksBridge.IsClient && !File.Exists(Path.Combine(dir, "assets", "cooked", WornStem(model) + ".bin")))
                         lock (ctx.Mod.Warnings) ctx.Mod.Warnings.Add($"block {ctx.Block}, visual.model: {model} is not cooked, so it shows the look it starts from. Run kiln cook: a model in blocks/*.json is found by itself, one in code needs a model step in assets/cook.json");
@@ -177,8 +174,13 @@ internal static partial class Compiler
             centre = (min + max) / 2;
         }
         else return;
+        if (!Finite(centre)) throw new BlockError(ctx.Block, "collider.center", "a center in metres must be finite each way");
+        if (!Finite(half) || Math.Max(half.X, Math.Max(half.Y, half.Z)) > MaxColliderSize / 2)
+            throw new BlockError(ctx.Block, "collider.size", $"the model's collision is at most {MaxColliderSize} m each way; give it a smaller collider");
         var capsule = placement?.On is { } on && !on.HasFlag(Surface.Floor) && !on.HasFlag(Surface.Wall);
-        var hash = (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", key));
+        // Jolt caches shapes by hash across reloads: changing the geometry must change the hash too.
+        var shape = string.Join(":", new[] { centre.X, centre.Y, centre.Z, half.X, half.Y, half.Z }.Select(v => BitConverter.SingleToInt32Bits(v).ToString("x8")));
+        var hash = (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", $"{key}:{capsule}:{shape}"));
         void Put(Action<string, double> set, string at, string jolt)
         {
             set($"{at}.offset.x", centre.X);
@@ -216,6 +218,8 @@ internal static partial class Compiler
     }
 
     private const float MaxColliderSize = 32, MinHalf = 0.02f;
+
+    private static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
 
     private static void CheckPlacement(BlockContext ctx, PlacementBlock p, string path)
     {

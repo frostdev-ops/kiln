@@ -1,0 +1,5 @@
+{
+  "format": 1,
+  "statuses": { "cold": { "name": "Cold", "seconds": 3, "look": "frost" } },
+  "cosmetics": { "hat": { "name": "Hat", "slot": "head", "look": "frost" } }
+}

@@ -597,6 +597,7 @@ internal static partial class Compiler
                 // the box the cursor shows where it will flatten
                 d.DataRules["equipment.placementColliders[0].dataArray[0].shape.halfSize.x"] = range;
                 d.DataRules["equipment.placementColliders[0].dataArray[0].shape.halfSize.z"] = range;
+                d.DataRules["equipment.placementColliders[0].joltObjects[0].hash"] = (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", $"{d.Key}:rake:{BitConverter.DoubleToInt64Bits(range):x16}"));
             }
             else
             {
@@ -606,7 +607,7 @@ internal static partial class Compiler
         }
         if (t.Durability is { } seconds)
         {
-            if (double.IsNaN(seconds) || seconds <= 0) throw new BlockError(ctx.Block, "tool.durability", $"{seconds} must be more than 0 seconds");
+            if (!double.IsFinite(seconds) || seconds <= 0 || seconds > int.MaxValue) throw new BlockError(ctx.Block, "tool.durability", $"{seconds} must be more than 0 seconds and at most {int.MaxValue}");
             d.Rules[$"impactValues.0x{ConfigBurnTime:x8}"] = seconds;
             // the torch's second row is its Duration, which doesn't follow the config by itself
             d.DataRules["uiValues[1].value"] = (int)Math.Round(seconds);
@@ -634,12 +635,12 @@ internal static partial class Compiler
         {
             if (fish.Strength is { } st)
             {
-                if (double.IsNaN(st) || st <= 0) throw new BlockError(ctx.Block, "tool.fishing.strength", $"{st} must be more than 0");
+                if (!double.IsFinite(st) || st <= 0 || st > float.MaxValue) throw new BlockError(ctx.Block, "tool.fishing.strength", $"{st} must be more than 0 and fit a finite float");
                 d.Rules["impactValues.FishingStrength"] = st;
             }
             if (fish.Endurance is { } en)
             {
-                if (double.IsNaN(en) || en <= 0) throw new BlockError(ctx.Block, "tool.fishing.endurance", $"{en} must be more than 0");
+                if (!double.IsFinite(en) || en <= 0 || en > float.MaxValue) throw new BlockError(ctx.Block, "tool.fishing.endurance", $"{en} must be more than 0 and fit a finite float");
                 d.Rules["impactValues.FishingEndurance"] = en;
             }
         }

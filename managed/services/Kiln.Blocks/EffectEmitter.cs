@@ -525,9 +525,11 @@ internal sealed partial class EffectEmitter
             for (var k = 0; k < pierce; k++)
             {
                 var seen = b.V($"pierced{k}", ImpactType.Entity);
+                var occupied = b.VBool($"pierced{k}Occupied", false);
                 var free = b.NewLabel();
                 var other = b.NewLabel();
-                b.Call("isValidEntity", null, seen);
+                // A killed/despawned target still consumes one pierce; entity validity is not a free-slot marker.
+                b.Load(occupied);
                 b.IfFalse(free);
                 b.Call("isSameEntity", null, struck, seen);
                 b.IfTrue(next);
@@ -537,6 +539,7 @@ internal sealed partial class EffectEmitter
                 b.Set(back, at);
                 b.Call("forEachCollisionInStream", null, null, seen, null, null, null, null, null, null, null, back, notOurs);
                 b.Pop();
+                b.Set(occupied, yes);
                 b.Set(through, yes);
                 b.Goto(hitIt);
                 b.Mark(other);

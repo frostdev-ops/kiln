@@ -71,7 +71,7 @@ public readonly record struct SoundRef(string Value)
     public static implicit operator SoundRef(string value) => new(value);
     public static implicit operator SoundRef(Guid guid) => new(guid.ToString());
     /// <summary>A <see cref="SoundBlock"/> of this mod, by its handle.</summary>
-    public static implicit operator SoundRef(BlockHandle<SoundBlock> sound) => new(sound.Name);
+    public static implicit operator SoundRef(BlockHandle<SoundBlock> sound) => new(sound.Guid.ToString());
     public override string ToString() => Value;
 }
 

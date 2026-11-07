@@ -296,7 +296,8 @@ typedef struct KilnContentApi {
      * under `from` (icon_state != KILN_ICON_SERVED), the way a new item's icon falls back to its base item's. For a
      * UiTexture GUID of a mod's own (a status's or a perk's PNG icon registered with kiln.assets) named in game data
      * before the UI cache knows it: a key the cache lacks stops the game. Stays for the session. Client; harmless on a
-     * server. Any thread. */
+     * server. Returns KILN_ERR_UNAVAILABLE when the UI texture hook is off; in that case callers must keep the
+     * original texture until the new one is SERVED. Any thread. */
     KilnResult(KILN_CALL* icon_alias)(const uint8_t from[16], const uint8_t to[16]);
 } KilnContentApi;
 
