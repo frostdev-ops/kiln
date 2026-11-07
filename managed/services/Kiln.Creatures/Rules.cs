@@ -1256,11 +1256,13 @@ internal static unsafe class RulePump
     private static void PumpCore(CreaturesNative.Table* t)
     {
         Arsenals.Pumped();
-        var buf = stackalloc CreaturesNative.RuleWork[64];
+        // Drain immediately before each callback: an earlier action can destroy and replace a later action's entity.
+        // The native queue retains and validates lifetime tokens; keeping its existing payload preserves the v1 ABI.
+        var buf = stackalloc CreaturesNative.RuleWork[1];
         var now = Clock.ElapsedMilliseconds;
         uint n;
         var changed = false;
-        while ((n = t->RulesDrain(buf, 64)) != 0)
+        while ((n = t->RulesDrain(buf, 1)) != 0)
         {
             for (uint i = 0; i < n; i++)
             {

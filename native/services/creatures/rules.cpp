@@ -24,6 +24,7 @@
 #include <intrin.h>
 
 #include <cstdio>
+#include <deque>
 
 #include "internal.h"
 #include "safetyhook.hpp"
@@ -85,12 +86,51 @@ struct Want {
     KilnEntity e;
     uint32_t id;
     KilnEntity target;
+    uint64_t life = 0, target_life = 0;
 };
 std::mutex g_want_mu;
 std::vector<Want> g_want;
 
-std::vector<KilnRuleWork> g_work;  // tick only
+struct Work {
+    KilnRuleWork work;
+    uint64_t life, target_life;
+};
+std::deque<Work> g_work;  // tick only; single-item drains must not move the rest of the queue
 std::atomic<uint32_t> g_pump{0};
+
+// Same entry observer and monotonic lifetimes as npcai. Its entity_lifetime API is tick-only, but actions originate
+// on jobs (including newly spawned creatures), so capture here under the queue lock instead of calling that API.
+std::unordered_map<KilnEntity, uint64_t> g_lives;  // protected by g_want_mu, including the destroy observer
+uint64_t g_next_life = 1;  // never reset across worlds
+std::atomic<uintptr_t> g_life_storage{0};
+safetyhook::MidHook g_life_destroy;
+bool g_life_warned = false;
+
+uint64_t capture_life(KilnEntity e) {
+    if (!e || !g_life_storage.load(std::memory_order_acquire)) return 0;
+    auto [it, fresh] = g_lives.try_emplace(e, 0);
+    if (fresh) it->second = g_next_life++;
+    return it->second;
+}
+
+void hk_life_destroy(safetyhook::Context& ctx) {
+    const auto storage = g_life_storage.load(std::memory_order_acquire);
+    if (!storage || ctx.rcx != storage) return;
+    std::lock_guard lock(g_want_mu);
+    g_lives.erase(static_cast<KilnEntity>(ctx.rdx));
+}
+
+void clear_rule_work() {
+    g_life_storage.store(0, std::memory_order_release);
+    std::lock_guard lock(g_want_mu);
+    g_lives.clear();
+    g_want.clear();
+    g_work.clear();
+}
+
+void KILN_CALL on_rules_world(const KilnWorldEvent* ev, void*) {
+    if (ev->kind == KILN_WORLD_SERVER && ev->event == KILN_WORLD_STOPPING) clear_rule_work();
+}
 
 std::atomic<uint64_t> g_slot_eval[kSlots], g_slot_true[kSlots];
 
@@ -200,7 +240,12 @@ void want(uint32_t kind, KilnEntity e, uint32_t id = 0, KilnEntity target = 0) {
         if (kind == W_ACTION) S.actions_dropped.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    g_want.push_back(Want{kind, e, id, target});
+    Want w{kind, e, id, target};
+    if (kind == W_ACTION) {
+        w.life = capture_life(e);
+        w.target_life = capture_life(target);
+    }
+    g_want.push_back(w);
 }
 
 inline bool hour_in(float h, float from, float to) {
@@ -600,12 +645,12 @@ void publish_snapshot() {
     g_pub.store(&s, std::memory_order_release);
 }
 
-void push_work(uint32_t kind, KilnEntity e, uint32_t id, KilnEntity target) {
+void push_work(uint32_t kind, KilnEntity e, uint32_t id, KilnEntity target, uint64_t life = 0, uint64_t target_life = 0) {
     if (g_work.size() >= kMaxQueue) {
         if (kind == KILN_RULE_WORK_ACTION) S.actions_dropped.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    g_work.push_back(KilnRuleWork{kind, e, id, target, g_step});
+    g_work.push_back(Work{{kind, e, id, target, g_step}, life, target_life});
 }
 
 // enemy_combat_targets switches to its best candidate only once now passes DynamicAggro.nextAllowedTargetChangeTime: with
@@ -650,6 +695,22 @@ void ai_switch_write(KilnEntity e, bool on) {
 }
 
 }  // namespace
+
+void rules_lifetime_init() {
+    KilnHandle h = 0;
+    uintptr_t at = 0;
+    if (g_api->size < offsetof(KilnApi, subscribe_world) + sizeof(g_api->subscribe_world) ||
+        !g_api->feature || !g_api->feature(kstr("world.lifecycle")) || !g_api->subscribe_world || L.world_storage <= 0 ||
+        g_api->symbol(kstr("spawn/DestroyEntity"), &at) != KILN_OK || !at ||
+        g_api->subscribe_world(g_owner, &on_rules_world, nullptr, &h) != KILN_OK) return;
+    auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(at), &hk_life_destroy);
+    if (hook) g_life_destroy = std::move(*hook);
+}
+
+void rules_lifetime_unload(void*) {
+    clear_rule_work();
+    g_life_destroy = {};
+}
 
 void rules_resolve() {
     const auto sym = [](const char* name, uintptr_t* out) {
@@ -796,6 +857,7 @@ void rules_unhook_if_idle() {
 void rules_pre_work() {
     LARGE_INTEGER t0{};
     QueryPerformanceCounter(&t0);
+    if (g_life_destroy) g_life_storage.store(world() + static_cast<uintptr_t>(L.world_storage), std::memory_order_release);
     std::vector<Want> wants;
     {
         std::lock_guard lock(g_want_mu);
@@ -803,7 +865,11 @@ void rules_pre_work() {
     }
     for (const Want& w : wants) {
         if (w.kind == W_ACTION) {
-            push_work(KILN_RULE_WORK_ACTION, w.e, w.id, w.target);
+            if (!w.life && !g_life_warned) {
+                g_life_warned = true;
+                KC_W("rules: entity lifetime observer unavailable; queued actions use entity IDs without lifetime checks");
+            }
+            push_work(KILN_RULE_WORK_ACTION, w.e, w.id, w.target, w.life, w.target_life);
             continue;
         }
         auto [it, fresh] = g_tracks.try_emplace(w.e);
@@ -942,9 +1008,24 @@ void rules_release_owner(KilnOwner owner) {
 
 uint32_t KILN_CALL rules_drain_api(KilnRuleWork* out, uint32_t capacity) {
     if (!on_tick() || !out) return 0;
-    const uint32_t n = static_cast<uint32_t>(std::min<size_t>(g_work.size(), capacity));
-    if (n) std::memcpy(out, g_work.data(), n * sizeof(KilnRuleWork));
-    g_work.erase(g_work.begin(), g_work.begin() + n);
+    uint32_t n = 0;
+    while (!g_work.empty() && n < capacity) {
+        const Work w = g_work.front();
+        g_work.pop_front();
+        const auto alive = [](KilnEntity e, uint64_t life) {
+            if (!life) return true;  // unknown build: preserve the previous behaviour
+            std::lock_guard lock(g_want_mu);
+            auto it = g_lives.find(e);
+            return it != g_lives.end() && it->second == life && entity_exists(e);
+        };
+        if (w.work.kind == KILN_RULE_WORK_ACTION &&
+            (!alive(w.work.entity, w.life) || !alive(w.work.target, w.target_life))) {
+            S.actions_dropped.fetch_add(1, std::memory_order_relaxed);
+            KC_D("rules: dropped queued action %u for entity %u: entity or target lifetime changed", w.work.id, w.work.entity);
+            continue;
+        }
+        out[n++] = w.work;
+    }
     return n;
 }
 

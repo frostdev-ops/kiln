@@ -120,9 +120,10 @@ at most 16 living or pending summons per summoner, 128 per mod, and 256 globally
 generations. Summoning also requires the native lifetime observer; without it the action logs a refusal and skips the spawn. Failed spawns, deaths and unloads release capacity. These limits apply even without an `Is.SummonsBelow` condition. Summon radius is
 0..200 metres and lifetime is 0..86400 seconds (finite). Use rule intervals and cooldowns for predictable pacing.
 
-The shared kiln.creatures action queue carries entity IDs without generation checks. If an entity is destroyed and its ID reused before an action
-is drained, that older action can reach the replacement. Relation rows, sense pairs, and summon continuations use lifetime tokens; the shared
-rule queue still needs that protection.
+The shared kiln.creatures action queue captures entity and target lifetime tokens when a rule fires. Destruction invalidates the tokens before
+an ID or address can be reused; the drain drops stale actions with a debug log. Managed callbacks drain one action at a time, so an earlier action
+cannot redirect later work onto a replacement. World stops and unload discard pending work. If the lifetime observer is unavailable on a build,
+the queue keeps its previous ID-based behaviour and warns once.
 
 ## Mistakes, refused by name
 `block creature warden, ai.flee.below: 2 is outside 0..1`; `ai.senseFilter: no sense filter "tokens": register it with Blocks.SenseFilter(...)`;

@@ -282,6 +282,8 @@ KilnResult KILN_CALL arsenal_selftest_api(uint32_t* checked, uint32_t* bad);
 
 // ---------------------------------------------------------------------------------------------- rules.cpp ----
 void rules_resolve();
+void rules_lifetime_init();
+void rules_lifetime_unload(void*);
 void rules_read_layout();
 bool rules_ensure_hooks();
 bool rules_ensure_attack_hooks();

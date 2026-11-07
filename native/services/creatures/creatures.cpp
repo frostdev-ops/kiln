@@ -445,6 +445,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     info->id = kstr(KILN_CREATURES_SERVICE);
     info->version = kstr("1");
     info->on_ready = &on_ready;
+    info->on_unload = &rules_lifetime_unload;
     resolve();
     if (!F.components) {
         KC_W("GetComponent / world.storage unresolved: kiln.creatures is unavailable on this build");
@@ -452,6 +453,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     }
     ai_install();
     rules_resolve();
+    // Before every service's on_ready: npcai prepares its own observer there and must chain through this one.
+    rules_lifetime_init();
     arsenal_init();
     KilnHandle h = 0;
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;
