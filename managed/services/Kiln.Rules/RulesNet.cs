@@ -7,18 +7,22 @@ namespace Kiln;
 internal static unsafe class RulesNet
 {
     private const ushort MsgRules = 0;
+    internal const string ChannelVersion = "3";
     private static readonly object Lock = new();
     private static NetChannel? _channel;
     private static RulesNativePart _local = RulesNativePart.Default;
 
-    // v2 (0.2.0-dev.15): + the Shroud floor and the glider values; v3 (0.2.0-dev.16): + the glider's climb rate
+    // v2: + the Shroud floor and the glider values; v3 (released in 0.2.0-dev.15): + the glider's climb rate
     private readonly record struct RulesMsg(uint Flags, float BuildCost, float BuildRefund, float DigDamage, float ShroudFloor,
         float GlideSink, float GlideThrust, float GlideMaxSpeed, float GlideLift, float GlideCoast, float GlideClimb);
 
     public static bool Open => _channel is not null;
 
     /// <summary>The local player's rules as this game applies them (client).</summary>
-    public static RulesNativePart Local => _local;
+    public static RulesNativePart Local
+    {
+        get { lock (Lock) return _local; }
+    }
 
     public static void Start()
     {
@@ -29,7 +33,7 @@ internal static unsafe class RulesNet
             ModContext.CurrentMod = null;
             try
             {
-                _channel = Network.Channel(Rules.ChannelName, "3", required: false)
+                _channel = Network.Channel(Rules.ChannelName, ChannelVersion, required: false)
                     .Register<RulesMsg>(MsgRules,
                         static (m, w) => w.UInt32(m.Flags).Single(m.BuildCost).Single(m.BuildRefund).Single(m.DigDamage)
                             .Single(m.ShroudFloor).Single(m.GlideSink).Single(m.GlideThrust).Single(m.GlideMaxSpeed).Single(m.GlideLift)
@@ -70,16 +74,21 @@ internal static unsafe class RulesNet
 
     public static void SetLocal(RulesNativePart part)
     {
-        if (part == _local) return;
-        _local = part;
-        var t = RulesNative.T;
-        if (t == null) return;
-        var p = RulesNative.Of(part);
-        t->SetLocal(part.IsDefault ? null : &p);
-        RulesRuntime.Log(LogLevel.Info, $"local player's rules: flags 0x{part.Flags:x}, build cost x{part.BuildCost}, glide sink x{part.GlideSink}" +
-            ((part.Flags & RulesNative.GlideBoost) != 0
-                ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}, climb {part.GlideClimb} m/s"
-                : ""));
+        // A hosting world's tick and the client's disconnect handler can both publish here. Keep the whole snapshot
+        // and its native update together so a reader never sees mixed fields and native writes cannot be reordered.
+        lock (Lock)
+        {
+            if (part == _local) return;
+            _local = part;
+            var t = RulesNative.T;
+            if (t == null) return;
+            var p = RulesNative.Of(part);
+            t->SetLocal(part.IsDefault ? null : &p);
+            RulesRuntime.Log(LogLevel.Info, $"local player's rules: flags 0x{part.Flags:x}, build cost x{part.BuildCost}, glide sink x{part.GlideSink}" +
+                ((part.Flags & RulesNative.GlideBoost) != 0
+                    ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}, climb {part.GlideClimb} m/s"
+                    : ""));
+        }
     }
 
     /// <summary>Server: sends a player's rules to their game; false when it has no Kiln with this channel.</summary>

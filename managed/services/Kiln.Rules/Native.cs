@@ -103,4 +103,9 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
         Flags = Flags & ~GlideFlags, GlideSink = 1f, GlideThrust = 0f, GlideMaxSpeed = 0f, GlideLift = 0f, GlideCoast = 0f,
         GlideClimb = 0f,
     };
+
+    // The generated record formatter would recursively format the computed WithoutGlide property.
+    public override string ToString() =>
+        $"flags 0x{Flags:x}, build cost x{BuildCost}, refund x{BuildRefund}, dig x{DigDamage}, Shroud floor {ShroudFloor}, " +
+        $"glide sink x{GlideSink}, thrust {GlideThrust}, max speed {GlideMaxSpeed}, lift {GlideLift}, coast {GlideCoast}, climb {GlideClimb}";
 }

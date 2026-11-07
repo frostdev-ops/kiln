@@ -204,6 +204,8 @@ the live process (read-only gdb), the program table, Ghidra decompiles. **[rt] [
     `rules/client.Healthbar` = `0x30bd70`; the call target `rules/client.LineOfSight` checked by its prologue; the
     player's slots checked by two patterns: x in xmm14, y in xmm15, z at `[rbp + 0x278]`). A ray longer than 1 km, or
     a non-finite one, is made zero-length (start := end; the DDA returns at once under 1e-20 m: "nothing in the way").
+    A replacement point must be finite and in the world: end, start, player, then the origin as a final fallback.
+    Normal rays at most 1 km long are unchanged; the camera check only reads game memory.
     A camera outside the world logs once per session at W (both points, the player) and then a count every 30 s; a
     camera inside the world but over 1 km away (a building flight far from the character: FlyAnywhere leaves it
     behind) logs once at I.

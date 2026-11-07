@@ -39,6 +39,12 @@
         { "pattern": "48 8B 44 24 ?? 48 8D 95 ?? ?? 00 00 49 8B CF 0F B6 18 E8 ?? ?? ?? ?? 8B 08 FF C9 81 F9 FE 03 00 00 77 ?? 48 8B 4C 24 ?? 48 85 C9 74 ?? 0F B6 44 24 ?? 4C 8B 4C 24 ?? 4C 8B 44 24 ?? 48 8B 54 24 ?? 88 44 24 28 0F B7 44 24 ?? 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 4C 24 {rules/fog.actor:d8} B2 0E E8 ?? ?? ?? ?? 84 C0 0F 45 DF 0F B6 CB 84 DB 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 E9 01 0F 84 ?? ?? ?? ?? 83 F9 01 0F 85", "offset": 101 }
       ]
     },
+    "@rules/ShroudDrain.delta": {
+      "comment": "the deadly-fog branch reads the actual step duration before multiplying its drain by 100; the floor guard uses the same duration",
+      "find": [
+        { "scope": { "symbol": "rules/ShroudDrain", "size": 128 }, "pattern": "48 8D 95 ?? ?? 00 00 49 8B CF E8 {rules/StepDelta:rel32} 48 8B 4D D0 0F 57 C0 0F 57 F6 F2 48 0F 2A 00 F2 0F 59 C7 66 0F 5A C8 F3 41 0F 59 C9" }
+      ]
+    },
     "@rules/ShroudDrain.attr": {
       "comment": "the same program keeps its FogResistance component pointer at [rsp+fog.attr] (tested for its valid bit +6)",
       "find": [
@@ -160,7 +166,7 @@
       "constants": ["rules/cursor.actor", "storage.kind"]
     },
     "rules.shroud": {
-      "symbols": ["rules/ShroudDrain", "@rules/ShroudDrain.attr", "@rules/ShroudDrain.state", "rules/CurrentEntityId", "items/JobStorage"],
+      "symbols": ["rules/ShroudDrain", "@rules/ShroudDrain.delta", "@rules/ShroudDrain.attr", "@rules/ShroudDrain.state", "rules/StepDelta", "rules/CurrentEntityId", "items/JobStorage"],
       "constants": ["rules/fog.actor", "rules/fog.attr", "rules/fog.state", "storage.kind"]
     },
     "rules.glide": {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln.rules: per-player rules applied where the game decides them (native/core/abi/services/kiln_rules.h,
 // docs/re/rules.md). The managed Kiln.Rules works out each player's rules from every mod's rule sets and pushes them
-// here; the hooks below only read them.
+// here; the hooks below only read snapshots of them.
 //
 //  - flight gate: a mid hook where player_control_action_sequence has decided whether the building fly mode may run
 //    (bl); a player with FLY_ANYWHERE gets "may" unless dead or gliding. Server world and the client's prediction world.
@@ -28,8 +28,11 @@
 //    gets each frame logs once when it is outside the world or far from the player, with the camera's own fields.
 //
 // Every hook body runs under a structured-exception guard; a fault counts, and the game's own value stands.
+#ifndef KILN_RULES_HOST_TEST
 #include <windows.h>
+#endif
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cmath>
@@ -41,10 +44,12 @@
 #include <unordered_map>
 
 #include "kiln_api.h"
+#include "services/kiln_rules.h"
+#ifndef KILN_RULES_HOST_TEST
 #include "safetyhook.hpp"
 #include "services/kiln_client.h"
-#include "services/kiln_rules.h"
 #include "services/kiln_world.h"
+#endif
 
 #include "glide_math.h"
 
@@ -72,48 +77,26 @@ void logf(int level, const char* fmt, ...) {
 
 // ============================================================================================= rules ===========
 
-// One player's rules, readable from any thread without a lock. Floats are stored as their bits.
+constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0};
+
+// Copy a whole rule set under the lock, then release it before touching game memory. A tick-thread update must not
+// publish a new boost flag alongside the previous speed/sink values to a prediction or program thread.
 struct Slot {
-    std::atomic<uint32_t> flags{0};
-    std::atomic<uint32_t> cost{std::bit_cast<uint32_t>(1.0f)};
-    std::atomic<uint32_t> refund{std::bit_cast<uint32_t>(1.0f)};
-    std::atomic<uint32_t> dig{std::bit_cast<uint32_t>(1.0f)};
-    std::atomic<uint32_t> shroud{0};
-    std::atomic<uint32_t> sink{std::bit_cast<uint32_t>(1.0f)};
-    std::atomic<uint32_t> thrust{0};
-    std::atomic<uint32_t> max_speed{0};
-    std::atomic<uint32_t> lift{0};
-    std::atomic<uint32_t> coast{0};
-    std::atomic<uint32_t> climb{0};
-    std::atomic<bool> any{false};
+    mutable std::mutex mu;
+    KilnRulesPlayer value = kDefault;
 };
 constexpr uint32_t kMaxPlayer = 1023;
 Slot g_players[kMaxPlayer + 1];
 Slot g_local;
-// Other entities with rules: player characters outside the 1..1023 player slots (a lab's spawned characters). Few.
 constexpr int kExtra = 16;
-std::atomic<uint32_t> g_extra_ids[kExtra];
+uint32_t g_extra_ids[kExtra]{};
 Slot g_extra[kExtra];
-std::mutex g_extra_mu;  // set/clear of extra entries; readers only load atomics
+std::mutex g_extra_mu;  // protects extra identities as well as their snapshots (including slot reuse)
 
-const Slot* slot_of(uint32_t entity) {
-    if (entity >= 1 && entity <= kMaxPlayer) return &g_players[entity];
-    if (entity == 0) return nullptr;
-    for (int i = 0; i < kExtra; ++i)
-        if (g_extra_ids[i].load(std::memory_order_acquire) == entity) return &g_extra[i];
-    return nullptr;
-}
-
-float rd(const std::atomic<uint32_t>& a) { return std::bit_cast<float>(a.load(std::memory_order_relaxed)); }
-
-// Hard bounds on what the glider hooks may do (the managed rules allow less: boost speed 120 m/s at most). Kiln never
-// writes a non-finite velocity, nor one faster than kMaxKilnSpeed (unless the game's own was faster: then it is left).
-constexpr float kMaxGlideSink = 10.0f;     // x the glider's sink
-constexpr float kMaxGlideAccel = 100.0f;   // thrust, lift, coast, m/s^2
-constexpr float kMaxGlideSpeed = 120.0f;   // the boost's cap, m/s
-constexpr float kMaxKilnSpeed = 150.0f;    // any velocity a glider hook writes, m/s
-
-constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0};
+constexpr float kMaxGlideSink = 10.0f;
+constexpr float kMaxGlideAccel = 100.0f;
+constexpr float kMaxGlideSpeed = 120.0f;
+constexpr float kMaxKilnSpeed = 150.0f;
 
 bool is_default(const KilnRulesPlayer& r) {
     return r.flags == 0 && r.build_cost == 1.0f && r.build_refund == 1.0f && r.dig_damage == 1.0f && r.shroud_floor == 0.0f &&
@@ -146,38 +129,73 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     d.glide_lift = std::min(clean(d.glide_lift, 0.0f), kMaxGlideAccel);
     d.glide_coast = std::min(clean(d.glide_coast, 0.0f), kMaxGlideAccel);
     d.glide_climb = std::min(clean(d.glide_climb, 0.0f), kMaxGlideSpeed);
-    s.flags.store(d.flags, std::memory_order_relaxed);
-    s.cost.store(std::bit_cast<uint32_t>(d.build_cost), std::memory_order_relaxed);
-    s.refund.store(std::bit_cast<uint32_t>(d.build_refund), std::memory_order_relaxed);
-    s.dig.store(std::bit_cast<uint32_t>(d.dig_damage), std::memory_order_relaxed);
-    s.shroud.store(std::bit_cast<uint32_t>(d.shroud_floor), std::memory_order_relaxed);
-    s.sink.store(std::bit_cast<uint32_t>(d.glide_sink), std::memory_order_relaxed);
-    s.thrust.store(std::bit_cast<uint32_t>(d.glide_thrust), std::memory_order_relaxed);
-    s.max_speed.store(std::bit_cast<uint32_t>(d.glide_max_speed), std::memory_order_relaxed);
-    s.lift.store(std::bit_cast<uint32_t>(d.glide_lift), std::memory_order_relaxed);
-    s.coast.store(std::bit_cast<uint32_t>(d.glide_coast), std::memory_order_relaxed);
-    s.climb.store(std::bit_cast<uint32_t>(d.glide_climb), std::memory_order_relaxed);
-    s.any.store(!is_default(d), std::memory_order_release);
+    std::lock_guard lock(s.mu);
+    s.value = d;
 }
 
-void load(const Slot& s, KilnRulesPlayer* out) {
+bool load(const Slot& s, KilnRulesPlayer* out) {
+    std::lock_guard lock(s.mu);
+    *out = s.value;
+    return !is_default(*out);
+}
+
+bool player_rules(uint32_t entity, KilnRulesPlayer* out) {
+    if (entity >= 1 && entity <= kMaxPlayer) return load(g_players[entity], out);
+    std::lock_guard lock(g_extra_mu);
+    if (entity)
+        for (int i = 0; i < kExtra; ++i)
+            if (g_extra_ids[i] == entity) return load(g_extra[i], out);
     *out = kDefault;
-    out->flags = s.flags.load(std::memory_order_relaxed);
-    out->build_cost = rd(s.cost);
-    out->build_refund = rd(s.refund);
-    out->dig_damage = rd(s.dig);
-    out->shroud_floor = rd(s.shroud);
-    out->glide_sink = rd(s.sink);
-    out->glide_thrust = rd(s.thrust);
-    out->glide_max_speed = rd(s.max_speed);
-    out->glide_lift = rd(s.lift);
-    out->glide_coast = rd(s.coast);
-    out->glide_climb = rd(s.climb);
+    return false;
+}
+
+bool finite3(const float* v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); }
+float length3(const float* v) { return std::hypot(v[0], v[1], v[2]); }
+constexpr float kMaxRay = 1000.0f;
+constexpr double kWorldSize = 10240.0, kWorldHeight = 2560.0, kWorldMargin = 1000.0;
+
+bool in_world(const double* p) {
+    return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) && p[0] >= -kWorldMargin &&
+           p[0] <= kWorldSize + kWorldMargin && p[2] >= -kWorldMargin && p[2] <= kWorldSize + kWorldMargin &&
+           p[1] >= -kWorldMargin && p[1] <= kWorldHeight + kWorldMargin;
+}
+
+// Only a non-finite or overlong ray changes. Even if both endpoints and the player are corrupt, the replacement is a
+// finite point in the world; copying a NaN player position would leave the original DDA failure intact.
+bool guard_ray(float* from, float* to, const double* player) {
+    const double dx = double(to[0]) - from[0], dy = double(to[1]) - from[1], dz = double(to[2]) - from[2];
+    if (finite3(from) && finite3(to) && dx * dx + dy * dy + dz * dz <= double(kMaxRay) * kMaxRay) return false;
+    double at[3] = {to[0], to[1], to[2]};
+    if (!in_world(at)) {
+        for (int i = 0; i < 3; ++i) at[i] = from[i];
+        if (!in_world(at)) {
+            for (int i = 0; i < 3; ++i) at[i] = in_world(player) ? player[i] : 0.0;
+        }
+    }
+    for (int i = 0; i < 3; ++i) from[i] = to[i] = static_cast<float>(at[i]);
+    return true;
+}
+
+// The drain has a fractional accumulator as well as whole seconds. Keep one extra second beyond this step's drain;
+// a fixed 12-second margin is insufficient for deadly fog on a step longer than 0.12 s.
+uint8_t shroud_branch(uint8_t fog, int32_t cur, int32_t max, float fraction, bool freeze, double dt) {
+    if (fog != 2 && fog != 3) return fog;
+    const int32_t maximum = std::max(max, 0);
+    const double wanted = std::min(double(maximum), std::ceil(double(fraction * static_cast<float>(maximum))));
+    const double floor = std::max(freeze || fraction > 0.0f ? 1.0 : 0.0, wanted);
+    if (!freeze && floor == 0.0) return fog;
+    if (cur < floor) return 1;
+    if (freeze) return 4;
+    if (!std::isfinite(dt) || dt <= 0.0) return 4;
+    const double margin = std::ceil(dt * (fog == 2 ? 1.0 : 100.0)) + 1.0;
+    return double(cur) - margin < floor ? 4 : fog;
 }
 
 struct Stats {
     std::atomic<uint64_t> fly{0}, zone{0}, cursor{0}, costs{0}, refunds{0}, digs{0}, shroud{0}, glide{0}, faults{0};
 } S;
+
+#ifndef KILN_RULES_HOST_TEST
 
 // ============================================================================================= symbols =========
 
@@ -232,7 +250,7 @@ struct Layout {
 SafetyHookMid h_fly, h_zone, h_shroud, h_grav, h_stam, h_ray, h_cam;
 SafetyHookInline h_cursor, h_apply, h_damage, h_terraform, h_glide;
 const KilnClientApi* g_client = nullptr;
-uint32_t g_hooks = 0;
+std::atomic<uint32_t> g_hooks{0};
 std::mutex g_detail_mu;
 std::string g_detail = "starting";
 
@@ -255,10 +273,10 @@ int world_kind_of(void* ctx) {
 
 // The rules for one program call: by entity in the server world, the local player's elsewhere (a client's prediction
 // world and cursor act only for the local player).
-const Slot* rules_for(int kind, uint32_t entity) {
-    if (kind == 0) return slot_of(entity);
-    if (kind > 0) return &g_local;
-    return nullptr;
+bool rules_for(int kind, uint32_t entity, KilnRulesPlayer* out) {
+    if (kind == 0) return player_rules(entity, out);
+    if (kind > 0) return load(g_local, out);
+    return false;
 }
 
 // ============================================================================================= flight gate =====
@@ -268,8 +286,8 @@ void fly_body(safetyhook::Context& c) {
     void* ctx = reinterpret_cast<void*>(c.rdi);
     const int kind = world_kind_of(ctx);
     const uint32_t entity = *reinterpret_cast<const uint32_t*>(c.rbp + L.fly_entity);
-    const Slot* s = rules_for(kind, entity);
-    if (!s || !s->any.load(std::memory_order_acquire) || !(s->flags.load(std::memory_order_relaxed) & KILN_RULES_FLY_ANYWHERE))
+    KilnRulesPlayer s;
+    if (!rules_for(kind, entity, &s) || !(s.flags & KILN_RULES_FLY_ANYWHERE))
         return;
     void* actor = *reinterpret_cast<void**>(c.rbp + L.fly_actor);
     if (!actor || fn.actor_state(actor, kDead) || fn.actor_state(actor, kHangGliding)) return;
@@ -302,9 +320,8 @@ void zone_body(safetyhook::Context& c) {
     if (kind != 0) return;  // the server cursor runs in the server world (also a hosting game's)
     uint32_t entity = 0;
     fn.current_entity(ctx, &entity);
-    const Slot* s = slot_of(entity);
-    if (!s || !s->any.load(std::memory_order_acquire) ||
-        !(s->flags.load(std::memory_order_relaxed) & KILN_RULES_BUILD_OUTSIDE_BASES))
+    KilnRulesPlayer s;
+    if (!player_rules(entity, &s) || !(s.flags & KILN_RULES_BUILD_OUTSIDE_BASES))
         return;
     c.rax = (c.rax & ~uintptr_t{0xFF}) | 1;
     S.zone.fetch_add(1, std::memory_order_relaxed);
@@ -339,23 +356,22 @@ uint32_t local_player() {
 // without the storage pointer, so the world is not told apart (world_kind_of does not work there); it need not be:
 // the per-entity rules exist only where a server world runs (a dedicated server, a hosting game: there the host's
 // prediction sees the same values as its server world), and a joined client has only the local player's.
-const Slot* glide_rules(void* ctx) {
+bool glide_rules(void* ctx, KilnRulesPlayer* out) {
     uint32_t entity = 0;
     fn.current_entity(ctx, &entity);
-    if (entity == 0) return nullptr;
-    const Slot* s = slot_of(entity);
-    if (s && s->any.load(std::memory_order_acquire)) return s;
-    if (!g_local.any.load(std::memory_order_acquire)) return nullptr;
+    if (entity == 0) return false;
+    if (player_rules(entity, out)) return true;
+    if (!load(g_local, out)) return false;
     const uint32_t local = local_player();
-    if (entity == local) return &g_local;
+    if (entity == local) return true;
     static std::atomic<bool> told{false};
     if (local != 0 && !told.exchange(true))
         LOGI("glider: entity %u in this game is not the local player %u (its rules are the server's)", entity, local);
-    return nullptr;
+    return false;
 }
 
 struct GlidePre {
-    const Slot* s = nullptr;
+    KilnRulesPlayer rules = kDefault;
     void* ctx = nullptr;
     const uint8_t* input = nullptr;
     float v0[3] = {};
@@ -366,23 +382,18 @@ bool glide_pre(uint8_t* it, GlidePre* g) {
     void* ctx = *reinterpret_cast<void**>(it);
     const auto* input = *reinterpret_cast<const uint8_t* const*>(it + L.glide_player_input);
     if (!ctx || !input) return false;  // players only
-    const Slot* s = glide_rules(ctx);
-    if (!s) return false;
-    const uint32_t f = s->flags.load(std::memory_order_relaxed);
-    if (!(f & KILN_RULES_GLIDE_BOOST) && rd(s->sink) != 0.0f) return false;
+    if (!glide_rules(ctx, &g->rules)) return false;
+    const uint32_t f = g->rules.flags;
+    if (!(f & KILN_RULES_GLIDE_BOOST) && g->rules.glide_sink != 0.0f) return false;
     const auto* v = *reinterpret_cast<const float* const*>(it + L.glide_velocity);
     if (!v) return false;
     std::memcpy(g->v0, v, sizeof g->v0);
     const auto* ai = *reinterpret_cast<const uint8_t* const*>(it + L.glide_input);
     g->trigger = ai ? *reinterpret_cast<const uint16_t*>(ai + L.input_trigger) : 0;
-    g->s = s;
     g->ctx = ctx;
     g->input = input;
     return true;
 }
-
-bool finite3(const float* v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); }
-float length3(const float* v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
 
 // The guard on every velocity a glider hook writes: finite, and no faster than kMaxKilnSpeed (or the game's own speed
 // in this step, when that was faster: a dive keeps its speed, Kiln only never adds to it). A result that fails is
@@ -421,9 +432,9 @@ void glide_post(uint8_t* it, const GlidePre& g) {
     for (float& x : F) x /= len;
     if (!finite3(F)) return;
 
-    const Slot& s = *g.s;
-    const uint32_t flags = s.flags.load(std::memory_order_relaxed);
-    const bool hold = rd(s.sink) == 0.0f;
+    const KilnRulesPlayer& s = g.rules;
+    const uint32_t flags = s.flags;
+    const bool hold = s.glide_sink == 0.0f;
     float next[3] = {v[0], v[1], v[2]};
     if (flags & KILN_RULES_GLIDE_BOOST) {
         // like a plane (glide_math.h): the path's pitch from the camera (PlayerInput's copy of it: the same in the
@@ -440,11 +451,11 @@ void glide_post(uint8_t* it, const GlidePre& g) {
         const uint64_t held = *reinterpret_cast<const uint64_t*>(g.input + L.input_mask + 8);
         st.boost = (held >> kSprint) & 1;
         kiln_glide::Params pr;
-        pr.thrust = rd(s.thrust);
-        pr.max_speed = rd(s.max_speed);
-        pr.lift = rd(s.lift);
-        pr.coast = rd(s.coast);
-        pr.climb = rd(s.climb);
+        pr.thrust = s.glide_thrust;
+        pr.max_speed = s.glide_max_speed;
+        pr.lift = s.glide_lift;
+        pr.coast = s.glide_coast;
+        pr.climb = s.glide_climb;
         pr.hold_altitude = hold;
         kiln_glide::plane_step(st, pr, next);
     } else if (hold && F[1] > -0.2f && next[1] < 0.0f) {
@@ -489,9 +500,9 @@ void __fastcall hk_glide(uint8_t* it) {
 void grav_body(safetyhook::Context& c) {
     void* actor = *reinterpret_cast<void**>(c.rbp + static_cast<int8_t>(L.grav_actor));
     if (!actor || !fn.actor_state(actor, kHangGliding)) return;
-    const Slot* s = glide_rules(reinterpret_cast<void*>(c.rdi));
-    if (!s) return;
-    const float m = std::min(rd(s->sink), kMaxGlideSink);
+    KilnRulesPlayer s;
+    if (!glide_rules(reinterpret_cast<void*>(c.rdi), &s)) return;
+    const float m = s.glide_sink;
     if (!(m >= 0.0f) || m == 1.0f) return;  // NaN and the game's own sink: unchanged
     const float g = c.xmm6.f32[0] * m * m;
     if (!std::isfinite(g) || !std::isfinite(c.xmm6.f32[0])) return;
@@ -502,8 +513,8 @@ void grav_body(safetyhook::Context& c) {
 // stamina_depletion_glider, before this step's drain is added: xmm6 = the drain, rdi the ProgramContext.
 void stam_body(safetyhook::Context& c) {
     if (c.xmm6.f32[0] == 0.0f) return;
-    const Slot* s = glide_rules(reinterpret_cast<void*>(c.rdi));
-    if (!s || !(s->flags.load(std::memory_order_relaxed) & KILN_RULES_GLIDE_UNLIMITED)) return;
+    KilnRulesPlayer s;
+    if (!glide_rules(reinterpret_cast<void*>(c.rdi), &s) || !(s.flags & KILN_RULES_GLIDE_UNLIMITED)) return;
     c.xmm6.f32[0] = 0.0f;
     S.glide.fetch_add(1, std::memory_order_relaxed);
 }
@@ -538,10 +549,10 @@ void shroud_body(safetyhook::Context& c) {
     if (!ctx) return;
     uint32_t entity = 0;
     fn.current_entity(ctx, &entity);
-    const Slot* s = slot_of(entity);
-    if (!s || !s->any.load(std::memory_order_acquire)) return;
-    const bool freeze = s->flags.load(std::memory_order_relaxed) & KILN_RULES_SHROUD_FREEZE;
-    const float floor_frac = rd(s->shroud);
+    KilnRulesPlayer s;
+    if (!player_rules(entity, &s)) return;
+    const bool freeze = s.flags & KILN_RULES_SHROUD_FREEZE;
+    const float floor_frac = s.shroud_floor;
     if (!freeze && !(floor_frac > 0.0f)) return;
     const auto* comp = *reinterpret_cast<const uint8_t* const*>(c.rsp + L.fog_attr);
     if (!comp || !(comp[6] & 1)) return;
@@ -551,24 +562,17 @@ void shroud_body(safetyhook::Context& c) {
     if (i_cur >= count || i_max >= count) return;
     const int32_t cur = *reinterpret_cast<const int32_t*>(values + i_cur * 4);
     const int32_t max = *reinterpret_cast<const int32_t*>(values + i_max * 4);
-    int32_t floor_units = floor_frac > 0.0f ? static_cast<int32_t>(std::ceil(std::min(floor_frac, 1.0f) * static_cast<float>(max))) : 0;
-    if (freeze || floor_units > 0) floor_units = std::max(floor_units, 1);
-    uint8_t to = fog;
-    if (cur < floor_units) {
-        to = 1;  // below the floor (or out of time): recover, never the death check
-    } else if (freeze) {
-        to = 4;
-    } else {
-        const int32_t margin = fog == 2 ? 2 : 12;  // more than one step's drain (1/s, 100/s) on a slow step
-        if (cur - margin < floor_units) to = 4;
-    }
+    int64_t ns_out = 0;
+    const int64_t* ns = freeze ? nullptr : fn.step_delta(ctx, &ns_out);
+    const double dt = ns ? static_cast<double>(*ns) * 1e-9 : 0.0;
+    const uint8_t to = shroud_branch(fog, cur, max, floor_frac, freeze, dt);
     if (to == fog) return;
-    c.rbx = (c.rbx & ~uintptr_t{0xFF}) | to;
     if (to == 4) {
         // the drain branch would have marked the player "in the Shroud"; keep that (HUD, music, Shroud effects)
         auto* actor = *reinterpret_cast<uint8_t* const*>(c.rsp + L.fog_actor);
         if (actor) *reinterpret_cast<uint64_t*>(actor + L.fog_state) |= kInFogBit;
     }
+    c.rbx = (c.rbx & ~uintptr_t{0xFF}) | to;  // publish only after all potentially faulting reads/writes
     S.shroud.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -587,15 +591,15 @@ void hk_shroud(safetyhook::Context& c) {
 
 // ============================================================================================= cursor ==========
 
-uint32_t waived(const Slot& s) {
-    const uint32_t f = s.flags.load(std::memory_order_relaxed);
+uint32_t waived(const KilnRulesPlayer& s) {
+    const uint32_t f = s.flags;
     uint32_t m = 0;
     if (f & KILN_RULES_BUILD_OUTSIDE_BASES) m |= kOutsideZone;
     if (f & KILN_RULES_IGNORE_NO_BUILD_ZONES) m |= kLenientInhibitor | kStrictInhibitor;
     if (f & KILN_RULES_IGNORE_ENEMIES) m |= kEnemies;
     if (f & KILN_RULES_IGNORE_SHROUD) m |= kInFog;
     if (f & KILN_RULES_IGNORE_BASE_PERMISSIONS) m |= kNoPermission;
-    if (rd(s.cost) == 0.0f) m |= kMissingMaterials;
+    if (s.build_cost == 0.0f) m |= kMissingMaterials;
     return m;
 }
 
@@ -605,9 +609,9 @@ void cursor_body(uint32_t* flags, void* cctx) {
     const int kind = world_kind_of(ctx);
     uint32_t entity = 0;
     if (kind == 0) fn.current_entity(ctx, &entity);
-    const Slot* s = rules_for(kind, entity);
-    if (!s || !s->any.load(std::memory_order_acquire)) return;
-    const uint32_t m = waived(*s);
+    KilnRulesPlayer s;
+    if (!rules_for(kind, entity, &s)) return;
+    const uint32_t m = waived(s);
     if (*flags & m) {
         *flags &= ~m;
         S.cursor.fetch_add(1, std::memory_order_relaxed);
@@ -684,11 +688,9 @@ bool scale(uint8_t* cost, int64_t* list, uint8_t take, uintptr_t ret, Entry* cop
     const auto* tx = *reinterpret_cast<uint8_t* const*>(cost + 8);
     if (!tx) return false;
     const uint32_t player = *reinterpret_cast<const uint32_t*>(tx + L.tx_operator);
-    const Slot* sp = slot_of(player);
-    if (!sp) return false;
-    const Slot& s = *sp;
-    if (!s.any.load(std::memory_order_acquire)) return false;
-    const float m = take ? rd(s.cost) : rd(s.refund);
+    KilnRulesPlayer s;
+    if (!player_rules(player, &s)) return false;
+    const float m = take ? s.build_cost : s.build_refund;
     if (m == 1.0f || !from_building(ret)) return false;
     const auto* src = reinterpret_cast<const Entry*>(list[0]);
     const uint64_t n = static_cast<uint64_t>(list[1]);
@@ -771,11 +773,9 @@ uint8_t* __fastcall hk_damage(uint8_t* out, void* settings, void* setup, uint8_t
     uint8_t* r = h_damage.call<uint8_t*>(out, settings, setup, hardness, cls);
     const uint32_t p = t_digger;
     if (!p || !r) return r;
-    const Slot* sp = slot_of(p);
-    if (!sp) return r;
-    const Slot& s = *sp;
-    if (!s.any.load(std::memory_order_acquire)) return r;
-    const float m = rd(s.dig);
+    KilnRulesPlayer s;
+    if (!player_rules(p, &s)) return r;
+    const float m = s.dig_damage;
     // {u8 error; u32; float damage}: only a computed, non-zero damage changes (zero damage and "unbreakable" stay so)
     if (m != 1.0f && r[0] == 0) {
         float d;
@@ -799,9 +799,7 @@ uint8_t* __fastcall hk_damage(uint8_t* out, void* settings, void* setup, uint8_t
 //    outside the world (or not finite, or far from the player for a while) is logged once per session with the camera
 //    object's fields and the recent frame times, so the next occurrence names the source.
 
-constexpr float kMaxRay = 1000.0f;            // m; the program's own range is 150 m around the player
 constexpr double kFarFromPlayer = 1000.0;     // m
-constexpr double kWorldSize = 10240.0, kWorldHeight = 2560.0, kWorldMargin = 1000.0;  // docs/re/map.md
 constexpr int kFarFrames = 120;               // a camera far from the player (inside the world) must stay so this long
 constexpr uint64_t kPlayerFreshMs = 3000;      // a player position older than this is not compared
 constexpr uint64_t kGuardStatsMs = 30000;      // at most one "more rays" line per this long
@@ -810,6 +808,7 @@ constexpr double kFixed = 1.0 / 4294967296.0;  // 32.32 fixed point -> m
 const KilnWorldApi* g_world_api = nullptr;
 
 // The local player's position as last seen: fill_ui_healthbar's own copy (client side) or the server world's (a host).
+std::mutex g_player_mu;  // one coherent sample across the render and hosted-server threads
 std::atomic<uint64_t> g_player_bits[3];
 std::atomic<uint64_t> g_player_ms{0};
 std::atomic<int> g_player_src{0};  // 1 the health-bar program, 2 the server world
@@ -827,14 +826,9 @@ std::atomic<bool> g_ray_long_told{false};
 std::atomic<bool> g_ray_told{false}, g_cam_told{false}, g_cam_far_told{false};
 std::atomic<uint32_t> g_client_gen{0};  // client sessions: the camera check resets its own state when this changes
 
-bool in_world(const double* p) {
-    return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) && p[0] >= -kWorldMargin &&
-           p[0] <= kWorldSize + kWorldMargin && p[2] >= -kWorldMargin && p[2] <= kWorldSize + kWorldMargin &&
-           p[1] >= -kWorldMargin && p[1] <= kWorldHeight + kWorldMargin;
-}
-
 void note_player(const double* p, int src) {
     if (!in_world(p)) return;
+    std::lock_guard lock(g_player_mu);
     for (int i = 0; i < 3; ++i) g_player_bits[i].store(std::bit_cast<uint64_t>(p[i]), std::memory_order_relaxed);
     g_player_src.store(src, std::memory_order_relaxed);
     g_player_ms.store(GetTickCount64(), std::memory_order_release);
@@ -842,6 +836,7 @@ void note_player(const double* p, int src) {
 
 // The last player position, its source and age; false when there is none.
 bool last_player(double* p, int* src, uint64_t* age_ms) {
+    std::lock_guard lock(g_player_mu);
     const uint64_t at = g_player_ms.load(std::memory_order_acquire);
     if (!at) return false;
     for (int i = 0; i < 3; ++i) p[i] = std::bit_cast<double>(g_player_bits[i].load(std::memory_order_relaxed));
@@ -865,7 +860,10 @@ void client_session_reset() {
     g_ray_told.store(false);
     g_cam_told.store(false);
     g_cam_far_told.store(false);
-    g_player_ms.store(0);
+    {
+        std::lock_guard lock(g_player_mu);
+        g_player_ms.store(0);
+    }
     g_client_gen.fetch_add(1);
 }
 
@@ -877,18 +875,10 @@ void ray_body(safetyhook::Context& c) {
     if (!from || !to) return;
     const double player[3] = {c.xmm14.f32[0], c.xmm15.f32[0], *reinterpret_cast<const float*>(c.rbp + L.hb_player_z)};
     note_player(player, 1);
-    const bool finite = finite3(from) && finite3(to);
-    const float dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
-    const float len2 = dx * dx + dy * dy + dz * dz;
-    if (finite && std::isfinite(len2) && len2 <= kMaxRay * kMaxRay) return;
-    // zero length on a finite point: the end if it is finite, else the start, else the player
     const float before[6] = {from[0], from[1], from[2], to[0], to[1], to[2]};
-    float at[3] = {to[0], to[1], to[2]};
-    if (!finite3(at)) {
-        at[0] = from[0], at[1] = from[1], at[2] = from[2];
-        if (!finite3(at)) at[0] = static_cast<float>(player[0]), at[1] = static_cast<float>(player[1]), at[2] = static_cast<float>(player[2]);
-    }
-    for (int i = 0; i < 3; ++i) from[i] = to[i] = at[i];
+    if (!guard_ray(from, to, player)) return;
+    const double dx = double(before[3]) - before[0], dy = double(before[4]) - before[1], dz = double(before[5]) - before[2];
+    const double len2 = dx * dx + dy * dy + dz * dz;
     // A camera inside the world but over 1 km away is a building flight far from the character (FlyAnywhere leaves
     // the character behind): its rays are cut too (nothing to see that far), but that is no broken camera.
     const double cam[3] = {before[0], before[1], before[2]};
@@ -1109,7 +1099,7 @@ void clear_all() {
     for (auto& s : g_players) store(s, nullptr);
     std::lock_guard lock(g_extra_mu);
     for (int i = 0; i < kExtra; ++i) {
-        g_extra_ids[i].store(0, std::memory_order_release);
+        g_extra_ids[i] = 0;
         store(g_extra[i], nullptr);
     }
 }
@@ -1143,7 +1133,7 @@ KilnResult KILN_CALL t_set(KilnEntity entity, const KilnRulesPlayer* in) {
     std::lock_guard lock(g_extra_mu);
     int at = -1, free_at = -1;
     for (int i = 0; i < kExtra; ++i) {
-        const uint32_t id = g_extra_ids[i].load(std::memory_order_relaxed);
+        const uint32_t id = g_extra_ids[i];
         if (id == entity) at = i;
         else if (id == 0 && free_at < 0) free_at = i;
     }
@@ -1154,7 +1144,7 @@ KilnResult KILN_CALL t_set(KilnEntity entity, const KilnRulesPlayer* in) {
         at = free_at;
     }
     store(g_extra[at], clearing ? nullptr : r);
-    g_extra_ids[at].store(clearing ? 0 : entity, std::memory_order_release);
+    g_extra_ids[at] = clearing ? 0 : entity;
     return KILN_OK;
 }
 
@@ -1164,8 +1154,7 @@ KilnResult KILN_CALL t_get(KilnEntity entity, KilnRulesPlayer* out) {
     if (!out || entity == 0 || out->size < KILN_RULES_PLAYER_V1_SIZE) return KILN_ERR_INVALID_ARGUMENT;
     const uint32_t n = std::min<uint32_t>(out->size, sizeof(KilnRulesPlayer));
     KilnRulesPlayer v;
-    if (const Slot* s = slot_of(entity)) load(*s, &v);
-    else v = kDefault;
+    player_rules(entity, &v);
     v.size = n;
     std::memcpy(out, &v, n);
     return KILN_OK;
@@ -1196,10 +1185,12 @@ void fill_status(KilnRulesStatus* out) {
     out->size = sizeof *out;
     out->hooks = g_hooks;
     uint32_t n = 0;
-    for (auto& s : g_players) n += s.any.load(std::memory_order_relaxed);
-    for (auto& s : g_extra) n += s.any.load(std::memory_order_relaxed);
+    KilnRulesPlayer snapshot;
+    for (auto& s : g_players) n += load(s, &snapshot);
+    for (auto& s : g_extra) n += load(s, &snapshot);
     out->players = n;
-    out->local_flags = g_local.flags.load();
+    load(g_local, &snapshot);
+    out->local_flags = snapshot.flags;
     out->fly_allowed = S.fly.load();
     out->cursor_cleared = S.cursor.load();
     out->costs_scaled = S.costs.load();
@@ -1299,7 +1290,8 @@ void install() {
         g_hooks |= KILN_RULES_HOOK_DIG;
     else note("mining (rules.dig)");
     // Shroud timer
-    if (common && feat("rules.shroud") && sym("rules/ShroudDrain", &fn.shroud_site) && cst("rules/fog.attr", &L.fog_attr) &&
+    if (common && feat("rules.shroud") && sym("rules/ShroudDrain", &fn.shroud_site) &&
+        sym("rules/StepDelta", &fn.step_delta) && cst("rules/fog.attr", &L.fog_attr) &&
         cst("rules/fog.actor", &L.fog_actor) && cst("rules/fog.state", &L.fog_state)) {
         h_shroud = safetyhook::create_mid(reinterpret_cast<void*>(fn.shroud_site), &hk_shroud);
         if (h_shroud) g_hooks |= KILN_RULES_HOOK_SHROUD;
@@ -1348,8 +1340,11 @@ void install() {
          on(KILN_RULES_HOOK_DIG), on(KILN_RULES_HOOK_SHROUD), on(KILN_RULES_HOOK_GLIDE));
 }
 
+#endif  // !KILN_RULES_HOST_TEST
+
 }  // namespace
 
+#ifndef KILN_RULES_HOST_TEST
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
@@ -1363,3 +1358,5 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     // Published even with every hook off: set/get work, status() says what is off.
     return api->register_service(owner, KilnStr{KILN_RULES_SERVICE, std::strlen(KILN_RULES_SERVICE)}, &kTable);
 }
+
+#endif  // !KILN_RULES_HOST_TEST

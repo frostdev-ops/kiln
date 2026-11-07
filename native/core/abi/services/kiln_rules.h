@@ -31,7 +31,7 @@
  * Sides: on a server (and a client that hosts a world) rules are per player entity of the server world (set). On a
  * client, the prediction world and the client's own cursor act only for the local player: set_local gives its rules.
  *
- * Threads: set / set_local / clear / get / status from any thread (values are read atomically by the hooks, which run
+ * Threads: set / set_local / clear / get / status from any thread (whole rule snapshots are copied by the hooks, which run
  * on the game's program threads). Fail soft: a symbol missing on a build turns that one hook off (status says which). */
 #ifndef KILN_RULES_H
 #define KILN_RULES_H
@@ -57,7 +57,7 @@ enum {
 };
 
 typedef struct KilnRulesPlayer {
-    uint32_t size;        /* sizeof(KilnRulesPlayer); KILN_RULES_PLAYER_V1_SIZE (24) and 48 (dev.15) are still accepted */
+    uint32_t size;        /* sizeof(KilnRulesPlayer); KILN_RULES_PLAYER_V1_SIZE (24) and the earlier 48-byte layout are still accepted */
     uint32_t flags;       /* KILN_RULES_* */
     float build_cost;     /* x what placing takes (1 = the game's; 0 = free: also clears "missing materials") */
     float build_refund;   /* x what dismantling and undo give back (1 = the game's) */
@@ -70,7 +70,7 @@ typedef struct KilnRulesPlayer {
     float glide_max_speed; /* GLIDE_BOOST: the push accelerates up to this speed, m/s (speed from a dive stays) */
     float glide_lift;      /* GLIDE_BOOST: upward acceleration while sprint is held, m/s^2 */
     float glide_coast;     /* GLIDE_BOOST: without sprint, slow down along the heading at most this fast, m/s^2 (0 = the game's drag) */
-    /* since 0.2.0-dev.16 (size 56) */
+    /* since 0.2.0-dev.15 (size 56; adds to the earlier 48-byte layout) */
     float glide_climb;     /* GLIDE_BOOST: the highest climb rate while the player looks up, m/s (0 = never climbs) */
     uint32_t reserved2;    /* 0 */
 } KilnRulesPlayer;

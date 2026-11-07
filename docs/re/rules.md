@@ -220,7 +220,9 @@ thread. Kiln notes the impact's player argument (arg 0, read as kiln.gameplay do
   (`rules/fog.actor`), `Actor+0xbf8` its state word (`rules/fog.state`). For a player in the Shroud (`bl >= 2`) with
   `SHROUD_FREEZE`: `bl = 4` (no drain branch; the death check cannot fire with the timer at 1 or more) and `InFog` set
   as the drain branch would; with the timer below the floor (or 0): `bl = 1`, the recovery branch (no death check).
-  `shroud_floor` (a fraction of max) holds the timer at the floor the same way, a margin above one step's drain. The
+  `shroud_floor` (a fraction of max) holds the timer at the floor the same way. Its margin uses the actual
+  `StepDelta` duration times the drain rate, plus one second for the fractional accumulator, so a slow step cannot
+  drain through the floor. The dispatch register changes only after the actor write succeeds. The
   accumulator is never touched, so when the rule ends the game counts down from where the timer stands.
 - Other levers that do not freeze it: `shroudTimeFactor` (server-wide max), max adders (skills, flame level), the
   debug program `debug_god_mode_fogresistance` (`0x54fd0`, zeroes `0x11c09660`, which the drain never reads).
@@ -280,6 +282,10 @@ prediction, so the server agrees with what the player sees):
   context; the Actor is at `[rbp + (int8)grav.actor]` (`0xaf` = -0x51).
 - `rules/GlideStamina` (mid hook, `0xdcfda` / `0x2f103a`, before `addss xmm6,[rax]`): `GLIDE_UNLIMITED` sets this
   step's drain (xmm6) to 0.
+Rule updates publish complete snapshots under a short per-slot lock, released before game-memory access. The glide
+wrapper keeps the same snapshot across the original game call; extra-entity identities and slot reuse are protected
+together.
+
 Guards: `rules/GlideStep` works on a copy and writes back only a finite velocity no faster than 150 m/s (or the
 game's own speed in that step when that was faster); a non-finite game velocity, heading or step time is left alone;
 the gravity scale is applied only when the result is finite. `set` bounds the values (sink x10, boost 120 m/s,
@@ -300,7 +306,7 @@ client's two guards (docs/re/client.md):
 | `rules/fly.entity`, `rules/fly.actor` | `0x6dc`, `0xa8` | the same | `rules.fly` |
 | `rules/ZoneFlag` (offset 12) | `0x9cfaf` | `0x297c1f` | `rules.zone` |
 | `rules/CursorFlags` (`rules/cursor.actor` 0xf8 / client 0x108, a check) | `0x9fb20` | `0x29bfb0` | `rules.cursor` |
-| `rules/ShroudDrain` (offset 101; `rules/fog.actor` 0x48, `rules/fog.attr` 0x78, `rules/fog.state` 0xbf8) | `0xc1f35` | `0x2d5f95` | `rules.shroud` |
+| `rules/ShroudDrain` (+ `@rules/ShroudDrain.delta`, which checks `StepDelta`; offset 101; `rules/fog.actor` 0x48, `rules/fog.attr` 0x78, `rules/fog.state` 0xbf8) | `0xc1f35` | `0x2d5f95` | `rules.shroud` |
 | `rules/GlideStep` (+ `@rules/GlideStep.abort/.xform/.velocity`, `@rules/Loco.input`, `@rules/Input.mask`, `@rules/Input.trigger`; `QuatRotate`, `StepDelta` captured) | `0x1d2320` | `0x432a80` | `rules.glide` |
 | `rules/GlideGravity` (offset 133; `rules/grav.actor` 0xaf) | `0xa0f13` | `0x2a3643` | `rules.glide` |
 | `@rules/Input.camera` (`rules/input.camera_rot` 0x40, `rules/input.attack_dir` 0x5ad fixed; `QuatRotate` captured again) | `0xd2cde` | `0x2e6d3e` | `rules.glide_view` (optional: without it the plane takes F's pitch) |

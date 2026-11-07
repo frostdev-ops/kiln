@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Named rule sets: <configDir>/rules/<name>.json (the server's), those mods define, and Kiln's own.
 using System.Text.Json;
+using System.Text;
 
 namespace Kiln;
 
@@ -29,14 +30,12 @@ internal static class RulesPresets
             // An earlier Kiln's unedited file is this version's preset. Rules.Preset can run before Kiln.Rules has started
             // (and updated the files): /creative reads the preset before Rules.Apply starts the runtime, so the first
             // /creative after an update would otherwise apply the old one.
-            if (BuiltIn.TryGetValue(name, out var current) && IsEarlierDefault(name, file))
-            {
-                WriteDefault(name, current, file);
-                return current;
-            }
             try
             {
-                var r = PlayerRules.FromJson(File.ReadAllText(file));
+                var text = BuiltIn.TryGetValue(name, out var current) && IsEarlierDefault(name, file)
+                    ? WriteDefault(name, current, file) ?? File.ReadAllText(file)
+                    : File.ReadAllText(file);
+                var r = PlayerRules.FromJson(text);
                 var problems = r.Problems();
                 if (problems.Count > 0) throw new JsonException(string.Join("; ", problems));
                 return r;
@@ -83,14 +82,64 @@ internal static class RulesPresets
         }
     }
 
-    // What earlier Kiln versions wrote as a preset file. A file that still reads exactly so was never edited: it gets the
-    // current defaults (new rules reach existing worlds); an edited file stays as the owner left it. A file with this
-    // version's values that lacks one of its members (a member added since, read as its default) is an earlier Kiln's
-    // too: 0.2.0-dev.15's creative preset before glideBoost.climb.
-    private static readonly Dictionary<string, PlayerRules[]> Earlier = new(StringComparer.OrdinalIgnoreCase)
+    // Only exact files emitted by earlier versions may be upgraded. Semantic equality loses intentional nulls,
+    // omitted default-valued members, formatting and comments. Keep these snapshots independent of future defaults.
+    private static readonly Dictionary<string, string[]> Earlier = new(StringComparer.OrdinalIgnoreCase)
     {
-        // 0.2.0-dev.14: before the Shroud timer and gliding rules
-        ["creative"] = [PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null }],
+        ["creative"] =
+        [
+            DefaultText("creative", """
+                {
+                  "flyAnywhere": true,
+                  "flightCarriesBody": true,
+                  "buildOutsideBases": true,
+                  "ignoreNoBuildZones": true,
+                  "ignoreEnemiesNearby": true,
+                  "buildInShroud": true,
+                  "keepBuildsOutsideBases": true,
+                  "buildCost": 0,
+                  "buildRefund": 0,
+                  "digDamage": 1000,
+                  "invulnerable": true,
+                  "minHealth": 1,
+                  "minStamina": 1,
+                  "minMana": 1,
+                  "water": {
+                    "chargesPerSecond": "Infinity"
+                  }
+                }
+                """), // dev.14: before the Shroud timer and gliding rules
+            DefaultText("creative", """
+                {
+                  "flyAnywhere": true,
+                  "flightCarriesBody": true,
+                  "buildOutsideBases": true,
+                  "ignoreNoBuildZones": true,
+                  "ignoreEnemiesNearby": true,
+                  "buildInShroud": true,
+                  "keepBuildsOutsideBases": true,
+                  "buildCost": 0,
+                  "buildRefund": 0,
+                  "digDamage": 1000,
+                  "invulnerable": true,
+                  "minHealth": 1,
+                  "minStamina": 1,
+                  "minMana": 1,
+                  "freezeShroudTimer": true,
+                  "unlimitedGliding": true,
+                  "glideSink": 0,
+                  "glideBoost": {
+                    "thrust": 15,
+                    "maxSpeed": 35,
+                    "lift": 0,
+                    "coast": 8
+                  },
+                  "water": {
+                    "chargesPerSecond": "Infinity"
+                  }
+                }
+                """), // early dev.15: before glideBoost.climb
+        ],
     };
 
     /// <summary>Writes Kiln's presets as files when they are missing (or still an earlier Kiln's unedited defaults), so a
@@ -113,57 +162,64 @@ internal static class RulesPresets
         }
     }
 
-    // Kiln's preset as a file (a missing one, or an earlier Kiln's unedited one). A failed write is logged; the caller's
-    // rules stand either way.
-    private static void WriteDefault(string name, PlayerRules rules, string file)
+    private static string DefaultText(string name, string json) =>
+        $"// Kiln's \"{name}\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /{name} and Rules.Preset(\"{name}\") give;\n" +
+        "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n" +
+        json + "\n";
+
+    // Recheck an existing file while holding the same stream used to write it, without sharing write access.
+    // Return the text actually observed/applied so Get does not return new defaults after a raced-in owner edit.
+    internal static string? WriteDefault(string name, PlayerRules rules, string file)
     {
         try
         {
-            var upgrade = File.Exists(file);
-            File.WriteAllText(file,
-                $"// Kiln's \"{name}\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /{name} and Rules.Preset(\"{name}\") give;\n" +
-                "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n" +
-                rules.ToJson() + "\n");
+            var upgrade = false;
+            FileStream stream;
+            try
+            {
+                stream = new FileStream(file, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+            }
+            catch (IOException) when (File.Exists(file))
+            {
+                stream = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                upgrade = true;
+            }
+            var text = DefaultText(name, rules.ToJson());
+            using (stream)
+            {
+                if (upgrade)
+                {
+                    using var contents = new MemoryStream();
+                    stream.CopyTo(contents);
+                    if (!IsEarlierText(name, contents.ToArray()))
+                    {
+                        stream.Position = 0;
+                        using var reader = new StreamReader(stream, leaveOpen: true);
+                        return reader.ReadToEnd();
+                    }
+                }
+                var bytes = Encoding.UTF8.GetBytes(text);
+                stream.Position = 0;
+                stream.Write(bytes);
+                stream.SetLength(bytes.Length);
+            }
             if (upgrade) RulesRuntime.Log(LogLevel.Info, $"{file}: an earlier Kiln's unedited \"{name}\" preset; updated to this version's");
+            return text;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             RulesRuntime.Log(LogLevel.Warn, $"writing the \"{name}\" preset {file}: {e.Message}");
+            return null;
         }
     }
 
-    internal static bool IsEarlierDefault(string name, string file)
-    {
-        if (!BuiltIn.TryGetValue(name, out var current)) return false;
-        try
-        {
-            var text = File.ReadAllText(file);
-            var r = PlayerRules.FromJson(text);
-            if (Earlier.TryGetValue(name, out var earlier) && earlier.Any(e => e == r)) return true;
-            return r == current && !Members(current.ToJson()).IsSubsetOf(Members(text));
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
+    internal static bool IsEarlierDefault(string name, string file) => IsEarlierText(name, File.ReadAllBytes(file));
 
-    // Every member path in a JSON object ("glideBoost.climb"), case ignored as the reader ignores it.
-    private static HashSet<string> Members(string json)
+    private static bool IsEarlierText(string name, ReadOnlySpan<byte> bytes)
     {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-        void Walk(JsonElement e, string prefix)
-        {
-            if (e.ValueKind != JsonValueKind.Object) return;
-            foreach (var p in e.EnumerateObject())
-            {
-                var path = prefix.Length == 0 ? p.Name : prefix + "." + p.Name;
-                set.Add(path);
-                Walk(p.Value, path);
-            }
-        }
-        Walk(doc.RootElement, "");
-        return set;
+        if (!Earlier.TryGetValue(name, out var earlier)) return false;
+        foreach (var text in earlier)
+            if (bytes.SequenceEqual(Encoding.UTF8.GetBytes(text))) return true;
+        return false;
     }
 }

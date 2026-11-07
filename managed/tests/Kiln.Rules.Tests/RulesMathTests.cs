@@ -8,6 +8,62 @@ public class RulesMathTests
 {
     private static readonly EntityId P = new(3);
 
+    // Files emitted by WriteDefaults in dev.14 and early dev.15, including its original header and final newline.
+    private const string PresetHeader =
+        "// Kiln's \"creative\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /creative and Rules.Preset(\"creative\") give;\n" +
+        "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n";
+    private const string Dev14Preset = PresetHeader + """
+        {
+          "flyAnywhere": true,
+          "flightCarriesBody": true,
+          "buildOutsideBases": true,
+          "ignoreNoBuildZones": true,
+          "ignoreEnemiesNearby": true,
+          "buildInShroud": true,
+          "keepBuildsOutsideBases": true,
+          "buildCost": 0,
+          "buildRefund": 0,
+          "digDamage": 1000,
+          "invulnerable": true,
+          "minHealth": 1,
+          "minStamina": 1,
+          "minMana": 1,
+          "water": {
+            "chargesPerSecond": "Infinity"
+          }
+        }
+        """ + "\n";
+    private const string Dev15Preset = PresetHeader + """
+        {
+          "flyAnywhere": true,
+          "flightCarriesBody": true,
+          "buildOutsideBases": true,
+          "ignoreNoBuildZones": true,
+          "ignoreEnemiesNearby": true,
+          "buildInShroud": true,
+          "keepBuildsOutsideBases": true,
+          "buildCost": 0,
+          "buildRefund": 0,
+          "digDamage": 1000,
+          "invulnerable": true,
+          "minHealth": 1,
+          "minStamina": 1,
+          "minMana": 1,
+          "freezeShroudTimer": true,
+          "unlimitedGliding": true,
+          "glideSink": 0,
+          "glideBoost": {
+            "thrust": 15,
+            "maxSpeed": 35,
+            "lift": 0,
+            "coast": 8
+          },
+          "water": {
+            "chargesPerSecond": "Infinity"
+          }
+        }
+        """ + "\n";
+
     private static EffectiveRules Combine(params PlayerRules[] sets) =>
         RulesMath.Combine(P, sets.Select(r => ((RuleSet?)null, r)).ToList(), RulesLimits.Default);
 
@@ -153,15 +209,14 @@ public class RulesMathTests
         {
             var file = Path.Combine(dir, "creative.json");
             // 0.2.0-dev.15 wrote the boost without "climb": the same values today (climb's default), the member missing
-            var dev15 = PlayerRules.Creative.ToJson().Replace(",\n    \"climb\": 15", "");
-            Assert.DoesNotContain("climb", dev15);
-            File.WriteAllText(file, "// Kiln's \"creative\" rules\n" + dev15 + "\n");
+            Assert.DoesNotContain("climb", Dev15Preset);
+            File.WriteAllText(file, Dev15Preset);
             Assert.True(RulesPresets.IsEarlierDefault("creative", file));
             Assert.Equal(PlayerRules.Creative, RulesPresets.Get("creative"));
             Assert.Contains("\"climb\"", File.ReadAllText(file));  // rewritten: the owner sees the new knob
             Assert.False(RulesPresets.IsEarlierDefault("creative", file));  // and it stays (no rewrite on every read)
             // an edited dev.15 file stays the owner's
-            File.WriteAllText(file, dev15.Replace("\"thrust\": 15", "\"thrust\": 20"));
+            File.WriteAllText(file, Dev15Preset.Replace("\"thrust\": 15", "\"thrust\": 20"));
             Assert.False(RulesPresets.IsEarlierDefault("creative", file));
             Assert.Equal(20, RulesPresets.Get("creative")!.GlideBoost!.Thrust);
         }
@@ -211,8 +266,7 @@ public class RulesMathTests
         try
         {
             var old = Path.Combine(dir, "creative.json");
-            File.WriteAllText(old, "// Kiln's \"creative\" rules\n" +
-                (PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null }).ToJson());
+            File.WriteAllText(old, Dev14Preset);
             Assert.True(RulesPresets.IsEarlierDefault("creative", old));
             File.WriteAllText(old, (PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null,
                 GlideBoost = null, DigDamage = 10 }).ToJson());
@@ -237,7 +291,7 @@ public class RulesMathTests
         {
             var file = Path.Combine(dir, "creative.json");
             var earlier = PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null };
-            File.WriteAllText(file, "// Kiln's \"creative\" rules\n" + earlier.ToJson() + "\n");
+            File.WriteAllText(file, Dev14Preset);
             var got = RulesPresets.Get("creative");
             Assert.Equal(PlayerRules.Creative, got);
             Assert.Equal(0x1dfu, Combine(got!).Native.Flags);
@@ -246,6 +300,94 @@ public class RulesMathTests
             File.WriteAllText(file, (earlier with { DigDamage = 10 }).ToJson());
             Assert.Equal(earlier with { DigDamage = 10 }, RulesPresets.Get("creative"));
             Assert.Equal(0x1fu, Combine(RulesPresets.Get("creative")!).Native.Flags);
+        }
+        finally
+        {
+            RulesPresets.FolderOverride = outer;
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void EditedPresetsAreNeverRewrittenEvenWhenTheirValuesMatchAnEarlierDefault()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var outer = RulesPresets.FolderOverride;
+        RulesPresets.FolderOverride = dir;
+        try
+        {
+            var file = Path.Combine(dir, "creative.json");
+            string[] edits =
+            [
+                Dev14Preset.Replace("// delete the file", "// My server: delete the file"),
+                Dev14Preset.Replace("  \"water\":", "  \"freezeShroudTimer\": null,\n  \"water\":"),
+                Dev14Preset.Replace("  \"flyAnywhere\": true,\n  \"flightCarriesBody\": true,",
+                    "  \"flightCarriesBody\": true,\n  \"flyAnywhere\": true,"),
+                Dev14Preset.Replace("  ", "    "),
+                Dev15Preset.Replace("    \"lift\": 0,\n", ""),
+                Dev15Preset.Replace("\"thrust\": 15", "\"thrust\": 20"),
+                PresetHeader + PlayerRules.Creative.ToJson().Replace("    \"lift\": 0,\n", "") + "\n",
+            ];
+            foreach (var text in edits)
+            {
+                File.WriteAllText(file, text);
+                Assert.False(RulesPresets.IsEarlierDefault("creative", file));
+                Assert.Equal(PlayerRules.FromJson(text), RulesPresets.Get("creative"));
+                Assert.Equal(text, File.ReadAllText(file));
+                RulesPresets.WriteDefaults();
+                Assert.Equal(text, File.ReadAllText(file));
+            }
+        }
+        finally
+        {
+            RulesPresets.FolderOverride = outer;
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void DefaultWriterRechecksTheOpenedFileAfterAnEarlierDefaultWasDetected()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var file = Path.Combine(dir, "creative.json");
+            File.WriteAllText(file, Dev14Preset);
+            Assert.True(RulesPresets.IsEarlierDefault("creative", file));
+            // An editor saves after Get/WriteDefaults checks the file, before the writer opens it.
+            var edited = Dev14Preset.Replace("\"digDamage\": 1000", "\"digDamage\": 10");
+            File.WriteAllText(file, edited);
+            Assert.Equal(edited, RulesPresets.WriteDefault("creative", PlayerRules.Creative, file));
+            Assert.Equal(edited, File.ReadAllText(file));
+            File.Delete(file);
+            var created = RulesPresets.WriteDefault("creative", PlayerRules.Creative, file);
+            Assert.Equal(PresetHeader + PlayerRules.Creative.ToJson() + "\n", created);
+            Assert.Equal(created, File.ReadAllText(file));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void AnEncodingEditToAnEarlierDefaultIsPreserved()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var outer = RulesPresets.FolderOverride;
+        RulesPresets.FolderOverride = dir;
+        try
+        {
+            var file = Path.Combine(dir, "creative.json");
+            var bytes = new byte[] { 0xef, 0xbb, 0xbf }.Concat(System.Text.Encoding.UTF8.GetBytes(Dev14Preset)).ToArray();
+            File.WriteAllBytes(file, bytes);
+            Assert.False(RulesPresets.IsEarlierDefault("creative", file));
+            Assert.Equal(PlayerRules.FromJson(Dev14Preset), RulesPresets.Get("creative"));
+            RulesPresets.WriteDefaults();
+            Assert.Equal(bytes, File.ReadAllBytes(file));
         }
         finally
         {

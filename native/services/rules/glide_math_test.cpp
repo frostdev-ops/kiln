@@ -2,6 +2,7 @@
 // Host test of the boosted glider's math (glide_math.h): native/services/rules/test-glide-math.sh builds and runs it.
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 #include "glide_math.h"
 
@@ -145,6 +146,75 @@ int main() {
         Step d;  // view unknown: the heading's pitch
         d.heading[2] = 1, d.dt = 1.0f / 60.0f, d.boost = true, d.v0[2] = 11, d.v[2] = 11;
         check(plane_step(d, p, out) == Result::Plane && std::fabs(out[1]) < 1e-6f, "no view: level along the heading");
+    }
+    {
+        // Lift is another boost acceleration: it must respect the speed cap after it changes the vector.
+        Step s;
+        s.heading[2] = 1, s.dt = 0.25f, s.boost = true, s.v0[2] = 120, s.v[2] = 60;
+        view_at(s, 90);
+        Params q = p;
+        q.max_speed = 120, q.thrust = 100, q.lift = 100, q.climb = 120;
+        float out[3];
+        check(plane_step(s, q, out) == Result::Plane && finite3(out) && len3(out) <= kSpeedLimit + 1e-3f,
+              "lift at the hard speed limit cannot accelerate beyond 120 m/s");
+        s.v0[2] = 35, s.v[2] = 20;
+        view_at(s, 0);
+        q.max_speed = 35;
+        plane_step(s, q, out);
+        check(finite3(out) && len3(out) <= q.max_speed + 1e-3f,
+              "lift at the boost cap cannot accelerate beyond max_speed");
+        // Speed already earned in a dive is kept, even when the boost cap is lower.
+        s.v0[2] = 50;
+        plane_step(s, q, out);
+        check(std::fabs(len3(out) - 50.0f) < 1e-3f, "lift respects a dive's existing speed above the boost cap");
+    }
+    {
+        // No division by the glide's speed, even at rest or while pointing straight up/down.
+        bool bounded = true, pitch_bounded = true;
+        for (float initial : {0.0f, 1e-10f, 1e-4f, 11.0f, 35.0f, 120.0f}) {
+            for (float pitch : {-90.0f, -89.999f, -60.0f, 0.0f, 60.0f, 90.0f}) {
+                for (float dt : {1.0f / 60.0f, 0.25f, 1e6f, std::numeric_limits<float>::max()}) {
+                    for (bool boost : {false, true}) {
+                        Step s;
+                        view_at(s, pitch);
+                        for (int i = 0; i < 3; ++i) s.heading[i] = s.view[i];
+                        s.v0[2] = initial, s.v[2] = initial * 0.5f, s.dt = dt, s.boost = boost;
+                        float out[3];
+                        const auto r = plane_step(s, p, out);
+                        bounded = bounded && finite3(out) && len3(out) <= kSpeedLimit + 1e-3f && out[1] <= p.climb + 1e-3f;
+                        if (r == Result::Plane && len3(out) > 0)
+                            pitch_bounded = pitch_bounded && out[1] / len3(out) <= kMaxClimbPitch + 1e-3f;
+                    }
+                }
+            }
+        }
+        check(bounded, "zero/near-zero speed, vertical headings and huge dt keep finite, bounded velocities");
+        check(pitch_bounded, "the plane path never climbs steeper than 60 degrees (without lift)");
+        Step s;
+        s.heading[2] = 1, s.v0[2] = 35, s.v[1] = -2, s.v[2] = 20, s.boost = true;
+        Params q = p;
+        q.hold_altitude = false;
+        bool unchanged = true;
+        for (float dt : {0.0f, -1.0f, NAN, INFINITY}) {
+            s.dt = dt;
+            float out[3];
+            unchanged = unchanged && plane_step(s, q, out) == Result::Game && out[0] == s.v[0] &&
+                        out[1] == s.v[1] && out[2] == s.v[2];
+        }
+        check(unchanged, "zero, negative and non-finite dt use the game's glide");
+        s.dt = 1.0f / 60.0f, s.view[0] = NAN;
+        float out[3];
+        check(plane_step(s, p, out) == Result::Plane && finite3(out), "a NaN view falls back to the finite heading");
+        s.heading[1] = NAN;
+        check(plane_step(s, q, out) == Result::Game && out[1] == s.v[1] && out[2] == s.v[2],
+              "a NaN heading uses the game's glide");
+        s.heading[1] = 0;
+        view_at(s, 90);
+        check(std::fabs(path_pitch(s) - kMaxClimbPitch) < 1e-6f, "a vertical upward view uses the 60-degree pitch limit");
+        view_at(s, -90);
+        check(std::fabs(path_pitch(s) + 1.0f) < 1e-6f, "a vertical downward view may dive straight down");
+        s.view[1] = kLevelBand + 1e-5f, s.view[2] = std::sqrt(1.0f - s.view[1] * s.view[1]);
+        check(path_pitch(s) > 0 && path_pitch(s) < 1e-3f, "the level-flight band has a continuous pitch transition");
     }
     {
         // the game's glide with sink 0 keeps the altitude unless the glider points down

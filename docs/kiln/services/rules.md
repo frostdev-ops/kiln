@@ -114,8 +114,8 @@ positions four times a second.
 ### As data
 A preset is a `PlayerRules` in JSON (camelCase, comments allowed). Kiln writes its own `creative` preset to
 `<configDir>/rules/creative.json` the first time it runs; edit it to change what `/creative` gives on that server. A file
-an earlier Kiln wrote and nobody edited is replaced with this version's preset (so new rules such as the Shroud timer
-and gliding reach existing worlds); an edited file is left alone. `Rules.Preset` does this check itself before it reads
+an earlier Kiln wrote and which still matches its emitted bytes exactly is replaced with this version's preset (so new
+rules such as the Shroud timer and gliding reach existing worlds); an edited file is left alone. `Rules.Preset` does this check itself before it reads
 the file, so the first `/creative` after an update already gets the new preset (it reads the preset before Kiln.Rules
 has started and written its files).
 ```jsonc
@@ -147,7 +147,7 @@ A game hosting a world (co-op or offline) is both sides in one process: the host
 prediction and cursor hooks, with no network message. Nothing on either side needs Kiln.Admin (a server-only mod).
 A vanilla game gets only the server-side half: its own prediction refuses the flight and its cursor refuses the
 placement, so it should not be given those rules (`/creative` refuses it). The glider's rules are held back on the
-server until the player's game has the rules channel (version 3 since the climb rate): a boost only the server applied
+server until the player's game has the matching rules channel (version 3 since the climb rate, released in 0.2.0-dev.15): a boost only the server applied
 would be corrected on the player's screen every step.
 
 ## Gliding
@@ -162,7 +162,8 @@ path climbs at 60 degrees at most.
 - Holding sprint adds `Thrust` up to `MaxSpeed` (a dive's speed is not taken away); `Lift` adds an upward push.
 - Without sprint, `Coast` slows what is over the path's own glide speed: the game's glide when level or climbing, more
   the steeper the dive (a dive settles at a speed for its angle, at most 2 x `MaxSpeed`). `Coast` 0 is the game's drag.
-- The climb rate never passes `Climb` (0: looking up only slows the glider).
+- The climb rate never passes `Climb` (0: looking up only slows the glider). The final velocity, including `Lift`,
+  respects the boost speed budget and the 120 m/s path limit.
 - Once the path is no faster than the game's own glide (after letting go, or a climb that ran out of speed), the
   game's glide stands again: releasing everything settles into a normal glide, and a plain glide does not climb.
 `GlideSink` scales gravity for a gliding character (0: no gravity, and a glider that is not pointing down holds its
@@ -170,6 +171,9 @@ altitude; with a sink above 0 a boosted glider also sinks by that gravity). `Unl
 stamina drain. Hits, landing, water and letting go still end a glide, as in the game; Kiln's landing teleport belongs to
 the fly mode only, so a glide that ends on the ground never snaps the character anywhere. Without `GlideBoost` the glide
 is the game's (with `GlideSink` and `UnlimitedGliding`).
+
+Channel versions must match exactly: a v2 peer still joins, but receives no v3 rules messages and gets no server-side
+glide changes. This prevents prediction from using different gliding rules.
 
 ## The flight
 The game's fly mode puts the player's input into a flying spark and leaves the character sitting where it was
@@ -254,6 +258,7 @@ the same works for an admin who joins with Kiln.
     normally. Look down: it dives and speeds up; level out and it slows back to a normal glide within a few seconds.
     Land: no snap back. `/creative off`: the game's glide (sinks, uses stamina). kiln.log: `local player's rules: flags
     0x1df, … glide sink x0, boost 15 m/s² to 35 m/s, lift 0, climb 15 m/s`.
+
 ## Client guards (the game client only)
 Not rules: two guards against a broken game camera, in kiln-rules because it already hooks the client's programs
 (docs/re/client.md, "The camera, health-bar line of sight, and a frozen client"; `sigdb/symbols/client.d/rules.json`).
@@ -279,3 +284,10 @@ Not rules: two guards against a broken game camera, in kiln-rules because it alr
 - Building outside a base also depends on the game's undo record for that player (docs/re/rules.md 2.2).
 - The foundations work (program wraps, typed hooks, the shared marked-write path) will replace the four native hooks
   with typed hooks and wraps; the `PlayerRules` API stays.
+
+Host regression checks (no game required): `bash native/services/rules/test-glide-math.sh` and
+`bash native/services/rules/test-rules.sh`; managed rules tests: `dotnet test managed/tests/Kiln.Rules.Tests`.
+The native guard checks cover coherent rule publication, old ABI inputs, Shroud floors on slow steps, invalid ray
+endpoints, and bit-for-bit preservation of normal rays. With executable copies,
+`python native/services/rules/rules_sigdb_test.py --server <server.exe> --client <client.exe>` checks signatures,
+mid-hook instruction boundaries and failure cases for the client guards (requires Capstone).

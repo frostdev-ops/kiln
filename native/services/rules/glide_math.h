@@ -104,6 +104,15 @@ inline Result plane_step(const Step& s, const Params& p, float out[3]) {
     if (s.boost && p.lift > 0.0f) out[1] += p.lift * s.dt;
     out[1] = std::min(out[1], std::max(0.0f, p.climb));
     if (!finite3(out)) return game_glide(s, p, out);
+    // Lift changes the speed as well as the climb rate. Apply the speed budget to the final vector too, keeping
+    // speed already earned in a dive but never letting the boost (including lift) add speed beyond its cap.
+    const float limit = s.boost ? std::min(dive_top, std::max(s0, cap)) : dive_top;
+    const float final_speed = len3(out);
+    if (!std::isfinite(final_speed)) return game_glide(s, p, out);
+    if (final_speed > limit) {
+        const float scale = limit / final_speed;
+        for (int i = 0; i < 3; ++i) out[i] *= scale;
+    }
     return Result::Plane;
 }
 
