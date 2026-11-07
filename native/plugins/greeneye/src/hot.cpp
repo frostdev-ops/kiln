@@ -2,7 +2,7 @@
 // Ported from Greeneye Loader 1.2.2 src/hot.cpp (MIT, Copyright (c) 2026 Greeneye0; licenses/GreeneyeLoader-LICENSE.txt),
 // github.com/Greeneye0/greeneye-loader-enshrouded commit 4b13108. Changes for Kiln: logging through Kiln (one log
 // tag per mod), mod folders from Kiln profiles as well as greeneye/, an extra safe point on Kiln's client-world tick,
-// and status queries for kiln/state/greeneye.json. The hook, lease and reload logic is upstream's.
+// and status queries for kiln/state/greeneye.json. Kiln additionally hardens loading, staging, leases and reads.
 //
 // The loader owns every hook of every mod (API 2 of common/greeneye.h), so a mod can be replaced
 // while the game or the dedicated server runs. Ported from Find's development loader
@@ -43,6 +43,12 @@
 #include <tlhelp32.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <limits>
+#include <mutex>
+#include <cctype>
+
+#include "../../compat/compat.h"
 #include <utility>
 #include <cstdio>
 #include <map>
@@ -67,13 +73,14 @@ struct Generation {
     HMODULE module = nullptr;
     GreeneyeHost host{};
     const GreeneyeHot* api = nullptr;
+    GreeneyeHot hotApi{};
     ULONGLONG begin = 0; // when it started
 };
 
 struct Mod {
     ModInfo info;
     std::vector<std::unique_ptr<Generation>> generations; // all retained, never unloaded
-    Generation* active = nullptr;
+    std::atomic<Generation*> active{nullptr};
     Generation* pending = nullptr; // guarded by g_pendingLock
     bool preparing = false;
     bool started = false;          // the first generation ran (new hook sites are staged from now on)
@@ -99,6 +106,7 @@ struct Slot {
     bool staged = false;           // prepared by a reload generation, not written yet
     uint8_t* writeAt = nullptr;
     uint8_t write[32] = {};
+    uint8_t beforeWrite[32] = {};
     size_t writeLength = 0;
     uint8_t* lead = nullptr;       // the thunk the patch jumps to
     uint8_t* leadsTo = nullptr;    // where the patch keeps lead (in write or stub; not for a call)
@@ -116,17 +124,21 @@ SRWLOCK g_slotsLock = SRWLOCK_INIT; // g_slots changing (a reload) vs. host->rea
 constexpr unsigned kMaxNest = 64;
 thread_local Mod* t_leases[kMaxNest];
 thread_local unsigned t_depth = 0, t_overflow = 0;
+thread_local Mod* t_swapping = nullptr; // this thread already owns the exclusive gate for these callbacks
 constexpr ULONGLONG kWaitReport = 10000; // ms before a waiting reload says why in hotload.status
 CRITICAL_SECTION g_pendingLock;
 CRITICAL_SECTION g_keepLock;
 std::vector<std::unique_ptr<Slot>> g_slots;      // in creation order
 std::vector<std::unique_ptr<Mod>> g_mods;
-Generation* g_staging = nullptr;                // the generation starting right now
-bool g_stagingFailed = false;
+thread_local Generation* g_staging = nullptr;                // the generation starting right now
+thread_local bool g_stagingFailed = false;
 Generation* g_committing = nullptr;             // started; its new hook sites wait to be written
 unsigned g_commitTries = 0;
 constexpr unsigned kCommitTries = 100;          // safe points to wait for them, then the reload fails
 std::map<std::string, void*> g_keep;
+std::atomic<bool> g_initialized{false}, g_starting{true}, g_stopping{false};
+HANDLE g_watcherStop = nullptr;
+std::vector<std::unique_ptr<Slot>> g_retiredSlots; // mod threads may retain returned trampolines after failed starts
 std::unique_ptr<Mod> g_loaderMod;               // the loader's own safe-point hook
 
 // --- leases ---------------------------------------------------------------------------------
@@ -147,10 +159,14 @@ bool Enter(void* token)
         ++t_overflow; // absurdly deep: the detour calls straight on, untouched by any swap
         return false;
     }
+    // The swapping thread already owns this gate exclusively while starting the new generation.
+    // Its lease is inactive, just as at the initial start, and must not recursively acquire the gate.
+    if (g == g_staging || mod == t_swapping)
+        mod = nullptr;
     if (mod && !Holds(mod))
         AcquireSRWLockShared(&mod->gate);
     t_leases[t_depth++] = mod;
-    return mod && mod->active == g;
+    return mod && mod->active.load() == g;
 }
 
 void Leave()
@@ -159,6 +175,8 @@ void Leave()
         --t_overflow;
         return;
     }
+    if (!t_depth)
+        return;
     Mod* mod = t_leases[--t_depth];
     if (mod && !Holds(mod))
         ReleaseSRWLockShared(&mod->gate);
@@ -166,24 +184,45 @@ void Leave()
 
 // --- the code as it was before our hooks ----------------------------------------------------
 
+bool Span(const void* p, size_t n)
+{
+    return p && n <= (std::numeric_limits<uintptr_t>::max)() - reinterpret_cast<uintptr_t>(p);
+}
+
+bool Copy(void* out, const void* p, size_t n)
+{
+    if (!n) return true;
+    if (!Span(p, n) || !Span(out, n)) return false;
+    __try {
+        jumppatch::CopyBytes(out, p, n); // a real call: clang-cl's __try only sees faults inside calls
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 void Read(const void* p, void* out, size_t n)
 {
-    memcpy(out, p, n);
+    if (!n || !Span(p, n) || !Span(out, n)) return;
     AcquireSRWLockShared(&g_slotsLock);
-    // Newest slot first, so the oldest (the one that saw the original bytes) has the last word.
-    auto at = reinterpret_cast<uintptr_t>(p);
-    for (auto it = g_slots.rbegin(); it != g_slots.rend(); ++it) {
-        const Slot& s = **it;
-        auto a = reinterpret_cast<uintptr_t>(s.target);
-        uintptr_t lo = (std::max)(at, a), hi = (std::min)(at + n, a + s.length);
-        if (lo < hi)
-            memcpy(static_cast<uint8_t*>(out) + (lo - at), s.saved + (lo - a), hi - lo);
+    if (Copy(out, p, n)) {
+        // Restore the actual patch operands, including a RIP-indirect jump's pointer outside target's prologue.
+        const auto at = reinterpret_cast<uintptr_t>(p);
+        for (auto it = g_slots.rbegin(); it != g_slots.rend(); ++it) {
+            const Slot& s = **it;
+            if (s.staged || !s.writeLength) continue;
+            const auto a = reinterpret_cast<uintptr_t>(s.writeAt);
+            const uintptr_t lo = (std::max)(at, a), hi = (std::min)(at + n, a + s.writeLength);
+            if (lo < hi)
+                Copy(static_cast<uint8_t*>(out) + (lo - at), s.beforeWrite + (lo - a), hi - lo);
+        }
     }
     ReleaseSRWLockShared(&g_slotsLock);
 }
 
 uint8_t* g_text = nullptr;
 size_t g_textSize = 0;
+std::once_flag g_canonicalOnce;
 std::vector<uint8_t> g_canonical; // .text as it was before our hooks (made on first find)
 
 bool TextSection(uint8_t*& start, size_t& size)
@@ -204,18 +243,26 @@ bool TextSection(uint8_t*& start, size_t& size)
 std::vector<int> ParsePattern(const char* pattern)
 {
     std::vector<int> bytes;
+    if (!pattern) return bytes;
+    auto hex = [](unsigned char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
     for (const char* p = pattern; *p;) {
-        if (*p == ' ') {
-            ++p;
-            continue;
-        }
+        if (std::isspace(static_cast<unsigned char>(*p))) { ++p; continue; }
         if (*p == '?') {
             bytes.push_back(-1);
             p += p[1] == '?' ? 2 : 1;
-            continue;
+        } else {
+            const int a = hex(static_cast<unsigned char>(p[0]));
+            if (!p[1]) return {};
+            const int b = hex(static_cast<unsigned char>(p[1]));
+            if (a < 0 || b < 0) return {};
+            bytes.push_back((a << 4) | b);
+            p += 2;
         }
-        bytes.push_back(static_cast<int>(strtoul(p, nullptr, 16)));
-        p += 2;
     }
     return bytes;
 }
@@ -224,29 +271,25 @@ uint8_t* Find(const char* pattern, void* module)
 {
     if (module && module != GetModuleHandleW(nullptr))
         return nullptr; // only the exe's code
-    if (g_canonical.empty()) {
-        if (!TextSection(g_text, g_textSize))
-            return nullptr;
+    std::call_once(g_canonicalOnce, [] {
+        if (!TextSection(g_text, g_textSize)) return;
         g_canonical.resize(g_textSize);
         Read(g_text, g_canonical.data(), g_textSize);
-    }
+    });
     std::vector<int> pat = ParsePattern(pattern);
-    if (pat.empty() || pat[0] < 0)
-        return nullptr;
     const uint8_t* text = g_canonical.data();
     const size_t size = g_canonical.size(), n = pat.size();
+    if (!n || n > size || pat[0] < 0) return nullptr;
     const uint8_t first = static_cast<uint8_t>(pat[0]);
     const uint8_t* found = nullptr;
-    for (const uint8_t* p = text; p + n <= text + size; ++p) {
-        p = static_cast<const uint8_t*>(memchr(p, first, (text + size) - p - n + 1));
-        if (!p)
-            break;
+    for (size_t offset = 0; offset <= size - n;) {
+        const auto* p = static_cast<const uint8_t*>(memchr(text + offset, first, size - n - offset + 1));
+        if (!p) break;
+        offset = static_cast<size_t>(p - text) + 1;
         size_t k = 1;
-        while (k < n && (pat[k] < 0 || p[k] == pat[k]))
-            ++k;
+        while (k < n && (pat[k] < 0 || p[k] == pat[k])) ++k;
         if (k == n) {
-            if (found)
-                return nullptr; // not unique
+            if (found) return nullptr;
             found = p;
         }
     }
@@ -305,7 +348,7 @@ std::unique_ptr<Slot> NewSlot(Generation* g, uint8_t* target, size_t n, void* de
     s->owner = g->mod;
     s->target = target;
     s->length = n;
-    memcpy(s->saved, target, n);
+    if (!Copy(s->saved, target, n)) return nullptr;
     s->pending = detour;
     s->boundBy = g;
     return s;
@@ -335,12 +378,12 @@ Slot* StagedAt(uint8_t* target, bool call)
     return nullptr;
 }
 
-// Writes s's patch now, or, for a reload generation, stages it for the swap (WriteStaged).
+// Stages s's patch for publication after the generation finishes starting (WriteStaged).
 void* Place(std::unique_ptr<Slot> s)
 {
-    if (s->owner->started)
-        s->staged = true;
-    else if (s->writeLength && !jumppatch::Write(s->writeAt, s->write, s->writeLength))
+    // Never publish a hook until the mod has stored the returned trampoline and finished starting.
+    s->staged = true;
+    if (s->writeLength && !Copy(s->beforeWrite, s->writeAt, s->writeLength))
         return Refuse(s.get());
     void* base = s->base;
     AcquireSRWLockExclusive(&g_slotsLock);
@@ -352,7 +395,7 @@ void* Place(std::unique_ptr<Slot> s)
 void* Hook(uint8_t* target, void* detour, size_t n, const uint8_t* code, size_t codeSize)
 {
     Generation* g = g_staging;
-    if (!g || !target || n < 12 || n > 32 || codeSize > 48)
+    if (!g || !target || !detour || n < 12 || n > 32 || codeSize > 48 || (!code && codeSize))
         return Refuse(nullptr);
     if (Slot* s = OwnSlot(g, target)) { // a reload: same place, new detour
         s->pending = detour;
@@ -360,6 +403,7 @@ void* Hook(uint8_t* target, void* detour, size_t n, const uint8_t* code, size_t 
         return s->base;
     }
     auto s = NewSlot(g, target, n, detour);
+    if (!s) return Refuse(nullptr);
     if (Slot* first = StagedAt(target, false)) {
         // This generation hooks a new place twice: in front of its first hook, as if written.
         s->base = first->lead;
@@ -403,7 +447,8 @@ void* Hook(uint8_t* target, void* detour, size_t n, const uint8_t* code, size_t 
         if (!t)
             return Refuse(s.get());
         s->trampoline = t;
-        memcpy(t, code ? code : target, code ? codeSize : n);
+        if (!Copy(t, code ? code : target, code ? codeSize : n))
+            return Refuse(s.get());
         size_t len = code ? codeSize : n;
         void* back = target + n;
         t[len] = 0xFF;
@@ -431,7 +476,8 @@ void* Hook(uint8_t* target, void* detour, size_t n, const uint8_t* code, size_t 
 void* RedirectCall(uint8_t* call, void* detour)
 {
     Generation* g = g_staging;
-    if (!g || !call || call[0] != 0xE8)
+    uint8_t opcode = 0;
+    if (!g || !call || !detour || !Copy(&opcode, call, 1) || opcode != 0xE8)
         return Refuse(nullptr);
     if (Slot* s = OwnSlot(g, call)) {
         s->pending = detour;
@@ -439,6 +485,7 @@ void* RedirectCall(uint8_t* call, void* detour)
         return s->base;
     }
     auto s = NewSlot(g, call, 5, detour);
+    if (!s) return Refuse(nullptr);
     s->call = true;
     Slot* first = StagedAt(call, true); // this generation redirects a new call twice
     s->base = first ? first->lead : jumppatch::CallTarget(call);
@@ -509,26 +556,42 @@ void Status(Mod& mod, const std::string& text)
 Generation* Load(Mod& mod, std::string& why)
 {
     unsigned number = ++mod.serial;
+    std::filesystem::path root(mod.info.dir);
+    if (root.filename().empty()) root = root.parent_path();
+    kcompat::CheckedDll source;
+    if (!source.open(root, mod.info.dll, "GreeneyeModStart")) {
+        why = "unsafe DLL: " + source.error;
+        return nullptr;
+    }
     std::wstring path = mod.info.dll;
+    kcompat::CheckedPath shadowDirectory;
     if (g_hotReload) {
         std::wstring shadowDir = mod.info.dir + L".hot\\";
         CreateDirectoryW(shadowDir.c_str(), nullptr);
+        if (!shadowDirectory.open(root, std::filesystem::path(shadowDir).parent_path(), false)) {
+            why = "unsafe shadow directory: " + shadowDirectory.error;
+            return nullptr;
+        }
         SetFileAttributesW(shadowDir.c_str(), FILE_ATTRIBUTE_HIDDEN);
         const wchar_t* file = wcsrchr(mod.info.dll.c_str(), L'\\');
         std::wstring stem = file ? file + 1 : mod.info.dll;
         if (stem.size() > 4)
             stem.resize(stem.size() - 4);
-        wchar_t name[128];
-        swprintf_s(name, L"%s.%lu.%u.dll", stem.c_str(), GetCurrentProcessId(), number);
-        path = shadowDir + name;
-        if (!CopyFileW(mod.info.dll.c_str(), path.c_str(), FALSE)) {
+        path = shadowDir + stem + L"." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(number) + L".dll";
+        if (!CopyFileW(mod.info.dll.c_str(), path.c_str(), TRUE)) {
             why = "could not copy " + Narrow(mod.info.dll) + " (error " + std::to_string(GetLastError()) + ")";
             return nullptr;
         }
     }
-    HMODULE module = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    kcompat::CheckedDll image;
+    if (!image.open(root, path, "GreeneyeModStart")) {
+        why = "unsafe DLL: " + image.error;
+        return nullptr;
+    }
+    DWORD loadFault = 0;
+    HMODULE module = image.load(&loadFault);
     if (!module) {
-        why = "could not load " + Narrow(path) + " (error " + std::to_string(GetLastError()) + ")";
+        why = "could not load " + Narrow(path) + (loadFault ? " (DllMain fault " + std::to_string(loadFault) + ")" : " (error " + std::to_string(GetLastError()) + ")");
         return nullptr;
     }
     auto g = std::make_unique<Generation>();
@@ -554,7 +617,9 @@ Generation* Load(Mod& mod, std::string& why)
     h.poll = &Poll;
     h.keep = &Keep;
     Generation* raw = g.get();
+    EnterCriticalSection(&g_pendingLock);
     mod.generations.push_back(std::move(g)); // retained even if it never starts
+    LeaveCriticalSection(&g_pendingLock);
     return raw;
 }
 
@@ -568,19 +633,40 @@ bool SafeStart(GreeneyeModStartFn start, const GreeneyeHost* host, DWORD* fault)
     }
 }
 
-void SafeCall(void (*fn)())
+// Reads the mod's GreeneyeHot table; out of line so a bad pointer faults inside a call SafeHot's __try covers
+// (clang-cl, without /EHa, does not map a fault in an inlined load to the handler).
+__declspec(noinline) void TakeHot(const GreeneyeHot* api, GreeneyeHot* out)
+{
+    if (api && api->size >= sizeof(GreeneyeHot)) *out = *api;
+}
+
+bool SafeHot(GreeneyeModHotFn fn, GreeneyeHot* out, DWORD* fault)
 {
     __try {
-        fn();
+        TakeHot(fn(), out);
+        return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *fault = GetExceptionCode();
+        return false;
     }
 }
 
-bool SafeBool(bool (*fn)(), bool fallback)
+DWORD SafeCall(void (*fn)())
+{
+    __try {
+        fn();
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return GetExceptionCode();
+    }
+}
+
+bool SafeBool(bool (*fn)(), bool fallback, DWORD* fault)
 {
     __try {
         return fn();
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *fault = GetExceptionCode();
         return fallback;
     }
 }
@@ -589,10 +675,10 @@ bool SafeBool(bool (*fn)(), bool fallback)
 void DropStaged(Mod& mod)
 {
     AcquireSRWLockExclusive(&g_slotsLock);
-    std::erase_if(g_slots, [&](const std::unique_ptr<Slot>& s) {
+    std::erase_if(g_slots, [&](std::unique_ptr<Slot>& s) {
         if (s->owner != &mod || !s->staged)
             return false;
-        FreeSlot(*s);
+        g_retiredSlots.push_back(std::move(s));
         return true;
     });
     ReleaseSRWLockExclusive(&g_slotsLock);
@@ -612,12 +698,20 @@ Patch WriteStaged(Mod& mod, size_t& count, std::string& why)
         HANDLE handle;
         bool suspended;
     };
+    struct SlotLock {
+        SlotLock() { AcquireSRWLockExclusive(&g_slotsLock); }
+        ~SlotLock() { ReleaseSRWLockExclusive(&g_slotsLock); }
+    } slotLock;
     std::vector<Slot*> slots;
     std::vector<Range> ranges;
     for (auto& s : g_slots) {
         if (s->owner != &mod || !s->staged)
             continue;
-        if (memcmp(s->target, s->saved, s->length) != 0) {
+        uint8_t current[32] = {};
+        uint8_t operand[32] = {};
+        if (!Copy(current, s->target, s->length) || memcmp(current, s->saved, s->length) ||
+            (s->writeLength && (!Copy(operand, s->writeAt, s->writeLength) ||
+                                memcmp(operand, s->beforeWrite, s->writeLength)))) {
             char line[96];
             sprintf_s(line, "the code at %p changed before its new hook was written", s->target);
             why = line;
@@ -639,14 +733,20 @@ Patch WriteStaged(Mod& mod, size_t& count, std::string& why)
     }
     const DWORD process = GetCurrentProcessId(), self = GetCurrentThreadId();
     THREADENTRY32 entry{sizeof(entry)};
-    for (BOOL more = Thread32First(snapshot, &entry); more; more = Thread32Next(snapshot, &entry))
-        if (entry.th32OwnerProcessID == process && entry.th32ThreadID != self)
-            if (HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION,
-                                      FALSE, entry.th32ThreadID))
-                threads.push_back({h, false});
+    bool listed = true;
+    BOOL more = Thread32First(snapshot, &entry);
+    if (!more) listed = false;
+    for (; more; more = Thread32Next(snapshot, &entry)) {
+        if (entry.th32OwnerProcessID != process || entry.th32ThreadID == self) continue;
+        HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION,
+                              FALSE, entry.th32ThreadID);
+        if (h) threads.push_back({h, false});
+        else if (GetLastError() != ERROR_INVALID_PARAMETER) listed = false;
+    }
+    if (GetLastError() != ERROR_NO_MORE_FILES) listed = false;
     CloseHandle(snapshot);
 
-    bool clear = true, written = true;
+    bool clear = listed, written = true;
     for (auto& t : threads)
         t.suspended = SuspendThread(t.handle) != static_cast<DWORD>(-1);
     for (auto& t : threads) {
@@ -667,10 +767,22 @@ Patch WriteStaged(Mod& mod, size_t& count, std::string& why)
             if (context.Rip >= r.lo && context.Rip < r.hi)
                 clear = false;
     }
-    if (clear)
-        for (Slot* s : slots)
-            if (s->writeLength && !jumppatch::Write(s->writeAt, s->write, s->writeLength))
-                written = false;
+    bool unchanged = true;
+    if (clear) {
+        // A foreign loader may have patched the site between the first validation and suspension.
+        // Recheck after all observed threads stop; only fixed stack buffers are used here.
+        for (Slot* s : slots) {
+            uint8_t current[32] = {}, operand[32] = {};
+            if (!Copy(current, s->target, s->length) || memcmp(current, s->saved, s->length) ||
+                (s->writeLength && (!Copy(operand, s->writeAt, s->writeLength) ||
+                                    memcmp(operand, s->beforeWrite, s->writeLength))))
+                unchanged = false;
+        }
+        if (unchanged)
+            for (Slot* s : slots)
+                if (s->writeLength && !jumppatch::Write(s->writeAt, s->write, s->writeLength))
+                    written = false;
+    }
     for (auto& t : threads) {
         if (t.suspended)
             ResumeThread(t.handle);
@@ -680,6 +792,10 @@ Patch WriteStaged(Mod& mod, size_t& count, std::string& why)
     if (!clear) {
         why = "a thread was where a new hook goes";
         return Patch::Busy;
+    }
+    if (!unchanged) {
+        why = "the code changed while stopping threads for its new hooks";
+        return Patch::Failed;
     }
     for (Slot* s : slots)
         s->staged = false; // written (or, if a write failed, passing through: never dropped)
@@ -693,7 +809,7 @@ Patch WriteStaged(Mod& mod, size_t& count, std::string& why)
 // Points every thunk of g's mod at what g bound (or past it), making g the active generation.
 void Swap(Generation* g)
 {
-    g->mod->active = g;
+    g->mod->active.store(g);
     for (auto& s : g_slots)
         if (s->owner == g->mod)
             InterlockedExchangePointer(reinterpret_cast<void* volatile*>(s->thunk + 16), s->pending);
@@ -704,12 +820,14 @@ void Decline(Generation* g, const std::string& why, bool reload, std::string& ou
 {
     Mod& mod = *g->mod;
     DropStaged(mod);
-    if (mod.active && mod.active->api && mod.active->api->resume)
-        SafeCall(mod.active->api->resume);
+    Generation* active = mod.active.load();
+    if (active && active->api && active->api->resume)
+        if (DWORD fault = SafeCall(active->api->resume))
+            Log("%s: GreeneyeModHot resume faulted (0x%08lX); its generation remains resident", mod.info.name.c_str(), fault);
     outcome = why;
     if (reload)
         outcome = "error: generation " + std::to_string(g->number) + " " + why + "; generation " +
-                  std::to_string(mod.active ? mod.active->number : 0) + " stays active";
+                  std::to_string(active ? active->number : 0) + " stays active";
 }
 
 // Ends the start of g: writes its new hook sites, if any, and swaps. While a thread stands where
@@ -719,7 +837,15 @@ void Commit(Generation* g, std::string& outcome)
     size_t count = 0;
     std::string why;
     Patch patch = WriteStaged(*g->mod, count, why);
-    if (patch == Patch::Busy && ++g_commitTries < kCommitTries) {
+    // An initial start also stages its patches, but has no active generation or future safe point to fall back to.
+    // Retry immediately while other threads leave the affected instructions; never leave a non-hot mod pending.
+    if (patch == Patch::Busy && !g->mod->active.load()) {
+        for (unsigned attempt = 1; attempt < kCommitTries && patch == Patch::Busy; ++attempt) {
+            SwitchToThread();
+            patch = WriteStaged(*g->mod, count, why);
+        }
+    }
+    if (patch == Patch::Busy && g->mod->active.load() && ++g_commitTries < kCommitTries) {
         if (!g_committing) {
             outcome = "pending: generation " + std::to_string(g->number) + " started; its " + std::to_string(count) +
                       " new hooks wait for a safe moment (" + why + ")";
@@ -775,8 +901,11 @@ void Activate(Generation* g, std::string& outcome)
         return;
     }
     auto hotFn = reinterpret_cast<GreeneyeModHotFn>(GetProcAddress(g->module, "GreeneyeModHot"));
-    const GreeneyeHot* api = hotFn ? hotFn() : nullptr;
-    g->api = api && api->size >= sizeof(GreeneyeHot) ? api : nullptr;
+    if (hotFn && !SafeHot(hotFn, &g->hotApi, &fault)) {
+        Decline(g, "GreeneyeModHot faulted", reload, outcome);
+        return;
+    }
+    g->api = hotFn && g->hotApi.size >= sizeof(GreeneyeHot) ? &g->hotApi : nullptr;
     Commit(g, outcome);
 }
 
@@ -799,13 +928,16 @@ void Wait(Mod& mod, Generation* g, const char* reason)
 // swapped under its own gate (see Leases), so one busy mod holds up only its own reload.
 void Poll()
 {
+    if (g_starting || g_stopping || g_staging) return;
     if (!TryAcquireSRWLockExclusive(&g_pollLock))
         return;
     if (Generation* g = g_committing) {
         Mod& mod = *g->mod;
         if (!Holds(&mod) && TryAcquireSRWLockExclusive(&mod.gate)) {
+            t_swapping = &mod;
             std::string outcome;
             Commit(g, outcome);
+            t_swapping = nullptr;
             ReleaseSRWLockExclusive(&mod.gate);
             if (!outcome.empty())
                 Status(mod, outcome);
@@ -824,10 +956,29 @@ void Poll()
             Wait(mod, g, "a thread stays inside the mod's hooks");
             continue;
         }
-        const GreeneyeHot* api = mod.active ? mod.active->api : nullptr;
+        t_swapping = &mod;
+        Generation* active = mod.active.load();
+        const GreeneyeHot* api = active ? active->api : nullptr;
+        DWORD hotFault = 0;
         if (!mod.preparing)
-            mod.preparing = !api || !api->prepare || SafeBool(api->prepare, true);
-        if (!mod.preparing || (api && api->ready && !SafeBool(api->ready, true))) {
+            mod.preparing = !api || !api->prepare || SafeBool(api->prepare, false, &hotFault);
+        const bool ready = mod.preparing && (!api || !api->ready || SafeBool(api->ready, false, &hotFault));
+        if (hotFault) {
+            // A failed quiescence callback is never permission to replace the generation.
+            EnterCriticalSection(&g_pendingLock);
+            mod.pending = nullptr;
+            LeaveCriticalSection(&g_pendingLock);
+            mod.preparing = false;
+            mod.waitSince = 0;
+            std::string outcome;
+            Decline(g, "GreeneyeModHot prepare/ready faulted", true, outcome);
+            t_swapping = nullptr;
+            ReleaseSRWLockExclusive(&mod.gate);
+            Status(mod, outcome);
+            continue;
+        }
+        if (!ready) {
+            t_swapping = nullptr;
             ReleaseSRWLockExclusive(&mod.gate);
             Wait(mod, g, "the mod is not ready to be swapped (its prepare/ready said no)");
             continue; // e.g. Find's dialog is open: ask again at the next safe point
@@ -839,6 +990,7 @@ void Poll()
         mod.waitSince = 0;
         std::string outcome;
         Activate(g, outcome);
+        t_swapping = nullptr;
         ReleaseSRWLockExclusive(&mod.gate);
         if (!outcome.empty())
             Status(mod, outcome);
@@ -862,7 +1014,7 @@ void UiLoopHook(void* app)
 DWORD WINAPI Watcher(void*)
 {
     for (;;) {
-        Sleep(250);
+        if (WaitForSingleObject(g_watcherStop, 250) != WAIT_TIMEOUT) return 0;
         for (auto& m : g_mods) {
             Mod& mod = *m;
             std::wstring request = mod.info.dir + L"reload";
@@ -878,8 +1030,11 @@ DWORD WINAPI Watcher(void*)
             std::string why;
             Generation* g = Load(mod, why); // outside the gate
             if (!g) {
-                Status(mod, "error: " + why + "; generation " + std::to_string(mod.active ? mod.active->number : 0) +
-                                " stays active");
+                AcquireSRWLockShared(&g_pollLock);
+                const Generation* activeGeneration = mod.active.load();
+                const unsigned active = activeGeneration ? activeGeneration->number : 0;
+                ReleaseSRWLockShared(&g_pollLock);
+                Status(mod, "error: " + why + "; generation " + std::to_string(active) + " stays active");
                 continue;
             }
             EnterCriticalSection(&g_pendingLock);
@@ -897,11 +1052,14 @@ DWORD WINAPI Watcher(void*)
 
 void Init(int side, const std::wstring& gameDir, bool hotReload)
 {
+    g_starting = true;
+    g_stopping = false;
     g_side = side;
     g_gameDir = gameDir;
     g_hotReload = hotReload;
     InitializeCriticalSection(&g_pendingLock);
     InitializeCriticalSection(&g_keepLock);
+    g_initialized = true;
 }
 
 void InstallSafePoint()
@@ -929,8 +1087,9 @@ void InstallSafePoint()
         Log("hot reload: could not hook the UI frame");
         return;
     }
-    Swap(raw);
-    Log("hot reload: safe point at the top of the UI frame");
+    std::string outcome;
+    Commit(raw, outcome);
+    Log("hot reload: UI frame hook: %s", outcome.c_str());
 }
 
 std::string StartMod(const ModInfo& info, bool* started)
@@ -947,7 +1106,7 @@ std::string StartMod(const ModInfo& info, bool* started)
         return why;
     std::string outcome;
     Activate(g, outcome);
-    bool ok = mod.active == g; // a first generation stages nothing, so it never waits
+    bool ok = mod.active.load() == g;
     if (started)
         *started = ok;
     if (g_hotReload)
@@ -957,10 +1116,16 @@ std::string StartMod(const ModInfo& info, bool* started)
 
 void StartWatcher()
 {
+    g_starting = false;
     if (!g_hotReload)
         return;
-    if (HANDLE t = CreateThread(nullptr, 0, Watcher, nullptr, 0, nullptr))
-        CloseHandle(t);
+    g_watcherStop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE t = g_watcherStop ? CreateThread(nullptr, 0, Watcher, nullptr, 0, nullptr) : nullptr;
+    if (!t) {
+        Log("hot reload: could not start the reload watcher (error %lu)", GetLastError());
+        return;
+    }
+    CloseHandle(t);
     Log("hot reload: watching <mod folder>\\reload");
 }
 
@@ -970,21 +1135,33 @@ void PollFromKiln()
         Poll();
 }
 
+void Stop()
+{
+    g_stopping = true;
+    if (g_watcherStop) SetEvent(g_watcherStop);
+}
+
 std::vector<ModState> Describe()
 {
     std::vector<ModState> out;
+    if (!g_initialized) return out;
+    AcquireSRWLockShared(&g_pollLock);
+    EnterCriticalSection(&g_pendingLock);
     AcquireSRWLockShared(&g_slotsLock);
     for (auto& m : g_mods) {
         ModState st;
         st.id = m->info.id;
-        st.generation = m->active ? m->active->number : 0;
+        const Generation* active = m->active.load();
+        st.generation = active ? active->number : 0;
         st.generations = static_cast<unsigned>(m->generations.size());
-        st.hotApi = m->active && m->active->api;
+        st.hotApi = active && active->api;
         for (auto& s : g_slots)
             st.hooks += s->owner == m.get();
         out.push_back(std::move(st));
     }
     ReleaseSRWLockShared(&g_slotsLock);
+    LeaveCriticalSection(&g_pendingLock);
+    ReleaseSRWLockShared(&g_pollLock);
     return out;
 }
 

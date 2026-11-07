@@ -5,8 +5,20 @@
 #include <windows.h>
 
 #include <cstdio>
+#ifdef FT_DEPENDENCY
+extern "C" __declspec(dllimport) const char compat_fake_loader_marker[];
+#endif
 
 extern "C" __declspec(dllexport) void FlameStartRuntime() {
+#ifdef FT_DEPENDENCY
+    if (!compat_fake_loader_marker[0]) return;
+#endif
+#ifdef FT_SLOW
+    Sleep(500);
+#endif
+#ifdef FT_LOAD_LOADER
+    LoadLibraryW(L"dinput8-flame.dll");
+#endif
 #ifdef FT_FAULT
     volatile int* p = nullptr;
     *p = 1;
@@ -23,4 +35,9 @@ extern "C" __declspec(dllexport) void FlameStartRuntime() {
     }
 }
 
-BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) { return TRUE; }
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+#ifdef FT_DLLMAIN_FAULT
+    if (reason == DLL_PROCESS_ATTACH) RaiseException(0xE0424242, 0, 0, nullptr);
+#endif
+    return TRUE;
+}

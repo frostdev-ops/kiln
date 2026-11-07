@@ -18,6 +18,8 @@
 #include "kiln_api.h"
 #include "services/kiln_profile.h"
 #include "../../flame/include/kiln_flame.h"
+#include "../compat.h"
+#include "safetyhook.hpp"
 
 // ---- test targets in the exe's .text (Greeneye's find only scans the exe) ----
 //   gt_target(a, b) = a + b + 0x5A17C0DE; its first 12 bytes are whole instructions (a Greeneye hook length).
@@ -53,6 +55,9 @@ gt_caller:
 extern "C" int gt_target(int a, int b);
 #pragma comment(linker, "/EXPORT:gt_target")  // Shroudtopia's test mod finds it by name to check FindPattern
 extern "C" int gt_caller(int a, int b);
+static safetyhook::InlineHook g_prehook;
+static int prehook_target(int a, int b) { return g_prehook.call<int>(a, b) + 7; }
+extern "C" __declspec(dllexport) int gt_prehook_delta() { return g_prehook ? 7 : 0; }
 
 namespace {
 
@@ -184,6 +189,80 @@ bool read_text(const std::wstring& p, std::string* out) {
     return true;
 }
 
+void shared_checks() {
+    namespace fs = std::filesystem;
+    auto check = [](const char* name, bool ok) { line(std::string("[compat] CHECK ") + name + (ok ? " ok" : " fail")); };
+    const fs::path root = fs::path(g_game) / L"kiln";
+    const fs::path file = root / L"export-probe.dll";
+    KilnServiceHeader short_table{sizeof(KilnServiceHeader), 1};
+    g_services["short.service"] = &short_table;
+    kcompat::Host host{&kApi, 1, "compat"};
+    check("short_service_refused", host.service<KilnProfileApi>("short.service", 1) == nullptr);
+    g_services.erase("short.service");
+    struct WriteJob { fs::path file; std::string data; bool ok = true; } jobs[] = {
+        {root / L"atomic-probe.txt", std::string(1024, 'A')}, {root / L"atomic-probe.txt", std::string(1024, 'B')}};
+    HANDLE writers[2]{};
+    for (size_t i = 0; i < 2; ++i)
+        writers[i] = CreateThread(nullptr, 0, [](void* arg) -> DWORD {
+            auto& job = *static_cast<WriteJob*>(arg);
+            for (int j = 0; j < 16; ++j) job.ok &= kcompat::write_file_atomic(job.file, job.data);
+            return 0;
+        }, &jobs[i], 0, nullptr);
+    for (HANDLE t : writers) if (t) WaitForSingleObject(t, INFINITE), CloseHandle(t);
+    std::string final_text;
+    check("concurrent_atomic_writes", writers[0] && writers[1] && jobs[0].ok && jobs[1].ok);
+    check("atomic_file_complete", kcompat::read_file(jobs[0].file, &final_text) &&
+                                     (final_text == jobs[0].data || final_text == jobs[1].data));
+    DeleteFileW(jobs[0].file.c_str());
+    std::string image(0x600, '\0');
+    auto w16 = [&](size_t o, uint16_t n) { image[o] = char(n); image[o + 1] = char(n >> 8); };
+    auto w32 = [&](size_t o, uint32_t n) { w16(o, uint16_t(n)); w16(o + 2, uint16_t(n >> 16)); };
+    image[0] = 'M'; image[1] = 'Z'; w32(0x3c, 0x80); w32(0x80, 0x4550);
+    w16(0x84, IMAGE_FILE_MACHINE_AMD64); w16(0x86, 1); w16(0x94, 240); w16(0x96, IMAGE_FILE_DLL);
+    w16(0x98, 0x20b); w32(0x98 + 108, 16); w32(0x98 + 112, 0x1000); w32(0x98 + 116, 0x100);
+    w32(0x188 + 8, 0x400); w32(0x188 + 12, 0x1000); w32(0x188 + 16, 0x400); w32(0x188 + 20, 0x200);
+    w32(0x188 + 36, IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ);
+    w32(0x200 + 20, 1); w32(0x200 + 24, 1); w32(0x200 + 28, 0x1060);
+    w32(0x200 + 32, 0x1050); w32(0x200 + 36, 0x1058); w32(0x250, 0x1080);
+    w32(0x260, 0x1200); std::memcpy(image.data() + 0x280, "CreateModInstance", 18); image[0x400] = char(0xc3);
+    const std::string valid = image;
+    auto exported = [&] { kcompat::write_file_atomic(file, image); return kcompat::pe_exports_name(file, "CreateModInstance"); };
+    check("callable_export", exported());
+    w32(0x3c, 0xfffffff0); check("pe_offset_overflow", !exported()); image = valid;
+    w16(0x94, 2); check("short_optional_header", !exported()); image = valid;
+    w32(0x200 + 24, 0xffffffff); check("export_count_bounds", !exported()); image = valid;
+    w16(0x258, 1); check("export_ordinal_bounds", !exported()); image = valid;
+    w32(0x260, 0); check("null_export", !exported()); image = valid;
+    w32(0x260, 0x1080); check("forwarded_export", !exported()); image = valid;
+    w32(0x188 + 36, IMAGE_SCN_MEM_READ); check("data_export", !exported()); image = valid;
+    w32(0x188 + 8, 0x800); w32(0x260, 0x1500); check("virtual_tail_export", !exported()); image = valid;
+    w32(0x188 + 20, 0xfffffff0); check("raw_offset_bounds", !exported()); image = valid;
+    w32(0x250, 0x13ff); image[0x5ff] = 'X'; check("unterminated_export", !exported()); image = valid;
+    w32(0x200 + 20, 2); w32(0x200 + 24, 2); w32(0x254, 0x1090); w16(0x25a, 1); w32(0x264, 0x1200);
+    std::memcpy(image.data() + 0x280, "Zzz\0", 4); std::memcpy(image.data() + 0x290, "CreateModInstance", 18);
+    check("unsorted_export_names", !exported());
+    std::memcpy(image.data() + 0x280, "CreateModInstance", 18); w32(0x260, 0x1080);
+    check("duplicate_forwarded_export", !exported()); image = valid;
+    exported();
+    {
+        kcompat::CheckedDll checked;
+        check("checked_dll", checked.open(root, file, "CreateModInstance"));
+        HANDLE writer = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        check("dll_write_locked", writer == INVALID_HANDLE_VALUE);
+        if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
+        check("dll_rename_locked", MoveFileExW(file.c_str(), (root / L"moved.dll").c_str(), MOVEFILE_REPLACE_EXISTING) == 0);
+    }
+    {
+        kcompat::CheckedDll checked;
+        check("root_trailing_slash", checked.open(fs::path(root.native() + L"\\"), file, "CreateModInstance"));
+    }
+    {
+        kcompat::CheckedDll checked;
+        check("outside_dll", !checked.open(root / L"logs", file, "CreateModInstance"));
+    }
+    DeleteFileW(file.c_str());
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -204,6 +283,9 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring plugin = argv[1];
     const int wait_ms = _wtoi(argv[2]);
     int at_ms = -1;
+    int free_ms = -1, load_ms = -1;
+    bool prehook = false;
+    std::wstring load_later;
     std::wstring copy_src, copy_dst;
     HANDLE claim = nullptr;
     for (int i = 3; i < argc; ++i) {
@@ -212,9 +294,16 @@ int wmain(int argc, wchar_t** argv) {
             swprintf_s(name, L"Local\\Greeneye-Loader-%lu", GetCurrentProcessId());
             claim = CreateMutexW(nullptr, FALSE, name);
             line("[host] holding Greeneye Loader's claim");
+        } else if (!wcscmp(argv[i], L"--prehook")) {
+            prehook = true;
         } else if (!wcscmp(argv[i], L"--load") && i + 1 < argc) {
             HMODULE h = LoadLibraryW((g_game + L"\\" + argv[++i]).c_str());
             line("[host] preloaded " + u8(argv[i]) + (h ? " ok" : " FAILED"));
+        } else if (!wcscmp(argv[i], L"--free-at") && i + 1 < argc) {
+            free_ms = _wtoi(argv[++i]);
+        } else if (!wcscmp(argv[i], L"--load-at") && i + 2 < argc) {
+            load_ms = _wtoi(argv[++i]);
+            load_later = argv[++i];
         } else if (!wcscmp(argv[i], L"--at") && i + 4 < argc && !wcscmp(argv[i + 2], L"--copy")) {
             at_ms = _wtoi(argv[i + 1]);
             copy_src = g_game + L"\\" + argv[i + 3];
@@ -233,6 +322,11 @@ int wmain(int argc, wchar_t** argv) {
     g_services[KILN_PROFILE_SERVICE] = &kProfile;
     line(std::string("[host] side ") + (g_side == KILN_SIDE_SERVER ? "server" : "client") + ", profile mode " +
          std::to_string(g_profile_mode));
+    shared_checks();
+    if (prehook) {
+        g_prehook = safetyhook::create_inline(reinterpret_cast<void*>(&gt_target), reinterpret_cast<void*>(&prehook_target));
+        line(std::string("[host] RESULT prehook=") + (g_prehook ? "ok" : "FAILED"));
+    }
 
     HMODULE h = LoadLibraryW((g_game + L"\\" + plugin).c_str());
     if (!h) {
@@ -249,11 +343,26 @@ int wmain(int argc, wchar_t** argv) {
     line("[host] on_ready returned");
 
     const DWORD t0 = GetTickCount();
-    bool copied = false;
+    bool copied = false, freed = false, late_loaded = false;
     while (static_cast<int>(GetTickCount() - t0) < wait_ms) {
         if (at_ms >= 0 && !copied && static_cast<int>(GetTickCount() - t0) >= at_ms) {
             copied = CopyFileW(copy_src.c_str(), copy_dst.c_str(), FALSE) != 0;
             line(std::string("[host] copied at ") + std::to_string(GetTickCount() - t0) + " ms: " + (copied ? "ok" : "FAILED"));
+        }
+        if (load_ms >= 0 && !late_loaded && static_cast<int>(GetTickCount() - t0) >= load_ms) {
+            HMODULE late = LoadLibraryW((g_game + L"\\" + load_later).c_str());
+            line(std::string("[host] RESULT late_loader=") + (late ? "ok" : "FAILED"));
+            late_loaded = true;
+        }
+        if (free_ms >= 0 && !freed && static_cast<int>(GetTickCount() - t0) >= free_ms) {
+            if (info.on_unload) info.on_unload(info.user);
+            FreeLibrary(h);
+            line(std::string("[host] RESULT plugin_pinned=") + (GetModuleHandleW(plugin.c_str()) ? "yes" : "no"));
+            if (HMODULE mod = GetModuleHandleW((g_game + L"\\mods\\test.dll").c_str())) {
+                if (auto restored = reinterpret_cast<bool (*)()>(GetProcAddress(mod, "kiln_shroudtopia_test_patch_restored")))
+                    line(std::string("[host] RESULT patch_restored=") + (restored() ? "yes" : "no"));
+            }
+            freed = true;
         }
         Sleep(20);
     }
@@ -287,7 +396,7 @@ int wmain(int argc, wchar_t** argv) {
         line(std::string("[host] RESULT flame_running_ftest=") + (flame->running(KilnStr{"ftest", 5}) ? "yes" : "no"));
         line(std::string("[host] RESULT flame_stepped_aside=") + (flame->stepped_aside() ? "yes" : "no"));
     }
-    if (info.on_unload) info.on_unload(info.user);
+    if (!freed && info.on_unload) info.on_unload(info.user);
     line("[host] RESULT done");
     std::fflush(stdout);
     if (g_log) std::fclose(g_log);

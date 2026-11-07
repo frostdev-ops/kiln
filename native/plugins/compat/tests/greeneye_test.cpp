@@ -8,6 +8,10 @@
 // Each check logs "CHECK <name> ok|fail" through host->log. Built with GT_BAD: a mod whose short hook is refused.
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <limits>
+
+#include <greeneye/jumppatch.h>
 
 #include <greeneye/greeneye.h>
 
@@ -15,6 +19,72 @@ namespace {
 const GreeneyeHost* g_host = nullptr;
 int (*g_orig)(int, int) = nullptr;
 int (*g_orig_call)(int, int) = nullptr;
+uint8_t* g_target = nullptr;
+uint8_t g_expectedRead[12] = {};
+int g_preDelta = 0;
+// gt_target, its alignment padding and the start of gt_target2. A host safetyhook (--prehook) replaces gt_target's first
+// 8 bytes with "jmp rel32" + nops; Greeneye's find behind a hook needs 6 exact bytes after it, so the pattern reaches
+// into the next function (the 3 padding bytes are wildcards).
+constexpr const char* kTargetPattern = "8D 04 11 05 DE C0 17 5A 90 90 90 90 C3 ?? ?? ?? 8D 04 51 C3";
+void check(const char* name, bool ok);
+
+DWORD WINAPI wrong_thread_hook(void*) {
+    return g_host->hook(g_target, reinterpret_cast<void*>(1), 12, nullptr, 0) == nullptr ? 0 : 1;
+}
+
+DWORD WINAPI find_thread(void*) {
+    return g_host->find(kTargetPattern, nullptr) ? 0 : 1;
+}
+
+bool valid_value(int value) {
+    value -= g_preDelta;
+    return value >= 5 && value <= 20005 && (value - 5) % 1000 == 0;
+}
+
+DWORD WINAPI exercise_live_hooks(void*) {
+    Sleep(100); // after the factory succeeded or faulted and staged sites were retired
+    const int original = g_orig ? g_orig(2, 3) - 0x5A17C0DE : -1;
+    check("retained_original_callable", valid_value(original));
+    if (GetFileAttributesW((std::wstring(g_host->modDir) + L"hot-fault").c_str()) != INVALID_FILE_ATTRIBUTES ||
+        GetFileAttributesW((std::wstring(g_host->modDir) + L"hot-invalid").c_str()) != INVALID_FILE_ATTRIBUTES)
+        return 0; // this generation was deliberately rejected; only its retained original should run
+    const ULONGLONG end = GetTickCount64() + (g_host->hotReload ? 1500 : 80);
+    bool ok = true, observed = false;
+    while (GetTickCount64() < end) {
+        // Start has returned before any live patch can appear; no uninitialized original is callable.
+        if (g_target[0] != 0x8D) {
+            observed = true;
+            const int value = reinterpret_cast<int (*)(int, int)>(g_target)(2, 3) - 0x5A17C0DE;
+            ok &= valid_value(value); // stale generations call through; other mods remain in the chain
+            uint8_t bytes[12] = {};
+            g_host->read(g_target, bytes, sizeof bytes);
+            ok &= !std::memcmp(bytes, g_expectedRead, sizeof bytes);
+        }
+        Sleep(1);
+    }
+    check("concurrent_hooks_and_read", observed && ok);
+    return 0;
+}
+
+void check_write_protection() {
+    auto* pages = static_cast<uint8_t*>(VirtualAlloc(nullptr, 8192, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!pages) { check("write_page_protections", false); return; }
+    DWORD old = 0;
+    VirtualProtect(pages + 4096, 4096, PAGE_READONLY, &old);
+    const uint8_t bytes[4] = {1, 2, 3, 4};
+    const bool wrote = jumppatch::Write(pages + 4094, bytes, sizeof bytes);
+    MEMORY_BASIC_INFORMATION a{}, b{};
+    VirtualQuery(pages, &a, sizeof a);
+    VirtualQuery(pages + 4096, &b, sizeof b);
+    check("write_page_protections", wrote && !std::memcmp(pages + 4094, bytes, 4) &&
+          a.Protect == PAGE_READWRITE && b.Protect == PAGE_READONLY);
+    check("write_fault_contained", !jumppatch::Write(pages + 4096, reinterpret_cast<void*>(1), 4));
+    VirtualQuery(pages + 4096, &b, sizeof b);
+    check("write_fault_restores_protection", b.Protect == PAGE_READONLY);
+    check("write_wrapping_range", !jumppatch::Write(reinterpret_cast<void*>((std::numeric_limits<uintptr_t>::max)() - 1), bytes, 4));
+    VirtualFree(pages, 0, MEM_RELEASE);
+    check("alloc_near_huge_refused", !jumppatch::AllocNear(pages, (std::numeric_limits<size_t>::max)()));
+}
 
 void check(const char* name, bool ok) {
     char line[160];
@@ -38,6 +108,8 @@ int detour_call(int a, int b) {
 GREENEYE_MOD_START {
     greeneye::UseHost(host);
     g_host = host;
+    if (auto delta = reinterpret_cast<int (*)()>(GetProcAddress(GetModuleHandleW(nullptr), "gt_prehook_delta")))
+        g_preDelta = delta();
 #ifdef GT_LAB
     // Lab probe (a real dedicated server): find the game's chat-log function (Kiln's chat service may have hooked it
     // already, so this also exercises "find behind another hook"), read its first bytes as they were, keep, poll.
@@ -63,7 +135,7 @@ GREENEYE_MOD_START {
 #endif
 #ifdef GT_BAD
     // A hook shorter than Greeneye's 12-byte jump is refused, and the loader then declines the whole start.
-    uint8_t* t = host->find("8D 04 11 05 DE C0 17 5A 90 90 90 90 C3", nullptr);
+    uint8_t* t = host->find(kTargetPattern, nullptr);
     check("short_hook_refused", host->hook(t, reinterpret_cast<void*>(&detour), 5, nullptr, 0) == nullptr);
     return true;
 #endif
@@ -78,17 +150,54 @@ GREENEYE_MOD_START {
     std::snprintf(side, sizeof side, "side=%d hotReload=%d", host->side, host->hotReload ? 1 : 0);
     host->log(side);
 
-    uint8_t* target = host->find("8D 04 11 05 DE C0 17 5A 90 90 90 90 C3", nullptr);
+    HANDLE searchers[4] = {};
+    for (HANDLE& t : searchers) t = CreateThread(nullptr, 0, find_thread, nullptr, 0, nullptr);
+    bool concurrentFind = true;
+    for (HANDLE t : searchers) {
+        DWORD result = 1;
+        if (!t || WaitForSingleObject(t, 5000) != WAIT_OBJECT_0 || !GetExitCodeThread(t, &result) || result) concurrentFind = false;
+        if (t) CloseHandle(t);
+    }
+    check("find_concurrent_initialization", concurrentFind);
+    check("find_null_refused", host->find(nullptr, nullptr) == nullptr);
+    check("find_invalid_hex_refused", host->find("GG", nullptr) == nullptr);
+    check("find_truncated_hex_refused", host->find("8D 0", nullptr) == nullptr);
+    check("find_empty_refused", host->find(" \t\r\n", nullptr) == nullptr);
+    const std::string tooLong = std::string("90 ") + std::string(1024 * 1024, '?');
+    check("find_oversized_refused", host->find(tooLong.c_str(), nullptr) == nullptr);
+    check_write_protection();
+    uint8_t guard = 0xA5;
+    host->read(nullptr, &guard, 1);
+    check("read_null_contained", guard == 0xA5);
+    host->read(reinterpret_cast<void*>((std::numeric_limits<uintptr_t>::max)() - 1), &guard, 4);
+    check("read_wrapping_range_contained", guard == 0xA5);
+    host->read(&guard, nullptr, 1);
+    check("read_null_destination_contained", guard == 0xA5);
+    host->leave(); // unmatched leave must not corrupt TLS lease bookkeeping
+
+    uint8_t* target = host->find(kTargetPattern, nullptr);
     check("find", target != nullptr);
     check("find_other_module_null", host->find("8D 04 11 05", reinterpret_cast<void*>(0x1234)) == nullptr);
     if (target) {
+        g_target = target;
+        HANDLE wrong = CreateThread(nullptr, 0, wrong_thread_hook, nullptr, 0, nullptr);
+        DWORD result = 1;
+        if (wrong) {
+            WaitForSingleObject(wrong, 5000);
+            GetExitCodeThread(wrong, &result);
+            CloseHandle(wrong);
+        }
+        check("hook_from_other_thread_refused", result == 0);
+        uint8_t liveBefore[12] = {};
+        std::memcpy(liveBefore, target, sizeof liveBefore);
+        host->read(target, g_expectedRead, sizeof g_expectedRead);
         g_orig = reinterpret_cast<int (*)(int, int)>(host->hook(target, reinterpret_cast<void*>(&detour), 12, nullptr, 0));
         check("hook", g_orig != nullptr);
         uint8_t before[12] = {};
         host->read(target, before, sizeof before);
-        check("read_before_hooks", before[0] == 0x8D && before[3] == 0x05 && before[11] == 0x90);
-        check("live_is_patched", target[0] != 0x8D);
-        check("find_after_hook", host->find("8D 04 11 05 DE C0 17 5A 90 90 90 90 C3", nullptr) == target);
+        check("read_before_hooks", !std::memcmp(before, g_expectedRead, sizeof before));
+        check("unpublished_while_starting", !std::memcmp(liveBefore, target, sizeof liveBefore));
+        check("find_after_hook", host->find(kTargetPattern, nullptr) == target);
     }
     uint8_t* marker = host->find("B8 DE C0 A7 7E E8", nullptr);
     check("find_call_marker", marker != nullptr);
@@ -96,22 +205,64 @@ GREENEYE_MOD_START {
         g_orig_call = reinterpret_cast<int (*)(int, int)>(host->redirectCall(marker + 5, reinterpret_cast<void*>(&detour_call)));
         check("redirect_call", g_orig_call != nullptr);
     }
-    auto* a = static_cast<uint32_t*>(host->keep("state", 16));
-    auto* b = static_cast<uint32_t*>(host->keep("state", 64));
+    std::string keepKey("state:");
+    for (const wchar_t* p = host->modDir; *p; ++p) keepKey.push_back(static_cast<char>(*p));
+    auto* a = static_cast<uint32_t*>(host->keep(keepKey.c_str(), 16));
+    auto* b = static_cast<uint32_t*>(host->keep(keepKey.c_str(), 64));
     // keep: zeroed for the first generation; a reload gets the same block back, with what the old one wrote.
     check("keep_same_block", a && a == b && a[0] == (host->generation == 1 ? 0u : 42u));
     if (a) a[0] = 42;
     char gen[48];
     std::snprintf(gen, sizeof gen, "generation=%u", host->generation);
     host->log(gen);
-    if (host->generation == 1) {
+    {
         // A generation becomes the active one only after GreeneyeModStart returned: a lease taken while it starts is
-        // inactive (the detours' leases are active later, which gt_target's +1000 shows). Not during a reload: the
-        // swap holds this mod's gate then, and a lease would wait for it (as under Greeneye Loader).
+        // inactive, including a reload whose swapping thread already holds the exclusive generation gate.
         greeneye::Lease lease;
         check("lease_inactive_while_starting", !static_cast<bool>(lease));
+    }
+    if (host->generation == 1 && target) {
+        HANDLE live = CreateThread(nullptr, 0, exercise_live_hooks, nullptr, 0, nullptr);
+        check("live_worker_created", live != nullptr);
+        if (live) CloseHandle(live);
     }
     host->poll();
     check("poll_returns", true);
     return true;
 }
+
+#ifndef GT_LAB
+namespace {
+bool hot_prepare() {
+    g_host->log("hot prepare");
+    if (GetFileAttributesW((std::wstring(g_host->modDir) + L"prepare-fault").c_str()) != INVALID_FILE_ATTRIBUTES)
+        RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+    {
+        greeneye::Lease lease;
+        check("lease_inactive_during_prepare", !static_cast<bool>(lease));
+    }
+    const int value = reinterpret_cast<int (*)(int, int)>(g_target)(2, 3) - 0x5A17C0DE;
+    check("prepare_can_call_own_detour", valid_value(value));
+    return true;
+}
+bool hot_ready() {
+    g_host->log("hot ready");
+    if (GetFileAttributesW((std::wstring(g_host->modDir) + L"ready-fault").c_str()) != INVALID_FILE_ATTRIBUTES)
+        RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+    return true;
+}
+void hot_resume() {
+    g_host->log("hot resume");
+    if (GetFileAttributesW((std::wstring(g_host->modDir) + L"resume-fault").c_str()) != INVALID_FILE_ATTRIBUTES)
+        RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+}
+}
+GREENEYE_MOD_HOT {
+    if (g_host && GetFileAttributesW((std::wstring(g_host->modDir) + L"hot-fault").c_str()) != INVALID_FILE_ATTRIBUTES)
+        RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+    if (g_host && GetFileAttributesW((std::wstring(g_host->modDir) + L"hot-invalid").c_str()) != INVALID_FILE_ATTRIBUTES)
+        return reinterpret_cast<const GreeneyeHot*>(1);
+    static const GreeneyeHot api{sizeof(GreeneyeHot), &hot_prepare, &hot_ready, &hot_resume};
+    return &api;
+}
+#endif

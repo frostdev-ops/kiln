@@ -11,8 +11,9 @@
 # Everything goes to bin/compat-tests/.
 set(CT_OUT "${CMAKE_BINARY_DIR}/bin/compat-tests")
 add_executable(compathost tests/compathost.cpp)
-target_include_directories(compathost PRIVATE "${CMAKE_SOURCE_DIR}/core/abi")
+target_include_directories(compathost PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")
 target_link_options(compathost PRIVATE /ENTRY:wmainCRTStartup)
+target_link_libraries(compathost PRIVATE kiln-safetyhook)
 set_target_properties(compathost PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CT_OUT}")
 
 function(compat_test_dll name src)
@@ -29,6 +30,9 @@ target_include_directories(compat-greeneye_test PRIVATE "${CMAKE_SOURCE_DIR}/plu
 target_include_directories(compat-gbad PRIVATE "${CMAKE_SOURCE_DIR}/plugins/greeneye/include")
 compat_test_dll(flame_test flame_test.cpp)
 compat_test_dll(flame_fault flame_test.cpp FT_FAULT)
+compat_test_dll(flame_dllmain_fault flame_test.cpp FT_DLLMAIN_FAULT)
+compat_test_dll(flame_slow flame_test.cpp FT_SLOW)
+compat_test_dll(flame_load_loader flame_test.cpp FT_LOAD_LOADER)
 compat_test_dll(shroudtopia_test shroudtopia_test.cpp)
 compat_test_dll(shroudtopia_client shroudtopia_test.cpp ST_CLIENT_ONLY)
 compat_test_dll(shroudtopia_lab shroudtopia_test.cpp ST_LAB)
@@ -39,6 +43,9 @@ endforeach()
 set_target_properties(compat-shroudtopia_test PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 compat_test_dll(dummy dummy.cpp)
 compat_test_dll(fakeflame dummy.cpp FAKE_FLAME)
+compat_test_dll(flame_dependency flame_test.cpp FT_DEPENDENCY)
+target_link_libraries(compat-flame_dependency PRIVATE compat-fakeflame)
+compat_test_dll(fakeshroud dummy.cpp FAKE_SHROUD)
 add_dependencies(compathost kiln-greeneye kiln-flame kiln-shroudtopia)
 
 # deploy-server.sh and the packager build every native/plugins/<dir> as kiln-<dir>: here that is the host tests (no

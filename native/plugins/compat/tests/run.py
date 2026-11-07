@@ -39,11 +39,17 @@ def env():
 
 
 def ensure_prefix():
-    if os.path.isfile(os.path.join(PFX, "system.reg")):
-        return
     os.makedirs(WORK, exist_ok=True)
-    print(f"compat: creating Wine prefix {PFX} (once)")
-    subprocess.run([WINE, "wineboot", "-i"], env=env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+    command = [WINE, "cmd", "/c", "exit", "0"]
+    if not os.path.isfile(os.path.join(PFX, "system.reg")):
+        print(f"compat: creating Wine prefix {PFX} (once)")
+        command = [WINE, "wineboot", "-i"]
+    result = subprocess.run(command, env=env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    if result.returncode:
+        print("BLOCKED: Wine could not initialize; no compatibility scenario ran.")
+        print(result.stdout.decode("utf-8", "replace").strip())
+        return False
+    return True
 
 
 class Game:
@@ -81,11 +87,14 @@ class Game:
         cmd = [WINE, self.p(self.exe), plugin, str(wait_ms), *extra]
         r = subprocess.run(cmd, cwd=self.dir, env=env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
         self.out = r.stdout.decode("utf-8", "replace")
+        self.expect(r.returncode == 0, f"host exit status {r.returncode}: {self.out[-1500:]}")
         try:
             with open(self.p("kiln", "logs", "kiln.log"), encoding="utf-8", errors="replace") as f:
                 self.log = f.read()
         except OSError:
             self.log = ""
+        self.has("RESULT done")
+        self.checks_pass("compat", 21)
         return self
 
     def state(self, engine):
@@ -190,6 +199,8 @@ def greeneye_hot_reload_server():
     g.checks_pass("greeneye:gtest", 35)  # both generations pass every check
     g.has("hot reload on (greeneye\\hotreload.enable)")
     g.has("[greeneye:gtest] generation=2")
+    g.has("CHECK lease_inactive_during_prepare ok")
+    g.has("CHECK prepare_can_call_own_detour ok")
     g.has("GTEST: active generation 2")
     with open(g.p("greeneye", "gtest", "hotload.status"), encoding="utf-8") as f:
         g.expect(f.read().startswith("active generation 2"), "hotload.status: active generation 2")
@@ -261,7 +272,7 @@ def flame_profile():
     g = Game("flame-profile", server=True)
     flame_mod(g, "library/ftest", "ftest", "flame_test.dll")
     flame_mod(g, "mods/fother", "fother", "flame_test.dll")  # not listed: the profile manages flame
-    g.profile({"flame": [{"id": "ftest", "path": winpath(g.p("library", "ftest"))}]})
+    g.profile({"flame": [{"id": "ftest", "path": winpath(g.p("library", "ftest")) + "\\"}]})
     g.run(g.plugin("kiln-flame.dll"), 600)
     g.has("FTEST 3.2.0 (profile): FlameStartRuntime returned")
     g.expect(os.path.isfile(g.p("library", "ftest", "started.txt")), "the mod found its own folder outside <game>/mods")
@@ -364,15 +375,396 @@ def idle_without_mods():
     return g
 
 
+
+def invalid_profiles():
+    combined = None
+    for engine in ("flame", "greeneye", "shroudtopia"):
+        for bad in ('{broken', '[]', '{"mods":{"' + engine + '":{}}}', '{"mods":{"' + engine + '":[{"path":4}]}}',
+                    json.dumps({"dropins": True, "mods": {engine: [{"id": "ftest\0", "path": "../mods/ftest", "enabled": False}]}}),
+                    json.dumps({"mods": {engine: [{"id": 5, "path": "../mods/ftest"}]}})):
+            g = Game("invalid-profile-" + engine + "-" + str(len(bad)))
+            if engine == "flame":
+                flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+            elif engine == "greeneye":
+                greeneye_mod(g, "greeneye/gtest", "gtest", "greeneye_test.dll")
+            else:
+                g.dll("shroudtopia_test.dll", "mods/test.dll")
+            g.put("kiln/profile.json", bad)
+            g.run(g.plugin("kiln-" + engine + ".dll"), 200)
+            g.lacks("Registered mod")
+            g.lacks("FlameStartRuntime returned")
+            g.lacks("(folder): started")
+            if combined is None:
+                combined = g
+            else:
+                combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def path_boundaries():
+    # Inside the mod folder nothing may lead out: a subfolder that is a link to an outside folder, a manifest with "..",
+    # and a mod folder (in the engine's folder) that is itself a link. A plain mod beside them must still start, so the
+    # scan provably ran. Not covered: a symlink to a *file*. Under Wine every Win32/NT query follows it (only symlinks
+    # to directories are flagged as reparse points), so the plugins cannot see it; on Windows CheckedPath refuses it.
+    combined = None
+    for engine, export_dll in (("flame", "flame_test.dll"), ("greeneye", "greeneye_test.dll"), ("shroudtopia", "shroudtopia_test.dll")):
+        g = Game("path-boundaries-" + engine)
+        base = "greeneye" if engine == "greeneye" else "mods"
+        g.dll(export_dll, "outside.dll")
+        g.dll(export_dll, "outside/" + export_dll)
+        if engine == "flame":
+            flame_mod(g, base + "/good", "good", export_dll)
+            flame_mod(g, base + "/link", "link", export_dll)
+            os.unlink(g.p(base, "link", export_dll))
+            g.put(base + "/link/flame.json", {"dll": "sub\\" + export_dll})
+            g.put(base + "/escape/mod.json", {"id": "escape"})
+            g.put(base + "/escape/flame.json", {"dll": "..\\..\\outside.dll"})
+            flame_mod(g, "library/external", "external", export_dll)
+        elif engine == "greeneye":
+            greeneye_mod(g, base + "/good", "good", export_dll)
+            g.put(base + "/link/mod.json", {"id": "link", "side": "both", "api": 2, "dll": "sub\\" + export_dll})
+            g.put(base + "/escape/mod.json", {"id": "escape", "side": "both", "dll": "..\\..\\outside.dll"})
+            greeneye_mod(g, "library/external", "external", export_dll)
+        else:
+            g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50})
+            g.put(base + "/good/mod.json", {"id": "good"})
+            g.dll(export_dll, base + "/good/good.dll")
+            g.put(base + "/escape/mod.json", {"id": "../../outside"})
+            g.put("library/external/mod.json", {"id": "external"})
+            g.dll("shroudtopia_client.dll", "library/external/external.dll")
+        if engine != "shroudtopia":
+            os.symlink(g.p("outside"), g.p(base, "link", "sub"))
+        os.symlink(g.p("library/external"), g.p(base, "external"))
+        g.run(g.plugin("kiln-" + engine + ".dll"), 900)
+        if engine == "shroudtopia":
+            g.has("Registered mod: Kiln Test Mod")
+            g.lacks("Kiln Client Mod")  # the DLL behind the linked mod folder
+        else:
+            g.expect(g.mod_status(engine, "good") == "started", "the plain mod beside them started")
+            for mod in ("link", "escape", "external"):
+                g.expect(g.mod_status(engine, mod) != "started", mod + " was refused")
+        g.expect(not os.path.exists(g.p("started.txt")), "outside DLL was not entered")
+        g.expect(not os.path.exists(g.p("outside/started.txt")), "DLL behind a linked subfolder was not entered")
+        g.expect(not os.path.exists(g.p("library/external/started.txt")), "external folder DLL was not entered")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def flame_dllmain_fault():
+    g = Game("flame-dllmain-fault")
+    flame_mod(g, "mods/afault", "afault", "flame_dllmain_fault.dll")
+    flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+    g.run(g.plugin("kiln-flame.dll"), 700)
+    g.expect(g.mod_status("flame", "afault") == "failed", "DllMain fault recorded")
+    g.expect(g.mod_status("flame", "ftest") == "started", "next mod starts after DllMain fault")
+    return g
+
+
+def flame_fault_running():
+    g = Game("flame-fault-running")
+    flame_mod(g, "mods/ftest", "ftest", "flame_fault.dll")
+    g.run(g.plugin("kiln-flame.dll"), 500)
+    g.expect(g.mod_status("flame", "ftest") == "failed", "faulted start recorded")
+    g.expect(g.result("flame_running_ftest") == "yes", "faulted runtime may retain threads/hooks; competitors keep yielding")
+    return g
+
+
+def flame_lifetime():
+    g = Game("flame-lifetime")
+    flame_mod(g, "mods/aslow", "aslow", "flame_slow.dll")
+    flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+    g.run(g.plugin("kiln-flame.dll"), 900, "--free-at", "80")
+    g.expect(g.result("plugin_pinned") == "yes", "Flame worker's plugin remains mapped after FreeLibrary")
+    g.expect(os.path.exists(g.p("mods/aslow/started.txt")), "in-flight Flame call returned safely")
+    g.expect(not os.path.exists(g.p("mods/ftest/started.txt")), "queued Flame mod stopped on unload")
+    return g
+
+
+def flame_late_loader():
+    g = Game("flame-late-loader")
+    flame_mod(g, "mods/aloader", "aloader", "flame_load_loader.dll")
+    flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+    g.dll("fakeflame.dll", "dinput8-flame.dll")
+    g.run(g.plugin("kiln-flame.dll"), 700)
+    g.expect(g.result("flame_stepped_aside") == "yes", "late Flame loader detected before next dispatch")
+    g.expect(g.result("flame_running_ftest") == "yes", "late handoff reports the folder mod as run by Flame")
+    g.expect(not os.path.exists(g.p("mods/ftest/started.txt")), "next mod is left to Flame")
+    return g
+
+
+def flame_dependency_loader():
+    g = Game("flame-dependency-loader")
+    flame_mod(g, "mods/ftest", "ftest", "flame_dependency.dll")
+    g.dll("fakeflame.dll", "fakeflame.dll")
+    g.run(g.plugin("kiln-flame.dll"), 700)
+    g.expect(g.result("flame_stepped_aside") == "yes", "loader brought in by mod dependency detected")
+    g.expect(not os.path.exists(g.p("mods/ftest/started.txt")), "runtime left to the real loader after dependency load")
+    return g
+
+
+def greeneye_hot_factory_faults():
+    combined = None
+    for marker in ("hot-fault", "hot-invalid"):
+        g = Game("greeneye-" + marker)
+        greeneye_mod(g, "greeneye/gtest", "gtest", "greeneye_test.dll")
+        g.put("greeneye/gtest/" + marker, "")
+        g.run(g.plugin("kiln-greeneye.dll"), 400)
+        g.expect(g.mod_status("greeneye", "gtest") == "failed", "bad hot factory generation rejected")
+        g.expect(g.result("gt_target") == "5", "failed hot factory did not publish hooks")
+        g.has("CHECK retained_original_callable ok")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def shroudtopia_late_loader():
+    g = Game("shroudtopia-late-loader")
+    g.dll("shroudtopia_test.dll", "mods/test.dll")
+    g.dll("dummy.dll", "shroudtopia.dll")
+    g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 500, "updateDelay": 50})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 900, "--load-at", "100", "shroudtopia.dll")
+    g.expect(g.result("late_loader") == "ok", "late real loader stand-in loaded")
+    g.lacks("Registered mod")
+    g.expect(g.state("shroudtopia").get("steppedAside") is True, "Shroudtopia yields during boot delay")
+    return g
+
+
+def shroudtopia_lifetime():
+    g = Game("shroudtopia-lifetime", server=True)
+    g.dll("shroudtopia_test.dll", "mods/test.dll")
+    g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                  "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 1000, "--free-at", "400")
+    g.expect(g.result("plugin_pinned") == "yes", "Shroudtopia callbacks remain mapped after FreeLibrary")
+    g.expect(g.result("gt_target") == "12", "mod detour/trampoline remains executable after unload")
+    g.expect(g.result("patch_restored") == "yes", "owned byte patches restored after worker stop")
+    return g
+
+
+def shroudtopia_renamed_loader():
+    g = Game("shroudtopia-renamed-loader")
+    g.dll("shroudtopia_test.dll", "mods/test.dll")
+    # Fake proxy marker: Shroudtopia's winmm can have any filename when chained.
+    g.dll("fakeshroud.dll", "kiln/chain/renamed-winmm.dll")
+    g.run(g.plugin("kiln-shroudtopia.dll"), 400, "--load", "kiln\\chain\\renamed-winmm.dll")
+    g.lacks("Registered mod")
+    g.expect(g.state("shroudtopia").get("steppedAside") is True, "renamed chained Shroudtopia proxy detected")
+    return g
+
+
+def shroudtopia_config_replacements():
+    combined = None
+    for invalid in (False, True):
+        g = Game("shroudtopia-config-" + ("invalid" if invalid else "same-time"), server=True)
+        cfg = {"active": True, "bootDelay": 0, "updateDelay": 50, "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}}
+        g.put("kiln/config/shroudtopia/shroudtopia.json", cfg)
+        g.dll("shroudtopia_test.dll", "mods/test.dll")
+        if invalid:
+            g.put("replacement.json", '[]')
+        else:
+            off = json.loads(json.dumps(cfg))
+            off["mods"]["Kiln Test Mod"]["active"] = False
+            g.put("replacement.json", off)
+        stamp = os.stat(g.p("kiln/config/shroudtopia/shroudtopia.json")).st_mtime_ns
+        os.utime(g.p("replacement.json"), ns=(stamp, stamp))
+        g.run(g.plugin("kiln-shroudtopia.dll"), 1200, "--at", "500", "--copy", "replacement.json",
+              "kiln\\config\\shroudtopia\\shroudtopia.json")
+        if invalid:
+            g.expect(g.mod_status("shroudtopia", "Kiln Test Mod", "name") == "active", "invalid replacement retains last valid config")
+        else:
+            g.has("Deactivating: Kiln Test Mod")
+            g.expect(g.mod_status("shroudtopia", "Kiln Test Mod", "name") == "inactive", "same-mtime replacement reloads")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def shroudtopia_faults():
+    combined = None
+    for stage in ("factory-fault", "metadata-fault", "load-fault", "load-throw", "activate-fault", "update-fault", "deactivate-fault"):
+        g = Game("shroudtopia-" + stage, server=True)
+        cfg = {"active": True, "bootDelay": 0, "updateDelay": 50, "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}}
+        g.put("kiln/config/shroudtopia/shroudtopia.json", cfg)
+        g.dll("shroudtopia_test.dll", "mods/" + stage + ".dll")
+        cfg = json.loads(json.dumps(cfg))
+        cfg["mods"]["Kiln Test Mod"]["active"] = False
+        g.put("off.json", cfg)
+        g.run(g.plugin("kiln-shroudtopia.dll"), 900, "--at", "400", "--copy", "off.json",
+              "kiln\\config\\shroudtopia\\shroudtopia.json")
+        if stage.startswith(("factory", "metadata")):
+            g.expect(bool(g.state("shroudtopia").get("refused")), "factory/metadata fault refused")
+        else:
+            g.expect(g.mod_status("shroudtopia", "Kiln Test Mod", "name") == "faulted", stage + " recorded")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def profile_id_precedence():
+    combined = None
+    for engine in ("flame", "greeneye", "shroudtopia"):
+        g = Game("profile-id-" + engine)
+        if engine == "flame":
+            flame_mod(g, "library/listed", "manifest-other-id", "flame_test.dll")
+            flame_mod(g, "mods/blocked", "blocked", "flame_test.dll")
+        elif engine == "greeneye":
+            greeneye_mod(g, "library/listed", "manifest-other-id", "greeneye_test.dll")
+            greeneye_mod(g, "greeneye/blocked", "blocked", "greeneye_test.dll")
+        else:
+            g.put("library/listed/mod.json", {"id": "manifest-other-id"})
+            g.dll("shroudtopia_test.dll", "library/listed/manifest-other-id.dll")
+            g.put("mods/blocked/mod.json", {"id": "blocked"})
+            g.dll("shroudtopia_test.dll", "mods/blocked/blocked.dll")
+        g.profile({engine: [{"id": "blocked", "path": winpath(g.p("library/listed")), "enabled": False}]}, dropins=True)
+        g.run(g.plugin("kiln-" + engine + ".dll"), 500)
+        g.lacks("Registered mod")
+        g.lacks("FlameStartRuntime returned")
+        g.lacks("(folder): started")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def greeneye_chaining():
+    combined = None
+    for prehook in (False, True):
+        g = Game("greeneye-chaining-" + str(prehook))
+        greeneye_mod(g, "greeneye/a", "a", "greeneye_test.dll")
+        greeneye_mod(g, "greeneye/b", "b", "greeneye_test.dll")
+        g.run(g.plugin("kiln-greeneye.dll"), 700, *(('--prehook',) if prehook else ()))
+        g.checks_pass("greeneye:a", 25)
+        g.checks_pass("greeneye:b", 25)
+        g.expect(g.result("gt_target") == str(2005 + (7 if prehook else 0)), "both Greeneye hooks and host safetyhook chain")
+        g.expect(g.result("gt_caller") == "208", "both call redirects chain")
+        if prehook:
+            g.expect(g.result("prehook") == "ok", "host safetyhook installed")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def greeneye_lifetime():
+    g = Game("greeneye-lifetime", server=True)
+    greeneye_mod(g, "greeneye/gtest", "gtest", "greeneye_test.dll")
+    g.put("greeneye/hotreload.enable", "")
+    g.run(g.plugin("kiln-greeneye.dll"), 900, "--free-at", "400")
+    g.expect(g.result("plugin_pinned") == "yes", "Greeneye host/trampoline remains mapped after FreeLibrary")
+    g.expect(g.result("gt_target") == "1005", "Greeneye hook remains callable after plugin unload")
+    return g
+
+
+def ancestor_symlinks():
+    # A profile entry reached through a symlinked ancestor (a Steam library or Kiln's library behind a link, as Proton's
+    # Z: drive itself is) is the player's layout: the mod loads. Containment starts at the mod folder.
+    combined = None
+    for engine, dll in (("flame", "flame_test.dll"), ("greeneye", "greeneye_test.dll"), ("shroudtopia", "shroudtopia_test.dll")):
+        g = Game("ancestor-symlink-" + engine)
+        if engine == "flame":
+            flame_mod(g, "external/ftest", "ftest", dll)
+        elif engine == "greeneye":
+            greeneye_mod(g, "external/ftest", "ftest", dll)
+        else:
+            g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50})
+            g.put("external/ftest/mod.json", {"id": "ftest"})
+            g.dll(dll, "external/ftest/ftest.dll")
+        os.symlink(g.p("external"), g.p("library-link"))
+        g.profile({engine: [{"id": "ftest", "path": winpath(g.p("library-link/ftest")) + "\\"}]})
+        g.run(g.plugin("kiln-" + engine + ".dll"), 900)
+        if engine == "flame":
+            g.has("FTEST 3.2.0 (profile): FlameStartRuntime returned")
+            g.expect(os.path.isfile(g.p("external/ftest/started.txt")), "the mod ran from behind the linked ancestor")
+        elif engine == "greeneye":
+            g.expect(g.mod_status("greeneye", "ftest") == "started", "state: ftest started")
+        else:
+            g.has("Registered mod: Kiln Test Mod 2.0 by kiln (profile")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def greeneye_hot_callback_faults():
+    combined = None
+    for marker in ("prepare-fault", "ready-fault"):
+        g = Game("greeneye-" + marker, server=True)
+        greeneye_mod(g, "greeneye/gtest", "gtest", "greeneye_test.dll")
+        g.put("greeneye/hotreload.enable", "")
+        g.put("greeneye/gtest/" + marker, "")
+        g.put("request-reload", "")
+        g.run(g.plugin("kiln-greeneye.dll"), 1800, "--at", "500", "--copy", "request-reload", "greeneye\\gtest\\reload")
+        g.expect(g.result("gt_target") == "1005", "faulted prepare/ready retains old active hook")
+        g.expect(any(m.get("id") == "gtest" and m.get("generation") == 1 for m in g.state("greeneye").get("mods", [])),
+                 "faulted callback leaves generation 1 active")
+        g.has("stays active")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def greeneye_manifest_bounds():
+    g = Game("greeneye-manifest-bounds", server=True)
+    greeneye_mod(g, "greeneye/overflow", "overflow", "greeneye_test.dll", api=4294967298)
+    greeneye_mod(g, "greeneye/huge", "huge", "greeneye_test.dll", api=10 ** 50)
+    greeneye_mod(g, "greeneye/long", "long", "greeneye_test.dll", dll_name="x" * 130 + ".dll")
+    g.put("greeneye/hotreload.enable", "")
+    g.run(g.plugin("kiln-greeneye.dll"), 700)
+    g.expect(g.mod_status("greeneye", "overflow") == "rejected", "32-bit API overflow refused")
+    g.expect(g.mod_status("greeneye", "huge") == "rejected", "integer parser overflow refused")
+    g.expect(g.mod_status("greeneye", "long") == "started", "long shadow basename did not abort CRT")
+    return g
+
+
+def greeneye_default_dll_profile():
+    g = Game("greeneye-default-dll-profile")
+    g.put("library/original/mod.json", {"id": "original", "side": "both"})
+    g.dll("greeneye_test.dll", "library/original/original.dll")
+    g.profile({"greeneye": [{"id": "profile-id", "path": winpath(g.p("library/original"))}]})
+    g.run(g.plugin("kiln-greeneye.dll"), 700)
+    g.expect(g.mod_status("greeneye", "profile-id") == "started", "profile identity preserves manifest default DLL filename")
+    return g
+
+
+def shroudtopia_loader_named_mod():
+    g = Game("shroudtopia-loader-named-mod", server=True)
+    g.dll("shroudtopia_test.dll", "mods/shroudtopia.dll")
+    g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                  "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 700)
+    g.has("Registered mod: Kiln Test Mod")
+    g.expect(g.state("shroudtopia").get("steppedAside") is False, "CreateModInstance mod named shroudtopia.dll is not a loader")
+    return g
+
 SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_legacy_client, greeneye_profile_server, greeneye_hot_reload_server, greeneye_aside, greeneye_nomods,
     flame_legacy, flame_profile, flame_aside,
-    shroudtopia_legacy_server, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods]}
+    shroudtopia_legacy_server, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods,
+    invalid_profiles, path_boundaries, flame_dllmain_fault, flame_fault_running, flame_lifetime, flame_late_loader, flame_dependency_loader,
+    greeneye_hot_factory_faults, shroudtopia_late_loader, shroudtopia_lifetime, shroudtopia_renamed_loader,
+    shroudtopia_config_replacements, shroudtopia_faults, profile_id_precedence,
+    greeneye_chaining, greeneye_lifetime, ancestor_symlinks, greeneye_hot_callback_faults,
+    greeneye_manifest_bounds, shroudtopia_loader_named_mod, greeneye_default_dll_profile]}
 
 
 def main():
     names = sys.argv[1:] or list(SCENARIOS)
-    ensure_prefix()
+    if not ensure_prefix():
+        return 2
     failed = 0
     for n in names:
         g = SCENARIOS[n]()

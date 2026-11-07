@@ -40,8 +40,8 @@ Differences, all on the safe side:
 - A DLL is loaded only when its export table (read from the file) has `CreateModInstance`. Shroudtopia 1.0 loads any
   DLL in a `mods/<name>/` folder, which in a shared `mods/` folder also runs other loaders' DLLs (Flame, EML packages);
   Kiln never does. Folders with `flame.json` or `src/mod.lua` are skipped.
-- Every call into a mod is fault-guarded: a mod that faults or throws is switched off until the next start, the game
-  runs on.
+- DLL initialization, the factory, metadata and loader-invoked lifecycle calls are fault-guarded: a mod that faults or throws is switched off until the next start, the game
+  runs on. Mod-owned threads and direct detours are outside those guards.
 
 ## ABI
 
@@ -62,20 +62,29 @@ implemented.**
 | `game.version` / `isClient` / `isServer` | the exe's sha256 (Shroudtopia passes a placeholder), Kiln's side | `ModInfo.Side` | full; host `side` |
 | `config.GetBool/Int/Float/String/Uint64` | `mods.<key>.<name>` with nlohmann::json conversions (Shroudtopia's library): a missing or wrong-typed value gives the default | Kiln mod config (`<configDir>/<id>.json`) | full; host `get_*` (incl. default and wrong type); lab: all 12 config checks |
 | `config.Get*Array` (5) | same, for JSON arrays | same | full; host `get_*_array` |
-| `memory.FindPattern(pattern, mask, start, length)` | committed readable regions from `start`, first match, `?` in mask = any byte | `Symbols.Find`, **`OriginalCode.FindUnique`** | full; host `find_pattern`; lab: it scans live memory, so a function whose first bytes Kiln's chat service had hooked was (correctly) not found by those bytes |
-| `memory.Read` / `Write` / `WriteToReadOnlyMemory` | kiln.hooks `read`/`write` (SEH-guarded), own guarded copy without it | `Memory.Read/Write` | full; host `read`, `write`, `write_ro`; lab `read` |
-| `memory.ApplyPatch` | a kiln.hooks patch (undone when the plugin is revoked) | `Memory.Patch` | full; host `apply_patch` |
+| `memory.FindPattern(pattern, mask, start, length)` | committed readable regions from `start`, first match strictly within the requested range (including readable-region boundaries), `?` in mask = any byte | `Symbols.Find`, **`OriginalCode.FindUnique`** | full; host `find_pattern`; lab: it scans live memory, so a function whose first bytes Kiln's chat service had hooked was (correctly) not found by those bytes |
+| `memory.Read` / `Write` / `WriteToReadOnlyMemory` | own bounded, guarded copies; writes restore each affected region's original protection even on failure | `Memory.Read/Write` | full; host `read`, `write`, `write_ro`; lab `read` |
+| `memory.ApplyPatch` | own patch snapshot (restored after the loader worker stops on revoke; trampolines remain mapped) | `Memory.Patch` | full; host `apply_patch` |
 | `memory.WriteJump(target, dest)` | `jmp rel32`; refused (logged) when out of reach | `Memory.Patch` | full; host `write_jump` |
-| `memory.AllocateMemoryNearAddress` | closest free block within rel32 reach | - | full (Shroudtopia's version may miss reach); host `alloc_near` |
+| `memory.AllocateMemoryNearAddress` | a free block within rel32 reach | - | full (Shroudtopia's version may miss reach); host `alloc_near` |
 | `memory.GetModuleBaseAddress(name)` | first module whose path contains `name`, case-insensitive | `Symbols.ImageBase` | full; host `module_base`; lab `lab_module_base` |
 | `memory.InjectShellcode` | copies the code into a near block and keeps it | - | full (Shroudtopia's version overwrites the code with NOPs on return); host `inject_shellcode` |
-| `memory.CreateDetour(target, detour, &trampoline)` | a safetyhook inline hook, trampoline returned | `Hooks.Detour` | full (Shroudtopia's version is a stub that returns true); host `create_detour`, `detour_runs` |
+| `memory.CreateDetour(target, detour, &trampoline)` | a safetyhook inline hook (16 readable bytes required at the target); optional original trampoline is published before enabling the hook | `Hooks.Detour` | full (Shroudtopia's version is a stub that returns true); host `create_detour`, `detour_runs` |
 | `Log(msg)` | `[shroudtopia:<mod>]` + `shroudtopia.log` (the mod the loader is driving, as Shroudtopia attributes it) | `ModContext.Log` | full; host, lab |
 | `registeredMods` / `loadedMods` | filled as Shroudtopia does (DLL path; loaded set) | - | full |
 | `CreateModInstance`, `GetMetaData`, `Load`, `Activate`, `Update`, `Deactivate` | Shroudtopia's loop on Kiln's loader thread | `Mod.OnLoad`, tick events | full; host lifecycle (`activated`, `third update`, `deactivated` after a settings change), client-only mod skipped on a server |
 | `Unload`, `~Mod` | never called, as in Shroudtopia | `Mod.OnUnload` | full (same behaviour) |
 
 No Kiln C# addition was needed: Kiln's own config and hook APIs already cover these.
+
+Settings reload compares file contents too, so a replacement preserving the timestamp still takes effect. Invalid
+JSON or a non-object replacement retains the last valid settings. Side support is checked before `Load`; a skipped
+instance is never activated or updated. The global `active` setting gates discovery and updates, as upstream does.
+
+Renamed real proxies in the game folder and `kiln/chain/` are detected. Detection is repeated during boot delay and
+before dispatch; see the [load-order limits](README.md#when-the-other-loader-is-installed-too). Plugin revoke stops
+the worker, with a bounded wait for a blocked foreign call. Successful near allocations, shellcode blocks, inline
+hooks, mod DLLs and the compatibility runtime remain mapped because foreign threads can retain them.
 
 ## Manual test
 

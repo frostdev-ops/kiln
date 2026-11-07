@@ -1,5 +1,5 @@
-// Greeneye Loader jumppatch.h (MIT, Copyright (c) 2026 Greeneye0; licenses/GreeneyeLoader-LICENSE.txt), unchanged from
-// github.com/Greeneye0/greeneye-loader-enshrouded 1.2.2 (commit 4b13108) apart from this header comment.
+// Greeneye Loader jumppatch.h (MIT, Copyright (c) 2026 Greeneye0; licenses/GreeneyeLoader-LICENSE.txt), from
+// github.com/Greeneye0/greeneye-loader-enshrouded 1.2.2 (commit 4b13108), with bounded writes and protection restoration.
 #pragma once
 // Another mod's hook at the start of a function, and chaining onto it. Shared by every mod in
 // this folder (see common/README.md): release hooks use it through each mod's
@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 namespace jumppatch {
 
@@ -74,7 +75,10 @@ inline uint8_t* AllocNear(const uint8_t* from, size_t size)
     GetSystemInfo(&si);
     const uintptr_t gran = si.dwAllocationGranularity, at = reinterpret_cast<uintptr_t>(from);
     const uintptr_t reach = 0x7FF00000;
-    uintptr_t lo = at > reach ? at - reach : 0, hi = at + reach;
+    if (!from || !size || size > reach) return nullptr;
+    uintptr_t lo = at > reach ? at - reach : 0;
+    uintptr_t hi = at > (std::numeric_limits<uintptr_t>::max)() - reach
+                       ? (std::numeric_limits<uintptr_t>::max)() : at + reach;
     lo = (std::max)(lo, reinterpret_cast<uintptr_t>(si.lpMinimumApplicationAddress));
     hi = (std::min)(hi, reinterpret_cast<uintptr_t>(si.lpMaximumApplicationAddress));
     MEMORY_BASIC_INFORMATION mbi;
@@ -83,7 +87,9 @@ inline uint8_t* AllocNear(const uint8_t* from, size_t size)
         if (mbi.State != MEM_FREE)
             continue;
         uintptr_t base = (reinterpret_cast<uintptr_t>(mbi.BaseAddress) + gran - 1) & ~(gran - 1);
-        if (base + size > reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize || base + size > hi)
+        if (base > hi || size > hi - base || base < reinterpret_cast<uintptr_t>(mbi.BaseAddress) ||
+            base - reinterpret_cast<uintptr_t>(mbi.BaseAddress) > mbi.RegionSize ||
+            size > mbi.RegionSize - (base - reinterpret_cast<uintptr_t>(mbi.BaseAddress)))
             continue;
         if (void* m = VirtualAlloc(reinterpret_cast<void*>(base), size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE))
             return static_cast<uint8_t*>(m);
@@ -91,15 +97,53 @@ inline uint8_t* AllocNear(const uint8_t* from, size_t size)
     return nullptr;
 }
 
+// The copy is a separate, never-inlined call on purpose: clang-cl (without /EHa) only maps a hardware fault to a
+// __try's handler when it happens inside a call made from the guarded block; an inlined memcpy of a few bytes becomes
+// plain moves there, and a fault in them escapes the __except.
+__declspec(noinline) inline void CopyBytes(void* at, const void* bytes, size_t n)
+{
+    memcpy(at, bytes, n);
+}
+
 inline bool Write(void* at, const void* bytes, size_t n)
 {
-    DWORD old;
-    if (!VirtualProtect(at, n, PAGE_EXECUTE_READWRITE, &old))
-        return false;
-    memcpy(at, bytes, n);
-    VirtualProtect(at, n, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), at, n);
-    return true;
+    if (!n) return true;
+    const auto address = reinterpret_cast<uintptr_t>(at);
+    if (!at || !bytes || n > (std::numeric_limits<uintptr_t>::max)() - address) return false;
+    struct Region { void* at; size_t size; DWORD protection; } regions[16];
+    size_t count = 0;
+    const uintptr_t end = address + n;
+    // No allocation: this is also used while the other threads are suspended for a hook commit.
+    for (uintptr_t p = address; p < end;) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (count == 16 || !VirtualQuery(reinterpret_cast<void*>(p), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT)
+            return false;
+        const auto base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        if (!mbi.RegionSize || mbi.RegionSize > (std::numeric_limits<uintptr_t>::max)() - base) return false;
+        const uintptr_t next = (std::min)(end, base + mbi.RegionSize);
+        if (next <= p) return false;
+        regions[count++] = {reinterpret_cast<void*>(p), static_cast<size_t>(next - p), mbi.Protect};
+        p = next;
+    }
+    size_t changed = 0;
+    for (; changed < count; ++changed) {
+        DWORD old = 0;
+        if (!VirtualProtect(regions[changed].at, regions[changed].size, PAGE_EXECUTE_READWRITE, &old)) break;
+        regions[changed].protection = old;
+    }
+    bool copied = false;
+    if (changed == count) {
+        __try { CopyBytes(at, bytes, n); copied = true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    bool restored = true;
+    while (changed) {
+        Region& r = regions[--changed];
+        DWORD ignored = 0;
+        if (!VirtualProtect(r.at, r.size, r.protection, &ignored)) restored = false;
+    }
+    if (copied) FlushInstructionCache(GetCurrentProcess(), at, n);
+    return copied && restored;
 }
 
 // Points the jump at t to detour. Only the jump's own operand changes.
@@ -200,7 +244,8 @@ inline uint8_t* FindBehindHook(uint8_t* text, size_t size, const int* pattern, s
     if (size < span)
         return nullptr;
     uint8_t* found = nullptr;
-    for (uint8_t* p = text; p + span <= text + size; ++p) {
+    for (size_t offset = 0; offset <= size - span; ++offset) {
+        uint8_t* p = text + offset;
         if (p[0] != 0x48 && p[0] != 0xE9 && p[0] != 0xFF)
             continue;
         if (!MatchesBehindHook(p, pattern, n))

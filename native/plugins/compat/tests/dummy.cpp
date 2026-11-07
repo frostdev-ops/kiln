@@ -6,3 +6,6 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) { return TRUE; }
 // Stands in for Flame's loader: its file names the entry point it calls without exporting it.
 extern "C" __declspec(dllexport) const char compat_fake_loader_marker[] = "FlameStartRuntime";
 #endif
+#ifdef FAKE_SHROUD
+extern "C" __declspec(dllexport) const char compat_fake_shroud_marker[] = "Shroudtopia";
+#endif

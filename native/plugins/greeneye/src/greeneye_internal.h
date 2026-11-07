@@ -55,6 +55,7 @@ void StartWatcher();
 // A safe point offered from outside (Kiln's client-world tick): pending reloads may happen here.
 void PollFromKiln();
 
+void Stop(); // stop reload work; code and generated trampolines remain pinned for live mod threads
 std::vector<ModState> Describe();
 
 // Test hooks for the conformance host: the GreeneyeHost functions, reachable without a mod.

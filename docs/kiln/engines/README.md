@@ -10,6 +10,7 @@ keep the mods as they are; you do not need the other loader's proxy DLL.
 | Flame (Creative Mode's loader) | `kiln-flame.dll` | `mods/<id>/` with `flame.json` and a DLL exporting `FlameStartRuntime` | [flame.md](flame.md) |
 | Shroudtopia 0.1.1 / 1.0 r1 | `kiln-shroudtopia.dll` | `mods/*.dll` and `mods/<name>/` exporting `CreateModInstance` | [shroudtopia.md](shroudtopia.md) |
 | EMF 0.3.3 (API v21) | `kiln-emf.dll` | `emf/mods/` | [../emf.md](../emf.md) |
+| Enshwick 1.0.0-alpha.13 | `kiln-enshwick.dll` (hosts Enshwick's own loader) | `mods/<author.name>/`: DLL mods, `main.luau`, `pack.toml` data packs | [enshwick.md](enshwick.md) |
 
 Running such a mod runs that mod's own code in the game process, as with any native mod. Install mods only from
 sources you trust.
@@ -29,16 +30,40 @@ The same rule for every engine:
 
 ## When the other loader is installed too
 
-Each plugin checks whether the engine's own loader runs in the same process, and **steps aside** when it does: the
-mods are then that loader's to start, never both. The log says `<plugin> steps aside: ...`. When the other loader's
+Each plugin checks whether the engine's own loader runs in the same process, and **steps aside** when it sees it before starting mods. The log says `<plugin> steps aside: ...`. When the other loader's
 files are in the game folder but did not start (for example under Wine or Proton, where those proxy names are not
 loaded), the plugin says so and loads the mods itself.
 
 | Engine | How Kiln knows its loader runs | Why stepping aside keeps the setup working |
 |---|---|---|
-| Greeneye | Greeneye Loader's own per-process claim (`Local\Greeneye-Loader-<pid>`) exists | Greeneye Loader itself lets only one copy run. If Kiln starts first, Kiln takes the claim, so a copy of Greeneye Loader that loads later stays idle, as a second Greeneye Loader does. |
+| Greeneye | Greeneye Loader's own per-process claim (`Local\Greeneye-Loader-<pid>`) exists | Creating the named claim is atomic. A loader honoring that same claim stays idle when Kiln took it first; Kiln yields when the claim already exists. |
 | Flame | a module in the game folder or `kiln/chain/` carries Flame's entry-point name without exporting it (Flame's proxy, chained by Kiln) | Flame's loader starts the mods in `<game>/mods` from its own thread; starting them again would run the mod twice. Switch its line off in `kiln/chain.ini` to let Kiln start them (and from profiles). |
-| Shroudtopia | `shroudtopia.dll` is loaded, or a `winmm.dll` from the game folder that names Shroudtopia or Shroudweave | Shroudtopia's loader thread already drives its mods. |
+| Shroudtopia | `shroudtopia.dll` is loaded, or a module from the game folder or `kiln/chain/` names Shroudtopia or Shroudweave | Shroudtopia's loader thread already drives its mods. |
+| Enshwick | its `powrprof.dll` stub (texts `enshwick-loader-stub`) is loaded, its claim `Local\enshwick-stub-<pid>` exists, or a module exporting `enshwick_start` is loaded | Kiln takes the same claim when it starts the loader, so a stub that starts later stays idle (the stub's own rule); when the stub is first, it runs Enshwick and Kiln starts nothing. |
+
+Flame and Shroudtopia are checked again before mod dispatch, including after Shroudtopia's boot delay. Renamed
+proxies in `kiln/chain/` are recognized. These engines have no cooperative process claim or shutdown contract:
+a real loader arriving after a mod has entered can still start that mod again. Kiln stops further dispatch when it
+observes such a loader, but cannot undo arbitrary hooks or threads already started. Disable one loader before
+starting the process when both could arrive in that order.
+
+**Path policy.** A mod DLL must be a regular file inside its authorized root: the mod folder, the engine folder for a
+mod found there, or the parent of an explicitly listed flat DLL. From that root down (the root included, so a mod
+folder or a profile's listed folder must not itself be a link), symlinks, junctions, `..`, alternate streams and
+device names are refused, and the opened file's final path must still lie under the root. The root may sit anywhere,
+such as a profile pointing at a library outside the game folder (Kiln's launcher library through `Z:\...`). Folders
+above the root are the player's layout and are not judged: a Steam library behind a symlink, or Wine/Proton drive
+links such as `Z:\` (itself a link to `/`), are fine. Under Wine, symlinks to directories are refused like on Windows,
+but Wine follows a symlink to a *file* in every Win32 query, so the plugins cannot see that one case; the installer
+that writes the mod folder must not create such links. Directory and file handles keep every path component and the
+DLL contents stable from export validation through loading. A callable, file-backed export is required; forwarded and
+data exports do not qualify.
+The export precheck does not validate dependencies or make native mod code safe.
+
+Compatibility runtimes and entered mod DLLs stay mapped for the process lifetime. Revoking a plugin stops queued
+work and cancellable watchers; it cannot terminate foreign threads or reclaim trampolines they may still call.
+Fault guards cover synchronous loader-invoked initialization and lifecycle calls. Mod-owned threads and
+arbitrary-signature detours execute directly and can still crash the process.
 
 ## Status files and logs
 
@@ -50,4 +75,4 @@ keep the log file their mod authors ask for in bug reports: `kiln/logs/greeneye-
 ## Tests
 
 `native/plugins/compat/tests/run.py` runs each plugin in a stand-in game process under plain Wine with test mods that
-check the whole API, and `native/plugins/compat/tests/lab.sh` puts read-only probes into a lab dedicated server.
+exercise API, path, malformed-file, lifecycle and concurrency regressions, and `native/plugins/compat/tests/lab.sh` puts read-only probes into a lab dedicated server.

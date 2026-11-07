@@ -22,11 +22,11 @@ Observed from the mod's files and the loader's import and export tables, never b
 
 1. Steps aside when Flame's loader runs in this process (see [README.md](README.md#when-the-other-loader-is-installed-too)).
 2. Finds the mods: the profile's `mods.flame` entries, then every `<game>/mods/<dir>/` with a `flame.json`.
-3. Checks each one without running it: `flame.json` names a DLL inside the mod folder, the DLL exists and its export
-   table has `FlameStartRuntime`.
+3. Checks each one without running it: `flame.json` names a regular DLL inside the mod folder, with no symlink or junction in its path, and its export
+   table has a callable `FlameStartRuntime`. Handles keep the file unchanged through loading.
 4. On one worker thread, one mod after the other: `LoadLibraryExW(dll, LOAD_WITH_ALTERED_SEARCH_PATH)`, then
-   `FlameStartRuntime()` under a fault guard. A mod that faults is marked failed; the game runs on. A DLL is never
-   unloaded.
+   `FlameStartRuntime()` under a fault guard (DLL initialization is guarded too). A mod that faults is marked failed; the game runs on. Entered DLLs and the compatibility runtime remain mapped for the process lifetime; unload stops queued starts.
+   A foreign entry point already running is allowed to finish.
 5. Publishes the service `kiln.flame` (`native/plugins/flame/include/kiln_flame.h`): which Flame mods run, so Kiln's
    own features that touch the same game systems can go idle (Kiln's creative hooks while Creative Mode runs).
 6. Writes `kiln/state/flame.json`; logs `[flame] ...` and `[flame:<id>] ...`.
@@ -48,7 +48,13 @@ Observed from the mod's files and the loader's import and export tables, never b
 
 Creative Mode hooks the same game systems as Kiln's creative rules (building cost, flight, time of day). The policy
 ([universal-loader.md](../universal-loader.md) 3.6): Kiln's own feature yields while the third-party mod runs. Kiln's
-features find out through `kiln.flame` (`running("creative")`); Kiln's creative rules do not consult it yet.
+features can find out through `kiln.flame` (`running("creative")`). This reports true after a faulted start too, because
+the failed entry may already have installed hooks or launched threads. Integration with Kiln creative rules is outside
+this compatibility plugin; check that feature's implementation before relying on it to yield.
+
+Flame's loader is checked before startup and before each queued dispatch. It cannot be stopped if it arrives after a
+runtime has already entered; see the [load-order limits](README.md#when-the-other-loader-is-installed-too).
+A fault on a mod-owned thread or inside a direct detour is outside these synchronous fault guards.
 
 ## Manual test (real client)
 

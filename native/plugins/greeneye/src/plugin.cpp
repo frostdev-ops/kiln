@@ -13,6 +13,9 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cerrno>
+#include <cstdlib>
+#include <limits>
 #include <cstdio>
 #include <map>
 #include <mutex>
@@ -33,6 +36,7 @@ kcompat::Host H{nullptr, 0, "greeneye"};
 uint32_t g_side = KILN_SIDE_SERVER;
 std::mutex g_file_mu;
 FILE* g_file = nullptr;  // logs/greeneye-loader.log: the loader.log Greeneye's mod authors ask for, in Kiln's logs
+std::mutex g_mod_ids_mu;
 std::vector<std::string> g_mod_ids;  // ModLog index -> id
 std::string g_stepped_aside;
 bool g_hot = false;
@@ -88,7 +92,13 @@ bool JsonBool(const std::string& json, const char* key, bool fallback) {
 
 int JsonInt(const std::string& json, const char* key, int fallback) {
     const char* p = FindKey(json, key);
-    return p && (*p == '-' || (*p >= '0' && *p <= '9')) ? std::atoi(p) : fallback;
+    if (!p || (*p != '-' && (*p < '0' || *p > '9'))) return fallback;
+    errno = 0;
+    const long long value = std::strtoll(p, nullptr, 10);
+    if (errno == ERANGE) return *p == '-' ? (std::numeric_limits<int>::min)() : (std::numeric_limits<int>::max)();
+    if (value > (std::numeric_limits<int>::max)()) return (std::numeric_limits<int>::max)();
+    if (value < (std::numeric_limits<int>::min)()) return (std::numeric_limits<int>::min)();
+    return static_cast<int>(value);
 }
 
 // Greeneye Loader's own claim: "Local\Greeneye-Loader-<pid>" (greeneye.h ClaimProcess). Held for the process life.
@@ -141,12 +151,14 @@ Entry read_mod(const fs::path& dir, const std::string& profile_id, bool profile_
         e.reason = "no mod.json in " + path_utf8(dir);
         return e;
     }
-    e.id = JsonString(json, "id", profile_id.empty() ? folder : profile_id);
+    const std::string manifest_id = JsonString(json, "id", folder);
+    e.id = profile_id.empty() ? manifest_id : profile_id;
     e.name = JsonString(json, "name", e.id);
     e.version = JsonString(json, "version", "?");
     e.side = JsonString(json, "side", "client");
     e.api = JsonInt(json, "api", 1);
-    e.dll = dir / to_wide(JsonString(json, "dll", e.id + ".dll"));
+    e.dll = dir / to_wide(JsonString(json, "dll", manifest_id + ".dll"));
+    kcompat::CheckedDll checked;
     const char* side_name = g_side == KILN_SIDE_SERVER ? "server" : "client";
     if (!profile_enabled) {
         e.status = "disabled";
@@ -164,10 +176,12 @@ Entry read_mod(const fs::path& dir, const std::string& profile_id, bool profile_
     } else if (!kcompat::exists(e.dll)) {
         e.status = "rejected";
         e.reason = "its DLL is missing (" + path_utf8(e.dll) + ")";
-    } else if (!kcompat::pe_exports_name(e.dll, "GreeneyeModStart")) {
+    } else if (!checked.open(dir, e.dll, "GreeneyeModStart")) {
         // Greeneye Loader would load the DLL and then find no entry; Kiln checks the file first and never runs it.
         e.status = "rejected";
-        e.reason = "no GreeneyeModStart in " + path_utf8(e.dll);
+        e.reason = checked.error.find("GreeneyeModStart") != std::string::npos
+                       ? "no GreeneyeModStart in " + path_utf8(e.dll)
+                       : "DLL must stay inside the mod folder without symlinks: " + checked.error;
     } else {
         e.status = "candidate";
     }
@@ -241,7 +255,8 @@ void KILN_CALL on_ready(void*) {
         std::vector<fs::path> dirs;
         std::error_code ec;
         for (const auto& d : fs::directory_iterator(folder, ec))
-            if (d.is_directory(ec) && d.path().filename().wstring()[0] != L'.') dirs.push_back(d.path());
+            if (d.is_directory(ec) && d.path().filename().wstring()[0] != L'.' &&
+                kcompat::contained_path(folder, d.path())) dirs.push_back(d.path());
         std::sort(dirs.begin(), dirs.end());  // Greeneye Loader takes FindFirstFile order: by name on NTFS
         for (const auto& d : dirs) {
             if (!kcompat::exists(d / L"mod.json")) continue;
@@ -282,8 +297,11 @@ void KILN_CALL on_ready(void*) {
         m.version = e.version;
         m.dir = with_slash(e.dir);
         m.dll = e.dll.wstring();
-        m.index = g_mod_ids.size();
-        g_mod_ids.push_back(e.id);
+        {
+            std::lock_guard lock(g_mod_ids_mu);
+            m.index = g_mod_ids.size();
+            g_mod_ids.push_back(e.id);
+        }
         bool ok = false;
         const std::string line = hot::StartMod(m, &ok);
         e.status = ok ? "started" : "failed";
@@ -303,6 +321,7 @@ void KILN_CALL on_ready(void*) {
 }
 
 void KILN_CALL on_unload(void*) {
+    hot::Stop();
     write_status();
     std::lock_guard lock(g_file_mu);
     if (g_file) std::fclose(g_file), g_file = nullptr;
@@ -320,7 +339,11 @@ void Log(const char* fmt, ...) {
 }
 
 void ModLog(size_t index, const char* line) {
-    const std::string id = index < g_mod_ids.size() ? g_mod_ids[index] : std::string("?");
+    std::string id;
+    {
+        std::lock_guard lock(g_mod_ids_mu);
+        id = index < g_mod_ids.size() ? g_mod_ids[index] : std::string("?");
+    }
     H.mod_log(KILN_LOG_INFO, id, line);
     file_line("  " + id + ": " + line);
 }
@@ -334,6 +357,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     using namespace kgreeneye;
     if (!api || api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, session) + sizeof(void*))
         return KILN_ERR_UNAVAILABLE;
+    if (!kcompat::pin_module(reinterpret_cast<const void*>(&kiln_plugin_main))) return KILN_ERR_UNAVAILABLE;
     H.api = api;
     H.owner = owner;
     g_side = api->side();

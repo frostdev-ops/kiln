@@ -30,7 +30,8 @@ Exactly Greeneye Loader's rules, read from the same `mod.json` fields with the s
 | `enabled` | `false` skips the mod | `true` |
 
 One difference: Kiln reads the DLL's export table from the file first and refuses a DLL without `GreeneyeModStart`
-without running it (Greeneye Loader loads it, then finds no entry).
+without running it (Greeneye Loader loads it, then finds no entry). The DLL must remain inside its mod folder,
+without symlinks or junctions; file and directory handles stabilize validation and loading.
 
 The mods start in `on_ready`, before the game's entry point, the moment Greeneye Loader starts them when it loads as
 `dbgcore.dll`.
@@ -46,7 +47,7 @@ step.
 ## When Greeneye Loader is installed too
 
 See [README.md](README.md#when-the-other-loader-is-installed-too). Greeneye's own claim decides: whichever loader
-starts first runs the mods, the other stays idle.
+atomically creates the expected named claim first runs the mods; the other stays idle if it honors the same claim.
 
 ## API coverage
 
@@ -63,14 +64,14 @@ Greeneye Loader. "Tested" names the check in `native/plugins/compat/tests/run.py
 | `log(line)` | `[greeneye:<id>]` in kiln.log + `greeneye-loader.log` (one log function per mod, so lines carry the mod's id) | `ModContext.Log` | full; host, lab |
 | `generation`, `hotReload`, `token` | ported hook owner | Kiln's own mod reload | full; host `generation=2`, `hot_reload_flag` |
 | `enter(token)` / `leave()` | ported: per-mod shared gate, nestable per thread; active only for the active generation | `HookHandle` removal waits for running handlers | full; host `lease_inactive_while_starting`, detour +1000 runs under an active lease |
-| `find(pattern, module)` | ported: unique match in the exe's `.text` as it was before the loader's hooks, also behind another mod's hook jump; `module` must be null | **new** `OriginalCode.FindUnique` / `TryFindUnique` (reads the exe file: before every hook) | full; host `find`, `find_wildcard`, `find_ambiguous`, `find_other_module_null`, `find_after_hook`; lab: found the game's chat-log function behind Kiln's own detour |
+| `find(pattern, module)` | ported: unique match in the exe's `.text` as it was before the loader's hooks, also behind another mod's hook jump; `module` may be null or the main executable handle | **new** `OriginalCode.FindUnique` / `TryFindUnique` (reads the exe file: before every hook) | full; host `find`, `find_wildcard`, `find_ambiguous`, `find_other_module_null`, `find_after_hook`; lab: found the game's chat-log function behind Kiln's own detour |
 | `read(p, out, n)` | ported: live bytes with every Greeneye slot's saved bytes laid back (another loader's jump stays visible, as upstream) | **new** `OriginalCode.Read` (the file: before every hook) | full; host `read_before_hooks`, `read_original`; lab `lab_read` |
 | `hook(target, detour, len, prologue, n)` | ported: 12..32 bytes, `mov rax; jmp rax` to a thunk, trampoline runs the original or the given prologue; chains onto an existing `mov rax`, `jmp rel32` or `jmp [rip]` | `Hooks.Detour` (Kiln's detour chain) | full; host `hook` (+1000), `short_hook_refused` declines the start |
 | `redirectCall(call, detour)` | ported: points one `call rel32` at a thunk near it | `Hooks.Mid` at the call site | full; host `redirect_call` (+100) |
 | `poll()` | ported safe point | - | full; host `poll_returns` |
 | `keep(key, size)` | ported: zeroed block per key for the process life (shared across mods, as upstream) | **new** `Keep.Block` / `Keep.Span<T>` | full; host `keep_same_block` (zeroed, then the same block after a reload) |
 | `GreeneyeModStart(host)` export | called once per generation under a fault guard | `Mod.OnLoad` | full; host, lab |
-| `GreeneyeModHot()` export: `prepare`, `ready`, `resume` | ported reload protocol | - | full; reload path tested with a mod that does not export it |
+| `GreeneyeModHot()` export: `prepare`, `ready`, `resume` | ported reload protocol | - | full; host tests prepare/ready/resume, reentrant own-hook calls, and faulting/invalid hot factories |
 
 ## Kiln C# additions
 
@@ -78,8 +79,18 @@ In `Kiln.Hooks` (`managed/services/Kiln.Hooks/OriginalCode.cs`), for any Kiln mo
 - `OriginalCode.FindUnique(pattern)` / `TryFindUnique`: the single match of a byte pattern in the game's code as it is
   in the exe file, so a function another mod has hooked is still found by its own bytes.
 - `OriginalCode.Read(address, count)`: the bytes a hook replaced.
-- `BytePattern.Parse`, `PeCode`: the parts underneath, usable on any PE file.
-- `Keep.Block(key, size)` / `Keep.Span<T>`: native memory that survives a mod's reload.
+- `BytePattern.Parse`, `PeCode`: the parts underneath, with bounded x64 PE32+ parsing, relocation checks and a
+  512 MiB code snapshot cap. `OriginalCode` checks the file headers against the mapped executable before returning
+  live addresses; this detects different build metadata and does not authenticate the file contents.
+- `TryFindUnique` returns false with a reason for unavailable images and malformed patterns.
+- `Keep.Block(key, size)` / `Keep.Span<T>`: native memory that survives a mod's reload. Allocation and publication
+  are serialized; the first requested logical size owns the key, including zero. Span sizes use checked arithmetic.
+
+Hook publication waits until a generation has finished starting and stored its original trampolines. Swaps wait for
+leases and suspend other threads before replacing live instruction bytes. Loader-driven callbacks under a swap
+see inactive leases, including callbacks that reenter their own detours. Failed generations retain any host tokens,
+modules and trampolines their own threads may still use. The compatibility runtime stays mapped on plugin revoke.
+Direct native detours and mod-owned threads cannot be generically fault-wrapped; lifecycle and hot callbacks are guarded.
 
 ## Manual test (real client)
 

@@ -4,7 +4,6 @@
 // host->read (MIT, Greeneye0), which see code "as it was before the loader's hooks"; reading the file gives the same
 // answer for every hook in the process, whoever wrote it.
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -22,14 +21,40 @@ public static class OriginalCode
         {
             var path = Environment.ProcessPath ?? throw new InvalidOperationException("no process path");
             using var self = System.Diagnostics.Process.GetCurrentProcess();
-            var baseAddr = (ulong)(self.MainModule?.BaseAddress ?? 0);
-            var code = PeCode.Parse(File.ReadAllBytes(path), baseAddr);
+            var module = self.MainModule ?? throw new InvalidOperationException("no main module");
+            var baseAddr = (ulong)module.BaseAddress;
+            if (!OperatingSystem.IsWindows() || baseAddr == 0) throw new InvalidOperationException("not a Windows PE process");
+            var file = File.ReadAllBytes(path);
+            var code = PeCode.Parse(file, baseAddr, ReadImageHeaders(module.BaseAddress, module.ModuleMemorySize));
             return (code, baseAddr, "");
         }
         catch (Exception e)
         {
             return (null, 0, e.Message);
         }
+    }
+
+    // Read sizes from the mapped image, rather than trusting the file's e_lfanew or SizeOfHeaders to choose a
+    // native read. Comparing all headers also refuses a different build copied over the executable on disk.
+    static byte[] ReadImageHeaders(nint image, int imageSize)
+    {
+        byte[] Copy(int offset, int count)
+        {
+            if (offset < 0 || count < 0 || offset > imageSize || count > imageSize - offset)
+                throw new FormatException("mapped PE header outside image");
+            var bytes = new byte[count];
+            Marshal.Copy(image + offset, bytes, 0, count);
+            return bytes;
+        }
+        var dos = Copy(0, 64);
+        if (dos[0] != 'M' || dos[1] != 'Z') throw new FormatException("mapped image is not PE");
+        int pe = BinaryPrimitives.ReadInt32LittleEndian(dos.AsSpan(0x3C));
+        if (pe < 64 || pe > 1024 * 1024 - 88) throw new FormatException("invalid mapped PE header offset");
+        var nt = Copy(pe, 88);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(nt) != 0x4550) throw new FormatException("invalid mapped PE signature");
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(nt.AsSpan(24 + 60));
+        if (size < (uint)pe + 88 || size > 1024 * 1024) throw new FormatException("invalid mapped PE header size");
+        return Copy(0, (int)size);
     }
 
     static (PeCode Code, ulong Base) Require()
@@ -46,13 +71,17 @@ public static class OriginalCode
     public static nuint FindUnique(string pattern)
         => TryFindUnique(pattern, out var a, out var why) ? a : throw new KeyNotFoundException($"pattern '{pattern}': {why}");
 
-    /// <summary>Like <see cref="FindUnique"/>, without throwing; <paramref name="why"/> says "no match" or
-    /// "N+ matches".</summary>
+    /// <summary>Like <see cref="FindUnique"/>, without throwing; <paramref name="why"/> says "no match",
+    /// "N+ matches", or why the pattern or executable could not be read.</summary>
     public static bool TryFindUnique(string pattern, out nuint address, out string why)
     {
         address = 0;
-        var (code, b) = Require();
-        var rva = code.FindUnique(BytePattern.Parse(pattern), out int count);
+        var (code, b, error) = Image.Value;
+        if (code is null) { why = $"the exe could not be read ({error})"; return false; }
+        short[] parsed;
+        try { parsed = BytePattern.Parse(pattern); }
+        catch (Exception e) when (e is ArgumentException or FormatException) { why = e.Message; return false; }
+        var rva = code.FindUnique(parsed, out int count);
         why = count == 0 ? "no match" : count > 1 ? $"{count}+ matches; narrow it" : "";
         if (rva < 0) return false;
         address = (nuint)(b + (ulong)rva);
@@ -62,7 +91,9 @@ public static class OriginalCode
     /// <summary>The bytes at <paramref name="address"/> as they are in the exe file. Throws outside .text.</summary>
     public static byte[] Read(nuint address, int count)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
         var (code, b) = Require();
+        if (count > code.Text.Length) throw new ArgumentOutOfRangeException(nameof(count), "larger than the executable's .text section");
         var buf = new byte[count];
         if ((ulong)address < b || !code.TryRead((ulong)address - b, buf))
             throw new ArgumentOutOfRangeException(nameof(address), "outside the executable's .text section");
@@ -76,11 +107,12 @@ public static class BytePattern
 {
     public static short[] Parse(string pattern)
     {
+        ArgumentNullException.ThrowIfNull(pattern);
         var list = new List<short>();
         for (int i = 0; i < pattern.Length;)
         {
             char c = pattern[i];
-            if (c == ' ') { ++i; continue; }
+            if (char.IsWhiteSpace(c)) { ++i; continue; }
             if (c == '?') { list.Add(-1); i += i + 1 < pattern.Length && pattern[i + 1] == '?' ? 2 : 1; continue; }
             if (i + 1 >= pattern.Length || !Uri.IsHexDigit(c) || !Uri.IsHexDigit(pattern[i + 1]))
                 throw new FormatException($"bad byte at {i} in pattern '{pattern}'");
@@ -101,67 +133,149 @@ public sealed class PeCode
 
     PeCode(uint rva, byte[] text) { TextRva = rva; Text = text; }
 
-    public static PeCode Parse(ReadOnlySpan<byte> file, ulong loadedBase)
+    readonly record struct Section(string Name, uint Va, uint Size, uint Raw, uint RawSize);
+
+    static ReadOnlySpan<byte> Range(ReadOnlySpan<byte> file, ulong offset, ulong count)
     {
-        if (file.Length < 0x100 || file[0] != 'M' || file[1] != 'Z') throw new FormatException("not a PE file");
-        int pe = BinaryPrimitives.ReadInt32LittleEndian(file[0x3C..]);
-        if (BinaryPrimitives.ReadUInt32LittleEndian(file[pe..]) != 0x4550) throw new FormatException("no PE signature");
-        int sections = BinaryPrimitives.ReadUInt16LittleEndian(file[(pe + 6)..]);
-        int optSize = BinaryPrimitives.ReadUInt16LittleEndian(file[(pe + 20)..]);
-        int opt = pe + 24;
-        if (BinaryPrimitives.ReadUInt16LittleEndian(file[opt..]) != 0x20B) throw new FormatException("not PE32+");
-        ulong preferred = BinaryPrimitives.ReadUInt64LittleEndian(file[(opt + 24)..]);
-        uint relocRva = BinaryPrimitives.ReadUInt32LittleEndian(file[(opt + 112 + 5 * 8)..]);
-        uint relocSize = BinaryPrimitives.ReadUInt32LittleEndian(file[(opt + 112 + 5 * 8 + 4)..]);
-        var secs = new List<(string Name, uint Va, uint VSize, uint Raw, uint RawSize)>();
+        if (offset > (ulong)file.Length || count > (ulong)file.Length - offset)
+            throw new FormatException("PE range outside file");
+        return file.Slice((int)offset, (int)count);
+    }
+    static ushort U16(ReadOnlySpan<byte> file, ulong offset) => BinaryPrimitives.ReadUInt16LittleEndian(Range(file, offset, 2));
+    static uint U32(ReadOnlySpan<byte> file, ulong offset) => BinaryPrimitives.ReadUInt32LittleEndian(Range(file, offset, 4));
+
+    /// <summary>Parses an x64 PE32+ image. Rejects malformed ranges and code sections larger than 512 MiB before
+    /// allocating a snapshot. Optional mapped headers must match the file, preventing addresses from another build.</summary>
+    public static PeCode Parse(ReadOnlySpan<byte> file, ulong loadedBase) => ParseCore(file, loadedBase, default, false);
+
+    /// <summary>Like <see cref="Parse(ReadOnlySpan{byte}, ulong)"/>, requiring all mapped PE headers to match the
+    /// file before using its bytes. This detects a different executable build at the same file path.</summary>
+    public static PeCode Parse(ReadOnlySpan<byte> file, ulong loadedBase, ReadOnlySpan<byte> mappedHeaders)
+        => ParseCore(file, loadedBase, mappedHeaders, true);
+
+    static PeCode ParseCore(ReadOnlySpan<byte> file, ulong loadedBase, ReadOnlySpan<byte> mappedHeaders, bool verifyHeaders)
+    {
+        if (file.Length < 64 || file[0] != 'M' || file[1] != 'Z') throw new FormatException("not a PE file");
+        ulong pe = U32(file, 0x3C);
+        if (pe < 64 || U32(file, pe) != 0x4550) throw new FormatException("no PE signature");
+        Range(file, pe, 24);
+        if (U16(file, pe + 4) != 0x8664) throw new FormatException("not an x64 PE image");
+        int sections = U16(file, pe + 6), optSize = U16(file, pe + 20);
+        ulong opt = pe + 24;
+        var optional = Range(file, opt, (ulong)optSize);
+        if (optSize < 112 || U16(optional, 0) != 0x20B) throw new FormatException("not a complete PE32+ header");
+        ulong preferred = BinaryPrimitives.ReadUInt64LittleEndian(optional[24..]);
+        uint imageSize = U32(optional, 56), headerSize = U32(optional, 60), directories = U32(optional, 108);
+        if (directories > (optSize - 112) / 8) throw new FormatException("data directories outside optional header");
+        ulong sec0 = opt + (ulong)optSize, secEnd = sec0 + (ulong)sections * 40;
+        if (sections == 0 || headerSize < secEnd || imageSize < headerSize || loadedBase > ulong.MaxValue - imageSize)
+            throw new FormatException("invalid image or header size");
+        Range(file, 0, headerSize);
+        if (verifyHeaders && (mappedHeaders.Length != headerSize || !file[..(int)headerSize].SequenceEqual(mappedHeaders)))
+            throw new FormatException("the executable file headers differ from the running image");
+        var secs = new List<Section>(sections);
         for (int i = 0; i < sections; ++i)
         {
-            int s = opt + optSize + i * 40;
-            var name = System.Text.Encoding.ASCII.GetString(file.Slice(s, 8)).TrimEnd('\0');
-            secs.Add((name, BinaryPrimitives.ReadUInt32LittleEndian(file[(s + 12)..]), BinaryPrimitives.ReadUInt32LittleEndian(file[(s + 8)..]),
-                      BinaryPrimitives.ReadUInt32LittleEndian(file[(s + 20)..]), BinaryPrimitives.ReadUInt32LittleEndian(file[(s + 16)..])));
+            var raw = Range(file, sec0 + (ulong)i * 40, 40);
+            string name = System.Text.Encoding.ASCII.GetString(raw[..8]).TrimEnd('\0');
+            uint vsize = U32(raw, 8), va = U32(raw, 12), rsize = U32(raw, 16), rptr = U32(raw, 20);
+            uint size = vsize == 0 ? rsize : vsize;
+            ulong extent = Math.Max(size, rsize);
+            if (extent != 0 && (va < headerSize || (ulong)va + extent > imageSize))
+                throw new FormatException("section outside image");
+            if (rsize != 0)
+            {
+                if (rptr < headerSize) throw new FormatException("section overlaps headers");
+                Range(file, rptr, rsize);
+            }
+            secs.Add(new Section(name, va, size, rptr, rsize));
         }
-        var text = secs.Find(x => x.Name == ".text");
-        if (text.Name is null) throw new FormatException("no .text section");
-        var bytes = new byte[text.VSize];
-        int n = (int)Math.Min(text.VSize, text.RawSize);
-        file.Slice((int)text.Raw, n).CopyTo(bytes);
-
-        long delta = (long)(loadedBase - preferred);
-        if (delta != 0 && relocRva != 0)
+        ulong previousEnd = headerSize;
+        foreach (var section in secs.OrderBy(x => x.Va))
         {
-            int Off(uint rva)
-            {
-                foreach (var x in secs)
-                    if (rva >= x.Va && rva < x.Va + Math.Max(x.VSize, x.RawSize)) return (int)(x.Raw + (rva - x.Va));
-                return -1;
-            }
-            int at = Off(relocRva), end = at + (int)relocSize;
-            while (at >= 0 && at + 8 <= end && at + 8 <= file.Length)
-            {
-                uint page = BinaryPrimitives.ReadUInt32LittleEndian(file[at..]);
-                int block = (int)BinaryPrimitives.ReadUInt32LittleEndian(file[(at + 4)..]);
-                if (block < 8) break;
-                for (int e = at + 8; e + 2 <= at + block; e += 2)
-                {
-                    ushort entry = BinaryPrimitives.ReadUInt16LittleEndian(file[e..]);
-                    if (entry >> 12 != 10) continue;  // IMAGE_REL_BASED_DIR64
-                    long rva = page + (entry & 0xFFF) - (long)text.Va;
-                    if (rva < 0 || rva + 8 > bytes.Length) continue;
-                    var span = bytes.AsSpan((int)rva, 8);
-                    BinaryPrimitives.WriteUInt64LittleEndian(span, BinaryPrimitives.ReadUInt64LittleEndian(span) + (ulong)delta);
-                }
-                at += block;
-            }
+            uint size = Math.Max(section.Size, section.RawSize);
+            if (size == 0) continue;
+            if (section.Va < previousEnd) throw new FormatException("overlapping image sections");
+            previousEnd = (ulong)section.Va + size;
         }
+        var texts = secs.Where(x => x.Name == ".text").ToArray();
+        if (texts.Length != 1 || texts[0].Size == 0 || texts[0].Size > 512 * 1024 * 1024)
+            throw new FormatException("missing, duplicate or oversized .text section");
+        var text = texts[0];
+
+        // Validate the complete relocation directory even when no relocation is needed for this base. In
+        // particular, a directory cannot use a section's zero-filled virtual tail as bytes from the next file data.
+        uint relocRva = directories > 5 ? U32(optional, 112 + 5 * 8) : 0;
+        uint relocSize = directories > 5 ? U32(optional, 112 + 5 * 8 + 4) : 0;
+        if ((relocRva == 0) != (relocSize == 0)) throw new FormatException("incomplete relocation directory");
+        ReadOnlySpan<byte> reloc = default;
+        if (relocRva != 0)
+        {
+            bool found = false;
+            foreach (var section in secs)
+                if (relocRva >= section.Va && (ulong)relocRva - section.Va <= section.RawSize &&
+                    relocSize <= (ulong)section.RawSize - (relocRva - section.Va))
+                {
+                    reloc = Range(file, (ulong)section.Raw + relocRva - section.Va, relocSize);
+                    found = true;
+                    break;
+                }
+            if (!found) throw new FormatException("relocation directory is not backed by file bytes");
+        }
+        for (int at = 0; at < reloc.Length;)
+        {
+            if (reloc.Length - at < 8) throw new FormatException("truncated relocation block");
+            uint page = U32(reloc, (ulong)at), block = U32(reloc, (ulong)at + 4);
+            if (block < 8 || (block & 1) != 0 || block > reloc.Length - at)
+                throw new FormatException("invalid relocation block size");
+            int end = at + (int)block;
+            for (int e = at + 8; e < end; e += 2)
+            {
+                ushort entry = U16(reloc, (ulong)e);
+                int kind = entry >> 12;
+                if (kind == 0) continue; // IMAGE_REL_BASED_ABSOLUTE (padding)
+                if (kind != 10) throw new FormatException("unsupported x64 base relocation");
+                ulong target = (ulong)page + (uint)(entry & 0xFFF);
+                if (target + 8 > imageSize) throw new FormatException("relocation target outside image");
+                if (target < (ulong)text.Va + text.Size && target + 8 > text.Va)
+                {
+                    if (target < text.Va || target + 8 > (ulong)text.Va + text.Size)
+                        throw new FormatException("relocation straddles .text boundary");
+                }
+            }
+            at = end;
+        }
+        var bytes = new byte[text.Size];
+        uint copy = Math.Min(text.Size, text.RawSize);
+        if (copy != 0) Range(file, text.Raw, copy).CopyTo(bytes);
+        ulong delta = unchecked(loadedBase - preferred);
+        // A second pass applies the already-validated entries without retaining an unbounded list of fixups.
+        if (delta != 0)
+            for (int at = 0; at < reloc.Length;)
+            {
+                uint page = U32(reloc, (ulong)at);
+                int end = at + (int)U32(reloc, (ulong)at + 4);
+                for (int e = at + 8; e < end; e += 2)
+                {
+                    ushort entry = U16(reloc, (ulong)e);
+                    if (entry >> 12 != 10) continue;
+                    ulong target = (ulong)page + (uint)(entry & 0xFFF);
+                    if (target < text.Va || target >= (ulong)text.Va + text.Size) continue;
+                    var slot = bytes.AsSpan((int)(target - text.Va), 8);
+                    BinaryPrimitives.WriteUInt64LittleEndian(slot, unchecked(BinaryPrimitives.ReadUInt64LittleEndian(slot) + delta));
+                }
+                at = end;
+            }
         return new PeCode(text.Va, bytes);
     }
 
     /// <summary>The bytes at <paramref name="rva"/> (relative to the image base); false outside .text.</summary>
     public bool TryRead(ulong rva, Span<byte> dst)
     {
-        if (rva < TextRva || rva - TextRva + (ulong)dst.Length > (ulong)Text.Length) return false;
-        Text.AsSpan((int)(rva - TextRva), dst.Length).CopyTo(dst);
+        if (rva < TextRva) return false;
+        ulong offset = rva - TextRva;
+        if (offset > (ulong)Text.Length || (ulong)dst.Length > (ulong)Text.Length - offset) return false;
+        Text.AsSpan((int)offset, dst.Length).CopyTo(dst);
         return true;
     }
 
@@ -171,10 +285,12 @@ public sealed class PeCode
     {
         count = 0;
         long found = -1;
-        if (pattern.Length == 0 || pattern[0] < 0) return -1;
+        foreach (short value in pattern)
+            if (value < -1 || value > 255) throw new ArgumentOutOfRangeException(nameof(pattern), "expected byte values or -1 wildcards");
+        if (pattern.Length == 0 || pattern[0] < 0 || pattern.Length > Text.Length) return -1;
         var t = Text.AsSpan();
         byte first = (byte)pattern[0];
-        for (int i = 0; i + pattern.Length <= t.Length;)
+        for (int i = 0; i <= t.Length - pattern.Length;)
         {
             int j = t[i..(t.Length - pattern.Length + 1)].IndexOf(first);
             if (j < 0) break;
@@ -197,20 +313,34 @@ public sealed class PeCode
 /// Loader's <c>host->keep</c> gives its mods.</summary>
 public static unsafe class Keep
 {
-    static readonly ConcurrentDictionary<string, (nint Ptr, int Size)> Blocks = new();
+    static readonly object Gate = new();
+    static readonly Dictionary<string, (nint Ptr, int Size)> Blocks = new();
 
-    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use.</summary>
-    public static nint Block(string key, int size)
+    static (nint Ptr, int Size) GetBlock(string key, int size)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentOutOfRangeException.ThrowIfNegative(size);
-        return Blocks.GetOrAdd(key, static (_, s) => ((nint)NativeMemory.AllocZeroed((nuint)Math.Max(s, 1)), Math.Max(s, 1)), size).Ptr;
+        lock (Gate)
+        {
+            if (Blocks.TryGetValue(key, out var block)) return block;
+            // GetOrAdd may run its allocator many times and discard all but one result. These blocks intentionally
+            // live forever, so allocate only after winning the key, while holding the same lock as publication.
+            nint ptr = (nint)NativeMemory.AllocZeroed((nuint)Math.Max(size, 1));
+            if (ptr == 0) throw new OutOfMemoryException();
+            try { Blocks.Add(key, block = (ptr, size)); }
+            catch { NativeMemory.Free((void*)ptr); throw; }
+            return block;
+        }
     }
+
+    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use.</summary>
+    public static nint Block(string key, int size) => GetBlock(key, size).Ptr;
 
     /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T).</summary>
     public static Span<T> Span<T>(string key, int count) where T : unmanaged
     {
-        var p = Block(key, count * sizeof(T));
-        return new Span<T>((void*)p, Blocks[key].Size / sizeof(T));
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        var block = GetBlock(key, checked(count * sizeof(T)));
+        return new Span<T>((void*)block.Ptr, block.Size / sizeof(T));
     }
 }

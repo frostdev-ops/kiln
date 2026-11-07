@@ -40,18 +40,20 @@ struct Mod {
     std::string id, name, version, origin, reason;
     fs::path folder, dll;
     std::atomic<uint32_t> status{KILN_FLAME_PENDING};
+    std::atomic<bool> entered{false};  // a failed start may already have installed hooks or launched threads
     double start_ms = 0;
     std::string folder_u8;
 };
 std::vector<std::unique_ptr<Mod>> g_mods;
-std::mutex g_mu;  // g_mods' fields written by the worker (status is atomic, reason/start_ms under the lock)
+std::mutex g_mu;  // mutable mod state and step-aside reason
+std::atomic<bool> g_stop{false};
 
 void write_status() {
     using json = nlohmann::json;
     static const char* kStatus[] = {"pending", "started", "failed", "skipped"};
+    std::lock_guard lock(g_mu);
     json mods = json::array();
     {
-        std::lock_guard lock(g_mu);
         for (const auto& m : g_mods) {
             const uint32_t st = m->status.load();
             json j = {{"id", m->id},         {"name", m->name},     {"version", m->version},
@@ -95,12 +97,13 @@ bool KILN_CALL f_running(KilnStr id) {
     for (const auto& m : g_mods) {
         const uint32_t st = m->status.load();
         if (kcompat::lower(m->id) != want) continue;
+        if (m->entered.load()) return true;
         if (st == KILN_FLAME_PENDING || st == KILN_FLAME_STARTED) return true;
         if (st == KILN_FLAME_SKIPPED && !g_stepped_aside.empty() && m->origin == "folder" && m->reason.empty()) return true;
     }
     return false;
 }
-bool KILN_CALL f_stepped_aside(void) { return !g_stepped_aside.empty(); }
+bool KILN_CALL f_stepped_aside(void) { std::lock_guard lock(g_mu); return !g_stepped_aside.empty(); }
 
 const KilnFlameApi kTable = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, &f_count, &f_get, &f_running, &f_stepped_aside};
 
@@ -142,7 +145,7 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
     if (kcompat::read_file(folder / L"mod.json", &text)) {
         try {
             const auto j = nlohmann::json::parse(text, nullptr, true, true);
-            if (j.contains("id") && j["id"].is_string()) m->id = j["id"].get<std::string>();
+            if (profile_id.empty() && j.contains("id") && j["id"].is_string()) m->id = j["id"].get<std::string>();
             if (j.contains("name") && j["name"].is_string()) m->name = j["name"].get<std::string>();
             if (j.contains("version") && j["version"].is_string()) m->version = j["version"].get<std::string>();
         } catch (...) {
@@ -155,6 +158,8 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
         return std::move(m);
     };
     if (!enabled) return skip("switched off in the profile");
+    if (!kcompat::contained_path(std::string(origin) == "folder" ? H.path(KILN_PATH_GAME) / L"mods" : folder, folder))
+        return skip("mod folder is outside its root or is a symlink");
     if (!kcompat::read_file(folder / L"flame.json", &text)) return skip("no flame.json");
     std::string dll;
     try {
@@ -164,11 +169,15 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
         return skip(std::string("flame.json is not valid JSON: ") + e.what());
     }
     if (dll.empty()) return skip("flame.json names no \"dll\"");
-    if (dll.find("..") != std::string::npos || (dll.size() > 1 && dll[1] == ':') || dll[0] == '\\' || dll[0] == '/')
+    if (dll.find('\0') != std::string::npos || dll.find("..") != std::string::npos || dll.find(':') != std::string::npos || dll[0] == '\\' || dll[0] == '/')
         return skip("flame.json \"dll\" must stay inside the mod folder (" + dll + ")");
     m->dll = folder / to_wide(dll);
     if (!kcompat::exists(m->dll)) return skip("its DLL is missing (" + path_utf8(m->dll) + ")");
-    if (!kcompat::pe_exports_name(m->dll, "FlameStartRuntime")) return skip("no FlameStartRuntime in " + path_utf8(m->dll));
+    kcompat::CheckedDll checked;
+    if (!checked.open(folder, m->dll, "FlameStartRuntime"))
+        return skip(checked.error.find("FlameStartRuntime") != std::string::npos
+                        ? "no FlameStartRuntime in " + path_utf8(m->dll)
+                        : checked.error + " (" + path_utf8(m->dll) + ")");
     return m;
 }
 
@@ -189,18 +198,50 @@ DWORD WINAPI worker(void*) {
     for (auto& mp : g_mods) {
         Mod& m = *mp;
         if (m.status.load() != KILN_FLAME_PENDING) continue;
+        if (g_stop.load()) {
+            std::lock_guard lock(g_mu);
+            for (auto& pending : g_mods)
+                if (pending->status.load() == KILN_FLAME_PENDING) {
+                    pending->reason = "plugin stopped before dispatch";
+                    pending->status = KILN_FLAME_SKIPPED;
+                }
+            break;
+        }
+        // Recheck after on_ready and between starts: a proxy may have arrived on another thread.
+        const std::string loader = flame_loader_in_process(H.path(KILN_PATH_GAME), H.path(KILN_PATH_KILN));
+        if (!loader.empty()) {
+            std::lock_guard lock(g_mu);
+            g_stepped_aside = "Flame's own loader (" + loader + ") arrived before dispatch";
+            for (auto& pending : g_mods)
+                if (pending->status.load() == KILN_FLAME_PENDING) {
+                    pending->reason = pending->origin == "folder" ? "" : g_stepped_aside;
+                    pending->status = KILN_FLAME_SKIPPED;
+                }
+            break;
+        }
         const auto t0 = std::chrono::steady_clock::now();
-        HMODULE h = LoadLibraryExW(m.dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        kcompat::CheckedDll checked;
+        DWORD code = 0;
+        HMODULE h = nullptr;
+        if (checked.open(m.folder, m.dll, "FlameStartRuntime")) {
+            m.entered = true;
+            h = checked.load(&code);
+        }
         std::string reason;
         uint32_t status = KILN_FLAME_STARTED;
         if (!h) {
-            reason = "could not load " + path_utf8(m.dll) + " (error " + std::to_string(GetLastError()) + ")";
+            reason = checked.error.empty() ? "could not load " + path_utf8(m.dll) + " (error " + std::to_string(GetLastError()) + ", fault " + std::to_string(code) + ")" : checked.error;
             status = KILN_FLAME_FAILED;
+        } else if (const auto loader = flame_loader_in_process(H.path(KILN_PATH_GAME), H.path(KILN_PATH_KILN)); !loader.empty()) {
+            // Loading the mod's dependencies can itself start the real loader. Yield before invoking its runtime.
+            std::lock_guard lock(g_mu);
+            g_stepped_aside = "Flame's own loader (" + loader + ") arrived while loading a dependency";
+            reason = m.origin == "folder" ? "" : g_stepped_aside;
+            status = KILN_FLAME_SKIPPED;
         } else if (auto fn = reinterpret_cast<FlameStartFn>(GetProcAddress(h, "FlameStartRuntime")); !fn) {
             reason = "no FlameStartRuntime export after loading";
             status = KILN_FLAME_FAILED;
         } else {
-            DWORD code = 0;
             if (!guarded_start(fn, &code)) {
                 char buf[64];
                 std::snprintf(buf, sizeof buf, "FlameStartRuntime faulted (0x%08lX)", code);
@@ -236,8 +277,10 @@ void KILN_CALL on_ready(void*) {
 
     // 1. Flame's own loader
     const std::string loader = flame_loader_in_process(game, kiln);
-    if (!loader.empty())
+    if (!loader.empty()) {
+        std::lock_guard lock(g_mu);
         g_stepped_aside = "Flame's own loader (" + loader + ") runs in this process and starts the mods in <game>/mods";
+    }
 
     // 2. find
     std::set<std::string> seen;
@@ -302,7 +345,7 @@ void KILN_CALL on_ready(void*) {
     write_status();
 }
 
-void KILN_CALL on_unload(void*) { write_status(); }
+void KILN_CALL on_unload(void*) { g_stop = true; write_status(); }
 
 }  // namespace
 }  // namespace kflame
@@ -311,6 +354,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     using namespace kflame;
     if (!api || api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, session) + sizeof(void*))
         return KILN_ERR_UNAVAILABLE;
+    if (!info || info->size < offsetof(KilnPluginInfo, on_unload) + sizeof(void*) ||
+        !kcompat::pin_module(reinterpret_cast<const void*>(&kiln_plugin_main))) return KILN_ERR_UNAVAILABLE;
     H.api = api;
     H.owner = owner;
     info->id = kcompat::kstr(kPluginId);
