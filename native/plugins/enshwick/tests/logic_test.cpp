@@ -2,8 +2,11 @@
 // Unit tests of kiln-enshwick's decisions (src/logic.h), on any machine:
 //   c++ -std=c++20 -O1 -o /tmp/logic_test native/plugins/enshwick/tests/logic_test.cpp && /tmp/logic_test
 #include "../src/logic.h"
+#include "../src/tree.h"
 
 #include <cstdio>
+#include <chrono>
+#include <thread>
 
 using namespace kenshwick;
 
@@ -25,6 +28,15 @@ int main() {
     CHECK(release_answer(Hold::Holding) == 1);
     CHECK(release_answer(Hold::Expired) == 2);
     CHECK(release_answer(Hold::None) == 0);
+    for (int i = 0; i < 100; ++i) {
+        std::atomic<int> hold{static_cast<int>(Hold::Holding)};
+        uint32_t released = 0, expired = 0;
+        std::thread a([&] { released = release_hold(hold); });
+        std::thread b([&] { expired = expire_hold(hold); });
+        a.join(); b.join();
+        CHECK(released == expired);
+        CHECK(release_hold(hold) == (expired == 2 ? 2u : 0u));
+    }
 
     // folder names
     CHECK(safe_folder_name("you.material-stacks"));
@@ -127,6 +139,53 @@ int main() {
     CHECK(runs("copy") && runs("keep") && runs("run") && runs("in-place") && runs("refresh"));
     CHECK(!runs("off") && !runs("remove") && !runs("conflict") && !runs("failed") && !runs("missing"));
     CHECK(should_start(1, false) && should_start(0, true) && !should_start(0, false));
+    CHECK(!resolution_seen("entries found\n", "entries found\n"));
+    CHECK(resolution_seen("old\nentries found\n", "old\n"));
+    CHECK(resolution_seen("entries found\n", "a previous longer log\n"));
+    CHECK(!resolution_seen("still scanning", "old log"));
+
+    // The actual source snapshot/copy code: links rejected, ancestors free, content/empty-directory edits noticed,
+    // errors fail closed, and a copy never clears an existing stage or overwrites a file in it.
+    const fs::path base = fs::temp_directory_path() / ("kiln-enshwick-logic-" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(base / "source/sub");
+    std::ofstream(base / "source/pack.toml") << "a";
+    std::ofstream(base / "source/sub/items.toml") << "b";
+    auto check = [](const fs::path&, const fs::path& p, bool regular) {
+        std::error_code ec;
+        const auto s = fs::symlink_status(p, ec);
+        return !ec && !fs::is_symlink(s) && (regular ? fs::is_regular_file(s) : fs::is_directory(s));
+    };
+    Tree tree;
+    CHECK(scan_tree(base / "source", &tree, check));
+    CHECK(tree.files.size() == 2 && tree.dirs.size() == 1);
+    const auto stamp = tree.stamp;
+    auto old_time = fs::last_write_time(base / "source/pack.toml");
+    std::ofstream(base / "source/pack.toml") << "z";
+    fs::last_write_time(base / "source/pack.toml", old_time);
+    CHECK(scan_tree(base / "source", &tree, check) && tree.stamp != stamp);
+    const auto edited = tree.stamp;
+    fs::create_directory(base / "source/empty");
+    CHECK(scan_tree(base / "source", &tree, check) && tree.stamp != edited);
+    CHECK(!scan_tree(base / "missing", &tree, check));
+    CHECK(!safe_source_path(base / "source/../elsewhere"));
+    CHECK(!safe_source_path(base / "source/file:stream"));
+    fs::create_directory_symlink(base / "source", base / "linked");
+    CHECK(!scan_tree(base / "linked", &tree, check));
+    CHECK(scan_tree(base / "linked/sub", &tree, check)); // ancestor above root is allowed
+    fs::create_symlink(base / "source/pack.toml", base / "source/file-link");
+    CHECK(!scan_tree(base / "source", &tree, check));
+    fs::remove(base / "source/file-link");
+    fs::create_directory_symlink(base / "source/sub", base / "source/dir-link");
+    CHECK(!scan_tree(base / "source", &tree, check));
+    fs::remove(base / "source/dir-link");
+    CHECK(scan_tree(base / "source", &tree, check));
+    fs::create_directory(base / "stage");
+    CHECK(copy_tree_files(base / "source", base / "stage", tree));
+    std::ofstream(base / "stage/player.txt") << "preserve";
+    CHECK(!copy_tree_files(base / "source", base / "stage", tree));
+    CHECK(fs::exists(base / "stage/player.txt"));
+    fs::remove_all(base);
 
     std::printf("logic_test: %d ok, %d failed\n", g_ok, g_fail);
     return g_fail ? 1 : 0;

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -31,6 +32,17 @@ constexpr const char* kManagedMarker = ".kiln-managed";
 enum class Hold : int { None = 0, Holding = 1, Expired = 2 };
 inline uint32_t release_answer(Hold state) {
     return state == Hold::Holding ? 1u : state == Hold::Expired ? 2u : 0u;
+}
+// One atomic winner at the deadline: the loader cannot report "held" after the timeout won.
+inline uint32_t release_hold(std::atomic<int>& state) {
+    int expected = static_cast<int>(Hold::Holding);
+    return state.compare_exchange_strong(expected, static_cast<int>(Hold::None)) ? 1u :
+        release_answer(static_cast<Hold>(expected));
+}
+inline uint32_t expire_hold(std::atomic<int>& state) {
+    int expected = static_cast<int>(Hold::Holding);
+    return state.compare_exchange_strong(expected, static_cast<int>(Hold::Expired)) ? 2u :
+        (expected == static_cast<int>(Hold::None) ? 1u : 2u);
 }
 
 inline std::string lower(std::string_view s) {
@@ -119,6 +131,10 @@ inline bool runs(std::string_view action) {
 // The loader starts only when it has a mod to run, unless the config says "always": Enshwick with no mods only hooks
 // the game (its hooks then cost Kiln the functions they cover).
 inline bool should_start(size_t running_mods, bool always) { return running_mods > 0 || always; }
+inline bool resolution_seen(std::string_view current, std::string_view before) {
+    if (!before.empty() && current.starts_with(before)) current.remove_prefix(before.size());
+    return current.find("entries found") != current.npos || current.find("runs vanilla") != current.npos;
+}
 
 // --- profile -> <game>/mods ---
 // Enshwick's loader reads only <game>/mods (start/game.rs: game_dir.join("mods")). A profile's Enshwick entries live
@@ -132,7 +148,7 @@ struct Wanted {
 };
 struct Existing {
     std::string folder;
-    bool managed = false;       // carries the marker
+    bool managed = false;       // caller validated the receipt, directory identity, snapshot and marker
     std::string source;         // the marker's source
     std::string fingerprint;    // the marker's fingerprint
 };
@@ -190,7 +206,8 @@ inline std::vector<Action> plan_sync(const std::vector<Wanted>& wanted, const st
     return out;
 }
 
-// Marker file text: two lines, "source=<path>" and "fingerprint=<hex>".
+// Marker source prefix: "source=<path>" and "fingerprint=<hex>". The integration adds a copy identity and also
+// requires an external receipt; parsing this prefix alone NEVER grants ownership of a folder.
 inline std::string marker_text(const std::string& source, const std::string& fingerprint) {
     return "source=" + source + "\nfingerprint=" + fingerprint + "\n";
 }

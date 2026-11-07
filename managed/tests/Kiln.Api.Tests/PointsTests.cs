@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Kiln.Api.Tests;
 
-public sealed class PointsTests
+public sealed class PointsTests : KilnTest
 {
     private readonly record struct Sale(int Item, int Count);
 
@@ -152,6 +152,9 @@ public sealed class PointsTests
         Assert.Throws<ArgumentException>(() => r.Define<int, int>("o", "x:y", PointMode.Override));
         Assert.Throws<ArgumentException>(() => r.Extend<int, int>("a", "no-owner", (_, v) => Set(v)));
         Assert.Throws<ArgumentException>(() => r.Define<int, int>("", "p", PointMode.Override));
+        Assert.Throws<ArgumentException>(() => r.Define<int, int>("o:other", "p", PointMode.Override));
+        foreach (var name in new[] { ":p", "o:", "o:a:b", "o: " })
+            Assert.Throws<ArgumentException>(() => r.Extend<int, int>("a", name, (_, v) => Set(v)));
     }
 
     [Fact]
@@ -160,5 +163,118 @@ public sealed class PointsTests
         var p = Points.Define<int, int>("points-test-" + Guid.NewGuid().ToString("N"), PointMode.Override);
         Assert.StartsWith("kiln:", p.Name);
         Points.Shared.RemoveOwner("kiln");
+    }
+
+    [Fact]
+    public void RetiredPointHandlesCannotDisableReplacementLinks()
+    {
+        var r = new PointRegistry();
+        var old = r.Define<int, int>("o", "p", PointMode.Override);
+        r.RemoveOwner("o");
+        var replacement = r.Define<string, string>("o", "p", PointMode.Override);
+        var link = r.Extend<string, string>("x", replacement.Name, (_, v) => (PointVerdict.Set, v + "!"));
+        Assert.Equal(7, old.Decide(0, 7).Value);
+        Assert.Empty(old.Links);
+        Assert.True(link.Enabled);
+        Assert.Equal("yes!", replacement.Decide("", "yes").Value);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RemovingALinkDuringDispatchSkipsItsSnapshot(bool unload)
+    {
+        var r = new PointRegistry();
+        var p = r.Define<int, int>("o", "p", PointMode.Override);
+        PointLink? later = null;
+        r.Observe<int, int>("a", p.Name, (_, _) =>
+        {
+            if (unload) r.RemoveOwner("b");
+            else later!.Dispose();
+        });
+        later = r.Extend<int, int>("b", p.Name, (_, v) => Set(v + 100));
+        Assert.Equal(1, p.Decide(0, 1).Value);
+        Assert.False(later.Enabled);
+    }
+
+    [Fact]
+    public void BrokenDiagnosticsDoNotBreakFaultContainment()
+    {
+        var r = new PointRegistry { Log = _ => throw new Exception("log failed") };
+        var p = r.Define<int, int>("o", "p", PointMode.Override);
+        var bad = r.Extend<int, int>("a", p.Name, (_, _) => throw new Exception("bad link"));
+        r.Extend<int, int>("b", p.Name, (_, v) => Set(v + 1));
+        Assert.Equal(2, p.Decide(0, 1).Value);
+        Assert.False(bad.Enabled);
+    }
+
+    [Fact]
+    public void OrderingInputsAndPublishedChainsCannotBeMutated()
+    {
+        var r = new PointRegistry();
+        var p = r.Define<int, string>("o", "p", PointMode.Override);
+        var after = new List<string> { "b" };
+        r.Extend<int, string>("a", p.Name, (_, v) => (PointVerdict.Set, v + "a"), new PointOrder { After = after });
+        after.Clear();
+        r.Extend<int, string>("b", p.Name, (_, v) => (PointVerdict.Set, v + "b"));
+        Assert.Equal("ba", p.Decide(0, "").Value);
+        Assert.False(p.Links is PointLink[]);
+    }
+
+    [Fact]
+    public void SharedLinksRunAsTheirOwnerAndRetirementRemovesThem()
+    {
+        var owner = NewMod("point-owner");
+        var extender = NewMod("point-extender");
+        var p = As(owner, () => Points.Define<int, int>("p", PointMode.Override));
+        Point<int, int>? nested = null;
+        As(extender, () => Points.Observe<int, int>(p.Name, (_, _) =>
+        {
+            Assert.Same(extender, ModContext.CurrentMod);
+            nested = Points.Define<int, int>("nested", PointMode.Observe);
+        }));
+        As(owner, () =>
+        {
+            p.Decide(0, 1);
+            Assert.Same(owner, ModContext.CurrentMod);
+        });
+        Assert.Equal("point-extender:nested", nested!.Name);
+        extender.Retire();
+        Assert.Empty(p.Links);
+        Assert.DoesNotContain(Points.Shared.Defined, d => d.Owner == extender.Info.Id);
+        Assert.Throws<InvalidOperationException>(() => As(extender, () => Points.Define<int, int>("late", PointMode.Observe)));
+        owner.Retire();
+    }
+
+    [Fact]
+    public void ConcurrentRegistrationAndRetirementLeaveNoLinks()
+    {
+        for (var i = 0; i < 500; ++i)
+        {
+            var mod = NewMod("point-race-" + i);
+            Parallel.Invoke(
+                () => As(mod, () =>
+                {
+                    try { Points.Extend<int, int>("kiln:race", (_, v) => Set(v)); }
+                    catch (InvalidOperationException) { }
+                }),
+                mod.Retire);
+            Assert.DoesNotContain(Points.Shared.AllLinks, l => l.Owner == mod.Info.Id);
+        }
+    }
+
+    [Fact]
+    public void UnloadingAPointOwnerDropsForeignAndPendingLinks()
+    {
+        var r = new PointRegistry();
+        var p = r.Define<int, int>("provider", "p", PointMode.Override);
+        var attached = r.Extend<int, int>("consumer", p.Name, (_, v) => Set(v));
+        var pending = r.Extend<int, int>("consumer", "provider:pending", (_, v) => Set(v));
+        var other = r.Extend<int, int>("consumer", "other:p", (_, v) => Set(v));
+        r.RemoveOwner("provider");
+        Assert.False(attached.Enabled);
+        Assert.False(pending.Enabled);
+        Assert.Equal([other], r.AllLinks);
+        Assert.Empty(p.Links);
     }
 }

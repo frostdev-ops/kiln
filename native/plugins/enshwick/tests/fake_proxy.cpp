@@ -10,7 +10,8 @@
 #if defined(FAKE_STUB)
 extern "C" __declspec(dllexport) const char kMarker[] = "enshwick-loader-stub mods\\enshwick\\enshwick.dll";
 #elif defined(FAKE_OTHER)
-extern "C" __declspec(dllexport) const char kMarker[] = "shrouded_engine_tweaks";
+// A path reference alone is not Enshwick's stub identity (another tool can mention/install its loader).
+extern "C" __declspec(dllexport) const char kMarker[] = "shrouded_engine_tweaks mods\\enshwick\\enshwick.dll";
 #endif
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {

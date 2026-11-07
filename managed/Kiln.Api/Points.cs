@@ -85,6 +85,7 @@ public sealed class PointLink : IDisposable
     internal Type Input { get; }
     internal Type Output { get; }
     internal long Serial { get; }
+    internal ModContext? Context { get; init; }
 
     /// <summary>The point's full name.</summary>
     public string Point { get; }
@@ -101,7 +102,8 @@ public sealed class PointLink : IDisposable
     public bool Enabled => OffReason == null;
 
     /// <summary>Why the link does not run, or null.</summary>
-    public string? OffReason { get; internal set; }
+    private string? _offReason;
+    public string? OffReason { get => Volatile.Read(ref _offReason); internal set => Volatile.Write(ref _offReason, value); }
 
     /// <summary>Detaches the link.</summary>
     public void Dispose() => Registry.Detach(this);
@@ -131,22 +133,24 @@ public sealed class Point<TIn, TOut>
     public bool AllowRefuse { get; }
 
     /// <summary>The links that run, in order.</summary>
-    public IReadOnlyList<PointLink> Links => Registry.Chain(Name);
+    public IReadOnlyList<PointLink> Links => Array.AsReadOnly(Registry.Chain(Name, this));
 
     /// <summary>Asks the point: <paramref name="answer"/> is the owner's own answer; each link follows in order and sees
     /// the answer as the links before it left it. With no link this costs one dictionary read.</summary>
     public PointDecision<TOut> Decide(TIn input, TOut answer)
     {
-        var chain = Registry.Chain(Name);
+        var chain = Registry.Chain(Name, this);
         if (chain.Length == 0) return new(PointOutcome.Kept, answer, null);
         var value = answer;
         var changed = false;
         string? by = null;
         foreach (var link in chain)
         {
-            if (link.OffReason != null) continue;
+            if (link.OffReason != null || link.Context is { Alive: false }) continue;
+            var previous = ModContext.CurrentMod;
             try
             {
+                ModContext.CurrentMod = link.Context;
                 if (link.Observer)
                 {
                     ((Action<TIn, TOut>)link.Run)(input, value);
@@ -174,6 +178,7 @@ public sealed class Point<TIn, TOut>
             {
                 Registry.TurnOff(link, $"threw {e.GetType().Name}: {e.Message}");
             }
+            finally { ModContext.CurrentMod = previous; }
         }
         return new(changed ? PointOutcome.Changed : PointOutcome.Kept, value, by);
     }
@@ -186,19 +191,23 @@ public sealed class PointRegistry
     private readonly object _lock = new();
     private readonly Dictionary<string, (string Owner, PointMode Mode, bool AllowRefuse, Type In, Type Out, object Point)> _points = new(StringComparer.Ordinal);
     private readonly List<PointLink> _links = [];
-    private readonly ConcurrentDictionary<string, PointLink[]> _chains = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (object Point, PointLink[] Links)> _chains = new(StringComparer.Ordinal);
     private readonly HashSet<(string Point, string Owner)> _switchedOff = [];
     private long _serial;
 
     /// <summary>Where notes go (a link turned off, a cycle in the order). Default: dropped.</summary>
     public Action<string>? Log { get; set; }
 
-    internal void Note(string line) => Log?.Invoke(line);
+    internal void Note(string line)
+    {
+        try { Log?.Invoke(line); } catch { /* diagnostics cannot stop a point or unload cleanup */ }
+    }
 
     /// <summary>Defines the point <c>&lt;owner&gt;:&lt;name&gt;</c>. A second definition of one name throws.</summary>
     public Point<TIn, TOut> Define<TIn, TOut>(string owner, string name, PointMode mode, bool allowRefuse = false)
     {
         Check(owner, nameof(owner));
+        if (owner.Contains(':')) throw new ArgumentException("owner ids cannot contain ':'", nameof(owner));
         Check(name, nameof(name));
         if (name.Contains(':')) throw new ArgumentException("give the point's own name; the owner's id is added", nameof(name));
         var full = owner + ":" + name;
@@ -233,14 +242,18 @@ public sealed class PointRegistry
         }
     }
 
-    /// <summary>Removes every point and link of <paramref name="owner"/> (a mod that unloads).</summary>
+    /// <summary>Removes every point and link of <paramref name="owner"/> (a mod that unloads), and foreign links to
+    /// its points so their delegates and types cannot retain an unloaded assembly.</summary>
     public void RemoveOwner(string owner)
     {
         lock (_lock)
         {
             var touched = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var l in _links.Where(l => l.Owner == owner).ToList())
+            // Foreign delegates/types attached to this owner's points must not keep its collectible assembly alive,
+            // including links registered before a definition. They can register again when the provider reloads.
+            foreach (var l in _links.Where(l => l.Owner == owner || l.Point.StartsWith(owner + ":", StringComparison.Ordinal)).ToList())
             {
+                l.OffReason = "owner unloaded";
                 _links.Remove(l);
                 touched.Add(l.Point);
             }
@@ -271,13 +284,18 @@ public sealed class PointRegistry
         }
     }
 
-    internal PointLink[] Chain(string point) => _chains.TryGetValue(point, out var c) ? c : [];
+    internal PointLink[] Chain(string point, object definition) =>
+        _chains.TryGetValue(point, out var c) && ReferenceEquals(c.Point, definition) ? c.Links : [];
 
     internal void Detach(PointLink link)
     {
         lock (_lock)
         {
-            if (_links.Remove(link)) Rebuild(link.Point);
+            if (_links.Remove(link))
+            {
+                link.OffReason = "detached";
+                Rebuild(link.Point);
+            }
         }
     }
 
@@ -295,11 +313,20 @@ public sealed class PointRegistry
     private PointLink Attach(string owner, string point, bool observer, Delegate run, Type tin, Type tout, PointOrder? order)
     {
         Check(owner, nameof(owner));
+        if (owner.Contains(':')) throw new ArgumentException("owner ids cannot contain ':'", nameof(owner));
         Check(point, nameof(point));
-        if (!point.Contains(':')) throw new ArgumentException("name the point in full, \"<owner id>:<name>\"", nameof(point));
+        ArgumentNullException.ThrowIfNull(run);
+        var split = point.IndexOf(':');
+        if (split <= 0 || split == point.Length - 1 || point.LastIndexOf(':') != split ||
+            string.IsNullOrWhiteSpace(point[..split]) || string.IsNullOrWhiteSpace(point[(split + 1)..]))
+            throw new ArgumentException("name the point in full, \"<owner id>:<name>\"", nameof(point));
         lock (_lock)
         {
-            var link = new PointLink(this, point, owner, observer, order ?? PointOrder.Default, run, tin, tout, ++_serial);
+            order ??= PointOrder.Default;
+            order = order with { Before = Array.AsReadOnly(order.Before.ToArray()), After = Array.AsReadOnly(order.After.ToArray()) };
+            var context = ModContext.CurrentMod ?? ModContext.OwnerOf(run);
+            var link = new PointLink(this, point, owner, observer, order, run, tin, tout, ++_serial)
+                { Context = context?.Info.Id == owner ? context : null };
             _links.Add(link);
             Rebuild(point);
             return link;
@@ -330,7 +357,7 @@ public sealed class PointRegistry
                 live.Add(l);
             }
         }
-        _chains[point] = Sort(point, live);
+        _chains[point] = (def.Point, Sort(point, live));
     }
 
     // Priority, then mod id, then attach order; then the before/after constraints, kept stable. A cycle leaves the
@@ -377,32 +404,49 @@ public static class Points
 
     /// <summary>Defines the point "&lt;this mod's id&gt;:<paramref name="name"/>".</summary>
     public static Point<TIn, TOut> Define<TIn, TOut>(string name, PointMode mode, bool allowRefuse = false)
-        => Shared.Define<TIn, TOut>(Owner(), name, mode, allowRefuse);
+        => Register(null, owner => Shared.Define<TIn, TOut>(owner, name, mode, allowRefuse));
 
     /// <summary>Attaches this mod's link to another mod's point, "&lt;owner id&gt;:&lt;name&gt;".</summary>
     public static PointLink Extend<TIn, TOut>(string point, Func<TIn, TOut, (PointVerdict, TOut)> link, PointOrder? order = null)
-        => Shared.Extend(Owner(), point, link, order);
+        => Register(link, owner => Shared.Extend(owner, point, link, order));
 
     /// <summary>Attaches this mod's observer to a point.</summary>
     public static PointLink Observe<TIn, TOut>(string point, Action<TIn, TOut> observer, PointOrder? order = null)
-        => Shared.Observe(Owner(), point, observer, order);
+        => Register(observer, owner => Shared.Observe(owner, point, observer, order));
 
-    private static string Owner()
+    private static T Register<T>(Delegate? work, Func<string, T> register)
     {
-        var mod = ModContext.CurrentMod;
-        if (mod == null) return "kiln";
+        var mod = ModContext.CurrentMod ?? (work == null ? null : ModContext.OwnerOf(work));
+        if (mod == null) return register("kiln");
         lock (Watched)
         {
+            if (!mod.Alive) throw new InvalidOperationException("the mod has unloaded");
+            Action? cleanup = null;
             if (Watched.Add(mod))
             {
                 var id = mod.Info.Id;
-                mod.Retiring += () =>
+                cleanup = () =>
                 {
-                    Shared.RemoveOwner(id);
-                    lock (Watched) Watched.Remove(mod);
+                    lock (Watched)
+                    {
+                        Shared.RemoveOwner(id);
+                        Watched.Remove(mod);
+                    }
                 };
+                mod.Retiring += cleanup;
+            }
+            try { return register(mod.Info.Id); }
+            finally
+            {
+                // Retire can snapshot the event before our first subscription. Recheck AFTER publishing the
+                // registration too, so that missed notification cannot leave delegates in the shared registry.
+                if (!mod.Alive)
+                {
+                    Shared.RemoveOwner(mod.Info.Id);
+                    Watched.Remove(mod);
+                    if (cleanup != null) mod.Retiring -= cleanup;
+                }
             }
         }
-        return mod.Info.Id;
     }
 }

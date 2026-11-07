@@ -13,6 +13,7 @@
 //   5. write <state>/enshwick.json and copy the loader's key log lines into kiln.log.
 // Docs: docs/kiln/engines/enshwick.md.
 #include <windows.h>
+#include <psapi.h>
 
 #include <atomic>
 #include <cstdarg>
@@ -23,6 +24,9 @@
 
 #include "../../compat/compat.h"
 #include "logic.h"
+#include "tree.h"
+#include <memory>
+#include <random>
 
 namespace kenshwick {
 namespace {
@@ -37,6 +41,7 @@ constexpr const char* kPluginVersion = "1.0.0";
 constexpr const char* kUpstream = "Enshwick v1.0.0-alpha.13";
 
 kcompat::Host H{nullptr, 0, "enshwick"};
+std::once_flag g_host_once;
 uint32_t g_side = KILN_SIDE_SERVER;
 fs::path g_game, g_state;
 
@@ -114,14 +119,18 @@ std::wstring claim_name() { return std::wstring(kStubMutexPrefix) + std::to_wstr
 
 bool has_stub_marker(const fs::path& file) {
     for (const char* m : kStubMarkers)
-        if (kcompat::file_contains(file, m)) return true;
-    return false;
+        if (!kcompat::file_contains(file, m)) return false;
+    return true;
 }
 
 // A loaded module that exports enshwick_start (Enshwick's loader, whatever its path).
 bool loader_module_loaded() {
-    HMODULE h = GetModuleHandleW(L"enshwick.dll");
-    return h && GetProcAddress(h, kStartExport);
+    HMODULE modules[1024];
+    DWORD needed = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules, sizeof modules, &needed)) return false;
+    for (DWORD i = 0; i < std::min<DWORD>(needed / sizeof(HMODULE), 1024); ++i)
+        if (GetProcAddress(modules[i], kStartExport)) return true;
+    return false;
 }
 
 StepAsideFacts gather_step_aside(std::string* note) {
@@ -157,20 +166,147 @@ StepAsideFacts gather_step_aside(std::string* note) {
 
 // --- profile -> <game>/mods --------------------------------------------------------------------------------------
 
-std::string folder_fingerprint(const fs::path& dir) {
-    std::vector<FileStamp> files;
-    std::error_code ec;
-    for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
-         !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        FileStamp s;
-        s.rel = to_utf8(fs::relative(it->path(), dir, ec).generic_wstring());
-        s.size = it->file_size(ec);
-        s.time = static_cast<uint64_t>(it->last_write_time(ec).time_since_epoch().count());
-        if (s.rel == kManagedMarker) continue;
-        files.push_back(std::move(s));
+// Receipts live outside mods/ and are never copied from a profile source. The directory identity prevents a
+// copied marker/receipt from adopting a hand-installed replacement; the snapshot protects player-added files.
+nlohmann::json g_receipts = nlohmann::json::object();
+fs::path receipt_file() { return H.path(KILN_PATH_KILN) / L"data" / L"enshwick-managed.json"; }
+std::string directory_id(const fs::path& dir) {
+    HANDLE h = CreateFileW(dir.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return {};
+    BY_HANDLE_FILE_INFORMATION i{};
+    const bool ok = GetFileInformationByHandle(h, &i) != 0 && (i.nFileIndexHigh || i.nFileIndexLow);
+    CloseHandle(h);
+    return ok ? std::to_string(i.dwVolumeSerialNumber) + ":" + std::to_string(i.nFileIndexHigh) + ":" + std::to_string(i.nFileIndexLow) : "";
+}
+struct TreeLocks {
+    std::vector<std::unique_ptr<kcompat::CheckedPath>> held;
+    bool check(const fs::path& root, const fs::path& path, bool file) {
+        auto p = std::make_unique<kcompat::CheckedPath>();
+        if (!p->open(root, path, file)) return false;
+        held.push_back(std::move(p));
+        return true;
     }
-    return fingerprint(std::move(files));
+    bool scan(const fs::path& dir, Tree* tree) {
+        return scan_tree(dir, tree, [&](const auto& r, const auto& p, bool f) { return check(r, p, f); });
+    }
+};
+bool owned_copy(const fs::path& dir, const std::string& folder) {
+    const auto key = lower(folder);
+    if (!g_receipts.contains(key)) return false;
+    try {
+        const auto& r = g_receipts.at(key);
+        if (directory_id(dir).empty() || directory_id(dir) != r.at("directory").get<std::string>()) return false;
+        TreeLocks locks;
+        Tree tree;
+        std::string marker;
+        return locks.scan(dir, &tree) && kcompat::read_file(dir / kManagedMarker, &marker) &&
+            marker == r.at("marker").get<std::string>() && tree.stamp == r.at("snapshot").get<std::string>();
+    } catch (...) { return false; }
+}
+bool save_receipts() {
+    const auto file = receipt_file();
+    const std::string text = g_receipts.dump(2) + "\n";
+    std::random_device random;
+    for (int i = 0; i < 32; ++i) {
+        auto tmp = file;
+        tmp += L"." + std::to_wstring(random()) + L".tmp";
+        HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        DWORD written = 0;
+        const bool ok = text.size() <= MAXDWORD && WriteFile(h, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) &&
+            written == text.size() && FlushFileBuffers(h);
+        CloseHandle(h);
+        const bool moved = ok && MoveFileExW(tmp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        if (!moved) DeleteFileW(tmp.c_str());
+        return moved;
+    }
+    return false;
+}
+fs::path fresh_stage(const fs::path& mods) {
+    // Keep incomplete copies and quarantined removals outside the only directory Enshwick enumerates.
+    const fs::path staging = mods.parent_path() / L".kiln-enshwick-staging";
+    std::error_code ec;
+    fs::create_directories(staging, ec);
+    kcompat::CheckedPath guard;
+    if (ec || !guard.open(staging, staging, false)) return {};
+    std::random_device random;
+    for (int i = 0; i < 32; ++i) {
+        fs::path p = staging / (L"copy-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(random()));
+        // Exclusive creation: a pre-existing directory (player's files or a link) is never cleared or reused.
+        if (CreateDirectoryW(p.c_str(), nullptr)) return p;
+    }
+    return {};
+}
+// Rename old copies aside, publish a fully written stage, and roll back if publication/receipt writing fails.
+// A failed removal leaves the quarantined copy intact. Recheck identity AFTER rename before deleting anything.
+bool replace_copy(const fs::path& mods, const Action& a, std::string* why) {
+    const fs::path dst = mods / to_wide(a.folder);
+    fs::path stage, old;
+    std::string staged_id;
+    std::error_code ec;
+    const auto receipt_before = g_receipts;
+    if (a.act != Act::Remove) {
+        const fs::path source(to_wide(a.source));
+        TreeLocks locks;
+        Tree tree;
+        if (!locks.scan(source, &tree)) return *why = "unsafe or unreadable source tree", false;
+        stage = fresh_stage(mods);
+        if (stage.empty()) return *why = "cannot create an exclusive staging folder", false;
+        staged_id = directory_id(stage);
+        if (staged_id.empty()) return *why = "cannot identify staged directory; left outside mods/", false;
+        if (!copy_tree_files(source, stage, tree)) {
+            if (directory_id(stage) == staged_id) fs::remove_all(stage, ec);
+            return *why = "copy failed; existing mod preserved", false;
+        }
+        // A source's marker is ignored; only Kiln's receipt authorizes later refresh/removal.
+        const std::string marker = marker_text(a.source, a.fingerprint) + "copy=" + path_utf8(stage.filename()) + "\n";
+        TreeLocks staged_locks;
+        Tree staged;
+        if (!kcompat::write_file_atomic(stage / kManagedMarker, marker) || !staged_locks.scan(stage, &staged)) {
+            staged_locks.held.clear();
+            if (directory_id(stage) == staged_id) fs::remove_all(stage, ec);
+            return *why = "cannot seal staged copy", false;
+        }
+        g_receipts[lower(a.folder)] = {{"directory", directory_id(stage)}, {"marker", marker}, {"snapshot", staged.stamp}};
+    }
+    if (a.act == Act::Refresh || a.act == Act::Remove) {
+        // Use the previous receipt while validating the old copy, including player edits since the plan.
+        const auto next = g_receipts;
+        g_receipts = receipt_before;
+        const bool owned = owned_copy(dst, a.folder);
+        if (owned) {
+            old = fresh_stage(mods);
+            if (!old.empty()) fs::remove(old, ec);
+            if (!old.empty() && !ec) fs::rename(dst, old, ec);
+        }
+        if (!owned || old.empty() || ec || !owned_copy(old, a.folder)) {
+            if (!old.empty() && fs::exists(old) && !fs::exists(dst)) fs::rename(old, dst, ec);
+            if (!stage.empty() && directory_id(stage) == staged_id) fs::remove_all(stage, ec);
+            return *why = "copy ownership changed; existing files preserved", false;
+        }
+        g_receipts = next;
+    }
+    if (a.act != Act::Remove) fs::rename(stage, dst, ec); // fails rather than replacing an occupied folder
+    else g_receipts.erase(lower(a.folder));
+    if (ec || !save_receipts()) {
+        if (!stage.empty() && fs::exists(dst) && directory_id(dst) == g_receipts[lower(a.folder)].value("directory", ""))
+            fs::rename(dst, stage, ec);
+        if (!old.empty() && !fs::exists(dst)) fs::rename(old, dst, ec);
+        g_receipts = receipt_before;
+        if (!stage.empty() && directory_id(stage) == staged_id) fs::remove_all(stage, ec);
+        return *why = "publication failed; previous copy preserved", false;
+    }
+    // Only the old directory we validated and moved aside may be removed, even if another process swaps paths.
+    if (!old.empty()) {
+        const auto next = g_receipts;
+        g_receipts = receipt_before;
+        if (owned_copy(old, a.folder)) fs::remove_all(old, ec);
+        else ec = std::make_error_code(std::errc::operation_not_permitted);
+        g_receipts = next;
+    }
+    if (ec) *why = "old copy retained in quarantine: " + path_utf8(old);
+    return true;
 }
 
 ModForm form_of(const fs::path& dir) {
@@ -183,20 +319,26 @@ ModForm form_of(const fs::path& dir) {
     return classify(kcompat::exists(dir / L"pack.toml"), kcompat::exists(dir / L"main.luau"), dll);
 }
 
-bool copy_tree(const fs::path& from, const fs::path& to, std::string* why) {
-    std::error_code ec;
-    fs::remove_all(to, ec);
-    fs::create_directories(to, ec);
-    if (ec) return *why = "cannot create " + path_utf8(to) + ": " + ec.message(), false;
-    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
-    if (ec) return *why = "cannot copy " + path_utf8(from) + ": " + ec.message(), false;
-    return true;
-}
-
 // Brings <game>/mods in line with the profile's Enshwick list and records what runs in g_mods.
 void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods) {
+    std::error_code receipt_error;
+    fs::create_directories(receipt_file().parent_path(), receipt_error);
+    kcompat::CheckedPath receipt_dir_guard;
+    if (receipt_error || !receipt_dir_guard.open(receipt_file().parent_path(), receipt_file().parent_path(), false))
+        throw std::runtime_error("unsafe or unavailable Enshwick receipt directory");
+    std::string receipt_text;
+    g_receipts = nlohmann::json::object();
+    if (kcompat::exists(receipt_file())) {
+        kcompat::CheckedPath receipt_guard;
+        if (!receipt_guard.open(receipt_file().parent_path(), receipt_file(), true))
+            throw std::runtime_error("unsafe Enshwick receipt file");
+        if (kcompat::read_file(receipt_file(), &receipt_text)) {
+            auto doc = nlohmann::json::parse(receipt_text, nullptr, false);
+            if (doc.is_object()) g_receipts = std::move(doc);
+        }
+    }
     std::vector<Wanted> wanted;
-    std::set<std::string> listed_folders;
+    std::set<std::string> listed_folders, in_place, unavailable;
     for (const auto& r : plan.listed) {
         const std::string folder = r.id.empty() ? to_utf8(r.path.filename().wstring()) : r.id;
         std::string why;
@@ -209,17 +351,26 @@ void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods) {
             g_mods.push_back({folder, "unknown", "profile", "off", "switched off in the profile"});
             continue;
         }
+        TreeLocks source_locks;
+        Tree source_tree;
+        if (!source_locks.scan(r.path, &source_tree)) {
+            unavailable.insert(lower(folder));
+            g_mods.push_back({folder, "unknown", "profile", "failed", "unsafe or unreadable source tree"});
+            continue;
+        }
         // The library folder is the source as it is; a profile entry pointing into <game>/mods itself is used in place.
         std::error_code ec;
         if (fs::equivalent(r.path.parent_path(), mods, ec)) {
-            g_mods.push_back({folder, form_name(form_of(r.path)), "profile", "in-place", "already in mods/"});
+            in_place.insert(lower(to_utf8(r.path.filename().wstring())));
+            const auto form = form_of(r.path);
+            g_mods.push_back({folder, form_name(form), "profile", form == ModForm::Unknown ? "unknown" : "in-place", "already in mods/"});
             continue;
         }
         if (!fs::is_directory(r.path, ec)) {
             g_mods.push_back({folder, "unknown", "profile", "missing", "library folder missing: " + path_utf8(r.path)});
             continue;
         }
-        wanted.push_back({folder, path_utf8(r.path), folder_fingerprint(r.path)});
+        wanted.push_back({folder, path_utf8(r.path), source_tree.stamp});
     }
     std::vector<Existing> existing;
     std::error_code ec;
@@ -229,33 +380,17 @@ void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods) {
         e.folder = to_utf8(d.path().filename().wstring());
         if (kcompat::lower(e.folder) == kLoaderFolder) continue;
         std::string text;
-        if (kcompat::read_file(d.path() / kManagedMarker, &text)) e.managed = parse_marker(text, &e.source, &e.fingerprint);
+        if (owned_copy(d.path(), e.folder) && kcompat::read_file(d.path() / kManagedMarker, &text))
+            e.managed = parse_marker(text, &e.source, &e.fingerprint);
+        if (in_place.count(lower(e.folder)) || unavailable.count(lower(e.folder))) e.managed = false;
         existing.push_back(std::move(e));
     }
     for (const auto& a : plan_sync(wanted, existing)) {
         const fs::path dst = mods / to_wide(a.folder);
         std::string note = a.note;
         std::string action = act_name(a.act);
-        if (a.act == Act::Copy || a.act == Act::Refresh) {
-            // Copy into a sibling first and swap, so a failed copy never leaves half a mod in mods/.
-            const fs::path tmp = mods / (L"." + to_wide(a.folder) + L".kiln-tmp");
-            std::string why;
-            if (copy_tree(fs::path(to_wide(a.source)), tmp, &why) &&
-                kcompat::write_file_atomic(tmp / kManagedMarker, marker_text(a.source, a.fingerprint))) {
-                std::error_code rc;
-                fs::remove_all(dst, rc);
-                fs::rename(tmp, dst, rc);
-                if (rc) action = "failed", note = "cannot move the copy into place: " + rc.message();
-            } else {
-                action = "failed";
-                note = why.empty() ? "cannot write the marker" : why;
-            }
-            std::error_code rc;
-            fs::remove_all(tmp, rc);
-        } else if (a.act == Act::Remove) {
-            std::error_code rc;
-            fs::remove_all(dst, rc);
-            if (rc) action = "failed", note = "cannot remove the old copy: " + rc.message();
+        if (a.act == Act::Copy || a.act == Act::Refresh || a.act == Act::Remove) {
+            if (!replace_copy(mods, a, &note)) action = "failed";
         }
         const std::string form = a.act == Act::Remove ? "" : form_name(form_of(kcompat::exists(dst) ? dst : fs::path(to_wide(a.source))));
         g_mods.push_back({a.folder, form, a.act == Act::Remove ? "kiln" : "profile", action, note});
@@ -282,12 +417,17 @@ std::string read_version_file(const fs::path& dir) {
 }
 
 uint32_t __stdcall kiln_release() {
-    const Hold state = static_cast<Hold>(g_hold.load());
+    const uint32_t answer = release_hold(g_hold);
+    if (answer) { std::lock_guard lock(g_mu); g_release_answer = answer; }
     if (g_release_event) SetEvent(g_release_event);
-    return release_answer(state);
+    return answer;
 }
 
 using StartFn = void(__stdcall*)(uint32_t stub_abi, uint32_t missing_forwards, uint32_t(__stdcall* release)());
+DWORD call_start(StartFn start) {
+    __try { start(kStubAbi, 0, &kiln_release); return 0; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return GetExceptionCode(); }
+}
 
 HMODULE load_loader(const fs::path& dll, DWORD* error, DWORD* fault) {
     *error = 0;
@@ -340,10 +480,15 @@ void tail_log(fs::file_time_type since) {
     }
 }
 
-void start_thread(fs::path dll) {
+void start_thread(fs::path dll, fs::path root) {
     DWORD error = 0, fault = 0;
     const uint64_t began = GetTickCount64();
     const auto since = fs::file_time_type::clock::now() - std::chrono::seconds(2);
+    kcompat::CheckedDll checked;
+    if (!safe_source_path(dll) || !checked.open(root, dll, kStartExport)) {
+        set_status("failed", "loader path changed or became unsafe before loading");
+        kiln_release(); write_status(); return;
+    }
     HMODULE h = load_loader(dll, &error, &fault);
     if (!h) {
         set_status("failed", fault ? "loading " + path_utf8(dll) + " faulted (exception 0x" + [&] {
@@ -366,7 +511,14 @@ void start_thread(fs::path dll) {
     }
     Log(KILN_LOG_INFO, "kiln-enshwick: enshwick_start(stub_abi %u) on its own thread", kStubAbi);
     // The loader catches its own panics (lib.rs enshwick_start); it calls release once its hooks are armed.
-    start(kStubAbi, 0, &kiln_release);
+    fault = call_start(start);
+    if (fault) {
+        set_status("failed", "enshwick_start faulted (exception " + std::to_string(fault) + ")");
+        g_thread_done.store(true);
+        kiln_release();
+        write_status();
+        return;
+    }
     // A loader that stopped early (unknown build, no mods) never called release: let the server go on.
     g_thread_done.store(true);
     kiln_release();
@@ -380,6 +532,15 @@ void start_thread(fs::path dll) {
     write_status();
     tail_log(since);
     write_status();
+}
+
+void start_thread_guarded(fs::path dll, fs::path root) {
+    try { start_thread(std::move(dll), std::move(root)); }
+    catch (...) {
+        try { set_status("failed", "exception in Enshwick start worker"); write_status(); } catch (...) { }
+    }
+    g_thread_done.store(true);
+    kiln_release();
 }
 
 nlohmann::json read_config() {
@@ -401,25 +562,32 @@ std::string config_string(const nlohmann::json& cfg, const char* key, const char
 // On the client in the early phase: until the loader has found its game entries (its log says "entries found"), so
 // Kiln's hooks, armed next, never change code the loader is still reading; at most kResolveWaitMs.
 constexpr uint32_t kResolveWaitMs = 5000;
-void wait_for_resolution(fs::file_time_type since) {
+void wait_for_resolution(fs::file_time_type since, const fs::path& previous_file, const std::string& previous_text) {
     const uint64_t t0 = GetTickCount64();
     fs::path file;
     while (GetTickCount64() - t0 < kResolveWaitMs && !g_thread_done.load()) {
         if (file.empty()) file = newest_enshwick_log(since);
         std::string text;
         if (!file.empty() && kcompat::read_file(file, &text) &&
-            (text.find("entries found") != std::string::npos || text.find("runs vanilla") != std::string::npos))
+            resolution_seen(text, file == previous_file ? previous_text : ""))
             break;
         Sleep(10);
     }
-    Log(KILN_LOG_INFO, "kiln-enshwick: waited %llu ms for Enshwick to find its game entries",
-        static_cast<unsigned long long>(GetTickCount64() - t0));
+    Log(g_thread_done.load() || GetTickCount64() - t0 < kResolveWaitMs ? KILN_LOG_INFO : KILN_LOG_WARN,
+        "kiln-enshwick: waited %llu ms for Enshwick to find its game entries (maximum %u ms; timeout can leave hook-scan races)",
+        static_cast<unsigned long long>(GetTickCount64() - t0), kResolveWaitMs);
 }
 
 // The whole start, once per process: in the early phase (before Kiln resolves its signatures and arms its hooks, so
 // Enshwick reads the game's code as it is on disk) or, with "start": "ready", in on_ready.
 void run_flow(const char* phase) {
     if (g_flow_done.exchange(true)) return;
+    bool launched = false;
+    // A no-mods/no-loader/failed sync path must not keep a claim that blocks a real stub loaded later.
+    struct ClaimLease {
+        bool& launched;
+        ~ClaimLease() { if (!launched && g_claim) { CloseHandle(g_claim); g_claim = nullptr; } }
+    } lease{launched};
     try {
         g_game = H.path(KILN_PATH_GAME);
         g_state = H.state_dir();
@@ -455,6 +623,8 @@ void run_flow(const char* phase) {
         const fs::path mods = g_game / L"mods";
         std::error_code ec;
         fs::create_directories(mods, ec);
+        kcompat::CheckedPath mods_guard;
+        if (ec || !mods_guard.open(mods, mods, false)) throw std::runtime_error("unsafe or unavailable mods folder");
         sync_profile(plan, mods);
         for (const auto& m : g_mods)
             Log(KILN_LOG_INFO, "kiln-enshwick: mods/%s (%s, %s): %s%s%s", m.folder.c_str(), m.form.c_str(), m.origin.c_str(),
@@ -464,7 +634,11 @@ void run_flow(const char* phase) {
         const nlohmann::json cfg = read_config();
         const bool always = cfg.contains("always") && cfg["always"].is_boolean() && cfg["always"].get<bool>();
         size_t running = 0;
-        for (const auto& m : g_mods) running += runs(m.action);
+        // The real loader reads physical folders, including a hand-installed folder also listed/disabled in the
+        // profile. Report conflicts honestly and still start for those mods. Unknown folders alone do not hook.
+        for (const auto& d : fs::directory_iterator(mods))
+            if (d.is_directory() && lower(path_utf8(d.path().filename())) != kLoaderFolder &&
+                form_of(d.path()) != ModForm::Unknown) ++running;
         if (!should_start(running, always)) {
             set_status("nothing", "no Enshwick mod in mods/ or the profile");
             Log(KILN_LOG_INFO, "kiln-enshwick: no Enshwick mods; the loader does not start (\"always\": true starts it anyway)");
@@ -475,8 +649,9 @@ void run_flow(const char* phase) {
         const fs::path game_dll = mods / L"enshwick" / L"enshwick.dll";
         const fs::path bundled_dir = H.path(KILN_PATH_KILN) / L"plugins" / L"enshwick";
         const fs::path bundled_dll = bundled_dir / L"enshwick.dll";
-        const bool game_ok = kcompat::exists(game_dll) && kcompat::pe_exports_name(game_dll, kStartExport);
-        const bool bundled_ok = kcompat::exists(bundled_dll) && kcompat::pe_exports_name(bundled_dll, kStartExport);
+        kcompat::CheckedDll game_checked, bundled_checked;
+        const bool game_ok = safe_source_path(game_dll) && game_checked.open(mods, game_dll, kStartExport);
+        const bool bundled_ok = safe_source_path(bundled_dll) && bundled_checked.open(bundled_dir, bundled_dll, kStartExport);
         const LoaderPick pick = pick_loader(pref, game_ok, bundled_ok);
         if (pick == LoaderPick::None) {
             set_status("no-loader", "no enshwick.dll exporting enshwick_start in mods/enshwick/ or kiln/plugins/enshwick/ (loader: " + pref + ")");
@@ -502,13 +677,16 @@ void run_flow(const char* phase) {
         g_release_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (hold && g_release_event) g_hold.store(static_cast<int>(Hold::Holding));
         const auto since = fs::file_time_type::clock::now() - std::chrono::seconds(2);
-        std::thread(start_thread, dll).detach();
-        if (!hold && std::string_view(phase) == "early") wait_for_resolution(since);
+        const auto previous_log = newest_enshwick_log(since);
+        std::string previous_text;
+        if (!previous_log.empty()) kcompat::read_file(previous_log, &previous_text);
+        std::thread(start_thread_guarded, dll, pick == LoaderPick::Game ? mods : bundled_dir).detach();
+        launched = true;
+        if (!hold && std::string_view(phase) == "early") wait_for_resolution(since, previous_log, previous_text);
         if (hold && g_release_event) {
             const uint64_t t0 = GetTickCount64();
             const DWORD w = WaitForSingleObject(g_release_event, kLongestHoldMs);
-            if (w == WAIT_TIMEOUT) {
-                g_hold.store(static_cast<int>(Hold::Expired));
+            if (w != WAIT_OBJECT_0 && expire_hold(g_hold) == 2) {
                 {
                     std::lock_guard lock(g_mu);
                     g_release_answer = 2;
@@ -516,7 +694,6 @@ void run_flow(const char* phase) {
                 Log(KILN_LOG_WARN, "kiln-enshwick: the loader did not arm within %u ms; the server starts without waiting",
                     kLongestHoldMs);
             } else {
-                g_hold.store(static_cast<int>(Hold::None));
                 std::lock_guard lock(g_mu);
                 g_release_answer = 1;
             }
@@ -565,11 +742,11 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     using namespace kenshwick;
     if (!api || api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, session) + sizeof(void*))
         return KILN_ERR_UNAVAILABLE;
+    if (!info || info->size < sizeof(KilnPluginInfo) || !api->side || !api->log || !api->path || !api->service)
+        return KILN_ERR_UNAVAILABLE;
     // The loader keeps calling kiln_release's address space and runs for the process: never unload.
     if (!kcompat::pin_module(reinterpret_cast<const void*>(&kiln_plugin_main))) return KILN_ERR_UNAVAILABLE;
-    H.api = api;
-    H.owner = owner;
-    g_side = api->side();
+    std::call_once(g_host_once, [&] { H.api = api; H.owner = owner; g_side = api->side(); });
     info->id = kcompat::kstr(kPluginId);
     info->version = kcompat::kstr(kPluginVersion);
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(void*)) info->on_ready = &on_ready;
@@ -583,10 +760,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_early(const KilnApi* api
     using namespace kenshwick;
     if (!api || api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, session) + sizeof(void*))
         return KILN_ERR_UNAVAILABLE;
+    if (!info || info->size < sizeof(KilnPluginInfo) || !api->side || !api->log || !api->path || !api->service)
+        return KILN_ERR_UNAVAILABLE;
     if (!kcompat::pin_module(reinterpret_cast<const void*>(&kiln_plugin_early))) return KILN_ERR_UNAVAILABLE;
-    H.api = api;
-    H.owner = owner;
-    g_side = api->side();
+    std::call_once(g_host_once, [&] { H.api = api; H.owner = owner; g_side = api->side(); });
     info->id = kcompat::kstr(kPluginId);
     info->version = kcompat::kstr(kPluginVersion);
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(void*)) info->on_ready = &on_early_ready;

@@ -81,12 +81,25 @@ Mod read_mod(const fs::path& folder, const std::string& id, bool enabled, const 
     m.id = id.empty() ? to_utf8(folder.filename().wstring()) : id;
     m.status = "skipped";
     if (!enabled) { m.reason = "switched off in the profile"; return m; }
+    auto safe_syntax = [](const fs::path& path) {
+        if (!path.is_absolute()) return false;
+        for (const auto& p : path.relative_path()) {
+            const auto s = p.native();
+            if (s.empty() || s == L"." || s == L".." || s.find(L':') != s.npos || s.find(L'\0') != s.npos ||
+                s.back() == L'.' || s.back() == L' ') return false;
+        }
+        return true;
+    };
+    if (!safe_syntax(folder) || !safe_syntax(root)) { m.reason = "unsafe mod path"; return m; }
     std::error_code ec;
+    kcompat::CheckedPath folder_guard, library_guard;
+    fs::path authorized = root;
     if (fs::is_regular_file(folder, ec)) {  // a profile entry may name the library itself
         m.library = folder;
         m.folder = folder.parent_path();
+        if (root == folder) authorized = m.folder;
     } else {
-        if (!kcompat::contained_path(root, folder)) { m.reason = "mod folder is outside its root or is a symlink"; return m; }
+        if (!folder_guard.open(root, folder, false)) { m.reason = "mod folder is outside its root or is a symlink"; return m; }
         std::vector<fs::path> libs;
         for (const auto& e : fs::directory_iterator(folder, ec)) {
             auto ext = kcompat::lower(to_utf8(e.path().extension().wstring()));
@@ -96,6 +109,7 @@ Mod read_mod(const fs::path& folder, const std::string& id, bool enabled, const 
         if (libs.size() > 1) { m.reason = "more than one library in the mod folder (Ember allows one)"; return m; }
         m.library = libs.front();
     }
+    if (!library_guard.open(authorized, m.library, true)) { m.reason = "unsafe library path (link or outside mod root)"; return m; }
     for (const auto& e : kcompat::pe_exports(m.library)) m.exports.push_back(e);
     m.status = "waiting-for-abi";
     m.reason = kNoAbi;
@@ -171,6 +185,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     using namespace kember;
     if (!api || api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, session) + sizeof(void*))
         return KILN_ERR_UNAVAILABLE;
+    if (!api->side || !api->path || !api->log || !api->service) return KILN_ERR_UNAVAILABLE;
     if (!info || info->size < offsetof(KilnPluginInfo, on_ready) + sizeof(void*)) return KILN_ERR_UNAVAILABLE;
     H.api = api;
     H.owner = owner;

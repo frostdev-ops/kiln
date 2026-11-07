@@ -161,7 +161,11 @@ impl ServerMod for Plugin {
 
 unsafe fn load(path: &Path) -> Result<Plugin, String> {
     let wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().chain([0]).collect();
+    #[cfg(not(feature = "kiln"))]
     let module = LoadLibraryW(wide.as_ptr());
+    // kiln: dependency search is limited to the DLL/application/system folders, never cwd or PATH.
+    #[cfg(feature = "kiln")]
+    let module = kiln_sl_load(wide.as_ptr());
     if module.is_null() {
         return Err("cannot load".into());
     }
@@ -199,6 +203,29 @@ unsafe fn load(path: &Path) -> Result<Plugin, String> {
     Ok(plugin)
 }
 
+// kiln: keep SEH outside the Rust initialization frame. Faulted modules remain resident, just like every loaded
+// generation: initialization may already have started a thread or installed a hook, so FreeLibrary is unsafe.
+#[cfg(feature = "kiln")]
+extern "C" {
+    fn kiln_sl_guard(run: unsafe extern "C" fn(*mut c_void), arg: *mut c_void) -> u32;
+    fn kiln_sl_load(path: *const u16) -> windows_sys::Win32::Foundation::HMODULE;
+}
+#[cfg(feature = "kiln")]
+fn guarded<T>(run: impl FnOnce() -> T) -> Result<T, String> {
+    struct Call<F, T> { run: Option<F>, result: Option<T> }
+    unsafe extern "C" fn invoke<F: FnOnce() -> T, T>(arg: *mut c_void) {
+        let call = &mut *arg.cast::<Call<F, T>>();
+        call.result = Some((call.run.take().unwrap())());
+    }
+    fn call<F: FnOnce() -> T, T>(run: F) -> Result<T, String> {
+        let mut arg = Call { run: Some(run), result: None };
+        let fault = unsafe { kiln_sl_guard(invoke::<F, T>, (&mut arg as *mut Call<F, T>).cast()) };
+        if fault != 0 { Err(format!("native initialization fault 0x{fault:08x}")) }
+        else { arg.result.ok_or_else(|| "native initialization returned no result".into()) }
+    }
+    call(run)
+}
+
 /// A mod DLL in `shroudlink_mods/` and the version of it that is loaded.
 struct Source {
     path: PathBuf,
@@ -224,16 +251,44 @@ fn modified(path: &Path) -> Option<SystemTime> {
 impl Loader {
     /// Copies the DLL to a fresh shadow file and loads that.
     fn load_copy(&mut self, path: &Path) -> Result<Plugin, String> {
+        // kiln: validate again on every reload and keep the source locked through the shadow copy.
+        #[cfg(feature = "kiln")]
+        let _source = {
+            let root = self.roots.iter().find(|r| *r == path || path.parent() == Some(r.as_path())).ok_or("outside mod roots")?;
+            let base = if root == path { root.parent().ok_or("no mod folder")? } else { root.as_path() };
+            crate::kiln::CheckedPath::open(base, path, true).ok_or("unsafe mod path (link, traversal or outside root)")?
+        };
         let shadow = self.shadow.clone();
         std::fs::create_dir_all(&shadow).map_err(|e| format!("cannot create {}: {e}", shadow.display()))?;
+        // kiln: inspect the shadow root before creating a file through it, not only after copying.
+        #[cfg(feature = "kiln")]
+        let _shadow = crate::kiln::CheckedPath::open(&shadow, &shadow, false).ok_or("unsafe shadow folder")?;
         self.copies += 1;
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let copy = shadow.join(format!("{stem}.{}.{}.dll", std::process::id(), self.copies));
+        // kiln: never overwrite a pre-existing shadow file (including a link planted at its predictable name).
+        #[cfg(feature = "kiln")]
+        {
+            let mut src = std::fs::File::open(path).map_err(|e| format!("cannot read: {e}"))?;
+            let mut dst = std::fs::OpenOptions::new().write(true).create_new(true).open(&copy).map_err(|e| format!("cannot create shadow: {e}"))?;
+            std::io::copy(&mut src, &mut dst).map_err(|e| format!("cannot copy: {e}"))?;
+        }
+        #[cfg(not(feature = "kiln"))]
         std::fs::copy(path, &copy).map_err(|e| format!("cannot copy: {e}"))?;
+        #[cfg(feature = "kiln")]
+        let _copy = crate::kiln::CheckedPath::open(&shadow, &copy, true).ok_or("unsafe shadow path")?;
+        #[cfg(feature = "kiln")]
+        { guarded(|| unsafe { load(&copy) })? }
+        #[cfg(not(feature = "kiln"))]
         unsafe { load(&copy) }
     }
 
     fn dlls(&self) -> Vec<PathBuf> {
+        // kiln: discovery and the initial no-mods decision must apply the same path policy as hot reload.
+        #[cfg(feature = "kiln")]
+        { return crate::kiln::mod_dlls(&self.roots); }
+        #[cfg(not(feature = "kiln"))]
+        {
         // kiln: every root in order; a root is a folder (its DLLs, sorted, as upstream) or one DLL
         let is_dll = |p: &Path| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"));
         let mut all = Vec::new();
@@ -254,6 +309,7 @@ impl Loader {
             }
         }
         all
+        }
     }
 }
 
@@ -274,6 +330,13 @@ fn outcome(path: &Path, result: Result<String, String>) {
 
 /// kiln: `load_all` over several roots (folders or single DLLs), with the shadow copies in `shadow`.
 pub fn load_from(roots: Vec<PathBuf>, shadow: PathBuf) {
+    // kiln: do not clean old copies through a linked shadow directory.
+    #[cfg(feature = "kiln")]
+    let _shadow = {
+        if std::fs::create_dir_all(&shadow).is_err() { return; }
+        let Some(guard) = crate::kiln::CheckedPath::open(&shadow, &shadow, false) else { return };
+        guard
+    };
     // shadow copies of earlier runs are no longer loaded by anyone
     if let Ok(old) = std::fs::read_dir(&shadow) {
         for entry in old.flatten() {
@@ -358,6 +421,39 @@ pub fn reload_now(host: &mut Host) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "kiln")]
+    #[test]
+    fn kiln_native_initialization_fault_is_contained() {
+        extern "C" { fn kiln_sl_test_fault(); }
+        assert!(guarded(|| unsafe { kiln_sl_test_fault() }).unwrap_err().contains("e0000042"));
+        assert_eq!(guarded(|| 42).unwrap(), 42);
+    }
+
+    // kiln: predictable shadow names must never overwrite an existing file, and a linked shadow root is rejected
+    // before either stale-file cleanup or creating a new copy through it.
+    #[cfg(feature = "kiln")]
+    #[test]
+    fn kiln_shadow_copy_never_overwrites_and_refuses_linked_roots() {
+        let base = std::env::temp_dir().join(format!("sl-shadow-{}", std::process::id()));
+        let shadow = base.join("loaded");
+        std::fs::create_dir_all(&shadow).unwrap();
+        let source = base.join("m.dll");
+        std::fs::write(&source, b"source").unwrap();
+        let occupied = shadow.join(format!("m.{}.1.dll", std::process::id()));
+        std::fs::write(&occupied, b"preserve").unwrap();
+        let mut loader = Loader { roots: vec![base.clone()], shadow: shadow.clone(), sources: vec![], copies: 0, checked: Instant::now() };
+        assert!(loader.load_copy(&source).is_err());
+        assert_eq!(std::fs::read(&occupied).unwrap(), b"preserve");
+        let linked = base.join("linked");
+        if std::os::windows::fs::symlink_dir(&shadow, &linked).is_ok() {
+            loader.shadow = linked.clone();
+            assert!(loader.load_copy(&source).is_err());
+            assert_eq!(std::fs::read(&occupied).unwrap(), b"preserve");
+            let _ = std::fs::remove_dir(linked);
+        }
+        let _ = std::fs::remove_dir_all(base);
+    }
 
     /// Loads the example mod DLL built in the same workspace and drives it through the host.
     #[test]

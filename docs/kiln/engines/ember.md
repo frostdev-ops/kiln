@@ -32,6 +32,11 @@ written down anywhere. Starting a mod library without them would mean guessing w
   mods; `kiln-ember steps aside: ...` in kiln.log;
 - hooks nothing. The server runs on.
 
+Folders and DLLs are checked from the authorized root down and held open while the file is inspected, including
+single-DLL profile entries. Traversal, aliases, directory links and reparse points within the root are refused;
+ancestors above it follow the shared [path policy](README.md). The PE reader validates file-backed bounds, export
+tables, ordinals and callable targets without executing the DLL.
+
 Ember's loader takes the `POWRPROF.dll` name, which SET, Enshwick and Shared XP also use. Kiln never takes that name, so
 Ember's loader can stay next to Kiln when it ships (on Wine with `WINEDLLOVERRIDES="powrprof=n,b"`, as Ember says).
 
@@ -66,6 +71,9 @@ When Ember publishes its loader and SDK (both MIT), the plan is the shroudlink r
 as a Kiln plugin (option A) inside kiln-ember, so Ember mods run unchanged. Size: M once the ABI exists.
 
 ## Tests
+
+`KILN_OUT=<out> native/build.sh kiln-ember` also builds `bin/ember-tests/ember-contract-test.exe`. Run it under
+Wine/Windows for profile path/link refusals, inspection without loading, truncated PE files and malformed exports.
 
 Lab `wv-rustsdk-sl`, 2026-11-07: private-chests built from its source (crates.io `ember-sdk = 0.1.0`) in
 `ember/mods/private-chests/`, plus a folder with two DLLs:

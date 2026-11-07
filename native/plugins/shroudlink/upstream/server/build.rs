@@ -7,6 +7,11 @@ use std::fmt::Write;
 const DATA_EXPORTS: &[&str] = &["g_pSteamClientGameServer"];
 
 fn main() {
+    // kiln: the Rust ABI cannot catch Windows hardware exceptions from native DLL initialization.
+    if std::env::var_os("CARGO_FEATURE_KILN").is_some() {
+        println!("cargo:rerun-if-changed=../../src/guard.c");
+        cc::Build::new().file("../../src/guard.c").compile("kiln_sl_guard");
+    }
     println!("cargo:rerun-if-changed=steam_api64.exports");
     let exports = std::fs::read_to_string("steam_api64.exports").expect("steam_api64.exports");
     let names: Vec<&str> = exports

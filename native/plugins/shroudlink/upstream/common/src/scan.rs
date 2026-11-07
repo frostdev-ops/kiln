@@ -1,6 +1,10 @@
 //! Locating game functions at runtime: wildcard byte patterns in `.text`
 //! and resolution of helper functions through the `call`s of a known function.
 
+#[path = "file_scan.rs"] // kiln: bounded file parser, also tested without Windows
+mod file_scan;
+use file_scan::file_text;
+
 use iced_x86::{Decoder, DecoderOptions, Mnemonic, OpKind};
 use windows_sys::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SECTION_HEADER};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -43,6 +47,7 @@ impl Module {
             .split_whitespace()
             .map(|t| if t.starts_with('?') { None } else { u8::from_str_radix(t, 16).ok() })
             .collect();
+        if pat.is_empty() { return Err("empty pattern".into()); } // kiln: windows(0) panics
         let hits: Vec<usize> = self
             .text
             .windows(pat.len())
@@ -69,23 +74,9 @@ impl Module {
 
     /// kiln: the unique match in `.text` as the exe file holds it (before any hook), as an address in this process.
     fn find_in_file(&self, pat: &[Option<u8>]) -> Option<usize> {
-        static FILE_TEXT: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
-        let text = FILE_TEXT
-            .get_or_init(|| {
-                let file = std::fs::read(std::env::current_exe().ok()?).ok()?;
-                let rva = self.text_start - self.base;
-                let u16_at = |o: usize| file.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
-                let u32_at = |o: usize| file.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-                let pe = u32_at(0x3c)? as usize;
-                let count = u16_at(pe + 6)? as usize;
-                let first = pe + 24 + u16_at(pe + 20)? as usize;
-                (0..count).find_map(|i| {
-                    let s = first + i * 40;
-                    let (va, raw_size, raw) = (u32_at(s + 12)? as usize, u32_at(s + 16)? as usize, u32_at(s + 20)? as usize);
-                    (va == rva).then(|| file.get(raw..raw + raw_size.min(self.text.len())).map(<[u8]>::to_vec)).flatten()
-                })
-            })
-            .as_ref()?;
+        let file = std::fs::read(std::env::current_exe().ok()?).ok()?;
+        let text = file_text(&file, self.text_start.checked_sub(self.base)?, self.text.len())?;
+        if pat.is_empty() { return None; }
         let mut hits = text
             .windows(pat.len())
             .enumerate()
@@ -111,4 +102,14 @@ pub fn call_targets(func: usize, len: usize) -> Vec<usize> {
         }
     }
     targets
+}
+
+#[cfg(test)]
+mod kiln_tests {
+    use super::*;
+    #[test]
+    fn kiln_empty_pattern_is_an_error_instead_of_a_panic() {
+        let module = Module { base: 0, text: &[], text_start: 0 };
+        assert!(module.find("").is_err());
+    }
 }

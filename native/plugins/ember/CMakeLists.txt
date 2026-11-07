@@ -4,3 +4,8 @@
 # (ember/mods/<mod>/, profile mods.ember), steps aside for Ember's own loader, and reports each mod in kiln.log and
 # kiln/state/ember.json. docs/kiln/engines/ember.md. Deployed to <game>/kiln/plugins/.
 kiln_plugin(ember src/plugin.cpp)
+
+add_executable(ember-contract-test contract_test.cpp)
+target_include_directories(ember-contract-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")
+set_target_properties(ember-contract-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/ember-tests")
+add_dependencies(kiln-ember ember-contract-test)

@@ -36,7 +36,8 @@ The core starts from `on_ready`, on its own thread, as its `DllMain` does when l
 
 The plugin **steps aside**. If shroudlink's core is loaded in the process as `steam_api64.dll`, `crashhandler64.dll`,
 `dinput8.dll` (also when Kiln's installer chained it from `kiln/chain/`) or `shroudlink_core.dll`, it is recognised
-by its export pair `CrashHandlerFactory` + `DirectInput8Create` or its file name. kiln.log then says
+by its export pair `CrashHandlerFactory` + `DirectInput8Create` or its file name, together with shroudlink's own core
+strings in the file. Unrelated proxies exporting the same names do not make Kiln step aside. kiln.log then says
 `kiln-shroudlink steps aside: shroudlink's own core runs in this process (...)`, and that core loads
 `shroudlink_mods/` as usual. Profile entries are not passed to the real core.
 As a backstop, both copies use shroudlink's per-process claim (`chestsort_server_<pid>`): whichever claims first runs
@@ -65,6 +66,13 @@ A profile that lists `shroudlink` stops reading `shroudlink_mods/` unless it has
 files where shroudlink keeps them (`chestsort_categories.json` and the mods' own data next to the server exe). Hot
 reload works as upstream: overwrite a mod DLL and it reloads within 2 s (shadow copies in
 `kiln/data/shroudlink/loaded/`).
+
+Discovery and each hot reload validate paths from the authorized mod root down, keeping them open through copying;
+ancestors above the root may be links. Traversal, aliases and reparse points within the root are refused, with final
+handle-path containment checked too. Wine's invisible Unix file-symlink limitation is the same as in the shared
+[path policy](README.md). Shadow files are created exclusively. Native faults during initialization are reported
+as a skipped mod; modules are retained because initialization may already have started threads or hooks. Native
+mods still run trusted code in the game process; this is not process isolation or recovery from `abort`.
 
 ## API coverage
 
@@ -165,9 +173,17 @@ Lab results (2026-11-07, `wv-rustsdk-sl`, build 26430253):
 - upstream core installed as `steam_api64.dll`: `kiln-shroudlink steps aside: shroudlink's own core runs in this
   process (...\steam_api64.dll)`, and the real core registered its 6 mods.
 
-Known issue (kiln-eml, not this plugin): under Wine, kiln-eml's `add_mod` refuses every path on drive `Z:` because it
-checks the ancestors above the authorized root and Wine reports `Z:\` and `Z:\home` as reparse points. The hand-over
-logs `kiln-eml refused EML data mod ... (1)`. Native Windows is not affected.
+The EML hand-over requests the v1 prefix of `kiln_eml.h`; compatible larger tables are accepted, and missing,
+short, version-zero or null-slot tables are unavailable. kiln-eml independently authorizes paths: its current
+default roots do not include `shroudlink_mods/`. Put an EML folder in an authorized root or explicitly list its
+path in the active profile. A refusal is logged and recorded in state; it is never reported as a successful hand-over.
+
+Review regressions: `build.sh --test` includes API/info/service size and version checks, proxy identity, checked
+paths, exclusive shadow copies, native initialization faults and detour chaining over an existing `E9` jump.
+The bounded exe-file parser also runs without Wine:
+`rustc --edition 2021 --test native/plugins/shroudlink/upstream/common/src/file_scan.rs -o /tmp/sl-scan-test`.
+Nearby's thread/bounds harness is `native/plugins/shroudlink/tests/nearby/Nearby.Tests.csproj`; use
+`dotnet run --project <that path> --artifacts-path /tmp/kiln-nearby`.
 
 ## Client checklist (user)
 

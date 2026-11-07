@@ -300,6 +300,7 @@ dependencies = [
 name = "shroudlink-server"
 version = "0.8.0"
 dependencies = [
+ "cc",
  "chestsort-common",
  "retour",
  "serde",

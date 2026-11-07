@@ -25,3 +25,8 @@ foreach(v STUB OTHER CLAIM)
     list(APPEND ENSHWICK_FAKES enshwick-fake-${lv})
 endforeach()
 add_dependencies(kiln-enshwick enshwick-fake-loader enshwick-fake-mod ${ENSHWICK_FAKES})
+
+add_executable(enshwick-contract-test tests/contract_test.cpp)
+target_include_directories(enshwick-contract-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")
+set_target_properties(enshwick-contract-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/enshwick-tests")
+add_dependencies(kiln-enshwick enshwick-contract-test)

@@ -229,14 +229,14 @@ def profile_sync():
     g.expect(os.path.isfile(g.p("mods/you.a/.kiln-managed")), "mods/you.a has the marker")
     g.expect(os.path.isfile(g.p("mods/you.dll/fakemod.dll")), "mods/you.dll copied")
     g.expect(not os.path.exists(g.p("mods/you.off")), "mods/you.off (disabled) not copied")
-    g.expect(not os.path.exists(g.p("mods/you.stale")), "mods/you.stale removed")
+    g.expect(os.path.exists(g.p("mods/you.stale")), "marker-only folder preserved (no external receipt)")
     g.expect(os.path.isfile(g.p("mods/player.own/pack.toml")), "mods/player.own untouched")
     g.expect(not os.path.exists(g.p("mods/you.hand/.kiln-managed")), "mods/you.hand (player's) untouched")
     g.expect(not os.path.exists(g.p("evil")) and not glob.glob(g.p("mods/.*kiln-tmp")), "no escape, no temp left")
     g.has("mods/you.a (pack, profile): copy")
     g.has("mods/you.dll (dll, profile): copy")
     g.has("mods/you.off (unknown, profile): off")
-    g.has("mods/you.stale (, kiln): remove")
+    g.has("mods/you.stale (pack, folder): run")
     g.has("mods/you.hand (pack, profile): conflict")
     g.has("not a usable folder name")
     g.has("mods/player.own (pack, folder): run: installed by hand")
@@ -245,6 +245,37 @@ def profile_sync():
     # second run: nothing to copy
     g.run()
     g.has("mods/you.a (pack, profile): keep")
+    # A real copy has a receipt and can be removed; spoofed markers and hand-installed mods still survive.
+    g.profile([])
+    g.run()
+    g.expect(not os.path.exists(g.p("mods/you.a")), "genuine managed copy removed")
+    g.expect(os.path.exists(g.p("mods/you.stale/pack.toml")), "spoofed marker cannot authorize deletion")
+    return g
+
+
+def renamed_loader_loaded():
+    """A real loader export under another module name must still make Kiln step aside."""
+    g = Game("renamed_loader_loaded")
+    g.copy(os.path.join(TESTS, "enshwick.dll"), "renamed-loader.dll")
+    g.run(1500, "--load", "renamed-loader.dll")
+    g.status("stepped-aside")
+    return g
+
+
+def unsafe_source_preserves_copy():
+    """An enabled entry with an unavailable source preserves its prior copy and player edits revoke removal."""
+    g = Game("unsafe_source_preserves_copy")
+    g.bundled()
+    g.pack("kiln/library/you.a", "you.a")
+    g.profile([{"id": "you.a", "path": "library/you.a"}])
+    g.run()
+    g.profile([{"id": "you.a", "path": "library/missing"}])
+    g.run()
+    g.expect(os.path.isfile(g.p("mods/you.a/pack.toml")), "unavailable source preserves the old copy")
+    g.put("mods/you.a/player.txt", "preserve")
+    g.profile([])
+    g.run()
+    g.expect(os.path.isfile(g.p("mods/you.a/player.txt")), "player additions revoke deletion authority")
     return g
 
 
@@ -367,7 +398,7 @@ def real_loader():
 
 SCENARIOS = [bundled_server, game_loader_preferred, no_enshwick_mods, bundled_by_config, profile_sync, no_mods, step_aside_stub_loaded,
              stub_present_not_loaded, other_powrprof, stub_claimed, client_no_hold, hold_expires, no_loader,
-             broken_loader]
+             broken_loader, renamed_loader_loaded, unsafe_source_preserves_copy]
 
 
 def main():

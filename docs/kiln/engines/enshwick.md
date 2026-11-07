@@ -17,8 +17,14 @@ see [README.md](README.md)).
 
 - **Profile entries.** Enshwick's loader reads only `<game>/mods/`. For each enabled entry, Kiln copies the library
   folder into `<game>/mods/<id>/` before the loader starts and puts a `.kiln-managed` marker in the copy. When the
-  source changes, Kiln copies it again. When the profile no longer enables an entry, Kiln removes its copy. Folders
-  without the marker belong to you, and Kiln never changes them.
+  source changes, Kiln copies it again. When the profile no longer enables an entry, Kiln removes its copy. Ownership
+  also requires a receipt in `kiln/data/enshwick-managed.json`, the original directory identity, and an unchanged
+  snapshot of the copy. A marker alone never authorizes deletion. Legacy marker-only folders, replacements and
+  copies with player-added/changed files are preserved as hand-installed folders. An enabled entry with an
+  unavailable or unsafe source keeps its previous copy.
+  Copies are built in exclusive folders under `<game>/.kiln-enshwick-staging/`, outside the loader's scan. A complete
+  copy is renamed into place; refresh/removal first quarantine the old copy, with rollback if publication fails.
+  Profile source trees reject symlinks/reparse points from the source root down; ancestors above it may be links.
 - **Folders you installed by hand** always run, because Enshwick's loader runs every folder in `mods/`. If the profile
   manages Enshwick and `dropins` is off, `kiln.log` names such folders. To switch one off, move it out of `mods/`
   (Enshwick's own rule).
@@ -62,8 +68,9 @@ default that happens in Kiln's early plugin phase (`kiln_plugin_early`), before 
 3. Sync the profile into `mods/` (above).
 4. Load the loader with the stub's search flags and call `enshwick_start(2, 0, release)` on a new thread. On the
    server the main thread waits for `release`, for at most 10 s, as the stub's hold does. On the client the main thread does not wait for `release`, because the loader arms its hooks once the game window
-   shows. In the early phase it waits, for at most 5 s, until the loader has logged `entries found`, so Kiln's hooks
-   never change code the loader is still reading.
+   shows. In the early phase it waits, for at most 5 s, until the loader has logged a fresh `entries found` line.
+   Lines left from a previous run do not release this wait. The wait is best effort: after a timeout, Kiln proceeds
+   and the loader's scan can still race Kiln's hooks.
 
 Enshwick's log stays `<game>/logs/enshwick_<date>.log`. For a minute after the start, Kiln copies its key lines into
 `kiln/logs/kiln.log` as `[enshwick:log] ...`. `kiln/state/enshwick.json` holds the plugin's status, the loader path and
@@ -187,9 +194,12 @@ need a Kiln change for Enshwick.
 ## Tests
 
 - `c++ -std=c++20 -o logic_test native/plugins/enshwick/tests/logic_test.cpp && ./logic_test`: the decisions (folder
-  names, step aside, loader choice, profile sync plan, markers, log mirroring).
+  names, step aside, loader choice, profile sync plan, markers, log mirroring), release/timeout races and the actual
+  source-tree scanner/copier (links, failed copies, content changes).
+- The same build produces `bin/enshwick-tests/enshwick-contract-test.exe`: run under Wine/Windows to check ABI
+  canaries, initialization faults, receipts, marker spoofing, player additions, rollback, refresh and removal.
 - `KILN_OUT=<out> native/build.sh kiln-enshwick compathost`, then `KILN_OUT=<out> python3
-  native/plugins/enshwick/tests/run.py`: 14 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
+  native/plugins/enshwick/tests/run.py`: 16 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
   to add one that starts the real loader.
 - Lab: deploy Kiln with `tools/deploy-server.sh` (it ships `kiln/plugins/enshwick/` when the runtime was built), put
   a data pack or Luau mod into `<server>/mods/`, start, and read `kiln/logs/kiln.log` and `logs/enshwick_*.log`.

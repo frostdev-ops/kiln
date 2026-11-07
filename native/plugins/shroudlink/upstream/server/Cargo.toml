@@ -21,3 +21,7 @@ retour.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 windows-sys.workspace = true
+
+# kiln: SEH boundary around native mod initialization (only compiled with the kiln feature).
+[build-dependencies]
+cc = "1"

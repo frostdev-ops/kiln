@@ -45,5 +45,5 @@ if ((test)); then
     (cd "$ref/mod" && cargo xwin build --release --locked -p hello_mod --target $win)
   fi
   CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER=${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER:-wine} \
-    CARGO_ENCODED_RUSTFLAGS=$flags cargo xwin test --release --locked -p shroudlink-server --features kiln --target $win
+    CARGO_ENCODED_RUSTFLAGS=$flags cargo xwin test --release --locked -p shroudlink-server -p chestsort-common --features kiln --target $win
 fi

@@ -71,10 +71,10 @@ pub struct KilnApi {
     size: u32,
     abi_version: u32,
     version: Fp,
-    log: unsafe extern "C" fn(u64, i32, KilnStr),
+    log: Option<unsafe extern "C" fn(u64, i32, KilnStr)>,
     build_info: Fp,
     feature: Fp,
-    path: unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32,
+    path: Option<unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32>,
     owner_create: Fp,
     owner_revoke: Fp,
     subscribe_tick: Fp,
@@ -85,11 +85,11 @@ pub struct KilnApi {
     subscribe_log: Fp,
     symbol: Fp,
     constant: Fp,
-    service: unsafe extern "C" fn(KilnStr, u32) -> *const c_void,
+    service: Option<unsafe extern "C" fn(KilnStr, u32) -> *const c_void>,
     register_service: Fp,
     server_world: Fp,
     singleton: Fp,
-    side: unsafe extern "C" fn() -> u32,
+    side: Option<unsafe extern "C" fn() -> u32>,
 }
 
 #[repr(C)]
@@ -111,8 +111,8 @@ struct KilnServiceHeader {
 #[repr(C)]
 struct KilnProfileApi {
     header: KilnServiceHeader,
-    mode: unsafe extern "C" fn() -> u32,
-    id: unsafe extern "C" fn() -> KilnStr,
+    mode: Option<unsafe extern "C" fn() -> u32>,
+    id: Option<unsafe extern "C" fn() -> KilnStr>,
     name: Fp,
     generation: Fp,
     count: Fp,
@@ -120,15 +120,15 @@ struct KilnProfileApi {
     dropins: Fp,
     config_dir: Fp,
     data_dir: Fp,
-    json: unsafe extern "C" fn() -> KilnStr,
+    json: Option<unsafe extern "C" fn() -> KilnStr>,
 }
 
 /// kiln_eml.h KilnEmlApi v1 (the table only: kiln-eml is GPL and never linked)
 #[repr(C)]
 struct KilnEmlApi {
     header: KilnServiceHeader,
-    add_mod: unsafe extern "C" fn(KilnStr, KilnStr) -> i32,
-    phase: unsafe extern "C" fn() -> u32,
+    add_mod: Option<unsafe extern "C" fn(KilnStr, KilnStr) -> i32>,
+    phase: Option<unsafe extern "C" fn() -> u32>,
     state_json: Fp,
 }
 
@@ -142,7 +142,7 @@ fn api() -> Option<&'static KilnApi> {
 fn klog(level: i32, text: &str) {
     if let Some(a) = api() {
         let line = format!("[shroudlink] {text}");
-        unsafe { (a.log)(OWNER.load(Ordering::Relaxed), level, KilnStr::of(&line)) };
+        unsafe { (a.log.unwrap())(OWNER.load(Ordering::Relaxed), level, KilnStr::of(&line)) };
     }
 }
 
@@ -156,7 +156,7 @@ fn kiln_path(kind: i32) -> Option<PathBuf> {
     let a = api()?;
     let mut buf = vec![0u8; 2048];
     let mut n = 0usize;
-    if unsafe { (a.path)(kind, buf.as_mut_ptr(), buf.len(), &mut n) } != KILN_OK || n == 0 || n > buf.len() {
+    if unsafe { (a.path.unwrap())(kind, buf.as_mut_ptr(), buf.len(), &mut n) } != KILN_OK || n == 0 || n > buf.len() {
         return None;
     }
     buf.truncate(n);
@@ -166,19 +166,77 @@ fn kiln_path(kind: i32) -> Option<PathBuf> {
 fn side_name() -> &'static str {
     match api() {
         // `side` was appended to KilnApi; an older core is server-only
-        Some(a) if a.size as usize >= std::mem::size_of::<KilnApi>() && unsafe { (a.side)() } == 1 => "client",
+        Some(a) if unsafe { (a.side.unwrap())() } == 1 => "client",
         _ => "server",
     }
 }
 
 fn profile() -> Option<&'static KilnProfileApi> {
     let a = api()?;
-    let p = unsafe { (a.service)(KilnStr::lit("kiln.profile"), 1) } as *const KilnProfileApi;
+    let p = unsafe { (a.service.unwrap())(KilnStr::lit("kiln.profile"), 1) } as *const KilnProfileApi;
+    if !unsafe { service_usable(p.cast(), std::mem::size_of::<KilnProfileApi>()) } { return None; }
     let p = unsafe { p.as_ref()? };
-    (p.header.size as usize >= std::mem::size_of::<KilnProfileApi>()).then_some(p)
+    (p.mode.is_some() && p.id.is_some() && p.json.is_some()).then_some(p)
 }
 
 // ---- the mod list -------------------------------------------------------------------------------------------------
+
+/// kiln: hold the path open while reading/copying it. Ancestors above the authorized root may be links; the root
+/// and everything below it may not. Final handle paths must still agree (also under Wine's drive mappings).
+pub(crate) struct CheckedPath(Vec<windows_sys::Win32::Foundation::HANDLE>);
+impl Drop for CheckedPath {
+    fn drop(&mut self) { for h in self.0.drain(..) { unsafe { windows_sys::Win32::Foundation::CloseHandle(h); } } }
+}
+pub(crate) fn safe_path_syntax(path: &Path) -> bool {
+    let Some(s) = path.to_str() else { return false };
+    if s.contains('\0') || !path.is_absolute() || s.starts_with("\\\\?\\") || s.starts_with("\\\\.\\") { return false; }
+    s.split(['\\', '/']).enumerate().all(|(i, p)| {
+        p.is_empty() || (i == 0 && p.len() == 2 && p.as_bytes()[0].is_ascii_alphabetic() && p.ends_with(':')) ||
+        (p != "." && p != ".." && !p.contains(':') && !p.ends_with(['.', ' ']))
+    })
+}
+impl CheckedPath {
+    pub(crate) fn open(root: &Path, file: &Path, regular: bool) -> Option<Self> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::*;
+        use windows_sys::Win32::Foundation::{GENERIC_READ, INVALID_HANDLE_VALUE};
+        if !safe_path_syntax(root) || !safe_path_syntax(file) { return None; }
+        let bases: Vec<_> = root.components().collect();
+        let parts: Vec<_> = file.components().collect();
+        if parts.len() < bases.len() || (regular && parts.len() == bases.len()) ||
+            !bases.iter().zip(&parts).all(|(a,b)| a.as_os_str().to_string_lossy().eq_ignore_ascii_case(&b.as_os_str().to_string_lossy())) { return None; }
+        let mut checked = Self(Vec::new());
+        let mut path = PathBuf::new();
+        let mut root_handle = std::ptr::null_mut();
+        for (i, part) in parts.iter().enumerate() {
+            path.push(part.as_os_str());
+            // A drive prefix alone is not an absolute path yet.
+            if !path.is_absolute() { continue; }
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+            let last_file = i + 1 == parts.len() && regular;
+            let h = unsafe { CreateFileW(wide.as_ptr(), GENERIC_READ, FILE_SHARE_READ | if last_file { 0 } else { FILE_SHARE_WRITE },
+                std::ptr::null(), OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, std::ptr::null_mut()) };
+            if h == INVALID_HANDLE_VALUE { return None; }
+            checked.0.push(h);
+            if i + 1 < bases.len() { continue; }
+            if i + 1 == bases.len() { root_handle = h; }
+            let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
+            let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+            if attr == INVALID_FILE_ATTRIBUTES || attr & FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+                unsafe { GetFileInformationByHandle(h, &mut info) } == 0 || info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+                (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0) != last_file { return None; }
+        }
+        fn final_path(h: windows_sys::Win32::Foundation::HANDLE) -> Option<String> {
+            let mut buf = vec![0u16; 32768];
+            let n = unsafe { GetFinalPathNameByHandleW(h, buf.as_mut_ptr(), buf.len() as u32, 0) } as usize;
+            (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]).to_lowercase())
+        }
+        let base = final_path(root_handle)?;
+        let full = final_path(*checked.0.last()?)?;
+        if full != base && !full.starts_with(&(base.trim_end_matches('\\').to_string() + "\\")) { return None; }
+        Some(checked)
+    }
+}
 
 /// One profile entry of `mods.shroudlink`: a mod DLL, or a folder of mod DLLs and/or EML data mods.
 #[derive(Clone, Debug, PartialEq)]
@@ -271,19 +329,21 @@ fn plan() -> Plan {
     let kiln = kiln_path(PATH_KILN).unwrap_or_default();
     match profile() {
         None => plan_from(None, "", "", &kiln),
-        Some(p) => unsafe { plan_from(Some((p.mode)()), &(p.id)().text(), &(p.json)().text(), &kiln) },
+        Some(p) => unsafe { plan_from(Some((p.mode.unwrap())()), &(p.id.unwrap())().text(), &(p.json.unwrap())().text(), &kiln) },
     }
 }
 
 /// True for an EML data mod folder (mod.json + src/mod.lua), the kind kiln-eml runs.
 pub fn is_eml_mod(dir: &Path) -> bool {
-    dir.join("mod.json").is_file() && dir.join("src").join("mod.lua").is_file()
+    CheckedPath::open(dir, &dir.join("mod.json"), true).is_some() &&
+        CheckedPath::open(dir, &dir.join("src").join("mod.lua"), true).is_some()
 }
 
 /// EML data mods among the roots: a root that is one, or its direct subfolders that are.
 pub fn eml_mods(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for root in roots.iter().filter(|r| r.is_dir()) {
+        let Some(_guard) = CheckedPath::open(root, root, false) else { continue };
         if is_eml_mod(root) {
             out.push(root.clone());
             continue;
@@ -314,11 +374,11 @@ pub fn mod_dlls(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for root in roots {
         if root.is_file() {
-            if is_dll(root) {
+            if is_dll(root) && root.parent().is_some_and(|p| CheckedPath::open(p, root, true).is_some()) {
                 out.push(root.clone());
             }
         } else if let Ok(entries) = std::fs::read_dir(root) {
-            let mut v: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_file() && is_dll(p)).collect();
+            let mut v: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| is_dll(p) && CheckedPath::open(root, p, true).is_some()).collect();
             v.sort();
             out.extend(v);
         }
@@ -347,11 +407,18 @@ fn real_core_in_process() -> Option<String> {
         let both = unsafe { GetProcAddress(m, b"CrashHandlerFactory\0".as_ptr()).is_some() && GetProcAddress(m, b"DirectInput8Create\0".as_ptr()).is_some() };
         let name = module_path(m);
         let is_core_name = name.rsplit(['\\', '/']).next().is_some_and(|n| n.eq_ignore_ascii_case("shroudlink_core.dll"));
-        if both || is_core_name {
+        let bytes = std::fs::read(&name).unwrap_or_default();
+        if is_core_image(both, is_core_name, &bytes) {
             return Some(name);
         }
     }
     None
+}
+
+// kiln: both exports also occur in unrelated proxy chains. Require shroudlink's own core strings as evidence.
+fn is_core_image(both: bool, core_name: bool, bytes: &[u8]) -> bool {
+    (both || core_name) && [b"shroudlink server ".as_slice(), b"chestsort_server_".as_slice()]
+        .iter().all(|s| bytes.windows(s.len()).any(|w| w == *s))
 }
 
 fn own_module() -> HMODULE {
@@ -436,13 +503,30 @@ fn write_state() {
 
 /// KILN_ABI_VERSION 1, and a table long enough for every field declared here.
 unsafe fn api_usable(api: *const KilnApi) -> bool {
-    api.as_ref().is_some_and(|a| a.abi_version == 1 && a.size as usize >= std::mem::offset_of!(KilnApi, side))
+    // Read only the header until the complete prefix is known to exist.
+    if api.is_null() || (*api.cast::<u32>()) < std::mem::size_of::<KilnApi>() as u32 { return false; }
+    let a = &*api;
+    a.abi_version == 1 && a.log.is_some() && a.path.is_some() && a.service.is_some() && a.side.is_some()
+}
+
+unsafe fn info_usable(info: *mut KilnPluginInfo) -> bool {
+    !info.is_null() && *info.cast::<u32>() as usize >= std::mem::size_of::<KilnPluginInfo>()
+}
+
+unsafe fn service_usable(table: *const KilnServiceHeader, size: usize) -> bool {
+    !table.is_null() && *table.cast::<u32>() as usize >= size && (*table).version >= 1
+}
+
+unsafe fn eml_table(table: *const KilnEmlApi) -> Option<&'static KilnEmlApi> {
+    // kiln: v2 appends fields; request and validate only the v1 prefix, including its version and required slot.
+    if !service_usable(table.cast(), std::mem::size_of::<KilnEmlApi>()) { return None; }
+    table.as_ref().filter(|t| t.add_mod.is_some())
 }
 
 /// Early phase: hand the EML data mods among shroudlink's mods to kiln-eml before the game reads its data.
 #[no_mangle]
 pub unsafe extern "C" fn kiln_plugin_early(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo) -> i32 {
-    if !api_usable(api) {
+    if !api_usable(api) || !info_usable(info) {
         return KILN_ERR_UNAVAILABLE;
     }
     API.store(api as *mut KilnApi, Ordering::Release);
@@ -462,7 +546,7 @@ pub unsafe extern "C" fn kiln_plugin_early(api: *const KilnApi, owner: u64, info
     let get = if module.is_null() { None } else { GetProcAddress(module, b"kiln_eml_service\0".as_ptr()) };
     let eml: Option<&KilnEmlApi> = get.and_then(|f| {
         let f: unsafe extern "C" fn(u32) -> *const KilnEmlApi = std::mem::transmute(f);
-        f(1).as_ref().filter(|t| t.header.size as usize >= std::mem::size_of::<KilnEmlApi>())
+        eml_table(f(1))
     });
     let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
     for dir in &found {
@@ -472,7 +556,7 @@ pub unsafe extern "C" fn kiln_plugin_early(api: *const KilnApi, owner: u64, info
                 klog(LOG_WARN, &format!("EML data mod {path} not run: kiln-eml.dll is not installed (it is Kiln's EML runner)"));
                 "kiln-eml missing".to_string()
             }
-            Some(t) => match (t.add_mod)(KilnStr::of(&path), KilnStr::lit("shroudlink")) {
+            Some(t) => match (t.add_mod.unwrap())(KilnStr::of(&path), KilnStr::lit("shroudlink")) {
                 KILN_OK => {
                     klog(LOG_INFO, &format!("EML data mod {path} handed to kiln-eml"));
                     "handed to kiln-eml".to_string()
@@ -490,7 +574,7 @@ pub unsafe extern "C" fn kiln_plugin_early(api: *const KilnApi, owner: u64, info
 
 #[no_mangle]
 pub unsafe extern "C" fn kiln_plugin_main(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo) -> i32 {
-    if info.is_null() || !api_usable(api) {
+    if !info_usable(info) || !api_usable(api) {
         return KILN_ERR_UNAVAILABLE;
     }
     API.store(api as *mut KilnApi, Ordering::Release);
@@ -559,6 +643,111 @@ mod tests {
 
     fn kiln() -> PathBuf {
         PathBuf::from("C:\\g\\kiln")
+    }
+
+    unsafe extern "C" fn test_log(_: u64, _: i32, _: KilnStr) {}
+    unsafe extern "C" fn test_path(_: i32, _: *mut u8, _: usize, _: *mut usize) -> i32 { KILN_ERR_UNAVAILABLE }
+    unsafe extern "C" fn test_service(_: KilnStr, _: u32) -> *const c_void { std::ptr::null() }
+    unsafe extern "C" fn test_side() -> u32 { 0 }
+    unsafe extern "C" fn test_add(_: KilnStr, _: KilnStr) -> i32 { KILN_OK }
+
+    #[test]
+    fn entry_contracts_reject_short_tables_without_writing() {
+        let mut a: KilnApi = unsafe { std::mem::zeroed() };
+        a.size = std::mem::size_of::<KilnApi>() as u32;
+        a.abi_version = 1;
+        a.log = Some(test_log); a.path = Some(test_path); a.service = Some(test_service); a.side = Some(test_side);
+        assert!(unsafe { api_usable(&a) });
+        for size in 0..std::mem::size_of::<KilnApi>() {
+            a.size = size as u32;
+            assert!(!unsafe { api_usable(&a) });
+        }
+        a.size = std::mem::size_of::<KilnApi>() as u32;
+        a.abi_version = 2;
+        assert!(!unsafe { api_usable(&a) });
+        a.abi_version = 1;
+        for size in 0..std::mem::size_of::<KilnPluginInfo>() {
+            let mut tiny = size as u32;
+            for entry in [kiln_plugin_main, kiln_plugin_early] {
+                assert_eq!(unsafe { entry(&a, 0, (&mut tiny as *mut u32).cast()) }, KILN_ERR_UNAVAILABLE);
+                assert_eq!(tiny, size as u32);
+            }
+        }
+        a.log = None;
+        assert!(!unsafe { api_usable(&a) });
+    }
+
+    #[test]
+    fn eml_accepts_v1_prefix_and_newer_versions_but_not_invalid_headers() {
+        let mut t: KilnEmlApi = unsafe { std::mem::zeroed() };
+        t.header.size = std::mem::size_of::<KilnEmlApi>() as u32;
+        t.header.version = 1;
+        assert!(unsafe { eml_table(&t) }.is_none());
+        t.add_mod = Some(test_add);
+        assert!(unsafe { eml_table(&t) }.is_some());
+        t.header.version = 2;
+        assert!(unsafe { eml_table(&t) }.is_some());
+        t.header.version = 0;
+        assert!(unsafe { eml_table(&t) }.is_none());
+        t.header.version = 1; t.header.size -= 1;
+        assert!(unsafe { eml_table(&t) }.is_none());
+    }
+
+    #[test]
+    fn proxy_exports_and_filenames_alone_do_not_identify_shroudlink() {
+        assert!(!is_core_image(true, false, b"an unrelated proxy chain"));
+        assert!(!is_core_image(false, true, b"unrelated renamed DLL"));
+        assert!(is_core_image(true, false, b"shroudlink server 0.8 chestsort_server_"));
+    }
+
+    #[test]
+    fn detour_chains_onto_an_existing_relative_jump() {
+        use windows_sys::Win32::System::Memory::*;
+        use std::sync::atomic::AtomicUsize;
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C" fn outer() -> u32 {
+            let next: unsafe extern "C" fn() -> u32 = std::mem::transmute(NEXT.load(Ordering::SeqCst));
+            next() + 100
+        }
+        unsafe {
+            let code = VirtualAlloc(std::ptr::null(), 4096, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE) as *mut u8;
+            assert!(!code.is_null());
+            std::ptr::write_bytes(code, 0x90, 4096);
+            // The same E9 rel32 form used by an existing inline detour: preserve its relay, not the disk prologue.
+            *code = 0xe9;
+            std::ptr::copy_nonoverlapping(59i32.to_le_bytes().as_ptr(), code.add(1), 4);
+            std::ptr::copy_nonoverlapping([0xb8, 11, 0, 0, 0, 0xc3].as_ptr(), code.add(64), 6);
+            let detour = retour::RawDetour::new(code.cast(), outer as *const ()).unwrap();
+            NEXT.store(detour.trampoline() as *const () as usize, Ordering::SeqCst);
+            detour.enable().unwrap();
+            let call: unsafe extern "C" fn() -> u32 = std::mem::transmute(code);
+            assert_eq!(call(), 111);
+            detour.disable().unwrap();
+            assert_eq!(call(), 11);
+            drop(detour);
+            VirtualFree(code.cast(), 0, MEM_RELEASE);
+        }
+    }
+
+    #[test]
+    fn mod_paths_reject_traversal_aliases_and_directory_links() {
+        assert!(!safe_path_syntax(Path::new("C:\\mods\\..\\elsewhere\\m.dll")));
+        assert!(!safe_path_syntax(Path::new("C:\\mods\\m.dll:code")));
+        assert!(!safe_path_syntax(Path::new("C:\\mods\\alias.\\m.dll")));
+        let base = std::env::temp_dir().join(format!("sl-paths-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("real")).unwrap();
+        std::fs::write(base.join("real/m.dll"), b"x").unwrap();
+        assert_eq!(mod_dlls(&[base.join("real")]).len(), 1);
+        let linked = base.join("link");
+        if std::os::windows::fs::symlink_dir(base.join("real"), &linked).is_ok() {
+            assert!(mod_dlls(&[linked.clone()]).is_empty());
+            // A link above the authorized root is a permitted player layout.
+            std::fs::create_dir_all(base.join("real/sub")).unwrap();
+            std::fs::write(base.join("real/sub/m.dll"), b"x").unwrap();
+            assert_eq!(mod_dlls(&[linked.join("sub")]).len(), 1);
+            let _ = std::fs::remove_dir(linked);
+        }
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
