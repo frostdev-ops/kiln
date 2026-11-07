@@ -57,11 +57,13 @@ Running the server under Wine by hand? Unzip this pack the same way and start Wi
 Does it work?
 -------------
 Open kiln/logs/kiln.log after the server has started. Look for two lines:
-  build <long number>: verified
+  build <sha256>: verified
   boot complete; handing control to the game
-Both there: Kiln is running.
+The sha256 is a long hexadecimal hash. Both there: Kiln passed the build check and completed boot; check nearby
+warnings for services or mods that failed to load.
 "safe idle: build ... is not verified" instead: the game was updated and this Kiln doesn't know the new build yet.
-The server runs normally, without Kiln and its mods, until a Kiln update adds the build.
+Normal Kiln hooks and managed mods stay off under the default policy until an update adds the build.
+"safe idle: no symbol definitions" means the server's symbol definitions are missing or could not be resolved.
 No kiln.log at all: the server didn't load dinput8.dll (wrong folder, or Wine without the setting above).
 
 Server builds this pack knows:
@@ -86,7 +88,9 @@ Commands without the game: the console folder
 Put a text file with a .cmd ending into kiln/control/console/, one command per line, for example:
   help
   creative status
-Within a few seconds Kiln runs it, deletes the .cmd file and writes <name>.result.json next to it with the output.
+Kiln reads and deletes the .cmd file, then writes <name>.result.json next to it with the output.
+Use at most 64 non-empty, non-comment lines per file; later lines are skipped. Split larger batches into files.
+Results for asynchronous commands can take up to 10 seconds; "running": true means a command is still running.
 Commands run as the server console, with full rights. This works over FTP: upload the file as test.txt, then rename
 it to test.cmd, so Kiln never reads a half-uploaded file.
 Players with admin rights can also use chat commands: type /help in game.
@@ -94,8 +98,8 @@ Players with admin rights can also use chat commands: type /help in game.
 
 Game updates
 ------------
-After Enshrouded updates, Kiln checks the new server build. If it doesn't know it yet, the server runs vanilla
-(mods off) until a Kiln update. Then get the new server pack and update Kiln (below).
+After Enshrouded updates, Kiln checks the new server build. If it doesn't know it yet, normal hooks and managed mods
+stay off until a Kiln update (early native extensions can still run). Then get the new server pack and update Kiln.
 
 
 Updating Kiln

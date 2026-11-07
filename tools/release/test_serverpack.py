@@ -6,8 +6,7 @@ paths and bytes, deterministic output, safe names, and refusals (tampered file, 
   python3 -I tools/release/test_serverpack.py
 The real-runtime test uses a published runtime zip: KILN_SERVERPACK_RUNTIME (default the 0.2.0-dev.17 copy under
 /mnt/Dongus/kiln-wave/coord/rel17/); it is skipped when the file is not there. Its scratch files (the dev.17 pack is
-~50 MB, built three times) go to KILN_SERVERPACK_TMP, default /mnt/Dongus/kiln-wave/serverpack when that folder exists,
-else TMPDIR.
+~50 MB, built three times) go to KILN_SERVERPACK_TMP, else TMPDIR.
 """
 import hashlib
 import importlib.util
@@ -15,9 +14,16 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import shutil
+import stat
+import struct
+import subprocess
+import tarfile
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import zipfile
 
 HERE = Path(__file__).resolve().parent
@@ -28,8 +34,7 @@ spec.loader.exec_module(sp)
 TEMPLATE = (HERE / "templates" / "KILN-SERVER-README.txt").read_text(encoding="utf-8")
 RUNTIME = Path(os.environ.get("KILN_SERVERPACK_RUNTIME",
                               "/mnt/Dongus/kiln-wave/coord/rel17/kiln-runtime-0.2.0-dev.17.zip"))
-SCRATCH = os.environ.get("KILN_SERVERPACK_TMP") or (
-    "/mnt/Dongus/kiln-wave/serverpack" if os.path.isdir("/mnt/Dongus/kiln-wave/serverpack") else None)
+SCRATCH = os.environ.get("KILN_SERVERPACK_TMP")
 EPOCH = 1794072134  # 2026-11-07T17:22:14Z
 
 
@@ -83,6 +88,105 @@ class Base(unittest.TestCase):
 
 
 class FixtureTests(Base):
+    def rewrite(self, rt, manifest=None, info=None):
+        with zipfile.ZipFile(rt) as z:
+            entries = [(i, z.read(i)) for i in z.infolist()]
+        with zipfile.ZipFile(rt, "w") as z:
+            for i, data in entries:
+                if manifest and i.filename == sp.MANIFEST:
+                    m = json.loads(data)
+                    manifest(m)
+                    data = json.dumps(m).encode()
+                if info:
+                    info(i)
+                z.writestr(i, data)
+
+    def test_omitted_defaults_match_kiln_manage(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        self.rewrite(rt, manifest=lambda m: m["components"]["core"].pop("default"))
+        # A component with no dependents must also be installed when default is absent.
+        self.rewrite(rt, manifest=lambda m: m["components"]["admin"].pop("default"))
+        _, result = self.build(rt)
+        self.assertEqual(result["components"], ["admin", "core", "sigdb-server"])
+        self.rewrite(rt, manifest=lambda m: m["builds"]["server"][0].pop("verified"))
+        out, _ = self.build(rt)
+        with zipfile.ZipFile(out) as z:
+            self.assertIn("Steam build 123", z.read(sp.README).decode())
+
+    def test_windows_collisions_and_file_directory_conflicts_are_refused(self):
+        for name in ("DINPUT8.DLL", "d\u0131nput8.dll", "kiln/KILN-CORE.dll", "kiln/sigdb", "KILN-SERVER-README.txt/child"):
+            with self.subTest(name=name):
+                files = {**FILES, name: ("core", b"x")}
+                with self.assertRaises(sp.PackError):
+                    self.build(runtime_fixture(self.dir / "rt.zip", files))
+
+    def test_windows_device_aliases_are_refused(self):
+        for name in ("kiln/COM\u00b9.txt", "kiln/lpt\u00b2", "kiln/COM\u00b3", "kiln/CON .txt", "kiln/x ",
+                     "kiln/" + "x" * 256, "kiln/" + "\U0001f525" * 128, "kiln/\ud800", "x/" * 32 + "file"):
+            with self.subTest(name=name):
+                self.assertIsNotNone(sp.unsafe_name(name))
+
+    def test_special_and_truncated_entries_are_refused(self):
+        for mode in (stat.S_IFLNK, stat.S_IFIFO, stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFDIR):
+            with self.subTest(mode=mode):
+                rt = runtime_fixture(self.dir / "rt.zip", FILES)
+                self.rewrite(rt, info=lambda i: setattr(i, "external_attr", (mode | 0o644) << 16))
+                with self.assertRaises(sp.PackError):
+                    self.build(rt)
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        with zipfile.ZipFile(rt) as z:
+            z.getinfo("dinput8.dll").orig_filename += "\0hidden"
+            with self.assertRaises(sp.PackError):
+                sp.read_runtime(z)
+
+    def test_archive_limits(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        for limit, value in (("MAX_ARCHIVE_BYTES", 100), ("MAX_ENTRIES", 3), ("MAX_CENTRAL_BYTES", 100),
+                             ("MAX_MANIFEST_BYTES", 100), ("MAX_FILE_BYTES", 4), ("MAX_TOTAL_BYTES", 20)):
+            with self.subTest(limit=limit), patch.object(sp, limit, value, create=True):
+                with self.assertRaises(sp.PackError):
+                    self.build(rt)
+
+    def test_stream_limit_is_enforced_even_when_metadata_lies(self):
+        info = zipfile.ZipInfo("dinput8.dll")
+        info.file_size = 1
+        class Stream:
+            def open(self, _):
+                return io.BytesIO(b"x" * 10000)
+        out = io.BytesIO()
+        with self.assertRaises(sp.PackError):
+            sp.copy_bounded(Stream(), info, 100, out)
+        self.assertLessEqual(len(out.getvalue()), 100)
+
+    def test_zip64_and_large_central_directory_rejected_before_zipfile(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        original = rt.read_bytes()
+        for offset, fmt, value in ((10, "H", 65535), (12, "I", 0x7fffffff)):
+            data = bytearray(original)
+            end = data.rfind(b"PK\x05\x06")
+            struct.pack_into("<" + fmt, data, end + offset, value)
+            rt.write_bytes(data)
+            with self.subTest(offset=offset), patch.object(sp.zipfile, "ZipFile", side_effect=AssertionError("parsed too soon")):
+                with self.assertRaises(sp.PackError):
+                    self.build(rt)
+
+    def test_predictable_temporary_symlink_cannot_overwrite_another_file(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        victim = self.dir / "keep.txt"
+        victim.write_bytes(b"keep me")
+        (self.dir / "pack.zip.tmp").symlink_to(victim)
+        self.build(rt)
+        self.assertEqual(victim.read_bytes(), b"keep me")
+
+    def test_archive_permissions_do_not_depend_on_umask(self):
+        rt = runtime_fixture(self.dir / "rt.zip", FILES)
+        previous = os.umask(0o077)
+        try:
+            out, _ = self.build(rt)
+        finally:
+            os.umask(previous)
+        self.assertEqual(stat.S_IMODE(out.stat().st_mode), 0o644)
+
     def test_only_the_server_default_components(self):
         out, r = self.build(runtime_fixture(self.dir / "rt.zip", FILES))
         self.assertEqual(r["components"], ["admin", "core", "sigdb-server"])
@@ -161,6 +265,89 @@ class FixtureTests(Base):
         problems = sp.check(str(bad), str(rt), TEMPLATE, "9.9.9-test", EPOCH)
         self.assertTrue(any("kiln-emf.dll: not a server file (component emf)" in p for p in problems), problems)
         self.assertTrue(any("other bytes" in p for p in problems), problems)
+
+
+class ReleaseWiringTests(Base):
+    def staging_functions(self):
+        script = (HERE / "github-draft.sh").read_text()
+        return script.split("stage=$dir.github\n", 1)[1].split("# the direct build only", 1)[0]
+
+    def test_duplicate_github_asset_cannot_overwrite_a_hardlinked_source(self):
+        a, b = self.dir / "a", self.dir / "b"
+        a.write_bytes(b"first")
+        b.write_bytes(b"second")
+        self.addCleanup(shutil.rmtree, str(self.dir) + ".github", True)
+        result = subprocess.run(["bash", "-eu", "-c", 'dir=$1; stage=$dir.github\n' + self.staging_functions() +
+                                 '\nput "$dir/a" duplicate.zip\nput "$dir/b" duplicate.zip', "test", str(self.dir)],
+                                capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(a.read_bytes(), b"first")
+        self.assertEqual(Path(str(self.dir) + ".github/duplicate.zip").read_bytes(), b"first")
+
+    def test_systemd_tarball_is_deterministic_and_cannot_replace_an_asset(self):
+        script = (HERE / "github-draft.sh").read_text()
+        block = "units=()" + script.split("units=()", 1)[1].split('put "$dir/runtime/kilnctl"', 1)[0]
+        runtime = self.dir / "runtime"
+        runtime.mkdir()
+        for unit in ("kiln@.service", "kiln-backup@.service", "kiln-backup@.timer"):
+            (runtime / unit).write_bytes((HERE.parent.parent / "runner/systemd" / unit).read_bytes())
+        stage = Path(str(self.dir) + ".github")
+        self.addCleanup(shutil.rmtree, stage, True)
+        setup = ('dir=$1; stage=$dir.github; version=1.2.3; repo_dir=$dir; target=test\n' + self.staging_functions() +
+                 '\ngit() { printf "%s\\n" 1794072134; }\n')
+        archives = []
+        for tz, mask in (("UTC", "022"), ("America/New_York", "077")):
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", setup + f"\numask {mask}\n" + block,
+                                     "test", str(self.dir)], capture_output=True,
+                                    env={**os.environ, "TZ": tz, **({"POSIXLY_CORRECT": "1"} if mask == "077" else {})})
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            pack = stage / "kiln-systemd-units-1.2.3.tar.gz"
+            archives.append(pack.read_bytes())
+            with tarfile.open(pack) as tar:
+                self.assertEqual(sorted(tar.getnames()), sorted(p.name for p in runtime.iterdir()))
+                for entry in tar:
+                    self.assertTrue(entry.isfile())
+                    self.assertEqual((entry.mode, entry.uid, entry.gid, entry.mtime), (0o644, 0, 0, EPOCH))
+                    self.assertEqual(tar.extractfile(entry).read(), (runtime / entry.name).read_bytes())
+        self.assertEqual(*archives)
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", setup +
+                                 '\nprintf keep >"$stage/kiln-systemd-units-$version.tar.gz"\n' + block,
+                                 "test", str(self.dir)], capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((stage / "kiln-systemd-units-1.2.3.tar.gz").read_bytes(), b"keep")
+
+
+class DocumentationTests(unittest.TestCase):
+    def test_relative_doc_links_exist(self):
+        root = HERE.parent.parent
+        for relative in ("docs/kiln/dedicated-servers.md", "docs/kiln/kilnctl.md", "docs/kiln/launcher/README.md",
+                         "docs/kiln/launcher/releasing.md"):
+            doc = root / relative
+            for target in re.findall(r"\]\(([^\s)]+)\)", doc.read_text()):
+                path = target.split("#", 1)[0]
+                if path and ":" not in path:
+                    self.assertTrue((doc.parent / path).exists(), (relative, target))
+
+    def test_server_instructions_match_boot_and_console_contracts(self):
+        root = HERE.parent.parent
+        guide = (root / "docs/kiln/dedicated-servers.md").read_text()
+        boot = (root / "native/core/src/boot.cpp").read_text()
+        console = (root / "managed/services/Kiln.Chat/Console.cs").read_text()
+        self.assertIn('"build %s: %s%s%s"', boot)
+        self.assertIn('"safe idle: no symbol definitions (%s)"', boot)
+        max_lines = re.search(r"MaxLines = (\d+)", console)[1]
+        wait = re.search(r"WaitForRunning = TimeSpan.FromSeconds\((\d+)\)", console)[1]
+        for text in (guide, TEMPLATE):
+            self.assertIn("build <sha256>: verified", text)
+            self.assertIn("safe idle: no symbol definitions", text)
+            self.assertIn(f"{max_lines} non-empty, non-comment lines", text)
+            self.assertIn(f"{wait} seconds", text)
+            self.assertIn('"running": true', text)
+            self.assertIn("kiln/control/console/", text)
+        schema = json.loads((root / "schema/kiln.mod.schema.json").read_text())
+        self.assertEqual(schema["properties"]["clients"]["enum"], ["none", "kiln", "mod"])
+        for value in schema["properties"]["clients"]["enum"]:
+            self.assertIn(f"| `{value}` |", guide)
 
 
 @unittest.skipUnless(RUNTIME.is_file(), f"no runtime zip at {RUNTIME} (KILN_SERVERPACK_RUNTIME)")

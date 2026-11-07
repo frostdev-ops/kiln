@@ -10,6 +10,7 @@ their new versions archive the previous one (archive_existing_file), and a folde
 """
 import base64
 import contextlib
+from email.message import Message
 import hashlib
 import importlib.util
 import io
@@ -20,6 +21,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -46,6 +48,27 @@ def zip_bytes(entries):
         for name, value in entries.items():
             z.writestr(name, value)
     return data.getvalue()
+
+
+class OfflineServerTests(unittest.TestCase):
+    def test_server_cannot_reuse_another_file_groups_stale_state_id(self):
+        with tempfile.TemporaryDirectory() as folder:
+            os.makedirs(os.path.join(folder, "runtime"))
+            pack = nexus.server_pack(folder, "0.2.0-dev.9")
+            with open(pack, "wb") as f:
+                f.write(zip_bytes({"dinput8.dll": b"MZ"}))
+            replies = [
+                {"data": {"name": "Kiln"}},
+                {"data": {"mod_files": [{"id": "F7", "name": "Kiln runtime (manual install)"}]}},
+            ]
+            with patch.object(nexus, "read_key", return_value=KEY), \
+                 patch.object(nexus, "release_version", return_value="0.2.0-dev.9"), \
+                 patch.object(nexus, "load_state", return_value={"files": {"server": "F7"}}), \
+                 patch.object(nexus.Api, "call", side_effect=replies), \
+                 patch.object(nexus, "make_zip", return_value=pack), \
+                 patch.object(nexus, "notes_for", return_value="Notes"), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(nexus.run([folder, "--only", "server", "--work", folder]), 2)
 
 
 class Mock:
@@ -191,14 +214,72 @@ def handler_for(mock, base):
     return H
 
 
+class MemoryTransport:
+    """Run the same HTTP mock handlers when a sandbox forbids even loopback sockets."""
+    def __init__(self, mock, base):
+        self.handler = handler_for(mock, base)
+        self.base = base
+
+    def dispatch(self, method, url, body, headers):
+        if not url.startswith(self.base + "/"):
+            raise AssertionError(f"unexpected non-mock URL: {url}")
+        handler = self.handler.__new__(self.handler)
+        handler.command, handler.path = method, url[len(self.base):]
+        handler.headers = Message()
+        for k, v in headers.items():
+            handler.headers[k] = str(v)
+        if body is not None and "Content-Length" not in handler.headers:
+            handler.headers["Content-Length"] = str(len(body))
+        handler.rfile = io.BytesIO(body or b"")
+        response = io.BytesIO()
+        response.getheaders = lambda: list(response.headers.items())
+        def send(code, obj=None, headers=None):
+            response.status = code
+            response.headers = headers or {}
+            response.write(b"" if obj is None else json.dumps(obj).encode())
+            response.seek(0)
+        handler._send = send
+        handler._handle()
+        return response
+
+    def urlopen(self, req, timeout=None):
+        response = self.dispatch(req.get_method(), req.full_url, req.data, dict(req.header_items()))
+        if response.status >= 400:
+            raise nexus.urllib.error.HTTPError(req.full_url, response.status, "mock error", response.headers, response)
+        return response
+
+    def connection(self, host, timeout=None):
+        transport = self
+        class Connection:
+            def request(self, method, path, body=None, headers=None):
+                self.response = transport.dispatch(method, "http://" + host + path, body, headers or {})
+            def getresponse(self):
+                return self.response
+            def close(self):
+                self.response.close()
+        return Connection()
+
+
 class NexusTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="nexus-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.mock = Mock()
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), None)
-        base = f"http://127.0.0.1:{self.server.server_address[1]}"
-        self.server.RequestHandlerClass = handler_for(self.mock, base)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.server = None
+        try:
+            self.server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+        except PermissionError:
+            base = "http://127.0.0.1:1"
+            transport = MemoryTransport(self.mock, base)
+            for target, replacement in (("urllib.request.urlopen", transport.urlopen),
+                                        ("http.client.HTTPConnection", transport.connection)):
+                mocked = patch(target, replacement)
+                mocked.start()
+                self.addCleanup(mocked.stop)
+        else:
+            base = f"http://127.0.0.1:{self.server.server_address[1]}"
+            self.server.RequestHandlerClass = handler_for(self.mock, base)
+            threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = base
         self.env = os.path.join(self.tmp, "nexus.env")
         with open(self.env, "w") as f:
@@ -209,9 +290,9 @@ class NexusTests(unittest.TestCase):
             f.write("[b]Kiln[/b]\nKiln is a mod framework and launcher for Enshrouded.\n")
 
     def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
 
     def release(self, version, nexus=True, server=False):
         d = os.path.join(self.tmp, f"kiln-{version}")
@@ -397,6 +478,17 @@ class NexusTests(unittest.TestCase):
         self.assertEqual([fid for fid, _ in self.mock.versions], ["F7"])
         self.assertEqual(len(self.mock.files), 1)
 
+    def test_stale_server_state_is_refused_before_any_upload(self):
+        self.mock.files.append({"id": "F7", "name": "Kiln runtime (manual install)", "versions": 1, "req": {}})
+        with open(self.state, "w") as f:
+            json.dump({"files": {"server": "F7"}}, f)
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.9", server=True), "--publish", "--only", "server")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("another file group", err)
+        self.assertEqual(self.mock.uploads, {})
+        self.assertEqual(self.mock.versions, [])
+        self.assertTrue(all(m == "GET" for m, _, _ in self.mock.requests))
+
     def test_the_server_pack_goes_up_as_it_is(self):
         rel = self.release("0.2.0-dev.9", server=True)
         code, out, err = self.run_nexus(rel, "--publish")
@@ -419,6 +511,12 @@ class NexusTests(unittest.TestCase):
         code, out, err = self.run_nexus(self.release("0.2.0-dev.10"))
         self.assertEqual(code, 0, out + err)
         self.assertNotIn("server:", out)
+        # A later server pack adds a version to the server group, preserving the runtime group.
+        server_id = next(f["id"] for f in self.mock.files if f["name"] == "Kiln server pack")
+        code, out, err = self.run_nexus(self.release("0.2.0-dev.11", server=True), "--publish", "--only", "server")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual([fid for fid, _ in self.mock.versions], [server_id])
+        self.assertEqual(len(self.mock.files), 6)
 
     def test_sync_description_publish(self):
         code, out, err = self.run_nexus(self.release("0.2.0-dev.9"), "--publish", "--sync-description", "--only", "sdk")

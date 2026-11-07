@@ -125,8 +125,9 @@ Open `kiln/logs/kiln.log` after the server has started.
 
 | Line in kiln.log | Meaning |
 |---|---|
-| `build <long hex number>: verified` and `boot complete; handing control to the game` | Kiln runs, mods load |
-| `safe idle: build ... is not verified ... the game runs vanilla` | the game was updated and this Kiln doesn't know the new build yet: the server runs without Kiln and its mods (see [Game updates](#game-updates)) |
+| `build <sha256>: verified` and `boot complete; handing control to the game` | Kiln passed the build check and completed boot; check nearby warnings for services or mods that failed to load. The sha256 is a long hexadecimal hash |
+| `safe idle: build ... is not verified ... the game runs vanilla` | this Kiln doesn't know the build: normal hooks and managed mods stay off under the default policy (see [Game updates](#game-updates)) |
+| `safe idle: no symbol definitions` | the server's symbol definitions are missing or could not be resolved |
 | no kiln.log | `dinput8.dll` wasn't loaded: wrong folder, or Wine without the setting |
 
 On Linux, `kilnctl status myserver` shows the same build line.
@@ -148,8 +149,10 @@ help
 creative status
 ```
 
-Within a few seconds Kiln runs it, deletes the `.cmd` file and writes `<name>.result.json` next to it with every
-line's output. The lines run as the server console, with full rights. Over FTP, upload the file as `test.txt` and
+Kiln reads and deletes the `.cmd` file, then writes `<name>.result.json` next to it with the output. Use at most
+64 non-empty, non-comment lines per file; later lines are skipped. Split larger batches into files. Results for
+asynchronous commands can take up to 10 seconds; `"running": true` means a command is still running.
+The lines run as the server console, with full rights. Over FTP, upload the file as `test.txt` and
 then rename it to `test.cmd`: Kiln then never reads a half-uploaded file. Details: [commands.md](commands.md).
 
 ## Mods on the server
@@ -186,8 +189,8 @@ rented host that means working from a copy of the server folder, which we haven'
 Every Enshrouded update changes the server program. Kiln checks the build at every start:
 
 - **Kiln knows the build:** nothing to do.
-- **Kiln doesn't know it yet:** the server runs normally, but vanilla: no Kiln, no mods. Your save stays fine. A
-  Kiln update with the new build's signatures usually follows. Then update Kiln (below).
+- **Kiln doesn't know it yet:** normal Kiln hooks and managed mods stay off under the default policy; early native
+  extensions can still run. A Kiln update with the new build's signatures usually follows. Then update Kiln (below).
 
 Players' games are separate: their Kiln needs to know their game build too. Players with the launcher get that from
 Kiln updates in the launcher.
@@ -229,4 +232,5 @@ settings, data and logs; delete it if you don't need them.
   `WINEDLLOVERRIDES` setting from the host.
 - A modpack built for a rented server from a local copy of its folder.
 
-For developers: the pack is built by `tools/release/lib/serverpack.py` during a release (releasing.md).
+For developers: the pack is built by `tools/release/lib/serverpack.py` during a release
+([releasing.md](launcher/releasing.md)).

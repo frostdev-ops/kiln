@@ -37,7 +37,13 @@ pre=(); [[ $version == *-* ]] && pre=(--prerelease)
 
 stage=$dir.github
 rm -rf "$stage" && mkdir -p "$stage"
-put() { ln "$1" "$stage/$2" 2>/dev/null || cp "$1" "$stage/$2"; }
+reserve_asset() {
+  [[ ! -e $stage/$1 && ! -L $stage/$1 ]] || { echo "duplicate GitHub asset name: $1" >&2; return 1; }
+}
+put() {
+  reserve_asset "$2" || return
+  ln "$1" "$stage/$2" 2>/dev/null || cp "$1" "$stage/$2"
+}
 # the direct build only (linux/, windows/); nexus/ stays out
 for f in "$dir"/linux/* "$dir"/windows/*; do put "$f" "$(basename "$f")"; done
 put "$dir/updates/github/latest.json" latest.json
@@ -48,6 +54,7 @@ put "$dir/runtime/INSTALL-RUNTIME.txt" INSTALL-RUNTIME.txt
 units=()
 for f in "$dir"/runtime/*.service "$dir"/runtime/*.timer; do [[ -f $f ]] && units+=("$(basename "$f")"); done
 if ((${#units[@]})); then
+  reserve_asset "kiln-systemd-units-$version.tar.gz"
   tar --sort=name --owner=0 --group=0 --numeric-owner --mode=0644 --mtime="@$(git -C "$repo_dir" log -1 --format=%ct "$target")" \
     -C "$dir/runtime" -cf - "${units[@]}" | gzip -n >"$stage/kiln-systemd-units-$version.tar.gz"
 fi
@@ -56,8 +63,10 @@ put "$dir/sdk/kiln" "kiln-$version-linux-x86_64"
 [[ -f $dir/runtime/kilnctl.exe ]] && put "$dir/runtime/kilnctl.exe" "kilnctl-$version-windows-x86_64.exe"
 [[ -f $dir/sdk/kiln.exe ]] && put "$dir/sdk/kiln.exe" "kiln-$version-windows-x86_64.exe"
 for f in "$dir"/sdk/*.nupkg "$dir"/sdk/*.vsix "$dir"/source/*; do put "$f" "$(basename "$f")"; done
+reserve_asset "kiln-samples-$version.zip"
 (cd "$dir" && zip -qr -X "$stage/kiln-samples-$version.zip" samples)
 for f in README.txt THIRD-PARTY-NOTICES.txt; do put "$dir/$f" "$f"; done
+reserve_asset SHA256SUMS
 (cd "$stage" && sha256sum -- * >SHA256SUMS)
 echo "staged $(ls "$stage" | wc -l) files in $stage"
 

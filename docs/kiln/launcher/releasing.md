@@ -162,10 +162,15 @@ The server pack (`tools/release/lib/serverpack.py build`, [../dedicated-servers.
 runtime zip's server components as a flat zip with `KILN-SERVER-README.txt` (template
 `tools/release/templates/KILN-SERVER-README.txt`) at its root: unzipped into a server folder, it is a working install,
 for rented hosts with only FTP or a file manager. Its components are the ones `kilnctl deploy --bundle` installs: those
-of `kiln-runtime.json` with `server` in `sides` and `default: true`, plus what they require (0.2.0-dev.17: core,
-sigdb-server, admin; a runtime that adds default server components, such as eml or shroudforge, puts them in too).
+of `kiln-runtime.json` with `server` in `sides` and `default: true` (also the default when omitted), plus what they
+require (0.2.0-dev.17: core, sigdb-server, admin; a runtime that adds default server components, such as eml or
+shroudforge, puts them in too).
 Every file keeps its manifest path and is checked against the manifest's size and sha256; `kiln-runtime.json` stays
-out. Deterministic like the runtime zip: sorted entries, one time from `SOURCE_DATE_EPOCH`, deflate 6, mode 0644. On
+out. Unsafe Windows names, case collisions, file/directory conflicts and special entries are refused. Input ZIPs
+are limited to 512 MiB compressed, 16 MiB of central-directory metadata, 10,000 entries, a 4 MiB manifest,
+256 MiB per file and 1 GiB expanded in total; ZIP64, encryption and compression other than stored/deflate are refused.
+Paths may have at most 32 parts, each at most 255 UTF-16 code units.
+Deterministic like the runtime zip: sorted entries, one time from `SOURCE_DATE_EPOCH`, deflate 6, mode 0644. On
 dev.17: 380 files, 117 MB unpacked, 50 MB zipped; unzipped, it equals `kilnctl bundle install`'s tree file for file
 (only the receipt and the empty standard folders, which Kiln makes at boot, differ).
 SHA256SUMS lists every file, nexus/ included; README.txt's file list leaves nexus/ out (it describes what GitHub and
