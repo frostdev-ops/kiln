@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Host test of the boosted glider's math (glide_math.h): native/services/rules/test-glide-math.sh builds and runs it.
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -40,12 +41,34 @@ void game(Step& s, const float* v0) {
     s.v[0] = s.heading[0] * target, s.v[1] = v0[1] * 0.5f, s.v[2] = s.heading[2] * target;
 }
 
+// The stick for a flight: none (the camera fallback: Step.has_stick false) or its forward axis (S -1, W +1).
+struct Stick {
+    bool known = false;
+    float y = 0.0f;
+};
+constexpr Stick kCamera{};
+constexpr Stick kCentred{true, 0.0f}, kBack{true, -1.0f}, kForward{true, 1.0f};
+
+// The path's pitch angle (rad) of a velocity.
+float pitch_of(const float* v) {
+    const float n = len3(v);
+    return n > 0 ? std::asin(std::clamp(v[1] / n, -1.0f, 1.0f)) : 0.0f;
+}
+
+struct Track {
+    float max_climb = -1e9f, max_pitch = -10, min_pitch = 10, max_turn = 0;  // turn: largest pitch change per step
+    int plane = 0;
+};
+
 // Runs `seconds` of 60 Hz steps from velocity v; returns the climbed height and leaves v as the end velocity.
-float fly(float* v, float seconds, float view_deg, bool boost, const Params& p, float* max_climb = nullptr, int* plane = nullptr) {
+float fly(float* v, float seconds, float view_deg, bool boost, const Params& p, float* max_climb = nullptr, int* plane = nullptr,
+          Stick stick = kCamera, Track* t = nullptr) {
     Step s;
     s.heading[0] = 0, s.heading[1] = 0, s.heading[2] = 1;
     s.dt = 1.0f / 60.0f;
     s.boost = boost;
+    s.has_stick = stick.known;
+    s.stick[1] = stick.y;
     view_at(s, view_deg);
     float h = 0;
     for (int i = 0; i < static_cast<int>(seconds * 60); ++i) {
@@ -53,6 +76,13 @@ float fly(float* v, float seconds, float view_deg, bool boost, const Params& p, 
         float out[3];
         const Result r = plane_step(s, p, out);
         if (plane && r == Result::Plane) ++*plane;
+        if (t) {
+            if (r == Result::Plane) ++t->plane;
+            const float a = pitch_of(out), b = pitch_of(v);
+            if (r == Result::Plane && len3(v) > 1e-3f) t->max_turn = std::max(t->max_turn, std::fabs(a - b));
+            t->max_climb = std::max(t->max_climb, out[1]);
+            if (r == Result::Plane) t->max_pitch = std::max(t->max_pitch, a), t->min_pitch = std::min(t->min_pitch, a);
+        }
         for (int k = 0; k < 3; ++k) v[k] = out[k];
         if (max_climb && v[1] > *max_climb) *max_climb = v[1];
         h += v[1] * s.dt;
@@ -64,6 +94,142 @@ float fly(float* v, float seconds, float view_deg, bool boost, const Params& p, 
 
 int main() {
     const Params p = creative();
+    const float dt = 1.0f / 60.0f;
+    const float rad60 = std::asin(kMaxClimbPitch);
+    // ---------------------------------------------------------------- the stick sets the pitch (S up, W down)
+    {
+        // boost + hold S: climbs, no faster than `climb`, never steeper than 60 degrees
+        float v[3] = {0, 0, 11};
+        Track t;
+        const float h = fly(v, 6, 0, true, p, nullptr, nullptr, kBack, &t);
+        check(h > 30.0f, "stick: boost + hold S climbs (more than 30 m in 6 s)");
+        check(t.max_climb <= p.climb + 1e-3f, "stick: the climb rate never passes `climb` (15 m/s)");
+        check(t.max_pitch <= rad60 + 1e-3f, "stick: holding S never climbs steeper than 60 degrees");
+        // release: back to level within a second or two, then the altitude holds
+        fly(v, 2, 0, true, p, nullptr, nullptr, kCentred);
+        check(std::fabs(v[1]) < 1e-4f, "stick: releasing S returns to level flight");
+        const float hold = fly(v, 3, 0, true, p, nullptr, nullptr, kCentred);
+        check(std::fabs(hold) < 0.01f, "stick: level after the release holds the altitude");
+    }
+    {
+        // with a climb cap out of the way the path reaches the 60-degree cap, at kPitchRate per step at most, and the
+        // release ramps back down at the same rate (a plane's stick, not a snap)
+        Params q = p;
+        q.climb = 120, q.max_speed = 60;
+        float v[3] = {0, 0, 40};
+        Track up;
+        fly(v, 0.5f, 0, true, q, nullptr, nullptr, kBack, &up);
+        check(up.max_pitch > 0.3f && up.max_pitch < rad60 - 0.2f, "stick: half a second of S is part of the way up (a ramp, not a snap)");
+        fly(v, 1.5f, 0, true, q, nullptr, nullptr, kBack, &up);
+        check(std::fabs(pitch_of(v) - rad60) < 1e-3f, "stick: holding S reaches the 60-degree cap and stays there");
+        check(up.max_turn <= kPitchRate * dt + 1e-4f, "stick: the pitch never moves faster than kPitchRate (climbing)");
+        Track down;
+        fly(v, 0.5f, 0, true, q, nullptr, nullptr, kCentred, &down);
+        check(pitch_of(v) > 0.3f, "stick: half a second after the release the path is still coming down (a ramp)");
+        fly(v, 1.5f, 0, true, q, nullptr, nullptr, kCentred, &down);
+        check(std::fabs(v[1]) < 1e-4f && down.max_turn <= kPitchRate * dt + 1e-4f,
+              "stick: the release levels out at kPitchRate at most, then flies level");
+    }
+    {
+        // W dives (no boost): height into speed, at 60 degrees at most
+        float v[3] = {0, 0, 11};
+        Track t;
+        const float h = fly(v, 3, 0, false, p, nullptr, nullptr, kForward, &t);
+        check(h < -10.0f && len3(v) > 20.0f, "stick: hold W dives and trades height for speed");
+        check(t.min_pitch >= -std::asin(kMaxDivePitch) - 1e-3f, "stick: a dive is never steeper than 60 degrees");
+        check(t.max_turn <= kPitchRate * dt + 1e-4f, "stick: the pitch never moves faster than kPitchRate (diving)");
+        check(len3(v) <= kDiveFactor * p.max_speed + 0.5f, "stick: a dive stops at 2 x max_speed");
+    }
+    {
+        // the camera alone changes nothing: looking up, down or level with the stick centred flies the same path
+        float a[3] = {0, 0, 11}, b[3] = {0, 0, 11}, c[3] = {0, 0, 11};
+        const float ha = fly(a, 4, 45, true, p, nullptr, nullptr, kCentred);
+        const float hb = fly(b, 4, -45, true, p, nullptr, nullptr, kCentred);
+        const float hc = fly(c, 4, 0, true, p, nullptr, nullptr, kCentred);
+        check(ha == hb && hb == hc && a[1] == b[1] && a[2] == c[2], "stick: the camera's pitch changes nothing");
+        check(std::fabs(ha) < 0.01f && std::fabs(len3(a) - p.max_speed) < 0.5f,
+              "stick: boost with the stick centred holds the altitude and reaches max_speed");
+        float d[3] = {0, 0, 35}, e[3] = {0, 0, 35};
+        fly(d, 3, 80, false, p, nullptr, nullptr, kBack);
+        fly(e, 3, -80, false, p, nullptr, nullptr, kBack);
+        check(d[0] == e[0] && d[1] == e[1] && d[2] == e[2], "stick: holding S climbs the same wherever the camera looks");
+    }
+    {
+        // an analog stick's drift (inside the dead zone) is level; non-finite stick values count as centred
+        float a[3] = {0, 0, 11}, b[3] = {0, 0, 11};
+        const float ha = fly(a, 3, 0, true, p, nullptr, nullptr, Stick{true, -0.15f});
+        check(std::fabs(ha) < 0.01f, "stick: inside the dead zone the path stays level");
+        const float hb = fly(b, 3, 0, true, p, nullptr, nullptr, Stick{true, NAN});
+        check(std::fabs(hb) < 0.01f && finite3(b) && b[1] == a[1] && b[2] == a[2], "stick: a NaN stick counts as centred");
+        float c[3] = {0, 0, 11};
+        const float hc = fly(c, 3, 0, true, p, nullptr, nullptr, Stick{true, -INFINITY});
+        check(std::isfinite(hc) && finite3(c) && std::fabs(hc) < 0.01f, "stick: an infinite stick counts as centred");
+        Step s;
+        s.heading[2] = 1, s.dt = dt, s.boost = true, s.has_stick = true, s.v0[2] = 11, s.v[2] = 11;
+        s.stick[0] = NAN, s.stick[1] = -1;
+        float out[3];
+        check(plane_step(s, p, out) == Result::Plane && out[1] == 0.0f, "stick: a NaN sideways axis counts as centred too");
+        s.stick[0] = 0, s.v0[1] = NAN;
+        check(plane_step(s, p, out) == Result::Game, "stick: a non-finite velocity still leaves the game's glide");
+    }
+    {
+        // the energy trade still holds: from 35 m/s without boost, S climbs while slowing, then the game's glide again
+        float v[3] = {0, 0, 35};
+        Track t;
+        const float h = fly(v, 8, 0, false, p, nullptr, nullptr, kBack, &t);
+        check(h > 5.0f, "stick: no boost, S from 35 m/s trades speed for height (more than 5 m)");
+        check(len3(v) <= 11.5f && t.plane > 0 && t.plane < 8 * 60, "stick: the climb runs out of speed and the game glides again");
+        // a plain glide holding S has no spare energy: no climb
+        float w[3] = {0, 0, 11};
+        Track g;
+        fly(w, 3, 0, false, p, nullptr, nullptr, kBack, &g);
+        check(g.max_climb <= 1e-3f, "stick: a plain glide holding S does not climb");
+        // letting go at speed: the coast slows it, level, then a normal glide
+        float c[3] = {0, 0, 35};
+        const float hc = fly(c, 6, 0, false, p, nullptr, nullptr, kCentred);
+        check(std::fabs(hc) < 0.01f && len3(c) <= 11.5f, "stick: letting go holds the altitude and settles into the game's glide");
+        // a half-forward analog stick dives at about 30 degrees and settles at a speed of its own
+        float d[3] = {0, 0, 11};
+        fly(d, 29, 0, false, p, nullptr, nullptr, Stick{true, 0.6f});
+        const float at29 = len3(d);
+        fly(d, 1, 0, false, p, nullptr, nullptr, Stick{true, 0.6f});
+        check(std::fabs(pitch_of(d) + rad60 * 0.5f) < 0.01f && std::fabs(len3(d) - at29) < 0.5f && len3(d) > 20.0f &&
+                  len3(d) < kDiveFactor * p.max_speed - 5.0f,
+              "stick: half forward dives at 30 degrees and settles at a speed of its own");
+        // climb 0: holding S never climbs
+        Params q = p;
+        q.climb = 0;
+        float z[3] = {0, 0, 11};
+        Track zt;
+        fly(z, 4, 0, true, q, nullptr, nullptr, kBack, &zt);
+        check(zt.max_climb <= 0.0f, "stick: climb 0 never climbs");
+    }
+    {
+        // the boost's lift does not count as pitch: level with lift climbs gently (lift x dt), it does not build up
+        Params q = p;
+        q.lift = 10, q.climb = 120;
+        float v[3] = {0, 0, 11};
+        Track t;
+        fly(v, 5, 0, true, q, nullptr, nullptr, kCentred, &t);
+        check(t.max_climb <= q.lift * dt + 1e-3f, "stick: the boost's lift does not build up into a climb");
+    }
+    {
+        // hard bounds with the stick: zero/huge speeds and dt stay finite and capped
+        bool bounded = true;
+        for (float initial : {0.0f, 1e-10f, 11.0f, 120.0f})
+            for (float y : {-1.0f, 0.0f, 1.0f})
+                for (float t : {dt, 0.25f, 1e6f})
+                    for (float vy : {-120.0f, 0.0f, 120.0f}) {
+                        Step s;
+                        s.heading[2] = 1, s.has_stick = true, s.stick[1] = y, s.boost = true, s.dt = t;
+                        s.v0[1] = vy, s.v0[2] = initial, s.v[2] = initial * 0.5f;
+                        float out[3];
+                        plane_step(s, p, out);
+                        bounded = bounded && finite3(out) && len3(out) <= kSpeedLimit + 1e-3f && out[1] <= p.climb + 1e-3f;
+                    }
+        check(bounded, "stick: any speed, pitch and step time keep finite, bounded velocities");
+    }
+    // ---------------------------------------------------------------- camera fallback (a build without the stick)
     {
         // boost while looking 30 degrees up: climbs, no faster than `climb`, speed up to the cap
         float v[3] = {0, 0, 11};

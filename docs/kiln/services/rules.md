@@ -10,7 +10,7 @@ belong to this service, so they work wherever a world runs (a dedicated server, 
 |---|---|
 | C table | `native/core/abi/services/kiln_rules.h` (`kiln.rules` v1) |
 | Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider) |
-| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
+| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
 | Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`) |
 | Uses | Kiln.Items (water refill policies), Kiln.Abilities (vitals), Kiln.Combat (invulnerability), Kiln.World (moving the character), Kiln.Build (keeping builds), Kiln.Network (the client's half) |
 | Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test` (lab) |
@@ -74,7 +74,7 @@ Every member is optional (null: no opinion).
 | `MinShroudTime` | fraction 0..1 | the Shroud timer is kept at least this full (below it, it recovers at the game's 25 s per second) | server |
 | `UnlimitedGliding` | switch | gliding costs no stamina, so the glider is never forced down for lack of it | server + client |
 | `GlideSink` | multiplier | how fast the glider sinks (0 = holds altitude unless it points down) | server + client |
-| `GlideBoost` | `GlideBoostRule` | gliding like a plane: the path's pitch follows the view, climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs) | server + client |
+| `GlideBoost` | `GlideBoostRule` | gliding like a plane: S pitches up, W pitches down (the mouse stays free), climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs) | server + client |
 | `Water` | `WaterRule` | the player's water containers refilled: `WaterRule.KeepFull(items)`, `WaterRule.Rate(chargesPerSecond, items)`; no items = every container | server |
 
 **How rule sets combine** (several mods, scopes and times at once):
@@ -156,13 +156,22 @@ glide step and changes nothing the game would not predict the same way (the math
 tested on the build machine by `native/services/rules/test-glide-math.sh`).
 
 `GlideBoost` flies like a plane. Each step the glider follows a path with the glider's own heading (the game turns it
-toward where the player looks) and the camera's pitch: a view within about 5 degrees of level is level flight, the
-path climbs at 60 degrees at most.
+as it always does) and a pitch from the movement keys, like a plane's stick; the mouse is free (looking around never
+climbs or dives):
+- Holding **S** (back) pitches up and climbs, at 60 degrees at most; holding **W** (forward) pitches down into a dive,
+  at 60 degrees at most; neither returns to level flight, which holds the altitude. An analog stick pitches in
+  proportion (a small dead zone keeps drift level).
+- The pitch moves at 0.8 rad/s (about 46 degrees a second) at most, both ways: 60 degrees takes about 1.3 s, and
+  letting go of S levels out just as smoothly. It starts from the pitch the glider is actually flying (its velocity),
+  so the server and the player's prediction compute the same ramp from the same replicated input
+  (`PlayerInput.fromClient.movementStick`, sigdb feature `rules.glide_stick`).
+- On a game build where the movement stick is not found, the camera's pitch is used as before (a view within about
+  5 degrees of level is level flight), and the log says so once at startup.
 - Along the path the speed changes by gravity's share (-9.81 m/s² x sin pitch): climbing costs speed and diving gives it.
 - Holding sprint adds `Thrust` up to `MaxSpeed` (a dive's speed is not taken away); `Lift` adds an upward push.
 - Without sprint, `Coast` slows what is over the path's own glide speed: the game's glide when level or climbing, more
   the steeper the dive (a dive settles at a speed for its angle, at most 2 x `MaxSpeed`). `Coast` 0 is the game's drag.
-- The climb rate never passes `Climb` (0: looking up only slows the glider). The final velocity, including `Lift`,
+- The climb rate never passes `Climb` (0: holding S only slows the glider). The final velocity, including `Lift`,
   respects the boost speed budget and the 120 m/s path limit.
 - Once the path is no faster than the game's own glide (after letting go, or a climb that ran out of speed), the
   game's glide stands again: releasing everything settles into a normal glide, and a plain glide does not climb.

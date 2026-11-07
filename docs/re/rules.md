@@ -255,6 +255,13 @@ thread. Kiln notes the impact's player argument (arg 0, read as kiln.gameplay do
   +0x1d0 / +0x1d8), the glider failing its use check, no SlotSelection, a long collision, Exhausted, any Teleport. The
   abort (`0x36990`) sets `ActorInput+0x20` (the trigger, u16) to 24. **[dis]**
 - **Input:** `PlayerInputType.Sprint` = 53, a held bit of `PlayerInput`'s digital input (+0x3b0, after the mask +0x3a8).
+  The movement keys / left stick: `PlayerInput.fromClient.movementStick` (`keen::float2`, fromClient +0x2b8 = PlayerInput
+  +0x2c0; reflection of `ClientPlayerInputData`), replicated with the rest of `fromClient`. The player control program
+  right after `player_control_building_fly_mode` (server `0xcd6c1`, client `0x2e1721`) writes, unless the actor is Dead,
+  `ActorInput.desiredLocalMoveInput` (+0x18c, float3) = `(stick.x, 0, stick.y)` (xmm15 is zeroed earlier in the
+  function), so stick.y is the local forward axis (local +z, the heading's (0,0,1)): W +1, S -1 **[dis]** (the sign by
+  the engine's forward convention; the client checklist confirms it). `locomotion_execution` reads the same field for
+  |stick|² (`@rules/Loco.input`). The vanilla glide step itself never reads the stick or ActorInput's move input.
 - **Iterator** of `locomotion_execution`: +0 ProgramContext, +0x20 CurrentTransform (rotation +0x18, `keen::Quaternion
   {x,y,z,w}`), +0x50 PlayerInput (null for anything but a player), +0x98 ActorInput, +0xf8 DynamicLocomotion, +0x158
   Velocity. `QuatRotate(float3* out, const Quaternion*, const float3*)` `0x3ba80` / `0x21e760`; `StepDelta(ctx, int64*
@@ -269,10 +276,14 @@ thread. Kiln notes the impact's player argument (arg 0, read as kiln.gameplay do
 prediction, so the server agrees with what the player sees):
 - `rules/GlideStep` (inline wrap): before, the velocity is copied (v0) and the ActorInput trigger read; after, unless
   the game aborted the glide in this step: with `GLIDE_BOOST` the glider flies like a plane (`glide_math.h`): a path
-  with F's horizontal heading and the camera's pitch (the camera's forward = `QuatRotate(PlayerInput +
-  input.camera_rot, (0,0,1))`, the replicated `fromClient.camera.orientation`, so the server and the player's prediction
-  see the same; `@rules/Input.camera`, the same turn `player_deflect_parried_projectiles` makes, `0xd2cde` / client
-  `0x2e6d3e`); the speed along it changes by `-g sin pitch`, plus `Thrust` while sprint is held (up to `MaxSpeed`),
+  with F's horizontal heading and a pitch from the movement stick (`PlayerInput + input.stick`, y: S -1 climbs toward
+  60 degrees, W +1 dives toward 60 degrees, centred = level; dead zone 0.2), moved toward that target at 0.8 rad/s at
+  most from the pitch of v0 (the velocity the step starts with, less the last step's `Lift x dt` while boosting), so the
+  ramp's state is the replicated velocity, not a per-player variable. Fallback when `rules.glide_stick` does not
+  resolve: the camera's pitch (the camera's forward = `QuatRotate(PlayerInput + input.camera_rot, (0,0,1))`, the
+  replicated `fromClient.camera.orientation`, so the server and the player's prediction see the same;
+  `@rules/Input.camera`, the same turn `player_deflect_parried_projectiles` makes, `0xd2cde` / client `0x2e6d3e`);
+  the speed along it changes by `-g sin pitch`, plus `Thrust` while sprint is held (up to `MaxSpeed`),
   minus `Coast` above the path's own glide speed; the climb rate is capped at `glide_climb`; no faster than the
   game's own horizontal glide speed, the game's velocity stands. Without `GLIDE_BOOST`: with `glide_sink` 0 and the
   glider not pointing down (F.y > -0.2), a downward velocity is set to 0. The game has already marked Velocity written
@@ -309,6 +320,7 @@ client's two guards (docs/re/client.md):
 | `rules/ShroudDrain` (+ `@rules/ShroudDrain.delta`, which checks `StepDelta`; offset 101; `rules/fog.actor` 0x48, `rules/fog.attr` 0x78, `rules/fog.state` 0xbf8) | `0xc1f35` | `0x2d5f95` | `rules.shroud` |
 | `rules/GlideStep` (+ `@rules/GlideStep.abort/.xform/.velocity`, `@rules/Loco.input`, `@rules/Input.mask`, `@rules/Input.trigger`; `QuatRotate`, `StepDelta` captured) | `0x1d2320` | `0x432a80` | `rules.glide` |
 | `rules/GlideGravity` (offset 133; `rules/grav.actor` 0xaf) | `0xa0f13` | `0x2a3643` | `rules.glide` |
+| `@rules/Input.stick` (`rules/input.stick` 0x2c0, the second capture beside `@rules/Loco.input`; the write to `ActorInput.desiredLocalMoveInput` 0x18c / 0x194 is literal) | `0xcd6c1` | `0x2e1721` | `rules.glide_stick` (optional: without it the plane takes the camera's pitch) |
 | `@rules/Input.camera` (`rules/input.camera_rot` 0x40, `rules/input.attack_dir` 0x5ad fixed; `QuatRotate` captured again) | `0xd2cde` | `0x2e6d3e` | `rules.glide_view` (optional: without it the plane takes F's pitch) |
 | `rules/GlideStamina` (offset 88) | `0xdcfda` | `0x2f103a` | `rules.glide` |
 | `rules/ApplyMaterials` | `0x22d480` | `0x495f20` | `rules.costs` (+ `items/tx.operator`, `world/programs.*`) |

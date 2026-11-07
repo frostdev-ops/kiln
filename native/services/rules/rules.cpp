@@ -238,7 +238,8 @@ struct Layout {
     int64_t glide_input = 0, glide_xform = 0, glide_velocity = 0, glide_player_input = 0, xform_rotation = 0,
             input_trigger = 0, input_mask = 0;
     int64_t grav_actor = 0;  // gravity_apply_velocity_actor: the Actor slot, rbp + (int8)
-    int64_t input_camera_rot = -1;  // PlayerInput: the camera's orientation (fromClient.camera), for the plane's pitch
+    int64_t input_camera_rot = -1;  // PlayerInput: the camera's orientation (fromClient.camera), the plane's fallback pitch
+    int64_t input_stick = -1;       // PlayerInput: fromClient.movementStick (float2, y forward), for the plane's pitch
     int64_t tx_operator = 0;                // InventoryTx: the acting entity
     int64_t arg_offset = 0, arg_base = 0, arg_stride = 0;
     int64_t programs_table = 0, programs_stride = 0, programs_count = 0;
@@ -437,8 +438,9 @@ void glide_post(uint8_t* it, const GlidePre& g) {
     const bool hold = s.glide_sink == 0.0f;
     float next[3] = {v[0], v[1], v[2]};
     if (flags & KILN_RULES_GLIDE_BOOST) {
-        // like a plane (glide_math.h): the path's pitch from the camera (PlayerInput's copy of it: the same in the
-        // server world and in the player's prediction), the energy trade, the thrust while sprint is held
+        // like a plane (glide_math.h): the path's pitch from the movement stick (S up, W down; PlayerInput's replicated
+        // copy of it: the same in the server world and in the player's prediction), ramped from the velocity's pitch;
+        // the camera's only where the stick is not known on this build; the energy trade, the thrust while sprint is held
         kiln_glide::Step st;
         std::memcpy(st.v0, g.v0, sizeof st.v0);
         std::memcpy(st.v, v, sizeof st.v);
@@ -446,6 +448,10 @@ void glide_post(uint8_t* it, const GlidePre& g) {
         if (L.input_camera_rot >= 0) {
             fn.quat_rotate(st.view, reinterpret_cast<const float*>(g.input + L.input_camera_rot), fwd);
             if (!finite3(st.view)) st.view[0] = st.view[1] = st.view[2] = 0.0f;
+        }
+        if (L.input_stick >= 0) {
+            std::memcpy(st.stick, g.input + L.input_stick, sizeof st.stick);
+            st.has_stick = true;
         }
         st.dt = static_cast<float>(dt);
         const uint64_t held = *reinterpret_cast<const uint64_t*>(g.input + L.input_mask + 8);
@@ -1313,6 +1319,14 @@ void install() {
         if (!(feat("rules.glide_view") && cst("rules/input.camera_rot", &L.input_camera_rot))) {
             L.input_camera_rot = -1;
             LOGW("gliding: the camera's orientation is not found on this build: a boosted glider takes its pitch from the glider");
+        }
+        // the movement stick for the plane's pitch (S up, W down): optional (without it the camera's pitch, as before)
+        if (feat("rules.glide_stick") && cst("rules/input.stick", &L.input_stick)) {
+            LOGI("gliding: a boosted glider pitches with the movement stick (PlayerInput +0x%llx; S climbs, W dives)",
+                 static_cast<unsigned long long>(L.input_stick));
+        } else {
+            L.input_stick = -1;
+            LOGW("gliding: the movement stick is not found on this build: a boosted glider takes its pitch from the camera");
         }
         h_grav = safetyhook::create_mid(reinterpret_cast<void*>(fn.grav_site), &hk_grav);
         h_stam = safetyhook::create_mid(reinterpret_cast<void*>(fn.stam_site), &hk_stam);

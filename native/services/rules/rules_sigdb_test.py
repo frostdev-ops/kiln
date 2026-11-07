@@ -113,13 +113,28 @@ def check_guard_failures(image, doc, symbols, constants):
         check(features[unaffected], unaffected + " remains available with the other guard's pattern missing")
 
 
+def check_glide_stick(side, image, doc, symbols, constants):
+    # The boosted glider's pitch stick: PlayerInput.fromClient.movementStick, pinned by two patterns that must agree.
+    check(constants["rules/input.stick"]["ok"] and constants["rules/input.stick"]["value"] == 0x2C0,
+          side + " movement stick resolves to PlayerInput+0x2c0 from both captures")
+    spec = doc["symbols"]["@rules/Input.stick"]["find"][0]
+    at, holes = matches(image, symbols, spec)
+    syms, consts, features = Resolver(changed(image, [(at, b"\x90")]), doc).run()
+    check(not features["rules.glide_stick"] and features["rules.glide"] and features["rules.glide_view"],
+          side + " without the stick pattern only rules.glide_stick is off (the camera pitch stands)")
+    hole = next((offset, kind) for name, kind, offset in holes if name == "rules/input.stick")
+    syms, consts, features = Resolver(changed(image, [(at + hole[0], (0x2C8).to_bytes(WIDTH[hole[1]], "little"))]), doc).run()
+    check(not consts["rules/input.stick"]["ok"] and not features["rules.glide_stick"] and features["rules.glide"],
+          side + " a disagreeing stick offset turns only rules.glide_stick off")
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
     image = Image(path)
     symbols, constants, features = Resolver(image, tree.doc).run()
     rules = {name: ok for name, ok in features.items() if name.startswith("rules.")}
-    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "costs", "dig")}
+    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "costs", "dig")}
     if side == "client":
         required |= {"rules.healthbar_guard", "rules.camera_check"}
     check(required.issubset(rules), side + " defines every expected rules feature")
@@ -128,6 +143,7 @@ def run(side, path):
     check(symbols["@rules/ShroudDrain.delta"]["ok"] and symbols["rules/StepDelta"]["ok"],
           side + " Shroud duration capture agrees with the glider's StepDelta")
     check_boundaries(side, image, tree.doc, symbols)
+    check_glide_stick(side, image, tree.doc, symbols, constants)
     if side == "client":
         check_guard_failures(image, tree.doc, symbols, constants)
 

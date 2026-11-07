@@ -99,6 +99,12 @@
         { "pattern": "40 53 48 83 EC 20 48 8B D9 33 D2 48 83 C1 22 41 B8 56 01 00 00 E8 ?? ?? ?? ?? 0F 10 05 ?? ?? ?? ?? 66 C7 43 {rules/input.trigger:d8} 18 00" }
       ]
     },
+    "@rules/Input.stick": {
+      "comment": "the player control program after player_control_building_fly_mode (server 0xcd6c1, client 0x2e1721), unless the actor is Dead: ActorInput.desiredLocalMoveInput (+0x18c, float3) = (movementStick.x, 0, movementStick.y), PlayerInput.fromClient.movementStick (float2 at PlayerInput+0x2c0) - the stick's y is the local forward axis (W +1, S -1). Pins rules/input.stick (a second capture beside @rules/Loco.input) and that y is forward, for the boosted glider's pitch",
+      "find": [
+        { "pattern": "84 C0 0F 85 ?? ?? ?? ?? F3 0F 10 83 {rules/input.stick:d32} F3 0F 10 93 ?? ?? ?? ?? 41 0F 14 C7 F2 0F 11 87 8C 01 00 00 F3 0F 11 97 94 01 00 00" }
+      ]
+    },
     "@rules/Input.camera": {
       "comment": "player_deflect_parried_projectiles turns (0,0,1) by the player's camera orientation (PlayerInput.fromClient.camera, a Quaternion) before reading fromClientSettings.attackDirectionInput: the camera's forward, which a boosted glider takes its pitch from",
       "find": [
@@ -175,6 +181,10 @@
                   "rules/StepDelta", "rules/ActorStateTest", "rules/CurrentEntityId", "items/JobStorage"],
       "constants": ["rules/glide.actor_input", "rules/glide.xform", "rules/xform.rotation", "rules/glide.velocity", "rules/loco.player_input",
                     "rules/input.mask", "rules/input.trigger", "rules/grav.actor", "storage.kind"]
+    },
+    "rules.glide_stick": {
+      "symbols": ["@rules/Loco.input", "@rules/Input.stick"],
+      "constants": ["rules/input.stick"]
     },
     "rules.glide_view": {
       "symbols": ["@rules/Input.camera", "rules/QuatRotate"],

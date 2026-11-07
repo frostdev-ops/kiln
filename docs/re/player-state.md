@@ -22,6 +22,7 @@ Tags: **[refl]** game reflection, **[dis]** decompile or disassembly, **[data]**
 | Client UI flags | `PlayerInput.fromClient.mask` | `keen::ecs::ClientPlayerFlags` | 9 bits | the client: replicated input |
 | Abilities | `Actor.currentAbilityMask` +0xC00 | `keen::actor::AbilityFlag` | 29 bits | `EnableAbilityEvent` / `DisableAbilityEvent` of sequences |
 | Inputs held | `PlayerInput.fromClient.digitalInput` | `keen::ecs::PlayerInputType` | 56 bits | the client: replicated input |
+| Movement stick | `PlayerInput.fromClient.movementStick` (PlayerInput +0x2C0, float2: x right, y forward, W +1 / S -1) | - | analog | the client: replicated input; copied to `ActorInput.desiredLocalMoveInput` +0x18C as (x, 0, y) (docs/re/rules.md 7) |
 | Action | `Actor.currentAction.triggerContext.triggerType` | `keen::actor::ActionSequenceTrigger` | value | sequences |
 | Jump | `DynamicLocomotion.jumpType` +0x154 (`jumpCount` +0x155, `lastJumpTime` +0xB8) | `keen::actor::JumpType` | value | `actor_jump` |
 | Speed | `ActorInput.lastLocomotionSpeed` +0x1C5 | `keen::ecs::LocomotionSpeedSelector` | value | `actor_simulation_end` copies `locomotionSpeed` |
