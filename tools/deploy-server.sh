@@ -93,6 +93,14 @@ if [[ -f $k/plugins/kiln-eml.dll ]]; then
 fi
 # ShroudForge's runtime (GPL-3 component) when it was built: third_party/shroudforge/kiln/build.sh $KILN_OUT/shroudforge-build
 if [[ -d $sfb ]]; then rsync -a --delete "$sfb/" "$k/plugins/shroudforge/"; fi
+# Enshwick's loader (MIT) for kiln-enshwick when it was built (native/plugins/enshwick/tools/build-runtime.sh, default
+# $KILN_OUT/enshwick-runtime), laid out as the runtime bundle's enshwick component
+ewb=$out/enshwick-runtime
+if [[ -s $ewb/enshwick.dll && -s $ewb/LICENSE ]]; then
+  mkdir -p "$k/plugins/enshwick"
+  install -m 644 "$ewb/enshwick.dll" "$ewb/enshwick-version.txt" "$k/plugins/enshwick/"
+  install -m 644 "$ewb/LICENSE" "$k/plugins/enshwick/LICENSE.txt"
+fi
 
 install -m 644 "$repo/sigdb/symbols/server.json" "$k/sigdb/server.json"
 rm -rf "$k/sigdb/server.d" && mkdir -p "$k/sigdb/server.d"

@@ -42,7 +42,8 @@ fn stage(root: &Path, version_tag: &str, with_old_file: bool) -> PathBuf {
     "core": { "sides": ["server", "client"], "default": true, "description": "proxy, core, host" },
     "sigdb-server": { "sides": ["server"], "default": true, "requires": ["core"] },
     "sigdb-client": { "sides": ["client"], "default": true, "requires": ["core"] },
-    "emf": { "sides": ["server", "client"], "default": false, "requires": ["core"] }
+    "emf": { "sides": ["server", "client"], "default": true, "requires": ["core"] },
+    "samples": { "sides": ["server"], "default": false, "requires": ["core"] }
   },
   "builds": { "client": [ { "sha256": "ce6fdba63e27744943b695921383a29133285d359e07671f6ca33a47e2147618", "steamBuild": "26404966" } ] },
   "config": ["kiln/kiln.json"]
@@ -58,6 +59,7 @@ fn stage(root: &Path, version_tag: &str, with_old_file: bool) -> PathBuf {
     put(&s, "sigdb-client/kiln/sigdb/client.json", b"{\"symbols\":{}}");
     put(&s, "sigdb-server/kiln/sigdb/server.json", b"{\"symbols\":{}}");
     put(&s, "emf/kiln/plugins/kiln-emf.dll", b"emf plugin");
+    put(&s, "samples/kiln/mods/hello/Hello.dll", b"hello sample");
     s
 }
 
@@ -110,10 +112,16 @@ fn bundles_are_deterministic_and_verified() {
     assert!(m.files.windows(2).all(|w| w[0].path < w[1].path));
     assert!(m.files.iter().find(|f| f.path == "kiln/kiln.json").unwrap().config);
     assert_eq!(bundle::sides(&m).len(), 2);
-    // client plan: core + sigdb-client, no server sigdb, no emf (not default)
+    // client plan: core + sigdb-client + emf (default on both sides since 0.2.0-dev.18), no server sigdb
     let plan: Vec<String> = install::plan(&m, kiln_manage::manifest::RunSide::Client, None).unwrap().into_iter().map(|f| f.path).collect();
     assert!(plan.contains(&"kiln/sigdb/client.json".into()) && !plan.contains(&"kiln/sigdb/server.json".into()));
-    assert!(!plan.contains(&"kiln/plugins/kiln-emf.dll".into()));
+    assert!(plan.contains(&"kiln/plugins/kiln-emf.dll".into()));
+    assert!(!plan.contains(&"kiln/mods/hello/Hello.dll".into()));
+    // server plan: its defaults, no samples (not default)
+    let plan: Vec<String> = install::plan(&m, kiln_manage::manifest::RunSide::Server, None).unwrap().into_iter().map(|f| f.path).collect();
+    assert!(plan.contains(&"kiln/sigdb/server.json".into()) && plan.contains(&"kiln/plugins/kiln-emf.dll".into()));
+    assert!(!plan.contains(&"kiln/mods/hello/Hello.dll".into()) && !plan.contains(&"kiln/sigdb/client.json".into()));
+    assert_eq!(install::select_components(&m, kiln_manage::manifest::RunSide::Client, None).unwrap(), ["core", "emf", "sigdb-client"]);
     assert!(install::plan(&m, kiln_manage::manifest::RunSide::Client, Some(&["sigdb-server".into()])).is_err());
     // a tampered entry fails verification: same manifest, other bytes for one file
     let tampered = t.0.join("tampered.zip");
@@ -422,7 +430,7 @@ fn tree(dir: &Path) -> Vec<(String, String)> {
 /// A client folder that already holds Kiln with the bundle's exact bytes (as client.sh / deploy-server.sh leave it).
 fn predeployed(t: &Path, stage: &Path, game: &Path) {
     put(game, "enshrouded.exe", b"MZ");
-    for comp in ["core", "sigdb-client"] {
+    for comp in ["core", "sigdb-client", "emf"] { // the client defaults
         kiln_manage::util::copy_tree(&stage.join(comp), game).unwrap();
     }
     put(game, "kiln/mods/my-mod/kiln.mod.json", b"{\"id\": \"my-mod\"}"); // the user's, not the bundle's

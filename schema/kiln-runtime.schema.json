@@ -28,7 +28,7 @@
           "description": { "type": "string" }
         }
       },
-      "description": "Known names: core (proxy, core, host, dotnet, sigdb, services), admin (Kiln.Admin), emf (kiln-emf plugin), samples."
+      "description": "Known names: core (proxy, core, host, dotnet, sigdb, services), admin (Kiln.Admin), emf (kiln-emf plugin), eml (kiln-eml), shroudforge (ShroudForge runtime), enshwick (Enshwick loader), samples."
     },
     "files": {
       "type": "array",

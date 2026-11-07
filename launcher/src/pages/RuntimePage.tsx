@@ -131,6 +131,9 @@ const PART_HINT: Record<string, string> = {
   "sigdb-server": "signatures for servers",
   admin: "Kiln.Admin (servers)",
   emf: "runs EMF mods (kiln-emf)",
+  eml: "runs EML mods (kiln-eml, GPL-3.0)",
+  shroudforge: "runs ShroudForge mods (its runtime, GPL-3.0)",
+  enshwick: "runs Enshwick mods (Enshwick's loader)",
   samples: "sample mods",
 };
 
@@ -151,7 +154,7 @@ function InstallModal({ bundle, side, current, onClose, onInstall }: {
     setSeen(bundle);
     if (bundle) {
       setCustom(!!current);
-      setParts((current ?? bundle.components.filter((c) => c === "core" || c.startsWith("sigdb"))).filter((c) => forSide(c, side) && bundle.components.includes(c)));
+      setParts((current ?? bundle.components.filter((c) => c !== "samples")).filter((c) => forSide(c, side) && bundle.components.includes(c)));
     }
   }
   if (!bundle) return null;
@@ -161,7 +164,7 @@ function InstallModal({ bundle, side, current, onClose, onInstall }: {
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={custom && !parts.includes("core")} onClick={() => onInstall(bundle, custom ? parts : null)}>Install</Button></>}>
       <span className="k-mono k-muted">{bundle.version}</span>
-      <Toggle checked={!custom} onChange={(on) => setCustom(!on)} label="Default parts" hint={current ? "Off keeps your choice below." : "Core and signatures for this side."} />
+      <Toggle checked={!custom} onChange={(on) => setCustom(!on)} label="Default parts" hint={current ? "Off keeps your choice below." : "Core, signatures and the parts for EMF, EML, ShroudForge and Enshwick mods, for this side."} />
       {custom && (
         <div className="k-stack">
           {bundle.components.filter((c) => forSide(c, side)).map((c) => (

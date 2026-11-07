@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 # Stages Kiln's runtime for a bundle (docs/kiln/launcher/bundle.md): one folder per component holding its files at
 # their game-relative paths, plus kiln-runtime.json without files[] (kilnctl bundle create hashes and zips them).
-#   tools/package/stage.sh <stage dir> [--no-build]
+#   tools/package/stage.sh <stage dir> [--no-build] [--allow-missing]
 # Components: core (proxy, kiln-core, services, host, .NET, kiln.json, Kiln's other plugins), sigdb-server,
-# sigdb-client, admin (Kiln.Admin), emf (kiln-emf plugin), samples (hello mod + native hello plugin), shroudforge
-# (ShroudForge's runtime, GPL-3, kiln/plugins/shroudforge/, from third_party/shroudforge). The layout
-# rules are tools/deploy-server.sh's (same rsync filters), so a server install of core + sigdb-server + admin (+ emf,
-# + samples) gives the tree deploy-server.sh gives (tools/package/parity.sh checks it).
+# sigdb-client, admin (Kiln.Admin), emf (kiln-emf plugin), eml (kiln-eml, GPL-3, gpl/kiln-eml), samples (hello mod +
+# native hello plugin), shroudforge (ShroudForge's runtime, GPL-3, kiln/plugins/shroudforge/, from
+# third_party/shroudforge), enshwick (Enshwick's own loader, MIT, kiln/plugins/enshwick/, built from the pinned
+# upstream tag by native/plugins/enshwick/tools/build-runtime.sh). The layout rules are tools/deploy-server.sh's (same
+# rsync filters), so a server install of core + sigdb-server + admin (+ emf, eml, shroudforge, enshwick, + samples)
+# gives the tree deploy-server.sh gives (tools/package/parity.sh checks it).
+# Every part is required: a plugin (native/plugins/*, kiln-eml, the ShroudForge runtime, the Enshwick loader), service,
+# Kiln.Admin, Kiln.Game or the samples that fails to build stops the stage, naming it, and the staged tree must hold
+# every plugin DLL (tools/release/lib/plugins.py). --allow-missing (local dev only; refused when KILN_RELEASE_BUILD=1,
+# as in release.sh) warns and leaves such a part out instead.
 # KILN_OUT (default <repo>/.out/package) holds the build; the .NET runtime comes from tools/package/fetch-dotnet.sh.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-stage=${1:?usage: $0 <stage dir> [--no-build]}
+stage=${1:?usage: $0 <stage dir> [--no-build] [--allow-missing]}
 shift
-build=1
+build=1 allow_missing=0
 while (($#)); do
   case $1 in
     --no-build) build=0 ;;
+    --allow-missing) allow_missing=1 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -26,46 +33,61 @@ stage=$(realpath -m -- "$stage")
 export KILN_OUT=$out
 warn() { echo "stage: WARNING: $*" >&2; }
 die() { echo "stage: $*" >&2; exit 1; }
+if ((allow_missing)) && [[ ${KILN_RELEASE_BUILD:-} == 1 ]]; then die "--allow-missing is for local dev staging, never a release (KILN_RELEASE_BUILD=1)"; fi
+# a required part is missing: stop, unless --allow-missing
+missing=()
+miss() { if ((allow_missing)); then warn "$* (--allow-missing: left out)"; missing+=("$1"); else die "$*"; fi; }
 dn() { dotnet build "$@" -c Release --artifacts-path "$out/dotnet" -v q -nologo; }
+logs=$out/stage-logs
+mkdir -p "$logs"
+# runs a build quietly into $logs/<name>.log; on failure prints its tail and returns 1
+built() { # name command...
+  local name=$1; shift
+  if "$@" >"$logs/$name.log" 2>&1; then return 0; fi
+  tail -25 "$logs/$name.log" >&2
+  return 1
+}
 
 "$repo/tools/package/fetch-dotnet.sh" >/dev/null
 if ((build)); then
   "$repo/native/build.sh" kiln-core kiln-proxy kiln-native-hello >/dev/null
   for dir in "$repo"/native/services/*/; do
     svc=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
-    "$repo/native/build.sh" "kiln-$svc" >/dev/null 2>&1 || warn "native service $svc failed to build; skipped"
+    built "kiln-$svc" "$repo/native/build.sh" "kiln-$svc" || miss "native service kiln-$svc failed to build (log: $logs/kiln-$svc.log)"
   done
+  # Kiln's compatibility plugins: each native/plugins/<p> is the target kiln-<p> (kiln-shroudlink needs cargo xwin)
   for dir in "$repo"/native/plugins/*/; do
     p=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
-    if [[ $p == shroudforge ]]; then
-      "$repo/native/build.sh" "kiln-$p" || die "ShroudForge adapter failed to build"
-    else
-      "$repo/native/build.sh" "kiln-$p" >/dev/null 2>&1 || warn "native plugin $p failed to build; skipped"
-    fi
+    built "kiln-$p" "$repo/native/build.sh" "kiln-$p" || miss "native plugin kiln-$p failed to build (log: $logs/kiln-$p.log)"
   done
   dn "$repo/managed/Kiln.Host/Kiln.Host.csproj" -o "$out/host" >/dev/null
   for proj in "$repo"/managed/services/*/*.csproj; do
     [[ -f $proj ]] || continue
-    if [[ $(basename "$proj") == Kiln.Eml.csproj ]]; then
-      dn "$proj" -o "$out/host" || die "Kiln.Eml failed to build"
-    else
-      dn "$proj" -o "$out/host" >/dev/null 2>&1 || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
-    fi
+    name=$(basename "$proj" .csproj)
+    built "$name" dn "$proj" -o "$out/host" || miss "managed service $name failed to build (log: $logs/$name.log)"
   done
-  dn "$repo/managed/Kiln.Game/Kiln.Game.csproj" -o "$out/host" >/dev/null 2>&1 || warn "Kiln.Game failed to build; skipped"
-  dn "$repo/mods/samples/Hello/Hello.csproj" -o "$out/mods/hello" >/dev/null || warn "Hello sample failed to build"
-  dn "$repo/mods/Kiln.Admin/Kiln.Admin.csproj" -o "$out/mods/kiln-admin" >/dev/null || warn "Kiln.Admin failed to build"
+  built Kiln.Game dn "$repo/managed/Kiln.Game/Kiln.Game.csproj" -o "$out/host" || miss "Kiln.Game failed to build (log: $logs/Kiln.Game.log)"
+  built Hello dn "$repo/mods/samples/Hello/Hello.csproj" -o "$out/mods/hello" || miss "Hello sample failed to build (log: $logs/Hello.log)"
+  built Kiln.Admin dn "$repo/mods/Kiln.Admin/Kiln.Admin.csproj" -o "$out/mods/kiln-admin" || miss "Kiln.Admin failed to build (log: $logs/Kiln.Admin.log)"
   # kiln-eml: the GPL-3 EML plugin, its own Cargo workspace in gpl/kiln-eml (docs/kiln/eml.md); lands in bin/plugins
   [[ -x $repo/gpl/kiln-eml/build.sh ]] || die "missing kiln-eml build source"
-  "$repo/gpl/kiln-eml/build.sh" || die "kiln-eml build failed"
+  built kiln-eml "$repo/gpl/kiln-eml/build.sh" || miss "plugin kiln-eml failed to build (log: $logs/kiln-eml.log)"
+  # Enshwick's own loader (MIT), which kiln-enshwick hosts: built from the pinned upstream tag + commit
+  built enshwick-loader env CARGO_TARGET_DIR="$out/cargo-enshwick" \
+    "$repo/native/plugins/enshwick/tools/build-runtime.sh" --out "$out/enshwick-runtime" \
+    || miss "Enshwick loader (enshwick.dll for kiln-enshwick) failed to build (log: $logs/enshwick-loader.log)"
 fi
 bin=$out/cmake/bin
 [[ -f $bin/dinput8.dll && -f $bin/kiln-core.dll && -f $out/host/Kiln.Host.dll ]] || die "no Kiln build in $out (run without --no-build)"
-if ((build)); then
-  for required in "$bin/plugins/kiln-eml.dll" "$bin/plugins/kiln-shroudforge.dll" "$out/host/Kiln.Eml.dll"; do
-    [[ -s $required ]] || die "required component build failed to produce $required"
-  done
-fi
+# every plugin the bundle must hold, built now or before (--no-build): a build step that "succeeded" without its DLL
+# is caught here too
+for dir in "$repo"/native/plugins/*/; do
+  p=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
+  grep -q "Builds no plugin" "$dir/CMakeLists.txt" && continue  # compat: shared code and host tests (plugins.py NO_PLUGIN)
+  [[ -s $bin/plugins/kiln-$p.dll ]] || miss "native plugin kiln-$p: no $bin/plugins/kiln-$p.dll"
+done
+[[ -s $bin/plugins/kiln-eml.dll ]] || miss "plugin kiln-eml: no $bin/plugins/kiln-eml.dll"
+[[ -s $out/host/Kiln.Eml.dll ]] || miss "managed service Kiln.Eml: no $out/host/Kiln.Eml.dll"
 dotnet_root=$repo/.cache/dotnet-win-x64/root
 
 rm -rf "$stage"
@@ -108,7 +130,20 @@ if [[ -d $out/shroudforge-build/shroudforge ]]; then
   rsync -a --delete "$out/shroudforge-build/shroudforge/" "$stage/shroudforge/kiln/plugins/shroudforge/"
 else
   ((build == 0)) || die "ShroudForge build failed to produce shroudforge-runtime.dll"
-  warn "no ShroudForge runtime build ($sfsrc/kiln/build.sh): no shroudforge component"
+  miss "ShroudForge runtime: no build in $out/shroudforge-build ($sfsrc/kiln/build.sh)"
+fi
+# Enshwick's loader (component enshwick, MIT): kiln-enshwick (core) runs the game's own mods/enshwick/enshwick.dll
+# when it is there, otherwise this copy (docs/kiln/engines/enshwick.md, "loader": "auto"). Its licence goes with it.
+ew=$out/enshwick-runtime
+if [[ -s $ew/enshwick.dll ]]; then
+  for required in LICENSE enshwick-version.txt; do
+    [[ -s $ew/$required ]] || die "incomplete Enshwick loader build: $ew/$required"
+  done
+  mkdir -p "$stage/enshwick/kiln/plugins/enshwick"
+  install -m 644 "$ew/enshwick.dll" "$ew/enshwick-version.txt" "$stage/enshwick/kiln/plugins/enshwick/"
+  install -m 644 "$ew/LICENSE" "$stage/enshwick/kiln/plugins/enshwick/LICENSE.txt"
+else
+  miss "Enshwick loader: no $ew/enshwick.dll (native/plugins/enshwick/tools/build-runtime.sh)"
 fi
 # sigdb per side
 s=$stage/sigdb-server/kiln/sigdb
@@ -171,7 +206,7 @@ known = {
                      "description": "symbol definitions (composed client.d) and verified builds of the game client"},
     "admin": {"sides": ["server"], "default": True, "requires": ["core"],
               "description": "Kiln.Admin: the file bridge and KAP/1 admin transport"},
-    "emf": {"sides": ["server", "client"], "default": False, "requires": ["core"],
+    "emf": {"sides": ["server", "client"], "default": True, "requires": ["core"],
             "description": "kiln-emf: runs EMF mods on Kiln's services"},
     "samples": {"sides": ["server"], "default": False, "requires": ["core"],
                 "description": "the hello sample mod and the native hello plugin"},
@@ -179,6 +214,8 @@ known = {
             "description": "kiln-eml (GPL-3.0, gpl/kiln-eml): runs EML mods (Enshrouded Mod Loader) before the game starts"},
     "shroudforge": {"sides": ["server", "client"], "default": True, "requires": ["core"],
                     "description": "ShroudForge's runtime (frostdev-ops/shroudforge fork, GPL-3.0): runs ShroudForge mods through kiln-shroudforge"},
+    "enshwick": {"sides": ["server", "client"], "default": True, "requires": ["core"],
+                 "description": "Enshwick's own loader (enshwick/enshwick, MIT), built from its pinned tag: runs Enshwick mods through kiln-enshwick"},
 }
 present = {d for d in os.listdir(stage) if os.path.isdir(os.path.join(stage, d))}
 unknown = present - set(known)
@@ -202,4 +239,10 @@ m = {"format": 1, "kiln": version, "abi": abi, "api": api, "dotnet": nets[-1] if
 json.dump(m, open(os.path.join(stage, "kiln-runtime.json"), "w"), indent=2)
 open(os.path.join(stage, "kiln-runtime.json"), "a").write("\n")
 PY
+# every plugin DLL the runtime must hold, in its default component (tools/release/lib/plugins.py)
+if ((allow_missing)); then
+  python3 -I "$repo/tools/release/lib/plugins.py" check --src "$repo" "$stage" >&2 || warn "the stage misses plugins (--allow-missing): ${missing[*]:-see above}"
+else
+  python3 -I "$repo/tools/release/lib/plugins.py" check --src "$repo" "$stage" >&2 || die "the stage misses required plugins (see above)"
+fi
 echo "staged Kiln $(cat "$repo/VERSION") in $stage: $(cd "$stage" && find . -type f -not -name kiln-runtime.json | wc -l) files in $(cd "$stage" && ls -d */ | tr -d / | tr '\n' ' ')"

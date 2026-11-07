@@ -7,7 +7,7 @@ and 5.7 (`schema/kiln-runtime.schema.json`, `schema/install-receipt.schema.json`
 ## Building one
 ```sh
 tools/package/package.sh [--out dist] [--no-build]      # = stage.sh + kilnctl bundle create (+ verify)
-tools/package/stage.sh <stage dir> [--no-build]         # build (like deploy-server.sh) and lay the components out
+tools/package/stage.sh <stage dir> [--no-build] [--allow-missing]  # build (like deploy-server.sh) and lay the components out
 kilnctl bundle create <stage dir> --out dist [--git SHA] [--epoch S]
 kilnctl bundle verify dist/kiln-runtime-*.zip
 tools/package/parity.sh dist/kiln-runtime-*.zip [--samples]   # bundle install == deploy-server.sh tree (diff -r)
@@ -35,8 +35,18 @@ is an error.
 | `sigdb-server` | server | yes | `kiln/sigdb/server.json`, `server.d/*.json`, `builds/server/*.json` |
 | `sigdb-client` | client | yes | `kiln/sigdb/client.json`, `client.d/*.json` (`tools/sigport/sides.py compose client`), `builds/client/*.json` |
 | `admin` | server | yes | `kiln/mods/kiln-admin/{Kiln.Admin.dll,.pdb,kiln.mod.json}` |
-| `emf` | server, client | no | `kiln/plugins/kiln-emf.{dll,pdb}` |
+| `emf` | server, client | yes | `kiln/plugins/kiln-emf.{dll,pdb}` |
+| `eml` | server, client | yes | `kiln/plugins/kiln-eml.dll` (GPL-3.0, `gpl/kiln-eml`) + `kiln-eml.LICENSE.txt`, `kiln-eml.NOTICE.txt` |
+| `shroudforge` | server, client | yes | `kiln/plugins/shroudforge/**`: ShroudForge's runtime (GPL-3.0, `third_party/shroudforge`), its notice, source pointer and licences |
+| `enshwick` | server, client | yes | `kiln/plugins/enshwick/{enshwick.dll,enshwick-version.txt,LICENSE.txt}`: Enshwick's own loader (MIT), built from the pinned tag and commit by `native/plugins/enshwick/tools/build-runtime.sh`; kiln-enshwick runs it when the game has no `mods/enshwick/enshwick.dll` |
 | `samples` | server | no | `kiln/mods/hello/`, `kiln/plugins/kiln-native-hello.dll` |
+
+Kiln runs every engine's mods, so every compatibility plugin is installed by default on both sides: the
+`native/plugins/*` plugins (in `core`, kiln-emf in `emf`), kiln-eml, the ShroudForge runtime and Enshwick's loader.
+stage.sh stops, naming the part, when any of them (or a service, Kiln.Admin, Kiln.Game, the samples) fails to build;
+`--allow-missing` (local dev staging only, refused when `KILN_RELEASE_BUILD=1`) warns and leaves it out instead.
+`tools/release/lib/plugins.py check` checks that a stage or a runtime zip holds every plugin file in a default
+component for both sides; stage.sh runs it, release.sh runs it right after `bundle create` and again in its checks.
 
 The rsync filters are deploy-server.sh's (services `*.dll|*.pdb`, host `Kiln.*`, mod folders without the shared
 `Kiln.*`, `*.deps.json`, `*.runtimeconfig.json` except the entry assembly and exports). Other mod folders in

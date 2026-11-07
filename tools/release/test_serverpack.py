@@ -45,7 +45,7 @@ def runtime_fixture(path, files, components=None, extra_entries=(), tamper=None)
         "sigdb-server": {"sides": ["server"], "default": True, "requires": ["core"]},
         "sigdb-client": {"sides": ["client"], "default": True, "requires": ["core"]},
         "admin": {"sides": ["server"], "default": True, "requires": ["core"]},
-        "emf": {"sides": ["server", "client"], "default": False, "requires": ["core"]},
+        "emf": {"sides": ["server", "client"], "default": True, "requires": ["core"]},
         "samples": {"sides": ["server"], "default": False, "requires": ["core"]},
     }
     m = {"format": 1, "version": "9.9.9-test+20260101.abcdef0", "components": components,
@@ -107,7 +107,7 @@ class FixtureTests(Base):
         # A component with no dependents must also be installed when default is absent.
         self.rewrite(rt, manifest=lambda m: m["components"]["admin"].pop("default"))
         _, result = self.build(rt)
-        self.assertEqual(result["components"], ["admin", "core", "sigdb-server"])
+        self.assertEqual(result["components"], ["admin", "core", "emf", "sigdb-server"])
         self.rewrite(rt, manifest=lambda m: m["builds"]["server"][0].pop("verified"))
         out, _ = self.build(rt)
         with zipfile.ZipFile(out) as z:
@@ -189,12 +189,13 @@ class FixtureTests(Base):
 
     def test_only_the_server_default_components(self):
         out, r = self.build(runtime_fixture(self.dir / "rt.zip", FILES))
-        self.assertEqual(r["components"], ["admin", "core", "sigdb-server"])
+        # emf is on by default since 0.2.0-dev.18 (Kiln runs every engine's mods); samples and sigdb-client stay out
+        self.assertEqual(r["components"], ["admin", "core", "emf", "sigdb-server"])
         with zipfile.ZipFile(out) as z:
             names = z.namelist()
             self.assertEqual(sorted(names), sorted(
                 ["dinput8.dll", "kiln/kiln-core.dll", "kiln/kiln.json", "kiln/sigdb/server.json",
-                 "kiln/mods/kiln-admin/kiln.mod.json", sp.README]))
+                 "kiln/mods/kiln-admin/kiln.mod.json", "kiln/plugins/kiln-emf.dll", sp.README]))
             for n in names:
                 if n != sp.README:
                     self.assertEqual(z.read(n), FILES[n][1])
@@ -202,7 +203,7 @@ class FixtureTests(Base):
         self.assertNotIn("@", readme.replace("@.service", "").replace("@.timer", ""))
         self.assertIn("Kiln server pack 9.9.9-test\n" + "=" * len("Kiln server pack 9.9.9-test") + "\n", readme)
         self.assertIn("Steam build 123", readme)
-        self.assertIn("(5 files)", readme)
+        self.assertIn("(6 files)", readme)
         self.assertEqual(sp.check(str(out), str(self.dir / "rt.zip"), TEMPLATE, "9.9.9-test", EPOCH), [])
 
     def test_requires_follow_and_a_new_default_server_component_joins(self):
@@ -261,9 +262,9 @@ class FixtureTests(Base):
         with zipfile.ZipFile(out) as src, zipfile.ZipFile(bad, "w") as dst:
             for i in src.infolist():
                 dst.writestr(i, src.read(i))
-            dst.writestr(zipfile.ZipInfo("kiln/plugins/kiln-emf.dll", date_time=(2026, 11, 7, 17, 22, 14)), b"MZ emf")
+            dst.writestr(zipfile.ZipInfo("kiln/mods/hello/Hello.dll", date_time=(2026, 11, 7, 17, 22, 14)), b"MZ hello")
         problems = sp.check(str(bad), str(rt), TEMPLATE, "9.9.9-test", EPOCH)
-        self.assertTrue(any("kiln-emf.dll: not a server file (component emf)" in p for p in problems), problems)
+        self.assertTrue(any("Hello.dll: not a server file (component samples)" in p for p in problems), problems)
         self.assertTrue(any("other bytes" in p for p in problems), problems)
 
 

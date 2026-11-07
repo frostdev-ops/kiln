@@ -8,10 +8,11 @@
   - NuGet: the packages the shipped .NET projects reference (from their nuspec);
   - the .NET runtime Kiln ships (its LICENSE.txt and ThirdPartyNotices.txt);
   - vendored code (native/third_party), the fonts, licenses/ (CREDITS.md);
+  - Enshwick's loader and its Windows crates (--enshwick-src: the pinned checkout the runtime's enshwick.dll is from);
   - optionally the system libraries bundled into the Linux AppImage (--appimage-root: the unpacked AppImage; owners
     and licences from the system package manager, pacman or dpkg).
 
-  notices.py --src <export> --out FILE [--dotnet-root DIR] [--appimage-root DIR] [--nuget-assets FILE]...
+  notices.py --src <export> --out FILE [--dotnet-root DIR] [--appimage-root DIR] [--nuget-assets FILE]... [--enshwick-src DIR]
 """
 import argparse
 import glob
@@ -310,6 +311,47 @@ def sf_crates(src):
     return result
 
 
+def enshwick_entries(root):
+    """Enshwick's loader (component enshwick, kiln/plugins/enshwick/enshwick.dll, MIT), built from the pinned checkout
+    native/plugins/enshwick/tools/build-runtime.sh made: one entry for the loader (its LICENSE, tag and commit), then
+    the crates of its Windows build that are not part of Enshwick's own workspace."""
+    if not os.path.isdir(os.path.join(root, ".git")) or not os.path.isfile(os.path.join(root, "LICENSE")):
+        raise RuntimeError(f"notices: no Enshwick checkout with a LICENSE at {root}")
+    try:
+        version = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise RuntimeError(f"notices: {root} is not a git checkout") from e
+    meta = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", TARGETS[1]], cwd=root))
+    packages = {p["id"]: p for p in meta["packages"]}
+    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    members = set(meta["workspace_members"])
+    stack = [p["id"] for p in meta["packages"] if p["name"] == "enshwick-loader"]
+    if not stack:
+        raise RuntimeError("notices: enshwick-loader is absent from Enshwick's cargo metadata")
+    loader = packages[stack[0]]
+    entries = [(f"Enshwick loader (enshwick.dll, component \"enshwick\", kiln/plugins/enshwick/)",
+                f"{loader['version']} (commit {version})", loader.get("license") or "MIT",
+                "https://github.com/enshwick/enshwick", [("LICENSE", read(os.path.join(root, "LICENSE")))])]
+    seen = set()
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        for dep in nodes[key]["deps"]:
+            if any(k["kind"] is None for k in dep["dep_kinds"]):
+                stack.append(dep["pkg"])
+    for pkg in sorted((packages[k] for k in seen if k not in members), key=lambda p: (p["name"], p["version"])):
+        directory = os.path.dirname(pkg["manifest_path"])
+        files = license_files(directory)
+        if pkg.get("license_file") and os.path.isfile(os.path.join(directory, pkg["license_file"])):
+            files.append(os.path.join(directory, pkg["license_file"]))
+        entries.append((pkg["name"], pkg["version"], pkg.get("license") or "see the licence file", pkg.get("repository") or "",
+                        [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
+    return entries
+
+
 def tree_entries(items):
     """items: (name, version, license, url, [paths])"""
     return [(n, v, l, u, [(os.path.basename(p), read(p)) for p in ps if os.path.isfile(p)]) for n, v, l, u, ps in items]
@@ -372,6 +414,7 @@ def main():
     ap.add_argument("--appimage-root")
     ap.add_argument("--append-appimage", action="store_true", help="append only the bundled system libraries to existing host notices")
     ap.add_argument("--nuget-assets", action="append", default=[])
+    ap.add_argument("--enshwick-src", help="Enshwick's pinned checkout (build-runtime.sh), when the runtime ships its loader")
     a = ap.parse_args()
     if a.append_appimage:
         if not a.appimage_root or not os.path.isfile(a.out):
@@ -405,6 +448,9 @@ def main():
         [(os.path.basename(p).rsplit(".", 1)[0], "", "", "", [p]) for p in sorted(glob.glob(os.path.join(lic, "*")))]))
     if glob.glob(os.path.join(src, "gpl", "*", "Cargo.toml")):
         n.add("GPL plugins (separate programs under GPL-3.0-or-later, source in gpl/: kiln-eml runs EML mods)", gpl_plugins(src))
+    if a.enshwick_src:
+        n.add("Enshwick's loader (MIT, built from its pinned tag; kiln-enshwick runs it) and its Rust dependencies (Windows)",
+              enshwick_entries(os.path.abspath(a.enshwick_src)))
     if a.dotnet_root:
         n.add(".NET runtime (kiln/dotnet in the runtime)", tree_entries(
             [(".NET runtime", "", "MIT", "https://github.com/dotnet/runtime",

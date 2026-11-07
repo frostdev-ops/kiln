@@ -27,7 +27,8 @@ install)**.
 
 Unzipped into the folder with `enshrouded_server.exe`, it's a complete install. It is the same set of files that
 `kilnctl deploy --bundle` installs on a server, byte for byte (checked on 0.2.0-dev.17: 380 files, about 117 MB
-unpacked, 50 MB zipped). It leaves out the client parts, EMF support and the sample mod.
+unpacked, 50 MB zipped). It leaves out the client parts and the sample mod. Since 0.2.0-dev.18 it also holds the parts
+that run EMF, EML, ShroudForge and Enshwick mods (default parts on both sides), so it is larger than those dev.17 numbers.
 
 Before you start, every route:
 - Stop the server.

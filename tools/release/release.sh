@@ -40,7 +40,7 @@
 #   glibc symbol version above 2.35, the server pack (only the server components, the runtime's bytes, rebuilt
 #   byte-identically) and the systemd units, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway
 #   container: --selftest and the launcher's window),a mod from the packed templates built against the packed SDK,
-#   the vsix's files, Authenticode signatures (when signed), and a scan of every file and archive for game data, home
+#   the vsix's files, Authenticode signatures (when signed), every plugin DLL in the runtime's manifest (lib/plugins.py), and a scan of every file and archive for game data, home
 #   paths, keys, passwords and tokens.
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
 set -euo pipefail
@@ -232,6 +232,13 @@ notices=$work/notices/THIRD-PARTY-NOTICES.txt
 mapfile -t assets < <(find "$KILN_OUT/dotnet/obj" -name project.assets.json -not -path '*Tests*' 2>/dev/null | sort)
 nuget_args=()
 for a in "${assets[@]}"; do nuget_args+=(--nuget-assets "$a"); done
+# Enshwick's loader (component enshwick, MIT): its licence and crates come from the pinned checkout it was built from
+ew_version=$stage/enshwick/kiln/plugins/enshwick/enshwick-version.txt
+if [[ -f $ew_version ]]; then
+  ew_src=$KILN_OUT/runtime-src/enshwick-$(sed -n 1p "$ew_version")
+  [[ $(git -C "$ew_src" rev-parse HEAD 2>/dev/null) == "$(sed -n 2p "$ew_version")" ]] || die "Enshwick's checkout $ew_src is not the commit the loader was built from"
+  nuget_args+=(--enshwick-src "$ew_src")
+fi
 python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
   "${nuget_args[@]}" | tee -a "$log"
 if [[ -f $stage/eml/kiln/plugins/kiln-eml.dll ]]; then
@@ -258,6 +265,11 @@ step "runtime bundle"
 rm -rf "$work/dist" && mkdir -p "$work/dist"
 quiet "$kilnctl" bundle create "$stage" --out "$work/dist" --git "$KILN_GIT" --epoch "$SOURCE_DATE_EPOCH"
 runtime_zip=$(ls "$work"/dist/kiln-runtime-*.zip)
+# Kiln is the universal loader: every compatibility plugin (native/plugins/*, kiln-eml, the ShroudForge runtime,
+# Enshwick's loader) must be in the runtime, in a default component for both sides; a missing one stops the release
+if ! python3 -I "$lib/plugins.py" check --src "$src" "$runtime_zip" 2>&1 | tee -a "$log"; then
+  die "the runtime misses plugins (see above)"
+fi
 runtime_version=$(basename "$runtime_zip" .zip); runtime_version=${runtime_version#kiln-runtime-}
 note "runtime $runtime_version"
 

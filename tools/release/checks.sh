@@ -199,6 +199,8 @@ run_checks() {
   check "the direct builds still hold their self-update (feeds, updater key, plugin)" check_direct_updater
   [[ -n $rpm ]] && check "rpm contains usr/bin/kiln-launcher" check_rpm
   check "kilnctl bundle verify on the runtime zip" "$out/runtime/kilnctl" bundle verify "$out/runtime/kiln-runtime-$version.zip"
+  check "the runtime manifest lists every plugin DLL (native/plugins/*, kiln-eml, ShroudForge runtime, Enshwick loader), default on both sides" \
+    python3 -I "$lib/plugins.py" check --src "$src" "$out/runtime/kiln-runtime-$version.zip"
   check "kilnctl and kiln --version (Linux)" check_cli_versions
   check "server pack: only the server components, the runtime's files, rebuilt byte-identically; systemd units" \
     check_server_pack
