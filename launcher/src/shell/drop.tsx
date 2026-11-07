@@ -3,13 +3,13 @@
 // and Undo (profile_revert: out of the profile again, the library copy stays); missing requirements are named in one
 // line. Modpack zips go through the consent dialog (modpack_install). Settings "Add new mods to the active profile"
 // off: drops are only imported into the library. Drops on a DropZone (Library's niche, Runtime's row) are its own.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import * as api from "../api/commands";
-import type { AddReport, GameStatus, ImportReport, LauncherSettings, ModpackInstallResult } from "../api/commands";
+import type { AddReport, GameInstall, GameStatus, ImportReport, LauncherSettings, ModpackInstallResult } from "../api/commands";
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfiles, useSettings } from "../api/hooks";
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
@@ -20,11 +20,17 @@ function names(m: { name: string }[]): string {
 }
 
 /** A modpack zip dropped on the window, waiting for the player's yes. */
-export const useDropModpack = create<{ path: string | null }>(() => ({ path: null }));
+export const useDropModpack = create<{ offers: { game: GameInstall; path: string }[] }>(() => ({ offers: [] }));
+function offerModpacks(game: GameInstall, paths: string[]) {
+  useDropModpack.setState((s) => ({ offers: [...s.offers, ...paths.filter((path) => !s.offers.some((o) => o.game.id === game.id && o.path === path)).map((path) => ({ game, path }))] }));
+}
+
+const addQueues = new WeakMap<QueryClient, Promise<unknown>>();
+const pendingAdds = new WeakMap<QueryClient, Map<string, Promise<AddReport | null>>>();
 
 /** The drop's work, shared by the window, Library's niche and a drop made before Kiln was installed. Resolves with the
  *  report (null when nothing ran). */
-export function useAddMods(): (paths: string[]) => Promise<AddReport | null> {
+export function useAddMods(): (paths: string[], target?: GameInstall) => Promise<AddReport | null> {
   const qc = useQueryClient();
   const nav = useNavigate();
   const { game } = useGame();
@@ -33,59 +39,70 @@ export function useAddMods(): (paths: string[]) => Promise<AddReport | null> {
   const ref = useRef({ game, status: status.data, settings: settings.data });
   ref.current = { game, status: status.data, settings: settings.data };
 
-  const refresh = (profileId: string | null) => {
+  const refresh = (profileId: string | null, gameId?: string) => {
     qc.invalidateQueries({ queryKey: ["library_list"] });
     qc.invalidateQueries({ queryKey: ["profile_resolve"] });
     if (profileId) qc.invalidateQueries({ queryKey: qk.profile(profileId) });
-    if (ref.current.game) invalidateGame(qc, ref.current.game.id);
+    if (gameId) invalidateGame(qc, gameId);
   };
 
-  const undo = async (r: AddReport) => {
+  const undo = async (r: AddReport, gameId: string) => {
     try {
-      await api.profileRevert(r.profileId!, r.changes);
-      refresh(r.profileId);
+      const p = await api.profileRevert(r.profileId!, r.changes);
+      refresh(r.profileId, gameId);
+      const kept = r.changes.filter((c) => {
+        const m = p.mods[c.kind].find((m) => m.id === c.after.id);
+        return c.before ? !m || m.version !== c.before.version || m.hash !== c.before.hash || m.enabled !== c.before.enabled : !!m;
+      });
+      if (kept.length) { toast.info("Undo kept later changes", `${kept.length} mod${kept.length === 1 ? " was" : "s were"} changed since this add.`); return; }
       // new entries leave the profile; one that replaced another version (or was switched on) goes back to that
       toast.ok(r.changes.every((c) => !c.before) ? `Removed ${names(r.added)}` : "Undone");
     } catch (e) { toast.error(e, "Undo failed"); }
   };
 
-  const importOnly = async (paths: string[]) => {
+  const importOnly = async (paths: string[], game: GameInstall | null) => {
     try {
-      const r = await runTask<ImportReport>(() => api.libraryImport(paths), { failed: "Import failed" });
+      const detected = await Promise.all(paths.map((p) => api.libraryDetect(p)));
+      const packs = detected.filter((d) => d.kind === "modpack" && /\.zip$/i.test(d.path)).map((d) => d.path);
+      if (packs.length && game) offerModpacks(game, packs);
+      else if (packs.length) toast.info("No game yet", "Find Enshrouded on Play before installing a modpack.");
+      const files = paths.filter((p) => !packs.includes(p));
+      if (!files.length) return null;
+      const r = await runTask<ImportReport>(() => api.libraryImport(files), { quiet: true });
       refresh(null);
       const n = r.imported.length + r.existing.length;
-      if (n) toast.ok(`Imported ${n}`, undefined, { actions: [{ label: "Library", onClick: () => nav("/library") }] });
+      if (n) toast.ok(`Imported ${n}`, r.skipped.length ? `${r.skipped.length} skipped: ${r.skipped[0].reason}.` : undefined, { actions: [{ label: "Library", onClick: () => nav("/library") }] });
       else toast.info("Nothing to import", r.skipped[0]?.reason);
-    } catch { /* toasted */ }
+    } catch (e) { toast.error(e, "Import failed"); }
     return null;
   };
 
-  return async (paths: string[]) => {
+  const add = async (paths: string[], game: GameInstall | null) => {
     // the cache as it is now, not as it was at the last render (an add right after Install Kiln)
-    const { game } = ref.current;
-    const status = (game && qc.getQueryData<GameStatus>(qk.gameStatus(game.id))) || ref.current.status;
+    const status = (game && qc.getQueryData<GameStatus>(qk.gameStatus(game.id))) || (game?.id === ref.current.game?.id ? ref.current.status : undefined);
     const settings = qc.getQueryData<LauncherSettings>(qk.settings) ?? ref.current.settings;
     if (!paths.length) return null;
-    if (settings?.addToActiveProfile === false) return importOnly(paths);
+    if (settings?.addToActiveProfile === false) return importOnly(paths, game);
     if (!game) { toast.info("No game yet", "Find Enshrouded on Play first."); return null; }
     if (status && !status.runtime.installed) {
       if (status.runtime.proxy?.kind === "shroudforge") toast.info("Kiln is not in this game", undefined, { actions: [{ label: "Runtime", onClick: () => nav("/runtime") }] });
-      else toast.info("Install Kiln first", undefined, { actions: [{ label: "Install Kiln", onClick: () => useInstallPrompt.getState().show(paths) }] });
+      else toast.info("Install Kiln first", undefined, { actions: [{ label: "Install Kiln", onClick: () => useInstallPrompt.getState().show({ game, paths }) }] });
       return null;
     }
     let r: AddReport;
     try {
       r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: "Not added" });
     } catch { return null; }
-    refresh(r.profileId);
-    if (r.modpacks.length) useDropModpack.setState({ path: r.modpacks[0] });
+    refresh(r.profileId, game.id);
+    if (r.modpacks.length) offerModpacks(game, r.modpacks);
     const found = [...r.import.imported, ...r.import.existing];
     if (r.added.length) {
       const more = [
         r.missing.length ? `Needs ${r.missing.map((m) => m.id).join(", ")}.` : "",
         r.running ? "Applies at the next start." : "",
+        r.import.skipped.length ? `${r.import.skipped.length} skipped: ${r.import.skipped[0].reason}.` : "",
       ].filter(Boolean).join(" ");
-      toast.ok(`Added ${names(r.added)}`, more || undefined, { actions: [{ label: "Undo", onClick: () => void undo(r) }] });
+      toast.ok(`Added ${names(r.added)}`, more || undefined, { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
     } else if (r.already.length) {
       toast.info(`Already in ${r.profileName ?? "the profile"}`);
     } else if (!r.profileId && found.length) {
@@ -95,6 +112,19 @@ export function useAddMods(): (paths: string[]) => Promise<AddReport | null> {
       toast.info("Nothing to add", r.import.skipped[0]?.reason);
     }
     return r;
+  };
+  return (paths, target) => {
+    const game = target ?? ref.current.game;
+    const key = JSON.stringify([game?.id, [...new Set(paths)].sort()]);
+    const pending = pendingAdds.get(qc) ?? new Map<string, Promise<AddReport | null>>();
+    pendingAdds.set(qc, pending);
+    const existing = pending.get(key);
+    if (existing) return existing;
+    const job = (addQueues.get(qc) ?? Promise.resolve()).then(() => add([...new Set(paths)], game));
+    pending.set(key, job);
+    addQueues.set(qc, job.catch(() => {}));
+    void job.finally(() => pending.delete(key)).catch(() => {});
+    return job;
   };
 }
 
@@ -122,11 +152,12 @@ export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
       const at = (p?: { x: number; y: number }) => (p ? document.elementFromPoint(p.x / window.devicePixelRatio, p.y / window.devicePixelRatio) : null);
       import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
         getCurrentWebview().onDragDropEvent((e) => {
+          if (!live) return;
           const p = e.payload;
           if (p.type === "enter" || p.type === "over") setOver(windowTakes(at(p.position)));
           else if (p.type === "drop") { setOver(false); if (p.paths.length && windowTakes(at(p.position))) cb.current(p.paths); }
           else setOver(false);
-        })).then((f) => (live ? (off = f) : f()));
+        })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, "File drops unavailable"); });
       return () => { live = false; off?.(); };
     }
     // a plain browser (mock mode): HTML5 drag events; the file names stand in for paths
@@ -173,17 +204,21 @@ export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
 /** The consent dialog for a dropped modpack zip: what it is and what it adds, "this runs code on your PC", a box to
  *  tick, then modpack_install (a profile bound to its server, activated), as for a server's offer on Play. */
 export function ModpackDropOffer() {
+  const offer = useDropModpack((s) => s.offers[0]);
+  if (!offer) return null;
+  return <DroppedModpack key={`${offer.game.id}:${offer.path}`} game={offer.game} path={offer.path} />;
+}
+
+function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
   const qc = useQueryClient();
-  const { game } = useGame();
-  const path = useDropModpack((s) => s.path);
+  const status = useGameStatus(game.id);
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ModpackInstallResult | null>(null);
   const preview = useQuery({
-    queryKey: ["modpack_inspect", game?.id, path], queryFn: () => api.modpackInspect(game!.id, { path: path! }), enabled: !!game && !!path, retry: false,
+    queryKey: ["modpack_inspect", game.id, path], queryFn: () => api.modpackInspect(game.id, { path }), retry: false,
   });
-  if (!path || !game) return null;
-  const close = () => { useDropModpack.setState({ path: null }); setAgree(false); setDone(null); };
+  const close = () => useDropModpack.setState((s) => ({ offers: s.offers.slice(1) }));
   const p = preview.data;
   const file = path.split(/[\\/]/).pop() ?? path;
   const server = p?.server.name ?? p?.manifest?.server.name ?? p?.server.id ?? null;
@@ -200,7 +235,7 @@ export function ModpackDropOffer() {
     <Modal open onClose={close} locked={busy} width={560} title={done ? "Modpack installed" : "Install this modpack?"}
       footer={done ? <Button onClick={close}>Close</Button> : (
         <><Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
-          <Button variant="primary" disabled={!agree || !!preview.error || preview.isLoading} loading={busy} onClick={install}>Install</Button></>
+          <Button variant="primary" disabled={!agree || !preview.data || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} loading={busy} onClick={install}>Install</Button></>
       )}>
       {done ? (
         <span>{done.profile.name} is active.</span>
@@ -221,6 +256,7 @@ export function ModpackDropOffer() {
             <span className="k-row" style={{ gap: 8 }}><ShieldAlert size={16} />Install only modpacks you trust.</span>
           </Banner>
           <Toggle checked={agree} onChange={setAgree} label="I trust it and want its mods" />
+          {status.data?.running && <span className="k-hint">Close the game first.</span>}
         </div>
       )}
     </Modal>

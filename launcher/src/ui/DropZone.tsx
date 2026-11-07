@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTauri } from "../api/commands";
 import { Button } from "./Button";
 import { TextInput } from "./Form";
+import { toast } from "./Toast";
 
 export interface PickOptions {
   directory?: boolean;
@@ -48,54 +49,64 @@ export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickF
   const [over, setOver] = useState(false);
   const cb = useRef(onPaths);
   cb.current = onPaths;
+  const blocked = !!disabled || !!busy;
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
 
   useEffect(() => {
-    if (!isTauri() || disabled) return;
+    if (!isTauri()) return;
     let off: (() => void) | undefined;
     let live = true;
     const inside = (p?: { x: number; y: number }) => {
       const r = ref.current?.getBoundingClientRect();
-      if (!r || !p) return false;
+      if (!r || !p || blockedRef.current) return false;
       const x = p.x / window.devicePixelRatio, y = p.y / window.devicePixelRatio;
-      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      const at = document.elementFromPoint(x, y);
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && !!at && !!ref.current?.contains(at);
     };
     import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
       getCurrentWebview().onDragDropEvent((e) => {
+        if (!live) return;
         const p = e.payload;
         if (p.type === "over" || p.type === "enter") setOver(inside(p.position));
         else if (p.type === "drop") { setOver(false); if (inside(p.position) && p.paths.length) cb.current(p.paths); }
         else setOver(false);
-      })).then((f) => (live ? (off = f) : f()));
+      })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, "File drops unavailable"); });
     return () => { live = false; off?.(); };
-  }, [disabled]);
+  }, []);
 
   const browserDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setOver(false);
-    if (disabled || isTauri()) return;
+    e.stopPropagation();
+    if (blocked || isTauri()) return;
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
+    if (dialog && !dialog.contains(ref.current)) return;
     const names = [...e.dataTransfer.files].map((f) => f.name);
     if (names.length) cb.current(names);
   };
   const choose = async (directory: boolean) => {
-    const r = await pickPaths({ ...pick, directory, multiple: true });
-    if (r?.length) onPaths(r);
+    try {
+      const r = await pickPaths({ ...pick, directory, multiple: true });
+      if (r?.length && !blockedRef.current) cb.current(r);
+    } catch (e) { toast.error(e, "Could not open files"); }
   };
 
   const desk = isTauri() ? undefined : "Needs the desktop app";
   const buttons = (
     <div className="k-row" style={{ gap: 6 }}>
-      <Button size={variant === "row" ? "s" : "m"} disabled={disabled || !isTauri()} title={desk} onClick={() => choose(false)}>Files</Button>
-      {pickFolder && <Button size={variant === "row" ? "s" : "m"} disabled={disabled || !isTauri()} title={desk} onClick={() => choose(true)}>Folder</Button>}
+      <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(false)}>Files</Button>
+      {pickFolder && <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(true)}>Folder</Button>}
     </div>
   );
   const dragProps = {
-    onDragOver: (e: React.DragEvent) => { e.preventDefault(); if (!isTauri()) setOver(true); },
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); if (!isTauri() && !blocked) setOver(true); },
     onDragLeave: () => !isTauri() && setOver(false),
     onDrop: browserDrop,
   };
   if (variant === "row") {
     return (
-      <div ref={ref} className={"k-drop" + (over ? " over" : "")} aria-disabled={disabled || undefined} {...dragProps}>
+      <div ref={ref} className={"k-drop" + (over && !blocked ? " over" : "")} aria-disabled={blocked || undefined} {...dragProps}>
         <span className="k-drop-title">{title}</span>
         {hint && <span className="k-drop-hint">{hint}</span>}
         {buttons}
@@ -104,7 +115,7 @@ export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickF
   }
   const hot = over || !!busy;
   return (
-    <div ref={ref} className={"k-niche" + (hot ? " hot" : "")} aria-disabled={disabled || undefined} data-drop {...dragProps}>
+    <div ref={ref} className={"k-niche" + (hot ? " hot" : "")} aria-disabled={blocked || undefined} data-drop {...dragProps}>
       <div className="k-niche-fire" aria-hidden><i /></div>
       <svg viewBox="0 0 232 300" aria-hidden><path d={NICHE} /></svg>
       <div className="k-niche-in">

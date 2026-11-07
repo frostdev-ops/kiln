@@ -3,7 +3,7 @@
 // The Nexus Mods build (api/distribution.ts) has no launcher updates: its row is "New versions: Nexus Mods" (A opens
 // the Kiln page there in the browser), and no update command is called.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { UiMode, UpdateStatus } from "../../api/commands";
@@ -29,6 +29,8 @@ export default function Settings() {
   const pads = usePads();
   const [quit, setQuit] = useState(false);
   const [full, setFull] = useState<boolean | null>(null);
+  const [upBusy, setUpBusy] = useState(false);
+  const updateLock = useRef(false);
   const dist = useDistribution();
   const selfUpdates = dist === "direct";
   const up = useQuery({ queryKey: ["update_status"], queryFn: api.updateStatus, retry: false, enabled: selfUpdates });
@@ -48,6 +50,13 @@ export default function Settings() {
     try { qc.setQueryData(["update_status"], await runTask<UpdateStatus>(() => api.updateInstall(), { failed: "Update failed" })); } catch { /* toasted */ }
   };
   const restart = () => api.updateRestart().catch((e) => toast.error(e));
+  const update = async () => {
+    if (!selfUpdates || updateLock.current) return;
+    updateLock.current = true;
+    setUpBusy(true);
+    try { await (u?.ready ? restart() : u?.available && u.install.inPlace ? install() : check()); }
+    finally { updateLock.current = false; setUpBusy(false); }
+  };
   let upWord = "", upTone: "ok" | "warn" | "info" | "idle" | "ember" = "idle";
   if (u) {
     if (u.ready) { upWord = `${u.ready.version} ready`; upTone = "ok"; }
@@ -78,8 +87,8 @@ export default function Settings() {
         {selfUpdates && (
           <Row id="set-update" title="Launcher updates" a={u?.ready ? "Restart" : u?.available && u.install.inPlace ? "Install" : "Check"}
             sub={u ? `Kiln Launcher ${u.current}` : undefined} end={upWord ? <Word tone={upTone}>{upWord}</Word> : undefined}
-            disabled={u?.phase === "checking" || u?.phase === "downloading"}
-            onClick={() => void (u?.ready ? restart() : u?.available && u.install.inPlace ? install() : check())} />
+            disabled={upBusy || u?.phase === "checking" || u?.phase === "downloading"}
+            onClick={() => void update()} />
         )}
         {dist === "nexus" && (
           <Row id="set-versions" title="New versions" a="Open" sub={info.data ? `Kiln Launcher ${info.data.version}` : undefined}

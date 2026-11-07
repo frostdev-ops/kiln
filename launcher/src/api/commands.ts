@@ -898,15 +898,22 @@ export interface UpdateStatus {
   taskId: TaskId | null;
   error: KilnError | null;
 }
-export const updateStatus = () => call<UpdateStatus>("update_status");
-export const updateCheck = () => call<UpdateStatus>("update_check");
+/** Guard the command boundary as well as the UI: even a stale callback or a directly mounted hook cannot invoke
+ *  an updater command in the Nexus build. Failure to read the distribution also fails closed. */
+async function selfUpdateCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+  const info = await appInfo();
+  if ((info.distribution ?? "direct") !== "direct") throw { code: "unsupported", message: "Self-update is disabled in this build" } satisfies KilnError;
+  return call<T>(cmd, args);
+}
+export const updateStatus = () => selfUpdateCall<UpdateStatus>("update_status");
+export const updateCheck = () => selfUpdateCall<UpdateStatus>("update_check");
 /** Task result: UpdateStatus. */
-export const updateInstall = () => call<TaskId>("update_install");
+export const updateInstall = () => selfUpdateCall<TaskId>("update_install");
 /** Restarts into the update that is ready (Windows: runs its installer). Resolves only if that failed. */
-export const updateRestart = () => call<null>("update_restart");
+export const updateRestart = () => selfUpdateCall<null>("update_restart");
 /** null: un-skips. */
-export const updateSkip = (version: string | null) => call<UpdateStatus>("update_skip", { version });
-export const updateAck = () => call<UpdateStatus>("update_ack");
+export const updateSkip = (version: string | null) => selfUpdateCall<UpdateStatus>("update_skip", { version });
+export const updateAck = () => selfUpdateCall<UpdateStatus>("update_ack");
 
 // game.rs
 export const gameList = () => call<GameInstall[]>("game_list");

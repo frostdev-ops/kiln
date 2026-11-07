@@ -7,8 +7,9 @@ import { useState } from "react";
 import * as api from "../api/commands";
 import type { LauncherSettings, UpdateChannel, UpdateStatus } from "../api/commands";
 import { NEXUS_PAGE } from "../api/distribution";
-import { qk, useAppInfo, useDistribution, useSettings } from "../api/hooks";
+import { useAppInfo, useDistribution, useSettings } from "../api/hooks";
 import { useUpdate, useUpdateStore } from "../api/update";
+import { saveSettings } from "../deck/mode";
 import { Button, Card, Field, Select, Skeleton, Toggle, toast } from "../ui";
 
 /** Where updates stand, in a few words. */
@@ -76,18 +77,17 @@ function SelfUpdatesCard() {
   const settings = useSettings();
   const check = useCheckNow();
   const save = useMutation({
-    mutationFn: (v: LauncherSettings) => api.appSettingsSet(v),
-    onSuccess: (v) => { qc.setQueryData(qk.settings, v); api.updateStatus().then((x) => useUpdateStore.getState().setStatus(x)).catch(() => {}); },
-    onError: (e) => { toast.error(e); qc.invalidateQueries({ queryKey: qk.settings }); },
+    mutationFn: (patch: Partial<LauncherSettings>) => saveSettings(qc, () => patch),
+    onSuccess: (v) => { if (v) api.updateStatus().then((x) => useUpdateStore.getState().setStatus(x)).catch(() => {}); },
   });
   if (!s || !settings.data) return <Card title="Updates"><Skeleton /></Card>;
   const v = settings.data;
   const busy = check.busy || s.phase === "checking" || s.phase === "downloading";
-  const setChannel = (ch: string) => save.mutate({ ...v, updateChannel: ch as UpdateChannel }, { onSuccess: () => { if (v.updateCheck !== false) check.run(); } });
+  const setChannel = (ch: string) => save.mutate({ updateChannel: ch as UpdateChannel }, { onSuccess: (saved) => { if (saved && saved.updateCheck !== false) check.run(); } });
   const undo = () => api.updateSkip(null).catch(() => toast.error({ code: "internal", message: "Undo failed" }));
   return (
     <Card title="Updates" sub={<span className="k-mono">{s.current}</span>}>
-      <Toggle checked={v.updateCheck !== false} onChange={(on) => save.mutate({ ...v, updateCheck: on })} label="Check automatically" hint="Sends no personal data." />
+      <Toggle checked={v.updateCheck !== false} onChange={(on) => save.mutate({ updateCheck: on })} label="Check automatically" hint="Sends no personal data." />
       <Field label="Channel" htmlFor="st-upd-channel">
         <Select id="st-upd-channel" value={s.channel} onChange={setChannel} style={{ width: 200 }}
           options={[{ value: "stable", label: "Stable" }, { value: "dev", label: "Dev" }]} />
@@ -105,6 +105,10 @@ function SelfUpdatesCard() {
 
 /** About: the state and Check now (direct builds); the Nexus build's row is "New versions: Nexus Mods" (AboutPage). */
 export function UpdateAboutLine() {
+  return useDistribution() === "direct" ? <SelfUpdateAboutLine /> : null;
+}
+
+function SelfUpdateAboutLine() {
   const s = useUpdate();
   const check = useCheckNow();
   if (!s) return <span>-</span>;

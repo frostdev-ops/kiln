@@ -5,7 +5,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import * as api from "../api/commands";
 import type { GameInstall, InstallState, RuntimeBundle } from "../api/commands";
 import { invalidateGame, qk, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
-import { installNote, runTask } from "../ui";
+import { installNote, runTask, toast } from "../ui";
 
 /** `a` is older than `b`. runtime_list sorts newest first (the version, its build date, then when the bundle was
  *  built), so the list decides; a version not in it compares by version and build date. Never by the git id: two
@@ -25,6 +25,10 @@ export async function runRuntimeChange(qc: QueryClient, game: GameInstall, bundl
   start: () => Promise<string>): Promise<boolean> {
   const { put } = useRuntimeChanges.getState();
   const gid = game.id;
+  if (useRuntimeChanges.getState().last[gid]?.state === "running") {
+    toast.info("A runtime change is already running");
+    return false;
+  }
   const base: RuntimeChange = { what, version, taskId: null, state: "running", error: null, at: Date.now() };
   put(gid, base);
   let ok = false;

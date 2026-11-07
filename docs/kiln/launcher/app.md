@@ -50,7 +50,7 @@ events). Design system: [design-system.md](design-system.md).
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the
 window, Play. Library and Profiles stay as they are for everyone else.
 - **Finding the game** (`shell/firstRun.tsx`, `useAutoDetect`): when no client is known, the shell runs `game_detect`
-  once per start by itself. Play says "Looking for Enshrouded in your Steam libraries." (the mouth: "Looking"), then
+  once per start by itself, also when the initial game list fails. Play says "Looking for Enshrouded in your Steam libraries." (the mouth: "Looking"), then
   either the game, or "Kiln did not find Enshrouded…" with Add a folder and Look again.
 - **Install Kiln on Play**: the game is there but Kiln is not: the mouth is lit and says Install; it (and the Install
   Kiln link) opens one confirm (`InstallKilnModal`: the version, Install), which runs the Runtime page's install task
@@ -65,7 +65,11 @@ window, Play. Library and Profiles stay as they are for everyone else.
   (the dropped files are added once the install is done). With profiles but none active: imported only, "No profile is
   active." with Profiles. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Library's niche, Runtime's bundle row) or while a dialog is
-  open is not the window's. Settings "Add new mods to the active profile" off: drops are only imported.
+  open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
+  window drops run in order. Settings "Add new mods to the active profile" off: ordinary mods are only imported;
+  modpack zips still ask for consent, one dialog per zip, tied to the game selected when dropped. A deferred drop
+  before installation stays tied to that game, even if the selection changes during installation. Failures preparing
+  the default profile are shown; a failed install offers Retry for the waiting drop.
 - Browser mock: `?mock=fresh` starts as a first run (no game known, Detect finds the Steam one, no Kiln, no profiles,
   an empty library), `?mock=empty` finds nothing. `tests/firstrun.spec.ts` covers the flow (screenshots in
   `.out/simple/shots/`).
@@ -180,7 +184,8 @@ key); `app_info.distribution` is "nexus" and the `update_*` commands answer `dis
 (`useDistribution()`, `src/api/distribution.ts`): no header word or notice, no update feed, no Settings > Updates
 controls, no Check now; Settings > Updates and About show "New versions: Nexus Mods", Deck Settings a "New versions"
 row, each opening the Kiln page on Nexus Mods in the browser (`app_open_url`). Browser mock: `?dist=nexus`
-(`tests/nexus.spec.ts`).
+(`tests/nexus.spec.ts`). The update command wrappers also check `app_info` and reject before invoking any `update_*`
+command in a Nexus build (or if `app_info` cannot be read); `useUpdateFeed` itself is distribution-gated.
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

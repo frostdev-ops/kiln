@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import * as api from "../api/commands";
 import type { DeckFolder, GameInstall } from "../api/commands";
-import { invalidateGame, qk, showActive, useActiveProfile, useGameSel, useGameStatus, useProfiles } from "../api/hooks";
+import { invalidateGame, qk, showActive, useActiveProfile, useGameSel, useGameStatus, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast, runTask } from "../ui";
 import { useKilnInstall } from "../shell/firstRun";
 import { installBundle } from "../shell/runtimeChange";
@@ -20,6 +20,8 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
   const active = useActiveProfile(game.id);
   const status = useGameStatus(game.id);
   const running = !!status.data?.running;
+  const changing = useRuntimeChanges((s) => s.last[game.id]?.state === "running");
+  const blocked = !status.data || running || !!status.data.steamUpdating || changing;
   const cur = active.data?.profileId ?? "";
   const list = profiles.data ?? [];
   const activate = useMutation({
@@ -40,10 +42,10 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
           const n = p.counts.kiln + p.counts.native + p.counts.emf + p.counts.plugin;
           return (
             <Row key={p.id} id={`profile-${p.id}`} title={p.name} end={p.id === cur ? <Word tone="ember">Active</Word> : `${n} mod${n === 1 ? "" : "s"}`}
-              disabled={running} a="Use" onClick={() => pick(p.id)} />
+              disabled={blocked || activate.isPending} a="Use" onClick={() => pick(p.id)} />
           );
         })}
-        <Row id="profile-none" title="No profile" sub="The mods in the game folder" end={!cur ? <Word tone="ember">Active</Word> : undefined} disabled={running} a="Use" onClick={() => pick("")} />
+        <Row id="profile-none" title="No profile" sub="The mods in the game folder" end={!cur ? <Word tone="ember">Active</Word> : undefined} disabled={blocked || activate.isPending} a="Use" onClick={() => pick("")} />
       </div>
       {running && <p className="deck-note">Close the game to switch.</p>}
     </Dialog>
@@ -63,17 +65,18 @@ export function InstallDialog({ game, onClose, update }: { game: GameInstall; on
     onClose();
     const ok = await installBundle(qc, game, target, k.bundles, current);
     if (!ok || update) return;
+    const installed = await qc.fetchQuery({ queryKey: qk.games, queryFn: api.gameList }).then((gs) => gs.find((g) => g.path === game.path) ?? game).catch(() => game);
     try {
-      const a = await api.profileEnsureDefault(game.id);
-      if (a) qc.setQueryData(qk.active(game.id), a);
+      const a = await api.profileEnsureDefault(installed.id);
+      if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch { /* Play works without a profile */ }
+    } catch (e) { toast.error(e, "Kiln installed, but the default profile could not be prepared"); }
   };
   return (
     <Dialog name="install" title={update ? "Update Kiln?" : "Install Kiln?"} onClose={onClose}
       buttons={<>
         <DeckButton onClick={onClose}>Cancel</DeckButton>
-        <DeckButton primary disabled={!target || running || k.installing || !!status.data?.steamUpdating} onClick={() => void go()}>{update ? "Update" : "Install"}</DeckButton>
+        <DeckButton primary disabled={!target || !status.data || running || k.installing || !!status.data?.steamUpdating} onClick={() => void go()}>{update ? "Update" : "Install"}</DeckButton>
       </>}>
       {target ? <span className="deck-mono">{kilnLabel(target.version)}</span> : !k.loading && <span>No Kiln runtime in this launcher.</span>}
       {running && <p className="deck-note">Close the game first.</p>}
@@ -199,6 +202,7 @@ export function FolderIcon() {
 /** A modpack zip: what it is, "runs code on your PC", Install. */
 export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const status = useGameStatus(game.id);
   const preview = useQuery({ queryKey: ["modpack_inspect", game.id, path], queryFn: () => api.modpackInspect(game.id, { path }), retry: false });
   const [busy, setBusy] = useState(false);
   const p = preview.data;
@@ -217,10 +221,11 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
     <Dialog name="modpack" title="Install this modpack?" onClose={onClose} locked={busy}
       buttons={<>
         <DeckButton onClick={onClose} disabled={busy}>Cancel</DeckButton>
-        <DeckButton primary disabled={busy || !p} onClick={() => void install()}>Install</DeckButton>
+        <DeckButton primary disabled={busy || !p || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} onClick={() => void install()}>Install</DeckButton>
       </>}>
       <span>{name}</span>
       <Word tone="warn">It runs code on your PC</Word>
+      {status.data?.running && <p className="deck-note">Close the game first.</p>}
       {preview.error ? <span className="deck-note">{api.toKilnError(preview.error).message}</span> : null}
     </Dialog>
   );

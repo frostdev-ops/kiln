@@ -58,11 +58,15 @@ function useScale() {
 function useNative() {
   useEffect(() => {
     if (!api.isTauri()) return;
+    let live = true;
     api.deckFullscreen(true).catch(() => {});
     api.deckGamepad(true).then((st) => {
+      if (!live) return;
       usePads.setState({ native: Object.fromEntries(st.devices.map((d) => [d.device, { name: d.name, vendor: d.vendor, product: d.product }])) });
     }).catch(() => {});
     return () => {
+      live = false;
+      usePads.setState({ native: {}, nativeSeen: false });
       api.deckGamepad(false).catch(() => {});
       api.deckFullscreen(false).catch(() => {});
     };
@@ -75,9 +79,9 @@ function useKeepFocus(root: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const t = setInterval(() => {
       const a = document.activeElement;
-      if (a && a !== document.body && a.isConnected) return;
       const scope = topLayer()?.el.current ?? root.current;
       if (!scope || scope.hasAttribute("inert") || scope.closest("[inert]")) return;
+      if (a instanceof HTMLElement && scope.contains(a) && focusable(a)) return;
       focusFirst(scope);
     }, 200);
     return () => clearInterval(t);
@@ -207,7 +211,7 @@ function TopBar({ tab, goTab }: { tab: number; goTab: (i: number) => void }) {
   const ctl = usePlayControl();
   const v = ctl.view;
   const word = ctl.starting ? "Starting" : ctl.running ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}` : v.label;
-  const tone = ctl.starting || v.phase === "running" ? "ember" : v.phase === "updating" ? "warn" : v.phase === "vanilla" ? "info" : "idle";
+  const tone = ctl.kilnMissing || v.tone === "warn" ? "warn" : ctl.starting || v.phase === "running" ? "ember" : v.phase === "vanilla" ? "info" : "idle";
   // the fire's heat away from Home (Home sets its own)
   deckFire.game = ctl.running && !ctl.starting;
   deckFire.heat = !ctl.game ? "unlit" : v.phase === "updating" ? "low" : ctl.starting ? "flare" : ctl.running ? (v.label === "Safe idle" ? "low" : "embers") : "idle";
@@ -251,7 +255,7 @@ function HintBar({ press }: { press: (p: Press) => void }) {
   const tap = (button: Press["button"]) => () => { press({ button, pressed: true, repeat: false, source: "key" }); press({ button, pressed: false, repeat: false, source: "key" }); };
   const hint = (button: Press["button"], label: string, disabled = false) => (
     <button key={button + label} type="button" tabIndex={-1} className={"deck-hint" + (disabled ? " off" : "")} data-hint={button}
-      onPointerDown={(e) => e.preventDefault()} onClick={tap(button)}>
+      disabled={disabled} onPointerDown={(e) => e.preventDefault()} onClick={tap(button)}>
       <Glyph button={button} style={style} size={1.75} /><span>{label}</span>
     </button>
   );

@@ -150,7 +150,7 @@ export interface DialogProps {
 export function Dialog({ title, onClose, children, buttons, actions, backLabel = "Cancel", locked, wide, name }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
-  useLayer(ref, { actions, back: locked ? () => {} : onClose, backLabel: locked ? undefined : backLabel, modal: true });
+  useLayer(ref, { actions, back: locked ? undefined : onClose, backLabel: locked ? undefined : backLabel, modal: true });
   useFirstFocus(ref, null, dialogFirst);
   useReturnFocus(opener);
   return (
@@ -200,6 +200,8 @@ export const HOLD_MS = 1200;
 export function HoldButton({ children, onConfirm, disabled, id }: { children: ReactNode; onConfirm: () => void; disabled?: boolean; id?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [since, setSince] = useState<number | null>(null);
+  const armed = useRef(false);
+  const hold = (down: boolean) => { armed.current = down && !ref.current?.disabled; setSince(armed.current ? performance.now() : null); };
   const done = useRef(onConfirm);
   done.current = onConfirm;
   useEffect(() => {
@@ -207,20 +209,33 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
     if (!el) return;
     const on = (e: Event) => {
       const down = (e as CustomEvent<boolean>).detail;
-      setSince(down && !el.disabled ? performance.now() : null);
+      hold(down);
     };
     el.addEventListener("deck-hold", on);
     return () => el.removeEventListener("deck-hold", on);
   }, []);
   useEffect(() => {
     if (since === null) return;
-    const t = setTimeout(() => { setSince(null); done.current(); }, HOLD_MS);
+    if (disabled) { hold(false); return; }
+    const t = setTimeout(() => {
+      const confirmed = armed.current && !ref.current?.disabled;
+      hold(false);
+      if (confirmed) done.current();
+    }, HOLD_MS);
     return () => clearTimeout(t);
-  }, [since]);
+  }, [since, disabled]);
+  useEffect(() => {
+    const cancel = () => hold(false);
+    const visibility = () => { if (document.hidden) cancel(); };
+    window.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", visibility);
+    return () => { window.removeEventListener("blur", cancel); document.removeEventListener("visibilitychange", visibility); };
+  }, []);
   return (
     <button ref={ref} type="button" className={"deck-btn danger deck-hold" + (since !== null ? " holding" : "")} disabled={disabled} data-deck-hold="" data-deck-a="Hold" data-deck-id={id}
       style={{ ["--hold" as string]: `${HOLD_MS}ms` }}
-      onPointerDown={() => !disabled && setSince(performance.now())} onPointerUp={() => setSince(null)} onPointerLeave={() => setSince(null)}
+      onPointerDown={() => hold(true)} onPointerUp={() => hold(false)} onPointerLeave={() => hold(false)}
+      onPointerCancel={() => hold(false)} onBlur={() => hold(false)}
       onClick={(e) => e.preventDefault()}>
       <span className="deck-hold-fill" aria-hidden />
       <span className="deck-hold-label">{children}</span>

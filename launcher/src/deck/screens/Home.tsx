@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../../api/hooks";
+import { errorText } from "../../ui";
 import { clock, usePlayControl } from "../../shell/play";
 import { detectGames, useDetect, useKilnInstall } from "../../shell/firstRun";
 import { FindGameDialog, InstallDialog, PlayOnceDialog, ProfileDialog } from "../dialogs";
@@ -18,7 +19,7 @@ export default function Home() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const ctl = usePlayControl();
-  const { game, loading } = useGame();
+  const { game, loading, error } = useGame();
   const looking = useDetect((s) => s.busy);
   const tried = useDetect((s) => s.tried);
   const kiln = useKilnInstall(game);
@@ -33,16 +34,16 @@ export default function Home() {
 
   // the mouth: one word and what A does
   let word: string, sub = "", act: (() => void) | null = null, heat = "idle";
-  if (!game && (looking || loading || !tried)) { word = "Looking"; sub = "for Enshrouded"; heat = "unlit"; }
+  if (!game && (looking || loading || (!tried && !error))) { word = "Looking"; sub = "for Enshrouded"; heat = "unlit"; }
   else if (!game) { word = "Find game"; sub = "In your Steam libraries"; heat = "unlit"; act = () => void detectGames(qc).then((g) => { if (!g?.some((x) => x.kind === "client")) setOpen("find"); }); }
-  else if (v.phase === "none") { word = "Play"; sub = "Checking the game"; heat = "unlit"; }
+  else if (v.phase === "none") { word = "Play"; sub = status.error ? errorText(status.error) : "Checking the game"; heat = "unlit"; }
   else if (v.phase === "updating") { word = "Updating"; sub = "Steam is updating the game"; heat = "low"; }
   else if (!ctl.installed && !ctl.running && kiln.installing) { word = "Installing"; sub = "Kiln goes into the game folder"; heat = "low"; }
   else if (!ctl.installed && !ctl.running && kiln.shroudforge) { word = "ShroudForge"; sub = "Switch in the desktop UI"; heat = "unlit"; act = () => nav("/deck/kiln"); }
   else if (!ctl.installed && !ctl.running) { word = "Install"; sub = "Kiln goes into the game folder"; act = () => setOpen("install"); }
   else if (ctl.starting) { word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; }
   else if (ctl.running) { word = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label; sub = v.label; heat = "embers"; }
-  else { word = "Play"; act = () => ctl.play("profile"); }
+  else { word = "Play"; if (ctl.canPlay && !kiln.installing) act = () => ctl.play("profile"); }
 
   // the fire: the mouth stands on Home, at this heat (Fire.tsx)
   deckFire.heat = heat as typeof deckFire.heat;
@@ -62,8 +63,8 @@ export default function Home() {
   const canSwitch = !!game && !!rt?.installed && (profiles.data?.length ?? 0) > 0;
 
   const actions: DeckAction[] = [];
-  if (canSwitch) actions.push({ button: "y", label: "Profile", run: () => setOpen("profiles"), disabled: ctl.running });
-  if (game && rt?.installed) actions.push({ button: "x", label: "Play once", run: () => setOpen("once"), disabled: !ctl.canPlay });
+  if (canSwitch) actions.push({ button: "y", label: "Profile", run: () => setOpen("profiles"), disabled: !ctl.canPlay || kiln.installing });
+  if (game && rt?.installed) actions.push({ button: "x", label: "Play once", run: () => setOpen("once"), disabled: !ctl.canPlay || kiln.installing });
 
   return (
     <Screen name="home" className="deck-home" actions={actions}>
@@ -77,8 +78,8 @@ export default function Home() {
           {game && rt && !rt.installed && !kiln.shroudforge && !kiln.installing && ctl.canPlay && (
             <DeckButton id="install" onClick={() => setOpen("install")}>Install Kiln</DeckButton>
           )}
-          {game && rt?.installed && rt.upgradeAvailable && <DeckButton id="update" onClick={() => setOpen("update")}>Update Kiln</DeckButton>}
-          {canSwitch && <DeckButton id="switch-profile" disabled={ctl.running} onClick={() => setOpen("profiles")}>Switch profile</DeckButton>}
+          {game && rt?.installed && rt.upgradeAvailable && <DeckButton id="update" disabled={!ctl.canPlay || kiln.installing} onClick={() => setOpen("update")}>Update Kiln</DeckButton>}
+          {canSwitch && <DeckButton id="switch-profile" disabled={!ctl.canPlay || kiln.installing} onClick={() => setOpen("profiles")}>Switch profile</DeckButton>}
           {(advice || (ctl.stuck && rt?.installed)) && <DeckButton id="steam-setting" a="How" onClick={() => nav("/deck/help")}>{ctl.stuck ? "Kiln is not loading" : "One Steam setting"}</DeckButton>}
           {change?.state === "failed" && <DeckButton id="kiln-failed" onClick={() => nav("/deck/kiln")}>Kiln</DeckButton>}
         </div>

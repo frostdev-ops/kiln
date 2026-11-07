@@ -82,11 +82,14 @@ All end in the same dispatcher (`src/deck/DeckApp.tsx`):
   this is the main path.
 - **Keyboard** (what Steam Input keyboard templates send): arrows move, Enter/Space = A, Escape/Backspace = B, X or
   Delete = X, Y = Y, Q / PageUp / `[` = L1, E / PageDown / `]` = R1, M / Menu key / F10 = Start, F1 / V = View; Tab
-  keeps the browser's own focus order.
+  keeps the browser's own focus order within the top dialog, wrapping at its ends.
 - **Browser Gamepad API** (WebView2 on Windows, a plain browser): polled each frame while a pad is connected, standard
-  mapping, the same repeat; off as soon as the native reader has sent anything (one controller must not press twice).
+  mapping, the same repeat and right-stick scrolling; off while the native reader sees a controller (one controller
+  must not press twice), available again after its last device disconnects.
 
 Native events are ignored while the launcher's window has no focus: once the game is in front, its input is its own.
+Losing window focus, hiding the window, disconnecting the controller, disabling the button or moving focus cancels
+an in-progress Hold action. A disabled focused control returns focus to the current layer's first enabled stop.
 
 ## Screens
 | Screen | What | Buttons |
@@ -106,17 +109,19 @@ Notices are a short title and buttons.
 The launcher never writes Steam's files: no `shortcuts.vdf`, no `localconfig.vdf`, no launch options. Help gives the
 steps instead:
 
-- **Valve's Proton:** Enshrouded's launch options need `WINEDLLOVERRIDES="dinput8=n,b" %command%` so Kiln's
-  `dinput8.dll` loads (not with GE-Proton 11-11 and newer). The state comes from `game_status.launchOptions` (a
+- **Proton:** if Kiln does not load, Enshrouded's launch options can use `WINEDLLOVERRIDES="dinput8=n,b" %command%`
+  to load Kiln's `dinput8.dll` (unnecessary with GE-Proton 11-11 and newer, and some recent Valve builds). The state comes from `game_status.launchOptions` (a
   read-only look at Steam's config). Steps: Steam button, Library, Enshrouded, the gear (or ☰), Properties, General,
   Launch Options; Steam + X for the keyboard. Measured 2026-11-07 (desktop, outside Steam's launch, Proton's loaddll
   trace): Proton Experimental 11.0-20261027b and UMU-Proton 10.0-4 load the game folder's `DINPUT8.dll` as native
   without the override, so which Valve Proton builds still need it is not settled; the setting is harmless where it
   is not needed.
-- **Kiln not loading:** a running game whose play-once flag is still there 30 s after its start (or a launcher start
-  with no boot.json a minute in) shows **No Kiln** on Home (never "Starting" forever) and a "Kiln is not loading"
+- **Kiln not loading:** a running game whose play-once flag is still there 30 s after its start (or a non-vanilla launcher start
+  with no boot.json a minute into the process's run) shows **No Kiln** on Home and a "Kiln is not loading"
   button to Help, whose "Kiln not loading?" block says what to send (`kiln/logs/proxy.log`, `kiln/logs/kiln.log`,
-  `~/.local/share/kiln/logs/launcher.log`, Proton version, Game or Desktop Mode).
+  `~/.local/share/kiln/logs/launcher.log`, Proton version, Game or Desktop Mode). Missing, invalid or future process
+  timestamps use when this session first saw the process. A fresh boot wins over a leftover flag; vanilla starts
+  remembered by this launcher show **Vanilla**, without a missing-Kiln warning.
 - **Kiln in Game Mode:** Desktop Mode (Steam, Power, Switch to Desktop), open Steam, Games, Add a Non-Steam Game to My
   Library, browse to the Kiln Launcher AppImage, Add Selected Programs. Back in Game Mode it is under Library,
   Non-Steam, and Deck mode opens by itself (`--deck` as its launch option forces it). Controller layout: Steam's

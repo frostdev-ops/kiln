@@ -113,7 +113,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   // the live sentence
   let say: string;
   const modCount = cur ? cur.counts.kiln + cur.counts.native + cur.counts.emf + cur.counts.plugin : 0;
-  if (!s) say = "Checking the game.";
+  if (!s) say = status.error ? errorText(status.error) : "Checking the game.";
   else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Kiln replaces it on Runtime." : "Kiln is not in this game yet.";
   else if (!cur && !list.length) say = "Drop a mod anywhere on this window to add it.";
   else if (!cur) say = "No profile is active: Kiln loads the mods in the game folder.";
@@ -125,7 +125,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
     say = `${order.length} of ${total} mods load on this client.` + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} on the server.` : "");
   } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
-  const runLine = v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : fresh && boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
+  const runLine = v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
     : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${preview.data ? ` and ${preview.data.kiln.order.length} mods` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
@@ -268,11 +268,17 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
       </Banner>,
     );
   }
-  const advice = s?.runtime.installed ? s.launchOptions?.advice : null;
-  if (advice && (ctl.stuck || !s?.launchOptions?.hasDllOverride)) {
+  const advice = s?.runtime.installed && ctl.view.phase !== "vanilla" ? s.launchOptions?.advice : null;
+  if (advice && !s?.launchOptions?.hasDllOverride) {
     out.push(
       <Banner key="adv" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : ctl.stuck ? "Kiln did not start" : "One Steam setting"}
-        actions={<Button size="s" onClick={() => navigator.clipboard?.writeText(advice).then(() => toast.ok("Copied", "Paste it into Steam's launch options."))}>Copy</Button>}>
+        actions={<Button size="s" onClick={async () => {
+          try {
+            if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(advice);
+            toast.ok("Copied", "Paste it into Steam's launch options.");
+          } catch (e) { toast.error(e, "Could not copy the launch option"); }
+        }}>Copy</Button>}>
         {ctl.stuck && "The game started without Kiln, so mods and \"Without mods\" can't apply. Close it, then set "}
         Steam, Enshrouded, Properties, Launch options: <span className="k-mono">{advice}</span>
       </Banner>,

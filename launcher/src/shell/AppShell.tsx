@@ -112,7 +112,7 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     word = t; sub = v.label === "Running" ? "Running" : v.label; heat = v.label === "Safe idle" ? "low" : "embers"; act = null;
     aria = `${v.label}${ctl.elapsed !== null ? ` for ${t}` : ""}`;
   } else {
-    word = "Play"; sub = ""; heat = "idle"; act = () => ctl.play("profile"); aria = `Play ${name}`;
+    word = "Play"; sub = ""; heat = "idle"; act = ctl.canPlay ? () => ctl.play("profile") : null; aria = `Play ${name}`;
   }
   stageInput.heat = heat;
   stageInput.hover = hot && !!act;
@@ -181,7 +181,7 @@ export function AppShell() {
       <Mouth isPlay={isPlay} ctl={ctl} />
       <GameArtAuto />
       <DropAnywhere add={(p) => void addMods(p)} />
-      <InstallKilnModal onAdd={(p) => void addMods(p)} />
+      <InstallKilnModal onAdd={(p, g) => void addMods(p, g)} />
       <ModpackDropOffer />
       <NxmListener />
       <Toaster />

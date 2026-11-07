@@ -55,7 +55,11 @@ export default function LibraryPage() {
       } finally { setImporting(false); }
       return;
     }
-    try { setDetected(await Promise.all(paths.map((p) => api.libraryDetect(p)))); }
+    try {
+      const found = await Promise.all(paths.map((p) => api.libraryDetect(p)));
+      if (found.some((d) => d.kind === "modpack")) await addMods(paths);
+      else setDetected(found);
+    }
     catch (e) { toast.error(e, "Can't read that"); }
   };
   const doImport = async (paths: string[]) => {

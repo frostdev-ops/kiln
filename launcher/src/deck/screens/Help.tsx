@@ -24,7 +24,7 @@ export default function Help() {
       <div className="deck-scroll deck-help-body">
         <section className="deck-block" tabIndex={0} data-deck-id="help-steam" data-deck-a="-" aria-labelledby="h-steam">
           <h2 id="h-steam">One Steam setting {state && <Word tone={state.tone}>{state.text}</Word>}</h2>
-          <p>With Valve's Proton, Kiln needs this in Enshrouded's launch options. GE-Proton 11-11 and newer don't.</p>
+          <p>If Kiln does not load with your Proton build, add this to Enshrouded's launch options. GE-Proton 11-11 and newer, and some recent Valve builds, load it without this setting.</p>
           <p className="deck-code" data-testid="deck-launch-option">{option}</p>
           <ol>
             <li>Press the <b>Steam</b> button, open <b>Library</b>.</li>

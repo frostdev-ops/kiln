@@ -8,7 +8,7 @@ import { qk, useAppInfo, useGame, useGameStatus, useSettings } from "../api/hook
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import { UpdatesCard } from "../components/UpdateSettings";
-import { DeckModeCard } from "../deck/mode";
+import { DeckModeCard, saveSettings } from "../deck/mode";
 import { NexusCard } from "../components/NexusSettings";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
@@ -41,15 +41,10 @@ function LauncherCard() {
   const s = useSettings();
   const { games } = useGame();
   const [root, setRoot] = useState("");
-  const save = useMutation({
-    mutationFn: (v: LauncherSettings) => api.appSettingsSet(v),
-    onSuccess: (v) => qc.setQueryData(qk.settings, v),
-    onError: (e) => { toast.error(e); qc.invalidateQueries({ queryKey: qk.settings }); },
-  });
   if (s.isLoading) return <Card title="Launcher"><Skeleton /></Card>;
   if (!s.data) return <Card title="Launcher"><EmptyState title="Settings unavailable" hint={errorText(s.error)} /></Card>;
   const v = s.data;
-  const set = (patch: Partial<LauncherSettings>) => save.mutate({ ...v, ...patch });
+  const set = (patch: Partial<LauncherSettings>) => void saveSettings(qc, () => patch);
   return (
     <Card title="Launcher">
       <Field label="Default game" htmlFor="st-game">
@@ -87,16 +82,11 @@ function AppearanceCard() {
   const qc = useQueryClient();
   const s = useSettings();
   const info = useAppInfo();
-  const save = useMutation({
-    mutationFn: (v: LauncherSettings) => api.appSettingsSet(v),
-    onSuccess: (v) => qc.setQueryData(qk.settings, v),
-    onError: (e) => { toast.error(e); qc.invalidateQueries({ queryKey: qk.settings }); },
-  });
   if (!s.data) return null;
   const forced = !!info.data?.noWebgl;
   return (
     <Card title="Appearance">
-      <Toggle checked={!forced && s.data.animatedFire !== false} disabled={forced} onChange={(on) => save.mutate({ ...s.data!, animatedFire: on })}
+      <Toggle checked={!forced && s.data.animatedFire !== false} disabled={forced} onChange={(on) => void saveSettings(qc, () => ({ animatedFire: on }))}
         label="Animated fire" hint={forced ? "Off for this start: KILN_LAUNCHER_NO_WEBGL is set." : "The fire on Play (WebGL). Off: a plain Play button, easier on weak GPUs."} />
     </Card>
   );

@@ -48,6 +48,7 @@ export default function AddMods() {
   };
 
   const add = async (m: DeckFoundMod) => {
+    if (busy) return;
     if (!game) { toast.info("No game yet"); return; }
     if (m.detected.kind === "modpack") { setPack(m.path); return; }
     if (!installed) { toast.info("Install Kiln first"); return; }
@@ -90,7 +91,7 @@ export default function AddMods() {
           {f?.mods.map((m) => {
             const there = inProfile(m);
             return (
-              <Row key={m.path} id={`file-${m.file}`} a={m.detected.kind === "modpack" ? "Install" : there ? "Add again" : "Add"} disabled={busy === m.path}
+              <Row key={m.path} id={`file-${m.file}`} a={m.detected.kind === "modpack" ? "Install" : there ? "Add again" : "Add"} disabled={!!busy}
                 title={modName(m)} sub={`${KIND_WORD[one(m).kind]}${one(m).version && one(m).version !== "0.0.0" ? ` ${one(m).version}` : ""} · ${m.file}${m.size ? ` · ${size(m.size)}` : ""}${m.modified ? ` · ${ago(m.modified)}` : ""}`}
                 end={busy === m.path ? <Word tone="ember">Adding</Word> : there ? <Word tone="ok">In profile</Word> : undefined}
                 onClick={() => void add(m)} />

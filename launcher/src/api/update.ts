@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import * as api from "./commands";
 import type { UpdateStatus } from "./commands";
+import { useDistribution } from "./hooks";
 
 interface UpdateStore {
   status: UpdateStatus | null;
@@ -36,13 +37,15 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
 /** Mount once: the first status, then every `kiln://update`. */
 export function useUpdateFeed() {
+  const dist = useDistribution();
   useEffect(() => {
+    if (dist !== "direct") return;
     let off: (() => void) | undefined;
     let live = true;
     api.onKilnEvent("kiln://update", (s) => useUpdateStore.getState().setStatus(s)).then((f) => (live ? (off = f) : f()));
     api.updateStatus().then((s) => live && useUpdateStore.getState().setStatus(s)).catch(() => {});
     return () => { live = false; off?.(); };
-  }, []);
+  }, [dist]);
 }
 
 export const useUpdate = () => useUpdateStore((s) => s.status);

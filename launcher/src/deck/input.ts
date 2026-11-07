@@ -8,6 +8,8 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import { isTauri, onKilnEvent } from "../api/commands";
 import type { GamepadEvent, PadButton } from "../api/commands";
+import { candidates, focusEl } from "./focus";
+import { topLayer } from "./layers";
 
 export type { PadButton };
 export type Dir = "up" | "down" | "left" | "right";
@@ -111,9 +113,12 @@ export function useDeckInput(h: InputHandlers) {
   useEffect(() => {
     let focused = true;
     const onFocus = () => { focused = true; };
-    const onBlur = () => { focused = false; };
+    const release = () => ref.current.press({ button: "a", pressed: false, repeat: false, source: "pad" });
+    const onBlur = () => { focused = false; release(); };
+    const visibility = () => { if (document.hidden) release(); };
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", visibility);
 
     // native
     let off: (() => void) | undefined;
@@ -124,7 +129,8 @@ export function useDeckInput(h: InputHandlers) {
         return;
       }
       if (e.kind === "disconnected") {
-        usePads.setState((s) => { const n = { ...s.native }; delete n[e.device]; return { native: n }; });
+        usePads.setState((s) => { const n = { ...s.native }; delete n[e.device]; return { native: n, nativeSeen: Object.keys(n).length > 0 }; });
+        release();
         return;
       }
       if (!usePads.getState().nativeSeen) usePads.setState({ nativeSeen: true });
@@ -136,6 +142,17 @@ export function useDeckInput(h: InputHandlers) {
 
     // keyboard
     const key = (down: boolean) => (e: KeyboardEvent) => {
+      if (e.key === "Tab" && topLayer()?.modal) {
+        if (down) {
+          const scope = topLayer()?.el.current;
+          const list = scope ? candidates(scope) : [];
+          const at = list.indexOf(document.activeElement as HTMLElement);
+          const next = list[(at + (e.shiftKey ? -1 : 1) + list.length) % list.length];
+          if (next) focusEl(next);
+        }
+        e.preventDefault();
+        return;
+      }
       if (typing(e.target) && !(e.key === "Escape")) return;
       const b = keyToButton(e);
       if (!b) return;
@@ -161,9 +178,12 @@ export function useDeckInput(h: InputHandlers) {
       if (names.join("|") !== st.browser.join("|")) usePads.setState({ browser: names });
       // the native reader has the same controller: one source only
       const nativeHas = isTauri() && (st.nativeSeen || Object.keys(st.native).length > 0);
-      if (any && !nativeHas && focused) {
+      if (any && !nativeHas && focused && !document.hidden) {
         pads.poll(list, performance.now(), (p) => { usePads.setState({ last: "browser" }); ref.current.press(p); });
-      }
+        const pad = [...list].find((g) => g?.connected);
+        const y = pad?.axes[3] ?? 0;
+        if (Math.abs(y) >= 0.15) ref.current.scroll?.("ry", y);
+      } else pads.poll([], performance.now(), (p) => ref.current.press(p));
       if (any) raf = requestAnimationFrame(tick);
     };
     const connected = () => { if (!raf) raf = requestAnimationFrame(tick); };
@@ -176,6 +196,7 @@ export function useDeckInput(h: InputHandlers) {
       off?.();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("keydown", kd, true);
       window.removeEventListener("keyup", ku, true);
       window.removeEventListener("gamepadconnected", connected);

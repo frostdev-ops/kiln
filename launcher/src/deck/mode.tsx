@@ -41,6 +41,7 @@ export function UiModeGate({ children }: { children: ReactNode }) {
   const [want, setWant] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
+    let info: AppInfo | null = null, settings: LauncherSettings | null = null;
     const settle = (info: AppInfo | null, settings: LauncherSettings | null) => {
       if (!live) return;
       live = false;
@@ -49,17 +50,15 @@ export function UiModeGate({ children }: { children: ReactNode }) {
       if (c.ui === "deck" && atStart) { setWant("/deck"); nav("/deck", { replace: true }); }
       else setWant(null);
     };
-    const timer = setTimeout(() => settle(null, null), 1500);
-    Promise.allSettled([api.appInfo(), api.appSettingsGet()]).then(([i, s]) => {
+    const timer = setTimeout(() => settle(info, settings), 1500);
+    Promise.allSettled([
+      api.appInfo().then((v) => { if (live) { info = v; qc.setQueryData(qk.appInfo, v); } }),
+      api.appSettingsGet().then((v) => { if (live) { settings = v; qc.setQueryData(qk.settings, v); } }),
+    ]).then(() => {
       clearTimeout(timer);
-      const info = i.status === "fulfilled" ? i.value : null;
-      const settings = s.status === "fulfilled" ? s.value : null;
-      // the shell asks for both again: hand them over
-      if (info) qc.setQueryData(qk.appInfo, info);
-      if (settings) qc.setQueryData(qk.settings, settings);
       settle(info, settings);
     });
-    return () => { clearTimeout(timer); };
+    return () => { live = false; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // arrived: from now on the router's location is the only truth (Settings may switch UIs later)
@@ -70,21 +69,30 @@ export function UiModeGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Changes the launcher settings at once (the screen shows it before the backend answers, so quick presses build
- *  on each other), then saves; a failure puts the old values back (toasted). */
-export async function saveSettings(qc: QueryClient, change: (cur: LauncherSettings) => Partial<LauncherSettings>): Promise<LauncherSettings | null> {
-  const cur = qc.getQueryData<LauncherSettings>(qk.settings) ?? await api.appSettingsGet();
-  const want = { ...cur, ...change(cur) };
-  qc.setQueryData(qk.settings, want);
-  try {
-    const next = await api.appSettingsSet(want);
-    if (qc.getQueryData<LauncherSettings>(qk.settings) === want) qc.setQueryData(qk.settings, next);
-    return next;
-  } catch (e) {
-    qc.setQueryData(qk.settings, cur);
-    toast.error(e);
-    return null;
-  }
+/** Saves settings in press order. Each change builds on the last successful write; a failure rolls its own values
+ *  back (toasted) before the next change is applied. */
+const settingsSaves = new WeakMap<QueryClient, Promise<LauncherSettings | null>>();
+export function saveSettings(qc: QueryClient, change: (cur: LauncherSettings) => Partial<LauncherSettings>): Promise<LauncherSettings | null> {
+  // Serialize writes: a slow earlier response must not overwrite a later button press on disk or in the cache.
+  const save = async () => {
+    let cur: LauncherSettings | undefined;
+    try {
+      await qc.cancelQueries({ queryKey: qk.settings });
+      cur = qc.getQueryData<LauncherSettings>(qk.settings) ?? await api.appSettingsGet();
+      const want = { ...cur, ...change(cur) };
+      qc.setQueryData(qk.settings, want);
+      const next = await api.appSettingsSet(want);
+      qc.setQueryData(qk.settings, next);
+      return next;
+    } catch (e) {
+      if (cur) qc.setQueryData(qk.settings, cur);
+      toast.error(e);
+      return null;
+    }
+  };
+  const next = (settingsSaves.get(qc) ?? Promise.resolve(null)).then(save);
+  settingsSaves.set(qc, next);
+  return next;
 }
 
 /** The current start UI ("auto" when unset). */

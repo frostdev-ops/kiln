@@ -52,6 +52,8 @@ A drop anywhere on the window (`library_add`) never imports a zip with `kiln-mod
 same consent (`ModpackDropOffer` in `launcher/src/shell/drop.tsx`): the file, the server and modpack it names, what is
 new, native code, "This runs code on your PC" and a box to tick; then `modpack_install(gameId, {source: {path},
 consent: true, activate: true})` (verify, import, the profile bound to its server, a save backup, activation), as above.
+Dropping several modpack zips queues separate consent dialogs; each starts with an unticked box. Turning off
+"Add new mods to the active profile" does not bypass this consent flow, including Library's drop target.
 
 ## Checks done
 `cargo test -p kiln-manage --all-features --lib modpack`: deterministic build (two builds, same bytes), verify, a

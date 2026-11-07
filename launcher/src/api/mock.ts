@@ -54,6 +54,11 @@ const FRESH = MODE === "fresh" || MODE === "empty";
 export const MOCK_DISTRIBUTION: Distribution = typeof location !== "undefined" && new URLSearchParams(location.search).get("dist") === "nexus" ? "nexus" : "direct";
 /** Every URL app_open_url was asked to open (tests: `__kilnMock.opened()`). */
 const openedUrls: string[] = [];
+/** Deterministic IPC delays/failures for browser regressions; each plan is consumed by one call. */
+interface CommandPlan { delay?: number; error?: KilnError }
+const commandPlans: Record<string, CommandPlan[]> = typeof window === "undefined" ? {} :
+  (window as unknown as { __kilnMockPlans?: Record<string, CommandPlan[]> }).__kilnMockPlans ?? {};
+const commandCalls: string[] = [];
 
 // ---------------------------------------------------------------- games
 
@@ -659,7 +664,7 @@ const handlers: Record<string, Handler> = {
     for (const c of [...((a.changes as ProfileChange[]) ?? [])].reverse()) {
       const list = p.mods[c.kind];
       const i = list.findIndex((m) => m.id === c.after.id);
-      if (i < 0 || list[i].version !== c.after.version || list[i].hash !== c.after.hash) continue;
+      if (i < 0 || list[i].version !== c.after.version || list[i].hash !== c.after.hash || list[i].enabled !== c.after.enabled) continue;
       if (c.before) list[i] = c.before; else list.splice(i, 1);
       changed = true;
     }
@@ -996,6 +1001,10 @@ function importPaths(paths: string[]): ImportReport {
 }
 
 export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+  commandCalls.push(cmd);
+  const plan = commandPlans[cmd]?.shift();
+  if (plan?.delay) await new Promise((r) => setTimeout(r, plan.delay));
+  if (plan?.error) throw plan.error;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
@@ -1020,6 +1029,8 @@ export function mockEmit(name: string, payload: unknown): void {
 
 // Playwright and the dev console reach the fake game through this (mock mode only).
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
+  calls: () => [...commandCalls],
+  planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],

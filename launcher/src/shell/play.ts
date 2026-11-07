@@ -7,17 +7,22 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import * as api from "../api/commands";
 import type { GameInstall, LaunchMode } from "../api/commands";
-import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles } from "../api/hooks";
+import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast } from "../ui";
-import { gameState, KILN_LOAD_GRACE_MS, playOnceMissed, type GameStateView } from "./gameState";
+import { playState, runStarted, type GameStateView } from "./gameState";
+
+// A shared monotonic clock: changing the system clock while a start is pending cannot restart its grace period.
+const epoch = Date.now(), tick = performance.now();
+const playNow = () => epoch + performance.now() - tick;
 
 interface LaunchMemo {
   at: Record<string, number>;
   mode: Record<string, LaunchMode>;
   /** When the game was first seen running, per game (the clock's fallback when the status has no start time). */
   since: Record<string, number>;
+  process: Record<string, string>;
 }
-export const useLaunchMemo = create<LaunchMemo>(() => ({ at: {}, mode: {}, since: {} }));
+export const useLaunchMemo = create<LaunchMemo>(() => ({ at: {}, mode: {}, since: {}, process: {} }));
 
 export interface PlayControl {
   game: GameInstall | null;
@@ -48,69 +53,61 @@ export function usePlayControl(): PlayControl {
   const launchState = useLaunchState(game?.id);
   const active = useActiveProfile(game?.id);
   const profiles = useProfiles();
+  const changingRuntime = useRuntimeChanges((m) => !!game && m.last[game.id]?.state === "running");
   const memo = useLaunchMemo();
   const id = game?.id ?? "";
   const s = status.data;
   const running = !!s?.running;
-  const now = useNow(running ? 1000 : 0);
-  const raw = gameState(game ? s : null, launchState.data, !!game && status.isLoading, now);
   const at = memo.at[id];
-  const bootFresh = !!launchState.data?.boot && !launchState.data.stale;
-  const vanillaStart = memo.mode[id] === "vanilla";
-  const startedAt = running && s?.started ? Date.parse(s.started) : NaN;
-  const kilnMissing = !!game && !vanillaStart && (playOnceMissed(s, now)
-    || (running && !!s?.runtime.installed && !!launchState.data && !bootFresh && !!at && now - (Number.isNaN(startedAt) ? at : startedAt) >= 2 * KILN_LOAD_GRACE_MS));
-  // a vanilla start writes no boot.json: say so when this launcher started it that way
-  const view: GameStateView = raw.phase === "running" && !raw.detail?.startsWith("Kiln") && vanillaStart
-    ? { ...raw, phase: "vanilla", label: "Vanilla", tone: "info", detail: "Started without Kiln" }
-    : kilnMissing ? { phase: "running", label: "No Kiln", tone: "warn", pulse: true, detail: "The game runs without Kiln: Steam did not load it" } : raw;
+  const process = running ? String(s?.pid ?? s?.started ?? "running") : null;
+  const sameRun = !memo.process[id] || memo.process[id] === process;
+  const now = useNow(running || at !== undefined ? 1000 : 0);
+  const state = playState(game ? s : null, launchState.data, sameRun ? { at, mode: memo.mode[id], seen: memo.since[id] } : {}, now, !!game && status.isLoading);
+  const { view, kilnMissing } = state;
   const launch = useMutation({
     mutationKey: ["launch_play"],
     mutationFn: (req: api.LaunchRequest) => api.launchPlay(id, req),
     onSuccess: (r) => {
-      useLaunchMemo.setState((m) => ({ at: { ...m.at, [id]: Date.now() }, mode: { ...m.mode, [id]: r.mode } }));
+      useLaunchMemo.setState((m) => ({ at: { ...m.at, [id]: playNow() }, mode: { ...m.mode, [id]: r.mode } }));
       invalidateGame(qc, id);
       toast.ok(r.mode === "vanilla" ? "Starting vanilla" : r.mode === "no-mods" ? "Starting without mods" : "Starting", r.backup ? "Saves backed up first." : "Through Steam.");
     },
     onError: (e) => toast.error(e),
   });
 
-  // the elapsed clock's fallback (no process start time): our launch when it was just now, else boot.json's time, else
-  // the first time the game was seen running. An older launch of ours is another run (the game was started again
-  // from Steam since).
+  // Missing or skewed process timestamps fall back to when this session first saw it running. The launch request
+  // can precede the actual process by minutes while Steam starts or prepares Proton.
   useEffect(() => {
     if (!id) return;
     const since = useLaunchMemo.getState().since[id];
-    if (running && !since) {
-      const boot = launchState.data?.boot && !launchState.data.stale ? Date.parse(launchState.data.boot.written) : NaN;
-      const ours = useLaunchMemo.getState().at[id];
-      const at = ours && Date.now() - ours < 120_000 ? ours : Number.isNaN(boot) ? Date.now() : boot;
-      useLaunchMemo.setState((m) => ({ since: { ...m.since, [id]: at } }));
+    if (running && process && (!since || !sameRun)) {
+      useLaunchMemo.setState((m) => ({
+        since: { ...m.since, [id]: playNow() }, process: { ...m.process, [id]: process },
+        ...(!sameRun ? { at: Object.fromEntries(Object.entries(m.at).filter(([g]) => g !== id)), mode: Object.fromEntries(Object.entries(m.mode).filter(([g]) => g !== id)) } : {}),
+      }));
     } else if (!running && since) {
       // the run this launcher saw has ended: its launch (time, mode) is over too, so a later start from Steam is not
       // taken for it
       useLaunchMemo.setState((m) => {
         const drop = <T,>(r: Record<string, T>) => { const n = { ...r }; delete n[id]; return n; };
-        return { since: drop(m.since), at: drop(m.at), mode: drop(m.mode) };
+        return { since: drop(m.since), at: drop(m.at), mode: drop(m.mode), process: drop(m.process) };
       });
     }
-  }, [id, running, launchState.data]);
+  }, [id, running, process, sameRun]);
   const launching = useIsMutating({ mutationKey: ["launch_play"] });
-  const real = running && s?.started ? Date.parse(s.started) : NaN;
-  const since = Number.isNaN(real) ? memo.since[id] : real;
-  const starting = !kilnMissing && (view.phase === "starting" || (launching > 0 && !running)
-    || (running && !bootFresh && !!at && !vanillaStart && now - at < 120_000));
+  const since = runStarted(s, now, memo.since[id]);
+  const starting = state.starting || (!running && !s?.steamUpdating && (launching > 0 || (at !== undefined && now - at < 120_000)));
   const activeProfile = profiles.data?.find((p) => p.id === active.data?.profileId) ?? null;
   return {
     game,
     view,
     installed: !!s?.runtime.installed,
     running,
-    canPlay: !!s && !running && !s.steamUpdating,
+    canPlay: !!s && !running && !s.steamUpdating && launching === 0 && !starting && !changingRuntime,
     busy: launching > 0 || starting,
     starting,
     elapsed: running && since ? Math.max(0, Math.round((now - since) / 1000)) : null,
-    stuck: kilnMissing || (!!s?.playOncePending && !running && !!at && Date.now() - at > 120_000),
+    stuck: kilnMissing || (!!s?.playOncePending && !running && memo.mode[id] !== "vanilla" && at !== undefined && now - at > 120_000),
     kilnMissing,
     profileName: activeProfile?.name ?? null,
     play: (mode, profileId) => launch.mutate({ mode, profileId: profileId ?? null }),
@@ -126,10 +123,11 @@ export function clock(sec: number): string {
 
 /** Re-renders every `ms` (0: never). */
 export function useNow(ms: number): number {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(playNow);
   useEffect(() => {
     if (!ms) return;
-    const t = setInterval(() => setNow(Date.now()), ms);
+    setNow(playNow());
+    const t = setInterval(() => setNow(playNow()), ms);
     return () => clearInterval(t);
   }, [ms]);
   return now;

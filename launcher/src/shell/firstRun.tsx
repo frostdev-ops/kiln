@@ -40,9 +40,9 @@ export function useAutoDetect() {
   const games = useGames();
   const known = games.data?.some((g) => g.kind === "client") ?? false;
   useEffect(() => {
-    if (!games.isSuccess || known || useDetect.getState().tried || useDetect.getState().busy) return;
+    if ((!games.isSuccess && !games.isError) || known || useDetect.getState().tried || useDetect.getState().busy) return;
     void detectGames(qc, true);
-  }, [games.isSuccess, known, qc]);
+  }, [games.isSuccess, games.isError, known, qc]);
 }
 
 // ---------------------------------------------------------------- Install Kiln on Play
@@ -50,14 +50,14 @@ export function useAutoDetect() {
 interface InstallPrompt {
   open: boolean;
   /** Paths dropped before Kiln was in the game: added once the install is done. */
-  pending: string[] | null;
-  show: (pending?: string[] | null) => void;
+  pending: { game: GameInstall; paths: string[] } | null;
+  show: (pending?: { game: GameInstall; paths: string[] } | null) => void;
   close: () => void;
 }
-export const useInstallPrompt = create<InstallPrompt>((set, get) => ({
+export const useInstallPrompt = create<InstallPrompt>((set) => ({
   open: false,
   pending: null,
-  show: (pending = null) => set({ open: true, pending: pending ?? get().pending }),
+  show: (pending = null) => set({ open: true, pending }),
   close: () => set({ open: false }),
 }));
 
@@ -80,12 +80,13 @@ export function useKilnInstall(game: GameInstall | null) {
 }
 
 /** The confirm (mounted once in the shell; the mouth, Play and a drop's toast open it through useInstallPrompt). */
-export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[]) => void }) {
+export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[], game: GameInstall) => void }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const loc = useLocation();
-  const { game } = useGame();
-  const { open, close } = useInstallPrompt();
+  const selected = useGame();
+  const { open, close, pending } = useInstallPrompt();
+  const game = pending?.game ?? selected.game;
   const k = useKilnInstall(game);
   const status = useGameStatus(game?.id);
   if (!open || !game) return null;
@@ -96,23 +97,26 @@ export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[]) => void }
     close();
     if (loc.pathname !== "/") nav("/");
     const ok = await installBundle(qc, game, b, k.bundles, null);
-    if (!ok) return;
+    if (!ok) {
+      if (pending) toast.info("Dropped mods are still waiting", undefined, { actions: [{ label: "Retry", onClick: () => useInstallPrompt.getState().show(pending) }] });
+      return;
+    }
+    const installed = await qc.fetchQuery({ queryKey: qk.games, queryFn: api.gameList }).then((gs) => gs.find((g) => g.path === game.path) ?? game).catch(() => game);
     // a first-time player gets "My mods" now, so Play names it and a dropped mod has somewhere to go
     try {
-      const a = await api.profileEnsureDefault(game.id);
-      if (a) qc.setQueryData(qk.active(game.id), a);
+      const a = await api.profileEnsureDefault(installed.id);
+      if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch { /* Play still works without a profile (the drop-in folders) */ }
-    const pending = useInstallPrompt.getState().pending;
-    useInstallPrompt.setState({ pending: null });
-    if (pending?.length) onAdd(pending);
+    } catch (e) { toast.error(e, "Kiln installed, but the default profile could not be prepared"); }
+    if (useInstallPrompt.getState().pending === pending) useInstallPrompt.setState({ pending: null });
+    if (pending?.paths.length) onAdd(pending.paths, installed);
   };
   const cancel = () => { useInstallPrompt.setState({ open: false, pending: null }); };
   return (
     <Modal open onClose={cancel} title="Install Kiln" width={480}
       footer={k.bundle ? (
         <><Button variant="ghost" onClick={cancel}>Cancel</Button>
-          <Button variant="primary" disabled={running || k.installing || !!status.data?.steamUpdating} onClick={go}>Install</Button></>
+          <Button variant="primary" disabled={!status.data || running || k.installing || !!status.data?.steamUpdating} onClick={go}>Install</Button></>
       ) : (
         <><Button variant="ghost" onClick={cancel}>Cancel</Button><Button onClick={() => { cancel(); nav("/runtime"); }}>Runtime</Button></>
       )}>
