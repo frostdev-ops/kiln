@@ -67,8 +67,8 @@ Every member is optional (null: no opinion).
 | `KeepBuildsOutsideBases` | switch | placements outside bases kept in the save (Kiln.Build's regions); default: with `BuildOutsideBases` | server |
 | `BuildCost` | multiplier | what placing blocks, terrain and props takes (0 = free, which also lifts "missing materials"); 0 also makes upgrading a storage chest in place free | server (+ client for 0) |
 | `BuildRefund` | multiplier | what dismantling and undo give back | server |
-| `FreeCrafting` | switch | crafting takes nothing: the player's craft request is answered with the recipe's output and the inputs stay (Kiln.Gameplay's craft event, Kiln.Items); the game's crafting menu still wants the inputs before it sends | server |
-| `KeepConsumables` | switch | food, drinks, potions and bandages come back after use (the server gives the used one back); not arrows | server |
+| `FreeCrafting` | switch | currently unavailable: effective rules deny it until crafting can preserve inputs in the game's own transaction | server |
+| `KeepConsumables` | switch | currently unavailable: slot-change notifications cannot prove that an item was consumed | server |
 | `DigDamage` | multiplier | the damage the player's tools deal to terrain and blocks; 1000 = one hit | server |
 | `Invulnerable` | switch | no damage from hits | server |
 | `NoFallDamage` | switch | no damage and no hard-landing stagger from falls, from any height (Kiln.Combat's fall event, canceled); `Invulnerable` already covers falls | server |
@@ -141,7 +141,7 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
 **Creative** in the pause menu (shown to admins and to players in creative mode).
 - **Items**: the server's item catalogue (every item of the world, mods' items included, without the game's debug, test
   and retired entries), a search, a category, "without equipment" (weapons, armour, rings and gems left out). Pick an
-  item: **Take 1**, **Take** a stack, or **Take** a count; gear gets a level and a rarity. Items go where the game puts
+  item: **Take 1**, **Take** a stack, or **Take** a count up to one stack (9,999 at most); gear gets a level and a rarity. Items go where the game puts
   picked-up items, with its "+N" popup. Needs creative mode.
 - **World**: the time of day (jump forward to an hour) and the day and night cycle: **Normal**, **Stopped** (the sun
   stands still; sleeping doesn't move it), **Fast** (a whole day and night in about 90 s). Admins only; for the whole
@@ -152,15 +152,24 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
   you like.
 - Creative mode on or off for yourself (admins), and a "Creative" line on the HUD while it is on.
 
-`/creative` also turns on `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
-`creative.json` says nothing about them; `"freeCrafting": false` there keeps crafting at its cost. The preset file
-itself is unchanged.
+`/creative` requests `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
+`creative.json` says nothing about them. Both are currently disabled: effective rules list `freeCraftingUnavailable`
+and `keepConsumablesUnavailable` in `Denied`. Craft requests cannot safely be replaced by asynchronous gives, and a
+consumable slot changing is not proof of consumption. The game keeps its normal crafting costs and item use.
+`allowFreeCrafting` and `allowKeepConsumables` still deny requests before this availability check. The preset file is unchanged.
 
 Every action is a request the server checks; the menu shows what the server answers. Taking items needs creative mode
 for that player (only an admin turns it on: `/creative on <player>`); the time and the cycle need the creative
 permission (`kiln.command.creative`: admins, a hosted world's host). A game hosting its own world (co-op or offline)
 asks its own server half directly; a player on a dedicated server needs Kiln in their game (channel `kiln:creative`,
-not required: games without it join as before). The same tools from code and commands:
+not required: games without it join as before). Requests use the authenticated sender's player. The inbox is
+bounded, drains at most 16 requests per tick, and limits each player's pending requests and request rate. Give
+admission is shared by the channel, chat and admin ops: one pending transaction per player, at least 250 ms between
+accepted submissions. Invalid quantities, hidden/unknown items, levels and rarities are refused rather than clamped.
+An accepted inventory transaction may finish after creative mode is switched off; later requests are refused.
+The catalogue is paged in the menu so all 4,000+ entries remain reachable without rendering thousands of rows.
+Journey returns unavailable for a character that is not joined; it never falls back to showing all items.
+The same tools from code and commands:
 ```csharp
 CreativeResult r = await CreativeTools.Give(player, item.Id, count: 50);             // refused unless creative mode is on
 await CreativeTools.Give(player, sword.Id, 1, level: 30, rarity: ItemRarity.Epic);
@@ -174,9 +183,9 @@ IReadOnlyList<ItemId>? found = CreativeTools.Found(player);   // journey mode; n
 (docs/kiln/commands.md). The cycle is kiln.time's held clock speed (`Time.SetCycle`, `Time.SetSpeed`;
 docs/kiln/services/time.md).
 
-Lab (`mods/tests/creative-test`, a spawned player character, no client): 25 PASS, 0 FAIL. FreeCrafting: a craft
-request at a workbench made the output (`0 -> 1`) with the inputs unchanged (`4 -> 4, 7 -> 7, 10 -> 10`); without the
-rule the game's own craft took them. The storage upgrade's hook installs (`storage upgrade: free with BuildCost 0`); the
+Historical lab observations from the original commits (`mods/tests/creative-test`, a spawned player character, no client):
+25 PASS, 0 FAIL. The free-crafting fallback tested then has since been disabled for safety. The updated lab test
+checks that both unsafe rules are denied and that native crafting still spends inputs; it needs a separate lab run. The storage upgrade's hook installs (`storage upgrade: free with BuildCost 0`); the
 upgrade itself and journey mode need a joined player. The catalogue lists 4,180 of
 4,213 items; taking is refused without creative mode, gives a stack (`0 -> 7`) and gear at the asked level and rarity
 (`level 55, Epic`) with it; an unknown item is refused; Stopped holds the clock (`15:35 -> 15:35` over 100 steps, scale

@@ -78,6 +78,18 @@ int main() {
     }
     check(!player_rules(2000, &out) && same(out, kDefault), "reused extra slot never grants its new rules to the old entity");
 
+    store(g_players[3], &b); // BuildCost 0
+    check(storage_payment_free(100, 100, 3, 3), "storage payment: only the authorized actor's exact upgrade call is free");
+    check(!storage_payment_free(101, 100, 3, 3), "storage payment: unrelated callers still pay");
+    check(!storage_payment_free(100, 0, 3, 3), "storage payment: a missing callsite never waives payment");
+    check(!storage_payment_free(100, 100, 4, 3) && !storage_payment_free(100, 100, 3, 4), "storage payment: another actor/owner cannot borrow free building");
+    check(!storage_payment_free(100, 100, 0, 0), "storage payment: an absent operator cannot waive payment");
+    b.build_cost = 0.25f;
+    store(g_players[3], &b);
+    check(!storage_payment_free(100, 100, 3, 3), "storage payment: a nonzero discounted cost still pays");
+    store(g_players[3], nullptr);
+    check(!storage_payment_free(100, 100, 3, 3), "storage payment: turning the rule off takes effect on the next payment");
+
     check(shroud_branch(3, 20, 100, 0.05f, false, 0.25) == 4, "deadly Shroud on a slow step holds before crossing the floor");
     check(shroud_branch(3, 80, 100, 0.05f, false, 0.25) == 3, "Shroud well above the floor keeps its own drain");
     check(shroud_branch(2, 20, 100, 0.05f, false, 30) == 4, "dangerous Shroud floor also handles huge step time");

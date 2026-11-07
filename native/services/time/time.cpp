@@ -13,8 +13,10 @@
 //    Kiln captures it from WeatherSystem_update, which the GameServer frame calls after the sim step.
 // Everything that writes runs on the tick thread (Pre or Post): the Daytime readers and the weather update run in
 // the same thread's frame, before (programs inside the step) or after (weather) Kiln's handlers, never concurrently.
+#ifndef KILN_TIME_HOST_TEST
 #include <windows.h>
 #include <intrin.h>
+#endif
 
 #include <atomic>
 #include <cmath>
@@ -23,10 +25,50 @@
 #include <cstring>
 
 #include "kiln_api.h"
+#ifndef KILN_TIME_HOST_TEST
 #include "safetyhook.hpp"
+#endif
 #include "services/kiln_time.h"
 
 namespace {
+
+// Session state for the bound server clock; negative means the game decides, including sleep acceleration.
+std::atomic<float> g_scale_hold{-1.0f};
+std::atomic<uint64_t> g_scale_refused{0};
+std::atomic<bool> g_scale_logged_refusal{false};
+
+bool valid_scale(float scale) { return std::isfinite(scale) && scale <= 1000.0f; }
+
+void reset_scale_state() {
+    g_scale_hold.store(-1.0f);
+    g_scale_refused.store(0);
+    g_scale_logged_refusal.store(false);
+}
+
+void scale_world_event(uint32_t event, uint64_t session, bool closed) {
+    if (event == KILN_WORLD_STOPPING || (event == KILN_WORLD_STARTED && session > 1 && !closed)) reset_scale_state();
+}
+
+// Publish a hold only after the game accepted the change. Failed changes/releases preserve the previous state.
+template <typename Apply>
+bool change_scale(float scale, Apply apply) {
+    if (!valid_scale(scale)) return false;
+    if (!(scale < 0.0f && g_scale_hold.load() < 0.0f) && !apply(scale < 0.0f ? 1.0f : scale)) return false;
+    g_scale_hold.store(scale < 0.0f ? -1.0f : scale);
+    g_scale_logged_refusal.store(false);
+    g_scale_refused.store(0);
+    return true;
+}
+
+// Sleep may ask for a different speed on every step. Do not re-anchor/bump the sync counter while already held.
+bool scale_request(bool server, float current, float* requested) {
+    const float hold = g_scale_hold.load();
+    if (!server || hold < 0.0f) return true;
+    *requested = hold;
+    return current != hold;
+}
+
+#ifndef KILN_TIME_HOST_TEST
 
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
@@ -56,11 +98,6 @@ RemoveInstanceFn g_remove_instance = nullptr;
 
 SafetyHookInline g_set_hook, g_weather_hook, g_info_hook, g_scale_hook;
 bool g_can_set = false, g_can_weather = false, g_can_probe = false, g_can_scale = false;
-// The clock speed Kiln holds (time/SetTimeScale, docs/re/time.md "The clock's speed"); negative: the game decides
-// (1, or faster while players sleep). Session state, applied to the server world's Daytime only.
-std::atomic<float> g_scale_hold{-1.0f};
-std::atomic<uint64_t> g_scale_refused{0};  // the game's own speed changes refused while Kiln holds the speed
-bool g_scale_logged_refusal = false;
 std::atomic<uint8_t*> g_daytime{nullptr};
 std::atomic<uint8_t*> g_ws{nullptr};
 std::atomic<uint8_t*> g_gs{nullptr};
@@ -175,18 +212,22 @@ uintptr_t __fastcall hk_set_time_of_day(uint8_t* daytime, int64_t tod, int64_t e
 // server's sleep program, which asks for the speed the sleepers want whenever the clock's speed differs from it.
 // While Kiln holds a speed, that request is refused (the clock already runs at Kiln's speed), so the change counter
 // does not move every step.
+bool read_scale(uint8_t* daytime, float* scale) {
+    __try { *scale = at<float>(daytime, D.scale); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 void __fastcall hk_set_scale(uint8_t* daytime, float scale, int64_t ecs_now) {
-    const float hold = g_scale_hold.load(std::memory_order_relaxed);
-    if (hold >= 0.0f && daytime == g_daytime.load(std::memory_order_relaxed)) {
-        if (at<float>(daytime, D.scale) == hold) {
-            g_scale_refused.fetch_add(1, std::memory_order_relaxed);
-            if (!g_scale_logged_refusal) {
-                g_scale_logged_refusal = true;
-                logf(KILN_LOG_INFO, "time: the game asked for clock speed %.2f; Kiln holds %.2f", scale, hold);
-            }
+    float current = 0;
+    // Only the bound server singleton is authoritative. Before binding, a hosting client may have captured its
+    // prediction world's Daytime; never hold that clock. An unreadable object follows the original game path.
+    if (daytime && daytime == g_server_daytime.load() && read_scale(daytime, &current)) {
+        if (!scale_request(true, current, &scale)) {
+            g_scale_refused.fetch_add(1);
+            if (!g_scale_logged_refusal.exchange(true))
+                logf(KILN_LOG_INFO, "time: the game asked for a different clock speed; Kiln holds %.2f", current);
             return;
         }
-        scale = hold;
     }
     g_scale_hook.call<void>(daytime, scale, ecs_now);
 }
@@ -332,34 +373,21 @@ KilnResult KILN_CALL set_time_of_day(double hours, uint32_t mode) {
 
 // Tick thread: the server world's Daytime runs at the held speed (after a load, a set, or Kiln's own change).
 bool apply_scale_hold(uint8_t* d, float hold) {
-    if (at<float>(d, D.scale) == hold) return true;
-    const float was = at<float>(d, D.scale);
-    if (!g_call_set_scale(d, hold, ecs_now())) return false;
-    g_pending_since.store(static_cast<int64_t>(GetTickCount64()));
-    g_pending_sync.store(at<uint32_t>(d, D.counter));
-    logf(KILN_LOG_INFO, "time: clock speed %.2f -> %.2f; counter %u", was, hold, at<uint32_t>(d, D.counter));
-    return true;
+    __try {
+        if (at<float>(d, D.scale) == hold) return true;
+        if (!g_call_set_scale(d, hold, ecs_now())) return false;
+        g_pending_since.store(static_cast<int64_t>(GetTickCount64()));
+        g_pending_sync.store(at<uint32_t>(d, D.counter));
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 KilnResult KILN_CALL set_time_scale(float scale) {
-    if (std::isnan(scale) || scale > 1000.0f) return KILN_ERR_INVALID_ARGUMENT;
+    if (!valid_scale(scale)) return KILN_ERR_INVALID_ARGUMENT;
     if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
-    uint8_t* d = g_daytime.load();
+    uint8_t* d = g_server_daytime.load();
     if (!g_can_scale || !d) return KILN_ERR_UNAVAILABLE;
-    if (scale < 0.0f) {
-        const float had = g_scale_hold.exchange(-1.0f);
-        g_scale_logged_refusal = false;
-        if (had >= 0.0f) {
-            // back to the game's normal speed; the sleep program raises it again while players sleep
-            apply_scale_hold(d, 1.0f);
-            logf(KILN_LOG_INFO, "time: the game decides the clock speed again (Kiln held %.2f; refused %llu requests)", had,
-                 static_cast<unsigned long long>(g_scale_refused.exchange(0)));
-        }
-        return KILN_OK;
-    }
-    g_scale_hold.store(scale);
-    g_scale_logged_refusal = false;
-    return apply_scale_hold(d, scale) ? KILN_OK : KILN_ERR_INTERNAL;
+    return change_scale(scale, [d](float v) { return apply_scale_hold(d, v); }) ? KILN_OK : KILN_ERR_INTERNAL;
 }
 
 float KILN_CALL time_scale_hold() { return g_can_scale ? g_scale_hold.load() : -2.0f; }
@@ -419,10 +447,14 @@ bool g_closed = false;  // tick thread: the last server world was closed with a 
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     if (ev->kind != KILN_WORLD_SERVER) return;
+    scale_world_event(ev->event, ev->session, g_closed);
     if (ev->event == KILN_WORLD_STARTED) {
         const bool closed = g_closed;
         g_closed = false;
         if (ev->session > 1 && !closed) {  // no STOPPING was seen (no world-destroy hook): drop the old world's objects
+            g_synced.store(UINT32_MAX);
+            g_pending_sync.store(-1);
+            g_logged_state = g_logged_owner = g_ignored_logged = false;
             g_daytime.store(nullptr);
             g_ws.store(nullptr);
             g_gs.store(nullptr);
@@ -443,7 +475,6 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     g_pending_sync.store(-1);
     g_reset_pending.store(false);
     g_logged_state = g_logged_owner = g_ignored_logged = false;
-    if (g_scale_hold.exchange(-1.0f) >= 0.0f) logf(KILN_LOG_INFO, "time: the held clock speed ends with the world");
     logf(KILN_LOG_INFO, "time: server world closed; Daytime and WeatherSystem released");
 }
 
@@ -463,7 +494,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     }
     const float hold = g_scale_hold.load(std::memory_order_relaxed);
     if (hold >= 0.0f) {
-        if (uint8_t* d = g_daytime.load(); d && at<float>(d, D.scale) != hold) apply_scale_hold(d, hold);
+        if (uint8_t* d = g_server_daytime.load(); g_can_scale && d) apply_scale_hold(d, hold);
     }
     const int64_t want = g_pending_sync.load();
     if (want >= 0 && g_can_probe && GetTickCount64() - static_cast<uint64_t>(g_pending_since.load()) > 30000) {
@@ -495,8 +526,10 @@ bool hook(SafetyHookInline& h, uintptr_t target, F* detour, const char* what) {
     return true;
 }
 
+#endif  // !KILN_TIME_HOST_TEST
 }  // namespace
 
+#ifndef KILN_TIME_HOST_TEST
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
@@ -547,3 +580,5 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
          g_can_probe ? "on" : "off", g_can_scale ? "on" : "off");
     return api->register_service(owner, KilnStr{KILN_TIME_SERVICE, sizeof(KILN_TIME_SERVICE) - 1}, &kTable);
 }
+
+#endif  // !KILN_TIME_HOST_TEST

@@ -195,6 +195,14 @@ struct Stats {
     std::atomic<uint64_t> fly{0}, zone{0}, cursor{0}, costs{0}, refunds{0}, digs{0}, shroud{0}, glide{0}, faults{0};
 } S;
 
+// A storage payment belongs to its transaction's acting player, never merely to an inventory owner. Kept outside
+// the Windows hook so the admission checks are exercised by the host tests.
+bool storage_payment_free(uintptr_t ret, uintptr_t upgrade_ret, uint32_t actor, uint32_t owner) {
+    if (!upgrade_ret || ret != upgrade_ret || !actor || actor != owner) return false;
+    KilnRulesPlayer s{};
+    return player_rules(actor, &s) && s.build_cost == 0.0f;
+}
+
 #ifndef KILN_RULES_HOST_TEST
 
 // ============================================================================================= symbols =========
@@ -746,14 +754,11 @@ bool __fastcall hk_apply(uint8_t* cost, int64_t* list, uint8_t take) {
 
 // The chest upgrade: free for an operator whose building is free (BuildCost 0). Returning 0 is the payment's "paid";
 // nothing goes into the transaction. Every other payment runs as the game made it.
-bool upgrade_free(uint32_t owner) {
-    KilnRulesPlayer s{};
-    return player_rules(owner, &s) && s.build_cost == 0.0f;
-}
-
-bool upgrade_free_guarded(uint32_t owner, unsigned long* code) {
+bool upgrade_free_guarded(void* tx, uint32_t owner, uintptr_t ret, unsigned long* code) {
     __try {
-        return upgrade_free(owner);
+        if (!tx || L.tx_operator <= 0) return false;
+        const auto actor = *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(tx) + L.tx_operator);
+        return storage_payment_free(ret, g_upgrade_ret, actor, owner);
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
@@ -762,13 +767,25 @@ bool upgrade_free_guarded(uint32_t owner, unsigned long* code) {
 uint32_t __fastcall hk_pay(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
     if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_upgrade_ret && g_upgrade_ret) {
         unsigned long code = 0;
-        if (upgrade_free_guarded(owner, &code)) {
+        if (upgrade_free_guarded(tx, owner, reinterpret_cast<uintptr_t>(_ReturnAddress()), &code)) {
             S.costs.fetch_add(1, std::memory_order_relaxed);
             return 0;
         }
         if (code) S.faults.fetch_add(1, std::memory_order_relaxed);
     }
     return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
+}
+
+// Check the resolved return address really follows a direct call to this payment. A stale symbol may only turn
+// storage upgrades off, and must never turn a different payment into a free one.
+bool upgrade_call_valid(uintptr_t ret, uintptr_t pay) {
+    __try {
+        if (!ret || !pay) return false;
+        const auto* p = reinterpret_cast<const uint8_t*>(ret);
+        int32_t rel = 0;
+        std::memcpy(&rel, p - 4, 4);
+        return p[-5] == 0xe8 && ret + rel == pay && p[0] == 0x85 && p[1] == 0xc0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 // ============================================================================================= mining ==========
@@ -1321,7 +1338,8 @@ void install() {
     else note("costs (rules.costs)");
     // the storage-chest upgrade's payment (counted with the costs)
     uintptr_t pay = 0;
-    if (feat("rules.storage") && sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) &&
+    if (feat("rules.storage") && cst("items/tx.operator", &L.tx_operator) &&
+        sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) && upgrade_call_valid(g_upgrade_ret, pay) &&
         inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))
         logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
              static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),

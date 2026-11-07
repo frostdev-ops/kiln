@@ -65,12 +65,11 @@ public sealed record PlayerRules
     /// and dismantling turns into a material source.</summary>
     public double? BuildRefund { get; init; }
 
-    /// <summary>Crafting takes nothing from the inventory: a craft request the player's game sends is answered with the
-    /// recipe's output, and the inputs stay (Kiln.Gameplay's craft event, then Kiln.Items). The game's own crafting menu
-    /// still asks for the inputs before it sends the request.</summary>
+    /// <summary>Requests crafting without input costs. Currently unavailable: effective rules deny it until an
+    /// authoritative transaction hook is available; the game keeps its own crafting behavior.</summary>
     public bool? FreeCrafting { get; init; }
 
-    /// <summary>Food, drinks, potions and bandages come back after use (the server gives the used one back).</summary>
+    /// <summary>Requests keeping used consumables. Currently unavailable: slot-change events cannot prove consumption.</summary>
     public bool? KeepConsumables { get; init; }
 
     // ---- mining ----
@@ -128,8 +127,8 @@ public sealed record PlayerRules
     /// <summary>The player's water containers get water back (Kiln.Items' refill policies).</summary>
     public WaterRule? Water { get; init; }
 
-    /// <summary>What <c>/creative</c> adds to the <c>creative</c> preset where the preset says nothing (an explicit
-    /// <c>false</c> in the preset file keeps it off): rules newer than the preset file.</summary>
+    /// <summary>What <c>/creative</c> requests in addition to the preset where it says nothing. Effective rules still
+    /// enforce the server's limits and feature availability; an explicit false in the preset keeps a request off.</summary>
     public static PlayerRules CreativeExtras { get; } = new() { FreeCrafting = true, KeepConsumables = true };
 
     /// <summary>Kiln's built-in "creative" preset: free flight and building anywhere outside other players' bases,
@@ -319,7 +318,7 @@ public sealed record EffectiveRules
     /// <summary>The rule sets that applied, in the order they were set.</summary>
     public IReadOnlyList<RuleSet> From { get; init; } = Array.Empty<RuleSet>();
 
-    /// <summary>What the server's rules.json took away (switch names), when it did.</summary>
+    /// <summary>What the server's limits or unavailable features took away, when they did.</summary>
     public IReadOnlyList<string> Denied { get; init; } = Array.Empty<string>();
 
     public static EffectiveRules None(EntityId player) => new() { Player = player };

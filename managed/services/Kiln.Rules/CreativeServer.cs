@@ -30,21 +30,44 @@ public static class CreativeTools
         if (!ItemsReady()) return new(false, true, "This server's game build cannot give items (kiln.items).");
         var info = Items.Get(item);
         if (info is null) return new(false, true, $"No item {item} in this world's catalogue.");
-        count = Math.Clamp(count, 1, MaxGive);
-        Gear? gear = info.IsGear && (level is not null || rarity is not null)
-            ? new Gear(level is { } l ? Math.Clamp(l, Math.Max(info.LevelMin, 1), Math.Max(info.LevelMax, Math.Max(info.LevelMin, 1))) : null, rarity)
-            : null;
-        var r = await Items.Give(player, item, count, gear, GiveOptions.Notify);
-        var what = $"{r.Done} x {info.Label}" + (gear is { } g ? $" (level {g.Level?.ToString() ?? "rolled"}, {g.Rarity?.ToString() ?? "default rarity"})" : "");
-        RulesRuntime.Log(LogLevel.Info, $"creative: {NameOf(player)} took {what} ({info.Name}, {item}): {r.Status}");
-        return r.Status switch
+        if (ValidateGive(info, count, level, rarity) is { } error) return new(false, true, error);
+        if (!Gives.TryEnter(player, Environment.TickCount64, out var ticket)) return new(false, true, "Wait for your previous take, then try again.");
+        var name = NameOf(player);  // continuations without a mod scheduler may run off the tick thread
+        try
         {
-            ItemsStatus.Done => new(true, true, $"Took {what}."),
-            ItemsStatus.Partial => new(true, true, $"Took {what}; the rest did not fit."),
-            ItemsStatus.NoRoom => new(false, true, "No room in your inventory."),
-            _ => new(false, true, $"The game refused it: {r.Message}"),
-        };
+            Gear? gear = info.IsGear && (level is not null || rarity is not null)
+                ? new Gear(level, rarity)
+                : null;
+            var r = await Items.Give(player, item, count, gear, GiveOptions.Notify);
+            var what = $"{r.Done} x {info.Label}" + (gear is { } g ? $" (level {g.Level?.ToString() ?? "rolled"}, {g.Rarity?.ToString() ?? "default rarity"})" : "");
+            RulesRuntime.Log(LogLevel.Info, $"creative: {name} took {what} ({info.Name}, {item}): {r.Status}");
+            return r.Status switch
+            {
+                ItemsStatus.Done => new(true, true, $"Took {what}."),
+                ItemsStatus.Partial => new(true, true, $"Took {what}; the rest did not fit."),
+                ItemsStatus.NoRoom => new(false, true, "No room in your inventory."),
+                _ => new(false, true, $"The game refused it: {r.Message}"),
+            };
+        }
+        finally { Gives.Complete(player, ticket); }
     }
+
+    private static readonly CreativeGiveGate Gives = new();
+
+    internal static string? ValidateGive(ItemInfo info, int count, int? level, ItemRarity? rarity)
+    {
+        if (!CreativeCatalog.Listed(info.Name, info.Flags)) return "This item is excluded from the creative catalogue.";
+        var max = info.IsGear ? 1 : Math.Min(MaxGive, Math.Max(1, info.MaxStack));
+        if (count < 1 || count > max) return $"Take between 1 and {max} items (at most one stack).";
+        if (!info.IsGear && (level is not null || rarity is not null)) return "Only gear has a level or rarity.";
+        int lo = Math.Max(info.LevelMin, 1), hi = Math.Min(Math.Max(info.LevelMax, lo), 255);
+        if (info.IsGear && lo > hi) return "This gear has no supported level range.";
+        if (level is { } l && (l < lo || l > hi)) return $"Level must be {lo}..{hi}.";
+        if (rarity is { } r && !Enum.IsDefined(r)) return "Unknown rarity.";
+        return null;
+    }
+
+    internal static void WorldClosed() => Gives.Clear();
 
     /// <summary>Jumps the world's clock forward to <paramref name="hours"/> (0..24). Refused unless
     /// <see cref="MayChangeTime"/>.</summary>
@@ -59,6 +82,7 @@ public static class CreativeTools
     /// commands that check their own permission, and remote tools. <paramref name="who"/> goes into the log.</summary>
     public static CreativeResult SetTime(double hours, string who)
     {
+        Game.AssertTickThread();
         if (!double.IsFinite(hours)) return new(false, false, "not a time of day");
         if (!TimeReady()) return new(false, false, "This build cannot set the time of day (kiln.time).");
         Time.Set(hours);
@@ -78,6 +102,7 @@ public static class CreativeTools
     /// <summary>Sets the day and night cycle, with no check of who asks (see <see cref="SetTime(double, string)"/>).</summary>
     public static CreativeResult SetCycle(TimeCycle cycle, string who)
     {
+        Game.AssertTickThread();
         if (!Enum.IsDefined(cycle)) return new(false, false, "unknown cycle");
         if (!CycleReady()) return new(false, false, "This build cannot hold the clock's speed (kiln.time, feature time.scale).");
         Time.SetCycle(cycle);
@@ -117,7 +142,7 @@ public static class CreativeTools
         {
             return FoundIn(player, Catalog());
         }
-        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or NotSupportedException or InvalidOperationException)
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
         {
             RulesRuntime.Log(LogLevel.Info, $"creative: the items {NameOf(player)} has found are not known here: {e.Message}");
             return null;
@@ -127,11 +152,10 @@ public static class CreativeTools
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static IReadOnlyList<ItemId>? FoundIn(EntityId player, IReadOnlyList<ItemInfo> catalog)
     {
-        if (!Knowledge.Available) return null;
-        var found = new List<ItemId>();
-        foreach (var i in catalog)
-            if (Knowledge.Get(player, i.Id.Value) is { Value: not 0 }) found.Add(i.Id);
-        return found;
+        if (player.IsNone || Kiln.Players.Find(player) is null || !Knowledge.Available) return null;
+        // Read the map once, rather than crossing the native boundary for every catalogue entry.
+        var found = Knowledge.List(player).Where(k => k.Value != 0).Select(k => k.Id).ToHashSet();
+        return catalog.Where(i => found.Contains(i.Id.Value)).Select(i => i.Id).ToArray();
     }
 
     private static IReadOnlyList<ItemInfo> _catalog = Array.Empty<ItemInfo>();
@@ -139,6 +163,7 @@ public static class CreativeTools
 
     internal static bool HasPermission(EntityId player)
     {
+        if (player.IsNone) return false;
         try
         {
             if (CreativeNet.Hosting(out var self) && self == player) return true;  // a hosted world's host has every right
@@ -206,6 +231,7 @@ internal static class CreativeServer
 
     public static void Handle(EntityId player, CreativeRequest req, bool local)
     {
+        Game.AssertTickThread();
         if (player.IsNone) return;
         switch (req.Kind)
         {
@@ -239,17 +265,23 @@ internal static class CreativeServer
 
     private static async Task GiveAsync(EntityId player, CreativeRequest req, bool local)
     {
+        var session = CreativeNet.Session;
         CreativeResult r;
         try
         {
+            if (req.Level < -1 || req.Rarity < -1 || req.Rarity > (int)ItemRarity.Legendary)
+            {
+                CreativeNet.SendReply(player, new CreativeReplyMsg(false, "Invalid level or rarity."), local);
+                return;
+            }
             r = await CreativeTools.Give(player, new ItemId(req.Item), req.Count,
                 req.Level >= 0 ? req.Level : null, req.Rarity is >= 0 and <= (int)ItemRarity.Legendary ? (ItemRarity)req.Rarity : null);
         }
         catch (Exception e)
         {
-            r = new CreativeResult(false, Creative.IsOn(player), e.Message);
+            r = new CreativeResult(false, false, e.Message);
         }
-        CreativeNet.SendReply(player, new CreativeReplyMsg(r.Ok, r.Message), local);
+        CreativeNet.Post(() => CreativeNet.SendReply(player, new CreativeReplyMsg(r.Ok, r.Message), local), session);
     }
 
     private static void Answer(EntityId player, CreativeResult r, bool local)
@@ -343,9 +375,46 @@ internal static class CreativeCatalog
     /// <summary>Does <paramref name="query"/> (words, any order, any case) match the item?</summary>
     public static bool Matches(string query, string label, string name)
     {
-        if (string.IsNullOrWhiteSpace(query)) return true;
-        foreach (var w in query.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        return MatchesWords(SearchWords(query), label, name);
+    }
+
+    internal static string[] SearchWords(string query) => query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+    internal static bool FoundMatches(bool journey, IReadOnlySet<uint>? found, uint id) => !journey || found?.Contains(id) == true;
+
+    internal static bool MatchesWords(IReadOnlyList<string> words, string label, string name)
+    {
+        foreach (var w in words)
             if (!label.Contains(w, StringComparison.OrdinalIgnoreCase) && !name.Contains(w, StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
+}
+
+// Shared by the channel, commands and admin ops. Tick-thread admission; a request occupies its slot until the
+// inventory transaction completes. Old completions cannot release a new world's slot for a reused entity id.
+internal sealed class CreativeGiveGate
+{
+    private readonly Dictionary<EntityId, (long At, long Ticket, bool Pending)> _players = new();
+    private long _next;
+    public bool TryEnter(EntityId player, long now, out long ticket)
+    {
+        lock (_players)
+        {
+            ticket = 0;
+            if (_players.TryGetValue(player, out var last) && (last.Pending || now - last.At < 250)) return false;
+            if (_players.Count >= 1024)
+                foreach (var p in _players.Where(p => !p.Value.Pending && now - p.Value.At >= 250).Select(p => p.Key).ToArray())
+                    _players.Remove(p);
+            if (_players.Count >= 1024 && !_players.ContainsKey(player)) return false;
+            ticket = ++_next;
+            _players[player] = (now, ticket, true);
+            return true;
+        }
+    }
+    public void Complete(EntityId player, long ticket)
+    {
+        lock (_players)
+            if (_players.TryGetValue(player, out var p) && p.Ticket == ticket) _players[player] = (p.At, p.Ticket, false);
+    }
+    public void Clear() { lock (_players) _players.Clear(); }
 }

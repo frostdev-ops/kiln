@@ -2,8 +2,6 @@
 // kiln:creative: the creative menu's requests (take an item, set the time, the day and night cycle, creative mode on
 // or off) and the server's answers. Opened by Kiln on both sides, not required: a game without it joins as before.
 // A game hosting its own world talks to its own server half directly, with no network message.
-using System.Collections.Concurrent;
-
 namespace Kiln;
 
 /// <summary>What the creative menu asks the server for.</summary>
@@ -60,9 +58,13 @@ internal static class CreativeNet
     private const ushort MsgRequest = 0, MsgState = 1, MsgReply = 2, MsgCatalog = 3, MsgFound = 4;
     private static readonly object Lock = new();
     private static NetChannel? _channel;
+    private static bool _ticking;
+    private static int _session;
+    internal static int Session => Volatile.Read(ref _session);
+    private static readonly Queue<(int Session, Action Action)> Completions = new();
 
     // requests the server half runs on its tick (from the network, or from a hosting game's own menu)
-    private static readonly ConcurrentQueue<(EntityId Player, CreativeRequest Req, bool Local)> Inbox = new();
+    private static readonly CreativeInbox Inbox = new();
 
     public static bool Open => _channel is not null;
 
@@ -75,13 +77,18 @@ internal static class CreativeNet
             ModContext.CurrentMod = null;
             try
             {
-                ServiceTick.Add("kiln creative", static (in TickInfo _) => Drain());
+                if (!_ticking)
+                {
+                    ServiceTick.Add("kiln creative", static (in TickInfo _) => Drain());
+                    Events.On<ServerStoppingEvent>(_ => WorldClosed(), EventPriority.Lowest);
+                    _ticking = true;
+                }
                 if (!Network.Available) return;
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false, maxMessageBytes: 64 * 1024)
                     .Register<CreativeRequest>(MsgRequest,
                         static (m, w) => w.Byte((byte)m.Kind).UInt32(m.Item).Int32(m.Count).Int32(m.Level).Int32(m.Rarity).Double(m.Value),
                         static (ref NetReader r) => new CreativeRequest((CreativeAsk)r.Byte(), r.UInt32(), r.Int32(), r.Int32(), r.Int32(), r.Double()),
-                        static (m, c) => Inbox.Enqueue((c.Player, m, false)), NetDirection.ToServer)
+                        static (m, c) => Inbox.Enqueue(c.Player, m, false, c.Sender), NetDirection.ToServer)
                     .Register<CreativeStateMsg>(MsgState,
                         static (m, w) => w.UInt32((uint)m.Access).Byte((byte)m.Cycle).Double(m.Hours).String(m.Rules).String(m.Hooks),
                         static (ref NetReader r) => new CreativeStateMsg((CreativeAccess)r.UInt32(), (TimeCycle)r.Byte(), r.Double(),
@@ -97,7 +104,7 @@ internal static class CreativeNet
                         static (m, _) => CreativeMenu.OnFound(m), NetDirection.ToClient);
                 Network.ServerReady += _ => CreativeMenu.OnServerReady();
                 Network.Disconnected += _ => CreativeMenu.OnDisconnected();
-                Events.On<NetPeerReadyEvent>(e => Inbox.Enqueue((e.Peer.Player, new CreativeRequest(CreativeAsk.State), false)),
+                Events.On<NetPeerReadyEvent>(e => Inbox.Enqueue(e.Peer.Player, new CreativeRequest(CreativeAsk.State), false, e.Peer),
                     EventPriority.Monitor);
             }
             catch (Exception e)
@@ -129,7 +136,8 @@ internal static class CreativeNet
     internal static CreativeFoundMsg DecodeFound(ref NetReader r)
     {
         var ok = r.Bool();
-        var n = Math.Clamp(r.Int32(), 0, 16384);
+        var n = r.Int32();
+        if (n is < 0 or > 16380) throw new FormatException("Invalid found-item count.");
         var list = new uint[n];
         for (var i = 0; i < n; i++) list[i] = r.UInt32();
         return new CreativeFoundMsg(ok, list);
@@ -138,6 +146,8 @@ internal static class CreativeNet
     internal static CreativeCatalogMsg DecodeCatalog(ref NetReader r)
     {
         int start = r.Int32(), total = r.Int32(), n = r.UInt16();
+        if (start < 0 || total < 0 || total > 16384 || n > 150 || start > total - n)
+            throw new FormatException("Invalid catalogue page.");
         var list = new List<CreativeItem>(n);
         for (var k = 0; k < n; k++)
         {
@@ -157,8 +167,7 @@ internal static class CreativeNet
     {
         if (Hosting(out var self))
         {
-            Inbox.Enqueue((self, req, true));
-            return true;
+            return Inbox.Enqueue(self, req, true);
         }
         var ch = _channel;
         if (ch is null) return false;
@@ -191,16 +200,48 @@ internal static class CreativeNet
 
     private static void Drain()
     {
-        while (Inbox.TryDequeue(out var r))
+        for (var i = 0; i < 32; i++)
+        {
+            (int Session, Action Action) work;
+            lock (Lock)
+            {
+                if (!Completions.TryDequeue(out work)) break;
+            }
+            if (work.Session == Session)
+            {
+                try { work.Action(); }
+                catch (Exception e) { RulesRuntime.Log(LogLevel.Warn, $"creative reply: {e.Message}"); }
+            }
+        }
+        for (var i = 0; i < 16 && Inbox.TryDequeue(out var r); i++)
         {
             try
             {
+                // Entity ids can be reused after a leave. A request belongs to the peer that sent it.
+                if (r.Local ? !Hosting(out var self) || self != r.Player
+                    : r.Peer is not { State: NetPeerState.Ready } || !ReferenceEquals(Network.PeerOf(r.Player), r.Peer)) continue;
                 CreativeServer.Handle(r.Player, r.Req, r.Local);
             }
             catch (Exception e)
             {
                 RulesRuntime.Log(LogLevel.Warn, $"creative menu request {r.Req.Kind} from player {r.Player}: {e.Message}");
             }
+        }
+    }
+
+    internal static void Post(Action action, int session)
+    {
+        lock (Lock)
+            if (session == _session && Completions.Count < 1024) Completions.Enqueue((session, action));
+    }
+
+    internal static void WorldClosed()
+    {
+        lock (Lock)
+        {
+            Interlocked.Increment(ref _session);
+            Completions.Clear();
+            Inbox.Clear();
         }
     }
 
@@ -244,4 +285,49 @@ internal static class CreativeNet
             // the player left
         }
     }
+}
+
+// Keep both memory use and tick work bounded even when a modified client floods an optional channel. Peer identity
+// is retained until dispatch; no field in CreativeRequest can select another player.
+internal sealed class CreativeInbox
+{
+    internal readonly record struct Entry(EntityId Player, CreativeRequest Req, bool Local, NetPeer? Peer);
+    private readonly Queue<Entry> _queue = new();
+    private readonly Dictionary<EntityId, (long Since, int Requests, int Pending, long FoundAt)> _players = new();
+    internal int Count { get { lock (_queue) return _queue.Count; } }
+
+    public bool Enqueue(EntityId player, CreativeRequest req, bool local, NetPeer? peer = null, long? at = null)
+    {
+        if (player.IsNone || !Enum.IsDefined(req.Kind)) return false;
+        var now = at ?? Environment.TickCount64;
+        lock (_queue)
+        {
+            if (_queue.Count >= 128) return false;
+            if (_players.Count >= 1024)
+                foreach (var p in _players.Where(p => p.Value.Pending == 0 && now - p.Value.Since >= 2000).Select(p => p.Key).ToArray())
+                    _players.Remove(p);
+            if (!_players.TryGetValue(player, out var s))
+            {
+                if (_players.Count >= 1024) return false;
+                s = (now, 0, 0, long.MinValue / 2);
+            }
+            if (now - s.Since >= 1000) s = (now, 0, s.Pending, s.FoundAt);
+            if (s.Pending >= 4 || s.Requests >= 64 || (req.Kind == CreativeAsk.Found && now - s.FoundAt < 2000)) return false;
+            _players[player] = (s.Since, s.Requests + 1, s.Pending + 1, req.Kind == CreativeAsk.Found ? now : s.FoundAt);
+            _queue.Enqueue(new(player, req, local, peer));
+            return true;
+        }
+    }
+
+    public bool TryDequeue(out Entry entry)
+    {
+        lock (_queue)
+        {
+            if (!_queue.TryDequeue(out entry)) return false;
+            var s = _players[entry.Player];
+            _players[entry.Player] = (s.Since, s.Requests, s.Pending - 1, s.FoundAt);
+            return true;
+        }
+    }
+    public void Clear() { lock (_queue) { _queue.Clear(); _players.Clear(); } }
 }

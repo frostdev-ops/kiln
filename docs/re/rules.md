@@ -196,7 +196,10 @@ payment directly at `0x1a74a6` (client `0x4061a6`): `InventoryPay(transaction, c
 extra)` (server `0x199c80`), 0 when paid; the action goes on only when it returns 0. The same payment is what
 `ApplyMaterials` uses to take (`0x22d55d`), plus five other callers. Kiln hooks the payment and waives only the call
 whose return address is the upgrade's (`rules/UpgradeStoragePaid`, feature `rules.storage`) for an owner with
-`BuildCost` 0: it returns 0 and nothing enters the transaction. Not run in a lab (an upgrade needs a player at a chest).
+`BuildCost` 0: it returns 0 and nothing enters the transaction. The transaction operator must be nonzero and match
+the payment owner; `items/tx.operator` is an independent storage-feature dependency. Installation verifies that the
+resolved return address follows a direct call to the resolved payment. Missing or ambiguous signatures disable only
+`rules.storage`. Not run in a lab (an upgrade needs a player at a chest).
 
 ## 4. Mining damage **[dis] [dec]**
 `rules/TerrainDamage` (`0x22c970`, client `0x495410`) `{u8 error; u32; float damage}* (out, settings, setup, u8

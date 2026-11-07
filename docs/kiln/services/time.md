@@ -53,20 +53,22 @@ if (Time.CanSetSpeed)                     // feature time.scale on this build
   and for 1 again after) is refused, and a world that loads or re-anchors gets the held speed back at the next step.
 - The speed travels in the daytime anchor the server already syncs, so every client (vanilla too) follows; it is
   re-sent only when it changes.
-- Session state: it ends when the world closes or the server restarts (the save keeps the time of day, not the speed).
+- Session state: it ends when the world closes or a new world starts, including when the old world's stop event was missed (the save keeps the time of day, not the speed). Failed speed changes preserve the previous hold.
 - `/creative cycle normal|stopped|fast` and the creative menu use it (docs/kiln/services/rules.md "Creative menu").
 
 ## C (native plugins)
 ```c
 const KilnTimeApi* t = api->service(KilnStr{"kiln.time", 9}, 1);   // in on_ready; NULL = unavailable
-KilnTimeState s;  if (t && t->get(&s) == KILN_OK) { /* s.hours ... */ }
-t->set_time_of_day(13.5, KILN_TIME_SET_FORWARD);                  // tick thread
-t->reset_weather();                                               // tick thread
-if (t->header.size >= offsetof(KilnTimeApi, time_scale_hold) + sizeof(void*) && t->time_scale_hold() > -1.5f)
+if (t && t->header.size >= offsetof(KilnTimeApi, set_time_scale)) {
+    KilnTimeState s; if (t->get(&s) == KILN_OK) { /* s.hours ... */ }
+    t->set_time_of_day(13.5, KILN_TIME_SET_FORWARD);              // tick thread
+    t->reset_weather();                                         // tick thread
+}
+if (t && t->header.size >= sizeof(KilnTimeApi) && t->set_time_scale && t->time_scale_hold && t->time_scale_hold() > -1.5f)
     t->set_time_scale(0.0f);                                      // tick thread: stop the clock; -1 gives it back
 ```
 Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_THREAD`, `KILN_ERR_INVALID_ARGUMENT`
-(NaN, unknown mode).
+(non-finite scale, scale above 1000, NaN time, unknown mode).
 
 ## For Kiln.Admin
 `Time.State` gives `{hours, clock, isDay, dayLength, nightLength}`; a set request maps to `Time.Set(hours)` (or

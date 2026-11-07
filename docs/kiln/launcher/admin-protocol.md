@@ -168,7 +168,7 @@ truth for each op's arguments and result: its `Ops.*.cs` file.
 | | `damage` (async) | entity, amount, attacker? |
 | rules (Ops.Rules.cs) | `creative` | entity, on? (toggles without it); refused for a player whose game has no Kiln with the rules channel |
 | | `rules` | entity? (the hooks, presets, active rule sets, creative players; with entity that player's rules) |
-| | `creative_give` | entity, item (name or id), count?, level?, rarity? (async); refused unless the player is in creative mode |
+| | `creative_give` | entity, item (name or id), count? (1..one stack, at most 9,999), level? (gear's range), rarity? (Common/Uncommon/Rare/Epic/Legendary string); async, refused unless the player is in creative mode; one pending take per player, 250 ms between admissions |
 | | `creative_cycle` | mode: normal, stopped or fast (the day and night cycle for the whole world, this session) |
 | saves (Ops.Saves.cs) | `save_now` (async) | - |
 | | `save_status` | - |

@@ -62,10 +62,21 @@ internal static partial class Ops
         {
             var p = RequirePlayer(req);
             var name = req["item"]?.ToString() ?? throw new AdminError("item required");
+            if (req["count"] is not null && (req["count"] is not JsonValue cv || !cv.TryGetValue<int>(out _)))
+                throw new AdminError("count must be an integer");
+            if (req["level"] is not null && (req["level"] is not JsonValue lvj || !lvj.TryGetValue<int>(out _)))
+                throw new AdminError("level must be an integer");
+            ItemRarity? rarity = null;
+            if (req["rarity"] is { } rarityNode)
+            {
+                if (rarityNode is not JsonValue rv || !rv.TryGetValue<string>(out var text) ||
+                    !Enum.TryParse<ItemRarity>(text, true, out var parsed) || !Enum.IsDefined(parsed))
+                    throw new AdminError("rarity is Common, Uncommon, Rare, Epic or Legendary");
+                rarity = parsed;
+            }
             var item = Items.Lookup(name) ?? throw new AdminError($"no item '{name}'");
             var count = req["count"] is JsonValue c && c.TryGetValue<int>(out var n) ? n : 1;
             int? level = req["level"] is JsonValue l && l.TryGetValue<int>(out var lv) ? lv : null;
-            ItemRarity? rarity = req["rarity"]?.ToString() is { } rs && Enum.TryParse<ItemRarity>(rs, true, out var rr) ? rr : null;
             var r = await CreativeTools.Give(p.Entity, item.Id, count, level, rarity);
             if (!r.Ok) throw new AdminError(r.Message);
             return new JsonObject { ["entity"] = p.Entity.Value, ["item"] = item.Name, ["message"] = r.Message };

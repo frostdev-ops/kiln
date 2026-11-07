@@ -152,7 +152,7 @@ hosting a co-op world, or a world played offline. `Creative.Set(player, on)` doe
   and sets the player down on the ground. Builds placed outside bases stay in the save.
 - Remote tools: Kiln.Admin's ops `creative {entity, on?}` and `rules` call the same (docs/kiln/launcher/admin-protocol.md).
 - `/creative give <player> <item> [count] [level]`: items from the catalogue for a player in creative mode (refused
-  otherwise); gear at that level. The command says it is giving; the player is told the outcome (`Took 7 x Wood Logs.`),
+  otherwise), up to one stack and at most 9,999 items; gear at a supported level. Invalid values are refused. The command says it is giving; the player is told the outcome (`Took 7 x Wood Logs.`),
   and kiln.log has `kiln.rules: creative: <name> took ...`.
 - `/creative time <time>`: jumps the world's clock forward to a time of day (`7`, `07:30`, `7pm`, `dusk`).
 - `/creative cycle normal|stopped|fast`: the day and night cycle for the whole world until it is set back or the server

@@ -274,10 +274,10 @@ public sealed class RulesPolicy
     [Comment("Falls may do no damage for a player (NoFallDamage).")]
     public bool AllowNoFallDamage { get; set; } = true;
 
-    [Comment("Crafting may take nothing for a player (FreeCrafting).")]
+    [Comment("Allows requesting FreeCrafting; currently unavailable without an authoritative transaction hook.")]
     public bool AllowFreeCrafting { get; set; } = true;
 
-    [Comment("Used food, drinks, potions and bandages may come back for a player (KeepConsumables).")]
+    [Comment("Allows requesting KeepConsumables; currently unavailable without proof of consumption.")]
     public bool AllowKeepConsumables { get; set; } = true;
 
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,

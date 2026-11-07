@@ -89,7 +89,12 @@ public static class Creative
     }
 
     /// <summary>A world closed (a hosted session ends): its players' creative mode goes with it.</summary>
-    internal static void Forget() => Sets.Clear();
+    internal static void Forget()
+    {
+        Sets.Clear();
+        CreativeTools.WorldClosed();
+        CreativeNet.WorldClosed();
+    }
 
     private static string NameOf(EntityId e)
     {
@@ -168,6 +173,7 @@ public static class Creative
 
     private static async Task GiveAndTell(EntityId player, ItemId item, int count, int? level)
     {
+        var session = CreativeNet.Session;
         CreativeResult r;
         try
         {
@@ -175,9 +181,9 @@ public static class Creative
         }
         catch (Exception e)
         {
-            r = new CreativeResult(false, IsOn(player), e.Message);
+            r = new CreativeResult(false, false, e.Message);
         }
-        Tell(player, r.Message);
+        CreativeNet.Post(() => Tell(player, r.Message), session);
     }
 
     private static string Run(CommandContext c, EntityId player, bool? on)

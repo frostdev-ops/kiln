@@ -183,7 +183,7 @@ internal static unsafe class RulesRuntime
         List<(RuleSet?, PlayerRules)> matching;
         lock (Gate)
             matching = SetsList.Where(s => s.Active && s.Scope.Covers(player, at)).Select(s => ((RuleSet?)s, s.Rules)).ToList();
-        return RulesMath.Combine(player, matching, _limits);
+        return RulesCrafting.Supported(RulesMath.Combine(player, matching, _limits));
     }
 
     public static RulesClient ClientOf(EntityId player)

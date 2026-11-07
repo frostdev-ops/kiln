@@ -131,11 +131,15 @@ public sealed class CreativeTestMod : Mod
 
         var before = Items.Read(f)?.Count(mat.Id) ?? 0;
         r = await CreativeTools.Give(f, mat.Id, 7);
-        await Steps(2);
+        await Steps(8); // the shared give admission interval is 250 ms
         var after = Items.Read(f)?.Count(mat.Id) ?? 0;
         Check(r.Ok && after - before == 7, $"took 7 x {mat.Label}: {before} -> {after} ({r.Message})");
 
-        var level = gear!.LevelMax;
+        Check(!(await CreativeTools.Give(f, mat.Id, 0)).Ok, "zero take is refused");
+        Check(!(await CreativeTools.Give(f, mat.Id, int.MaxValue)).Ok, "oversized take is refused");
+        Check(!(await CreativeTools.Give(f, gear!.Id, 1, gear.LevelMax + 1)).Ok, "out-of-range gear level is refused");
+        Check(!(await CreativeTools.Give(f, gear.Id, 1, gear.LevelMax, (ItemRarity)255)).Ok, "undefined rarity is refused");
+        var level = gear.LevelMax;
         r = await CreativeTools.Give(f, gear.Id, 1, level, ItemRarity.Epic);
         await Steps(2);
         var slot = Items.Read(f)?.Slots.Where(s => s.Item == gear.Id).OrderByDescending(s => s.Level).FirstOrDefault();
@@ -148,13 +152,14 @@ public sealed class CreativeTestMod : Mod
         Info($"the character (no permission entry) asks for 03:00: {st.Ok}, {st.Message}");
     }
 
-    // ---- FreeCrafting: a craft request answered with the output, the inputs stay ----
+    // ---- Unsafe managed fallbacks are denied; the game still owns crafting ----
     private async Task Crafting(EntityId f)
     {
         if (!Gameplay.Available || !Gameplay.Enable()) { Info("Kiln.Gameplay is not available: crafting skipped"); return; }
         var on = Creative.Set(f, true);
-        Check(Rules.Of(f) is { FreeCrafting: true, KeepConsumables: true },
-            $"/creative adds free crafting and kept consumables to the preset: {Rules.Of(f)} ({on.Message.Length} chars)");
+        Check(Rules.Of(f) is { FreeCrafting: false, KeepConsumables: false } safe &&
+              safe.Denied.Contains("freeCraftingUnavailable") && safe.Denied.Contains("keepConsumablesUnavailable"),
+            $"unsafe free crafting and consumable reimbursement are denied: {Rules.Of(f)} ({on.Message.Length} chars)");
         GameplayRecipe? recipe = null;
         var station = EntityId.None;
         foreach (var s in World.Find("Crafting").Where(e => !e.IsPlayer && !World.Has(e, "FactoryStation")))
@@ -177,10 +182,11 @@ public sealed class CreativeTestMod : Mod
         for (var i = 0; i < 40 && Count(outId) == outBefore; i++) await Steps(1);
         await Steps(3);
         var inAfter = recipe.Inputs.ToDictionary(i => i.ItemId, i => Count(i.ItemId));
-        Check(Count(outId) > outBefore && inAfter.All(kv => kv.Value == inBefore[kv.Key]),
-            $"free craft at {station}: output 0x{outId:x8} {outBefore} -> {Count(outId)}, inputs " +
+        Check(Count(outId) > outBefore && inAfter.Any(kv => kv.Value < inBefore[kv.Key]),
+            $"native crafting still spends inputs at {station}: output 0x{outId:x8} {outBefore} -> {Count(outId)}, inputs " +
             string.Join(", ", inBefore.Select(kv => $"0x{kv.Key:x8} {kv.Value} -> {inAfter[kv.Key]}")));
         Creative.Set(f, false);
+        Check(!(await CreativeTools.Give(f, new ItemId(outId), 1)).Ok, "turning creative off refuses subsequent takes");
         await Steps(3);
         var outMid = Count(outId);
         Gameplay.Inject.Craft(f, station, recipe.Id);

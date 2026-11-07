@@ -108,7 +108,7 @@ public static unsafe class Time
     }
 
     private static TableV2* T2 => T != null && T->Header.Size >= (uint)sizeof(TableV2) ? (TableV2*)T : null;
-    private static bool HasScale => T2 != null;
+    private static bool HasScale => T2 != null && T2->SetTimeScale != null && T2->TimeScaleHold != null;
 
     private static Table* _table;
     private static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.time", 1));
@@ -217,6 +217,7 @@ public static unsafe class Time
     {
         null => TimeCycle.Normal,
         0 => TimeCycle.Stopped,
+        1 => TimeCycle.Normal,
         _ => TimeCycle.Fast,
     };
 
@@ -227,7 +228,7 @@ public static unsafe class Time
     /// one cycle in <see cref="FastCycle"/>, at least 2.</summary>
     public static double FastSpeed(TimeSpan day, TimeSpan night)
     {
-        var cycle = (day + night).TotalSeconds;
+        var cycle = day.TotalSeconds + night.TotalSeconds;
         return Math.Clamp(double.IsFinite(cycle) && cycle > 0 ? cycle / FastCycle.TotalSeconds : 28, 2, 1000);
     }
 

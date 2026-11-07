@@ -157,6 +157,54 @@ def check_glide_stick(side, image, doc, symbols, constants, baseline):
           side + " a disagreeing stick offset turns only rules.glide_stick off")
 
 
+def check_storage(side, image, doc, symbols, constants):
+    # Storage's dependencies are isolated so a failed optional hook cannot suppress building/crafting elsewhere.
+    name = "rules/UpgradeStoragePaid"
+    subset = {
+        "symbols": {k: doc["symbols"][k] for k in (name, "rules/ApplyMaterials")},
+        "constants": {"items/tx.operator": {"value": constants["items/tx.operator"]["value"]}},
+        "features": {"rules.storage": doc["features"]["rules.storage"],
+                     "rules.costs": {"symbols": ["rules/ApplyMaterials"]}},
+    }
+    spec = doc["symbols"][name]["find"][0]
+    at, _ = matches(image, symbols, spec)
+    ret = symbols[name]["rva"]
+    call = next(Cs(CS_ARCH_X86, CS_MODE_64).disasm(image.img[ret - 5:ret], ret - 5))
+    check(call.mnemonic == "call" and int(call.op_str, 16) == symbols["rules/InventoryPay"]["rva"],
+          side + " storage return address follows the resolved inventory payment call")
+    _, _, base = Resolver(image, subset).run()
+    check(base["rules.storage"] and base["rules.costs"], side + " isolated storage baseline resolves")
+    _, _, missing = Resolver(changed(image, [(at, b"\x90")]), subset).run()
+    check(not missing["rules.storage"] and missing["rules.costs"], side + " missing storage pattern disables only storage")
+    size = parse(spec["pattern"])[2]
+    duplicate = image.text_va + len(image.text) - size
+    _, _, ambiguous = Resolver(changed(image, [(duplicate, image.img[at:at + size])]), subset).run()
+    check(not ambiguous["rules.storage"] and ambiguous["rules.costs"], side + " ambiguous storage pattern disables only storage")
+    no_operator = copy.deepcopy(subset)
+    no_operator["constants"]["items/tx.operator"] = {"min_votes": 1}
+    _, _, absent = Resolver(image, no_operator).run()
+    check(not absent["rules.storage"] and absent["rules.costs"], side + " missing transaction operator disables only storage")
+
+
+def check_time_scale(side, image, doc, symbols):
+    time = {
+        "symbols": {k: v for k, v in doc["symbols"].items() if k.startswith(("time/", "@time."))},
+        "constants": {k: v for k, v in doc["constants"].items() if k.startswith("time/")},
+        "features": {k: v for k, v in doc["features"].items() if k.startswith("time.")},
+    }
+    name = "time/SetTimeScale"
+    spec = time["symbols"][name]["find"][0]
+    at, _ = matches(image, symbols, spec)
+    _, _, base = Resolver(image, time).run()
+    check(base["time.scale"] and base["time.read"] and base["time.set"], side + " clock read/set/scale baseline resolves")
+    size = parse(spec["pattern"])[2]
+    for edits, reason in [([(at, b"\x90")], "missing"),
+                          ([(image.text_va + len(image.text) - size, image.img[at:at + size])], "ambiguous")]:
+        _, _, features = Resolver(changed(image, edits), time).run()
+        check(not features["time.scale"] and features["time.read"] and features["time.set"],
+              side + " " + reason + " scale hook preserves the existing time API")
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
@@ -171,6 +219,8 @@ def run(side, path):
         check(ok, side + " " + name + " resolves")
     check(symbols["@rules/ShroudDrain.delta"]["ok"] and symbols["rules/StepDelta"]["ok"],
           side + " Shroud duration capture agrees with the glider's StepDelta")
+    check_storage(side, image, tree.doc, symbols, constants)
+    check_time_scale(side, image, tree.doc, symbols)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
     if side == "client":

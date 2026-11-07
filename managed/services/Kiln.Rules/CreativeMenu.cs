@@ -29,7 +29,10 @@ internal static class CreativeMenu
     private static string _search = "";
     private static int _category;
     private static bool _noEquipment, _journey;
-    private static int _selected = -1;
+    private static uint _selected;
+    private static int _page;
+    private static int _catalogVersion, _foundVersion, _connectionVersion;
+    private static int _seenConnection = -1, _refreshRequested;
     private static int _count = 1, _level = 1, _rarity;
     private static float _hours = 12;
     private static List<CreativeItem> _shown = new();
@@ -68,10 +71,10 @@ internal static class CreativeMenu
         try
         {
             _screen = Ui.Screen("Creative", Draw, new UiScreenOptions { Style = UiStyle.Game, Width = 820, Height = 600 });
-            _screen.Opened += () => Refresh(catalog: true);
+            _screen.Opened += () => Interlocked.Exchange(ref _refreshRequested, 1);
             KeyBindings.Register(KeyId, DefaultKey, () => _screen.Toggle(), "Open the creative menu", "Creative");
             _entry = Ui.Menus.Add(MenuLocation.PauseMenu, "Creative", () => _screen.Open(), order: 900);
-            if (_entry != null) _entry.Visible = false;
+            lock (Lock) Apply(_state);
             RulesRuntime.Log(LogLevel.Info, $"creative menu: on {KeyBindings.All.FirstOrDefault(b => b.Id == KeyId)?.Key.ToString() ?? DefaultKey}" +
                                             (_entry != null ? " and in the pause menu" : ""));
         }
@@ -87,7 +90,11 @@ internal static class CreativeMenu
 
     // ---------------------------------------------------------------------------------------- from the server --
 
-    public static void OnServerReady() => Refresh(catalog: false);
+    public static void OnServerReady()
+    {
+        CreativeNet.Ask(new CreativeRequest(CreativeAsk.State));
+        Interlocked.Exchange(ref _refreshRequested, 1);
+    }
 
     public static void OnDisconnected()
     {
@@ -97,15 +104,23 @@ internal static class CreativeMenu
             Catalog.Clear();
             _catalogTotal = -1;
             _found = null;
+            _foundUnavailable = false;
+            _catalogVersion++;
+            _foundVersion++;
+            _connectionVersion++;
             _reply = "";
+            Apply(null);
         }
-        Apply(null);
+        _screen?.Close();
     }
 
     public static void OnState(CreativeStateMsg m)
     {
-        lock (Lock) _state = m;
-        Apply(m);
+        lock (Lock)
+        {
+            _state = m;
+            Apply(m);
+        }
     }
 
     public static void OnReply(CreativeReplyMsg m)
@@ -119,6 +134,7 @@ internal static class CreativeMenu
 
     public static void OnCatalog(CreativeCatalogMsg m)
     {
+        if (m.Start < 0 || m.Total < 0 || m.Total > 16384 || m.Items.Count > 150 || m.Start > m.Total - m.Items.Count) return;
         var next = -1;
         lock (Lock)
         {
@@ -127,7 +143,7 @@ internal static class CreativeMenu
             Catalog.AddRange(m.Items);
             _catalogTotal = m.Total;
             if (Catalog.Count < m.Total && m.Items.Count > 0) next = Catalog.Count;
-            _shownFor = ("", -1, false, -1, false, -1);
+            _catalogVersion++;
         }
         if (next >= 0) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Catalog, Count: next));
     }
@@ -138,7 +154,7 @@ internal static class CreativeMenu
         {
             _found = m.Available ? new HashSet<uint>(m.Items) : null;
             _foundUnavailable = !m.Available;
-            _shownFor = ("", -1, false, -1, false, -1);
+            _foundVersion++;
         }
     }
 
@@ -192,6 +208,17 @@ internal static class CreativeMenu
 
     private static void Draw(UiDraw ui)
     {
+        lock (Lock)
+        {
+            if (_seenConnection != _connectionVersion)
+            {
+                _seenConnection = _connectionVersion;
+                _selected = 0;
+                _shownFor = ("", -1, false, -1, false, -1);
+                _askedCatalog = _askedState = default;
+            }
+        }
+        if (Interlocked.Exchange(ref _refreshRequested, 0) != 0) Refresh(catalog: true);
         if (DateTime.UtcNow - _askedState > TimeSpan.FromSeconds(2)) Refresh(catalog: false);
         CreativeStateMsg? st;
         string reply;
@@ -265,24 +292,28 @@ internal static class CreativeMenu
         ui.Combo("Category", ref _category, CategoryNames);
         List<CreativeItem> shown;
         int total, have;
+        bool foundUnavailable;
         lock (Lock)
         {
             total = _catalogTotal;
             have = Catalog.Count;
-            var key = (_search, _category, _noEquipment, have, _journey, _found?.Count ?? -1);
+            foundUnavailable = _foundUnavailable;
+            var key = (_search, _category, _noEquipment, _catalogVersion, _journey, _foundVersion);
             if (key != _shownFor)
             {
                 var cat = Categories[Math.Clamp(_category, 0, Categories.Length - 1)].Category;
+                var words = CreativeCatalog.SearchWords(_search);
                 _shown = Catalog.Where(i => (cat is null || i.Category == cat) &&
                                             (!_noEquipment || !CreativeCatalog.IsEquipment(i.Category, i.IsGear)) &&
-                                            (!_journey || _found is null || _found.Contains(i.Id)) &&
-                                            CreativeCatalog.Matches(_search, i.Label, i.Name)).ToList();
+                                            CreativeCatalog.FoundMatches(_journey, _found, i.Id) &&
+                                            CreativeCatalog.MatchesWords(words, i.Label, i.Name)).ToList();
                 _shownFor = key;
-                if (_selected >= 0 && !_shown.Any(i => i.Id == (uint)_selected)) _selected = -1;
+                _page = 0;
+                if (!_shown.Any(i => i.Id == _selected)) _selected = 0;
             }
             shown = _shown;
         }
-        if (_journey && _foundUnavailable) ui.TextDisabled("This server cannot tell which items you have found: showing every item.");
+        if (_journey && foundUnavailable) ui.TextDisabled("This server cannot tell which items you have found.");
         if (total < 0) ui.TextDisabled("Loading the catalogue...");
         else if (have < total) ui.Progress(total == 0 ? 1 : (float)have / total, $"{have} of {total} items");
         else ui.TextDisabled($"{shown.Count} of {total} items");
@@ -290,33 +321,42 @@ internal static class CreativeMenu
         var h = 340 * Math.Max(ui.Scale, 0.5f);
         if (ui.BeginChild("list", 420 * ui.Scale, h))
         {
-            foreach (var i in shown.Take(600))
-                if (ui.Selectable($"{i.Label}##{i.Id}", i.Id == (uint)_selected))
+            foreach (var i in Page(shown, _page))
+                if (ui.Selectable($"{i.Label}##{i.Id}", i.Id == _selected))
                 {
-                    _selected = (int)i.Id;
+                    _selected = i.Id;
                     _count = 1;
                     _level = Math.Max(1, i.LevelMax);
                     _rarity = (int)i.Rarity;
                 }
-            if (shown.Count > 600) ui.TextDisabled($"... {shown.Count - 600} more: search to narrow it down");
+
         }
         ui.EndChild();
         ui.SameLine();
         if (ui.BeginChild("item", 0, h))
         {
-            var sel = shown.FirstOrDefault(i => i.Id == (uint)_selected);
+            var sel = shown.FirstOrDefault(i => i.Id == _selected);
             if (sel.Id == 0) ui.TextWrapped(shown.Count == 0 && have > 0 ? (_journey ? "Nothing found here yet: pick up or craft items first." : "No items match.") : "Pick an item.");
             else DrawItem(ui, sel, canGive);
         }
         ui.EndChild();
+        if (_page > 0 && ui.SmallButton("Previous")) _page--;
+        ui.SameLine();
+        ui.Text($"Page {_page + 1} of {Math.Max(1, (shown.Count + PageSize - 1) / PageSize)}");
+        ui.SameLine();
+        if ((_page + 1) * PageSize < shown.Count && ui.SmallButton("Next")) _page++;
     }
+
+    internal const int PageSize = 100;
+    internal static IEnumerable<CreativeItem> Page(IReadOnlyList<CreativeItem> items, int page) =>
+        items.Skip(Math.Max(0, page) * PageSize).Take(PageSize);
 
     private static void DrawItem(UiDraw ui, CreativeItem i, bool canGive)
     {
         ui.Text(i.Label);
         ui.TextDisabled($"{i.Name}  0x{i.Id:x8}");
         ui.Text($"{i.Category}, stacks to {Math.Max(1, i.MaxStack)}");
-        var max = Math.Max(1, i.MaxStack);
+        var max = i.IsGear ? 1 : Math.Clamp(i.MaxStack, 1, CreativeTools.MaxGive);
         if (i.IsGear)
         {
             int lo = Math.Max(1, i.LevelMin), hi = Math.Max(lo, i.LevelMax);
@@ -325,7 +365,7 @@ internal static class CreativeMenu
             _level = Math.Clamp(_level, lo, hi);
             ui.Combo("Rarity", ref _rarity, RarityNames);
         }
-        ui.Slider("Count", ref _count, 1, Math.Min(CreativeTools.MaxGive, Math.Max(max * 10, 10)));
+        ui.Slider("Count", ref _count, 1, Math.Min(CreativeTools.MaxGive, max));
         if (!canGive) return;
         ui.Spacing();
         if (ui.Button("Take 1")) Give(i, 1);

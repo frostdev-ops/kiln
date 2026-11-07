@@ -202,7 +202,8 @@
       "constants": ["items/tx.operator", "world/programs.table", "world/programs.stride", "world/programs.count"]
     },
     "rules.storage": {
-      "symbols": ["rules/UpgradeStoragePaid", "rules/InventoryPay"]
+      "symbols": ["rules/UpgradeStoragePaid", "rules/InventoryPay"],
+      "constants": ["items/tx.operator"]
     },
     "rules.dig": {
       "symbols": ["rules/TerrainDamage", "gameplay/TerraformImpact", "@gameplay/TerraformImpact.args"],
