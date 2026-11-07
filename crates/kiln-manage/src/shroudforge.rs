@@ -31,9 +31,9 @@ pub struct SfInstall {
     pub version: Option<String>,
     /// Where ShroudForge reads mods: modloader-config.json `paths.mods`, else `<game>/mods`.
     pub mods_dir: PathBuf,
-    /// `<game>/winmm.dll` is there (ShroudForge's bootstrap).
+    /// `<game>/winmm.dll` is classified as ShroudForge's bootstrap.
     pub bootstrap: bool,
-    /// `<game>/dbghelp.dll` is there: on Windows (and under Wine with `dbghelp=n`) it starts ShroudForge by itself,
+    /// `<game>/dbghelp.dll` is classified as ShroudForge: on Windows (and under Wine with `dbghelp=n`) it starts SF by itself,
     /// next to Kiln ("self-hosted"); otherwise kiln-shroudforge hosts it.
     pub dbghelp: bool,
     /// `shroudforge/kfc-runtime.dll` (ShroudForge's native game access) is there.
@@ -52,8 +52,8 @@ pub fn detect(game_dir: &Path) -> Option<SfInstall> {
     Some(SfInstall {
         version,
         mods_dir: mods_dir(game_dir),
-        bootstrap: game_dir.join("winmm.dll").is_file(),
-        dbghelp: game_dir.join("dbghelp.dll").is_file(),
+        bootstrap: crate::pe::classify_proxy(&game_dir.join("winmm.dll")).is_ok_and(|c| c.kind == crate::pe::ProxyKind::ShroudForge),
+        dbghelp: crate::pe::classify_proxy(&game_dir.join("dbghelp.dll")).is_ok_and(|c| c.kind == crate::pe::ProxyKind::ShroudForge),
         native_runtime: game_dir.join("shroudforge/kfc-runtime.dll").is_file(),
     })
 }
@@ -150,21 +150,22 @@ fn read_json_file(p: &Path) -> Result<serde_json::Value> {
 }
 
 /// Does `folder` look like a ShroudForge (or EML) Lua package rather than an EMF mod (which also has a mod.json)?
-/// Yes when mod.json parses with `id`, `name`, `version` and the folder has `extended.mod.json`, or mod.json has SF's
-/// `capabilities` or schema, or the package has Lua code (`src/*.lua`, `mod.lua`).
+/// Yes when mod.json parses with `id`, `name`, `version` and the folder has `extended.mod.json`, an SF schema, or
+/// Lua code (`src/*.lua`, `mod.lua`). Shared EML `capabilities` alone do not identify a package. This includes EML packages that SF
+/// can host; [`is_sf_own_mod`] distinguishes the engines for the Library.
 pub fn is_sf_mod(folder: &Path) -> bool {
     let Ok(m) = read_json_file(&folder.join("mod.json")) else { return false };
     if !["id", "name", "version"].iter().all(|k| m.get(*k).and_then(|v| v.as_str()).is_some()) {
         return false;
     }
     // EMF manifests name a DLL or a main script and an EMF API version
-    if m.get("dll").is_some() || m.get("emf").is_some() || m.get("emfMin").is_some() || m.get("emf_api").is_some() {
+    if m.get("dll").is_some() || m.get("main").is_some() || m.get("emf").is_some() || m.get("emfMin").is_some() || m.get("emf_api").is_some() {
         return false;
     }
-    if folder.join("extended.mod.json").is_file() || m.get("capabilities").is_some() {
+    if folder.join("extended.mod.json").is_file() {
         return true;
     }
-    if m.get("$schema").and_then(|s| s.as_str()).is_some_and(|s| s.contains("shroudforge") || s.ends_with("manifest.schema.json")) {
+    if m.get("$schema").and_then(|s| s.as_str()).is_some_and(|s| s.to_ascii_lowercase().contains("shroudforge")) {
         return true;
     }
     folder.join("mod.lua").is_file()
@@ -173,6 +174,18 @@ pub fn is_sf_mod(folder: &Path) -> bool {
             .flatten()
             .flatten()
             .any(|e| e.path().extension().is_some_and(|x| x == "lua"))
+}
+
+/// SF-specific metadata, as opposed to EML's shared manifest and capabilities. ShroudForge stamps legacy EML
+/// packages with an extension whose launcher is EML; those remain EML mods.
+pub fn is_sf_own_mod(folder: &Path) -> bool {
+    let ext = folder.join("extended.mod.json");
+    if ext.is_file() {
+        return !read_json_file(&ext).ok().and_then(|v| str_of(&v, "launcher")).is_some_and(|s| s.eq_ignore_ascii_case("EML"));
+    }
+    read_json_file(&folder.join("mod.json")).ok()
+        .and_then(|v| str_of(&v, "$schema"))
+        .is_some_and(|s| s.to_ascii_lowercase().contains("shroudforge"))
 }
 
 fn str_of(v: &serde_json::Value, k: &str) -> Option<String> {
@@ -292,6 +305,9 @@ pub fn list_mods_in(dir: &Path) -> (Vec<SfMod>, Vec<SfSkipped>) {
 /// What a folder is, for the Library's skip messages: plain words, what it is and why it does not load.
 pub fn skip_reason(folder: &Path) -> String {
     if folder.join("mod.json").is_file() {
+        if let Err(e) = read_json_file(&folder.join("mod.json")) {
+            return format!("unreadable mod.json: {}", e.message);
+        }
         if is_sf_mod(folder) {
             return match read_mod(folder) {
                 Ok(m) => format!(
@@ -301,7 +317,7 @@ pub fn skip_reason(folder: &Path) -> String {
                 Err(e) => format!("a ShroudForge mod with an unreadable mod.json or extended.mod.json: {}", e.message),
             };
         }
-        return "has a mod.json that is neither a ShroudForge (Lua) nor an EMF mod manifest".into();
+        return "mod.json does not describe a recognised mod package (EML needs id, name, version and src/mod.lua); helper DLLs are not imported separately".into();
     }
     let has = |ext: &str| {
         std::fs::read_dir(folder).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case(ext)))
@@ -311,7 +327,7 @@ pub fn skip_reason(folder: &Path) -> String {
     } else if has("pak") || has("kfc") {
         "game data files (.pak/.kfc): not a mod Kiln can load".into()
     } else {
-        "no mod.json, kiln.mod.json, native.json or DLL: not a mod package".into()
+        "no supported mod manifest or identifiable mod entry point".into()
     }
 }
 

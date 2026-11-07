@@ -32,6 +32,126 @@ fn detect(p: &Path) -> library::Detected {
 }
 
 #[test]
+fn eml_capabilities_and_legacy_extensions_do_not_imply_shroudforge() {
+    let t = tmp("eml-real");
+    for (tag, ext, kind) in [
+        ("plain", None, DetectKind::Eml),
+        ("legacy", Some(r#"{"launcher":"EML"}"#), DetectKind::Eml),
+        ("sf", Some(r#"{"launcher":"SF"}"#), DetectKind::ShroudForge),
+    ] {
+        let d = t.0.join(tag);
+        put(&d, "mod.json", br#"{"id":"stacks","name":"Stacks","version":"1.0.0","capabilities":["patch","runtime"]}"#);
+        put(&d, "src/mod.lua", b"return {}");
+        if let Some(ext) = ext { put(&d, "extended.mod.json", ext.as_bytes()); }
+        let found = detect(&d);
+        assert_eq!(found.kind, kind, "{found:?}");
+        assert!(found.reason.contains(if kind == DetectKind::Eml { "EML" } else { "ShroudForge" }));
+        assert!(found.reason.contains("can't"), "the library has no importer: {found:?}");
+    }
+}
+
+#[test]
+fn odd_manifests_never_fall_through_to_helper_dll_imports() {
+    let t = tmp("odd-manifest");
+    for (tag, manifest) in [("broken", b"{".as_slice()), ("unknown", br#"{"id":"odd"}"#.as_slice()),
+                            ("caps-only", br#"{"id":"odd","name":"Odd","version":"1.0.0","capabilities":["patch"]}"#.as_slice()),
+                            ("lua-emf", br#"{"id":"lua","emf":26,"main":"main.lua"}"#.as_slice())] {
+        let d = t.0.join(tag);
+        put(&d, "mod.json", manifest);
+        put(&d, "helper.dll", &build_test_dll(&["helper"], b""));
+        put(&d, "main.lua", b"return {}");
+        let found = detect(&d);
+        assert_eq!(found.kind, DetectKind::Unknown, "{found:?}");
+        assert!(found.items.is_empty(), "unknown package must stay intact: {found:?}");
+        assert!(!found.reason.is_empty());
+        let report = library::import(&DataDirs::at(t.0.join("data")), &[d], &mut NoProgress).unwrap();
+        assert!(report.imported.is_empty() && report.existing.is_empty(), "{report:?}");
+        assert_eq!(report.skipped.len(), 1);
+    }
+    let d = t.0.join("no-manifest");
+    put(&d, "src/mod.lua", b"return {}");
+    put(&d, "helper.dll", &build_test_dll(&["helper"], b""));
+    let found = detect(&d);
+    assert_eq!(found.kind, DetectKind::Unknown);
+    assert!(found.items.is_empty());
+}
+
+#[test]
+fn sf_install_only_reports_its_own_helper_proxies() {
+    let t = tmp("sf-proxy-owners");
+    put(&t.0, kiln_manage::shroudforge::RUNTIME_DLL, b"runtime");
+    put(&t.0, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+    put(&t.0, "winmm.dll", &build_test_dll(&[], b"shroudtopia"));
+    let sf = kiln_manage::shroudforge::detect(&t.0).unwrap();
+    assert!(!sf.dbghelp && !sf.bootstrap);
+    for name in ["dbghelp.dll", "winmm.dll"] { put(&t.0, name, &build_test_dll(&["ShroudforgeSetDinput8Provider"], b"")); }
+    let sf = kiln_manage::shroudforge::detect(&t.0).unwrap();
+    assert!(sf.dbghelp && sf.bootstrap);
+}
+
+#[test]
+fn own_proxy_without_dinput_export_and_x86_engine_dll_are_not_mods() {
+    let t = tmp("dll-identity");
+    let own = put(&t.0, "own.dll", &build_test_dll(&["KilnProxyInfo"], b""));
+    assert_eq!(detect(&own).kind, DetectKind::Unknown);
+    let mut x86 = build_test_dll(&["GreeneyeModStart"], b"");
+    x86[0x84..0x86].copy_from_slice(&0x14cu16.to_le_bytes());
+    put(&t.0.join("x86"), "mod.dll", &x86);
+    assert_eq!(detect(&t.0.join("x86")).kind, DetectKind::Unknown);
+}
+
+#[test]
+fn malformed_pe_exports_are_bounded_by_file_backed_sections() {
+    use kiln_manage::pe::{self, ProxyKind};
+    let good = build_test_dll(&["emf_loader_identity"], b"");
+    let section = 0x188;
+    let mut cases = Vec::new();
+    let mut b = good.clone();
+    b[section + 20..section + 24].copy_from_slice(&0xfffffff0u32.to_le_bytes());
+    cases.push(b);
+    let mut b = good.clone();
+    b[section + 16..section + 20].copy_from_slice(&40u32.to_le_bytes()); // names live outside the raw section
+    cases.push(b);
+    let mut b = good.clone();
+    b[0x94..0x96].copy_from_slice(&2u16.to_le_bytes()); // optional header no longer covers directories
+    cases.push(b);
+    let mut b = good.clone();
+    b.truncate(0x190); // truncated section table
+    cases.push(b);
+    let mut b = good;
+    b[0x218..0x21c].copy_from_slice(&0xffffffffu32.to_le_bytes()); // unbounded name count
+    cases.push(b);
+    for b in cases {
+        assert!(pe::parse(&b).is_err());
+        assert_eq!(pe::classify_bytes(&b).kind, ProxyKind::NotDll);
+    }
+    let wide: Vec<u8> = "emf-loader-7D3C9F".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    assert_eq!(pe::classify_bytes(&build_test_dll(&["ShroudforgeSetDinput8Provider"], &wide)).kind, ProxyKind::Emf);
+}
+
+#[cfg(unix)]
+#[test]
+fn odd_folder_links_and_deep_trees_do_not_recurse_or_import_dll_targets() {
+    let t = tmp("links-depth");
+    let outside = put(&t.0, "outside.dll", &build_test_dll(&["x"], b""));
+    let folder = t.0.join("folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::os::unix::fs::symlink(&folder, folder.join("loop")).unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("helper.dll")).unwrap();
+    assert_eq!(detect(&folder).kind, DetectKind::Unknown);
+    assert_eq!(detect(&folder.join("helper.dll")).kind, DetectKind::Unknown);
+    let report = library::import(&DataDirs::at(t.0.join("data")), &[folder], &mut NoProgress).unwrap();
+    assert!(report.imported.is_empty());
+    let root = t.0.join("deep");
+    let mut d = root.clone();
+    for _ in 0..40 { d.push("level"); }
+    put(&d, "helper.dll", &build_test_dll(&[], b""));
+    let found = detect(&root);
+    assert_eq!(found.kind, DetectKind::Unknown);
+    assert!(found.items.is_empty());
+}
+
+#[test]
 fn every_engine_kind_is_detected_with_its_reason() {
     let t = tmp("kinds");
     let r = &t.0;
@@ -44,7 +164,7 @@ fn every_engine_kind_is_detected_with_its_reason() {
             put(&d, "creative.dll", &build_test_dll(&["FlameStartRuntime"], b""));
             put(&d, "sigs/26430625.json", b"{}");
             d
-        }, DetectKind::Flame, Some(Engine::Flame), "Creative Mode: a Flame mod. Kiln can't run Flame mods yet; support is coming"),
+        }, DetectKind::Flame, Some(Engine::Flame), "Creative Mode: a Flame mod. Kiln can't import Flame mods into the Library yet; no importer is registered"),
         // ShroudForge package: EML layout + extended.mod.json
         ({
             let d = r.join("sfpkg");
@@ -72,7 +192,7 @@ fn every_engine_kind_is_detected_with_its_reason() {
             put(&d, "lockers.dll", &build_test_dll(&["enshwick_mod_abi", "enshwick_mod_query", "enshwick_mod_init"], b""));
             put(&d, "helper.dll", &build_test_dll(&["helper"], b""));
             d
-        }, DetectKind::Enshwick, Some(Engine::Enshwick), "Kiln can't run Enshwick mods yet; support is coming"),
+        }, DetectKind::Enshwick, Some(Engine::Enshwick), "Kiln can't import Enshwick mods into the Library yet; no importer is registered"),
         // SET mod
         ({
             let d = r.join("set-mod");
@@ -94,11 +214,11 @@ fn every_engine_kind_is_detected_with_its_reason() {
         (put(r, "eml/dbghelp.dll", &build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH")), DetectKind::Proxy, Some(Engine::Eml),
          "dbghelp.dll is EML (Enshrouded Mod Loader)'s loader"),
         (put(r, "gl/dbgcore.dll", &build_test_dll(&["MiniDumpWriteDump"], b"Greeneye Loader")), DetectKind::Proxy, Some(Engine::Greeneye),
-         "support is coming"),
+         "not a mod to import"),
         (put(r, "emf/dinput8.dll", &build_test_dll(&["DirectInput8Create", "ShroudforgeSetDinput8Provider", "emf_loader_identity"], b"")),
          DetectKind::Proxy, Some(Engine::Emf), "EMF's own loader"),
         (put(r, "sf/dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"shroudforge/shroudforge-runtime.dll")), DetectKind::Proxy,
-         Some(Engine::ShroudForge), "can't run next to Kiln"),
+         Some(Engine::ShroudForge), "switch from ShroudForge"),
         (put(r, "lm/iphlpapi.dll", &build_test_dll(&["GetAdaptersInfo"], b"livemap.ini")), DetectKind::Proxy, Some(Engine::LiveMap),
          "copy it into the server folder"),
         // files that are no mods
@@ -142,7 +262,7 @@ fn creative_mode_is_never_imported_as_plain_dlls() {
     let rep = library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap();
     assert!(rep.imported.is_empty() && rep.existing.is_empty(), "{rep:?}");
     assert_eq!(rep.skipped.len(), 2);
-    assert!(rep.skipped.iter().all(|s| s.reason.contains("support is coming")), "{:?}", rep.skipped);
+    assert!(rep.skipped.iter().all(|s| s.reason.contains("not a mod to import") || s.reason.contains("no importer is registered")), "{:?}", rep.skipped);
     assert!(library::list(&dirs, None).unwrap().is_empty());
 }
 

@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
-import type { BootState, GameInstall, LastServer } from "../api/commands";
+import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
 import {
   invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
@@ -78,10 +78,12 @@ function AddGameModal({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
-const PROXY: Record<string, string> = {
+const PROXY: Record<ProxyKind, string> = {
   kiln: "In place", none: "None", shroudforge: "ShroudForge", emf: "EMF's own", unknown: "Another DLL mod", notdll: "Not a DLL",
   eml: "EML", flame: "Flame (Creative Mode)", shroudlink: "shroudlink", modloaderproxy: "ModLoader Proxy",
   ultimateasiloader: "Ultimate ASI Loader", aldrich: "Aldrich Mod Menu", chainloader: "A chain loader",
+  set: "Shrouded Engine Tweaks", enshwick: "Enshwick", greeneye: "Greeneye Loader", shroudtopia: "Shroudtopia",
+  ember: "Ember", livemap: "Live Map", sharedxp: "Shared XP", reshade: "ReShade",
 };
 
 function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
@@ -118,7 +120,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   let say: string;
   const modCount = cur ? cur.counts.kiln + cur.counts.native + cur.counts.emf + cur.counts.plugin : 0;
   if (!s) say = status.error ? errorText(status.error) : "Checking the game.";
-  else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Kiln loads mods from every engine: switch on Runtime and Kiln takes over its dinput8.dll." : "Kiln is not in this game yet.";
+  else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Switch on Runtime to let Kiln take over its dinput8.dll." : "Kiln is not in this game yet.";
   else if (!cur && !list.length) say = "Drop a mod anywhere on this window to add it.";
   else if (!cur) say = "No profile is active: Kiln loads the mods in the game folder.";
   else if (!modCount) say = "No mods yet. Drop one anywhere on this window.";

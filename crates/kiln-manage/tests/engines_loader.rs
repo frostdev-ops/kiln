@@ -23,7 +23,34 @@ fn a_registered_loader_takes_its_kind() {
     let dirs = DataDirs::at(t.join("data"));
     assert!(engines::register_loader(DetectKind::Greeneye, Loader { name: "test", import: record_skip }).is_none());
     assert!(DetectKind::Greeneye.importable());
+    assert!(library::detect(&d).unwrap().reason.contains("Library importer: test"));
     let rep = library::import(&dirs, std::slice::from_ref(&d), &mut NoProgress).unwrap();
     assert_eq!(rep.skipped.iter().map(|s| s.reason.as_str()).collect::<Vec<_>>(), ["handled by the test loader"]);
     let _ = std::fs::remove_dir_all(&t);
+}
+
+#[test]
+fn registry_is_safe_for_concurrent_registration_lookup_and_reentrant_import() {
+    fn reentrant(_: &mut ImportCtx) -> kiln_manage::Result<()> {
+        // The import callback must run after the registry's read lock has been released.
+        engines::register_loader(DetectKind::Ember, Loader { name: "reentrant", import: record_skip });
+        assert!(DetectKind::Ember.importable());
+        Ok(())
+    }
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| {
+                for _ in 0..100 {
+                    engines::register_loader(DetectKind::Set, Loader { name: "thread-test", import: reentrant });
+                    assert_eq!(engines::loader_for(DetectKind::Set).unwrap().name, "thread-test");
+                }
+            });
+        }
+    });
+    let d = library::Detected { kind: DetectKind::Set, path: String::new(), id: None, version: None, name: None,
+        reason: String::new(), items: vec![], engine: None };
+    (engines::loader_for(DetectKind::Set).unwrap().import)(&mut ImportCtx {
+        dirs: &DataDirs::at(std::env::temp_dir()), detected: &d, src: std::path::Path::new("."),
+        from: &library::ImportSource { kind: "folder".into(), from: String::new() }, report: &mut Default::default(),
+    }).unwrap();
 }

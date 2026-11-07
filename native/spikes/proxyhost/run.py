@@ -19,6 +19,7 @@ import json
 import os
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import time
@@ -314,6 +315,88 @@ chain-a.dll
     return g
 
 
+def s_engine_bounds():
+    g = Game("engine-bounds")
+    g.dll("fake-emf-exports", "emf.dll")
+    g.dll("fake-emf-wide", "emf-wide.dll")
+    g.dll("fake-kiln-exports", "own.dll")
+    g.dll("chain-a", "malformed.dll")
+    bad = os.path.join(g.dir, "malformed.dll")
+    with open(bad, "rb") as f:
+        data = bytearray(f.read())
+    nt = struct.unpack_from("<I", data, 0x3c)[0]
+    table = nt + 24 + struct.unpack_from("<H", data, nt + 20)[0]
+    struct.pack_into("<I", data, table + 20, 0xfffffff0)
+    with open(bad, "wb") as f:
+        f.write(data)
+    # Under Wine, Unix symlinks are invisible to Windows path APIs (GetFinalPathNameByHandleW returns the path as
+    # opened), so an escape through one cannot be detected there; on Windows links resolve to their final target.
+    # Wine-visible escapes (absolute, drive, "..") are refused before resolving, see s_emf. Here: containment must
+    # accept a legit game folder reached through a link or a mapped drive.
+    g.write("dinput8-chain.ini", "[Chain]\nemf.dll\nemf-wide.dll\nown.dll\nmalformed.dll\n")
+    g.run()
+    c = g.chain()
+    check(g, [(e["status"], e["detail"]) for e in c] == [("0", "0"), ("0", "0"), ("3", "3"), ("3", "5")],
+          "export-only and UTF-16 EMF accepted; export-only Kiln and malformed PE refused")
+    check(g, has(g.lines, "dll fake-emf-exports attach"), "EMF without identity marker loads before SF refusal")
+
+    # The Steam library behind a symlink: the exe is started through the link.
+    linked = Game("engine-bounds-linked")
+    linked.dll("chain-b", "sub/b.dll")
+    linked.write("dinput8-chain.ini", "[EMF]\nsub/b.dll\n")
+    via = os.path.join(RUN, "engine-bounds-via")
+    if os.path.lexists(via):
+        os.remove(via)
+    os.symlink(linked.dir, via, target_is_directory=True)
+    real, linked.dir = linked.dir, via
+    try:
+        linked.run()
+    finally:
+        linked.dir = real
+    lc = linked.chain()
+    check(linked, len(lc) == 1 and lc[0]["status"] == "0" and has(linked.lines, "dll chain-b attach"),
+          "game folder reached through a symlink: its DLLs are inside, not refused")
+
+    # Proton's S: drive mapped to the game folder itself (a drive root keeps its trailing separator).
+    drive = Game("engine-bounds-drive")
+    drive.dll("chain-b", "b.dll")
+    drive.write("dinput8-chain.ini", "[EMF]\nb.dll\n")
+    letter = os.path.join(PFX, "dosdevices", "s:")
+    if os.path.lexists(letter):
+        os.remove(letter)
+    os.symlink(drive.dir, letter)
+    try:
+        drive.exe = "S:\\enshrouded.exe"
+        e = env()
+        e["PROXYHOST_LOG"] = winpath(drive.log)
+        subprocess.run([WINE, drive.exe], cwd=drive.dir, env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=120)
+        drive.lines = open(drive.log, encoding="utf-8").read().splitlines() if os.path.exists(drive.log) else []
+    finally:
+        os.remove(letter)
+    dc = drive.chain()
+    check(drive, len(dc) == 1 and dc[0]["status"] == "0" and dc[0]["path"].upper().startswith("S:\\")
+          and has(drive.lines, "dll chain-b attach"), "game folder at a mapped drive root (S:\\): its DLLs are inside")
+    return g
+
+
+def s_emf_limits():
+    g = Game("emf-limits")
+    g.dll("chain-a", "a.dll")
+    g.write("dinput8-chain.ini", "[Chain]\n" + "a.dll\n" * 128 + "[EMF]\n" + "a.dll\n" * 10000)
+    g.run()
+    c = g.chain()
+    check(g, len(c) == 257 and c[0]["status"] == "0" and all(e["status"] == "4" for e in c[1:256])
+          and (c[-1]["status"], c[-1]["detail"]) == ("3", "7"), "256-entry limit spans both sections; dedupe loads once")
+    huge = Game("emf-size")
+    huge.dll("chain-b", "b.dll")
+    huge.write("dinput8-chain.ini", "[EMF]\nb.dll\n;" + "x" * (256 * 1024))
+    huge.run()
+    check(huge, not huge.chain() and not has(huge.lines, "dll chain-b attach") and has(huge.lines, "main reached"),
+          "oversized ini ignored without loading DLLs or blocking startup")
+    return g
+
+
 def s_vanilla():
     g = Game("vanilla")
     g.dll("chain-a", "kiln/chain/chain-a.dll")
@@ -513,7 +596,17 @@ def s_fixtures():
             for e in spec["expect"].get(section, []):
                 path = e["path"] if not e["relative"] else kiln + "\\" + e["path"]
                 want.append((source, norm(path).lower(), e["status"], e.get("detail")))
-        got = [(e["source"], norm(e["path"]).lower(), e["status"], e["detail"]) for e in g.chain()]
+        # The proxy's storage is bounded: per list it reports the first too-many entry and discards the rest
+        # (docs/kiln/engines.md "Proxy"). kini.py lists every overflow entry; compare up to the first.
+        seen_overflow, bounded = set(), []
+        for w in want:
+            if w[2] == "refused" and w[3] == "too-many":
+                if w[0] in seen_overflow:
+                    continue
+                seen_overflow.add(w[0])
+            bounded.append(w)
+        want = bounded
+        got =[(e["source"], norm(e["path"]).lower(), e["status"], e["detail"]) for e in g.chain()]
         ok = len(got) == len(want)
         for (ws, wp, wst, wd), (gs, gp, gst, gd) in zip(want, got):
             if ws != gs or wp != gp:
@@ -721,7 +814,7 @@ def s_realcore():
     return g
 
 
-SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
+SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore)}
 

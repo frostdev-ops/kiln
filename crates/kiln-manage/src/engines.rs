@@ -273,9 +273,9 @@ pub fn scan_proxies(game_dir: &Path) -> Vec<ProxySlot> {
 /// "<what it is>: <why it cannot load yet>" for an engine's mod (no final period: the launcher adds one).
 pub fn mod_reason(engine: Engine, what: &str) -> String {
     let n = engine.name();
-    match engine {
-        Engine::Emf => format!("{what}: an EMF mod Kiln can't run yet (support is coming)"),
-        _ => format!("{what}: a {n} mod. Kiln can't run {n} mods yet; support is coming"),
+    match loader_for(engine_kind(engine)) {
+        Some(loader) => format!("{what}: a {n} mod (Library importer: {})", loader.name),
+        None => format!("{what}: a {n} mod. Kiln can't import {n} mods into the Library yet; no importer is registered"),
     }
 }
 
@@ -285,9 +285,7 @@ pub fn loader_reason(engine: Engine, file: &str) -> String {
     match engine {
         Engine::Kiln => "Kiln's own dinput8 proxy: install a runtime bundle instead".into(),
         Engine::Emf => format!("{file} is EMF's own loader. Kiln runs EMF mods itself: add the EMF mods, not the loader"),
-        Engine::ShroudForge => format!(
-            "{file} is part of ShroudForge, a mod loader that can't run next to Kiln. Kiln's support for ShroudForge mods is coming"
-        ),
+        Engine::ShroudForge => format!("{file} is ShroudForge's loader, not a mod to import. Install Kiln with 'switch from ShroudForge' to back up its dinput8.dll; its other proxy files stay in place"),
         Engine::LiveMap | Engine::SharedXp => format!(
             "{file} is {n}, {}. It runs on its own next to the server and Kiln: copy it into the server folder by hand",
             info(engine).what
@@ -297,7 +295,7 @@ pub fn loader_reason(engine: Engine, file: &str) -> String {
             "{file} is {n}, {}. Kiln chains such loaders when it is installed; it is not a mod to import",
             info(engine).what
         ),
-        _ => format!("{file} is {n}'s loader ({}). Kiln can't run {n} mods yet; support is coming", info(engine).what),
+        _ => format!("{file} is {n}'s loader ({}), not a mod to import. Kiln chains it when installed over dinput8.dll; add its mods separately", info(engine).what),
     }
 }
 
@@ -326,6 +324,7 @@ fn detected(kind: DetectKind, engine: Option<Engine>, path: &Path, reason: Strin
 /// A DLL made for another engine, or another engine's loader (None: Kiln's own rules decide). `exports` are the DLL's,
 /// `bytes` its content. Kiln plugins and EMF mod DLLs are recognised by the caller first.
 pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detected> {
+    if !crate::pe::is_pe64_dll(bytes) { return None; }
     let has = |e: &str| exports.iter().any(|x| x == e);
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mod_dll = |engine: Engine| Some(detected(engine_kind(engine), Some(engine), path, mod_reason(engine, &file)));
@@ -411,25 +410,16 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
         let m = read_json(&dir.join("mod.json"));
         return Some(folder_detected(DetectKind::Flame, Engine::Flame, dir, m.as_ref(), "this Flame mod"));
     }
-    // ShroudForge packages (extended.mod.json, `capabilities`, Lua code): shroudforge::is_sf_mod decides and says why.
-    // A plain EML package (mod.json + src/mod.lua and nothing of ShroudForge's) is kind `eml`; ShroudForge runs those
-    // too, so the reason is ShroudForge's.
+    // Both engines use capabilities (including runtime). Only SF-specific metadata distinguishes them.
     if has("mod.json") && crate::shroudforge::is_sf_mod(dir) {
         let m = read_json(&dir.join("mod.json"));
-        let sf_own = has("extended.mod.json") || m.as_ref().is_some_and(|m| m.get("capabilities").is_some());
-        let eml = !sf_own && dir.join("src").join("mod.lua").is_file();
+        let eml = !crate::shroudforge::is_sf_own_mod(dir) && dir.join("src").join("mod.lua").is_file();
         let (kind, engine, what) = if eml {
             (DetectKind::Eml, Engine::Eml, "this EML mod")
         } else {
             (DetectKind::ShroudForge, Engine::ShroudForge, "this ShroudForge package")
         };
-        let mut d = folder_detected(kind, engine, dir, m.as_ref(), what);
-        d.reason = crate::shroudforge::skip_reason(dir);
-        return Some(d);
-    }
-    if has("mod.json") && dir.join("src").join("mod.lua").is_file() {
-        let m = read_json(&dir.join("mod.json"));
-        return Some(folder_detected(DetectKind::Eml, Engine::Eml, dir, m.as_ref(), "this EML mod"));
+        return Some(folder_detected(kind, engine, dir, m.as_ref(), what));
     }
     if has("pack.toml") {
         return Some(folder_detected(DetectKind::Enshwick, Engine::Enshwick, dir, None, "this Enshwick pack"));

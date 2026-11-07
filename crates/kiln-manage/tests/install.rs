@@ -621,3 +621,226 @@ fn other_engines_are_chained_under_their_word() {
     assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
     assert_eq!(outside_kiln(&g), before);
 }
+
+#[test]
+fn chain_destinations_never_displace_even_identical_files() {
+    let t = tmp("occupied");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let dll = build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH");
+    let g = t.0.join("chain");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &dll);
+    put(&g, "kiln/chain/eml-dinput8.dll", &dll);
+    std::fs::create_dir_all(g.join("kiln/chain/eml-dinput8-2.dll")).unwrap();
+    let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(r.replaced[0].chain_path.as_deref(), Some("kiln/chain/eml-dinput8-3.dll"));
+    install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(g.join("kiln/chain/eml-dinput8.dll")).unwrap(), dll);
+    assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), dll);
+    let asi = build_test_dll(&["DirectInput8Create", "IsUltimateASILoader"], b"");
+    for tag in ["same", "directory", "case"] {
+        let g = t.0.join(tag);
+        put(&g, "enshrouded.exe", b"MZ");
+        put(&g, "dinput8.dll", &asi);
+        match tag {
+            "same" => put(&g, "xinput9_1_0.dll", &asi),
+            "case" => put(&g, "XINPUT9_1_0.DLL", &asi),
+            _ => std::fs::create_dir_all(g.join("xinput9_1_0.dll")).unwrap(),
+        }
+        assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+        assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), asi);
+    }
+}
+
+#[test]
+fn install_errors_restore_proxy_and_chain_ini_including_receipt_failure() {
+    use kiln_manage::task::Progress;
+    struct FailReceipt { path: PathBuf }
+    impl Progress for FailReceipt {
+        fn report(&mut self, _: Option<f32>, message: &str) {
+            if message == "installed dinput8.dll" {
+                std::fs::create_dir_all(&self.path).unwrap();
+            }
+        }
+    }
+    let t = tmp("rollback");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    for (tag, dll, sf) in [
+        ("eml", build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH"), false),
+        ("sf", build_test_dll(&["ShroudforgeSetDinput8Provider"], b""), true),
+        ("kiln", kiln_proxy("old"), false),
+        ("wine", build_test_dll(&[], b""), false),
+    ] {
+        let g = t.0.join(tag);
+        let mut dll = dll;
+        if tag == "wine" { dll[0x40..0x50].copy_from_slice(b"Wine builtin DLL"); }
+        put(&g, "enshrouded.exe", b"MZ");
+        put(&g, "dinput8.dll", &dll);
+        let original_ini = b"; user formatting\n[chain]\n  user.dll\n[Other]\nx=1\n";
+        put(&g, "kiln/chain.ini", original_ini);
+        put(&g, "kiln/kiln-core.dll", b"old core");
+        let mut fail = FailReceipt { path: g.join("kiln/.install.json") };
+        assert!(install::install(&dirs, &client(&g), &b, &InstallOptions { switch_from_shroudforge: sf, ..Default::default() }, &mut fail).is_err());
+        assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), dll, "{tag}");
+        assert_eq!(std::fs::read(g.join("kiln/chain.ini")).unwrap(), original_ini, "{tag}");
+        assert_eq!(std::fs::read(g.join("kiln/kiln-core.dll")).unwrap(), b"old core", "{tag}");
+    }
+}
+
+#[test]
+fn successive_installs_keep_independent_original_backups() {
+    let t = tmp("backup-id");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let g = t.0.join("game");
+    let original = kiln_proxy("0.1.0");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &original);
+    install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    put(&g, "dinput8.dll", &build_test_dll(&["emf_loader_identity"], b""));
+    let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_ne!(r.replaced[0].backup, r.replaced[1].backup);
+    assert_eq!(std::fs::read(g.join(r.replaced[0].backup.as_ref().unwrap())).unwrap(), original);
+    install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), original);
+}
+
+#[test]
+fn full_chain_lists_refuse_without_displacing_the_loader() {
+    let t = tmp("chain-limit");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    for (tag, ini) in [("count", "a.dll\n".repeat(256)), ("size", ";".repeat(256 * 1024))] {
+        let g = t.0.join(tag);
+        let dll = build_test_dll(&["emf_loader_identity"], b"");
+        put(&g, "enshrouded.exe", b"MZ");
+        put(&g, "dinput8.dll", &dll);
+        put(&g, "kiln/chain.ini", ini.as_bytes());
+        assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+        assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), dll);
+        assert_eq!(std::fs::read(g.join("kiln/chain.ini")).unwrap(), ini.as_bytes());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_and_dangling_chain_slots_never_write_outside_the_game() {
+    use std::os::unix::fs::symlink;
+    let t = tmp("symlinks");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let dll = build_test_dll(&["emf_loader_identity"], b"");
+    let outside = t.0.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    for rel in ["kiln", "kiln/chain", "dinput8.dll"] {
+        let g = t.0.join(rel.replace('/', "-"));
+        put(&g, "enshrouded.exe", b"MZ");
+        if rel != "dinput8.dll" { put(&g, "dinput8.dll", &dll); }
+        let link = g.join(rel);
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        symlink(&outside, &link).unwrap();
+        assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+    }
+    let g = t.0.join("dangling");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &dll);
+    std::fs::create_dir_all(g.join("kiln/chain")).unwrap();
+    symlink(outside.join("missing.dll"), g.join("kiln/chain/emf-dinput8.dll")).unwrap();
+    let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(r.replaced[0].chain_path.as_deref(), Some("kiln/chain/emf-dinput8-2.dll"));
+    install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+    assert!(g.join("kiln/chain/emf-dinput8.dll").is_symlink());
+}
+
+#[test]
+fn runtime_files_cannot_claim_other_proxy_or_recovery_paths() {
+    let t = tmp("reserved");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let dll = build_test_dll(&["emf_loader_identity"], b"");
+    for (i, rel) in ["winmm.dll", "kiln/chain/emf-dinput8.dll", "kiln/backups/original.dll", "kiln/.install.json", "kiln/chain.ini"].iter().enumerate() {
+        let s = stage(&t.0, &format!("a{i}"), false);
+        put(&s, &format!("core/{rel}"), b"bundle file");
+        let b = bundle::create(&s, &t.0.join(format!("out{i}")), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+        let g = t.0.join(format!("game{i}"));
+        put(&g, "enshrouded.exe", b"MZ");
+        put(&g, "dinput8.dll", &dll);
+        put(&g, "winmm.dll", b"another loader");
+        assert_eq!(install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+        assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), dll);
+        assert_eq!(std::fs::read(g.join("winmm.dll")).unwrap(), b"another loader");
+    }
+}
+
+#[test]
+fn failed_undo_keeps_originals_in_recovery_staging_on_later_attempts() {
+    use kiln_manage::task::Progress;
+    struct BlockUndo(PathBuf);
+    impl Progress for BlockUndo {
+        fn report(&mut self, _: Option<f32>, message: &str) {
+            if message == "installed dinput8.dll" {
+                std::fs::remove_file(self.0.join("dinput8.dll")).unwrap();
+                std::fs::create_dir(self.0.join("dinput8.dll")).unwrap();
+                std::fs::create_dir(self.0.join("kiln/.install.json")).unwrap();
+            }
+        }
+    }
+    let t = tmp("failed-undo");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let g = t.0.join("game");
+    let original = build_test_dll(&["ShroudforgeSetDinput8Provider"], b"");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &original);
+    let options = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let err = install::install(&dirs, &client(&g), &b, &options, &mut BlockUndo(g.clone())).unwrap_err();
+    assert!(err.message.contains("rollback incomplete"), "{err}");
+    let recovery = std::fs::read_dir(g.join("kiln")).unwrap().flatten().find(|e| e.file_name().to_string_lossy().starts_with(".staging-")).unwrap().path();
+    assert_eq!(std::fs::read(recovery.join("previous/dinput8.dll")).unwrap(), original);
+    std::fs::remove_dir(g.join("kiln/.install.json")).unwrap();
+    assert!(install::install(&dirs, &client(&g), &b, &options, &mut NoProgress).is_err());
+    assert_eq!(std::fs::read(recovery.join("previous/dinput8.dll")).unwrap(), original);
+}
+
+#[test]
+fn receipt_paths_cannot_escape_the_game_folder() {
+    let t = tmp("receipt-path");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let g = t.0.join("game");
+    put(&g, "enshrouded.exe", b"MZ");
+    let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let mut tampered = r.clone();
+    tampered.files[0].path = "../outside.dll".into();
+    put(&t.0, "outside.dll", b"keep");
+    kiln_manage::util::write_json_atomic(&g.join("kiln/.install.json"), &tampered).unwrap();
+    assert!(install::uninstall(&dirs, &client(&g), &mut NoProgress).is_err());
+    assert_eq!(std::fs::read(t.0.join("outside.dll")).unwrap(), b"keep");
+    kiln_manage::util::write_json_atomic(&g.join("kiln/.install.json"), &r).unwrap();
+    install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_refuses_symlinked_paths_before_removing_any_files() {
+    let t = tmp("uninstall-link");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let g = t.0.join("game");
+    let original = build_test_dll(&["emf_loader_identity"], b"");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "dinput8.dll", &original);
+    let r = install::install(&dirs, &client(&g), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let outside = t.0.join("outside");
+    std::fs::rename(g.join("kiln/host"), &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, g.join("kiln/host")).unwrap();
+    assert_eq!(install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(std::fs::read(outside.join("Kiln.Host.dll")).unwrap(), b"host");
+    assert_eq!(install::read_receipt(&g).unwrap(), Some(r));
+    std::fs::remove_file(g.join("kiln/host")).unwrap();
+    std::fs::rename(&outside, g.join("kiln/host")).unwrap();
+    install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), original);
+}

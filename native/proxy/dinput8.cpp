@@ -81,6 +81,7 @@ const wchar_t** g_canon = nullptr;    // canonical path per entry (nullptr when 
 uint32_t g_count = 0, g_capacity = 0;
 const wchar_t* g_self_canon = nullptr;
 const wchar_t* g_system_canon = nullptr;
+const wchar_t* g_game_canon = nullptr;
 
 HANDLE g_log = INVALID_HANDLE_VALUE;  // kiln\logs\proxy.log, this start only
 
@@ -438,6 +439,93 @@ bool contains(const unsigned char* hay, size_t n, const void* needle, size_t m) 
     return false;
 }
 
+// All export inspection uses the on-disk mapping. No LoadLibrary/GetProcAddress during classification.
+struct FilePe {
+    const unsigned char* bytes;
+    size_t size;
+    const IMAGE_NT_HEADERS64* nt;
+    const IMAGE_SECTION_HEADER* sections;
+    const unsigned char* rva(DWORD address, size_t need, size_t* remaining = nullptr) const {
+        for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+            const auto& s = sections[i];
+            if (address < s.VirtualAddress) continue;
+            const size_t delta = static_cast<size_t>(address - s.VirtualAddress);
+            if (delta >= s.SizeOfRawData || need > s.SizeOfRawData - delta) continue;
+            if (remaining) *remaining = s.SizeOfRawData - delta;
+            return bytes + s.PointerToRawData + delta;
+        }
+        const size_t headers = nt->OptionalHeader.SizeOfHeaders;
+        if (headers <= size && address < headers && need <= headers - address) {
+            if (remaining) *remaining = headers - address;
+            return bytes + address;
+        }
+        return nullptr;
+    }
+};
+
+bool export_flags(const unsigned char* b, size_t n, unsigned* flags) {
+    *flags = 0;
+    if (n < sizeof(IMAGE_DOS_HEADER)) return false;
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(b);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return false;
+    const size_t at = static_cast<size_t>(dos->e_lfanew);
+    const size_t fixed = offsetof(IMAGE_NT_HEADERS64, OptionalHeader);
+    if (at > n || fixed > n - at) return false;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(b + at);
+    const size_t opt = nt->FileHeader.SizeOfOptionalHeader;
+    const size_t dirs = offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+        !(nt->FileHeader.Characteristics & IMAGE_FILE_DLL) || opt < dirs || opt > n - at - fixed ||
+        nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+        nt->OptionalHeader.NumberOfRvaAndSizes > (opt - dirs) / sizeof(IMAGE_DATA_DIRECTORY)) return false;
+    const size_t table = at + fixed + opt;
+    if (nt->FileHeader.NumberOfSections > (n - table) / sizeof(IMAGE_SECTION_HEADER)) return false;
+    const auto* sections = reinterpret_cast<const IMAGE_SECTION_HEADER*>(b + table);
+    for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+        if (sections[i].PointerToRawData > n || sections[i].SizeOfRawData > n - sections[i].PointerToRawData) return false;
+    }
+    const FilePe pe{b, n, nt, sections};
+    if (!nt->OptionalHeader.NumberOfRvaAndSizes) return true;
+    const DWORD address = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+    if (!address) return true;
+    const auto* ed = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(pe.rva(address, sizeof(IMAGE_EXPORT_DIRECTORY)));
+    if (!ed || ed->NumberOfNames > 65536) return false;
+    if (!ed->NumberOfNames) return true;
+    const auto* names = pe.rva(ed->AddressOfNames, static_cast<size_t>(ed->NumberOfNames) * sizeof(DWORD));
+    if (!names) return false;
+    for (DWORD i = 0; i < ed->NumberOfNames; ++i) {
+        DWORD name_rva;
+        memcpy(&name_rva, names + i * sizeof(DWORD), sizeof(DWORD));
+        size_t left = 0;
+        const auto* name = reinterpret_cast<const char*>(pe.rva(name_rva, 1, &left));
+        if (!name || !memchr(name, 0, left < 1024 ? left : 1024)) return false;
+        if (!strcmp(name, "KilnProxyInfo") || !strcmp(name, "kiln_boot")) *flags |= 1;
+        if (!strcmp(name, "emf_loader_identity") || !strcmp(name, "emf_loader_play_once")) *flags |= 2;
+        if (!strcmp(name, "ShroudforgeSetDinput8Provider")) *flags |= 4;
+    }
+    return true;
+}
+
+// ASCII or UTF-16LE text markers, ASCII case ignored; sizes come from the literal, never hand-written lengths.
+template <size_t N>
+bool marker(const unsigned char* b, size_t n, const char (&text)[N]) {
+    for (size_t stride = 1; stride <= 2; ++stride) {
+        const size_t len = (N - 1) * stride;
+        for (size_t at = 0; len <= n && at <= n - len; ++at) {
+            bool same = true;
+            for (size_t j = 0; j < N - 1 && same; ++j) {
+                unsigned char c = b[at + j * stride];
+                unsigned char t = static_cast<unsigned char>(text[j]);
+                if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+                if (t >= 'A' && t <= 'Z') t += 'a' - 'A';
+                same = c == t && (stride == 1 || b[at + j * stride + 1] == 0);
+            }
+            if (same) return true;
+        }
+    }
+    return false;
+}
+
 uint32_t classify(const wchar_t* path) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -450,28 +538,15 @@ uint32_t classify(const wchar_t* path) {
         const auto* b = m ? static_cast<const unsigned char*>(MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) : nullptr;
         if (b) {
             const size_t n = static_cast<size_t>(size.QuadPart);
-            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(b);
-            const bool pe = dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew > 0 &&
-                            static_cast<size_t>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS64) <= n;
-            const auto* nt = pe ? reinterpret_cast<const IMAGE_NT_HEADERS64*>(b + dos->e_lfanew) : nullptr;
-            if (nt && nt->Signature == IMAGE_NT_SIGNATURE && nt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64 &&
-                (nt->FileHeader.Characteristics & IMAGE_FILE_DLL) &&
-                nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-                static const wchar_t kCore[] = L"\\kiln\\kiln-core.dll";  // every Kiln proxy builds this path
+            unsigned flags = 0;
+            if (export_flags(b, n, &flags)) {
+                static const wchar_t kCore[] = L"\\kiln\\kiln-core.dll";
                 static const char kWine[] = "Wine builtin DLL";
                 if (memcmp(b + 0x40, kWine, sizeof kWine - 1) == 0) result = kSystem;
-                else if (contains(b, n, kCore, sizeof kCore - sizeof(wchar_t)) ||
-                         contains(b, n, "KilnProxy/", 10) || contains(b, n, "kiln_boot", 10))
+                else if ((flags & 1) || contains(b, n, kCore, sizeof kCore - sizeof(wchar_t)) || marker(b, n, "KilnProxy/"))
                     result = kKiln;
-                // EMF's loader before ShroudForge: EMF 0.4 and later also export ShroudforgeSetDinput8Provider (its
-                // loader can host ShroudForge's chain). Its marker text EMF-LOADER-7d3c9f is the data it exports as
-                // emf_loader_identity (older EMF loaders have no ShroudForge export and are accepted anyway).
-                else if (contains(b, n, "EMF-LOADER-7d3c9f", 17))
-                    result = kAccept;
-                else if (contains(b, n, "shroudforge/shroudforge-runtime.dll", 35) ||
-                         contains(b, n, "shroudforge/config/modloader-config.json", 40) ||
-                         contains(b, n, "ShroudforgeSetDinput8Provider", 29))
-                    result = kShroudForge;
+                else if ((flags & 2) || marker(b, n, "EMF-LOADER-7d3c9f")) result = kAccept;
+                else if ((flags & 4) || marker(b, n, "shroudforge")) result = kShroudForge;
                 else result = kAccept;
             }
             UnmapViewOfFile(b);
@@ -538,8 +613,18 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
     const wchar_t* canon = canonical(full);
     const wchar_t* shown = canon ? canon : full;
     uint32_t refusal = kAccept;
-    if (canon && g_self_canon && wieq(canon, g_self_canon)) refusal = kSelf;
-    else if (canon && g_system_canon && wieq(canon, g_system_canon)) refusal = kSystem;
+    if (source == KILN_CHAIN_SOURCE_EMF) {
+        // Final path of the DLL inside the final path of the game folder: both resolved the same way, so a game folder
+        // reached through a link or a mapped drive (Proton's S:) still matches. A drive root keeps its separator.
+        // Under Wine, Unix symlinks are invisible to GetFinalPathNameByHandleW (it returns the path as opened).
+        const size_t root_len = g_game_canon ? wlen(g_game_canon) : 0;
+        const bool root_sep = root_len && sep(g_game_canon[root_len - 1]);
+        if (!canon || !root_len || _wcsnicmp(canon, g_game_canon, root_len) != 0 ||
+            (root_sep ? !canon[root_len] : !sep(canon[root_len])))
+            refusal = kOutside;
+    }
+    if (refusal == kAccept && canon && g_self_canon && wieq(canon, g_self_canon)) refusal = kSelf;
+    else if (refusal == kAccept && canon && g_system_canon && wieq(canon, g_system_canon)) refusal = kSystem;
     if (refusal == kAccept && canon) {
         for (uint32_t i = 0; i < g_count; ++i) {
             if (!g_canon[i] || !wieq(g_canon[i], canon)) continue;
@@ -579,6 +664,8 @@ struct List {
     wchar_t** items = nullptr;
     uint32_t count = 0, capacity = 0;
     void push(wchar_t* v) {
+        // Retain one overflow entry for the refusal report, then stop allocating/logging under the loader lock.
+        if (count > kMaxPerList) return;
         if (count == capacity) {
             const uint32_t cap = capacity ? capacity * 2 : 32;
             void* p = items ? HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, items, cap * sizeof(wchar_t*))
@@ -736,6 +823,7 @@ bool profile_well_formed(const wchar_t* file) {
 // lines before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
 // ([profile], lines before any section count) in place of chain.ini [profile].
 void load_chain(bool profile_once, bool skip) {
+    g_game_canon = canonical(g_game);
     wchar_t buf[kPath];
     if (GetModuleFileNameW(g_self, buf, kPath)) g_self_canon = canonical(buf);
     const UINT sn = GetSystemDirectoryW(buf, kPath - 16);

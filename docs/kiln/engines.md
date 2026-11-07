@@ -43,17 +43,30 @@ Kiln owns only `dinput8.dll`.
 - `shroudforge`: refused unless "switch from ShroudForge". Then only ShroudForge's `dinput8.dll` goes to the backup.
   Its `dbghelp.dll`, `winmm.dll` and `shroudforge/` stay, and Kiln's ShroudForge plugin drives the installed runtime.
 - Every other kind: chained. The installer moves the DLL to `kiln/chain/<word>-dinput8.dll` and adds it to
-  `chain.ini [chain]`. Ultimate ASI Loader runs only under names it knows, so it is chained as `xinput9_1_0.dll` next
-  to the game (`..\xinput9_1_0.dll` in chain.ini). If that name is taken, the install is refused.
+  `chain.ini [chain]`. Occupied chain names always get a numbered suffix, even for identical bytes, directories or
+  dangling links. Ultimate ASI Loader runs only under names it knows, so it is chained as `xinput9_1_0.dll` next
+  to the game (`..\xinput9_1_0.dll` in chain.ini). If that name is taken (case ignored, even identical bytes), the install is refused.
 - DLLs under any other proxy name are never moved. EML's `dbghelp.dll`, Shroudtopia's `winmm.dll` and SET's
   `powrprof.dll` keep running next to Kiln.
 - The receipt's `replaced[].engine` names the engine. Uninstall restores every file byte-identically.
+- A full/oversized `chain.ini` is refused before taking the proxy slot. Symlinks on installation paths are refused;
+  runtime bundles cannot own other proxy slots or installer recovery paths. Each install's backups have a unique
+  suffix. An error, including a receipt-write error, rolls back files and restores the chain file's exact previous
+  bytes. If the OS prevents rollback, the error names the retained recovery staging folder; later installs never
+  delete originals held there.
 
 ## Proxy
 
 The proxy reads `dinput8-chain.ini` `[Chain]` and `[EMF]` (the DLLs EMF 0.5's installer renamed) in file order. Both
-use EMF's rules: relative paths inside the game folder only, at most 256 entries, dedupe by canonical path. EMF's
-loader is accepted even though it carries ShroudForge's export name. ShroudForge's own `dinput8.dll` is still refused.
+use EMF's rules: relative paths inside the game folder only (including the final target of directory links), at most
+256 entries across both sections, dedupe by canonical path. Files above 256 KiB are ignored. One overflow entry is
+reported as refused; further entries are discarded. EMF's loader is accepted by its exports even without its marker,
+and even though it carries ShroudForge's export name. ShroudForge's own `dinput8.dll` is still refused. PE headers,
+sections and export names are checked against file-backed bounds, without loading the DLL for classification.
+Containment compares the final path of the DLL with the final path of the game folder, so a game folder reached through
+a link, a mapped drive (Proton's `S:`) or at a drive root is accepted. Under Wine/Proton, Unix symlinks are invisible to
+Windows path APIs, so a Unix symlink inside the game folder counts as part of it (making one needs write access to the
+game folder, which already allows placing a DLL there); absolute, drive and `..` entries are refused before resolving.
 
 ## Library kinds
 
@@ -62,8 +75,8 @@ loader is accepted even though it carries ShroudForge's export name. ShroudForge
 | Kind | Detected by |
 |---|---|
 | `flame` | `flame.json`, or a DLL exporting `FlameStartRuntime` |
-| `shroudforge` | `shroudforge::is_sf_mod` (extended.mod.json, `capabilities`, Lua code) |
-| `eml` | `mod.json` + `src/mod.lua`, nothing of ShroudForge's |
+| `shroudforge` | SF-specific `extended.mod.json` or a ShroudForge schema; other SF-compatible Lua packages without the EML entry point |
+| `eml` | `mod.json` + `src/mod.lua`; shared `capabilities` do not imply SF. An extension with `launcher: "EML"` remains EML |
 | `enshwick` | `pack.toml`, or a DLL exporting `enshwick_mod_abi` / `_query` / `_init` (the folder is the mod) |
 | `set` | `init.lua` |
 | `greeneye` | a DLL exporting `GreeneyeModStart` (the folder is the mod) |
@@ -77,6 +90,10 @@ loader is accepted even though it carries ShroudForge's export name. ShroudForge
 | `shroudlink`, `ember` | reserved for their mod formats |
 
 A kind without a loader is skipped on import with its reason. It is never imported as a plain DLL.
+An unreadable/unknown `mod.json` or incomplete Lua package stays one skipped item: its helper DLLs are never
+imported separately. Standalone DLLs without package metadata retain the existing bare-DLL import flow. These are
+Library import rules; a runtime plugin may already run an engine's mods placed in its game-folder layout manually.
+ShroudForge installation detection classifies `dbghelp.dll` and `winmm.dll` before calling them SF's helpers.
 
 ## Adding support for an engine's mods
 

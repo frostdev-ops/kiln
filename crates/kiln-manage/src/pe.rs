@@ -108,11 +108,11 @@ const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
 const PE32_PLUS: u16 = 0x20b;
 
 fn u16_at(b: &[u8], o: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+    Some(u16::from_le_bytes(b.get(o..o.checked_add(2)?)?.try_into().ok()?))
 }
 
 fn u32_at(b: &[u8], o: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(b.get(o..o.checked_add(4)?)?.try_into().ok()?))
 }
 
 fn parse_error(msg: &str) -> Error {
@@ -135,37 +135,55 @@ pub fn parse(b: &[u8]) -> Result<PeInfo> {
     let characteristics = u16_at(b, coff + 18).ok_or_else(|| parse_error("truncated COFF header"))?;
     let opt = coff + 20;
     let magic = u16_at(b, opt).ok_or_else(|| parse_error("no optional header"))?;
-    let (ndirs_at, dirs_at) = if magic == PE32_PLUS { (opt + 108, opt + 112) } else { (opt + 92, opt + 96) };
+    let (ndirs_rel, dirs_rel) = match magic {
+        PE32_PLUS => (108, 112),
+        0x10b => (92, 96),
+        _ => return Err(parse_error("unknown optional header")),
+    };
+    let optional = b.get(opt..opt.checked_add(opt_size).ok_or_else(|| parse_error("header overflow"))?)
+        .ok_or_else(|| parse_error("truncated optional header"))?;
+    let ndirs = u32_at(optional, ndirs_rel).ok_or_else(|| parse_error("short optional header"))? as usize;
+    if ndirs > (opt_size.saturating_sub(dirs_rel)) / 8 {
+        return Err(parse_error("truncated data directories"));
+    }
     let sections = opt + opt_size;
-    let section_list: Vec<(u32, u32, u32, u32)> = (0..nsect)
-        .filter_map(|i| {
-            let s = sections + i * 40;
-            Some((u32_at(b, s + 12)?, u32_at(b, s + 8)?, u32_at(b, s + 20)?, u32_at(b, s + 16)?))
-        })
-        .collect();
-    let to_off = |rva: u32| -> Option<usize> {
-        section_list.iter().find_map(|&(va, vsize, raw, rawsize)| {
-            let span = vsize.max(rawsize);
-            (rva >= va && rva < va.checked_add(span)?).then(|| (rva - va + raw) as usize)
+    let section_end = sections.checked_add(nsect * 40).ok_or_else(|| parse_error("section overflow"))?;
+    if section_end > b.len() { return Err(parse_error("truncated section table")); }
+    let mut section_list = Vec::new();
+    for i in 0..nsect {
+        let s = sections + i * 40;
+        let va = u32_at(b, s + 12).unwrap();
+        let raw = u32_at(b, s + 20).unwrap() as usize;
+        let size = u32_at(b, s + 16).unwrap() as usize;
+        if raw.checked_add(size).is_none_or(|end| end > b.len()) {
+            return Err(parse_error("section outside file"));
+        }
+        section_list.push((va, raw, size));
+    }
+    // Return only file-backed bytes of one section (never virtual padding or another section's bytes).
+    let to_bytes = |rva: u32| -> Option<&[u8]> {
+        section_list.iter().find_map(|&(va, raw, size)| {
+            let delta = rva.checked_sub(va)? as usize;
+            (delta < size).then(|| &b[raw + delta..raw + size])
+        }).or_else(|| {
+            let headers = u32_at(optional, 60)? as usize;
+            (headers <= b.len() && (rva as usize) < headers).then(|| &b[rva as usize..headers])
         })
     };
     let mut exports = Vec::new();
-    let ndirs = u32_at(b, ndirs_at).unwrap_or(0);
-    if ndirs > 0 && opt_size > dirs_at - opt {
-        let rva = u32_at(b, dirs_at).unwrap_or(0);
-        if rva != 0
-            && let Some(ed) = to_off(rva)
-        {
-            let n = u32_at(b, ed + 24).unwrap_or(0).min(65_536) as usize;
-            let names = u32_at(b, ed + 32).and_then(to_off);
-            if let Some(names) = names {
+    if ndirs > 0 {
+        let rva = u32_at(optional, dirs_rel).unwrap();
+        if rva != 0 {
+            let ed = to_bytes(rva).filter(|s| s.len() >= 40).ok_or_else(|| parse_error("bad export directory"))?;
+            let n = u32_at(ed, 24).unwrap() as usize;
+            if n > 65_536 { return Err(parse_error("too many export names")); }
+            if n > 0 {
+                let names = to_bytes(u32_at(ed, 32).unwrap()).filter(|s| s.len() >= n * 4)
+                    .ok_or_else(|| parse_error("bad export name table"))?;
                 for i in 0..n {
-                    let Some(name_off) = u32_at(b, names + i * 4).and_then(to_off) else { continue };
-                    let Some(rest) = b.get(name_off..) else { continue };
-                    let end = rest.iter().take(1024).position(|&c| c == 0).unwrap_or(0);
-                    if end > 0 {
-                        exports.push(String::from_utf8_lossy(&rest[..end]).into_owned());
-                    }
+                    let rest = to_bytes(u32_at(names, i * 4).unwrap()).ok_or_else(|| parse_error("bad export name RVA"))?;
+                    let end = rest.iter().take(1024).position(|&c| c == 0).ok_or_else(|| parse_error("unterminated export name"))?;
+                    if end > 0 { exports.push(String::from_utf8_lossy(&rest[..end]).into_owned()); }
                 }
             }
         }
@@ -258,21 +276,6 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
     if let Some(e) = EMF_EXPORTS.iter().find(|e| has(e)) {
         c.kind = ProxyKind::Emf;
         c.detail = Some(format!("export {e}"));
-        return c;
-    }
-    if contains(b, EMF_LOADER_MARKER.as_bytes()).is_some() {
-        c.kind = ProxyKind::Emf;
-        c.detail = Some(format!("marker {EMF_LOADER_MARKER}"));
-        return c;
-    }
-    if let Some(m) = SHROUDFORGE_MARKERS.iter().find(|m| contains(b, m.as_bytes()).is_some()) {
-        c.kind = ProxyKind::ShroudForge;
-        c.detail = Some(format!("marker {m}"));
-        return c;
-    }
-    if has(SHROUDFORGE_EXPORT) {
-        c.kind = ProxyKind::ShroudForge;
-        c.detail = Some(format!("export {SHROUDFORGE_EXPORT}"));
         return c;
     }
     if b.get(0x40..0x40 + WINE_BUILTIN_MARKER.len()) != Some(WINE_BUILTIN_MARKER.as_bytes())

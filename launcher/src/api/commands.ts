@@ -193,7 +193,7 @@ export interface ReplacedFile {
   sha256: string;
   size?: number;
   class?: "kiln" | "shroudforge" | "emf" | "unknown" | "file";
-  action: "chained" | "backed-up" | "replaced";
+  action: "chained" | "backed-up" | "replaced" | "adopted";
   chainPath?: string;
   backup?: string;
   /** The engine it belongs to, when Kiln knows it. */

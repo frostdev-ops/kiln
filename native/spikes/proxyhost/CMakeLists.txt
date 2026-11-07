@@ -34,6 +34,9 @@ proxyhost_dll(entrypatch-2 TEST_ENTRY_PATCH)
 proxyhost_dll(failing TEST_FAIL)
 proxyhost_dll(fake-sf TEST_SHROUDFORGE)
 proxyhost_dll(fake-emf05 TEST_EMF05)
+proxyhost_dll(fake-emf-exports TEST_EMF_EXPORTS)
+proxyhost_dll(fake-emf-wide TEST_EMF_WIDE)
+proxyhost_dll(fake-kiln-exports TEST_KILN_EXPORTS)
 add_dependencies(proxyhost proxyhost-fakecore)
 
 # The core's semver port against schema/fixtures/semver (run.py runs it as scenario "semver").

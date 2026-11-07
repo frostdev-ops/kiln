@@ -69,7 +69,7 @@ pub enum DetectKind {
     // through a loader registered for it (engines::register_loader); without one it is skipped with its reason.
     /// An EML mod (`mod.json` + `src/mod.lua`).
     Eml,
-    /// A ShroudForge package (EML layout + `extended.mod.json`, or SF's `capabilities`).
+    /// A ShroudForge package (SF-specific extension or schema; capabilities are shared with EML).
     #[serde(rename = "shroudforge")]
     ShroudForge,
     /// A Shrouded Engine Tweaks mod (`init.lua`).
@@ -205,6 +205,9 @@ fn detect_dll(path: &Path) -> Detected {
         items: vec![],
         engine: None,
     };
+    if crate::pe::classify_bytes(&bytes).kind == crate::pe::ProxyKind::Kiln {
+        return d(DetectKind::Unknown, "Kiln's own dinput8 proxy: install a runtime bundle instead");
+    }
     if has(crate::pe::KILN_PLUGIN_EXPORT) {
         return d(DetectKind::Plugin, "a Kiln plugin (exports kiln_plugin_main)");
     }
@@ -258,16 +261,23 @@ fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
 }
 
 fn detect_folder(dir: &Path) -> Detected {
+    detect_folder_at(dir, 0)
+}
+
+fn detect_folder_at(dir: &Path, depth: usize) -> Detected {
     let p = dir.display().to_string();
     let mk = |kind, id: Option<String>, version: Option<String>, name: Option<String>, reason: String| Detected {
         kind, path: p.clone(), id, version, name, reason, items: vec![], engine: None,
     };
+    if dir.is_symlink() || depth > 32 {
+        return mk(DetectKind::Unknown, None, None, None, "links or folders deeper than 32 levels are not mod imports".into());
+    }
     if dir.join(crate::bundle::MANIFEST).is_file() {
         return mk(DetectKind::Runtime, None, None, None, "a staged Kiln runtime (kiln-runtime.json)".into());
     }
     if dir.join(MODPACK_MANIFEST).is_file() {
         let mut d = mk(DetectKind::Modpack, None, None, None, "a server modpack (kiln-modpack.json)".into());
-        d.items = children(dir);
+        d.items = children(dir, depth);
         return d;
     }
     if dir.join(crate::manifest::KILN_MANIFEST).is_file() {
@@ -289,8 +299,14 @@ fn detect_folder(dir: &Path) -> Detected {
     if let Some(d) = crate::engines::detect_folder(dir) {
         return d;
     }
+    // A package with an unknown/broken manifest is one item, never a bag of helper DLLs to execute.
+    if dir.join(EMF_MANIFEST).is_file() || dir.join("src/mod.lua").is_file()
+        || std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")))
+    {
+        return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
+    }
     // a folder of mods (an unpacked zip): what is inside
-    let items = children(dir);
+    let items = children(dir, depth);
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
         let n = items.iter().filter(|i| i.kind.importable()).count();
         let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable()).count();
@@ -306,10 +322,10 @@ fn detect_folder(dir: &Path) -> Detected {
         d.items = items;
         return d;
     }
-    mk(DetectKind::Unknown, None, None, None, "no kiln.mod.json, native.json, EMF mod.json or DLL".into())
+    mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir))
 }
 
-fn children(dir: &Path) -> Vec<Detected> {
+fn children(dir: &Path, depth: usize) -> Vec<Detected> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
     entries.sort();
     let mut out = Vec::new();
@@ -318,8 +334,13 @@ fn children(dir: &Path) -> Vec<Detected> {
         if name.starts_with('.') {
             continue;
         }
+        if e.is_symlink() {
+            out.push(Detected { kind: DetectKind::Unknown, path: e.display().to_string(), id: None, version: None, name: None,
+                reason: "links are not mod imports".into(), items: vec![], engine: None });
+            continue;
+        }
         if e.is_dir() {
-            let d = detect_folder(&e);
+            let d = detect_folder_at(&e, depth + 1);
             if d.kind == DetectKind::Unknown && !d.items.is_empty() {
                 out.extend(d.items);
             } else if d.kind != DetectKind::Unknown || name != "__MACOSX" {
@@ -335,7 +356,11 @@ fn children(dir: &Path) -> Vec<Detected> {
 }
 
 pub fn detect(path: &Path) -> Result<Detected> {
-    let meta = std::fs::metadata(path).map_err(io(path, "reading"))?;
+    let meta = std::fs::symlink_metadata(path).map_err(io(path, "reading"))?;
+    if meta.file_type().is_symlink() {
+        return Ok(Detected { kind: DetectKind::Unknown, path: path.display().to_string(), id: None, version: None, name: None,
+            reason: "links are not mod imports".into(), items: vec![], engine: None });
+    }
     if meta.is_dir() {
         return Ok(detect_folder(path));
     }

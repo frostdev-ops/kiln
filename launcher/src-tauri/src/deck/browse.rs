@@ -103,7 +103,7 @@ pub const MAX_ZIP: u64 = 512 * 1024 * 1024;
 pub const MAX_DLL: u64 = 96 * 1024 * 1024;
 
 /// The manifests that make a folder (or a zip) a mod.
-const MANIFESTS: &[&str] = &["kiln.mod.json", "native.json", "mod.json", "kiln-modpack.json"];
+const MANIFESTS: &[&str] = &["kiln.mod.json", "native.json", "mod.json", "kiln-modpack.json", "flame.json", "pack.toml", "init.lua", "shroudtopia.json"];
 
 type CacheKey = (PathBuf, u64, Option<SystemTime>);
 static CACHE: LazyLock<Mutex<HashMap<CacheKey, Option<Detected>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -214,7 +214,9 @@ fn folder_candidate(dir: &Path) -> bool {
     if has_manifest(dir) {
         return true;
     }
-    std::fs::read_dir(dir).into_iter().flatten().flatten().take(64).any(|e| e.path().is_dir() && has_manifest(&e.path()))
+    std::fs::read_dir(dir).into_iter().flatten().flatten().take(64).any(|e| {
+        (e.path().is_dir() && has_manifest(&e.path())) || e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"))
+    })
 }
 
 fn file_candidate(path: &Path, size: u64) -> bool {
@@ -222,6 +224,7 @@ fn file_candidate(path: &Path, size: u64) -> bool {
     if lower.ends_with(".dll") {
         return size <= MAX_DLL;
     }
+    if size <= MAX_DLL && kiln_manage::engines::detect_file(path).is_some() { return true; }
     if !lower.ends_with(".zip") || size > MAX_ZIP {
         return false;
     }
@@ -234,7 +237,7 @@ fn zip_lists_a_mod(path: &Path) -> bool {
     let Ok(a) = zip::ZipArchive::new(f) else { return false };
     a.file_names().filter_map(|n| n.ok()).any(|n| {
         let base = n.rsplit(['/', '\\']).next().unwrap_or(&n).to_lowercase();
-        MANIFESTS.contains(&base.as_str()) || base.ends_with(".dll")
+        MANIFESTS.contains(&base.as_str()) || base.ends_with(".dll") || kiln_manage::engines::detect_file(Path::new(&base)).is_some()
     })
 }
 
@@ -337,6 +340,32 @@ mod tests {
 
     fn env(t: &Tmp) -> Env {
         Env { home: t.0.join("home"), downloads: None, media: t.0.join("media"), user: Some("deck".into()) }
+    }
+
+    #[test]
+    fn engine_manifests_dll_folders_and_non_mod_files_are_listed_with_reasons() {
+        let t = Tmp::new("engines");
+        let e = env(&t);
+        let dl = e.home.join("Downloads");
+        std::fs::create_dir_all(&dl).unwrap();
+        for (name, file, kind) in [("set", "init.lua", DetectKind::Set), ("enshwick", "pack.toml", DetectKind::Enshwick),
+            ("flame", "flame.json", DetectKind::Flame), ("topia", "shroudtopia.json", DetectKind::Shroudtopia)] {
+            let d = dl.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(file), "{}").unwrap();
+            zip_dir(&d, &dl.join(format!("{name}.zip")));
+            assert_eq!(kiln_manage::library::detect(&d).unwrap().kind, kind);
+        }
+        let greeneye = dl.join("greeneye");
+        std::fs::create_dir_all(&greeneye).unwrap();
+        std::fs::write(greeneye.join("mod.dll"), kiln_manage::pe::build_test_dll(&["GreeneyeModStart"], b"")).unwrap();
+        for file in ["world.ksd", "preset-reshade.ini", "patch.kfc", "plugin.asi", "cheat.ct"] {
+            std::fs::write(dl.join(file), "x").unwrap();
+        }
+        let found = browse(None, &e).unwrap();
+        assert_eq!(found.mods.len(), 14, "{:?}", found.mods);
+        assert!(found.mods.iter().all(|m| !m.detected.reason.is_empty()));
+        assert!(!found.mods.iter().any(|m| m.detected.kind == DetectKind::BareDll));
     }
 
     #[test]

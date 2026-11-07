@@ -28,6 +28,18 @@ extern "C" __declspec(dllexport) const char emf_loader_identity[] = "EMF-LOADER-
 extern "C" __declspec(dllexport) void ShroudforgeSetDinput8Provider(void*) {}
 #endif
 
+#ifdef TEST_EMF_EXPORTS
+extern "C" __declspec(dllexport) void emf_loader_play_once() {}
+extern "C" __declspec(dllexport) void ShroudforgeSetDinput8Provider(void*) {}
+#endif
+#ifdef TEST_KILN_EXPORTS
+extern "C" __declspec(dllexport) void KilnProxyInfo() {}
+#endif
+#ifdef TEST_EMF_WIDE
+extern "C" __declspec(dllexport) const wchar_t emf_identity_wide[] = L"eMf-LoAdEr-7d3c9f";
+extern "C" __declspec(dllexport) void ShroudforgeSetDinput8Provider(void*) {}
+#endif
+
 #ifdef TEST_ENTRY_PATCH
 unsigned char* g_entry = nullptr;
 unsigned char g_saved[14];
