@@ -8,6 +8,7 @@
 // Console: each <game>/kiln/control/set/*.lua file's lines run as Lua at the next tick, then the file is deleted (the
 // overlay console's job in SET; kiln/control/*.cmd belongs to Kiln.Host).
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <atomic>
@@ -16,10 +17,13 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 
 #include "game.h"
+#include "coexist.h"
 #include "hooks.h"
 #include "kiln_api.h"
 #include "level.h"
@@ -37,7 +41,9 @@ KilnOwner g_owner = 0;
 std::filesystem::path g_game, g_control;
 std::string g_aside;
 uint64_t g_steps = 0;
-bool g_running = false;
+std::atomic<bool> g_running{false};
+bool g_initialized = false;
+std::mutex g_coexist_mx;
 
 std::filesystem::path api_path(int32_t kind) {
     char buf[1024];
@@ -61,21 +67,18 @@ void sink(const char* line) {
 }
 
 // SET's own DLL in the process (the game imports POWRPROF.dll; SET ships as one in the game folder).
-std::string set_in_process() {
-    HMODULE h = GetModuleHandleW(L"powrprof.dll");
-    if (!h) return {};
-    wchar_t p[MAX_PATH] = L"";
-    GetModuleFileNameW(h, p, MAX_PATH);
-    const std::filesystem::path file(p);
-    std::error_code ec;
-    if (!std::filesystem::equivalent(file.parent_path(), g_game, ec)) return {};
-    std::ifstream f(file, std::ios::binary);
-    std::string data((std::istreambuf_iterator<char>(f)), {});
-    const std::string ascii = "Shrouded Engine Tweaks";
-    std::string wide;
-    for (char c : ascii) wide += c, wide += '\0';
-    if (data.find(ascii) == std::string::npos && data.find(wide) == std::string::npos) return {};
-    return "SET's own powrprof.dll is loaded (" + u8(file) + ")";
+std::string set_in_process() { return kset::runtime_conflict(); }
+
+bool may_run() {
+    if (!g_running.load()) return false;
+    std::lock_guard lock(g_coexist_mx);
+    if (!g_running.load()) return false;
+    g_aside = set_in_process();
+    if (g_aside.empty()) return true;
+    g_running = false;
+    log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside);
+    rt::gameClosing();
+    return false;
 }
 
 void poll_console() {
@@ -103,27 +106,32 @@ void poll_console() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
+    if (!may_run()) return;
     if (++g_steps % 12 == 0) poll_console();
     const uintptr_t w = g_api->server_world();
     if (w) rt::tick(w);
 }
 
 void KILN_CALL on_post(const KilnTickInfo*, void*) {
+    if (!g_running.load()) return;
     const uintptr_t w = g_api->server_world();
     if (w) rt::afterTick(w);
 }
 
 void KILN_CALL on_world(const KilnWorldEvent* e, void*) {
+    if (!g_running.load()) return;
     if (e && e->kind == KILN_WORLD_SERVER && e->event == KILN_WORLD_STOPPING) rt::worldLeft();
 }
 
 // Client only: the game's UI frame on the main thread (mods run here in the menu), and the overlay frame (Draw).
 void KILN_CALL on_ui_tick(uint64_t frame, void*) {
+    if (!may_run()) return;
     if (frame % 12 == 0) poll_console();
     rt::frame();
 }
 
 void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
+    if (!g_running.load()) return;
     rt::setOverlayOpen(f && f->menu_open);
     if (!rt::hasDraw()) return;
     if (rt::tryLockDraw()) rt::drawLocked();
@@ -145,10 +153,18 @@ void KILN_CALL on_ready(void*) {
     hk::setLog(&sink);
     const auto mods = g_game / "shrouded_engine_tweaks" / "mods";
     rt::configure(u8(mods), &sink);
+    g_initialized = true;
     {  // GetGameBuild(): the exe's link time stamp, as SET reports it
         const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-        rt::setGameBuild(reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew)->FileHeader.TimeDateStamp);
+        IMAGE_DOS_HEADER dos{};
+        IMAGE_NT_HEADERS64 nt{};
+        SIZE_T copied = 0;
+        if (ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(base), &dos, sizeof dos, &copied) &&
+            copied == sizeof dos && dos.e_magic == IMAGE_DOS_SIGNATURE && dos.e_lfanew >= sizeof dos &&
+            dos.e_lfanew <= 0x100000 && base <= UINTPTR_MAX - static_cast<uintptr_t>(dos.e_lfanew) &&
+            ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(base + dos.e_lfanew), &nt, sizeof nt, &copied) &&
+            copied == sizeof nt && nt.Signature == IMAGE_NT_SIGNATURE)
+            rt::setGameBuild(nt.FileHeader.TimeDateStamp);
     }
     KilnHandle h = 0;
     const KilnResult a = g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_pre, nullptr, &h);
@@ -175,12 +191,13 @@ void KILN_CALL on_ready(void*) {
 }
 
 void KILN_CALL on_unload(void*) {
-    if (g_running) rt::gameClosing();
+    g_running = false;
+    if (g_initialized) rt::gameClosing();
 }
 }  // namespace
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
-    if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
+    if (!api || !info || api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{"kiln-set", 8};

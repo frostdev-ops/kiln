@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -32,12 +33,13 @@ const KilnTimeApi* TM = nullptr;
 template <class Tbl>
 const Tbl* service(const char* name, uint32_t version) {
     const auto* t = static_cast<const Tbl*>(g_api->service(KilnStr{name, std::strlen(name)}, version));
-    return t && t->header.size >= sizeof(KilnServiceHeader) ? t : nullptr;
+    return t && t->header.size >= sizeof(Tbl) && t->header.version >= version ? t : nullptr;
 }
 KilnStr ks(std::string_view s) { return KilnStr{s.data(), s.size()}; }
 const uint8_t* desc(const KilnType* t) { return reinterpret_cast<const uint8_t*>(t); }
 }  // namespace
 
+bool kset::tickThread() { return g_api && g_api->on_tick_thread(); }
 bool kset::systemsReady() {
     KilnTypesStatus st{sizeof st};
     return T && T->status(&st) == KILN_OK && st.systems;
@@ -63,19 +65,33 @@ std::string kset::bind(const KilnApi* api) {
 namespace {
 refl::Field fieldOf(refl::Type t, uint32_t i) {
     KilnTypeField f{};
-    if (!T || T->type_field(reinterpret_cast<const KilnType*>(t.p), i, &f) != KILN_OK) return {};
+    if (!T || T->type_field(reinterpret_cast<const KilnType*>(t.p), i, &f) != KILN_OK || f.offset > UINT32_MAX) return {};
     return {std::string_view(f.name.ptr, f.name.len), {desc(f.type)}, static_cast<uint32_t>(f.offset)};
 }
 }  // namespace
 
-std::string_view refl::Type::str(size_t off) const {
-    auto s = *reinterpret_cast<const char* const*>(p + off);
-    return s ? std::string_view(s, *reinterpret_cast<const uint64_t*>(p + off + 8)) : std::string_view();
+namespace {
+KilnTypeInfo infoOf(refl::Type t) {
+    KilnTypeInfo i{sizeof i};
+    if (!t || !T || T->type_info(reinterpret_cast<const KilnType*>(t.p), &i) != KILN_OK) return {};
+    return i;
 }
+}
+std::string_view refl::Type::str(size_t off) const {
+    const auto i = infoOf(*this);
+    const auto s = off == 0 ? i.name : i.qualified_name;
+    return s.ptr ? std::string_view(s.ptr, s.len) : std::string_view();
+}
+uint32_t refl::Type::u32(size_t off) const {
+    const auto i = infoOf(*this);
+    switch (off) { case 0x40: return i.type_size; case 0x48: return i.field_count; case 0x50: return i.hash; default: return 0; }
+}
+uint8_t refl::Type::prim() const { return infoOf(*this).kind; }
+refl::Type refl::Type::inner() const { return {desc(infoOf(*this).inner)}; }
 refl::Type refl::Type::resolved() const {
     Type t = *this;
-    for (int i = 0; i < 16 && t && t.prim() == Typedef && t.inner(); i++) t = t.inner();
-    return t;
+    for (int i = 0; i < 32 && t && t.prim() == Typedef; i++) t = t.inner();
+    return t && t.prim() != Typedef ? t : Type{};
 }
 const uint8_t* refl::Type::defaults() const {
     KilnTypeInfo info{sizeof info};
@@ -94,20 +110,33 @@ refl::Type refl::lookup(std::string_view name) {
     if (Type t = byName(name)) return t;
     return {T ? desc(T->type_by_name(ks(name))) : nullptr};
 }
-bool refl::plain(Type t) {
+namespace {
+bool plainDepth(refl::Type t, unsigned depth, unsigned& budget) {
+    using namespace refl;
     t = t.resolved();
-    uint8_t k = t ? t.prim() : 0;
-    if (k == StaticArray) return t.inner() && plain(t.inner());
-    if (k != Struct) return (k >= Bool && k <= Bitmask64) || k == ObjectReference || k == Guid;
+    if (!t || depth > 32 || budget == 0 || !t.size() || t.size() > (1u << 20)) return false;
+    --budget;
+    uint8_t k = t.prim();
+    if (k == StaticArray) return t.inner() && t.inner().size() && t.size() % t.inner().size() == 0 && plainDepth(t.inner(), depth + 1, budget);
+    if (k == Struct) {
+        Type bases[32]; size_t n = 0;
+        for (Type base = t; base && base.prim() == Struct; base = base.inner()) {
+            if (n == 32 || base.size() > t.size() || std::any_of(bases, bases + n, [&](Type x) { return x.p == base.p; })) return false;
+            bases[n++] = base;
+        }
+    }
+    if (k != Struct) return (k >= Bool && k <= Bitmask64) || ((k == ObjectReference || k == Guid) && t.size() == 16);
     bool ok = true;
-    forFields(t, [&](const Field& f) { ok = ok && plain(f.type); });
+    forFields(t, [&](const Field& f) { ok = ok && f.offset <= t.size() && f.type.size() <= t.size() - f.offset && plainDepth(f.type, depth + 1, budget); });
     return ok;
 }
+}
+bool refl::plain(Type t) { unsigned budget = 4096; return plainDepth(t, 0, budget); }
 bool refl::field(Type t, std::string_view name, Field& out) {
     for (int depth = 0; t && t.prim() == Struct && depth < 32; depth++, t = t.inner()) {
         for (uint32_t i = 0; i < t.fieldCount(); i++) {
             Field f = fieldOf(t, i);
-            if (f.type && f.name == name) {
+            if (f.type && f.name == name && f.offset <= t.size() && f.type.size() <= t.size() - f.offset) {
                 out = f;
                 return true;
             }
@@ -116,10 +145,20 @@ bool refl::field(Type t, std::string_view name, Field& out) {
     return false;
 }
 void refl::forFields(Type t, const std::function<void(const Field&)>& fn) {
-    if (!t || t.prim() != Struct) return;
-    forFields(t.inner(), fn);
-    for (uint32_t i = 0; i < t.fieldCount(); i++)
-        if (Field f = fieldOf(t, i); f.type) fn(f);
+    Type chain[32];
+    size_t n = 0;
+    for (Type base = t; base && base.prim() == Struct; base = base.inner()) {
+        if (n == 32 || std::any_of(chain, chain + n, [&](Type x) { return x.p == base.p; })) return;
+        chain[n++] = base;
+    }
+    while (n) {
+        Type base = chain[--n];
+        for (uint32_t i = 0; i < base.fieldCount(); i++) {
+            Field f = fieldOf(base, i);
+            if (f.type && f.offset <= base.size() && f.type.size() <= base.size() - f.offset &&
+                f.offset <= t.size() && f.type.size() <= t.size() - f.offset) fn(f);
+        }
+    }
 }
 void refl::forEnum(Type t, const std::function<void(std::string_view, int64_t)>& fn) {
     if (!t || !T) return;
@@ -147,7 +186,7 @@ uint32_t refl::fnv(std::string_view s) {
     return h;
 }
 bool refl::enumHas(Type t, int64_t v) {
-    bool found = t.fieldCount() == 0;
+    bool found = false;
     forEnum(t, [&](std::string_view, int64_t e) { found |= e == v; });
     return found;
 }
@@ -182,22 +221,51 @@ std::string refl::text(const uint8_t* p, Type u) {
     }
     return s;
 }
-refl::Field refl::badField(Type t, const uint8_t* p) {
-    Field bad{};
-    forFields(t, [&](const Field& f) {
-        Type u = unwrap(f.type.resolved());
-        if (!bad.name.empty()) return;
-        if (u.prim() == Struct) {
-            bad = badField(u, p + f.offset);
-            bad.offset += f.offset;
-            return;
+namespace {
+refl::Field badDepth(refl::Type t, const uint8_t* p, unsigned depth, unsigned& budget) {
+    using namespace refl;
+    t = unwrap(t.resolved());
+    const Field invalid{"<invalid value>", t, 0};
+    if (!t || depth > 32 || !budget || !t.size()) return invalid;
+    --budget;
+    if (t.prim() == Struct) {
+        Field bad{};
+        forFields(t, [&](const Field& f) {
+            if (!bad.name.empty()) return;
+            if (f.offset > t.size() || f.type.size() > t.size() - f.offset) { bad = f; return; }
+            Field nested = badDepth(f.type, p + f.offset, depth + 1, budget);
+            if (!nested.name.empty()) bad = {f.name, nested.type, f.offset + nested.offset};
+        });
+        return bad;
+    }
+    if (t.prim() == StaticArray) {
+        Type e = t.inner();
+        if (!e || !e.size() || t.size() % e.size()) return invalid;
+        for (uint32_t i = 0; i < t.size() / e.size(); ++i) {
+            Field bad = badDepth(e, p + i * e.size(), depth + 1, budget);
+            if (!bad.name.empty()) { bad.offset += i * e.size(); return bad; }
         }
-        uint64_t v = 0;
-        memcpy(&v, p + f.offset, std::min<uint32_t>(u.size(), 8));
-        if (u.prim() == Bool ? v > 1 : u.prim() == Enum && !enumHas(u, int64_t(v))) bad = f;
-    });
-    return bad;
+        return {};
+    }
+    if (t.prim() == Bool) return *p > 1 ? invalid : Field{};
+    if (t.prim() == Enum) {
+        if (t.size() > 8) return invalid;
+        uint64_t raw = 0; memcpy(&raw, p, t.size());
+        uint64_t mask = t.size() == 8 ? UINT64_MAX : (1ull << (t.size() * 8)) - 1;
+        for (uint32_t i = 0; i < t.fieldCount(); ++i) {
+            if (!budget) return invalid;
+            --budget; KilnStr name{}; int64_t value = 0;
+            if (!T || T->type_enum(reinterpret_cast<const KilnType*>(t.p), i, &name, &value) != KILN_OK) return invalid;
+            if ((uint64_t(value) & mask) == raw) return {};
+        }
+        return invalid;
+    }
+    if (t.prim() == F32) { float v; memcpy(&v, p, 4); return std::isfinite(v) ? Field{} : invalid; }
+    if (t.prim() == F64) { double v; memcpy(&v, p, 8); return std::isfinite(v) ? Field{} : invalid; }
+    return {};
 }
+}
+refl::Field refl::badField(Type t, const uint8_t* p) { unsigned budget = 4096; return badDepth(t, p, 0, budget); }
 
 // ---------------------------------------------------------------- sys (kiln.types)
 namespace {
@@ -224,8 +292,14 @@ bool sys::isOn(const System& s) {
     KilnSystemInfo i{sizeof i};
     return !T || T->system_info(s.index, &i) != KILN_OK || i.enabled;
 }
-void sys::setOn(const System& s, bool on) {
-    if (T) T->system_set_enabled(0, s.index, on);
+int sys::setOn(const System& s, bool on, uint64_t owner) {
+    return T ? T->system_set_enabled(owner, s.index, on) : KILN_ERR_UNAVAILABLE;
+}
+uint64_t sys::createOwner(std::string_view name) { return g_api ? g_api->owner_create(ks(name)) : 0; }
+void sys::releaseOwner(uint64_t owner) {
+    if (!owner) return;
+    if (T) T->system_release_owner(owner);
+    if (g_api) g_api->owner_revoke(owner);
 }
 size_t sys::offCount() {
     KilnTypesStatus st{sizeof st};
@@ -281,11 +355,14 @@ int ecs::compIndex(uintptr_t, uint32_t typeHash) {
     g_comp_idx.emplace(typeHash, idx);
     return idx;
 }
-uint8_t* ecs::component(uintptr_t, uint32_t entity, int idx) {
-    if (!W || idx < 0 || size_t(idx) >= g_comp_hashes.size()) return nullptr;
+uint8_t* ecs::component(uintptr_t, uint32_t entity, int idx, uint32_t* size_out) {
+    if (size_out) *size_out = 0;
+    if (!W || !g_api->on_tick_thread() || idx < 0 || size_t(idx) >= g_comp_hashes.size()) return nullptr;
     uint32_t size = 0;
     // kiln.world hands out game memory; writes on the tick thread are what SET does (they skip dirty-marking).
-    return const_cast<uint8_t*>(static_cast<const uint8_t*>(W->component(entity, g_comp_hashes[size_t(idx)], &size)));
+    auto* p = const_cast<uint8_t*>(static_cast<const uint8_t*>(W->component(entity, g_comp_hashes[size_t(idx)], &size)));
+    if (size_out) *size_out = size;
+    return p;
 }
 namespace {
 std::vector<uint32_t> findAll(int idx) {
@@ -332,24 +409,9 @@ void ecs::forEachEvent(uintptr_t world, int, uint32_t typeHash, const std::funct
 bool ecs::postEvent(uintptr_t world, uint32_t typeHash, const uint8_t* data, uint32_t size) {
     return T && T->event_post(world, typeHash, data, size) == KILN_OK;
 }
-namespace {
-int64_t simRaw(uintptr_t w) {
-    const auto len = *reinterpret_cast<const int64_t*>(w + 0x4c0);
-    const auto n = *reinterpret_cast<const uint32_t*>(w + 0x4dc);
-    if (!n) return 0;
-    return len == INT64_MAX || len == INT64_MIN ? len : len * n;
-}
-}  // namespace
 int64_t ecs::simTime(uintptr_t world) {
-    if (!world) return 0;
-    // kiln.time's ECS clock is the same quantity (clock period x clock) on every build it supports.
-    if (KilnTimeState ts{sizeof ts}; TM && world == g_api->server_world() && TM->get(&ts) == KILN_OK && ts.ecs_time_ns > 0)
-        return ts.ecs_time_ns;
-    __try {
-        return simRaw(world);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return 0;
-    }
+    KilnTimeState ts{sizeof ts};
+    return world && g_api && TM && world == g_api->server_world() && TM->get(&ts) == KILN_OK ? ts.ecs_time_ns : 0;
 }
 uint32_t ecs::player() {
     if (!P) return 0;
@@ -367,7 +429,6 @@ namespace {
 std::mutex g_res_mx;
 std::map<uint32_t, std::vector<const res::Entry*>> g_of_type;
 std::vector<std::unique_ptr<res::Entry>> g_entries;
-std::unordered_map<const res::Entry*, const uint8_t*> g_data;
 bool g_res_scanned = false;
 std::mutex g_write_mx;
 
@@ -396,14 +457,13 @@ const std::vector<const res::Entry*>& listType(uint32_t type) {
     for (size_t i = 0; i < std::min(n, keys.size()); ++i) {
         const void* p = nullptr;
         size_t len = 0;
-        if (A->resource_data(&keys[i], &p, &len) != KILN_OK || !p) continue;
+        if (A->resource_data(&keys[i], &p, &len) != KILN_OK || !p || len > UINT32_MAX) continue;
         auto e = std::make_unique<res::Entry>();
         std::memcpy(e->guid, keys[i].guid, 16);
         e->type = keys[i].type;
         e->part = keys[i].part;
         e->off = 0;
         e->size = static_cast<uint32_t>(len);
-        g_data[e.get()] = static_cast<const uint8_t*>(p);
         v.push_back(e.get());
         g_entries.push_back(std::move(e));
     }
@@ -432,24 +492,58 @@ bool res::ready() {
     scanAll();
     return !g_entries.empty();
 }
-bool res::write(void* dst, const void* src, size_t n, uint32_t& prot) {  // adapted from SET
+namespace {
+bool copyGuarded(void* dst, const void* src, size_t n) {
+    __try { std::memcpy(dst, src, n); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+}
+bool res::write(void* dst, const void* src, size_t n, uint32_t& prot) {
     std::lock_guard lock(g_write_mx);
-    DWORD old = 0, ours = 0;
-    if (!VirtualProtect(dst, n, PAGE_READWRITE, &old)) return false;
-    memcpy(dst, src, n);
-    VirtualProtect(dst, n, old, &ours);
-    prot = old;
-    return true;
+    uintptr_t at = reinterpret_cast<uintptr_t>(dst);
+    if (!dst || !src || !n || n > UINTPTR_MAX - at) return false;
+    const uintptr_t end = at + n;
+    struct Changed { void* at; size_t size; DWORD old; };
+    std::vector<Changed> changed;
+    auto restore = [&] {
+        bool ok = true;
+        for (auto it = changed.rbegin(); it != changed.rend(); ++it) {
+            DWORD ignored;
+            if (!VirtualProtect(it->at, it->size, it->old, &ignored)) ok = false;
+        }
+        changed.clear();
+        return ok;
+    };
+    struct RestoreOnExit { decltype(restore)& fn; ~RestoreOnExit() { fn(); } } cleanup{restore};
+    while (at < end) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (!VirtualQuery(reinterpret_cast<void*>(at), &region, sizeof region) || region.State != MEM_COMMIT ||
+            (region.Protect & (PAGE_GUARD | PAGE_NOACCESS))) { restore(); return false; }
+        uintptr_t base = reinterpret_cast<uintptr_t>(region.BaseAddress);
+        if (base > at || region.RegionSize > UINTPTR_MAX - base || base + region.RegionSize <= at) { restore(); return false; }
+        const size_t take = std::min<size_t>(end - at, base + region.RegionSize - at);
+        changed.push_back({reinterpret_cast<void*>(at), take, 0});
+        if (!VirtualProtect(reinterpret_cast<void*>(at), take, PAGE_READWRITE, &changed.back().old)) { changed.pop_back(); restore(); return false; }
+        at += take;
+    }
+    prot = changed.front().old;
+    const bool copied = copyGuarded(dst, src, n);
+    return restore() && copied;
 }
 size_t res::count() {
     std::lock_guard lock(g_res_mx);
     scanAll();
     return g_entries.size();
 }
-uint8_t* res::data(const Entry& e) {
-    std::lock_guard lock(g_res_mx);
-    auto it = g_data.find(&e);
-    return it == g_data.end() ? nullptr : const_cast<uint8_t*>(it->second);
+uint8_t* res::data(const Entry& e, uint32_t* size) {
+    if (size) *size = 0;
+    if (!A || !kset::tickThread()) return nullptr;
+    KilnAssetKey key{};
+    std::memcpy(key.guid, e.guid, sizeof key.guid); key.type = e.type; key.part = e.part;
+    const void* p = nullptr; size_t n = 0;
+    if (A->resource_data(&key, &p, &n) != KILN_OK || !p || n > UINT32_MAX) return nullptr;
+    if (size) *size = static_cast<uint32_t>(n);
+    return const_cast<uint8_t*>(static_cast<const uint8_t*>(p));
 }
 const res::Entry* res::find(const uint8_t guid[16], uint32_t type, uint32_t part) {
     std::lock_guard lock(g_res_mx);
@@ -505,8 +599,9 @@ std::string_view res::label(const Entry& e) {  // adapted from SET
     return {};
 }
 bool res::inside(const Entry& e, const uint8_t* p, uint64_t n) {
-    auto lo = reinterpret_cast<uintptr_t>(data(e)), at = reinterpret_cast<uintptr_t>(p);
-    return lo && at >= lo && at - lo <= e.size && n <= e.size - (at - lo);
+    uint32_t size = 0;
+    auto lo = reinterpret_cast<uintptr_t>(data(e, &size)), at = reinterpret_cast<uintptr_t>(p);
+    return lo && at >= lo && at - lo <= size && n <= size - (at - lo);
 }
 bool res::parseGuid(std::string_view s, uint8_t out[16]) {  // adapted from SET
     uint8_t g[16] = {};

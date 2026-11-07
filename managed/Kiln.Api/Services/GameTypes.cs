@@ -2,6 +2,10 @@
 // The game's own type registry, ECS systems, ECS events, and components by name, over kiln.types and kiln.world
 // (native/core/abi/services/kiln_types.h, kiln_world.h). Guide: docs/kiln/services/types.md.
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("Kiln.DevTools")]
+[assembly: InternalsVisibleTo("Kiln.DevTools.Tests")]
 
 namespace Kiln;
 
@@ -28,10 +32,11 @@ public sealed unsafe class GameType
         Hash = info.Hash;
         FieldCount = (int)info.FieldCount;
         _inner = info.Inner;
-        _defaults = info.Defaults;
+        _defaults = info.Defaults == null ? null : new ReadOnlySpan<byte>(info.Defaults, Size).ToArray();
     }
 
-    private readonly void* _inner, _defaults;
+    private readonly void* _inner;
+    private readonly byte[]? _defaults;
 
     public int Index { get; }
     /// <summary>"Health".</summary>
@@ -56,18 +61,39 @@ public sealed unsafe class GameType
         get
         {
             var t = this;
-            for (var i = 0; i < 16 && t.Kind == GameTypeKind.Typedef && t.Inner is { } n; i++) t = n;
+            var seen = new HashSet<GameType>();
+            while (t.Kind == GameTypeKind.Typedef)
+            {
+                if (!seen.Add(t) || seen.Count > 64 || t.Inner is not { } n || n.Size != t.Size)
+                    throw new NotSupportedException($"invalid typedef chain in {QualifiedName}");
+                t = n;
+            }
             return t;
         }
     }
     /// <summary>The game's default value (<see cref="Size"/> bytes), or null when the type has none.</summary>
-    public byte[]? Defaults => _defaults == null ? null : new ReadOnlySpan<byte>(_defaults, Size).ToArray();
+    public byte[]? Defaults => _defaults == null ? null : (byte[])_defaults.Clone();
 
     /// <summary>Own fields, in the game's order.</summary>
     public IReadOnlyList<GameField> Fields => _fields ??= LoadFields();
 
     /// <summary>Every field, base classes first.</summary>
-    public IEnumerable<GameField> AllFields => (Base?.AllFields ?? []).Concat(Fields);
+    public IEnumerable<GameField> AllFields
+    {
+        get
+        {
+            var chain = new List<GameType>();
+            var seen = new HashSet<GameType>();
+            for (GameType? t = this; t is { Kind: GameTypeKind.Struct }; t = t.Base)
+            {
+                if (!seen.Add(t) || chain.Count == 64 || t.Size > Size)
+                    throw new NotSupportedException($"invalid base class chain in {QualifiedName}");
+                chain.Add(t);
+            }
+            return chain.AsEnumerable().Reverse().SelectMany(t => t.Fields)
+                .Where(f => f.Offset >= 0 && f.Offset <= Size && f.Type.Size <= Size - f.Offset).ToArray();
+        }
+    }
 
     /// <summary>An enum's or bitmask's values (name, value).</summary>
     public IReadOnlyList<(string Name, long Value)> EnumValues => _enum ??= LoadEnum();
@@ -78,10 +104,7 @@ public sealed unsafe class GameType
     /// <summary>A field by name, base classes included.</summary>
     public GameField? Field(string name)
     {
-        for (var t = this; t is { Kind: GameTypeKind.Struct }; t = t.Base)
-            foreach (var f in t.Fields)
-                if (f.Name == name) return f;
-        return null;
+        return AllFields.Reverse().Cast<GameField?>().FirstOrDefault(f => f!.Value.Name == name);
     }
 
     public override string ToString() => QualifiedName;
@@ -95,7 +118,8 @@ public sealed unsafe class GameType
         {
             TypesNative.TypeField f;
             if (t->TypeField(Handle, i, &f) != 0 || f.Type == null) continue;
-            if (GameTypes.Of(f.Type) is { } ft) list.Add(new GameField(f.Name.ToString(), ft, checked((int)f.Offset)));
+            if (GameTypes.Of(f.Type) is { } ft && f.Offset <= (ulong)Size && (ulong)ft.Size <= (ulong)Size - f.Offset)
+                list.Add(new GameField(f.Name.ToString(), ft, (int)f.Offset));
         }
         return list.ToArray();
     }
@@ -125,18 +149,20 @@ public static unsafe class GameTypes
     internal static TypesNative.Table* Table => Services.Get<TypesNative.Table>(TypesNative.Name, TypesNative.Version);
 
     /// <summary>Whether the type table was found on this build.</summary>
-    public static bool Available => Table != null && Table->TypeCount() > 0;
+    public static bool Available { get { var table = Table; return table != null && table->TypeCount() > 0; } }
 
-    public static int Count => Table == null ? 0 : (int)Table->TypeCount();
+    public static int Count { get { var table = Table; return table == null ? 0 : (int)table->TypeCount(); } }
 
     internal static GameType? Of(void* handle)
     {
-        if (handle == null || Table == null) return null;
+        var table = Table;
+        if (handle == null || table == null) return null;
         lock (Cache)
         {
             if (Cache.TryGetValue((nint)handle, out var t)) return t;
             var info = new TypesNative.TypeInfo { Size = (uint)sizeof(TypesNative.TypeInfo) };
-            if (Table->TypeInfo(handle, &info) != 0) return null;
+            if (table->TypeInfo(handle, &info) != 0 || info.TypeSize > int.MaxValue || info.FieldCount > 65536 ||
+                info.Kind is < (byte)GameTypeKind.Bool or > (byte)GameTypeKind.Guid) return null;
             return Cache[(nint)handle] = new GameType(handle, info);
         }
     }
@@ -150,7 +176,11 @@ public static unsafe class GameTypes
         fixed (byte* p = bytes) return Of(t->TypeByName(new NativeStr { Ptr = p, Len = (nuint)bytes.Length }));
     }
 
-    public static GameType? ByHash(uint hash) => Table == null ? null : Of(Table->TypeByHash(hash));
+    public static GameType? ByHash(uint hash)
+    {
+        var table = Table;
+        return table == null ? null : Of(table->TypeByHash(hash));
+    }
 
     /// <summary>Every type, in the game's order.</summary>
     public static IEnumerable<GameType> All
@@ -169,7 +199,7 @@ public static unsafe class GameTypes
     /// <summary>Types whose qualified name holds every word (any order, any case): <c>Search("player input")</c>.</summary>
     public static IEnumerable<GameType> Search(string words)
     {
-        var w = words.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var w = (words ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return All.Where(t => w.All(x => t.QualifiedName.Contains(x, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -218,11 +248,31 @@ public static unsafe class GameTypes
 public sealed record GameSystem(int Index, string Name, ulong Rva, bool Enabled, ulong Calls, double Milliseconds, string World);
 
 /// <summary>The game's ECS systems (the code it runs every step: stamina drain, durability loss, fall damage,
-/// spawners...), switched off and on and profiled (kiln.types). Off means skipped entirely, in every world, until
-/// switched on again or the process ends. Some systems are needed (network, colliders, *_init). Any thread.</summary>
+/// spawners...) and their profiling data (kiln.types). Only explicitly allowed systems can be disabled; switches
+/// belong to the calling mod and end when it unloads. Reads work on any thread; mutations require the tick thread.</summary>
 public static unsafe class GameSystems
 {
     private static TypesNative.Table* Table => GameTypes.Table;
+    private static readonly ConditionalWeakTable<ModContext, object> Owners = new();
+    private sealed record NativeOwner(ulong Value);
+    private static readonly ConditionalWeakTable<IKilnBackend, NativeOwner> ToolOwners = new();
+    private static ulong CallerOwner => Services.CallerOwner is var owner && owner != 0 ? owner
+        : ToolOwners.GetValue(Backend.Current, b => new NativeOwner(b.OwnerCreate("kiln.systems"))).Value;
+
+    private static void TrackOwner()
+    {
+        if (ModContext.CurrentMod is not { } mod) return;
+        Owners.GetValue(mod, m =>
+        {
+            var owner = m.Owner;
+            m.Retiring += () =>
+            {
+                var table = Table;
+                if (table != null && table->SystemReleaseOwner != null) table->SystemReleaseOwner(owner);
+            };
+            return new object();
+        });
+    }
 
     /// <summary>Whether switching and profiling work on this build.</summary>
     public static bool Available
@@ -253,39 +303,54 @@ public static unsafe class GameSystems
     /// <summary>Systems whose name holds every word: <c>Search("fall damage")</c> finds fall_damage_infliction.</summary>
     public static IEnumerable<GameSystem> Search(string words)
     {
-        var w = words.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var w = (words ?? "").Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return All.Where(s => w.All(x => s.Name.Contains(x, StringComparison.OrdinalIgnoreCase)));
     }
 
     public static GameSystem? Find(string name)
     {
         var t = Table;
-        if (t == null) return null;
+        if (t == null || string.IsNullOrEmpty(name)) return null;
         var bytes = System.Text.Encoding.UTF8.GetBytes(name);
         int i;
         fixed (byte* p = bytes) i = t->SystemFind(new NativeStr { Ptr = p, Len = (nuint)bytes.Length });
         return i < 0 ? null : Get((uint)i);
     }
 
-    /// <summary>Switches a system off or on. Throws when the name is unknown or switching is unavailable.</summary>
+    /// <summary>Claims or releases this caller's disabling switch. Other owners may still hold it off. Throws when
+    /// the name is unknown, the system is protected, or switching is unavailable.</summary>
+    [TickThreadOnly]
     public static void SetEnabled(string name, bool enabled)
     {
+        Services.RequireTickThread("GameSystems.SetEnabled");
         var s = Find(name) ?? throw new ArgumentException($"no system named '{name}'");
-        var r = Table->SystemSetEnabled(Services.CallerOwner, (uint)s.Index, enabled);
+        var table = Table;
+        if (table == null) throw new NotSupportedException("kiln.types is not running");
+        TrackOwner();
+        var r = table->SystemSetEnabled(CallerOwner, (uint)s.Index, enabled);
         if (r != 0) throw new NotSupportedException($"systems cannot be switched on this build ({r})");
     }
 
-    /// <summary>Switches every system back on.</summary>
+    /// <summary>Releases this caller's switches. Returns the number of systems that actually turned on; another
+    /// owner can still keep a system off.</summary>
+    [TickThreadOnly]
     public static int TurnAllOn()
     {
+        Services.RequireTickThread("GameSystems.TurnAllOn");
         var n = 0;
-        foreach (var s in All.Where(s => !s.Enabled)) { SetEnabled(s.Name, true); n++; }
+        foreach (var s in All.Where(s => !s.Enabled))
+        {
+            SetEnabled(s.Name, true);
+            if (Find(s.Name)?.Enabled == true) n++;
+        }
         return n;
     }
 
     /// <summary>On: starts the profiler from zero. Off: stops it, keeping the numbers.</summary>
+    [TickThreadOnly]
     public static void Profile(bool on)
     {
+        Services.RequireTickThread("GameSystems.Profile");
         var t = Table;
         if (t == null || t->Profile(on) != 0) throw new NotSupportedException("the system profiler is unavailable on this build");
     }
@@ -301,20 +366,23 @@ public static unsafe class GameSystems
     private static TypesNative.Status StatusOf()
     {
         var s = new TypesNative.Status { Size = (uint)sizeof(TypesNative.Status) };
-        if (Table != null) Table->GetStatus(&s);
+        var table = Table;
+        if (table != null) table->GetStatus(&s);
         return s;
     }
 
     private static GameSystem? Get(uint i)
     {
         var s = new TypesNative.SystemInfo { Size = (uint)sizeof(TypesNative.SystemInfo) };
-        if (Table->SystemInfo(i, &s) != 0) return null;
+        var table = Table;
+        if (table == null || table->SystemInfo(i, &s) != 0) return null;
         var world = (s.WorldKinds & 4) == 0 ? "server" : (s.WorldKinds & 3) != 0 ? "both" : "client";
         return new GameSystem((int)s.Index, s.Name.ToString(), s.Rva, s.Enabled != 0, s.Calls, s.Ms, s.Calls == 0 ? "" : world);
     }
 }
 
 /// <summary>The game's ECS events of one step, and posting events into its queue (kiln.types). Tick thread.</summary>
+[TickThreadOnly]
 public static unsafe class GameEvents
 {
     /// <summary>Every event of <paramref name="type"/> the server world produced in the step that just ended (call it
@@ -323,12 +391,14 @@ public static unsafe class GameEvents
     public static int Each(string type, Action<ReflectedValue> handler)
     {
         Services.RequireTickThread("GameEvents.Each");
-        var t = EventType(type);
+        ArgumentNullException.ThrowIfNull(handler);
         var tbl = GameTypes.Table;
+        if (tbl == null) return -1;
+        var t = EventType(type);
         var world = ReflectedValue.World is var w && w != null ? w->ServerWorld() : 0;
         if (tbl == null || world == 0) return -1;
-        var copies = new List<byte[]>();
-        var h = GCHandle.Alloc(copies);
+        var capture = new EventCopies(t.Size);
+        var h = GCHandle.Alloc(capture);
         try
         {
             if (tbl->EventEach((nuint)world, t.Hash, &Collect, (void*)GCHandle.ToIntPtr(h)) != 0) return -1;
@@ -337,26 +407,45 @@ public static unsafe class GameEvents
         {
             h.Free();
         }
-        foreach (var c in copies) handler(ReflectedValue.Owned(t, c));
-        return copies.Count;
+        if (capture.Error is { } error) throw new InvalidOperationException("invalid event data", error);
+        foreach (var c in capture.Copies) handler(ReflectedValue.Owned(t, c));
+        return capture.Copies.Count;
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
-    private static void Collect(void* data, uint size, void* user) =>
-        ((List<byte[]>)GCHandle.FromIntPtr((nint)user).Target!).Add(new ReadOnlySpan<byte>(data, (int)size).ToArray());
+    private sealed class EventCopies(int size)
+    {
+        public readonly int Size = size;
+        public readonly List<byte[]> Copies = [];
+        public Exception? Error;
+    }
 
-    /// <summary>Posts an event with the named fields set (checked; unnamed fields are 0; timeStamp is now). The game
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void Collect(void* data, uint size, void* user)
+    {
+        var capture = (EventCopies)GCHandle.FromIntPtr((nint)user).Target!;
+        if (capture.Error != null) return;
+        try
+        {
+            if (data == null || size < capture.Size || size > 0x10000 || capture.Copies.Count >= 1000000)
+                throw new InvalidOperationException("invalid event size or count");
+            capture.Copies.Add(new ReadOnlySpan<byte>(data, capture.Size).ToArray());
+        }
+        catch (Exception e) { capture.Error = e; } // Never propagate managed exceptions across the native callback.
+    }
+
+    /// <summary>Posts an event with the named fields set (checked; unnamed fields, including timeStamp, are 0). The game
     /// handles it at the start of the next step. False when its queue is full this step. Throws for an unknown type,
     /// a type the world has no stream for, or a value that does not fit.</summary>
     public static bool Post(string type, IReadOnlyDictionary<string, object?> fields)
     {
         Services.RequireTickThread("GameEvents.Post");
-        var t = EventType(type);
-        if (t.Size >= 0x100) throw new ArgumentException($"{t} is too big to post");
-        var v = ReflectedValue.Owned(t, new byte[t.Size]);
-        foreach (var (k, val) in fields) v[k] = val;
+        ArgumentNullException.ThrowIfNull(fields);
         var tbl = GameTypes.Table;
         if (tbl == null) throw new NotSupportedException("kiln.types is not running");
+        var t = EventType(type);
+        if (t.Size <= 0 || t.Size >= 0x100) throw new ArgumentException($"{t} is too big to post");
+        var v = ReflectedValue.Owned(t, new byte[t.Size]);
+        foreach (var (k, val) in fields) v[k] = val;
         var world = ReflectedValue.World is var w && w != null ? w->ServerWorld() : 0;
         if (world == 0) throw new InvalidOperationException("no server world");
         var bytes = v.Bytes;
@@ -374,13 +463,13 @@ public static unsafe class GameEvents
     private static GameType EventType(string name)
     {
         var t = GameTypes.Find(name) ?? throw new ArgumentException($"unknown type '{name}'");
-        for (var b = t; b != null; b = b.Base)
-            if (b.QualifiedName == "keen::ecs::Event") return t;
+        if (GameTypes.Events.Any(e => e.Handle == t.Handle)) return t;
         throw new ArgumentException($"'{name}' is not an event type");
     }
 }
 
 /// <summary>Components by name with the game's own field layout, and checked writes (kiln.world + kiln.types).</summary>
+[TickThreadOnly]
 public static unsafe class Reflected
 {
     /// <summary>The entity's component, or null when it has none. The view holds no pointer: every access looks the
@@ -388,28 +477,30 @@ public static unsafe class Reflected
     public static ReflectedValue? Component(EntityId entity, string component)
     {
         Services.RequireTickThread("Reflected.Component");
+        if (GameTypes.Table == null || ReflectedValue.World == null) return null;
         var t = GameTypes.Find(component);
         if (t is not { Kind: GameTypeKind.Struct }) throw new ArgumentException($"unknown component type '{component}'");
-        return ReflectedValue.ComponentPtr(entity.Value, t.Hash) == null ? null : ReflectedValue.OfComponent(entity.Value, t);
+        return ReflectedValue.ComponentPtr(entity.Value, t.Hash, t.Size) == null ? null : ReflectedValue.OfComponent(entity.Value, t);
     }
 
     /// <summary>Every entity that has the component (loaded entities only). Tick thread.</summary>
     public static IReadOnlyList<EntityId> All(string component)
     {
         Services.RequireTickThread("Reflected.All");
-        var t = GameTypes.Find(component) ?? throw new ArgumentException($"unknown component type '{component}'");
         var w = ReflectedValue.World;
-        if (w == null) return [];
+        if (GameTypes.Table == null || w == null) return [];
+        var t = GameTypes.Find(component) ?? throw new ArgumentException($"unknown component type '{component}'");
         var buf = new uint[4096];
         uint n;
         int r;
         fixed (uint* p = buf) r = w->Find(t.Hash, p, (uint)buf.Length, &n);
         if (r == 5)
         {
-            buf = new uint[n + 256];
+            if (n > 16777216) throw new InvalidOperationException("invalid entity count");
+            buf = new uint[checked(n + 256)];
             fixed (uint* p = buf) r = w->Find(t.Hash, p, (uint)buf.Length, &n);
         }
-        return r != 0 ? [] : buf.Take((int)n).Select(e => new EntityId(e)).ToList();
+        return r != 0 || n > buf.Length ? [] : buf.Take((int)n).Select(e => new EntityId(e)).ToList();
     }
 }
 
@@ -437,36 +528,42 @@ public sealed unsafe class ReflectedValue
     public EntityId Entity => new(_entity);
 
     /// <summary>A copy of the current bytes.</summary>
+    [TickThreadOnly]
     public byte[] Bytes => _owned is { } o ? (byte[])o.Clone() : Span().ToArray();
 
     internal static WorldPrefix* World => Services.Get<WorldPrefix>("kiln.world", 1);
 
-    internal static byte* ComponentPtr(uint entity, uint hash)
+    internal static byte* ComponentPtr(uint entity, uint hash, int minimumSize)
     {
+        Services.RequireTickThread("ReflectedValue");
         var w = World;
         if (w == null) return null;
         uint size;
-        return (byte*)w->Component(entity, hash, &size);
+        var result = (byte*)w->Component(entity, hash, &size);
+        if (result != null && (minimumSize < 0 || size < minimumSize))
+            throw new InvalidOperationException("the live component is smaller than its reflected type");
+        return result;
     }
 
     private Span<byte> Span()
     {
         if (_owned != null) return _owned;
         Services.RequireTickThread("ReflectedValue");
-        var p = ComponentPtr(_entity, _hash);
+        var p = ComponentPtr(_entity, _hash, Type.Size);
         if (p == null) throw new InvalidOperationException($"entity {_entity} no longer has {Type.Name}");
         return new Span<byte>(p, Type.Size);
     }
 
     /// <summary>A scalar field by path: bool, long, ulong or double; a nested struct as a <see cref="ReflectedValue"/>
     /// copy. Set: checked (range, enum by name or number); throws and writes nothing when the value does not fit.</summary>
+    [TickThreadOnly]
     public object? this[string path]
     {
         get
         {
             var (t, off) = Resolve(path);
             var data = Span().Slice(off, t.Size);
-            if (GameValueCodec.IsScalar(t.Kind)) return GameValueCodec.Read(data, t.Kind, t.Size);
+            if (GameValueCodec.IsScalar(t.Kind)) return GameValueCodec.Read(data, t.Kind, t.Size, t.EnumValues);
             return Owned(t, data.ToArray());
         }
         set
@@ -479,9 +576,11 @@ public sealed unsafe class ReflectedValue
         }
     }
 
+    [TickThreadOnly]
     public T Get<T>(string path) => (T)Convert.ChangeType(this[path]!, typeof(T), System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Every scalar field with its value, one per line (<c>dataStorage[0] = 20</c>).</summary>
+    [TickThreadOnly]
     public string Describe(int maxArray = 16)
     {
         var sb = new System.Text.StringBuilder();
@@ -489,10 +588,10 @@ public sealed unsafe class ReflectedValue
         void Walk(GameType t, int off, string prefix, int depth)
         {
             t = t.Resolved;
-            if (depth > 8) return;
+            if (depth > 8 || off < 0 || off > data.Length || t.Size > data.Length - off) return;
             if (GameValueCodec.IsScalar(t.Kind))
             {
-                sb.Append(prefix).Append(" = ").AppendLine(GameValueCodec.Format(GameValueCodec.Read(data.AsSpan(off, t.Size), t.Kind, t.Size), t.Kind, t.EnumValues));
+                sb.Append(prefix).Append(" = ").AppendLine(GameValueCodec.Format(GameValueCodec.Read(data.AsSpan(off, t.Size), t.Kind, t.Size, t.EnumValues), t.Kind, t.EnumValues));
             }
             else if (t.Kind == GameTypeKind.Struct)
             {
@@ -513,6 +612,7 @@ public sealed unsafe class ReflectedValue
 
     private (GameType Type, int Offset) Resolve(string path)
     {
+        if (string.IsNullOrEmpty(path) || path.Length > 4096) throw new ArgumentException("a field path is required", nameof(path));
         var t = Type.Resolved;
         var off = 0;
         foreach (var part in path.Split('.'))
@@ -521,21 +621,26 @@ public sealed unsafe class ReflectedValue
             var idx = new List<int>();
             while (name.EndsWith(']') && name.LastIndexOf('[') is var b and > 0)
             {
-                idx.Insert(0, int.Parse(name[(b + 1)..^1], System.Globalization.CultureInfo.InvariantCulture));
+                if (!int.TryParse(name[(b + 1)..^1], System.Globalization.NumberStyles.None,
+                                  System.Globalization.CultureInfo.InvariantCulture, out var index))
+                    throw new ArgumentException($"invalid array index in {path}");
+                idx.Insert(0, index);
                 name = name[..b];
             }
             var f = t.Field(name) ?? throw new ArgumentException($"{t.Name} has no field '{name}'");
+            if (f.Offset < 0 || f.Offset > t.Size || f.Type.Size > t.Size - f.Offset)
+                throw new ArgumentException($"{path} lies outside {t.Name}");
             t = f.Type.Resolved;
-            off += f.Offset;
+            off = checked(off + f.Offset);
             foreach (var i in idx)
             {
                 if (t.Kind != GameTypeKind.StaticArray || t.Inner is not { } e) throw new ArgumentException($"{name} is not an array");
                 if (i < 0 || i >= t.ArrayLength) throw new ArgumentOutOfRangeException(path, $"{name} has {t.ArrayLength} elements");
-                off += i * e.Size;
+                off = checked(off + checked(i * e.Size));
                 t = e.Resolved;
             }
         }
-        if (off + t.Size > Type.Size) throw new ArgumentException($"{path} lies outside {Type.Name}");
+        if (off < 0 || off > Type.Size || t.Size < 0 || t.Size > Type.Size - off) throw new ArgumentException($"{path} lies outside {Type.Name}");
         return (t, off);
     }
 }
@@ -610,6 +715,7 @@ internal static unsafe class TypesNative
         public delegate* unmanaged[Cdecl]<bool, int> Profile;
         public delegate* unmanaged[Cdecl]<nuint, uint, delegate* unmanaged[Cdecl]<void*, uint, void*, void>, void*, int> EventEach;
         public delegate* unmanaged[Cdecl]<nuint, uint, void*, uint, int> EventPost;
+        public delegate* unmanaged[Cdecl]<ulong, int> SystemReleaseOwner;
     }
 }
 

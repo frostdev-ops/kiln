@@ -25,16 +25,16 @@ struct Type {
     explicit operator bool() const { return p != nullptr; }
     std::string_view name() const { return str(0x00); }
     std::string_view qname() const { return str(0x20); }
-    Type inner() const { return {*reinterpret_cast<const uint8_t* const*>(p + 0x38)}; }
+    Type inner() const;
     uint32_t size() const { return u32(0x40); }
     uint32_t fieldCount() const { return u32(0x48); }
-    uint8_t prim() const { return p[0x4c]; }
+    uint8_t prim() const;
     uint32_t hash() const { return u32(0x50); }
     Type resolved() const;
     const uint8_t* defaults() const;
 private:
     std::string_view str(size_t off) const;
-    uint32_t u32(size_t off) const { return *reinterpret_cast<const uint32_t*>(p + off); }
+    uint32_t u32(size_t off) const;
 };
 struct Field {
     std::string_view name;
@@ -66,7 +66,9 @@ struct System {
 const std::vector<System>& all();
 const System* find(std::string_view name);
 bool isOn(const System& s);
-void setOn(const System& s, bool on);
+int setOn(const System& s, bool on, uint64_t owner);
+uint64_t createOwner(std::string_view name);
+void releaseOwner(uint64_t owner);
 size_t offCount();
 void setProfiling(bool on);
 bool profiling();
@@ -93,7 +95,7 @@ size_t dump(std::string_view prefix, const std::function<void(const std::string&
 
 namespace ecs {
 int compIndex(uintptr_t world, uint32_t typeHash);
-uint8_t* component(uintptr_t world, uint32_t entity, int idx);
+uint8_t* component(uintptr_t world, uint32_t entity, int idx, uint32_t* size = nullptr);
 uint32_t firstWith(uintptr_t world, int idx);
 std::vector<uint32_t> allWith(uintptr_t world, const int* idx, size_t n);
 uint32_t entityCount(uintptr_t world);
@@ -118,7 +120,7 @@ struct Blob {
 bool ready();
 bool write(void* dst, const void* src, size_t n, uint32_t& prot);
 size_t count();
-uint8_t* data(const Entry& e);
+uint8_t* data(const Entry& e, uint32_t* size = nullptr);
 const Entry* find(const uint8_t guid[16], uint32_t type, uint32_t part = 0);
 const std::vector<const Entry*>& ofType(uint32_t type);
 std::vector<std::pair<refl::Type, size_t>> types();
@@ -136,5 +138,6 @@ std::string_view nameText(const Entry& e);
 namespace kset {
 // Binds the services (on_ready). Returns what is missing, in words ("" when all is there).
 std::string bind(const KilnApi* api);
+bool tickThread();
 bool systemsReady();  // kiln.types switches and profiles systems on this build
 }  // namespace kset

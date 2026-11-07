@@ -4,6 +4,7 @@
 // Only inside Draw (the overlay frame); elsewhere every function raises an error, as in SET.
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "kiln_api.h"
 #include "lauxlib.h"
@@ -17,7 +18,8 @@ void bindUi(const KilnUiApi* ui);
 
 namespace {
 const KilnUiApi* U = nullptr;
-int g_windows = 0, g_children = 0;  // open Begin / BeginChild, closed for a callback that errored
+enum class Scope { Window, Child };
+std::vector<Scope> g_scopes;  // preserve nesting when recovering a callback that errored
 
 KilnStr arg(lua_State* L, int i) {
     size_t n = 0;
@@ -36,38 +38,45 @@ uint32_t rgba(lua_State* L, int i) {
 int Begin(lua_State* L) {
     need(L);
     KilnStr name = arg(L, 1);
+    if (!name.len || !name.ptr[0]) return luaL_error(L, "ImGui.Begin needs a nonempty name");
+    if (g_scopes.size() >= 32) return luaL_error(L, "too many nested ImGui windows");
     if (lua_isboolean(L, 2)) {  // Begin(name, open [, flags]) -> open, draw
         bool open = lua_toboolean(L, 2);
         bool draw = U->begin(name, &open, uint32_t(luaL_optinteger(L, 3, 0)));
-        ++g_windows;
+        g_scopes.push_back(Scope::Window);
         lua_pushboolean(L, open);
         lua_pushboolean(L, draw);
         return 2;
     }
     bool draw = U->begin(name, nullptr, uint32_t(luaL_optinteger(L, 2, 0)));
-    ++g_windows;
+    g_scopes.push_back(Scope::Window);
     lua_pushboolean(L, draw);
     return 1;
 }
 int End(lua_State* L) {
     need(L);
-    if (g_windows <= 0) return luaL_error(L, "ImGui.End without Begin");
-    --g_windows;
+    if (g_scopes.empty() || g_scopes.back() != Scope::Window) return luaL_error(L, "ImGui.End without a matching Begin (close children first)");
+    g_scopes.pop_back();
     U->end();
     return 0;
 }
 int BeginChild(lua_State* L) {
     need(L);
-    uint32_t flags = uint32_t(luaL_optinteger(L, 6, 0)) | (lua_toboolean(L, 5) ? 1u : 0u);  // ImGuiChildFlags_Borders
-    bool r = U->begin_child(arg(L, 1), float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)), flags);
-    ++g_children;
+    if (g_scopes.empty()) return luaL_error(L, "ImGui.BeginChild needs a parent window");
+    if (g_scopes.size() >= 32) return luaL_error(L, "too many nested ImGui windows");
+    const KilnStr name = arg(L, 1);
+    if (!name.len || !name.ptr[0]) return luaL_error(L, "ImGui.BeginChild needs a nonempty id");
+    // SET: (id, w, h, border, windowFlags). kiln.ui always draws a child border.
+    const uint32_t flags = uint32_t(luaL_optinteger(L, 5, 0));
+    bool r = U->begin_child(name, float(luaL_optnumber(L, 2, 0)), float(luaL_optnumber(L, 3, 0)), flags);
+    g_scopes.push_back(Scope::Child);
     lua_pushboolean(L, r);
     return 1;
 }
 int EndChild(lua_State* L) {
     need(L);
-    if (g_children <= 0) return luaL_error(L, "ImGui.EndChild without BeginChild");
-    --g_children;
+    if (g_scopes.empty() || g_scopes.back() != Scope::Child) return luaL_error(L, "ImGui.EndChild without a matching BeginChild");
+    g_scopes.pop_back();
     U->end_child();
     return 0;
 }
@@ -199,9 +208,12 @@ void rt::openImGui(lua_State* L) {
                                       {"NoCollapse", 32}, {"AlwaysAutoResize", 64}, {"NoBackground", 128},
                                       {"NoSavedSettings", 256}, {"NoInputs", 512 | (1 << 16) | (1 << 17)}});
 }
-void rt::imguiMark() { g_windows = g_children = 0; }
+void rt::imguiMark() { g_scopes.clear(); }
 void rt::imguiRecover() {
     if (!U) return;
-    while (g_children > 0) --g_children, U->end_child();
-    while (g_windows > 0) --g_windows, U->end();
+    while (!g_scopes.empty()) {
+        const Scope s = g_scopes.back();
+        g_scopes.pop_back();
+        if (s == Scope::Child) U->end_child(); else U->end();
+    }
 }

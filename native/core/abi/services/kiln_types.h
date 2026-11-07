@@ -4,16 +4,16 @@
  *      sizes, fields with offsets, base classes, enum values and the game's default values. Read from the static type
  *      table the exe carries in .rdata, located by data alone (no code pattern), so it survives code moves.
  *   2. Systems: every ECS system by name (the .rdata system descriptors), switched off and on, and profiled. One
- *      detour on the game's program runner does both; while nothing is off and the profiler is idle it costs one
- *      atomic load per program slice.
+ *      detour on the game's program runner does both; while nothing is off and the profiler is idle it costs two
+ *      atomic loads per program slice.
  *   3. Events: read a world's ECS events of one type after its step, and post events into its queue (checked).
  * Fail soft: each part reports itself in status(); a part that is not found returns KILN_ERR_UNAVAILABLE.
  * Technique credit: Shrouded Engine Tweaks (MIT, Cacaida) documents the type table, the system descriptors, the
  * program runner and the event streams; Kiln's implementation is its own. Evidence: docs/re/shrouded-engine-tweaks.md.
  * Usage: docs/kiln/services/types.md.
  *
- * Threads: type queries are any thread (static memory). Systems switches and the profiler: any thread. Events: the
- * tick thread of that world, in Post (event_each) or Pre/Post (event_post). */
+ * Threads: type queries are any thread (immutable snapshot). System switches/releases: server tick thread.
+ * Profiler: any thread. Events: that world's tick thread, Post (event_each) or Pre/Post (event_post). */
 #ifndef KILN_TYPES_H
 #define KILN_TYPES_H
 #include "../kiln_api.h"
@@ -107,8 +107,10 @@ typedef struct KilnTypesApi {
     uint32_t(KILN_CALL* system_count)(void);
     KilnResult(KILN_CALL* system_info)(uint32_t index, KilnSystemInfo* out);
     int32_t(KILN_CALL* system_find)(KilnStr name);            /* index, or -1 */
-    /* Off: the game skips the system in every world until it is switched on again or the process ends. Some systems
-     * are needed (network, colliders, *_init): switching them off can break the world. The owner is logged. */
+    /* Only stamina_depletion_sprint and fall_damage_infliction may be disabled (unique update functions only).
+     * owner must be a live, nonzero owner. A system stays off while any owner requests it; enabling releases this
+     * owner's request. Revoked owners are released before skipping another slice; server world stop and service
+     * unload restore every switch. Server tick thread. */
     KilnResult(KILN_CALL* system_set_enabled)(KilnOwner owner, uint32_t index, bool enabled);
     /* On: starts timing from zero. Off: keeps the numbers. */
     KilnResult(KILN_CALL* profile)(bool on);
@@ -116,10 +118,12 @@ typedef struct KilnTypesApi {
     /* Every event of type `hash` the world produced in the step that just ended. KILN_ERR_NOT_FOUND: the world has no
      * stream for it. world = the world pointer (api->world(kind)). Tick thread, Post. */
     KilnResult(KILN_CALL* event_each)(uintptr_t world, uint32_t hash, KilnEventFn fn, void* user);
-    /* Queues an event (size bytes, size <= its type's size) into the world's queue; the game handles it at the start
-     * of the next step. Refused (KILN_ERR_NOT_FOUND) when the world has no stream for the hash: an unknown hash would
+    /* Queues exactly the registered type's bytes; inline scalars/structs/static arrays/GUIDs/references only,
+     * with bool/enum/range/layout validation. The game handles it at the start of the next step. Refused (KILN_ERR_NOT_FOUND) when the world has no stream for the hash: an unknown hash would
      * crash the game's distributor. KILN_ERR_BUFFER_TOO_SMALL: the queue is full this step. Tick thread. */
     KilnResult(KILN_CALL* event_post)(uintptr_t world, uint32_t hash, const void* data, uint32_t size);
+    /* Appended in v1: release all of this owner's disable requests (tick thread). Check header.size first. */
+    KilnResult(KILN_CALL* system_release_owner)(KilnOwner owner);
 } KilnTypesApi;
 
 #ifdef __cplusplus

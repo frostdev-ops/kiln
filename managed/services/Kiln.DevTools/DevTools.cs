@@ -3,7 +3,10 @@
 // commands, and the Systems and Types windows in the game. Switching systems and writing components change the world:
 // those commands are Admin. Everything turns itself off when kiln.types is unavailable.
 using System.Globalization;
+using System.Collections.Concurrent;
 using System.Text;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Kiln.DevTools.Tests")]
 
 namespace Kiln;
 
@@ -13,13 +16,21 @@ public static class KilnDevTools
 {
     private static int _started;
     private static UiWindow? _systems, _types;
+    private static readonly ConcurrentQueue<Action> Changes = new();
 
     /// <summary>Registers the commands (once). Safe to call from any mod.</summary>
     public static void Start()
     {
         if (Interlocked.Exchange(ref _started, 1) != 0) return;
-        RegisterCommands();
-        if (Ui.Available) CreateWindows();
+        var caller = ModContext.CurrentMod;
+        try
+        {
+            ModContext.CurrentMod = null; // Shared tools outlive whichever mod first asks to start them.
+            RegisterCommands();
+            ServiceTick.Add("kiln developer tools", static (in TickInfo _) => RunChanges());
+            if (Ui.Available) CreateWindows();
+        }
+        finally { ModContext.CurrentMod = caller; }
     }
 
     private static void RegisterCommands()
@@ -44,15 +55,20 @@ public static class KilnDevTools
             .Then(Commands.Argument("name", Arg.Word())
                 .Then(Commands.Literal("on").Executes(c => c.Reply(Switch(c.Get<string>("name"), true))))
                 .Then(Commands.Literal("off").Executes(c => c.Reply(Switch(c.Get<string>("name"), false))))), CommandPermission.Admin);
+        var value = Commands.Argument("value", Arg.Word()).Requires(CommandPermission.Admin)
+            .Executes(c =>
+            {
+                if (!c.Source.IsAdmin) throw new CommandException("component writes require an admin");
+                c.Reply(WriteComponent(c.Get<int>("entity"), c.Get<string>("component"), c.Get<string>("path"), c.Get<string>("value")));
+            });
+        var path = Commands.Argument("path", Arg.Word())
+            .Executes(c => c.Reply(ReadComponent(c.Get<int>("entity"), c.Get<string>("component"), c.Get<string>("path"))))
+            .Then(value);
+        var component = Commands.Argument("component", Arg.Word())
+            .Executes(c => c.Reply(ReadComponent(c.Get<int>("entity"), c.Get<string>("component"), null)))
+            .Then(path);
         Commands.Register(Commands.Literal("component").Describe("reads (or, for admins, writes) an entity's component by name")
-            .Then(Commands.Argument("entity", Arg.Int(1, int.MaxValue))
-                .Then(Commands.Argument("component", Arg.Word())
-                    .Executes(c => c.Reply(ReadComponent(c.Get<int>("entity"), c.Get<string>("component"), null)))
-                    .Then(Commands.Argument("path", Arg.Word())
-                        .Executes(c => c.Reply(ReadComponent(c.Get<int>("entity"), c.Get<string>("component"), c.Get<string>("path"))))
-                        .Then(Commands.Argument("value", Arg.Word()).Requires(CommandPermission.Admin)
-                            .Executes(c => c.Reply(WriteComponent(c.Get<int>("entity"), c.Get<string>("component"), c.Get<string>("path"), c.Get<string>("value")))))))),
-            CommandPermission.Everyone);
+            .Then(Commands.Argument("entity", Arg.Int(1, int.MaxValue)).Then(component)), CommandPermission.Everyone);
     }
 
     internal static string ListTypes(string words)
@@ -107,8 +123,10 @@ public static class KilnDevTools
     internal static string Switch(string name, bool on)
     {
         GameSystems.SetEnabled(name, on);
-        KilnLog.Info($"devtools: system {name} switched {(on ? "on" : "off")}");
-        return $"{name} is {(on ? "on" : "off")}{(on ? "" : ": the game skips it in every world until /system " + name + " on or a restart")}";
+        var enabled = GameSystems.Find(name)?.Enabled == true;
+        KilnLog.Info($"devtools: system {name} is {(enabled ? "on" : "off")}");
+        return enabled ? $"{name} is on" : on ? $"{name} remains off: another owner still disables it"
+            : $"{name} is off until this owner's switch is released or it unloads";
     }
 
     internal static string ReadComponent(int entity, string component, string? path)
@@ -161,9 +179,9 @@ public static class KilnDevTools
         ui.SameLine();
         ui.Checkbox("Off only", ref _offOnly);
         var profiling = GameSystems.Profiling;
-        if (ui.Button(profiling ? "Stop profiling" : "Profile")) GameSystems.Profile(!profiling);
+        if (ui.Button(profiling ? "Stop profiling" : "Profile")) ChangeOnTick(() => GameSystems.Profile(!profiling));
         ui.SameLine();
-        if (ui.Button("Turn all on")) GameSystems.TurnAllOn();
+        if (ui.Button("Turn all on")) ChangeOnTick(() => GameSystems.TurnAllOn());
         ui.SameLine();
         if (ui.Button("Log top 30")) KilnLog.Info(Top(30));
         var secs = Math.Max(GameSystems.ProfileSeconds, 1e-9);
@@ -176,7 +194,7 @@ public static class KilnDevTools
             {
                 ui.NextRow();
                 var on = s.Enabled;
-                if (ui.Checkbox("##" + s.Name, ref on)) GameSystems.SetEnabled(s.Name, on);
+                if (ui.Checkbox("##" + s.Name, ref on)) ChangeOnTick(() => GameSystems.SetEnabled(s.Name, on));
                 ui.NextColumn();
                 ui.Text(s.Name);
                 ui.NextColumn();
@@ -189,6 +207,25 @@ public static class KilnDevTools
                 ui.Text(s.Rva.ToString("x", CultureInfo.InvariantCulture));
             }
             ui.EndTable();
+        }
+    }
+
+    internal static void ChangeOnTick(Action change)
+    {
+        if (Changes.Count >= 128) return;
+        Changes.Enqueue(change);
+    }
+
+    internal static void RunChanges()
+    {
+        Services.RequireTickThread("developer tools changes");
+        while (Changes.TryDequeue(out var change))
+        {
+            try { change(); }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or InvalidOperationException)
+            {
+                KilnLog.Warn($"devtools: {e.Message}");
+            }
         }
     }
 

@@ -19,13 +19,19 @@ const KilnSettingsApi* gKSettings = nullptr;
 
 // Queued admin work: run on the next server tick (armAdmin), one closure per call.
 std::mutex gAdminMx;
-std::vector<std::function<void()>> gAdminQueue;
+struct AdminWork { std::string mod; std::function<void()> fn; };
+std::vector<AdminWork> gAdminQueue;
+void discardAdmin(const std::string& mod) {
+    std::lock_guard lock(gAdminMx);
+    std::erase_if(gAdminQueue, [&](const AdminWork& work) { return work.mod == mod; });
+}
 
 void queueAdmin(lua_State* L, std::function<void()> fn) {
-    needAlive(L);
+    needGame(L);
     needWorld(L);
     std::lock_guard lock(gAdminMx);
-    gAdminQueue.push_back(std::move(fn));
+    if (gAdminQueue.size() >= 1024) luaL_error(L, "admin command queue is full");
+    gAdminQueue.push_back({gCurrentMod, std::move(fn)});
 }
 
 void adminLog(const std::string& s) { gSink(s.c_str()); }
@@ -47,7 +53,9 @@ int adminSetTime(lua_State* L) {
 
 int adminTeleport(lua_State* L) {
     const double x = luaL_checknumber(L, 1), y = luaL_checknumber(L, 2), z = luaL_checknumber(L, 3);
+    if (!lua_isnoneornil(L, 4)) luaL_checktype(L, 4, LUA_TBOOLEAN);
     const bool exact = lua_toboolean(L, 4);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return luaL_error(L, "teleport coordinates must be finite");
     if (!gKWorld) return luaL_error(L, "Admin.teleport is unavailable: kiln.world is not running");
     queueAdmin(L, [x, y, z, exact] {
         const uint32_t p = ecs::player();
@@ -115,7 +123,9 @@ int adminGive(lua_State* L) {
             std::string r = lower(lua_tostring(L, 4));
             for (int i = 0; i < 5; ++i) if (r == kRarity[i]) rarity = i;
         } else {
-            rarity = static_cast<int>(luaL_checkinteger(L, 4));
+            const auto value = luaL_checkinteger(L, 4);
+            if (value < 0 || value > 4) return luaL_error(L, "rarity is Common..Legendary or 0 to 4");
+            rarity = static_cast<int>(value);
         }
         if (rarity < 0 || rarity > 4) return luaL_error(L, "rarity is Common..Legendary or 0 to 4");
     }
@@ -190,6 +200,7 @@ int adminChangeSettings(lua_State* L) {
         KilnSettingValue v{};
         v.kind = s.kind;
         if (s.kind == KILN_SETTING_BOOL) {
+            luaL_checktype(L, -1, LUA_TBOOLEAN);
             v.integer = lua_toboolean(L, -1);
         } else if (s.kind == KILN_SETTING_ENUM && lua_type(L, -1) == LUA_TSTRING) {
             const std::string want = lower(lua_tostring(L, -1));
@@ -228,10 +239,10 @@ void resetAdmin() {
 }
 void checkSent(uintptr_t) {}
 void armAdmin(uintptr_t) {
-    std::vector<std::function<void()>> q;
+    std::vector<AdminWork> q;
     {
         std::lock_guard lock(gAdminMx);
         q.swap(gAdminQueue);
     }
-    for (auto& fn : q) fn();
+    for (auto& work : q) work.fn();
 }

@@ -4,8 +4,17 @@ SET (Nexus mod 303, by Cacaida, MIT, github.com/Cacaida/Shrouded-Engine-Tweaks) 
 for Enshrouded with a Dear ImGui overlay. It ships as one `powrprof.dll` (the game imports `POWRPROF.dll`), with
 MinHook, Lua 5.4.9 and ImGui inside. Sources for this note: the 0.1.1 release's docs (`README.txt`, `installation.md`,
 `usage.md`, `modding-guide.md`, `api-reference.md`), SET's public `docs/architecture.md`, `docs/reflection-format.md`
-and `runtime/game.{h,cpp}` (read, not copied), and offline checks of SET's techniques against the current game
+and `runtime/game.{h,cpp}` (helpers in the Lua adapter are adapted with MIT notices), and offline checks of SET's techniques against the current game
 binaries (server Steam build 26430253, client 26430625; both svn 1287369).
+
+The safety review of commit `4116d90` fetched upstream `master` through GitHub and compared `runtime/game.cpp`
+(blob `b7db32c4592e4d12bb08bb5a6bdcd88b9312ab63`), `lua_api.cpp`
+(`dd63f09d7a205922684b1bf773b90ea2c269a6f0`), `hooks.cpp`, `main.cpp`, `lua_imgui.cpp`, and the architecture and
+reflection-format docs. Upstream is the semantic reference, not a security guarantee: Kiln now adds stricter
+file-handle containment, script budgets, component-size checks, event payload validation and system restrictions.
+The lab observations below describe the original implementation. The review fixes are verified offline; they have
+not been rerun in a live server or client. Current contracts are in [kiln.types](../kiln/services/types.md) and
+[kiln-set](../kiln/set.md).
 
 ## API coverage
 SET function → Kiln C# equivalent → kiln-set implementation → status. "lab" = checked on a dedicated-server lab
@@ -24,7 +33,7 @@ SET function → Kiln C# equivalent → kiln-set implementation → status. "lab
 | `Observe(event, fn)` | `GameEvents.Each(type, fn)` | kiln.types `event_each` | lab |
 | `Events.post` | `GameEvents.Post(type, fields)` | kiln.types `event_post` (hash checked) | lab (posted 42, observed 42) |
 | `Hooks.observe`, `Hooks.remove` | `Hooks.Mid` (Kiln.Hooks) | kiln.hooks mid hook at entry, bounded queues | lab (74 captures, 0 dropped); remove built |
-| `Systems.list/enable/enabled` | `GameSystems.All/Search/SetEnabled`, `/systems`, `/system` | kiln.types runner detour | lab |
+| `Systems.list/enable/enabled` | `GameSystems.All/Search/SetEnabled`, `/systems`, `/system` | kiln.types runner detour; disabling restricted to two leaf systems, owner scoped | original lab; restrictions host tested |
 | `Systems.profile/stats` | `GameSystems.Profile/Stats`, `/systems top` | kiln.types | lab (236 systems timed) |
 | `Res.get/find/each/types` | Kiln.Assets, Kiln.Content catalogs | kiln.assets `resource_list/resource_data` + reflection | lab (get, find); each/types built |
 | `Res` edits | kiln.assets overrides (copy-on-write) | in-place write, page protection lifted for the bytes | built |
@@ -43,7 +52,7 @@ SET function → Kiln C# equivalent → kiln-set implementation → status. "lab
 | `Admin.spawn` | `Spawn` (Kiln.Spawn) | kiln.spawn | lab: refuses cleanly without a player |
 | `Admin.give` | `Items.Give` (Kiln.Items) | kiln.items, by GUID or debug name | built (English names missing) |
 | `Admin.setLevel`, `setFlameLevel`, `send` | Kiln.Players progression, world progress | missing (error says so) | missing |
-| `GetMod`, `GetVersion`, `GetGameBuild`, `require`, `io`, `json`, `print`, sandbox | .NET | SET code | lab |
+| `GetMod`, `GetVersion`, `GetGameBuild`, `require`, `io`, `json`, `print`, sandbox | .NET | adapted SET code; mod-local file handles, isolated libraries and instruction/deadline limits | original lab; hardening host tested |
 | Console window | `kiln/control/console/*.cmd`, `kilnctl cmd` | `kiln/control/set/*.lua` files | lab |
 | Systems window | **Kiln: Systems** window | Kiln's window | client |
 | Types browser | **Kiln: Types** window | - | client |
@@ -158,8 +167,9 @@ Kiln before this work; section "API coverage" above has what is done now. Size: 
    *default values*) from `.rdata` with two string anchors and no code pattern. It survives code moves and works
    before any game function ran. Kiln's readers call `TypeByHash` with a name they already know. Adopted: the new
    `kiln.types` service scans the same table (with its own sanity checks) and exposes it to every service and mod.
-2. **System list from `.rdata` names** and one runner detour for enable/disable and profiling, with a single atomic
-   check while nothing is disabled. Adopted in `kiln.types`.
+2. **System list from `.rdata` names** and one runner detour for enable/disable and profiling. Adopted in
+   `kiln.types`; the idle path has two atomic checks. Unlike upstream, disabling is restricted to
+   `stamina_depletion_sprint` and `fall_damage_infliction`, with owner-scoped unload cleanup.
 3. **Checked writes:** every write is checked against the reflected type (range, enum names, fixed-size structs
    only), for components, resources, options, events and admin commands alike. Adopted for Kiln's reflected access.
 4. **Clean-code scanning:** patterns are matched against the on-disk `.text` with relocations applied, so another
@@ -183,10 +193,11 @@ Kiln before this work; section "API coverage" above has what is done now. Size: 
 
 ## 6. Running SET's Lua mods in Kiln
 Recommendation taken: build it (the loader's goal is to run every engine's mods). The cheapest faithful route was to
-reuse SET's own Lua layer (MIT, notice kept) and give it a Kiln game layer, rather than re-implementing its Lua
-semantics. Cost so far: about 1,200 lines of Kiln code (game layer, Admin, hooks, ImGui, plugin) beside SET's 2,600
-adapted lines and Lua 5.4.8. Risks: SET's ImGui windows and keys are untested in the game; `GameOptions`, English
+reuse SET's own Lua layer (MIT, notice kept) and give it a Kiln game layer. Safety hardening intentionally changes
+unsafe script and system-control behavior; compatibility is subject to the restrictions in the service docs.
+Risks: SET's ImGui windows and keys are untested in the game; `GameOptions`, English
 names and three Admin commands remain. Built as the plugin `kiln-set` (`native/plugins/set/`, docs/kiln/set.md): a Lua 5.4 runtime with SET's API on
 Kiln's services and `kiln.types`. Mods load from `<game>/shrouded_engine_tweaks/mods/<name>/init.lua`. When SET's
-own `powrprof.dll` runs in the process, kiln-set steps aside (like kiln-emf for EMF). The API coverage table and what
+own runtime is detected, kiln-set steps aside; detection also conservatively refuses non-system power proxies and
+checks modules loaded after startup. The API coverage table and what
 remains are in docs/kiln/set.md.

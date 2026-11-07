@@ -24,9 +24,29 @@ public static class GameValueCodec
 
     private static bool Signed(GameTypeKind k) => k is GameTypeKind.S8 or GameTypeKind.S16 or GameTypeKind.S32 or GameTypeKind.S64;
 
-    /// <summary>The value at <paramref name="data"/>: bool, long (integers, enums, bitmasks), ulong (u64) or double (floats).</summary>
-    public static object Read(ReadOnlySpan<byte> data, GameTypeKind kind, int size)
+    private static bool ValidSize(GameTypeKind kind, int size) => kind switch
     {
+        GameTypeKind.Bool or GameTypeKind.U8 or GameTypeKind.S8 or GameTypeKind.Bitmask8 => size == 1,
+        GameTypeKind.U16 or GameTypeKind.S16 or GameTypeKind.Bitmask16 => size == 2,
+        GameTypeKind.U32 or GameTypeKind.S32 or GameTypeKind.F32 or GameTypeKind.Bitmask32 => size == 4,
+        GameTypeKind.U64 or GameTypeKind.S64 or GameTypeKind.F64 or GameTypeKind.Bitmask64 => size == 8,
+        GameTypeKind.Enum => size is 1 or 2 or 4 or 8,
+        _ => false,
+    };
+
+    private static void CheckSize(GameTypeKind kind, int size)
+    {
+        if (!ValidSize(kind, size)) throw new ArgumentException($"invalid {size}-byte {kind} layout");
+    }
+
+    /// <summary>The value at <paramref name="data"/>: bool, long (integers, enums, bitmasks), ulong (u64) or double (floats).</summary>
+    public static object Read(ReadOnlySpan<byte> data, GameTypeKind kind, int size) => Read(data, kind, size, null);
+
+    /// <summary>Reads a scalar, preserving declared enum values when their stored bits represent a negative value.</summary>
+    public static object Read(ReadOnlySpan<byte> data, GameTypeKind kind, int size,
+                              IReadOnlyList<(string Name, long Value)>? enumValues)
+    {
+        CheckSize(kind, size);
         if (data.Length < size) throw new ArgumentException($"{size} bytes needed, {data.Length} given");
         switch (kind)
         {
@@ -41,6 +61,12 @@ public static class GameValueCodec
             1 => data[0], 2 => BinaryPrimitives.ReadUInt16LittleEndian(data), 4 => BinaryPrimitives.ReadUInt32LittleEndian(data),
             8 => BinaryPrimitives.ReadUInt64LittleEndian(data), _ => throw new NotSupportedException($"{size}-byte {kind}"),
         };
+        if (kind == GameTypeKind.Enum && enumValues != null)
+        {
+            var mask = size == 8 ? ulong.MaxValue : (1UL << (size * 8)) - 1;
+            foreach (var entry in enumValues)
+                if (((ulong)entry.Value & mask) == raw) return entry.Value;
+        }
         if (Signed(kind) && size < 8 && ((raw >> (size * 8 - 1)) & 1) != 0) raw |= ulong.MaxValue << (size * 8);
         return (long)raw;
     }
@@ -56,6 +82,7 @@ public static class GameValueCodec
     public static void Write(Span<byte> data, GameTypeKind kind, int size, object? value, IReadOnlyList<(string Name, long Value)>? enumValues = null,
                              string field = "value")
     {
+        CheckSize(kind, size);
         if (data.Length < size) throw new ArgumentException($"{size} bytes needed, {data.Length} given");
         switch (kind)
         {
@@ -70,24 +97,31 @@ public static class GameValueCodec
             case GameTypeKind.F32:
             {
                 var d = ToDouble(value, field);
-                if (double.IsFinite(d) && Math.Abs(d) > float.MaxValue) throw new ArgumentException($"{field} ({d}) does not fit a float32");
+                if (!double.IsFinite(d) || Math.Abs(d) > float.MaxValue) throw new ArgumentException($"{field} ({d}) does not fit a float32");
                 BinaryPrimitives.WriteSingleLittleEndian(data, (float)d);
                 return;
             }
             case GameTypeKind.F64:
-                BinaryPrimitives.WriteDoubleLittleEndian(data, ToDouble(value, field));
+            {
+                var d = ToDouble(value, field);
+                if (!double.IsFinite(d)) throw new ArgumentException($"{field} takes a finite number");
+                BinaryPrimitives.WriteDoubleLittleEndian(data, d);
                 return;
+            }
         }
         if (!IsScalar(kind)) throw new NotSupportedException($"{field}: {kind} values are not written directly");
         long v;
-        if (kind == GameTypeKind.Enum && value is string name)
+        if (kind == GameTypeKind.Enum && value is string name && !TryInteger(value, out _))
         {
             var hit = enumValues?.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
             if (hit is not { Name: not null } h) throw new ArgumentException($"{field}: '{name}' is not one of {Names(enumValues)}");
             v = h.Value;
         }
-        else if (value is ulong u && kind == GameTypeKind.U64)
+        else if (kind == GameTypeKind.U64 && (value is ulong || value is string))
         {
+            if (!ulong.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out var u))
+                throw new ArgumentException($"{field} takes an unsigned 64-bit whole number");
             BinaryPrimitives.WriteUInt64LittleEndian(data, u);
             return;
         }
@@ -112,7 +146,10 @@ public static class GameValueCodec
     /// <summary>Whether <paramref name="v"/> fits a field of that kind and size.</summary>
     public static bool Fits(long v, GameTypeKind kind, int size)
     {
-        if (size >= 8) return Signed(kind) || kind == GameTypeKind.Enum || v >= 0 || kind is >= GameTypeKind.Bitmask8 and <= GameTypeKind.Bitmask64;
+        if (!ValidSize(kind, size)) return false;
+        if (kind == GameTypeKind.Bool) return v is 0 or 1;
+        if (kind is GameTypeKind.F32 or GameTypeKind.F64) return true;
+        if (size == 8) return Signed(kind) || kind == GameTypeKind.Enum || v >= 0 || kind is >= GameTypeKind.Bitmask8 and <= GameTypeKind.Bitmask64;
         var bits = size * 8;
         if (Signed(kind)) return v >= -(1L << (bits - 1)) && v < (1L << (bits - 1));
         if (kind == GameTypeKind.Enum) return v >= -(1L << (bits - 1)) && v < (1L << bits);  // the game stores enums either way
@@ -150,8 +187,8 @@ public static class GameValueCodec
             case ushort us: v = us; return true;
             case uint ui: v = ui; return true;
             case ulong ul when ul <= long.MaxValue: v = (long)ul; return true;
-            case double d when Math.Floor(d) == d && d >= long.MinValue && d <= long.MaxValue: v = (long)d; return true;
-            case float f when MathF.Floor(f) == f: v = (long)f; return true;
+            case double d when double.IsFinite(d) && Math.Floor(d) == d && d >= long.MinValue && d < 9223372036854775808.0: v = (long)d; return true;
+            case float f when float.IsFinite(f) && MathF.Floor(f) == f && f >= long.MinValue && f < 9223372036854775808.0: v = (long)f; return true;
             case string s when long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p): v = p; return true;
             default: v = 0; return false;
         }

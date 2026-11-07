@@ -8,6 +8,7 @@
 #include "game.h"
 #include "hooks.h"
 #include "level.h"
+#include "sandbox.h"
 #include "kiln_api.h"
 #include "services/kiln_world.h"
 
@@ -24,6 +25,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <limits>
+#include <filesystem>
 #include <cstring>
 #include <deque>
 #include <initializer_list>
@@ -39,6 +43,7 @@
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
+#include "lua_budget.h"
 
 namespace {
 
@@ -58,6 +63,8 @@ std::atomic<uint32_t> gBuild;  // the game build (rt::setGameBuild), for GetGame
 std::mutex gLuaMx;
 bool gInDraw;
 bool gInConsole, gHookShutdown;
+std::string gCurrentMod;
+std::map<std::string, uint64_t> gSystemOwners;
 struct HookHandler {
     int sub, ref;
     std::string mod, name;
@@ -72,6 +79,7 @@ constexpr const char* kTicks = "rt.ticks";
 constexpr const char* kDraws = "rt.draws";
 constexpr const char* kKeys = "rt.keys";
 constexpr const char* kObservers = "rt.observers";  // event type hash -> list of handlers
+constexpr const char* kFunctionMods = "rt.functionMods"; // function ownership survives load() chunk names
 constexpr const char* kMods = "rt.mods";            // mod name -> what its init.lua returned (GetMod)
 constexpr const char* kBinds = "rt.binds";          // "<mod>.<id>" -> Keys.hotkey or Keys.input callback
 constexpr const char* kRequire = "rt.require";      // makes a mod's require (the kTextOnly prelude returns it)
@@ -108,6 +116,7 @@ struct Ref {
     bool writable;        // raw refs: the scratch buffers of Events.post and Admin.send, resources and options
     bool plain;           // game options and owned values: ordinary memory, written directly (resources use res::write)
     bool owned;           // Lua owns the bytes: views into them keep the owner alive (refIndex)
+    const res::Entry* resource = nullptr; // stable key; resource_data pointers expire at the next tick
 };
 
 uint32_t gGen = 1;  // bumped after every event dispatch
@@ -133,6 +142,13 @@ void needWorld(lua_State* L) {
 // Address of [off, off + size) inside r's value, or a Lua error.
 uint8_t* addr(lua_State* L, const Ref& r, uint32_t off, uint32_t size, bool write = false) {
     if (uint64_t(off) + size > r.limit) luaL_error(L, "offset %d is outside the value", int(off));
+    if (r.resource) {
+        needGame(L);
+        uint32_t actual = 0;
+        auto* p = res::data(*r.resource, &actual);
+        if (!p || off > actual || size > actual - off) luaL_error(L, "resource is unavailable or smaller than its reflected view");
+        return p + off;
+    }
     if (r.raw) {  // not a component: scratch, an event (stale after its dispatch: gGen), a resource, options or owned
         if (!r.owned) needAlive(L);
         if (r.gen && r.gen != gGen) luaL_error(L, "event no longer valid: use it inside its handler only");
@@ -140,7 +156,9 @@ uint8_t* addr(lua_State* L, const Ref& r, uint32_t off, uint32_t size, bool writ
         return r.raw + off;
     }
     needGame(L);
-    uint8_t* b = gWorld ? ecs::component(gWorld, r.entity, r.comp) : nullptr;
+    uint32_t actual = 0;
+    uint8_t* b = gWorld ? ecs::component(gWorld, r.entity, r.comp, &actual) : nullptr;
+    if (b && (off > actual || size > actual - off)) luaL_error(L, "component is smaller than its reflected layout");
     if (!b) luaL_error(L, "entity %d no longer has this component", int(r.entity));
     return b + off;
 }
@@ -150,13 +168,15 @@ bool isSigned(uint8_t k) { return k == refl::S8 || k == refl::S16 || k == refl::
 
 lua_Integer readInt(const uint8_t* p, uint32_t size, bool sign) {
     uint64_t v = 0;
+    if (!size || size > 8) return 0;
     memcpy(&v, p, size);
     if (sign && size < 8 && (v >> (size * 8 - 1) & 1)) v |= ~0ull << (size * 8);  // sign-extend
     return static_cast<lua_Integer>(v);
 }
 
 bool fits(lua_Integer v, uint32_t size, bool sign) {
-    if (size >= 8) return true;
+    if (!size || size > 8) return false;
+    if (size == 8) return sign || v >= 0;
     int bits = int(size * 8);
     return sign ? v >= -(1ll << (bits - 1)) && v < (1ll << (bits - 1)) : v >= 0 && v < (1ll << bits);
 }
@@ -194,7 +214,9 @@ uint32_t blobAt(lua_State* L, const Ref& r, uint32_t off, const res::Blob& b) {
 // Blobs (resources only): strings as Lua strings, arrays as proxies, optionals and variants as their value or nil.
 void pushBlob(lua_State* L, const Ref& r, uint32_t off, refl::Type u) {
     uint8_t k = u.prim();
-    res::Blob b = res::blob(addr(L, r, off, u.size()), k);
+    const uint32_t headerSize = k == refl::BlobOptional ? 4 : k == refl::BlobVariant ? 12 : 8;
+    if (u.size() < headerSize) luaL_error(L, "invalid blob header size");
+    res::Blob b = res::blob(addr(L, r, off, headerSize), k);
     if (k == refl::BlobArray) {  // the proxy reads the header again on every access
         Ref child = r;
         child.off = off;
@@ -222,13 +244,21 @@ void pushGuid(lua_State* L, const uint8_t* p) {
 // arrays as proxies.
 void push(lua_State* L, const Ref& r, uint32_t off, refl::Type t) {
     refl::Type u = unwrap(t.resolved());
+    if (!u) luaL_error(L, "invalid or cyclic reflected type");
     uint8_t k = u.prim();
     if (k >= refl::BlobArray && k <= refl::BlobVariant) return pushBlob(L, r, off, u);
     const uint8_t* p = addr(L, r, off, u.size());
     if (k == refl::Bool) lua_pushboolean(L, *p != 0);
-    else if (k == refl::F32) lua_pushnumber(L, *reinterpret_cast<const float*>(p));
-    else if (k == refl::F64) lua_pushnumber(L, *reinterpret_cast<const double*>(p));
-    else if (isInt(k) && u.size() <= 8) lua_pushinteger(L, readInt(p, u.size(), isSigned(k)));
+    else if (k == refl::F32) { float v; memcpy(&v, p, 4); lua_pushnumber(L, v); }
+    else if (k == refl::F64) { double v; memcpy(&v, p, 8); lua_pushnumber(L, v); }
+    else if (isInt(k) && u.size() > 0 && u.size() <= 8) {
+        lua_Integer value = readInt(p, u.size(), isSigned(k));
+        if (k == refl::Enum) {
+            uint64_t mask = u.size() == 8 ? UINT64_MAX : (1ull << (u.size() * 8)) - 1;
+            refl::forEnum(u, [&](std::string_view, int64_t e) { if ((uint64_t(e) & mask) == (uint64_t(value) & mask)) value = e; });
+        }
+        lua_pushinteger(L, value);
+    }
     else if ((k == refl::ObjectReference || k == refl::Guid) && u.size() == 16) pushGuid(L, p);
     else if (k == refl::Struct || k == refl::StaticArray) {
         Ref child = r;
@@ -244,7 +274,7 @@ void push(lua_State* L, const Ref& r, uint32_t off, refl::Type t) {
 // Copies n bytes into r at off. Resources go through res::write, because the game keeps their pages read-only.
 void put(lua_State* L, const Ref& r, uint32_t off, const void* src, uint32_t n) {
     uint8_t* p = addr(L, r, off, n, true);
-    if (!r.raw || r.gen || r.plain) {
+    if (!r.resource && (!r.raw || r.gen || r.plain)) {
         memcpy(p, src, n);
         return;
     }
@@ -259,7 +289,7 @@ void put(lua_State* L, const Ref& r, uint32_t off, const void* src, uint32_t n) 
 }
 
 lua_Integer enumArg(lua_State* L, int arg, refl::Type t);
-void fill(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx, uint8_t* mask = nullptr);
+void fill(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx, uint8_t* mask = nullptr, unsigned depth = 0);
 
 // Copies the view at stack index idx over the value of type u at off of r. Only between values of one type, and only
 // fixed-size data (refl::plain): blob and Ds headers point elsewhere.
@@ -269,12 +299,14 @@ void copyValue(lua_State* L, const Ref& r, uint32_t off, refl::Type u, int idx) 
     if (!refl::plain(u)) luaL_error(L, "can't copy %s: it holds strings or arrays of variable size", qname(u).c_str());
     std::vector<uint8_t> tmp(u.size());  // the two may overlap
     memcpy(tmp.data(), addr(L, s, s.off, u.size()), u.size());
+    if (auto bad = refl::badField(u, tmp.data()); !bad.name.empty()) luaL_error(L, "copied value has invalid scalar field data");
     put(L, r, off, tmp.data(), u.size());
 }
 
 // Writes the Lua value at stack index idx into the value of type t at offset off. Type- and range-checked. Enums also
 // take their value names; structs take a table of fields, and structs and arrays a view of the same type.
 void store(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx) {
+    kset::budget::check(L);
     refl::Type u = unwrap(t.resolved());
     uint8_t k = u.prim();
     if (k == refl::Bool) {
@@ -282,16 +314,20 @@ void store(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx) {
         uint8_t b = lua_toboolean(L, idx) ? 1 : 0;
         put(L, r, off, &b, 1);
     } else if (k == refl::F32) {
-        auto v = static_cast<float>(luaL_checknumber(L, idx));
+        double d = luaL_checknumber(L, idx);
+        if (!std::isfinite(d) || std::abs(d) > std::numeric_limits<float>::max()) luaL_error(L, "value does not fit float32");
+        auto v = static_cast<float>(d);
         put(L, r, off, &v, 4);
     } else if (k == refl::F64) {
         double v = luaL_checknumber(L, idx);
+        if (!std::isfinite(v)) luaL_error(L, "float64 must be finite");
         put(L, r, off, &v, 8);
     } else if (isInt(k) && u.size() <= 8) {
         bool named = k == refl::Enum && lua_type(L, idx) == LUA_TSTRING;
         lua_Integer v = named ? enumArg(L, idx, u) : luaL_checkinteger(L, idx);
-        if (!fits(v, u.size(), isSigned(k))) luaL_error(L, "%I doesn't fit %s", v, qname(u).c_str());
+        if (!(fits(v, u.size(), isSigned(k) || k >= refl::Bitmask8) || (k == refl::Enum && fits(v, u.size(), true)))) luaL_error(L, "%I doesn't fit %s", v, qname(u).c_str());
         if (k == refl::Enum && !enumHas(u, v)) luaL_error(L, "%I is not a value of %s", v, qname(u).c_str());
+        kset::budget::check(L);
         put(L, r, off, &v, u.size());
     } else if ((k == refl::ObjectReference || k == refl::Guid) && u.size() == 16) {
         uint8_t g[16] = {};  // nil clears the reference
@@ -302,7 +338,11 @@ void store(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx) {
     } else if (k >= refl::BlobArray && k <= refl::BlobVariant) {
         luaL_error(L, "can't assign to %s: its size is fixed; set its elements instead", qname(u).c_str());
     } else if (k == refl::Struct && lua_istable(L, idx)) {
-        fill(L, r, off, u, idx);
+        std::vector<uint8_t> bytes(u.size());
+        memcpy(bytes.data(), addr(L, r, off, u.size(), true), u.size());
+        Ref scratch{0, -1, 0, u.size(), u.p, bytes.data(), 0, true, true, true};
+        fill(L, scratch, 0, u, idx);
+        put(L, r, off, bytes.data(), u.size());
     } else if ((k == refl::Struct || k == refl::StaticArray) && luaL_testudata(L, idx, kRefMt)) {
         copyValue(L, r, off, u, idx);
     } else {
@@ -312,16 +352,21 @@ void store(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx) {
 
 // Copies the Lua table at stack index idx into the struct of type t at offset off of r, field by field. A nested
 // table fills a nested struct: {transform = {position = {x = 1}}}. A mask, if given, gets 1 for every byte written.
-void fill(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx, uint8_t* mask) {
+void fill(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx, uint8_t* mask, unsigned depth) {
+    if (depth > 32) luaL_error(L, "recursive reflected value");
+    luaL_checkstack(L, 4, "reflected value is too deeply nested");
     idx = lua_absindex(L, idx);
     lua_pushnil(L);
     while (lua_next(L, idx)) {
+        kset::budget::check(L);
         const char* key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "?";
         refl::Field f;
         if (!refl::field(t, key, f)) luaL_error(L, "%s has no field '%s'", qname(t).c_str(), key);
         refl::Type ft = f.type.resolved();
+        if (!ft || f.offset > t.size() || ft.size() > t.size() - f.offset || off > r.limit || f.offset > r.limit - off || ft.size() > r.limit - off - f.offset)
+            luaL_error(L, "field lies outside its reflected value");
         if (lua_istable(L, -1) && ft.prim() == refl::Struct) {
-            fill(L, r, off + f.offset, ft, -1, mask);
+            fill(L, r, off + f.offset, ft, -1, mask, depth + 1);
         } else {
             store(L, r, off + f.offset, f.type, lua_gettop(L));
             if (mask) memset(mask + off + f.offset, 1, ft.size());
@@ -332,7 +377,7 @@ void fill(lua_State* L, const Ref& r, uint32_t off, refl::Type t, int idx, uint8
 
 uint32_t arrayLen(refl::Type a) {
     uint32_t e = a.inner() ? a.inner().size() : 0;
-    return e ? a.size() / e : 0;
+    return e && a.size() % e == 0 ? a.size() / e : 0;
 }
 
 bool isArray(refl::Type t) { return t.prim() == refl::StaticArray || t.prim() == refl::BlobArray; }
@@ -340,10 +385,10 @@ bool isArray(refl::Type t) { return t.prim() == refl::StaticArray || t.prim() ==
 // Where r's array elements start and how many there are. A blob array's elements are checked to lie inside r.
 std::pair<uint32_t, uint32_t> elements(lua_State* L, const Ref& r) {
     refl::Type t{r.type};
-    if (t.prim() == refl::StaticArray) return {r.off, arrayLen(t)};
+    if (t.prim() == refl::StaticArray) { addr(L, r, r.off, t.size()); return {r.off, arrayLen(t)}; }
     res::Blob b = res::blob(addr(L, r, r.off, 8), refl::BlobArray);
     uint32_t at = b.count ? blobAt(L, r, r.off, b) : r.off;
-    if (at + uint64_t(b.count) * t.inner().size() > r.limit) luaL_error(L, "array elements are outside the value");
+    if (!t.inner() || !t.inner().size() || at + uint64_t(b.count) * t.inner().size() > r.limit) luaL_error(L, "array elements are outside the value");
     return {at, b.count};
 }
 
@@ -359,6 +404,8 @@ std::pair<uint32_t, refl::Type> member(lua_State* L, const Ref& r) {
     const char* key = luaL_checkstring(L, 2);
     refl::Field f;
     if (!refl::field(t, key, f)) luaL_error(L, "%s has no field '%s'", qname(t).c_str(), key);
+    if (f.offset > t.size() || f.type.size() > t.size() - f.offset || uint64_t(r.off) + f.offset > UINT32_MAX)
+        luaL_error(L, "field lies outside its reflected value");
     return {r.off + f.offset, f.type};
 }
 
@@ -522,7 +569,8 @@ int ecsTypes(lua_State* L) {
 // ---- Res: the game's resources (game.h, namespace res). Static memory, so Draw callbacks may read them too ----
 
 void needRes(lua_State* L) {
-    needAlive(L);
+    needGame(L);
+    if (!kset::tickThread()) luaL_error(L, "resource access requires the tick thread; keep copies for Draw");
     if (!res::ready()) luaL_error(L, "resources are not available (yet): see set.log");
 }
 
@@ -535,7 +583,11 @@ refl::Type resType(lua_State* L, int arg) {
 
 // Writable: an edit lasts until the game closes.
 void pushRes(lua_State* L, const res::Entry& e) {
-    newRef(L, {0, -1, 0, e.size, refl::byHash(e.type).p, res::data(e), 0, true});
+    uint32_t size = 0;
+    if (!res::data(e, &size)) { lua_pushnil(L); return; }
+    Ref r{0, -1, 0, size, refl::byHash(e.type).p, nullptr, 0, true};
+    r.resource = &e;
+    newRef(L, r);
 }
 
 // Res.get(guid [, type [, part]]): without a type, the first resource with that GUID.
@@ -673,7 +725,9 @@ const sys::System& systemArg(lua_State* L) {
 int systemsEnable(lua_State* L) {
     const sys::System& s = systemArg(L);
     luaL_checktype(L, 2, LUA_TBOOLEAN);
-    sys::setOn(s, lua_toboolean(L, 2));
+    const auto owner = static_cast<uint64_t>(lua_tointeger(L, lua_upvalueindex(1)));
+    if (!owner || sys::setOn(s, lua_toboolean(L, 2), owner) != 0)
+        return luaL_error(L, "system switching refused: only explicitly permitted gameplay systems may be disabled");
     return 0;
 }
 
@@ -779,9 +833,25 @@ int typesCopy(lua_State* L) {
     return 1;
 }
 
+int ownedCallback(lua_State* L) {
+    const int n = lua_gettop(L);
+    lua_pushvalue(L, lua_upvalueindex(1)); lua_insert(L, 1);
+    lua_call(L, n, LUA_MULTRET);
+    return lua_gettop(L);
+}
+void markFunction(lua_State* L, int index, const std::string& mod = gCurrentMod) {
+    index = lua_absindex(L, index);
+    // Each registration has its own identity: two mods may legitimately register the same exported function.
+    lua_pushvalue(L, index); lua_pushcclosure(L, ownedCallback, 1); lua_replace(L, index);
+    lua_getfield(L, LUA_REGISTRYINDEX, kFunctionMods);
+    lua_pushvalue(L, index); lua_pushlstring(L, mod.data(), mod.size()); lua_rawset(L, -3);
+    lua_pop(L, 1);
+}
+
 // Appends fn (argument 1) to a callback list in the registry: Tick.add and Draw.add.
 void addCallback(lua_State* L, const char* reg) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
+    markFunction(L, 1);
     lua_getfield(L, LUA_REGISTRYINDEX, reg);
     lua_pushvalue(L, 1);
     lua_rawseti(L, -2, lua_Integer(lua_rawlen(L, -2)) + 1);
@@ -827,6 +897,7 @@ int keysOn(lua_State* L) {
     int vk = rt::keyFromName(luaL_checkstring(L, 1));
     luaL_argcheck(L, vk != 0, 1, "unknown key (use F1-F24, A-Z, 0-9, `, Insert, Home, End, Delete, PageUp, PageDown, Pause or 0xNN)");
     luaL_checktype(L, 2, LUA_TFUNCTION);
+    markFunction(L, 2);
     lua_getfield(L, LUA_REGISTRYINDEX, kKeys);
     lua_pushvalue(L, 2);
     lua_rawseti(L, -2, vk);
@@ -904,6 +975,7 @@ int keysBind(lua_State* L) {
     bool input = lua_toboolean(L, lua_upvalueindex(2));
     const char* label = luaL_checkstring(L, 2);
     luaL_checktype(L, 3, LUA_TFUNCTION);
+    markFunction(L, 3, mod);
     bool okId = !id.empty() && std::all_of(id.begin(), id.end(), [](char c) {
         return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
     });
@@ -946,15 +1018,26 @@ int traceback(lua_State* L) {
     return 1;
 }
 
+std::string modOf(lua_State* L, int idx);
+void discardAdmin(const std::string& mod);
+
 // pcall with a traceback; errors go to the sink. The function and nargs arguments must be on the stack.
 bool call(lua_State* L, int nargs, int nres) {
+    kset::budget::Scope budget;
     int base = lua_gettop(L) - nargs;
+    struct ModScope {
+        std::string prior;
+        ModScope(std::string mod) : prior(std::exchange(gCurrentMod, std::move(mod))) {}
+        ~ModScope() { gCurrentMod = std::move(prior); }
+    } scope(modOf(L, base));
     lua_pushcfunction(L, traceback);
     lua_insert(L, base);
     int rc = lua_pcall(L, nargs, nres, base);
     lua_remove(L, base);
     if (rc == LUA_OK) return true;
-    gSink((LV_BAD + std::string(lua_tostring(L, -1))).c_str());
+    discardAdmin(gCurrentMod);
+    const char* error = lua_tostring(L, -1);
+    gSink((LV_BAD + std::string(error ? error : "Lua error")).c_str());
     lua_pop(L, 1);
     return false;
 }
@@ -970,77 +1053,56 @@ void clearFields(lua_State* L, const char* table, std::initializer_list<const ch
 
 // Pushes the chunk of a mod's Lua file, or an error message: text only, named chunk ("@hello/init.lua") so error lines
 // start with the mod's own path. A UTF-8 BOM and a first line starting with # are skipped, as luaL_loadfilex does.
-bool loadText(lua_State* L, const std::string& path, const char* chunk) {
-    HANDLE f = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    LARGE_INTEGER size{};
+bool loadText(lua_State* L, const std::string& root, const std::string& path, const char* chunk) {
+    FILE* f = kset::sandbox::open(root, path, "rb");
     std::string text;
-    DWORD got = 0;
-    bool ok = f != INVALID_HANDLE_VALUE && GetFileSizeEx(f, &size) && size.QuadPart < (64 << 20);
-    if (ok) {
-        text.resize(static_cast<size_t>(size.QuadPart));
-        ok = ReadFile(f, text.data(), static_cast<DWORD>(text.size()), &got, nullptr) && got == text.size();
+    char buffer[4096];
+    bool ok = f != nullptr;
+    if (f) {
+        for (size_t n; (n = fread(buffer, 1, sizeof buffer, f));) {
+            if (text.size() + n > (8u << 20)) { ok = false; break; }
+            text.append(buffer, n);
+        }
+        ok = ok && !ferror(f);
+        fclose(f);
     }
-    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
-    if (!ok) {
-        lua_pushfstring(L, "cannot open %s", chunk + 1);
-        return false;
-    }
+    if (!ok) { lua_pushfstring(L, "cannot open %s", chunk + 1); return false; }
     if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);
-    if (text.starts_with('#')) text.erase(0, std::min(text.find('\n'), text.size()));  // keeps the line count
+    if (text.starts_with('#')) text.erase(0, std::min(text.find('\n'), text.size()));
     return luaL_loadbufferx(L, text.data(), text.size(), chunk, "t") == LUA_OK;
 }
-
-// loadtext(path, chunk, env) for the mods' require (kTextOnly): loadText, returned the way loadfile returns.
 int luaLoadText(lua_State* L) {
-    if (!loadText(L, luaL_checkstring(L, 1), luaL_checkstring(L, 2))) {
-        luaL_pushfail(L);
-        lua_insert(L, -2);
-        return 2;
+    if (!loadText(L, luaL_checkstring(L, 1), luaL_checkstring(L, 2), luaL_checkstring(L, 3))) {
+        luaL_pushfail(L); lua_insert(L, -2); return 2;
     }
-    if (!lua_isnoneornil(L, 3)) {
-        lua_pushvalue(L, 3);
-        lua_setupvalue(L, -2, 1);  // a main chunk's only upvalue is _ENV
-    }
+    if (!lua_isnoneornil(L, 4)) { lua_pushvalue(L, 4); lua_setupvalue(L, -2, 1); }
     return 1;
 }
-
 // Crafted bytecode can corrupt memory and escape the sandbox, so load and require accept source text only. The global
 // require searches a copy of package.path: a mod that changes package.path can't point it at other files.
 // Returns the factory for a mod's own require: names resolve inside its folder (dots become \, so ".." can't
 // survive) and run in its environment, cached per mod. Its chunks are named like "@hello/util.lua" (luaLoadText).
 const char* kTextOnly = R"lua(
     local loadtext = ...
-    local load, loadfile, searchpath, path, error, type, pcall =
-        load, loadfile, package.searchpath, package.path, error, type, pcall
+    local load, error, type, pcall = load, error, type, pcall
     _G.load = function(chunk, name, _, ...) return load(chunk, name, "t", ...) end
-    package.searchers[2] = function(mod)
-        local file, err = searchpath(mod, path)
-        if not file then return err end
-        local fn, msg = loadfile(file, "t")
-        if not fn then error(("error loading module '%s' from file '%s':\n\t%s"):format(mod, file, msg)) end
-        return fn, file
-    end
     return function(env, dir, mod)
-        local cache, loading = {}, {}  -- loading: modules whose chunk is running, so a cycle fails instead of recursing
+        local cache, loading = {}, {}
         return function(name)
-            if type(name) ~= "string" then error("bad argument #1 to 'require' (string expected)", 2) end
+            if type(name) ~= "string" or not name:match("^[%w_%-]+[%.%w_%-]*$") or name:find("..", 1, true) or name:sub(-1) == "." then
+                error("require name must stay inside the mod's folder", 2)
+            end
             if cache[name] == nil then
-                if loading[name] then
-                    error("require cycle: '" .. name .. "' is still loading (it requires itself through other modules)", 2)
-                end
-                local path, chunk = dir .. "\\" .. name:gsub("%.", "\\"), "@" .. mod .. "/" .. name:gsub("%.", "/")
-                local fn, err = loadtext(path .. ".lua", chunk .. ".lua", env)
-                if not fn and err:find("^cannot open") then
-                    fn, err = loadtext(path .. "\\init.lua", chunk .. "/init.lua", env)
-                end
-                if not fn and err:find("^cannot open") then err = "module '" .. name .. "' not found in " .. dir end
+                if loading[name] then error("require cycle: '" .. name .. "' is still loading", 2) end
+                local path, chunk = name:gsub("%.", "/"), "@" .. mod .. "/" .. name:gsub("%.", "/")
+                local fn, err = loadtext(dir, path .. ".lua", chunk .. ".lua", env)
+                if not fn and err:find("^cannot open") then fn, err = loadtext(dir, path .. "/init.lua", chunk .. "/init.lua", env) end
                 if not fn then error(err, 2) end
                 loading[name] = true
                 local ok, r = pcall(fn, name)
-                loading[name] = nil  -- a module that failed can be required again
+                loading[name] = nil
                 if not ok then error(r, 0) end
-                if r == nil then r = true end
-                cache[name] = r
+                cache[name] = r == nil and true or r
             end
             return cache[name]
         end
@@ -1072,6 +1134,7 @@ void openSafeLibs(lua_State* L) {
         lua_rawseti(L, -2, i);
     }
     lua_pop(L, 2);
+    kset::budget::install(L);
     luaL_loadstring(L, kTextOnly);  // after package.path is set: it keeps a copy
     lua_pushcfunction(L, luaLoadText);
     lua_call(L, 1, 1);
@@ -1079,36 +1142,54 @@ void openSafeLibs(lua_State* L) {
     lua_pushcfunction(L, luaopen_io);  // called directly: luaL_requiref would put it in package.loaded for require("io")
     lua_call(L, 0, 1);
     lua_setfield(L, LUA_REGISTRYINDEX, kIo);
+    luaL_getmetatable(L, LUA_FILEHANDLE); lua_pushboolean(L, 0); lua_setfield(L, -2, "__metatable"); lua_pop(L, 1);
     clearFields(L, "_G", {"dofile", "loadfile"});
     clearFields(L, "string", {"dump"});
+    clearFields(L, "_G", {"package", "require"});
 }
 
-// <mod folder>\<path> for a mod's io, or a Lua error if the path could leave the folder: no drive, stream or wildcard
-// characters, no empty parts (absolute paths, \\?\) and no parts made only of dots and spaces ("..", ".. ").
-std::string modPath(lua_State* L, const char* dir) {
-    size_t n;
-    const char* p = luaL_checklstring(L, 1, &n);
-    std::string_view path(p, n);
-    bool ok = !path.empty() && path.find_first_of(":*?\"<>|") == std::string_view::npos &&
-              std::none_of(path.begin(), path.end(), [](char c) { return static_cast<unsigned char>(c) < 0x20; });
-    for (size_t i = 0; ok && i <= path.size();) {
-        size_t end = std::min(path.find_first_of("/\\", i), path.size());
-        ok = path.substr(i, end - i).find_first_not_of(". ") != std::string_view::npos;
-        i = end + 1;
+int closeModFile(lua_State* L) {
+    auto* p = static_cast<luaL_Stream*>(luaL_checkudata(L, 1, LUA_FILEHANDLE));
+    int result = fclose(p->f);
+    return luaL_fileresult(L, result == 0, nullptr);
+}
+int ioLineNext(lua_State* L) {
+    lua_settop(L, 0);
+    lua_pushvalue(L, lua_upvalueindex(1));
+    auto* p = static_cast<luaL_Stream*>(luaL_checkudata(L, 1, LUA_FILEHANDLE));
+    if (!p->closef) return 0;
+    lua_getfield(L, 1, "read"); lua_pushvalue(L, 1);
+    int n = int(lua_rawlen(L, lua_upvalueindex(2)));
+    for (int i = 1; i <= n; ++i) lua_rawgeti(L, lua_upvalueindex(2), i);
+    lua_call(L, n + 1, LUA_MULTRET);
+    if (lua_isnil(L, 2)) {
+        if (lua_gettop(L) > 2) return luaL_error(L, "%s", lua_tostring(L, 3));
+        p->closef = nullptr; fclose(p->f); return 0;
     }
-    if (!ok) luaL_argerror(L, 1, "the path must stay inside the mod's folder");
-    return std::string(dir) + "\\" + std::string(path);
+    return lua_gettop(L) - 1;
 }
-
-// A mod's io.open and io.lines: upvalue 1 is its folder, 2 the real function, called with the checked full path.
+// Per-mod io.open/io.lines return Lua's standard file userdata, backed by the checked native handle.
 int modIo(lua_State* L) {
-    std::string path = modPath(L, lua_tostring(L, lua_upvalueindex(1)));
-    lua_pushstring(L, path.c_str());
-    lua_replace(L, 1);
-    lua_pushvalue(L, lua_upvalueindex(2));
-    lua_insert(L, 1);
-    lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
-    return lua_gettop(L);
+    size_t n;
+    const char* path = luaL_checklstring(L, 1, &n);
+    if (!kset::sandbox::relative({path, n})) return luaL_argerror(L, 1, "the path must stay inside the mod's folder");
+    bool lines = lua_toboolean(L, lua_upvalueindex(2));
+    const char* mode = lines ? "r" : luaL_optstring(L, 2, "r");
+    FILE* file = kset::sandbox::open(lua_tostring(L, lua_upvalueindex(1)), {path, n}, mode);
+    if (!file) {
+        if (lines) return luaL_error(L, "cannot open mod file");
+        return luaL_fileresult(L, 0, path);
+    }
+    auto* stream = static_cast<luaL_Stream*>(lua_newuserdatauv(L, sizeof(luaL_Stream), 0));
+    stream->f = file; stream->closef = closeModFile;
+    luaL_setmetatable(L, LUA_FILEHANDLE);
+    if (!lines) return 1;
+    int fidx = lua_gettop(L);
+    lua_pushvalue(L, fidx); lua_createtable(L, fidx - 2, 0);
+    for (int i = 2; i < fidx; ++i) { lua_pushvalue(L, i); lua_rawseti(L, -2, i - 1); }
+    lua_pushcclosure(L, ioLineNext, 2);
+    lua_pushnil(L); lua_pushnil(L); lua_pushvalue(L, fidx);
+    return 4;
 }
 
 // One declared argument position: a kind name ("u32", "entity*", "cstr"...), or "<Type>*" for a copy of a plain
@@ -1177,6 +1258,7 @@ int hookRegister(lua_State* L) {
     if (cap < 1 || cap > hk::kMaxQueue) return luaL_error(L, "hook queue must be between 1 and 4096");
     lua_getfield(L, 1, "fn");
     luaL_checktype(L, -1, LUA_TFUNCTION);
+    markFunction(L, -1, mod);
     auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     uintptr_t fn = hk::findPattern(base, pattern, err);
     if (!fn) return luaL_error(L, "%s", err.c_str());
@@ -1305,13 +1387,19 @@ void dispatchHooks(lua_State* L) {
 // A mod's globals: its own table, falling back to the shared one, plus what has to know the mod: Keys.hotkey and
 // Keys.input, io inside its folder, and require from its folder.
 void pushModEnv(lua_State* L, const std::string& name) {
-    std::string dir = gModsDir + "\\" + name;
+    std::string dir = (std::filesystem::u8path(gModsDir) / name).string();
     lua_newtable(L);
     int env = lua_gettop(L);
     lua_newtable(L);
+    lua_newtable(L);
     lua_pushglobaltable(L);
+    lua_pushnil(L);
+    while (lua_next(L, -2)) { lua_pushvalue(L, -2); lua_insert(L, -2); lua_rawset(L, -5); }
+    lua_pop(L, 1);
     lua_setfield(L, -2, "__index");
+    lua_pushboolean(L, 0); lua_setfield(L, -2, "__metatable");
     lua_setmetatable(L, env);
+    lua_pushvalue(L, env); lua_setfield(L, env, "_G");
     lua_newtable(L);
     lua_pushcfunction(L, keysOn);
     lua_setfield(L, -2, "on");
@@ -1331,11 +1419,18 @@ void pushModEnv(lua_State* L, const std::string& name) {
         lua_setfield(L, -2, f.name);
     }
     lua_setfield(L, env, "Hooks");
+    uint64_t owner = sys::createOwner("kiln-set/" + name);
+    gSystemOwners[name] = owner;
+    lua_getglobal(L, "Systems");
+    lua_newtable(L);
+    for (const char* fn : {"list", "enabled", "profile", "stats"}) { lua_getfield(L, -2, fn); lua_setfield(L, -2, fn); }
+    lua_pushinteger(L, static_cast<lua_Integer>(owner)); lua_pushcclosure(L, systemsEnable, 1); lua_setfield(L, -2, "enable");
+    lua_setfield(L, env, "Systems"); lua_pop(L, 1);
     lua_newtable(L);
     lua_getfield(L, LUA_REGISTRYINDEX, kIo);
     for (const char* fn : {"open", "lines"}) {
         lua_pushstring(L, dir.c_str());
-        lua_getfield(L, -2, fn);
+        lua_pushboolean(L, std::strcmp(fn, "lines") == 0);
         lua_pushcclosure(L, modIo, 2);
         lua_setfield(L, -3, fn);
     }
@@ -1347,6 +1442,8 @@ void pushModEnv(lua_State* L, const std::string& name) {
     lua_pushstring(L, name.c_str());
     lua_call(L, 3, 1);
     lua_setfield(L, env, "require");
+    luaL_loadstring(L, "local base, env = ...; return function(chunk, name, _, custom) return base(chunk, name, 't', custom or env) end");
+    lua_getglobal(L, "load"); lua_pushvalue(L, env); lua_call(L, 2, 1); lua_setfield(L, env, "load");
 }
 
 std::string modOf(lua_State* L, int idx);
@@ -1386,6 +1483,8 @@ void unloadMod(lua_State* L, const std::string& mod) {
         std::erase_if(gBinds, [&](const Binding& b) { return b.mod == mod; });
     }
     removeModHooks(L, mod);
+    discardAdmin(mod);
+    if (auto it = gSystemOwners.find(mod); it != gSystemOwners.end()) { sys::releaseOwner(it->second); gSystemOwners.erase(it); }
 }
 
 // mods/<name>/mod.json, optional: {"requires": "0.1.1", "builds": [1793791052]}: the oldest Shrouded Engine Tweaks the
@@ -1398,10 +1497,11 @@ struct ModInfo {
 ModInfo readModJson(lua_State* L, const std::string& name) {
     ModInfo info;
     FILE* f = nullptr;
-    if (fopen_s(&f, (gModsDir + "\\" + name + "\\mod.json").c_str(), "rb") != 0 || !f) return info;
+    f = kset::sandbox::open((std::filesystem::u8path(gModsDir) / name).string(), "mod.json", "rb");
+    if (!f) return info;
     std::string text;
     char buf[4096];
-    for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+    for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0 && text.size() + n <= (1u << 20);) text.append(buf, n);
     fclose(f);
     if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);  // Notepad's UTF-8 BOM
     int top = lua_gettop(L);
@@ -1466,7 +1566,7 @@ void loadMods(lua_State* L) {
                    ", this is " RUNTIME_VERSION ")").c_str());
             continue;
         }
-        bool ok = loadText(L, init, ("@" + name + "/init.lua").c_str());
+        bool ok = loadText(L, (std::filesystem::u8path(gModsDir) / name).string(), "init.lua", ("@" + name + "/init.lua").c_str());
         if (!ok) {
             gSink((LV_BAD + std::string(lua_tostring(L, -1))).c_str());  // call() prints its own errors
         } else {
@@ -1500,6 +1600,11 @@ int getMod(lua_State* L) {
 // The mod the function at idx comes from, for error lines: its chunk name up to the first / ("@hello/init.lua" is
 // hello), "console" for a typed line, "load" for a string chunk.
 std::string modOf(lua_State* L, int idx) {
+    idx = lua_absindex(L, idx);
+    lua_getfield(L, LUA_REGISTRYINDEX, kFunctionMods);
+    lua_pushvalue(L, idx); lua_rawget(L, -2);
+    if (const char* owner = lua_tostring(L, -1)) { std::string mod(owner); lua_pop(L, 2); return mod; }
+    lua_pop(L, 2);
     lua_Debug ar;
     lua_pushvalue(L, idx);
     lua_getinfo(L, ">S", &ar);
@@ -1542,7 +1647,7 @@ void warnSlow(lua_State* L, lua_Integer i, const char* what, double ms) {
 void runCallbacks(lua_State* L, const char* reg, const char* what) {
     bool draw = reg == kDraws, tick = reg == kTicks;
     lua_getfield(L, LUA_REGISTRYINDEX, reg);
-    for (lua_Integer i = 1; i <= lua_Integer(lua_rawlen(L, -1)); i++) {
+    for (lua_Integer i = 1, count = lua_Integer(lua_rawlen(L, -1)); i <= count; i++) {
         lua_rawgeti(L, -1, i);
         if (!lua_isfunction(L, -1)) {
             lua_pop(L, 1);
@@ -1556,6 +1661,7 @@ void runCallbacks(lua_State* L, const char* reg, const char* what) {
             dropCallback(L, i, (std::string(what) + " callback").c_str());
             continue;
         }
+        if (draw) rt::imguiRecover();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if ((tick || draw) && ms > kSlowMs) warnSlow(L, i, what, ms);
     }
@@ -1580,6 +1686,7 @@ refl::Type eventType(lua_State* L, int arg) {
 int observe(lua_State* L) {
     refl::Type t = eventType(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
+    markFunction(L, 2);
     lua_getfield(L, LUA_REGISTRYINDEX, kObservers);
     if (lua_rawgeti(L, -1, t.hash()) == LUA_TNIL) {  // handler list for this type
         lua_pop(L, 1);
@@ -1604,7 +1711,7 @@ int eventsPost(lua_State* L) {
     uint8_t scratch[0x100] = {};
     Ref r{0, -1, 0, t.size(), t.p, scratch, gGen, true};
     refl::Field ts;
-    if (refl::field(t, "timeStamp", ts) && ts.type.size() == 8) {
+    if (refl::field(t, "timeStamp", ts) && ts.type.size() == 8 && ts.offset <= t.size() && 8 <= t.size() - ts.offset) {
         int64_t now = ecs::simTime(gWorld);
         memcpy(scratch + ts.offset, &now, 8);
     }
@@ -1620,11 +1727,12 @@ lua_Integer enumArg(lua_State* L, int arg, refl::Type t) {
         return v;
     }
     std::string want = lower(luaL_checkstring(L, arg));
-    lua_Integer v = -1;
+    lua_Integer v = 0;
+    bool found = false;
     refl::forEnum(t, [&](std::string_view n, int64_t e) {
-        if (lower(n) == want) v = e;
+        if (lower(n) == want) { v = e; found = true; }
     });
-    if (v < 0) luaL_argerror(L, arg, lua_pushfstring(L, "not a value of %s", qname(t).c_str()));
+    if (!found) luaL_argerror(L, arg, lua_pushfstring(L, "not a value of %s", qname(t).c_str()));
     return v;
 }
 
@@ -1632,7 +1740,7 @@ lua_Integer enumArg(lua_State* L, int arg, refl::Type t) {
 
 // Calls the handler list on top of the stack with a read-only proxy of ev. A handler that errors is dropped.
 void callHandlers(lua_State* L, refl::Type t, const uint8_t* ev) {
-    for (lua_Integer i = 1; i <= lua_Integer(lua_rawlen(L, -1)); i++) {
+    for (lua_Integer i = 1, count = lua_Integer(lua_rawlen(L, -1)); i <= count; i++) {
         lua_rawgeti(L, -1, i);
         if (!lua_isfunction(L, -1)) {
             lua_pop(L, 1);
@@ -1771,7 +1879,10 @@ void closeState() {
     gHookShutdown = true;
     stopHooks(gL);
     runCallbacks(gL, kOnShutdown, "onShutdown");
-    lua_close(std::exchange(gL, nullptr));
+    resetAdmin();
+    for (const auto& [name, owner] : gSystemOwners) { (void)name; sys::releaseOwner(owner); }
+    gSystemOwners.clear();
+    { kset::budget::Scope budget; lua_close(std::exchange(gL, nullptr)); }
     gLoaded = false;
     gHookShutdown = false;
 }
@@ -1809,20 +1920,52 @@ void global(lua_State* L, const char* name, const luaL_Reg* fns) {
     lua_setglobal(L, name);
 }
 
+// Lua deliberately disables instruction hooks inside GC finalizers. Mods cannot install Lua finalizers;
+// otherwise a single __gc infinite loop can bypass every callback budget, including during lua_close.
+int safeSetmetatable(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (!lua_isnil(L, 2)) luaL_checktype(L, 2, LUA_TTABLE);
+    if (lua_getmetatable(L, 1)) {
+        lua_getfield(L, -1, "__metatable"); bool locked = !lua_isnil(L, -1); lua_pop(L, 2);
+        if (locked) return luaL_error(L, "cannot change a protected metatable");
+    }
+    if (!lua_isnil(L, 2)) {
+        lua_getfield(L, 2, "__gc"); bool finalizer = !lua_isnil(L, -1); lua_pop(L, 1);
+        if (finalizer) return luaL_error(L, "Lua finalizers are disabled in the sandbox");
+    }
+    lua_settop(L, 2); lua_setmetatable(L, 1); lua_pushvalue(L, 1); return 1;
+}
+int safeRawset(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (lua_getmetatable(L, 1)) {
+        lua_getfield(L, -1, "__newindex");
+        bool frozen = lua_iscfunction(L, -1);
+        lua_pop(L, 2);
+        if (frozen) return luaL_error(L, "shared API tables cannot be changed");
+    }
+    luaL_checkany(L, 2); luaL_checkany(L, 3);
+    lua_settop(L, 3); lua_rawset(L, 1); lua_pushvalue(L, 1); return 1;
+}
 int frozenWrite(lua_State* L) {
     return luaL_error(L, "%s is shared by every mod and can't be changed", lua_tostring(L, lua_upvalueindex(1)));
 }
 
 // pairs() on a frozen table lists the real one. Upvalues: next, the real table.
-int frozenPairs(lua_State* L) {
+int frozenNext(lua_State* L) {
+    lua_settop(L, 2);
     lua_pushvalue(L, lua_upvalueindex(1));
+    lua_pushvalue(L, 2);
+    return lua_next(L, -2) ? 2 : 0;
+}
+int frozenPairs(lua_State* L) {
     lua_pushvalue(L, lua_upvalueindex(2));
-    lua_pushnil(L);
+    lua_pushcclosure(L, frozenNext, 1);
+    lua_pushnil(L); lua_pushnil(L);
     return 3;
 }
 
 // Puts the global table `name` behind a read-only proxy. Every mod shares it, so one mod's assignment (Ecs.player =
-// nil) would change it for all of them. rawset still gets past it.
+// nil) would change it for all of them. rawset and pairs cannot expose or change the backing table.
 void freeze(lua_State* L, const char* name) {
     lua_getglobal(L, name);
     int real = lua_gettop(L);
@@ -1873,6 +2016,7 @@ lua_State* rt::open() {
     const luaL_Reg meta[] = {{"__index", refIndex}, {"__newindex", refNewIndex}, {"__len", refLen},
                              {"__tostring", refToString}, {nullptr, nullptr}};
     luaL_setfuncs(L, meta, 0);
+    lua_pushboolean(L, 0); lua_setfield(L, -2, "__metatable");
     lua_pop(L, 1);
     const luaL_Reg ecsFns[] = {{"get", ecsGet},       {"player", ecsPlayer}, {"each", ecsEach},
                                {"fields", ecsFields}, {"types", ecsTypes},   {nullptr, nullptr}};
@@ -1917,9 +2061,17 @@ lua_State* rt::open() {
         lua_newtable(L);
         lua_setfield(L, LUA_REGISTRYINDEX, reg);
     }
-    for (const char* name : {"Ecs", "Res", "GameOptions", "Systems", "Types", "Tick", "Keys", "Events", "Draw", "Overlay", "Admin",
+    lua_register(L, "setmetatable", safeSetmetatable);
+    lua_register(L, "rawset", safeRawset);
+    lua_pushliteral(L, "");
+    if (lua_getmetatable(L, -1)) { lua_pushboolean(L, 0); lua_setfield(L, -2, "__metatable"); lua_pop(L, 1); }
+    lua_pop(L, 1);
+    for (const char* name : {"string", "table", "math", "coroutine", "utf8", "os", "Ecs", "Res", "GameOptions", "Systems", "Types", "Tick", "Keys", "Events", "Draw", "Overlay", "Admin",
                              "ImGui", "ImGuiCond", "ImGuiWindowFlags", "json"})
         freeze(L, name);
+    lua_newtable(L);
+    lua_newtable(L); lua_pushliteral(L, "k"); lua_setfield(L, -2, "__mode"); lua_setmetatable(L, -2);
+    lua_setfield(L, LUA_REGISTRYINDEX, kFunctionMods);
     gHasDraw = false;
     return L;
 }
@@ -1933,9 +2085,9 @@ void rt::exec(lua_State* L, const std::string& line) {
     } scope;
     int top = lua_gettop(L);
     std::string expr = "return " + line;  // expressions print their value, like the standalone lua REPL
-    if (luaL_loadbuffer(L, expr.data(), expr.size(), "=console") != LUA_OK) {
+    if (luaL_loadbufferx(L, expr.data(), expr.size(), "=console", "t") != LUA_OK) {
         lua_pop(L, 1);
-        if (luaL_loadbuffer(L, line.data(), line.size(), "=console") != LUA_OK) {
+        if (luaL_loadbufferx(L, line.data(), line.size(), "=console", "t") != LUA_OK) {
             gSink((LV_BAD + std::string(lua_tostring(L, -1))).c_str());
             lua_settop(L, top);
             return;

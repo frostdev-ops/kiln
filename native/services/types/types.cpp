@@ -22,7 +22,9 @@
 #include "kiln_api.h"
 #include "safetyhook.hpp"
 #include "scan.h"
+#include "runtime.h"
 #include "services/kiln_types.h"
+#include "../../plugins/set/src/coexist.h"
 
 namespace {
 
@@ -31,6 +33,8 @@ using namespace ktypes;
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
 Image g_im;
+std::vector<uint8_t> g_image_bytes;
+std::vector<Range> g_image_readable;
 TypeTable g_tt;
 std::unordered_map<uint32_t, uint64_t> g_by_hash;
 std::unordered_map<std::string_view, uint64_t> g_by_qname;
@@ -47,14 +51,18 @@ std::unique_ptr<std::atomic<uint64_t>[]> g_calls, g_ticks;
 std::unique_ptr<std::atomic<uint8_t>[]> g_kinds;
 std::atomic<uint32_t> g_off_count{0};
 std::atomic<bool> g_prof{false};
-int64_t g_prof_start = 0, g_prof_stop = 0, g_qpf = 1;
+int64_t g_qpf = 1;
+std::mutex g_sys_mu;
+ProfileSession g_profile;
+SystemOwners g_system_owners;
 SafetyHookInline g_runner;
-bool g_systems_ok = false;
+std::atomic<bool> g_systems_ok{false};
+bool g_external_runner = false;
 
 // Events
 int64_t g_ev_map = 0, g_ev_streams = 0, g_storage = 0;  // world.storage: Kiln's world pointer -> the ECS storage
 bool g_events_ok = false;
-constexpr uint64_t kStreamStride = 0x48, kStreamCount = 8, kPosters = 0x70, kPageSize = 0x800, kPageEnd = 0x7f8;
+constexpr uint64_t kStreamStride = 0x48, kStreamCount = 8, kPosters = 0x70;
 
 void logf(int level, const char* fmt, ...) {
     char buf[1024];
@@ -67,22 +75,90 @@ void logf(int level, const char* fmt, ...) {
 KilnStr ks(std::string_view s) { return KilnStr{s.data(), s.size()}; }
 std::string_view sv(KilnStr s) { return s.ptr ? std::string_view(s.ptr, s.len) : std::string_view(); }
 
-bool image_of_process(Image& im) {
-    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    im.mem = reinterpret_cast<const uint8_t*>(base);
-    im.base = base;
-    im.all = {base, base + nt->OptionalHeader.SizeOfImage};
-    const IMAGE_SECTION_HEADER* s = IMAGE_FIRST_SECTION(nt);
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++s) {
-        char name[9] = {};
-        std::memcpy(name, s->Name, 8);
-        const Range r{base + s->VirtualAddress, base + s->VirtualAddress + s->Misc.VirtualSize};
-        if (!std::strcmp(name, ".text")) im.text = r;
-        if (!std::strcmp(name, ".rdata")) im.rdata = r;
+bool process_range(uint64_t address, uint64_t size, bool writing = false) {
+    if (!address || size > UINTPTR_MAX - address) return false;
+    const uint64_t end = address + size;
+    while (address < end) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(reinterpret_cast<const void*>(address), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT ||
+            (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+        const DWORD p = mbi.Protect & 0xff;
+        const bool readable = p == PAGE_READONLY || p == PAGE_READWRITE || p == PAGE_WRITECOPY ||
+                              p == PAGE_EXECUTE_READ || p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY;
+        const bool writable = p == PAGE_READWRITE || p == PAGE_WRITECOPY || p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY;
+        if (!readable || (writing && !writable)) return false;
+        const uint64_t begin = reinterpret_cast<uint64_t>(mbi.BaseAddress);
+        if (mbi.RegionSize > UINT64_MAX - begin || begin + mbi.RegionSize <= address) return false;
+        address = std::min(end, begin + mbi.RegionSize);
     }
-    return im.text.lo && im.rdata.lo;
+    return true;
+}
+struct ProcessMemory {
+    bool read(uint64_t address, void* out, size_t size) const {
+        if (!out || !process_range(address, size)) return false;
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(address), out, size, &got) && got == size;
+    }
+    bool writable(uint64_t address, uint64_t size) const { return process_range(address, size, true); }
+    bool write(uint64_t address, const void* data, size_t size) const {
+        if (!writable(address, size)) return false;
+        SIZE_T written = 0;
+        return WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), data, size, &written) && written == size;
+    }
+};
+const ProcessMemory g_memory;
+bool snapshot_readable(uint64_t address, uint64_t size) {
+    auto it = std::upper_bound(g_image_readable.begin(), g_image_readable.end(), address,
+                              [](uint64_t a, const Range& r) { return a < r.lo; });
+    return it != g_image_readable.begin() && std::prev(it)->has(address, size);
+}
+
+bool image_of_process(Image& im) {
+    const auto base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
+    IMAGE_DOS_HEADER dos{};
+    IMAGE_NT_HEADERS64 nt{};
+    uint64_t nt_at, sections;
+    if (!g_memory.read(base, &dos, sizeof dos) || dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < sizeof dos ||
+        !add_address(base, static_cast<uint64_t>(dos.e_lfanew), nt_at) || !g_memory.read(nt_at, &nt, sizeof nt) ||
+        nt.Signature != IMAGE_NT_SIGNATURE || nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+        nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || nt.FileHeader.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER64) ||
+        !nt.FileHeader.NumberOfSections || nt.FileHeader.NumberOfSections > 96 ||
+        nt.OptionalHeader.SizeOfImage < 0x1000 || nt.OptionalHeader.SizeOfImage > 1024 * 1024 * 1024 ||
+        !add_address(nt_at, 24ull + nt.FileHeader.SizeOfOptionalHeader, sections)) return false;
+    im.base = base;
+    im.all = {base, base + nt.OptionalHeader.SizeOfImage};
+    if (im.all.hi < base || !im.all.has(nt_at, sizeof nt) ||
+        !im.all.has(sections, uint64_t(nt.FileHeader.NumberOfSections) * sizeof(IMAGE_SECTION_HEADER))) return false;
+    // Copy committed readable regions once. All later metadata reads use this immutable, bounded snapshot; a
+    // missing/guard page cannot fault the scanner or leave a borrowed pointer into mutable executable memory.
+    g_image_bytes.assign(nt.OptionalHeader.SizeOfImage, 0);
+    for (uint64_t at = base; at < im.all.hi;) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(reinterpret_cast<const void*>(at), &mbi, sizeof mbi)) return false;
+        const uint64_t mb = reinterpret_cast<uint64_t>(mbi.BaseAddress);
+        if (mbi.RegionSize > UINT64_MAX - mb || mb + mbi.RegionSize <= at) return false;
+        const uint64_t end = std::min(im.all.hi, mb + mbi.RegionSize);
+        if (process_range(at, end - at) && g_memory.read(at, g_image_bytes.data() + (at - base), end - at)) {
+            if (!g_image_readable.empty() && g_image_readable.back().hi == at) g_image_readable.back().hi = end;
+            else g_image_readable.push_back({at, end});
+        }
+        at = end;
+    }
+    im.mem = g_image_bytes.data();
+    im.readable = &snapshot_readable;
+    for (unsigned i = 0; i < nt.FileHeader.NumberOfSections; ++i) {
+        IMAGE_SECTION_HEADER sec{};
+        const uint64_t address = sections + uint64_t(i) * sizeof sec;
+        if (!im.has(address, sizeof sec)) return false;
+        std::memcpy(&sec, im.at(address), sizeof sec);
+        const uint64_t length = sec.Misc.VirtualSize;
+        if (!length || sec.VirtualAddress > nt.OptionalHeader.SizeOfImage ||
+            length > nt.OptionalHeader.SizeOfImage - sec.VirtualAddress) return false;
+        const Range r{base + sec.VirtualAddress, base + sec.VirtualAddress + length};
+        if (!std::memcmp(sec.Name, ".text\0\0\0", 8)) im.text = r;
+        if (!std::memcmp(sec.Name, ".rdata\0\0", 8)) im.rdata = r;
+    }
+    return im.valid();
 }
 
 std::string_view tname(uint64_t t) { return str_at(g_im, t + td::name); }
@@ -95,12 +171,11 @@ void index_types() {
     for (uint32_t i = 0; i < g_tt.count; ++i) {
         const uint64_t t = g_im.q(g_tt.table + 8ull * i);
         g_index_of[t] = i;
-        g_by_hash.emplace(g_im.d(t + td::hash), t);
+        unique_insert(g_by_hash, g_im.d(t + td::hash), t);
         const std::string_view qn = tqname(t), n = tname(t);
         g_by_qname.emplace(qn, t);
         auto add = [&](std::unordered_map<std::string_view, uint64_t>& m) {
-            auto [it, fresh] = m.emplace(n, t);
-            if (!fresh && it->second != t) it->second = 0;
+            unique_insert(m, n, t);
         };
         add(g_by_short);
         if (qn.rfind("keen::ds::", 0) != 0) add(g_by_short_nods);
@@ -110,18 +185,21 @@ void index_types() {
 // ---- types ----
 KilnResult KILN_CALL status(KilnTypesStatus* out) {
     if (!out || out->size < sizeof(KilnTypesStatus)) return KILN_ERR_INVALID_ARGUMENT;
-    out->types = g_tt.error.empty() && g_tt.count;
+    out->types = g_tt.error.empty() && g_tt.count != 0;
     out->systems = g_systems_ok;
     out->events = g_events_ok;
-    out->profiling = g_prof.load();
+
     out->type_count = g_tt.count;
     out->component_count = g_tt.component_count;
     out->event_type_count = g_tt.event_count;
     out->system_count = static_cast<uint32_t>(g_sys.size());
     out->systems_off = g_off_count.load();
-    const int64_t end = g_prof ? [] { LARGE_INTEGER n; QueryPerformanceCounter(&n); return n.QuadPart; }() : g_prof_stop;
-    out->profile_seconds = g_prof_start ? double(end - g_prof_start) / double(g_qpf) : 0.0;
-    out->detail = ks(g_detail);
+    std::lock_guard lock(g_sys_mu);
+    LARGE_INTEGER now{};
+    if (g_profile.active) QueryPerformanceCounter(&now);
+    out->profiling = g_profile.active;
+    out->profile_seconds = g_profile.seconds(now.QuadPart, g_qpf);
+    out->detail = g_external_runner ? ks("native SET/power proxy detected; system runner passive until exit") : ks(g_detail);
     return KILN_OK;
 }
 uint32_t KILN_CALL type_count() { return g_tt.error.empty() ? g_tt.count : 0; }
@@ -137,7 +215,7 @@ const KilnType* KILN_CALL type_by_name(KilnStr name) {
         auto it = g_by_qname.find(n);
         return it == g_by_qname.end() ? nullptr : handle(it->second);
     }
-    if (const KilnType* t = type_by_hash(fnv1a(std::string("keen::ecs::") + std::string(n)))) return t;
+    if (auto it = g_by_qname.find(std::string("keen::ecs::") + std::string(n)); it != g_by_qname.end()) return handle(it->second);
     for (auto* m : {&g_by_short_nods, &g_by_short}) {
         auto it = m->find(n);
         if (it != m->end()) return it->second ? handle(it->second) : nullptr;
@@ -152,6 +230,8 @@ KilnResult KILN_CALL type_info(const KilnType* type, KilnTypeInfo* out) {
     out->name = ks(tname(t));
     out->qualified_name = ks(tqname(t));
     out->type_size = g_im.d(t + td::size);
+    if (out->type_size > 16 * 1024 * 1024 || g_im.d(t + td::count) > 65536 ||
+        !scalar_layout(g_im.b(t + td::kind), out->type_size)) return KILN_ERR_NOT_FOUND;
     out->alignment = g_im.w(t + td::align);
     out->kind = g_im.b(t + td::kind);
     out->flags = g_im.b(t + td::flags);
@@ -160,16 +240,14 @@ KilnResult KILN_CALL type_info(const KilnType* type, KilnTypeInfo* out) {
     const uint64_t inner = g_im.q(t + td::inner);
     out->inner = g_index_of.count(inner) ? handle(inner) : nullptr;
     const uint64_t dp = g_im.q(t + td::defaults), dn = g_im.q(t + td::defaults + 8);
-    out->defaults = dp && dn == out->type_size && g_im.all.has(dp, dn) ? reinterpret_cast<const void*>(dp) : nullptr;
+    out->defaults = dp && dn == out->type_size && g_im.has(dp, dn) ? g_im.at(dp) : nullptr;
     return KILN_OK;
 }
 KilnResult KILN_CALL type_field(const KilnType* type, uint32_t index, KilnTypeField* out) {
     if (!out) return KILN_ERR_INVALID_ARGUMENT;
     if (!known(type)) return KILN_ERR_NOT_FOUND;
-    const uint64_t t = raw(type), f = g_im.q(t + td::fields);
-    if (!f || index >= g_im.d(t + td::count) || g_im.b(t + td::kind) != KILN_TYPE_STRUCT) return KILN_ERR_NOT_FOUND;
-    const uint64_t e = f + uint64_t(index) * td::field_stride;
-    if (!g_im.all.has(e, td::field_stride)) return KILN_ERR_NOT_FOUND;
+    const uint64_t e = field_entry(g_im, raw(type), index);
+    if (!e) return KILN_ERR_NOT_FOUND;
     out->name = ks(str_at(g_im, e));
     const uint64_t ft = g_im.q(e + td::field_type);
     out->type = g_index_of.count(ft) ? handle(ft) : nullptr;
@@ -178,10 +256,8 @@ KilnResult KILN_CALL type_field(const KilnType* type, uint32_t index, KilnTypeFi
 }
 KilnResult KILN_CALL type_enum(const KilnType* type, uint32_t index, KilnStr* name, int64_t* value) {
     if (!known(type)) return KILN_ERR_NOT_FOUND;
-    const uint64_t t = raw(type), e0 = g_im.q(t + td::enums);
-    if (!e0 || index >= g_im.d(t + td::count)) return KILN_ERR_NOT_FOUND;
-    const uint64_t e = e0 + uint64_t(index) * td::enum_stride;
-    if (!g_im.all.has(e, td::enum_stride)) return KILN_ERR_NOT_FOUND;
+    const uint64_t e = enum_entry(g_im, raw(type), index);
+    if (!e) return KILN_ERR_NOT_FOUND;
     if (name) *name = ks(str_at(g_im, e));
     if (value) *value = static_cast<int64_t>(g_im.q(e + td::enum_value));
     return KILN_OK;
@@ -196,32 +272,43 @@ const KilnType* KILN_CALL event_type_at(uint32_t i) {
 }
 
 // ---- systems ----
+void publish_system_switches();
+void KILN_CALL noop(void*);
+bool system_still_disabled(uint32_t index) {
+    std::lock_guard lock(g_sys_mu);
+    if (g_system_owners.reap([](KilnOwner owner) { return g_api->post(owner, &noop, nullptr) != KILN_ERR_REVOKED; }))
+        publish_system_switches();
+    return g_system_owners.disabled.count(index) != 0;
+}
 int64_t sys_index_of_job(const void* job) {
-    // job + 0x10 = the program entry; its update function at +0x28 identifies the system.
-    const uint64_t prog = *reinterpret_cast<const uint64_t*>(reinterpret_cast<uintptr_t>(job) + 0x10);
-    if (!prog) return -1;
-    const uint64_t fn = *reinterpret_cast<const uint64_t*>(prog + 0x28);
+    uint64_t prog, fn;
+    if (!read_at(g_memory, reinterpret_cast<uint64_t>(job), 0x10, prog) || !prog ||
+        !read_at(g_memory, prog, 0x28, fn)) return -1;
     auto it = std::lower_bound(g_sys_by_fn.begin(), g_sys_by_fn.end(), std::pair<uint64_t, uint32_t>{fn, 0});
     return it != g_sys_by_fn.end() && it->first == fn ? int64_t(it->second) : -1;
 }
 
 void runner_detour(uintptr_t world, void* job, uint64_t index, uint64_t slot) {
-    if (g_off_count.load(std::memory_order_relaxed)) {
+    if (g_off_count.load(std::memory_order_acquire)) {
         const int64_t i = sys_index_of_job(job);
-        // Skipped whole: the game's "every entity updated" check lives in this function too, so it never runs.
-        if (i >= 0 && g_off[size_t(i)].load(std::memory_order_relaxed)) return;
+        if (i >= 0 && g_off[size_t(i)].load(std::memory_order_relaxed) && system_still_disabled(static_cast<uint32_t>(i))) return;
     }
-    if (!g_prof.load(std::memory_order_relaxed)) return g_runner.call<void>(world, job, index, slot);
-    LARGE_INTEGER a, b;
+    if (!g_prof.load(std::memory_order_acquire)) return g_runner.call<void>(world, job, index, slot);
+    uint64_t generation;
+    { std::lock_guard lock(g_sys_mu); generation = g_profile.generation; }
+    LARGE_INTEGER a{}, b{};
     QueryPerformanceCounter(&a);
     g_runner.call<void>(world, job, index, slot);
     QueryPerformanceCounter(&b);
-    if (!g_prof.load(std::memory_order_relaxed)) return;
     const int64_t i = sys_index_of_job(job);
     if (i < 0) return;
+    uint8_t kind = 255;
+    read_at(g_memory, world, 8, kind);
+    std::lock_guard lock(g_sys_mu);
+    // A reset/start during this call must not charge an old slice to a new profile session.
+    if (!g_profile.accepts(generation)) return;
     g_calls[size_t(i)].fetch_add(1, std::memory_order_relaxed);
-    g_ticks[size_t(i)].fetch_add(uint64_t(b.QuadPart - a.QuadPart), std::memory_order_relaxed);
-    const uint8_t kind = *reinterpret_cast<const uint8_t*>(world + 8);
+    g_ticks[size_t(i)].fetch_add(uint64_t(std::max<int64_t>(0, b.QuadPart - a.QuadPart)), std::memory_order_relaxed);
     if (kind < 8) g_kinds[size_t(i)].fetch_or(uint8_t(1u << kind), std::memory_order_relaxed);
 }
 
@@ -229,6 +316,7 @@ uint32_t KILN_CALL system_count() { return static_cast<uint32_t>(g_sys.size()); 
 KilnResult KILN_CALL system_info(uint32_t i, KilnSystemInfo* out) {
     if (!out || out->size < sizeof(KilnSystemInfo)) return KILN_ERR_INVALID_ARGUMENT;
     if (i >= g_sys.size()) return KILN_ERR_NOT_FOUND;
+    std::lock_guard lock(g_sys_mu);
     out->index = i;
     out->name = ks(g_sys[i].name);
     out->rva = g_sys[i].fn - g_im.base;
@@ -241,145 +329,158 @@ KilnResult KILN_CALL system_info(uint32_t i, KilnSystemInfo* out) {
 int32_t KILN_CALL system_find(KilnStr name) {
     const std::string_view n = sv(name);
     auto it = std::lower_bound(g_sys.begin(), g_sys.end(), n, [](const System& s, std::string_view x) { return s.name < x; });
-    return it != g_sys.end() && it->name == n ? int32_t(it - g_sys.begin()) : -1;
+    if (it == g_sys.end() || it->name != n || (std::next(it) != g_sys.end() && std::next(it)->name == n)) return -1;
+    return int32_t(it - g_sys.begin());
 }
+void publish_system_switches() { // g_sys_mu held
+    uint32_t count = 0;
+    for (size_t i = 0; i < g_sys.size(); ++i) {
+        const bool off = g_system_owners.disabled.count(static_cast<uint32_t>(i)) != 0;
+        g_off[i].store(off, std::memory_order_relaxed);
+        count += off;
+    }
+    g_off_count.store(count, std::memory_order_release);
+}
+void KILN_CALL noop(void*) {}
 KilnResult KILN_CALL system_set_enabled(KilnOwner owner, uint32_t i, bool enabled) {
     if (!g_systems_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
     if (i >= g_sys.size()) return KILN_ERR_NOT_FOUND;
-    if (g_off[i].exchange(!enabled) == !enabled) return KILN_OK;
-    if (enabled) g_off_count.fetch_sub(1);
-    else g_off_count.fetch_add(1);
-    logf(enabled ? KILN_LOG_INFO : KILN_LOG_WARN, "system %.*s switched %s (owner %llu); %u off", int(g_sys[i].name.size()),
+    if (!owner) return KILN_ERR_INVALID_ARGUMENT;
+    if (!enabled && !can_disable(g_sys, i)) return KILN_ERR_UNAVAILABLE;
+    if (g_api->post(owner, &noop, nullptr) == KILN_ERR_REVOKED) return KILN_ERR_REVOKED;
+    std::lock_guard lock(g_sys_mu);
+    g_system_owners.set(owner, i, enabled);
+    publish_system_switches();
+    logf(enabled ? KILN_LOG_INFO : KILN_LOG_WARN, "system %.*s %s request (owner %llu); %u off", int(g_sys[i].name.size()),
          g_sys[i].name.data(), enabled ? "on" : "off", static_cast<unsigned long long>(owner), g_off_count.load());
     return KILN_OK;
 }
-KilnResult KILN_CALL profile(bool on) {
-    if (!g_systems_ok) return KILN_ERR_UNAVAILABLE;
-    LARGE_INTEGER n;
-    QueryPerformanceCounter(&n);
-    if (on) {
-        for (size_t i = 0; i < g_sys.size(); ++i) g_calls[i] = 0, g_ticks[i] = 0, g_kinds[i] = 0;
-        g_prof_start = n.QuadPart;
-        g_prof_stop = 0;
-    } else if (g_prof) {
-        g_prof_stop = n.QuadPart;
-    }
-    g_prof = on;
+KilnResult KILN_CALL system_release_owner(KilnOwner owner) {
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    std::lock_guard lock(g_sys_mu);
+    g_system_owners.release(owner);
+    publish_system_switches();
     return KILN_OK;
 }
-
-// ---- events (guarded: a world pointer can be stale on a build Kiln has not seen) ----
-template <class T>
-T rd(uint64_t a) { return *reinterpret_cast<const T*>(a); }
-
-// (world here is the ECS storage.) keen hash map: +8 occupancy bitmap, +0x10 capacity (power of two), +0x28 u32 keys, +0x40 values, +0x54 count.
-int64_t map_find(uint64_t m, uint32_t k) {
-    const uint64_t cap = rd<uint64_t>(m + 0x10);
-    if (!rd<uint32_t>(m + 0x54) || !cap || (cap & (cap - 1))) return -1;
-    const auto* used = rd<const uint64_t*>(m + 8);
-    const auto* keys = rd<const uint32_t*>(m + 0x28);
-    for (uint64_t s = k & (cap - 1), n = 0; n < cap && (used[s >> 6] >> (s & 63) & 1); ++n, s = (s + 1) & (cap - 1))
-        if (keys[s] == k) return int64_t(s);
-    return -1;
-}
-
-int event_index_raw(uint64_t world, uint32_t hash) {
-    const uint64_t m = rd<uint64_t>(world) + uint64_t(g_ev_map);
-    const int64_t s = map_find(m, hash);
-    if (s < 0) return -1;
-    const int idx = rd<const uint16_t*>(m + 0x40)[s];
-    return uint64_t(idx) < rd<uint64_t>(world + uint64_t(g_ev_streams) + kStreamCount) ? idx : -1;
-}
-
-int event_index(uint64_t world, uint32_t hash) {
-    __try {
-        return event_index_raw(world, hash);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return -2;
+void KILN_CALL on_pre(const KilnTickInfo*, void*) {
+    if (g_systems_ok && !kset::runtime_conflict().empty()) {
+        std::lock_guard lock(g_sys_mu);
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        if (!displace_runner(true, g_external_runner, g_system_owners, g_profile, now.QuadPart)) return;
+        g_systems_ok = false;
+        g_prof = false;
+        publish_system_switches();
+        // A later MinHook can retain our trampoline. Keep this now-passive adapter mapped until process exit;
+        // restoring the entry or unloading its code here would invalidate the other runtime's hook chain.
+        HMODULE pin = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&runner_detour), &pin);
+        logf(KILN_LOG_WARN, "native SET/power proxy appeared: systems restored, runner left passive until exit");
+        return;
     }
+    if (!g_off_count.load(std::memory_order_acquire)) return;
+    std::lock_guard lock(g_sys_mu);
+    if (g_system_owners.reap([](KilnOwner owner) { return g_api->post(owner, &noop, nullptr) != KILN_ERR_REVOKED; }))
+        publish_system_switches();
+}
+void KILN_CALL on_world(const KilnWorldEvent* event, void*) {
+    if (!event || event->kind != KILN_WORLD_SERVER || event->event != KILN_WORLD_STOPPING) return;
+    std::lock_guard lock(g_sys_mu);
+    g_system_owners.disabled.clear();
+    publish_system_switches();
 }
 
-struct EachArgs {
-    uint64_t world;
-    int idx;
-    KilnEventFn fn;
-    void* user;
-};
-
-void each_raw(const EachArgs* a) {
-    const uint64_t st = rd<uint64_t>(a->world + uint64_t(g_ev_streams)) + uint64_t(a->idx) * kStreamStride;
-    const uint64_t pool = rd<uint64_t>(st + 0x30);
-    const uint32_t size = rd<uint32_t>(st + 0x14), count = rd<uint32_t>(st + 0x18);
-    uint16_t page = rd<uint16_t>(st + 0x40);
-    if (size == 0 || size >= 0x100) return;
-    uint32_t off = 0;
-    for (uint32_t i = 0; i < count && page; ++i) {
-        if (off + size > kPageEnd) {
-            page = rd<uint16_t>(pool + (page - 1u) * kPageSize + 2);
-            off = 0;
-            if (!page) return;
-        }
-        a->fn(reinterpret_cast<const void*>(pool + (page - 1u) * kPageSize + 8 + off), size, a->user);
-        off += size;
+KilnResult KILN_CALL profile(bool on) {
+    if (!g_systems_ok) return KILN_ERR_UNAVAILABLE;
+    std::lock_guard lock(g_sys_mu);
+    if (!g_systems_ok) return KILN_ERR_UNAVAILABLE;
+    LARGE_INTEGER n{};
+    QueryPerformanceCounter(&n);
+    g_prof.store(false, std::memory_order_release);
+    g_profile.set(on, n.QuadPart);
+    if (on) {
+        for (size_t i = 0; i < g_sys.size(); ++i) g_calls[i] = 0, g_ticks[i] = 0, g_kinds[i] = 0;
     }
+    g_prof.store(on, std::memory_order_release);
+    return KILN_OK;
 }
-
-bool each_guarded(const EachArgs* a) {
-    __try {
-        each_raw(a);
-        return true;
-    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-        return false;
+void KILN_CALL on_unload(void*) {
+    profile(false);
+    {
+        std::lock_guard lock(g_sys_mu);
+        g_system_owners.disabled.clear();
+        publish_system_switches();
     }
+    if (!g_external_runner) g_runner.reset();
 }
 
-KilnResult KILN_CALL event_each(uintptr_t world, uint32_t hash, KilnEventFn fn, void* user) {
-    if (!g_events_ok) return KILN_ERR_UNAVAILABLE;
-    if (!world || !fn) return KILN_ERR_INVALID_ARGUMENT;
-    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
-    world += uintptr_t(g_storage);
-    const int idx = event_index(world, hash);
-    if (idx == -2) return KILN_ERR_INTERNAL;
-    if (idx < 0) return KILN_ERR_NOT_FOUND;
-    const EachArgs a{world, idx, fn, user};
-    return each_guarded(&a) ? KILN_OK : KILN_ERR_INTERNAL;
-}
-
-int post_raw(uint64_t world, uint32_t hash, const void* data, uint32_t size, int idx) {
-    const uint32_t padded = (size + 7) & ~7u;
-    const uint64_t st = rd<uint64_t>(world + uint64_t(g_ev_streams)) + uint64_t(idx) * kStreamStride;
-    if (rd<uint32_t>(st + 0x14) > padded) return 1;  // the stream's element is bigger than what was given
-    const uint64_t poster = rd<uint64_t>(world + uint64_t(g_ev_streams) + kPosters);
-    auto* buf = poster ? rd<uint8_t*>(poster) : nullptr;
-    const uint32_t used = poster ? rd<uint32_t>(poster + 0x10) : 0, end = used + 8 + padded;
-    if (!buf || end > rd<uint64_t>(poster + 8)) return 2;
-    uint8_t* rec = buf + used;
-    std::memcpy(rec, &hash, 4);
-    rec[4] = rec[5] = rec[7] = 0;
-    rec[6] = static_cast<uint8_t>(size);
-    std::memset(rec + 8, 0, padded);
-    std::memcpy(rec + 8, data, size);
-    *reinterpret_cast<uint32_t*>(poster + 0x10) = end;
+// ---- events: registered inline types, bounded maps/pages/posters, copied callback data ----
+uint64_t event_type(uint32_t hash) {
+    for (uint32_t i = 0; i < g_tt.event_count; ++i) {
+        const uint64_t t = g_im.q(g_tt.events + 8ull * i);
+        if (g_im.d(t + td::hash) == hash && g_by_hash.count(hash) && g_by_hash.at(hash) == t) return t;
+    }
     return 0;
 }
-
-int post_guarded(uint64_t world, uint32_t hash, const void* data, uint32_t size, int idx) {
-    __try {
-        return post_raw(world, hash, data, size, idx);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return 3;
-    }
+int event_stream(uint64_t storage, uint32_t hash, uint64_t& stream) {
+    uint64_t schema, map, vals, streams, count;
+    if (!read_at(g_memory, storage, 0, schema) || !schema || !add_address(schema, uint64_t(g_ev_map), map)) return -2;
+    const int slot = event_slot(g_memory, map, hash);
+    if (slot < 0) return slot;
+    uint16_t idx;
+    if (!read_at(g_memory, map, 0x40, vals) || !read_at(g_memory, vals, uint64_t(slot) * 2, idx) ||
+        !read_at(g_memory, storage, uint64_t(g_ev_streams), streams) || !streams ||
+        !read_at(g_memory, storage, uint64_t(g_ev_streams) + kStreamCount, count) || count > 65536 || idx >= count ||
+        !add_address(streams, uint64_t(idx) * kStreamStride, stream)) return -2;
+    return idx;
 }
-
-KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data, uint32_t size) {
+KilnResult prepare_event(uintptr_t world, uint32_t hash, uint64_t& storage, uint64_t& type, uint64_t& stream) {
     if (!g_events_ok) return KILN_ERR_UNAVAILABLE;
-    if (!world || !data || size == 0 || size >= 0x100) return KILN_ERR_INVALID_ARGUMENT;
-    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
-    world += uintptr_t(g_storage);
-    const int idx = event_index(world, hash);
+    if (!world) return KILN_ERR_INVALID_ARGUMENT;
+    bool known_world = false, correct_thread = false;
+    for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) {
+        if (world == g_api->world(kind)) {
+            known_world = true;
+            correct_thread |= g_api->on_world_thread(kind);
+        }
+    }
+    if (!known_world) return KILN_ERR_INVALID_ARGUMENT;
+    if (!correct_thread) return KILN_ERR_WRONG_THREAD;
+    type = event_type(hash);
+    if (!type) return KILN_ERR_NOT_FOUND;
+    if (!add_address(world, uint64_t(g_storage), storage)) return KILN_ERR_INVALID_ARGUMENT;
+    const int idx = event_stream(storage, hash, stream);
     if (idx == -2) return KILN_ERR_INTERNAL;
     if (idx < 0) return KILN_ERR_NOT_FOUND;
-    switch (post_guarded(world, hash, data, size, idx)) {
+    const uint32_t size = g_im.d(type + td::size);
+    uint32_t stride;
+    if (!size || size >= 256 || !read_at(g_memory, stream, 0x14, stride) || stride != ((size + 7) & ~7u))
+        return KILN_ERR_INVALID_ARGUMENT;
+    return KILN_OK;
+}
+KilnResult KILN_CALL event_each(uintptr_t world, uint32_t hash, KilnEventFn fn, void* user) {
+    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
+    uint64_t storage, type, stream;
+    const KilnResult result = prepare_event(world, hash, storage, type, stream);
+    if (result != KILN_OK) return result;
+    const uint32_t size = g_im.d(type + td::size);
+    std::vector<std::vector<uint8_t>> copies;
+    if (!copy_events(g_memory, stream, size, copies)) return KILN_ERR_INTERNAL;
+    for (const auto& copy : copies) fn(copy.data(), size, user);
+    return KILN_OK;
+}
+KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data, uint32_t size) {
+    if (!data || !size || size >= 256) return KILN_ERR_INVALID_ARGUMENT;
+    uint64_t storage, type, stream;
+    const KilnResult result = prepare_event(world, hash, storage, type, stream);
+    if (result != KILN_OK) return result;
+    uint8_t payload[255];
+    if (size != g_im.d(type + td::size) || !g_memory.read(reinterpret_cast<uint64_t>(data), payload, size) ||
+        !valid_payload(g_im, type, payload, size)) return KILN_ERR_INVALID_ARGUMENT;
+    uint64_t poster;
+    if (!read_at(g_memory, storage, uint64_t(g_ev_streams) + kPosters, poster)) return KILN_ERR_INTERNAL;
+    switch (append_event(g_memory, stream, poster, hash, payload, size)) {
         case 0: return KILN_OK;
         case 1: return KILN_ERR_INVALID_ARGUMENT;
         case 2: return KILN_ERR_BUFFER_TOO_SMALL;
@@ -390,7 +491,7 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
-    &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post,
+    &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner,
 };
 
 bool sym(const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
@@ -402,9 +503,10 @@ void add_detail(const std::string& s) { g_detail += (g_detail.empty() ? "" : "; 
 }  // namespace
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
-    if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
+    if (!api || !info || api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_owner = owner;
+    info->on_unload = &on_unload;
     info->id = KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     LARGE_INTEGER f;
@@ -418,7 +520,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_tt = find_type_table(g_im);
     if (!g_tt.error.empty()) {
         add_detail("type table: " + g_tt.error);
-        g_tt.count = 0;
+        g_tt = TypeTable{.error = g_tt.error};
     } else {
         index_types();
     }
@@ -432,17 +534,32 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     for (size_t i = 0; i < n; ++i) g_sys_by_fn.emplace_back(g_sys[i].fn, static_cast<uint32_t>(i));
     std::sort(g_sys_by_fn.begin(), g_sys_by_fn.end());
     uintptr_t runner = 0;
-    if (n && feat("types.systems") && sym("types/ProgramRunner", &runner)) {
+    const std::string conflict = kset::runtime_conflict();
+    if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
+    if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {
         g_runner = safetyhook::create_inline(reinterpret_cast<void*>(runner), reinterpret_cast<void*>(&runner_detour));
         g_systems_ok = static_cast<bool>(g_runner);
         if (!g_systems_ok) add_detail("hooking the program runner failed");
     } else {
         add_detail(n ? "the program runner was not found (sigdb types.systems)" : "no system descriptors found");
     }
+    if (g_systems_ok) {
+        KilnHandle tick = 0, world = 0;
+        if (g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_pre, nullptr, &tick) != KILN_OK ||
+            g_api->subscribe_world(g_owner, &on_world, nullptr, &world) != KILN_OK) {
+            if (tick) g_api->unsubscribe(tick);
+            if (world) g_api->unsubscribe(world);
+            g_runner.reset();
+            g_systems_ok = false;
+            add_detail("system owner/world cleanup unavailable");
+        }
+    }
     // The streams and the map pointer live in the world's ECS storage (world + world.storage, a core constant); the
     // event map is in the registry that storage points to.
     g_events_ok = feat("types.events") && cst("types/events.map", &g_ev_map) && cst("types/events.streams", &g_ev_streams) &&
                   cst("world.storage", &g_storage);
+    g_events_ok = g_events_ok && g_tt.error.empty() && g_tt.event_count && g_ev_map >= 0 && g_ev_map < 0x1000000 &&
+                  g_ev_streams >= 0 && g_ev_streams < 0x1000000 && g_storage >= 0 && g_storage < 0x1000000;
     if (g_events_ok) g_ev_streams += 0x28;  // the capture is the lea's displacement; the streams start 0x28 later
     else add_detail("event streams not found (sigdb types.events)");
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

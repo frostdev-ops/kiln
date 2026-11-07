@@ -65,15 +65,15 @@ size_t retainedBytes();
 // A detour SET installs itself (world tick, admin consumer...): observing it is refused with a clear message.
 void reserve(uintptr_t fn, const char* what);
 // The address of the only match of a pattern like "48 89 5C 24 ?? 57" in imageBase's .text, matched against the
-// original bytes from the image's file (no detour, SET's or another mod's, hides a target); 0 with err set if none,
-// several or a bad pattern.
+// live .text through kiln.hooks; 0 with err set if none, several or a bad pattern. Cached resolutions survive this
+// adapter's own patches and reloads. A pre-existing third-party patch can prevent the first match.
 uintptr_t findPattern(uintptr_t imageBase, std::string_view pattern, std::string& err);
 void restoreCode(uintptr_t start, uint8_t* copy, size_t size);  // scanner's private copy, never executable memory
 
 // Subscribes key ("<mod>/<name>") to the function at fn. A key subscribed before (an earlier Lua state) is reused when
-// fn, args and capacity match, so reloads don't grow memory. Returns a subscriber id, or -1 with err set. Every
+// fn, args and capacity match (inactive slots can be recycled), so reloads don't grow memory. Returns a subscriber id, or -1 with err set. Every
 // position must agree with the target's other subscribers (same kind, or Skip on either side). Refused: SET's own
-// detours and targets 1-4 bytes from another hooked entry.
+// detours and targets within 15 bytes of a reserved or retained entry (to avoid overlapping patches).
 int subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& args, uint32_t capacity, std::string& err);
 void unsubscribe(int sub);
 void unsubscribeAll();  // a Lua state closes: every subscriber off, queued events discarded

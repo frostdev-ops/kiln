@@ -9,6 +9,8 @@
 #include <windows.h>
 
 #include <atomic>
+#include <array>
+#include <cctype>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -39,6 +41,7 @@ struct Sub {
     uint32_t capacity = 256;
     uintptr_t fn = 0;
     bool active = true;
+    size_t cost = 0;
     std::mutex mx;  // capture threads vs. the Lua thread
     std::vector<hk::Event> events;
     std::vector<uint8_t> payload;
@@ -71,19 +74,26 @@ void note(const std::string& s) {
     g_pending_log.push_back(s);
 }
 
-uint64_t arg_bits(const KilnRegisters* r, int i, bool fp) {
+bool read_memory(uintptr_t p, void* out, size_t n) {
+    return p && n <= UINTPTR_MAX - p && H && H->read && H->read(p, out, n) == KILN_OK;
+}
+
+bool arg_bits(const KilnRegisters* r, int i, bool fp, uint64_t& out) {
     if (i < 4) {
         if (fp) {
             const KilnXmm* x[] = {&r->xmm0, &r->xmm1, &r->xmm2, &r->xmm3};
             uint64_t v;
             std::memcpy(&v, x[i]->bytes, 8);
-            return v;
+            out = v;
+            return true;
         }
         const uintptr_t g[] = {r->rcx, r->rdx, r->r8, r->r9};
-        return g[i];
+        out = g[i];
+        return true;
     }
     // At the entry [rsp] is the return address, the home space follows, then argument 5 at rsp + 0x28.
-    return *reinterpret_cast<const uint64_t*>(r->rsp + 0x28 + 8 * uint64_t(i - 4));
+    const uintptr_t off = 0x28 + 8 * uintptr_t(i - 4);
+    return r->rsp <= UINTPTR_MAX - off && read_memory(r->rsp + off, &out, sizeof out);
 }
 
 void capture(Target* t, KilnRegisters* r) {
@@ -96,14 +106,20 @@ void capture(Target* t, KilnRegisters* r) {
         hk::Event e{};
         e.seq = g_seq.fetch_add(1) + 1;
         e.qpc = a.QuadPart;
-        uint8_t local[hk::kMaxSnapshot + hk::kMaxStr];
+        // Each of the eight arguments can independently carry a snapshot or string.
+        std::array<uint8_t, hk::kMaxArgs * hk::kMaxSnapshot> local;
         size_t used = 0;
         for (size_t i = 0; i < s->args.size(); ++i) {
             const hk::Arg& g = s->args[i];
             const bool fp = g.kind == hk::F32 || g.kind == hk::F64;
             hk::Value& v = e.v[i];
             if (g.kind == hk::Skip) continue;
-            const uint64_t bits = arg_bits(r, int(i), fp);
+            uint64_t bits = 0;
+            auto fault = [&] {
+                t->faulted = true;
+                note(s->key + ": invalid argument read; target disabled");
+            };
+            if (!arg_bits(r, int(i), fp, bits)) { fault(); return; }
             switch (g.kind) {
             case hk::Bool: v.bits = bits & 0xff; break;
             case hk::U8: v.bits = bits & 0xff; break;
@@ -114,17 +130,24 @@ void capture(Target* t, KilnRegisters* r) {
             case hk::I32: v.bits = uint64_t(int64_t(int32_t(bits))); break;
             case hk::F32: v.bits = bits & 0xffffffffu; break;
             case hk::EntityPtr:
-                if (bits) { v.bits = *reinterpret_cast<const uint32_t*>(bits); v.len = 4; }
+                if (bits) {
+                    uint32_t id = 0;
+                    if (!read_memory(bits, &id, sizeof id)) { fault(); return; }
+                    v.bits = id; v.len = 4;
+                }
                 break;
             case hk::CStr:
                 if (bits) {
-                    const char* p = reinterpret_cast<const char*>(bits);
                     uint32_t n = 0;
-                    while (n < hk::kMaxStr && p[n]) ++n;
+                    for (; n < hk::kMaxStr; ++n) {
+                        uint8_t c = 0;
+                        if (bits > UINTPTR_MAX - n || !read_memory(bits + n, &c, 1)) { fault(); return; }
+                        if (!c) break;
+                        local[used + n] = c;
+                    }
                     v.bits = 1;
                     v.off = uint32_t(used);
                     v.len = n;
-                    std::memcpy(local + used, p, n);
                     used += n;
                 }
                 break;
@@ -134,7 +157,7 @@ void capture(Target* t, KilnRegisters* r) {
                     v.bits = 1;
                     v.off = uint32_t(used);
                     v.len = n;
-                    std::memcpy(local + used, reinterpret_cast<const void*>(bits), n);
+                    if (!read_memory(bits, local.data() + used, n)) { fault(); return; }
                     used += n;
                 }
                 break;
@@ -151,7 +174,7 @@ void capture(Target* t, KilnRegisters* r) {
         } else {
             for (size_t i = 0; i < s->args.size(); ++i)
                 if ((s->args[i].kind == hk::CStr || s->args[i].kind == hk::Snapshot) && e.v[i].bits) e.v[i].off += uint32_t(s->payload.size());
-            s->payload.insert(s->payload.end(), local, local + used);
+            s->payload.insert(s->payload.end(), local.data(), local.data() + used);
             s->events.push_back(e);
             s->highWater = std::max<uint32_t>(s->highWater, uint32_t(s->events.size()));
         }
@@ -183,6 +206,7 @@ void kset::bindHooks(const KilnApi* api, KilnOwner owner) {
     g_api = api;
     g_owner = owner;
     H = static_cast<const KilnHooksApi*>(api->service(KilnStr{KILN_HOOKS_SERVICE, sizeof(KILN_HOOKS_SERVICE) - 1}, 1));
+    if (H && H->header.size < sizeof(KilnHooksApi)) H = nullptr;
     LARGE_INTEGER f, n;
     QueryPerformanceFrequency(&f);
     QueryPerformanceCounter(&n);
@@ -277,6 +301,10 @@ uintptr_t hk::findPattern(uintptr_t, std::string_view text, std::string& err) {
         err = "pattern is ambiguous: " + std::to_string(n) + " matches";
         return 0;
     }
+    if (r != KILN_OK || !hits[0]) {
+        err = "native hook scan failed";
+        return 0;
+    }
     std::lock_guard lock(g_mx);
     g_patterns[norm] = hits[0];
     return hits[0];
@@ -284,12 +312,38 @@ uintptr_t hk::findPattern(uintptr_t, std::string_view text, std::string& err) {
 
 int hk::subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& args, uint32_t capacity, std::string& err) {
     std::lock_guard lock(g_mx);
+    if (!fn || args.size() > kMaxArgs || !capacity || capacity > kMaxQueue) {
+        err = "hooks need a target, 0..8 arguments and a queue capacity of 1..4096";
+        return -1;
+    }
+    size_t payload = 0;
+    for (const auto& a : args) {
+        if (a.kind > CStr || (a.kind == Snapshot && (!a.type || !a.type.size() ||
+            a.type.size() > kMaxSnapshot || (a.type.prim() != refl::Struct && a.type.prim() != refl::StaticArray) ||
+            !refl::plain(a.type)))) {
+            err = "hook snapshots require a plain fixed-size struct or array of at most 1024 bytes";
+            return -1;
+        }
+        payload += a.kind == Snapshot ? a.type.size() : a.kind == CStr ? kMaxStr : 0;
+    }
+    // Include the batch being delivered while captures fill the next queue.
+    const size_t cost = 2 * size_t(capacity) * (sizeof(Event) + payload);
     if (auto it = g_reserved.find(fn); it != g_reserved.end()) {
         err = "target is reserved by Kiln (" + it->second + ")";
         note(key + ": " + err);
         return -1;
     }
+    auto overlaps = [fn](uintptr_t other) { return (fn > other ? fn - other : other - fn) < 16; };
+    for (const auto& [at, what] : g_reserved) if (overlaps(at)) {
+        err = "target overlaps a reserved Kiln hook (" + what + ")";
+        return -1;
+    }
+    for (const auto& [at, unused] : g_targets) if (at != fn && overlaps(at)) {
+        err = "target overlaps an existing entry hook";
+        return -1;
+    }
     Target* t = nullptr;
+    Sub* reuse = nullptr;
     if (auto it = g_targets.find(fn); it != g_targets.end()) {
         t = it->second.get();
         if (t->faulted) {
@@ -297,7 +351,9 @@ int hk::subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& 
             note(key + ": " + err);
             return -1;
         }
-        if (t->subs.size() >= kMaxSubs) {
+        for (Sub* old : t->subs)
+            if (!old->active && (!reuse || old->key == key)) reuse = old;
+        if (!reuse && t->subs.size() >= kMaxSubs) {
             err = "too many registrations on this target";
             note(key + ": " + err);
             return -1;
@@ -305,13 +361,21 @@ int hk::subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& 
         for (Sub* o : t->subs) {  // active declarations must agree at every non-skipped position
             if (!o->active) continue;
             for (size_t i = 0; i < std::min(o->args.size(), args.size()); ++i)
-                if (o->args[i].kind != Skip && args[i].kind != Skip && o->args[i].kind != args[i].kind) {
+                if (o->args[i].kind != Skip && args[i].kind != Skip &&
+                    (o->args[i].kind != args[i].kind ||
+                     (args[i].kind == Snapshot && o->args[i].type.p != args[i].type.p))) {
                     err = "argument " + std::to_string(i + 1) + " disagrees with " + o->key;
                     note(key + ": " + err);
                     return -1;
                 }
         }
-    } else {
+    }
+    if (cost > kMemoryBudget - (g_bytes - (reuse ? reuse->cost : 0))) {
+        err = "hook memory budget exhausted";
+        note(key + ": " + err);
+        return -1;
+    }
+    if (!t) {
         if (g_targets.size() >= size_t(kMaxTargets) || !H) {
             err = H ? "too many hook targets" : "native hooks are unavailable: kiln.hooks is not running";
             note(key + ": " + err);
@@ -327,11 +391,21 @@ int hk::subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& 
         }
         g_targets.emplace(fn, std::move(nt));
     }
-    const size_t cost = size_t(capacity) * (sizeof(Event) + 64);
-    if (g_bytes + cost > kMemoryBudget) {
-        err = "hook memory budget exhausted; restart the game";
-        note(key + ": " + err);
-        return -1;
+    if (reuse) {
+        g_bytes -= reuse->cost;
+        reuse->cost = cost;
+        g_bytes += cost;
+        reuse->key = key;
+        reuse->args = args;
+        reuse->capacity = capacity;
+        // Release capacity from a previous, larger declaration before accounting the new one.
+        std::vector<Event>().swap(reuse->events);
+        std::vector<uint8_t>().swap(reuse->payload);
+        reuse->events.reserve(capacity);
+        reuse->payload.reserve(size_t(capacity) * payload);
+        reuse->active = true;
+        ++reuse->generation;
+        return reuse->id;
     }
     g_bytes += cost;
     auto s = std::make_unique<Sub>();
@@ -339,8 +413,10 @@ int hk::subscribe(uintptr_t fn, const std::string& key, const std::vector<Arg>& 
     s->key = key;
     s->args = args;
     s->capacity = capacity;
+    s->cost = cost;
     s->fn = fn;
-    s->events.reserve(std::min<uint32_t>(capacity, 64));
+    s->events.reserve(capacity);
+    s->payload.reserve(size_t(capacity) * payload);
     t->subs.push_back(s.get());
     const int id = s->id;
     g_subs.emplace(id, std::move(s));

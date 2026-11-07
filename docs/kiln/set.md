@@ -1,7 +1,7 @@
 # Shrouded Engine Tweaks mods on Kiln (kiln-set)
 
 Kiln runs Lua mods written for **Shrouded Engine Tweaks** (SET 0.1.1, MIT, github.com/Cacaida/Shrouded-Engine-Tweaks)
-unchanged, through the plugin `kiln/plugins/kiln-set.dll`. You do not need SET's own `powrprof.dll`. Unlike SET, the
+through the plugin `kiln/plugins/kiln-set.dll`, subject to the safety restrictions below. You do not need SET's own `powrprof.dll`. Unlike SET, the
 mods also run on a **dedicated server**.
 
 ## Install a mod
@@ -11,9 +11,13 @@ mods also run on a **dedicated server**.
 3. Start the server or the game. `kiln/logs/kiln.log` shows each mod as SET does, under `[set]`:
    `[set] Mod loaded: myheal`, `[set] Mods: 2 loaded, 0 failed`. Everything a mod prints goes there too.
 
-When SET's own `powrprof.dll` runs in the process, kiln-set steps aside (`kiln-set steps aside: SET's own
-powrprof.dll is loaded ...`): the mods are SET's to run. Kiln uses `dinput8.dll` and SET `powrprof.dll`, so both can be
-installed side by side; Kiln never replaces SET's file.
+kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory, or a renamed
+module containing SET's branding. This is deliberately conservative: an unrelated non-system power proxy also
+suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
+tick/menu work; a module loaded later stops the runtime and releases its Lua owners. A module inventory that cannot
+be inspected also refuses to run. Kiln uses `dinput8.dll`, so installation does not replace SET's file.
+The types service uses the same detector for its runner hook, avoiding competing system controls. If SET loads
+after Kiln installed that hook, the adapter restores all switches and remains passive until process exit.
 
 ## When mods run
 | | Dedicated server | Game, main menu | Game, a world you host |
@@ -46,12 +50,33 @@ matching Kiln C# API and how each was tested, is in
   window yet; the console is the file above.
 
 ## Differences from SET
+- Only `stamina_depletion_sprint` and `fall_damage_infliction` can be disabled; critical and unknown systems are
+  refused. Disable requests are per mod and released on initialization failure, reload and shutdown. Another mod's
+  active request keeps the system disabled. See [kiln.types](services/types.md#systems).
+- Lua execution has instruction/deadline limits, including protected calls and coroutines. A callback that errors
+  is removed while other mods continue. This bounds Lua execution; it is not preemption of arbitrary native code.
+- `require`, `io.open` and `io.lines` use the mod's folder and reject traversal, devices, links/reparse points and
+  paths outside it. `load` accepts source text in that mod's environment. Process execution, native library loading,
+  `debug` and shared mutable standard libraries are unavailable. Console files are trusted server-owner input.
+- Reflection checks the actual component buffer extent. Fixed arrays are checked per element; game-owned string
+  and dynamic-container writes are refused. Event posting additionally validates the registered event's complete
+  inline payload. NaN and infinity are refused for numeric game fields.
+- `Res` lookups and resource views require the tick thread. Kiln resource buffers can move on the next tick;
+  views re-resolve their key and validate the current length on every access. Read/copy values in Tick for Draw.
 - Writes to components skip the game's dirty-marking, as in SET; on a server Kiln is authoritative, so writes there
   reach players when the game next sends the field.
 - `Hooks.observe` uses kiln.hooks' entry hooks. Targets Kiln itself hooks (the world step, the program runner) are
   refused. A pattern that registered once keeps its target after reload.
 - `GetGameBuild()` is the exe's link time stamp, as in SET (server 26430253: 1793791038).
 - Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET, but there is no Bindings window yet.
+- `ImGui.BeginChild(id, w, h, border, flags)` uses SET's argument order; the current `kiln.ui` service always draws
+  a child border. Window/child nesting is checked and unwound between callbacks, including callbacks that omit End.
+
+## Offline regression tests
+`KILN_OUT=/tmp/kiln-review-set bash native/plugins/set/tests/test-lua.sh` builds the real Lua adapter against a
+small host shim and tests sandbox escapes, script limits, isolation, reflection and reload without launching the
+game. `bash native/plugins/set/test-review.sh` tests the real hook capture adapter with ASan/UBSan, the plugin's
+startup/late-load coexistence checks, and mocked ImGui nesting/recovery. These do not verify client rendering.
 
 ## Lab test
 `mods/tests/set-test/mods/` holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which checks
