@@ -97,7 +97,9 @@ public static unsafe class Rules
             BuildingZone = (s.Hooks & RulesNative.HookZone) != 0, ShroudTimer = (s.Hooks & RulesNative.HookShroud) != 0,
             Gliding = (s.Hooks & RulesNative.HookGlide) != 0, ZoneForced = s.ZoneForced, ShroudHeld = s.ShroudHeld,
             GlideChanged = s.GlideChanged, FreeCrafting = (s.Hooks & RulesNative.HookCraft) != 0,
-            KeptConsumables = (s.Hooks & RulesNative.HookConsume) != 0, MapReveal = (s.Hooks & RulesNative.HookMap) != 0,
+            KeptConsumables = (s.Hooks & RulesNative.HookConsume) != 0, KeptFoodAndPotions = (s.Hooks & RulesNative.HookConsumeBuff) != 0,
+            CharacterFlight = (s.Hooks & RulesNative.HookFlight) != 0,
+            MapReveal = (s.Hooks & RulesNative.HookMap) != 0,
             CraftButtons = (s.Hooks & RulesNative.HookCraftUi) != 0,
             CraftsFree = RulesCrafting.Counters.Crafts, ConsumablesKept = RulesCrafting.Counters.Kept,
         };
@@ -206,6 +208,12 @@ public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool M
     /// <summary>The two consume removals (KeepConsumables: fired arrows, thrown items, staff ammunition).</summary>
     public bool KeptConsumables { get; init; }
 
+    /// <summary>The buff item's consume removal (KeepConsumables: food, drinks, potions, bandages).</summary>
+    public bool KeptFoodAndPotions { get; init; }
+
+    /// <summary>Character flight's hooks (CharacterFlight): the locomotion state, gravity and the flying mover.</summary>
+    public bool CharacterFlight { get; init; }
+
     /// <summary>Game client: the fog of war's discover call (the creative menu's map reveal).</summary>
     public bool MapReveal { get; init; }
 
@@ -298,11 +306,14 @@ public sealed class RulesPolicy
     [Comment("Allows requesting FreeCrafting; currently unavailable without an authoritative transaction hook.")]
     public bool AllowFreeCrafting { get; set; } = true;
 
-    [Comment("Allows requesting KeepConsumables; currently unavailable without proof of consumption.")]
+    [Comment("Allows requesting KeepConsumables (arrows, ammunition, food, potions are not used up).")]
     public bool AllowKeepConsumables { get; set; } = true;
+
+    [Comment("The character itself may fly for a player (CharacterFlight). Off until the server turns it on: new, and tested on fewer setups than the rest.")]
+    public bool AllowCharacterFlight { get; set; }
 
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,
         AllowBuildInShroud, AllowIgnoreBasePermissions, AllowInvulnerable, MinBuildCost, MaxDigDamage, MaxStaminaFloor, MaxHealthFloor,
         MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed,
-        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables);
+        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables, AllowCharacterFlight);
 }

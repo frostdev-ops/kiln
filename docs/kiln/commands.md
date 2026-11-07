@@ -157,6 +157,11 @@ hosting a co-op world, or a world played offline. `Creative.Set(player, on)` doe
   otherwise), up to one stack and at most 9,999 items; gear at a supported level. Invalid values are refused. The command says it is giving; the player is told the outcome (`Took 7 x Wood Logs.`),
   and kiln.log has `kiln.rules: creative: <name> took ...`.
 - `/creative time <time>`: jumps the world's clock forward to a time of day (`7`, `07:30`, `7pm`, `dusk`).
+- `/creative flight off|unlimited|buildingarea [player]`: character flight for a player in creative mode (jump to take off,
+  hold jump to climb, sneak to sink, sprint for speed). Off on every server until its `rules.json` sets
+  `"allowCharacterFlight": true`; refused with the reason otherwise (docs/kiln/services/rules.md "Character flight").
+- While Creative Mode (Nexus 146) runs in the same game through kiln-flame, `/creative on`, `give`, `time`, `cycle` and
+  `flight` are refused and `/creative status` says so: its own menu applies.
 - `/creative cycle normal|stopped|fast`: the day and night cycle for the whole world until it is set back or the server
   restarts: stopped (the sun stands still, sleeping doesn't move it), fast (a whole day and night in about 90 s).
 - The same in the game's **creative menu** (F7, or Creative in the pause menu; docs/kiln/services/rules.md "Creative

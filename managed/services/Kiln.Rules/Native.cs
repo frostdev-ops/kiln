@@ -12,11 +12,11 @@ internal static unsafe class RulesNative
     // KilnRulesPlayer.flags
     public const uint FlyAnywhere = 0x01, BuildOutsideBases = 0x02, IgnoreNoBuildZones = 0x04, IgnoreEnemies = 0x08,
         IgnoreShroud = 0x10, IgnoreBasePermissions = 0x20, ShroudFreeze = 0x40, GlideUnlimited = 0x80, GlideBoost = 0x100,
-        FreeCrafting = 0x200, KeepConsumables = 0x400;
+        FreeCrafting = 0x200, KeepConsumables = 0x400, CharacterFlight = 0x800, FlightBaseOnly = 0x1000;
 
     // KilnRulesStatus.hooks
     public const uint HookFly = 0x01, HookCursor = 0x02, HookCosts = 0x04, HookDig = 0x08, HookZone = 0x10, HookShroud = 0x20,
-        HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400;
+        HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400, HookConsumeBuff = 0x800, HookFlight = 0x1000;
 
     // map_reveal modes
     public const uint MapDefault = 0, MapRadius = 1, MapWhole = 2;
@@ -33,6 +33,9 @@ internal static unsafe class RulesNative
         public ulong CraftUi;
         public ulong ConsumesKept;
         public ulong Faults;
+        public ulong FlightTakeoffs;
+        public ulong FlightLandings;
+        public ulong FlightEnds;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -152,6 +155,14 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
         Flags = Flags & ~GlideFlags, GlideSink = 1f, GlideThrust = 0f, GlideMaxSpeed = 0f, GlideLift = 0f, GlideCoast = 0f,
         GlideClimb = 0f,
     };
+
+    private const uint FlightFlags = RulesNative.CharacterFlight | RulesNative.FlightBaseOnly;
+
+    /// <summary>Rules the player's game predicts (the glide, character flight): held back from a game without Kiln's rules
+    /// channel, which would fight the server every step.</summary>
+    public bool HasPredicted => HasGlide || (Flags & FlightFlags) != 0;
+
+    public RulesNativePart WithoutPredicted => WithoutGlide with { Flags = Flags & ~(GlideFlags | FlightFlags) };
 
     // The generated record formatter would recursively format the computed WithoutGlide property.
     public override string ToString() =>

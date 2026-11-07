@@ -16,6 +16,7 @@ namespace Kiln;
 /// <item>floors (<see cref="MinHealth"/>, <see cref="MinStamina"/>, <see cref="MinMana"/>, <see cref="MinShroudTime"/>): the
 /// highest wins;</item>
 /// <item><see cref="Water"/>: the most generous wins (the fastest rate; the items of every rule set).</item>
+/// <item><see cref="CharacterFlight"/>: an explicit <see cref="CharacterFlightMode.Off"/> wins, then the widest mode.</item>
 /// </list>
 /// The same object reads from and writes to JSON (camelCase): a preset in <c>kiln/config/rules/&lt;name&gt;.json</c> is
 /// one of these.
@@ -69,7 +70,8 @@ public sealed record PlayerRules
     /// authoritative transaction hook is available; the game keeps its own crafting behavior.</summary>
     public bool? FreeCrafting { get; init; }
 
-    /// <summary>Requests keeping used consumables. Currently unavailable: slot-change events cannot prove consumption.</summary>
+    /// <summary>Used consumables are not removed: fired arrows, thrown items and staff ammunition, food, drinks,
+    /// potions and bandages (kiln.rules' consume hooks; denied where this build has none of them).</summary>
     public bool? KeepConsumables { get; init; }
 
     // ---- mining ----
@@ -121,6 +123,14 @@ public sealed record PlayerRules
     /// gives it), and holding the sprint key pushes it along that path, up to a speed cap and a climb rate; letting go
     /// glides on and settles into the game's glide. The most generous of every rule set wins (each value separately).</summary>
     public GlideBoostRule? GlideBoost { get; init; }
+
+    // ---- character flight (needs Kiln in the player's game: the flight runs in the game's prediction too) ----
+
+    /// <summary>The character itself flies (not the building spark): airborne, it takes off; jump climbs, sneak sinks,
+    /// sprint is faster; touching the ground while sinking lands it. <see cref="CharacterFlightMode.BuildingArea"/>
+    /// only inside a base's building zone (leaving it in the air ends the flight). Off on every server until its
+    /// <c>rules.json</c> sets <c>allowCharacterFlight</c>; denied where the build has no flight hooks.</summary>
+    public CharacterFlightMode? CharacterFlight { get; init; }
 
     // ---- water ----
 
@@ -181,6 +191,7 @@ public sealed record PlayerRules
         UnlimitedGliding = other.UnlimitedGliding ?? UnlimitedGliding, GlideSink = other.GlideSink ?? GlideSink,
         GlideBoost = other.GlideBoost ?? GlideBoost,
         Water = other.Water ?? Water,
+        CharacterFlight = other.CharacterFlight ?? CharacterFlight,
     };
 
     /// <summary>Out-of-range values, by member name; empty when the rules are fine.</summary>
@@ -314,6 +325,7 @@ public sealed record EffectiveRules
     public double GlideSink { get; init; } = 1;
     public GlideBoostRule? GlideBoost { get; init; }
     public WaterRule? Water { get; init; }
+    public CharacterFlightMode CharacterFlight { get; init; }
 
     /// <summary>The rule sets that applied, in the order they were set.</summary>
     public IReadOnlyList<RuleSet> From { get; init; } = Array.Empty<RuleSet>();
@@ -327,7 +339,8 @@ public sealed record EffectiveRules
     public bool IsDefault => !FlyAnywhere && !BuildOutsideBases && !IgnoreNoBuildZones && !IgnoreEnemiesNearby && !BuildInShroud &&
                              !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && !FreeCrafting && !KeepConsumables && DigDamage == 1 &&
                              !Invulnerable && !NoFallDamage && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
-                             MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null;
+                             MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null &&
+                             CharacterFlight == CharacterFlightMode.Off;
 
     internal RulesNativePart Native => new(
         (FlyAnywhere ? RulesNative.FlyAnywhere : 0) | (BuildOutsideBases ? RulesNative.BuildOutsideBases : 0) |
@@ -335,7 +348,9 @@ public sealed record EffectiveRules
         (BuildInShroud ? RulesNative.IgnoreShroud : 0) | (IgnoreBasePermissions ? RulesNative.IgnoreBasePermissions : 0) |
         (FreezeShroudTimer ? RulesNative.ShroudFreeze : 0) | (UnlimitedGliding ? RulesNative.GlideUnlimited : 0) |
         (GlideBoost is not null ? RulesNative.GlideBoost : 0) |
-        (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0),
+        (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0) |
+        (CharacterFlight != CharacterFlightMode.Off ? RulesNative.CharacterFlight : 0) |
+        (CharacterFlight == CharacterFlightMode.BuildingArea ? RulesNative.FlightBaseOnly : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
         (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0));
@@ -369,6 +384,8 @@ public sealed record EffectiveRules
         if (GlideSink != 1) parts.Add(GlideSink == 0 ? "gliding holds altitude" : $"glide sink x{GlideSink:0.##}");
         if (GlideBoost is { } g) parts.Add("glide " + g);
         if (Water is { } w) parts.Add("water: " + w);
+        if (CharacterFlight != CharacterFlightMode.Off)
+            parts.Add(CharacterFlight == CharacterFlightMode.BuildingArea ? "character flight (building areas)" : "character flight");
         return string.Join(", ", parts);
     }
 }
@@ -433,9 +450,23 @@ internal static class RulesMath
             GlideSink = Product(r => r.GlideSink),
             GlideBoost = Boost(sets.Select(s => s.Rules.GlideBoost)),
             Water = Water(sets.Select(s => s.Rules.Water)),
+            CharacterFlight = Flight(sets.Select(s => s.Rules.CharacterFlight)),
             From = sets.Where(s => s.Set is not null).Select(s => s.Set!).ToArray(),
         };
         return limits.Hold(e);
+    }
+
+    // An explicit Off wins; else the widest mode asked for.
+    public static CharacterFlightMode Flight(IEnumerable<CharacterFlightMode?> modes)
+    {
+        var best = CharacterFlightMode.Off;
+        foreach (var m in modes)
+        {
+            if (m == CharacterFlightMode.Off) return CharacterFlightMode.Off;
+            if (m == CharacterFlightMode.Unlimited) best = CharacterFlightMode.Unlimited;
+            else if (m == CharacterFlightMode.BuildingArea && best == CharacterFlightMode.Off) best = CharacterFlightMode.BuildingArea;
+        }
+        return best;
     }
 
     // The most generous of each value.
@@ -480,7 +511,7 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
     bool AllowInvulnerable = true, double MinBuildCost = 0, double MaxDigDamage = 1000, double MaxStaminaFloor = 1,
     double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
     double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60,
-    bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true)
+    bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true, bool AllowCharacterFlight = false)
 {
     public static readonly RulesLimits Default = new();
 
@@ -522,9 +553,23 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
                 }
                 : null,
             Water = AllowWater ? e.Water : null,
+            CharacterFlight = e.CharacterFlight != CharacterFlightMode.Off && Cap(true, AllowCharacterFlight, "characterFlight")
+                ? e.CharacterFlight : CharacterFlightMode.Off,
         };
         if (e.Water is not null && !AllowWater) denied.Add("water");
         r = r with { KeepBuildsOutsideBases = r.KeepBuildsOutsideBases && r.BuildOutsideBases };
         return denied.Count == 0 ? r : r with { Denied = denied };
     }
+}
+
+/// <summary>How <see cref="PlayerRules.CharacterFlight"/> lets the character fly.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<CharacterFlightMode>))]
+public enum CharacterFlightMode
+{
+    /// <summary>The game's own movement.</summary>
+    Off = 0,
+    /// <summary>Anywhere.</summary>
+    Unlimited = 1,
+    /// <summary>Only inside a base's building zone.</summary>
+    BuildingArea = 2,
 }

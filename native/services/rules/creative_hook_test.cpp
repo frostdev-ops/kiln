@@ -5,7 +5,13 @@
 #include "creative.cpp"
 
 #include <cstdlib>
+#include <string>
 #include <thread>
+
+// flight.cpp is not part of this test (flight_math_test.cpp checks its decisions)
+namespace kiln_rules_flight {
+void counters(uint64_t* a, uint64_t* b, uint64_t* c, uint64_t* d) { *a = *b = *c = *d = 0; }
+}  // namespace kiln_rules_flight
 
 namespace {
 int failures = 0, payments = 0, removals = 0, fog_calls = 0;
@@ -23,6 +29,20 @@ void fog(void*, const float*, float range) {
     if (range > 120) throw 1; // widened discovery can fault while the game's original range still works
 }
 void fog_record(void*, const float*, float) { ++fog_calls; }
+
+// kiln.flame and a game API with no symbols, for the Creative Mode check
+bool flame_on = false;
+int flame_asks = 0;
+bool KILN_CALL flame_running(KilnStr id) { ++flame_asks; return flame_on && std::string(id.ptr, id.len) == "creative"; }
+const KilnFlameApi flame_table = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, nullptr, nullptr, &flame_running, nullptr};
+bool flame_published = true;
+const void* KILN_CALL api_service(KilnStr name, uint32_t) {
+    return flame_published && std::string(name.ptr, name.len) == KILN_FLAME_SERVICE ? &flame_table : nullptr;
+}
+uint32_t KILN_CALL api_side() { return KILN_SIDE_CLIENT; }
+bool KILN_CALL api_feature(KilnStr) { return false; }
+KilnResult KILN_CALL api_symbol(KilnStr, uintptr_t*) { return KILN_ERR_NOT_FOUND; }
+KilnResult KILN_CALL api_constant(KilnStr, int64_t*) { return KILN_ERR_NOT_FOUND; }
 }
 
 int main() {
@@ -66,8 +86,9 @@ int main() {
     c::h_remove.target = reinterpret_cast<void*>(&remove_items);
     c::g_ammo_ret = 200;
     c::g_cost_ret = 300;
+    c::g_buff_ret = 250;  // food and potions: ApplyBuffEvent's consume
     c::Result12 out{};
-    for (auto ret : {uintptr_t{200}, uintptr_t{300}}) {
+    for (auto ret : {uintptr_t{200}, uintptr_t{300}, uintptr_t{250}}) {
         test_return_address = ret;
         out = {1, {}, 1, 1};
         check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1) == &out && out.error == 0 && out.zero == 0 && out.value == 0,
@@ -125,6 +146,27 @@ int main() {
     c::pay_hook_failed();
     check(c::g_hooks == KILN_RULES_HOOK_CONSUME && !c::h_alt && !c::pay_free(100, tx, 3),
           "failure to install the shared payer disables both recipe waivers while leaving consumption available");
+
+    KilnApi api{};
+    api.service = &api_service;
+    api.side = &api_side;
+    api.feature = &api_feature;
+    api.symbol = &api_symbol;
+    api.constant = &api_constant;
+    std::string off;
+    flame_published = false;
+    check(c::install(&api, off) == 0 && off.find("Creative Mode") == std::string::npos && !c::flame_creative(),
+          "without kiln-flame the creative hooks install as before (here: no symbols)");
+    flame_published = true;
+    off.clear();
+    check(c::install(&api, off) == 0 && off.find("Creative Mode") == std::string::npos, "kiln-flame without Creative Mode changes nothing");
+    flame_on = true;
+    off.clear();
+    const int asks = flame_asks;
+    check(c::install(&api, off) == 0 && off.find("(Creative Mode runs)") != std::string::npos && flame_asks == asks + 1,
+          "with Creative Mode running nothing is hooked, before any symbol lookup, and status says why");
+    flame_on = false;
+    check(c::flame_creative() && flame_asks == asks + 1, "once seen running, Creative Mode stays seen (its hooks stay too)");
     std::printf("creative hooks: %d failure(s)\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

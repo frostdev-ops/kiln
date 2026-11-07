@@ -58,8 +58,15 @@ enum {
     KILN_RULES_FREE_CRAFTING = 0x0200u,         /* crafting pays nothing: the recipe's payment answers "paid" inside the game's
                                                    own transaction (the operator crafting from its own inventory); client: the
                                                    crafting menu's craft buttons stay enabled without the inputs */
-    KILN_RULES_KEEP_CONSUMABLES = 0x0400u,      /* fired arrows, thrown items and spell ammunition are not removed */
-    KILN_RULES_CHARACTER_FLIGHT = 0x0800u,      /* reserved: the character flies (feature rules.flight, off by default) */
+    KILN_RULES_KEEP_CONSUMABLES = 0x0400u,      /* fired arrows, thrown items and spell ammunition (HOOK_CONSUME), food, drinks,
+                                                   potions and bandages (HOOK_CONSUME_BUFF) are not removed */
+    KILN_RULES_CHARACTER_FLIGHT = 0x0800u,      /* the character flies (HOOK_FLIGHT): airborne, it takes off into the game's
+                                                   BuildingFlying locomotion state; jump climbs, sneak sinks, sprint is faster;
+                                                   grounded while sinking it lands; no gravity while it may fly. Server world
+                                                   and the client's prediction world (the same rules on both). Kiln.Rules
+                                                   grants it only where the server's rules.json allows it (off by default) */
+    KILN_RULES_FLIGHT_BASE_ONLY = 0x1000u,      /* with CHARACTER_FLIGHT: only inside a building zone (the actor's
+                                                   IsNearBuildingZone); leaving one in the air ends the flight */
 };
 
 typedef struct KilnRulesPlayer {
@@ -95,7 +102,9 @@ enum {
     KILN_RULES_HOOK_MAP = 0x80u,        /* client: the fog of war's discover call (map_reveal) */
     KILN_RULES_HOOK_CRAFT = 0x100u,     /* the recipe payments (FREE_CRAFTING) */
     KILN_RULES_HOOK_CRAFT_UI = 0x200u,  /* client: the crafting menu's craftable amount (FREE_CRAFTING) */
-    KILN_RULES_HOOK_CONSUME = 0x400u,   /* the two consume removals (KEEP_CONSUMABLES) */
+    KILN_RULES_HOOK_CONSUME = 0x400u,   /* the two ammunition consume removals (KEEP_CONSUMABLES) */
+    KILN_RULES_HOOK_CONSUME_BUFF = 0x800u, /* ApplyBuffEvent's consume removal: food, drinks, potions, bandages (KEEP_CONSUMABLES) */
+    KILN_RULES_HOOK_FLIGHT = 0x1000u,      /* character flight: the locomotion state, gravity and the BuildingFlying mover */
 };
 
 /* map_reveal modes (client) */
@@ -115,6 +124,10 @@ typedef struct KilnRulesCreative {
     uint64_t craft_ui;      /* craftable amounts raised in the client's menu */
     uint64_t consumes_kept; /* consume removals skipped */
     uint64_t faults;        /* creative hook bodies that faulted (the game's own path ran) */
+    /* since 0.2.0-dev.16 (size 72): character flight */
+    uint64_t flight_takeoffs; /* steps that turned a player's state to BuildingFlying */
+    uint64_t flight_landings; /* flights that ended on the ground (sinking) */
+    uint64_t flight_ends;     /* flights that ended in the air (the rule or its conditions ended): the player falls */
 } KilnRulesCreative;
 
 typedef struct KilnRulesStatus {

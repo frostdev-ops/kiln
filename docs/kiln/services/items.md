@@ -66,8 +66,8 @@ IReadOnlyList<EntityId> chests = Items.FindInventories(InventoryKinds.Containers
   docs/re/creative-mode-146.md "Part 3 research", section 2). `Items.GearOptionsAvailable` says whether this build has
   it (feature `items.pide_options`); without it a give with them is `Unavailable`. C: `KILN_ITEMS_UNLOCK` with
   `KilnItemsRequest.unlock` (1..5, 255 = all), `KILN_ITEMS_GEM_SLOT`. Lab: "all upgrades: perks 4/4, level 34 (asked 30 +
-  4)", "the weapon has a gem slot". Not checked yet: whether a save and restart keeps the level of an upgraded item
-  (the game re-clamps `Level - unlocked` at load, which stays in range).
+  4)", "the weapon has a gem slot". A save and a restart keep all of it (lab, three weapons in a chest, autosaved,
+  restarted, read back): "level 6, perks 4/4, gem slot True", "level 4, perks 2/4", "level 2, perks 0/4".
 - `GiveRecipeResult(target, recipeId, count = 1, GiveOptions)` → `Task<ItemsResult>`: the game's recipe function (feature
   `items.recipe`, C flag `KILN_ITEMS_RECIPE`). Inputs are not taken and a station's requirements count as met. For tests and
   for mods that hand out what a recipe makes. `Notify`, `NoMerge`, `DryRun`. All outputs fit or nothing changes (`NoRoom`).

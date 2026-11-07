@@ -8,6 +8,9 @@ internal static class CreativeMenu
 {
     public const string KeyId = "kiln.creative";
     public const string DefaultKey = "F7";
+    public const string FlightKeyId = "kiln.creative.flight";
+    private static readonly string[] FlightNames = ["Off", "Unlimited", "Building areas only"];
+    private static int _flightPick = (int)CharacterFlightMode.Unlimited;  // what the key turns on
 
     private static readonly object Lock = new();
     private static UiScreen? _screen;
@@ -22,6 +25,9 @@ internal static class CreativeMenu
     private static readonly List<CreativeItem> Catalog = new();
     private static int _catalogTotal = -1;
     private static HashSet<uint>? _found;      // journey mode: the items the player has found (null: not asked or unknown)
+    private static IReadOnlyList<CreativeSlot> _backpack = [];  // the backpack grid (empty: not asked yet)
+    private static uint _held;                 // the item picked up for the backpack grid (0: none)
+    private static DateTime _askedBackpack;
     private static bool _foundUnavailable;
     private static DateTime _askedState, _askedCatalog;
 
@@ -67,6 +73,12 @@ internal static class CreativeMenu
         {
             return;  // no Kiln.Ui (a dedicated server's host folder)
         }
+        if (CreativeFlame.Running)
+        {
+            // Creative Mode's own menu serves this game: no Kiln key, screen or pause-menu entry to compete with it
+            RulesRuntime.Log(LogLevel.Info, "creative menu: idle (Creative Mode runs in this game; its own menu applies)");
+            return;
+        }
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;  // Kiln's, not the mod whose tick happened to start it
         try
@@ -74,6 +86,7 @@ internal static class CreativeMenu
             _screen = Ui.Screen("Creative", Draw, new UiScreenOptions { Style = UiStyle.Game, Width = 820, Height = 600 });
             _screen.Opened += () => Interlocked.Exchange(ref _refreshRequested, 1);
             KeyBindings.Register(KeyId, DefaultKey, () => _screen.Toggle(), "Open the creative menu", "Creative");
+            KeyBindings.Register(FlightKeyId, "None", ToggleFlight, "Character flight on or off (creative mode)", "Creative");
             _entry = Ui.Menus.Add(MenuLocation.PauseMenu, "Creative", () => _screen.Open(), order: 900);
             lock (Lock) Apply(_state);
             RulesRuntime.Log(LogLevel.Info, $"creative menu: on {KeyBindings.All.FirstOrDefault(b => b.Id == KeyId)?.Key.ToString() ?? DefaultKey}" +
@@ -106,6 +119,8 @@ internal static class CreativeMenu
             _catalogTotal = -1;
             _found = null;
             _foundUnavailable = false;
+            _backpack = [];
+            _held = 0;
             _catalogVersion++;
             _foundVersion++;
             _connectionVersion++;
@@ -147,6 +162,11 @@ internal static class CreativeMenu
             _catalogVersion++;
         }
         if (next >= 0) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Catalog, Count: next));
+    }
+
+    public static void OnBackpack(CreativeBackpackMsg m)
+    {
+        lock (Lock) _backpack = m.Slots;
     }
 
     public static void OnFound(CreativeFoundMsg m)
@@ -236,6 +256,12 @@ internal static class CreativeMenu
             ui.TextWrapped(CreativeNet.Open || CreativeNet.Hosting(out _)
                 ? "Asking the server..."
                 : "This server has no Kiln creative menu (it needs Kiln on the server).");
+            return;
+        }
+        if ((s.Access & CreativeAccess.Idle) != 0)
+        {
+            ui.TextWrapped("This server runs Creative Mode (a Flame mod), so Kiln's creative menu is idle here: use Creative Mode's " +
+                           "own menu. Kiln's creative mode cannot be turned on while it runs.");
             return;
         }
         var on = (s.Access & CreativeAccess.On) != 0;
@@ -347,6 +373,56 @@ internal static class CreativeMenu
         ui.Text($"Page {_page + 1} of {Math.Max(1, (shown.Count + PageSize - 1) / PageSize)}");
         ui.SameLine();
         if ((_page + 1) * PageSize < shown.Count && ui.SmallButton("Next")) _page++;
+        if (canGive) DrawBackpack(ui);
+    }
+
+    // The backpack grid: pick an item up in the catalogue ("Place..."), then click a backpack slot to put it there.
+    private static void DrawBackpack(UiDraw ui)
+    {
+        if (!ui.CollapsingHeader("Backpack")) return;
+        if (DateTime.UtcNow - _askedBackpack > TimeSpan.FromSeconds(2))
+        {
+            _askedBackpack = DateTime.UtcNow;
+            CreativeNet.Ask(new CreativeRequest(CreativeAsk.Backpack));
+        }
+        IReadOnlyList<CreativeSlot> slots;
+        lock (Lock) slots = _backpack;
+        var held = _held;
+        CreativeItem heldItem = default;
+        if (held != 0)
+        {
+            lock (Lock) heldItem = Catalog.FirstOrDefault(i => i.Id == held);
+            ui.Text(new Color(255, 196, 92), $"Holding {heldItem.Label} x{Math.Min(_count, heldItem.IsGear ? 1 : Math.Max(1, heldItem.MaxStack))}: click an empty slot (or one with the same item).");
+            ui.SameLine();
+            if (ui.SmallButton("Put back")) _held = 0;
+        }
+        else ui.TextDisabled("Pick an item up with \"Place...\", then click a slot.");
+        if (slots.Count == 0)
+        {
+            ui.TextDisabled("Reading your backpack...");
+            return;
+        }
+        for (var k = 0; k < slots.Count; k++)
+        {
+            var sl = slots[k];
+            if (k % 8 != 0) ui.SameLine();
+            string label;
+            string? name = null;
+            if (sl.Item == 0) label = "   .   ";
+            else
+            {
+                CreativeItem it;
+                lock (Lock) it = Catalog.FirstOrDefault(i => i.Id == sl.Item);
+                name = it.Id != 0 ? it.Label : $"0x{sl.Item:x8}";
+                label = (name.Length > 6 ? name[..6] : name.PadRight(6)) + (sl.Count > 1 ? $" {sl.Count}" : "");
+            }
+            if (ui.Button($"{label}##slot{k}", 74 * Math.Max(ui.Scale, 0.5f), 0) && held != 0 && (sl.Item == 0 || sl.Item == held))
+            {
+                Give(heldItem, Math.Min(_count, heldItem.IsGear ? 1 : Math.Max(1, heldItem.MaxStack)), sl.Slot);
+                _held = 0;
+            }
+            if (name is not null) ui.Tooltip(sl.Count > 1 ? $"{name} x{sl.Count}" : name);
+        }
     }
 
     internal const int PageSize = 100;
@@ -379,13 +455,18 @@ internal static class CreativeMenu
         if (max > 1 && ui.Button($"Take {max}")) Give(i, max);
         if (max > 1) ui.SameLine();
         if (ui.Button($"Take {_count}")) Give(i, _count);
+        ui.SameLine();
+        if (ui.Button("Place...")) _held = i.Id;
+        ui.Tooltip("Pick it up, then click a slot in the backpack grid below to put it there.");
     }
 
-    private static void Give(CreativeItem i, int count)
+    private static void Give(CreativeItem i, int count, ulong slot = 0)
     {
+        if (i.Id == 0) return;
         lock (Lock) _reply = "";
         var options = i.IsGear ? CreativeGiveOptions.Of(_upgrades, _gemSlot && i.Category == ItemCategory.Weapons, _journey) : 0;
-        CreativeNet.Ask(new CreativeRequest(CreativeAsk.Give, i.Id, count, i.IsGear ? _level : -1, i.IsGear ? _rarity : -1, Options: options));
+        CreativeNet.Ask(new CreativeRequest(CreativeAsk.Give, i.Id, count, i.IsGear ? _level : -1, i.IsGear ? _rarity : -1, Options: options,
+            Slot: slot));
     }
 
     private static string? _mapReply;
@@ -412,11 +493,52 @@ internal static class CreativeMenu
         if (_mapReply is { } r) ui.TextWrapped("Refused: " + r);
     }
 
+    internal static CharacterFlightMode FlightOf(CreativeAccess a) =>
+        (a & CreativeAccess.FlightUnlimited) != 0 ? CharacterFlightMode.Unlimited
+        : (a & CreativeAccess.FlightBuildingArea) != 0 ? CharacterFlightMode.BuildingArea : CharacterFlightMode.Off;
+
+    // The key: off when flying, else the mode last picked in the menu.
+    private static void ToggleFlight()
+    {
+        CreativeStateMsg? st;
+        lock (Lock) st = _state;
+        if (st is not { } s || (s.Access & CreativeAccess.On) == 0) return;
+        var now = FlightOf(s.Access);
+        var next = now != CharacterFlightMode.Off ? CharacterFlightMode.Off : (CharacterFlightMode)Math.Clamp(_flightPick, 1, 2);
+        CreativeNet.Ask(new CreativeRequest(CreativeAsk.Flight, Count: (int)next));
+    }
+
+    private static void DrawFlight(UiDraw ui, CreativeStateMsg s)
+    {
+        ui.Separator("Character flight");
+        if ((s.Access & CreativeAccess.On) == 0)
+        {
+            ui.TextDisabled("Needs creative mode.");
+            return;
+        }
+        var now = (int)FlightOf(s.Access);
+        if ((s.Access & CreativeAccess.FlightAllowed) == 0 && now == 0)
+        {
+            ui.TextDisabled("This server does not allow character flight (rules.json allowCharacterFlight), or its game build has no flight hooks.");
+            return;
+        }
+        var pick = now;
+        ui.Combo("Flight", ref pick, FlightNames);
+        if (pick != now)
+        {
+            if (pick != 0) _flightPick = pick;
+            CreativeNet.Ask(new CreativeRequest(CreativeAsk.Flight, Count: pick));
+        }
+        ui.TextDisabled("Jump to take off, hold jump to climb, sneak to sink, sprint for speed; sinking onto the ground lands. " +
+                        $"Key: {KeyBindings.All.FirstOrDefault(b => b.Id == FlightKeyId)?.Key.ToString() ?? "none"} (Kiln menu > Keys).");
+    }
+
     private static void DrawWorld(UiDraw ui, CreativeStateMsg s)
     {
         var canTime = (s.Access & CreativeAccess.Time) != 0;
         var canCycle = (s.Access & CreativeAccess.Cycle) != 0;
         DrawMap(ui, (s.Access & CreativeAccess.On) != 0);
+        DrawFlight(ui, s);
         ui.Separator("Time of day");
         ui.Text(s.Hours >= 0 ? $"It is {Time.Format(s.Hours)}." : "The time of day is not known.");
         if (!canTime)

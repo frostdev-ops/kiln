@@ -11,11 +11,14 @@
 //    the transaction's operator crafts from its own inventory (operator == owner) and has FREE_CRAFTING.
 //  - craft buttons (client): the crafting menu enables its craft actions from UiCraftableAmount(gameUi, recipe, cap,
 //    selections); with the local player's FREE_CRAFTING it answers at least `cap`.
-//  - kept consumables (server world): the spawn path's `consume` and PayUsageCost's `consume` each remove the used item
-//    with InventoryRemoveItems(out, tx, actor, item, slot, 1) and commit only on {error 0, missing 0}. For those two
-//    calls (return addresses) and an actor with KEEP_CONSUMABLES the removal answers {0, 0} without queueing anything.
+//  - kept consumables (server world): the spawn path's `consume` and PayUsageCost's `consume` (arrows, thrown items,
+//    spell ammunition) and ApplyBuffEvent's `consume` in actor_apply_buff (food, drinks, potions, bandages: the item
+//    goes, then the buff applies) each remove the used item with InventoryRemoveItems(out, tx, actor, item, slot, 1)
+//    and commit only on {error 0, missing 0}. For those calls (return addresses) and an actor with KEEP_CONSUMABLES the
+//    removal answers {0, 0} without queueing anything (the buff still applies: it runs after a successful removal).
 //
 // Every hook body runs under a structured-exception guard; a fault counts, and the game's own path runs.
+// None of them is installed while Creative Mode (the Flame mod "creative", kiln.flame) runs: it hooks the same functions.
 #include <windows.h>
 
 #include <algorithm>
@@ -27,6 +30,7 @@
 
 #include "creative.h"
 #include "creative_math.h"
+#include "kiln_flame.h"
 #include "safetyhook.hpp"
 
 namespace kiln_rules_creative {
@@ -207,11 +211,11 @@ struct Result12 {  // InventoryRemoveItems' result: {u8 error; pad; u32 zero; u3
 static_assert(sizeof(Result12) == 12);
 using RemoveFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t owner, uint32_t item, uint64_t slot, uint32_t count);
 SafetyHookInline h_remove;
-uintptr_t g_ammo_ret = 0, g_cost_ret = 0;
+uintptr_t g_ammo_ret = 0, g_cost_ret = 0, g_buff_ret = 0;
 
 bool keep_removal(Result12* out, uintptr_t ret, uint32_t owner, uint32_t count) {
     __try {
-        if (!out || !ret || (ret != g_ammo_ret && ret != g_cost_ret) || count != 1) return false;
+        if (!out || !ret || (ret != g_ammo_ret && ret != g_cost_ret && ret != g_buff_ret) || count != 1) return false;
         KilnRulesPlayer r{};
         if (owner && kiln_rules_bridge::rules_of(owner, &r) && (r.flags & KILN_RULES_KEEP_CONSUMABLES) != 0) {
             std::memset(out, 0, sizeof *out);
@@ -238,7 +242,21 @@ bool inline_hook(H& h, uintptr_t target, void* detour, const char* what) {
     return static_cast<bool>(h);
 }
 
+std::atomic<bool> g_flame{false};  // Creative Mode seen running (it stays: an entered mod keeps its hooks)
+
 }  // namespace
+
+bool flame_creative() {
+    if (g_flame.load()) return true;
+    if (!g_api) return false;
+    const auto* f = static_cast<const KilnFlameApi*>(
+        g_api->service(KilnStr{KILN_FLAME_SERVICE, sizeof(KILN_FLAME_SERVICE) - 1}, KILN_FLAME_VERSION));
+    if (!f || f->header.size < sizeof(KilnFlameApi) || !f->running || !f->running(KilnStr{"creative", 8})) return false;
+    if (!g_flame.exchange(true))
+        logf(KILN_LOG_INFO, "Creative Mode (the Flame mod \"creative\") runs in this game: Kiln's creative hooks stay off "
+                            "(free crafting, kept consumables, storage upgrade, map reveal, craft buttons, character flight)");
+    return true;
+}
 
 bool pay_free(uintptr_t ret, void* tx, uint32_t owner) {
     if (!g_recipe_ret || ret != g_recipe_ret) return false;
@@ -258,6 +276,11 @@ uint32_t install(const KilnApi* api, std::string& off) {
     auto note = [&off](const char* s) { off += off.empty() ? s : std::string(", ") + s; };
     const bool client = api->side() == KILN_SIDE_CLIENT;
     uint32_t hooks = 0;
+    if (flame_creative()) {
+        note(client ? "free crafting, kept consumables, map reveal, craft buttons (Creative Mode runs)"
+                    : "free crafting, kept consumables (Creative Mode runs)");
+        return 0;
+    }
 
     // free crafting: both payers, or neither (a recipe of either kind must not stay paid while the other is free)
     uintptr_t pay = 0, alt = 0, recipe_ret = 0;
@@ -272,19 +295,29 @@ uint32_t install(const KilnApi* api, std::string& off) {
         note("free crafting (rules.craft)");
     }
 
-    // kept consumables: the two consume removals
-    uintptr_t remove = 0, ammo = 0, cost = 0;
-    if (feat("rules.consume") && sym("items/InventoryRemoveItems", &remove) && sym("rules/AmmoConsumed", &ammo) &&
-        sym("rules/CostConsumed", &cost) && call_returns_to(ammo, remove) && call_returns_to(cost, remove) &&
-        inline_hook(h_remove, remove, reinterpret_cast<void*>(&hk_remove), "the inventory removal")) {
-        g_ammo_ret = ammo;
-        g_cost_ret = cost;
-        hooks |= KILN_RULES_HOOK_CONSUME;
-        logf(KILN_LOG_INFO, "kept consumables: the consume removals (rva 0x%llx; calls return to 0x%llx and 0x%llx)",
-             (unsigned long long)rva(remove), (unsigned long long)rva(ammo), (unsigned long long)rva(cost));
-    } else {
-        note("kept consumables (rules.consume)");
+    // kept consumables: the ammunition removals (spawn path, cost payer) and the buff item's (food, potions), each on its
+    // own feature; one hook on the removal serves both
+    uintptr_t remove = 0, ammo = 0, cost = 0, buff = 0;
+    const bool have_remove = sym("items/InventoryRemoveItems", &remove);
+    const bool ammo_ok = have_remove && feat("rules.consume") && sym("rules/AmmoConsumed", &ammo) &&
+                         sym("rules/CostConsumed", &cost) && call_returns_to(ammo, remove) && call_returns_to(cost, remove);
+    const bool buff_ok = have_remove && feat("rules.consume_buff") && sym("rules/BuffConsumed", &buff) && call_returns_to(buff, remove);
+    if ((ammo_ok || buff_ok) && inline_hook(h_remove, remove, reinterpret_cast<void*>(&hk_remove), "the inventory removal")) {
+        if (ammo_ok) {
+            g_ammo_ret = ammo;
+            g_cost_ret = cost;
+            hooks |= KILN_RULES_HOOK_CONSUME;
+        }
+        if (buff_ok) {
+            g_buff_ret = buff;
+            hooks |= KILN_RULES_HOOK_CONSUME_BUFF;
+        }
+        logf(KILN_LOG_INFO, "kept consumables: the consume removals (rva 0x%llx; ammunition calls return to 0x%llx and 0x%llx, "
+             "food and potions to 0x%llx)", (unsigned long long)rva(remove), (unsigned long long)(ammo ? rva(ammo) : 0),
+             (unsigned long long)(cost ? rva(cost) : 0), (unsigned long long)(buff ? rva(buff) : 0));
     }
+    if (!(hooks & KILN_RULES_HOOK_CONSUME)) note("kept ammunition (rules.consume)");
+    if (!(hooks & KILN_RULES_HOOK_CONSUME_BUFF)) note("kept food and potions (rules.consume_buff)");
 
     if (client) {
         uintptr_t fog = 0, craftable = 0;
@@ -297,8 +330,9 @@ uint32_t install(const KilnApi* api, std::string& off) {
             hooks |= KILN_RULES_HOOK_CRAFT_UI;
         else note("craft buttons (rules.craft_ui)");
     }
-    logf(KILN_LOG_INFO, "creative hooks: free crafting %s, kept consumables %s%s%s%s",
+    logf(KILN_LOG_INFO, "creative hooks: free crafting %s, kept ammunition %s, kept food and potions %s%s%s%s",
          (hooks & KILN_RULES_HOOK_CRAFT) ? "on" : "OFF", (hooks & KILN_RULES_HOOK_CONSUME) ? "on" : "OFF",
+         (hooks & KILN_RULES_HOOK_CONSUME_BUFF) ? "on" : "OFF",
          client ? ", map reveal " : "", client ? ((hooks & KILN_RULES_HOOK_MAP) ? "on" : "OFF") : "",
          client ? ((hooks & KILN_RULES_HOOK_CRAFT_UI) ? ", craft buttons on" : ", craft buttons OFF") : "");
     g_hooks = hooks;
@@ -339,6 +373,9 @@ KilnResult KILN_CALL creative_status(KilnRulesCreative* out) {
     v.craft_ui = S.craft_ui.load();
     v.consumes_kept = S.consumes.load();
     v.faults = S.faults.load();
+    uint64_t flight_faults = 0;
+    kiln_rules_flight::counters(&v.flight_takeoffs, &v.flight_landings, &v.flight_ends, &flight_faults);
+    v.faults += flight_faults;
     const uint32_t n = std::min<uint32_t>(out->size, sizeof v);
     v.size = n;
     std::memcpy(out, &v, n);

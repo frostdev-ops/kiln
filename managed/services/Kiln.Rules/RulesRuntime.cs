@@ -34,6 +34,9 @@ internal static unsafe class RulesRuntime
     private static ulong _step;
     private static ModConfig<RulesPolicy>? _config;
     private static RulesLimits _limits = RulesLimits.Default;
+
+    /// <summary>The server's limits from rules.json now.</summary>
+    internal static RulesLimits Limits => _limits;
     private static IReadOnlyList<PlayerBase> _bases = Array.Empty<PlayerBase>();
     private static ulong _basesStep;
 
@@ -178,6 +181,9 @@ internal static unsafe class RulesRuntime
         return Combine(player, Players.Available ? Players.Find(player)?.Position : null);
     }
 
+    /// <summary>The player's rules combined now, without waiting for the next tick (after a rule set changed).</summary>
+    internal static EffectiveRules Fresh(EntityId player) => Combine(player, Players.Available ? Players.Find(player)?.Position : null);
+
     private static EffectiveRules Combine(EntityId player, WorldPosition? at)
     {
         List<(RuleSet?, PlayerRules)> matching;
@@ -239,7 +245,7 @@ internal static unsafe class RulesRuntime
             {
                 if (_step % VitalsEverySteps == 0) Vitals(s);
                 Flight(s);
-                if (s.Effective.Native.HasGlide) PushNative(s);  // a client that becomes ready gets its glide rules
+                if (s.Effective.Native.HasPredicted) PushNative(s);  // a client that becomes ready gets its glide and flight rules
                 SyncClient(s);
             }
             catch (Exception e)
@@ -323,13 +329,13 @@ internal static unsafe class RulesRuntime
     private static void PushNative(PlayerState s)
     {
         var part = s.Effective.Native;
-        if (part.HasGlide && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutGlide;
+        if (part.HasPredicted && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutPredicted;
         var t = RulesNative.T;
         if (part == s.Native || t == null) return;
         var p = RulesNative.Of(part);
         t->Set(s.Entity.Value, part.IsDefault ? null : &p);
-        if (part.HasGlide != s.Native.HasGlide && s.Effective.Native.HasGlide)
-            Log(LogLevel.Info, $"player {s.Entity}: gliding rules {(part.HasGlide ? "on (their game runs them too)" : "held back until their game has Kiln's rules channel")}");
+        if (part.HasPredicted != s.Native.HasPredicted && s.Effective.Native.HasPredicted)
+            Log(LogLevel.Info, $"player {s.Entity}: gliding and flight rules {(part.HasPredicted ? "on (their game runs them too)" : "held back until their game has Kiln's rules channel")}");
         s.Native = part;
     }
 

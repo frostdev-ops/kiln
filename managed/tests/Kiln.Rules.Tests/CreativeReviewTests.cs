@@ -132,6 +132,8 @@ public sealed class CreativeReviewTests
         Assert.True(craftOnly.FreeCrafting);
         Assert.False(craftOnly.KeepConsumables);
         Assert.Equal(new[] { "keepConsumablesUnavailable" }, craftOnly.Denied);
+        // food and potions alone (the ammunition sites missing on a build) still keep what they can
+        Assert.True(RulesCrafting.Supported(requested, RulesNative.HookCraft | RulesNative.HookConsumeBuff).KeepConsumables);
         var native = requested.Native.Flags;
         Assert.Equal(RulesNative.FreeCrafting | RulesNative.KeepConsumables, native & (RulesNative.FreeCrafting | RulesNative.KeepConsumables));
         Assert.Equal(0u, new EffectiveRules { Player = P }.Native.Flags & (RulesNative.FreeCrafting | RulesNative.KeepConsumables));

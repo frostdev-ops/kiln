@@ -14,7 +14,7 @@ public static class CreativeTools
 
     /// <summary>Whether <paramref name="player"/> may take items: creative mode is on for them (which only an admin can
     /// turn on), and this build can give items.</summary>
-    public static bool CanGive(EntityId player) => Creative.IsOn(player) && ItemsReady();
+    public static bool CanGive(EntityId player) => Creative.IsOn(player) && ItemsReady() && !CreativeFlame.Running;
 
     /// <summary>Whether <paramref name="player"/> may change the world's time: they have the creative permission
     /// (<see cref="Creative.PermissionNode"/>; admins, a hosted world's host).</summary>
@@ -30,16 +30,23 @@ public static class CreativeTools
     /// <paramref name="upgrades"/> of its upgrades unlocked (5: all; each raises the level by 1, as at the workbench) and,
     /// for a weapon, an empty gem slot (<paramref name="gemSlot"/>) when the game's roll gave none. Both need
     /// <see cref="Items.GearOptionsAvailable"/>; without it they are refused.</summary>
+    public static Task<CreativeResult> Give(EntityId player, ItemId item, int count, int? level, ItemRarity? rarity, int upgrades,
+        bool gemSlot) => Give(player, item, count, level, rarity, upgrades, gemSlot, slot: null);
+
+    /// <summary>As above, into <paramref name="slot"/> of the player's own backpack first (the creative menu's backpack
+    /// grid); the rest goes where the game puts it. A slot outside the player's backpack is refused.</summary>
     public static async Task<CreativeResult> Give(EntityId player, ItemId item, int count, int? level, ItemRarity? rarity, int upgrades,
-        bool gemSlot)
+        bool gemSlot, SlotId? slot)
     {
         Game.AssertTickThread();
+        if (CreativeFlame.Running) return new(false, Creative.IsOn(player), CreativeFlame.Note + ".");
         if (!Creative.IsOn(player)) return new(false, false, "Taking items needs creative mode (/creative).");
         if (!ItemsReady()) return new(false, true, "This server's game build cannot give items (kiln.items).");
         var info = Items.Get(item);
         if (info is null) return new(false, true, $"No item {item} in this world's catalogue.");
         if (ValidateGive(info, count, level, rarity) is { } error) return new(false, true, error);
         if (ValidateExtras(info, upgrades, gemSlot, Items.GearOptionsAvailable) is { } extra) return new(false, true, extra);
+        if (slot is { } sl && !BackpackSlots(player).Any(s => s.Slot == sl.Value)) return new(false, true, "That slot is not in your backpack.");
         if (!Gives.TryEnter(player, Environment.TickCount64, out var ticket)) return new(false, true, "Wait for your previous take, then try again.");
         var name = NameOf(player);  // continuations without a mod scheduler may run off the tick thread
         try
@@ -47,7 +54,7 @@ public static class CreativeTools
             Gear? gear = info.IsGear && (level is not null || rarity is not null || upgrades > 0 || gemSlot)
                 ? new Gear(level, rarity) { Unlocked = upgrades > 0 ? upgrades : null, GemSlot = gemSlot }
                 : null;
-            var r = await Items.Give(player, item, count, gear, GiveOptions.Notify);
+            var r = await Items.Give(player, item, count, gear, GiveOptions.Notify, slot);
             var what = $"{r.Done} x {info.Label}" + (gear is { } g ? $" (level {g.Level?.ToString() ?? "rolled"}, {g.Rarity?.ToString() ?? "default rarity"}" +
                                                                      (upgrades > 0 ? (upgrades >= 5 ? ", all upgrades" : $", {upgrades} upgrade(s)") : "") +
                                                                      (gemSlot ? ", gem slot" : "") + ")" : "");
@@ -64,6 +71,24 @@ public static class CreativeTools
     }
 
     private static readonly CreativeGiveGate Gives = new();
+
+    /// <summary>The player's backpack: every slot of their generic inventories, empty ones too, in order.</summary>
+    internal static IReadOnlyList<CreativeSlot> BackpackSlots(EntityId player)
+    {
+        if (!ItemsReady() || Items.Read(player) is not { } inv) return Array.Empty<CreativeSlot>();
+        var held = inv.Slots.Where(s => s.Category == InventoryCategory.Generic).ToDictionary(s => s.Slot.Value);
+        var list = new List<CreativeSlot>();
+        foreach (var (e, cat) in inv.Inventories)
+        {
+            if (cat != InventoryCategory.Generic) continue;
+            for (var i = 0; i < 8 && list.Count < CreativeBackpackMsg.MaxSlots; i++)
+            {
+                var id = SlotId.Of(e, i).Value;
+                list.Add(held.TryGetValue(id, out var s) ? new CreativeSlot(id, s.Item.Value, s.Count) : new CreativeSlot(id, 0, 0));
+            }
+        }
+        return list;
+    }
 
     internal static string? ValidateGive(ItemInfo info, int count, int? level, ItemRarity? rarity)
     {
@@ -114,6 +139,7 @@ public static class CreativeTools
     public static CreativeResult SetTime(double hours, string who)
     {
         Game.AssertTickThread();
+        if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
         if (!double.IsFinite(hours)) return new(false, false, "not a time of day");
         if (!TimeReady()) return new(false, false, "This build cannot set the time of day (kiln.time).");
         Time.Set(hours);
@@ -134,6 +160,7 @@ public static class CreativeTools
     public static CreativeResult SetCycle(TimeCycle cycle, string who)
     {
         Game.AssertTickThread();
+        if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
         if (!Enum.IsDefined(cycle)) return new(false, false, "unknown cycle");
         if (!CycleReady()) return new(false, false, "This build cannot hold the clock's speed (kiln.time, feature time.scale).");
         Time.SetCycle(cycle);
@@ -287,6 +314,13 @@ internal static class CreativeServer
             case CreativeAsk.Catalog:
                 SendPage(player, req.Count, local);
                 return;
+            case CreativeAsk.Backpack:
+                CreativeNet.SendBackpack(player, new CreativeBackpackMsg(Creative.IsOn(player) ? CreativeTools.BackpackSlots(player) : []), local);
+                return;
+            case CreativeAsk.Flight:
+                Answer(player, Enum.IsDefined((CharacterFlightMode)req.Count) ? Creative.SetFlight(player, (CharacterFlightMode)req.Count)
+                    : new CreativeResult(false, Creative.IsOn(player), "unknown flight mode"), local);
+                return;
             case CreativeAsk.Found:
                 var found = CreativeTools.Found(player);
                 CreativeNet.SendFound(player, new CreativeFoundMsg(found is not null, found?.Select(i => i.Value).ToArray() ?? []), local);
@@ -316,13 +350,18 @@ internal static class CreativeServer
             }
             r = await CreativeTools.Give(player, new ItemId(req.Item), req.Count, level,
                 req.Rarity is >= 0 and <= (int)ItemRarity.Legendary ? (ItemRarity)req.Rarity : null,
-                req.Options & CreativeGiveOptions.UpgradesMask, (req.Options & CreativeGiveOptions.GemSlot) != 0);
+                req.Options & CreativeGiveOptions.UpgradesMask, (req.Options & CreativeGiveOptions.GemSlot) != 0,
+                req.Slot != 0 ? new SlotId(req.Slot) : null);
         }
         catch (Exception e)
         {
             r = new CreativeResult(false, false, e.Message);
         }
-        CreativeNet.Post(() => CreativeNet.SendReply(player, new CreativeReplyMsg(r.Ok, r.Message), local), session);
+        CreativeNet.Post(() =>
+        {
+            CreativeNet.SendReply(player, new CreativeReplyMsg(r.Ok, r.Message), local);
+            if (req.Slot != 0) CreativeNet.SendBackpack(player, new CreativeBackpackMsg(CreativeTools.BackpackSlots(player)), local);
+        }, session);
     }
 
     private static void Answer(EntityId player, CreativeResult r, bool local)
@@ -348,11 +387,30 @@ internal static class CreativeServer
     {
         var a = CreativeAccess.None;
         var admin = CreativeTools.HasPermission(player);
+        var idle = CreativeFlame.Running;
         if (admin) a |= CreativeAccess.Admin;
         if (Creative.IsOn(player)) a |= CreativeAccess.On;
+        if (idle) a |= CreativeAccess.Idle;
         if (CreativeTools.CanGive(player)) a |= CreativeAccess.Give;
-        if (admin && CreativeTools.TimeReady()) a |= CreativeAccess.Time;
-        if (admin && CreativeTools.CycleReady()) a |= CreativeAccess.Cycle;
+        if (admin && !idle && CreativeTools.TimeReady()) a |= CreativeAccess.Time;
+        if (admin && !idle && CreativeTools.CycleReady()) a |= CreativeAccess.Cycle;
+        if (!idle && Creative.IsOn(player))
+        {
+            try
+            {
+                if (RulesRuntime.Limits.AllowCharacterFlight && Rules.Status() is { CharacterFlight: true }) a |= CreativeAccess.FlightAllowed;
+                a |= RulesRuntime.Fresh(player).CharacterFlight switch
+                {
+                    CharacterFlightMode.Unlimited => CreativeAccess.FlightUnlimited,
+                    CharacterFlightMode.BuildingArea => CreativeAccess.FlightBuildingArea,
+                    _ => CreativeAccess.None,
+                };
+            }
+            catch (Exception)
+            {
+                // the world is closing
+            }
+        }
         var hours = -1.0;
         var cycle = TimeCycle.Normal;
         if (CreativeTools.TimeReady())

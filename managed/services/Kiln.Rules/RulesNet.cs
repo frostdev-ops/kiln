@@ -125,6 +125,7 @@ internal static class RulesStartup
         try
         {
             CreativeNet.Start();
+            _ = CreativeFlame.Running;  // logs once when Creative Mode runs here
             CreativeMenu.Start();
         }
         catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException)

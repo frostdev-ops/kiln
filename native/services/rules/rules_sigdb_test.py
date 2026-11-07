@@ -206,7 +206,7 @@ def check_time_scale(side, image, doc, symbols):
 
 
 def check_creative(side, image, doc, symbols):
-    names = ["rules.storage", "rules.craft", "rules.consume", "items.pide_options"]
+    names = ["rules.storage", "rules.craft", "rules.consume", "rules.consume_buff", "items.pide_options"]
     if side == "client":
         names += ["rules.map_reveal", "rules.craft_ui"]
     selected = set()
@@ -230,7 +230,8 @@ def check_creative(side, image, doc, symbols):
     calls = [("rules/RecipePaid", "rules/InventoryPay", 0),
              ("rules/RecipePaid", "rules/RecipePayAlt", 7),
              ("rules/AmmoConsumed", "items/InventoryRemoveItems", 0),
-             ("rules/CostConsumed", "items/InventoryRemoveItems", 0)]
+             ("rules/CostConsumed", "items/InventoryRemoveItems", 0),
+             ("rules/BuffConsumed", "items/InventoryRemoveItems", 0)]
     decoder = Cs(CS_ARCH_X86, CS_MODE_64)
     for name, target, delta in calls:
         ret = symbols[name]["rva"] + delta
@@ -247,6 +248,7 @@ def check_creative(side, image, doc, symbols):
 
     cases = [("rules/UpgradeStoragePaid", "rules.storage"), ("rules/RecipePaid", "rules.craft"),
              ("rules/AmmoConsumed", "rules.consume"), ("rules/CostConsumed", "rules.consume"),
+             ("rules/BuffConsumed", "rules.consume_buff"),
              ("items/PideSpawn", "items.pide_options"), ("@items/CreatePide.fields", "items.pide_options")]
     if side == "client":
         cases += [("@rules/client.FogDiscover.body", "rules.map_reveal"),

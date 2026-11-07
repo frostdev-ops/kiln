@@ -93,6 +93,10 @@ constexpr int kExtra = 16;
 uint32_t g_extra_ids[kExtra]{};
 Slot g_extra[kExtra];
 std::mutex g_extra_mu;  // protects extra identities as well as their snapshots (including slot reuse)
+// Lock-free hints for hooks that run for every actor (character flight): the extra ids as last set, and every flag
+// any rule set has carried since the last clear (only grows until then).
+std::atomic<uint32_t> g_extra_hint[kExtra]{};
+std::atomic<uint32_t> g_flags_seen{0};
 
 constexpr float kMaxGlideSink = 10.0f;
 constexpr float kMaxGlideAccel = 100.0f;
@@ -130,6 +134,7 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     d.glide_lift = std::min(clean(d.glide_lift, 0.0f), kMaxGlideAccel);
     d.glide_coast = std::min(clean(d.glide_coast, 0.0f), kMaxGlideAccel);
     d.glide_climb = std::min(clean(d.glide_climb, 0.0f), kMaxGlideSpeed);
+    g_flags_seen.fetch_or(d.flags, std::memory_order_relaxed);
     std::lock_guard lock(s.mu);
     s.value = d;
 }
@@ -1158,11 +1163,15 @@ void clear_all() {
     std::lock_guard lock(g_extra_mu);
     for (int i = 0; i < kExtra; ++i) {
         g_extra_ids[i] = 0;
+        g_extra_hint[i].store(0, std::memory_order_relaxed);
         store(g_extra[i], nullptr);
     }
 }
 
+void arm_payments();
+
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
+    if (ev->event == KILN_WORLD_STARTED) arm_payments();
     if (ev->kind == KILN_WORLD_CLIENT && (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING))
         kiln_rules_creative::reset_map();
     if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STARTED) {
@@ -1205,6 +1214,7 @@ KilnResult KILN_CALL t_set(KilnEntity entity, const KilnRulesPlayer* in) {
     }
     store(g_extra[at], clearing ? nullptr : r);
     g_extra_ids[at] = clearing ? 0 : entity;
+    g_extra_hint[at].store(clearing ? 0 : entity, std::memory_order_relaxed);
     return KILN_OK;
 }
 
@@ -1342,26 +1352,9 @@ void install() {
         inline_hook(h_apply, reinterpret_cast<void*>(fn.apply), reinterpret_cast<void*>(&hk_apply), "ApplyMaterials"))
         g_hooks |= KILN_RULES_HOOK_COSTS;
     else note("costs (rules.costs)");
-    // creative mode's hooks (creative.cpp): free crafting answers through the payment hooked below
-    g_hooks |= kiln_rules_creative::install(g_api, off);
-    // the storage-chest upgrade's payment (counted with the costs); the same hook serves free crafting
-    uintptr_t pay = 0;
-    if ((g_hooks & KILN_RULES_HOOK_CRAFT) && (!sym("rules/InventoryPay", &pay) ||
-        !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))) {
-        g_hooks &= ~KILN_RULES_HOOK_CRAFT;
-        kiln_rules_creative::pay_hook_failed();
-        note("free crafting (payment hook failed)");
-    }
-    if (feat("rules.storage") && cst("items/tx.operator", &L.tx_operator) &&
-        sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) && upgrade_call_valid(g_upgrade_ret, pay) &&
-        (h_pay || inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")))
-        logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
-             static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
-             static_cast<unsigned long long>(g_upgrade_ret - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
-    else {
-        g_upgrade_ret = 0;
-        note("storage upgrade (rules.storage)");
-    }
+    // creative mode's hooks and the inventory payment (free crafting, kept consumables, the storage upgrade, map reveal,
+    // craft buttons) are installed at the first world (arm_payments): only then can kiln.flame tell whether Creative Mode
+    // runs, which hooks the same functions
     // mining
     if (feat("rules.dig") && sym("rules/TerrainDamage", &fn.damage) && sym("gameplay/TerraformImpact", &fn.terraform) &&
         cst("gameplay/impact.arg_offset", &L.arg_offset) && cst("gameplay/impact.arg_base", &L.arg_base) &&
@@ -1424,9 +1417,49 @@ void install() {
     }
     if (g_api->side() == KILN_SIDE_CLIENT) install_client_guards();
     auto on = [](uint32_t bit) { return (g_hooks & bit) ? "on" : "OFF"; };
-    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s (creative: see above)",
+    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s (creative hooks: at the first world)",
          on(KILN_RULES_HOOK_FLY), on(KILN_RULES_HOOK_ZONE), on(KILN_RULES_HOOK_CURSOR), on(KILN_RULES_HOOK_COSTS),
          on(KILN_RULES_HOOK_DIG), on(KILN_RULES_HOOK_SHROUD), on(KILN_RULES_HOOK_GLIDE));
+}
+
+// The creative hooks and the inventory payment, once, at the first world (any kind): kiln-flame fills its mod list in its
+// on_ready, after this service's, so kiln.flame answers only from then on. With Creative Mode running nothing is hooked.
+std::atomic<bool> g_armed{false};
+
+void arm_payments() {
+    if (g_armed.exchange(true)) return;
+    std::string off;
+    auto note = [&off](const char* s) { off += off.empty() ? s : std::string(", ") + s; };
+    [&] {
+        // creative mode's hooks (creative.cpp): free crafting answers through the payment hooked below
+        g_hooks |= kiln_rules_creative::install(g_api, off);
+        if (kiln_rules_creative::flame_creative()) {
+            note("storage upgrade (Creative Mode runs)");
+            return;  // Creative Mode pays for chest upgrades its own way: no second hook on the payment
+        }
+        // the storage-chest upgrade's payment (counted with the costs); the same hook serves free crafting
+        uintptr_t pay = 0;
+        if ((g_hooks & KILN_RULES_HOOK_CRAFT) && (!sym("rules/InventoryPay", &pay) ||
+            !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))) {
+            g_hooks &= ~KILN_RULES_HOOK_CRAFT;
+            kiln_rules_creative::pay_hook_failed();
+            note("free crafting (payment hook failed)");
+        }
+        if (feat("rules.storage") && cst("items/tx.operator", &L.tx_operator) &&
+            sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) && upgrade_call_valid(g_upgrade_ret, pay) &&
+            (h_pay || inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")))
+            logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
+                 static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
+                 static_cast<unsigned long long>(g_upgrade_ret - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+        else {
+            g_upgrade_ret = 0;
+            note("storage upgrade (rules.storage)");
+        }
+    }();
+    g_hooks |= kiln_rules_flight::install(g_api, off);  // character flight yields to Creative Mode too
+    if (off.empty()) return;
+    std::lock_guard lock(g_detail_mu);
+    g_detail = g_detail == "every hook installed" ? "off on this build: " + off : g_detail + ", " + off;
 }
 
 #endif  // !KILN_RULES_HOST_TEST
@@ -1455,4 +1488,11 @@ namespace kiln_rules_bridge {
 bool rules_of(uint32_t entity, KilnRulesPlayer* out) { return player_rules(entity, out); }
 bool local_rules(KilnRulesPlayer* out) { return load(g_local, out); }
 void log(int level, const char* text) { logf(level, "%s", text); }
+bool may_have_rules(uint32_t entity) {
+    if (entity >= 1 && entity <= kMaxPlayer) return true;
+    for (const auto& h : g_extra_hint)
+        if (entity && h.load(std::memory_order_relaxed) == entity) return true;
+    return false;
+}
+uint32_t flags_seen() { return g_flags_seen.load(std::memory_order_relaxed); }
 }  // namespace kiln_rules_bridge

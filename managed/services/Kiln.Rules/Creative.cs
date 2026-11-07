@@ -40,6 +40,7 @@ public static class Creative
             return new(true, false, $"Creative mode off for {name}.");
         }
         if (IsOn(player)) return new(true, true, $"{name} is already in creative mode.");
+        if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
         var client = Rules.ClientOf(player);
         if (client is not (RulesClient.Kiln or RulesClient.Host or RulesClient.Simulated))
             return new(false, false, client switch
@@ -75,6 +76,44 @@ public static class Creative
                                (now.Denied.Count > 0 ? $" (this server's rules.json denies {string.Join(", ", now.Denied)})" : ""));
     }
 
+    /// <summary>Sets how <paramref name="player"/>'s character flies in creative mode (<see cref="PlayerRules.CharacterFlight"/>
+    /// on their creative rule set). Refused unless they are in creative mode; the server's <c>rules.json</c>
+    /// (<c>allowCharacterFlight</c>, off by default) and the build's hooks decide whether it takes effect.</summary>
+    public static CreativeResult SetFlight(EntityId player, CharacterFlightMode mode)
+    {
+        Game.AssertTickThread();
+        var name = NameOf(player);
+        if (!Enum.IsDefined(mode)) return new(false, IsOn(player), "unknown flight mode");
+        if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
+        if (!Sets.TryGetValue(player, out var set) || !set.Active) return new(false, false, $"{name} is not in creative mode.");
+        var outer = ModContext.CurrentMod;
+        ModContext.CurrentMod = null;
+        try
+        {
+            set.Update(set.Rules.With(new PlayerRules { CharacterFlight = mode }));
+        }
+        finally
+        {
+            ModContext.CurrentMod = outer;
+        }
+        CreativeServer.Push(player);
+        var now = RulesRuntime.Fresh(player);
+        if (mode != CharacterFlightMode.Off && now.CharacterFlight == CharacterFlightMode.Off)
+        {
+            var why = now.Denied.Contains("characterFlightUnavailable")
+                ? "this game build has no character flight hooks"
+                : "this server's rules.json does not allow it (allowCharacterFlight)";
+            return new(false, true, $"Character flight stays off for {name}: {why}.");
+        }
+        RulesRuntime.Log(LogLevel.Info, $"creative: character flight for {name}: {mode}");
+        return new(true, true, mode switch
+        {
+            CharacterFlightMode.Unlimited => $"Character flight on for {name}: jump to take off, hold jump to climb, sneak to sink, sprint for speed; land by sinking onto the ground.",
+            CharacterFlightMode.BuildingArea => $"Character flight on for {name} inside building areas: leaving one in the air ends the flight.",
+            _ => $"Character flight off for {name}.",
+        });
+    }
+
     /// <summary>One line on who is in creative mode and which hooks work on this build.</summary>
     public static string Status()
     {
@@ -83,8 +122,9 @@ public static class Creative
         var hooks = s is null
             ? "kiln.rules is not loaded"
             : $"hooks: flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
-              $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}";
-        return (names.Count == 0 ? "Nobody is in creative mode" : "Creative mode: " + string.Join(", ", names)) + "; " + hooks + ".";
+              $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}, character flight {On(s.CharacterFlight)}";
+        var line = (names.Count == 0 ? "Nobody is in creative mode" : "Creative mode: " + string.Join(", ", names)) + "; " + hooks + ".";
+        return CreativeFlame.Running ? CreativeFlame.Note + ". " + line : line;
         static string On(bool b) => b ? "on" : "off";
     }
 
@@ -143,6 +183,10 @@ public static class Creative
                             .Then(Commands.Argument("level", Arg.Int(1, 100)).Executes(c => Give(c, c.Get<int>("count"), c.Get<int>("level"))))))))
             .Then(Commands.Literal("time").Describe("jumps the world's clock forward to a time of day")
                 .Then(Commands.Argument("time", Arg.TimeOfDay()).Executes(c => c.Reply(Tools(c, CreativeTools.SetTime(c.Get<double>("time"), Who(c)))))))
+            .Then(Commands.Literal("flight").Describe("character flight in creative mode: off, unlimited or buildingarea (the server's rules.json allows it)")
+                .Then(Commands.Argument("mode", Arg.Enum<CharacterFlightMode>()).Executes(c => c.Reply(Tools(c, SetFlight(Self(c), c.Get<CharacterFlightMode>("mode")))))
+                    .Then(Commands.Argument("player", Arg.Player())
+                        .Executes(c => c.Reply(Tools(c, SetFlight(c.Get<Player>("player").Entity, c.Get<CharacterFlightMode>("mode"))))))))
             .Then(Commands.Literal("cycle").Describe("the day and night cycle: normal, stopped or fast")
                 .Then(Commands.Argument("mode", Arg.Enum<TimeCycle>()).Executes(c => c.Reply(Tools(c, CreativeTools.SetCycle(c.Get<TimeCycle>("mode"), Who(c)))))))
             .Then(Commands.Argument("player", Arg.Player()).Executes(c => c.Reply(Run(c, c.Get<Player>("player").Entity, null)))),

@@ -118,17 +118,17 @@ Size: S (hours), M (a day), L (several days). Risk: what breaks on a game update
 | Item picker: take 1 / a stack / N | missing (API `Items.Give` only) | **done** (server-checked, any build with kiln.items) | M | low |
 | Item customization: level, rarity | API only | **done** (level, rarity) | S | low |
 | Item customization: upgrades unlocked, gem slot added | missing | **done** (part 3): menu Upgrades 0-5 and Gem slot; `Gear.Unlocked`, `Gear.GemSlot` (kiln.items createPide hook) | M | lab-verified; persistence across a restart not checked |
-| Drag and drop into a backpack slot | missing | missing (Take puts items where the game puts them); what it takes: Part 3 section 7 | L (M for a Kiln-drawn backpack grid) | game inventory UI hooks, client only |
+| Drag and drop into a backpack slot | missing | **partial** (part 4): Items > Backpack, a Kiln-drawn grid of the backpack's slots, pick-and-click into a chosen slot (server-checked); no drag gesture, no drop on the game's own inventory: Part 4 section 4 | M done; drag gesture S; game inventory L | game inventory UI hooks, client only |
 | Picker filter "without equipment" | missing | **done** | S | low |
 | Journey picker mode (only discovered items, level cap) | missing | **done**: "Only what I have found" (server item-knowledge reads); level capped at the character's level (part 3, server side) | M | knowledge and level reads need a joined player (not lab-testable) |
 | Catalogue hiding debug/unused items | missing | **done** (Kiln's own name rules: 33 of 4,213 left out on svn 1287369) | S | heuristic |
-| Character flight (the character flies) | partial (the game's fly mode anywhere, body carried) | partial | L | locomotion on server and prediction; high risk; glider work in progress elsewhere |
+| Character flight (the character flies) | partial (the game's fly mode anywhere, body carried) | **built, off by default** (part 4): `CharacterFlight` Off / Unlimited / BuildingArea, BuildingFlying state, gravity, vertical input; `rules.json` `allowCharacterFlight` | L | server-side lab-verified; prediction, animation and camera need the manual test |
 | Flight only in building areas | has (the game's own fly mode is base-only) | has | - | - |
 | No fall damage | has in `/creative` (its invulnerability cancels falls) | **done**: a standalone `NoFallDamage` rule for other presets | S | server only (Kiln.Combat fall event) |
 | No building costs + missing-materials preview | has (`BuildCost` 0 lifts both) | has | - | - |
 | Free storage-chest upgrade | missing (the upgrade pays outside `ApplyMaterials`) | **done**: `rules.storage` waives the upgrade's own payment with `BuildCost` 0 | S | server hook on the inventory payment, matched by return address |
 | No crafting costs | missing | **done** (part 3): `FreeCrafting` as the recipe payment answering "paid" inside the game's transaction (both payers), and the crafting menu's craft buttons (client hook on the craftable amount) | M | server lab-verified; the buttons need the client checklist |
-| Consumables not used up | missing | **partial** (part 3): `KeepConsumables` skips the two consume removals (arrows, thrown items, staff ammunition); food, drinks, potions, bandages: not yet (their removal site is not found) | M | needs a player firing (client checklist) |
+| Consumables not used up | missing | **done** (parts 3 and 4): `KeepConsumables` skips the three sequence-event removals: arrows, thrown items, health and mana potions, healing food (the spawn path, SpawnEntityEvent and SpawnImpact), staff ammunition, and food and drink buffs, bandages, lotions, flasks (ApplyBuffEvent) | M | needs a player using them (client checklist) |
 | Time of day jump | has (`Time.Set`) | **done** in the menu and `/creative time` | S | low |
 | Day/night cycle stopped / fast | missing | **done** in kiln.time (`Time.SetCycle`), menu and `/creative cycle` | M | server hook on the daytime speed setter (docs/re/time.md); clients follow the game's own daytime sync |
 | Map reveal radius / whole map | missing | **done** (part 3): World > Map reveal (game's, 200 m, 400 m, whole map; session only, creative on) | M | client only: client checklist |
@@ -136,6 +136,7 @@ Size: S (hours), M (a day), L (several days). Risk: what breaks on a game update
 | HUD status line | has (`Hud.Show`) | **done** (creative status line) | S | - |
 | Item stats fix for given items | n/a | n/a | - | Kiln gives through the game's own spawn path |
 | Fail soft on unknown builds | has (sigdb features) | has | - | - |
+| Creative Mode itself running in the same game (kiln-flame) | n/a | **done** (part 4): Kiln's creative mode stays idle, its creative hooks are not installed | S | detection through `kiln.flame`, at the first world |
 | Server detection, version check | has (Kiln.Network handshake, channels) | has (`kiln:creative` channel) | - | - |
 | Admin ops for remote tools | partial (`creative`, `rules`, `time_set`) | **done** (`creative_give`, `creative_cycle`) | S | - |
 
@@ -341,3 +342,79 @@ and feeding it a synthetic "dragged stack" (client RE of the inventory UI's drag
 the item into the exact slot: kiln.items' `Give` already has a slot parameter), or (b) a
 Kiln-drawn copy of the backpack grid inside the overlay that sends "give into slot N" (kiln.items has both slot
 selection and inventory reads; the creative request would need to carry the slot). (b) is M, (a) is L with client-only RE. Not built.
+
+## Part 4 (2026-11-07): Creative Mode yields, food and potions, gear persistence, character flight, the backpack grid
+
+Same executables and tags as Part 3 (server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`; **[rt]** seen in a lab).
+
+### 1. Kiln steps aside for Creative Mode
+kiln-flame publishes `kiln.flame` (`running("creative")`) from its `on_ready`, which runs after every service's
+`on_ready` (services load before plugins). So kiln.rules installs its creative hooks and the inventory payment at the
+first world instead of at boot, after asking `kiln.flame`; Kiln.Rules asks it from managed code (`CreativeFlame`). While
+Creative Mode runs: no creative hook (free crafting, kept consumables, storage upgrade, map reveal, craft buttons,
+character flight), `/creative on`, takes, `/creative time|cycle`, the menu and the map reveal are refused or idle, and
+the state sent to Kiln clients carries `CreativeAccess.Idle`. kiln.rules' other hooks (fly gate, cursor, costs, glider,
+mining, Shroud) are installed at boot as before: they act only for players with Kiln rules, and Kiln grants none of
+creative's while Creative Mode runs; if Creative Mode inline-hooks one of the same functions it hooks over Kiln's jump.
+kiln.time's clock-speed hook is not touched (Kiln refuses cycle changes, so it passes through). Lab: the dummy Flame mod
+test (`native/plugins/compat` `flame_test.dll` as `mods/creative/`), see below.
+
+### 2. Food, drinks, potions and bandages
+The consume events in the game data (listed by `mods/tests/creative-test` from kiln.gamedata) **[rt]**: ApplyBuffEvent 11
+(`UseItem_Bandage_buff`, `UseItem_Food_Liquid_Buff`, `UseItem_Food_Buff`, `UseItem_Flask_FogElixir`,
+`UseItem_Potion_Ice_Protection_Lotion`, scrolls), SpawnImpact 15 (`UseItem_Potion_Health`, `UseItem_Food_Heal`,
+`UseItem_Potion_Antidote_RemovePoison`, ...), SpawnEntityEvent 34 (`UseItem_Potion_Mana`, `UseItem_Potion_FogResistance`,
+throwables), PayUsageCost 40, PlaceVoxelObjectEvent 1. `actor_spawn_entity` (`0x454f0`) runs SpawnImpact and
+SpawnEntityEvent through the spawn path `0x42390`, whose one removal is Part 3's `rules/AmmoConsumed`: health potions and
+healing food were already kept. The buff ones go through `actor_apply_buff` (`0x75bc0` `[0x262f40]`) **[dis]**: one
+transaction, `InventoryRemoveItems(out, tx, current entity, used item, slot, 1)` (call `0x76184`, returns `0x76189`
+`[0x263049]`), then on `{0, 0}` `applyBuffCore` (`0x15e130`) and commit, else rollback. `rules/BuffConsumed` (feature
+`rules.consume_buff`) is that return address; KEEP_CONSUMABLES answers `{0, 0}` there too, so the buff applies and the
+commit has nothing to remove. The other callers of the removal are not consumables: `0x14d750` (fishing bait,
+`server_player_fishing`), `0xa4e80` (`interaction_attempt`), `0xb3560` (`player_cooking`), `0x144bb0`
+(`equipment_actions`), `0x1a1230` (`inventory_actions`: an item applied to another item, event `0x103e50ea`), the
+crafting payers, and `0x469c0` / `0x46bc0` through the wrapper `0x1b0d60` (`animal_food_consumption`, feeding troughs).
+
+### 3. Upgraded gear across a save and a restart
+Lab (below): three weapons given into a chest (plain Epic, all upgrades and a gem slot, two upgrades), the world
+autosaved, the lab restarted, the chest read back.
+
+### 4. The backpack grid (drag and drop, M) and what the rest takes
+Kiln's overlay has no drag gesture: `UiDraw` exposes no ImGui drag-and-drop source/target or mouse state. Built: a
+Kiln-drawn grid of the player's backpack (the player's Generic inventories, 8 slots each) in the creative menu; **Place...**
+picks the selected catalogue item up and a click on an empty slot (or one with the same item) gives it into that slot
+(`CreativeRequest.Slot`, a trailing field; `Items.Give(..., slot)`; the server refuses a slot outside the player's own
+backpack). What is left:
+- a real drag gesture inside the overlay: kiln.ui needs `BeginDragDropSource` / `SetDragDropPayload` /
+  `BeginDragDropTarget` / `AcceptDragDropPayload` in its widget table and `UiDraw` (S, shared UI service, additive);
+- a drop onto the game's own inventory screen (L, client RE): the HUD's inventory screen drop handler and its drag
+  state (Part 3 section 7, option a), then the same slot give.
+
+### 5. Character flight (built behind `rules.json` `allowCharacterFlight`, off by default)
+Answers to Part 3's open questions **[dis]**:
+- **Gravity.** `gravity_apply_velocity_actor` ignores the locomotion state. Kiln zeroes the strength at `rules/FlightGravity`
+  (`0xa0f1f` `[0x2a364f]`, right after the StepDelta call; the glider's site `0xa0f13` covers 7 bytes before the call,
+  no overlap) for a player who may fly; the Actor comes from the same function's grounded test (`[rbp-0x51]`).
+- **The vertical input.** The BuildingFlying mover (`0x1d09d0` `[0x431130]`) steers `Velocity` toward
+  `DynamicLocomotion.inputVelocity` (the iterator's DynamicLocomotion at `+0xf8`; the second float3 it writes is
+  `velocitySpringAcceleration` `+0x40`); its acceleration row comes from the Actor's `Strafing` (53) and `InSneakMode`
+  (21) flags (`0x3b7a0` is ActorStateTest). The movers share locomotion_execution's iterator (`lea rcx,[rsp+0x60]` for
+  Falling `0x1d12a0`, HangGliding `0x1d2320` and BuildingFlying alike), so the glider's PlayerInput slot (`+0x50`) and
+  input mask (`+0x3a8`) apply. Kiln sets `inputVelocity.y` before the mover from the held `Jump` (32) and `Sneak` (55)
+  bits, `Sprint` (53) faster.
+- **The state.** `LocoNextState` (`0x1c5180` `[0x4259a0]`) takes the Actor in `rdx` and tests its flags (Flying 39 →
+  3, UnderWater 44, HangGliding 37 → 4, Grounded 0 → Walking/Sliding, else Falling 2); 11 stays 11 first of all. The mid
+  hook `rules/LocoStateWrite` (`0x1e043f` `[0x440b7f]`): `al` the decision, `rsi` the ProgramContext through the loop,
+  the Actor at `[rsp+0x58]`, DynamicLocomotion at `[rbp-0x70]`. Decision: `flight_math.h` (host-tested).
+- **Animation.** `locomotion_animation` (`0x1d7b90`) switches on the state with `cmp sil, 0xa; ja default`, and the state
+  name table (`0x1c5390`) covers 0..11, so state 11 on a player is bounded: it takes the default branch. What it looks
+  like for other players is for the manual test.
+- **Replication.** `DynamicNetworkLocomotion.state` (+0x24) carries the state to clients; the owner's prediction runs
+  the same three hooks with its local rules (sent over `kiln:rules`, like the glider's), so both sides decide alike from
+  the same replicated input. Not proven on a real connection.
+- **Not done:** the mod's air-jump and head-dive input changes (Kiln's flight starts from any airborne step instead of
+  a jump in the air), a HUD hint while flying, and "lands the character safely" outside creative mode's invulnerability.
+
+A lab (server 26430253, `mods/tests/creative-test`, a spawned player character, its PlayerInput held
+bits written by the test): see docs/kiln/services/rules.md "Character flight" for the lines.
+

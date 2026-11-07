@@ -35,6 +35,20 @@ public sealed class CreativeTestMod : Mod
     {
         for (var i = 0; i < 240 && !(Spawn.WorldRunning && Items.All.Count > 0 && Time.Ready); i++) await Steps(25);
         await Steps(50);
+        if (await Idle()) return;
+        if (File.Exists(Path.Combine(Context.DataDirectory, "flight-only")))
+        {
+            // a quicker run for the flight alone (create the file in the mod's data folder)
+            var c = await Character();
+            if (c.IsNone) return;
+            Rules.Simulate(c);
+            try { await Flight(c); }
+            finally { Creative.Set(c, false); Rules.Simulate(c, false); Spawn.Destroy(c); }
+            return;
+        }
+        Hooks_();
+        ConsumeEvents();
+        if (await Persistence()) return;  // the read-back run checks only that
         Catalog();
         await Cycle();
         Commands_();
@@ -47,7 +61,7 @@ public sealed class CreativeTestMod : Mod
             await Crafting(f);
             Found(f);
             await Falls(f);
-            await FlightProbe(f);
+            await Flight(f);
         }
         finally
         {
@@ -56,6 +70,112 @@ public sealed class CreativeTestMod : Mod
             Spawn.Destroy(f);
         }
     }
+
+    // ---- Creative Mode (a Flame mod) runs in this server: Kiln's creative mode stays idle ----
+    private async Task<bool> Idle()
+    {
+        var status = Creative.Status();
+        if (!status.Contains("Creative Mode (the Flame mod", StringComparison.Ordinal)) return false;
+        Info($"Creative Mode runs here: {status}");
+        var someone = new EntityId(1);
+        var on = Creative.Set(someone, true);
+        Check(!on.Ok && !Creative.IsOn(someone), $"/creative on is refused while Creative Mode runs: {on.Message}");
+        var give = await CreativeTools.Give(someone, Items.All[0].Id, 1);
+        Check(!give.Ok && give.Message.Contains("Creative Mode", StringComparison.Ordinal), $"taking items is refused: {give.Message}");
+        Check(!CreativeTools.SetTime(9, Me).Ok && !CreativeTools.SetCycle(TimeCycle.Fast, Me).Ok, "the time of day and the cycle are refused");
+        var r = Commands.Execute(CommandSource.Console, "creative cycle fast");
+        Check(!r.Ok && Time.Cycle == TimeCycle.Normal, $"/creative cycle fast is refused: {r.Error}");
+        var st = Rules.Status();
+        Check(st is { FreeCrafting: false, KeptConsumables: false, KeptFoodAndPotions: false } && st.Detail.Contains("Creative Mode runs", StringComparison.Ordinal),
+            $"kiln.rules installed none of its creative hooks: {st?.Detail}");
+        return true;
+    }
+
+    // ---- which creative hooks this build has (installed at the first world) ----
+    private void Hooks_()
+    {
+        var st = Rules.Status();
+        Check(st is { FreeCrafting: true, KeptConsumables: true, KeptFoodAndPotions: true },
+            $"creative hooks armed at the first world: free crafting {st?.FreeCrafting}, kept ammunition {st?.KeptConsumables}, kept food and potions {st?.KeptFoodAndPotions} ({st?.Detail})");
+    }
+
+    // ---- the game data behind KeepConsumables: which sequence events use up the used item ----
+    private void ConsumeEvents()
+    {
+        if (!Content.GameDataAvailable || Content.Status() is not { Ready: true }) { Info("game data not ready: consume events not listed"); return; }
+        var byType = new Dictionary<string, List<string>>();
+        foreach (var e in Content.Sequences)
+        {
+            if (e.GetJson("events")?["value"] is not System.Text.Json.Nodes.JsonArray events) continue;
+            foreach (var ev in events)
+                if (ev?["consume"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<bool>(out var c) && c && (string?)ev["$type"] is { } type)
+                {
+                    var t = type[(type.LastIndexOf(':') + 1)..];
+                    if (!byType.TryGetValue(t, out var list)) byType[t] = list = new();
+                    if (!list.Contains(e.Name)) list.Add(e.Name);
+                }
+        }
+        foreach (var (t, list) in byType.OrderBy(k => k.Key))
+            Info($"consume events {t}: {list.Count} sequence(s): {string.Join(", ", list.Take(t.Contains("ApplyBuff") ? 40 : 8))}");
+        Check(byType.Keys.Any(k => k.Contains("ApplyBuff")), "the game data has ApplyBuffEvent events that consume the used item (the food and potion site)");
+    }
+
+    // ---- gear options survive a save and a restart (two lab runs: give, autosave, restart, read back) ----
+    private sealed record GearMark(double X, double Y, double Z, uint Item, int Level, int Upgraded, int Two);
+
+    private async Task<bool> Persistence()
+    {
+        var file = Path.Combine(Context.DataDirectory, "gear-persistence.json");
+        if (!Items.GearOptionsAvailable) { Info("gear options unavailable: persistence skipped"); return false; }
+        if (File.Exists(file))
+        {
+            var mark = System.Text.Json.JsonSerializer.Deserialize<GearMark>(File.ReadAllText(file))!;
+            File.Delete(file);
+            var at = new WorldPosition(mark.X, mark.Y, mark.Z);
+            var chest = Items.FindInventories(InventoryKinds.Containers)
+                .Select(e => (e, p: World.Position(e))).Where(x => x.p is { } p && Dist(p, at) < 0.5).Select(x => x.e).FirstOrDefault();
+            var slots = chest.IsNone ? null : Items.Read(chest)?.Slots.Where(s => s.Item.Value == mark.Item).ToList();
+            if (!Check(slots is { Count: >= 3 }, $"after the restart the chest at {at} holds the three gear items ({slots?.Count ?? -1})")) return true;
+            (int A, int U) Perks(InventorySlot s) => World.ReadBytes(s.ItemEntity, "PerkContainerNew") is { Length: >= 2 } b ? (b[0], b[1]) : (-1, -1);
+            var full = slots!.FirstOrDefault(s => s.Level == mark.Upgraded);
+            var two = slots!.FirstOrDefault(s => s.Level == mark.Two);
+            var plain = slots!.FirstOrDefault(s => s.Level == mark.Level);
+            Info("after the restart: " + string.Join("; ", slots!.Select(s => $"level {s.Level}, perks {Perks(s).U}/{Perks(s).A}, gem slot {World.Has(s.ItemEntity, "WeaponGemSlot")}, {s.Rarity}")));
+            Check(full is not null && Perks(full).U == Perks(full).A && Perks(full).A > 0 && World.Has(full.ItemEntity, "WeaponGemSlot"),
+                $"all upgrades and the gem slot survive the save: level {full?.Level}, perks {(full is null ? "-" : $"{Perks(full).U}/{Perks(full).A}")}");
+            Check(two is not null && Perks(two).U == Math.Min(2, Perks(two).A), $"two upgrades survive: level {two?.Level}");
+            Check(plain is not null && Perks(plain).U == 0, $"the plain item stays plain: level {plain?.Level}");
+            return true;
+        }
+        var weapon = CreativeTools.Catalog().FirstOrDefault(i => i.IsGear && i.Category == ItemCategory.Weapons && i.LevelMax > i.LevelMin + 8);
+        var boxes = Items.FindInventories(InventoryKinds.Containers).Select(e => (e, inv: Items.Read(e), p: World.Position(e))).ToList();
+        Info($"containers: {boxes.Count}; e.g. " + string.Join("; ", boxes.Take(5).Select(x =>
+            $"{x.e} at {x.p}: {(x.inv is null ? "unreadable" : $"{x.inv.Slots.Count} of {x.inv.AvailableSlots} slots used, init {x.inv.Initialized}")}")));
+        static int Free(InventoryContents i) => i.Slots.Count(s => s.Item.Value == 0 || s.Count == 0) + Math.Max(0, i.AvailableSlots - i.Slots.Count);
+        var box = boxes.Where(x => x.inv is { Initialized: true } && x.p is not null && Free(x.inv!) >= 3).OrderByDescending(x => Free(x.inv!)).FirstOrDefault();
+        if (!Check(weapon is not null && !box.e.IsNone, $"a weapon ({weapon?.Label}) and a chest with room ({box.e} at {box.p})")) return false;
+        var lv = weapon!.LevelMin + 1;
+        async Task<ItemsResult> Give(int upgrades, bool gem)
+        {
+            await Steps(10);
+            return await Items.Give(box.e, weapon.Id, 1, new Gear(lv, ItemRarity.Epic) { Unlocked = upgrades > 0 ? upgrades : null, GemSlot = gem });
+        }
+        var r1 = await Give(0, false);
+        var r2 = await Give(5, true);
+        var r3 = await Give(2, false);
+        await Steps(5);
+        var mine = Items.Read(box.e)?.Slots.Where(s => s.Item == weapon.Id).ToList() ?? new();
+        Info($"gave three {weapon.Label} into chest {box.e}: {r1.Status}, {r2.Status}, {r3.Status}; levels {string.Join(", ", mine.Select(s => s.Level))}");
+        var top = mine.Count == 0 ? 0 : mine.Max(s => s.Level);
+        var mid = mine.Select(s => s.Level).Where(l => l > lv && l < top).DefaultIfEmpty(lv + 2).First();
+        Directory.CreateDirectory(Context.DataDirectory);
+        File.WriteAllText(file, System.Text.Json.JsonSerializer.Serialize(new GearMark(box.p!.Value.X, box.p.Value.Y, box.p.Value.Z, weapon.Id.Value, lv, top, mid)));
+        Check(r1.Status == ItemsStatus.Done && r2.Status == ItemsStatus.Done && r3.Status == ItemsStatus.Done && mine.Count >= 3,
+            $"three gear items in the chest for the persistence check (restart the lab after the next autosave): {file}");
+        return false;
+    }
+
+    private static double Dist(WorldPosition a, WorldPosition b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y) + (a.Z - b.Z) * (a.Z - b.Z));
 
     // ---- the catalogue the menu lists ----
     private void Catalog()
@@ -335,29 +455,79 @@ public sealed class CreativeTestMod : Mod
         else Info($"without the rule the drop left health at {h1} of {h0}{(hit ? "" : " (no landing seen)")}: the game decided no damage here");
     }
 
-    // ---- research for character flight (docs/re/creative-mode-146.md Part 3 section 6): INFO only ----
-    // The state decision keeps LocomotionState.BuildingFlying (11) once set, and its mover is the building spark's. What
-    // does a player character do in it, with gravity still on? Raw write of DynamicLocomotion.state (+0x59).
-    private async Task FlightProbe(EntityId f)
+    // ---- character flight (kiln.rules' flight hooks; the lab's rules.json must allow it) ----
+    private async Task Flight(EntityId f)
     {
-        const int State = 0x59;
-        if (!World.TryRead<byte>(f, "DynamicLocomotion", out _)) { Info("flight probe: no DynamicLocomotion readable"); return; }
-        var at = World.Position(f)!.Value;
-        await Teleport.To(f, at with { Y = at.Y + 30 }, new TeleportOptions { FindGround = false });
-        for (var i = 0; i < 60 && World.Position(f)!.Value.Y < at.Y + 20; i++) await Steps(1);
+        const int State = 0x59, Held = 936 + 8;  // DynamicLocomotion.state; PlayerInput's held input bits
+        if (Rules.Status() is not { CharacterFlight: true } st) { Info($"character flight hooks are off here: {Rules.Status()?.Detail}"); return; }
+        if (!Creative.IsOn(f)) Creative.Set(f, true);
+        var on = Creative.SetFlight(f, CharacterFlightMode.Unlimited);
+        if (!on.Ok) { Info($"character flight not allowed here (rules.json allowCharacterFlight): {on.Message}"); return; }
+        await Steps(2);
+        Check(Rules.Of(f).CharacterFlight == CharacterFlightMode.Unlimited, $"character flight on: {on.Message}");
         byte Read() => World.ReadBytes(f, "DynamicLocomotion") is { Length: > State } b ? b[State] : (byte)255;
-        var y0 = World.Position(f)!.Value.Y;
-        Info($"flight probe: 30 m up, state {Read()}, y {y0:0.0}; writing BuildingFlying (11)");
-        World.TryWrite<byte>(f, "DynamicLocomotion", State, 11);
-        for (var i = 1; i <= 50; i++)
+        double Y() => World.Position(f)!.Value.Y;
+        void Hold(bool jump, bool sneak) => World.TryWrite(f, "PlayerInput", Held, (jump ? 1UL << 32 : 0) | (sneak ? 1UL << 55 : 0));
+        async Task<bool> Until(Func<bool> ok, int steps)
         {
-            await Steps(1);
-            if (i is 1 or 5 or 10 or 25 or 50)
-                Info($"flight probe: step {i}: state {Read()}, y {World.Position(f)!.Value.Y:0.00} ({World.Position(f)!.Value.Y - y0:+0.00;-0.00} m)");
+            for (var i = 0; i < steps; i++)
+            {
+                if (ok()) return true;
+                await Steps(1);
+            }
+            return ok();
         }
-        World.TryWrite<byte>(f, "DynamicLocomotion", State, 2);
-        for (var i = 0; i < 200 && !PlayerStates.Is(f, PlayerStateId.Grounded); i++) await Steps(1);
-        Info($"flight probe: back to Falling (2): state {Read()}, grounded {PlayerStates.Is(f, PlayerStateId.Grounded)}, y {World.Position(f)!.Value.Y:0.0}");
+        Hold(false, false);
+        await Until(() => PlayerStates.Is(f, PlayerStateId.Grounded), 200);
+        await Steps(20);
+        var ground = Y();
+        var at = World.Position(f)!.Value;
+        var tp = await Teleport.To(f, at with { Y = at.Y + 20 }, new TeleportOptions { FindGround = false });
+        var up = await Until(() => Y() > ground + 12, 200);
+        if (!up)
+        {
+            // a jump instead: an upward push leaves the ground, and the flight starts from there
+            Info($"the teleport did not lift it ({tp}); pushing it up instead");
+            for (var i = 0; i < 5 && Y() < ground + 1; i++)
+            {
+                World.TryWrite(f, "Velocity", 4, 12f);
+                await Steps(1);
+            }
+            up = await Until(() => Y() > ground + 0.5, 60);
+        }
+        var took = await Until(() => Read() == 11, 60);
+        Check(up && took, $"airborne with the rule, the character takes off: state {Read()}, {Y() - ground:0.0} m up");
+        if (!took) { Creative.SetFlight(f, CharacterFlightMode.Off); return; }
+        await Steps(10);
+        var y0 = Y();
+        await Steps(50);
+        Check(Read() == 11 && Math.Abs(Y() - y0) < 1.0, $"it hovers with no input: {Y() - y0:+0.00;-0.00} m over 50 steps (state {Read()})");
+        Hold(true, false);
+        y0 = Y();
+        await Steps(30);
+        Check(Read() == 11 && Y() - y0 > 3, $"holding jump climbs: {Y() - y0:+0.0;-0.0} m over 30 steps");
+        Hold(false, true);
+        var landed = await Until(() => Read() == 0 || PlayerStates.Is(f, PlayerStateId.Grounded) && Read() != 11, 600);
+        Hold(false, false);
+        await Steps(5);
+        Check(landed && Read() != 11, $"holding sneak sinks and lands it: state {Read()}, {Y() - ground:+0.0;-0.0} m from the start, grounded {PlayerStates.Is(f, PlayerStateId.Grounded)}");
+
+        await Steps(20);
+        for (var i = 0; i < 5 && Read() != 11; i++)
+        {
+            World.TryWrite(f, "Velocity", 4, 12f);  // jump: it takes off again
+            await Steps(1);
+        }
+        await Until(() => Read() == 11, 200);
+        Hold(true, false);
+        await Steps(20);  // climb a few metres
+        Hold(false, false);
+        var off = Creative.SetFlight(f, CharacterFlightMode.Off);
+        var fell = await Until(() => Read() != 11, 30);
+        y0 = Y();
+        await Steps(20);
+        Check(off.Ok && fell && Y() < y0 - 0.5, $"turned off in the air, it falls: state {Read()}, {Y() - y0:+0.0;-0.0} m over 20 steps");
+        await Until(() => PlayerStates.Is(f, PlayerStateId.Grounded), 400);
     }
 
     private async Task<(bool Landed, int Before, int After)> Drop(EntityId f, double height)

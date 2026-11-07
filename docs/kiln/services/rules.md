@@ -159,6 +159,19 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
 - **World > Map reveal**: the game's range, 200 m, 400 m or the whole map. Client only, for this session while creative
   mode is on (back to the game's when you leave the world or creative mode ends). What is uncovered stays uncovered
   for the character: the game saves it. "Whole map" sweeps the map over about a second, not in one frame.
+- **World > Character flight**: Off, Unlimited, or Building areas only (see "Character flight" below). Shown when the
+  server's `rules.json` allows it; a key for it (`kiln.creative.flight`, no default) toggles it in Kiln menu > Keys.
+- **Items > Backpack**: a grid of your backpack's slots. **Place...** picks the selected item up (with its count, level,
+  rarity and options); clicking an empty slot, or one holding the same item, puts it there (the rest goes where the
+  game puts it). The server checks that the slot is in your own backpack. This is pick-and-click: Kiln's overlay has
+  no drag gesture (see "Limits"), and it cannot drop onto the game's own inventory screen.
+- **Creative Mode (Nexus 146) in the same game**: when kiln-flame runs Creative Mode (`kiln.flame` says
+  `running("creative")`), Kiln's creative mode stays idle: no `/creative on`, no menu key or pause entry (Creative
+  Mode's own menu serves), no takes, time or cycle changes, and kiln.rules installs none of its creative hooks (free
+  crafting, kept consumables, the storage upgrade, map reveal, craft buttons, character flight). kiln.log says it once
+  (`Creative Mode (the Flame mod "creative") runs in this game: Kiln's creative hooks stay off ...`), and
+  `/creative status` starts with it. A dedicated server running it tells Kiln clients (state bit `Idle`) and their menu
+  says so.
 
 `/creative` requests `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
 `creative.json` says nothing about them. Both are native hooks inside the game's own transactions (kiln.rules,
@@ -173,10 +186,19 @@ the hooked function, turns that one hook off):
 - **Free crafting**: the recipe function pays through the inventory payment (the one the storage upgrade uses) or, for
   recipes with flag 0x40, through a second payer. The payment answers 0 ("paid") when it is called from the recipe
   function (its return address) and the transaction's operator is the inventory owner and has FREE_CRAFTING.
-- **Kept consumables**: the spawn path's `consume` (bows, throwables) and PayUsageCost's `consume` (staffs) each call
-  `InventoryRemoveItems(…, actor, item, slot, 1)` and commit only on "nothing missing". For those two calls and an actor
-  with KEEP_CONSUMABLES the one-item removal answers "nothing missing" without queueing a removal. Other removal
-  callers and counts keep the game's behavior.
+- **Kept consumables**: three sequence-event removals each call `InventoryRemoveItems(…, actor, item, slot, 1)` and
+  commit only on "nothing missing": the spawn path's `consume` (SpawnEntityEvent and SpawnImpact: bows, throwables,
+  health and mana potions, healing food), PayUsageCost's `consume` (staffs) and, since this release, ApplyBuffEvent's
+  `consume` in `actor_apply_buff` (food and drink buffs, bandages, lotions, flasks, scrolls; feature `rules.consume_buff`,
+  status `KeptFoodAndPotions`). For those calls and an actor with KEEP_CONSUMABLES the one-item removal answers
+  "nothing missing" without queueing a removal; the buff still applies (it runs after a successful removal). Other
+  removal callers (crafting, cooking, fishing bait, feeding animals, inventory actions) and counts keep the game's
+  behavior. The game data's consume events, listed by the lab test: ApplyBuffEvent 11 (`UseItem_Food_Buff`,
+  `UseItem_Food_Liquid_Buff`, `UseItem_Bandage_buff`, ...), SpawnImpact 15 (`UseItem_Potion_Health`, `UseItem_Food_Heal`,
+  ...), SpawnEntityEvent 34, PayUsageCost 40, PlaceVoxelObjectEvent 1.
+- **When they are installed**: at the first world (any kind), not at boot: kiln-flame fills `kiln.flame` in its
+  `on_ready`, after this service's, so only then can kiln.rules tell whether Creative Mode runs. The inventory payment
+  (free crafting, the storage upgrade) is hooked at the same time, or not at all while Creative Mode runs.
 - **Craft buttons** (client): the crafting menu enables its craft actions from the game's craftable-amount lookup; with
   the local player's FREE_CRAFTING (sent by the server with the other client rules) it answers at least the amount asked.
 - **Map reveal** (client): the fog of war's discover call gets a wider range (its range is a diameter: 200 m = 400), or
@@ -224,6 +246,18 @@ upgrade itself and journey mode need a joined player. The catalogue lists 4,180 
 0, counter unchanged while the game's requests are refused), Fast runs it at x46.7 (`15:36 -> 16:27`), Normal gives it
 back; `/creative time 7:30` and `/creative cycle` from the console; NoFallDamage: `a 40 m fall canceled (would have
 taken 200 health)`, the same drop without the rule `200 -> 0`. The menu itself needs the game (manual test).
+
+A lab (same server build, 2026-11-07): `creative hooks armed at the first world: free crafting True, kept
+ammunition True, kept food and potions True`, `kept consumables: the consume removals (rva 0x1b0d90; ammunition calls
+return to 0x42665 and 0x41255, food and potions to 0x76189)`, the full creative test again `49 PASS` (free crafting,
+gear options, takes, time, cycle, falls) with the hooks installed at the first world. Gear across a save and a restart:
+three weapons into a chest, autosave (`saves: world written: revision 3041`), restart, read back: `level 6, perks 4/4,
+gem slot True, Epic; level 4, perks 2/4; level 2, perks 0/4`. Creative Mode in the same server (kiln-flame starting a
+stand-in Flame mod `creative`, Kiln's own test DLL from `native/plugins/compat/tests`): `[flame:creative] ... FlameStartRuntime
+returned`, then `Creative Mode (the Flame mod "creative") runs in this game: Kiln's creative hooks stay off`, `/creative on
+is refused while Creative Mode runs`, `taking items is refused`, `the time of day and the cycle are refused`, `kiln.rules
+installed none of its creative hooks: off on this build: free crafting, kept consumables (Creative Mode runs), storage
+upgrade (Creative Mode runs), character flight (Creative Mode runs)`.
 
 ## Server and client
 | Part | Where it runs |
@@ -281,6 +315,38 @@ is the game's (with `GlideSink` and `UnlimitedGliding`).
 
 Channel versions must match exactly: a v2 peer still joins, but receives no v3 rules messages and gets no server-side
 glide changes. This prevents prediction from using different gliding rules.
+
+## Character flight
+`PlayerRules.CharacterFlight` (`Off`, `Unlimited`, `BuildingArea`; JSON `"characterFlight": "Unlimited"`) lets the
+character itself fly, unlike the game's building fly mode. **Off on every server** until its `rules.json` sets
+`"allowCharacterFlight": true` (new; tested on fewer setups than the rest). Creative mode turns it on per player from the
+menu, `/creative flight unlimited|buildingarea|off [player]` or `Creative.SetFlight(player, mode)`; any rule set can
+ask for it too (an explicit `Off` wins, then the widest mode). Like the glider it runs in the player's prediction, so
+it is held back from a game without Kiln's rules channel.
+
+How it plays: jump (or walk off a ledge) and the character takes off; hold **jump** to climb, **sneak** to sink,
+**sprint** for speed (8 m/s up or down, x2.5 with sprint; across, the game's own movement speed). It hovers with no
+input. Sinking onto the ground lands it; touching the ground otherwise keeps flying (low hover). Opening the glider,
+water, climbing, death, the rule ending, or leaving the building zone in `BuildingArea` mode ends it in the air and the
+character falls (creative mode's invulnerability covers the landing).
+
+How it works (kiln.rules `flight.cpp`, feature `rules.flight`, hook bit `KILN_RULES_HOOK_FLIGHT`; docs/re/creative-mode-146.md
+Part 4): the character flies in the game's `BuildingFlying` locomotion state, the building spark's. A mid hook right after
+the locomotion state decision takes off, keeps, lands or ends the flight; a mid hook in the gravity step zeroes gravity
+for a player who may fly (its own site, after the glider's); a hook before the BuildingFlying mover sets the vertical
+input velocity from the held jump and sneak bits. All three run in the server world and in the player's prediction
+with the same rules and the same replicated input. The building spark (no rules) keeps its own state. Counters:
+`KilnRulesCreative.flight_takeoffs`, `flight_landings`, `flight_ends`.
+
+A lab (a spawned player character, its PlayerInput's held bits written by the test, `allowCharacterFlight`
+on): `character flight: state rva 0x1e043f, gravity 0xa0f1f, mover 0x1d09d0`, `airborne with the rule, the character
+takes off: state 11, 20.0 m up`, `it hovers with no input: +0.00 m over 50 steps`, `holding jump climbs: +11.0 m over 30
+steps`, `holding sneak sinks and lands it: state 0, grounded True`, `turned off in the air, it falls: -8.6 m over 20
+steps`. Without `allowCharacterFlight`: `Character flight stays off ... this server's rules.json does not allow it`.
+
+Not proven yet (manual test): what other players see (the player's animation graph has no flying animation:
+`locomotion_animation` takes its default branch for this state), how well the owner's prediction agrees on a real
+connection, and the camera.
 
 ## The flight
 The game's fly mode puts the player's input into a flying spark and leaves the character sitting where it was

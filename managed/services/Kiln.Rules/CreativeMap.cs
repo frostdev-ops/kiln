@@ -39,6 +39,7 @@ internal static unsafe class CreativeMap
     public static string? Set(int choice)
     {
         if (choice < 0 || choice >= Choices.Length) return "unknown choice";
+        if (choice != 0 && CreativeFlame.Running) return CreativeFlame.Note;
         if (!Available) return "this game build has no map reveal hook";
         var c = Choices[choice];
         var r = RulesNative.C->MapReveal(c.Mode, c.Radius);

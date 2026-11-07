@@ -14,11 +14,13 @@ internal enum CreativeAsk : byte
     Creative = 4,
     Catalog = 5,
     Found = 6,
+    Flight = 7,
+    Backpack = 8,
 }
 
 /// <summary>One request: <see cref="Kind"/> says which fields count.</summary>
 internal readonly record struct CreativeRequest(CreativeAsk Kind, uint Item = 0, int Count = 0, int Level = -1, int Rarity = -1,
-    double Value = 0, int Options = 0);
+    double Value = 0, int Options = 0, ulong Slot = 0);
 
 /// <summary>CreativeRequest.Options of a Give (a trailing field: an older peer neither sends nor reads it).</summary>
 internal static class CreativeGiveOptions
@@ -49,6 +51,15 @@ internal enum CreativeAccess : uint
     Time = 8,
     /// <summary>The day and night cycle can be stopped or sped up (an admin, and this build can hold the speed).</summary>
     Cycle = 16,
+    /// <summary>Kiln's creative mode is idle on this server: Creative Mode (a Flame mod) runs there (an older menu
+    /// ignores the bit; the server refuses its requests anyway).</summary>
+    Idle = 32,
+    /// <summary>Character flight may be turned on for the player (in creative mode, allowed by the server, hooks on).</summary>
+    FlightAllowed = 64,
+    /// <summary>The player's character flight now: Unlimited.</summary>
+    FlightUnlimited = 128,
+    /// <summary>The player's character flight now: only in building areas.</summary>
+    FlightBuildingArea = 256,
 }
 
 internal readonly record struct CreativeStateMsg(CreativeAccess Access, TimeCycle Cycle, double Hours, string Rules, string Hooks);
@@ -65,11 +76,20 @@ internal readonly record struct CreativeCatalogMsg(int Start, int Total, IReadOn
 /// menu's journey mode. <see cref="Available"/> false: this server cannot read knowledge.</summary>
 internal readonly record struct CreativeFoundMsg(bool Available, IReadOnlyList<uint> Items);
 
+/// <summary>One backpack slot (Item 0: empty).</summary>
+internal readonly record struct CreativeSlot(ulong Slot, uint Item, int Count);
+
+/// <summary>The player's backpack, for the menu's backpack grid.</summary>
+internal readonly record struct CreativeBackpackMsg(IReadOnlyList<CreativeSlot> Slots)
+{
+    public const int MaxSlots = 96;
+}
+
 internal static class CreativeNet
 {
     public const string ChannelName = "kiln:creative";
     public const string ChannelVersion = "1";
-    private const ushort MsgRequest = 0, MsgState = 1, MsgReply = 2, MsgCatalog = 3, MsgFound = 4;
+    private const ushort MsgRequest = 0, MsgState = 1, MsgReply = 2, MsgCatalog = 3, MsgFound = 4, MsgBackpack = 5;
     private static readonly object Lock = new();
     private static NetChannel? _channel;
     private static bool _ticking;
@@ -100,7 +120,8 @@ internal static class CreativeNet
                 if (!Network.Available) return;
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false, maxMessageBytes: 64 * 1024)
                     .Register<CreativeRequest>(MsgRequest,
-                        static (m, w) => w.Byte((byte)m.Kind).UInt32(m.Item).Int32(m.Count).Int32(m.Level).Int32(m.Rarity).Double(m.Value).Int32(m.Options),
+                        static (m, w) => w.Byte((byte)m.Kind).UInt32(m.Item).Int32(m.Count).Int32(m.Level).Int32(m.Rarity).Double(m.Value).Int32(m.Options)
+                            .UInt64(m.Slot),
                         static (ref NetReader r) => DecodeRequest(ref r),
                         static (m, c) => Inbox.Enqueue(c.Player, m, false, c.Sender), NetDirection.ToServer)
                     .Register<CreativeStateMsg>(MsgState,
@@ -115,7 +136,9 @@ internal static class CreativeNet
                     .Register<CreativeCatalogMsg>(MsgCatalog, EncodeCatalog, DecodeCatalog,
                         static (m, _) => CreativeMenu.OnCatalog(m), NetDirection.ToClient)
                     .Register<CreativeFoundMsg>(MsgFound, EncodeFound, DecodeFound,
-                        static (m, _) => CreativeMenu.OnFound(m), NetDirection.ToClient);
+                        static (m, _) => CreativeMenu.OnFound(m), NetDirection.ToClient)
+                    .Register<CreativeBackpackMsg>(MsgBackpack, EncodeBackpack, DecodeBackpack,
+                        static (m, _) => CreativeMenu.OnBackpack(m), NetDirection.ToClient);
                 Network.ServerReady += _ => CreativeMenu.OnServerReady();
                 Network.Disconnected += _ => CreativeMenu.OnDisconnected();
                 Events.On<NetPeerReadyEvent>(e => Inbox.Enqueue(e.Peer.Player, new CreativeRequest(CreativeAsk.State), false, e.Peer),
@@ -145,7 +168,27 @@ internal static class CreativeNet
         }
         var options = r.Int32();
         if (!CreativeGiveOptions.Valid(options)) throw new NetFormatException("Invalid creative options.");
-        return req with { Options = options };
+        req = req with { Options = options };
+        // the backpack slot (a later trailing field; an older peer sends none, or the transport's zero padding)
+        if (r.Remaining >= 8) return req with { Slot = r.UInt64() };
+        if (r.Remaining > 0 && r.Rest().IndexOfAnyExcept((byte)0) >= 0) throw new NetFormatException("Truncated creative slot.");
+        return req;
+    }
+
+    internal static void EncodeBackpack(CreativeBackpackMsg m, NetWriter w)
+    {
+        var n = Math.Min(m.Slots.Count, CreativeBackpackMsg.MaxSlots);
+        w.UInt16((ushort)n);
+        for (var i = 0; i < n; i++) w.UInt64(m.Slots[i].Slot).UInt32(m.Slots[i].Item).Int32(m.Slots[i].Count);
+    }
+
+    internal static CreativeBackpackMsg DecodeBackpack(ref NetReader r)
+    {
+        int n = r.UInt16();
+        if (n > CreativeBackpackMsg.MaxSlots) throw new FormatException("Invalid backpack size.");
+        var list = new CreativeSlot[n];
+        for (var i = 0; i < n; i++) list[i] = new CreativeSlot(r.UInt64(), r.UInt32(), r.Int32());
+        return new CreativeBackpackMsg(list);
     }
 
     internal static void EncodeCatalog(CreativeCatalogMsg m, NetWriter w)
@@ -297,6 +340,12 @@ internal static class CreativeNet
     public static void SendFound(EntityId player, CreativeFoundMsg m, bool local)
     {
         if (local || IsHost(player)) CreativeMenu.OnFound(m);
+        else Send(player, m);
+    }
+
+    public static void SendBackpack(EntityId player, CreativeBackpackMsg m, bool local)
+    {
+        if (local || IsHost(player)) CreativeMenu.OnBackpack(m);
         else Send(player, m);
     }
 
