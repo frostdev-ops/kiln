@@ -357,10 +357,11 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
 
 pub fn detect(path: &Path) -> Result<Detected> {
     let meta = std::fs::symlink_metadata(path).map_err(io(path, "reading"))?;
-    if meta.file_type().is_symlink() {
+    if crate::quick::import_is_link(&meta) {
         return Ok(Detected { kind: DetectKind::Unknown, path: path.display().to_string(), id: None, version: None, name: None,
             reason: "links are not mod imports".into(), items: vec![], engine: None });
     }
+    crate::quick::validate_import_path(path)?;
     if meta.is_dir() {
         return Ok(detect_folder(path));
     }
@@ -422,6 +423,9 @@ impl Drop for TempDir {
 
 /// Unpacks a zip (zip-slip guarded, symlink entries refused) into a temp folder below `parent`.
 pub fn unpack_to_temp(zip: &Path, parent: &Path) -> Result<TempDir> {
+    // This is shared by direct Library callers and modpack installation, which do not necessarily go
+    // through quick::add. Bound the central directory and expanded bytes before creating any output.
+    crate::quick::validate_import_path(zip)?;
     let tmp = TempDir::new(parent, "kiln-unpack")?;
     unpack(zip, tmp.path())?;
     Ok(tmp)
@@ -429,8 +433,13 @@ pub fn unpack_to_temp(zip: &Path, parent: &Path) -> Result<TempDir> {
 
 #[cfg(feature = "zip")]
 fn unpack(zip: &Path, dest: &Path) -> Result<()> {
+    use std::io::Read;
     let f = std::fs::File::open(zip).map_err(io(zip, "opening"))?;
     let mut a = zip::ZipArchive::new(f).map_err(|e| Error::new(ErrorCode::Parse, format!("{}: {e}", zip.display())))?;
+    if a.len() > crate::quick::MAX_IMPORT_ENTRIES {
+        return Err(Error::new(ErrorCode::Refused, "Too many files in this zip."));
+    }
+    let mut total = 0u64;
     for i in 0..a.len() {
         let mut e = a.by_index(i).map_err(|e| Error::new(ErrorCode::Parse, format!("{}: {e}", zip.display())))?;
         let name = e.name().map_err(|e| Error::new(ErrorCode::Parse, format!("{}: {e}", zip.display())))?.replace('\\', "/");
@@ -438,6 +447,12 @@ fn unpack(zip: &Path, dest: &Path) -> Result<()> {
             return Err(Error::new(ErrorCode::Refused, format!("{}: symlink entry {name}", zip.display())));
         }
         let rel = crate::bundle::safe_rel_path(name.trim_end_matches('/'))?;
+        if Path::new(rel).components().count() > crate::quick::MAX_IMPORT_DEPTH {
+            return Err(Error::new(ErrorCode::Refused, "Paths in this zip are too deeply nested."));
+        }
+        if e.size() > crate::quick::MAX_IMPORT_FILE || total.saturating_add(e.size()) > crate::quick::MAX_IMPORT_BYTES {
+            return Err(Error::new(ErrorCode::Refused, "Expanded zip exceeds the import limits."));
+        }
         let target = dest.join(rel);
         if e.is_dir() {
             std::fs::create_dir_all(&target).map_err(io(&target, "creating"))?;
@@ -447,7 +462,12 @@ fn unpack(zip: &Path, dest: &Path) -> Result<()> {
             std::fs::create_dir_all(p).map_err(io(p, "creating"))?;
         }
         let mut out = std::fs::File::create(&target).map_err(io(&target, "writing"))?;
-        std::io::copy(&mut e, &mut out).map_err(io(&target, "writing"))?;
+        let allowance = crate::quick::MAX_IMPORT_FILE.min(crate::quick::MAX_IMPORT_BYTES - total);
+        let n = std::io::copy(&mut (&mut e).take(allowance + 1), &mut out).map_err(io(&target, "writing"))?;
+        if n > allowance || n != e.size() {
+            return Err(Error::new(ErrorCode::Refused, "Expanded zip exceeds its declared size or the import limits."));
+        }
+        total += n;
     }
     Ok(())
 }
@@ -459,6 +479,11 @@ fn unpack(zip: &Path, _dest: &Path) -> Result<()> {
 
 /// Copies a mod folder without its dot entries (not part of its kdh1); symlinks are refused.
 pub(crate) fn copy_mod_tree(from: &Path, to: &Path) -> Result<u64> {
+    crate::quick::validate_import_path(from)?;
+    copy_mod_tree_inner(from, to)
+}
+
+fn copy_mod_tree_inner(from: &Path, to: &Path) -> Result<u64> {
     std::fs::create_dir_all(to).map_err(io(to, "creating"))?;
     let mut size = 0;
     for e in std::fs::read_dir(from).map_err(io(from, "reading"))? {
@@ -467,14 +492,17 @@ pub(crate) fn copy_mod_tree(from: &Path, to: &Path) -> Result<u64> {
         if name.to_string_lossy().starts_with('.') {
             continue;
         }
-        let ft = std::fs::symlink_metadata(e.path())?.file_type();
+        let meta = std::fs::symlink_metadata(e.path())?;
+        let ft = meta.file_type();
         let dst = to.join(&name);
-        if ft.is_symlink() {
+        if crate::quick::import_is_link(&meta) {
             return Err(Error::new(ErrorCode::Refused, format!("{}: symlinks are not allowed in a mod folder", e.path().display())));
         } else if ft.is_dir() {
-            size += copy_mod_tree(&e.path(), &dst)?;
+            size += copy_mod_tree_inner(&e.path(), &dst)?;
         } else if ft.is_file() {
             size += std::fs::copy(e.path(), &dst).map_err(io(&dst, "copying to"))?;
+        } else {
+            return Err(Error::new(ErrorCode::Refused, format!("{}: not a regular file or folder", e.path().display())));
         }
     }
     Ok(size)
@@ -488,6 +516,39 @@ fn kind_dir(dirs: &DataDirs, kind: ModKind) -> PathBuf {
     dirs.library().join(kind.as_str())
 }
 
+/// A LibraryRef is also deserialized from callers and profiles. Validate before joining any of its fields.
+fn checked_entry(dirs: &DataDirs, r: &LibraryRef) -> Result<PathBuf> {
+    if !crate::manifest::is_mod_id(&r.id) || r.id.chars().any(char::is_control) {
+        return Err(Error::invalid(format!("invalid library mod id {:?}", r.id)));
+    }
+    if r.version != r.version.trim() || r.version.contains(['/', '\\', ':']) || r.version.chars().any(char::is_control)
+        || crate::semver::SemVersion::parse(&r.version).is_err()
+    {
+        return Err(Error::invalid(format!("invalid library version {:?}", r.version)));
+    }
+    if (r.kind == ModKind::Plugin) == r.hash.starts_with(crate::hash::KDH1_PREFIX) {
+        return Err(Error::invalid(format!("{} uses {} hashes", r.kind.as_str(), if r.kind == ModKind::Plugin { "sha256" } else { "kdh1" })));
+    }
+    dirs.library_entry(r.kind, &r.id, &r.version, &r.hash)
+}
+
+fn plugin_file(folder: &Path, file: &str) -> Result<PathBuf> {
+    crate::bundle::safe_rel_path(file)?;
+    if file.contains('/') || !file.to_ascii_lowercase().ends_with(".dll") {
+        return Err(Error::invalid("a library plugin must name one DLL directly in its folder"));
+    }
+    Ok(folder.join(file))
+}
+
+fn recorded_hash(folder: &Path, rec: &ImportRecord) -> Result<String> {
+    if rec.kind == ModKind::Plugin {
+        let file = rec.file.as_deref().ok_or_else(|| Error::invalid("a library plugin record must name its DLL"))?;
+        Ok(crate::hash::sha256_file(&plugin_file(folder, file)?)?.0)
+    } else {
+        crate::hash::dirhash(folder)
+    }
+}
+
 /// Moves a prepared folder into the library as `<kind>/<id>/<version>+<hash8>` with its record. Existing entries
 /// (same hash) are kept as they are (content addressed: same name, same bytes).
 fn commit(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report: &mut ImportReport) -> Result<()> {
@@ -497,9 +558,17 @@ fn commit(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report: &mut Impo
 /// For engine loaders (engines::Loader): moves a prepared folder (made in a [`TempDir`] below `dirs.library()`) into
 /// the library as `<kind>/<id>/<version>+<hash8>` with its record; an entry with the same hash is kept.
 pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report: &mut ImportReport) -> Result<()> {
+    crate::quick::validate_import_path(prepared)?;
     let r = LibraryRef { kind: rec.kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
-    let folder = dirs.library_entry(rec.kind, &rec.id, &rec.version, &rec.hash)?;
+    let folder = checked_entry(dirs, &r)?;
+    if rec.format != 1 || recorded_hash(prepared, &rec)? != rec.hash {
+        return Err(Error::new(ErrorCode::HashMismatch, "Prepared library content does not match its import record."));
+    }
     if folder.is_dir() && record_path(&folder).is_file() {
+        let old = record(dirs, &r)?;
+        if recorded_hash(&folder, &old)? != r.hash {
+            return Err(Error::new(ErrorCode::HashMismatch, format!("{}: existing library content does not match its hash", folder.display())));
+        }
         report.existing.push(r);
         return Ok(());
     }
@@ -519,6 +588,13 @@ fn source_of(path: &Path, kind: &str) -> ImportSource {
 
 fn semverish(v: &str) -> bool {
     crate::semver::SemVersion::parse(v).is_ok()
+}
+
+/// Keep legacy fallback identities when valid; a numeric slug like "001" needs a nonnumeric prefix.
+pub(crate) fn fallback_version(version: &str) -> String {
+    let slug = id_from_name(version);
+    let legacy = format!("0.0.0-{slug}");
+    if semverish(&legacy) { legacy } else { format!("0.0.0-import-{slug}") }
 }
 
 /// Imports one detected item (folder or DLL) into the library.
@@ -554,7 +630,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                     .unwrap_or((None, None)),
                 _ => (None, None),
             };
-            let version = if semverish(&version) { version } else { format!("0.0.0-{}", id_from_name(&version)) };
+            let version = if semverish(&version) { version.trim().to_string() } else { fallback_version(&version) };
             let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None };
             commit(dirs, &work, rec, report)
         }
@@ -740,9 +816,9 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
 
 /// The import record of a library entry.
 pub fn record(dirs: &DataDirs, r: &LibraryRef) -> Result<ImportRecord> {
-    let folder = dirs.library_entry(r.kind, &r.id, &r.version, &r.hash)?;
+    let folder = checked_entry(dirs, r)?;
     crate::util::read_json::<ImportRecord>(&record_path(&folder))?
-        .filter(|rec| rec.hash == r.hash)
+        .filter(|rec| rec.format == 1 && rec.kind == r.kind && rec.id == r.id && rec.version == r.version && rec.hash == r.hash)
         .ok_or_else(|| Error::not_found(format!("{} {} {} is not in the library", r.kind.as_str(), r.id, r.version)))
 }
 
@@ -762,7 +838,7 @@ pub fn users(dirs: &DataDirs, r: &LibraryRef) -> Vec<String> {
 
 /// Refuses (Conflict) while a profile lists the version, unless `force`.
 pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: bool) -> Result<()> {
-    let folder = dirs.library_entry(r.kind, &r.id, &r.version, &r.hash)?;
+    let folder = checked_entry(dirs, r)?;
     if !folder.is_dir() {
         return Err(Error::not_found(format!("{} {} {} is not in the library", r.kind.as_str(), r.id, r.version)));
     }
@@ -780,11 +856,11 @@ pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: bool) -> Result<()> {
 
 /// The folder (or DLL file, for a plugin) of a library entry.
 pub fn path_of(dirs: &DataDirs, r: &LibraryRef) -> Result<PathBuf> {
-    let dir = dirs.library_entry(r.kind, &r.id, &r.version, &r.hash)?;
+    let dir = checked_entry(dirs, r)?;
     if r.kind == ModKind::Plugin {
         let rec = record(dirs, r)?;
         let file = rec.file.ok_or_else(|| Error::new(ErrorCode::Schema, format!("plugin {} has no file in its record", r.id)))?;
-        return Ok(dir.join(file));
+        return plugin_file(&dir, &file);
     }
     Ok(dir)
 }

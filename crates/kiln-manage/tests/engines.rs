@@ -139,17 +139,19 @@ fn odd_folder_links_and_deep_trees_do_not_recurse_or_import_dll_targets() {
     std::fs::create_dir_all(&folder).unwrap();
     std::os::unix::fs::symlink(&folder, folder.join("loop")).unwrap();
     std::os::unix::fs::symlink(&outside, folder.join("helper.dll")).unwrap();
-    assert_eq!(detect(&folder).kind, DetectKind::Unknown);
+    // Unsafe folder trees fail before recursive detection; do not hide links as ordinary unknown assets.
+    assert_eq!(library::detect(&folder).unwrap_err().code, kiln_manage::ErrorCode::Refused);
     assert_eq!(detect(&folder.join("helper.dll")).kind, DetectKind::Unknown);
-    let report = library::import(&DataDirs::at(t.0.join("data")), &[folder], &mut NoProgress).unwrap();
-    assert!(report.imported.is_empty());
+    let dirs = DataDirs::at(t.0.join("data"));
+    assert_eq!(library::import(&dirs, &[folder], &mut NoProgress).unwrap_err().code, kiln_manage::ErrorCode::Refused);
+    assert!(library::list(&dirs, None).unwrap().is_empty());
     let root = t.0.join("deep");
     let mut d = root.clone();
     for _ in 0..40 { d.push("level"); }
     put(&d, "helper.dll", &build_test_dll(&[], b""));
-    let found = detect(&root);
-    assert_eq!(found.kind, DetectKind::Unknown);
-    assert!(found.items.is_empty());
+    assert_eq!(library::detect(&root).unwrap_err().code, kiln_manage::ErrorCode::Refused);
+    assert_eq!(library::import(&dirs, &[root], &mut NoProgress).unwrap_err().code, kiln_manage::ErrorCode::Refused);
+    assert!(library::list(&dirs, None).unwrap().is_empty());
 }
 
 #[test]

@@ -4,35 +4,105 @@
 //! kiln_manage::engine_mods; the launcher only reads and writes those files.
 
 use crate::state::{blocking, dirs};
-use kiln_manage::Error;
-use kiln_manage::config::ConfigTarget;
+use kiln_manage::{Error, ErrorCode};
 use kiln_manage::engine_mods::{self, EmlBackup, EngineSettings, EngineStatus};
 use kiln_manage::library::LibraryRef;
 use kiln_manage::manifest::ModKind;
 use std::path::PathBuf;
 
-/// What a settings call needs: the game folder (optional), the profile's config folder, and the library folder of the
-/// profile's entry (None when the profile does not hold the mod or the library lost it).
-fn settings_ctx(kind: ModKind, id: &str, profile_id: &str, game_id: Option<&str>) -> Result<(Option<PathBuf>, PathBuf, Option<PathBuf>), Error> {
-    let config_dir = super::config::config_dir(&ConfigTarget::Profile(profile_id.to_string()))?;
-    let game_dir = match game_id {
-        Some(g) => Some(crate::state::game(g)?.path),
-        None => None,
+fn game_running_with(game_dir: &std::path::Path, mut find: impl FnMut(&std::path::Path, &str) -> Result<bool, Error>) -> Result<bool, Error> {
+    for exe in ["enshrouded.exe", "enshrouded_server.exe"] {
+        if find(game_dir, exe)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn game_running(game: &kiln_manage::game::GameInstall) -> Result<bool, Error> {
+    game_running_with(&game.path, |dir, exe| kiln_manage::proc::find_exe(dir, exe).map(|p| p.is_some()))
+}
+
+/// Settings calls only address a valid entry in this profile, never an arbitrary game-folder path.
+fn settings_entry<'a>(profile: &'a kiln_manage::profile::Profile, kind: ModKind, id: &str) -> Result<&'a kiln_manage::profile::ProfileMod, Error> {
+    if !kiln_manage::manifest::is_mod_id(id) {
+        return Err(Error::invalid("invalid engine mod id"));
+    }
+    if !kind.is_engine() && kind != ModKind::Emf {
+        return Err(Error::new(ErrorCode::Unsupported, "use this mod kind's config editor"));
+    }
+    profile.mods.list(kind).iter().find(|m| m.id == id)
+        .ok_or_else(|| Error::not_found(format!("{} mod {id} is not in profile {}", kind.as_str(), profile.id)))
+}
+
+fn check_write_context(kind: ModKind, profile_id: &str, active: Option<&str>, running: Result<bool, Error>) -> Result<(), Error> {
+    if running? {
+        return Err(Error::new(ErrorCode::GameRunning, "Close the game first."));
+    }
+    if kind == ModKind::ShroudForge && active != Some(profile_id) {
+        return Err(Error::new(ErrorCode::Conflict, "Activate this profile in the selected game before editing ShroudForge settings."));
+    }
+    Ok(())
+}
+
+fn settings_config_dir(d: &kiln_manage::paths::DataDirs, profile_id: &str, selected_copy: Option<&std::path::Path>, copies: &[PathBuf]) -> Result<PathBuf, Error> {
+    let game = match (selected_copy, copies) {
+        (Some(game), _) => Some(game),
+        (None, []) => None,
+        (None, [game]) => Some(game.as_path()),
+        _ => return Err(Error::new(ErrorCode::Conflict, "Select the game whose copied profile settings you want to edit.")),
     };
+    Ok(match game {
+        Some(game) => game.join(kiln_manage::paths::game::COPY_PROFILES).join(profile_id).join("config"),
+        None => d.profile(profile_id).join("config"),
+    })
+}
+
+fn settings_ctx(kind: ModKind, id: &str, profile_id: &str, game_id: Option<&str>, writing: bool) -> Result<(Option<PathBuf>, PathBuf, Option<PathBuf>), Error> {
     let d = dirs()?;
+    // get validates profile_id before it is ever joined to a path. Settings are scoped to an actual profile entry.
     let profile = kiln_manage::profile::get(&d, profile_id)?;
-    let folder = profile.mods.list(kind).iter().find(|m| m.id == id).and_then(|m| {
-        kiln_manage::library::path_of(&d, &LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })
-            .ok()
-            .filter(|p| p.is_dir())
-    });
+    let m = settings_entry(&profile, kind, id)?;
+    let game = game_id.map(crate::state::game).transpose()?;
+    let active = game.as_ref().map(|g| kiln_manage::profile::read_game_profile(&g.path)).transpose()?.flatten();
+    let copied = active.as_ref().is_some_and(|p| p.id == profile_id && p.path_mode == Some(kiln_manage::game::PathMode::Copy));
+    if writing {
+        let running = game.as_ref().map_or(Ok(false), game_running);
+        check_write_context(kind, profile_id, active.as_ref().map(|p| p.id.as_str()), running)?;
+    }
+    let mut copies = Vec::new();
+    if writing || kind == ModKind::Shroudtopia {
+        // Omitting game_id must not bypass the guard or edit a source that an active game's copy_back would overwrite.
+        for g in kiln_manage::game::known(&d)? {
+            if let Some(p) = kiln_manage::profile::read_game_profile(&g.path)?
+                && p.id == profile_id
+            {
+                if writing && game_running(&g)? {
+                    return Err(Error::new(ErrorCode::GameRunning, "Close the game first."));
+                }
+                if p.path_mode == Some(kiln_manage::game::PathMode::Copy) {
+                    copies.push(g.path);
+                }
+            }
+        }
+    }
+    // In copy mode these are the live settings. Editing the source instead would lose the edit at activation.
+    let config_dir = if kind == ModKind::Shroudtopia {
+        settings_config_dir(&d, profile_id, game.as_ref().filter(|_| copied).map(|g| g.path.as_path()), &copies)?
+    } else {
+        d.profile(profile_id).join("config")
+    };
+    // An inactive profile reads its library defaults, not another profile's placed ShroudForge settings.
+    let game_dir = game.filter(|_| kind != ModKind::ShroudForge || active.as_ref().is_some_and(|p| p.id == profile_id)).map(|g| g.path);
+    let folder = Some(kiln_manage::library::path_of(&d, &LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?)
+        .filter(|p| p.is_dir());
     Ok((game_dir, config_dir, folder))
 }
 
 #[tauri::command]
 pub async fn engine_settings_get(kind: ModKind, id: String, profile_id: String, game_id: Option<String>) -> Result<EngineSettings, Error> {
     blocking(move || {
-        let (game_dir, config_dir, folder) = settings_ctx(kind, &id, &profile_id, game_id.as_deref())?;
+        let (game_dir, config_dir, folder) = settings_ctx(kind, &id, &profile_id, game_id.as_deref(), false)?;
         engine_mods::settings(kind, &id, game_dir.as_deref(), &config_dir, folder.as_deref())
     })
     .await
@@ -42,10 +112,73 @@ pub async fn engine_settings_get(kind: ModKind, id: String, profile_id: String, 
 pub async fn engine_settings_set(kind: ModKind, id: String, profile_id: String, game_id: Option<String>, key: String,
                                  value: serde_json::Value) -> Result<EngineSettings, Error> {
     blocking(move || {
-        let (game_dir, config_dir, folder) = settings_ctx(kind, &id, &profile_id, game_id.as_deref())?;
+        let (game_dir, config_dir, folder) = settings_ctx(kind, &id, &profile_id, game_id.as_deref(), true)?;
         engine_mods::set_setting(kind, &id, &key, &value, game_dir.as_deref(), &config_dir, folder.as_deref())
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile() -> kiln_manage::profile::Profile {
+        serde_json::from_value(serde_json::json!({
+            "format": 1, "id": "test", "name": "Test", "created": "", "updated": "", "generation": 1,
+            "mods": { "shroudforge": [{ "id": "mine", "version": "1.0.0", "hash": format!("kdh1:{}", "a".repeat(64)), "enabled": true }] }
+        })).unwrap()
+    }
+
+    #[test]
+    fn engine_settings_require_valid_profile_member() {
+        let p = profile();
+        assert!(settings_entry(&p, ModKind::ShroudForge, "mine").is_ok());
+        for id in ["../outside", "a/b", "a\\b", "", "/tmp/x"] {
+            assert_eq!(settings_entry(&p, ModKind::ShroudForge, id).unwrap_err().code, ErrorCode::InvalidArgument);
+        }
+        assert_eq!(settings_entry(&p, ModKind::ShroudForge, "player-owned").unwrap_err().code, ErrorCode::NotFound);
+        assert_eq!(settings_entry(&p, ModKind::Shroudtopia, "mine").unwrap_err().code, ErrorCode::NotFound);
+    }
+
+    #[test]
+    fn settings_write_requires_stopped_game_and_active_shroudforge_profile() {
+        for kind in [ModKind::ShroudForge, ModKind::Shroudtopia] {
+            assert_eq!(check_write_context(kind, "test", Some("test"), Ok(true)).unwrap_err().code, ErrorCode::GameRunning);
+        }
+        for active in [None, Some("another")] {
+            assert_eq!(check_write_context(ModKind::ShroudForge, "test", active, Ok(false)).unwrap_err().code, ErrorCode::Conflict);
+        }
+        assert!(check_write_context(ModKind::ShroudForge, "test", Some("test"), Ok(false)).is_ok());
+        assert!(check_write_context(ModKind::Shroudtopia, "test", None, Ok(false)).is_ok());
+        // An unreadable process table must not be treated as a stopped game (including EML restore).
+        assert_eq!(check_write_context(ModKind::Eml, "", None, Err(Error::invalid("process query failed"))).unwrap_err().message, "process query failed");
+    }
+
+    #[test]
+    fn copied_profile_settings_use_the_game_copy_that_activation_reads_back() {
+        let d = kiln_manage::paths::DataDirs { root: PathBuf::from("/data") };
+        let copies = [PathBuf::from("/game")];
+        assert_eq!(settings_config_dir(&d, "test", Some(std::path::Path::new("/game")), &copies).unwrap(), PathBuf::from("/game/kiln/profiles/test/config"));
+        assert_eq!(settings_config_dir(&d, "test", None, &copies).unwrap(), PathBuf::from("/game/kiln/profiles/test/config"));
+        assert_eq!(settings_config_dir(&d, "test", None, &[]).unwrap(), PathBuf::from("/data/profiles/test/config"));
+        let copies = [PathBuf::from("/game"), PathBuf::from("/other")];
+        assert_eq!(settings_config_dir(&d, "test", None, &copies).unwrap_err().code, ErrorCode::Conflict);
+        assert_eq!(settings_config_dir(&d, "test", Some(std::path::Path::new("/other")), &copies).unwrap(), PathBuf::from("/other/kiln/profiles/test/config"));
+    }
+
+    #[test]
+    fn game_file_writes_check_both_colocated_executables_and_propagate_query_errors() {
+        let mut checked = Vec::new();
+        let running = game_running_with(std::path::Path::new("/game"), |dir, exe| {
+            assert_eq!(dir, std::path::Path::new("/game"));
+            checked.push(exe.to_string());
+            Ok(exe == "enshrouded_server.exe")
+        });
+        assert_eq!(check_write_context(ModKind::Eml, "", None, running).unwrap_err().code, ErrorCode::GameRunning);
+        assert_eq!(checked, ["enshrouded.exe", "enshrouded_server.exe"]);
+        let error = game_running_with(std::path::Path::new("/game"), |_, _| Err(Error::new(ErrorCode::Io, "process table unreadable")));
+        assert_eq!(check_write_context(ModKind::Eml, "", None, error).unwrap_err().code, ErrorCode::Io);
+    }
 }
 
 #[tauri::command]
@@ -55,7 +188,7 @@ pub async fn engine_status(game_id: String) -> Result<Vec<EngineStatus>, Error> 
 
 #[tauri::command]
 pub async fn eml_backup(game_id: String) -> Result<Vec<EmlBackup>, Error> {
-    blocking(move || Ok(engine_mods::eml_backup(&crate::state::game(&game_id)?.path))).await
+    blocking(move || engine_mods::eml_backup(&crate::state::game(&game_id)?.path)).await
 }
 
 /// Copies EML's `<exe>.kfc.bak` back over each patched `.kfc`; refused while the game runs.
@@ -63,7 +196,7 @@ pub async fn eml_backup(game_id: String) -> Result<Vec<EmlBackup>, Error> {
 pub async fn eml_restore(game_id: String) -> Result<Vec<String>, Error> {
     blocking(move || {
         let g = crate::state::game(&game_id)?;
-        crate::state::refuse_running(&g)?;
+        check_write_context(ModKind::Eml, "", None, game_running(&g))?;
         engine_mods::eml_restore_vanilla(&g.path)
     })
     .await

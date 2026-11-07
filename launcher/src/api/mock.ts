@@ -57,7 +57,7 @@ export const MOCK_DISTRIBUTION: Distribution = typeof location !== "undefined" &
 /** Every URL app_open_url was asked to open (tests: `__kilnMock.opened()`). */
 const openedUrls: string[] = [];
 /** Deterministic IPC delays/failures for browser regressions; each plan is consumed by one call. */
-interface CommandPlan { delay?: number; error?: KilnError }
+interface CommandPlan { delay?: number; error?: KilnError; result?: unknown }
 const commandPlans: Record<string, CommandPlan[]> = typeof window === "undefined" ? {} :
   (window as unknown as { __kilnMockPlans?: Record<string, CommandPlan[]> }).__kilnMockPlans ?? {};
 const commandCalls: string[] = [];
@@ -279,7 +279,9 @@ function schemaFromValues(v: Json): Json {
 }
 
 function engineSettings(kind: ModKind, id: string, pid: string) {
-  if (!profiles.has(pid)) reject("not_found", `No profile '${pid}'.`);
+  const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(id)) reject("invalid_argument", "invalid engine mod id");
+  if (!(p.mods[kind] ?? []).some((m) => m.id === id)) reject("not_found", `${kind} mod ${id} is not in profile ${pid}`);
   const none = (note: string) => ({ kind, id, format: "none", file: null, schema: { type: "object", properties: {} }, values: {}, note });
   const g = games[0];
   if (kind === "shroudforge") {
@@ -783,6 +785,8 @@ const handlers: Record<string, Handler> = {
   engine_settings_set: (a) => {
     const kind = a.kind as ModKind, id = S(a.id), pid = S(a.profileId), key = S(a.key), value = a.value as Json;
     const cur = engineSettings(kind, id, pid);
+    if ((a.gameId && running[S(a.gameId)]) || Object.entries(activations).some(([g, p]) => p?.profileId === pid && running[g])) reject("game_running", "Close the game first.");
+    if (kind === "shroudforge" && (!a.gameId || activations[S(a.gameId)]?.profileId !== pid)) reject("conflict", "Activate this profile in the selected game before editing ShroudForge settings.");
     if (cur.format === "none") reject("unsupported", `${kind} mods have no settings Kiln can edit`);
     const old = (cur.values as Record<string, Json>)[key];
     if (old !== undefined && typeof old !== typeof value) reject("invalid_argument", `${key}: expected the same type as ${JSON.stringify(old)}`);
@@ -1109,6 +1113,7 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   const plan = commandPlans[cmd]?.shift();
   if (plan?.delay) await new Promise((r) => setTimeout(r, plan.delay));
   if (plan?.error) throw plan.error;
+  if (plan && Object.hasOwn(plan, "result")) return clone(plan.result) as T;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);

@@ -170,13 +170,16 @@ fn eml_restore_puts_the_vanilla_kfc_back() {
     let t = tmp("eml-restore");
     put(&t.0, "enshrouded.kfc", b"patched");
     put(&t.0, "enshrouded.kfc.bak", b"vanilla");
-    let b = engine_mods::eml_backup(&t.0);
+    put(&t.0, "player-data", b"keep");
+    std::os::unix::fs::symlink(t.0.join("player-data"), t.0.join("enshrouded.kfc.tmp")).unwrap();
+    let b = engine_mods::eml_backup(&t.0).unwrap();
     assert_eq!(b.len(), 1);
     assert!(b[0].patched);
     assert_eq!(engine_mods::eml_restore_vanilla(&t.0).unwrap().len(), 1);
     assert_eq!(std::fs::read(t.0.join("enshrouded.kfc")).unwrap(), b"vanilla");
-    assert!(!engine_mods::eml_backup(&t.0)[0].patched);
+    assert!(!engine_mods::eml_backup(&t.0).unwrap()[0].patched);
     assert!(engine_mods::eml_restore_vanilla(&t.0).unwrap().is_empty());
+    assert_eq!(std::fs::read(t.0.join("player-data")).unwrap(), b"keep");
 }
 
 #[test]
@@ -323,4 +326,164 @@ fn a_dropped_engine_mod_lands_in_the_active_profile() {
     assert!(engine_mods::marker(&game.path.join("mods/sfpack")).is_some());
     let file = profile::read_game_profile(&game.path).unwrap().unwrap();
     assert_eq!((file.mods.eml.len(), file.mods.shroudforge.len()), (1, 1));
+}
+
+#[test]
+fn placement_never_trusts_payload_markers_or_switches_player_packages() {
+    let t = tmp("spoofed-marker");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "ownership", None).unwrap();
+    let game = t.0.join("game");
+    let sf = refs(&r, ModKind::ShroudForge, "sfpack");
+    let set = refs(&r, ModKind::Set, "flymode");
+    let sf_copy = game.join("mods/sfpack");
+    kiln_manage::util::copy_tree(&t.0.join("src/sfpack"), &sf_copy).unwrap();
+    let ext = sf_copy.join("extended.mod.json");
+    let original = std::fs::read(&ext).unwrap();
+    p.mods.shroudforge.push(pm(&sf, true));
+    let set_copy = game.join("shrouded_engine_tweaks/mods/flymode");
+    put(&set_copy, "player.txt", b"player data");
+    let forged = engine_mods::Marker { format: 1, kind: ModKind::Set, id: set.id.clone(), version: set.version.clone(), hash: set.hash.clone() };
+    kiln_manage::util::write_json_atomic(&set_copy.join(engine_mods::MARKER), &forged).unwrap();
+    // Neither a matching marker nor a listed disabled SET entry confers ownership.
+    p.mods.set.push(pm(&set, false));
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(std::fs::read(&ext).unwrap(), original);
+    assert_eq!(std::fs::read(set_copy.join("player.txt")).unwrap(), b"player data");
+    p.mods.set.clear();
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    assert!(set_copy.join("player.txt").is_file());
+}
+
+#[test]
+fn placement_preserves_settings_across_versions_and_stages_before_replacing() {
+    let t = tmp("version-settings");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = sources(&t.0)[1].clone();
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "versions", None).unwrap();
+    p.mods.shroudforge.push(pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true));
+    let game = t.0.join("game");
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    let dst = game.join("mods/sfpack");
+    let cfg = t.0.join("config");
+    engine_mods::set_setting(ModKind::ShroudForge, "sfpack", "speed", &serde_json::json!(7), Some(&game), &cfg, None).unwrap();
+    put(&src, "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"2.0.0"}"#);
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    p.mods.shroudforge[0] = pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true);
+    // An old predictable staging path is not ours to delete.
+    put(&game, "mods/.kiln-place-sfpack/player.txt", b"keep");
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 7);
+    assert!(game.join("mods/.kiln-place-sfpack/player.txt").is_file());
+    put(&src, "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"3.0.0"}"#);
+    put(&src, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    p.mods.shroudforge[0] = pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true);
+    // Incompatible old values must be reported before removing the working old version.
+    assert!(engine_mods::place(&dirs, &p, &game).is_err());
+    let m = kiln_manage::shroudforge::read_mod(&dst).unwrap();
+    assert_eq!(m.version, "2.0.0");
+    assert_eq!(m.settings[0].value, 7);
+}
+
+#[test]
+fn placement_refuses_modified_owned_trees_and_symlinked_roots() {
+    let t = tmp("placement-links");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "links", None).unwrap();
+    p.mods.set.push(pm(&refs(&r, ModKind::Set, "flymode"), true));
+    let game = t.0.join("game");
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    let dst = game.join("shrouded_engine_tweaks/mods/flymode");
+    put(&dst, "player.txt", b"keep");
+    p.mods.set.clear();
+    assert!(engine_mods::place(&dirs, &p, &game).is_err());
+    assert!(dst.join("player.txt").is_file());
+    let linked_game = t.0.join("linked-game");
+    std::fs::create_dir_all(&linked_game).unwrap();
+    std::os::unix::fs::symlink(game.join("shrouded_engine_tweaks"), linked_game.join("shrouded_engine_tweaks")).unwrap();
+    assert!(engine_mods::place(&dirs, &p, &linked_game).is_err());
+    // Also refuse traversal inputs before constructing a destination.
+    p.mods.set.push(ProfileMod { id: "../escape".into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "0".repeat(64)), enabled: false });
+    assert!(engine_mods::place(&dirs, &p, &t.0.join("other-game")).is_err());
+}
+
+#[test]
+fn settings_refuse_undeclared_types_corrupt_documents_and_player_paths() {
+    let t = tmp("settings-validation");
+    let cfg = t.0.join("config");
+    let file = engine_mods::shroudtopia_file(&cfg);
+    put(&cfg, "shroudtopia/shroudtopia.json", br#"{"mods":{"map":{"zoom":2,"nested":{"active":true}}},"keep":3}"#);
+    let before = std::fs::read(&file).unwrap();
+    for (key, value) in [("unknown", serde_json::json!(true)), ("zoom", serde_json::json!(1.5)), ("nested", serde_json::json!({"new":false}))] {
+        assert!(engine_mods::set_setting(ModKind::Shroudtopia, "map", key, &value, None, &cfg, None).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+    }
+    std::fs::write(&file, b"{broken").unwrap();
+    assert!(engine_mods::set_setting(ModKind::Shroudtopia, "map", "active", &serde_json::json!(false), None, &cfg, None).is_err());
+    assert_eq!(std::fs::read(&file).unwrap(), b"{broken");
+    for id in ["../map", "map\n"] { assert!(engine_mods::settings(ModKind::ShroudForge, id, Some(&t.0), &cfg, None).is_err()); }
+    let own = t.0.join("mods/own");
+    put(&own, "mod.json", br#"{"id":"own","name":"Own","version":"1.0.0"}"#);
+    put(&own, "extended.mod.json", br#"{"settings":{"speed":1}}"#);
+    assert!(engine_mods::set_setting(ModKind::ShroudForge, "own", "speed", &serde_json::json!(2), Some(&t.0), &cfg, None).is_err());
+}
+
+#[test]
+fn engine_status_reports_bad_json_and_eml_restore_refuses_symlinks() {
+    let t = tmp("status-errors");
+    put(&t.0, "kiln/state/eml.json", b"{broken");
+    let st = engine_mods::status(&t.0);
+    assert!(st.iter().find(|s| s.kind == ModKind::Eml).unwrap().error.is_some());
+    assert!(st.iter().find(|s| s.kind == ModKind::Flame).unwrap().error.is_none());
+    put(&t.0, "enshrouded.kfc", b"patched");
+    put(&t.0, "vanilla", b"vanilla");
+    std::os::unix::fs::symlink(t.0.join("vanilla"), t.0.join("enshrouded.kfc.bak")).unwrap();
+    assert!(engine_mods::eml_backup(&t.0).is_err());
+    assert!(engine_mods::eml_restore_vanilla(&t.0).is_err());
+    assert_eq!(std::fs::read(t.0.join("enshrouded.kfc")).unwrap(), b"patched");
+}
+
+#[test]
+fn settings_use_manifest_name_before_first_boot_and_refuse_symlink_files() {
+    let t = tmp("settings-name");
+    let cfg = t.0.join("config");
+    let folder = t.0.join("mod");
+    put(&folder, "mod.json", br#"{"id":"map","name":"Pretty Map","shroudtopia":{"default":{"zoom":2}}}"#);
+    let values = engine_mods::set_setting(ModKind::Shroudtopia, "map", "zoom", &serde_json::json!(3), None, &cfg, Some(&folder)).unwrap();
+    assert_eq!(values.id, "Pretty Map");
+    let file = engine_mods::shroudtopia_file(&cfg);
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["mods"]["Pretty Map"]["zoom"], 3);
+    assert!(saved["mods"].get("map").is_none());
+    std::fs::remove_file(&file).unwrap();
+    put(&t.0, "player.json", br#"{"mods":{"map":{"active":true}}}"#);
+    std::os::unix::fs::symlink(t.0.join("player.json"), &file).unwrap();
+    assert!(engine_mods::set_setting(ModKind::Shroudtopia, "map", "active", &serde_json::json!(false), None, &cfg, None).is_err());
+    assert_eq!(std::fs::read(t.0.join("player.json")).unwrap(), br#"{"mods":{"map":{"active":true}}}"#);
+}
+
+#[test]
+fn concurrent_placement_is_serialized_and_modified_library_is_refused() {
+    let t = tmp("placement-concurrent");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "concurrent", None).unwrap();
+    p.mods.set.push(pm(&refs(&r, ModKind::Set, "flymode"), true));
+    p.mods.shroudforge.push(pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true));
+    let game = t.0.join("game");
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = (0..4).map(|_| scope.spawn(|| engine_mods::place(&dirs, &p, &game))).collect();
+        for thread in threads { thread.join().unwrap().unwrap(); }
+    });
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.kept.len(), 2);
+    // A new destination must not receive a library entry whose contents no longer match its reference.
+    let set = refs(&r, ModKind::Set, "flymode");
+    put(&library::path_of(&dirs, &set).unwrap(), "init.lua", b"changed");
+    assert!(engine_mods::place(&dirs, &p, &t.0.join("other-game")).is_err());
+    assert!(!t.0.join("other-game/shrouded_engine_tweaks/mods/flymode").exists());
 }

@@ -124,3 +124,78 @@ test("the Deck's Mods screen lists engine mods with their engine", async ({ page
   await expect(page.locator('[data-deck-id="mod-greeneye-zoom-out"]')).toContainText("Greeneye mod");
   await expect(page.locator('[data-deck-id="mod-eml-loot-tables-x"]')).toContainText("Off");
 });
+
+test("engine settings preserve numeric options and cannot mutate object prototypes", async ({ page }) => {
+  await desktop(page, "/profiles/ember-run/engines");
+  const result = await page.evaluate(async () => {
+    const { settingsGroups, topLevelChange } = await import("/src/components/EngineSettings.tsx");
+    const groups = settingsGroups({ kind: "shroudforge", id: "test", format: "extended.mod.json", file: null,
+      schema: { type: "object", properties: { choice: { type: "integer", enum: ["1", "2"] } } }, values: { choice: 1 } });
+    const nested = topLevelChange({ group: { keep: 7 } }, "group.__proto__.engineReviewPolluted", true);
+    const pollution = (Object.prototype as Record<string, unknown>).engineReviewPolluted;
+    // JSON text, not the object: Playwright rebuilds returned objects by assignment, which turns an own "__proto__"
+    // key back into a prototype change on the Node side.
+    const stored = JSON.stringify(nested.value);
+    return { type: groups[0].schema.entries[0].type, default: groups[0].schema.entries[0].default,
+      pollution: pollution ?? null, stored, numeric: topLevelChange({ choice: 1 }, "choice", 2) };
+  });
+  expect(result.type).toBe("int");
+  expect(result.default).toBe(1);
+  expect(result.numeric).toEqual({ key: "choice", value: 2 });
+  expect(result.pollution).toBeNull();
+  const stored = JSON.parse(result.stored) as Record<string, unknown>;
+  expect(stored.keep).toBe(7);
+  expect(Object.hasOwn(stored, "__proto__")).toBe(true);
+  expect((Object.getOwnPropertyDescriptor(stored, "__proto__")?.value as Record<string, unknown>).engineReviewPolluted).toBe(true);
+});
+
+test("the Engines page reports library failures instead of claiming the library is empty", async ({ page }) => {
+  await page.addInitScript(() => {
+    const error = { code: "io", message: "engine library denied" };
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { library_list: Array.from({ length: 12 }, () => ({ error })) };
+  });
+  await desktop(page, "/profiles/vanilla-plus/engines");
+  await expect(page.getByText("The library is not readable")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("engine library denied")).toBeVisible();
+  await expect(page.getByText("No other engines' mods.")).toHaveCount(0);
+});
+
+test("engine state parse errors and backup failures remain visible", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = {
+      engine_status: [{ result: [{ kind: "set", plugin: "kiln-set", state: null, file: "set.json", error: "invalid state JSON" }] }],
+      eml_backup: Array.from({ length: 4 }, () => ({ error: { code: "io", message: "backup denied" } })),
+    };
+  });
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  await expect(page.locator('[data-engine="set"]')).toContainText("Unreadable");
+  await expect(page.locator('[data-engine="set"]')).toContainText("invalid state JSON");
+  await expect(page.getByText("The game data backup is not readable")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Restore vanilla game data" })).toHaveCount(0);
+});
+
+test("settings stop while the game runs and cannot edit another profile's ShroudForge copy", async ({ page }) => {
+  await desktop(page, "/profiles/ember-run/engines");
+  await page.locator('[data-kind="shroudforge"]').getByRole("button", { name: "More for Better Chests" }).click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Better Chests settings" });
+  await expect(dialog.getByRole("switch", { name: "autoSort" })).toBeEnabled();
+  await page.evaluate(() => (window as unknown as { __kilnMock: { startOutside: (ago: number) => void } }).__kilnMock.startOutside(5));
+  await expect(dialog.getByRole("switch", { name: "autoSort" })).toBeDisabled();
+  const code = await page.evaluate(async () => {
+    try { await (await import("/src/api/commands.ts")).engineSettingsSet("shroudforge", "better-chests", "ember-run", "client-steam", "autoSort", true); }
+    catch (e) { return (e as { code: string }).code; }
+    return null;
+  });
+  expect(code).toBe("game_running");
+  await page.evaluate(() => (window as unknown as { __kilnMock: { stopGame: () => void } }).__kilnMock.stopGame());
+  const inactive = await page.evaluate(async () => {
+    const api = await import("/src/api/commands.ts");
+    const p = await api.profileCreate("Other SF", "ember-run");
+    try { await api.engineSettingsSet("shroudforge", "better-chests", p.id, "client-steam", "autoSort", true); }
+    catch (e) { return (e as { code: string }).code; }
+    return null;
+  });
+  expect(inactive).toBe("conflict");
+});

@@ -22,6 +22,15 @@ pub const MAX_IMPORT_FILE: u64 = 512 * 1024 * 1024;
 pub const MAX_IMPORT_ENTRIES: usize = 10_000;
 pub const MAX_IMPORT_DEPTH: usize = 32;
 
+pub(crate) fn import_is_link(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)] {
+        use std::os::windows::fs::MetadataExt;
+        // Junctions and other reparse points must not bypass the symlink rule.
+        if meta.file_attributes() & 0x400 != 0 { return true; }
+    }
+    meta.file_type().is_symlink()
+}
+
 /// Reject links (including cycles), special files and lossy path names before library detection can follow them.
 /// Nested zip files are opaque mod assets; the library does not recursively extract them.
 pub fn validate_import_path(path: &Path) -> Result<()> {
@@ -36,7 +45,7 @@ pub fn validate_import_path(path: &Path) -> Result<()> {
             return Err(Error::invalid("Mod paths must be valid UTF-8; rename this file or folder first."));
         }
         let m = std::fs::symlink_metadata(&p).map_err(crate::util::io_at(&p, "reading"))?;
-        if m.file_type().is_symlink() || (!m.is_file() && !m.is_dir()) {
+        if import_is_link(&m) || (!m.is_file() && !m.is_dir()) {
             return Err(Error::new(ErrorCode::Refused, format!("{}: links and special files are not allowed in a mod", p.display())));
         }
         if m.is_dir() {

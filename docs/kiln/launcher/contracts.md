@@ -157,6 +157,10 @@ Rules:
   mods of any kind, mode INVALID, the error in `kiln.log`, `state/boot.json` `profile.error` and the
   `kiln.profile.json()` text. Never fall back to the drop-ins silently.
 - `profile.once.json` has the same format; kiln-core reads it instead when play-once `mode=profile` (section 5.2).
+- Safety limits: 16 MiB file, JSON nesting 128, at most 4,096 entries per known kind; paths are at most 32,767
+  bytes and contain no control characters. Optional versions are semantic versions of at most 256 bytes; folder
+  hashes use kdh1 and plugin hashes SHA-256. Generations are in `1..9223372036854775807`. Limit violations make
+  the profile INVALID with a specific error.
 
 **Other engines' mods** (`mods.<kind>`, same entry shape as `emf`). kiln-core validates these lists like its own (a
 broken entry makes the profile INVALID), counts them in `kiln.log` and `boot.json` `profile.counts.<kind>` and lists
@@ -165,6 +169,8 @@ change): each engine's plugin reads its own list from `kiln.profile.json()`. Old
 `unknown mod kind "mods.<kind>" ignored` and run on. A list is written only when it has entries, so a Kiln-only
 profile is byte-identical to older launchers' files. `dropins` may name engine kinds; `true` is written when the
 profile turns on all four Kiln kinds (as before), and the engine plugins then read their own folders too.
+Older cores can ignore the new `mods.<kind>` lists, but their `dropins` arrays reject unknown names: engine-specific
+drop-in selections require an updated core. `dropins: true` keeps the older all-Kiln-kinds representation.
 
 | Kind | Plugin | Entry `path` | How the plugin takes the list |
 |---|---|---|---|
@@ -176,6 +182,17 @@ profile turns on all four Kiln kinds (as before), and the engine plugins then re
 | `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
 | `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
 | `enshwick`, `shroudlink`, `ember` | reserved | - | accepted, no importer or plugin yet |
+
+Placement ownership requires `.kiln-library.json` plus a matching launcher receipt in
+`kiln/state/library-placements.json` (`{path, marker, files}` entries, recording relative paths, file hashes and
+directory entries).
+The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
+inventory excludes only ShroudForge's mutable enabled switch and setting values. Copies are staged beside the
+destination and the previous folder is restored if replacement fails. Activation refuses while the game runs.
+In copy mode, the ShroudForge and SET profile entry paths name the verified source copies under
+`kiln/profiles/<profile>/<kind>/<id>`; their plugins still read the separately placed fixed engine folders.
+Play once cannot select different ShroudForge or SET mods, versions or switches from the active profile: activate
+that profile first to change their fixed folders. A refused play-once request leaves those folders unchanged.
 
 `compat.h`'s rule for Greeneye, Flame and Shroudtopia: with a `mods.<kind>` list the profile's entries load and the
 engine's own folder is read only when `dropins` is `true`; without the list the folder is read (mods the player put
@@ -383,6 +400,12 @@ Contents: the server's mods with `clients: "mod"`. Other engines' mods ride alon
 `shroudforge/`, `flame/` …) with their kdh1, taken from each engine's server folder (`engine_mods::server_root`) when
 their `clients` is `mod` (stated in their `mod.json`, else the kind's default: `eml`, `shroudforge`, `flame`). A player's
 install imports them into the library under their kind and lists them in the profile "Server: <name>".
+Install revalidates the current archive against its manifest, validates paths for Windows and verifies every listed
+payload hash before importing. Server engine copies require both `.kiln-source.json` and a matching receipt and
+payload inventory in `kiln/state/server-library.json` before sync update or removal. Marker-only older copies and
+folders with player additions are not auto-adopted. An explicit enable/disable action can move a hand-installed
+engine mod between its own folder and `kiln/disabled/<kind>/`; ambiguous folder names across kinds are refused.
+These operations refuse while the server runs.
 
 Server (`kiln/config/network.json`, Kiln.Network) adds:
 `serverId` (default: generated once into `kiln/data/kiln-network/server-id`), `serverName` (default: the
@@ -732,10 +755,10 @@ or emits `kiln://update`; its UI calls none of these commands.
 | nexus | `nexus_link_dismiss` | linkId | null |
 | nexus | `nexus_handler_status` | - | `HandlerStatus {supported, registered, active (the system's handler is Kiln now), previous: string \| null (its name)}` |
 | nexus | `nexus_handler_set` | on: boolean | `HandlerStatus` (on: remember the current nxm handler, register the launcher; off: give it back; only on the user's click) |
-| engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?}` (`engine_mods::settings`: ShroudForge reads the copy in SF's mods folder of `gameId`, else the profile's library folder; Shroudtopia the profile's `config/shroudtopia/shroudtopia.json` `mods.<key>`; other kinds `format: "none"` with a note) |
-| engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one top-level key; `unsupported` for kinds without settings, `not_found` for a ShroudForge mod not placed yet: activate the profile first) |
-| engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file}` (the engine plugins' `kiln/state/<engine>.json`, null when not written) |
-| engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ) |
+| engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?}` (valid mod id listed in the profile required; ShroudForge reads the selected game's placed copy only when this profile is active, otherwise library defaults; Shroudtopia reads the profile's effective config, using the game copy for active copy mode; other engine kinds `format: "none"` with a note) |
+| engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one declared top-level key with schema validation; profile membership required; `game_running` while a game reading these files runs; ShroudForge requires the profile active in the selected game and a Kiln-owned placed copy; `unsupported` for kinds without settings) |
+| engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?}` (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`) |
+| engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
 | engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
 
 `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:

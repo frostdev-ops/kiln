@@ -523,7 +523,7 @@ export interface BootJson {
     error?: string | null;
     configDir?: string;
     dataDir?: string;
-    counts?: Record<ModKind, number>;
+    counts?: Partial<Record<ModKind, number>>;
   };
   paths?: Partial<Record<"game" | "kiln" | "mods" | "logs" | "data" | "control" | "config" | "state", string>>;
   chain: { path: string; source: "chain" | "emf" | "profile"; status: ChainStatus; detail: RefusalDetail | null; error?: number }[];
@@ -988,6 +988,8 @@ export interface EngineStatus {
   plugin: string;
   state: Json | null;
   file: string;
+  /** A present state file could not be read or parsed. */
+  error?: string | null;
 }
 /** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
 export interface EmlBackup {
@@ -997,8 +999,8 @@ export interface EmlBackup {
 }
 export const engineSettingsGet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null = null) =>
   call<EngineSettings>("engine_settings_get", { kind, id, profileId, gameId });
-/** One top-level key; rejects with `unsupported` for kinds without settings, `not_found` for a ShroudForge mod not
- *  placed yet (activate the profile first). */
+/** One top-level key of a profile entry; refuses while a game reading these files runs. ShroudForge requires the
+ *  profile active in the selected game and a Kiln-owned placed copy; unsupported for kinds without settings. */
 export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null, key: string, value: Json) =>
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });

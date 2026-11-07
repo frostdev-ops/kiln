@@ -10,10 +10,110 @@ use crate::manifest::{Clients, ModKind};
 use crate::paths::DataDirs;
 use crate::task::Progress;
 use crate::{Error, ErrorCode, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const MARKER: &str = ".kiln-source.json";
 pub const DISABLED: &str = ".disabled";
+
+// Ownership is recorded outside mod folders: a downloaded package can forge its own marker.
+const ENGINE_RECEIPT: &str = "kiln/state/server-library.json";
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct EngineCopy {
+    library: LibraryRef,
+    payload: String,
+}
+type EngineCopies = BTreeMap<PathBuf, EngineCopy>;
+
+fn engine_copies(server: &Path) -> Result<EngineCopies> {
+    let file = server.join(ENGINE_RECEIPT);
+    crate::engine_mods::refuse_symlink_path(&file)?;
+    Ok(crate::util::read_json(&file)?.unwrap_or_default())
+}
+
+fn save_engine_copies(server: &Path, copies: &EngineCopies) -> Result<()> {
+    let file = server.join(ENGINE_RECEIPT);
+    crate::engine_mods::refuse_symlink_path(&file)?;
+    let parent = file.parent().expect("receipt parent");
+    std::fs::create_dir_all(parent)?;
+    let staging = crate::library::TempDir::new(parent, "server-receipt")?;
+    let tmp = staging.path().join("receipt.json");
+    crate::util::write_json_atomic(&tmp, copies)?;
+    std::fs::rename(&tmp, &file).map_err(crate::util::io_at(&file, "saving receipt"))
+}
+
+fn server_library_lock(server: &Path) -> Result<std::fs::File> {
+    let path = server.join("kiln/state/server-library.lock");
+    crate::engine_mods::refuse_symlink_path(&path)?;
+    std::fs::create_dir_all(path.parent().expect("lock parent"))?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
+    file.lock()?;
+    Ok(file)
+}
+
+// Include hidden files and empty directories too. SF's mutable setting values and enabled switch are omitted.
+fn payload(dir: &Path, kind: ModKind) -> Result<String> {
+    fn walk(dir: &Path, rel: &str, kind: ModKind, out: &mut BTreeMap<String, String>) -> Result<()> {
+        crate::engine_mods::refuse_symlink_path(dir)?;
+        for e in std::fs::read_dir(dir)? {
+            let e = e?;
+            let name = e.file_name().into_string().map_err(|_| Error::invalid("non-Unicode mod path"))?;
+            if rel.is_empty() && name == MARKER { continue; }
+            let path = e.path();
+            crate::engine_mods::refuse_symlink_path(&path)?;
+            let key = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+            let ft = e.file_type()?;
+            if ft.is_dir() {
+                out.insert(format!("{key}/"), String::new());
+                walk(&path, &key, kind, out)?;
+            } else if ft.is_file() {
+                let hash = if kind == ModKind::ShroudForge && rel.is_empty() && name == "extended.mod.json" {
+                    let mut v = crate::jsonc::parse(&crate::manifest::read_text(&path)?)?;
+                    if let Some(o) = v.as_object_mut() {
+                        o.remove("enabled");
+                        if let Some(settings) = o.get_mut("settings").and_then(|s| s.as_object_mut()) {
+                            for value in settings.values_mut() {
+                                if let Some(o) = value.as_object_mut().filter(|o| o.contains_key("value")) { o.remove("value"); }
+                                else { *value = serde_json::Value::Null; }
+                            }
+                        }
+                    }
+                    crate::hash::sha256_hex(&serde_json::to_vec(&v)?)
+                } else { crate::hash::sha256_file(&path)?.0 };
+                out.insert(key, hash);
+            } else { return Err(Error::invalid(format!("{} is not a regular mod file", path.display()))); }
+        }
+        Ok(())
+    }
+    let mut files = BTreeMap::new();
+    walk(dir, "", kind, &mut files)?;
+    Ok(crate::hash::sha256_hex(&serde_json::to_vec(&files)?))
+}
+
+fn owned_engine(dir: &Path, kind: ModKind, copies: &EngineCopies) -> Result<bool> {
+    crate::engine_mods::refuse_symlink_path(dir)?;
+    let Some(saved) = copies.get(dir) else { return Ok(false) };
+    let Some(marker) = read_marker(dir) else { return Ok(false) };
+    Ok(marker.format == 1 && marker.library.kind == kind && marker.library == saved.library
+        && dir.file_name().and_then(|n| n.to_str()) == Some(marker.library.id.as_str())
+        && payload(dir, kind)? == saved.payload)
+}
+
+fn refuse_running_engine(running: bool) -> Result<()> {
+    if running { Err(Error::new(ErrorCode::GameRunning, "stop the server before changing engine mods")) } else { Ok(()) }
+}
+
+fn engine_running_with(mut find: impl FnMut(&str) -> Result<bool>) -> Result<bool> {
+    for exe in ["enshrouded.exe", "enshrouded_server.exe"] {
+        if find(exe)? { return Ok(true); }
+    }
+    Ok(false)
+}
+
+fn engine_running(server: &Path) -> Result<bool> {
+    engine_running_with(|exe| crate::proc::find_exe(server, exe).map(|p| p.is_some()))
+}
 
 fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
     match kind {
@@ -55,6 +155,7 @@ fn folder_ok(f: &str) -> bool {
 pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
     let server = instance.local_dir()?;
     let states = crate::state::read_mods(server).ok().flatten().map(|m| m.mods).unwrap_or_default();
+    let copies = engine_copies(server)?;
     let mut out = Vec::new();
     for kind in server_kinds() {
         let r = root(server, kind)?;
@@ -68,7 +169,7 @@ pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
                     id,
                     version,
                     enabled,
-                    source: read_marker(&d).map(|m| m.library),
+                    source: if owned_engine(&d, kind, &copies)? { read_marker(&d).map(|m| m.library) } else { None },
                     clients: Some(crate::engine_mods::clients_of(kind, &d).1),
                     state: None,
                     folder,
@@ -127,6 +228,16 @@ fn op(c: &Option<crate::admin::client::AdminClient>, name: &str, key: &str, valu
 /// marker); hand-placed folders stay. A folder of the same id without a marker is a conflict (left alone, reported).
 pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], progress: &mut dyn Progress) -> Result<Vec<ServerMod>> {
     let server = instance.local_dir()?.to_path_buf();
+    let _lock = server_library_lock(&server)?;
+    let mut copies = engine_copies(&server)?;
+    // Engine plugins read files directly and have no safe managed hot-reload protocol.
+    if mods.iter().any(|r| r.kind.is_engine()) || !copies.is_empty() {
+        refuse_running_engine(super::run::pid(instance).is_some() || engine_running(&server)?)?;
+    }
+    for r in mods {
+        if !folder_ok(&r.id) { return Err(Error::invalid(format!("mod id {:?} cannot be a folder name", r.id))); }
+        crate::library::path_of(dirs, r)?;
+    }
     let live = admin(instance);
     let mut conflicts = Vec::new();
     // 1. removals: synced folders no longer wanted (engine kinds: also their switched-off copies)
@@ -136,6 +247,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         if kind.is_engine() {
             places.push(crate::engine_mods::server_disabled_root(kind, &server));
         }
+        for place in &places { crate::engine_mods::refuse_symlink_path(place)?; }
         for e in places.iter().filter_map(|p| std::fs::read_dir(p).ok()).flat_map(|rd| rd.flatten()) {
             let d = e.path();
             let Some(m) = read_marker(&d) else { continue };
@@ -145,11 +257,21 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             if mods.iter().any(|x| x.kind == kind && x.id == m.library.id) {
                 continue;
             }
+            if kind.is_engine() && !owned_engine(&d, kind, &copies)? { continue; }
             if kind == ModKind::Kiln {
                 op(&live, "mod_unload", "id", &m.library.id, progress);
             }
             progress.report(None, &format!("removing {} (synced {}, not in the list)", d.display(), m.library.version));
-            std::fs::remove_dir_all(&d).map_err(crate::util::io_at(&d, "deleting"))?;
+            if kind.is_engine() {
+                let parked = d.with_file_name(format!(".kiln-remove-{}", crate::hash::hex(&crate::util::random_bytes::<6>()?)));
+                std::fs::rename(&d, &parked).map_err(crate::util::io_at(&d, "removing"))?;
+                copies.remove(&d);
+                if let Err(error) = save_engine_copies(&server, &copies) {
+                    let _ = std::fs::rename(&parked, &d);
+                    return Err(error);
+                }
+                std::fs::remove_dir_all(&parked).map_err(crate::util::io_at(&parked, "deleting"))?;
+            } else { std::fs::remove_dir_all(&d).map_err(crate::util::io_at(&d, "deleting"))?; }
         }
     }
     // 2. installs and updates
@@ -162,17 +284,26 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         if r.kind.is_engine() {
             // a switched-off engine mod stays off: its new version goes to kiln/disabled/<kind>/
             let off = crate::engine_mods::server_disabled_root(r.kind, &server);
-            if read_marker(&off.join(&r.id)).is_some() {
+            let off_target = off.join(&r.id);
+            crate::engine_mods::refuse_symlink_path(&off_target)?;
+            if off_target.exists() && !owned_engine(&off_target, r.kind, &copies)? {
+                conflicts.push(format!("{}: {} has player changes and was left disabled", r.id, off_target.display()));
+                continue;
+            }
+            if off_target.exists() {
                 dst_root = off;
             }
         }
+        crate::engine_mods::refuse_symlink_path(&dst_root)?;
         std::fs::create_dir_all(&dst_root).map_err(crate::util::io_at(&dst_root, "creating"))?;
         if !folder_ok(&r.id) {
             return Err(Error::invalid(format!("mod id {:?} cannot be a folder name", r.id)));
         }
         let target = dst_root.join(&r.id);
+        crate::engine_mods::refuse_symlink_path(&target)?;
         let marker = read_marker(&target);
-        if target.exists() && marker.is_none() {
+        if target.exists() && (marker.as_ref().is_none_or(|m| m.library.kind != r.kind || m.library.id != r.id)
+            || (r.kind.is_engine() && !owned_engine(&target, r.kind, &copies)?)) {
             conflicts.push(format!("{}: {} exists and was not put there by the launcher", r.id, target.display()));
             continue;
         }
@@ -180,26 +311,58 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             continue;  // unchanged
         }
         let src = crate::library::path_of(dirs, r)?;
+        crate::engine_mods::refuse_symlink_path(&src)?;
         if crate::hash::dirhash(&src)? != r.hash {
             return Err(Error::new(ErrorCode::HashMismatch, format!("library entry {} {} changed on disk", r.id, r.version)));
         }
-        let tag = crate::hash::hex(&crate::util::random_bytes::<4>()?);
-        let tmp = dst_root.join(format!(".{}.kiln-sync-{tag}", r.id));
-        crate::util::copy_tree(&src, &tmp)?;
+        let staging = crate::library::TempDir::new(&dst_root, "kiln-sync")?;
+        let tmp = staging.path().join("new");
+        crate::library::copy_mod_tree(&src, &tmp)?;
+        if crate::hash::dirhash(&tmp)? != r.hash {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(Error::new(ErrorCode::HashMismatch, "library mod changed while copying"));
+        }
+        if r.kind == ModKind::ShroudForge {
+            if target.exists() {
+                for setting in crate::shroudforge::read_mod(&target)?.settings {
+                    // Removed settings are allowed; retained settings must continue accepting the player's value.
+                    if crate::shroudforge::read_mod(&tmp)?.settings.iter().any(|s| s.key == setting.key) {
+                        crate::shroudforge::set_setting(&tmp, &setting.key, &setting.value)?;
+                    }
+                }
+            }
+            let file = tmp.join("extended.mod.json");
+            let text = crate::manifest::read_text(&file)?;
+            let body = crate::jsonc::set_value(&text, &crate::jsonc::split_path("enabled"), &serde_json::json!(true))?;
+            crate::util::write_atomic(&file, body.as_bytes())?;
+        }
         let was_disabled = target.join(DISABLED).exists();
         if was_disabled {
             std::fs::write(tmp.join(DISABLED), b"")?;
         }
         let m = SourceMarker { format: 1, library: r.clone(), synced: crate::util::now_rfc3339(), by: format!("kiln-launcher {}", crate::VERSION) };
         crate::util::write_json_atomic(&tmp.join(MARKER), &m)?;
+        let signature = if r.kind.is_engine() { Some(payload(&tmp, r.kind)?) } else { None };
         let existed = target.exists();
-        if existed {
-            let old = dst_root.join(format!(".{}.kiln-old-{tag}", r.id));
-            crate::util::rename_replace(&target, &old)?;
-            crate::util::rename_replace(&tmp, &target)?;
-            let _ = std::fs::remove_dir_all(&old);
-        } else {
-            crate::util::rename_replace(&tmp, &target)?;
+        let old = staging.path().join("old");
+        if existed { std::fs::rename(&target, &old).map_err(crate::util::io_at(&target, "parking"))?; }
+        if let Err(error) = std::fs::rename(&tmp, &target).map_err(crate::util::io_at(&target, "placing")) {
+            if existed && let Err(e) = std::fs::rename(&old, &target) {
+                return Err(crate::engine_mods::preserve_recovery(staging, crate::util::io_at(&target, "restoring old mod")(e)));
+            }
+            return Err(error);
+        }
+        if r.kind.is_engine() {
+            copies.insert(target.clone(), EngineCopy { library: r.clone(), payload: signature.expect("engine payload checked before publication") });
+            if let Err(error) = save_engine_copies(&server, &copies) {
+                if let Err(e) = std::fs::rename(&target, &tmp) {
+                    return Err(crate::engine_mods::preserve_recovery(staging, crate::util::io_at(&target, "rolling back new mod")(e)));
+                }
+                if existed && let Err(e) = std::fs::rename(&old, &target) {
+                    return Err(crate::engine_mods::preserve_recovery(staging, crate::util::io_at(&target, "restoring old mod")(e)));
+                }
+                return Err(error);
+            }
         }
         if r.kind == ModKind::Kiln && !was_disabled {
             if existed { op(&live, "mod_reload", "id", &r.id, progress) } else { op(&live, "mod_load", "folder", &r.id, progress) }
@@ -217,25 +380,42 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
 
 /// An engine mod: moved between the engine's folder and `kiln/disabled/<kind>/` (a folder the launcher synced, or
 /// one the engine's folder holds for that kind).
-fn set_engine_enabled(server: &Path, folder: &str, enabled: bool) -> Result<()> {
+fn engine_switch_candidates(server: &Path, folder: &str, enabled: bool) -> Result<Vec<(PathBuf, PathBuf, ModKind)>> {
+    let mut candidates = Vec::new();
     for kind in server_kinds().filter(|k| k.is_engine()) {
         let Ok(on_root) = root(server, kind) else { continue };
         let off_root = crate::engine_mods::server_disabled_root(kind, server);
         let (on, off) = (on_root.join(folder), off_root.join(folder));
         let (from, to) = if enabled { (off, on) } else { (on, off) };
-        if !from.is_dir() || !(read_marker(&from).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, &from)) {
-            continue;
+        crate::engine_mods::refuse_symlink_path(&from)?;
+        crate::engine_mods::refuse_symlink_path(&to)?;
+        if from.is_dir() && (read_marker(&from).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, &from)) {
+            candidates.push((from, to, kind));
         }
-        if to.exists() {
-            return Err(Error::new(ErrorCode::Conflict, format!("{} exists already", to.display())));
-        }
-        if let Some(p) = to.parent() {
-            std::fs::create_dir_all(p).map_err(crate::util::io_at(p, "creating"))?;
-        }
-        return crate::util::rename_replace(&from, &to);
     }
-    let on_off = if enabled { "switched-off" } else { "" };
-    Err(Error::not_found(format!("no {on_off} mod folder {folder}")))
+    Ok(candidates)
+}
+
+fn set_engine_enabled(server: &Path, folder: &str, enabled: bool, running: bool) -> Result<()> {
+    refuse_running_engine(running || engine_running(server)?)?;
+    let _lock = server_library_lock(server)?;
+    let mut copies = engine_copies(server)?;
+    let mut candidates = engine_switch_candidates(server, folder, enabled)?;
+    if candidates.len() > 1 { return Err(Error::new(ErrorCode::Conflict, format!("more than one engine has a mod folder {folder}"))); }
+    let Some((from, to, kind)) = candidates.pop() else { return Err(Error::not_found(format!("no mod folder {folder} to switch"))); };
+    if to.exists() { return Err(Error::new(ErrorCode::Conflict, format!("{} exists already", to.display()))); }
+    let owned = owned_engine(&from, kind, &copies)?;
+    if let Some(p) = to.parent() { std::fs::create_dir_all(p).map_err(crate::util::io_at(p, "creating"))?; }
+    std::fs::rename(&from, &to).map_err(crate::util::io_at(&from, "moving"))?;
+    if owned {
+        let saved = copies.remove(&from).expect("owned entry");
+        copies.insert(to.clone(), saved);
+        if let Err(error) = save_engine_copies(server, &copies) {
+            let _ = std::fs::rename(&to, &from);
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 fn mods_of(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
@@ -249,8 +429,12 @@ pub fn set_enabled(instance: &ServerInstance, folder: &str, enabled: bool) -> Re
         return Err(Error::invalid(format!("{folder:?} is not a mod folder name")));
     }
     let server = instance.local_dir()?;
-    let Some(dir) = [server.join("kiln/mods").join(folder), server.join("kiln/native").join(folder)].into_iter().find(|d| d.is_dir()) else {
-        return set_engine_enabled(server, folder, enabled);
+    let mut core: Vec<_> = [server.join("kiln/mods").join(folder), server.join("kiln/native").join(folder)].into_iter().filter(|d| d.is_dir()).collect();
+    if core.len() > 1 || (!core.is_empty() && !engine_switch_candidates(server, folder, enabled)?.is_empty()) {
+        return Err(Error::new(ErrorCode::Conflict, format!("more than one kind has a mod folder {folder}")));
+    }
+    let Some(dir) = core.pop() else {
+        return set_engine_enabled(server, folder, enabled, super::run::pid(instance).is_some());
     };
     let flag = dir.join(DISABLED);
     if enabled {
@@ -261,4 +445,23 @@ pub fn set_enabled(instance: &ServerInstance, folder: &str, enabled: bool) -> Re
         std::fs::write(&flag, b"").map_err(crate::util::io_at(&flag, "writing"))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn engine_disk_changes_require_a_stopped_server() {
+        assert_eq!(refuse_running_engine(true).unwrap_err().code, ErrorCode::GameRunning);
+        refuse_running_engine(false).unwrap();
+    }
+
+    #[test]
+    fn engine_disk_changes_also_guard_a_colocated_client() {
+        for running_exe in ["enshrouded.exe", "enshrouded_server.exe"] {
+            let running = engine_running_with(|exe| Ok(exe == running_exe)).unwrap();
+            assert_eq!(refuse_running_engine(running).unwrap_err().code, ErrorCode::GameRunning);
+        }
+        assert!(engine_running_with(|_| Err(Error::invalid("query failed"))).is_err());
+    }
 }

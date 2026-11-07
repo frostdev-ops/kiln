@@ -3,6 +3,8 @@
 // profile INVALID (no mods), so a half-written or hand-broken file never loads a surprising mod set.
 #include "profile.h"
 
+#include <algorithm>
+#include <fstream>
 #include <regex>
 
 #include "log.h"
@@ -15,6 +17,10 @@ using nlohmann::json;
 namespace fs = std::filesystem;
 
 State g_state;
+
+constexpr size_t kMaxProfileBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxModsPerKind = 4096;
+constexpr int kMaxJsonDepth = 128;
 
 const char* const kKinds[KILN_PROFILE_KINDS] = {"kiln", "native", "plugin", "emf"};
 
@@ -42,6 +48,19 @@ struct Invalid {
 
 [[noreturn]] void bad(const std::string& what) { throw Invalid{what}; }
 
+bool read_bounded(const fs::path& file, std::string* text) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return false;
+    char chunk[65536];
+    while (in) {
+        in.read(chunk, sizeof chunk);
+        const size_t n = static_cast<size_t>(in.gcount());
+        if (text->size() + n > kMaxProfileBytes) bad("the profile exceeds 16 MiB");
+        text->append(chunk, n);
+    }
+    return !in.bad();
+}
+
 std::string str(const json& o, const char* key, const std::string& where, bool required) {
     if (!o.contains(key) || o[key].is_null()) {
         if (required) bad(where + "\"" + key + "\" is required");
@@ -55,14 +74,20 @@ std::string game_path(const json& o, const char* key, const std::string& where, 
     const std::string p = str(o, key, where, required);
     if (!required && p.empty() && (!o.contains(key) || o[key].is_null())) return {};
     if (p.empty()) bad(where + "\"" + key + "\" must not be empty");
+    if (p.size() > 32767 || std::any_of(p.begin(), p.end(), [](unsigned char c) { return c < 32; }))
+        bad(where + "\"" + key + "\" must be a Windows path without control characters (at most 32767 bytes)");
     if (has_dotdot(p)) bad(where + "\"" + key + "\" must not contain '..' (" + p + ")");
     return p;
 }
 
 void parse(const std::string& text) {
+    if (text.size() > kMaxProfileBytes) bad("the profile exceeds 16 MiB");
     json doc;
     try {
-        doc = json::parse(text, nullptr, true, true);
+        doc = json::parse(text, [](int depth, json::parse_event_t, json&) {
+            if (depth > kMaxJsonDepth) bad("JSON nesting exceeds 128 levels");
+            return true;
+        }, true, true);
     } catch (const std::exception& e) {
         bad(std::string("not valid JSON: ") + e.what());
     }
@@ -71,6 +96,9 @@ void parse(const std::string& text) {
         bad("\"format\" must be 1");
     static const std::regex kId("^[a-z0-9][a-z0-9-]{0,47}$");
     static const std::regex kModId("^[a-z0-9][a-z0-9._-]{0,63}$");
+    static const std::regex kSemver("^[vV]?(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$");
+    static const std::regex kHash("^kdh1:[0-9a-f]{64}$");
+    static const std::regex kSha("^[0-9a-f]{64}$");
     const std::string id = str(doc, "id", "", true);
     if (!std::regex_match(id, kId)) bad("\"id\" '" + id + "' must match [a-z0-9][a-z0-9-]{0,47}");
     if (!doc.contains("generation") || !doc["generation"].is_number_integer() || doc["generation"].get<int64_t>() < 1)
@@ -113,6 +141,7 @@ void parse(const std::string& text) {
             continue;
         }
         if (!list.is_array()) bad("\"mods." + kind_name + "\" must be an array");
+        if (list.size() > kMaxModsPerKind) bad("\"mods." + kind_name + "\" exceeds 4096 entries");
         size_t n = 0;
         for (const auto& m : list) {
             const std::string where = "mods." + kind_name + "[" + std::to_string(n++) + "]: ";
@@ -123,6 +152,15 @@ void parse(const std::string& text) {
             if (kind != KILN_PROFILE_KIND_PLUGIN && !std::regex_match(e.id, kModId))
                 bad(where + "\"id\" '" + e.id + "' is not a mod id");
             e.version = str(m, "version", where, false);
+            if (m.contains("version") && (!m["version"].is_string() ||
+                (kind != KILN_PROFILE_KIND_PLUGIN && (e.version.size() > 256 || !std::regex_match(e.version, kSemver)))))
+                bad(where + "\"version\" must be a semantic version (at most 256 bytes)");
+            if (m.contains("hash")) {
+                const std::string hash = str(m, "hash", where, true);
+                if (hash.size() != (kind == KILN_PROFILE_KIND_PLUGIN ? 64 : 69) ||
+                    !std::regex_match(hash, kind == KILN_PROFILE_KIND_PLUGIN ? kSha : kHash))
+                    bad(where + "\"hash\" must be " + (kind == KILN_PROFILE_KIND_PLUGIN ? "a lowercase SHA-256" : "kdh1:<lowercase SHA-256>"));
+            }
             e.path = game_path(m, "path", where, true);
             if (m.contains("enabled")) {
                 if (!m["enabled"].is_boolean()) bad(where + "\"enabled\" must be true or false");
@@ -145,7 +183,7 @@ void parse(const std::string& text) {
             e.path = u8(p);
             // a Shroudtopia entry may name the mod DLL itself
             const bool present = k == KILN_PROFILE_KIND_PLUGIN ? fs::is_regular_file(p, ec)
-                                 : fs::is_directory(p, ec) || (k >= KILN_PROFILE_KINDS && fs::is_regular_file(p, ec));
+                                 : fs::is_directory(p, ec) || (std::string_view(kind_name(k)) == "shroudtopia" && fs::is_regular_file(p, ec));
             if (!present) {
                 KLOG_W("profile: %s mod %s: %s %s is missing; skipped", kind_name(k), e.id.empty() ? "(plugin)" : e.id.c_str(),
                        k == KILN_PROFILE_KIND_PLUGIN ? "DLL" : "folder", e.path.c_str());
@@ -159,18 +197,20 @@ void parse(const std::string& text) {
 }
 
 void read_profile(const fs::path& file, uint32_t mode) {
+    g_state = State{};
     g_state.file = u8(file);
     std::string text;
     std::error_code ec;
     if (!fs::exists(file, ec)) {
         g_state.mode = KILN_PROFILE_INVALID;
         g_state.error = "the profile file is missing";
-    } else if (!read_file(file, &text)) {
+    } else if (fs::file_size(file, ec) > kMaxProfileBytes && !ec) {
         g_state.mode = KILN_PROFILE_INVALID;
-        g_state.error = "the profile file cannot be read";
+        g_state.error = "the profile exceeds 16 MiB";
     } else {
-        g_state.text = text;
         try {
+            if (!read_bounded(file, &text)) bad("the profile file cannot be read");
+            g_state.text = text;
             parse(text);
             g_state.mode = mode;
         } catch (const Invalid& e) {
@@ -178,6 +218,12 @@ void read_profile(const fs::path& file, uint32_t mode) {
             g_state.file = u8(file);
             g_state.mode = KILN_PROFILE_INVALID;
             g_state.error = e.what;
+        } catch (const std::exception& e) {
+            // Invalid filesystem encodings and JSON conversions must fail closed too, not unwind through boot.
+            g_state = State{};
+            g_state.file = u8(file);
+            g_state.mode = KILN_PROFILE_INVALID;
+            g_state.error = std::string("cannot read the profile: ") + e.what();
         }
     }
     if (g_state.mode == KILN_PROFILE_INVALID) {

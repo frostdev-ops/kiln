@@ -8,7 +8,7 @@ import { useGame, useLibrary } from "../../api/hooks";
 import { IMPORTED_KINDS, KIND_NAME, KIND_PLUGIN, KIND_SHORT, KIND_TONE, RESERVED_KINDS, SETTINGS_KINDS } from "../../api/kinds";
 import { EngineSettingsModal } from "../../components/EngineSettings";
 import { RestoreVanillaOffer } from "../../components/EngineStatus";
-import { Badge, EmptyState } from "../../ui";
+import { Badge, EmptyState, Skeleton, errorText } from "../../ui";
 import { ModList, libName } from "./ModList";
 import { ProfileFacts } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
@@ -34,8 +34,10 @@ export default function ProfileEnginesPage() {
   return (
     <div className="k-scroll k-stack" style={{ gap: 18, paddingBottom: 20 }}>
       {game && <RestoreVanillaOffer gameId={game.id} />}
+      {lib.isLoading && <Skeleton lines={3} />}
+      {lib.error && <EmptyState title="The library is not readable" hint={errorText(lib.error)} />}
       {kinds.length === 0 ? (
-        <EmptyState title="No other engines' mods." hint="Drop an EML, ShroudForge, SET, Greeneye, Flame or Shroudtopia mod on the Library page: Kiln runs it with its engine plugin." />
+        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an EML, ShroudForge, SET, Greeneye, Flame or Shroudtopia mod on the Library page: Kiln runs it with its engine plugin." />
       ) : kinds.map((k) => (
         <section key={k} className="k-card" data-kind={k}>
           <header className="k-card-head">

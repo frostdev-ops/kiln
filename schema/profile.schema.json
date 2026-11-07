@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "profile.schema.json",
   "title": "Kiln profile (<game>/kiln/profile.json), format 1",
-  "description": "Written atomically by the Kiln Launcher when it activates a profile; read once by kiln-core at boot (service kiln.profile) and by Kiln.Host, the native loader and kiln-emf. Missing file: the legacy layout (kiln/mods). Unreadable or invalid file: no mods, an error in kiln.log and state/boot.json. Paths are game-side (contracts.md, path translation). Unknown keys are ignored.",
+  "description": "Written atomically by the Kiln Launcher when it activates a profile; read once by kiln-core at boot (service kiln.profile) and by Kiln.Host, the native loader and kiln-emf. Missing file: the legacy layout (kiln/mods). Unreadable or invalid file: no mods, an error in kiln.log and state/boot.json. Paths are game-side (contracts.md, path translation). Unknown keys are ignored. The core refuses profiles over 16 MiB or with JSON nesting deeper than 128 levels.",
   "type": "object",
   "required": ["format", "id", "generation", "mods"],
   "properties": {
@@ -10,7 +10,7 @@
     "format": { "const": 1 },
     "id": { "$ref": "common.schema.json#/$defs/profileId" },
     "name": { "type": "string", "maxLength": 128 },
-    "generation": { "type": "integer", "minimum": 1, "description": "Bumped by every write; kiln-core echoes it in state/boot.json." },
+    "generation": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807, "description": "Bumped by every write; kiln-core echoes it in state/boot.json." },
     "written": { "$ref": "common.schema.json#/$defs/time" },
     "writer": { "type": "string", "description": "e.g. kiln-launcher 0.2.0-dev" },
     "pathMode": { "enum": ["z", "native", "copy"], "default": "native", "description": "z: Z:\\ paths into the launcher library (Proton); native: Windows paths; copy: mods copied under <game>/kiln/profiles/<id>/, relative paths." },
@@ -33,19 +33,19 @@
     "mods": {
       "type": "object",
       "properties": {
-        "kiln": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
-        "native": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
-        "emf": { "type": "array", "items": { "$ref": "#/$defs/folderMod" } },
-        "plugin": { "type": "array", "items": { "$ref": "#/$defs/pluginMod" } },
-        "eml": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "EML mods (mod.json + src/mod.lua), read by kiln-eml from the profile's text." },
-        "shroudforge": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "ShroudForge packages. The launcher places each in ShroudForge's mods folder and sets its extended.mod.json switch; kiln-shroudforge hosts ShroudForge when an entry is enabled. path: the placed folder." },
-        "set": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Shrouded Engine Tweaks mods. The launcher places the enabled ones in shrouded_engine_tweaks/mods/<id>/, where kiln-set reads them. path: the placed folder." },
-        "greeneye": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Greeneye Loader mods (mod.json + DLL), read by kiln-greeneye." },
-        "flame": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Flame mods (flame.json), read by kiln-flame." },
-        "shroudtopia": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Shroudtopia mods (a folder with the mod DLL), read by kiln-shroudtopia." },
-        "enshwick": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Enshwick mods." },
-        "shroudlink": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for shroudlink mods." },
-        "ember": { "type": "array", "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Ember server SDK mods." }
+        "kiln": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" } },
+        "native": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" } },
+        "emf": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" } },
+        "plugin": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/pluginMod" } },
+        "eml": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "EML mods (mod.json + src/mod.lua), read by kiln-eml from the profile's text." },
+        "shroudforge": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "ShroudForge packages. The launcher places each in ShroudForge's mods folder and sets its extended.mod.json switch; kiln-shroudforge hosts ShroudForge when an entry is enabled. path: the placed folder." },
+        "set": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Shrouded Engine Tweaks mods. The launcher places the enabled ones in shrouded_engine_tweaks/mods/<id>/, where kiln-set reads them. path: the placed folder." },
+        "greeneye": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Greeneye Loader mods (mod.json + DLL), read by kiln-greeneye." },
+        "flame": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Flame mods (flame.json), read by kiln-flame." },
+        "shroudtopia": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Shroudtopia mods (a folder with the mod DLL), read by kiln-shroudtopia." },
+        "enshwick": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Enshwick mods." },
+        "shroudlink": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for shroudlink mods." },
+        "ember": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Reserved for Ember server SDK mods." }
       },
       "additionalProperties": false,
       "description": "One list per mod kind. kiln-core counts kiln, native, plugin and emf (kiln.profile count/get); each engine plugin reads its own list from the profile's text (kiln.profile json()). Kilns older than these lists warn about and ignore an engine list; they never make the profile invalid."
@@ -57,10 +57,10 @@
       "type": "object",
       "required": ["id", "path"],
       "properties": {
-        "id": { "$ref": "common.schema.json#/$defs/modId" },
-        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "id": { "$ref": "common.schema.json#/$defs/modId", "not": { "pattern": "[\\u0000-\\u001f]" } },
+        "version": { "$ref": "common.schema.json#/$defs/semver", "maxLength": 256, "not": { "pattern": "[\\u0000-\\u001f]" } },
         "path": { "$ref": "common.schema.json#/$defs/gamePath", "description": "The mod folder." },
-        "hash": { "$ref": "common.schema.json#/$defs/kdh1" },
+        "hash": { "$ref": "common.schema.json#/$defs/kdh1", "maxLength": 69 },
         "enabled": { "type": "boolean", "default": true }
       }
     },
@@ -71,7 +71,7 @@
         "id": { "type": "string" },
         "version": { "type": "string" },
         "path": { "$ref": "common.schema.json#/$defs/gamePath", "description": "The plugin DLL (exports kiln_plugin_main)." },
-        "hash": { "$ref": "common.schema.json#/$defs/sha256", "description": "sha256 of the DLL." },
+        "hash": { "$ref": "common.schema.json#/$defs/sha256", "maxLength": 64, "description": "sha256 of the DLL." },
         "enabled": { "type": "boolean", "default": true }
       }
     }

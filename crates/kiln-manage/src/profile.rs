@@ -464,21 +464,35 @@ fn lref(kind: ModKind, m: &ProfileMod) -> LibraryRef {
 
 fn check_profile(p: &Profile) -> Result<()> {
     check_id(&p.id)?;
-    if p.format > 1 {
+    if p.format != 1 {
         return Err(Error::new(ErrorCode::Unsupported, format!("profile format {} (this Kiln reads format 1)", p.format)));
     }
-    if p.name.trim().is_empty() {
-        return Err(Error::invalid("a profile needs a name"));
+    if p.name.trim().is_empty() || p.name.chars().count() > 128 {
+        return Err(Error::invalid("a profile needs a name of at most 128 characters"));
+    }
+    if p.generation == 0 || p.generation > i64::MAX as u64 {
+        return Err(Error::new(ErrorCode::Schema, "profile generation must be an integer from 1 through 9223372036854775807"));
     }
     let mut problems = Vec::new();
     for k in ModKind::ALL {
+        if list_of(&p.mods, k).len() > 4096 {
+            problems.push(format!("{} exceeds 4096 entries", k.as_str()));
+        }
         let mut seen = std::collections::BTreeSet::new();
         for m in list_of(&p.mods, k) {
-            if !crate::manifest::is_mod_id(&m.id) {
+            if !crate::manifest::is_mod_id(&m.id) || m.id.ends_with('\n') {
                 problems.push(format!("{} mod id {:?} is not valid", k.as_str(), m.id));
             }
             if crate::hash::hash8(&m.hash).is_none() {
                 problems.push(format!("{} {}: bad hash {:?}", k.as_str(), m.id, m.hash));
+            }
+            if m.hash.starts_with(crate::hash::KDH1_PREFIX) == (k == ModKind::Plugin) {
+                problems.push(format!("{} {}: expected {}", k.as_str(), m.id, if k == ModKind::Plugin { "SHA-256" } else { "kdh1 hash" }));
+            }
+            if m.version.len() > 256 || m.version.trim() != m.version || m.version.contains(['/', '\\'])
+                || crate::semver::SemVersion::parse(&m.version).is_err()
+            {
+                problems.push(format!("{} {}: bad semantic version {:?}", k.as_str(), m.id, m.version));
             }
             if !seen.insert(m.id.clone()) {
                 problems.push(format!("{} {} is listed twice", k.as_str(), m.id));
@@ -497,6 +511,7 @@ pub fn get(dirs: &DataDirs, id: &str) -> Result<Profile> {
     if p.id != id {
         return Err(Error::new(ErrorCode::Schema, format!("profiles/{id}/meta.json says id {}", p.id)));
     }
+    check_profile(&p)?;
     Ok(p)
 }
 
@@ -545,8 +560,8 @@ pub fn list(dirs: &DataDirs) -> Result<Vec<ProfileSummary>> {
 /// A new profile (id derived from the name), optionally a copy of another.
 pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Profile> {
     let name = name.trim();
-    if name.is_empty() {
-        return Err(Error::invalid("a profile needs a name"));
+    if name.is_empty() || name.chars().count() > 128 {
+        return Err(Error::invalid("a profile needs a name of at most 128 characters"));
     }
     let base = id_from_name(name);
     let mut id = base.clone();
@@ -571,6 +586,7 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         data_dir: src.as_ref().map(|s| s.data_dir).unwrap_or_default(),
         server: src.as_ref().and_then(|s| s.server.clone()),
     };
+    check_profile(&p)?;
     let dir = dirs.profile(&id);
     for d in ["config", "data"] {
         std::fs::create_dir_all(dir.join(d)).map_err(io_at(&dir, "creating"))?;
@@ -596,7 +612,7 @@ pub fn save(dirs: &DataDirs, profile: &Profile) -> Result<Profile> {
         ));
     }
     let mut p = profile.clone();
-    p.generation += 1;
+    p.generation = next_generation(p.generation)?;
     p.created = stored.created;
     p.updated = now_rfc3339();
     crate::util::write_json_atomic(&meta_path(dirs, &p.id), &p)?;
@@ -746,6 +762,7 @@ const COPY_ROOT_REL: &str = "profiles";
 
 /// Renders the game-side file for an install (no writes): game paths, fingerprint, generation.
 pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: PathMode) -> Result<ProfileFile> {
+    check_profile(profile)?;
     let pid = &profile.id;
     let mut mods = ProfileFileMods::default();
     for k in ModKind::ALL.into_iter().filter(|k| *k != ModKind::Plugin) {
@@ -809,9 +826,28 @@ pub fn read_game_profile(game_dir: &std::path::Path) -> Result<Option<ProfileFil
     Ok(p)
 }
 
+fn running_process_with(
+    dir: &Path,
+    selected: &str,
+    mut find: impl FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>,
+) -> Result<Option<crate::proc::ProcessInfo>> {
+    // A client and server can be installed together and read the same engine folders.
+    let names = [selected, crate::game::CLIENT_EXE, crate::game::SERVER_EXE];
+    for (i, exe) in names.iter().enumerate() {
+        if !names[..i].contains(exe) && let Some(p) = find(dir, exe)? {
+            return Ok(Some(p));
+        }
+    }
+    Ok(None)
+}
+
+fn running_process(install: &GameInstall) -> Result<Option<crate::proc::ProcessInfo>> {
+    running_process_with(&install.path, &install.exe, crate::proc::find_exe)
+}
+
 fn refuse_running(install: &GameInstall) -> Result<()> {
-    if let Some(p) = crate::proc::find_game(install)? {
-        return Err(Error::new(ErrorCode::GameRunning, format!("{} is running (pid {}); quit it first", install.exe, p.pid))
+    if let Some(p) = running_process(install)? {
+        return Err(Error::new(ErrorCode::GameRunning, format!("{} is running (pid {}); quit it first", p.name, p.pid))
             .with_detail(serde_json::json!({ "pid": p.pid })));
     }
     Ok(())
@@ -950,8 +986,6 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         }
     }
     write_native_switches(&config_host_dir(dirs, profile, install, mode), profile)?;
-    // ShroudForge and SET read their mods from their own folder in the game
-    crate::engine_mods::place(dirs, profile, &install.path)?;
     Ok((file, mode, copied))
 }
 
@@ -967,15 +1001,23 @@ fn remove_if_there(p: &Path) -> Result<()> {
     }
 }
 
+fn next_generation(generation: u64) -> Result<u64> {
+    generation.checked_add(1).filter(|g| *g <= i64::MAX as u64)
+        .ok_or_else(|| Error::new(ErrorCode::Schema, "profile generation is exhausted"))
+}
+
 /// The activation flow (contracts.md): refuse while running, path mode, copy, chain.ini [profile], profile.json.
 pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<Activation> {
     refuse_running(install)?;
     ensure_kiln(install)?;
     let profile = get(dirs, profile_id)?;
     check_profile(&profile)?;
-    let (mut file, mode, copied) = prepare(dirs, &profile, install)?;
     let prev = read_game_profile(&install.path).ok().flatten().map(|f| f.generation).unwrap_or(0);
-    file.generation = prev + 1; // grows with every write of the file
+    let generation = next_generation(prev)?;
+    let (mut file, mode, copied) = prepare(dirs, &profile, install)?;
+    // ShroudForge and SET read their mods from their own folder in the game.
+    crate::engine_mods::place(dirs, &profile, &install.path)?;
+    file.generation = generation; // grows with every write of the file
     let now = now_rfc3339();
     file.written = Some(now.clone());
     crate::chain::write_profile_section(&install.path, &dllmain_dlls(dirs, &profile, &file)?)?;
@@ -1014,6 +1056,11 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
     };
     // a profile that no longer renders (a mod gone from the library) goes to activate, which says why
     if render(dirs, &profile, install, mode).is_ok_and(|fresh| same(&fresh, &file)) {
+        // A play-once profile also changes SF/SET's fixed folders. Reconcile those copies before the next normal
+        // launch even though profile.json itself still describes the active profile. Never change them mid-game.
+        if running_process(install)?.is_none() {
+            crate::engine_mods::place(dirs, &profile, &install.path)?;
+        }
         return Ok(None);
     }
     activate(dirs, &profile.id, install).map(Some)
@@ -1026,6 +1073,21 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     ensure_kiln(install)?;
     let profile = get(dirs, profile_id)?;
     check_profile(&profile)?;
+    // These engines consume fixed folders, not the profile's paths. Changing them for a single start would also
+    // change the next Steam launch, which does not call refresh_active. Only a persistent activation may do that.
+    let active = read_game_profile(&install.path)?;
+    for kind in [ModKind::ShroudForge, ModKind::Set] {
+        let mut wanted: Vec<_> = profile.mods.list(kind).iter()
+            .map(|m| (m.id.as_str(), Some(m.version.as_str()), Some(m.hash.as_str()), m.enabled)).collect();
+        let mut current: Vec<_> = active.as_ref().and_then(|f| f.mods.folders(kind)).into_iter().flatten()
+            .map(|m| (m.id.as_str(), m.version.as_deref(), m.hash.as_deref(), m.enabled)).collect();
+        wanted.sort_unstable();
+        current.sort_unstable();
+        if wanted != current {
+            return Err(Error::new(ErrorCode::Unsupported,
+                format!("{} mods use a fixed game folder; activate this profile to change them before playing (play-once keeps the active selection)", kind.label())));
+        }
+    }
     let (mut file, _, _) = prepare(dirs, &profile, install)?;
     file.written = Some(now_rfc3339());
     crate::chain::write_once(&install.path, &dllmain_dlls(dirs, &profile, &file)?)?;
@@ -1083,4 +1145,24 @@ pub fn fingerprint(profile: &Profile) -> String {
         })
     });
     crate::hash::fingerprint(entries)
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn shared_engine_files_are_guarded_against_both_game_executables() {
+        let dir = Path::new("/fixture/game");
+        for (selected, running) in [(crate::game::CLIENT_EXE, crate::game::SERVER_EXE),
+                                    (crate::game::SERVER_EXE, crate::game::CLIENT_EXE)] {
+            let found = running_process_with(dir, selected, |queried_dir, exe| {
+                assert_eq!(queried_dir, dir);
+                Ok((exe == running).then(|| crate::proc::ProcessInfo { pid: 42, name: running.into(), exe: None, cmdline: vec![] }))
+            }).unwrap().expect("the other executable must also prevent writes to shared engine folders");
+            assert_eq!(found.name, running);
+        }
+        assert!(running_process_with(dir, crate::game::CLIENT_EXE, |_, _| Ok(None)).unwrap().is_none());
+        assert!(running_process_with(dir, crate::game::CLIENT_EXE, |_, _| Err(Error::invalid("cannot inspect processes"))).is_err());
+    }
 }

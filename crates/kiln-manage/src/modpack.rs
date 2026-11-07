@@ -225,7 +225,7 @@ pub fn client_mods(server_dir: &Path) -> Result<Vec<ClientMod>> {
 pub fn required(server_dir: &Path) -> Result<Vec<RequiredMod>> {
     client_mods(server_dir)?
         .into_iter()
-        .map(|m| Ok(RequiredMod { hash: crate::hash::dirhash(&m.dir)?, id: m.id, version: m.version, kind: Some(m.kind), name: m.name }))
+        .map(|m| Ok(RequiredMod { hash: crate::hash::dirhash(&m.dir)?, id: m.id, version: m.version, kind: Some(m.kind), unknown_kind: None, name: m.name }))
         .collect()
 }
 
@@ -471,6 +471,7 @@ pub fn publish_state(server_dir: &Path) -> Result<ModpackPublishState> {
 // ================================================================================================= client side
 
 fn library_has(dirs: &DataDirs, r: &RequiredMod) -> bool {
+    if r.unknown_kind.is_some() { return false; }
     let kind = r.kind.unwrap_or(ModKind::Kiln);
     crate::library::list(dirs, Some(kind))
         .map(|all| all.iter().any(|e| e.kind == kind && e.id == r.id && e.versions.iter().any(|v| v.hash == r.hash)))
@@ -488,7 +489,7 @@ pub fn inspect(dirs: &DataDirs, source: &ModpackSource, last: Option<&crate::sta
         }
     };
     let required: Vec<RequiredMod> = match (&manifest, last) {
-        (Some(m), _) => m.mods.iter().map(|x| RequiredMod { id: x.id.clone(), version: x.version.clone(), hash: x.hash.clone(), kind: Some(x.kind), name: x.name.clone() }).collect(),
+        (Some(m), _) => m.mods.iter().map(|x| RequiredMod { id: x.id.clone(), version: x.version.clone(), hash: x.hash.clone(), kind: Some(x.kind), unknown_kind: None, name: x.name.clone() }).collect(),
         (None, Some(l)) => l.required.clone(),
         (None, None) => vec![],
     };
@@ -582,7 +583,7 @@ pub fn download(url: &str, sha256: &str, dest: &Path, allow_http: bool, progress
 
 #[cfg_attr(not(feature = "zip"), allow(dead_code))]
 fn valid_rel(p: &str) -> bool {
-    !p.is_empty() && !p.starts_with('/') && !p.contains('\\') && !p.contains('\0') && p.split('/').all(|s| !s.is_empty() && s != "." && s != "..")
+    crate::bundle::safe_rel_path(p).is_ok()
 }
 
 /// sha256 of the zip (when given), kiln-modpack.json (format, mods unique, paths `<kind>/<id>`), every mod's kdh1
@@ -596,6 +597,7 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
             return Err(err(ErrorCode::HashMismatch, format!("{}: sha256 {have}, expected {want}", zip_file.display())));
         }
     }
+    crate::quick::validate_import_path(zip_file)?;
     let f = std::fs::File::open(zip_file).map_err(crate::util::io_at(zip_file, "opening"))?;
     let zerr = |e: zip::result::ZipError| err(ErrorCode::Parse, format!("{}: {e}", zip_file.display()));
     let mut a = zip::ZipArchive::new(f).map_err(zerr)?;
@@ -618,25 +620,25 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
             Some(p) => &m.path == p,
             None => m.path.starts_with("plugin/") && m.path.to_ascii_lowercase().ends_with(".dll") && valid_rel(&m.path),
         };
-        if !path_ok || !mod_id_ok(&m.id) || !seen.insert((m.kind, m.id.clone())) {
+        if !path_ok || !mod_id_ok(&m.id) || crate::semver::SemVersion::parse(&m.version).is_err() || !seen.insert((m.kind, m.id.clone())) {
             return Err(err(ErrorCode::Schema, format!("{MANIFEST}: mod {} has a bad or duplicate path {}", m.id, m.path)));
         }
     }
-    // hash every mod from its entries
+    // Hash every mod from its entries; limits are rechecked while streaming as well as at archive preflight.
+    let mut expanded = 0u64;
+    let mut paths = std::collections::HashSet::new();
     let mut records: std::collections::BTreeMap<String, Vec<crate::hash::Record>> = Default::default();
     for i in 0..a.len() {
         let mut e = a.by_index(i).map_err(zerr)?;
         let name = e.name().map_err(zerr)?.to_string();
-        if e.is_dir() {
-            continue;
-        }
-        if !valid_rel(&name) || e.enclosed_name().is_none() {
+        let rel = name.trim_end_matches('/');
+        if !valid_rel(rel) || e.enclosed_name().is_none() || !paths.insert(rel.to_ascii_lowercase()) {
             return Err(err(ErrorCode::Refused, format!("{}: entry {name:?} has an unsafe path", zip_file.display())));
         }
         if e.is_symlink() || e.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
             return Err(err(ErrorCode::Refused, format!("{}: entry {name} is a symlink", zip_file.display())));
         }
-        if name == MANIFEST {
+        if e.is_dir() || name == MANIFEST {
             continue;
         }
         let owner = manifest.mods.iter().find(|m| if m.kind == ModKind::Plugin { name == m.path } else { name.starts_with(&format!("{}/", m.path)) });
@@ -652,6 +654,10 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
                 break;
             }
             size += n as u64;
+            expanded += n as u64;
+            if size > crate::quick::MAX_IMPORT_FILE || expanded > crate::quick::MAX_IMPORT_BYTES {
+                return Err(err(ErrorCode::Refused, "modpack exceeds the import size limits"));
+            }
             sha2::Digest::update(&mut h, &buf[..n]);
         }
         let sha = crate::hash::hex(sha2::Digest::finalize(h).as_slice());
@@ -682,22 +688,26 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
 /// checks each folder's kdh1 on disk again. Returns the extracted paths in manifest order.
 #[cfg(feature = "zip")]
 pub fn extract(zip_file: &Path, manifest: &ModpackManifest, staging: &Path) -> Result<Vec<PathBuf>> {
-    use std::io::Read;
-    let f = std::fs::File::open(zip_file).map_err(crate::util::io_at(zip_file, "opening"))?;
-    let mut a = zip::ZipArchive::new(f).map_err(|e| err(ErrorCode::Parse, format!("{}: {e}", zip_file.display())))?;
-    for i in 0..a.len() {
-        let mut e = a.by_index(i).map_err(|e| err(ErrorCode::Parse, e.to_string()))?;
-        let name = e.name().map_err(|e| err(ErrorCode::Parse, e.to_string()))?.to_string();
-        if e.is_dir() || name == MANIFEST || !valid_rel(&name) {
-            continue;
+    // Reverify the bytes we will extract, including the manifest: callers may retain a preview while the zip changes.
+    let current = verify(zip_file, None)?;
+    if current != *manifest {
+        return Err(err(ErrorCode::HashMismatch, "the modpack changed after it was inspected"));
+    }
+    crate::engine_mods::refuse_symlink_path(staging)?;
+    std::fs::create_dir_all(staging).map_err(crate::util::io_at(staging, "creating"))?;
+    let unpacked = crate::library::unpack_to_temp(zip_file, staging)?;
+    for m in &manifest.mods {
+        let to = staging.join(&m.path);
+        crate::engine_mods::refuse_symlink_path(&to)?;
+        let from = unpacked.path().join(&m.path);
+        if m.kind == ModKind::Plugin {
+            if let Some(p) = to.parent() {
+                std::fs::create_dir_all(p).map_err(crate::util::io_at(p, "creating"))?;
+            }
+            std::fs::copy(&from, &to).map_err(crate::util::io_at(&to, "copying"))?;
+        } else {
+            crate::library::copy_mod_tree(&from, &to)?;
         }
-        let out = staging.join(&name);
-        if let Some(d) = out.parent() {
-            std::fs::create_dir_all(d).map_err(crate::util::io_at(d, "creating"))?;
-        }
-        let mut b = Vec::with_capacity(e.size() as usize);
-        e.read_to_end(&mut b)?;
-        std::fs::write(&out, b).map_err(crate::util::io_at(&out, "writing"))?;
     }
     let mut out = Vec::new();
     for m in &manifest.mods {
@@ -722,7 +732,7 @@ pub fn extract(zip_file: &Path, manifest: &ModpackManifest, staging: &Path) -> R
 pub fn check_against(manifest: &ModpackManifest, required: &[RequiredMod]) -> Result<()> {
     let bad: Vec<String> = required
         .iter()
-        .filter(|r| !manifest.mods.iter().any(|m| m.kind == r.kind.unwrap_or(ModKind::Kiln) && m.id == r.id && m.hash == r.hash))
+        .filter(|r| r.unknown_kind.is_some() || !manifest.mods.iter().any(|m| m.kind == r.kind.unwrap_or(ModKind::Kiln) && m.id == r.id && m.hash == r.hash))
         .map(|r| format!("{} {} ({})", r.id, r.version, r.hash))
         .collect();
     if bad.is_empty() {

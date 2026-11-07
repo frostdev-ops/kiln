@@ -48,7 +48,7 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
-  const rows = (q.data ?? []).filter((s) => s.state !== null || inProfile(s.kind))
+  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
   return (
@@ -60,14 +60,14 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
 
 function EngineRow({ s }: { s: EngineStatus }) {
   const word = headline(s.state);
-  const reason = isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null;
+  const reason = s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
   const mods = modLines(s.state);
   return (
     <div className="k-list-item" data-engine={s.kind} style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }} title={s.file}>
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
       <span className="k-mono k-muted">{s.plugin}</span>
       <span className="k-spacer" />
-      {s.state === null ? <span className="k-hint">Not run yet</span> : (
+      {s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">Not run yet</span> : (
         <>
           {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
           {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}
@@ -106,8 +106,10 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   });
   const patched = (backup.data ?? []).filter((b) => b.patched);
   const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
+  if (backup.error) return <EmptyState title="The game data backup is not readable" hint={errorText(backup.error)} />;
+  if (active.error) return <EmptyState title="The active profile is not readable" hint={errorText(active.error)} />;
   if (!patched.length || active.isLoading || (active.data && !profile.data) || emlOn) return null;
-  const running = !!status.data?.running;
+  const running = !status.data || !!status.data.running;
   const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   return (
     <>

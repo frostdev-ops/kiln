@@ -49,7 +49,27 @@ pub struct KindCounts {
     pub plugin: u32,
     #[serde(default)]
     pub emf: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub eml: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shroudforge: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub set: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub greeneye: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub flame: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shroudtopia: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub enshwick: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shroudlink: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ember: u32,
 }
+
+fn is_zero(value: &u32) -> bool { *value == 0 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -407,23 +427,52 @@ pub struct ServerRef {
     pub kiln: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequiredMod {
     pub id: String,
     pub version: String,
     pub hash: String,
-    /// None for `kiln` from older servers, and for a kind this launcher doesn't know (a newer server's): such an entry
-    /// is still listed, it just can't be matched against the library.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_kind")]
+    /// None for `kiln` from older servers, or a newer kind preserved in `unknown_kind`.
     pub kind: Option<crate::manifest::ModKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// A newer server's kind. Kept distinct from an omitted kind (legacy Kiln), and round-tripped on the wire.
+    pub unknown_kind: Option<String>,
     pub name: Option<String>,
 }
 
-fn lenient_kind<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<crate::manifest::ModKind>, D::Error> {
-    let v: Option<serde_json::Value> = Option::deserialize(d)?;
-    Ok(v.and_then(|v| v.as_str().and_then(crate::manifest::ModKind::parse)))
+impl<'de> Deserialize<'de> for RequiredMod {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            id: String,
+            version: String,
+            hash: String,
+            #[serde(default)]
+            kind: Option<String>,
+            #[serde(default)]
+            name: Option<String>,
+        }
+        let w = Wire::deserialize(d)?;
+        let kind = w.kind.as_deref().and_then(crate::manifest::ModKind::parse);
+        let unknown_kind = if kind.is_none() { w.kind } else { None };
+        Ok(Self { id: w.id, version: w.version, hash: w.hash, kind, unknown_kind, name: w.name })
+    }
+}
+
+impl Serialize for RequiredMod {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            id: &'a str,
+            version: &'a str,
+            hash: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            kind: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<&'a str>,
+        }
+        Wire { id: &self.id, version: &self.version, hash: &self.hash,
+            kind: self.unknown_kind.as_deref().or(self.kind.map(|k| k.as_str())), name: self.name.as_deref() }.serialize(s)
+    }
 }
 
 /// `kiln/state/last-server.json`

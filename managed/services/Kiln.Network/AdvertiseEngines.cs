@@ -24,7 +24,7 @@ internal static partial class NetAdvertise
         if (string.IsNullOrEmpty(game)) return list;
         foreach (var (kind, folder) in EngineFolders)
         {
-            var root = Path.Combine(game, folder);
+            var root = kind == "shroudforge" ? ShroudForgeRoot(game) : Path.Combine(game, folder);
             if (!Directory.Exists(root)) continue;
             string[] dirs;
             try { dirs = Directory.GetDirectories(root); }
@@ -32,7 +32,7 @@ internal static partial class NetAdvertise
             Array.Sort(dirs, StringComparer.Ordinal);
             foreach (var dir in dirs)
             {
-                if (Path.GetFileName(dir).StartsWith('.')) continue;
+                if (Path.GetFileName(dir).StartsWith('.') || (File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
                 if (EngineKindOf(kind, dir) is not { } needed || !needed) continue;
                 var (id, version, name) = EngineIdentity(dir);
                 if (id != null) list.Add(new Candidate(kind, id, version, name, dir));
@@ -41,13 +41,32 @@ internal static partial class NetAdvertise
         return list;
     }
 
+    // Match kiln-manage's shroudforge::mods_dir and the runtime's configured mods folder.
+    internal static string ShroudForgeRoot(string game)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(game, "shroudforge/config/modloader-config.json")));
+            if (doc.RootElement.TryGetProperty("paths", out var paths) && paths.ValueKind == JsonValueKind.Object &&
+                paths.TryGetProperty("mods", out var mods) && mods.ValueKind == JsonValueKind.String &&
+                mods.GetString() is { } configured && !string.IsNullOrWhiteSpace(configured))
+            {
+                if (!OperatingSystem.IsWindows() && configured.StartsWith("Z:", StringComparison.OrdinalIgnoreCase))
+                    return configured[2..].Replace('\\', '/');
+                return Path.IsPathRooted(configured) ? configured : Path.Combine(game, configured.Replace('\\', Path.DirectorySeparatorChar));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) { }
+        return Path.Combine(game, "mods");
+    }
+
     /// <summary>null: the folder is not a mod of this kind (folders several engines share); else whether players need it.</summary>
     internal static bool? EngineKindOf(string kind, string dir)
     {
         bool Has(string f) => File.Exists(Path.Combine(dir, f));
         var manifest = Path.Combine(dir, "mod.json");
         var stated = Has("mod.json") ? DeclaredClients(manifest) : null;
-        bool Need(bool byDefault) => stated is null ? byDefault : stated == "mod";
+        bool Need(bool byDefault) => !ServerOnly(manifest) && (stated is null ? byDefault : stated == "mod");
         switch (kind)
         {
             case "emf": return Has("mod.json") ? Need(false) : null;
@@ -79,7 +98,19 @@ internal static partial class NetAdvertise
         }
     }
 
-    private static (string? Id, string Version, string? Name) EngineIdentity(string dir)
+    private static bool ServerOnly(string manifest)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(manifest),
+                new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("side", out var side)
+                && side.ValueKind == JsonValueKind.String && side.GetString() == "server";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return false; }
+    }
+
+    internal static (string? Id, string Version, string? Name) EngineIdentity(string dir)
     {
         var folder = Path.GetFileName(dir);
         string? id = null, version = null, name = null;
@@ -96,7 +127,10 @@ internal static partial class NetAdvertise
             }
         }
         catch (Exception) { }
-        id = id is { Length: > 0 and <= 64 } && id.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-') ? id : folder.ToLowerInvariant();
-        return (id.Length == 0 ? null : id, version ?? "0.0.0", name);
+        static bool ValidId(string? value) => value is { Length: > 0 and <= 64 } &&
+            (value[0] is >= 'a' and <= 'z' or >= '0' and <= '9') &&
+            value.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-');
+        id = ValidId(id) ? id : folder;
+        return (ValidId(id) ? id : null, version ?? "0.0.0", name);
     }
 }
