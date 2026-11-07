@@ -24,16 +24,18 @@ see [README.md](README.md)).
   (Enshwick's own rule).
 - **Play-once no-mods** and an invalid profile: the loader does not start.
 
-## Which loader runs
+## Which loader runs, and when
 
-| `kiln/config/kiln-enshwick.json` `"loader"` | Runs |
-|---|---|
-| `"auto"` (default) | `<game>/mods/enshwick/enshwick.dll`, the loader your mods were installed with, if it is there; otherwise the copy Kiln ships in `kiln/plugins/enshwick/enshwick.dll` |
-| `"game"` | only the game's copy |
-| `"bundled"` | only Kiln's copy |
+`kiln/config/kiln-enshwick.json` (in the profile's config folder when a profile is active):
 
-A file without the `enshwick_start` export is never loaded. The config file sits in the profile's config folder when
-a profile is active.
+| Key | Values | Default |
+|---|---|---|
+| `"loader"` | `"auto"`: the game's own `<game>/mods/enshwick/enshwick.dll` (what your mods were installed with) if it is there, otherwise the copy Kiln ships in `kiln/plugins/enshwick/enshwick.dll`; `"game"`; `"bundled"` | `"auto"` |
+| `"start"` | `"early"`: before Kiln resolves its signatures and arms its hooks; `"ready"`: in `on_ready`, after Kiln's hooks | `"early"` |
+| `"always"` | `true`: start the loader even with no Enshwick mod | `false` |
+
+A file without the `enshwick_start` export is never loaded. With no Enshwick mod in `mods/` or the profile, the
+loader does not start at all, so its hooks cost nothing.
 
 ## How it starts
 
@@ -48,8 +50,9 @@ void enshwick_start(uint32_t stub_abi /* 2 */, uint32_t missing_forwards,
 On the dedicated server the stub holds the exe's entry point until the loader calls `release` (after its hooks are
 armed), for at most 10 s.
 
-kiln-enshwick makes the same call from `on_ready`, which runs on the main thread inside Kiln's own entry gate, before
-the game's entry point:
+kiln-enshwick makes the same call on the main thread inside Kiln's entry gate, before the game's entry point. By
+default that happens in Kiln's early plugin phase (`kiln_plugin_early`), before Kiln's signature scan and hooks. With
+`"start": "ready"` it happens in `on_ready`, after them:
 
 1. **Step aside** when Enshwick's own stub runs in this process. That covers three cases: a `powrprof.dll` from the
    game folder carrying the stub's texts is loaded, the stub's claim `Local\enshwick-stub-<pid>` already exists, or a
@@ -58,8 +61,9 @@ the game's entry point:
    idle. That is the stub's own rule for two copies.
 3. Sync the profile into `mods/` (above).
 4. Load the loader with the stub's search flags and call `enshwick_start(2, 0, release)` on a new thread. On the
-   server the main thread waits for `release`, for at most 10 s, as the stub's hold does. On the client it does not
-   wait, because the loader arms its hooks once the game window shows.
+   server the main thread waits for `release`, for at most 10 s, as the stub's hold does. On the client the main thread does not wait for `release`, because the loader arms its hooks once the game window
+   shows. In the early phase it waits, for at most 5 s, until the loader has logged `entries found`, so Kiln's hooks
+   never change code the loader is still reading.
 
 Enshwick's log stays `<game>/logs/enshwick_<date>.log`. For a minute after the start, Kiln copies its key lines into
 `kiln/logs/kiln.log` as `[enshwick:log] ...`. `kiln/state/enshwick.json` holds the plugin's status, the loader path and
@@ -82,17 +86,31 @@ All of these work exactly as under Enshwick, because they are Enshwick's code:
 
 ## Hooks next to Kiln
 
-Enshwick arms its own inline hooks (a 5-byte `jmp` to a relay, all written in one batch with the other threads
-suspended). Kiln's hooks (safetyhook) are armed before `on_ready`, so Enshwick hooks on top of them. Its decoder moves
-a prologue that already begins with a 5-byte `E9` or a `FF 25` jump into its trampoline, and both chains run.
+Enshwick and Kiln each find game code by byte patterns in the live code, and each arms its own inline hooks: Enshwick
+a 5-byte `jmp` to a relay, Kiln safetyhook detours. Each decoder moves a prologue that already begins with the other's
+jump into its trampoline, so on a function both hook, both chains run, in the order they were armed. Matching is the
+weak spot. A pattern that covers a prologue the other side has already hooked no longer matches. Measured on a lab
+server (Steam build 26430253):
 
-| Overlap | What happens |
+| Start | Enshwick entries found | Kiln symbols / features |
+|---|---|---|
+| Enshwick alone (its own stub, Kiln off) | 580 of 580 | - |
+| Kiln first (`"start": "ready"`) | 528 of 580: content off; chat, daytime, events, game events, saves, textures partly or wholly off | 432 / 139, all |
+| Enshwick first (`"start": "early"`, the default; also Enshwick's own stub next to Kiln) | 580 of 580 | 426 / 133: off are `chat.send`, `chat.receive`, `gameplay.discard`, `gameplay.intercept`, `quests.client_input`, `time.sync_probe` |
+
+The default keeps Enshwick whole, which data packs need (they go through its content feature). The Kiln features that
+go off are the ones whose functions Enshwick hooks: chat lines, inventory transfers and discards, knowledge input and
+the server-info send. The same happens today when Enshwick's own stub runs next to Kiln. The full fix is on Kiln's side:
+match signatures against the exe's code as it is on disk and hook the live address. Until then, choose
+`"start": "ready"` when those Kiln features matter more than Enshwick's content.
+
+| Other overlap | What happens |
 |---|---|
-| Both hook one game function | Chained. Enshwick's detour runs first, then Kiln's (the order they were armed). Hooks Kiln installs later (managed `Kiln.Hooks`) chain over Enshwick's in the same way. |
 | An Enshwick **code patch** (`patch_code`, bytes compared before writing) on bytes Kiln already hooked | Enshwick skips the patch and turns the owning mod (or the loader feature) off, with the address in its log. Watch for `code patch of ... skipped`. |
-| Enshwick's code watch | It compares the game's code to the file on disk. Kiln's hooks show up as changes "before the loader started" in its conflict report. That is only a report. |
+| Enshwick's code watch | It compares the game's code to the file on disk. Kiln's hooks show up as `another program changed game code ... before Enshwick started`. That is a report, not an error. |
 | Server console | Enshwick reads the server's stdin. Kiln doesn't (Kiln's console is `kilnctl`), so they don't collide. |
-| Main menu "Mods" button, its own UI, its own net channel | Enshwick's own; Kiln's UI and network services don't use the same widgets or message ids. |
+| Server browser | Enshwick appends `[mods: N]` to the Steam server name and sets the `enshwick*` rules. Kiln advertises its modpack in handshake properties. They don't collide. |
+| Main menu "Mods" button, Enshwick's own UI and net channel | Enshwick's own; Kiln's UI and network services don't use the same widgets or message ids. |
 | Gameplay rules on one system (both change building cost, loot, rates) | Both apply. Kiln's conflict registry (universal-loader 3.6) is planned to name such pairs. |
 
 ## Coverage
@@ -109,11 +127,11 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 
 | Enshwick area (host-table entries) | Kiln implementation | Kiln C# equivalent | Status / tested |
 |---|---|---|---|
-| Loading: DLL mods (`enshwick_mod_abi/_query/_init/_ready`), resolve, duplicates, `mods.toml` | hosted (kiln-enshwick) | Kiln mod loader (`kiln.mod.json`, dependencies) | hosted; host + lab |
+| Loading: DLL mods (`enshwick_mod_abi/_query/_init/_ready`), resolve, duplicates, `mods.toml` | hosted (kiln-enshwick) | Kiln mod loader (`kiln.mod.json`, dependencies) | hosted; host + lab (2 DLL mods from enshwick/mods) |
 | Luau mods (`main.luau`, sandbox, 37 namespaces) | hosted | C# mods | hosted; lab |
 | Data packs (`pack.toml`, items, recipes, workshops, loot, rewards, sounds, texts) | hosted | `Kiln.Blocks` (typed blocks, JSON) | hosted; lab |
-| Settings (`config_schema`, `config_check`, `settings`): per-world `settings.toml` | hosted | `Kiln.Config` (per profile; per-world: not yet) | hosted; client |
-| Join check (`join_missing`, `hosting`, `mods.lock`) | hosted | `Kiln.Network` mod-set check | hosted; client |
+| Settings (`config_schema`, `config_check`, `settings`): per-world `settings.toml` | hosted | `Kiln.Config` (per profile; per-world: not yet) | hosted; lab (files written), client (Settings button) |
+| Join check (`join_missing`, `hosting`, `mods.lock`) | hosted | `Kiln.Network` mod-set check | hosted; lab (`mods.lock`, server advertising), client (refusal) |
 | Hooks and raw access (`hook`, `hook_at`, `patch_code`, `code_range`, `symbol`, `find_call`, `field_offset`, `constant`, `caller_frame`, `fault`) | hosted, chained with Kiln's hooks (see above) | `Kiln.Hooks` | hosted; lab |
 | ECS and types (`component`, `component_write`, `system`, `types`, `type_size`, `type_hash`, `resource_read`, `resource_keys`, `rebuild_resource`, `serve_resource`) | hosted | `Kiln.Game` typed components, `kiln.types` | hosted; lab |
 | Events and ticks (`subscribe*`, `define_event`, `send_event`, `emit`, `event_types`, `set_tick_every`, `loop_wait`, `task_workers`) | hosted | `Events`, `ModContext.Tick`, `Scheduler` | hosted; lab |
@@ -146,6 +164,13 @@ Counts: 33 areas, 33 hosted. Of the 193 entries, 193 are served by Enshwick's ow
 `Kiln.Points` is new. Per-world settings, per-item data, affixes, survivors, status lines and pacing have no Kiln C#
 equivalent yet.
 
+## Known differences
+
+- With Kiln's bundled loader, `mods.lock` records `loader_sha256 = ""`. The loader hashes only
+  `mods/enshwick/enshwick.dll`, and the field only feeds the lock's change list, not the join check. With
+  `"loader": "game"` (or the game's copy present) it is filled as usual.
+- `<game>/mods/enshwick/` is still created by the loader for its own files (`mods.toml`).
+
 ## Updating to a new Enshwick release
 
 Enshwick publishes an alpha every few days. To move to one:
@@ -164,7 +189,7 @@ need a Kiln change for Enshwick.
 - `c++ -std=c++20 -o logic_test native/plugins/enshwick/tests/logic_test.cpp && ./logic_test`: the decisions (folder
   names, step aside, loader choice, profile sync plan, markers, log mirroring).
 - `KILN_OUT=<out> native/build.sh kiln-enshwick compathost`, then `KILN_OUT=<out> python3
-  native/plugins/enshwick/tests/run.py`: 13 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
+  native/plugins/enshwick/tests/run.py`: 14 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
   to add one that starts the real loader.
 - Lab: deploy Kiln with `tools/deploy-server.sh` (it ships `kiln/plugins/enshwick/` when the runtime was built), put
   a data pack or Luau mod into `<server>/mods/`, start, and read `kiln/logs/kiln.log` and `logs/enshwick_*.log`.

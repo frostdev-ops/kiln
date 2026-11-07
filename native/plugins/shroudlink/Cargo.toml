@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# kiln-shroudlink: shroudlink (bjck/shroudlink v0.8.0, MIT) hosted as a Kiln plugin. Its own Cargo workspace, like
+# gpl/kiln-eml, because it is a Windows cdylib built with cargo xwin (build.sh) and pins shroudlink's dependencies.
+#   upstream/*  shroudlink's server core and the crates it needs, as published at v0.8.0 (commit bfeebd07). Every
+#               change is marked "kiln:" and listed in upstream/KILN-CHANGES.md. Built with --features kiln, the core
+#               exports kiln_plugin_main/kiln_plugin_early instead of the steam_api64.dll proxy (upstream/server/src/kiln.rs).
+[workspace]
+resolver = "2"
+members = ["upstream/common", "upstream/link", "upstream/sdk", "upstream/server"]
+
+[workspace.package]
+version = "0.8.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder"] }
+retour = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+] }
+
+[profile.release]
+panic = "abort"
+lto = true

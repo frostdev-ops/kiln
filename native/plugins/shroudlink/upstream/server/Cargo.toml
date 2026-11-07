@@ -1,0 +1,23 @@
+[package]
+name = "shroudlink-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# installed as steam_api64.dll (or crashhandler64.dll / dinput8.dll), see src/lib.rs
+name = "shroudlink_server"
+crate-type = ["cdylib"]
+
+[features]
+# kiln: build as the Kiln plugin kiln-shroudlink.dll (src/kiln.rs) instead of the steam_api64.dll proxy
+kiln = []
+
+[dependencies]
+chestsort-common = { path = "../common" }
+shroudlink = { path = "../link" }
+shroudlink-sdk = { path = "../sdk" }
+retour.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+windows-sys.workspace = true

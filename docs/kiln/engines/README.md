@@ -11,6 +11,8 @@ keep the mods as they are; you do not need the other loader's proxy DLL.
 | Shroudtopia 0.1.1 / 1.0 r1 | `kiln-shroudtopia.dll` | `mods/*.dll` and `mods/<name>/` exporting `CreateModInstance` | [shroudtopia.md](shroudtopia.md) |
 | EMF 0.3.3 (API v21) | `kiln-emf.dll` | `emf/mods/` | [../emf.md](../emf.md) |
 | Enshwick 1.0.0-alpha.13 | `kiln-enshwick.dll` (hosts Enshwick's own loader) | `mods/<author.name>/`: DLL mods, `main.luau`, `pack.toml` data packs | [enshwick.md](enshwick.md) |
+| shroudlink 0.8.0 (SDK ABI 8), server | `kiln-shroudlink.dll` (shroudlink's own server core, built from source) | `shroudlink_mods/*.dll`; EML data mods go to kiln-eml | [shroudlink.md](shroudlink.md) |
+| Ember (server SDK, no ABI published yet) | `kiln-ember.dll` (finds and reports; starts nothing yet) | `ember/mods/<mod>/` with one library | [ember.md](ember.md) |
 
 Running such a mod runs that mod's own code in the game process, as with any native mod. Install mods only from
 sources you trust.
@@ -40,6 +42,8 @@ loaded), the plugin says so and loads the mods itself.
 | Flame | a module in the game folder or `kiln/chain/` carries Flame's entry-point name without exporting it (Flame's proxy, chained by Kiln) | Flame's loader starts the mods in `<game>/mods` from its own thread; starting them again would run the mod twice. Switch its line off in `kiln/chain.ini` to let Kiln start them (and from profiles). |
 | Shroudtopia | `shroudtopia.dll` is loaded, or a module from the game folder or `kiln/chain/` names Shroudtopia or Shroudweave | Shroudtopia's loader thread already drives its mods. |
 | Enshwick | its `powrprof.dll` stub (texts `enshwick-loader-stub`) is loaded, its claim `Local\enshwick-stub-<pid>` exists, or a module exporting `enshwick_start` is loaded | Kiln takes the same claim when it starts the loader, so a stub that starts later stays idle (the stub's own rule); when the stub is first, it runs Enshwick and Kiln starts nothing. |
+| shroudlink | a loaded module exports both `CrashHandlerFactory` and `DirectInput8Create` (its core as `steam_api64.dll`, `crashhandler64.dll`, `dinput8.dll`, chained or not) or is named `shroudlink_core.dll`; backstop: its claim `chestsort_server_<pid>` | That core loads `shroudlink_mods/` itself; both copies honor the same claim, so only one hooks. |
+| Ember | a DLL from the server folder or `kiln/chain/` carries `ember-loader` / `ember_loader` | Ember's loader runs its mods; kiln-ember starts none anyway until Ember publishes its ABI. |
 
 Flame and Shroudtopia are checked again before mod dispatch, including after Shroudtopia's boot delay. Renamed
 proxies in `kiln/chain/` are recognized. These engines have no cooperative process claim or shutdown contract:
