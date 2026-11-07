@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -26,6 +27,7 @@
 #include "safetyhook.hpp"
 #include "services/kiln_npcai.h"
 #include "services/kiln_world.h"
+#include "../../core/src/hook_guard.h"
 
 namespace {
 
@@ -79,7 +81,10 @@ Lives g_lives;  // tick only; hooks read the immutable published index
 std::atomic<std::shared_ptr<const Lives>> g_life_index;
 std::atomic<uintptr_t> g_storage{0};
 int64_t g_storage_offset = -1;
-safetyhook::MidHook g_destroy;
+// Process lifetime, including after an unload callback: a foreign trampoline may still enter these hooks.
+// Do not run safetyhook's unconditional restoring destructor during DLL/static teardown.
+safetyhook::MidHook& g_destroy = *new safetyhook::MidHook;
+kiln::hooks::HookGuard g_destroy_guard;
 uintptr_t g_destroy_at = 0;
 bool g_lifecycle = false;
 
@@ -182,7 +187,8 @@ using ValFn = bool (*)(uint8_t, uint8_t);
 
 enum : uint32_t { kHostile = 1, kHostileValue = 2, kFriend = 4, kFriendOpt = 8, kFriendValue = 16 };
 uintptr_t g_at[5] = {};
-safetyhook::InlineHook g_h[5];
+auto& g_h = *new std::array<safetyhook::InlineHook, 5>;
+kiln::hooks::HookGuard g_hook_guards[5];
 uint32_t g_resolved = 0;
 std::atomic<uint32_t> g_installed{0};
 std::atomic<bool> g_answering{false}, g_install_failed{false};
@@ -311,22 +317,31 @@ void uninstall() {
     g_answering.store(false, std::memory_order_release);
     for (int i = 0; i < 5; ++i) {
         if (!g_h[i] || !g_h[i].enabled()) continue;
-        if (g_h[i].disable()) g_installed.fetch_and(~(1u << i));
-        else NA_W("could not disable %s; retaining its trampoline", kNames[i]);
+        if (g_hook_guards[i].disable(g_h[i], [i] {
+                NA_W("foreign code covers %s; leaving the hook armed and retaining its trampoline", kNames[i]);
+            })) g_installed.fetch_and(~(1u << i));
     }
-    if (g_lives.empty() && g_destroy && g_destroy.enabled() && !g_destroy.disable()) NA_W("could not disable entity lifetime observer");
+    if (g_lives.empty() && g_destroy && g_destroy.enabled())
+        g_destroy_guard.disable(g_destroy, [] {
+            NA_W("foreign code covers entity lifetime observer; leaving the hook armed and retaining its trampoline");
+        });
 }
 
 bool install() {
     if (g_install_failed.load()) return false;
-    if (g_installed.load() == 0x1f) return true;
+    if (g_installed.load() == 0x1f) {
+        g_answering.store(true, std::memory_order_release);
+        return true;
+    }
     for (int i = 0; i < 5; ++i) {
+        const bool was_enabled = g_h[i].enabled();
         if (!g_h[i].enable()) {
             NA_W("the hook on %s failed; the game decides alone", kNames[i]);
             uninstall();
             g_install_failed.store(true);
             return false;
         }
+        if (!was_enabled) g_hook_guards[i].armed(reinterpret_cast<void*>(g_at[i]));
         g_installed.fetch_or(1u << i);
     }
     g_answering.store(true, std::memory_order_release);
@@ -336,7 +351,10 @@ bool install() {
 bool entity_support() {
     if (!g_world || !g_faction_hash || !g_destroy || !g_lifecycle || !server_world_ok()) return false;
     g_storage.store(g_api->server_world() + static_cast<uintptr_t>(g_storage_offset), std::memory_order_release);
-    return g_destroy.enabled() || static_cast<bool>(g_destroy.enable());
+    if (g_destroy.enabled()) return true;
+    if (!g_destroy.enable()) return false;
+    g_destroy_guard.armed(reinterpret_cast<void*>(g_destroy_at));
+    return true;
 }
 
 // ------------------------------------------------------------------------------------------------ Pre ----

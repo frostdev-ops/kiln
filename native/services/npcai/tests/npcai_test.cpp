@@ -31,7 +31,11 @@ int main() {
         *n = 1; return e < 4 && exists[e] ? &factions[e] : nullptr;
     };
     g_world = &world; g_faction_hash = 1; g_storage_offset = 0; g_lifecycle = true;
-    g_destroy = *safetyhook::MidHook::create(nullptr, nullptr, safetyhook::MidHook::StartDisabled);
+    // The disable guard reads the hook site's bytes, so the observer needs a readable address (as in the game,
+    // where the hook exists only once spawn/DestroyEntity resolved).
+    static uint8_t destroy_site[32] = {};
+    g_destroy_at = reinterpret_cast<uintptr_t>(destroy_site);
+    g_destroy = *safetyhook::MidHook::create(destroy_site, nullptr, safetyhook::MidHook::StartDisabled);
     g_at[0] = reinterpret_cast<uintptr_t>(&game_ptr);
     g_at[1] = reinterpret_cast<uintptr_t>(&game_val);
     g_at[2] = reinterpret_cast<uintptr_t>(&game_friend);

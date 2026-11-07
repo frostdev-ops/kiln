@@ -17,6 +17,7 @@
 #include <string>
 
 #include "safetyhook.hpp"
+#include "../../core/src/hook_guard.h"
 
 namespace {
 
@@ -171,21 +172,54 @@ void kiln_first() {
     check(r.has_value(), "Kiln hooks the clean function");
     if (!r) return;
     g_kiln = std::move(*r);
+    kiln::hooks::HookGuard guard;
+    guard.armed(a.func);
+    uint8_t own[14];
+    std::memcpy(own, a.func, sizeof own);
     other_hook_e9(a);
     g_log.clear();
     const int v = a.call(41);
     check(v == 42 && g_log == "OK", "both run: the other engine (armed last), then Kiln, then the original once",
           g_log + " -> " + std::to_string(v));
-    // Known limit: safetyhook's disable() writes its saved prologue back unconditionally. Unhooking Kiln *under*
-    // another engine's later jmp removes that jmp too (the other engine's hook stops running, and its trampoline
-    // now leads into Kiln's freed trampoline). Kiln's hooks normally stay armed for the process lifetime.
-    g_kiln = {};
-    check(std::memcmp(a.func, kFunc, 5) == 0, "Kiln's unhook writes the original prologue back over the other's jmp",
-          hex(a.func, 5));
+    uint8_t foreign[14];
+    std::memcpy(foreign, a.func, sizeof foreign);
+    int logs = 0;
+    check(!guard.disable(g_kiln, [&] { ++logs; }) && g_kiln.enabled() &&
+              std::memcmp(a.func, foreign, sizeof foreign) == 0,
+          "guarded unhook leaves the foreign jump and Kiln's trampoline armed");
+    check(!guard.disable(g_kiln, [&] { ++logs; }) && logs == 1, "covered hook is logged once");
     g_log.clear();
     const int w = a.call(41);
-    check(w == 42 && g_log.empty(), "so the function runs vanilla: the other engine's hook is gone (known limit)",
-          "log '" + g_log + "'");
+    check(w == 42 && g_log == "OK", "both trampolines remain callable after a refused unhook", g_log);
+    // The foreign engine removes its own jump; Kiln may now disable normally, keeping the trampoline until reset.
+    std::memcpy(a.func, own, sizeof own);
+    check(guard.disable(g_kiln, [&] { ++logs; }) && !g_kiln.enabled(), "owned jump disables normally");
+    g_kiln = {};
+    g_log.clear();
+    check(a.call(41) == 42 && g_log.empty(), "normal unhook restores the original function");
+}
+
+void kiln_first_mid() {
+    std::puts("-- Kiln mid hook first, then another engine: guarded disable");
+    Arena a;
+    auto r = safetyhook::MidHook::create(a.func, &kiln_mid);
+    check(r.has_value(), "Kiln mid hook installs");
+    if (!r) return;
+    auto mid = std::move(*r);
+    kiln::hooks::HookGuard guard;
+    guard.armed(a.func);
+    uint8_t own[14];
+    std::memcpy(own, a.func, sizeof own);
+    other_hook_e9(a);
+    int logs = 0;
+    check(!guard.disable(mid, [&] { ++logs; }) && mid.enabled(), "covered mid hook stays armed");
+    check(!guard.disable(mid, [&] { ++logs; }) && logs == 1, "covered mid hook logs once");
+    g_log.clear();
+    check(a.call(41) == 43 && g_log == "OM", "foreign trampoline still enters the mid hook", g_log);
+    std::memcpy(a.func, own, sizeof own);
+    check(guard.disable(mid, [&] { ++logs; }) && !mid.enabled(), "uncovered mid hook disables normally");
+    g_log.clear();
+    check(a.call(41) == 42 && g_log.empty(), "normal mid unhook restores original behaviour", g_log);
 }
 
 }  // namespace
@@ -195,6 +229,7 @@ int main() {
     ff25_first_inline();
     e9_first_mid();
     kiln_first();
+    kiln_first_mid();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

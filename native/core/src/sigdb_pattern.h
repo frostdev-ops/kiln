@@ -10,6 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include "pe_text.h"
+
 namespace kiln::sigdb {
 
 struct Hole {
@@ -107,7 +109,7 @@ inline bool parse_pattern(std::string_view text, Pattern& out, std::string& erro
 inline std::vector<const uint8_t*> scan(const Pattern& p, const uint8_t* begin, const uint8_t* end, size_t limit) {
     std::vector<const uint8_t*> hits;
     const size_t n = p.bytes.size();
-    if (!begin || end <= begin || static_cast<size_t>(end - begin) < n) return hits;
+    if (!limit || !n || !p.anchor_length || !begin || end <= begin || static_cast<size_t>(end - begin) < n) return hits;
     std::vector<uint8_t> anchor(p.anchor_length);
     for (size_t k = 0; k < p.anchor_length; ++k) anchor[k] = static_cast<uint8_t>(p.bytes[p.anchor_offset + k]);
     const std::boyer_moore_horspool_searcher searcher(anchor.begin(), anchor.end());
@@ -158,6 +160,15 @@ inline bool hole_value(const Pattern& p, const uint8_t* match, std::string_view 
         return true;
     }
     return false;
+}
+
+// The entire pattern must fit the selected view. In particular, never fall through to a live read when a
+// disk-view match is outside .text or too near its end: holes must come from the bytes that were scanned.
+inline bool hole_value_in(const Pattern& p, const pe::CodeView& cv, uintptr_t live_match,
+                          std::string_view name, int64_t* out) {
+    const uint8_t* m = cv.to_scan(live_match);
+    return m && !p.bytes.empty() && p.bytes.size() <= cv.remaining(live_match) &&
+           hole_value(p, m, name, out, cv.delta());
 }
 
 }  // namespace kiln::sigdb

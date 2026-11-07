@@ -65,6 +65,7 @@ struct TestPe {
         const size_t opt = 0x58;
         put<uint16_t>(file, opt, 0x20B);
         put<uint64_t>(file, opt + 24, kBase);
+        put<uint32_t>(file, opt + 60, 0x400);  // SizeOfHeaders
         put<uint32_t>(file, opt + 56, 0x3000);  // SizeOfImage
         put<uint32_t>(file, opt + 108, 16);     // NumberOfRvaAndSizes
         size_t sec = opt + 0xF0;
@@ -186,6 +187,77 @@ static void synthetic() {
     CHECK(!pe::parse_file_text(bad.data(), bad.size(), ft, err), "PE32 rejected (%s)", err.c_str());
 }
 
+static void hostile_pe() {
+    const TestPe good;
+    auto rejected = [&](std::vector<uint8_t> b, const char* what) {
+        pe::FileText ft;
+        std::string err;
+        CHECK(!pe::parse_file_text(b.data(), b.size(), ft, err), "%s rejected (%s)", what, err.c_str());
+    };
+    auto b = good.file;
+    put<uint16_t>(b, 0x54, 2);
+    rejected(b, "undersized optional header");
+    b = good.file;
+    put<uint32_t>(b, 0x58 + 108, 17);
+    rejected(b, "data directories exceeding optional header");
+    b = good.file;
+    put<uint32_t>(b, 0x148 + 12, 0xFFFFFF00);
+    rejected(b, "overflowing .text RVA range");
+    b = good.file;
+    put<uint32_t>(b, 0x148 + 8, 0x3000);
+    rejected(b, ".text beyond SizeOfImage");
+    b = good.file;
+    put<uint32_t>(b, 0x58 + 112 + 5 * 8 + 4, 0x400);
+    rejected(b, "relocation directory beyond its section");
+    b = good.file;
+    put<uint32_t>(b, TestPe::kRelocRaw + 4, 18);
+    rejected(b, "truncated relocation block");
+    b = good.file;
+    put<uint32_t>(b, TestPe::kRelocRaw + 4, 9);
+    rejected(b, "odd relocation block");
+    b = good.file;
+    put<uint32_t>(b, TestPe::kRelocRaw, 0xFFFFF000);
+    rejected(b, "relocation page beyond image");
+    b = good.file;
+    put<uint16_t>(b, TestPe::kRelocRaw + 8, (1 << 12) | 0x12);
+    rejected(b, "unsupported relocation touching .text");
+    b = good.file;
+    put<uint16_t>(b, TestPe::kRelocRaw + 10, (3 << 12) | 0x12);
+    rejected(b, "overlapping relocation fields");
+
+    // A field beginning before .text needs its missing low bytes to compute carry into .text.
+    // Guessing those bytes as zero is unsafe; reject the disk view rather than silently misrelocate it.
+    b = good.file;
+    put<uint32_t>(b, 0x148 + 12, 0x1004);
+    put<uint16_t>(b, TestPe::kRelocRaw + 8, (10 << 12));
+    rejected(b, "relocation crossing the start of .text");
+
+    bool truncations_rejected = true;
+    for (size_t size = 0; size < good.file.size(); ++size) {
+        pe::FileText ft;
+        std::string err;
+        if (pe::parse_file_text(good.file.data(), size, ft, err)) truncations_rejected = false;
+    }
+    CHECK(truncations_rejected, "all 2048 truncated prefixes rejected");
+
+    // A valid DIR64 may cross a 4KiB page boundary while remaining wholly in .text, including its zero fill.
+    b = good.file;
+    put<uint32_t>(b, 0x58 + 56, 0x4000);
+    put<uint32_t>(b, 0x148 + 8, 0x1008);
+    put<uint32_t>(b, 0x148 + 40 + 12, 0x3000);
+    put<uint32_t>(b, 0x58 + 112 + 5 * 8, 0x3000);
+    put<uint16_t>(b, TestPe::kRelocRaw + 8, (10 << 12) | 0xFFC);
+    pe::FileText ft;
+    std::string err;
+    CHECK(pe::parse_file_text(b.data(), b.size(), ft, err), "page-spanning relocation parses (%s)", err.c_str());
+    std::vector<uint8_t> text(ft.text_vsize, 0);
+    std::memcpy(text.data(), b.data() + ft.text_raw, ft.file_bytes());
+    pe::relocate_text(text.data(), text.size(), ft, TestPe::kBase - 0x10000);
+    uint64_t patched = 0;
+    std::memcpy(&patched, text.data() + 0xFFC, 8);
+    CHECK(patched == uint64_t{0} - 0x10000, "page-spanning DIR64 applies a negative base delta");
+}
+
 struct Def {
     std::string name;
     sigdb::Pattern p;
@@ -274,6 +346,7 @@ static void real_exe(const std::string& exe, const std::string& side, const std:
 
 int main(int argc, char** argv) {
     synthetic();
+    hostile_pe();
     std::filesystem::path sigdb_dir = std::filesystem::path(__FILE__).parent_path() / "../../../sigdb/symbols";
     for (int i = 1; i + 1 < argc; i += 2) {
         const std::string opt = argv[i];

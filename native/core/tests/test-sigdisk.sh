@@ -10,3 +10,11 @@ mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 "$cxx" -std=c++20 -O2 -Wall -Wextra -I"$here/../../third_party" -o "$out/sigdisk_test" "$here/sigdisk_test.cpp"
 "$out/sigdisk_test" "$@"
+"$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
+    -I"$here/stubs" -I"$here/../abi" -I"$here/../../third_party" \
+    -o "$out/sigdb_runtime_test" "$here/sigdb_runtime_test.cpp"
+"$out/sigdb_runtime_test" "$out"
+"$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
+    -I"$here/../../services/npcai/tests/stubs" -I"$here/../abi" \
+    -o "$out/npcai_hook_guard_test" "$here/npcai_hook_guard_test.cpp"
+"$out/npcai_hook_guard_test"

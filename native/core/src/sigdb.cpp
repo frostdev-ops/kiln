@@ -75,6 +75,7 @@ struct Code {
     size_t fixups = 0;            // base relocations applied to the file's copy
     size_t live_diff_bytes = 0;   // live .text bytes that differ from the file's, at the time of the check
     std::vector<pe::DiffRun> runs;
+    std::vector<uint8_t> private_text;  // relocation/zero-fill buffer; the hashed file view stays pristine
     double ms = 0;
 };
 Code g_code;
@@ -84,7 +85,8 @@ bool readable(uintptr_t a, size_t n) {
     MEMORY_BASIC_INFORMATION mbi{};
     if (!VirtualQuery(reinterpret_cast<const void*>(a), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) return false;
     if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return false;
-    return a + n <= reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+    return a >= base && a - base <= mbi.RegionSize && n <= mbi.RegionSize - (a - base);
 }
 
 std::string module_at(uintptr_t a) {
@@ -184,12 +186,20 @@ void init_code() {
     pe::FileText ft;
     std::string err;
     if (!pe::parse_file_text(img.file, img.file_size, ft, err)) return fallback("exe file: " + err);
-    if (ft.text_rva != live - img.base || ft.text_vsize != img.text_size)
+    if (ft.timestamp != img.timestamp || ft.size_of_image != img.size ||
+        ft.text_rva != live - img.base || ft.text_vsize != img.text_size)
         return fallback("the file's .text is not the loaded one");
     uint8_t* text = img.file + ft.text_raw;
-    const size_t size = ft.file_bytes();
+    const size_t size = ft.text_vsize;
+    if (ft.file_bytes() < size || !ft.relocs64.empty() || !ft.relocs32.empty()) {
+        // call_once retries if any later allocation/logging throws. Mutating the file view here would apply
+        // the relocation delta twice on retry. Always start fixups from pristine file bytes.
+        g_code.private_text.assign(size, 0);
+        std::memcpy(g_code.private_text.data(), text, ft.file_bytes());
+        text = g_code.private_text.data();
+    }
     if (!ft.relocs64.empty() || !ft.relocs32.empty()) {
-        // The view is copy-on-write: the fixups land in private pages, the file is untouched.
+        // Fixups land in our private buffer; neither the file nor the hashed mapping is modified.
         if (!relocate_guarded(text, size, &ft, img.base, &g_code.fixups))
             return fallback("cannot apply base relocations to the mapped file");
     }
@@ -199,6 +209,10 @@ void init_code() {
         std::snprintf(b, sizeof b, "%zu of %zu bytes differ from the file's", g_code.live_diff_bytes, size);
         g_code.runs.clear();
         return fallback(b);
+    }
+    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size)) {
+        g_code.runs.clear();
+        return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
     }
     g_code.view = {text, size, live, true};
     g_code.note = "the exe file's code";
@@ -613,7 +627,7 @@ private:
                                " is outside .text";
                     continue;
                 }
-                end = std::min(end, begin + f.scope_size);
+                end = cv.scope_end(begin, f.scope_size);
             }
             if (matched_.count(tag)) {  // already matched in a previous iteration
                 ++unique;
@@ -853,10 +867,7 @@ std::vector<uintptr_t> scan_code(const Pattern& p, size_t limit) {
 }
 
 bool hole_value_at(const Pattern& p, uintptr_t live_match, std::string_view name, int64_t* out) {
-    const pe::CodeView& cv = code();
-    const uint8_t* m = cv.to_scan(live_match);
-    if (m && static_cast<size_t>(cv.end() - m) >= p.bytes.size()) return hole_value(p, m, name, out, cv.delta());
-    return hole_value(p, reinterpret_cast<const uint8_t*>(live_match), name, out);
+    return hole_value_in(p, code(), live_match, name, out);
 }
 
 bool code_from_disk() { return code().disk; }

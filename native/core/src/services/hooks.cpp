@@ -90,8 +90,10 @@ struct Desc {
     KilnOwner owner;
 };
 
-std::array<DetourSlot, kMaxDetourTargets> g_detours;
-std::array<MidSlot, kMaxMidTargets> g_mids;
+// Process lifetime, just like the installed detours: never let static destruction restore through a later
+// engine's jump or free a trampoline that engine may still call.
+auto& g_detours = *new std::array<DetourSlot, kMaxDetourTargets>;
+auto& g_mids = *new std::array<MidSlot, kMaxMidTargets>;
 std::vector<Patch> g_patches;
 
 std::mutex g_mutex;
@@ -240,7 +242,7 @@ KilnResult KILN_CALL h_scan(KilnStr pattern, uintptr_t* out, uint32_t cap, uint3
     std::string err;
     if (!sigdb::parse_pattern(sv(pattern), p, err)) return KILN_ERR_INVALID_ARGUMENT;
     // The exe file's code (sigdb.h), so another engine's hooks don't hide a match; the hits are live addresses.
-    const auto hits = sigdb::scan_code(p, cap ? cap + 1u : 64u);
+    const auto hits = sigdb::scan_code(p, cap ? size_t{cap} + 1 : 64u);
     if (hits.empty()) {
         if (count) *count = 0;
         return KILN_ERR_NOT_FOUND;
