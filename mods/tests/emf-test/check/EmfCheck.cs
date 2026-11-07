@@ -44,7 +44,7 @@ public sealed class EmfCheckMod : Mod
         var state = JsonNode.Parse(File.ReadAllText(Path.Combine(kiln, "state", "emf.json")))!;
         var mods = state["mods"]!.AsArray().ToDictionary(m => (string)m!["id"]!, m => m!);
         string Status(string id) => mods.TryGetValue(id, out var m) ? (string)m["status"]! : "absent";
-        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 21, "state/emf.json: kiln-emf runs, EmfApi v21");
+        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 26, "state/emf.json: kiln-emf runs, EmfApi v26");
         foreach (var id in new[] { "big_stacks", "herald", "server-admin", "sleep", "teleports" })
             Check(Status(id) == "loaded", $"state/emf.json: {id} loaded ({Status(id)})");
         Check(Status("clock") == "rejected", $"state/emf.json: clock (side client) is not loaded on a server ({Status("clock")})");

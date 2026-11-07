@@ -1,5 +1,5 @@
 /* This file is EMF's public C API header, copied unchanged (below the line) from EMF (Enshrouded Modding Framework)
- * 0.3.3, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v21 table on Kiln's
+ * 0.5.1, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v26 table on Kiln's
  * services so unmodified EMF mods load on Kiln. Also in licenses/EMF-LICENSE.txt.
  *
  * MIT License
@@ -24,7 +24,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  * ------------------------------------------------------------------------------------------------------------------ */
-/* EMF (Enshrouded Modding Framework) C API, version 21 (see EMF_API_VERSION).
+/* EMF (Enshrouded Modding Framework) C API, version 26 (see EMF_API_VERSION).
  *
  * A mod is a DLL in <game>/emf/mods/ that exports:
  *     extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api);
@@ -52,9 +52,9 @@
 extern "C" {
 #endif
 
-#define EMF_API_VERSION 21
+#define EMF_API_VERSION 26
 
-/* World kinds (the byte at world+0xE15DC8). */
+/* World kinds (the byte at the entity storage + 8: world+0xE15DC8 on build 1273043, world+0xE179C8 on 1283531). */
 #define EMF_WORLD_SERVER 0
 #define EMF_WORLD_PREDICTION 1
 #define EMF_WORLD_CLIENT 2
@@ -222,6 +222,15 @@ typedef struct EmfCommandDef {
 #define EMF_ATTR_MANA 0x6AA2574Eu       /* current mana (Mana) */
 #define EMF_ATTR_MAX_STAMINA 0xF443C410u /* maximum stamina (Stamina), computed by the game */
 #define EMF_ATTR_MAX_MANA 0x17536777u    /* maximum mana (Mana), computed by the game */
+/* v22: a player's XP and level (the Experience and Level components). Give XP with attribute_add of a positive amount
+ * of EMF_ATTR_XP_PENDING, as every XP source in the game does: on its next steps the game moves it into XP and levels
+ * the player up (once per step while XP reaches the requirement, with the rest carried over, a LevelUpEvent and the
+ * skill points that come with the level). Pending XP is thrown away at the level cap. The other three are read-only
+ * (attribute_add refuses them): the game keeps them consistent. XP and levels are saved with the character. */
+#define EMF_ATTR_XP_PENDING 0x1D7DD102u  /* XP given and not yet counted (Experience): the one XP attribute to add to */
+#define EMF_ATTR_XP 0x8DCDDAF4u          /* XP towards the next level (Experience) */
+#define EMF_ATTR_XP_REQUIRED 0x04723F62u /* XP the next level needs (Experience) */
+#define EMF_ATTR_LEVEL 0x724BF568u       /* the level (Level) */
 
 /* v19 on_chat: one chat line a player sent (not an EMF command). account = their account hash (as command_sender
  * reports it), entity = their player entity in the server world (0 if it could not be told), text = the line (UTF-8,
@@ -309,6 +318,107 @@ typedef struct EmfWorldSettingInfo {
     uint32_t pad;
 } EmfWorldSettingInfo;
 
+/* v23 change_component: add a component to an entity, or remove one, through the engine's own command (the record
+ * the game's own programs push). Only the components EMF lists (docs/modding/reference.md, "v23"). */
+#define EMF_COMPONENT_ADD 1u    /* add (only when absent: a present component is never overwritten: ALREADY) */
+#define EMF_COMPONENT_REMOVE 2u
+#define EMF_COMPONENT_PERSISTENT 0x01u /* accepted: a component the world save keeps (or removing DoNotSave) outlives
+                                          the mod in that world; required for those */
+#define EMF_COMPONENT_EXPERT 0x02u     /* reserved (refused in this version) */
+#define EMF_COMPONENT_FAILED 0u   /* the entity is gone, the game did not apply it, the world ended... (see why) */
+#define EMF_COMPONENT_DONE 1u     /* present (add) / absent (remove) after the step that applied it */
+#define EMF_COMPONENT_ALREADY 2u  /* add: it was there already (data untouched); remove: it was not there */
+typedef void (*EmfComponentCallback)(EmfWorld* world, uint32_t entity, uint32_t hash, uint32_t status, const char* why,
+                                     void* user);
+typedef struct EmfComponentChange {
+    uint32_t size;             /* sizeof(EmfComponentChange) */
+    uint32_t op;               /* EMF_COMPONENT_ADD or EMF_COMPONENT_REMOVE */
+    uint32_t entity;
+    uint32_t hash;             /* the component's hash (generated headers: emf::gen::ecs::X::kHash) */
+    const void* data;          /* add: data_size bytes of the component, or NULL for zeros */
+    uint32_t data_size;        /* add with data: the component's size in this game build (X::kSize) */
+    uint32_t flags;            /* EMF_COMPONENT_PERSISTENT */
+    EmfComponentCallback cb;   /* optional: once, on the server world's thread, after the step that applied it */
+    void* user;
+} EmfComponentChange;
+
+/* v24 mod windows: a window EMF's overlay draws from a mod's description (window_open); one at a time takes the mouse
+ * and keyboard. Widgets, in order, top to bottom: */
+#define EMF_UI_TEXT      0u /* a line of text; wraps at the window's width */
+#define EMF_UI_HEADING   1u /* a heading */
+#define EMF_UI_BUTTON    2u /* a button: a click sends EMF_UI_CLICK with its key */
+#define EMF_UI_ROW       3u /* a list row, full width: "Name (detail)" shows the detail dim at the right; clickable */
+#define EMF_UI_SLOT      4u /* an item-like square (about 3 lines high): its text, a count in the corner */
+#define EMF_UI_BAR       5u /* a bar filled to value/1000, its text on it */
+#define EMF_UI_SEPARATOR 6u
+#define EMF_UI_IMAGE     7u /* (v26) the picture `icon`, `height` text lines high (0 = 6), turning at `fps`; clickable
+                               with a key */
+/* EmfUiWidget.flags */
+#define EMF_UI_SAME_LINE 0x01u /* on the line of the widget before (slots in a row, buttons side by side) */
+#define EMF_UI_DISABLED  0x02u /* drawn dim, no events */
+#define EMF_UI_SELECTED  0x04u /* lit: a selected row or slot, a "tab" button */
+#define EMF_UI_DIM       0x08u
+#define EMF_UI_EMPTY     0x10u /* slot: the empty look */
+#define EMF_UI_LOCKED    0x20u /* slot: the locked look */
+typedef struct EmfUiWidget {   /* no size field: EmfWindowDef.widget_size is the array's stride */
+    uint32_t type;             /* EMF_UI_* */
+    uint32_t flags;
+    const char* key;           /* 1-48 bytes, sent back in events ("call:Wolf 2"); NULL or "" = no events */
+    const char* text;          /* up to 256 bytes, or NULL */
+    const char* tooltip;       /* shown while the pointer rests on it, or NULL; up to 512 bytes */
+    uint32_t count;            /* slot: the number in its corner (0 = none) */
+    uint32_t value;            /* bar: 0..1000 (more is 1000) */
+    uint32_t rgba;             /* text colour 0xRRGGBBAA, 0 = the look's */
+    uint32_t icon;             /* (v26) a picture from image_load, 0 = none: EMF_UI_IMAGE's picture; a slot's, inside the
+                                  square; a row's, a square before the text (v24/v25: reserved, 0) */
+    uint32_t item;             /* reserved (game item icons come later): 0 */
+    uint32_t pad;
+    /* v26 (a v24/v25 mod's widget_size ends before these: they read as 0) */
+    uint32_t fps;              /* a turning picture's frames per second, 0..60 (0: its first frame) */
+    float height;              /* EMF_UI_IMAGE: in text lines, 0..40 (0 = 6) */
+} EmfUiWidget;
+#define EMF_UI_PLACE_CENTRE 0u
+#define EMF_UI_PLACE_LEFT   1u
+#define EMF_UI_PLACE_RIGHT  2u /* e.g. beside the game's open inventory */
+/* EmfUiEvent.kind */
+#define EMF_UI_CLICK       1u
+#define EMF_UI_RIGHT_CLICK 2u
+#define EMF_UI_CLOSED      3u /* always the last event of an opened window: free `user` now */
+/* EmfUiEvent.reason (EMF_UI_CLOSED) */
+#define EMF_UI_BY_PLAYER   0u /* Esc, the close key, the window's X */
+#define EMF_UI_BY_MOD      1u /* window_close, or window_open with the same id replaced it */
+#define EMF_UI_BY_CORE     2u /* the world ended, the overlay turned off, the mod was turned off */
+/* EmfUiEvent.flags */
+#define EMF_UI_NO_WORLD    0x1u /* CLOSED with no world running: world is NULL; only free your data */
+typedef struct EmfUiEvent {
+    uint32_t size;             /* sizeof(EmfUiEvent) of the core */
+    uint32_t kind;             /* EMF_UI_CLICK / _RIGHT_CLICK / _CLOSED */
+    const char* window;        /* the window's id; valid during the call */
+    const char* key;           /* the widget's key ("" for CLOSED) */
+    const char* from_key;      /* reserved (drag and drop comes later): "" */
+    uint32_t reason;           /* CLOSED: EMF_UI_BY_* */
+    uint32_t flags;            /* EMF_UI_NO_WORLD */
+} EmfUiEvent;
+typedef void (*EmfUiCallback)(EmfWorld* world, const EmfUiEvent* event, void* user);
+typedef struct EmfWindowDef {
+    uint32_t size;             /* sizeof(EmfWindowDef) */
+    uint32_t flags;            /* none yet: 0 */
+    const char* id;            /* 1-48 of A-Z a-z 0-9 _ . -, starting with the mod's id and a dot ("beastmaster.stable") */
+    const char* title;         /* up to 64 bytes, or NULL */
+    const EmfUiWidget* widgets;
+    uint32_t count;            /* 0..256 */
+    uint32_t widget_size;      /* sizeof(EmfUiWidget) as the mod was built: the core steps through the array by it and
+                                  reads fields past it as 0 */
+    uint32_t close_key;        /* a keyboard key's generic virtual-key code that also closes it (the key that opened
+                                  it; acts on a press), 0 = Esc only; no mouse buttons, no VK_LSHIFT-style codes */
+    uint32_t place;            /* EMF_UI_PLACE_* */
+    float width;               /* in text heights (the console's text size scales it); 0 = about 28 */
+    uint8_t world_kind;        /* events run after the next step of a world of this kind (SERVER or CLIENT) */
+    uint8_t pad[3];
+    EmfUiCallback cb;          /* window_open only; window_update keeps the first */
+    void* user;
+} EmfWindowDef;
+
 /* v13 mod_info: what the loader found */
 #define EMF_MOD_LOADED 0u
 #define EMF_MOD_FAILED 1u   /* its DLL did not load, or emf_mod_load returned false or faulted */
@@ -350,6 +460,45 @@ typedef struct EmfProgramDef {
                                        (program_write_other), or NULL. At most 16. Per-entity components only, as for
                                        other_read. A component may be in both lists. */
 } EmfProgramDef;
+
+/* v25 E prompts: the game's own "E <verb>" prompt on an entity a mod spawns or names, and a callback when a player
+ * (the host, a joined player, anyone on a dedicated server) accepts it (reference.md "v25"). An offer is the three
+ * components the game adds to its own objects at run time (InteractionOfferRuntime, ClientInteractionOffer,
+ * CheckPlayerInRange); none of them is saved, so an uninstalled mod leaves plain entities behind. */
+/* The game's own verbs (loca tag ids): every player sees the word, with or without EMF. */
+#define EMF_VERB_USE      0x26437C13u
+#define EMF_VERB_OPEN     0x0C2E4515u
+#define EMF_VERB_TALK     0xD9861C4Bu
+#define EMF_VERB_READ     0x631937DCu
+#define EMF_VERB_SIT      0xDFB7E778u
+#define EMF_VERB_SLEEP    0xC4E0F1CBu
+#define EMF_VERB_PET      0x6D5B6297u
+#define EMF_VERB_TOUCH    0x18A9222Cu
+#define EMF_VERB_ACTIVATE 0x811C5D9Eu
+#define EMF_VERB_PRESS    0x6F362030u
+#define EMF_VERB_ENTER    0x785FF179u
+#define EMF_VERB_INSPECT  0x260798EBu
+#define EMF_VERB_TAKE     0x33E582F6u
+#define EMF_VERB_COLLECT  0x9095E8BDu
+#define EMF_VERB_REST     0x62F329EBu
+#define EMF_VERB_RELEASE  0xAE94F76Au
+/* What the player does on E (an action sequence's hash). */
+#define EMF_SEQUENCE_TOUCH  0x3E5189BFu /* Interaction_TouchDevice: a short touch, no screen (the default) */
+#define EMF_SEQUENCE_BUTTON 0xAF614FD8u /* Interaction_ButtonPress */
+#define EMF_OFFER_LOW_PRIORITY 1u /* another target near the crosshair wins a tie */
+#define EMF_OFFER_BUILD_MODE   2u /* offered in build mode too */
+typedef struct EmfOffer {
+    uint32_t size;      /* sizeof(EmfOffer) */
+    uint32_t verb;      /* EMF_VERB_* (any loca tag id); 0 = "Use" */
+    const char* text;   /* or the mod's own words (UTF-8, at most 63 bytes): for now the prompt shows no word ("E"
+                           alone; it still works); NULL = verb */
+    uint32_t sequence;  /* EMF_SEQUENCE_*; 0 = EMF_SEQUENCE_TOUCH */
+    uint8_t range_m;    /* the game considers it when a player is this near; 0 = 32 */
+    uint8_t flags;      /* EMF_OFFER_* */
+    uint16_t reserved;
+} EmfOffer;
+/* A player accepted the offer on `entity`: on the server world's thread, for every player (`player` is their entity). */
+typedef void (*EmfOfferCallback)(EmfWorld* world, uint32_t player, uint32_t entity, void* user);
 
 typedef struct EmfApi {
     uint32_t version; /* EMF_API_VERSION of the core */
@@ -725,6 +874,74 @@ typedef struct EmfApi {
         applied after a load. False: cb NULL or no world settings on this core */
     bool (*world_setting_info)(uint32_t index, EmfWorldSettingInfo* out); /* the settings one by one from index 0:
         false past the last one, without a server world, or when out->size is too small */
+
+    /* ---- v22: a player's level (with the EMF_ATTR_XP* / EMF_ATTR_LEVEL attributes above) ---- */
+    /* The XP level `level` needs before the next one, from the game's own curve (what the game keeps as
+     * EMF_ATTR_XP_REQUIRED at that level); 0 for a level outside 1..cap, without a server world, or when the game's
+     * function is not found on this build. Any thread. */
+    uint32_t (*player_xp_required)(EmfWorld* world, uint32_t level);
+    /* The highest level a player can reach (the game's level cap; pending XP at the cap is thrown away); 0 when unknown. */
+    uint32_t (*player_level_cap)(EmfWorld* world);
+    /* Sets a player's level to `level` (1..cap) with `xp` towards the next one (cut to below its requirement), the way the
+     * game's own admin "set level" does: the level, the XP, the requirement for that level, and no pending XP (it would
+     * level the player up again). Lowers as well as raises; no level-up event (to raise with the game's level-ups, give
+     * XP: EMF_ATTR_XP_PENDING). The skill points follow the level (the game computes them); after lowering, a skill tree
+     * that costs more points than the level gives is reset by the game at the next load. Saved with the character. SERVER world; inside a world callback on that world at once, elsewhere after
+     * the server world's next step (true = queued, a later refusal is logged). False (logged) when refused. */
+    bool (*player_level_set)(EmfWorld* world, uint32_t player, uint32_t level, uint32_t xp);
+
+    /* ---- v23: add a component to an entity, or remove one (EmfComponentChange above) ---- */
+    /* Adds a component to an entity, or removes one, through the engine's own command. Only those EMF lists
+     * (reference.md "v23"): in this version ScaleComponent (uniformScale 0.1-10) and InteractionPause, removed only by
+     * the mod that added them this session; the ones the world save keeps are refused until checked in game (then
+     * with EMF_COMPONENT_PERSISTENT). A ScaleComponent added later is not drawn: spawn with it (spawn_ex). SERVER world, never a player. True = queued: checked after the server
+     * world's next step, applied in the step after, and cb answers once (EMF_COMPONENT_DONE / _ALREADY / _FAILED with
+     * why) on the server world's thread; when the world ended first (a new world, the menu) it answers _FAILED with a
+     * NULL world, on the thread that ended it. False (logged) when refused at once; cb is not called then. */
+    bool (*change_component)(EmfWorld* world, const EmfComponentChange* change);
+
+    /* ---- v24: mod windows (EmfWindowDef above; reference.md "v24") ---- */
+    /* Opens a window drawn by EMF's overlay (copied, every string too). With the open window's id it replaces it (that
+     * window's cb gets CLOSED, BY_MOD). One window at a time: false (logged) while another id is open, a wheel is open,
+     * the overlay is off or cannot draw (always on a dedicated server), no world of def->world_kind runs (a client in
+     * someone else's game has no server world), or the definition is bad. It may
+     * open while the console is open: it shows under the console and gets the input when the console closes. Events
+     * (CLICK, RIGHT_CLICK, the last one CLOSED) reach cb after the next step of a world of def->world_kind, on its
+     * thread; CLOSED with no world running comes at once with EMF_UI_NO_WORLD and a NULL world. Any thread. */
+    bool (*window_open)(const EmfWindowDef* def);
+    /* New contents for the open window def->id (cb and user are ignored; the scroll stays). False when it is not open,
+     * for example because the player closed it: it never reopens a window. Any thread. */
+    bool (*window_update)(const EmfWindowDef* def);
+    /* Closes the window `id`; its cb gets CLOSED (BY_MOD). False when it is not open. Any thread. */
+    bool (*window_close)(const char* id);
+
+    /* ---- v25: E prompts (EmfOffer above; reference.md "v25") ---- */
+    /* Spawns a template (spawn_ex's rules: from a world callback on the server world) with an offer on it. The entity
+     * id, or 0 (logged). A spawned prop may stay in the world save, without its offer: after a load, offer it again
+     * rather than spawning a second one. */
+    uint32_t (*spawn_offer)(EmfWorld* world, const uint8_t template_guid[16], double x, double y, double z,
+                            const EmfOffer* offer, EmfOfferCallback cb, void* user);
+    /* Puts an offer on an entity of the server world (from a world callback on it): it shows after a few steps. Refused
+     * (false, logged): a player, an entity without a position, one with an offer of the game's own (a chest, a bench),
+     * one with another mod's offer, your own with other options. The entity needs a collider, or no prompt shows.
+     * EMF drops the offer (silently) when the entity goes or loses it, and never puts it back by itself: offer again
+     * when your mod finds the entity, and after a load. */
+    bool (*offer)(EmfWorld* world, uint32_t entity, const EmfOffer* offer, EmfOfferCallback cb, void* user);
+    /* Takes the mod's offer off the entity. False when it has none of this mod's. */
+    bool (*offer_remove)(EmfWorld* world, uint32_t entity);
+
+    /* ---- v26: pictures in windows (reference.md "v26") ---- */
+    /* A picture for EmfUiWidget.icon: a .png file, or a folder whose .png files (sorted by name) are the frames of a
+     * turning picture, all the same size (at most 512 x 512 px, 64 frames). `path`: relative to the calling mod's folder
+     * (the folder of its DLL), absolute, or "portrait:<key>" for EMF's portrait cache (<game>/emf/cache/portraits/<key>/,
+     * key: A-Z a-z 0-9 _ . -). Decoded before it returns; the same path again gives the same handle. 0 when refused
+     * (logged once per path) and on a dedicated server (no windows). Pictures stay until the game closes (at most 128,
+     * 64 MB). Any thread. */
+    uint32_t (*image_load)(const char* path);
+    /* True while your mod's offer (v25) on `entity` is in EMF's hands: offered, not removed, not dropped. After a drop
+     * offer again: your own dropped offer is taken back when its parts are still EMF's, without being refused for "the
+     * game's own offer". Any thread. */
+    bool (*offer_active)(EmfWorld* world, uint32_t entity);
 } EmfApi;
 
 typedef bool (*EmfModLoadFn)(const EmfApi* api);

@@ -483,6 +483,8 @@ void poll_saves() {
 // ============================================================================================= combat ========
 bool api_attribute_get(EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out) {
     Mod* m = caller_mod(_ReturnAddress());
+    if (attr == EMF_ATTR_XP_PENDING || attr == EMF_ATTR_XP || attr == EMF_ATTR_XP_REQUIRED || attr == EMF_ATTR_LEVEL)
+        return level_attribute_get(m, w, entity, attr, out);  // v22: kiln.progression
     if (!out || !S.combat || !is_server_world(w)) {
         if (!S.combat) unsupported(m, "attribute_get", "kiln.combat is not available");
         return false;
@@ -510,6 +512,8 @@ bool attr_add_now(Mod* m, uint32_t entity, int32_t delta) {
 
 bool api_attribute_add(EmfWorld* w, uint32_t entity, uint32_t attr, int32_t delta) {
     Mod* m = caller_mod(_ReturnAddress());
+    if (attr == EMF_ATTR_XP_PENDING || attr == EMF_ATTR_XP || attr == EMF_ATTR_XP_REQUIRED || attr == EMF_ATTR_LEVEL)
+        return level_attribute_add(m, w, entity, attr, delta);  // v22: kiln.progression
     if (!S.combat) return unsupported(m, "attribute_add", "kiln.combat is not available"), false;
     if (!is_server_world(w)) return refuse(m, "attribute_add", "server world only"), false;
     if (attr != EMF_ATTR_HEALTH) {
@@ -1005,7 +1009,7 @@ std::deque<Note> g_notes;
 KilnHandle g_frame = 0;
 
 void update_demand() {
-    if (S.ui) S.ui->set_demand((g_hud.empty() && g_notes.empty()) ? 0u : 1u);
+    if (S.ui) S.ui->set_demand((g_hud.empty() && g_notes.empty() && !windows_want_frame()) ? 0u : 1u);
 }
 
 void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
@@ -1034,7 +1038,7 @@ void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
         S.ui->draw_text((f->width - w) * 0.5f, ny, 0xFFE9A0FFu, 0, kstr(n.text));
         ny += lh;
     }
-    if (g_hud.empty() && g_notes.empty()) S.ui->set_demand(0);
+    if (g_hud.empty() && g_notes.empty() && !windows_want_frame()) S.ui->set_demand(0);
 }
 
 bool ensure_frame() {
@@ -1096,6 +1100,15 @@ bool api_wheel_open(const EmfWheel* w) {
 }  // namespace
 
 void hud_on_ready() {}
+
+uint32_t spawn_for(Mod* m, EmfWorld* w, const uint8_t guid[16], double x, double y, double z, const char* fn) {
+    return do_spawn(m, w, guid, x, y, z, fn);
+}
+
+void ui_refresh_demand() {
+    std::lock_guard lock(g_hud_mutex);
+    update_demand();
+}
 
 void fill_game(EmfApi* t) {
     t->for_each_item = &api_for_each_item;

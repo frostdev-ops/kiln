@@ -1,0 +1,400 @@
+// SPDX-License-Identifier: MIT
+// The EmfApi table, v24 mod windows (window_open, window_update, window_close) and v26 pictures (image_load), drawn
+// with kiln.ui (Kiln's ImGui overlay) in the game client.
+//  - One window at a time, as in EMF. While it is open kiln-emf takes the mouse and keyboard (kiln.ui capture); Esc,
+//    its close_key or its X close it (CLOSED, BY_PLAYER). Clicks are queued on the render thread and reach the mod's
+//    callback after the next step of the world the window named, on that world's thread, as EMF delivers them.
+//  - A dedicated server has no overlay: window_open is refused and image_load answers 0 there (EMF's behaviour).
+//  - Differences: right clicks are not reported (kiln.ui has no right-click query yet); EMF's console look and its
+//    debug-bridge commands are not reproduced (the widgets are plain ImGui widgets).
+//  - Pictures: PNG files (or a folder of PNG frames) decoded by kiln.ui's image_load; EMF's limits (512 x 512, 64
+//    frames, 128 pictures, 64 MB) and path rules (the mod's folder, absolute, "portrait:<key>").
+#include <intrin.h>
+
+#include <algorithm>
+#include <cmath>
+#include <deque>
+#include <map>
+#include <optional>
+#include <set>
+
+#include "emf_internal.h"
+#include "v26_model.h"
+
+namespace kemf {
+
+namespace {
+
+struct Pending {
+    EmfUiCallback cb;
+    void* user;
+    Mod* mod;
+    std::string window, key;
+    uint32_t kind, reason;
+    uint8_t world_kind;
+};
+
+std::mutex g_win_mutex;
+std::optional<v26::WindowRequest> g_win;  // the open window
+Mod* g_win_mod = nullptr;
+std::deque<Pending> g_events;
+KilnHandle g_frame = 0, g_key = 0;
+std::atomic<bool> g_open{false};
+
+struct Image {
+    std::vector<KilnHandle> frames;
+    uint32_t w = 0, h = 0;
+};
+std::mutex g_img_mutex;
+std::vector<Image> g_images;           // handle = index + 1
+std::map<std::string, uint32_t> g_image_keys;
+std::set<std::string> g_image_refused;  // logged once per path
+uint64_t g_image_bytes = 0;
+
+void deliver(Pending& p, EmfWorld* w, bool no_world) {
+    if (!p.cb) return;
+    EmfUiEvent e{};
+    e.size = sizeof e;
+    e.kind = p.kind;
+    e.window = p.window.c_str();
+    e.key = p.key.c_str();
+    e.from_key = "";
+    e.reason = p.reason;
+    e.flags = no_world ? EMF_UI_NO_WORLD : 0u;
+    struct Call {
+        EmfUiCallback cb;
+        EmfWorld* w;
+        const EmfUiEvent* e;
+        void* user;
+    } c{p.cb, w, &e, p.user};
+    ContextScope scope(p.mod, w, w != nullptr);
+    guarded(p.mod, "a window callback",
+            [](void* q) {
+                auto* x = static_cast<Call*>(q);
+                x->cb(x->w, x->e, x->user);
+            },
+            &c);
+}
+
+// Queues an event of the open (or just closed) window `r`. A CLOSED without a world of its kind is delivered now.
+void post_event_locked(const v26::WindowRequest& r, Mod* m, uint32_t kind, const std::string& key, uint32_t reason,
+                       std::vector<Pending>* now) {
+    Pending p{r.cb, r.user, m, r.id, key, kind, reason, r.world_kind};
+    if (kind == EMF_UI_CLOSED && !g_api->world(r.world_kind)) now->push_back(std::move(p));
+    else g_events.push_back(std::move(p));
+}
+
+void run_now(std::vector<Pending>& now) {
+    for (auto& p : now) deliver(p, nullptr, true);
+}
+
+void set_open(bool on) {
+    g_open = on;
+    if (!S.ui) return;
+    S.ui->set_capture(on ? 1u : 0u);
+    ui_refresh_demand();
+}
+
+// Closes the open window (lock held); its CLOSED goes into `now` or the queue.
+void close_locked(uint32_t reason, std::vector<Pending>* now) {
+    if (!g_win) return;
+    post_event_locked(*g_win, g_win_mod, EMF_UI_CLOSED, "", reason, now);
+    g_win.reset();
+    g_win_mod = nullptr;
+}
+
+const Image* image_of(uint32_t handle) {
+    return handle && handle <= g_images.size() ? &g_images[handle - 1] : nullptr;
+}
+
+void draw_picture(uint32_t icon, uint32_t fps, float w, float h, uint64_t frame_no) {
+    std::lock_guard lock(g_img_mutex);
+    const Image* im = image_of(icon);
+    if (!im || im->frames.empty()) {
+        S.ui->dummy(w, h);
+        return;
+    }
+    size_t f = 0;
+    if (fps && im->frames.size() > 1) f = static_cast<size_t>(frame_no * fps / 60) % im->frames.size();
+    S.ui->image(im->frames[f], w, h);
+}
+
+void KILN_CALL on_frame(const KilnUiFrame* fr, void*) {
+    std::vector<Pending> now;
+    std::lock_guard lock(g_win_mutex);
+    if (!g_win) return;
+    v26::WindowRequest& win = *g_win;
+    const float dpi = fr->dpi_scale > 0 ? fr->dpi_scale : 1.0f;
+    const float line = 18.0f * dpi;
+    const float width = win.width * line;
+    float x = (fr->width - width) * 0.5f;
+    if (win.place == EMF_UI_PLACE_LEFT) x = fr->width * 0.08f;
+    if (win.place == EMF_UI_PLACE_RIGHT) x = fr->width * 0.58f;
+    S.ui->set_next_window_pos(x, fr->height * 0.15f, KILN_UI_COND_APPEARING, 0, 0);
+    S.ui->set_next_window_size(width, 0, KILN_UI_COND_APPEARING);
+    bool open = true;
+    const std::string title = (win.title.empty() ? win.id : win.title) + "###emf." + win.id;
+    if (S.ui->begin(kstr(title), &open, KILN_UI_WINDOW_NO_COLLAPSE)) {
+        for (size_t i = 0; i < win.widgets.size(); ++i) {
+            const v26::WindowWidget& wd = win.widgets[i];
+            if (i && (wd.flags & EMF_UI_SAME_LINE)) S.ui->same_line(0, -1);
+            S.ui->push_id(kstr(std::to_string(i)));
+            const bool off = wd.flags & EMF_UI_DISABLED;
+            bool clicked = false;
+            const std::string label = wd.text.empty() ? " " : wd.text;
+            switch (wd.type) {
+                case EMF_UI_TEXT:
+                    if (wd.rgba) S.ui->text_colored(wd.rgba, kstr(wd.text));
+                    else if (off || (wd.flags & EMF_UI_DIM)) S.ui->text_disabled(kstr(wd.text));
+                    else S.ui->text_wrapped(kstr(wd.text));
+                    break;
+                case EMF_UI_HEADING: S.ui->separator_text(kstr(wd.text)); break;
+                case EMF_UI_BUTTON:
+                    clicked = (wd.flags & EMF_UI_SELECTED) ? S.ui->selectable(kstr(label), true) : S.ui->button(kstr(label), 0, 0);
+                    break;
+                case EMF_UI_ROW: {
+                    std::string row = label;
+                    if (wd.icon) {
+                        draw_picture(wd.icon, wd.fps, line, line, fr->frame);
+                        S.ui->same_line(0, -1);
+                    }
+                    clicked = S.ui->selectable(kstr(row), (wd.flags & EMF_UI_SELECTED) != 0);
+                    break;
+                }
+                case EMF_UI_SLOT: {
+                    std::string s = (wd.flags & EMF_UI_LOCKED) ? "[locked]" : (wd.flags & EMF_UI_EMPTY) ? "" : label;
+                    if (wd.count) s += " x" + std::to_string(wd.count);
+                    const float side = line * 3.2f;
+                    std::lock_guard il(g_img_mutex);
+                    const Image* im = image_of(wd.icon);
+                    if (im && !im->frames.empty()) {
+                        const size_t f = wd.fps && im->frames.size() > 1 ? static_cast<size_t>(fr->frame * wd.fps / 60) % im->frames.size() : 0;
+                        clicked = S.ui->image_button(kstr("slot"), im->frames[f], side, side);
+                    } else {
+                        clicked = S.ui->button(kstr(s.empty() ? " " : s), side, side);
+                    }
+                    break;
+                }
+                case EMF_UI_BAR:
+                    S.ui->progress_bar(static_cast<float>(wd.value) / 1000.0f, -1, 0, kstr(wd.text));
+                    break;
+                case EMF_UI_SEPARATOR: S.ui->separator(); break;
+                case EMF_UI_IMAGE: {
+                    float h = (wd.height > 0 ? wd.height : 6.0f) * line, w = h;
+                    {
+                        std::lock_guard il(g_img_mutex);
+                        if (const Image* im = image_of(wd.icon); im && im->h)
+                            w = std::min(width - 2 * line, h * static_cast<float>(im->w) / static_cast<float>(im->h));
+                    }
+                    if (wd.key.empty() || off) {
+                        draw_picture(wd.icon, wd.fps, w, h, fr->frame);
+                    } else {
+                        std::lock_guard il(g_img_mutex);
+                        const Image* im = image_of(wd.icon);
+                        if (im && !im->frames.empty()) {
+                            const size_t f = wd.fps && im->frames.size() > 1 ? static_cast<size_t>(fr->frame * wd.fps / 60) % im->frames.size() : 0;
+                            clicked = S.ui->image_button(kstr("pic"), im->frames[f], w, h);
+                        } else {
+                            S.ui->dummy(w, h);
+                        }
+                    }
+                    break;
+                }
+                default: break;
+            }
+            if (!wd.tooltip.empty() && S.ui->is_item_hovered()) S.ui->set_tooltip(kstr(wd.tooltip));
+            if (clicked && !off && !wd.key.empty() && v26::widget_takes_clicks(wd.type))
+                post_event_locked(win, g_win_mod, EMF_UI_CLICK, wd.key, 0, &now);
+            S.ui->pop_id();
+        }
+    }
+    S.ui->end();
+    if (!open) {
+        close_locked(EMF_UI_BY_PLAYER, &now);
+        g_open = false;
+        S.ui->set_capture(0);
+    }
+    run_now(now);
+}
+
+bool KILN_CALL on_key(const KilnUiKey* k, void*) {
+    if (!g_open || !k || !k->down || k->repeat || k->text_input) return false;
+    std::vector<Pending> now;
+    {
+        std::lock_guard lock(g_win_mutex);
+        if (!g_win) return false;
+        if (k->vk != 0x1B && (!g_win->close_vk || k->vk != g_win->close_vk)) return false;
+        close_locked(EMF_UI_BY_PLAYER, &now);
+    }
+    set_open(false);
+    run_now(now);
+    return true;
+}
+
+bool ensure_ui() {
+    if (!S.ui) return false;
+    if (!g_frame && S.ui->subscribe_frame(g_owner, &on_frame, nullptr, &g_frame) != KILN_OK) g_frame = 0;
+    if (!g_key && S.ui->subscribe_key(g_owner, &on_key, nullptr, &g_key) != KILN_OK) g_key = 0;
+    return g_frame != 0;
+}
+
+const char* no_overlay() {
+    return g_side == KILN_SIDE_SERVER ? "a dedicated server has no overlay (keep chat commands for players)"
+                                      : "the in-game overlay is off (kiln.ui is not available)";
+}
+
+bool api_window_open(const EmfWindowDef* def) {
+    Mod* m = caller_mod(_ReturnAddress());
+    v26::WindowRequest r;
+    r.mod = m ? m->id : "?";
+    std::string why;
+    if (!v26::copy_window_def(def, false, &r, &why)) return refuse(m, "window_open", why.c_str()), false;
+    if (g_side == KILN_SIDE_SERVER || !S.ui || !ensure_ui()) return refuse(m, "window_open", no_overlay(), true), false;
+    if (!g_api->world(r.world_kind))
+        return refuse(m, "window_open",
+                      r.world_kind == EMF_WORLD_SERVER
+                          ? "no server world runs (in someone else's game pass EMF_WORLD_CLIENT): its events would never come"
+                          : "no client world runs: its events would never come"),
+               false;
+    std::vector<Pending> now;
+    {
+        std::lock_guard lock(g_win_mutex);
+        if (g_win && g_win->id != r.id)
+            return refuse(m, "window_open", ("another window is open (" + g_win->id + ")").c_str()), false;
+        if (g_win) close_locked(EMF_UI_BY_MOD, &now);
+        g_win = std::move(r);
+        g_win_mod = m;
+    }
+    set_open(true);
+    run_now(now);
+    return true;
+}
+
+bool api_window_update(const EmfWindowDef* def) {
+    Mod* m = caller_mod(_ReturnAddress());
+    v26::WindowRequest r;
+    std::string why;
+    if (!v26::copy_window_def(def, true, &r, &why)) return refuse(m, "window_update", why.c_str()), false;
+    std::lock_guard lock(g_win_mutex);
+    if (!g_win || g_win->id != r.id) return false;  // not open (the player closed it): no log, never reopened
+    r.cb = g_win->cb;
+    r.user = g_win->user;
+    r.mod = g_win->mod;
+    g_win = std::move(r);
+    return true;
+}
+
+bool api_window_close(const char* id) {
+    if (!id) return false;
+    std::vector<Pending> now;
+    {
+        std::lock_guard lock(g_win_mutex);
+        if (!g_win || g_win->id != id) return false;
+        close_locked(EMF_UI_BY_MOD, &now);
+    }
+    set_open(false);
+    run_now(now);
+    return true;
+}
+
+// ============================================================================================= v26 ===========
+std::filesystem::path mod_folder(const void* return_address) {
+    HMODULE h = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCWSTR>(return_address), &h)) {
+        wchar_t p[MAX_PATH] = L"";
+        if (GetModuleFileNameW(h, p, MAX_PATH)) return std::filesystem::path(p).parent_path();
+    }
+    return P.emf / L"mods";
+}
+
+uint32_t api_image_load(const char* path) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (!path || !*path) return 0;
+    const std::string p(path);
+    std::filesystem::path file;
+    std::string key;
+    const std::string kPortrait = "portrait:";
+    if (p.rfind(kPortrait, 0) == 0) {
+        const std::string k = p.substr(kPortrait.size());
+        if (!v26::portrait_key_ok(k)) return refuse(m, "image_load", "a portrait key is 1-64 of A-Z a-z 0-9 _ . -", true), 0;
+        file = P.emf / L"cache" / L"portraits" / to_wide(k);
+        key = p;
+    } else {
+        const std::filesystem::path w(to_wide(p));
+        file = w.is_absolute() || (p.size() > 1 && (p[0] == '\\' || p[0] == '/')) ? w : mod_folder(_ReturnAddress()) / w;
+        key = lower(path_utf8(file));
+    }
+    std::lock_guard lock(g_img_mutex);
+    if (auto it = g_image_keys.find(key); it != g_image_keys.end()) return it->second;
+    auto refused = [&](const std::string& why) -> uint32_t {
+        if (g_image_refused.insert(key).second) mod_logf(m, KILN_LOG_WARN, "image_load('%s') refused: %s", p.c_str(), why.c_str());
+        return 0;
+    };
+    if (g_side == KILN_SIDE_SERVER || !S.ui) return refused(no_overlay());
+    if (g_images.size() >= v26::kMaxImages) return refused("128 pictures are loaded already");
+    std::vector<std::filesystem::path> files;
+    std::error_code ec;
+    if (std::filesystem::is_directory(file, ec)) {
+        for (const auto& e : std::filesystem::directory_iterator(file, ec))
+            if (lower(to_utf8(e.path().extension().wstring())) == ".png") files.push_back(e.path());
+        std::sort(files.begin(), files.end());
+        if (files.empty()) return refused("the folder has no .png files");
+        if (files.size() > v26::kMaxImageFrames) return refused("more than 64 frames");
+    } else if (std::filesystem::is_regular_file(file, ec)) {
+        files.push_back(file);
+    } else {
+        return refused("no such file or folder");
+    }
+    Image im;
+    uint64_t bytes = 0;
+    for (const auto& f : files) {
+        std::string data;
+        uint32_t w = 0, h = 0;
+        if (!read_file(f, &data) || !v26::png_size(reinterpret_cast<const uint8_t*>(data.data()), data.size(), &w, &h))
+            return refused(path_utf8(f.filename()) + " is not a PNG");
+        if (w > v26::kMaxImageSide || h > v26::kMaxImageSide) return refused("larger than 512 x 512 pixels");
+        if (im.w && (w != im.w || h != im.h)) return refused("its frames are not all the same size");
+        im.w = w;
+        im.h = h;
+        bytes += uint64_t{w} * h * 4;
+        if (g_image_bytes + bytes > v26::kMaxImageBytes) return refused("the 64 MB for pictures are used up");
+        const KilnHandle hnd = S.ui->image_load(g_owner, data.data(), data.size());
+        if (!hnd) return refused("it could not be decoded");
+        im.frames.push_back(hnd);
+    }
+    g_image_bytes += bytes;
+    g_images.push_back(std::move(im));
+    const uint32_t handle = static_cast<uint32_t>(g_images.size());
+    g_image_keys[key] = handle;
+    return handle;
+}
+
+}  // namespace
+
+bool windows_want_frame() { return g_open.load(); }
+
+void windows_after_step(EmfWorld* w, uint8_t kind) {
+    std::vector<Pending> due;
+    {
+        std::lock_guard lock(g_win_mutex);
+        for (auto it = g_events.begin(); it != g_events.end();) {
+            if (it->world_kind == kind) {
+                due.push_back(std::move(*it));
+                it = g_events.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (auto& p : due) deliver(p, w, false);
+}
+
+void fill_windows(EmfApi* t) {
+    t->window_open = &api_window_open;
+    t->window_update = &api_window_update;
+    t->window_close = &api_window_close;
+    t->image_load = &api_image_load;
+}
+
+}  // namespace kemf

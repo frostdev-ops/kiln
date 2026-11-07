@@ -157,6 +157,24 @@ bool api_on_event(uint8_t kind, const char* name, uint32_t expected_size, EmfWor
     return true;
 }
 
+// kiln-emf's own listeners (E prompts, v25): a registration without a mod, registered before events_on_ready.
+bool add_internal_event(const char* name, uint32_t expected_size, EmfWorldEventCallback cb, void* user) {
+    if (g_ready_done || !S.world || !name || !cb) return false;
+    std::lock_guard lock(g_ev_mutex);
+    auto& t = g_events[name];
+    if (!t) {
+        t = std::make_unique<EventType>();
+        t->name = name;
+    }
+    auto r = std::make_unique<EventReg>();
+    r->mod = nullptr;
+    r->expected = expected_size;
+    r->cb = cb;
+    r->user = user;
+    t->regs.push_back(std::move(r));
+    return true;
+}
+
 // ============================================================================================= programs ======
 struct Prog {
     Mod* mod;
@@ -395,6 +413,10 @@ std::vector<KilnStr> kstrs(const std::vector<std::string>& v) {
 }
 
 }  // namespace
+
+bool events_add_internal(const char* name, uint32_t expected_size, EmfWorldEventCallback cb, void* user) {
+    return add_internal_event(name, expected_size, cb, user);
+}
 
 void events_on_ready() {
     g_ready_done = true;

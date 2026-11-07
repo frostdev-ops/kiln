@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.3.3, API v21, MIT) mods on Kiln. Shared state.
+// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.5.1, API v26, MIT) mods on Kiln. Shared state.
 //
 // Layout of the plugin:
 //   plugin.cpp    kiln_plugin_main / on_ready: step aside when the real EMF runs, discover, order and load the mods,
@@ -11,6 +11,10 @@
 //   api_events.cpp on_event and mod programs through kiln.world
 //   api_hooks.cpp resolve / hook / patterns / write_memory, the EMF signature -> sigdb alias table
 //   commands.cpp  EMF commands from players' chat (kiln.chat) and <game>/emf/commands.txt
+//   api_level.cpp v22: a player's XP and level through kiln.progression
+//   api_components.cpp v23 change_component (a kiln.world program) and v25 E prompts (offers)
+//   api_windows.cpp v24 mod windows and v26 pictures through kiln.ui (client); refused on a dedicated server
+//   v26_model.*   the v22-v26 logic without the game (host tests: tests/run.sh)
 //   seh.cpp       structured-exception guards around every call into a mod
 // Docs: docs/kiln/emf.md (users), docs/re/emf-compat.md (how each function maps onto Kiln).
 #pragma once
@@ -43,12 +47,13 @@
 #include "services/kiln_spawn.h"
 #include "services/kiln_ui.h"
 #include "services/kiln_world.h"
+#include "kiln_progression.h"
 
 namespace kemf {
 
 constexpr const char* kPluginId = "kiln-emf";
 constexpr const char* kPluginVersion = "0.1.0";
-constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 21
+constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 26
 
 // ---------------------------------------------------------------------------------------------- core handles ----
 extern const KilnApi* g_api;
@@ -69,6 +74,7 @@ struct Services {
     const KilnCombatApi* combat = nullptr;
     const KilnUiApi* ui = nullptr;
     const KilnProfileApi* profile = nullptr;
+    const KilnProgressionApi* progression = nullptr;
 };
 extern Services S;
 
@@ -197,6 +203,9 @@ void fill_events(EmfApi* t);  // api_events.cpp
 void fill_hooks(EmfApi* t);   // api_hooks.cpp
 void fill_commands(EmfApi* t);  // commands.cpp
 void fill_settings(EmfApi* t);  // settings.cpp
+void fill_level(EmfApi* t);       // api_level.cpp (v22)
+void fill_components(EmfApi* t);  // api_components.cpp (v23, v25)
+void fill_windows(EmfApi* t);     // api_windows.cpp (v24, v26)
 
 // tick hooks of the parts
 void core_after_step(EmfWorld* w, uint8_t kind);
@@ -209,6 +218,21 @@ void events_on_ready();    // registers the kiln.world programs that on_event / 
 void commands_on_ready();  // subscribes to kiln.chat
 void game_on_ready();
 void hud_on_ready();
+// v22-v26 parts
+void level_after_step(EmfWorld* w, uint8_t kind);
+void components_on_ready();  // before events_on_ready: the emf_components program and the E-prompt listener
+void components_after_step(EmfWorld* w, uint8_t kind);
+void windows_after_step(EmfWorld* w, uint8_t kind);
+bool windows_want_frame();  // a mod window is open (kiln.ui demand)
+// attribute_get / attribute_add of EMF_ATTR_XP* / EMF_ATTR_LEVEL (api_game.cpp hands them over)
+bool level_attribute_get(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out);
+bool level_attribute_add(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t delta);
+// spawn as EMF's spawn does (api_game.cpp), for spawn_offer
+uint32_t spawn_for(Mod* m, EmfWorld* w, const uint8_t guid[16], double x, double y, double z, const char* fn);
+// a listener of kiln-emf itself for an engine event (no mod), before events_on_ready
+bool events_add_internal(const char* name, uint32_t expected_size, EmfWorldEventCallback cb, void* user);
+// the HUD and windows share kiln.ui's demand
+void ui_refresh_demand();
 
 // ---------------------------------------------------------------------------------------------- settings --------
 void settings_load_mod(Mod* m);   // declares the manifest settings, seeds and mirrors the ini, reads `enabled`

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
-// emf_probe: an EMF mod (EMF 0.3.3 C API v21, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
+// emf_probe: an EMF mod (EMF C API v26, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
 // one "PASS <what>" / "FAIL <what>" line per check, then "emf-probe done: N PASS, M FAIL". Player-free: it uses a
 // villager of the copied world (teleport, put/take items), spawns one Vukah next to it and kills it (damage ->
 // EntityDiedEvent), changes and resets a world setting, asks for a save, runs its own command through
 // emf/commands.txt, and hooks SimStep (chained over Kiln's own SimStep hook). Install: <game>/emf/mods/emf_probe/
 // (mod.json + emf_probe.dll); tools/emf/lab-check.sh does it. Not for real servers: it changes a villager's
 // position for a moment, spawns a creature and saves the world.
+// v22-v26: the level curve and its refusals, change_component (ScaleComponent on a second Vukah), E-prompt offers
+// (offer / offer_active / offer_remove on it, spawn_offer), and the window / picture refusals of a dedicated server.
 #include <windows.h>
 
 #include <atomic>
@@ -270,6 +272,164 @@ void sync_checks(EmfWorld* w) {
     check(A->spawn(nullptr, kVukah, 0, 0, 0) == 0, "spawn refuses a world that is not the callback's");
 }
 
+// ---- v22-v26 ----
+constexpr uint32_t kScale = 0x2A0C9602u, kPause = 0xA64742EDu, kOfferRuntime = 0x78EE0F23u, kRange = 0x50311280u;
+struct V26 {
+    bool started = false, removed = false, checked_on = false, done = false;
+    uint32_t prop = 0, prop2 = 0;
+    std::atomic<int> scale_status{-1}, pause_status{-1}, remove_status{-1};
+} V;
+// user: 1 = ScaleComponent add, 2 = InteractionPause add, 3 = InteractionPause remove
+void comp_cb(EmfWorld* w, uint32_t entity, uint32_t hash, uint32_t status, const char* why, void* user) {
+    const int which = static_cast<int>(reinterpret_cast<uintptr_t>(user));
+    (which == 1 ? V.scale_status : which == 2 ? V.pause_status : V.remove_status) = static_cast<int>(status);
+    check(w != nullptr && entity == V.prop && hash == (which == 1 ? kScale : kPause),
+          "change_component callback: the server world, the entity and the hash",
+          std::string("status ") + std::to_string(status) + (why && *why ? std::string(", ") + why : std::string()));
+}
+void offer_cb(EmfWorld*, uint32_t, uint32_t, void*) {}
+void ui_cb(EmfWorld*, const EmfUiEvent*, void*) {}
+
+void v26_start(EmfWorld* w) {
+    V.started = true;
+    const uint32_t cap = A->player_level_cap(w);
+    const uint32_t x1 = A->player_xp_required(w, 1);
+    char b[96];
+    std::snprintf(b, sizeof b, "cap %u, level 1 needs %u, level 2 needs %u", cap, x1, A->player_xp_required(w, 2));
+    check(cap >= 10 && x1 > 0 && A->player_xp_required(w, cap + 1) == 0 && A->player_xp_required(w, 0) == 0,
+          "player_level_cap / player_xp_required: the game's curve, 0 outside 1..cap", b);
+    check(A->player_level_cap(nullptr) == 0, "player_level_cap without a server world is 0");
+    check(!A->player_level_set(w, 1, 2, 0), "player_level_set of a player who is not in game is refused");
+    check(!A->player_level_set(w, 1, cap + 1, 0), "player_level_set above the cap is refused");
+    int32_t lv = 0;
+    check(!A->attribute_get(w, 1, EMF_ATTR_LEVEL, &lv), "attribute_get(EMF_ATTR_LEVEL) of a missing player is false");
+    check(!A->attribute_add(w, 5000, EMF_ATTR_LEVEL, 1) && !A->attribute_add(w, 5000, EMF_ATTR_XP_PENDING, -5),
+          "attribute_add refuses EMF_ATTR_LEVEL (read-only) and a negative pending XP");
+    // windows and pictures: a dedicated server has no overlay
+    EmfUiWidget wd[1] = {};
+    wd[0].type = EMF_UI_TEXT;
+    wd[0].text = "hello";
+    EmfWindowDef def{};
+    def.size = sizeof def;
+    def.id = "emf_probe.win";
+    def.widgets = wd;
+    def.count = 1;
+    def.widget_size = sizeof(EmfUiWidget);
+    def.world_kind = EMF_WORLD_SERVER;
+    def.cb = &ui_cb;
+    check(!A->window_open(&def) && !A->window_update(&def) && !A->window_close("emf_probe.win"),
+          "window_open / window_update / window_close are refused on a dedicated server");
+    check(A->image_load("pics/none.png") == 0, "image_load answers 0 on a dedicated server");
+    // change_component refusals
+    EmfComponentChange c{};
+    c.size = sizeof c;
+    c.op = EMF_COMPONENT_ADD;
+    c.entity = F.vukah ? F.vukah : 5000;
+    c.hash = 0x12345678u;
+    check(!A->change_component(w, &c), "change_component refuses a component EMF does not list");
+    c.hash = 0x1399E0BAu;  // IsTame: saved with the world, refused until checked in game
+    c.flags = EMF_COMPONENT_PERSISTENT;
+    check(!A->change_component(w, &c), "change_component refuses IsTame (not checked in game)");
+    c.hash = kScale;
+    c.flags = 0;
+    c.entity = 1;
+    check(!A->change_component(w, &c), "change_component refuses a player");
+    float bad = 50.f;
+    c.entity = F.vukah ? F.vukah : 5000;
+    c.data = &bad;
+    c.data_size = 4;
+    check(!A->change_component(w, &c), "change_component refuses ScaleComponent 50 (0.1..10)");
+    c.size = 8;
+    check(!A->change_component(w, &c), "change_component refuses a too small size field");
+    if (!F.villager) {
+        skip("change_component / offers", "no villager in this world");
+        V.done = true;
+        return;
+    }
+    V.prop = A->spawn(w, kVukah, F.vpos.x + 14, F.vpos.y + 0.5, F.vpos.z + 4);
+    check(V.prop > 1023, "a second Vukah for v23/v25", std::to_string(V.prop));
+    float scale = 1.5f;
+    c = {};
+    c.size = sizeof c;
+    c.op = EMF_COMPONENT_ADD;
+    c.entity = V.prop;
+    c.hash = kScale;
+    c.data = &scale;
+    c.data_size = 4;
+    c.cb = &comp_cb;
+    c.user = reinterpret_cast<void*>(1);
+    // a Vukah is made with a ScaleComponent: EMF answers ALREADY and keeps its data
+    check(A->change_component(w, &c), "change_component ADD ScaleComponent 1.5 queued");
+    check(!A->change_component(w, &c), "a second change of the same component under way is refused");
+    EmfComponentChange pz{};
+    pz.size = sizeof pz;
+    pz.op = EMF_COMPONENT_ADD;
+    pz.entity = V.prop;
+    pz.hash = kPause;  // NULL data: zeros of its size
+    pz.cb = &comp_cb;
+    pz.user = reinterpret_cast<void*>(2);
+    check(A->change_component(w, &pz), "change_component ADD InteractionPause (zeros) queued");
+    EmfOffer o{};
+    o.size = sizeof o;
+    o.verb = EMF_VERB_OPEN;
+    check(A->offer(w, V.prop, &o, &offer_cb, nullptr), "offer(EMF_VERB_OPEN) on the second Vukah");
+    check(A->offer_active(w, V.prop), "offer_active right after offer");
+    check(!A->offer(w, 1, &o, &offer_cb, nullptr), "offer on a player is refused");
+    o.flags = 0x80;
+    check(!A->offer(w, V.prop, &o, &offer_cb, nullptr), "offer with an unknown flag is refused");
+    o.flags = 0;
+    o.verb = EMF_VERB_TALK;
+    V.prop2 = A->spawn_offer(w, kVukah, F.vpos.x + 14, F.vpos.y + 0.5, F.vpos.z - 4, &o, &offer_cb, nullptr);
+    check(V.prop2 > 1023 && A->offer_active(w, V.prop2), "spawn_offer: a Vukah with an offer", std::to_string(V.prop2));
+}
+
+// Phase 1 of v22-v26; true while it still waits.
+bool v26_results(EmfWorld* w, uint64_t age) {
+    if (!V.started || V.done) return false;
+    uint64_t sz = 0;
+    if (!V.checked_on && age >= 8) {
+        V.checked_on = true;
+        check(V.scale_status.load() == EMF_COMPONENT_ALREADY, "change_component ADD of a component the Vukah has: ALREADY",
+              std::to_string(V.scale_status.load()));
+        const void* sc = A->get_component(w, kScale, V.prop, &sz);
+        float v = 0;
+        if (sc && sz >= 4) std::memcpy(&v, sc, 4);
+        check(sc && std::fabs(v - 1.0f) < 1e-4f, "ALREADY keeps the data (ScaleComponent stays 1.0)", std::to_string(v));
+        check(V.pause_status.load() == EMF_COMPONENT_DONE && A->get_component(w, kPause, V.prop, &sz) != nullptr,
+              "change_component ADD InteractionPause: DONE, and the entity has it", std::to_string(V.pause_status.load()));
+        const bool ior = A->get_component(w, kOfferRuntime, V.prop, &sz) != nullptr;
+        const bool rng = A->get_component(w, kRange, V.prop, &sz) != nullptr;
+        check(ior && rng, "offer: InteractionOfferRuntime and CheckPlayerInRange are on the entity");
+        check(A->get_component(w, kOfferRuntime, V.prop2, &sz) != nullptr, "spawn_offer: its offer components arrived");
+        check(A->offer_remove(w, V.prop), "offer_remove");
+        check(!A->offer_active(w, V.prop) && !A->offer_remove(w, V.prop), "after offer_remove: not active, a second remove is false");
+        EmfComponentChange c{};
+        c.size = sizeof c;
+        c.op = EMF_COMPONENT_REMOVE;
+        c.entity = V.prop;
+        c.hash = kPause;
+        c.cb = &comp_cb;
+        c.user = reinterpret_cast<void*>(3);
+        check(A->change_component(w, &c), "change_component REMOVE of what the mod added (InteractionPause)");
+        c.hash = kScale;
+        c.cb = nullptr;
+        check(!A->change_component(w, &c), "change_component REMOVE of ScaleComponent the mod did not add is refused");
+        return true;
+    }
+    if (V.checked_on && !V.removed && age >= 16) {
+        V.removed = true;
+        check(A->get_component(w, kOfferRuntime, V.prop, &sz) == nullptr, "offer_remove: the offer components are gone");
+        check(V.remove_status.load() == EMF_COMPONENT_DONE && A->get_component(w, kPause, V.prop, &sz) == nullptr,
+              "change_component REMOVE: DONE, InteractionPause is gone", std::to_string(V.remove_status.load()));
+        check(A->offer_active(w, V.prop2), "the spawn_offer offer is still active");
+        A->destroy(w, V.prop);
+        A->destroy(w, V.prop2);
+        V.done = true;
+        return false;
+    }
+    return true;
+}
+
 void on_tick(EmfWorld* w, void*) {
     if (A->world_kind(w) != EMF_WORLD_SERVER || F.done) return;
     ++F.ticks;
@@ -287,7 +447,7 @@ void on_tick(EmfWorld* w, void*) {
               "emit_event + read_events: 3 StopGuardingEvents sent (time-stamped) and read back the next step",
               std::to_string(g_emitted.load()) + " sent, " + std::to_string(g_echoed.load()) + " read");
         sync_checks(w);
-        // async work
+        // async work (v22-v26 below, after the villager search)
         if (F.villager) {
             EmfTeleport t{};
             t.size = sizeof t;
@@ -306,6 +466,7 @@ void on_tick(EmfWorld* w, void*) {
         } else {
             skip("teleport / put / take / spawn", "no villager in this world");
         }
+        v26_start(w);
         F.ws_set = A->world_setting_set("xp_combat", 1.25, 0);
         check(F.ws_set, "world_setting_set xp_combat 1.25 (queued)");
         F.save_asked = A->request_save();
@@ -373,7 +534,8 @@ void on_tick(EmfWorld* w, void*) {
         F.ws_checked = true;
         F.ws_reset = A->world_setting_reset("xp_combat", 0);
     }
-    const bool waiting = (F.villager && (!F.tp2 || (!g_died_seen.load() && age < 250))) || (F.container && !F.take) || !F.ws_checked || g_saves.load() == 0 ||
+    const bool v26_waiting = v26_results(w, age);
+    const bool waiting = v26_waiting || (F.villager && (!F.tp2 || (!g_died_seen.load() && age < 250))) || (F.container && !F.take) || !F.ws_checked || g_saves.load() == 0 ||
                          g_cmd_runs.load() == 0 || g_setting_changes.load() == 0;
     if (waiting && age < 750) return;  // ~30 s
     if (F.villager) {
@@ -399,9 +561,9 @@ void on_tick(EmfWorld* w, void*) {
 }  // namespace
 
 extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
-    if (!api || api->version < 21 || api->size < sizeof(EmfApi)) return false;
+    if (!api || api->version < 26 || api->size < sizeof(EmfApi)) return false;
     A = api;
-    check(api->version == 21 && api->size == sizeof(EmfApi), "the table is EmfApi v21 of the SDK's size",
+    check(api->version == 26 && api->size == sizeof(EmfApi) && sizeof(EmfApi) == 688, "the table is EmfApi v26 of the SDK's size",
           std::to_string(api->version) + ", " + std::to_string(api->size) + " bytes");
     bool all = true;
     for (size_t i = 0; i < (sizeof(EmfApi) - 8) / sizeof(void*); ++i)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf.dll: a Kiln plugin (<game>/kiln/plugins/) that loads unmodified EMF 0.3.3 mods (EmfApi v21) on Kiln's
+// kiln-emf.dll: a Kiln plugin (<game>/kiln/plugins/) that loads unmodified EMF mods (EMF 0.3.3 to 0.5.1, EmfApi v26) on Kiln's
 // services. In on_ready, after every service is up and before the game's entry point:
 //   1. step aside when the real EMF runs in this process (emf_core.dll, or EMF's loader chained by Kiln's proxy);
 //   2. find the mods (the active profile's "emf" entries through kiln.profile, and <game>/emf/mods);
@@ -189,12 +189,13 @@ void KILN_CALL on_ready(void*) {
     S.settings = service<KilnSettingsApi>(KILN_SETTINGS_SERVICE, 1);
     S.combat = service<KilnCombatApi>(KILN_COMBAT_SERVICE, 1);
     S.ui = service<KilnUiApi>(KILN_UI_SERVICE, 1);
+    S.progression = service<KilnProgressionApi>(KILN_PROGRESSION_SERVICE, 1);
     logf(KILN_LOG_INFO,
          "kiln-emf %s (EmfApi v%u, %zu bytes) on %s; services: world %d, items %d, content %d, spawn %d, chat %d, players %d, "
-         "saves %d, settings %d, combat %d, client %d, ui %d, profile %d; config %s, status %s",
+         "saves %d, settings %d, combat %d, client %d, ui %d, profile %d, progression %d; config %s, status %s",
          kPluginVersion, kEmfApiVersion, sizeof(EmfApi), g_side == KILN_SIDE_SERVER ? "the server" : "the client",
          !!S.world, !!S.items, !!S.content, !!S.spawn, !!S.chat, !!S.players, !!S.saves, !!S.settings, !!S.combat,
-         !!S.client, !!S.ui, !!S.profile, path_utf8(P.config / L"emf").c_str(), path_utf8(P.state / L"emf.json").c_str());
+         !!S.client, !!S.ui, !!S.profile, !!S.progression, path_utf8(P.config / L"emf").c_str(), path_utf8(P.state / L"emf.json").c_str());
 
     // 2-4. find, decide, order, load
     const EmfApi* table = api_table();
@@ -202,7 +203,8 @@ void KILN_CALL on_ready(void*) {
     discover_mods();
     load_mods(table);
 
-    // 5. what the mods registered
+    // 5. what the mods registered (components first: its E-prompt listener is an event registration)
+    components_on_ready();
     events_on_ready();
     game_on_ready();
     hud_on_ready();

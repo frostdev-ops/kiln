@@ -1,8 +1,8 @@
 # EMF mods on Kiln (kiln-emf)
 
-Kiln loads unmodified mods for **EMF** (Enshrouded Modding Framework 0.3.3, MIT) through the plugin
-`kiln/plugins/kiln-emf.dll`. It hands every EMF mod an `EmfApi` table of version 21, the one EMF 0.3.3 ships, built on
-Kiln's services. You keep your EMF DLL mods and EMF's Lua mods; you do not need EMF's own `dinput8.dll` or
+Kiln loads unmodified mods for **EMF** (Enshrouded Modding Framework, MIT; mods built for EMF 0.3.3 up to 0.5.1)
+through the plugin `kiln/plugins/kiln-emf.dll`. It hands every EMF mod an `EmfApi` table of version 26, the one EMF
+0.5.1 ships, built on Kiln's services. Every function and its status: [emf-parity.md](emf-parity.md). You keep your EMF DLL mods and EMF's Lua mods; you do not need EMF's own `dinput8.dll` or
 `emf_core.dll`.
 
 Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re/emf-compat.md).
@@ -44,7 +44,7 @@ Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re
 ### Which mods load
 - **Switch:** `enabled` in the ini decides. Without a value, `mod.json`'s `"enabled"` decides (default on). A
   profile entry with `enabled: false` is always off.
-- **API version:** `"emf": N` above 21 is refused ("needs EMF API vN").
+- **API version:** `"emf": N` above 26 is refused ("needs EMF API vN"). Mods built for older versions keep working.
 - **Side:** `"side": "client"` mods do nothing on a dedicated server, so the server skips them (clock). Everything
   else loads everywhere, as in EMF.
 - **Dependencies:** `depends` / `dependencies` take EMF's version ranges (`^1.2`, `~1.2`, `>=1.0 <2`, `1.2.x`,
@@ -59,9 +59,8 @@ Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re
 - **kiln-emf steps aside** when EMF's real core runs in the same process: `emf_core.dll` is loaded, or EMF's loader
   was chained by Kiln's proxy (`kiln/chain.ini [chain]`, `dinput8-chain.ini`). The log says
   `kiln-emf steps aside: ...`. Then EMF loads the EMF mods, never both.
-- **EMF 0.3.3 is idle on current game builds.** It does not know the current builds (server svn 1285601) and goes
-  idle there: `a required signature is missing: EMF stays idle`. kiln-emf notices this about 2 s in and logs how to
-  hand the mods back. Put `;` in front of EMF's line in `kiln/chain.ini` (or remove it from `dinput8-chain.ini`), then
+- **EMF 0.5.x runs on current game builds; EMF 0.3.3 does not.** 0.3.3 goes idle there (`a required signature is
+  missing: EMF stays idle`). kiln-emf notices this about 2 s in and logs how to hand the mods back. Put `;` in front of EMF's line in `kiln/chain.ini` (or remove it from `dinput8-chain.ini`), then
   restart. EMF's files can stay in `emf/`; only its loader must not run.
 
 ### What a mod costs
@@ -108,6 +107,11 @@ player-free check from its source passed. What only a joined player can show is 
 | emf_probe (Kiln's test mod) | yes | 72 checks over the whole table, 0 failures. | - |
 
 ## Compatibility by function
+The full table for EmfApi v26 (85 functions, and EMF's Lua API) is [emf-parity.md](emf-parity.md). v22-v26 in short:
+player level and XP through `kiln.progression`; `change_component` and E-prompt offers through kiln-emf's own
+`kiln.world` program; mod windows and pictures through `kiln.ui` in the game client (refused on a dedicated server, as
+in EMF). The v21 part:
+
 EmfApi v21 has 73 functions. **Full** means it behaves as EMF documents. **Partial** means the differences are
 listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and returns a safe failure.
 
@@ -161,3 +165,11 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
   `give_item` drops.
 - Teleporting a player: server-admin `teleport`, `tp.pos`, and READY after the destination loads.
 - loot_magnet, bulk_craft, quick_stack and villager_jobs while a player plays. Their wheels are not supported.
+- v24 windows (client, a world you host): mark a prop as a stable with beastmaster's `beastmaster.stable mark`, look
+  at it and press E: the Beasts window opens with its rows; a click on a row reaches the mod; Esc and the X close it;
+  the mouse returns to the game.
+- v26 pictures: a mod window with a picture (`image_load` of a PNG in the mod's folder) draws it; a folder of frames
+  with `fps` turns.
+- v25 E prompts: a marked stable (beastmaster) shows the game's "E <verb>" prompt within 32 m; pressing E runs the mod's callback (log line), for the host and a joined player.
+- v22: blessings' level reward (`set_level`) changes the level in the character screen after the next step; given XP
+  levels the player up with the game's own level-up message.
