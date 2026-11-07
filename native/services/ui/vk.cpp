@@ -26,37 +26,51 @@
 #include <mutex>
 #include <vector>
 #include <string>
-#include <cwctype>
+#include <memory>
+#include <utility>
 
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
 #include "safetyhook.hpp"
 #include "ui.h"
+#include "vk_hooks.h"
 
 namespace kui {
 namespace {
 
-bool g_wine = false;
+std::atomic<bool> g_wine{false};
 std::atomic<bool> g_installed{false};
 
 struct Real {
-    PFN_vkGetInstanceProcAddr gipa = nullptr;
-    PFN_vkGetDeviceProcAddr gdpa = nullptr;
-    PFN_vkCreateInstance create_instance = nullptr;
-    PFN_vkDestroyInstance destroy_instance = nullptr;
-    PFN_vkCreateDevice create_device = nullptr;
-    PFN_vkDestroyDevice destroy_device = nullptr;
-    PFN_vkGetDeviceQueue get_queue = nullptr;
-    PFN_vkGetDeviceQueue2 get_queue2 = nullptr;
-    PFN_vkCreateSwapchainKHR create_swapchain = nullptr;
-    PFN_vkDestroySwapchainKHR destroy_swapchain = nullptr;
-    PFN_vkQueuePresentKHR present = nullptr;
-    PFN_vkCreateWin32SurfaceKHR create_surface = nullptr;
+    std::atomic<PFN_vkGetInstanceProcAddr> gipa{nullptr};
+    std::atomic<PFN_vkGetDeviceProcAddr> gdpa{nullptr};
+    std::atomic<PFN_vkCreateInstance> create_instance{nullptr};
+    std::atomic<PFN_vkDestroyInstance> destroy_instance{nullptr};
+    std::atomic<PFN_vkCreateDevice> create_device{nullptr};
+    std::atomic<PFN_vkDestroyDevice> destroy_device{nullptr};
+    std::atomic<PFN_vkGetDeviceQueue> get_queue{nullptr};
+    std::atomic<PFN_vkGetDeviceQueue2> get_queue2{nullptr};
+    std::atomic<PFN_vkCreateSwapchainKHR> create_swapchain{nullptr};
+    std::atomic<PFN_vkDestroySwapchainKHR> destroy_swapchain{nullptr};
+    std::atomic<PFN_vkQueuePresentKHR> present{nullptr};
+    std::atomic<PFN_vkCreateWin32SurfaceKHR> create_surface{nullptr};
 } R;
 
-SafetyHookInline h_destroy_instance;
-SafetyHookInline h_gipa, h_gdpa, h_create_instance, h_create_device, h_destroy_device, h_get_queue, h_get_queue2,
-    h_create_swapchain, h_destroy_swapchain, h_present, h_create_surface;
+struct HookState {
+    // Only the atomics are shared with the loader notification; everything else is under g_install_mu.
+    std::atomic<uintptr_t> target{0};
+    std::atomic<uintptr_t> owner{0};
+    std::atomic<uint64_t> loads{0}, unloads{0};
+    uint64_t seen_loads = 0, seen_unloads = 0;
+    SafetyHookInline* hook = nullptr;  // published hooks/trampolines are never moved or destroyed
+    vk_hooks::Snapshot bytes;
+    bool told_skip = false;
+};
+static_assert(std::atomic<uintptr_t>::is_always_lock_free && std::atomic<uint64_t>::is_always_lock_free);
+HookState h_destroy_instance, h_gipa, h_gdpa, h_create_instance, h_create_device, h_destroy_device, h_get_queue,
+    h_get_queue2, h_create_swapchain, h_destroy_swapchain, h_present, h_create_surface;
+HookState* const g_hooks[] = {&h_destroy_instance, &h_gipa, &h_gdpa, &h_create_instance, &h_create_device,
+    &h_destroy_device, &h_get_queue, &h_get_queue2, &h_create_swapchain, &h_destroy_swapchain, &h_present, &h_create_surface};
 
 // Device-level functions Kiln calls itself (from the game device's vkGetDeviceProcAddr).
 struct DeviceFns {
@@ -114,7 +128,7 @@ std::map<VkDevice, Device*> g_devices;  // every live device the game created
 Device* g_dev = nullptr;  // the device ImGui's backend is set up for (the drawable swapchain's)
 std::map<VkSwapchainKHR, Swap> g_swaps;
 std::map<VkSurfaceKHR, HWND> g_surfaces;
-HMODULE g_vulkan = nullptr;
+std::atomic<HMODULE> g_vulkan{nullptr};
 
 std::atomic<uint64_t> g_presents{0}, g_frames{0}, g_swapchain_count{0}, g_last_draw_ms{0};
 std::atomic<bool> g_has_device{false};
@@ -164,8 +178,8 @@ bool device_fns_ok(const Device& d) {
 PFN_vkVoidFunction imgui_loader(const char* name, void*) {
     PFN_vkVoidFunction f = nullptr;
     if (g_dev && g_dev->gdpa) f = g_dev->gdpa(g_dev->device, name);
-    if (!f && g_vulkan) f = reinterpret_cast<PFN_vkVoidFunction>(GetProcAddress(g_vulkan, name));
-    if (!f && R.gipa && g_dev && g_dev->instance) f = R.gipa(g_dev->instance, name);
+    if (HMODULE m = g_vulkan.load(); !f && m) f = reinterpret_cast<PFN_vkVoidFunction>(GetProcAddress(m, name));
+    if (!f && R.gipa && g_dev && g_dev->instance) f = R.gipa.load()(g_dev->instance, name);
     return f;
 }
 
@@ -464,7 +478,7 @@ VkImageUsageFlags supported_extra_usage(VkDevice dev, VkSurfaceKHR surface) {
         instance = it->second->instance ? it->second->instance : g_instance;
         physical = it->second->physical;
     }
-    auto caps_fn = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(R.gipa(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+    auto caps_fn = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(R.gipa.load()(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
     VkSurfaceCapabilitiesKHR caps{};
     if (!caps_fn || caps_fn(physical, surface, &caps) != VK_SUCCESS) return 0;
     return extra & caps.supportedUsageFlags;
@@ -529,7 +543,7 @@ bool run_pre_overlay(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* w
     p.instance = d.instance ? d.instance : g_instance;
     p.physical_device = d.physical;
     p.device = d.device;
-    p.get_instance_proc_addr = reinterpret_cast<void*>(R.gipa);
+    p.get_instance_proc_addr = reinterpret_cast<void*>(R.gipa.load());
     p.get_device_proc_addr = reinterpret_cast<void*>(d.gdpa);
     p.queue = queue;
     p.swapchain = s->swapchain;
@@ -569,7 +583,7 @@ bool run_pre_overlay(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* w
 // Detours
 
 VkResult VKAPI_CALL hk_create_instance(const VkInstanceCreateInfo* ci, const VkAllocationCallbacks* a, VkInstance* out) {
-    const VkResult r = R.create_instance(ci, a, out);
+    const VkResult r = R.create_instance.load()(ci, a, out);
     if (r == VK_SUCCESS && out) {
         std::lock_guard<std::mutex> lk(g_mu);
         g_instance = *out;
@@ -587,12 +601,12 @@ void VKAPI_CALL hk_destroy_instance(VkInstance inst, const VkAllocationCallbacks
         for (auto& [k, d] : g_devices)
             if (d->instance == inst) d->instance = VK_NULL_HANDLE;
     }
-    R.destroy_instance(inst, a);
+    R.destroy_instance.load()(inst, a);
 }
 
 VkResult VKAPI_CALL hk_create_device(VkPhysicalDevice phys, const VkDeviceCreateInfo* ci, const VkAllocationCallbacks* a,
                                      VkDevice* out) {
-    const VkResult r = R.create_device(phys, ci, a, out);
+    const VkResult r = R.create_device.load()(phys, ci, a, out);
     if (r != VK_SUCCESS || !out) return r;
     std::lock_guard<std::mutex> lk(g_mu);
     auto* d = new Device();
@@ -641,7 +655,7 @@ void VKAPI_CALL hk_destroy_device(VkDevice dev, const VkAllocationCallbacks* a) 
             logf(KILN_LOG_INFO, "ui: game Vulkan device %p destroyed (%zu live)", reinterpret_cast<void*>(dev), g_devices.size());
         }
     }
-    R.destroy_device(dev, a);
+    R.destroy_device.load()(dev, a);
 }
 
 void remember_queue(VkDevice dev, uint32_t family, VkQueue q) {
@@ -651,18 +665,18 @@ void remember_queue(VkDevice dev, uint32_t family, VkQueue q) {
 }
 
 void VKAPI_CALL hk_get_queue(VkDevice dev, uint32_t family, uint32_t index, VkQueue* out) {
-    R.get_queue(dev, family, index, out);
+    R.get_queue.load()(dev, family, index, out);
     if (out) remember_queue(dev, family, *out);
 }
 
 void VKAPI_CALL hk_get_queue2(VkDevice dev, const VkDeviceQueueInfo2* info, VkQueue* out) {
-    R.get_queue2(dev, info, out);
+    R.get_queue2.load()(dev, info, out);
     if (out && info) remember_queue(dev, info->queueFamilyIndex, *out);
 }
 
 VkResult VKAPI_CALL hk_create_surface(VkInstance inst, const VkWin32SurfaceCreateInfoKHR* ci, const VkAllocationCallbacks* a,
                                       VkSurfaceKHR* out) {
-    const VkResult r = R.create_surface(inst, ci, a, out);
+    const VkResult r = R.create_surface.load()(inst, ci, a, out);
     if (r == VK_SUCCESS && out && ci) {
         std::lock_guard<std::mutex> lk(g_mu);
         g_surfaces[*out] = ci->hwnd;
@@ -675,14 +689,14 @@ VkResult VKAPI_CALL hk_create_surface(VkInstance inst, const VkWin32SurfaceCreat
 
 VkResult VKAPI_CALL hk_create_swapchain(VkDevice dev, const VkSwapchainCreateInfoKHR* ci, const VkAllocationCallbacks* a,
                                         VkSwapchainKHR* out) {
-    if (!ci || !out) return R.create_swapchain(dev, ci, a, out);
+    if (!ci || !out) return R.create_swapchain.load()(dev, ci, a, out);
     VkSwapchainCreateInfoKHR c = *ci;
     c.imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | supported_extra_usage(dev, ci->surface);
-    VkResult r = R.create_swapchain(dev, &c, a, out);
+    VkResult r = R.create_swapchain.load()(dev, &c, a, out);
     bool drawable = r == VK_SUCCESS;
     VkImageUsageFlags usage = c.imageUsage;
     if (r != VK_SUCCESS && c.imageUsage != ci->imageUsage) {
-        r = R.create_swapchain(dev, ci, a, out);
+        r = R.create_swapchain.load()(dev, ci, a, out);
         drawable = (ci->imageUsage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) != 0;
         usage = ci->imageUsage;
     }
@@ -736,7 +750,7 @@ void VKAPI_CALL hk_destroy_swapchain(VkDevice dev, VkSwapchainKHR sc, const VkAl
             g_swap_count = static_cast<uint32_t>(g_swaps.size());
         }
     }
-    R.destroy_swapchain(dev, sc, a);
+    R.destroy_swapchain.load()(dev, sc, a);
 }
 
 // draw() under g_mu and a fault guard: an access violation in the overlay turns the overlay off (logged) instead of
@@ -781,7 +795,7 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
     if (!info || g_failed || !want_draw()) {
         // capture just ended with nothing left to draw: still give the game its cursor clip back (render thread)
         if (imgui_ready()) input_capture_changed();
-        return R.present(queue, info);
+        return R.present.load()(queue, info);
     }
     const uint64_t t0 = GetTickCount64();
     VkSemaphore wait = VK_NULL_HANDLE;
@@ -798,20 +812,22 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
                   wcsrchr(path, L'\\') ? wcsrchr(path, L'\\') + 1 : path,
                   m ? static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(g_fault_addr) - reinterpret_cast<uintptr_t>(m)) : 0ull);
     }
-    if (!drew) return R.present(queue, info);
+    if (!drew) return R.present.load()(queue, info);
     VkPresentInfoKHR p = *info;
     p.waitSemaphoreCount = 1;
     p.pWaitSemaphores = &wait;
-    return R.present(queue, &p);
+    return R.present.load()(queue, &p);
 }
 
 // Windows (Khronos loader): hand out Kiln's functions for the names it needs.
 PFN_vkVoidFunction swap_in(const char* name, PFN_vkVoidFunction real) {
     if (!real || !name) return real;
-#define KUI_SWAP(n, field, hk)                                                  \
-    if (std::strcmp(name, n) == 0) {                                            \
-        if (!R.field) R.field = reinterpret_cast<decltype(R.field)>(real);      \
-        return reinterpret_cast<PFN_vkVoidFunction>(&hk);                        \
+#define KUI_SWAP(n, field, hk)                                                               \
+    if (std::strcmp(name, n) == 0) {                                                         \
+        auto empty = decltype(R.field.load()){nullptr};                                      \
+        if (real != reinterpret_cast<PFN_vkVoidFunction>(&hk))                               \
+            R.field.compare_exchange_strong(empty, reinterpret_cast<decltype(empty)>(real)); \
+        return R.field ? reinterpret_cast<PFN_vkVoidFunction>(&hk) : nullptr;                 \
     }
     KUI_SWAP("vkCreateDevice", create_device, hk_create_device)
     KUI_SWAP("vkDestroyDevice", destroy_device, hk_destroy_device)
@@ -827,85 +843,67 @@ PFN_vkVoidFunction swap_in(const char* name, PFN_vkVoidFunction real) {
 }
 
 PFN_vkVoidFunction VKAPI_CALL hk_gdpa(VkDevice dev, const char* name) {
-    return swap_in(name, h_gdpa.call<PFN_vkVoidFunction>(dev, name));
+    return swap_in(name, R.gdpa.load()(dev, name));
 }
 
 PFN_vkVoidFunction VKAPI_CALL hk_gipa(VkInstance inst, const char* name) {
-    PFN_vkVoidFunction real = h_gipa.call<PFN_vkVoidFunction>(inst, name);
-    if (name && std::strcmp(name, "vkGetDeviceProcAddr") == 0 && real) return reinterpret_cast<PFN_vkVoidFunction>(&hk_gdpa);
+    PFN_vkVoidFunction real = R.gipa.load()(inst, name);
+    if (name && std::strcmp(name, "vkGetDeviceProcAddr") == 0 && real)
+        return R.gdpa ? reinterpret_cast<PFN_vkVoidFunction>(&hk_gdpa) : real;
     if (name && std::strcmp(name, "vkCreateInstance") == 0 && real) {
-        if (!R.create_instance) R.create_instance = reinterpret_cast<PFN_vkCreateInstance>(real);
-        return reinterpret_cast<PFN_vkVoidFunction>(&hk_create_instance);
+        PFN_vkCreateInstance empty = nullptr;
+        if (real != reinterpret_cast<PFN_vkVoidFunction>(&hk_create_instance))
+            R.create_instance.compare_exchange_strong(empty, reinterpret_cast<PFN_vkCreateInstance>(real));
+        return R.create_instance ? reinterpret_cast<PFN_vkVoidFunction>(&hk_create_instance) : nullptr;
     }
     return swap_in(name, real);
 }
 
-template <typename T>
-bool hook(SafetyHookInline& h, void* target, void* detour, T* original, const char* what) {
-    if (!target) {
-        logf(KILN_LOG_WARN, "ui: %s not found", what);
-        return false;
-    }
-    h = safetyhook::create_inline(target, detour);
-    if (!h) {
-        logf(KILN_LOG_ERROR, "ui: hooking %s failed", what);
-        return false;
-    }
-    if (original) *original = h.original<T>();
-    return true;
-}
-
-// The game unloads and reloads vulkan-1.dll during its start (a probe instance, then the real one): the loader comes
-// back at the same address with fresh code (winevulkan under Wine, the Khronos loader on Windows), so the hooks are
-// checked after every LoadLibraryExW and put back when the code is no longer ours. "Ours" means the bytes our patch
-// wrote: the Windows loader's exports are jmp thunks themselves, so "starts with a jmp" can't tell a fresh image from
-// a hooked one (0.2.0-dev.10 kept the dead hooks and the overlay never saw the real device). The loader's unload
-// notification marks the hooks gone as well. Old hook objects are leaked on purpose: their destructors would write
-// into code that may belong to another mapping by now.
+// LoadLibraryExW can return inside another loader operation or a Vulkan call. Never wait for another installer
+// while holding those locks, or re-enter installation on the same thread. This mutex does not protect detour calls:
+// their originals are atomic, published before enable(), and their trampoline allocations live for the process.
 std::mutex g_install_mu;
-void* g_present_target = nullptr;
-std::vector<SafetyHookInline*> g_leaked;
+std::vector<SafetyHookInline*> g_retained_hooks;
 int g_installs = 0;
+bool g_input_installed = false;
 
-uint8_t g_hook_bytes[16] = {};  // the first bytes of the checked export right after our patch
-uint8_t g_orig_bytes[16] = {};  // ... and right before it: what a freshly loaded vulkan-1.dll has there
-bool g_have_orig = false;
-std::atomic<bool> g_vulkan_unloaded{false};
-bool g_told_foreign = false, g_told_notice = false;
+struct ModuleRef {
+    HMODULE module = nullptr;
+    ModuleRef() = default;
+    ModuleRef(const ModuleRef&) = delete;
+    ModuleRef& operator=(const ModuleRef&) = delete;
+    ModuleRef(ModuleRef&& other) noexcept : module(std::exchange(other.module, nullptr)) {}
+    ~ModuleRef() { if (module) FreeLibrary(module); }
+};
 
-bool read16(const void* at, uint8_t* out) {
+struct PreparedHook {
+    HookState* state;
+    ModuleRef owner;
+    const char* name;
+    vk_hooks::Canary reason;
+    bool required;
+};
+
+bool read_code(const void* at, uint8_t* out, size_t size) {
     __try {
-        std::memcpy(out, at, 16);
+        std::memcpy(out, at, size);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
 }
 
-// What the checked export holds now. Hooking again is right only for fresh code: a new address, or the bytes it had
-// before our patch. Our own patch means the hooks are still live (an unload notice can come from another module named
-// vulkan-1.dll: it matches by name). Someone else's patch (an overlay hooking vkQueuePresentKHR after us) still calls
-// through ours. Hooking again over either stacked Kiln on its own live hooks: every R.* original then points at the
-// newest trampoline, which jumps back into the older hook, so the calls loop. On a Steam Deck that hung the game on a
-// white window right after "install #3" (0.2.0-dev.15/16).
-enum class Canary { Moved, Ours, Pristine, Foreign, Unreadable };
-const char* canary_name(Canary c) {
+const char* canary_name(vk_hooks::Canary c) {
+    using enum vk_hooks::Canary;
     switch (c) {
-        case Canary::Moved: return "at a new address";
-        case Canary::Ours: return "still Kiln's patch";
-        case Canary::Pristine: return "fresh code";
-        case Canary::Foreign: return "patched by another module";
+        case First: return "first hook";
+        case Moved: return "new address after code-owner replacement";
+        case Ours: return "still Kiln's patch";
+        case Pristine: return "restored original code";
+        case Reloaded: return "new code after code-owner replacement";
+        case Foreign: return "unverified code/patch";
         default: return "unreadable";
     }
-}
-Canary canary(void* check_now) {
-    if (!check_now) return Canary::Unreadable;
-    if (!g_present_target || check_now != g_present_target) return Canary::Moved;
-    uint8_t b[16];
-    if (!read16(check_now, b)) return Canary::Unreadable;
-    if (std::memcmp(b, g_hook_bytes, sizeof b) == 0) return Canary::Ours;
-    if (g_have_orig && std::memcmp(b, g_orig_bytes, sizeof b) == 0) return Canary::Pristine;
-    return Canary::Foreign;
 }
 
 struct LdrUStr {
@@ -922,116 +920,198 @@ struct LdrNotice {
 using LdrNoticeFn = VOID(CALLBACK*)(ULONG, const LdrNotice*, PVOID);
 using LdrRegisterFn = LONG(NTAPI*)(ULONG, LdrNoticeFn, PVOID, PVOID*);
 
-// Runs under the loader lock: only a flag, no logging, no loads.
+// Runs under the loader lock: no allocation, logging, locks or module calls. GetProcAddress can forward into
+// winevulkan.dll, so watch the actual code owner, not every unrelated DLL named vulkan-1.dll. An unload notification
+// runs BEFORE unmapping: for replacement at the same base, require a subsequent load, not just an unload notice.
+// Counters are never cleared: a notice arriving during installation remains visible to the next check.
 VOID CALLBACK on_dll_notice(ULONG reason, const LdrNotice* d, PVOID) {
-    if (reason != 2 || !d || !d->BaseDllName || !d->BaseDllName->Buffer) return;  // 2: unloaded
-    static const wchar_t want[] = L"vulkan-1.dll";
-    const size_t n = d->BaseDllName->Length / sizeof(wchar_t);
-    if (n != sizeof want / sizeof(wchar_t) - 1) return;
-    for (size_t i = 0; i < n; ++i)
-        if (towlower(d->BaseDllName->Buffer[i]) != want[i]) return;
-    g_vulkan_unloaded = true;
-}
-
-void watch_unloads() {
-    static bool registered = false;
-    if (registered) return;
-    registered = true;
-    if (auto reg = reinterpret_cast<LdrRegisterFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "LdrRegisterDllNotification"))) {
-        PVOID cookie = nullptr;
-        reg(0, &on_dll_notice, nullptr, &cookie);
+    if ((reason != 1 && reason != 2) || !d) return;  // 1: loaded, 2: unloading
+    const uintptr_t base = reinterpret_cast<uintptr_t>(d->DllBase);
+    for (HookState* h : g_hooks) {
+        const uintptr_t owner = h->owner.load();
+        if (!owner) continue;
+        if (reason == 1 && (base == owner || vk_hooks::contains(base, d->SizeOfImage, h->target.load()))) ++h->loads;
+        if (reason == 2 && base == owner) ++h->unloads;
     }
 }
 
-void retire_hooks() {
-    for (SafetyHookInline* h : {&h_destroy_instance, &h_gipa, &h_gdpa, &h_create_instance, &h_create_device, &h_destroy_device, &h_get_queue,
-                                &h_get_queue2, &h_create_swapchain, &h_destroy_swapchain, &h_present, &h_create_surface})
-        if (*h) g_leaked.push_back(new SafetyHookInline(std::move(*h)));
+void watch_unloads() {
+    static bool registered = false, told_failure = false;
+    if (registered) return;
+    if (auto reg = reinterpret_cast<LdrRegisterFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "LdrRegisterDllNotification"))) {
+        PVOID cookie = nullptr;
+        registered = reg(0, &on_dll_notice, nullptr, &cookie) >= 0;
+    }
+    if (!registered && !told_failure) {
+        told_failure = true;
+        logf(KILN_LOG_WARN, "ui: cannot watch Vulkan code-owner unloads; unknown replacements will not be hooked");
+    }
+}
+
+template <typename T>
+bool hook(HookState& state, void* target, void* detour, std::atomic<T>& original, const char* what, bool& attempted,
+          std::vector<PreparedHook>& prepared, bool required = true) {
+    // Keep the owner mapped until after inspection/patching. The vulkan-1 ref in vk_install also keeps its forwarder
+    // dependencies alive across the whole pass, without pinning the DLL forever (the desktop probe must unload).
+    ModuleRef owner;
+    vk_hooks::Bytes before{};
+    const bool readable = target && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        reinterpret_cast<LPCWSTR>(target), &owner.module) && read_code(target, before.data(), before.size());
+    const uint64_t unloads = state.unloads.load();
+    const uint64_t loads = state.loads.load();
+    const bool replaced = vk_hooks::replaced({state.bytes.address, state.owner.load(), state.seen_loads, state.seen_unloads},
+        {reinterpret_cast<uintptr_t>(target), reinterpret_cast<uintptr_t>(owner.module), loads, unloads});
+    auto c = vk_hooks::classify(state.bytes, reinterpret_cast<uintptr_t>(target), readable ? &before : nullptr, replaced);
+
+    // Seeing a live patch consumes only the sampled epoch. Otherwise that old notice could later authorise a
+    // re-hook after an overlay covers this same live patch. A newer notification is never erased.
+    if (c == vk_hooks::Canary::Ours) {
+        state.seen_loads = loads;
+        state.seen_unloads = unloads;
+        return true;
+    }
+    if (readable && state.hook && state.hook->target() == target &&
+        vk_hooks::own_jump(before, reinterpret_cast<uintptr_t>(target), state.hook->trampoline().address(),
+                           state.hook->trampoline().size(), state.hook->destination_address())) {
+        state.seen_loads = loads;
+        state.seen_unloads = unloads;
+        return true;
+    }
+
+    // Also recognise every retained Kiln trampoline, including aliases/old generations. A changed tail or a new
+    // export address is never permission to put a second Kiln detour in front of one already calling us.
+    if (readable) {
+        for (const SafetyHookInline* h : g_retained_hooks) {
+            if (!vk_hooks::own_jump(before, reinterpret_cast<uintptr_t>(target), h->trampoline().address(),
+                                    h->trampoline().size(), h->destination_address())) continue;
+            c = vk_hooks::Canary::Foreign;
+            state.seen_loads = loads;
+            state.seen_unloads = unloads;
+            break;
+        }
+    }
+    if (!vk_hooks::may_hook(c)) {
+        if (!state.told_skip) {
+            state.told_skip = true;
+            logf(KILN_LOG_WARN, "ui: %s at %p is %s: not re-hooked (an existing hook may be underneath)", what, target, canary_name(c));
+        }
+        return false;
+    }
+
+    attempted = true;
+    auto h = std::make_unique<SafetyHookInline>(safetyhook::create_inline(target, detour, SafetyHookInline::StartDisabled));
+    if (!*h) {
+        logf(KILN_LOG_ERROR, "ui: hooking %s failed", what);
+        return false;
+    }
+    const auto& saved = h->original_bytes();
+    vk_hooks::Bytes check{};
+    // An overlay may have patched between classification and trampoline creation. Do not publish or enable a
+    // trampoline built from a different prologue. A final re-read also narrows the race with an external patcher.
+    if (saved.empty() || saved.size() > before.size() || std::memcmp(saved.data(), before.data(), saved.size()) ||
+        !read_code(target, check.data(), saved.size()) || std::memcmp(saved.data(), check.data(), saved.size())) {
+        logf(KILN_LOG_WARN, "ui: %s changed while preparing its hook: not hooked", what);
+        return false;
+    }
+    // Retain before publication: even if enable fails, no observer may ever see a freed trampoline. Moving a live
+    // h_gipa/h_gdpa used to deadlock against .call()'s mutex, or temporarily expose an empty hook to the detour.
+    // Allocate the pending entry before publishing anything; its module ref stays held through activation.
+    prepared.push_back({&state, std::move(owner), what, c, required});
+    g_retained_hooks.push_back(h.get());
+    state.hook = h.release();
+    state.bytes = {};
+    state.bytes.address = reinterpret_cast<uintptr_t>(target);
+    state.bytes.size = saved.size();
+    std::copy(saved.begin(), saved.end(), state.bytes.original.begin());
+    state.owner = reinterpret_cast<uintptr_t>(prepared.back().owner.module);
+    state.target = state.bytes.address;
+    state.seen_loads = loads;
+    state.seen_unloads = unloads;
+    original.store(state.hook->original<T>());
+    return true;
+}
+
+bool enable_hook(const PreparedHook& p) {
+    HookState& state = *p.state;
+    vk_hooks::Bytes check{};
+    if (!read_code(state.hook->target(), check.data(), state.bytes.size) ||
+        std::memcmp(check.data(), state.bytes.original.data(), state.bytes.size)) {
+        logf(KILN_LOG_WARN, "ui: %s changed before enabling its hook: not hooked", p.name);
+        return false;
+    }
+    if (!state.hook->enable()) {
+        logf(KILN_LOG_ERROR, "ui: enabling %s failed", p.name);
+        return false;
+    }
+    // Capture only our own emitted jump, never an overlay that raced us after enable(). Without a fingerprint a
+    // later unknown patch is left alone; the retained trampoline check above still recognises our actual jump.
+    state.bytes.have_patch = read_code(state.hook->target(), state.bytes.patch.data(), state.bytes.size) &&
+        vk_hooks::own_jump(state.bytes.patch, state.bytes.address, state.hook->trampoline().address(),
+                           state.hook->trampoline().size(), state.hook->destination_address());
+    state.told_skip = false;
+    logf(KILN_LOG_INFO, "ui: hooking %s at %p (%s)", p.name, state.hook->target(), canary_name(p.reason));
+    return true;
 }
 
 }  // namespace
 
 bool vk_install() {
-    std::lock_guard<std::mutex> lk(g_install_mu);
-    g_vulkan = GetModuleHandleW(L"vulkan-1.dll");
-    if (!g_vulkan) return false;
-    g_wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
-    void* present_now = reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkQueuePresentKHR"));
-    // the export that carries our hook: vkQueuePresentKHR under Wine, the loader's vkGetInstanceProcAddr on Windows.
-    // Checking the other one never matches, and every LoadLibraryExW would stack a new hook on the old one until a
-    // vkGetInstanceProcAddr call recursed through its own detour (the Windows start crash of 0.2.0-dev.10).
-    void* check_now = g_wine ? present_now : reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkGetInstanceProcAddr"));
+    static thread_local bool installing = false;
+    if (installing) return g_installed.load();
+    installing = true;
+    struct Leave { bool& flag; ~Leave() { flag = false; } } leave{installing};
+    std::unique_lock<std::mutex> lk(g_install_mu, std::try_to_lock);
+    if (!lk.owns_lock()) return g_installed.load();
+    // Temporary refs prevent an unload between GetProcAddress/read/enable. Drop them before releasing the recursion
+    // guard; FreeLibrary can itself invoke loader code. No locks are taken by on_dll_notice.
+    ModuleRef vulkan;
+    if (!GetModuleHandleExW(0, L"vulkan-1.dll", &vulkan.module)) return false;
+    g_vulkan = vulkan.module;
+    const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
+    g_wine = wine;
     watch_unloads();
-    if (g_installed.load()) {
-        const bool notice = g_vulkan_unloaded.exchange(false);
-        const Canary c = canary(check_now);
-        const char* export_name = g_wine ? "vkQueuePresentKHR" : "vkGetInstanceProcAddr";
-        if (c == Canary::Ours) {
-            if (notice && !g_told_notice) {
-                g_told_notice = true;
-                logf(KILN_LOG_INFO, "ui: an unload notice for a vulkan-1.dll, but %s is still Kiln's patch: the hooks stay", export_name);
-            }
-            return true;
-        }
-        if (c == Canary::Foreign || c == Canary::Unreadable) {
-            if (!g_told_foreign) {
-                g_told_foreign = true;
-                logf(KILN_LOG_INFO, "ui: %s at %p is %s%s: Kiln's hooks stay under it, not hooked again", export_name, check_now, canary_name(c),
-                     notice ? " (after an unload notice)" : "");
-            }
-            return true;
-        }
-        logf(KILN_LOG_INFO, "ui: vulkan-1.dll was reloaded (%s at %p, hooked %p, %s%s): hooking again", export_name, check_now, g_present_target,
-             canary_name(c), notice ? ", unload notice" : "");
-        retire_hooks();
+    if (!g_input_installed) {
+        g_input_installed = true;
+        input_install_iat();
     }
-    // the export's bytes before our patch: a later fresh load of the same image has them again
-    g_have_orig = read16(check_now, g_orig_bytes);
-    g_installed = true;
-    ++g_installs;
-    if (g_installs == 1) input_install_iat();
-    auto P = [](const char* n) { return reinterpret_cast<void*>(GetProcAddress(g_vulkan, n)); };
-    R.gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(P("vkGetInstanceProcAddr"));
-    R.gdpa = reinterpret_cast<PFN_vkGetDeviceProcAddr>(P("vkGetDeviceProcAddr"));
-    bool ok = true;
-    if (g_wine) {
-        // winevulkan's exports are the functions vkGet*ProcAddr return: hook them directly.
-        ok &= hook(h_create_instance, P("vkCreateInstance"), reinterpret_cast<void*>(&hk_create_instance), &R.create_instance, "vkCreateInstance");
-        hook(h_destroy_instance, P("vkDestroyInstance"), reinterpret_cast<void*>(&hk_destroy_instance), &R.destroy_instance, "vkDestroyInstance");
-        ok &= hook(h_create_device, P("vkCreateDevice"), reinterpret_cast<void*>(&hk_create_device), &R.create_device, "vkCreateDevice");
-        ok &= hook(h_destroy_device, P("vkDestroyDevice"), reinterpret_cast<void*>(&hk_destroy_device), &R.destroy_device, "vkDestroyDevice");
-        ok &= hook(h_get_queue, P("vkGetDeviceQueue"), reinterpret_cast<void*>(&hk_get_queue), &R.get_queue, "vkGetDeviceQueue");
-        hook(h_get_queue2, P("vkGetDeviceQueue2"), reinterpret_cast<void*>(&hk_get_queue2), &R.get_queue2, "vkGetDeviceQueue2");
-        ok &= hook(h_create_swapchain, P("vkCreateSwapchainKHR"), reinterpret_cast<void*>(&hk_create_swapchain), &R.create_swapchain, "vkCreateSwapchainKHR");
-        ok &= hook(h_destroy_swapchain, P("vkDestroySwapchainKHR"), reinterpret_cast<void*>(&hk_destroy_swapchain), &R.destroy_swapchain, "vkDestroySwapchainKHR");
-        ok &= hook(h_present, P("vkQueuePresentKHR"), reinterpret_cast<void*>(&hk_present), &R.present, "vkQueuePresentKHR");
-        ok &= hook(h_create_surface, P("vkCreateWin32SurfaceKHR"), reinterpret_cast<void*>(&hk_create_surface), &R.create_surface, "vkCreateWin32SurfaceKHR");
-    } else {
-        ok &= hook(h_gipa, reinterpret_cast<void*>(R.gipa), reinterpret_cast<void*>(&hk_gipa), static_cast<PFN_vkGetInstanceProcAddr*>(nullptr), "vkGetInstanceProcAddr");
-        ok &= hook(h_gdpa, reinterpret_cast<void*>(R.gdpa), reinterpret_cast<void*>(&hk_gdpa), static_cast<PFN_vkGetDeviceProcAddr*>(nullptr), "vkGetDeviceProcAddr");
-        // the loader's exports too: the game can take any of them by name from vulkan-1.dll instead of asking
-        // vkGet*ProcAddr (on Windows it creates its device and presents that way: only the lookups were hooked in
-        // 0.2.0-dev.10, and the overlay never saw a device). A lookup still returns Kiln's function (swap_in), and
-        // that calls the export's original code, so a call never passes Kiln twice.
-        hook(h_create_instance, P("vkCreateInstance"), reinterpret_cast<void*>(&hk_create_instance), &R.create_instance, "vkCreateInstance");
-        hook(h_destroy_instance, P("vkDestroyInstance"), reinterpret_cast<void*>(&hk_destroy_instance), &R.destroy_instance, "vkDestroyInstance");
-        hook(h_create_surface, P("vkCreateWin32SurfaceKHR"), reinterpret_cast<void*>(&hk_create_surface), &R.create_surface, "vkCreateWin32SurfaceKHR");
-        ok &= hook(h_create_device, P("vkCreateDevice"), reinterpret_cast<void*>(&hk_create_device), &R.create_device, "vkCreateDevice");
-        ok &= hook(h_destroy_device, P("vkDestroyDevice"), reinterpret_cast<void*>(&hk_destroy_device), &R.destroy_device, "vkDestroyDevice");
-        ok &= hook(h_get_queue, P("vkGetDeviceQueue"), reinterpret_cast<void*>(&hk_get_queue), &R.get_queue, "vkGetDeviceQueue");
-        hook(h_get_queue2, P("vkGetDeviceQueue2"), reinterpret_cast<void*>(&hk_get_queue2), &R.get_queue2, "vkGetDeviceQueue2");
-        ok &= hook(h_create_swapchain, P("vkCreateSwapchainKHR"), reinterpret_cast<void*>(&hk_create_swapchain), &R.create_swapchain, "vkCreateSwapchainKHR");
-        ok &= hook(h_destroy_swapchain, P("vkDestroySwapchainKHR"), reinterpret_cast<void*>(&hk_destroy_swapchain), &R.destroy_swapchain, "vkDestroySwapchainKHR");
-        ok &= hook(h_present, P("vkQueuePresentKHR"), reinterpret_cast<void*>(&hk_present), &R.present, "vkQueuePresentKHR");
-        R.gipa = h_gipa ? h_gipa.original<PFN_vkGetInstanceProcAddr>() : R.gipa;
-        R.gdpa = h_gdpa ? h_gdpa.original<PFN_vkGetDeviceProcAddr>() : R.gdpa;
+    auto P = [&](const char* n) { return reinterpret_cast<void*>(GetProcAddress(vulkan.module, n)); };
+    bool ok = true, attempted = false;
+    std::vector<PreparedHook> prepared;
+    // Wine's proc-address exports are not detoured. Do not overwrite the Windows trampoline originals with their
+    // patched entry points on every LoadLibraryExW (that would immediately recurse).
+    if (wine) {
+        R.gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(P("vkGetInstanceProcAddr"));
+        R.gdpa = reinterpret_cast<PFN_vkGetDeviceProcAddr>(P("vkGetDeviceProcAddr"));
     }
-    g_present_target = g_wine ? present_now : reinterpret_cast<void*>(R.gipa);
-    if (!g_wine) g_present_target = reinterpret_cast<void*>(GetProcAddress(g_vulkan, "vkGetInstanceProcAddr"));
-    if (!g_present_target || !read16(g_present_target, g_hook_bytes)) std::memset(g_hook_bytes, 0, sizeof g_hook_bytes);
-    g_vulkan_unloaded = false;
-    logf(ok ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: Vulkan hooks %s (%s path, vulkan-1 at %p, install #%d)", ok ? "installed" : "INCOMPLETE",
-         g_wine ? "Wine: winevulkan exports" : "Windows: proc-address wrappers", reinterpret_cast<void*>(g_vulkan), g_installs);
+    // Each export decides independently: one fresh prologue must never retire/re-hook the other live exports.
+    // Prepare every original before enabling ANY new hook: a concurrent Windows proc-address lookup or device
+    // creation must not observe null/stale resolver/command originals halfway through an install.
+    if (!wine) {
+        ok &= hook(h_gdpa, P("vkGetDeviceProcAddr"), reinterpret_cast<void*>(&hk_gdpa), R.gdpa, "vkGetDeviceProcAddr", attempted, prepared);
+        ok &= hook(h_gipa, P("vkGetInstanceProcAddr"), reinterpret_cast<void*>(&hk_gipa), R.gipa, "vkGetInstanceProcAddr", attempted, prepared);
+    }
+    const bool instance_ok = hook(h_create_instance, P("vkCreateInstance"), reinterpret_cast<void*>(&hk_create_instance), R.create_instance, "vkCreateInstance", attempted, prepared, wine);
+    if (wine) ok &= instance_ok;
+    hook(h_destroy_instance, P("vkDestroyInstance"), reinterpret_cast<void*>(&hk_destroy_instance), R.destroy_instance, "vkDestroyInstance", attempted, prepared, false);
+    ok &= hook(h_create_device, P("vkCreateDevice"), reinterpret_cast<void*>(&hk_create_device), R.create_device, "vkCreateDevice", attempted, prepared);
+    ok &= hook(h_destroy_device, P("vkDestroyDevice"), reinterpret_cast<void*>(&hk_destroy_device), R.destroy_device, "vkDestroyDevice", attempted, prepared);
+    ok &= hook(h_get_queue, P("vkGetDeviceQueue"), reinterpret_cast<void*>(&hk_get_queue), R.get_queue, "vkGetDeviceQueue", attempted, prepared);
+    hook(h_get_queue2, P("vkGetDeviceQueue2"), reinterpret_cast<void*>(&hk_get_queue2), R.get_queue2, "vkGetDeviceQueue2", attempted, prepared, false);
+    ok &= hook(h_create_swapchain, P("vkCreateSwapchainKHR"), reinterpret_cast<void*>(&hk_create_swapchain), R.create_swapchain, "vkCreateSwapchainKHR", attempted, prepared);
+    ok &= hook(h_destroy_swapchain, P("vkDestroySwapchainKHR"), reinterpret_cast<void*>(&hk_destroy_swapchain), R.destroy_swapchain, "vkDestroySwapchainKHR", attempted, prepared);
+    ok &= hook(h_present, P("vkQueuePresentKHR"), reinterpret_cast<void*>(&hk_present), R.present, "vkQueuePresentKHR", attempted, prepared);
+    const bool surface_ok = hook(h_create_surface, P("vkCreateWin32SurfaceKHR"), reinterpret_cast<void*>(&hk_create_surface), R.create_surface, "vkCreateWin32SurfaceKHR", attempted, prepared, wine);
+    if (wine) ok &= surface_ok;
+    for (const PreparedHook& p : prepared) {
+        const bool enabled = enable_hook(p);
+        if (p.required) ok &= enabled;
+    }
+    g_installed = ok;
+    if (attempted) {
+        ++g_installs;
+        logf(ok ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: Vulkan hooks %s (%s path, vulkan-1 at %p, install #%d)", ok ? "installed" : "INCOMPLETE",
+             wine ? "Wine: winevulkan exports" : "Windows: proc-address wrappers", reinterpret_cast<void*>(vulkan.module), g_installs);
+    }
     return ok;
 }
 
