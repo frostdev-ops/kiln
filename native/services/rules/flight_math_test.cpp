@@ -44,10 +44,10 @@ int main() {
 
     Actor zone = air;
     zone.near_zone = true;
-    check(next_state(kFalling, kFalling, true, true, true, zone, 0) == kBuildingFlying, "building area only: inside a zone, take off");
+    check(next_state(kFalling, kFalling, true, true, true, zone, 0) == kFalling, "a forced actor zone bit cannot authorize a raw base-only request");
     check(next_state(kFalling, kFalling, true, true, true, air, 0) == kFalling, "building area only: outside, no take-off");
     check(next_state(kBuildingFlying, kBuildingFlying, true, true, true, air, 0) == kFalling, "building area only: leaving the zone ends it");
-    check(allowed(true, true, zone) && !allowed(true, true, air) && !allowed(false, false, air), "gravity follows the same rule");
+    check(!allowed(true, true, zone) && !allowed(true, true, air) && !allowed(false, false, air), "base-only gravity needs the server-authored snapshot too");
 
     check(climb(true, false, false) == kClimb && climb(false, true, false) == -kClimb && climb(true, true, false) == 0,
           "jump climbs, sneak sinks, both hold");

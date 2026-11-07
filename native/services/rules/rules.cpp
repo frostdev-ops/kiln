@@ -94,9 +94,10 @@ uint32_t g_extra_ids[kExtra]{};
 Slot g_extra[kExtra];
 std::mutex g_extra_mu;  // protects extra identities as well as their snapshots (including slot reuse)
 // Lock-free hints for hooks that run for every actor (character flight): the extra ids as last set, and every flag
-// any rule set has carried since the last clear (only grows until then).
+// any rule set has carried. Character flight also has an exact live count, so its global fast path recovers on revocation.
 std::atomic<uint32_t> g_extra_hint[kExtra]{};
 std::atomic<uint32_t> g_flags_seen{0};
+std::atomic<uint32_t> g_flight_slots{0};
 
 constexpr float kMaxGlideSink = 10.0f;
 constexpr float kMaxGlideAccel = 100.0f;
@@ -136,7 +137,11 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     d.glide_climb = std::min(clean(d.glide_climb, 0.0f), kMaxGlideSpeed);
     g_flags_seen.fetch_or(d.flags, std::memory_order_relaxed);
     std::lock_guard lock(s.mu);
+    const bool was_flight = (s.value.flags & KILN_RULES_CHARACTER_FLIGHT) != 0;
+    const bool now_flight = (d.flags & KILN_RULES_CHARACTER_FLIGHT) != 0;
+    if (now_flight && !was_flight) g_flight_slots.fetch_add(1, std::memory_order_relaxed);
     s.value = d;
+    if (was_flight && !now_flight) g_flight_slots.fetch_sub(1, std::memory_order_relaxed);
 }
 
 bool load(const Slot& s, KilnRulesPlayer* out) {
@@ -771,6 +776,7 @@ bool upgrade_free_guarded(void* tx, uint32_t owner, uintptr_t ret, unsigned long
 }
 
 uint32_t __fastcall hk_pay(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
+    if (kiln_rules_creative::idle()) return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
     if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_upgrade_ret && g_upgrade_ret) {
         unsigned long code = 0;
         if (upgrade_free_guarded(tx, owner, reinterpret_cast<uintptr_t>(_ReturnAddress()), &code)) {
@@ -1154,6 +1160,7 @@ void resolve_build_programs() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
+    kiln_rules_flight::refresh();
     resolve_build_programs();
     if (g_client_guards && t && t->step % 30 == 0) refresh_player_from_server();
 }
@@ -1171,6 +1178,8 @@ void clear_all() {
 void arm_payments();
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
+    if (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING) kiln_rules_flight::reset();
+    if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STOPPING) store(g_local, nullptr);
     if (ev->event == KILN_WORLD_STARTED) arm_payments();
     if (ev->kind == KILN_WORLD_CLIENT && (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING))
         kiln_rules_creative::reset_map();
@@ -1494,5 +1503,8 @@ bool may_have_rules(uint32_t entity) {
         if (entity && h.load(std::memory_order_relaxed) == entity) return true;
     return false;
 }
-uint32_t flags_seen() { return g_flags_seen.load(std::memory_order_relaxed); }
+uint32_t flags_seen() {
+    const auto flags = g_flags_seen.load(std::memory_order_relaxed) & ~KILN_RULES_CHARACTER_FLIGHT;
+    return flags | (g_flight_slots.load(std::memory_order_relaxed) ? KILN_RULES_CHARACTER_FLIGHT : 0);
+}
 }  // namespace kiln_rules_bridge

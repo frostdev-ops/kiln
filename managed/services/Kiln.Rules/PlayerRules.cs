@@ -326,6 +326,9 @@ public sealed record EffectiveRules
     public GlideBoostRule? GlideBoost { get; init; }
     public WaterRule? Water { get; init; }
     public CharacterFlightMode CharacterFlight { get; init; }
+    // Authored by the server from real altar bounds, then sent as the same flight bit to prediction. The actor's
+    // IsNearBuildingZone is unsuitable: BuildOutsideBases can force it, and the client does not query server bases.
+    internal bool FlightAreaAllowed { get; init; }
 
     /// <summary>The rule sets that applied, in the order they were set.</summary>
     public IReadOnlyList<RuleSet> From { get; init; } = Array.Empty<RuleSet>();
@@ -349,8 +352,8 @@ public sealed record EffectiveRules
         (FreezeShroudTimer ? RulesNative.ShroudFreeze : 0) | (UnlimitedGliding ? RulesNative.GlideUnlimited : 0) |
         (GlideBoost is not null ? RulesNative.GlideBoost : 0) |
         (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0) |
-        (CharacterFlight != CharacterFlightMode.Off ? RulesNative.CharacterFlight : 0) |
-        (CharacterFlight == CharacterFlightMode.BuildingArea ? RulesNative.FlightBaseOnly : 0),
+        (CharacterFlight == CharacterFlightMode.Unlimited || CharacterFlight == CharacterFlightMode.BuildingArea && FlightAreaAllowed
+            ? RulesNative.CharacterFlight : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
         (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0));

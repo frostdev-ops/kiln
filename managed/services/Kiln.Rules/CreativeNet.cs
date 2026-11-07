@@ -171,7 +171,8 @@ internal static class CreativeNet
         req = req with { Options = options };
         // the backpack slot (a later trailing field; an older peer sends none, or the transport's zero padding)
         if (r.Remaining >= 8) return req with { Slot = r.UInt64() };
-        if (r.Remaining > 0 && r.Rest().IndexOfAnyExcept((byte)0) >= 0) throw new NetFormatException("Truncated creative slot.");
+        if (r.Remaining > 3 || r.Remaining > 0 && r.Rest().IndexOfAnyExcept((byte)0) >= 0)
+            throw new NetFormatException("Truncated creative slot.");
         return req;
     }
 
@@ -273,6 +274,7 @@ internal static class CreativeNet
 
     private static void Drain()
     {
+        if (CreativeFlame.Running) Creative.StepAside();  // also runs when only /creative cycle was used, with no rule sets
         for (var i = 0; i < 32; i++)
         {
             (int Session, Action Action) work;

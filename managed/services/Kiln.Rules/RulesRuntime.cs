@@ -189,8 +189,20 @@ internal static unsafe class RulesRuntime
         List<(RuleSet?, PlayerRules)> matching;
         lock (Gate)
             matching = SetsList.Where(s => s.Active && s.Scope.Covers(player, at)).Select(s => ((RuleSet?)s, s.Rules)).ToList();
-        return RulesCrafting.Supported(RulesMath.Combine(player, matching, _limits));
+        var rules = RulesCrafting.Supported(RulesMath.Combine(player, matching, _limits));
+        if (rules.CharacterFlight != CharacterFlightMode.BuildingArea) return rules;
+        try
+        {
+            return InFlightArea(rules, at, Build.Available ? Build.Bases : Array.Empty<PlayerBase>());
+        }
+        catch (Exception)
+        {
+            return rules;  // no verified building zone: flight stays off
+        }
     }
+
+    internal static EffectiveRules InFlightArea(EffectiveRules rules, WorldPosition? at, IReadOnlyList<PlayerBase> bases) =>
+        rules with { FlightAreaAllowed = at is { } p && bases.Any(b => b.Contains(p)) };
 
     public static RulesClient ClientOf(EntityId player)
     {
@@ -228,14 +240,15 @@ internal static unsafe class RulesRuntime
                 if (s.Expires is { } e && e <= now) (expired ??= new()).Add(s);
         if (expired != null)
             foreach (var s in expired) s.Dispose();
-        bool anyArea, anySets;
+        bool anyArea, anySets, areaFlight;
         lock (Gate)
         {
             anySets = SetsList.Count > 0 || PlayersByEntity.Count > 0;
             anyArea = SetsList.Any(s => s.Scope.IsArea);
+            areaFlight = SetsList.Any(s => s.Active && s.Rules.CharacterFlight == CharacterFlightMode.BuildingArea);
         }
         if (!anySets) return;
-        if (_dirty || (anyArea && _step % ResolveEverySteps == 0) || _step % (ResolveEverySteps * 4) == 0) Resolve();
+        if (_dirty || areaFlight || (anyArea && _step % ResolveEverySteps == 0) || _step % (ResolveEverySteps * 4) == 0) Resolve();
         List<PlayerState> live;
         lock (Gate) live = PlayersByEntity.Values.ToList();
         ModContext.CurrentMod = null;
@@ -330,6 +343,7 @@ internal static unsafe class RulesRuntime
     {
         var part = s.Effective.Native;
         if (part.HasPredicted && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutPredicted;
+        if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
         var t = RulesNative.T;
         if (part == s.Native || t == null) return;
         var p = RulesNative.Of(part);
@@ -340,6 +354,9 @@ internal static unsafe class RulesRuntime
     }
 
     private static bool PredictsRules(RulesClient c) => c is RulesClient.Host or RulesClient.Kiln or RulesClient.Simulated;
+
+    internal static bool CanPredictFlight(EntityId player) => ClientOf(player) is RulesClient.Host or RulesClient.Simulated ||
+        Network.Available && RulesNet.FlightReady(Network.PeerOf(player));
 
     private static void Leave(PlayerState s)
     {
@@ -373,6 +390,7 @@ internal static unsafe class RulesRuntime
     private static void SyncClient(PlayerState s)
     {
         var part = s.Effective.Native;
+        if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
         if (s.ClientSent && part == s.Client) return;
         bool host;
         try

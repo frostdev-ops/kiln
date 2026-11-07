@@ -230,6 +230,7 @@ internal static class CreativeMenu
 
     private static void Draw(UiDraw ui)
     {
+        if (CreativeFlame.Running) { ui.TextWrapped(CreativeFlame.Note + "."); return; }
         lock (Lock)
         {
             if (_seenConnection != _connectionVersion)
@@ -500,6 +501,7 @@ internal static class CreativeMenu
     // The key: off when flying, else the mode last picked in the menu.
     private static void ToggleFlight()
     {
+        if (CreativeFlame.Running) return;
         CreativeStateMsg? st;
         lock (Lock) st = _state;
         if (st is not { } s || (s.Access & CreativeAccess.On) == 0) return;
@@ -519,7 +521,7 @@ internal static class CreativeMenu
         var now = (int)FlightOf(s.Access);
         if ((s.Access & CreativeAccess.FlightAllowed) == 0 && now == 0)
         {
-            ui.TextDisabled("This server does not allow character flight (rules.json allowCharacterFlight), or its game build has no flight hooks.");
+            ui.TextDisabled("Character flight needs rules.json allowCharacterFlight and matching flight hooks in both games.");
             return;
         }
         var pick = now;

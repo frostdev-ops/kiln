@@ -65,8 +65,8 @@ enum {
                                                    grounded while sinking it lands; no gravity while it may fly. Server world
                                                    and the client's prediction world (the same rules on both). Kiln.Rules
                                                    grants it only where the server's rules.json allows it (off by default) */
-    KILN_RULES_FLIGHT_BASE_ONLY = 0x1000u,      /* with CHARACTER_FLIGHT: only inside a building zone (the actor's
-                                                   IsNearBuildingZone); leaving one in the air ends the flight */
+    KILN_RULES_FLIGHT_BASE_ONLY = 0x1000u,      /* raw base-only requests fail closed: Kiln.Rules resolves real altar
+                                                   bounds server-side and sends CHARACTER_FLIGHT only while inside */
 };
 
 typedef struct KilnRulesPlayer {
@@ -124,7 +124,7 @@ typedef struct KilnRulesCreative {
     uint64_t craft_ui;      /* craftable amounts raised in the client's menu */
     uint64_t consumes_kept; /* consume removals skipped */
     uint64_t faults;        /* creative hook bodies that faulted (the game's own path ran) */
-    /* since 0.2.0-dev.16 (size 72): character flight */
+    /* since 0.2.0-dev.16 (size 80): character flight */
     uint64_t flight_takeoffs; /* steps that turned a player's state to BuildingFlying */
     uint64_t flight_landings; /* flights that ended on the ground (sinking) */
     uint64_t flight_ends;     /* flights that ended in the air (the rule or its conditions ended): the player falls */

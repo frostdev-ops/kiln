@@ -96,12 +96,17 @@ int main() {
     }
     test_return_address = 201;
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "other inventory-removal callers still remove items");
+    test_return_address = 251;
+    check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "buff application outside the exact consume call cannot borrow a waiver");
+    test_return_address = 250;
+    check(c::hk_remove(&out, tx, 4, 7, uint64_t{8}, 1)->error == 1, "food consumed by another player is still removed");
     test_return_address = 200;
     check(c::hk_remove(&out, tx, 4, 7, uint64_t{8}, 1)->error == 1, "consumption by another player still removes items");
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 2)->error == 1, "consume waiver requires the pinned one-item removal");
     store(g_players[3], nullptr);
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "revoking kept consumables takes effect immediately");
-    check(removals == 4, "unrelated removals ran the game's path exactly once each");
+    check(removals == 6, "unrelated removals ran the game's path exactly once each");
+    check(std::memcmp(before, tx, sizeof tx) == 0, "kept consumables queue neither removals nor duplicate replacement items");
 
     c::h_craftable.target = reinterpret_cast<void*>(&craftable);
     store(g_local, nullptr);
@@ -167,6 +172,22 @@ int main() {
           "with Creative Mode running nothing is hooked, before any symbol lookup, and status says why");
     flame_on = false;
     check(c::flame_creative() && flame_asks == asks + 1, "once seen running, Creative Mode stays seen (its hooks stay too)");
+    store(g_players[3], &rules);
+    c::g_recipe_ret = 100;
+    check(!c::pay_free(100, tx, 3), "late Creative Mode disables an already installed recipe waiver");
+    const int old_removals = removals;
+    test_return_address = 250;
+    check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1 && removals == old_removals + 1,
+          "late Creative Mode makes installed food hooks call the original exactly once");
+    store(g_local, &rules);
+    check(c::hk_craftable(nullptr, 7, 10, nullptr) == 2, "late Creative Mode restores the original craft buttons");
+    const int old_fog = fog_calls;
+    c::hk_fog(map, nullptr, 120);
+    check(fog_calls == old_fog + 1, "late Creative Mode disables installed map widening and sweeps");
+    struct { uint64_t prefix; uint64_t canary; } short_status{8, 0x12345678};
+    check(c::creative_status(reinterpret_cast<KilnRulesCreative*>(&short_status)) == KILN_OK && short_status.canary == 0x12345678,
+          "the new creative status fields never overrun an older caller's prefix");
+    static_assert(sizeof(KilnRulesCreative) == 80 && offsetof(KilnRulesCreative, flight_takeoffs) == 56);
     std::printf("creative hooks: %d failure(s)\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

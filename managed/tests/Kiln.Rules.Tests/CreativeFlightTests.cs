@@ -37,7 +37,7 @@ public class CreativeFlightTests
         Assert.Equal(CharacterFlightMode.Unlimited, Combine(Allowed, bases, unlimited).CharacterFlight);
         Assert.Equal(CharacterFlightMode.Off, Combine(Allowed, unlimited, off).CharacterFlight);
         var b = Combine(Allowed, bases);
-        Assert.Equal(RulesNative.CharacterFlight | RulesNative.FlightBaseOnly, b.Native.Flags & (RulesNative.CharacterFlight | RulesNative.FlightBaseOnly));
+        Assert.Equal(0u, b.Native.Flags & (RulesNative.CharacterFlight | RulesNative.FlightBaseOnly)); // no verified server zone yet
     }
 
     [Fact]
@@ -106,4 +106,61 @@ public class CreativeFlightTests
         var data = big.ToArray();
         Assert.Throws<FormatException>(() => { var r2 = new NetReader(data); CreativeNet.DecodeBackpack(ref r2); });
     }
+    [Fact]
+    public void BuildingFlightUsesServerAltarBoundsAndTheSameSnapshotForPrediction()
+    {
+        var rules = Combine(Allowed, new PlayerRules { CharacterFlight = CharacterFlightMode.BuildingArea, BuildOutsideBases = true });
+        var zone = new PlayerBase(new EntityId(100), new WorldPosition(10, 20, 30), new System.Numerics.Vector3(4, 5, 6), false);
+        var inside = RulesRuntime.InFlightArea(rules, new WorldPosition(10, 20, 30), [zone]);
+        Assert.NotEqual(0u, inside.Native.Flags & RulesNative.CharacterFlight);
+        Assert.Equal(0u, inside.Native.Flags & RulesNative.FlightBaseOnly);
+        var outside = RulesRuntime.InFlightArea(inside, new WorldPosition(15, 20, 30), [zone]);
+        Assert.Equal(0u, outside.Native.Flags & RulesNative.CharacterFlight);
+        Assert.False(inside.SameAs(outside)); // crossing a boundary must publish a changed snapshot
+        Assert.Equal(0u, RulesRuntime.InFlightArea(inside, null, [zone]).Native.Flags & RulesNative.CharacterFlight);
+        Assert.Equal(0u, RulesRuntime.InFlightArea(inside, zone.Center, []).Native.Flags & RulesNative.CharacterFlight);
+    }
+
+    [Fact]
+    public void BackpackValidatesOwnershipUnlockedBoundsAndStackingOnTheServer()
+    {
+        var item = new ItemInfo(new ItemId(7), "Material_Wood", null, 100, ItemCategory.Materials,
+            ItemRarity.Common, false, 0, 0, 0, 0, Guid.Empty);
+        var inv = new InventoryContents(P, true, 1, 10, 18,
+            [(new EntityId(100), InventoryCategory.Generic), (new EntityId(200), InventoryCategory.Generic),
+             (new EntityId(300), InventoryCategory.Equipment)], []);
+        var slots = CreativeTools.BackpackSlots(inv);
+        Assert.Equal(10, slots.Count);
+        Assert.Null(CreativeTools.ValidateSlot(slots, SlotId.Of(new EntityId(200), 1), item));
+        foreach (var bad in new[] { SlotId.Of(new EntityId(200), 2), SlotId.Of(new EntityId(300), 0), SlotId.Of(new EntityId(999), 0),
+                     new SlotId(SlotId.Of(new EntityId(100), 0).Value | (1UL << 48)) })
+            Assert.NotNull(CreativeTools.ValidateSlot(slots, bad, item));
+        Assert.Empty(CreativeTools.BackpackSlots(inv with { Initialized = false }));
+        Assert.Empty(CreativeTools.BackpackSlots(inv with { SetupFlags = 0 }));
+        var slot = SlotId.Of(new EntityId(100), 0);
+        Assert.Null(CreativeTools.ValidateSlot([new(slot.Value, 7, 99)], slot, item));
+        Assert.NotNull(CreativeTools.ValidateSlot([new(slot.Value, 7, 100)], slot, item));
+        Assert.NotNull(CreativeTools.ValidateSlot([new(slot.Value, 8, 1)], slot, item));
+        Assert.NotNull(CreativeTools.ValidateSlot([new(slot.Value, 7, 1)], slot, item with { IsGear = true }));
+    }
+
+    [Theory]
+    [InlineData(4)] [InlineData(5)] [InlineData(6)] [InlineData(7)]
+    public void AnIncompleteZeroSlotIsNotMistakenForTransportPadding(int bytes)
+    {
+        var w = new NetWriter().Byte((byte)CreativeAsk.Give).UInt32(9).Int32(1).Int32(-1).Int32(-1).Double(0).Int32(0);
+        for (var i = 0; i < bytes; i++) w.Byte(0);
+        var data = w.ToArray();
+        Assert.Throws<NetFormatException>(() => { var r = new NetReader(data); CreativeNet.DecodeRequest(ref r); });
+    }
+
+    [Theory]
+    [InlineData(7)] [InlineData(8)]
+    public void NewRequestKindsUseTheSameBoundedInbox(int kind)
+    {
+        var inbox = new CreativeInbox();
+        for (var i = 0; i < 4; i++) Assert.True(inbox.Enqueue(P, new CreativeRequest((CreativeAsk)kind), false, at: 0));
+        Assert.False(inbox.Enqueue(P, new CreativeRequest((CreativeAsk)kind), false, at: 0));
+    }
+
 }

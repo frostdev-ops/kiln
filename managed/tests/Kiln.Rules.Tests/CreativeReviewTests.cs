@@ -36,6 +36,7 @@ public sealed class CreativeReviewTests
     public async Task NonAdminOrVanillaCannotEnableCreativeTakeItemsOrChangeTime()
     {
         Assert.False(Creative.Set(P, true).Ok); // no peer with the rules channel
+        Assert.False(Creative.SetFlight(P, CharacterFlightMode.Unlimited).Ok);
         Assert.False(CreativeTools.HasPermission(P));
         Assert.False(CreativeTools.HasPermission(EntityId.None));
         Assert.False((await CreativeTools.Give(P, new ItemId(7))).Ok);

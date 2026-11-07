@@ -46,7 +46,7 @@ public static class CreativeTools
         if (info is null) return new(false, true, $"No item {item} in this world's catalogue.");
         if (ValidateGive(info, count, level, rarity) is { } error) return new(false, true, error);
         if (ValidateExtras(info, upgrades, gemSlot, Items.GearOptionsAvailable) is { } extra) return new(false, true, extra);
-        if (slot is { } sl && !BackpackSlots(player).Any(s => s.Slot == sl.Value)) return new(false, true, "That slot is not in your backpack.");
+        if (slot is { } sl && ValidateSlot(BackpackSlots(player), sl, info) is { } slotError) return new(false, true, slotError);
         if (!Gives.TryEnter(player, Environment.TickCount64, out var ticket)) return new(false, true, "Wait for your previous take, then try again.");
         var name = NameOf(player);  // continuations without a mod scheduler may run off the tick thread
         try
@@ -75,19 +75,37 @@ public static class CreativeTools
     /// <summary>The player's backpack: every slot of their generic inventories, empty ones too, in order.</summary>
     internal static IReadOnlyList<CreativeSlot> BackpackSlots(EntityId player)
     {
-        if (!ItemsReady() || Items.Read(player) is not { } inv) return Array.Empty<CreativeSlot>();
+        return ItemsReady() ? BackpackSlots(Items.Read(player)) : [];
+    }
+
+    internal static IReadOnlyList<CreativeSlot> BackpackSlots(InventoryContents? inv)
+    {
+        if (inv is not { Initialized: true, IsPlayer: true }) return [];
         var held = inv.Slots.Where(s => s.Category == InventoryCategory.Generic).ToDictionary(s => s.Slot.Value);
         var list = new List<CreativeSlot>();
+        var limit = Math.Clamp(inv.GenericSlots, 0, CreativeBackpackMsg.MaxSlots);
         foreach (var (e, cat) in inv.Inventories)
         {
             if (cat != InventoryCategory.Generic) continue;
-            for (var i = 0; i < 8 && list.Count < CreativeBackpackMsg.MaxSlots; i++)
+            for (var i = 0; i < 8 && list.Count < limit; i++)
             {
                 var id = SlotId.Of(e, i).Value;
                 list.Add(held.TryGetValue(id, out var s) ? new CreativeSlot(id, s.Item.Value, s.Count) : new CreativeSlot(id, 0, 0));
             }
         }
         return list;
+    }
+
+    internal static string? ValidateSlot(IReadOnlyList<CreativeSlot> backpack, SlotId slot, ItemInfo item)
+    {
+        var index = -1;
+        for (var i = 0; i < backpack.Count; i++) if (backpack[i].Slot == slot.Value) { index = i; break; }
+        if (index < 0) return "That slot is not in your backpack.";
+        var target = backpack[index];
+        if (target.Item == 0 && target.Count == 0) return null;
+        if (target.Item != item.Id.Value || item.IsGear || target.Count < 1 || target.Count >= Math.Max(1, item.MaxStack))
+            return "That slot must be empty or hold a matching stack with room.";
+        return null;
     }
 
     internal static string? ValidateGive(ItemInfo info, int count, int? level, ItemRarity? rarity)
@@ -123,7 +141,15 @@ public static class CreativeTools
         return asked is { } a ? Math.Min(a, cap) : cap;
     }
 
-    internal static void WorldClosed() => Gives.Clear();
+    internal static void WorldClosed() { Gives.Clear(); _cycleSpeed = null; }
+
+    private static double? _cycleSpeed;
+    internal static void StepAside()
+    {
+        var held = _cycleSpeed;
+        _cycleSpeed = null;
+        if (held is not null && Time.CanSetSpeed && Time.HeldSpeed == held) Time.SetSpeed(null);
+    }
 
     /// <summary>Jumps the world's clock forward to <paramref name="hours"/> (0..24). Refused unless
     /// <see cref="MayChangeTime"/>.</summary>
@@ -164,6 +190,7 @@ public static class CreativeTools
         if (!Enum.IsDefined(cycle)) return new(false, false, "unknown cycle");
         if (!CycleReady()) return new(false, false, "This build cannot hold the clock's speed (kiln.time, feature time.scale).");
         Time.SetCycle(cycle);
+        _cycleSpeed = Time.HeldSpeed;
         RulesRuntime.Log(LogLevel.Info, $"creative: {who} set the day and night cycle to {cycle}" +
                                         (Time.HeldSpeed is { } s ? $" (clock speed {s:0.##})" : ""));
         return new(true, false, cycle switch
@@ -398,7 +425,8 @@ internal static class CreativeServer
         {
             try
             {
-                if (RulesRuntime.Limits.AllowCharacterFlight && Rules.Status() is { CharacterFlight: true }) a |= CreativeAccess.FlightAllowed;
+                if (RulesRuntime.Limits.AllowCharacterFlight && Rules.Status() is { CharacterFlight: true } && RulesRuntime.CanPredictFlight(player))
+                    a |= CreativeAccess.FlightAllowed;
                 a |= RulesRuntime.Fresh(player).CharacterFlight switch
                 {
                     CharacterFlightMode.Unlimited => CreativeAccess.FlightUnlimited,

@@ -358,6 +358,10 @@ mining, Shroud) are installed at boot as before: they act only for players with 
 creative's while Creative Mode runs; if Creative Mode inline-hooks one of the same functions it hooks over Kiln's jump.
 kiln.time's clock-speed hook is not touched (Kiln refuses cycle changes, so it passes through). Lab: the dummy Flame mod
 test (`native/plugins/compat` `flame_test.dll` as `mods/creative/`), see below.
+Review follow-up: native pass-through guards also cover late detection; active Kiln creative sets and its held clock
+speed are retired on the next server tick. Pending/entered reservations remain sticky across a failed start. Character
+flight ownership uses entity plus locomotion-object identity, lasts until the flight ends, and resets on world changes;
+no wall-clock timeout decides whether a sticky state falls.
 
 ### 2. Food, drinks, potions and bandages
 The consume events in the game data (listed by `mods/tests/creative-test` from kiln.gamedata) **[rt]**: ApplyBuffEvent 11
@@ -384,7 +388,7 @@ Kiln's overlay has no drag gesture: `UiDraw` exposes no ImGui drag-and-drop sour
 Kiln-drawn grid of the player's backpack (the player's Generic inventories, 8 slots each) in the creative menu; **Place...**
 picks the selected catalogue item up and a click on an empty slot (or one with the same item) gives it into that slot
 (`CreativeRequest.Slot`, a trailing field; `Items.Give(..., slot)`; the server refuses a slot outside the player's own
-backpack). What is left:
+backpack, limited to initialized unlocked Generic slots, and rejects other items, occupied gear and full stacks). What is left:
 - a real drag gesture inside the overlay: kiln.ui needs `BeginDragDropSource` / `SetDragDropPayload` /
   `BeginDragDropTarget` / `AcceptDragDropPayload` in its widget table and `UiDraw` (S, shared UI service, additive);
 - a drop onto the game's own inventory screen (L, client RE): the HUD's inventory screen drop handler and its drag
@@ -410,11 +414,21 @@ Answers to Part 3's open questions **[dis]**:
   name table (`0x1c5390`) covers 0..11, so state 11 on a player is bounded: it takes the default branch. What it looks
   like for other players is for the manual test.
 - **Replication.** `DynamicNetworkLocomotion.state` (+0x24) carries the state to clients; the owner's prediction runs
-  the same three hooks with its local rules (sent over `kiln:rules`, like the glider's), so both sides decide alike from
-  the same replicated input. Not proven on a real connection.
+  the same three hooks with its local rules (sent over `kiln:rules`, like the glider's), so both sides decide from the same input and server-authored flight permission. The v4 channel requires a per-connection
+  acknowledgement of available client flight hooks. `BuildingArea` is resolved server-side from actual altar bounds
+  every tick and sent as the same flight bit, rather than testing `IsNearBuildingZone` (build-anywhere forces that flag).
+  Boundary latency and prediction are not proven on a real connection.
 - **Not done:** the mod's air-jump and head-dive input changes (Kiln's flight starts from any airborne step instead of
   a jump in the air), a HUD hint while flying, and "lands the character safely" outside creative mode's invulnerability.
 
 A lab (server 26430253, `mods/tests/creative-test`, a spawned player character, its PlayerInput held
 bits written by the test): see docs/kiln/services/rules.md "Character flight" for the lines.
 
+
+### Scoped review evidence (2026-11-07)
+Read-only disassembly of server 26430253: `gravity_apply_velocity_actor` changes Velocity only; the separate
+`movement_collider_velocity_actor` (`0xfeae0`) still runs the collider path, with no state-11 bypass. `addItems`
+(`0x1b1f60`) calls `putStack` for the preferred slot; the latter rechecks the current item/gear/stack limit
+(`0x1b2597..0x1b2619`), declining a nonempty mismatched item. The earlier managed slot check therefore also gives a
+clean refusal, while the game's own execution-time check protects contents changed after submission. These are static
+observations; no game or live server was launched for this review.

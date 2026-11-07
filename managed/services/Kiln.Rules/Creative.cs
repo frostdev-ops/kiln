@@ -20,7 +20,7 @@ public static class Creative
     private static readonly Dictionary<EntityId, RuleSet> Sets = new();
 
     /// <summary>Whether <paramref name="player"/> is in creative mode.</summary>
-    public static bool IsOn(EntityId player) => Sets.TryGetValue(player, out var s) && s.Active;
+    public static bool IsOn(EntityId player) => Sets.TryGetValue(player, out var s) && s.Active && !CreativeFlame.Running;
 
     /// <summary>The players in creative mode.</summary>
     public static IReadOnlyList<EntityId> Players => Sets.Where(kv => kv.Value.Active).Select(kv => kv.Key).ToArray();
@@ -39,8 +39,8 @@ public static class Creative
             Tell(player, "Creative mode is off: the game's own costs, vitals and flight rules are back. A flight outside a base ends and sets you down on the ground.");
             return new(true, false, $"Creative mode off for {name}.");
         }
-        if (IsOn(player)) return new(true, true, $"{name} is already in creative mode.");
         if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
+        if (IsOn(player)) return new(true, true, $"{name} is already in creative mode.");
         var client = Rules.ClientOf(player);
         if (client is not (RulesClient.Kiln or RulesClient.Host or RulesClient.Simulated))
             return new(false, false, client switch
@@ -86,6 +86,8 @@ public static class Creative
         if (!Enum.IsDefined(mode)) return new(false, IsOn(player), "unknown flight mode");
         if (CreativeFlame.Running) return new(false, false, CreativeFlame.Note + ".");
         if (!Sets.TryGetValue(player, out var set) || !set.Active) return new(false, false, $"{name} is not in creative mode.");
+        if (mode != CharacterFlightMode.Off && !RulesRuntime.CanPredictFlight(player))
+            return new(false, true, $"Character flight stays off for {name}: their game has not confirmed matching flight hooks.");
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;
         try
@@ -134,6 +136,13 @@ public static class Creative
         Sets.Clear();
         CreativeTools.WorldClosed();
         CreativeNet.WorldClosed();
+    }
+
+    // A late Flame start must also retire rules that were granted before it arrived.
+    internal static void StepAside()
+    {
+        CreativeTools.StepAside();
+        foreach (var player in Players) Set(player, false);
     }
 
     private static string NameOf(EntityId e)

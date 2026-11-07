@@ -11,7 +11,7 @@
 //  - the vertical input: an inline hook on the BuildingFlying mover sets DynamicLocomotion.inputVelocity.y from the
 //    held Jump (climb) and Sneak (sink) bits of PlayerInput, faster with Sprint, before the mover steers toward it.
 //
-// Only entities with KILN_RULES_CHARACTER_FLIGHT, or flown by Kiln within the last seconds (their rules just ended), are
+// Only entities with KILN_RULES_CHARACTER_FLIGHT, or still in a flight owned by Kiln (their rules just ended), are
 // touched: the building spark keeps its own state. Every body runs under a structured-exception guard; a fault counts,
 // and the game's own decision stands.
 #include <windows.h>
@@ -74,66 +74,63 @@ struct Layout {
 
 // keen::actor::StateFlag and PlayerInputType bits
 constexpr uint8_t kGrounded = 0, kDead = 7, kClimbing = 34, kAttached = 36, kHangGliding = 37, kFloating = 43,
-                  kUnderWater = 44, kNearZone = 54;
+                  kUnderWater = 44;
 constexpr int kJump = 32, kSprint = 53, kSneak = 55;
 
 struct Stats {
     std::atomic<uint64_t> takeoffs{0}, landings{0}, ends{0}, faults{0};
 } S;
 
-// Entities Kiln flew within the last kRecentMs: when their rules end mid-flight they still fall instead of keeping the
-// sticky state (on a hosting game the server world and the prediction both see the same id).
+// Ownership is keyed by the locomotion object as well as the entity. It does not expire with wall time: a paused
+// prediction can resume after its rule was revoked. Player ids have two ownership slots (server and prediction).
+// The bounded extra history serves simulated characters (at most 16 extra rule ids, on two worlds).
 constexpr int kRecent = 64;
-constexpr uint64_t kRecentMs = 5000;
-std::atomic<uint64_t> g_last_flying{0};
-std::atomic<uint32_t> g_recent_id[kRecent];
-std::atomic<uint64_t> g_recent_at[kRecent];
+std::atomic<bool> g_flew{false};
+std::atomic<uintptr_t> g_player_dyn[1024][2]{};
+std::atomic<uint32_t> g_recent_id[kRecent]{};
+std::atomic<uintptr_t> g_recent_dyn[kRecent]{};
+std::atomic<unsigned> g_next_recent{0};
+std::atomic<uint32_t> g_local_player{0};  // refreshed once per client tick, never a service call per actor
 
-void note_flying(uint32_t e) {
-    const uint64_t now = GetTickCount64();
-    g_last_flying.store(now, std::memory_order_relaxed);
-    int free_at = -1, oldest = 0;
-    for (int i = 0; i < kRecent; ++i) {
-        const uint32_t id = g_recent_id[i].load(std::memory_order_relaxed);
-        if (id == e) {
-            g_recent_at[i].store(now, std::memory_order_relaxed);
-            return;
-        }
-        if (free_at < 0 && (id == 0 || now - g_recent_at[i].load(std::memory_order_relaxed) > kRecentMs)) free_at = i;
-        if (g_recent_at[i].load(std::memory_order_relaxed) < g_recent_at[oldest].load(std::memory_order_relaxed)) oldest = i;
+void note_flying(uint32_t e, const void* dyn) {
+    g_flew.store(true, std::memory_order_relaxed);
+    const auto ptr = reinterpret_cast<uintptr_t>(dyn);
+    if (e && e <= 1023) {
+        auto& slots = g_player_dyn[e];
+        uintptr_t empty = 0;
+        if (slots[0].load() != ptr && !slots[0].compare_exchange_strong(empty, ptr)) slots[1].store(ptr);
+        return;
     }
-    const int at = free_at >= 0 ? free_at : oldest;
-    g_recent_at[at].store(now, std::memory_order_relaxed);
-    g_recent_id[at].store(e, std::memory_order_relaxed);
+    for (int i = 0; i < kRecent; ++i)
+        if (g_recent_id[i].load() == e && g_recent_dyn[i].load() == ptr) return;
+    const unsigned i = g_next_recent.fetch_add(1) % kRecent;
+    g_recent_dyn[i].store(ptr);
+    g_recent_id[i].store(e);
 }
 
-bool flown_recently(uint32_t e) {
-    const uint64_t now = GetTickCount64();
+bool flown_recently(uint32_t e, const void* dyn) {
+    if (e && e <= 1023) return g_player_dyn[e][0].load() == reinterpret_cast<uintptr_t>(dyn) ||
+                              g_player_dyn[e][1].load() == reinterpret_cast<uintptr_t>(dyn);
     for (int i = 0; i < kRecent; ++i)
-        if (g_recent_id[i].load(std::memory_order_relaxed) == e && now - g_recent_at[i].load(std::memory_order_relaxed) <= kRecentMs)
-            return true;
+        if (g_recent_id[i].load() == e && g_recent_dyn[i].load() == reinterpret_cast<uintptr_t>(dyn)) return true;
     return false;
 }
 
-// The local player (client), asked at most every half second: the hooks run for every actor in every step.
-std::atomic<uint32_t> g_local_player{0};
-std::atomic<uint64_t> g_local_at{0};
-uint32_t local_player() {
-    if (!g_client) return 0;
-    const uint64_t now = GetTickCount64();
-    if (now - g_local_at.load(std::memory_order_relaxed) < 500) return g_local_player.load(std::memory_order_relaxed);
-    KilnClientState st{};
-    st.size = sizeof st;
-    const uint32_t p = g_client->state(&st) == KILN_OK ? st.local_player : 0;
-    g_local_player.store(p, std::memory_order_relaxed);
-    g_local_at.store(now, std::memory_order_relaxed);
-    return p;
+void forget_flying(uint32_t e, const void* dyn) {
+    auto ptr = reinterpret_cast<uintptr_t>(dyn);
+    if (e && e <= 1023) {
+        g_player_dyn[e][0].compare_exchange_strong(ptr, 0);
+        ptr = reinterpret_cast<uintptr_t>(dyn);
+        g_player_dyn[e][1].compare_exchange_strong(ptr, 0);
+    } else {
+        for (int i = 0; i < kRecent; ++i)
+            if (g_recent_id[i].load() == e) { ptr = reinterpret_cast<uintptr_t>(dyn); g_recent_dyn[i].compare_exchange_strong(ptr, 0); }
+    }
 }
 
-// Anything to do at all: some rule set has carried CHARACTER_FLIGHT, or Kiln flew someone moments ago.
 bool flight_possible() {
-    return (kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT) != 0 ||
-           GetTickCount64() - g_last_flying.load(std::memory_order_relaxed) <= kRecentMs;
+    return (!kiln_rules_creative::idle() && (kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT) != 0) ||
+           g_flew.load(std::memory_order_relaxed);
 }
 
 // The rules of the entity a program runs for: the server world's per-entity rules, else (a joined client's prediction)
@@ -147,7 +144,7 @@ bool rules_for(void* ctx, uint32_t* entity, KilnRulesPlayer* out) {
     const uint32_t e = *entity;
     if (e == 0) return false;
     if (kiln_rules_bridge::may_have_rules(e) && kiln_rules_bridge::rules_of(e, out)) return true;
-    return e == local_player() && kiln_rules_bridge::local_rules(out);
+    return e == g_local_player.load(std::memory_order_relaxed) && kiln_rules_bridge::local_rules(out);
 }
 
 flight_math::Actor actor_of(void* actor) {
@@ -157,7 +154,7 @@ flight_math::Actor actor_of(void* actor) {
     a.gliding = g_actor_state(actor, kHangGliding);
     a.water = g_actor_state(actor, kFloating) || g_actor_state(actor, kUnderWater);
     a.climbing = g_actor_state(actor, kClimbing) || g_actor_state(actor, kAttached);
-    a.near_zone = g_actor_state(actor, kNearZone);
+    // Building-area eligibility is authored in the server snapshot, never inferred from the forced actor zone bit.
     return a;
 }
 
@@ -171,19 +168,20 @@ void state_body(safetyhook::Context& c) {
     void* actor = *reinterpret_cast<void**>(c.rsp + static_cast<uint8_t>(L.loco_actor));
     if (!dyn || !actor) return;
     const uint8_t cur = dyn[L.loco_state];
+    if (cur != flight_math::kBuildingFlying && (kiln_rules_creative::idle() ||
+        !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT))) return;
     const uint8_t game = static_cast<uint8_t>(c.rax & 0xff);
     uint32_t e = 0;
     KilnRulesPlayer r{};
     const bool has = rules_for(reinterpret_cast<void*>(c.rsi), &e, &r);
-    if (!has && !(cur == flight_math::kBuildingFlying && e && flown_recently(e))) {
-        // nothing of ours: the common case leaves before the actor's flags are read
-        return;
-    }
-    if (!armed(r) && cur != flight_math::kBuildingFlying) return;
+    const bool was_ours = flown_recently(e, dyn);
+    const bool enabled = has && armed(r) && !kiln_rules_creative::idle();
+    if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
-    const uint8_t next = flight_math::next_state(cur, game, true, has && armed(r), base_only(r), actor_of(actor), input_vy);
-    if (next == flight_math::kBuildingFlying) note_flying(e);
+    const uint8_t next = flight_math::next_state(cur, game, true, enabled, base_only(r), actor_of(actor), input_vy);
+    if (next == flight_math::kBuildingFlying) note_flying(e, dyn);
+    else forget_flying(e, dyn);
     if (next == game) return;
     if (next == flight_math::kBuildingFlying) S.takeoffs.fetch_add(1, std::memory_order_relaxed);
     else if (next == flight_math::kWalking) S.landings.fetch_add(1, std::memory_order_relaxed);
@@ -193,7 +191,7 @@ void state_body(safetyhook::Context& c) {
 
 // ---- gravity, after the strength is chosen and the step's time read ----
 void grav_body(safetyhook::Context& c) {
-    if (c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
     uint32_t e = 0;
     KilnRulesPlayer r{};
     if (!rules_for(reinterpret_cast<void*>(c.rdi), &e, &r) || !armed(r)) return;
@@ -204,7 +202,7 @@ void grav_body(safetyhook::Context& c) {
 
 // ---- the vertical input, before the BuildingFlying mover ----
 void mover_pre(uint8_t* it) {
-    if (!(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
     void* ctx = *reinterpret_cast<void**>(it);
     auto* dyn = *reinterpret_cast<float* const*>(it + L.mover_dynloco);
     const auto* input = *reinterpret_cast<const uint8_t* const*>(it + L.player_input);
@@ -242,10 +240,35 @@ void __fastcall hk_mover(uint8_t* it) {
 
 }  // namespace
 
+void reset() {
+    g_local_player.store(0);
+    g_flew.store(false);
+    for (auto& slots : g_player_dyn) for (auto& ptr : slots) ptr.store(0);
+    for (int i = 0; i < kRecent; ++i) { g_recent_id[i].store(0); g_recent_dyn[i].store(0); }
+}
+
+void refresh() {
+    if (!g_api) return;
+    (void)kiln_rules_creative::flame_creative();
+    KilnClientState st{};
+    st.size = sizeof st;
+    // Hosts use the authoritative per-entity snapshots in both worlds. A stale local snapshot must never regrant
+    // flight to the server after that player's rule has been cleared.
+    const uint32_t p = g_client && g_client->state && g_client->state(&st) == KILN_OK && st.session == KILN_SESSION_REMOTE
+        ? st.local_player : 0;
+    g_local_player.store(p, std::memory_order_relaxed);
+}
+
+void KILN_CALL client_pre(const KilnTickInfo*, void*) { refresh(); }
+
 uint32_t install(const KilnApi* api, std::string& off) {
     g_api = api;
     g_client = static_cast<const KilnClientApi*>(
         api->service(KilnStr{KILN_CLIENT_SERVICE, sizeof(KILN_CLIENT_SERVICE) - 1}, KILN_CLIENT_VERSION));
+    if (g_client && g_client->subscribe_tick) {
+        KilnHandle handle = 0;
+        g_client->subscribe_tick(0, KILN_TICK_PRE, &client_pre, nullptr, &handle);
+    }
     uintptr_t state_site = 0, grav_site = 0, mover = 0;
     if (!(feat("rules.flight") && sym("rules/CurrentEntityId", &g_entity_of) && sym("rules/ActorStateTest", &g_actor_state) &&
           sym("rules/LocoStateWrite", &state_site) && sym("rules/FlightGravity", &grav_site) && sym("rules/FlightMover", &mover) &&
@@ -273,6 +296,7 @@ uint32_t install(const KilnApi* api, std::string& off) {
         off += off.empty() ? "character flight (hook failed)" : ", character flight (hook failed)";
         return 0;
     }
+    refresh();
     const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     logf(KILN_LOG_INFO, "character flight: state rva 0x%llx, gravity 0x%llx, mover 0x%llx (BuildingFlying for players with the rule)",
          (unsigned long long)(state_site - base), (unsigned long long)(grav_site - base), (unsigned long long)(mover - base));

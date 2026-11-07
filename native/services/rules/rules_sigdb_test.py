@@ -60,7 +60,8 @@ def guard_document(doc):
 
 def check_boundaries(side, image, doc, symbols):
     decoder = Cs(CS_ARCH_X86, CS_MODE_64)
-    names = ["rules/FlyGate", "rules/ZoneFlag", "rules/ShroudDrain", "rules/GlideGravity", "rules/GlideStamina"]
+    names = ["rules/FlyGate", "rules/ZoneFlag", "rules/ShroudDrain", "rules/GlideGravity", "rules/GlideStamina",
+             "rules/LocoStateWrite", "rules/FlightGravity"]
     if side == "client":
         names += ["rules/client.HealthbarRay", "rules/client.CameraInput"]
     for name in names:
@@ -269,6 +270,39 @@ def check_creative(side, image, doc, symbols):
                   side + " " + reason + " " + name + " disables only " + feature)
 
 
+def check_character_flight(side, image, doc, symbols):
+    names = ["rules.flight", "rules.consume_buff", "rules.costs"]
+    selected = {s for n in names for s in doc["features"][n].get("symbols", [])}
+    selected.add("@rules/FlyGate.entity")  # supplies the shared CurrentEntityId capture
+    pending = list(selected)
+    while pending:
+        for spec in doc["symbols"].get(pending.pop(), {}).get("find", []):
+            dep = spec.get("scope", {}).get("symbol")
+            if dep and dep not in selected:
+                selected.add(dep)
+                pending.append(dep)
+    subset = {"symbols": {n: doc["symbols"][n] for n in selected if n in doc["symbols"]},
+              "constants": {n: doc["constants"][n] for name in names for n in doc["features"][name].get("constants", [])},
+              "features": {n: doc["features"][n] for n in names}}
+    # Building's unrelated program-table constants are resolved outside this focused pattern-mutation test.
+    subset["features"]["rules.costs"] = {"symbols": ["rules/ApplyMaterials"]}
+    _, _, baseline = Resolver(image, subset).run()
+    check(all(baseline.values()), side + " isolated flight, consume and building patterns resolve")
+    for name in ["rules/LocoStateWrite", "rules/FlightGravity", "rules/FlightMover", "@rules/FlightGravity.actor",
+                 "@rules/FlightMover.dynloco", "@rules/FlightMover.actor"]:
+        spec = subset["symbols"][name]["find"][0]
+        at, _ = matches(image, symbols, spec)
+        size = parse(spec["pattern"])[2]
+        duplicate = image.text_va + len(image.text) - size
+        if "scope" in spec:
+            duplicate = symbols[spec["scope"]["symbol"]]["rva"] + spec["scope"]["size"] - size
+        for edits, reason in [([(at, b"\x90")], "missing"),
+                              ([(duplicate, image.img[at:at + size])], "ambiguous")]:
+            _, _, features = Resolver(changed(image, edits), subset).run()
+            check(not features["rules.flight"] and features["rules.consume_buff"] and features["rules.costs"],
+                  side + " " + reason + " " + name + " disables flight while keeping consumption and building")
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
@@ -286,6 +320,7 @@ def run(side, path):
     check_storage(side, image, tree.doc, symbols, constants)
     check_time_scale(side, image, tree.doc, symbols)
     check_creative(side, image, tree.doc, symbols)
+    check_character_flight(side, image, tree.doc, symbols)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
     if side == "client":

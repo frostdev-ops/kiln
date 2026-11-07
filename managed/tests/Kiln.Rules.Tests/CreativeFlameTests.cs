@@ -68,4 +68,66 @@ public sealed class CreativeFlameTests : IDisposable
         Assert.True(CreativeFlame.Running);  // a mod that entered keeps its hooks: no second ask
         Assert.Equal(1, asks);
     }
+
+    [Fact]
+    public void LateCreativeModeRefusesAnExistingCreativeSessionAndRetiresItsRules()
+    {
+        var set = new RuleSet(RuleScope.ForPlayer(P), PlayerRules.Creative, "kiln", "creative", null);
+        var sets = (Dictionary<EntityId, RuleSet>)typeof(Creative).GetField("Sets",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        sets[P] = set;
+        try
+        {
+            CreativeFlame.Probe = () => false;
+            Assert.True(Creative.IsOn(P));
+            CreativeFlame.Probe = () => true;
+            Assert.False(Creative.Set(P, true).Ok); // "already on" cannot bypass the Flame refusal
+            Assert.False(Creative.IsOn(P));
+            typeof(CreativeNet).GetMethod("Drain", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .Invoke(null, null);
+            Assert.False(set.Active);
+            Assert.Empty(Creative.Players);
+        }
+        finally { sets.Remove(P); set.Dispose(); }
+    }
+}
+
+public sealed unsafe class CreativeCycleHandoffTests
+{
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct TimeTable
+    {
+        public uint Size, Version;
+        public nint Get, Set, Weather;
+        public delegate* unmanaged[Cdecl]<float, int> Scale;
+        public delegate* unmanaged[Cdecl]<float> Hold;
+    }
+    private static float _speed;
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    private static float Hold() => _speed;
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    private static int Scale(float speed) { _speed = speed; return 0; }
+
+    [Fact]
+    public void LateFlameStartReleasesOnlyTheClockSpeedCreativeWasHolding()
+    {
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
+        var field = typeof(Time).GetField("_table", flags)!;
+        var old = field.GetValue(null);
+        var held = typeof(CreativeTools).GetField("_cycleSpeed", flags)!;
+        TimeTable table = new() { Size = (uint)sizeof(TimeTable), Version = 1, Scale = &Scale, Hold = &Hold };
+        try
+        {
+            field.SetValue(null, System.Reflection.Pointer.Box(&table, field.FieldType));
+            _speed = 0;
+            held.SetValue(null, (double?)0);
+            CreativeTools.StepAside();
+            Assert.Equal(-1, _speed); // stopped sun returns to the game's clock
+            _speed = 2;
+            held.SetValue(null, (double?)0);
+            CreativeTools.StepAside();
+            Assert.Equal(2, _speed); // a later writer's speed is preserved
+        }
+        finally { field.SetValue(null, old); held.SetValue(null, null); }
+    }
 }

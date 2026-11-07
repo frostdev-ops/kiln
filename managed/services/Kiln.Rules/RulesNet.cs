@@ -7,10 +7,39 @@ namespace Kiln;
 internal static unsafe class RulesNet
 {
     private const ushort MsgRules = 0;
-    internal const string ChannelVersion = "3";
+    internal const string ChannelVersion = "4";  // character flight needs matching prediction hooks, including on older Kiln clients
     private static readonly object Lock = new();
     private static NetChannel? _channel;
     private static RulesNativePart _local = RulesNativePart.Default;
+    private readonly record struct FlightCapability(bool Enabled);
+    private static readonly HashSet<NetPeer> FlightPeers = new();
+    private static bool? _flightSent;
+
+    internal static bool FlightReady(NetPeer? peer)
+    {
+        lock (Lock) return peer is { State: NetPeerState.Ready } && FlightPeers.Contains(peer);
+    }
+
+    internal static void FlightCapabilityOf(NetPeer peer, bool enabled)
+    {
+        lock (Lock)
+        {
+            if (enabled && peer.State == NetPeerState.Ready) FlightPeers.Add(peer);
+            else FlightPeers.Remove(peer);
+        }
+        RulesRuntime.Dirty();
+    }
+
+    private static void ClientFlight(in TickInfo _)
+    {
+        try
+        {
+            if (Client.IsHosting) return;
+            var enabled = (RulesNative.Hooks & RulesNative.HookFlight) != 0 && !CreativeFlame.Running;
+            if (_flightSent != enabled && _channel?.SendToServer(new FlightCapability(enabled)) == true) _flightSent = enabled;
+        }
+        catch (Exception) { } // no client world or channel yet; retry next client tick
+    }
 
     // v2: + the Shroud floor and the glider values; v3 (released in 0.2.0-dev.15): + the glider's climb rate
     private readonly record struct RulesMsg(uint Flags, float BuildCost, float BuildRefund, float DigDamage, float ShroudFloor,
@@ -40,8 +69,15 @@ internal static unsafe class RulesNet
                             .Single(m.GlideCoast).Single(m.GlideClimb),
                         static (ref NetReader r) => new RulesMsg(r.UInt32(), r.Single(), r.Single(), r.Single(), r.Single(), r.Single(),
                             r.Single(), r.Single(), r.Single(), r.Single(), r.Single()),
-                        static (m, _) => OnRules(m), NetDirection.ToClient);
-                Network.Disconnected += _ => SetLocal(RulesNativePart.Default);
+                        static (m, _) => OnRules(m), NetDirection.ToClient)
+                    .Register<FlightCapability>(1, static (m, w) => w.Bool(m.Enabled),
+                        static (ref NetReader r) => new FlightCapability(r.Bool()),
+                        static (m, c) => FlightCapabilityOf(c.Sender, m.Enabled), NetDirection.ToServer);
+                Network.Disconnected += _ => { _flightSent = null; SetLocal(RulesNativePart.Default); };
+                Network.ServerReady += _ => _flightSent = null;
+                Events.On<NetPeerLeftEvent>(e => FlightCapabilityOf(e.Peer, false));
+                Events.On<ServerStoppingEvent>(_ => { lock (Lock) FlightPeers.Clear(); });
+                Client.Tick += ClientFlight;
             }
             catch (Exception e)
             {

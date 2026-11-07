@@ -139,6 +139,7 @@ void sweep_step(void* fow) {
 }
 
 void __fastcall hk_fog(void* fow, const float* pos, float range) {
+    if (idle()) { h_fog.call<void>(fow, pos, range); return; }
     const uint32_t mode = g_map_mode.load(std::memory_order_relaxed);
     const float r = creative_math::fog_range(mode, g_map_radius.load(std::memory_order_relaxed), range);
     if (r != range) S.map.fetch_add(1, std::memory_order_relaxed);
@@ -168,6 +169,7 @@ bool read_operator(void* tx, uint32_t* out) {
 
 // The operator crafts from its own inventory and has FREE_CRAFTING.
 bool craft_free(void* tx, uint32_t owner) {
+    if (idle()) return false;
     uint32_t op = 0;
     if (!tx || g_tx_operator <= 0 || !read_operator(tx, &op)) return false;
     if (!op || op != owner) return false;
@@ -191,6 +193,7 @@ SafetyHookInline h_craftable;
 
 uint32_t __fastcall hk_craftable(void* ui, uint32_t recipe, uint32_t cap, const void* selections) {
     const uint32_t n = h_craftable.call<uint32_t>(ui, recipe, cap, selections);
+    if (idle()) return n;
     KilnRulesPlayer r{};
     const uint32_t want = cap & 0xffffu;  // the cap is a u16 (r8w)
     if (n < want && kiln_rules_bridge::local_rules(&r) && (r.flags & KILN_RULES_FREE_CRAFTING) != 0) {
@@ -214,6 +217,7 @@ SafetyHookInline h_remove;
 uintptr_t g_ammo_ret = 0, g_cost_ret = 0, g_buff_ret = 0;
 
 bool keep_removal(Result12* out, uintptr_t ret, uint32_t owner, uint32_t count) {
+    if (idle()) return false;
     __try {
         if (!out || !ret || (ret != g_ammo_ret && ret != g_cost_ret && ret != g_buff_ret) || count != 1) return false;
         KilnRulesPlayer r{};
@@ -245,6 +249,8 @@ bool inline_hook(H& h, uintptr_t target, void* detour, const char* what) {
 std::atomic<bool> g_flame{false};  // Creative Mode seen running (it stays: an entered mod keeps its hooks)
 
 }  // namespace
+
+bool idle() { return g_flame.load(std::memory_order_relaxed); }
 
 bool flame_creative() {
     if (g_flame.load()) return true;

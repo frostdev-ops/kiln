@@ -157,6 +157,7 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
     };
 
     private const uint FlightFlags = RulesNative.CharacterFlight | RulesNative.FlightBaseOnly;
+    public RulesNativePart WithoutFlight => this with { Flags = Flags & ~FlightFlags };
 
     /// <summary>Rules the player's game predicts (the glide, character flight): held back from a game without Kiln's rules
     /// channel, which would fight the server every step.</summary>

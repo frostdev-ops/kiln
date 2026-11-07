@@ -274,7 +274,7 @@ A game hosting a world (co-op or offline) is both sides in one process: the host
 prediction and cursor hooks, with no network message. Nothing on either side needs Kiln.Admin (a server-only mod).
 A vanilla game gets only the server-side half: its own prediction refuses the flight and its cursor refuses the
 placement, so it should not be given those rules (`/creative` refuses it). The glider's rules are held back on the
-server until the player's game has the matching rules channel (version 3 since the climb rate, released in 0.2.0-dev.15): a boost only the server applied
+server until the player's game has the matching rules channel (version 4 since character flight): a boost only the server applied
 would be corrected on the player's screen every step.
 
 ## Gliding
@@ -313,8 +313,9 @@ stamina drain. Hits, landing, water and letting go still end a glide, as in the 
 the fly mode only, so a glide that ends on the ground never snaps the character anywhere. Without `GlideBoost` the glide
 is the game's (with `GlideSink` and `UnlimitedGliding`).
 
-Channel versions must match exactly: a v2 peer still joins, but receives no v3 rules messages and gets no server-side
-glide changes. This prevents prediction from using different gliding rules.
+Channel versions must match exactly: a v2 or v3 peer still joins, but receives no v4 rules messages and gets no server-side
+predicted movement changes. Character flight also waits for that connection to confirm its flight hooks are available;
+a missing client pattern or local Creative Mode withdraws flight without disabling the other rules.
 
 ## Character flight
 `PlayerRules.CharacterFlight` (`Off`, `Unlimited`, `BuildingArea`; JSON `"characterFlight": "Unlimited"`) lets the
@@ -322,13 +323,18 @@ character itself fly, unlike the game's building fly mode. **Off on every server
 `"allowCharacterFlight": true` (new; tested on fewer setups than the rest). Creative mode turns it on per player from the
 menu, `/creative flight unlimited|buildingarea|off [player]` or `Creative.SetFlight(player, mode)`; any rule set can
 ask for it too (an explicit `Off` wins, then the widest mode). Like the glider it runs in the player's prediction, so
-it is held back from a game without Kiln's rules channel.
+it is held back until the game confirms its flight hooks on Kiln's v4 rules channel.
 
 How it plays: jump (or walk off a ledge) and the character takes off; hold **jump** to climb, **sneak** to sink,
 **sprint** for speed (8 m/s up or down, x2.5 with sprint; across, the game's own movement speed). It hovers with no
 input. Sinking onto the ground lands it; touching the ground otherwise keeps flying (low hover). Opening the glider,
 water, climbing, death, the rule ending, or leaving the building zone in `BuildingArea` mode ends it in the air and the
 character falls (creative mode's invulnerability covers the landing).
+
+`BuildingArea` checks the server's real flame-altar bounds each tick and publishes the resulting flight bit to both
+worlds. It needs readable bases and a player position; without either it stays off. It never trusts the actor's
+`IsNearBuildingZone`, which build-anywhere can force. Boundary updates reach a remote prediction through the rules
+channel, so a real connection and its latency still need a client check.
 
 How it works (kiln.rules `flight.cpp`, feature `rules.flight`, hook bit `KILN_RULES_HOOK_FLIGHT`; docs/re/creative-mode-146.md
 Part 4): the character flies in the game's `BuildingFlying` locomotion state, the building spark's. A mid hook right after
@@ -464,3 +470,12 @@ The native guard checks cover coherent rule publication, old ABI inputs, Shroud 
 endpoints, and bit-for-bit preservation of normal rays. With executable copies,
 `python native/services/rules/rules_sigdb_test.py --server <server.exe> --client <client.exe>` checks signatures,
 mid-hook instruction boundaries and failure cases for the client guards (requires Capstone).
+
+### Creative mode review follow-up
+Creative Mode is reserved while kiln-flame reports it pending or entered; once seen, Kiln stays idle even if that
+start later fails, since hooks may already exist. A late detection makes installed creative detours pass through,
+retires Kiln's active creative rule sets on the next server tick, ends Kiln-owned character flights, and releases the
+clock speed last held by the creative tools if no later writer changed it. The menu and flight key also refuse locally.
+The backpack grid shows initialized player Generic slots up to `genericSlotCount` (at most 96). Placement refuses a
+foreign or locked slot, other items, occupied gear and full stacks; the game's transaction rechecks slot contents
+when it executes. Requests remain bounded to one stack, the existing give gate, and the bounded request inbox.

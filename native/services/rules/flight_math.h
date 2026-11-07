@@ -5,7 +5,7 @@
 // The character flies in the game's own BuildingFlying locomotion state (11), the building spark's: the state program
 // keeps 11 once it is set (LocoNextState returns 11 first of all), and the BuildingFlying mover steers Velocity toward
 // DynamicLocomotion.inputVelocity in three dimensions. Kiln decides, after the game's own decision each step:
-//  - take-off: armed (the rule, and inside a building zone for "building area only"), airborne (not Grounded), the
+//  - take-off: armed (the rule, and the server confirmed a real altar zone for "building area only"), airborne (not Grounded), the
 //    game says Falling, not dead, gliding, swimming or climbing: BuildingFlying;
 //  - while flying: the same conditions keep it; when they fail (the rule ended, the zone left, death, the glider,
 //    water) the character falls (Falling: the game decides from there);
@@ -33,11 +33,13 @@ struct Actor {
 
 // The rule allows flight now.
 inline bool allowed(bool armed, bool base_only, const Actor& a) {
-    return armed && (!base_only || a.near_zone) && !a.dead && !a.gliding && !a.water && !a.climbing;
+    // The server resolves BuildingArea against actual altar bounds and sends an ordinary flight bit on both sides.
+    // A raw base-only request cannot safely use IsNearBuildingZone (build-anywhere forces that actor flag).
+    return armed && !base_only && !a.dead && !a.gliding && !a.water && !a.climbing;
 }
 
 // The state after the game's decision `game` for an entity in state `cur`. `ours`: the entity has rules (a spark never
-// has) or Kiln flew it moments ago (its rules just ended). `input_vy`: DynamicLocomotion.inputVelocity.y (the sink).
+// has) or Kiln owns its flight (its rules just ended). `input_vy`: DynamicLocomotion.inputVelocity.y (the sink).
 inline uint8_t next_state(uint8_t cur, uint8_t game, bool ours, bool armed, bool base_only, const Actor& a, float input_vy) {
     const bool ok = allowed(armed, base_only, a);
     if (cur == kBuildingFlying) {
@@ -46,7 +48,7 @@ inline uint8_t next_state(uint8_t cur, uint8_t game, bool ours, bool armed, bool
         if (a.grounded && input_vy < 0.0f) return kWalking;  // landed
         return kBuildingFlying;
     }
-    if (ok && game == kFalling && !a.grounded) return kBuildingFlying;
+    if (ours && ok && game == kFalling && !a.grounded) return kBuildingFlying;
     return game;
 }
 
