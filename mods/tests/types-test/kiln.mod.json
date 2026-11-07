@@ -1,0 +1,8 @@
+{
+  "id": "types-test",
+  "name": "Reflected types test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "TypesTest.dll",
+  "side": "server"
+}

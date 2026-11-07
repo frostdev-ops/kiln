@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln's developer tools over kiln.types: commands (/types, /type, /systems, /system, /component) and the
+       Systems and Types windows in the game. Deployed to kiln/host/ (shared). Uses only public Kiln APIs. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+  </ItemGroup>
+</Project>

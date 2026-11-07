@@ -11,6 +11,8 @@ Kiln builds on the work of the Enshrouded modding community.
 | [safetyhook](https://github.com/cursey/safetyhook) | cursey, BSL-1.0; Zydis/Zycore, MIT | Detours and mid-function hooks (`native/third_party/safetyhook`). |
 | [Dear ImGui](https://github.com/ocornut/imgui) | Omar Cornut, MIT | In-game overlay. |
 | [nlohmann/json](https://github.com/nlohmann/json) | Niels Lohmann, MIT | JSON in the native core. |
+| [Lua](https://www.lua.org) 5.4.8 | Lua.org, PUC-Rio, MIT ([licence](native/third_party/lua/LICENSE)) | The Lua runtime of the Shrouded Engine Tweaks compatibility plugin (`native/third_party/lua`). |
+| [Shrouded Engine Tweaks](https://github.com/Cacaida/Shrouded-Engine-Tweaks) 0.1.1 | Cacaida, MIT ([licence](licenses/ShroudedEngineTweaks-LICENSE.txt)) | Its Lua mod API is adapted in `native/plugins/set` so its mods run on Kiln; its type-table, system and event-stream findings informed `kiln.types`. |
 | .NET | .NET Foundation, MIT | The private runtime Kiln hosts mods in. |
 | [netcoredbg](https://github.com/Samsung/netcoredbg) 3.2.0-1092 | Samsung Electronics, MIT; its release includes dbgshim (.NET, MIT) and Roslyn 2.3 (Microsoft, Apache-2.0) ([licences](licenses/netcoredbg.txt)) | The mod debugger, bundled unmodified in the VS Code extension (`tools/vscode`). |
 | [stb](https://github.com/nothings/stb), stb_vorbis | Sean Barrett, MIT or public domain ([stb](native/third_party/stb/LICENSE), [stb_vorbis](native/third_party/stb_vorbis/LICENSE)) | Image and Ogg Vorbis decoding (`native/third_party`). |

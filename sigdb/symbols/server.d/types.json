@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.types: (1) the program runner every ECS system slice runs through (rcx world, rdx job, r8 index, r9 slot; it calls the update at *(*(job+0x10)+0x28)); kiln.types detours it to switch systems off and to profile them. The function has an unused twin, so the prologue is long enough to tell them apart. (2) The function that loads both the schema's event map and the world's event streams: map = disp32 of lea r14,[rdi+X] (an offset into the world's schema), streams = disp32 of lea rdi,[r13+Y] plus 0x28 (an offset into the world). The type table and the system names are found by data, not here. Technique documented by Shrouded Engine Tweaks (MIT). Evidence: docs/re/shrouded-engine-tweaks.md. Same bytes on server 26430253 and client 26430625 (svn 1287369).",
+  "symbols": {
+    "types/ProgramRunner": {
+      "find": [
+        { "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D AC 24 70 F8 FF FF 48 81 EC 90" }
+      ]
+    },
+    "@types/EventStreams": {
+      "find": [
+        { "pattern": "4C 8B FB 0F 86 ?? ?? ?? ?? 48 8B 45 40 4C 8D B7 {types/events.map:d32} 49 8D BD {types/events.streams:d32}" }
+      ]
+    }
+  },
+  "constants": {
+    "types/events.map": { "min_votes": 1 },
+    "types/events.streams": { "min_votes": 1 }
+  },
+  "features": {
+    "types.systems": { "symbols": ["types/ProgramRunner"] },
+    "types.events": { "constants": ["types/events.map", "types/events.streams"] }
+  }
+}

@@ -1,0 +1,547 @@
+// SPDX-License-Identifier: MIT
+// kiln-set: SET's game interface (game.h) on Kiln's services. The refl:: helpers that walk type descriptors and the
+// res:: blob/label/GUID helpers are adapted from Shrouded Engine Tweaks runtime/game.cpp, Copyright (c) 2026 Cacaida,
+// MIT (licenses/ShroudedEngineTweaks-LICENSE.txt). Table lookups, systems, entities, events and resources go through
+// kiln.types, kiln.world and kiln.assets.
+#include "game.h"
+
+#include <windows.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <map>
+#include <mutex>
+#include <unordered_map>
+
+#include "kiln_api.h"
+#include "services/kiln_assets.h"
+#include "services/kiln_players.h"
+#include "services/kiln_time.h"
+#include "services/kiln_types.h"
+#include "services/kiln_world.h"
+
+namespace {
+const KilnApi* g_api = nullptr;
+const KilnTypesApi* T = nullptr;
+const KilnWorldApi* W = nullptr;
+const KilnAssetsApi* A = nullptr;
+const KilnPlayersApi* P = nullptr;
+const KilnTimeApi* TM = nullptr;
+
+template <class Tbl>
+const Tbl* service(const char* name, uint32_t version) {
+    const auto* t = static_cast<const Tbl*>(g_api->service(KilnStr{name, std::strlen(name)}, version));
+    return t && t->header.size >= sizeof(KilnServiceHeader) ? t : nullptr;
+}
+KilnStr ks(std::string_view s) { return KilnStr{s.data(), s.size()}; }
+const uint8_t* desc(const KilnType* t) { return reinterpret_cast<const uint8_t*>(t); }
+}  // namespace
+
+bool kset::systemsReady() {
+    KilnTypesStatus st{sizeof st};
+    return T && T->status(&st) == KILN_OK && st.systems;
+}
+
+std::string kset::bind(const KilnApi* api) {
+    g_api = api;
+    T = service<KilnTypesApi>(KILN_TYPES_SERVICE, 1);
+    W = service<KilnWorldApi>(KILN_WORLD_SERVICE, 1);
+    A = service<KilnAssetsApi>(KILN_ASSETS_SERVICE, 1);
+    P = service<KilnPlayersApi>(KILN_PLAYERS_SERVICE, 1);
+    TM = service<KilnTimeApi>(KILN_TIME_SERVICE, 1);
+    if (A && A->header.size < offsetof(KilnAssetsApi, resource_data) + sizeof(void*)) A = nullptr;
+    std::string missing;
+    auto need = [&](bool ok, const char* what) { if (!ok) missing += (missing.empty() ? "" : ", ") + std::string(what); };
+    need(T && T->type_count() > 0, "kiln.types (types)");
+    need(W != nullptr, "kiln.world (Ecs)");
+    need(A != nullptr, "kiln.assets (Res)");
+    return missing;
+}
+
+// ---------------------------------------------------------------- refl (helpers adapted from SET)
+namespace {
+refl::Field fieldOf(refl::Type t, uint32_t i) {
+    KilnTypeField f{};
+    if (!T || T->type_field(reinterpret_cast<const KilnType*>(t.p), i, &f) != KILN_OK) return {};
+    return {std::string_view(f.name.ptr, f.name.len), {desc(f.type)}, static_cast<uint32_t>(f.offset)};
+}
+}  // namespace
+
+std::string_view refl::Type::str(size_t off) const {
+    auto s = *reinterpret_cast<const char* const*>(p + off);
+    return s ? std::string_view(s, *reinterpret_cast<const uint64_t*>(p + off + 8)) : std::string_view();
+}
+refl::Type refl::Type::resolved() const {
+    Type t = *this;
+    for (int i = 0; i < 16 && t && t.prim() == Typedef && t.inner(); i++) t = t.inner();
+    return t;
+}
+const uint8_t* refl::Type::defaults() const {
+    KilnTypeInfo info{sizeof info};
+    if (!T || T->type_info(reinterpret_cast<const KilnType*>(p), &info) != KILN_OK) return nullptr;
+    return static_cast<const uint8_t*>(info.defaults);
+}
+size_t refl::count() { return T ? T->type_count() : 0; }
+refl::Type refl::at(size_t i) { return {T ? desc(T->type_at(static_cast<uint32_t>(i))) : nullptr}; }
+refl::Type refl::byHash(uint32_t h) { return {T ? desc(T->type_by_hash(h)) : nullptr}; }
+refl::Type refl::byName(std::string_view name) {
+    if (!T) return {};
+    std::string q = name.find("::") == std::string_view::npos ? "keen::ecs::" + std::string(name) : std::string(name);
+    return {desc(T->type_by_hash(fnv(q)))};
+}
+refl::Type refl::lookup(std::string_view name) {
+    if (Type t = byName(name)) return t;
+    return {T ? desc(T->type_by_name(ks(name))) : nullptr};
+}
+bool refl::plain(Type t) {
+    t = t.resolved();
+    uint8_t k = t ? t.prim() : 0;
+    if (k == StaticArray) return t.inner() && plain(t.inner());
+    if (k != Struct) return (k >= Bool && k <= Bitmask64) || k == ObjectReference || k == Guid;
+    bool ok = true;
+    forFields(t, [&](const Field& f) { ok = ok && plain(f.type); });
+    return ok;
+}
+bool refl::field(Type t, std::string_view name, Field& out) {
+    for (int depth = 0; t && t.prim() == Struct && depth < 32; depth++, t = t.inner()) {
+        for (uint32_t i = 0; i < t.fieldCount(); i++) {
+            Field f = fieldOf(t, i);
+            if (f.type && f.name == name) {
+                out = f;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+void refl::forFields(Type t, const std::function<void(const Field&)>& fn) {
+    if (!t || t.prim() != Struct) return;
+    forFields(t.inner(), fn);
+    for (uint32_t i = 0; i < t.fieldCount(); i++)
+        if (Field f = fieldOf(t, i); f.type) fn(f);
+}
+void refl::forEnum(Type t, const std::function<void(std::string_view, int64_t)>& fn) {
+    if (!t || !T) return;
+    for (uint32_t i = 0; i < t.fieldCount(); i++) {
+        KilnStr n{};
+        int64_t v = 0;
+        if (T->type_enum(reinterpret_cast<const KilnType*>(t.p), i, &n, &v) != KILN_OK) break;
+        fn({n.ptr, n.len}, v);
+    }
+}
+refl::Type refl::unwrap(Type u) {
+    for (int i = 0; i < 4 && u.prim() == Struct && !u.inner() && u.fieldCount() == 1; i++) {
+        Field only{};
+        forFields(u, [&](const Field& f) { only = f; });
+        Type v = only.type.resolved();
+        bool named = only.name != "value" && only.name != "id" && only.name != "index";
+        if (named || only.offset != 0 || !v || v.size() != u.size() || v.prim() == StaticArray) break;
+        u = v;
+    }
+    return u;
+}
+uint32_t refl::fnv(std::string_view s) {
+    uint32_t h = 0x811c9dc5;
+    for (unsigned char c : s) h = (h ^ c) * 0x01000193;
+    return h;
+}
+bool refl::enumHas(Type t, int64_t v) {
+    bool found = t.fieldCount() == 0;
+    forEnum(t, [&](std::string_view, int64_t e) { found |= e == v; });
+    return found;
+}
+std::string refl::text(const uint8_t* p, Type u) {
+    uint8_t k = u.prim();
+    char buf[64];
+    if (k == Bool) return *p ? "true" : "false";
+    if (k == F32 || k == F64) {
+        double d = 0;
+        if (k == F32) {
+            float f;
+            memcpy(&f, p, 4);
+            d = f;
+        } else {
+            memcpy(&d, p, 8);
+        }
+        snprintf(buf, sizeof buf, "%g", d);
+        return buf;
+    }
+    uint64_t v = 0;
+    uint32_t n = std::min<uint32_t>(u.size(), 8);
+    memcpy(&v, p, n);
+    bool sign = k == S8 || k == S16 || k == S32 || k == S64;
+    if (sign && n < 8 && (v >> (n * 8 - 1) & 1)) v |= ~0ull << (n * 8);
+    bool mask = k >= Bitmask8 && k <= Bitmask64;
+    snprintf(buf, sizeof buf, mask ? "0x%llx" : sign ? "%lld" : "%llu", static_cast<unsigned long long>(v));
+    std::string s = buf;
+    if (k == Enum) {
+        forEnum(u, [&](std::string_view name, int64_t e) {
+            if (uint64_t(e) == v) s = std::string(name) + " (" + s + ")";
+        });
+    }
+    return s;
+}
+refl::Field refl::badField(Type t, const uint8_t* p) {
+    Field bad{};
+    forFields(t, [&](const Field& f) {
+        Type u = unwrap(f.type.resolved());
+        if (!bad.name.empty()) return;
+        if (u.prim() == Struct) {
+            bad = badField(u, p + f.offset);
+            bad.offset += f.offset;
+            return;
+        }
+        uint64_t v = 0;
+        memcpy(&v, p + f.offset, std::min<uint32_t>(u.size(), 8));
+        if (u.prim() == Bool ? v > 1 : u.prim() == Enum && !enumHas(u, int64_t(v))) bad = f;
+    });
+    return bad;
+}
+
+// ---------------------------------------------------------------- sys (kiln.types)
+namespace {
+std::vector<sys::System> g_sys;
+bool g_sys_loaded = false;
+}  // namespace
+const std::vector<sys::System>& sys::all() {
+    if (!g_sys_loaded && T) {
+        g_sys_loaded = true;
+        for (uint32_t i = 0; i < T->system_count(); ++i) {
+            KilnSystemInfo s{sizeof s};
+            if (T->system_info(i, &s) == KILN_OK)
+                g_sys.push_back({{s.name.ptr, s.name.len}, static_cast<uintptr_t>(s.rva), i});
+        }
+    }
+    return g_sys;
+}
+const sys::System* sys::find(std::string_view name) {
+    const auto& v = all();
+    auto it = std::lower_bound(v.begin(), v.end(), name, [](const System& s, std::string_view n) { return s.name < n; });
+    return it != v.end() && it->name == name ? &*it : nullptr;
+}
+bool sys::isOn(const System& s) {
+    KilnSystemInfo i{sizeof i};
+    return !T || T->system_info(s.index, &i) != KILN_OK || i.enabled;
+}
+void sys::setOn(const System& s, bool on) {
+    if (T) T->system_set_enabled(0, s.index, on);
+}
+size_t sys::offCount() {
+    KilnTypesStatus st{sizeof st};
+    return T && T->status(&st) == KILN_OK ? st.systems_off : 0;
+}
+void sys::setProfiling(bool on) {
+    if (T) T->profile(on);
+}
+bool sys::profiling() {
+    KilnTypesStatus st{sizeof st};
+    return T && T->status(&st) == KILN_OK && st.profiling;
+}
+std::vector<sys::Stat> sys::stats() {
+    std::vector<Stat> out;
+    for (const System& s : all()) {
+        KilnSystemInfo i{sizeof i};
+        if (T->system_info(s.index, &i) == KILN_OK && i.calls) out.push_back({&s, i.calls, i.ms, i.world_kinds});
+    }
+    std::sort(out.begin(), out.end(), [](const Stat& a, const Stat& b) { return a.ms > b.ms; });
+    return out;
+}
+double sys::profiledSecs() {
+    KilnTypesStatus st{sizeof st};
+    return T && T->status(&st) == KILN_OK ? st.profile_seconds : 0.0;
+}
+
+// ---------------------------------------------------------------- opts (not ported yet)
+bool opts::ready() { return false; }
+uint8_t* opts::machine() { return nullptr; }
+uint8_t* opts::user() { return nullptr; }
+refl::Type opts::machineType() { return refl::byName("keen::ds::g38_options::pc::machine::Settings"); }
+refl::Type opts::userType() { return refl::byName("keen::ds::g38_options::pc::user::Settings"); }
+size_t opts::dump(std::string_view, const std::function<void(const std::string&)>&) { return 0; }
+
+// ---------------------------------------------------------------- ecs (kiln.world, kiln.types)
+// A component "index" here is a slot in g_comp_hashes: Lua refs keep it, and every access looks the component up
+// again through kiln.world, so a ref never holds a pointer.
+namespace {
+std::vector<uint32_t> g_comp_hashes;
+std::unordered_map<uint32_t, int> g_comp_idx;
+}  // namespace
+int ecs::compIndex(uintptr_t, uint32_t typeHash) {
+    if (!W || !T) return -1;
+    if (auto it = g_comp_idx.find(typeHash); it != g_comp_idx.end()) return it->second;
+    bool listed = false;
+    for (uint32_t i = 0, n = T->component_type_count(); i < n && !listed; ++i) {
+        KilnTypeInfo info{sizeof info};
+        listed = T->type_info(T->component_type_at(i), &info) == KILN_OK && info.hash == typeHash;
+    }
+    if (!listed) return -1;
+    const int idx = static_cast<int>(g_comp_hashes.size());
+    g_comp_hashes.push_back(typeHash);
+    g_comp_idx.emplace(typeHash, idx);
+    return idx;
+}
+uint8_t* ecs::component(uintptr_t, uint32_t entity, int idx) {
+    if (!W || idx < 0 || size_t(idx) >= g_comp_hashes.size()) return nullptr;
+    uint32_t size = 0;
+    // kiln.world hands out game memory; writes on the tick thread are what SET does (they skip dirty-marking).
+    return const_cast<uint8_t*>(static_cast<const uint8_t*>(W->component(entity, g_comp_hashes[size_t(idx)], &size)));
+}
+namespace {
+std::vector<uint32_t> findAll(int idx) {
+    std::vector<uint32_t> out(4096);
+    uint32_t n = 0;
+    KilnResult r = W->find(g_comp_hashes[size_t(idx)], out.data(), uint32_t(out.size()), &n);
+    if (r == KILN_ERR_BUFFER_TOO_SMALL) {
+        out.resize(n + 256);
+        r = W->find(g_comp_hashes[size_t(idx)], out.data(), uint32_t(out.size()), &n);
+    }
+    if (r != KILN_OK) return {};
+    out.resize(n);
+    return out;
+}
+}  // namespace
+uint32_t ecs::firstWith(uintptr_t, int idx) {
+    if (!W || idx < 0 || size_t(idx) >= g_comp_hashes.size()) return 0;
+    auto all = findAll(idx);
+    return all.empty() ? 0 : all.front();
+}
+std::vector<uint32_t> ecs::allWith(uintptr_t w, const int* idx, size_t n) {
+    if (!W || !n || std::any_of(idx, idx + n, [](int i) { return i < 0 || size_t(i) >= g_comp_hashes.size(); })) return {};
+    std::vector<uint32_t> out;
+    for (uint32_t e : findAll(idx[0]))
+        if (std::all_of(idx + 1, idx + n, [&](int i) { return component(w, e, i) != nullptr; })) out.push_back(e);
+    return out;
+}
+uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
+int ecs::eventIndex(uintptr_t world, uint32_t typeHash) {
+    // kiln.types checks the world's map on every call; any non-negative value means "has a stream".
+    if (!T || !world) return -1;
+    struct Probe { static void KILN_CALL none(const void*, uint32_t, void*) {} };
+    return T->event_each(world, typeHash, &Probe::none, nullptr) == KILN_OK ? 0 : -1;
+}
+void ecs::forEachEvent(uintptr_t world, int, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn) {
+    if (!T || !world) return;
+    struct Tramp {
+        static void KILN_CALL call(const void* data, uint32_t, void* user) {
+            (*static_cast<const std::function<void(const uint8_t*)>*>(user))(static_cast<const uint8_t*>(data));
+        }
+    };
+    T->event_each(world, typeHash, &Tramp::call, const_cast<std::function<void(const uint8_t*)>*>(&fn));
+}
+bool ecs::postEvent(uintptr_t world, uint32_t typeHash, const uint8_t* data, uint32_t size) {
+    return T && T->event_post(world, typeHash, data, size) == KILN_OK;
+}
+namespace {
+int64_t simRaw(uintptr_t w) {
+    const auto len = *reinterpret_cast<const int64_t*>(w + 0x4c0);
+    const auto n = *reinterpret_cast<const uint32_t*>(w + 0x4dc);
+    if (!n) return 0;
+    return len == INT64_MAX || len == INT64_MIN ? len : len * n;
+}
+}  // namespace
+int64_t ecs::simTime(uintptr_t world) {
+    if (!world) return 0;
+    // kiln.time's ECS clock is the same quantity (clock period x clock) on every build it supports.
+    if (KilnTimeState ts{sizeof ts}; TM && world == g_api->server_world() && TM->get(&ts) == KILN_OK && ts.ecs_time_ns > 0)
+        return ts.ecs_time_ns;
+    __try {
+        return simRaw(world);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+uint32_t ecs::player() {
+    if (!P) return 0;
+    KilnPlayer buf[64];
+    for (auto& b : buf) b.size = sizeof(KilnPlayer);
+    uint32_t n = 0;
+    if (P->list(0, buf, 64, &n) != KILN_OK && n == 0) return 0;
+    for (uint32_t i = 0; i < n && i < 64; ++i)
+        if (buf[i].entity) return buf[i].entity;
+    return 0;
+}
+
+// ---------------------------------------------------------------- res (kiln.assets)
+namespace {
+std::mutex g_res_mx;
+std::map<uint32_t, std::vector<const res::Entry*>> g_of_type;
+std::vector<std::unique_ptr<res::Entry>> g_entries;
+std::unordered_map<const res::Entry*, const uint8_t*> g_data;
+bool g_res_scanned = false;
+std::mutex g_write_mx;
+
+int hexVal(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+void swapGroups(uint8_t g[16]) {  // text order <-> the game's (.NET) byte order
+    std::swap(g[0], g[3]);
+    std::swap(g[1], g[2]);
+    std::swap(g[4], g[5]);
+    std::swap(g[6], g[7]);
+}
+const std::vector<const res::Entry*>& listType(uint32_t type) {
+    static const std::vector<const res::Entry*> kNone;
+    auto it = g_of_type.find(type);
+    if (it != g_of_type.end()) return it->second;
+    auto& v = g_of_type[type];
+    if (!A) return v;
+    size_t n = 0;
+    if (A->resource_list(type, nullptr, 0, &n) != KILN_ERR_BUFFER_TOO_SMALL && n == 0) return v;
+    std::vector<KilnAssetKey> keys(n);
+    if (A->resource_list(type, keys.data(), keys.size(), &n) != KILN_OK) return v;
+    for (size_t i = 0; i < std::min(n, keys.size()); ++i) {
+        const void* p = nullptr;
+        size_t len = 0;
+        if (A->resource_data(&keys[i], &p, &len) != KILN_OK || !p) continue;
+        auto e = std::make_unique<res::Entry>();
+        std::memcpy(e->guid, keys[i].guid, 16);
+        e->type = keys[i].type;
+        e->part = keys[i].part;
+        e->off = 0;
+        e->size = static_cast<uint32_t>(len);
+        g_data[e.get()] = static_cast<const uint8_t*>(p);
+        v.push_back(e.get());
+        g_entries.push_back(std::move(e));
+    }
+    return v;
+}
+void scanAll() {
+    if (g_res_scanned || !T || !A) return;
+    g_res_scanned = true;
+    const auto t0 = std::chrono::steady_clock::now();
+    for (uint32_t i = 0; i < T->type_count(); ++i) {
+        KilnTypeInfo info{sizeof info};
+        if (T->type_info(T->type_at(i), &info) != KILN_OK || info.kind != KILN_TYPE_STRUCT) continue;
+        listType(info.hash);
+    }
+    for (auto it = g_of_type.begin(); it != g_of_type.end();) it = it->second.empty() ? g_of_type.erase(it) : std::next(it);
+    char line[160];
+    snprintf(line, sizeof line, "resources: %zu of %zu types in %.0f ms", g_entries.size(), g_of_type.size(),
+             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    g_api->log(0, KILN_LOG_INFO, KilnStr{line, std::strlen(line)});
+}
+}  // namespace
+
+bool res::ready() {
+    if (!A) return false;
+    std::lock_guard lock(g_res_mx);
+    scanAll();
+    return !g_entries.empty();
+}
+bool res::write(void* dst, const void* src, size_t n, uint32_t& prot) {  // adapted from SET
+    std::lock_guard lock(g_write_mx);
+    DWORD old = 0, ours = 0;
+    if (!VirtualProtect(dst, n, PAGE_READWRITE, &old)) return false;
+    memcpy(dst, src, n);
+    VirtualProtect(dst, n, old, &ours);
+    prot = old;
+    return true;
+}
+size_t res::count() {
+    std::lock_guard lock(g_res_mx);
+    scanAll();
+    return g_entries.size();
+}
+uint8_t* res::data(const Entry& e) {
+    std::lock_guard lock(g_res_mx);
+    auto it = g_data.find(&e);
+    return it == g_data.end() ? nullptr : const_cast<uint8_t*>(it->second);
+}
+const res::Entry* res::find(const uint8_t guid[16], uint32_t type, uint32_t part) {
+    std::lock_guard lock(g_res_mx);
+    scanAll();
+    auto match = [&](const Entry* e) { return !std::memcmp(e->guid, guid, 16) && e->part == part; };
+    if (type) {
+        for (const Entry* e : listType(type)) if (match(e)) return e;
+        return nullptr;
+    }
+    for (auto& [t, list] : g_of_type)
+        for (const Entry* e : list) if (match(e)) return e;
+    return nullptr;
+}
+const std::vector<const res::Entry*>& res::ofType(uint32_t type) {
+    std::lock_guard lock(g_res_mx);
+    scanAll();
+    return listType(type);
+}
+std::vector<std::pair<refl::Type, size_t>> res::types() {
+    std::lock_guard lock(g_res_mx);
+    scanAll();
+    std::vector<std::pair<refl::Type, size_t>> out;
+    for (auto& [hash, list] : g_of_type)
+        if (refl::Type t = refl::byHash(hash); t && !list.empty()) out.emplace_back(t, list.size());
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.first.qname() < b.first.qname(); });
+    return out;
+}
+refl::Type res::typeByName(std::string_view name) {
+    for (auto& [t, n] : types())
+        if (t.qname() == name || t.name() == name) return t;
+    return {};
+}
+res::Blob res::blob(const uint8_t* p, uint8_t prim) {  // adapted from SET
+    uint32_t a, b, c;
+    memcpy(&a, p, 4);
+    if (prim == refl::BlobOptional) return {a, a ? 1u : 0u, 0};
+    memcpy(&b, p + 4, 4);
+    if (prim != refl::BlobVariant) return a ? Blob{a, b, 0} : Blob{};
+    memcpy(&c, p + 8, 4);
+    return a && b && b <= UINT32_MAX - 4 ? Blob{4 + b, c, a} : Blob{};
+}
+std::string_view res::label(const Entry& e) {  // adapted from SET
+    refl::Type t = refl::byHash(e.type);
+    const uint8_t* p = data(e);
+    for (const char* name : {"debugName", "name"}) {
+        refl::Field f;
+        if (!p || !refl::field(t, name, f) || f.type.resolved().prim() != refl::BlobString || !inside(e, p + f.offset, 8))
+            continue;
+        Blob b = blob(p + f.offset, refl::BlobString);
+        const uint8_t* s = p + f.offset + b.rel;
+        if (b.count && inside(e, s, b.count)) return {reinterpret_cast<const char*>(s), b.count};
+    }
+    return {};
+}
+bool res::inside(const Entry& e, const uint8_t* p, uint64_t n) {
+    auto lo = reinterpret_cast<uintptr_t>(data(e)), at = reinterpret_cast<uintptr_t>(p);
+    return lo && at >= lo && at - lo <= e.size && n <= e.size - (at - lo);
+}
+bool res::parseGuid(std::string_view s, uint8_t out[16]) {  // adapted from SET
+    uint8_t g[16] = {};
+    if (s.size() != 36) return false;
+    for (size_t i = 0, n = 0; i < s.size(); i++) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (s[i] != '-') return false;
+            continue;
+        }
+        int v = hexVal(s[i]);
+        if (v < 0) return false;
+        g[n / 2] = uint8_t(g[n / 2] << 4 | v);
+        n++;
+    }
+    swapGroups(g);
+    memcpy(out, g, 16);
+    return true;
+}
+std::string res::guidStr(const uint8_t g[16]) {  // adapted from SET
+    static constexpr char kHex[] = "0123456789abcdef";
+    uint8_t b[16];
+    memcpy(b, g, 16);
+    swapGroups(b);
+    std::string s;
+    for (int i = 0; i < 16; i++) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) s += '-';
+        s += kHex[b[i] >> 4];
+        s += kHex[b[i] & 15];
+    }
+    return s;
+}
+bool res::isText(refl::Type t) {
+    refl::Type u = t.resolved();
+    return u && u.prim() == refl::ObjectReference && u.inner() && u.inner().qname() == "keen::LocaTag";
+}
+// English text: not ported yet (SET reads the En_Us table from the data files).
+std::string_view res::text(const uint8_t[16]) { return {}; }
+std::string_view res::nameText(const Entry&) { return {}; }
