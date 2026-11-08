@@ -70,6 +70,55 @@ bool add_health(const void* registry, uint8_t* comp, int32_t delta) {
     }
 }
 
+bool attr_lookup(const void* registry, uint32_t id, uint32_t* root, uint16_t* slot) {
+    if (!registry || !E.attr_find) return false;
+    __try {
+        AttrFindResult r{};
+        E.attr_find(&r, id, registry);
+        if (r.err || !r.info) return false;
+        *root = *reinterpret_cast<const uint32_t*>(r.info);
+        *slot = *reinterpret_cast<const uint16_t*>(r.info + 0xC);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool attr_values(const uint8_t* comp, uint64_t size, uint32_t root, int32_t** values, uint8_t* count) {
+    if (!comp || size < 8) return false;
+    __try {
+        if (!(comp[6] & 1)) return false;  // AttributeComponent.flags bit 0: initialised
+        if (*reinterpret_cast<const uint32_t*>(comp) != root) return false;
+        const uint16_t off = *reinterpret_cast<const uint16_t*>(comp + 4);
+        const uint8_t n = comp[7];
+        if (n == 0 || static_cast<uint64_t>(off) + n * 4ull > size) return false;
+        *values = reinterpret_cast<int32_t*>(const_cast<uint8_t*>(comp) + off);
+        *count = n;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool read_i32(const int32_t* p, int32_t* out) {
+    __try {
+        *out = *p;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool attr_add_id(const void* registry, uint8_t* comp, int32_t delta, uint32_t id) {
+    if (!E.attr_add) return false;
+    __try {
+        E.attr_add(comp, registry, delta, id);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 bool transform(uintptr_t world, uint32_t entity, WorldTransform* out) {
     if (!world || !E.get_transform || !entity) return false;
     __try {

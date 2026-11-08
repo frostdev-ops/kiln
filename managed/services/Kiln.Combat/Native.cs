@@ -8,7 +8,7 @@ internal static unsafe class CombatNative
 {
     public const string Name = "kiln.combat";
     public const uint Version = 1;
-    public const int Ok = 0;
+    public const int Ok = 0, ErrInvalidArgument = 1, ErrNotFound = 2, ErrUnavailable = 3, ErrWrongThread = 4;
 
     public const uint Hurt = 1, Heal = 2, Damaged = 3, Died = 4, Respawned = 5, Drops = 6, Knockback = 7, Fall = 8;
     public const byte HealHit = 0, HealKiln = 1, HealRegeneration = 2, HealAttribute = 3;
@@ -107,10 +107,69 @@ internal static unsafe class CombatNative
         public delegate* unmanaged[Cdecl]<Status*, int> GetStatus;
     }
 
+    /// <summary>Attribute kinds (KILN_ATTR_*), also the values of <see cref="GameAttribute"/>.</summary>
+    public const uint AttrHealth = 1, AttrStamina = 2, AttrMana = 3, AttrBodyHeat = 4, AttrOxygen = 5;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AttributeIds
+    {
+        public uint Size, Kind, CurrentId, MinId, MaxId, Component;
+        public byte GameClamp, R0, R1, R2;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AttributeValue
+    {
+        public uint Size, Id, Kind, CurrentId, MaxId;
+        public int Value, Current, Min, Max;
+        public byte HasMin, HasMax, IsCurrent, R0;
+    }
+
+    /// <summary>The whole v2 table: v1 followed by the attribute functions. Use it only when the header's size says the
+    /// native service has them (an older runtime publishes v1).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV2
+    {
+        public Table V1;
+        public delegate* unmanaged[Cdecl]<uint, AttributeIds*, int> AttributeIdsFn;
+        public delegate* unmanaged[Cdecl]<uint, uint, AttributeValue*, int> AttributeGet;
+        public delegate* unmanaged[Cdecl]<uint, uint, int, AttributeValue*, int> AttributeSet;
+        public delegate* unmanaged[Cdecl]<uint, uint, int, AttributeValue*, int> AttributeAdd;
+    }
+
     private static Table* _t;
 
     /// <summary>The table, or null when kiln.combat is not loaded (looked up again until it is found).</summary>
     public static Table* T => _t != null ? _t : _t = Services.Get<Table>(Name, Version);
+
+    /// <summary>The v2 table (attributes), or null when kiln.combat is missing or an older runtime's v1.</summary>
+    public static TableV2* V2
+    {
+        get
+        {
+            var t = T;
+            if (t == null || t->Header.Size < (uint)sizeof(TableV2)) return null;
+            return (TableV2*)t;
+        }
+    }
+
+    public static TableV2* RequireV2(string api)
+    {
+        var t = V2;
+        if (t != null) return t;
+        throw new NotSupportedException(T == null
+            ? $"{api}: kiln.combat is not available on this server build"
+            : $"{api}: this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
+    }
+
+    public static string DescribeAttribute(int rc) => rc switch
+    {
+        1 => "not an attribute id of health, stamina, mana, body heat or oxygen, or not a current value (the maximum and computed values are the game's to change)",
+        2 => "no such entity, or it has no such attribute (a creature has no mana; players have all five)",
+        3 => "unavailable: the game's attribute resource was not found on this build, or no world is running",
+        4 => "not on the tick thread",
+        _ => $"error {rc}",
+    };
 
     public static Table* Require(string api) =>
         T != null ? T : throw new NotSupportedException($"{api}: kiln.combat is not available on this server build");

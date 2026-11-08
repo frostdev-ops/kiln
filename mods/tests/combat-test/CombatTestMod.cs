@@ -4,7 +4,8 @@
 // own) and drives everything through kiln.combat: health read/write against the replicated NetworkHealth, hits with
 // an attacker (kill credit), EntityHurtEvent cancel/modify on both the synchronous path and the held game-hit path,
 // god mode, deaths with and without a killer, what the game spawns at a creature's death, a respawn (lab switch
-// watch-all), a stress run of thousands of hits and events, and the release of the listener's interest.
+// watch-all), a stress run of thousands of hits and events, stamina/mana/body heat/oxygen get, set, add and clamp on
+// spawned creatures that carry them (kiln.combat v2 attributes), and the release of the listener's interest.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Kiln;
@@ -15,6 +16,12 @@ namespace CombatTest;
 public struct NetworkHealth
 {
     public uint Health, HealthMax;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct NetworkStamina
+{
+    public ushort Stamina, StaminaMax;
 }
 
 public sealed class CombatTestMod : Mod
@@ -322,6 +329,9 @@ public sealed class CombatTestMod : Mod
                                      $"deferred by the 4-impacts-per-target cap {st?.HitsDeferred}");
         Check(_damaged.Count >= applied && _hurt.Count == hits.Count, $"stress: one EntityHurtEvent per hit ({_hurt.Count}/{hits.Count}) and an EntityDamagedEvent per applied hit ({_damaged.Count})");
 
+        // ---------------------------------------------------------------- attributes (kiln.combat v2)
+        await AttributeTests(At);
+
         // ---------------------------------------------------------------- unsubscribe: interest released
         foreach (var s in _subs) s.Dispose();
         _subs.Clear();
@@ -329,6 +339,173 @@ public sealed class CombatTestMod : Mod
         st = Combat.Status;
         Check(st is { Holding: true } && st.Interest == 0x2, $"after disposing the On<> handlers only the [Subscribe] one is left: interest 0x{st?.Interest:x}, holding {st?.Holding} ({_attrHurt} events seen by it)");
         Info($"final status: {st}");
+    }
+
+
+    // Stamina, mana, body heat and oxygen (and health through the same API) on creatures the game's registry has with
+    // those components: Enemy_Vukah_Melee (health, stamina, oxygen), Player_Vukah_Melee (+ mana), AutomatedPlayer (+ body
+    // heat). Which attributes a template carries is read back, not assumed; absent ones must read null.
+    private async Task AttributeTests(Func<double, double, WorldPosition> at)
+    {
+        var all = new[] { GameAttribute.Health, GameAttribute.Stamina, GameAttribute.Mana, GameAttribute.BodyHeat, GameAttribute.Oxygen };
+        Check(Attributes.Available, "attributes: available (resolved from the game's attribute resource)");
+        foreach (var k in all)
+        {
+            var ids = Attributes.Ids(k);
+            Check(ids is { CurrentId: not 0, MaxId: not 0, MinId: not 0, ComponentHash: not 0, GameClamp: true },
+                $"attributes: ids of {k}: {(ids is { } i ? $"current 0x{i.CurrentId:X8}, min 0x{i.MinId:X8}, max 0x{i.MaxId:X8}, component 0x{i.ComponentHash:X8}, game clamp {i.GameClamp}" : "none")}");
+        }
+        // EMF's attribute ids (emf_api.h) are the game's: the resolved ones must be the same numbers.
+        Check(Attributes.Ids(GameAttribute.Health) is { CurrentId: 0x8EB84995, MaxId: 0xDC8358BE } &&
+              Attributes.Ids(GameAttribute.Stamina) is { CurrentId: 0x04B6AA8B, MaxId: 0xF443C410 } &&
+              Attributes.Ids(GameAttribute.Mana) is { CurrentId: 0x6AA2574E, MaxId: 0x17536777 },
+            "attributes: resolved health, stamina and mana ids equal EMF's constants");
+        Check(Attributes.Ids((GameAttribute)99) is null && Attributes.Ids(0) is null, "attributes: an unknown kind has no ids");
+
+        var stamina = Attributes.Ids(GameAttribute.Stamina)!.Value;
+        var firstOfKind = new Dictionary<GameAttribute, EntityId>();
+        var x = 14.0;
+        foreach (var name in new[] { "Enemy_Vukah_Melee", "Player_Vukah_Melee", "AutomatedPlayer" })
+        {
+            var tpl = Spawn.Lookup(name);
+            if (!Check(tpl is not null, $"attributes: template {name} {tpl?.Id}")) continue;
+            EntityId e;
+            try
+            {
+                e = await Spawn.Entity(tpl!.Id, at(x, -x), 0, new SpawnOptions { Tag = "combat-test", Flags = SpawnFlags.Transient });
+            }
+            catch (Exception ex)
+            {
+                Fail($"attributes: spawning {name}: {ex.Message}");
+                continue;
+            }
+            x += 4;
+            _spawned.Add(e);
+            await Steps(6);  // the attribute components are set up by the game's init programs in the next steps
+            var have = all.Where(k => Attributes.Get(e, k) is not null).ToList();
+            Info($"attributes: {name} = {e} carries {string.Join(", ", have)}; lacks {string.Join(", ", all.Except(have))}");
+            foreach (var k in all.Except(have))
+            {
+                Check(Attributes.Get(e, k) is null && !Attributes.TrySet(e, k, 1, out _) && !Attributes.TryAdd(e, k, 1, out _),
+                    $"attributes: {name} has no {k}: Get is null, TrySet/TryAdd are false");
+                Check(Throws(() => Attributes.Set(e, k, 1)), $"attributes: {name} has no {k}: Set throws");
+            }
+            foreach (var k in have)
+            {
+                firstOfKind.TryAdd(k, e);
+                await AttributeCycle(name, e, k);
+            }
+            if (have.Contains(GameAttribute.Stamina)) await AttributeIdChecks(name, e);
+        }
+        foreach (var k in new[] { GameAttribute.Stamina, GameAttribute.Mana, GameAttribute.BodyHeat, GameAttribute.Oxygen })
+            Check(firstOfKind.ContainsKey(k), $"attributes: a spawned creature carried {k} and it was set, added and read back");
+
+        // not on the tick thread, and a missing entity
+        var off = await Task.Run(() =>
+        {
+            try { Attributes.Get(new EntityId(1), GameAttribute.Stamina); return "no exception"; }
+            catch (InvalidOperationException) { return "InvalidOperationException"; }
+        });
+        await Context.Scheduler.NextTick();
+        Check(off == "InvalidOperationException", $"attributes: Get off the tick thread is refused ({off})");
+        Check(Attributes.Get(new EntityId(0x7ffffff0), GameAttribute.Stamina) is null && !Attributes.TryAdd(new EntityId(0x7ffffff0), GameAttribute.Mana, 1, out _),
+            "attributes: a missing entity reads null and TryAdd is false");
+        var st = Combat.Status;
+        Info($"attributes: done; kiln.combat status {st}");
+        _ = stamina;
+    }
+
+    private static bool Throws(Action a)
+    {
+        try { a(); return false; }
+        catch (InvalidOperationException) { return true; }
+    }
+
+    // Set, add, clamp and read back one attribute of one entity (health: the same API, delegated to SetHealth).
+    private async Task AttributeCycle(string name, EntityId e, GameAttribute k)
+    {
+        var ids = Attributes.Ids(k)!.Value;
+        var r0 = Attributes.Get(e, k)!.Value;
+        var min = r0.Min ?? 0;
+        var max = r0.Max ?? 0;
+        Check(r0 is { Kind: var kind, IsCurrent: true, Max: > 0 } && kind == k && r0.Current >= min && r0.Current <= max && r0.Value == r0.Current && r0.CurrentId == ids.CurrentId && r0.MaxId == ids.MaxId,
+            $"attributes: {name} {k} reads {r0.Current} in [{min}, {max}] (current id 0x{r0.CurrentId:X8}, max id 0x{r0.MaxId:X8})");
+        var mid = min + (max - min) / 2;
+        var set = Attributes.Set(e, k, mid);
+        var back = Attributes.Get(e, k)!.Value;
+        Check(set == mid && back.Current == mid && back.Max == max, $"attributes: {name} Set({k}, {mid}) -> {set}, reads back {back}");
+        if (k == GameAttribute.Health)
+            Check(Combat.GetHealth(e) is { } h && h.Current == mid && h.Max == max, $"attributes: {name} Health through Attributes is Combat's: {Combat.GetHealth(e)}");
+        var add = Attributes.Add(e, k, 5);
+        Check(add == Math.Min(mid + 5, max) && Attributes.Get(e, k)!.Value.Current == add, $"attributes: {name} Add({k}, 5) -> {add} (want {Math.Min(mid + 5, max)})");
+        add = Attributes.Add(e, k, -3);
+        Check(add == Math.Min(mid + 5, max) - 3 && Attributes.Get(e, k)!.Value.Current == add, $"attributes: {name} Add({k}, -3) -> {add}");
+        var top = Attributes.Add(e, k, 100_000_000);
+        Check(top == max && Attributes.Get(e, k)!.Value.Current == max, $"attributes: {name} Add({k}, +100000000) clamps to the maximum: {top} (max {max})");
+        top = Attributes.Set(e, k, int.MaxValue);
+        Check(top == max, $"attributes: {name} Set({k}, int.MaxValue) clamps to the maximum: {top}");
+        if (k == GameAttribute.Health)
+        {
+            // below the minimum would kill it: only through god mode, which keeps 1 (Combat.SetHealth semantics)
+            Combat.SetInvulnerable(e);
+            var floor = Attributes.Set(e, k, int.MinValue);
+            Check(floor == 1, $"attributes: {name} Set(Health, int.MinValue) on a god-mode entity leaves {floor}");
+            Combat.SetInvulnerable(e, false);
+            Attributes.Set(e, k, max);
+        }
+        else
+        {
+            var low = Attributes.Add(e, k, -100_000_000);
+            Check(low == min && Attributes.Get(e, k)!.Value.Current == min, $"attributes: {name} Add({k}, -100000000) clamps to the minimum: {low} (min {min})");
+            low = Attributes.Set(e, k, int.MinValue);
+            Check(low == min, $"attributes: {name} Set({k}, int.MinValue) clamps to the minimum: {low}");
+            Check(Attributes.TrySet(e, k, mid, out var tr) && tr.Current == mid && Attributes.TryAdd(e, k, 2, out var ta) && ta.Current == Math.Min(mid + 2, max),
+                $"attributes: {name} TrySet / TryAdd({k}) return the pair after the write");
+        }
+        // what the game does with it afterwards: its own programs copy it for the clients (creatures: NetworkStamina,
+        // NetworkHealth; players: NetworkPlayerAttributes). Regeneration may move it a little.
+        var want = Attributes.Set(e, k, mid);
+        await Steps(2);
+        var now = Attributes.Get(e, k)!.Value.Current;
+        if (k == GameAttribute.Stamina && World.TryRead<NetworkStamina>(e, "NetworkStamina", out var ns))
+            Check(Math.Abs(ns.Stamina - now) <= Math.Max(2, max / 20) && ns.StaminaMax == Math.Min(max, ushort.MaxValue),
+                $"attributes: {name} NetworkStamina follows: {ns.Stamina}/{ns.StaminaMax} (stamina {now} after 2 steps, set {want})");
+        else if (k == GameAttribute.Health && World.TryRead<NetworkHealth>(e, "NetworkHealth", out var nh))
+            Check(Math.Abs((int)nh.Health - now) <= 2, $"attributes: {name} NetworkHealth follows: {nh.Health}/{nh.HealthMax} (health {now})");
+        else if (World.ReadBytes(e, "NetworkPlayerAttributes") is { Length: >= 0xB6 } npa)
+        {
+            var off = k switch { GameAttribute.Health => 0x84, GameAttribute.Stamina => 0x8C, GameAttribute.Mana => 0x94, GameAttribute.BodyHeat => 0x9C, _ => 0xB2 };
+            var net = BitConverter.ToUInt16(npa, off);
+            var netMax = BitConverter.ToUInt16(npa, off + 2);
+            // the game's own network_player_attributes copy (regeneration moves the value by a step's worth)
+            Check(Math.Abs(net - now) <= Math.Max(2, max / 20) && netMax == Math.Min(max, ushort.MaxValue),
+                $"attributes: {name} NetworkPlayerAttributes.{k} follows: {net}/{netMax} (value {now} after 2 steps, set {want})");
+        }
+        else
+            Info($"attributes: {name} {k}: no replicated copy to compare ({now} after 2 steps, set {want})");
+        Attributes.Set(e, k, max);
+    }
+
+    // The same attributes by the game's id, and the refusals.
+    private Task AttributeIdChecks(string name, EntityId e)
+    {
+        var ids = Attributes.Ids(GameAttribute.Stamina)!.Value;
+        var cur = Attributes.Get(e, ids.CurrentId);
+        var max = Attributes.Get(e, ids.MaxId);
+        var min = Attributes.Get(e, ids.MinId);
+        Check(cur is { IsCurrent: true } && max is { IsCurrent: false } && min is { IsCurrent: false } && max.Value.Value == cur.Value.Max && min.Value.Value == cur.Value.Min,
+            $"attributes: {name} Get by id: current {cur?.Value}, max id reads {max?.Value}, min id reads {min?.Value}");
+        Attributes.Set(e, ids.CurrentId, 7);
+        Check(Attributes.Add(e, ids.CurrentId, 1) == 8 && Attributes.Get(e, GameAttribute.Stamina)!.Value.Current == 8, $"attributes: {name} Set and Add by the id of the current value");
+        Check(Throws(() => Attributes.Set(e, ids.MaxId, 5)) && Throws(() => Attributes.Add(e, ids.MinId, 1)),
+            $"attributes: {name} Set/Add on the maximum or minimum id is refused (the game computes them)");
+        Check(Throws(() => Attributes.Get(e, 0x12345678u)) && Throws(() => Attributes.Set(e, 0x12345678u, 1)) && Throws(() => Attributes.Add(e, 0u, 1)),
+            $"attributes: {name} an unknown attribute id is refused (Get, Set, Add)");
+        // the id of a value in another component Kiln does not handle (Level, 0x724BF568) is unknown too
+        Check(Throws(() => Attributes.Get(e, 0x724BF568u)), $"attributes: {name} the id of Level (another component) is refused");
+        var other = Attributes.Get(e, 0x4114B3E5u);  // Stamina_Max_Adder: a computed input, readable, not writable
+        Check(other is { IsCurrent: false }, $"attributes: {name} a computed attribute of the component (Stamina_Max_Adder) reads: {other?.Value} (pair {other?.Current}/{other?.Max})");
+        return Task.CompletedTask;
     }
 
     private void OnHurt(EntityHurtEvent e)

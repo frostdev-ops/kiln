@@ -43,6 +43,94 @@ So an attribute write through attrAdd from the tick thread (Pre or Post, no prog
 game's own `network_health_attribute` copies it into `NetworkHealth` and marks that written. Health itself is
 `server_only` + `do_not_save`.
 
+## Attributes: stamina, mana, body heat, oxygen (kiln.combat v2; server build 26430253, svn 1287369, exe `f0d824be…`)
+
+Health is one of many attribute components. The same two engine functions read and write all of them, so v2 generalises
+`attrAdd` from Health to the other four; nothing new had to be hooked. Tags as above.
+
+**Where the ids come from (static + data).** The game builds `impact::AttributeRegistry` from one resource,
+`keen::AttributeContainerResource` (`8f1fd455-a5bf-4184-a77c-7123955d6e04`, 17,579 bytes, 59 groups). Decoded with
+`tools/kfc` (`kfc.py decode`) and the game's reflection:
+`attributes` = `BlobArray<BaseAttributeResource>` (28 B each: `type` HashKey32 +0 = FNV-1a of the value type, `sint32`
+for these five; `ids` +4; `structure` +0xC; `debugNames` +0x14). A BlobArray is `{s32 offset from the field's own address,
+u32 count}`, a BlobString `{s32 offset, u32 length}`. `ids[i]`, `debugNames[i]` and `structure[i]` describe slot `i` of the
+component's `dataStorage`; `ids[0]` is the group's root id, which is the component's `rootId` (+0). `structure[0].calculation`
+is the formula `attrAdd` re-runs: u32 commands `op << 16 | argument` (`keen::AttributeOps`: Load0 1, Load 2, Clamp 12...).
+**[data] [refl]**
+
+| Pair | Component (hash) | Size | Current | Minimum (slot) | Maximum (slot) | Slots | Formula of the current value |
+|---|---|---|---|---|---|---|---|
+| Health | `keen::ecs::Health` `0xDC101091` | 40 | `0x8EB84995` | `0x80ABBEB8` (1) | `0xDC8358BE` (7) | 8 | `[Load 0, Load 1, Load 7, Clamp]` |
+| Stamina | `keen::ecs::Stamina` `0x92410664` | 40 | `0x04B6AA8B` | `0x519C89A1` (1) | `0xF443C410` (2) | 8 | `[Load 0, Load 1, Load 2, Clamp]` |
+| Mana | `keen::ecs::Mana` `0x4D7229A8` | 40 | `0x6AA2574E` | `0x9FD4B645` (5) | `0x17536777` (1) | 8 | `[Load 0, Load 5, Load 1, Clamp]` |
+| BodyHeat | `keen::ecs::BodyHeat` `0x2F5BF675` | 40 | `0xC7AEAF1D` | `0x227C527E` (7) | `0x783EC3B6` (1) | 8 | `[Load 0, Load 7, Load 1, Clamp]` |
+| Oxygen | `keen::ecs::Oxygen` `0xCE399097` | 32 | `0xF0E36BEC` | `0x5B8230C8` (2) | `0x13B6298C` (1) | 6 | `[Load 0, Load 2, Load 1, Clamp]` |
+
+Health, stamina and mana equal EMF's `EMF_ATTR_*` ids (`emf_api.h`), which is how EMF's `attribute_get`/`attribute_add` map
+onto this table. Every component is `{u32 rootId, u16 storageOffset, u8 flags (bit 0 initialised), u8 storageCount}`
+followed by `dataStorage`; Health, Stamina, Mana and Oxygen derive from `SInt32Attribute`, BodyHeat from
+`UInt32Attribute` (the resource still types the group `sint32`, and the formula is a signed clamp, so Kiln reads every slot
+as s32). `host test native/services/combat/tests/run.sh` resolves the table from the real resource bytes and checks all of it.
+
+**The add path clamps.** `attrAdd` (`0x190810`, the same function the Health block calls) does: `AttrFind(id)` →
+slot `info+0xC`; refuse when the component is null or flag bit 0 is clear; `slot += delta` (a plain dword add, and the
+root of the id is **not** compared with the component's, so Kiln checks that); then it walks the root's `structure`
+from the last entry to the first (`0x991860` finds the root, `0x14003d730` is the formula interpreter) and stores each
+result into its own slot. Entry 0 is the clamp above, so after `attrAdd` the current value is inside `[min, max]` for
+all five pairs. Kiln clamps first as well (it needs the numbers for its result, and for the pairs that failed this check
+on another build). `AttrFind` is `0x991810`: an open-addressing id map at `registry+0x68` → `{u8 err; u32; info*}`, info
+`+0` the group's root id, `+0xC` the slot. **[dis]**
+
+**How Kiln resolves it at run time** (`resolve_attributes`, `native/services/combat/combat.cpp`; the parser is
+`attr_table.h`, portable and host-tested): kiln.types gives the layout (`keen::AttributeContainerResource.attributes`,
+`BaseAttributeResource` size and field offsets, the element sizes of `ids`, `debugNames`, `structure`, `calculation`, the
+values of `keen::AttributeOps` Load and Clamp) and refuses a shape it does not know; kiln.assets `resource_list` /
+`resource_read` give the bytes; the five groups are found by the debug name of their first attribute (`Stamina` ...) and
+their `<name>_Min` / `<name>_Max` neighbours; every id is then checked against the registry's own `AttrFind` (same root,
+slot equal to its index) and the component type against kiln.types (`keen::ecs::<name>`, a struct deriving from
+`keen::ecs::AttributeComponent`, big enough for its slots). Only the five names are fixed. At boot (first server world):
+`attributes: on (5 pairs resolved from the game's attribute resource)` and one line per pair.
+
+**Who carries what (templates, `kfc.py find-templates --components`).** Stamina: 600 templates with Health (all creatures);
+Oxygen: 288 (most creatures: `Enemy_Vukah_Melee` has Health, Stamina, Oxygen); Mana: `1_Player`, `1_Player_AG2`,
+`AutomatedPlayer` and `Player_Vukah_Melee` only; BodyHeat: `1_Player`, `1_Player_AG2`, `AutomatedPlayer` only. A creature
+therefore has stamina and oxygen; the lab uses `Player_Vukah_Melee` for mana and `AutomatedPlayer` for body heat.
+
+**What the game copies for clients.** Creatures: `NetworkStamina {u16 stamina, u16 staminaMax}` (hash `0xB1D0B93C`).
+Players: `NetworkPlayerAttributes` (256 B) holds u16 copies: health `+0x84`, stamina `+0x8C`, mana `+0x94`, bodyHeat `+0x9C`,
+oxygen `+0xB2` (each followed by its max). A raw `attrAdd` marks nothing written, so these copies are what reaches a client.
+**[rt]** Both are written by the game's own programs within the step after a Kiln write (below).
+
+**Lab (`mods/tests/combat-test`, lab `dev20-wp04`, port 26240, a copied world, no player; 203 PASS / 0 FAIL, `perkhit-test`
+18 PASS / 0 FAIL on the same build).** **[rt]**
+- Boot: `attributes: kiln.types found, kiln.assets found`, one line per pair (`attributes: Stamina: component
+  keen::ecs::Stamina (0x92410664), current 0x04B6AA8B, min 0x519C89A1, max 0xF443C410, 8 slots, the game's formula clamps
+  current to [min, max]`), `attributes: on (5 pairs resolved from the game's attribute resource)`. The resolved Health, Stamina
+  and Mana ids equal EMF's constants and Kiln's old built-in Health ids.
+- `Enemy_Vukah_Melee` carries Health 119, Stamina 24, Oxygen 10 and no Mana or BodyHeat (`Get` is null, `TrySet`/`TryAdd`
+  are false, `Set` throws). `Player_Vukah_Melee` adds Mana 100 (Health 99, Stamina 12, Oxygen 30). `AutomatedPlayer` has
+  all five (Health 200, Stamina 480, Mana 140, BodyHeat 10,000, Oxygen 30; the spawn needs no player).
+- For every attribute a spawned entity carries: `Set(mid)` reads back `mid`; `Add(+5)` and `Add(-3)` land exactly;
+  `Add(+100,000,000)` and `Set(int.MaxValue)` stop at the maximum (`BodyHeat 10000/10000`); `Add(-100,000,000)` and
+  `Set(int.MinValue)` stop at the minimum (0); `TrySet`/`TryAdd` return the pair; Health through `Attributes` is
+  `Combat.SetHealth` (`Set(Health, int.MinValue)` on a god-mode entity leaves 1).
+- Replication: `NetworkStamina follows: 12/24 (stamina 12 after 2 steps, set 12)` on both Vukahs; `AutomatedPlayer
+  NetworkPlayerAttributes.Stamina follows: 168/336`, `.Mana 70/140`, `.BodyHeat 5000/10000`, `.Health 100/200`,
+  `.Oxygen 16/30 (value 17, set 15)` (oxygen regenerates one point a step). A game creature's own recharge moves stamina
+  and oxygen a little after a write; the copy trails by a step.
+- By id: `Get(0x04B6AA8B)` is the current value, the maximum id and the minimum id read their values with
+  `IsCurrent` false; `Set`/`Add` on them throw; `0x12345678` and `0` (unknown) throw for Get, Set and Add; so does the id of
+  `Level` (a component Kiln does not handle); `Stamina_Max_Adder` (`0x4114B3E5`) reads. Off the tick thread and for a
+  missing entity: `InvalidOperationException` / null.
+- Fail soft (a lab boot without `kiln-types.dll`): `attributes: kiln.types MISSING, kiln.assets found`, three attempts 250
+  steps apart, then one `attributes: off: kiln.types or kiln.assets is not available`; health, hits and deaths kept
+  working (the 48 pre-existing checks passed) and the server stayed up.
+
+**Not seen in the lab.** A joined player's own values (the client reads `NetworkPlayerAttributes`; whether the client's
+prediction overrides a server-side change to stamina or oxygen), saves of players (a raw `attrAdd` marks nothing written, so a
+value that the game does not re-derive at login may not be saved), and whether the game's recharge programs for body heat
+and oxygen fight a set value on a real player (client checklist).
+
 ## The hit pipeline
 
 | What | Value | Where | Tag |

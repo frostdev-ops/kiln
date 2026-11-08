@@ -9,6 +9,9 @@
  *      applied damage, deaths with the killer, player respawns.
  *   5. (later in v1) knockback on held hits, fall damage (held one step, writable), natural regeneration (held one
  *      step) and changeAttributeValue health gains as HEAL events with a cause.
+ *   6. (v2) Attributes: get, set and add the current value of health, stamina, mana, body heat and oxygen of any
+ *      entity that carries them (creatures and players alike), by the game's own attribute id, with the pair's minimum
+ *      and maximum. The ids are read from the game's attribute registry at run time (docs/re/combat.md "Attributes").
  * Evidence and engine notes: docs/re/combat.md. Usage: docs/kiln/services/combat.md.
  *
  * Threads: everything except status() is tick-thread only (Pre or Post, or a posted task); elsewhere
@@ -24,7 +27,7 @@ extern "C" {
 #endif
 
 #define KILN_COMBAT_SERVICE "kiln.combat"
-#define KILN_COMBAT_VERSION 1u
+#define KILN_COMBAT_VERSION 2u /* v2 appends the attribute functions (after `status`): check header.size before using them */
 
 typedef struct KilnHealth {
     uint32_t size;         /* set to sizeof(KilnHealth) before calling */
@@ -191,6 +194,50 @@ typedef struct KilnCombatStatus {
     uint64_t knockbacks_seen, knockbacks_modified;
 } KilnCombatStatus;
 
+/* ---- v2: attributes ----
+ * An attribute is a number the game keeps in an ECS component of the entity (Health, Stamina, Mana, BodyHeat, Oxygen:
+ * one component each, 40 or 32 bytes). Every attribute has an id (a 32-bit hash the game's attribute registry maps to a
+ * component and a slot). A "pair" is a current value with its minimum and maximum, which the game computes from other
+ * attributes (level, gear, buffs) and uses to clamp the current value after every write. Kiln resolves the ids of the
+ * five pairs below from the game's attribute resource at run time (kiln.types gives the layout); the table is the same
+ * on every entity. Values are the engine's integers (a player's stamina and mana are in the hundreds). */
+enum {
+    KILN_ATTR_NONE = 0,
+    KILN_ATTR_HEALTH = 1,    /* component keen::ecs::Health. Writes go through set_health (god mode keeps 1) */
+    KILN_ATTR_STAMINA = 2,   /* keen::ecs::Stamina (creatures and players) */
+    KILN_ATTR_MANA = 3,      /* keen::ecs::Mana (players, and a few creatures such as Player_Vukah_Melee) */
+    KILN_ATTR_BODY_HEAT = 4, /* keen::ecs::BodyHeat (players) */
+    KILN_ATTR_OXYGEN = 5,    /* keen::ecs::Oxygen (players and most creatures) */
+};
+
+typedef struct KilnAttributeIds {
+    uint32_t size;        /* set to sizeof(KilnAttributeIds) before calling */
+    uint32_t kind;        /* in: KILN_ATTR_* */
+    uint32_t current_id;  /* the game's attribute ids; min_id and max_id are 0 when the pair has none */
+    uint32_t min_id;
+    uint32_t max_id;
+    uint32_t component;   /* FNV-1a-32 of the component's qualified name (keen::ecs::Stamina = 0x92410664) */
+    uint8_t game_clamp;   /* 1: the game's own formula clamps the current value to [min, max] after every change (read from
+                             the attribute resource); Kiln clamps as well, so a write never depends on it */
+    uint8_t reserved[3];
+} KilnAttributeIds;
+
+typedef struct KilnAttributeValue {
+    uint32_t size;        /* set to sizeof(KilnAttributeValue) before calling */
+    uint32_t id;          /* the attribute id asked for */
+    uint32_t kind;        /* KILN_ATTR_* of the pair the id belongs to */
+    uint32_t current_id;  /* that pair's ids; max_id is 0 when it has none */
+    uint32_t max_id;
+    int32_t value;        /* the value of `id` (after the write, for set and add) */
+    int32_t current;      /* the pair's current value */
+    int32_t min;          /* valid when has_min */
+    int32_t max;          /* valid when has_max */
+    uint8_t has_min;
+    uint8_t has_max;
+    uint8_t is_current;   /* `id` is the pair's current value: the one set and add accept */
+    uint8_t reserved;
+} KilnAttributeValue;
+
 typedef struct KilnCombatApi {
     KilnServiceHeader header; /* { sizeof(KilnCombatApi), KILN_COMBAT_VERSION } */
 
@@ -217,6 +264,28 @@ typedef struct KilnCombatApi {
     /* One listener (the managed Kiln.Combat); a second call replaces it, fn NULL removes it. Any thread. */
     KilnResult(KILN_CALL* set_listener)(KilnCombatListenerFn fn, void* user);
     KilnResult(KILN_CALL* status)(KilnCombatStatus* out); /* any thread */
+
+    /* ---- v2: attributes (appended; check header.size >= offsetof(KilnCombatApi, attribute_add) + sizeof(void*)) ----
+     * Server world, tick thread (Pre or Post) except attribute_ids (any thread). Results:
+     *   INVALID_ARGUMENT  a bad `out`, a kind or an attribute id Kiln does not know (an id of the five pairs' components
+     *                     only), or set/add on an id that is not a pair's current value: the minimum, the maximum and the
+     *                     computed values are recomputed by the game, so a write would not last
+     *   NOT_FOUND         no such entity, or it has no such component (a Vukah has no Mana) or it is not set up yet
+     *   UNAVAILABLE       attributes are off on this build (the attribute resource, kiln.types, kiln.assets or the
+     *                     registry was not found; logged at boot), or no server world yet
+     *   WRONG_THREAD      not on the tick thread */
+    /* The ids of a pair, as resolved from the game. UNAVAILABLE until the first server world runs. */
+    KilnResult(KILN_CALL* attribute_ids)(uint32_t kind, KilnAttributeIds* out);
+    /* Reads attribute `attribute_id` of `entity`, with its pair's current value and bounds. Any id of the five
+     * components is readable (current, minimum, maximum, recharge, base...). Works on non-players. */
+    KilnResult(KILN_CALL* attribute_get)(KilnEntity entity, uint32_t attribute_id, KilnAttributeValue* out);
+    /* Sets a pair's current value, clamped to [min, max] (min: the pair's minimum attribute, else 0), through the
+     * game's attribute code (its formulas re-run; the game copies players' values to the replicated
+     * NetworkPlayerAttributes and creatures' to NetworkStamina/NetworkHealth itself). `out` (optional) = the pair
+     * after the write. Health: Combat.SetHealth semantics (silent, god mode keeps 1). */
+    KilnResult(KILN_CALL* attribute_set)(KilnEntity entity, uint32_t attribute_id, int32_t value, KilnAttributeValue* out);
+    /* Adds `delta` (negative to spend) to a pair's current value, clamped like attribute_set. */
+    KilnResult(KILN_CALL* attribute_add)(KilnEntity entity, uint32_t attribute_id, int32_t delta, KilnAttributeValue* out);
 } KilnCombatApi;
 
 #ifdef __cplusplus

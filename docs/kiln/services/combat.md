@@ -7,10 +7,10 @@ killing blow, hit reaction, damage number on clients, kill credit / XP for the a
 
 | Layer | File |
 |---|---|
-| C table | `native/core/abi/services/kiln_combat.h` (`kiln.combat` v1) |
+| C table | `native/core/abi/services/kiln_combat.h` (`kiln.combat` v2: v1 plus the attribute functions) |
 | Native | `native/services/combat/` → `kiln/services/kiln-combat.dll` |
 | Symbols | `sigdb/symbols/server.d/combat.json` (features `combat.health`, `combat.hits`, `combat.deaths`, `combat.actor_states`) |
-| Managed | `managed/services/Kiln.Combat/` → `kiln/host/Kiln.Combat.dll` (`Kiln.Combat` + the event classes) |
+| Managed | `managed/services/Kiln.Combat/` → `kiln/host/Kiln.Combat.dll` (`Kiln.Combat`, `Kiln.Attributes`, the event classes) |
 | Test mod | `mods/tests/combat-test/` (player-free) |
 | Evidence | `docs/re/combat.md` |
 
@@ -50,6 +50,36 @@ Combat.SetInvulnerable(player, false);
 - God mode: damage hits are dropped before they apply (no reaction either); health lost any other way (fall damage,
   drowning) is restored at the next Pre, before the game's death check; `SetHealth` cannot take a god entity below 1.
   Healing still works. Several mods may hold it; it ends when the last one lets go or unloads.
+
+### Attributes: stamina, mana, body heat, oxygen (and health)
+
+`Attributes` reads and writes the five attribute pairs of any entity that carries them: creatures and players alike.
+The game's attribute ids are not built in: Kiln reads them from the game's attribute resource when the first server
+world starts (`Attributes.Ids(...)`).
+
+```csharp
+using Kiln;
+
+AttributeReading? s = Attributes.Get(entity, GameAttribute.Stamina);   // Current, Min, Max; null = the entity has none
+int now = Attributes.Set(entity, GameAttribute.Mana, 40);              // clamped to [min, max]; returns the new value
+int after = Attributes.Add(player, GameAttribute.Oxygen, -10);         // negative spends; throws if the entity has none
+if (Attributes.TryAdd(entity, GameAttribute.BodyHeat, 25, out var r)) Log.Info($"{r}");   // no throw
+AttributeIds? ids = Attributes.Ids(GameAttribute.Stamina);              // the game's ids: CurrentId, MinId, MaxId
+```
+
+- `GameAttribute`: `Health`, `Stamina`, `Mana`, `BodyHeat`, `Oxygen`. A creature has the ones its template carries: a
+  Vukah has health, stamina and oxygen; mana and body heat belong to players (`Player_Vukah_Melee` has mana too). `Get`
+  returns null and `Set`/`Add` throw (`TrySet`/`TryAdd` return false) for an attribute the entity lacks.
+- `Set` and `Add` clamp to the pair's minimum and maximum. The game computes the maximum from level, gear and buffs, so
+  it is not writable. A write is silent: no hit, no event, no heal number. Health goes through `Combat.SetHealth`
+  (god mode keeps 1); use `Combat.Heal`/`Damage` when you want events.
+- By id: `Attributes.Get(entity, 0x04B6AA8B)` reads any attribute of the five components (current, minimum, maximum,
+  recharge, base...) together with its pair; `Set`/`Add` by id accept only a pair's current-value id. An id outside the
+  five components throws. These are the ids EMF's `attribute_get` and `attribute_add` use.
+- Tick thread only (except `Ids`). The game copies a creature's stamina into `NetworkStamina` and a player's values into
+  `NetworkPlayerAttributes` itself; its own regeneration keeps running, so a value you set can move on the next step.
+- `Kiln.Abilities.Attributes` (health, mana, stamina, special ability by built-in ids, `Add` without a clamp of its own)
+  still works; use `Kiln.Attributes` for the clamp, body heat and oxygen, and for non-player reads.
 
 ### Events (on Kiln's bus, `Events.On<T>` / `[Subscribe]`)
 
@@ -156,6 +186,21 @@ kinds it wants next (`KILN_COMBAT_MASK`); asking for HURT, HEAL or KNOCKBACK tur
 service accepts the older size). Sigdb features `combat.falls`, `combat.regen`, `combat.attr_heals` (mid hooks; boot
 log `mid hooks: fall_damage_infliction on, health_recharge on, changeAttributeValue on`).
 
+**Attributes (v2, appended after `status`; check `header.size >= offsetof(KilnCombatApi, attribute_add) + sizeof(void*)`):**
+`attribute_ids(kind, KilnAttributeIds*)` (any thread; `KILN_ATTR_HEALTH/STAMINA/MANA/BODY_HEAT/OXYGEN` to the game's
+current, minimum and maximum ids, the component hash and whether the game's own formula clamps),
+`attribute_get(entity, id, KilnAttributeValue*)`, `attribute_set(entity, id, value, out)` and
+`attribute_add(entity, id, delta, out)` (tick thread). `id` is the game's attribute id (EMF's `EMF_ATTR_*` numbers are
+the same ids), any id of the five components for `get`, a pair's current id for `set`/`add`. `out` (optional on
+set/add) = the pair after the write: `value`, `current`, `min`/`max` with `has_min`/`has_max`, `current_id`, `max_id`.
+Results: `INVALID_ARGUMENT` (an id Kiln does not know, or set/add on a minimum, maximum or computed id), `NOT_FOUND`
+(no such entity, or no such component or not set up), `UNAVAILABLE` (the resource, kiln.types or kiln.assets was not
+found on this build, or no world), `WRONG_THREAD`. Writes clamp to `[min, max]` (min: the pair's minimum attribute, else
+0) and go through the game's attrAdd, whose formulas re-run. Health delegates to `set_health`. Boot log:
+`attributes: Stamina: component keen::ecs::Stamina (0x92410664), current 0x04B6AA8B, min 0x519C89A1, max 0xF443C410,
+8 slots, the game's formula clamps current to [min, max]` for each pair, then `attributes: on (5 pairs ...)`. Evidence and
+how the ids are found: `docs/re/combat.md` "Attributes". Host test: `native/services/combat/tests/run.sh`.
+
 ## Diagnostics
 - `Combat.Status`: hits seen/held/released/canceled/modified, Kiln hits, deferred, god blocked/restored, deaths,
   game EntityDiedEvents, drops, repeat hits not reported, events delivered.
@@ -167,7 +212,12 @@ log `mid hooks: fall_damage_infliction on, health_recharge on, changeAttributeVa
 ## Lab test
 `dotnet build mods/tests/combat-test -c Release -o $KILN_OUT/mods/combat-test --artifacts-path $KILN_OUT/dotnet`,
 deploy, `touch <lab>/kiln/data/kiln.combat/watch-all`, start the lab; `grep combat-test kiln/logs/kiln.log` ends with
-`summary: N PASS, 0 FAIL`. It spawns transient Vukahs 40 m from the flame altar and removes them at the end.
+`summary: N PASS, 0 FAIL`. It spawns transient Vukahs 40 m from the flame altar and removes them at the end. The
+attribute part spawns `Enemy_Vukah_Melee` (health, stamina, oxygen), `Player_Vukah_Melee` (+ mana) and `AutomatedPlayer` (all
+five, body heat included) 14 m or more away, and for each attribute sets, adds, clamps and reads it back, checks the replicated
+copy (`NetworkStamina`, `NetworkPlayerAttributes`) and the refusals (an unknown id, a maximum or minimum id, an entity
+without the attribute, the wrong thread). Host test of the ABI layout and the attribute-resource parser (no game needed;
+with the game's resource when `KILN_GAME_DIR` and `KILN_SERVER_EXE` are set): `native/services/combat/tests/run.sh`.
 
 ## Lab results (mods/tests/events-test, player-free)
 - Knockback: `knockback event of a held hit: strength 100, reaction Medium, direction <-1, 0, 0>, after its hurt

@@ -109,6 +109,17 @@ bool read_health(uintptr_t world, const void* registry, uint32_t entity, int32_t
 bool add_health(const void* registry, uint8_t* comp, int32_t delta);
 bool transform(uintptr_t world, uint32_t entity, WorldTransform* out);
 
+// ---- any attribute component (kiln.combat v2 attributes; docs/re/combat.md "Attributes") ----
+// attrFind of `id`: the root id of the component group it belongs to and its slot index. false: not an id of the
+// registry (or a fault).
+bool attr_lookup(const void* registry, uint32_t id, uint32_t* root, uint16_t* slot);
+// The int32 slots of an attribute component {u32 rootId, u16 storageOffset, u8 flags, u8 count, ...}: false unless it is
+// set up (flags bit 0), its rootId is `root` and its storage lies inside the component's `size` bytes.
+bool attr_values(const uint8_t* comp, uint64_t size, uint32_t root, int32_t** values, uint8_t* count);
+bool read_i32(const int32_t* p, int32_t* out);
+// current += delta of attribute `id` through the game's attrAdd (formulas re-run, so a clamp in them applies).
+bool attr_add_id(const void* registry, uint8_t* comp, int32_t delta, uint32_t id);
+
 // An Actor's state words, read like the game's state test reads them.
 struct ActorStates {
     uint64_t state = 0, on = 0, off = 0;

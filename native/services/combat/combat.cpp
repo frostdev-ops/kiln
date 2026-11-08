@@ -29,15 +29,19 @@
 #include <unordered_set>
 #include <vector>
 
+#include "attr_table.h"
 #include "combat_internal.h"
 #include "kiln_api.h"
 #include "safetyhook.hpp"
+#include "services/kiln_assets.h"
 #include "services/kiln_combat.h"
 #include "services/kiln_spawn.h"
+#include "services/kiln_types.h"
 #include "services/kiln_world.h"
 
 using namespace kc;
 static_assert(sizeof(KilnCombatEvent) == 144, "KilnCombatEvent layout (managed mirror: Kiln.Combat/Native.cs)");
+static_assert(sizeof(KilnAttributeIds) == 28 && sizeof(KilnAttributeValue) == 40, "attribute layouts (managed mirror: Kiln.Combat/Native.cs)");
 
 namespace {
 
@@ -745,6 +749,8 @@ void scan_corpses(uintptr_t w, uint64_t step, uint32_t interest, std::vector<Kil
     }
 }
 
+void resolve_attributes_if_due(uint64_t step);  // attributes (v2) section below
+
 void on_pre_impl(const KilnTickInfo* tick) {
     g_step.store(tick->step);
     g_pre_runs.fetch_add(1);
@@ -754,6 +760,7 @@ void on_pre_impl(const KilnTickInfo* tick) {
     g_world.store(w, std::memory_order_release);
     refresh_singletons(w);
     if (!registry()) return;
+    resolve_attributes_if_due(tick->step);
     god_floors();
 
     const KilnCombatListenerFn fn = g_listener.load();
@@ -1161,6 +1168,312 @@ void on_pre_impl(const KilnTickInfo* tick) {
 
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) { on_pre_impl(tick); }
 
+// ============================================================================ attributes (v2) ====================
+// Health, stamina, mana, body heat and oxygen of any entity, by the game's attribute id. The ids, the slot order and the
+// clamp are read from the game's attribute resource (AttributeContainerResource) at the first server world, laid out as
+// kiln.types reflects the types, and every id is checked against the registry's own lookup (docs/re/combat.md
+// "Attributes"). Nothing here is hard-coded but the five names.
+
+const KilnTypesApi* g_types_api = nullptr;
+const KilnAssetsApi* g_assets_api = nullptr;
+KilnResult t_set_health(KilnEntity e, int32_t value, int32_t* applied);  // below
+
+struct AttrPair {
+    attr::Pair p;
+    uint32_t comp_hash = 0;  // FNV-1a of keen::ecs::<root>
+    uint32_t comp_size = 0;
+};
+std::vector<AttrPair> g_attr_pairs;  // written once on the tick thread (state 1), then read-only
+std::atomic<int> g_attr_state{0};     // 0 not resolved yet, 1 ready, 2 failed (logged)
+int g_attr_tries = 0;
+uint64_t g_attr_next_step = 0;
+
+KilnStr ks(const char* s) { return KilnStr{s, std::strlen(s)}; }
+std::string ss(KilnStr s) { return std::string(s.ptr ? s.ptr : "", s.ptr ? s.len : 0); }
+
+// The reflected layout of the types the parser reads. false (with `why`) when a type is missing or not the shape the
+// parser handles; the parser then stays off instead of misreading the resource.
+bool reflect_layout(attr::Layout* L, uint32_t* container_type, std::string* why) {
+    const KilnTypesApi* T = g_types_api;
+    auto info = [&](const KilnType* t, KilnTypeInfo* i) {
+        *i = KilnTypeInfo{};
+        i->size = sizeof *i;
+        return t && T->type_info(t, i) == KILN_OK;
+    };
+    auto field = [&](const KilnType* t, const char* name, KilnTypeField* f) {
+        KilnTypeInfo i;
+        if (!info(t, &i)) return false;
+        for (uint32_t k = 0; k < i.field_count; ++k)
+            if (T->type_field(t, k, f) == KILN_OK && ss(f->name) == name) return true;
+        return false;
+    };
+    // `name` of struct `t` must be a BlobArray (kind) of a type of `elem_size` bytes (0: any); returns its element.
+    auto blob_array = [&](const KilnType* t, const char* name, uint32_t* offset, const KilnType** elem, KilnTypeInfo* elem_info) {
+        KilnTypeField f;
+        KilnTypeInfo fi;
+        if (!field(t, name, &f) || !info(f.type, &fi) || fi.kind != KILN_TYPE_BLOB_ARRAY || fi.type_size != 8 || !fi.inner) {
+            *why = std::string(name) + " is not a BlobArray";
+            return false;
+        }
+        *offset = static_cast<uint32_t>(f.offset);
+        *elem = fi.inner;
+        return info(fi.inner, elem_info);
+    };
+    KilnTypeInfo ci, ei, ii, ni, si, ai;
+    const KilnType* container = T->type_by_name(ks("keen::AttributeContainerResource"));
+    const KilnType *group = nullptr, *idt = nullptr, *namet = nullptr, *st = nullptr, *cmd = nullptr;
+    if (!info(container, &ci)) return *why = "keen::AttributeContainerResource is not in the type table", false;
+    *container_type = ci.hash;
+    if (!blob_array(container, "attributes", &L->container_attrs, &group, &ei)) return false;
+    L->elem_size = ei.type_size;
+    KilnTypeField tf;
+    if (!field(group, "type", &tf)) return *why = "BaseAttributeResource has no type field", false;
+    L->off_type = static_cast<uint32_t>(tf.offset);
+    if (!blob_array(group, "ids", &L->off_ids, &idt, &ii) || !blob_array(group, "debugNames", &L->off_names, &namet, &ni) ||
+        !blob_array(group, "structure", &L->off_structure, &st, &si))
+        return false;
+    L->id_size = ii.type_size;
+    L->name_size = ni.type_size;
+    L->st_size = si.type_size;
+    // keen::string is a typedef of keen::BlobString
+    KilnTypeInfo bs = ni;
+    for (int depth = 0; depth < 4 && bs.kind == KILN_TYPE_TYPEDEF && bs.inner; ++depth)
+        if (!info(bs.inner, &bs)) break;
+    if (bs.kind != KILN_TYPE_BLOB_STRING || bs.type_size != L->name_size) return *why = "debugNames holds no BlobStrings", false;
+    if (L->id_size != 4) return *why = "attribute ids are not 4 bytes", false;
+    if (!blob_array(st, "calculation", &L->st_calc, &cmd, &ai) || ai.type_size != 4) return *why = "AttributeStructure.calculation is not a BlobArray of 4-byte commands", false;
+    L->cmd_size = ai.type_size;
+    const KilnType* ops = T->type_by_name(ks("keen::AttributeOps"));
+    KilnTypeInfo oi;
+    if (!info(ops, &oi) || oi.kind != KILN_TYPE_ENUM) return *why = "keen::AttributeOps is not in the type table", false;
+    int found = 0;
+    for (uint32_t k = 0; k < oi.field_count; ++k) {
+        KilnStr n{};
+        int64_t v = 0;
+        if (T->type_enum(ops, k, &n, &v) != KILN_OK) continue;
+        if (ss(n) == "Load") L->op_load = static_cast<uint32_t>(v), ++found;
+        if (ss(n) == "Clamp") L->op_clamp = static_cast<uint32_t>(v), ++found;
+    }
+    if (found != 2) return *why = "keen::AttributeOps has no Load / Clamp", false;
+    return true;
+}
+
+// Checks the component type of a pair in kiln.types: a struct that derives from keen::ecs::AttributeComponent and holds
+// the pair's slots.
+bool check_component(AttrPair* ap, std::string* why) {
+    const KilnTypesApi* T = g_types_api;
+    const std::string name = "keen::ecs::" + ap->p.root;
+    const KilnType* t = T->type_by_name(ks(name.c_str()));
+    KilnTypeInfo i{};
+    i.size = sizeof i;
+    if (!t || T->type_info(t, &i) != KILN_OK || i.kind != KILN_TYPE_STRUCT || ss(i.qualified_name) != name)
+        return *why = name + " is not a component type", false;
+    if (i.type_size < 8 + 4 * ap->p.attrs.size()) return *why = name + " is too small for its attributes", false;
+    bool derived = false;
+    for (const KilnType* b = i.inner; b && !derived;) {
+        KilnTypeInfo bi{};
+        bi.size = sizeof bi;
+        if (T->type_info(b, &bi) != KILN_OK) break;
+        derived = ss(bi.qualified_name) == "keen::ecs::AttributeComponent";
+        b = bi.inner == b ? nullptr : bi.inner;
+    }
+    if (!derived) return *why = name + " is not an AttributeComponent", false;
+    ap->comp_hash = i.hash;
+    ap->comp_size = i.type_size;
+    return true;
+}
+
+bool resolve_attributes(std::string* why) {
+    if (!g_types_api || !g_assets_api) return *why = "kiln.types or kiln.assets is not available", false;
+    if (!g_health_ok || !registry()) return *why = "no attribute registry (health access is off)", false;
+    attr::Layout L;
+    uint32_t container_type = 0;
+    if (!reflect_layout(&L, &container_type, why)) return false;
+    KilnAssetKey keys[8];
+    size_t nkeys = 0;
+    if (g_assets_api->resource_list(container_type, keys, 8, &nkeys) != KILN_OK || nkeys == 0)
+        return *why = "no keen::AttributeContainerResource resource", false;
+    std::vector<AttrPair> pairs;
+    std::string last_why = "the resource holds no attribute groups";
+    for (size_t k = 0; k < std::min<size_t>(nkeys, 8) && pairs.size() < std::size(attr::kKinds); ++k) {
+        size_t need = 0;
+        g_assets_api->resource_read(&keys[k], nullptr, 0, &need);
+        if (!need || need > (8u << 20)) continue;
+        std::vector<uint8_t> bytes(need);
+        if (g_assets_api->resource_read(&keys[k], bytes.data(), bytes.size(), &need) != KILN_OK || need != bytes.size()) continue;
+        std::vector<attr::Group> groups;
+        if (!attr::parse_container(bytes.data(), bytes.size(), L, &groups, &last_why)) continue;
+        for (const attr::KindSpec& spec : attr::kKinds) {
+            if (std::any_of(pairs.begin(), pairs.end(), [&](const AttrPair& a) { return a.p.kind == spec.kind; })) continue;
+            AttrPair ap;
+            if (attr::resolve_pair(groups, spec, L, &ap.p, &last_why)) pairs.push_back(std::move(ap));
+        }
+    }
+    for (const attr::KindSpec& spec : attr::kKinds)
+        if (std::none_of(pairs.begin(), pairs.end(), [&](const AttrPair& a) { return a.p.kind == spec.kind; }))
+            return *why = last_why + " (" + spec.root + ")", false;
+    // The registry's own lookup must agree with the resource for every id (group root and slot), and the component
+    // type must exist.
+    for (AttrPair& ap : pairs) {
+        for (size_t i = 0; i < ap.p.attrs.size(); ++i) {
+            uint32_t root = 0;
+            uint16_t slot = 0;
+            if (!attr_lookup(registry(), ap.p.attrs[i].id, &root, &slot) || root != ap.p.root_id || slot != i)
+                return *why = ap.p.attrs[i].name + ": the registry does not map its id to slot " + std::to_string(i) + " of " + ap.p.root, false;
+        }
+        if (!check_component(&ap, why)) return false;
+    }
+    std::sort(pairs.begin(), pairs.end(), [](const AttrPair& a, const AttrPair& b) { return a.p.kind < b.p.kind; });
+    for (const AttrPair& ap : pairs) {
+        char min[16] = "none";
+        if (ap.p.min_id) std::snprintf(min, sizeof min, "0x%08X", ap.p.min_id);
+        LOGI("attributes: %s: component keen::ecs::%s (0x%08X), current 0x%08X, min %s, max 0x%08X, %zu slots, the game's formula %s",
+             ap.p.root.c_str(), ap.p.root.c_str(), ap.comp_hash, ap.p.cur_id, min, ap.p.max_id, ap.p.attrs.size(),
+             ap.p.game_clamp ? "clamps current to [min, max]" : "does NOT clamp (Kiln clamps)");
+        if (ap.p.kind == KILN_ATTR_HEALTH && (ap.p.cur_id != kAttrHealth || ap.p.max_id != kAttrHealthMax))
+            LOGW("attributes: the resolved Health ids differ from the constants Kiln was built with (0x%08X / 0x%08X)", kAttrHealth,
+                 kAttrHealthMax);
+    }
+    g_attr_pairs = std::move(pairs);
+    return true;
+}
+
+// Once the first server world runs (and again, a few times, if it failed); tick thread.
+void resolve_attributes_if_due(uint64_t step) {
+    if (g_attr_state.load(std::memory_order_acquire) != 0 || g_attr_tries >= 3 || step < g_attr_next_step) return;
+    ++g_attr_tries;
+    g_attr_next_step = step + 250;
+    std::string why;
+    if (resolve_attributes(&why)) {
+        g_attr_state.store(1, std::memory_order_release);
+        LOGI("attributes: on (%zu pairs resolved from the game's attribute resource)", g_attr_pairs.size());
+    } else if (g_attr_tries >= 3) {
+        g_attr_state.store(2, std::memory_order_release);
+        LOGW("attributes: off: %s", why.c_str());
+    } else {
+        LOGI("attributes: not resolved yet (%s), trying again", why.c_str());
+    }
+}
+
+// Where an attribute id lives: its pair and its slot.
+const AttrPair* attr_pair_of(uint32_t id, int* slot) {
+    for (const AttrPair& ap : g_attr_pairs)
+        for (size_t i = 0; i < ap.p.attrs.size(); ++i)
+            if (ap.p.attrs[i].id == id) return *slot = static_cast<int>(i), &ap;
+    return nullptr;
+}
+
+struct AttrLoaded {
+    uint8_t* comp = nullptr;
+    int32_t* values = nullptr;
+    uint8_t count = 0;
+};
+bool attr_load(uint32_t entity, const AttrPair& ap, AttrLoaded* out) {
+    uint64_t size = 0;
+    auto* comp = static_cast<uint8_t*>(component(world(), ap.comp_hash, entity, &size));
+    if (!comp) return false;
+    out->comp = comp;
+    return attr_values(comp, size, ap.p.root_id, &out->values, &out->count) && out->count > ap.p.cur_slot &&
+           out->count > ap.p.max_slot;
+}
+bool attr_slot(const AttrLoaded& l, int slot, int32_t* v) { return slot >= 0 && slot < l.count && read_i32(l.values + slot, v); }
+
+void attr_fill(const AttrPair& ap, const AttrLoaded& l, uint32_t id, int slot, KilnAttributeValue* out) {
+    const uint32_t size = out->size;
+    *out = KilnAttributeValue{};
+    out->size = size;
+    out->id = id;
+    out->kind = ap.p.kind;
+    out->current_id = ap.p.cur_id;
+    out->max_id = ap.p.max_id;
+    out->is_current = id == ap.p.cur_id;
+    attr_slot(l, slot, &out->value);
+    attr_slot(l, ap.p.cur_slot, &out->current);
+    out->has_max = attr_slot(l, ap.p.max_slot, &out->max);
+    out->has_min = ap.p.min_slot >= 0 && attr_slot(l, ap.p.min_slot, &out->min);
+}
+
+// Common start of the four functions: availability, thread, the id's pair.
+KilnResult attr_enter(uint32_t id, bool write, const AttrPair** ap, int* slot) {
+    if (!g_health_ok || !world() || !registry()) return KILN_ERR_UNAVAILABLE;
+    if (!on_tick()) return KILN_ERR_WRONG_THREAD;
+    if (g_attr_state.load(std::memory_order_acquire) != 1) return KILN_ERR_UNAVAILABLE;
+    *ap = attr_pair_of(id, slot);
+    if (!*ap) return KILN_ERR_INVALID_ARGUMENT;
+    if (write && id != (*ap)->p.cur_id) return KILN_ERR_INVALID_ARGUMENT;
+    return KILN_OK;
+}
+
+KilnResult t_attribute_ids(uint32_t kind, KilnAttributeIds* out) {
+    if (!out || out->size < sizeof(KilnAttributeIds)) return KILN_ERR_INVALID_ARGUMENT;
+    if (g_attr_state.load(std::memory_order_acquire) != 1) return KILN_ERR_UNAVAILABLE;
+    for (const AttrPair& ap : g_attr_pairs) {
+        if (ap.p.kind != kind) continue;
+        const uint32_t size = out->size;
+        *out = KilnAttributeIds{};
+        out->size = size;
+        out->kind = kind;
+        out->current_id = ap.p.cur_id;
+        out->min_id = ap.p.min_id;
+        out->max_id = ap.p.max_id;
+        out->component = ap.comp_hash;
+        out->game_clamp = ap.p.game_clamp;
+        return KILN_OK;
+    }
+    return KILN_ERR_INVALID_ARGUMENT;
+}
+
+KilnResult t_attribute_get(KilnEntity e, uint32_t id, KilnAttributeValue* out) {
+    if (!out || out->size < sizeof(KilnAttributeValue)) return KILN_ERR_INVALID_ARGUMENT;
+    const AttrPair* ap = nullptr;
+    int slot = 0;
+    if (KilnResult rc = attr_enter(id, false, &ap, &slot); rc != KILN_OK) return rc;
+    AttrLoaded l;
+    if (!attr_load(e, *ap, &l)) return KILN_ERR_NOT_FOUND;
+    attr_fill(*ap, l, id, slot, out);
+    return KILN_OK;
+}
+
+// Sets the pair's current value to `want` (already clamped). Health goes through set_health (god mode, dying list).
+KilnResult attr_write(KilnEntity e, const AttrPair& ap, AttrLoaded& l, int64_t want, int32_t cur) {
+    int32_t min = 0, max = 0;
+    const bool has_max = attr_slot(l, ap.p.max_slot, &max);
+    if (ap.p.min_slot >= 0) attr_slot(l, ap.p.min_slot, &min);
+    if (has_max) want = std::min<int64_t>(std::max<int64_t>(want, min), std::max(max, min));
+    else want = std::max<int64_t>(want, min);
+    want = std::min<int64_t>(want, INT32_MAX);
+    if (ap.p.kind == KILN_ATTR_HEALTH) {
+        int32_t applied = 0;
+        return t_set_health(e, static_cast<int32_t>(want), &applied);
+    }
+    if (want != cur && !attr_add_id(registry(), l.comp, static_cast<int32_t>(want - cur), ap.p.cur_id)) return KILN_ERR_INTERNAL;
+    return KILN_OK;
+}
+
+KilnResult attr_change(KilnEntity e, uint32_t id, int64_t value, bool relative, KilnAttributeValue* out) {
+    if (out && out->size < sizeof(KilnAttributeValue)) return KILN_ERR_INVALID_ARGUMENT;
+    const AttrPair* ap = nullptr;
+    int slot = 0;
+    if (KilnResult rc = attr_enter(id, true, &ap, &slot); rc != KILN_OK) return rc;
+    AttrLoaded l;
+    int32_t cur = 0;
+    if (!attr_load(e, *ap, &l) || !attr_slot(l, ap->p.cur_slot, &cur)) return KILN_ERR_NOT_FOUND;
+    if (KilnResult rc = attr_write(e, *ap, l, relative ? static_cast<int64_t>(cur) + value : value, cur); rc != KILN_OK) return rc;
+    if (out) {
+        AttrLoaded after;
+        if (!attr_load(e, *ap, &after)) return KILN_ERR_NOT_FOUND;
+        attr_fill(*ap, after, id, slot, out);
+    }
+    return KILN_OK;
+}
+
+KilnResult t_attribute_set(KilnEntity e, uint32_t id, int32_t value, KilnAttributeValue* out) {
+    return attr_change(e, id, value, false, out);
+}
+KilnResult t_attribute_add(KilnEntity e, uint32_t id, int32_t delta, KilnAttributeValue* out) {
+    return attr_change(e, id, delta, true, out);
+}
+
 // ============================================================================ table ==============================
 
 KilnResult t_health(KilnEntity e, KilnHealth* out) {
@@ -1418,6 +1731,7 @@ const KilnCombatApi kTable = {
     {sizeof(KilnCombatApi), KILN_COMBAT_VERSION},
     &t_health, &t_set_health, &t_heal, &t_damage, &t_hit_status, &t_set_invulnerable, &t_invulnerable,
     &t_release_owner, &t_set_listener, &t_status,
+    &t_attribute_ids, &t_attribute_get, &t_attribute_set, &t_attribute_add,
 };
 
 // ============================================================================ boot ===============================
@@ -1533,6 +1847,11 @@ void KILN_CALL on_ready(void*) {
     g_spawn_api = static_cast<const KilnSpawnApi*>(
         g_api->service(KilnStr{KILN_SPAWN_SERVICE, std::strlen(KILN_SPAWN_SERVICE)}, 1));
     if (g_spawn_api && g_spawn_api->header.size < sizeof(KilnSpawnApi)) g_spawn_api = nullptr;
+    g_types_api = static_cast<const KilnTypesApi*>(g_api->service(KilnStr{KILN_TYPES_SERVICE, std::strlen(KILN_TYPES_SERVICE)}, 1));
+    if (g_types_api && g_types_api->header.size < offsetof(KilnTypesApi, type_enum) + sizeof(void*)) g_types_api = nullptr;
+    g_assets_api = static_cast<const KilnAssetsApi*>(g_api->service(KilnStr{KILN_ASSETS_SERVICE, std::strlen(KILN_ASSETS_SERVICE)}, 1));
+    if (g_assets_api && g_assets_api->header.size < offsetof(KilnAssetsApi, resource_list) + sizeof(void*)) g_assets_api = nullptr;
+    LOGI("attributes: kiln.types %s, kiln.assets %s", g_types_api ? "found" : "MISSING", g_assets_api ? "found" : "MISSING");
     if (!g_deaths_ok) return;
     g_world_api = static_cast<const KilnWorldApi*>(
         g_api->service(KilnStr{KILN_WORLD_SERVICE, std::strlen(KILN_WORLD_SERVICE)}, 1));
