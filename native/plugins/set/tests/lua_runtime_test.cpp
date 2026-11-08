@@ -86,6 +86,28 @@ int main(int argc,char** argv){
  memset(protectedBytes,0,16);hostRegions[1].fail=true;
  assert(!res::write(protectedBytes+4,source,8,protection));assert(hostRegions[0].protection==2&&protectedBytes[4]==0);hostRegions.clear();
  assert(ecs::simTime(1)==0);
+ {// WP-21: one kiln.types event_each per observed type per tick; the stream lookup (probe) runs once per (world, type).
+  static unsigned calls=0;static KilnResult answer=KILN_OK;calls=0;
+  auto saved=types.event_each;
+  types.event_each=[](uintptr_t w,uint32_t h,KilnEventFn fn,void* u)->KilnResult{++calls;if(answer!=KILN_OK)return answer;if(h==7){uint8_t ev[4]={1,2,3,4};fn(ev,4,u);fn(ev,4,u);}(void)w;return KILN_OK;};
+  ecs::forgetEvents();uint64_t p0=ecs::eventProbes();unsigned seen=0;
+  assert(ecs::eventIndex(77,7)==0&&calls==1&&ecs::eventProbes()==p0+1);   // Events.post's check: probe on the miss
+  assert(ecs::eventIndex(77,7)==0&&calls==1&&ecs::eventProbes()==p0+1);   // cached: no second probe
+  for(int tick=0;tick<100;++tick)assert(ecs::forEachEvent(77,7,[&](const uint8_t* e){seen+=e[0];})==0);
+  assert(calls==101&&seen==200&&ecs::eventProbes()==p0+1);                // one read per tick, never a probe
+  answer=KILN_ERR_NOT_FOUND;calls=0;
+  assert(ecs::forEachEvent(77,9,[](const uint8_t*){})==-int(KILN_ERR_NOT_FOUND)&&calls==1);
+  for(int tick=0;tick<50;++tick)assert(ecs::forEachEvent(77,9,[](const uint8_t*){})==-int(KILN_ERR_NOT_FOUND));
+  assert(calls==1&&ecs::eventIndex(77,9)==-int(KILN_ERR_NOT_FOUND)&&calls==1);  // a stream that is missing is not asked again
+  answer=KILN_ERR_INVALID_ARGUMENT;calls=0;                                         // kiln.types: not a known world
+  assert(ecs::forEachEvent(77,7,[](const uint8_t*){})==-int(KILN_ERR_INVALID_ARGUMENT)&&calls==1);
+  answer=KILN_OK;assert(ecs::eventIndex(77,9)==0&&calls==2&&ecs::eventProbes()==p0+2);  // whole cache dropped: looked up again
+  answer=KILN_ERR_WRONG_THREAD;calls=0;assert(ecs::forEachEvent(78,7,[](const uint8_t*){})<0);answer=KILN_OK;
+  assert(ecs::eventIndex(78,7)==0&&calls==2);                                         // new world, WRONG_THREAD not cached
+  ecs::forgetEvents();calls=0;assert(ecs::eventIndex(78,7)==0&&calls==1);           // world left: starts over
+  ecs::forgetEvents();types.event_each=saved;
+  std::cout<<"SET event stream cache (one read per type per tick, probe once): PASS\n";
+ }
  assert(refl::Type{reinterpret_cast<const uint8_t*>(UINTPTR_MAX)}.size()==0);
  world.header.size=sizeof(KilnServiceHeader);kset::bind(&core);assert(!ecs::component(1,1,0));world.header.size=sizeof(world);kset::bind(&core);
 auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root);std::filesystem::create_directories(root/"one");std::filesystem::create_directories(root/"two");
@@ -95,6 +117,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
  std::filesystem::create_symlink(root/"secret.lua",root/"one"/"link.lua");
  std::filesystem::create_hard_link(root/"secret.lua",root/"one"/"hard.lua");
  rt::configure(root.string(),sink);auto* L=rt::open();int one=env(L,"one"),two=env(L,"two");
+ {unsigned n=0;auto saved=types.event_each;static unsigned* cnt;cnt=&n;types.event_each=[](uintptr_t,uint32_t,KilnEventFn,void*)->KilnResult{++*cnt;return KILN_OK;};assert(!gObserving);for(int i=0;i<10;++i)rt::afterTick(1);assert(n==0);types.event_each=saved;}  // WP-21: no Observe, no per-tick work
  must(L,one,R"lua(
  assert(package==nil and require~=nil and io.open~=nil and io.popen==nil and os.execute==nil and os.exit==nil and debug==nil)
  assert(_G.package==nil and _G.require==require)

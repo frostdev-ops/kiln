@@ -391,25 +391,61 @@ std::vector<uint32_t> ecs::allWith(uintptr_t w, const int* idx, size_t n) {
     return out;
 }
 uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
+namespace {
+// Event stream lookups per (world, type), so a tick runs one event_each per observed type instead of a probe and a
+// read. Only the tick thread under the Lua lock touches it. A new world, a world leave, or kiln.types refusing the
+// world (INVALID_ARGUMENT: not a known world) drops it. WRONG_THREAD says nothing about the stream: never cached.
+struct EventCache {
+    uintptr_t world = 0;
+    std::unordered_map<uint32_t, KilnResult> streams;
+    uint64_t probes = 0;
+} g_events;
+void eventsFor(uintptr_t world) {
+    if (g_events.world == world) return;
+    g_events.world = world;
+    g_events.streams.clear();
+}
+void eventResult(uint32_t typeHash, KilnResult r) {
+    if (r == KILN_ERR_INVALID_ARGUMENT) g_events.streams.clear();  // the world may be gone: look everything up again
+    if (r == KILN_ERR_WRONG_THREAD || r == KILN_ERR_INVALID_ARGUMENT) g_events.streams.erase(typeHash);
+    else g_events.streams[typeHash] = r;
+}
+}  // namespace
 int ecs::eventIndex(uintptr_t world, uint32_t typeHash) {
-    // kiln.types checks the world's map on every call; any non-negative value means "has a stream", a negative one is
-    // the KilnResult negated (KILN_ERR_NOT_FOUND: no stream, WRONG_THREAD, UNAVAILABLE, INVALID_ARGUMENT: layout).
+    // Any non-negative value means "has a stream", a negative one is the KilnResult negated (KILN_ERR_NOT_FOUND: no
+    // stream, WRONG_THREAD, UNAVAILABLE, INVALID_ARGUMENT: unknown world or layout). Probes only on a cache miss.
     if (!T || !world) return -int(KILN_ERR_UNAVAILABLE);
+    eventsFor(world);
+    if (auto it = g_events.streams.find(typeHash); it != g_events.streams.end())
+        return it->second == KILN_OK ? 0 : -int(it->second);
     struct Probe { static void KILN_CALL none(const void*, uint32_t, void*) {} };
+    g_events.probes++;
     const KilnResult r = T->event_each(world, typeHash, &Probe::none, nullptr);
+    eventResult(typeHash, r);
     return r == KILN_OK ? 0 : -int(r);
 }
-void ecs::forEachEvent(uintptr_t world, int, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn) {
-    if (!T || !world) return;
+int ecs::forEachEvent(uintptr_t world, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn) {
+    if (!T || !world) return -int(KILN_ERR_UNAVAILABLE);
+    eventsFor(world);
+    // A cached failure skips the call; otherwise the read itself is the lookup (no separate probe).
+    if (auto it = g_events.streams.find(typeHash); it != g_events.streams.end() && it->second != KILN_OK)
+        return -int(it->second);
     struct Tramp {
         static void KILN_CALL call(const void* data, uint32_t, void* user) {
             (*static_cast<const std::function<void(const uint8_t*)>*>(user))(static_cast<const uint8_t*>(data));
         }
     };
-    T->event_each(world, typeHash, &Tramp::call, const_cast<std::function<void(const uint8_t*)>*>(&fn));
+    const KilnResult r = T->event_each(world, typeHash, &Tramp::call, const_cast<std::function<void(const uint8_t*)>*>(&fn));
+    eventResult(typeHash, r);
+    return r == KILN_OK ? 0 : -int(r);
 }
+void ecs::forgetEvents() { eventsFor(0); }
+uint64_t ecs::eventProbes() { return g_events.probes; }
 bool ecs::postEvent(uintptr_t world, uint32_t typeHash, const uint8_t* data, uint32_t size) {
-    return T && T->event_post(world, typeHash, data, size) == KILN_OK;
+    if (!T) return false;
+    const KilnResult r = T->event_post(world, typeHash, data, size);
+    if (r != KILN_OK && r != KILN_ERR_BUFFER_TOO_SMALL && g_events.world == world) eventResult(typeHash, r);  // full queue: stream is fine
+    return r == KILN_OK;
 }
 int64_t ecs::simTime(uintptr_t world) {
     KilnTimeState ts{sizeof ts};

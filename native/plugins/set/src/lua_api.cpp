@@ -79,6 +79,7 @@ constexpr const char* kTicks = "rt.ticks";
 constexpr const char* kDraws = "rt.draws";
 constexpr const char* kKeys = "rt.keys";
 constexpr const char* kObservers = "rt.observers";  // event type hash -> list of handlers
+std::atomic<bool> gObserving{false};  // set by the first Observe; afterTick returns at once until then
 constexpr const char* kFunctionMods = "rt.functionMods"; // function ownership survives load() chunk names
 constexpr const char* kMods = "rt.mods";            // mod name -> what its init.lua returned (GetMod)
 constexpr const char* kBinds = "rt.binds";          // "<mod>.<id>" -> Keys.hotkey or Keys.input callback
@@ -1695,6 +1696,7 @@ int observe(lua_State* L) {
     refl::Type t = eventType(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
     markFunction(L, 2);
+    gObserving = true;
     lua_getfield(L, LUA_REGISTRYINDEX, kObservers);
     if (lua_rawgeti(L, -1, t.hash()) == LUA_TNIL) {  // handler list for this type
         lua_pop(L, 1);
@@ -1774,12 +1776,13 @@ void dispatchEvents(lua_State* L, uintptr_t world) {
     lua_getfield(L, LUA_REGISTRYINDEX, kObservers);
     lua_pushnil(L);
     while (lua_next(L, -2)) {
-        types.push_back(static_cast<uint32_t>(lua_tointeger(L, -2)));
+        if (lua_istable(L, -1) && lua_rawlen(L, -1)) types.push_back(static_cast<uint32_t>(lua_tointeger(L, -2)));  // emptied by an unload: no read
         lua_pop(L, 1);
     }
     for (uint32_t h : types) {
         refl::Type t = refl::byHash(h);
-        int idx = t ? ecs::eventIndex(world, h) : -1;
+        lua_rawgeti(L, -1, h);
+        int idx = t ? ecs::forEachEvent(world, h, [&](const uint8_t* ev) { callHandlers(L, t, ev); }) : -1;
         if (idx < 0) {
             // Report once per type instead of skipping silently (no stream on this world, or kiln.types refused it).
             static std::vector<uint32_t> reported;
@@ -1788,10 +1791,7 @@ void dispatchEvents(lua_State* L, uintptr_t world) {
                 gSink((LV_WARN "Observe: " + (t ? qname(t) : std::string("unknown type")) +
                        " cannot be read on this world (error " + std::to_string(-idx) + "); its handlers will not run").c_str());
             }
-            continue;
         }
-        lua_rawgeti(L, -1, h);
-        ecs::forEachEvent(world, idx, h, [&](const uint8_t* ev) { callHandlers(L, t, ev); });
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
@@ -2082,6 +2082,7 @@ lua_State* rt::open() {
     lua_register(L, "registerForEvent", registerForEvent);
     lua_register(L, "GetVersion", getVersion);
     lua_register(L, "GetGameBuild", getGameBuild);
+    gObserving = false;  // a fresh observer table
     for (const char* reg : {kTicks, kDraws, kKeys, kObservers, kMods, kBinds, kOnInit, kOnOpen, kOnClose, kOnShutdown,
                             kOnEnter, kOnLeave}) {
         lua_newtable(L);
@@ -2193,7 +2194,7 @@ void rt::tick(uintptr_t world) {
         if (!worldReady(w)) return;
         gReady = gWorld = w;
         if (!gL) startState();  // without the main thread's frame hook, mods load in the first world
-        if (std::exchange(gNewWorld, false)) enterWorld();
+        if (std::exchange(gNewWorld, false)) { ecs::forgetEvents(); enterWorld(); }
         if (gInWorld) tickMods(w);  // after a leave, the world ticks on while it shuts down: no mods there
     }, world, "the Lua tick");
     gWorld = 0;
@@ -2215,6 +2216,7 @@ void rt::frame() {
 // The player left the world: onWorldLeave runs now, without the game, and the main thread runs the mods again.
 void rt::worldLeft() {
     std::lock_guard lock(gLuaMx);
+    ecs::forgetEvents();
     resetAdmin();
     if (!gInWorld || gBroken) return;
     guarded([](uintptr_t) { leaveWorld(); }, 0, "onWorldLeave");
@@ -2225,6 +2227,7 @@ void rt::worldLeft() {
 void rt::gameClosing() {
     std::lock_guard lock(gLuaMx);
     gClosing = true;
+    ecs::forgetEvents();
     resetAdmin();
     if (!gL || gBroken) return;
     guarded([](uintptr_t) {
@@ -2236,6 +2239,7 @@ void rt::gameClosing() {
 }
 
 void rt::afterTick(uintptr_t world) {
+    if (!gObserving) return;  // no mod has called Observe: no per-tick work at all
     std::lock_guard lock(gLuaMx);
     if (!gL || gBroken || !gInWorld || world != gReady) return;
     gWorld = world;
