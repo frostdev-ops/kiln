@@ -4,9 +4,9 @@
 // server loop's wait, or cap the task pools the engine sizes from the CPUs it sees.
 //
 // This file is the managed half: the registry that merges what mods ask for, in the order Enshwick's loader does (handlers
-// in load order, each seeing the last one's answer; the lowest worker cap wins). The native half finds the places in the
-// running build, hooks them and calls the Dispatch*/Take* members below; until it does, Sites says None and nothing runs.
-// Usage: docs/kiln/modding/lifecycle.md.
+// in load order, each seeing the last one's answer; the lowest worker cap wins). The native half (service kiln.pacing,
+// native/services/pacing; the bridge is Services/PacingNative.cs) finds the places in the running build, puts a hook in
+// each place a mod uses and calls the Dispatch* members below. Usage: docs/kiln/modding/lifecycle.md.
 using System.Runtime.CompilerServices;
 
 namespace Kiln;
@@ -84,8 +84,8 @@ public sealed class PacingHandler : IDisposable
     internal int Faults;
     internal volatile bool Removed;
 
-    /// <summary>This build has the wait the handler is for (it will be called). False until the game's wait is hooked, or
-    /// for good on a build that lacks it. Any thread.</summary>
+    /// <summary>This build has the wait the handler is for (it will be called). False on a build that lacks it, or whose
+    /// code would not take the hook. Any thread.</summary>
     public bool Found => (Pacing.Sites & Site) != 0;
 
     /// <summary>The handler threw too often and was removed (see <see cref="Pacing"/>).</summary>
@@ -100,16 +100,24 @@ public sealed class PacingHandler : IDisposable
 /// fields, written from the tick thread).
 /// </summary>
 /// <remarks>
-/// <para><b>Not working yet:</b> this release has only the registry. Kiln does not hook any of the game's waits yet, so
-/// <see cref="Sites"/> is <see cref="PacingSites.None"/>, <see cref="Available"/> is false, registered handlers are never called
-/// and <see cref="CapTaskWorkers"/> returns false, on every build. Code written against it now starts working, unchanged, in
-/// the release that adds the hooks; check <see cref="Available"/> or <see cref="PacingHandler.Found"/> to tell.</para>
+/// <para>Kiln finds the game's waits in the running build (service <c>kiln.pacing</c>, byte patterns in its symbol database) and
+/// puts a hook in a place only when a mod registers a handler for it, so a server with no pacing handler runs the game's own code
+/// untouched. A hook, once in, stays; while no handler is registered it costs one flag check. On a dedicated server
+/// <see cref="Sites"/> is <c>LoopWait | ServerWait | TaskWorkers</c> (run in a lab server on Steam build 26430253; the patterns also
+/// match 26404334). On a client it also has <see cref="PacingSites.MessageWait"/> and no worker caps; the client's places are matched on the two
+/// known client builds but have not run in a client yet. A build whose code Kiln does not know has none of them: <see cref="Sites"/>
+/// is <see cref="PacingSites.None"/>, <see cref="Available"/> is false and handlers are never called.</para>
 /// <para>Handlers run in the mods' load order, each on the last one's answer. A handler that throws three times in a row is
-/// removed (logged); a call that works resets the count. The worker caps apply when the task system starts, which only a
-/// dedicated server does after mods load: <see cref="CapTaskWorkers"/> returns false on a client, once the pools have
-/// started, and when the build lacks the place. The lowest cap of each group wins.</para>
-/// <para>Whether a place exists is a fact about the game build: <see cref="Sites"/> says which Kiln found and hooked. A build
-/// that lacks one is not an error, the handler is simply never called.</para>
+/// removed (logged); a call that works resets the count. They run on the thread that waits, which for a loop wait is several
+/// threads at once, and the game's main loop polls with 0 ms waits some 100,000 times a second: keep a loop-wait handler to a few
+/// field reads and writes.</para>
+/// <para><b>Worker caps start with the game.</b> The task system sizes its pools before the first server step, and a mod loads at
+/// that step, so <see cref="CapTaskWorkers"/> from a mod always returns false on a Kiln server (it also does on a client, once the
+/// pools have started and on a build without the place); it logs the reason once. What caps the pools on a Kiln server is
+/// <c>taskWorkers</c> in <c>kiln/config/kiln-pacing.json</c> (lab-verified, see docs/kiln/modding/lifecycle.md). The lowest cap of
+/// each group wins, whoever sets it.</para>
+/// <para>Whether a place exists is a fact about the game build: <see cref="Sites"/> says which Kiln found. A build that lacks one
+/// is not an error, the handler is simply never called.</para>
 /// </remarks>
 public static class Pacing
 {
@@ -121,6 +129,10 @@ public static class Pacing
 
     /// <summary>The server loop's wait after a pass longer than 14 ms.</summary>
     public const long ServerSlowWaitNs = 100_000;
+
+    /// <summary>The longest wait a handler can set for the server loop: what handlers leave is clamped into 0 to this (the
+    /// loop still wakes for its own timers, and a negative or wild value is never what anyone meant).</summary>
+    public const long ServerMaxWaitNs = 1_000_000_000;
 
     private const int FaultLimit = 3;
 
@@ -135,12 +147,12 @@ public static class Pacing
     /// <summary>Which waits this build lets mods pace (what the game's code lets Kiln hook). Any thread.</summary>
     public static PacingSites Sites => (PacingSites)_sites;
 
-    /// <summary>At least one wait can be paced on this build. Always false in this release (the game's waits are not hooked
-    /// yet).</summary>
+    /// <summary>At least one wait or cap can be used on this build: Kiln found the place in the game's code.</summary>
     public static bool Available => _sites != 0;
 
-    /// <summary>The task system has started its worker pools: caps come too late.</summary>
-    public static bool TaskWorkersStarted => _tasksStarted;
+    /// <summary>The task system has started its worker pools: caps come too late. On a dedicated server that is so before
+    /// any mod loads (the pools start with the game, the mods at its first step).</summary>
+    public static bool TaskWorkersStarted => _tasksStarted || TasksStartedProbe?.Invoke() == true;
 
     /// <summary>The cap each task group starts with, as the mods asked for them (0: left to the game).</summary>
     public static TaskWorkerCaps EffectiveTaskWorkerCaps
@@ -157,24 +169,27 @@ public static class Pacing
     /// <summary>Runs <paramref name="handler"/> before every wait of the engine's event loop on its handles, on the thread
     /// that waits: the main loop, the server's game loop and its session, and on a client the message wait too. A handler
     /// that sleeps must never sleep past <see cref="LoopWait.LeftNanoseconds"/> and must leave the waiting to the game, so the
-    /// game still sees every event. Tick thread; owned by the calling mod. Not called in this release (see
-    /// <see cref="Available"/>).</summary>
+    /// game still sees every event. <see cref="LoopWait.Milliseconds"/> is <see cref="int.MaxValue"/> and
+    /// <see cref="LoopWait.LeftNanoseconds"/> is <see cref="long.MaxValue"/> when the loop has no deadline (the game's
+    /// INFINITE). Tick thread; owned by the calling mod. Never called where <see cref="Sites"/> lacks the place.</summary>
     [TickThreadOnly]
     public static PacingHandler OnLoopWait(LoopWaitHandler handler) => Add(PacingSites.LoopWait | PacingSites.MessageWait, handler);
 
     /// <summary>Runs <paramref name="handler"/> where the server's game loop has picked its wait between two passes
     /// (<see cref="ServerIdleWaitNs"/>, <see cref="ServerOnlineWaitNs"/> or <see cref="ServerSlowWaitNs"/>); it may change it.
     /// A longer wait with players online means fewer passes between the simulation steps and up to that much more latency for
-    /// what arrives between them. On the server loop's thread, once a pass. Tick thread; owned by the calling mod. Not called
-    /// in this release (see <see cref="Available"/>).</summary>
+    /// what arrives between them. The loop still wakes for its own timers, and what the handlers leave is clamped into 0 to
+    /// <see cref="ServerMaxWaitNs"/>. On the server loop's thread, once a pass. Tick thread; owned by the calling mod. Never
+    /// called where <see cref="Sites"/> lacks the place.</summary>
     [TickThreadOnly]
     public static PacingHandler OnServerWait(ServerWaitHandler handler) => Add(PacingSites.ServerWait, handler);
 
     /// <summary>Caps the worker threads each task group starts with, for the calling mod. The engine sizes the pools from
     /// the logical CPUs it sees (under Wine, the host's, whatever a container allows). Returns whether the cap will apply:
-    /// false for caps of 0, on a client, once the pools have started and on a build without the place. A mod's cap is
-    /// withdrawn when it unloads (the pools it limited stay as they started). Tick thread. Always false in this release (see
-    /// <see cref="Available"/>).</summary>
+    /// false for caps of 0, on a client, once the pools have started and on a build without the place. On a Kiln server the
+    /// pools have started before any mod loads, so this is false there: cap them with <c>taskWorkers</c> in
+    /// <c>kiln/config/kiln-pacing.json</c>. A mod's cap is withdrawn when it unloads (the pools it limited stay as they
+    /// started). Tick thread.</summary>
     [TickThreadOnly]
     public static bool CapTaskWorkers(TaskWorkerCaps caps)
     {
@@ -182,6 +197,11 @@ public static class Pacing
         if (caps.IsEmpty) return false;
         var owner = ModContext.CurrentMod;
         if (owner is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+        if (TaskWorkersStarted)
+        {
+            LogLateCaps(owner);
+            return false;
+        }
         lock (Lock)
         {
             if (_tasksStarted || (Sites & PacingSites.TaskWorkers) == 0) return false;
@@ -189,7 +209,21 @@ public static class Pacing
             Caps.Add((caps, owner));
             Watch(owner);
         }
+        Changed?.Invoke();
         return true;
+    }
+
+    private static bool _loggedLateCaps;
+
+    // Once per run: a mod learns why its cap did not apply and what does (a mod loads after the pools started).
+    private static void LogLateCaps(ModContext? owner)
+    {
+        if (_loggedLateCaps) return;
+        _loggedLateCaps = true;
+        const string text = "Pacing.CapTaskWorkers: the task system has started its pools already (it starts with the game, before any mod loads); " +
+                            "set \"taskWorkers\" in kiln/config/kiln-pacing.json to cap them from the next start";
+        if (owner is not null) owner.Log.Info(text);
+        else Backend.Current.Log(0, LogLevel.Info, "kiln: " + text);
     }
 
     // ---------------------------------------------------------------------------------------------- internals ----
@@ -265,8 +299,29 @@ public static class Pacing
 
     // ---- the native half (Kiln.Host or a service) ----
 
-    /// <summary>Handlers or caps were added or removed: the native half arms its hooks only for what mods use.</summary>
+    /// <summary>Handlers or caps were added or removed: the native half arms its hooks only for what mods use. May run on
+    /// any thread (a handler that fails is removed on the thread that called it).</summary>
     internal static event Action? Changed;
+
+    /// <summary>The places the registered handlers are for (all of them, whether or not this build has them).</summary>
+    internal static PacingSites Wanted
+    {
+        get
+        {
+            var wanted = PacingSites.None;
+            foreach (var h in _handlers) wanted |= h.Site;
+            return wanted;
+        }
+    }
+
+    /// <summary>Asks the native half whether its task system has started (set by the native bridge).</summary>
+    internal static Func<bool>? TasksStartedProbe;
+
+    /// <summary>The native half could not put the hook for these places in: they are not available after all.</summary>
+    internal static void Narrow(PacingSites lost)
+    {
+        lock (Lock) _sites &= ~(int)lost;
+    }
 
     /// <summary>The native half reports which places it found and hooked.</summary>
     internal static void Attach(PacingSites found)
@@ -281,12 +336,14 @@ public static class Pacing
     {
         var all = _handlers;
         if (all.Length == 0) return;
+        var before = waitNanoseconds;
         foreach (var h in all)
         {
             if (h.Site != PacingSites.ServerWait || h.Removed) continue;
             var wait = waitNanoseconds;
             if (Call(h, RunServerWait, ref wait, default)) waitNanoseconds = wait;
         }
+        if (waitNanoseconds != before) waitNanoseconds = Math.Clamp(waitNanoseconds, 0, ServerMaxWaitNs);
     }
 
     /// <summary>The event loop is about to wait: every loop-wait handler sees it. On the waiting thread.</summary>
@@ -372,6 +429,8 @@ public static class Pacing
         }
         _sites = 0;
         _tasksStarted = false;
+        _loggedLateCaps = false;
+        TasksStartedProbe = null;
         Changed = null;
     }
 }

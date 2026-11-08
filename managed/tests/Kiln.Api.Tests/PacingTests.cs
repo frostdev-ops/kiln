@@ -204,6 +204,88 @@ public sealed class PacingTests : KilnTest
     }
 
     [Fact]
+    public void What_handlers_leave_for_the_server_loop_is_clamped_into_zero_to_the_maximum()
+    {
+        var mod = NewMod("pcclamp");
+        long set = 0;
+        As(mod, () => Pacing.OnServerWait((ref long w) => w = set));
+        set = long.MaxValue;
+        Assert.Equal(Pacing.ServerMaxWaitNs, ServerWait(Pacing.ServerIdleWaitNs));
+        set = -1;
+        Assert.Equal(0, ServerWait(Pacing.ServerIdleWaitNs));  // a negative wait would be a spin the game never asked for
+        set = 2_000_000;
+        Assert.Equal(2_000_000, ServerWait(Pacing.ServerOnlineWaitNs));
+        set = Pacing.ServerOnlineWaitNs;
+        Assert.Equal(Pacing.ServerOnlineWaitNs, ServerWait(Pacing.ServerOnlineWaitNs));  // unchanged stays unchanged
+    }
+
+    [Fact]
+    public void Wanted_is_the_union_of_what_handlers_are_for_and_Narrow_takes_places_away()
+    {
+        Assert.Equal(PacingSites.None, Pacing.Wanted);
+        var mod = NewMod("pcwanted");
+        var loop = As(mod, () => Pacing.OnLoopWait((in LoopWait w) => { }));
+        Assert.Equal(PacingSites.LoopWait | PacingSites.MessageWait, Pacing.Wanted);
+        var server = As(mod, () => Pacing.OnServerWait((ref long w) => { }));
+        Assert.Equal(PacingSites.LoopWait | PacingSites.MessageWait | PacingSites.ServerWait, Pacing.Wanted);
+        loop.Dispose();
+        Assert.Equal(PacingSites.ServerWait, Pacing.Wanted);
+        Pacing.Attach(PacingSites.ServerWait | PacingSites.TaskWorkers);
+        Assert.True(server.Found);
+        Pacing.Narrow(PacingSites.ServerWait);  // the game's code would not take the hook
+        Assert.False(server.Found);
+        Assert.Equal(PacingSites.TaskWorkers, Pacing.Sites);
+        Assert.True(Pacing.Available);
+    }
+
+    [Fact]
+    public void A_dispatch_with_handlers_allocates_nothing()
+    {
+        var count = 0;
+        As(NewMod("pcalloc"), () =>
+        {
+            Pacing.OnServerWait((ref long w) => count++);
+            Pacing.OnLoopWait((in LoopWait w) => count++);
+        });
+        var wait = new LoopWait(0, 400_000);
+        long ns = 1_000_000;
+        for (var i = 0; i < 100; i++)  // warm up: JIT, delegate caches
+        {
+            Pacing.DispatchServerWait(ref ns);
+            Pacing.DispatchLoopWait(in wait);
+        }
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++)
+        {
+            Pacing.DispatchServerWait(ref ns);
+            Pacing.DispatchLoopWait(in wait);
+        }
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(2200, count);
+    }
+
+    [Fact]
+    public void The_native_mirrors_have_the_sizes_the_service_checks()
+    {
+        Assert.True(PacingNative.LayoutMatchesNative);
+    }
+
+    [Fact]
+    public void The_pools_having_started_is_learned_from_the_native_half_too()
+    {
+        Pacing.Attach(PacingSites.TaskWorkers);
+        var started = false;
+        Pacing.TasksStartedProbe = () => started;
+        var mod = NewMod("pcprobe");
+        Assert.False(Pacing.TaskWorkersStarted);
+        started = true;
+        Assert.True(Pacing.TaskWorkersStarted);
+        Assert.False(As(mod, () => Pacing.CapTaskWorkers(TaskWorkerCaps.AtMost(2))));  // too late: nothing is recorded
+        Assert.True(Pacing.EffectiveTaskWorkerCaps.IsEmpty);
+        Assert.False(As(mod, () => Pacing.CapTaskWorkers(TaskWorkerCaps.AtMost(2))));  // and the hint is logged once
+    }
+
+    [Fact]
     public void Worker_caps_take_the_lowest_of_each_group_and_ignore_zero()
     {
         Pacing.Attach(PacingSites.TaskWorkers);
