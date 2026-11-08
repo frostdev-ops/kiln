@@ -225,10 +225,18 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         const fs::path npc_blocks = fs::path(code).replace_filename(widen(mf["id"].get<std::string>() + ".blocks.json"));
         // the NPC blocks of its data files: built at the first start, from the mod's folder (read only)
         std::vector<qb::ojson> block_docs;
+        // the quest and dialogue blocks ("quests", "dialogues"): the quests' file format, key for key as far as the build reads it (a block's rewards are a bundle that
+        // no key here reads, and its actions and conditions are the file's), so they are built at the first start from the mod's folder like the NPC blocks. Kiln.Blocks
+        // leaves what it read from a data file out of the file it writes for code (Kiln.Quests Native/NativeExport.cs), so nothing is built twice.
+        qb::ojson block_quests = qb::ojson::object();
         for (auto it = fs::directory_iterator(base / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
             if (it->path().extension() == L".json") {
                 qb::ojson d = parse_relaxed(read_file(it->path()));
-                if (!d.is_discarded() && d.is_object() && d.contains("npcs")) block_docs.push_back(std::move(d));
+                if (d.is_discarded() || !d.is_object()) continue;
+                for (const char* key : {"quests", "dialogues"})
+                    if (d.contains(key) && d[key].is_object())
+                        for (const auto& [name, v] : d[key].items()) block_quests[key][name] = v;
+                if (d.contains("npcs")) block_docs.push_back(std::move(d));
             }
         ec.clear();
         if (!block_docs.empty())  // bodies a block names may be in any of the files
@@ -239,7 +247,7 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
                 }
         ec.clear();
         const qb::ojson block_npcs = block_docs.empty() ? qb::ojson::object() : npcs_from_blocks(mf["id"].get<std::string>(), block_docs);
-        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty()) return;
+        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty() && block_quests.empty()) return;
         const std::string side = mf.value("side", "both");
         if ((side == "server" && client) || (side == "client" && !client)) return;
         qb::ModInput m;
@@ -258,12 +266,22 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         const size_t own_files = files.size();
         if (fs::exists(npc_blocks, ec)) files.push_back(npc_blocks);
         if (fs::exists(code, ec)) files.push_back(code);
-        for (size_t i = 0; i < files.size(); ++i) {
-            // the mod's own quests files first (they win), then its NPC blocks, then what its code defined at an earlier start
-            if (i == own_files && !block_npcs.empty()) {
+        const bool has_blocks = !block_npcs.empty() || !block_quests.empty();
+        const auto push_blocks = [&]() {
+            if (!block_npcs.empty()) {
                 m.documents.push_back(qb::ojson{{"format", 1}, {"npcs", block_npcs}});
                 m.files.push_back("blocks/*.json");
             }
+            if (!block_quests.empty()) {
+                qb::ojson d = block_quests;
+                d["format"] = 1;
+                m.documents.push_back(std::move(d));
+                m.files.push_back("blocks/*.json");
+            }
+        };
+        for (size_t i = 0; i < files.size(); ++i) {
+            // the mod's own quests files first (they win), then its NPC, quest and dialogue blocks, then what its code defined at an earlier start
+            if (i == own_files && has_blocks) push_blocks();
             const fs::path& f = files[i];
             qb::ojson doc = qb::ojson::parse(read_file(f), nullptr, false, true);
             if (doc.is_discarded() || !doc.is_object()) {
@@ -273,10 +291,7 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
             m.documents.push_back(std::move(doc));
             m.files.push_back(f.filename().string());
         }
-        if (files.size() == own_files && !block_npcs.empty()) {
-            m.documents.push_back(qb::ojson{{"format", 1}, {"npcs", block_npcs}});
-            m.files.push_back("blocks/*.json");
-        }
+        if (files.size() == own_files && has_blocks) push_blocks();
         const qb::ojson audio = qb::ojson::parse(read_file(base / L"assets" / L"cooked" / L"audio.json"), nullptr, false, true);
         if (!audio.is_discarded()) m.audio = audio;
         const qb::ojson cook = qb::ojson::parse(read_file(base / L"assets" / L"cook.json"), nullptr, false, true);

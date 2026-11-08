@@ -156,6 +156,8 @@ public sealed class DataClientsTests
         { "blueprints", """{ "name": "Hut" }""", "mod" },
         { "npcs", """{ "name": "Smith" }""", "mod" },
         { "terrainMaterials", """{ "name": "Glowstone", "like": "Stone" }""", "mod" },
+        { "quests", """{ "name": "Errand", "steps": [ { "id": "go", "objective": { "custom": "x" } } ] }""", "mod" },
+        { "dialogues", """{ "nodes": { "start": { "text": "Hello" } } }""", "mod" },
     };
 
     [Theory]

@@ -21,7 +21,7 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
-| [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, what players need, quests-sample |
+| [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, quest and dialogue blocks, what players need, quests-sample |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, catalog |

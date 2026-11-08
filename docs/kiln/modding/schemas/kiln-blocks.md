@@ -31,6 +31,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `containers` | object |  | Things that hold items, as the game's chests do: a lid, sounds and upgrades from the game's small chest. |
 | `cosmetics` | object |  | Pieces for the vanity slots: shown over what is worn there, with no stats. A look with files of the mod's own needs "clients": "mod". |
 | `creatures` | object |  | Creatures: a body, how it moves, sees and fights. |
+| `dialogues` | object |  | Conversations in the game's own NPC menu, for an NPC block's talk or a quest NPC's dialogue. Needs "clients": "mod". |
 | `doors` | object |  | Doors: they open and close for whoever uses them, and paths and water follow them. |
 | `effects` | object |  | What happens: the same effect plugs in everywhere. |
 | `format` | `1` | yes |  |
@@ -48,6 +49,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `placements` | object |  | Parts: where and how a player can place something. |
 | `processing` | object |  | Parts: how a station works on its own. |
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
+| `quests` | object |  | Quest chains in the game's own journal: steps, objectives, conditions, rewards. Needs "clients": "mod". |
 | `recipes` | object |  | Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench. |
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
@@ -558,6 +560,46 @@ How it gets there: a flight, or one of the deliveries placed where the caster is
 
 Type: [projectile](#projectile) or object or object or object or object or object or object or object
 
+## dialogue
+
+A conversation in the game's own NPC menu: nodes of text and options, each with a condition and actions. An NPC block names it (talk). A conversation in chat (native: false) is quests/*.json's. Players need the mod (clients "mod").
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `farewell` | array of `kiln-quests.schema.json text` |  | Replaces the NPC's farewell lines. |
+| `greet` | boolean |  | The start node's text is a greeting. Default: yes on a clone, no on a game NPC (its own greetings stay). |
+| `greetings` | array of object |  | More greetings, shown before the plain one while their condition holds. |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The marker over the NPC's head on the greeting. |
+| `nodes` | object | yes |  |
+| `start` | string |  | The first node (default "start"). min length 1 |
+| `transition` | array of `kiln-quests.schema.json text` |  | Replaces the line between topics. |
+
+## dialogueNode
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `do` | array of [questAction](#questaction) |  | Run when the node opens. |
+| `goto` | string |  | A node without options: where "Continue" goes. min length 1 |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The marker over the NPC's head on this node's greeting. |
+| `options` | array of [dialogueOption](#dialogueoption) |  | Add new options at the end: positions and node names feed the lines' ids. |
+| `speaker` | `kiln-quests.schema.json text` |  |  |
+| `text` | `kiln-quests.schema.json text` |  |  |
+| `voice` | string |  | A voice-over line the game's dialogue plays: a name in the mod's cooked audio, or a GUID. min length 1 |
+
+## dialogueOption
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `close` | boolean |  | The NPC plays its outro after the reply. |
+| `do` | array of [questAction](#questaction) |  |  |
+| `goto` | string |  | The next node: its text is the reply, and its options join the NPC's topics from then on. "end" or none: nothing more. min length 1 |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The topic's marker. |
+| `if` | [questCondition](#questcondition) |  | Shown only while this holds; checked again when chosen. |
+| `once` | boolean |  | The topic goes away once heard. |
+| `reply` | `kiln-quests.schema.json text` |  | What the NPC answers; default the target node's text. |
+| `text` | `kiln-quests.schema.json text` | yes |  |
+| `voice` | string |  | The reply's voice-over; default the target node's. min length 1 |
+
 ## door
 
 A door. Starts from the game's wooden door; visual.like names another.
@@ -893,6 +935,192 @@ Something placed that stands there: furniture, a banner, a lamp.
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
 | `visual` | [visualRef](#visualref) | yes | Its look: like (a game item that places something: model, collision and how it places), or model (a glTF in the mod's folder, which kiln cook makes into the game's model; item:<name>; or the GUID of a model your assets/assets.json serves). |
 | `was` | [name](#name) |  |  |
+
+## quest
+
+A quest chain in the game's own journal, tracked-quest line and map: steps that run in order, each with objectives, and what it pays. The block's name is its id: keep it and the steps' ids. Players need the mod (clients "mod"). A quest from a blocks file is built into the game's journal from the next start, unless the mod ships quests/generated/<mod>.json.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `abandonable` | boolean |  | Players may give it up (default true; never a world quest). |
+| `auto` | boolean |  | Starts by itself as soon as it is available. |
+| `description` | `kiln-quests.schema.json text` |  |  |
+| `giver` | [questNpc](#questnpc) |  | The NPC who offers it. A quest with a giver starts through that NPC, an action or code. |
+| `hidden` | boolean |  | Not listed until it is active. |
+| `main` | boolean |  |  |
+| `name` | `kiln-quests.schema.json text` | yes |  |
+| `onFail` | array of [questAction](#questaction) |  |  |
+| `onStart` | array of [questAction](#questaction) |  |  |
+| `partyRadius` | number |  |  |
+| `priority` | integer |  | Its order in the journal (the game uses 40..100; default 50). min 0 |
+| `repeatable` | boolean |  |  |
+| `requires` | array of [questCondition](#questcondition) |  |  |
+| `retryable` | boolean |  | Can start again after it failed or was given up (default true). |
+| `rewards` | [questReward](#questreward) |  |  |
+| `scope` | `"player"` \| `"party"` \| `"world"` |  | player (default), party (players within partyRadius share credit, each gets rewards), world (one shared state). |
+| `source` | `"None"` \| `"Flame"` \| `"Blacksmith"` \| `"Alchemist"` \| `"Huntress"` \| `"Farmer"` \| `"Carpenter"` \| `"CryptKeeper"` \| `"Bard"` \| `"ChineseNewYearTrader"` \| `"Barber"` \| `"Fisher"` \| `"AncientResearcher"` \| `"Grassland"` \| `"Deepforest"` \| `"Steppes"` \| `"Desert"` \| `"ColdHeights"` \| `"Wetlands"` \| `"AncientLands"` |  | The journal's portrait (keen::QuestSourceType). Default None. |
+| `steps` | array of [questStep](#queststep) | yes | min items 1 |
+
+## questAction
+
+One of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, talk, signal, call. In an option's do the first failing action stops the rest; in rewards and hooks each failure is logged and the rest runs.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `advance` | string |  | Finishes a step: "quest.step". Refused for unfinished kill, collect and reach objectives unless force. min length 1 |
+| `amount` | integer |  | min 1 |
+| `at` | [questPos](#questpos) |  |  |
+| `bindNpc` | [questNpc](#questnpc) |  | The spawned entity becomes this NPC. |
+| `call` | string |  | A name registered with Quests.RegisterAction. min length 1 |
+| `chat` | `kiln-quests.schema.json text` |  | A chat line for the player. |
+| `complete` | string |  | min length 1 |
+| `count` | integer |  | Items given or taken, spawned entities. min 1 |
+| `despawn` | string |  | The tag of what spawn made. min length 1 |
+| `exact` | boolean |  | Exactly at: no ground, no base check. |
+| `fail` | string |  | min length 1 |
+| `flag` | integer |  | revoke: one flag of a Flags object. min 0 max 31 |
+| `force` | boolean |  | start, advance: past what refuses. |
+| `item` | [itemRef](#itemref) |  | Gives count of it (what does not fit lands at the player's feet). |
+| `knowledge` | string |  | Grants it: npc:….unlock, quest:…, 0x…. min length 1 |
+| `node` | string |  | min length 1 |
+| `offset` | [questPos](#questpos) |  | Metres from the player, instead of at. |
+| `reset` | string |  | min length 1 |
+| `revoke` | string |  | Clears that id only: what the game already did because of it stays. min length 1 |
+| `signal` | string |  | Feeds custom objectives. min length 1 |
+| `spawn` | `kiln-quests.schema.json template` |  | A one-off creature near the player or at at, on the ground outside bases. For creatures a step needs, use the step's spawn. |
+| `start` | string |  | Starts a quest. min length 1 |
+| `tag` | string |  | min length 1 |
+| `take` | [itemRef](#itemref) |  |  |
+| `talk` | string |  | Opens a chat conversation: a dialogue of this mod, at node. min length 1 |
+| `target` | `"world"` \| `"player"` |  | knowledge, revoke: default the player's object if the id has one, else the world's. |
+| `teleport` | [questPos](#questpos) |  | Moves the player. |
+| `transient` | boolean |  | Never written to the save. |
+| `value` | integer |  | knowledge: a counter's amount or a flag's number. min 0 |
+| `xp` | integer |  | Experience, as a quest reward. min 0 |
+| `yaw` | number |  |  |
+
+## questCondition
+
+One of knowledge, level, quest, step, item, predicate, all, any, not. Checked on the server, also when an option is chosen.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `all` | array of [questCondition](#questcondition) |  | min items 1 |
+| `any` | array of [questCondition](#questcondition) |  | min items 1 |
+| `count` | integer |  | min 1 |
+| `is` | `"locked"` \| `"available"` \| `"active"` \| `"done"` \| `"failed"` \| `"started"` \| `"pending"` |  | Quest: locked, available, active, done, failed, started. Step: pending, active, done. Default done. |
+| `item` | [itemRef](#itemref) |  | At least count of it are in the inventory. |
+| `knowledge` | string |  | The game's knowledge holds it. min length 1 |
+| `level` | integer |  | The character's level is at least this. min 1 |
+| `not` | [questCondition](#questcondition) |  |  |
+| `predicate` | string |  | A name registered with Quests.RegisterPredicate. min length 1 |
+| `quest` | string |  | A quest of this mod (or "other-mod:quest"), in the state is. min length 1 |
+| `step` | string |  | "quest.step", in the state is. |
+
+## questIdName
+
+an id: letters, digits, '_' and '-'
+
+Type: string
+
+## questMarker
+
+The step's map marker. A step with a place (site, spawn, a reach or kill place, an NPC to talk to or deliver to) has one by itself; this names it or moves it. false: none.
+
+Type: boolean or object
+
+## questNpc
+
+An NPC: an NPC block of this mod by its name, an id of the mod's quests/*.json, "other-mod:npc". min length 1
+
+Type: string
+
+## questObjective
+
+One of kill, collect, deliver, reach, talk, craft, build, knowledge, custom.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `build` | object |  | Placing it. |
+| `collect` | object |  | What the inventory holds now. Takes nothing. |
+| `craft` | object |  | A successful craft by the player. |
+| `custom` | string or object |  | A signal name, or the signal and how many: Quests.Signal, the signal action, or a C# progress function. |
+| `deliver` | object |  | Takes the items when an advance action or the NPC's hand-over finishes it. |
+| `kill` | object |  | A death credited to the player (a world quest: any death). |
+| `knowledge` | string |  | The game's knowledge holds it: npc:…, quest:…, query:…, 0x…. min length 1 |
+| `reach` | object |  | Being there, checked twice a second. |
+| `talk` | object |  | Talking to that NPC. |
+| `text` | `kiln-quests.schema.json text` |  | Shown instead of the step's text when a step has several objectives. |
+
+## questPlace
+
+A place found at run time: on real ground (the voxel surface), outside every base, not too steep; one per world. Say what it is near: near ("player", or an NPC), or at.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `at` | [questPos](#questpos) |  |  |
+| `distance` | array of number |  | Metres from what it is near: [min, max]. It widens by itself until a good spot is found. min items 1 max items 2 |
+| `exact` | boolean |  | Exactly at: no ground, no base check. |
+| `inBase` | boolean |  | A base is fine (never for enemies: the game pacifies them there and may remove them). |
+| `margin` | number |  | Metres to keep from a base's build zone (default 20). min 0 |
+| `near` | string |  | "player" (who gets there first), or an NPC: an NPC block of this mod by its name, or an id of the mod's quests/*.json. min length 1 |
+
+## questPos
+
+Metres: [x, y, z]. x east, y up, z north. min items 3 max items 3
+
+Type: array of number
+
+## questReward
+
+What a quest or a step pays, all at once: experience, items, a status, knowledge. Each part is paid on its own: one that cannot be (a full inventory drops the rest at the player's feet) is logged and the others still are. A world quest pays every player in game.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `items` | object |  | Item and count: a game item, or an item this mod defines. |
+| `knowledge` | array of string |  | The game's knowledge granted: npc:….unlock unlocks an NPC. |
+| `lootTable` | string |  | A loot table rolled for the player when the reward is paid: the name of a lootTables block. Reserved for the loot table blocks (dev.20): a build without them refuses it. min length 1 |
+| `status` | [ref](#ref) or object |  | A status put on the player: a status block of this mod, or a game status; its own time, or seconds. |
+| `xp` | integer |  | Experience, through the game's quest path. min 0 |
+
+## questSpawn
+
+Creatures the step brings into the world: on real ground outside every base, never saved, checked every second, spawned again when the game removes them, and after a restart or rejoin as many as are still owed. Where: the step's site, or at, near and distance here.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `at` | [questPos](#questpos) |  |  |
+| `count` | integer |  | min 1 |
+| `distance` | array of number |  | min items 1 max items 2 |
+| `exact` | boolean |  |  |
+| `inBase` | boolean |  |  |
+| `level` | integer |  | The level to spawn at (0: the template's). min 0 |
+| `margin` | number |  | min 0 |
+| `near` | string |  | "player" or an NPC. min length 1 |
+| `retries` | integer |  | How many times they come back when the game removes them (default 5). Then kiln.log has an error. min 0 |
+| `spread` | number |  | Metres between them (default 4). min 0 |
+| `tag` | string |  | The Kiln.Spawn tag: a kill objective can name it. min length 1 |
+| `template` | `kiln-quests.schema.json template` | yes |  |
+
+## questStep
+
+One step of a quest. It is done when all its objectives are.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `id` | [questIdName](#questidname) | yes | Letters, digits, '_' and '-'; unique in the quest. Keep it: progress is filed under it. |
+| `marker` | [questMarker](#questmarker) |  |  |
+| `objective` | [questObjective](#questobjective) |  |  |
+| `objectives` | array of [questObjective](#questobjective) |  |  |
+| `onDone` | array of [questAction](#questaction) |  |  |
+| `onEnter` | array of [questAction](#questaction) |  |  |
+| `recommendedLevel` | integer |  | min 0 max 255 |
+| `rewards` | [questReward](#questreward) |  | Paid when the step is done. |
+| `site` | [questPlace](#questplace) |  |  |
+| `spawn` | [questSpawn](#questspawn) or array of [questSpawn](#questspawn) |  | Creatures the step brings into the world: one or a list. |
+| `text` | `kiln-quests.schema.json text` |  | The journal's paragraph. |
+| `title` | `kiln-quests.schema.json text` |  | The journal's short line (the list, the tracked quest). Default its text. |
+| `voice` | string |  | A voice-over line in the journal: a name of the mod's cooked audio, or a GUID. min length 1 |
 
 ## rarity
 

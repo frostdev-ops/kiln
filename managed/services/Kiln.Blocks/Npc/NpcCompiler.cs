@@ -857,7 +857,8 @@ internal static class NpcCompiler
         var cloneName = $"Kiln_{mod}_{key}";
         var names = new Dictionary<string, string>(StringComparer.Ordinal) { ["en"] = n.Name };
         foreach (var (lang, text) in n.Names ?? new Dictionary<string, string>()) names[lang] = text;
-        var dialogue = n.Talk?.Id ?? n.TalkName;
+        // a dialogue block of this mod (or another's) by its name becomes its id, compiled first; any other name is one of the mod's quests/*.json
+        var dialogue = n.Talk?.Id ?? (n.TalkName is { } talkName ? QuestCompiler.Dialogue(ctx, talkName, "talk") : null);
 
         // the vendor: recipes at the body's workshop
         if (n.Vendor is { } v)

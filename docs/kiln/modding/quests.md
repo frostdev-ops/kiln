@@ -5,7 +5,8 @@ tracked-quest line, its notifications, step counters, map markers, the NPC menu 
 any of that, and Kiln draws no window of its own.
 
 This page is the guide. The API and how it works are in [services/quests.md](../services/quests.md), what the game's data gets in [services/npcs.md](../services/npcs.md); every key is in
-the [generated schema reference](schemas/kiln-quests.md). `mods/samples/quests-sample` is a complete chain.
+the [generated schema reference](schemas/kiln-quests.md). `mods/samples/quests-sample` is a complete chain. The same quests as building blocks, in C# or in
+`blocks/*.json`: "Quests as blocks" below.
 
 ## A first quest
 `mymod/quests/errand.json` (any file name; comments and trailing commas are fine):
@@ -199,6 +200,75 @@ Private="false" ExcludeAssets="runtime" />`. Definitions belong to the mod that 
 players' progress stays.
 
 A quest from code gets the game's UI with no flag, like one from a file: the mod says `"clients": "mod"`, and the journal, counters, markers and topics follow. Only one thing differs. The game's journal is built at boot, before a C# mod runs, so Kiln writes what your code defines to `kiln/data/kiln-quests/native/<mod>.json` and builds it at the next start; until then the quest runs with chat lines, and kiln.log says so. To have it at the first start, on every client too, ship that file as `quests/generated/<mod>.json` in the mod (the sample does) and write it again when the quest's steps or texts change. Only what the game shows goes into it: objectives, conditions and rewards keep running from your C# objects, including `Progress` functions and `QuestCondition.When`.
+
+## Quests as blocks
+The same quests and conversations, as building blocks ([blocks.md](blocks.md)): `QuestBlock` and `DialogueBlock` in C#, or the `quests` and `dialogues` sections of
+`blocks/*.json`. A block has the keys of `quests/*.json`, and its pieces are typed: `Goal.Kill(...)` for an objective, `Req.Level(8)` for a condition, `Do.Start("q")` for an
+action. What blocks add: a field that names an item, a status or an NPC takes a block of the mod by its name, and `NpcBlock.Talk` names a dialogue block.
+```jsonc
+// blocks/errand.json
+{ "format": 1,
+  "quests": {
+    "lost-crates": {
+      "name": { "en": "The Lost Crates" },
+      "giver": "ilse",                                    // an NPC block of this mod
+      "requires": [ { "level": 8 } ],
+      "steps": [
+        { "id": "bandits", "text": "They took the crates on the old road.",
+          "objective": { "kill": { "tag": "crates", "count": 6 } },
+          "spawn": { "template": "Enemy_Scavenger_Melee01", "count": 6, "tag": "crates", "near": "ilse", "distance": [60, 120] } },
+        { "id": "return", "text": "Bring three logs back",
+          "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "ilse" } } } ],
+      "rewards": { "xp": 1500, "items": { "Weapon_T1_1H_SwordEpic_01": 1 }, "status": "blessed" } } },   // "blessed": a status block of this mod
+  "dialogues": {
+    "ilse-talk": {
+      "start": "hello",
+      "nodes": { "hello": { "options": [
+        { "text": "I'll find them.", "if": { "quest": "lost-crates", "is": "available" }, "do": [ { "start": "lost-crates" } ], "reply": "Scavengers took our crates." },
+        { "text": "Here are your logs.", "if": { "step": "lost-crates.return", "is": "active" }, "do": [ { "advance": "lost-crates.return" } ], "reply": "The road is safe again." } ] } } } },
+  "npcs": { "ilse": { "name": "Caravan Master", "body": "villager", "talk": "ilse-talk" } } }
+```
+```csharp
+var talk = Blocks.Define("ilse-talk", new DialogueBlock
+{
+    Start = "hello",
+    Nodes = { ["hello"] = new DialogueNodeBlock { Options = [
+        new OptionBlock { Text = "I'll find them.", If = Req.Quest("lost-crates", "available"), Do = [Do.Start("lost-crates")], Reply = "Scavengers took our crates." } ] } },
+});
+Blocks.Define("ilse", new NpcBlock { Name = "Caravan Master", Body = Bodies.Villager, Talk = talk });      // or TalkName = "ilse-talk"
+Blocks.Define("lost-crates", new QuestBlock
+{
+    Name = "The Lost Crates", Giver = "ilse", Requires = [Req.Level(8)],
+    Steps = [new StepBlock { Id = "bandits", Text = "Drive off the scavengers", Objective = Goal.Kill(tag: "crates", count: 6) }],
+    Rewards = new RewardBlock { Xp = 1500, Items = { [GameItems.Weapon_T1_1H_SwordEpic_01] = 1 } },
+});
+```
+The block's name is the id: letters, digits, `_` and `-`. Keep it and the steps' ids, as above ("Saving"). Players need the mod (`"clients": "mod"`), as for any quest in the game's own UI.
+`Blocks.Define` of a quest gives a `QuestHandle`: `handle.FullId` is what `Quests.Start` and `Quests.StatusOf` take, and `handle.Definition` is what the engine runs.
+
+**Rewards.** `rewards` is one bundle, on a quest or a step (`"rewards"` of a step is paid when it is done, before its `onDone`):
+
+| Key | Pays |
+|---|---|
+| `xp` | experience, through the game's quest path |
+| `items` | `{ "item": count }`: game items, or items of the mod by their block name. What does not fit lands at the player's feet |
+| `status` | a status put on the player: a status block of the mod, a game status (`"0x…"`, `"buff_…"`, a GUID), or `{ "status": "blessed", "seconds": 60 }`. A world quest pays every player in game |
+| `knowledge` | the game's knowledge granted: `"npc:….unlock"` unlocks an NPC |
+| `lootTable` | reserved for the loot table blocks (`lootTables`): a build without them refuses the quest and says so |
+
+Each part is paid on its own, as in `quests/*.json`: one that fails is logged and the rest still are. `onStart`, `onFail`, a step's `onEnter` and `onDone`, and a node's and an option's `do` are
+action lists with the keys of the table in "Actions" above, except `toast` and `waypoint`.
+
+**What it is not.** The block form is the game's own UI form. A mod that vanilla clients join (`"journal": "chat"`, `"native": false`) writes `quests/*.json`. A block takes no
+`knowledge` section, no option `set`, no `toast` and `waypoint` actions (the step's place gives the marker and the pin); a key it does not know is an error, not a warning.
+
+**When the game has it.** The game builds its journal and NPC menu at start, so a change to a quest block needs a restart on the server and on every client.
+- A block in `blocks/*.json` is read by that start-up build from the mod's folder: it is in the game's journal at the **first start**, with the NPC blocks.
+- A block written in C# is known only once the mod's code runs. Kiln writes it to `kiln/data/kiln-quests/native/<mod>.json` and it is in the journal from the next start; until then it
+  runs with chat lines, and kiln.log says so. Ship that file as `quests/generated/<mod>.json` to have it at once ("Code" above).
+
+`kiln lint` checks the sections against the schema, item, status, NPC, quest, step and dialogue names, and says when the manifest's `clients` is below "mod" (KL210).
+`kiln blocks show <name>` says what a block became. `mods/tests/blocks-quest-test` is the lab test, and `dotnet new kiln-quest` a project to start from ([mdk.md](mdk.md)).
 
 ## Saving, and changing a quest later
 Progress is stored in Kiln's sidecar of the world (`kiln/data/worlds/<id>/`), per player and world, written with every

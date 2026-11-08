@@ -20,6 +20,25 @@ internal static class NativeExport
             if (modId.Length > 0) Dirty.Add(modId);
     }
 
+    // quests and dialogues that blocks/*.json defines ("q:<mod>:<id>", "d:<mod>:<id>"): the boot build reads them from the mod's folder itself (native/services/quests
+    // native_pack.cpp), so what is written for code leaves them out, and nothing is built twice or lingers here after it is taken out of the file
+    private static readonly HashSet<string> FromData = new(StringComparer.Ordinal);
+
+    /// <summary>Kiln.Blocks: this quest (<paramref name="kind"/> 'q') or dialogue ('d') comes from a data file, or no longer does.</summary>
+    internal static void DefinedInData(char kind, string fullId, bool data)
+    {
+        lock (Dirty)
+        {
+            if (data) FromData.Add($"{kind}:{fullId}");
+            else FromData.Remove($"{kind}:{fullId}");
+        }
+    }
+
+    private static bool InData(char kind, string fullId)
+    {
+        lock (Dirty) return FromData.Contains($"{kind}:{fullId}");
+    }
+
     /// <summary>From the service tick.</summary>
     public static void Flush()
     {
@@ -78,14 +97,14 @@ internal static class NativeExport
         {
             foreach (var e in Quests.Registry.Values)
             {
-                if (e.FromJson || e.Def.ModId != mod || e.Def.Journal != QuestJournalMode.Native) continue;
+                if (e.FromJson || e.Def.ModId != mod || e.Def.Journal != QuestJournalMode.Native || InData('q', e.Def.FullId)) continue;
                 quests[e.Def.Id] = Quest(e.Def);
                 if (NativeQuests.Quest(e.Def.FullId) is null) missing.Add(e.Def.FullId);
             }
             foreach (var (_, e) in Quests.NpcRegistry)
                 if (!e.FromJson && e.Def.ModId == mod) npcs[e.Def.Id] = Npc(e.Def);
             foreach (var (_, e) in Quests.DialogueRegistry)
-                if (!e.FromJson && e.Def.ModId == mod && e.Def.Native) dialogues[e.Def.Id] = Dialogue(e.Def);
+                if (!e.FromJson && e.Def.ModId == mod && e.Def.Native && !InData('d', e.Def.FullId)) dialogues[e.Def.Id] = Dialogue(e.Def);
         }
         if (quests.Count == 0 && npcs.Count == 0 && dialogues.Count == 0) return null;
         var doc = new JsonObject { ["format"] = 1, ["comment"] = "written by Kiln from what the mod defines in code: docs/kiln/modding/quests.md, Code" };
