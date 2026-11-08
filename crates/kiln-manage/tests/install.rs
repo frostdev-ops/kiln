@@ -881,3 +881,183 @@ fn uninstall_refuses_symlinked_paths_before_removing_any_files() {
     install::uninstall(&dirs, &client(&g), &mut NoProgress).unwrap();
     assert_eq!(std::fs::read(g.join("dinput8.dll")).unwrap(), original);
 }
+
+/// `stage`, plus components: (name, default). Each gets one file `kiln/plugins/<name>/<name>.dll`.
+fn stage_plus(root: &Path, version_tag: &str, extra: &[(&str, bool)]) -> PathBuf {
+    let s = stage(root, version_tag, false);
+    let manifest = s.join("kiln-runtime.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for (name, default) in extra {
+        m["components"][*name] = serde_json::json!({"sides": ["server", "client"], "default": default, "requires": ["core"]});
+        put(&s, &format!("{name}/kiln/plugins/{name}/{name}.dll"), format!("{name} {version_tag}").as_bytes());
+    }
+    std::fs::write(manifest, serde_json::to_vec(&m).unwrap()).unwrap();
+    s
+}
+
+/// The compatibility components dev.18 made default on both sides.
+const COMPAT: [(&str, bool); 3] = [("eml", true), ("shroudforge", true), ("enshwick", true)];
+
+/// A receipt as kiln-manage wrote it before `runtime.deselected` existed: a plain component list.
+fn make_legacy(game: &Path, components: &[&str]) {
+    let p = game.join("kiln/.install.json");
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+    v["runtime"]["components"] = serde_json::json!(components);
+    v["runtime"].as_object_mut().unwrap().remove("deselected");
+    std::fs::write(&p, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+}
+
+fn comps(r: &install::InstallReceipt) -> Vec<&str> {
+    r.runtime.components.iter().map(String::as_str).collect()
+}
+
+#[test]
+fn a_fresh_install_gets_the_defaults_and_turns_nothing_off() {
+    let t = tmp("parts-fresh");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let b = bundle::create(&stage_plus(&t.0, "a", &[("eml", true), ("extra", false)]), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let r = install::install(&dirs, &client(&game), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&r), ["core", "emf", "eml", "sigdb-client"]);
+    assert_eq!(r.runtime.deselected.as_deref(), Some(&[][..]), "a new receipt says what was turned off, even when nothing was");
+    assert!(game.join("kiln/plugins/eml/eml.dll").is_file() && !game.join("kiln/plugins/extra").exists());
+    let on_disk = std::fs::read_to_string(game.join("kiln/.install.json")).unwrap();
+    assert!(on_disk.contains("\"deselected\": []"), "{on_disk}");
+}
+
+#[test]
+fn an_old_receipt_with_a_custom_list_gets_new_and_newly_default_components_on_update() {
+    let t = tmp("parts-legacy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let inst = client(&game);
+    // the old bundle: `late` exists but is optional; the player's list (they once added emf by hand) is all it records
+    let b1 = bundle::create(&stage_plus(&t.0, "a", &[("late", false)]), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    make_legacy(&game, &["core", "emf", "sigdb-client"]);
+    // the new bundle: eml, shroudforge, enshwick are new defaults, `late` became one, `extra` is new but optional
+    let b2 = bundle::create(&stage_plus(&t.0, "b", &[COMPAT[0], COMPAT[1], COMPAT[2], ("late", true), ("extra", false)]), &t.0.join("out"),
+        &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r = install::install(&dirs, &inst, &b2, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&r), ["core", "emf", "eml", "enshwick", "late", "shroudforge", "sigdb-client"]);
+    assert_eq!(r.runtime.deselected.as_deref(), Some(&[][..]));
+    for c in ["eml", "shroudforge", "enshwick", "late"] {
+        assert!(game.join(format!("kiln/plugins/{c}/{c}.dll")).is_file(), "{c} is installed");
+    }
+    assert!(!game.join("kiln/plugins/extra").exists(), "a new optional component is not installed");
+    assert!(install::status(&dirs, &inst).unwrap().modified.is_empty());
+}
+
+#[test]
+fn a_legacy_receipt_already_on_the_new_bundle_shows_and_gets_its_missing_parts() {
+    // the reported client: the update to dev.18 kept the old list, so the receipt names dev.18 without its new parts
+    let t = tmp("parts-missing");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let inst = client(&game);
+    let b = bundle::create(&stage_plus(&t.0, "b", &COMPAT), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let b = bundle::import(&dirs, &b).unwrap().file;
+    install::install(&dirs, &inst, &b, &InstallOptions { components: Some(vec!["core".into(), "emf".into(), "sigdb-client".into()]), ..Default::default() },
+        &mut NoProgress).unwrap();
+    make_legacy(&game, &["core", "emf", "sigdb-client"]);
+    let st = install::status(&dirs, &inst).unwrap();
+    assert_eq!(st.missing_parts, ["eml", "enshwick", "shroudforge"]);
+    assert_eq!(st.upgrade_available, None);
+    // installing the same bundle again (Runtime's Reinstall, `kilnctl client install`) adds them
+    let r = install::install(&dirs, &inst, &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&r), ["core", "emf", "eml", "enshwick", "shroudforge", "sigdb-client"]);
+    assert!(game.join("kiln/plugins/shroudforge/shroudforge.dll").is_file());
+    assert!(install::status(&dirs, &inst).unwrap().missing_parts.is_empty());
+}
+
+#[test]
+fn an_explicit_deselection_is_kept_across_updates() {
+    let t = tmp("parts-off");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let inst = client(&game);
+    let b1 = bundle::create(&stage_plus(&t.0, "a", &COMPAT), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let b1 = bundle::import(&dirs, &b1).unwrap().file;
+    // the player turns eml and emf off
+    let r1 = install::install(&dirs, &inst, &b1, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into(), "shroudforge".into(), "enshwick".into()]),
+        ..Default::default()
+    }, &mut NoProgress).unwrap();
+    assert_eq!(r1.runtime.deselected.as_deref(), Some(&["emf".to_string(), "eml".to_string()][..]));
+    assert!(install::status(&dirs, &inst).unwrap().missing_parts.is_empty(), "turned off is not missing");
+    // the next bundle has a new default; the update adds it and keeps the two off
+    let b2 = bundle::create(&stage_plus(&t.0, "b", &[COMPAT[0], COMPAT[1], COMPAT[2], ("fresh", true)]), &t.0.join("out"),
+        &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r2 = install::install(&dirs, &inst, &b2, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&r2), ["core", "enshwick", "fresh", "shroudforge", "sigdb-client"]);
+    assert_eq!(r2.runtime.deselected, r1.runtime.deselected);
+    assert!(!game.join("kiln/plugins/eml/eml.dll").exists() && !game.join("kiln/plugins/kiln-emf.dll").exists());
+    // turning one back on is an explicit choice too: only emf stays off
+    let r3 = install::install(&dirs, &inst, &b2, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into(), "eml".into(), "shroudforge".into(), "enshwick".into(), "fresh".into()]),
+        ..Default::default()
+    }, &mut NoProgress).unwrap();
+    assert_eq!(r3.runtime.deselected.as_deref(), Some(&["emf".to_string()][..]));
+    assert!(game.join("kiln/plugins/eml/eml.dll").is_file());
+}
+
+#[test]
+fn a_rollback_to_a_bundle_without_new_components_works_and_keeps_the_choice() {
+    let t = tmp("parts-rollback");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let inst = client(&game);
+    let old = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let new = bundle::create(&stage_plus(&t.0, "b", &COMPAT), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    bundle::import(&dirs, &old).unwrap();
+    let new = bundle::import(&dirs, &new).unwrap().file;
+    // on the new bundle, shroudforge turned off
+    install::install(&dirs, &inst, &new, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into(), "emf".into(), "eml".into(), "enshwick".into()]),
+        ..Default::default()
+    }, &mut NoProgress).unwrap();
+    // the old bundle has neither eml nor enshwick: they are left out, not an error
+    let rb = install::rollback(&dirs, &inst, "0.2.0-dev+20261104.aaaaaaa", &mut NoProgress).unwrap();
+    assert_eq!(comps(&rb), ["core", "emf", "sigdb-client"]);
+    assert_eq!(rb.runtime.deselected.as_deref(), Some(&["shroudforge".to_string()][..]), "the opt-out survives the rollback");
+    assert!(!game.join("kiln/plugins/eml/eml.dll").exists() && !game.join("kiln/plugins/enshwick/enshwick.dll").exists());
+    assert!(install::status(&dirs, &inst).unwrap().modified.is_empty());
+    // forward again: eml and enshwick come back, shroudforge stays off
+    let up = install::install(&dirs, &inst, &new, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&up), ["core", "emf", "eml", "enshwick", "sigdb-client"]);
+    // a legacy receipt on the new bundle also rolls back (it used to fail: "the bundle has no component eml")
+    make_legacy(&game, &["core", "emf", "eml", "enshwick", "shroudforge", "sigdb-client"]);
+    let rb2 = install::rollback(&dirs, &inst, "0.2.0-dev+20261104.aaaaaaa", &mut NoProgress).unwrap();
+    assert_eq!(comps(&rb2), ["core", "emf", "sigdb-client"]);
+    assert_eq!(rb2.runtime.deselected.as_deref(), Some(&[][..]));
+}
+
+#[test]
+fn resolve_components_follows_the_side_and_explicit_choices() {
+    use kiln_manage::manifest::RunSide;
+    let t = tmp("parts-resolve");
+    let b = bundle::create(&stage_plus(&t.0, "a", &COMPAT), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let m = bundle::read(&b).unwrap();
+    let server = install::resolve_components(&m, RunSide::Server, None, None).unwrap();
+    assert_eq!(server.components, ["core", "emf", "eml", "enshwick", "shroudforge", "sigdb-server"]);
+    assert!(server.deselected.is_empty());
+    // an explicit choice records the defaults it leaves out (not the optional samples)
+    let pick = install::resolve_components(&m, RunSide::Server, None, Some(&["sigdb-server".into(), "samples".into()])).unwrap();
+    assert_eq!(pick.components, ["core", "samples", "sigdb-server"]);
+    assert_eq!(pick.deselected, ["emf", "eml", "enshwick", "shroudforge"]);
+    // a receipt of the other side does not count
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let r = install::install(&DataDirs::at(t.0.join("data")), &client(&game), &b, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into()]),
+        ..Default::default()
+    }, &mut NoProgress).unwrap();
+    assert_eq!(install::resolve_components(&m, RunSide::Server, Some(&r), None).unwrap(), server);
+    let again = install::resolve_components(&m, RunSide::Client, Some(&r), None).unwrap();
+    assert_eq!(again.components, ["core", "sigdb-client"]);
+}

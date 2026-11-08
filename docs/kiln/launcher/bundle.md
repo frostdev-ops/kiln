@@ -68,8 +68,19 @@ as it is; otherwise it downloads from `builds.dotnet.microsoft.com` and checks t
    `<lib>/steamapps/common/<dir>/../../`, or in the folder for SteamCMD installs) with `steam_updating`.
 3. `bundle::verify`: every entry's size and sha256, no entry outside `files[]`, no `..`/absolute/backslash/drive
    names, no symlink entries.
-4. Components: `options.components`, else the installed ones (upgrade), else the defaults of the side; plus what they
-   `require`. The selection must include `dinput8.dll`.
+4. Components (`install::resolve_components`), plus what they `require`; the selection must include `dinput8.dll`:
+   - `options.components` (the player's explicit choice, `--components`): exactly those. The bundle's defaults for
+     the side that it leaves out are recorded as turned off in the receipt's `runtime.deselected`.
+   - none, no receipt: the defaults of the side.
+   - none, a receipt (update, reinstall, rollback, `deploy --bundle`): the installed components the bundle still has
+     for the side, plus every default of the bundle not in `runtime.deselected`. So a component that is new, or
+     became a default, goes in on the next update unless the player turned it off; a component the bundle lacks
+     (rollback) is left out, not an error.
+   - `runtime.deselected` carries over (opt-outs of components a bundle lacks too, so a rollback and the next
+     update keep them off). A receipt without it (written before 0.2.0-dev.19) holds a plain list that records no
+     choice: nothing counts as turned off, so the defaults it lacks go in. The 0.2.0-dev.18 update froze every
+     player's earlier list this way (the launcher and the installer passed the receipt's list back as the choice)
+     and skipped eml, shroudforge and enshwick.
 5. Stage the planned files into `kiln/.staging-<random>/new/` (hash checked while writing). Stale `.staging-*`
    folders of an interrupted install are deleted first.
 6. `dinput8.dll` by `pe::classify_proxy`:
@@ -109,7 +120,9 @@ size+mtime per process) and a newer bundle in `<data>/runtime/` for the side.
 path, `adopted` ones excepted) can come back from its chain file or backup with the recorded sha256; then deletes the
 receipt's unchanged non-config files that were not there before (adopted files stay), removes the `[chain]` lines it added, puts the originals back (a displaced proxy is moved back,
 others copied from the backup) and verifies each sha256, removes the receipt. `kiln/` stays (mods, configs, data,
-logs, backups). `rollback(version)` installs a bundle from `<data>/runtime/` with the installed components.
+logs, backups). `rollback(version)` installs a bundle from `<data>/runtime/` with the player's parts (step 4, no
+explicit choice). `status` lists `missingParts`: defaults of the installed bundle (when it is in `<data>/runtime/`)
+that are neither in the folder nor turned off; Runtime shows them and offers Reinstall.
 
 ## Verified
 - Two `bundle create` runs: byte-identical zip (365 files, 205 MB unpacked).

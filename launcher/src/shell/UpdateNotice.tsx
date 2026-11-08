@@ -144,9 +144,9 @@ function JustUpdated({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
     if (!game || !next) return;
     setBusy(true);
     try {
-      // the parts the game has now
-      const components = rt?.receipt?.runtime.components ?? null;
-      await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, components ? { components } : {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true });
+      // no explicit parts: the backend keeps the game's parts and adds the ones that are new or became defaults, unless
+      // the player turned them off (passing the receipt's list here froze it and skipped new parts)
+      await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true });
       ack();
     } catch {
       failed("Update failed");

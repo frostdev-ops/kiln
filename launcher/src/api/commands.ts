@@ -173,6 +173,15 @@ export interface RuntimeBundle {
   created: string | null;
   sides: RunSide[];
   components: string[];
+  /** Every component with its sides and whether it is a default (kiln_manage::bundle::BundlePart). */
+  parts: BundlePart[];
+}
+export interface BundlePart {
+  name: string;
+  sides: RunSide[];
+  default: boolean;
+  requires?: string[];
+  description?: string;
 }
 export type ProxyKind = "none" | "kiln" | "shroudforge" | "emf" | "unknown" | "notdll"
   // other engines' loaders and tools under a proxy name (kiln_manage::engines)
@@ -210,7 +219,9 @@ export interface InstallReceipt {
   installed: string;
   updated?: string;
   installer?: string;
-  runtime: { version: string; sha256?: string; components: string[] };
+  /** `deselected`: the defaults the player turned off (updates keep them off and add every other new or newly default
+   *  part); absent in receipts from before it existed (nothing turned off). */
+  runtime: { version: string; sha256?: string; components: string[]; deselected?: string[] };
   side: RunSide;
   platform?: Platform;
   game?: { exe?: string; sha256?: string; steamBuild?: string };
@@ -234,6 +245,9 @@ export interface InstallState {
   proxy: ProxyClass | null;
   modified: string[];
   upgradeAvailable: string | null;
+  /** Default parts of the installed bundle that are not in the game folder and were not turned off (a reinstall adds
+   *  them). Absent from older backends. */
+  missingParts?: string[];
 }
 
 // profiles

@@ -333,7 +333,9 @@ enum BundleCmd {
         /// The game folder (the one with enshrouded.exe or enshrouded_server.exe)
         #[arg(long)]
         dir: PathBuf,
-        /// Components, comma separated [default: the bundle's defaults for the side; an upgrade keeps the installed set]
+        /// Components, comma separated: an explicit choice (defaults left out stay off on later upgrades) [default: the
+        /// bundle's defaults for the side; an upgrade keeps the installed set and adds new or newly default components
+        /// that were not turned off]
         #[arg(long, value_delimiter = ',')]
         components: Option<Vec<String>>,
         /// Move ShroudForge's proxies to the backup instead of refusing (never chained)
@@ -366,6 +368,8 @@ enum ClientCmd {
         zip: PathBuf,
         #[arg(long)]
         dir: Option<PathBuf>,
+        /// Components, comma separated: an explicit choice, as for `bundle install` [default: the defaults; an
+        /// upgrade keeps the installed set and adds new or newly default components that were not turned off]
         #[arg(long, value_delimiter = ',')]
         components: Option<Vec<String>>,
         #[arg(long)]

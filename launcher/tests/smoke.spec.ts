@@ -191,6 +191,54 @@ test("an install that replaced files changed by hand says they are kept in backu
   await expect(done.locator(".k-toast-detail")).toHaveText("1 changed file kept in backups");
 });
 
+test("Runtime shows installed versus missing parts; Reinstall adds a missing default part and keeps a turned-off one off", async ({ page }) => {
+  // the mock receipt has core and emf; the installed bundle also has eml as a default (an update that kept an old list)
+  await open(page, "/runtime");
+  const parts = page.getByRole("list", { name: "Parts", exact: true });
+  await expect(parts.getByRole("listitem", { name: "core: Installed" })).toBeVisible();
+  await expect(parts.getByRole("listitem", { name: "eml: Missing" })).toBeVisible();
+  await expect(parts.getByRole("listitem", { name: /^admin/ })).toHaveCount(0); // a server part, not offered to a client
+  const banner = page.locator(".k-banner").filter({ hasText: "Parts missing" });
+  await expect(banner).toContainText("eml");
+  const row = page.getByRole("row").filter({ hasText: "0.2.0-dev+20261104.0f1ffa6" });
+  await expect(row.getByRole("button", { name: "Reinstall" })).toBeEnabled();
+  await banner.getByRole("button", { name: "Reinstall" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install Kiln 0.2.0-dev" });
+  // no choice: the player's parts stay, the missing default is added
+  await expect(dialog.getByRole("switch", { name: /^Keep my parts/ })).toBeChecked();
+  const plan = dialog.getByRole("list", { name: "Parts this install puts in" });
+  await expect(plan.getByRole("listitem").filter({ hasText: "eml" })).toContainText("Adds");
+  await expect(plan.getByRole("listitem").filter({ hasText: "emf" })).toContainText("Keeps");
+  await dialog.getByRole("button", { name: "Install" }).click();
+  await expect(parts.getByRole("listitem", { name: "eml: Installed" })).toBeVisible({ timeout: 8000 });
+  await expect(banner).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Installed" })).toBeDisabled();
+  // the player turns emf off (an explicit choice); a later rollback and update keep it off
+  await page.getByRole("row").filter({ hasText: "0.1.9+20261101.a41c2d0" }).getByRole("button", { name: "Roll back" }).click();
+  const back = page.getByRole("dialog", { name: "Install Kiln 0.1.9" });
+  await back.getByText("Keep my parts", { exact: true }).click();
+  await expect(back.getByRole("switch", { name: /^Keep my parts/ })).not.toBeChecked();
+  await back.getByRole("button", { name: "Install" }).click();
+  await expect(parts.getByRole("listitem", { name: "core: Installed" })).toBeVisible({ timeout: 8000 });
+  await expect(parts.getByRole("listitem", { name: /^eml/ })).toHaveCount(0);
+  await page.getByRole("row").filter({ hasText: "0.2.0-dev+20261104.0f1ffa6" }).getByRole("button", { name: "Update" }).click();
+  const up = page.getByRole("dialog", { name: "Install Kiln 0.2.0-dev" });
+  await up.getByText("Keep my parts", { exact: true }).click();
+  await up.getByText("emf", { exact: true }).click();
+  await up.getByRole("button", { name: "Install" }).click();
+  await expect(parts.getByRole("listitem", { name: "emf: Turned off" })).toBeVisible({ timeout: 8000 });
+  await expect(parts.getByRole("listitem", { name: "eml: Installed" })).toBeVisible();
+  await expect(page.locator(".k-banner").filter({ hasText: "Parts missing" })).toHaveCount(0);
+  await page.getByRole("row").filter({ hasText: "0.1.9+20261101.a41c2d0" }).getByRole("button", { name: "Roll back" }).click();
+  await back.getByRole("button", { name: "Install" }).click();
+  await expect(parts.getByRole("listitem", { name: "core: Installed" })).toBeVisible({ timeout: 8000 });
+  await page.getByRole("row").filter({ hasText: "0.2.0-dev+20261104.0f1ffa6" }).getByRole("button", { name: "Update" }).click();
+  await expect(up.getByRole("list", { name: "Parts this install puts in" }).getByRole("listitem").filter({ hasText: "emf" })).toContainText("Off, your choice");
+  await up.getByRole("button", { name: "Install" }).click();
+  await expect(parts.getByRole("listitem", { name: "emf: Turned off" })).toBeVisible({ timeout: 8000 });
+  await expect(parts.getByRole("listitem", { name: "eml: Installed" })).toBeVisible();
+});
+
 test("a server without Kiln offers Install Kiln on Overview; one with Kiln offers Update Kiln", async ({ page }) => {
   type M = { __kilnMock: { setServer: (o: { running?: boolean; installed?: string | null }) => void } };
   await open(page, "/servers/lab/overview");

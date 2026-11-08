@@ -198,8 +198,10 @@ pub fn deploy(inst: &Instance, from: Option<&Path>, samples: bool, build: bool) 
     kiln::deploy(inst, from, samples, build)
 }
 
-/// `kilnctl deploy --bundle`: the runtime bundle's server components (core, sigdb-server, admin; + samples) through
-/// kiln_manage::install, then the instance's policy in kiln/kiln.json (kept when the file exists, like deploy).
+/// `kilnctl deploy --bundle`: the runtime bundle's server components through kiln_manage::install (a first deploy: the
+/// defaults; an update: the installed ones plus every new or newly default component not turned off, see
+/// install::resolve_components; `samples` adds samples), then the instance's policy in kiln/kiln.json (kept when the
+/// file exists, like deploy).
 pub fn deploy_bundle(inst: &Instance, zip: &Path, samples: bool) -> Result<()> {
     refuse_running(inst, "deploying")?;
     if !inst.exe().exists() {
@@ -212,12 +214,16 @@ pub fn deploy_bundle(inst: &Instance, zip: &Path, samples: bool) -> Result<()> {
     g.source = "kilnctl".into();
     let components = if samples || inst.kiln.samples {
         let m = kiln_manage::bundle::read(zip).map_err(|e| anyhow::anyhow!(e.message))?;
-        let mut c = kiln_manage::install::select_components(&m, kiln_manage::manifest::RunSide::Server, None)
-            .map_err(|e| anyhow::anyhow!(e.message))?;
         if !m.components.contains_key("samples") {
             bail!("{} has no samples component", zip.display());
         }
-        c.push("samples".into());
+        let old = kiln_manage::install::read_receipt(&inst.dir).map_err(|e| anyhow::anyhow!(e.message))?;
+        let mut c = kiln_manage::install::resolve_components(&m, kiln_manage::manifest::RunSide::Server, old.as_ref(), None)
+            .map_err(|e| anyhow::anyhow!(e.message))?
+            .components;
+        if !c.iter().any(|x| x == "samples") {
+            c.push("samples".into());
+        }
         Some(c)
     } else {
         None

@@ -93,6 +93,22 @@ pub struct RuntimeBundle {
     pub created: Option<String>,
     pub sides: Vec<RunSide>,
     pub components: Vec<String>,
+    /// Every component with its sides and whether it is a default (the UI shows installed versus available parts).
+    #[serde(default)]
+    pub parts: Vec<BundlePart>,
+}
+
+/// One component of a bundle, for the UI (`RuntimeBundle.parts`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundlePart {
+    pub name: String,
+    pub sides: Vec<RunSide>,
+    pub default: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -541,6 +557,17 @@ fn describe(zip: &Path, m: &RuntimeManifest) -> Result<RuntimeBundle> {
         created,
         sides: sides(m),
         components: m.components.keys().cloned().collect(),
+        parts: m
+            .components
+            .iter()
+            .map(|(name, c)| BundlePart {
+                name: name.clone(),
+                sides: c.sides.clone(),
+                default: c.default,
+                requires: c.requires.clone(),
+                description: c.description.clone(),
+            })
+            .collect(),
     })
 }
 

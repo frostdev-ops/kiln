@@ -47,6 +47,12 @@ pub struct ReceiptRuntime {
     pub sha256: Option<String>,
     #[serde(default)]
     pub components: Vec<String>,
+    /// Default components the player turned off (an explicit choice): upgrades keep them off. Every other component
+    /// that is new in a bundle, or became a default, is added on upgrade. `None`: a receipt from before this field
+    /// (its plain list records no choice against anything, so nothing counts as turned off). Opt-outs of components
+    /// a bundle no longer has are kept, so a rollback and a later update do not bring them back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deselected: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,7 +125,9 @@ pub struct ReplacedFile {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallOptions {
-    /// None: the bundle's default components for this side (an upgrade keeps the installed selection).
+    /// None: the bundle's default components for this side; on an upgrade, the installed ones plus every default
+    /// the player did not turn off (resolve_components). Some: the player's explicit choice; the bundle's defaults
+    /// it leaves out are recorded as turned off (`runtime.deselected`).
     #[serde(default)]
     pub components: Option<Vec<String>>,
     /// Move ShroudForge's dinput8.dll to the backup (never chained) instead of refusing. Its dbghelp.dll, winmm.dll
@@ -156,6 +164,10 @@ pub struct InstallState {
     pub modified: Vec<String>,
     /// A newer bundle in `<data>/runtime/` (its version).
     pub upgrade_available: Option<String>,
+    /// Default components of the installed bundle (when it is in `<data>/runtime/`) for this side that are not in
+    /// the game folder and were not turned off: an install of the same bundle adds them.
+    #[serde(default)]
+    pub missing_parts: Vec<String>,
 }
 
 use crate::bundle::RuntimeFile;
@@ -250,8 +262,23 @@ pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
     let proxy = crate::pe::classify_proxy(&install.path.join(PROXY)).ok();
     let modified = receipt.as_ref().map(|r| modified_files(&install.path, r)).unwrap_or_default();
     let side = side_of(install);
+    let bundles = receipt.as_ref().and_then(|_| crate::bundle::list(dirs).ok());
+    let missing_parts = receipt
+        .as_ref()
+        .and_then(|r| {
+            let b = bundles.as_ref()?.iter().find(|b| b.version == r.runtime.version)?;
+            let off = r.runtime.deselected.as_deref().unwrap_or_default();
+            Some(
+                b.parts
+                    .iter()
+                    .filter(|p| p.default && p.sides.contains(&side) && !r.runtime.components.contains(&p.name) && !off.contains(&p.name))
+                    .map(|p| p.name.clone())
+                    .collect(),
+            )
+        })
+        .unwrap_or_default();
     let upgrade_available = receipt.as_ref().and_then(|r| {
-        let bundles = crate::bundle::list(dirs).ok()?;
+        let bundles = bundles?;
         // newer than the installed bundle in the list's order (bundle::compare: version, build date, build time); a
         // bundle no longer in the list compares by its version alone
         let installed = bundles.iter().find(|b| b.version == r.runtime.version).cloned();
@@ -264,7 +291,7 @@ pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
             })
             .map(|b| b.version)
     });
-    Ok(InstallState { installed: receipt.is_some(), receipt, proxy, modified, upgrade_available })
+    Ok(InstallState { installed: receipt.is_some(), receipt, proxy, modified, upgrade_available, missing_parts })
 }
 
 /// The components `requested` (None: defaults) for `side`, with everything they require.
@@ -303,6 +330,57 @@ pub fn select_components(manifest: &RuntimeManifest, side: RunSide, requested: O
     want.sort();
     want.dedup();
     Ok(want)
+}
+
+/// What an install puts in: `components` (with what they require) and `deselected`, the receipt's record of the
+/// defaults the player turned off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComponentChoice {
+    pub components: Vec<String>,
+    pub deselected: Vec<String>,
+}
+
+/// The components an install of `manifest` puts into a `side` folder whose receipt is `old`:
+/// - `requested` (an explicit choice): exactly those, plus what they require; the bundle's defaults it leaves out are
+///   recorded as turned off, as are earlier opt-outs of components this bundle does not have;
+/// - none and no receipt: the side's defaults;
+/// - none and a receipt (update, reinstall, rollback): the installed components the bundle still has for the side,
+///   plus every default of the bundle the player did not turn off (new components, components that became
+///   defaults). A receipt without `deselected` (written before it existed) turned nothing off.
+pub fn resolve_components(manifest: &RuntimeManifest, side: RunSide, old: Option<&InstallReceipt>, requested: Option<&[String]>)
+                          -> Result<ComponentChoice> {
+    let defaults: Vec<&String> =
+        manifest.components.iter().filter(|(_, c)| c.default && c.sides.contains(&side)).map(|(n, _)| n).collect();
+    let old = old.filter(|o| o.side == side);
+    let before: Vec<String> = old.and_then(|o| o.runtime.deselected.clone()).unwrap_or_default();
+    let components = match (requested, old) {
+        (Some(list), _) => select_components(manifest, side, Some(list))?,
+        (None, None) => select_components(manifest, side, None)?,
+        (None, Some(o)) => {
+            let mut want: Vec<String> = o
+                .runtime
+                .components
+                .iter()
+                .filter(|c| manifest.components.get(*c).is_some_and(|m| m.sides.contains(&side)))
+                .cloned()
+                .collect();
+            for d in &defaults {
+                if !before.contains(d) && !want.contains(d) {
+                    want.push((*d).clone());
+                }
+            }
+            select_components(manifest, side, Some(&want))?
+        }
+    };
+    let mut deselected: Vec<String> = match requested {
+        Some(_) => defaults.iter().filter(|d| !components.contains(d)).map(|d| (*d).clone())
+            .chain(before.iter().filter(|c| !manifest.components.contains_key(*c)).cloned())
+            .collect(),
+        None => before.into_iter().filter(|c| !components.contains(c)).collect(),
+    };
+    deselected.sort();
+    deselected.dedup();
+    Ok(ComponentChoice { components, deselected })
 }
 
 fn side_name(s: RunSide) -> &'static str {
@@ -607,11 +685,8 @@ pub fn install_report(dirs: &DataDirs, install: &GameInstall, bundle: &Path, opt
     {
         return Err(Error::new(ErrorCode::Conflict, format!("the receipt says {} side, this is a {} install", side_name(o.side), side_name(side))));
     }
-    let requested: Option<Vec<String>> = options.components.clone().or_else(|| {
-        old.as_ref().map(|o| o.runtime.components.iter().filter(|c| manifest.components.contains_key(*c)).cloned().collect())
-    });
-    let components = select_components(&manifest, side, requested.as_deref())?;
-    let files = plan(&manifest, side, Some(&components))?;
+    let choice = resolve_components(&manifest, side, old.as_ref(), options.components.as_deref())?;
+    let files = plan(&manifest, side, Some(&choice.components))?;
     for f in &files {
         let low = f.path.to_ascii_lowercase();
         if (crate::engines::is_proxy_name(&low) && low != PROXY)
@@ -632,14 +707,14 @@ pub fn install_report(dirs: &DataDirs, install: &GameInstall, bundle: &Path, opt
     std::fs::create_dir_all(&kiln).map_err(io_at(&kiln, "creating"))?;
     clean_stale_staging(&kiln);
     let staging = kiln.join(format!(".staging-{}", rand_suffix()?));
-    let result = install_staged(dirs, install, bundle, &bundle_sha, &manifest, &components, &files, old, options, &staging, progress);
+    let result = install_staged(dirs, install, bundle, &bundle_sha, &manifest, &choice, &files, old, options, &staging, progress);
     if result.is_ok() || !has_previous(&staging) { let _ = std::fs::remove_dir_all(&staging); }
     result
 }
 
 #[allow(clippy::too_many_arguments)]
 fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_sha: &str, manifest: &RuntimeManifest,
-                  components: &[String], files: &[RuntimeFile], old: Option<InstallReceipt>, options: &InstallOptions,
+                  choice: &ComponentChoice, files: &[RuntimeFile], old: Option<InstallReceipt>, options: &InstallOptions,
                   staging: &Path, progress: &mut dyn Progress) -> Result<(InstallReceipt, InstallReport)> {
     let game_dir = install.path.as_path();
     let side = side_of(install);
@@ -935,7 +1010,12 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
             installed: old.as_ref().map(|o| o.installed.clone()).unwrap_or_else(|| rfc3339(now)),
             updated: old.as_ref().map(|_| rfc3339(now)),
             installer: Some(options.installer.clone().unwrap_or_else(|| format!("kiln-manage {}", crate::VERSION))),
-            runtime: ReceiptRuntime { version: manifest.version.clone(), sha256: Some(bundle_sha.to_string()), components: components.to_vec() },
+            runtime: ReceiptRuntime {
+                version: manifest.version.clone(),
+                sha256: Some(bundle_sha.to_string()),
+                components: choice.components.clone(),
+                deselected: Some(choice.deselected.clone()),
+            },
             side,
             platform: Some(install.platform),
             game: Some(ReceiptGame { exe: Some(install.exe.clone()), sha256: exe_sha, steam_build: install.build_id.clone() }),
@@ -1105,14 +1185,10 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
     Ok(report)
 }
 
-/// Installs an older bundle from `<data>/runtime/` by version.
+/// Installs an older bundle from `<data>/runtime/` by version, keeping the player's parts (resolve_components:
+/// the installed ones the bundle has, its defaults unless turned off; components it lacks are simply left out).
 pub fn rollback(dirs: &DataDirs, install: &GameInstall, version: &str, progress: &mut dyn Progress) -> Result<InstallReceipt> {
     let b = crate::bundle::find(dirs, version)?;
-    let current = read_receipt(&install.path)?;
-    let options = InstallOptions {
-        components: current.map(|r| r.runtime.components),
-        switch_from_shroudforge: false,
-        installer: None,
-    };
+    let options = InstallOptions { components: None, switch_from_shroudforge: false, installer: None };
     self::install(dirs, install, &b.file, &options, progress)
 }

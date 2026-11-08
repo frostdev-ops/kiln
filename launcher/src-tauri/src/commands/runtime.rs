@@ -117,7 +117,8 @@ pub(crate) fn check_applied(g: &GameInstall, version: &str, receipt: &InstallRec
 pub async fn runtime_install(app: AppHandle, game_id: String, version: String, options: InstallOptions) -> Result<TaskId, Error> {
     let g = blocking({ let id = game_id.clone(); move || crate::state::game(&id) }).await?;
     let b = blocking({ let v = version.clone(); move || bundle::find(&dirs()?, &v) }).await?;
-    // parts this side cannot take fail now, before the bundle's verify (a minute's work on a slow disk)
+    // parts this side cannot take fail now, before the bundle's verify (a minute's work on a slow disk). None: the
+    // installer keeps the player's parts and adds new or newly default ones not turned off (resolve_components).
     if let Some(parts) = options.components.clone() {
         let (file, side) = (b.file.clone(), side_of(&g));
         blocking(move || install::select_components(&bundle::read(&file)?, side, Some(&parts)).map(|_| ())).await?;
@@ -168,11 +169,9 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
         // install::rollback, with the launcher as the receipt's installer
         let d = dirs()?;
         let b = bundle::find(&d, &version)?;
-        let options = InstallOptions {
-            components: install::read_receipt(&g.path)?.map(|r| r.runtime.components),
-            switch_from_shroudforge: false,
-            installer: installer(),
-        };
+        // the player's parts carry over by install::resolve_components (an older bundle without some of them leaves
+        // them out instead of failing; their opt-outs stay recorded)
+        let options = InstallOptions { components: None, switch_from_shroudforge: false, installer: installer() };
         let r = install::install_report(&d, &g, &b.file, &options, p);
         after_change(&a, &game_id);
         let (r, report) = r?;

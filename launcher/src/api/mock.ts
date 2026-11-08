@@ -4,7 +4,7 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
+  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
   EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
@@ -25,6 +25,7 @@ import bigStacksSchema from "../../../schema/examples/config-schema.json";
 import beastmasterSchema from "../../../schema/examples/config-schema-emf.json";
 import kilnJsonSnapshot from "../data/kiln-json.snapshot.json";
 import { MOD_KINDS, emptyMods } from "./kinds";
+import { deselectedFor, partRows, resolveParts } from "../shell/parts";
 
 /** Kiln's own four kinds (the drop-in folders); MOD_KINDS (./kinds.ts) has every kind. */
 const KINDS: ModKind[] = ["kiln", "native", "plugin", "emf"];
@@ -88,11 +89,24 @@ let noProxy = false;
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
+function mockPart(name: string, sides: RunSide[] = ["server", "client"], isDefault = true): BundlePart {
+  return { name, sides, default: isDefault, requires: name === "core" ? [] : ["core"] };
+}
+
+/** Like install::status: the installed bundle's default parts that are not in the game and were not turned off. */
+function withMissing(st: InstallState, side: RunSide): InstallState {
+  const r = st.receipt;
+  const b = r && bundles.find((x) => x.version === r.runtime.version);
+  return { ...st, missingParts: r && b ? partRows(b, side, r).filter((p) => p.state === "missing").map((p) => p.name) : [] };
+}
+
 const bundles: RuntimeBundle[] = [
   { version: "0.2.0-dev+20261104.0f1ffa6", kiln: "0.2.0-dev", file: "runtime/kiln-runtime-0.2.0-dev+20261104.0f1ffa6.zip", sha256: hex("rt2"),
-    created: "2026-11-04T10:10:00Z", sides: ["server", "client"], components: ["core", "admin", "emf", "samples"] },
+    created: "2026-11-04T10:10:00Z", sides: ["server", "client"], components: ["core", "admin", "emf", "eml", "samples"],
+    parts: [mockPart("core"), mockPart("admin", ["server"]), mockPart("emf"), mockPart("eml"), mockPart("samples", ["server"], false)] },
   { version: "0.1.9+20261101.a41c2d0", kiln: "0.1.9", file: "runtime/kiln-runtime-0.1.9+20261101.a41c2d0.zip", sha256: hex("rt1"),
-    created: "2026-11-01T18:00:00Z", sides: ["server", "client"], components: ["core", "admin", "samples"] },
+    created: "2026-11-01T18:00:00Z", sides: ["server", "client"], components: ["core", "admin", "samples"],
+    parts: [mockPart("core"), mockPart("admin", ["server"]), mockPart("samples", ["server"], false)] },
 ];
 
 // ---------------------------------------------------------------- library
@@ -358,7 +372,7 @@ function status(gameId: string): GameStatus {
   const g = gameOf(gameId);
   const r = running[gameId];
   return {
-    id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null },
+    id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: withMissing(runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null }, g.kind),
     activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
     boot: bootFor(gameId), launchOptions: noProxy ? { value: null, hasDllOverride: false, advice: 'WINEDLLOVERRIDES="dinput8=n,b" %command%' }
       : { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
@@ -663,7 +677,12 @@ const handlers: Record<string, Handler> = {
       const st = runtime[gameId];
       if (fail) reject("io", fail);
       if (st?.proxy?.kind === "shroudforge" && !opts.switchFromShroudforge) reject("refused", "ShroudForge is installed. Switch from ShroudForge to replace it.");
-      const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components: opts.components ?? b.components } };
+      // like install::resolve_components: an explicit choice records the defaults it leaves out; none keeps the game's
+      // parts and adds every new or newly default one not turned off
+      const prev = st?.receipt ?? null;
+      const components = opts.components ? [...new Set(["core", ...opts.components])].sort() : resolveParts(b, g.kind, prev);
+      const deselected = opts.components ? deselectedFor(b, g.kind, components, prev) : (prev?.runtime.deselected ?? []).filter((c) => !components.includes(c));
+      const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components, deselected } };
       // like the backend: Kiln files changed by hand are replaced, their copies kept in the install's backup
       const changed = st?.modified ?? [];
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };
@@ -969,7 +988,7 @@ const handlers: Record<string, Handler> = {
     return startTask("server_deploy", `Installing Kiln ${version} on ${server.id}`, ["Verifying the bundle", "Staging", "Placing files", "Writing receipt"], () => {
       serverStatus = { ...serverStatus, installed: b.version };
       mockEmit("kiln://server", { serverId: server.id, status: serverStatus });
-      const receipt: InstallReceipt = { ...baseReceipt, side: "server", installed: now(), runtime: { version: b.version, sha256: b.sha256, components: b.components } };
+      const receipt: InstallReceipt = { ...baseReceipt, side: "server", installed: now(), runtime: { version: b.version, sha256: b.sha256, components: resolveParts(b, "server", null), deselected: [] } };
       return { ...receipt, changedBackedUp: [], backup: null } satisfies InstallResult;
     });
   },

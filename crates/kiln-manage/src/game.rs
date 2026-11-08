@@ -489,6 +489,7 @@ fn fallback_install_state(install: &GameInstall) -> crate::install::InstallState
         proxy: None,
         modified: Vec::new(),
         upgrade_available: None,
+        missing_parts: Vec::new(),
     }
 }
 

@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import * as api from "../api/commands";
-import type { BootJson, InstallState, RunSide, RuntimeBundle } from "../api/commands";
+import type { BootJson, InstallReceipt, InstallState, RunSide, RuntimeBundle } from "../api/commands";
 import { qk, useGame, useGameStatus, useLaunchState, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
+import { partRows, partsFor, resolveParts, type PartState } from "../shell/parts";
 import { installBundle, isOlder, runRuntimeChange } from "../shell/runtimeChange";
 import {
   Banner, Button, Card, ConfirmDanger, DropZone, EmptyState, Modal, Page, PageHeader, Skeleton, Table,
@@ -52,6 +53,9 @@ export default function RuntimePage() {
   const sf = st?.proxy?.kind === "shroudforge";
   const current = st?.receipt?.runtime.version ?? null;
   const newest = bundles.data?.[0];
+  // default parts of the installed bundle that are not in the game (an update that kept an old list skipped them)
+  const missing = st?.missingParts ?? [];
+  const installedBundle = bundles.data?.find((b) => b.version === current) ?? null;
 
   // the change is kept per game (useRuntimeChanges): its outcome outlives this page, and Play shows a failure
   // (shell/runtimeChange.ts, shared with Play's Install Kiln)
@@ -70,9 +74,11 @@ export default function RuntimePage() {
     { key: "comp", header: "Parts", width: "minmax(0, 1.4fr)", render: (b) => <span style={{ fontSize: 16, color: "#d0beac" }} title={b.components.join(", ")}>{b.components.join(", ")}</span> },
     { key: "act", header: <span className="k-sr-only">Action</span>, width: "112px", align: "right", render: (b) => {
       const older = !!current && isOlder(b.version, current, bundles.data ?? []);
-      const word = b.version === current ? "Installed" : !current ? "Install" : older ? "Roll back" : "Update";
+      // the installed bundle can be installed again when parts of it are missing (that adds them)
+      const repair = b.version === current && missing.length > 0;
+      const word = repair ? "Reinstall" : b.version === current ? "Installed" : !current ? "Install" : older ? "Roll back" : "Update";
       return (
-        <Button size="s" disabled={b.version === current || running || busy || !!status.data?.steamUpdating} onClick={() => (sf ? setSwitchSf(b) : setPick(b))}>{word}</Button>
+        <Button size="s" disabled={(b.version === current && !repair) || running || busy || !!status.data?.steamUpdating} onClick={() => (sf ? setSwitchSf(b) : setPick(b))}>{word}</Button>
       );
     } },
   ];
@@ -100,12 +106,25 @@ export default function RuntimePage() {
       )}
       {!!st?.modified.length && <Banner tone="warn" title="Changed">{st.modified.length} file{st.modified.length > 1 ? "s" : ""} changed since the install: <span className="k-mono">{st.modified.slice(0, 3).join(", ")}{st.modified.length > 3 ? " …" : ""}</span></Banner>}
       {change && <ChangeOutcome change={change} installed={current} onDismiss={() => clear(game.id)} />}
+      {missing.length > 0 && change?.state !== "running" && (
+        <Banner tone="warn" title="Parts missing" actions={installedBundle && (
+          <Button size="s" disabled={running || busy || !!status.data?.steamUpdating} onClick={() => setPick(installedBundle)}>Reinstall</Button>
+        )}>
+          Kiln {current} has parts this game does not: <span className="k-mono">{missing.join(", ")}</span>. Mods that need them do not load until they are in.
+        </Banner>
+      )}
 
       <Card title="What the game loads, in order" sub={live ? "Live, from this boot." : "Live statuses show after a start."}>
         {status.isLoading ? <Skeleton lines={2} /> : status.error ? <EmptyState title="The game's state is not readable" hint={errorText(status.error)} /> : <ChainView st={st} boot={boot.data?.boot ?? null} live={live} build={game.buildId} />}
       </Card>
 
-      <Card title="Bundles in the launcher" sub={st?.receipt ? `Parts in this game: ${st.receipt.runtime.components.join(", ")}` : `${bundles.data?.length ?? 0} bundle${bundles.data?.length === 1 ? "" : "s"}`}>
+      {st?.receipt && (
+        <Card title="Parts" sub={installedBundle ? `Kiln ${current}: what is in this game and what else the bundle has.` : "What is in this game (the bundle it came from is not in the launcher)."}>
+          <PartsList rows={partRows(installedBundle, game.kind, st.receipt)} />
+        </Card>
+      )}
+
+      <Card title="Bundles in the launcher" sub={`${bundles.data?.length ?? 0} bundle${bundles.data?.length === 1 ? "" : "s"}`}>
         {bundles.isLoading ? <Skeleton /> : bundles.error ? <EmptyState title="Bundles are not readable" hint={errorText(bundles.error)} /> : (
           <Table aria-label="Runtime bundles" columns={cols} rows={bundles.data ?? []} rowKey={(b) => b.version} rowHeight={50}
             empty={<EmptyState title="No bundles. Add a kiln-runtime zip below." />} />
@@ -113,7 +132,7 @@ export default function RuntimePage() {
         <DropZone variant="row" onPaths={(p) => p.forEach((x) => importB.mutate(x))} title="Add a runtime bundle" hint={importB.isPending ? "Reading the bundle…" : "kiln-runtime-<version>.zip"} pick={{ filters: [{ name: "Kiln runtime", extensions: ["zip"] }] }} />
       </Card>
 
-      <InstallModal bundle={pick} side={game.kind} current={st?.receipt?.runtime.components ?? null} onClose={() => setPick(null)}
+      <InstallModal bundle={pick} side={game.kind} receipt={st?.receipt ?? null} onClose={() => setPick(null)}
         onInstall={(b, components) => { setPick(null); install(b, { components }); }} />
       <ConfirmDanger open={uninstall} onClose={() => setUninstall(false)} title="Uninstall Kiln?" word="uninstall" action="Uninstall"
         message="This removes Kiln's files from the game folder. The original dinput8.dll comes back; kiln/ (configs, data, logs) stays."
@@ -137,40 +156,79 @@ const PART_HINT: Record<string, string> = {
   samples: "sample mods",
 };
 
-/** Parts that only one side can take (the bundle manifest's `sides`): a client is never offered them. A part not
- *  listed here is offered; the backend refuses a wrong one before it reads the bundle. */
-const PART_SIDES: Record<string, RunSide[]> = {
-  admin: ["server"], samples: ["server"], "sigdb-server": ["server"], "sigdb-client": ["client"],
+const STATE: Record<PartState, [string, string]> = {
+  installed: ["Installed", "k-tone-ok"], missing: ["Missing", "k-tone-warn"], off: ["Turned off", "k-tone-idle"], optional: ["Optional", "k-tone-idle"],
 };
-const forSide = (c: string, side: RunSide) => PART_SIDES[c]?.includes(side) ?? true;
 
-function InstallModal({ bundle, side, current, onClose, onInstall }: {
-  bundle: RuntimeBundle | null; side: RunSide; current: string[] | null; onClose: () => void; onInstall: (b: RuntimeBundle, components: string[] | null) => void;
+/** The installed bundle's parts against the game folder: installed, missing, turned off, optional. */
+function PartsList({ rows }: { rows: ReturnType<typeof partRows> }) {
+  return (
+    <ul className="k-stack" aria-label="Parts" style={{ listStyle: "none", margin: 0, padding: 0, gap: 6 }}>
+      {rows.map((r) => (
+        <li key={r.name} className="k-row" aria-label={`${r.name}: ${STATE[r.state][0]}`} style={{ gap: 10, flexWrap: "nowrap" }}>
+          <span className="k-mono" style={{ fontSize: 15.5, minWidth: 120 }}>{r.name}</span>
+          <span className={`k-pill ${STATE[r.state][1]}`}>{STATE[r.state][0]}</span>
+          <span className="k-hint k-ellipsis">{PART_HINT[r.name] ?? r.part?.description ?? ""}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** What the install will do with each part, when the player does not choose: keep, add, leave off. */
+function planWord(c: string, plan: string[], receipt: InstallReceipt | null, isDefault: boolean): [string, string] {
+  const inGame = !!receipt?.runtime.components.includes(c);
+  if (plan.includes(c)) return !receipt ? ["Installs", "k-tone-ok"] : inGame ? ["Keeps", "k-tone-ok"] : ["Adds", "k-tone-gold"];
+  if (receipt?.runtime.deselected?.includes(c)) return ["Off, your choice", "k-tone-idle"];
+  return inGame ? ["Removes", "k-tone-warn"] : isDefault ? ["Off", "k-tone-idle"] : ["Optional", "k-tone-idle"];
+}
+
+function InstallModal({ bundle, side, receipt, onClose, onInstall }: {
+  bundle: RuntimeBundle | null; side: RunSide; receipt: InstallReceipt | null; onClose: () => void; onInstall: (b: RuntimeBundle, components: string[] | null) => void;
 }) {
   const [custom, setCustom] = useState(false);
   const [parts, setParts] = useState<string[]>([]);
   const [seen, setSeen] = useState<RuntimeBundle | null>(null);
+  // no choice: what the backend installs (a first install: the defaults; an update: the player's parts plus every
+  // part that is new or became a default, unless they turned it off)
+  const plan = bundle ? resolveParts(bundle, side, receipt) : [];
   if (bundle !== seen) {
     setSeen(bundle);
     if (bundle) {
-      setCustom(!!current);
-      setParts((current ?? bundle.components.filter((c) => c !== "samples")).filter((c) => forSide(c, side) && bundle.components.includes(c)));
+      setCustom(false);
+      setParts(plan);
     }
   }
   if (!bundle) return null;
+  const offered = partsFor(bundle, side);
   const toggle = (c: string, on: boolean) => setParts(on ? [...parts, c] : parts.filter((x) => x !== c));
   return (
     <Modal open onClose={onClose} title={`Install Kiln ${bundle.kiln}`} width={480}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={custom && !parts.includes("core")} onClick={() => onInstall(bundle, custom ? parts : null)}>Install</Button></>}>
       <span className="k-mono k-muted">{bundle.version}</span>
-      <Toggle checked={!custom} onChange={(on) => setCustom(!on)} label="Default parts" hint={current ? "Off keeps your choice below." : "Core, signatures and the parts for EMF, EML, ShroudForge and Enshwick mods, for this side."} />
-      {custom && (
+      <Toggle checked={!custom} onChange={(on) => setCustom(!on)} label={receipt ? "Keep my parts" : "Default parts"}
+        hint={receipt ? "Keeps your parts and adds the ones that are new or now default, unless you turned them off. Off: choose below."
+          : "Core, signatures and the parts for EMF, EML, ShroudForge and Enshwick mods, for this side."} />
+      {custom ? (
         <div className="k-stack">
-          {bundle.components.filter((c) => forSide(c, side)).map((c) => (
-            <Toggle key={c} checked={parts.includes(c)} onChange={(on) => toggle(c, on)} disabled={c === "core"} label={c} hint={PART_HINT[c]} />
+          {offered.map((p) => (
+            <Toggle key={p.name} checked={parts.includes(p.name)} onChange={(on) => toggle(p.name, on)} disabled={p.name === "core"} label={p.name} hint={PART_HINT[p.name] ?? p.description} />
           ))}
         </div>
+      ) : (
+        <ul className="k-stack" aria-label="Parts this install puts in" style={{ listStyle: "none", margin: 0, padding: 0, gap: 6 }}>
+          {offered.map((p) => {
+            const [word, tone] = planWord(p.name, plan, receipt, p.default);
+            return (
+              <li key={p.name} className="k-row" style={{ gap: 10, flexWrap: "nowrap" }}>
+                <span className="k-mono" style={{ fontSize: 15.5, minWidth: 120 }}>{p.name}</span>
+                <span className={`k-pill ${tone}`}>{word}</span>
+                <span className="k-hint k-ellipsis">{PART_HINT[p.name] ?? p.description ?? ""}</span>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Modal>
   );
