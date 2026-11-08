@@ -20,17 +20,23 @@ public static partial class KilnDevTools
     internal static void PumpPanels()
     {
         if (Panels.Count == 0) return;
+        var any = false; // plain loop first: no allocation per tick while every window is closed
+        foreach (var (v, w) in Panels) any |= w.Open || v.WasOpen;
+        if (!any) return;
         PanelScheduler.Pump(Panels.Select(p => (p.View, p.Window.Open)), Environment.TickCount64);
     }
 
-    /// <summary>Text forms of the views for the console and servers: /devtools bindings|hooks|status|log|resources.</summary>
+    /// <summary>Text forms of the views for the console and servers: /devtools bindings|hooks|status|log|resources.
+    /// <c>/devtools</c> is reachable from chat on a dedicated server, so the server's log (player names, addresses),
+    /// its state files (paths, mods) and resource listings (a full scan per call) are Admin.</summary>
     private static LiteralNode InfoCommands(LiteralNode root) => root
         .Then(Commands.Literal("bindings").Executes(c => { Bindings.Refresh(); c.Reply(BindingsView.Describe(Bindings.Rows)); }))
         .Then(Commands.Literal("hooks").Executes(c => { HooksPanel.Refresh(); c.Reply(HooksPanel.Text); }))
-        .Then(Commands.Literal("status").Executes(c => c.Reply(StatusText())))
-        .Then(Commands.Literal("log").Executes(c => c.Reply(LogText(40)))
+        .Then(Commands.Literal("status").Requires(CommandPermission.Admin).Executes(c => c.Reply(StatusText())))
+        .Then(Commands.Literal("log").Requires(CommandPermission.Admin).Executes(c => c.Reply(LogText(40)))
             .Then(Commands.Argument("count", Arg.Int(1, 500)).Executes(c => c.Reply(LogText(c.Get<int>("count"))))))
-        .Then(Commands.Literal("resources").Then(Commands.Argument("type", Arg.Word()).Executes(c => c.Reply(ResourcesText(c.Get<string>("type"))))));
+        .Then(Commands.Literal("resources").Requires(CommandPermission.Admin)
+            .Then(Commands.Argument("type", Arg.Word()).Executes(c => c.Reply(ResourcesText(c.Get<string>("type"))))));
 
     internal static string StatusText()
     {
@@ -161,6 +167,9 @@ public static partial class KilnDevTools
     // -------------------------------------------------------------------------------------------- Game log ----
     private static string _logFilter = "";
     private static bool _logNoise = true;
+    private static int _logHidden;
+    private const int LogDrawMax = 1000; // no list clipper: draw the newest lines only, a filter reaches older ones
+    private static (LogLine[] Src, string Filter, bool Noise, LogLine[] Shown) _logView = ([], "", true, []);
 
     private static void DrawLog(UiDraw ui)
     {
@@ -170,9 +179,19 @@ public static partial class KilnDevTools
         ui.SameLine();
         if (ui.Button("Clear")) ChangeOnTick(GameLog.Clear);
         ui.TextDisabled(GameLog.Path);
+        // Filtered once per new snapshot or filter change, not per frame.
+        var src = GameLog.Lines;
+        if (!ReferenceEquals(src, _logView.Src) || _logView.Filter != _logFilter || _logView.Noise != _logNoise)
+        {
+            var all = GameLogView.Filtered(src, _logFilter, _logNoise).ToArray();
+            _logView = (src, _logFilter, _logNoise, all.Length > LogDrawMax ? all[^LogDrawMax..] : all);
+            if (all.Length > LogDrawMax) _logHidden = all.Length - LogDrawMax; else _logHidden = 0;
+        }
         if (ui.BeginChild("log", 0, 0))
-            foreach (var l in GameLogView.Filtered(GameLog.Lines, _logFilter, _logNoise))
-                ui.Text(ColorOf(l.Level), l.Text);
+        {
+            if (_logHidden > 0) ui.TextDisabled($"({_logHidden} older line(s) not drawn; filter to find them)");
+            foreach (var l in _logView.Shown) ui.Text(ColorOf(l.Level), l.Text);
+        }
         ui.EndChild();
     }
 

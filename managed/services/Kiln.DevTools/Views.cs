@@ -17,21 +17,30 @@ internal enum RowLevel { Ok, Info, Warn, Error }
 /// <summary>SET's filter syntax: comma-separated words, any of which matches ("a,b"); "-word" excludes. Case is ignored.</summary>
 internal static class TextFilter
 {
+    // The draw code calls Matches per row per frame: the filter is split once per distinct filter string, not per call.
+    private sealed record Parsed(string Filter, string[] Include, string[] Exclude);
+    private static volatile Parsed? _last;
+
     public static bool Matches(string text, string filter)
     {
         if (string.IsNullOrWhiteSpace(filter)) return true;
-        bool anyPositive = false, hit = false;
+        var p = _last;
+        if (p == null || !ReferenceEquals(p.Filter, filter) && p.Filter != filter) _last = p = Parse(filter);
+        foreach (var x in p.Exclude)
+            if (text.Contains(x, StringComparison.OrdinalIgnoreCase)) return false;
+        if (p.Include.Length == 0) return true;
+        foreach (var w in p.Include)
+            if (text.Contains(w, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static Parsed Parse(string filter)
+    {
+        List<string> inc = [], exc = [];
         foreach (var raw in filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            if (raw.Length > 1 && raw[0] == '-')
-            {
-                if (text.Contains(raw[1..], StringComparison.OrdinalIgnoreCase)) return false;
-                continue;
-            }
-            anyPositive = true;
-            if (text.Contains(raw, StringComparison.OrdinalIgnoreCase)) hit = true;
-        }
-        return !anyPositive || hit;
+            if (raw.Length > 1 && raw[0] == '-') exc.Add(raw[1..]);
+            else inc.Add(raw);
+        return new Parsed(filter, [.. inc], [.. exc]);
     }
 }
 
@@ -66,8 +75,7 @@ internal static class PanelScheduler
             if (nowMs < v.NextDue) continue;
             v.NextDue = nowMs + v.RefreshMs;
             try { v.Refresh(); v.Refreshes++; n++; }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException
-                                        or NotSupportedException or TypeLoadException or FileNotFoundException)
+            catch (Exception e) when (e is not OutOfMemoryException) // one bad view (or a replaced seam) must not stop the others
             {
                 KilnLog.Warn($"devtools: {v.GetType().Name}: {e.Message}");
             }
@@ -128,7 +136,8 @@ internal sealed class BindingsView : DevView
 // --------------------------------------------------------------------------------------------------- Resources ----
 internal sealed record ResourceRow(Guid Guid, uint Part)
 {
-    public string Label => Part == 0 ? Guid.ToString() : $"{Guid} #{Part}";
+    /// <summary>Built once: the list draws up to 2000 rows per frame.</summary>
+    public string Label { get; } = Part == 0 ? Guid.ToString() : $"{Guid} #{Part}";
 }
 
 /// <summary>Resources of one type, by type name or hash. The detail text comes from <see cref="Detail"/>.</summary>
@@ -175,6 +184,7 @@ internal sealed class ResourcesView : DevView
         if (!TryHash(type, out var hash)) { Message = $"'{type}' is not a type name or hash"; return; }
         if (!Assets.Available && List == Assets.ListResources) { Message = "kiln.assets is unavailable"; return; }
         var keys = List(hash);
+        _wantedDetail = null; // a pick from the previous list would pair its GUID with the new type hash
         TypeHash = hash;
         TypeLabel = type;
         Rows = keys.Select(k => new ResourceRow(k.Guid, k.Part)).OrderBy(r => r.Guid).ThenBy(r => r.Part).ToList();
@@ -253,11 +263,16 @@ internal readonly record struct LogLine(RowLevel Level, string Text);
 internal sealed class GameLogView : DevView
 {
     public const int MaxLines = 5000;
-    private const int TailBytes = 64 * 1024;
+    private const int TailBytes = 64 * 1024, MaxReadPerRefresh = 1 << 20, MaxPartial = 16 * 1024;
     public override int RefreshMs => 500;
     private readonly LinkedList<LogLine> _lines = new();
     private readonly StringBuilder _partial = new();
+    private byte[]? _buf;   // allocated while open only
+    private char[]? _chars;
+    // Stateful: a UTF-8 character split across two reads decodes whole (invalid bytes become U+FFFD).
+    private readonly Decoder _utf8 = new UTF8Encoding(false, false).GetDecoder();
     private long _offset = -1;
+    private bool _skipFirstLine;
     public volatile LogLine[] Lines = [];
     public volatile string Path = "";
     internal string? PathOverride;
@@ -279,14 +294,32 @@ internal sealed class GameLogView : DevView
         var path = PathOverride ?? FindLog(KilnPaths.Server);
         if (path == null) { Path = "no game log found under " + KilnPaths.Server; return; }
         Path = path;
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        if (_offset < 0 || fs.Length < _offset) _offset = Math.Max(0, fs.Length - TailBytes);
-        if (fs.Length == _offset) return;
+        // Shared read/write/delete: the game keeps the file open for writing (Windows and Wine lock otherwise).
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.None);
+        var len = fs.Length;
+        if (_offset < 0 || len < _offset)
+        {
+            // First look, or the file was truncated or replaced by a shorter one: start again from its tail.
+            _offset = Math.Max(0, len - TailBytes);
+            _skipFirstLine = _offset > 0; // the tail starts mid-line
+            _partial.Clear();
+            _utf8.Reset();
+        }
+        if (len == _offset) return;
         fs.Seek(_offset, SeekOrigin.Begin);
-        var buf = new byte[Math.Min(fs.Length - _offset, 1 << 20)];
-        var n = fs.Read(buf, 0, buf.Length);
-        _offset += n;
-        Append(Encoding.UTF8.GetString(buf, 0, n));
+        var budget = (int)Math.Min(len - _offset, MaxReadPerRefresh); // only new bytes, at most 1 MiB per refresh
+        _buf ??= new byte[64 * 1024];
+        _chars ??= new char[64 * 1024 + 4];
+        var text = new StringBuilder();
+        while (budget > 0)
+        {
+            var n = fs.Read(_buf, 0, Math.Min(budget, _buf.Length));
+            if (n <= 0) break;
+            _offset += n;
+            budget -= n;
+            text.Append(_chars, 0, _utf8.GetChars(_buf, 0, n, _chars, 0, flush: false));
+        }
+        Append(text.ToString());
     }
 
     /// <summary>Adds text; only whole lines are kept, the rest waits for the next chunk.</summary>
@@ -295,10 +328,15 @@ internal sealed class GameLogView : DevView
         _partial.Append(chunk);
         var s = _partial.ToString();
         var last = s.LastIndexOf('\n');
-        if (last < 0) return;
-        _partial.Clear().Append(s, last + 1, s.Length - last - 1);
+        if (last < 0)
+        {
+            if (_partial.Length > MaxPartial) { _partial.Clear(); last = s.Length; s += "\n"; } // a runaway line: show it cut
+            else return;
+        }
+        else _partial.Clear().Append(s, last + 1, s.Length - last - 1);
         foreach (var raw in s[..last].Split('\n'))
         {
+            if (_skipFirstLine) { _skipFirstLine = false; continue; }
             var line = raw.TrimEnd('\r');
             if (line.Length == 0) continue;
             _lines.AddLast(new LogLine(Classify(line), line));
@@ -320,7 +358,7 @@ internal sealed class GameLogView : DevView
                          && TextFilter.Matches(l.Text, filter));
 
     public void Clear() { _lines.Clear(); Lines = []; }
-    public override void Closed() { _lines.Clear(); _partial.Clear(); Lines = []; _offset = -1; }
+    public override void Closed() { _lines.Clear(); _partial.Clear(); _utf8.Reset(); Lines = []; _offset = -1; _buf = null; _chars = null; }
 }
 
 // ------------------------------------------------------------------------------------------------------ Status ----
@@ -341,10 +379,13 @@ internal sealed class StatusView : DevView
         foreach (var f in Directory.EnumerateFiles(Dir, "*.json").Order(StringComparer.Ordinal))
         {
             var info = new FileInfo(f);
+            if (!info.Exists) continue; // removed since the listing
             if (info.Length > 4 << 20) { list.Add(new StatusFile(info.Name, info.LastWriteTimeUtc, RowLevel.Info, [(RowLevel.Info, $"{info.Length} B: too large to show")])); continue; }
             JsonNode? doc;
             try { doc = JsonNode.Parse(File.ReadAllText(f)); }
             catch (JsonException e) { list.Add(new StatusFile(info.Name, info.LastWriteTimeUtc, RowLevel.Warn, [(RowLevel.Warn, "not valid JSON: " + e.Message)])); continue; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) // being rewritten: the others still show
+            { list.Add(new StatusFile(info.Name, info.LastWriteTimeUtc, RowLevel.Info, [(RowLevel.Info, "not readable right now: " + e.Message)])); continue; }
             list.Add(Analyze(info.Name, info.LastWriteTimeUtc, doc));
         }
         Files = list;
@@ -449,9 +490,10 @@ internal sealed class ConsoleView : DevView
         for (var i = 0; i < _pending.Count; i++)
         {
             var result = System.IO.Path.Combine(Dir, _pending[i] + ".result.json");
-            if (!File.Exists(result)) continue;
+            var info = new FileInfo(result);
+            if (!info.Exists) continue;
             string text;
-            try { text = File.ReadAllText(result); }
+            try { text = info.Length > 4 << 20 ? $$"""{"results":[{"error":"result too large to show ({{info.Length}} B)"}]}""" : File.ReadAllText(result); }
             catch (IOException) { continue; } // still being written
             foreach (var l in ParseResult(text)) Add(l.Level, l.Text);
             try { File.Delete(result); } catch (IOException) { }

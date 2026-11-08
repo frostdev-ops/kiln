@@ -90,7 +90,8 @@ The Lua adapter fills `timeStamp` from the supported game clock. A full queue re
 | `/component <entity> <Component> <path> <value>` | admin | checked write |
 | `/devtools systems\|types` | everyone | in the game: open the Systems or Types window |
 | `/devtools open <window>` | everyone | in the game: toggle `bindings`, `resources`, `hooks`, `log`, `status` or `console` |
-| `/devtools bindings\|hooks\|status\|log [n]\|resources <type>` | everyone | the same data as text (works on servers) |
+| `/devtools bindings\|hooks` | everyone | the same data as text (works on servers) |
+| `/devtools status\|log [n]\|resources <type>` | admin | as text: state files, the game's log, a type's resources |
 
 ## Windows (in the game)
 - **Kiln: Systems**: filter, Off only, a checkbox per system, Profile / Stop profiling, Turn all on, Log top 30, and
@@ -108,7 +109,9 @@ Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
   is raw (size and first bytes) until the reflected view is plugged in (`ResourcesView.Detail`).
 - **Kiln: Hooks**: kiln.hooks counts (detour and mid targets, handlers, patches) and calls per second.
 - **Kiln: Game Log**: follows `enshrouded.log` (client) or `logs/enshrouded_server.log` (server); warnings yellow,
-  errors red, "Hide noise" drops state-machine lines; 5000 lines.
+  errors red, "Hide noise" drops state-machine lines; keeps 5000 lines and draws the newest 1000 that match the
+  filter. It reads only the bytes added since the last look (from a 64 KiB tail when it opens) and starts over when
+  the file shrinks.
 - **Kiln: Status**: each `kiln/state/*.json` file rated OK, `(!)` or ERR (errors, unverified exe, missing signatures,
   failed or faulting mods), with its top-level values.
 - **Kiln: Console**: runs a line through `kiln/control/console` (as `kilnctl cmd` does) and shows the output; last

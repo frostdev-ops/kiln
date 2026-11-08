@@ -193,4 +193,41 @@ public sealed class DevViewsTests
             Assert.True(r.Ok, line + ": " + r.Error);
         }
     }
+
+    [Fact]
+    public void ServerDataTextFormsAreAdminOnly()
+    {
+        KilnDevTools.Start();
+        var player = CommandSource.Remote("player", admin: false); // what a chat player is on a dedicated server
+        foreach (var line in new[] { "devtools status", "devtools log", "devtools log 5", "devtools resources 0x1" })
+            Assert.False(Commands.Execute(player, line).Ok, line);
+        Assert.True(Commands.Execute(player, "devtools hooks").Ok);
+    }
+
+    [Fact]
+    public void GameLogDecodesSplitUtf8StartsTailsOnALineAndHandlesTruncation()
+    {
+        var dir = Directory.CreateTempSubdirectory("kiln-devtools-log2").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "enshrouded.log");
+            var v = new GameLogView { PathOverride = path };
+            // a long file: the first look starts at the 64 KiB tail and drops the cut first line
+            File.WriteAllText(path, new string('x', 70_000) + "\nfirst\n");
+            v.Refresh();
+            Assert.Equal(["first"], v.Lines.Select(l => l.Text));
+            // a 3-byte character split across two writes (and two reads)
+            var euro = System.Text.Encoding.UTF8.GetBytes("\u20ac");
+            using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) fs.Write(euro, 0, 1);
+            v.Refresh();
+            using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { fs.Write(euro, 1, 2); fs.Write("ok\n"u8); }
+            v.Refresh();
+            Assert.Equal("\u20acok", v.Lines[^1].Text);
+            // truncated (rotated in place): follows the new content
+            File.WriteAllText(path, "fresh\n");
+            v.Refresh();
+            Assert.Equal("fresh", v.Lines[^1].Text);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
