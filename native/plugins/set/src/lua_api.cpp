@@ -1776,9 +1776,17 @@ void dispatchEvents(lua_State* L, uintptr_t world) {
     lua_getfield(L, LUA_REGISTRYINDEX, kObservers);
     lua_pushnil(L);
     while (lua_next(L, -2)) {
-        if (lua_istable(L, -1) && lua_rawlen(L, -1)) types.push_back(static_cast<uint32_t>(lua_tointeger(L, -2)));  // emptied by an unload: no read
+        // Unloads and errors leave false in place of a handler: a list without a function left is not read.
+        bool live = false;
+        if (lua_istable(L, -1))
+            for (lua_Integer i = 1, n = lua_Integer(lua_rawlen(L, -1)); i <= n && !live; i++) {
+                live = lua_rawgeti(L, -1, i) == LUA_TFUNCTION;
+                lua_pop(L, 1);
+            }
+        if (live) types.push_back(static_cast<uint32_t>(lua_tointeger(L, -2)));
         lua_pop(L, 1);
     }
+    if (types.empty()) gObserving = false;  // every handler is gone: afterTick returns at once until the next Observe
     for (uint32_t h : types) {
         refl::Type t = refl::byHash(h);
         lua_rawgeti(L, -1, h);

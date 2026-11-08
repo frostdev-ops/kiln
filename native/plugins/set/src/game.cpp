@@ -394,7 +394,9 @@ uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
 namespace {
 // Event stream lookups per (world, type), so a tick runs one event_each per observed type instead of a probe and a
 // read. Only the tick thread under the Lua lock touches it. A new world, a world leave, or kiln.types refusing the
-// world (INVALID_ARGUMENT: not a known world) drops it. WRONG_THREAD says nothing about the stream: never cached.
+// world (INVALID_ARGUMENT: not a known world) drops it. Only answers that hold for the world's lifetime are kept: OK,
+// NOT_FOUND (the type table and the world's stream map are fixed once it exists) and UNAVAILABLE (decided at startup).
+// WRONG_THREAD and INTERNAL (a failed read of the stream) say nothing lasting about the stream: never cached.
 struct EventCache {
     uintptr_t world = 0;
     std::unordered_map<uint32_t, KilnResult> streams;
@@ -407,8 +409,8 @@ void eventsFor(uintptr_t world) {
 }
 void eventResult(uint32_t typeHash, KilnResult r) {
     if (r == KILN_ERR_INVALID_ARGUMENT) g_events.streams.clear();  // the world may be gone: look everything up again
-    if (r == KILN_ERR_WRONG_THREAD || r == KILN_ERR_INVALID_ARGUMENT) g_events.streams.erase(typeHash);
-    else g_events.streams[typeHash] = r;
+    if (r == KILN_OK || r == KILN_ERR_NOT_FOUND || r == KILN_ERR_UNAVAILABLE) g_events.streams[typeHash] = r;
+    else g_events.streams.erase(typeHash);
 }
 }  // namespace
 int ecs::eventIndex(uintptr_t world, uint32_t typeHash) {
@@ -444,7 +446,9 @@ uint64_t ecs::eventProbes() { return g_events.probes; }
 bool ecs::postEvent(uintptr_t world, uint32_t typeHash, const uint8_t* data, uint32_t size) {
     if (!T) return false;
     const KilnResult r = T->event_post(world, typeHash, data, size);
-    if (r != KILN_OK && r != KILN_ERR_BUFFER_TOO_SMALL && g_events.world == world) eventResult(typeHash, r);  // full queue: stream is fine
+    // Only NOT_FOUND says something about the stream: INVALID_ARGUMENT here is usually the payload, BUFFER_TOO_SMALL a
+    // full queue this step.
+    if (r == KILN_ERR_NOT_FOUND && g_events.world == world) eventResult(typeHash, r);
     return r == KILN_OK;
 }
 int64_t ecs::simTime(uintptr_t world) {

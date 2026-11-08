@@ -105,6 +105,14 @@ int main(int argc,char** argv){
   answer=KILN_ERR_WRONG_THREAD;calls=0;assert(ecs::forEachEvent(78,7,[](const uint8_t*){})<0);answer=KILN_OK;
   assert(ecs::eventIndex(78,7)==0&&calls==2);                                         // new world, WRONG_THREAD not cached
   ecs::forgetEvents();calls=0;assert(ecs::eventIndex(78,7)==0&&calls==1);           // world left: starts over
+  answer=KILN_ERR_INTERNAL;calls=0;assert(ecs::forEachEvent(78,11,[](const uint8_t*){})==-int(KILN_ERR_INTERNAL));  // a failed read
+  answer=KILN_OK;assert(ecs::forEachEvent(78,11,[](const uint8_t*){})==0&&calls==2);  // is not cached: read again next tick
+  static KilnResult postAnswer;auto savedPost=types.event_post;types.event_post=[](uintptr_t,uint32_t,const void*,uint32_t){return postAnswer;};
+  uint8_t pay[4]={};calls=0;answer=KILN_ERR_NOT_FOUND;assert(ecs::forEachEvent(78,12,[](const uint8_t*){})<0&&calls==1);answer=KILN_OK;
+  postAnswer=KILN_ERR_INVALID_ARGUMENT;assert(!ecs::postEvent(78,7,pay,4));                // a bad payload: the cache is kept
+  assert(ecs::forEachEvent(78,12,[](const uint8_t*){})==-int(KILN_ERR_NOT_FOUND)&&calls==1);
+  postAnswer=KILN_ERR_INTERNAL;assert(!ecs::postEvent(78,7,pay,4)&&ecs::eventIndex(78,7)==0&&calls==1);  // stream still known
+  types.event_post=savedPost;
   ecs::forgetEvents();types.event_each=saved;
   std::cout<<"SET event stream cache (one read per type per tick, probe once): PASS\n";
  }
@@ -117,7 +125,11 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
  std::filesystem::create_symlink(root/"secret.lua",root/"one"/"link.lua");
  std::filesystem::create_hard_link(root/"secret.lua",root/"one"/"hard.lua");
  rt::configure(root.string(),sink);auto* L=rt::open();int one=env(L,"one"),two=env(L,"two");
- {unsigned n=0;auto saved=types.event_each;static unsigned* cnt;cnt=&n;types.event_each=[](uintptr_t,uint32_t,KilnEventFn,void*)->KilnResult{++*cnt;return KILN_OK;};assert(!gObserving);for(int i=0;i<10;++i)rt::afterTick(1);assert(n==0);types.event_each=saved;}  // WP-21: no Observe, no per-tick work
+ {unsigned n=0;auto saved=types.event_each;static unsigned* cnt;cnt=&n;types.event_each=[](uintptr_t,uint32_t,KilnEventFn,void*)->KilnResult{++*cnt;return KILN_OK;};assert(!gObserving);for(int i=0;i<10;++i)rt::afterTick(1);assert(n==0);
+  lua_getfield(L,LUA_REGISTRYINDEX,kObservers);lua_createtable(L,2,0);lua_pushboolean(L,0);lua_rawseti(L,-2,1);lua_pushboolean(L,0);lua_rawseti(L,-2,2);lua_rawseti(L,-2,0x1234);lua_pop(L,1);
+  gObserving=true;dispatchEvents(L,1);assert(n==0&&!gObserving);  // every handler dropped (false left in place): no read, afterTick idle again
+  lua_getfield(L,LUA_REGISTRYINDEX,kObservers);lua_pushnil(L);lua_rawseti(L,-2,0x1234);lua_pop(L,1);
+  types.event_each=saved;}  // WP-21: no Observe, no per-tick work
  must(L,one,R"lua(
  assert(package==nil and require~=nil and io.open~=nil and io.popen==nil and os.execute==nil and os.exit==nil and debug==nil)
  assert(_G.package==nil and _G.require==require)
