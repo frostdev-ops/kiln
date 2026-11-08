@@ -388,6 +388,7 @@ internal static class ResourceLayout
         if (string.IsNullOrEmpty(path) || path.Length > 4096) throw new ArgumentException("a field path is required", nameof(path));
         var t = root.Resolved;
         long off = 0;
+        var throughVariant = false;   // below a variant the struct depends on the data: a missing field is a miss, not an error
         foreach (var part in path.Split('.'))
         {
             var name = part;
@@ -400,8 +401,10 @@ internal static class ResourceLayout
                 name = name[..b];
             }
             if (name.Length == 0) throw new ArgumentException($"{path} has an empty field name");
-            (t, off) = Enter(d, t, off, path);
-            var f = t.Field(name) ?? throw new ArgumentException($"{t.Name} has no field '{name}'");
+            (t, off) = Enter(d, t, off, path, ref throughVariant);
+            var f = t.Field(name) ?? throw (throughVariant
+                ? new ResourcePathMiss($"{path}: the {t.Name} this resource holds has no field '{name}'")
+                : new ArgumentException($"{t.Name} has no field '{name}'"));
             if (f.Offset < 0 || f.Offset > t.Size || f.Type.Size > t.Size - f.Offset) throw new ArgumentException($"{path} lies outside {t.Name}");
             off += f.Offset;
             t = f.Type.Resolved;
@@ -429,7 +432,7 @@ internal static class ResourceLayout
     }
 
     // Goes into what holds fields: an optional's value, a variant's concrete struct.
-    private static (GameType, long) Enter(ReadOnlySpan<byte> d, GameType t, long off, string path)
+    private static (GameType, long) Enter(ReadOnlySpan<byte> d, GameType t, long off, string path, ref bool throughVariant)
     {
         for (var depth = 0; depth < 8; depth++)
         {
@@ -452,11 +455,13 @@ internal static class ResourceLayout
                     if (hash == 0) throw new ResourcePathMiss($"{path}: the variant is empty in this resource");
                     var rel = I32(d, off + 4, path);
                     t = GameTypes.ByHash(hash)?.Resolved ?? throw new InvalidDataException($"{path}: the variant holds type 0x{hash:x8}, which this build does not know");
+                    throughVariant = true;
                     off = off + 4 + rel;
                     break;
                 }
                 default:
-                    throw new ArgumentException($"{t.Name} ({t.Kind}) has no fields");
+                    throw throughVariant ? new ResourcePathMiss($"{path}: the variant holds a {t.Name} ({t.Kind}), which has no fields")
+                        : new ArgumentException($"{t.Name} ({t.Kind}) has no fields");
             }
         }
         throw new ArgumentException($"{path} is nested too deeply");

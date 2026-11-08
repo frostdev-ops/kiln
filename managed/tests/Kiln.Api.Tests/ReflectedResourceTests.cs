@@ -133,6 +133,8 @@ public class ReflectedResourceTests : KilnTest
         Assert.Equal([Sword], Find("extra.power", 99));                    // Bare has no extra
         Assert.Equal(new[] { Sword, Shield }.OrderBy(g => g).ToArray(), Find("part.x", 5).Concat(Find("part.x", 6)).OrderBy(g => g).ToArray());
         Assert.Empty(Find("stack", 12345));
+        Assert.Empty(Find("part.y", 1.0));                                 // y is PartB's: resources whose variant holds a PartA do not match
+        Assert.IsType<ResourcePathMiss>(Assert.ThrowsAny<ArgumentException>(() => Res(Sword)["part.y"]));
         Assert.Throws<ArgumentException>(() => Find("nothing", 1));        // not a field: an error, not "no match"
         Assert.Throws<ArgumentException>(() => Find("rarity", "Mythic"));  // not a value of the enum
         Assert.Throws<ArgumentException>(() => Find("stack", 1L << 40));

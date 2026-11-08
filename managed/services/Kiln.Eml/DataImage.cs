@@ -241,6 +241,9 @@ public sealed class DataImage
                 total += (long)ph * (1 + ((long)pw * BitsPerPixel + 7) / 8);
             }
             if (total > int.MaxValue - 64) throw new InvalidDataException("PNG image data is too large");
+            // Deflate expands at most 1032:1, so a header that promises more than the compressed data can hold is refused
+            // before anything that size is allocated (a tiny file must not make us allocate hundreds of MiB).
+            if (total > (long)zlib.Length * 1032 + 1024) throw new InvalidDataException("PNG image data ends early");
             var raw = new byte[total];
             try
             {

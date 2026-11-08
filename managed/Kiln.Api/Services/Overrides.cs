@@ -210,7 +210,15 @@ public static class Overrides
                 var n = st.Claims.RemoveAll(c => c.Holder == who);
                 if (n == 0) continue;
                 fields += n;
-                if (Recompose(id, st) is { } problem) problems.Add($"{id.Describe(st.Type)}: {problem}");
+                try
+                {
+                    if (Recompose(id, st) is { } problem) problems.Add($"{id.Describe(st.Type)}: {problem}");
+                }
+                catch (Exception e)
+                {
+                    // one resource that cannot be put back must not keep the others (or, at unload, other services) from theirs
+                    problems.Add($"{id.Describe(st.Type)}: putting it back failed: {e.Message}");
+                }
                 if (st.Claims.Count == 0) Resources.Remove(id);
             }
         }

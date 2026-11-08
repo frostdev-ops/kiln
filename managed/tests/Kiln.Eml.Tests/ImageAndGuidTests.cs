@@ -213,6 +213,12 @@ public class DataImageTests
         var critical = Build(1, 1, 8, 0, [new("ZZzz", [1]), new("IDAT", Zlib([0, 200]))]);
         Assert.Throws<NotSupportedException>(() => DataImage.DecodePng(critical));
 
+        // a tiny file whose header promises 8192x8192 16-bit RGBA (512 MiB of data): refused before that is allocated
+        var bomb = Build(8192, 8192, 16, 6, [new("IDAT", Zlib([0, 0, 0, 0]))]);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<InvalidDataException>(() => DataImage.DecodePng(bomb));
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16 << 20);
+
         // a filter type that does not exist
         var filter = Build(1, 1, 8, 0, [new("IDAT", Zlib([9, 200]))]);
         Assert.Throws<InvalidDataException>(() => DataImage.DecodePng(filter));
