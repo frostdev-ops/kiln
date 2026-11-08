@@ -293,7 +293,13 @@ void tick_subscribers() {
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     (void)tick;
     g_in_sim.store(false, std::memory_order_release);
-    if (!world()) return;
+    static bool had_world = false;
+    if (!world()) {
+        if (had_world) program_world_reset();
+        had_world = false;
+        return;
+    }
+    had_world = true;
     ++g_step;
     // The managed host subscribes its Pre when it loads mods (first server steps); a Pre subscription made now is
     // appended after it (the core refreshes its list at the next step), so it marks the end of every Pre.

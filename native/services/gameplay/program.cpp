@@ -6,6 +6,10 @@
 #include "internal.h"
 #include "services/kiln_world.h"
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
+
 namespace kg {
 namespace {
 
@@ -28,6 +32,14 @@ struct Change {
     std::vector<uint8_t> data;
 };
 std::vector<Change> g_changes;  // under g_mu
+// Who added which offer component on which entity ((entity << 32) | hash -> owner), so a remove only takes off what
+// that owner added through component_change (never the game's own offer, never another mod's). Under g_mu.
+std::unordered_map<uint64_t, KilnOwner> g_owned;
+constexpr size_t kMaxOwned = 4096;
+// component_change is limited to the three run-time components of an interaction offer (Kiln.Gameplay Offers).
+constexpr uint32_t kOfferComponents[] = {0x78EE0F23u /* InteractionOfferRuntime */, 0x8598AD86u /* ClientInteractionOffer */,
+                                         0x50311280u /* CheckPlayerInRange */};
+uint32_t g_player_input = 0;  // hash of PlayerInput: players are refused
 
 void emit_one(KilnProgramCtx* ctx, const uint64_t* iter, const KilnGameplayInject& r) {
     int32_t slot = -1;
@@ -93,6 +105,7 @@ void program_register(const void* api) {
         KG_W("kiln.world is unavailable: inject() is off");
         return;
     }
+    g_player_input = g_world_api->component_hash(kstr("PlayerInput"));
     uintptr_t t = 0;
     if (g_api->symbol(KilnStr{"gameplay/ProgramTime", 20}, &t) == KILN_OK && t) g_time = reinterpret_cast<ProgramTimeFn>(t);
     static const KilnStr kOut[] = {kstr("AcceptOfferedInteractionEvent"), kstr("CraftRecipeEvent"),
@@ -135,17 +148,49 @@ KilnResult inject(const KilnGameplayInject* r) {
     return KILN_OK;
 }
 
-KilnResult component_change(KilnOwner, KilnEntity e, uint32_t hash, const void* data, uint32_t size, uint32_t op) {
+KilnResult component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const void* data, uint32_t size, uint32_t op) {
     if (!e || !hash) return KILN_ERR_INVALID_ARGUMENT;
     if (op != KILN_GAMEPLAY_COMPONENT_ADD && op != KILN_GAMEPLAY_COMPONENT_REMOVE) return KILN_ERR_INVALID_ARGUMENT;
     if (op == KILN_GAMEPLAY_COMPONENT_ADD && (!data || size == 0 || size > 256)) return KILN_ERR_INVALID_ARGUMENT;
+    if (std::find(std::begin(kOfferComponents), std::end(kOfferComponents), hash) == std::end(kOfferComponents))
+        return KILN_ERR_INVALID_ARGUMENT;
     if (!program_active()) return KILN_ERR_UNAVAILABLE;
+    if (!g_world_api->exists(e)) return KILN_ERR_NOT_FOUND;
+    uint32_t sz = 0;
+    if (g_player_input && g_world_api->component(e, g_player_input, &sz)) return KILN_ERR_INVALID_ARGUMENT;
+    const bool has = g_world_api->component(e, hash, &sz) != nullptr;
+    const uint64_t key = (static_cast<uint64_t>(e) << 32) | hash;
     Change ch{e, hash, op, {}};
     if (op == KILN_GAMEPLAY_COMPONENT_ADD) ch.data.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
     std::lock_guard lock(g_mu);
     if (g_changes.size() >= 256) return KILN_ERR_BUFFER_TOO_SMALL;
+    if (op == KILN_GAMEPLAY_COMPONENT_ADD) {
+        // Already there (the game's, or another owner's): the engine would keep the old data, and the caller must not
+        // gain the right to remove it. Absent: any record left for it is stale (the entity id was reused).
+        if (has) return KILN_ERR_INVALID_ARGUMENT;
+        if (g_owned.size() >= kMaxOwned && !g_owned.count(key)) {
+            for (auto it = g_owned.begin(); it != g_owned.end();) {  // prune records whose component is gone
+                uint32_t s2 = 0;
+                const auto ent = static_cast<KilnEntity>(it->first >> 32);
+                it = g_world_api->component(ent, static_cast<uint32_t>(it->first), &s2) ? std::next(it) : g_owned.erase(it);
+            }
+            if (g_owned.size() >= kMaxOwned) return KILN_ERR_BUFFER_TOO_SMALL;
+        }
+        g_owned[key] = owner;
+    } else {
+        const auto it = g_owned.find(key);
+        if (it == g_owned.end() || it->second != owner) return KILN_ERR_NOT_FOUND;  // not added by this owner
+        g_owned.erase(it);
+    }
     g_changes.push_back(std::move(ch));
     return KILN_OK;
+}
+
+void program_world_reset() {
+    std::lock_guard lock(g_mu);
+    g_queue.clear();
+    g_changes.clear();
+    g_owned.clear();
 }
 
 }  // namespace kg

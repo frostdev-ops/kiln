@@ -143,8 +143,12 @@ public static class Offers
         Action<OfferAccepted> handler, OfferOptions? options = null, SpawnOptions? spawn = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        var spec = SpecOf(text, verb, options);  // a bad text throws before anything is spawned
+        var owner = ModContext.CurrentMod;       // the offer is the caller's, whatever runs the continuation
         var e = await Spawn.Entity(template, position, 0, spawn);
-        Add(e, text, verb, handler, options);
+        Services.RequireTickThread("Offers.SpawnWithOffer");
+        var why = Offer(e.Value, spec, owner, handler);
+        if (why.Length > 0) throw new InvalidOperationException($"Offers.SpawnWithOffer({e}): {why}");
         return e;
     }
 
@@ -288,40 +292,48 @@ public static class Offers
     /// <summary>Once per step (Kiln's service tick): checks queued changes, drops offers whose entity or offer is gone.</summary>
     internal static void Step()
     {
-        var w = World;
-        foreach (var e in Entries.Values.ToList())
+        if (Entries.Count == 0)
         {
-            if (e.Pending.Count == 0) continue;
-            var exists = w.Exists(e.Entity);
-            for (var i = e.Pending.Count - 1; i >= 0; i--)
+            _steps = 0;
+            return;  // nothing to do (and nothing allocated) without offers
+        }
+        var w = World;
+        if (Entries.Values.Any(static x => x.Pending.Count > 0))
+        {
+            foreach (var e in Entries.Values.ToList())
             {
-                var c = e.Pending[i];
-                if (exists && w.Has(e.Entity, c.Hash) == c.Add)
+                if (e.Pending.Count == 0) continue;
+                var exists = w.Exists(e.Entity);
+                for (var i = e.Pending.Count - 1; i >= 0; i--)
                 {
-                    if (c.Add) e.Added.Add(c.Hash);
-                    else e.Added.Remove(c.Hash);
-                    e.Pending.RemoveAt(i);
-                }
-                else if (!exists || ++c.Waited >= VerifySteps)
-                {
-                    e.Pending.RemoveAt(i);
-                    if (c.Add && !e.Lost)
+                    var c = e.Pending[i];
+                    if (exists && w.Has(e.Entity, c.Hash) == c.Add)
                     {
-                        e.Lost = true;
-                        Log(e, exists ? "did not land: the game did not apply it" : "did not land: the entity is gone");
+                        if (c.Add) e.Added.Add(c.Hash);
+                        else e.Added.Remove(c.Hash);
+                        e.Pending.RemoveAt(i);
+                    }
+                    else if (!exists || ++c.Waited >= VerifySteps)
+                    {
+                        e.Pending.RemoveAt(i);
+                        if (c.Add && !e.Lost)
+                        {
+                            e.Lost = true;
+                            Log(e, exists ? "did not land: the game did not apply it" : "did not land: the entity is gone");
+                        }
                     }
                 }
-            }
-            if (e.Pending.Count > 0) continue;
-            if (!exists) Entries.Remove(e.Entity);
-            else if (e.Lost || e.Removing)
-            {
-                e.Removing = true;
-                if (e.RemovesSent) Entries.Remove(e.Entity);  // the removal round is over (what stayed is the game's)
-                else
+                if (e.Pending.Count > 0) continue;
+                if (!exists) Entries.Remove(e.Entity);
+                else if (e.Lost || e.Removing)
                 {
-                    e.RemovesSent = true;
-                    SendRemoves(e);
+                    e.Removing = true;
+                    if (e.RemovesSent) Entries.Remove(e.Entity);  // the removal round is over (what stayed is the game's)
+                    else
+                    {
+                        e.RemovesSent = true;
+                        SendRemoves(e);
+                    }
                 }
             }
         }
