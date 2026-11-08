@@ -634,7 +634,7 @@ const res::Entry* findNamed(uint32_t type, const std::string& want) {
     return nullptr;
 }
 
-std::string setDisplayText(const uint8_t g[16], std::string_view guidText);  // admin.inl
+std::string setDisplayText(const uint8_t g[16]);  // admin.inl
 
 // Res.text(guid): the English text a LocaTag reference (item.name, ...) names, or the English name of an item or a
 // template by its GUID (Kiln's catalogs, admin.inl); nil if none. Looked up only when called.
@@ -644,12 +644,12 @@ int resText(lua_State* L) {
     uint8_t g[16];
     if (!res::parseGuid({s, n}, g)) return luaL_argerror(L, 1, "not a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)");
     needAlive(L);
-    std::string_view t = res::text(g);  // the localization table (not ported yet: empty)
+    std::string_view t = kset::tickThread() ? res::text(g) : std::string_view{};  // the localization table (not ported yet: empty)
     if (!t.empty()) {
         lua_pushlstring(L, t.data(), t.size());
         return 1;
     }
-    const std::string d = setDisplayText(g, {s, n});
+    const std::string d = setDisplayText(g);
     if (d.empty()) lua_pushnil(L);
     else lua_pushlstring(L, d.data(), d.size());
     return 1;

@@ -49,26 +49,36 @@ void resetNames() {
     gDisplayById.clear(), gIdByDisplay.clear(), gIdByNameTag.clear();
 }
 
+// The display -> id table waits for kiln.items' catalog (it loads a few steps after the world starts): without it the
+// blueprint flags are unknown, so a name shared by an item and its blueprint could pick the blueprint for good.
+void buildDisplayLocked() {
+    if (!gDisplayById.empty()) return;
+    for (size_t i = 0; i < gItemNameCount; ++i)
+        if (gItemNames[i].display && *gItemNames[i].display) gDisplayById.emplace(gItemNames[i].id, gItemNames[i].display);
+}
+
 void buildNamesLocked() {
     if (gNamesBuilt) return;
-    gNamesBuilt = true;
-    std::unordered_map<std::string, bool> blueprint;  // the chosen id's blueprint flag, per name
+    buildDisplayLocked();
+    const bool catalog = gKItems && gKItems->item_info && (!gKItems->item_count || gKItems->item_count() > 0);
+    gNamesBuilt = catalog || !gKItems;  // no catalog yet: retry on the next call that needs names (never per frame)
+    gIdByDisplay.clear();
+    std::unordered_map<std::string, int> rank;  // the chosen id's rank, per name: 0 item, 1 blueprint, 2 not in game
     for (size_t i = 0; i < gItemNameCount; ++i) {
         const SetItemName& n = gItemNames[i];
         if (!n.display || !*n.display) continue;
-        gDisplayById.emplace(n.id, n.display);
-        bool bp = false;
-        if (gKItems && gKItems->item_info) {
+        int r = 0;
+        if (catalog) {
             KilnItemInfo info{};
             info.size = sizeof info;
-            if (gKItems->item_info(n.id, &info) == KILN_OK) bp = (info.item_flags & 0x8u) != 0;
+            r = gKItems->item_info(n.id, &info) != KILN_OK ? 2 : (info.item_flags & 0x8u) ? 1 : 0;
         }
         const std::string key = lower(n.display);
         auto it = gIdByDisplay.find(key);
         // as Kiln.Items: a non-blueprint first, then the lowest id
-        if (it == gIdByDisplay.end() || (blueprint[key] && !bp) || (blueprint[key] == bp && n.id < it->second)) {
+        if (it == gIdByDisplay.end() || r < rank[key] || (r == rank[key] && n.id < it->second)) {
             gIdByDisplay[key] = n.id;
-            blueprint[key] = bp;
+            rank[key] = r;
         }
     }
 }
@@ -83,7 +93,7 @@ uint32_t itemIdByDisplay(const std::string& name) {
 
 const char* itemDisplay(uint32_t id) {
     std::lock_guard lock(gNamesMx);
-    buildNamesLocked();
+    buildDisplayLocked();
     auto it = gDisplayById.find(id);
     return it == gDisplayById.end() ? nullptr : it->second;
 }
@@ -91,7 +101,8 @@ const char* itemDisplay(uint32_t id) {
 // The item whose name field is this LocaTag reference (Res.text(item.name)), 0 if none or resources are not ready.
 uint32_t itemIdByNameTag(const uint8_t g[16]) {
     std::lock_guard lock(gNamesMx);
-    if (!gLocaBuilt && res::ready() && gKItems) {
+    // resource memory is read on the tick thread only (res::data); elsewhere this answers from the index, if built
+    if (!gLocaBuilt && kset::tickThread() && gKItems && res::ready()) {
         gLocaBuilt = true;
         refl::Type t = refl::byName("keen::ItemInfo");
         refl::Field f;
@@ -109,13 +120,15 @@ uint32_t itemIdByNameTag(const uint8_t g[16]) {
 
 // Res.text for items and templates: the English name of an item (its GUID or its name LocaTag) or a template (its
 // GUID). Empty when Kiln has none (other text ids: a later version).
-std::string setDisplayText(const uint8_t g[16], std::string_view guidText) {
+std::string setDisplayText(const uint8_t g[16]) {
     if (gKItems && gKItems->item_id_of_guid)
         if (const char* d = itemDisplay(gKItems->item_id_of_guid(g))) return d;
-    if (gKSpawn && gKSpawn->template_find) {
+    if (gKSpawn && gKSpawn->template_get) {  // by GUID: a hash lookup (template_find with GUID text scans names first)
+        KilnGuid guid;
+        std::memcpy(guid.b, g, sizeof guid.b);
         KilnTemplateInfo info{};
         info.size = sizeof info;
-        if (gKSpawn->template_find(KilnStr{guidText.data(), guidText.size()}, &info) == KILN_OK && info.display[0])
+        if (gKSpawn->template_get(&guid, &info) == KILN_OK && info.display[0])
             return std::string(info.display, strnlen(info.display, sizeof info.display));
     }
     if (gKItems && gKItems->item_id_of_guid)  // last: the first call indexes the ItemInfo resources once

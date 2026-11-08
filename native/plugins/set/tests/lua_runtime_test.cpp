@@ -160,7 +160,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   items.find_item=[](KilnStr)->KilnItemId{return 0;};
   items.item_info=[](KilnItemId id,KilnItemInfo* o)->KilnResult{o->id=id;o->item_flags=id==9?0x8u:0u;return KILN_OK;};
   KilnSpawnApi spawn{};
-  spawn.template_find=[](KilnStr n,KilnTemplateInfo* o)->KilnResult{if(std::string_view(n.ptr,n.len)!="22222222-2222-2222-2222-222222222222")return KILN_ERR_NOT_FOUND;strcpy(o->display,"Common Goat");return KILN_OK;};
+  spawn.template_get=[](const KilnGuid* g,KilnTemplateInfo* o)->KilnResult{if(g->b[0]!=0x22)return KILN_ERR_NOT_FOUND;strcpy(o->display,"Common Goat");return KILN_OK;};
   static std::vector<KilnProgressionRequest> submitted;static KilnResult submitRc=KILN_OK;
   KilnProgressionApi prog{};
   prog.submit=[](KilnOwner,const KilnProgressionRequest* q,uint64_t*)->KilnResult{submitted.push_back(*q);return submitRc;};
@@ -171,6 +171,16 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   must(L,two,"assert(Res.text('22222222-2222-2222-2222-222222222222')=='Common Goat')");
   must(L,two,"assert(Res.text('33333333-3333-3333-3333-333333333333')==nil)");
   must(L,two,"assert(not pcall(Res.text,'wood logs'))");
+  // before kiln.items' catalog loads the blueprint flags are unknown (the lowest id wins, here the blueprint); that
+  // choice must not stick once the catalog is there
+  static uint32_t catalogCount=0;
+  static const SetItemName bpFirst[]={{5u,"Axe_Blueprint","Axe"},{6u,"Axe","Axe"}};
+  KilnItemsApi early{};
+  early.item_count=[]()->uint32_t{return catalogCount;};
+  early.item_info=[](KilnItemId id,KilnItemInfo* o)->KilnResult{if(!catalogCount)return KILN_ERR_UNAVAILABLE;o->id=id;o->item_flags=id==5?0x8u:0u;return KILN_OK;};
+  gKItems=&early;gItemNames=bpFirst;gItemNameCount=2;resetNames();
+  assert(itemIdByDisplay("axe")==5);catalogCount=2;assert(itemIdByDisplay("axe")==6);
+  gKItems=&items;gItemNames=names;gItemNameCount=3;resetNames();
   assert(itemIdByDisplay("WOOD LOGS")==7&&itemIdByDisplay("mana \"potion\"")==8&&itemIdByDisplay("nope")==0);
   size_t queued=gAdminQueue.size();
   must(L,two,"Admin.give('wood logs',5)");assert(gAdminQueue.size()==queued+1);
