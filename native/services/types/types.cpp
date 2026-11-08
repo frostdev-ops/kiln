@@ -57,6 +57,9 @@ ProfileSession g_profile;
 SystemOwners g_system_owners;
 SafetyHookInline g_runner;
 std::atomic<bool> g_systems_ok{false};
+// When native SET may have appeared since the startup check: after a DLL load, never per tick (the check reaches
+// wineserver once per loaded module under Wine).
+kset::ModuleWatch g_modules;
 bool g_external_runner = false;
 
 // Events
@@ -364,7 +367,7 @@ KilnResult KILN_CALL system_release_owner(KilnOwner owner) {
     return KILN_OK;
 }
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
-    if (g_systems_ok && !kset::runtime_conflict().empty()) {
+    if (g_systems_ok && g_modules.due() && !kset::runtime_conflict().empty()) {
         std::lock_guard lock(g_sys_mu);
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
@@ -406,6 +409,7 @@ KilnResult KILN_CALL profile(bool on) {
     return KILN_OK;
 }
 void KILN_CALL on_unload(void*) {
+    g_modules.disarm();
     profile(false);
     {
         std::lock_guard lock(g_sys_mu);
@@ -534,6 +538,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     for (size_t i = 0; i < n; ++i) g_sys_by_fn.emplace_back(g_sys[i].fn, static_cast<uint32_t>(i));
     std::sort(g_sys_by_fn.begin(), g_sys_by_fn.end());
     uintptr_t runner = 0;
+    g_modules.arm();  // before the startup check, so a DLL loading in between is re-checked
     const std::string conflict = kset::runtime_conflict();
     if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
     if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {

@@ -53,7 +53,7 @@ a reload of the same mod version with the same class keeps the file; a changed c
 `ConfigFile.SchemaSnapshot()` / `SnapshotPath` give the same in code.
 
 Reload: a `FileSystemWatcher` on the config folder (works under Wine; reacts within ~2 steps) and, as a fallback, an
-mtime/size poll every 25 steps (~1 s), both on the service tick. Kiln's own writes are not taken for edits.
+mtime/size poll every 5 s (every 1 s when the watcher could not start), both on the service tick. Kiln's own writes are not taken for edits.
 After a reload with changes: `ConfigFile.Changed` (in the context of the mod that added the handler) and
 `ConfigChangedEvent` on the bus (tick thread; `Changed`, `PendingRestart`, `Source` File/Api). Entries marked
 `[RequiresRestart]` keep their running value: they show in `PendingRestart` and apply at the next load of the mod.

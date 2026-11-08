@@ -15,7 +15,8 @@ internal static class PermissionStore
     private static string? _lastText, _badText;
     private static IDisposable? _tick;
     private static bool _loaded;
-    private const int PollEverySteps = 25;
+    private const long PollEveryMs = 1000;  // by the clock, not the step count (a 60 Hz world stat'ed 2.4x a second)
+    private static long _nextPoll;
 
     private static readonly JsonSerializerOptions Json = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -46,7 +47,9 @@ internal static class PermissionStore
 
     private static void OnTick(in TickInfo tick)
     {
-        if (tick.Step % PollEverySteps != 0) return;
+        var now = Environment.TickCount64;
+        if (now < _nextPoll) return;
+        _nextPoll = now + PollEveryMs;
         if (Stamp(FilePath) != _stamp || Stamp(ServerConfigPath) != _serverStamp) Load("file");
     }
 

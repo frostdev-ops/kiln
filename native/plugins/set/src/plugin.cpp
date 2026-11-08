@@ -41,10 +41,16 @@ const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
 std::filesystem::path g_game, g_control;
 std::string g_aside;
-uint64_t g_steps = 0;
 std::atomic<bool> g_running{false};
 bool g_initialized = false;
+// Taken only when a re-check is due (a DLL has loaded), never on the steady-state frame/tick path.
 std::mutex g_coexist_mx;
+kset::ModuleWatch g_modules;
+// The console folder is checked at most every console_ms, by one thread at a time (the UI and the tick thread both
+// drive it in a hosted game).
+constexpr uint64_t console_ms = 500;
+std::atomic<uint64_t> g_console_next{0};
+std::atomic<bool> g_console_busy{false};
 
 std::filesystem::path api_path(int32_t kind) {
     char buf[1024];
@@ -70,8 +76,11 @@ void sink(const char* line) {
 // SET's own DLL in the process (the game imports POWRPROF.dll; SET ships as one in the game folder).
 std::string set_in_process() { return kset::runtime_conflict(); }
 
+// Runs on every server step and every client UI frame. The full module check (on_ready's) runs again only once a DLL
+// has loaded since (see kset::ModuleWatch): the steady state is two atomic loads, no lock, no wineserver call.
 bool may_run() {
-    if (!g_running.load()) return false;
+    if (!g_running.load(std::memory_order_acquire)) return false;
+    if (!g_modules.due()) return true;
     std::lock_guard lock(g_coexist_mx);
     if (!g_running.load()) return false;
     g_aside = set_in_process();
@@ -106,9 +115,18 @@ void poll_console() {
     }
 }
 
+void maybe_poll_console() {
+    const uint64_t now = GetTickCount64();
+    uint64_t next = g_console_next.load(std::memory_order_relaxed);
+    if (now < next || !g_console_next.compare_exchange_strong(next, now + console_ms, std::memory_order_acq_rel)) return;
+    if (g_console_busy.exchange(true, std::memory_order_acquire)) return;
+    poll_console();
+    g_console_busy.store(false, std::memory_order_release);
+}
+
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     if (!may_run()) return;
-    if (++g_steps % 12 == 0) poll_console();
+    maybe_poll_console();
     const uintptr_t w = g_api->server_world();
     if (w) rt::tick(w);
 }
@@ -125,9 +143,9 @@ void KILN_CALL on_world(const KilnWorldEvent* e, void*) {
 }
 
 // Client only: the game's UI frame on the main thread (mods run here in the menu), and the overlay frame (Draw).
-void KILN_CALL on_ui_tick(uint64_t frame, void*) {
+void KILN_CALL on_ui_tick(uint64_t, void*) {
     if (!may_run()) return;
-    if (frame % 12 == 0) poll_console();
+    maybe_poll_console();
     rt::frame();
 }
 
@@ -141,8 +159,11 @@ void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
 void KILN_CALL on_ready(void*) {
     g_game = api_path(KILN_PATH_GAME);
     g_control = api_path(KILN_PATH_CONTROL);
+    // Armed before the startup check, so a DLL loading in between is still re-checked.
+    const bool notified = g_modules.arm();
     g_aside = set_in_process();
     if (!g_aside.empty()) {
+        g_modules.disarm();
         log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
         return;
     }
@@ -152,6 +173,7 @@ void KILN_CALL on_ready(void*) {
             g_api->service(KilnStr{KILN_PROFILE_SERVICE, sizeof(KILN_PROFILE_SERVICE) - 1}, 1))) {
         const uint32_t mode = prof->mode();
         if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) {
+            g_modules.disarm();
             log(KILN_LOG_INFO, std::string("kiln-set: no SET mods this start (") +
                                    (mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid") + ")");
             return;
@@ -199,11 +221,13 @@ void KILN_CALL on_ready(void*) {
     log(g_running ? KILN_LOG_INFO : KILN_LOG_WARN,
         std::string("kiln-set 0.1.1 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
             (has_dir ? "" : " (folder missing: no SET mods)") + ", ticks " + (g_running ? "on" : "off") + ", overlay " +
-            (ui ? "on" : "off") + ", console " + u8(g_control / "set" / "*.lua"));
+            (ui ? "on" : "off") + ", console " + u8(g_control / "set" / "*.lua") +
+            (notified ? ", SET re-check on DLL load" : ", SET re-check every 3 s (no DLL-load notification)"));
 }
 
 void KILN_CALL on_unload(void*) {
     g_running = false;
+    g_modules.disarm();
     if (g_initialized) rt::gameClosing();
 }
 }  // namespace

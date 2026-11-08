@@ -388,6 +388,16 @@ void KILN_CALL on_world_event(const KilnWorldEvent* ev, void*) {
     else if (!w && g_first_step) world_reset(false, "stopped before its registries were ready");
 }
 
+// The pack-file change scan stats every mod folder and pack file and reads each kiln.mod.json (file system and, under
+// Wine, wineserver work): every 2 s by the clock (as 50 steps were on a dedicated server), not by step count, which
+// ran it 2.5x as often on a 60 Hz hosted or joined world.
+bool pack_scan_due() {
+    static std::atomic<uint64_t> next{0};
+    const uint64_t now = GetTickCount64();
+    uint64_t due = next.load(std::memory_order_relaxed);
+    return now >= due && next.compare_exchange_strong(due, now + 2000, std::memory_order_relaxed);
+}
+
 void pre(const KilnTickInfo* tick, uint32_t kind, uintptr_t world) {
     g_step.store(tick->step);
     if (g_ready.load() && (g_kind.load() != kind || g_world.load() != world)) {
@@ -410,7 +420,7 @@ void pre(const KilnTickInfo* tick, uint32_t kind, uintptr_t world) {
     if (g_filter_changed.exchange(false)) {
         LOGI("the set of loaded mods changed: re-applying data packs");
         apply_packs(true);
-    } else if (tick->step % 50 == 0) {
+    } else if (pack_scan_due()) {
         std::string sig;
         discover_packs(&sig);
         if (sig != g_pack_sig) {

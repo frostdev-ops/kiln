@@ -99,7 +99,7 @@ nodes need a rule naming them exactly. `CommandSource.ForSteamId(id)` runs as a 
 (cancelable, rewritable). See `events.md`.
 
 ## Console folder and `kilnctl cmd`
-`kiln/control/console/<name>.cmd` → `<name>.result.json` (checked every 6 steps on the service tick). One command per
+`kiln/control/console/<name>.cmd` → `<name>.result.json` (checked about 4 times a second on the service tick). One command per
 line, `//` comments; directives `#as console | #as remote <name> [admin|user] | #as steam <id> [name] | #as player
 <name>` switch the source of the following lines; `#complete <text>` returns completions. Result:
 `{ file, ok, time, results: [{ line, source, ok, found, denied, canceled, parseError, error, output[] | completions[], running? }] }`.

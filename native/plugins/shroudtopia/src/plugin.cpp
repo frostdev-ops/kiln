@@ -17,6 +17,7 @@
 #include <cwctype>
 
 #include "shroudtopia_internal.h"
+#include "../../compat/module_watch.h"
 
 #include <psapi.h>
 
@@ -63,7 +64,11 @@ bool g_foreign_started = false;
 bool g_handoff = false;
 
 std::string own_loader_in_process();
+// The worker observes the loader every wait slice (up to 20 Hz); the full check enumerates every module, stats paths
+// and reads DLL files, wineserver round trips under Wine. It runs again only after a DLL has loaded since on_ready's.
+kcompat::ModuleWatch g_loader_watch;
 bool observe_own_loader() {
+    if (!g_loader_watch.due()) return false;
     const auto reason = own_loader_in_process();
     if (reason.empty()) return false;
     {
@@ -533,6 +538,7 @@ void KILN_CALL on_ready(void*) {
     }
     config::init(H.config_dir() / L"shroudtopia" / L"shroudtopia.json", g_game / L"shroudtopia.json");
 
+    g_loader_watch.arm();  // before the startup check, so a DLL loading in between is re-checked
     g_stepped_aside = own_loader_in_process();
     if (!g_stepped_aside.empty()) {
         H.logf(KILN_LOG_WARN, "kiln-shroudtopia steps aside: %s; the Shroudtopia mods are its to load", g_stepped_aside.c_str());

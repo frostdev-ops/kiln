@@ -7,7 +7,7 @@ namespace Kiln;
 
 /// <summary>
 /// Runs command lines dropped into <c>kiln/control/console/*.cmd</c> and writes <c>&lt;name&gt;.result.json</c> next
-/// to them (looked at every 6 steps, about 4 times a second). The lines run as the console; on a game that hosts its
+/// to them (looked at about 4 times a second, by the clock). The lines run as the console; on a game that hosts its
 /// own world, once its local player is in the world, as the console acting as that player
 /// (<see cref="CommandSource.IsHostConsole"/>), so commands that need a player work there. One command per line;
 /// empty lines and lines starting with <c>//</c> are skipped. Directives (lines starting with <c>#</c>) change the
@@ -19,7 +19,10 @@ namespace Kiln;
 /// </summary>
 internal static class ConsoleControl
 {
-    private const int PollEverySteps = 6;
+    // By the clock, not the step count: the folder check and listing are file-system (wineserver) calls, and a 60 Hz
+    // hosted world ran them 10 times a second at every 6 steps.
+    private const long PollEveryMs = 250;
+    private static long _nextPoll;
     private const int MaxFiles = 8, MaxLines = 64;
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
@@ -51,7 +54,9 @@ internal static class ConsoleControl
 
     private static void OnTick(in TickInfo tick)
     {
-        if (tick.Step % PollEverySteps != 0) return;
+        var now = Environment.TickCount64;
+        if (now < _nextPoll) return;
+        _nextPoll = now + PollEveryMs;
         Poll(Directory);
     }
 

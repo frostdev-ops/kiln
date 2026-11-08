@@ -20,8 +20,9 @@ GE=${KILN_GE:-$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-11-x86_6
 cmd=${1:-}; name=${2:-}
 
 env_for() {
-  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b"
-  unset DISPLAY WAYLAND_DISPLAY
+  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b;winedbg.exe=d"
+  # no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
+  unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 }
 
 pid_of() {

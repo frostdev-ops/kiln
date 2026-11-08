@@ -10,6 +10,7 @@
 #if defined(_WIN32) || defined(KSET_LOADER_HOST_TEST)
 #include <windows.h>
 #include <tlhelp32.h>
+#include "../../compat/module_watch.h"
 #endif
 #include <string>
 #include <string_view>
@@ -87,5 +88,9 @@ inline std::string runtime_conflict() {
     inspected.swap(current);
     return {};
 }
+
+// runtime_conflict() costs several wineserver round trips per loaded module under Wine (snapshot, path, stats, file
+// opens): never run it per frame or tick. Gate it with ModuleWatch (re-check after a DLL load only).
+using ModuleWatch = kcompat::ModuleWatch;
 #endif
 }  // namespace kset

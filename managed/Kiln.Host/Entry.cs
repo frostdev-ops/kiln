@@ -163,7 +163,8 @@ internal sealed record HostConfig(int FaultLimit, double FaultWindowSeconds, int
 /// the mod manager, the lifecycle events, the control folder and the GC pacer.</summary>
 internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
 {
-    private const int ControlEverySteps = 25;   // ~1 s
+    private const long ControlEveryMs = 1000;   // by the clock: a 60 Hz world listed the folder 2.4x a second at 25 steps
+    private long _nextControl;
     private const int StatsEverySteps = 1470;   // ~60 s
     private const int StartedFallbackSteps = 2450;  // ~100 s without "LoadEcsScene to Run": start anyway
     private const int MaxQueuedGameLines = 4096;
@@ -398,7 +399,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         _mods.Pre(in tick, _lineBatch);
         SyncSubscriptions();
         if (_reloadTest is not null) StepReloadTest();
-        if (tick.Step % ControlEverySteps == 0) PollControl();
+        if (Environment.TickCount64 >= _nextControl) PollControl();
         if (tick.Step % StatsEverySteps == 0) WriteStats();
         if (_postHandle == 0) PaceGc();
     }
@@ -509,7 +510,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             _mods.Pre(in tick, _lineBatch);
             SyncSubscriptions();
             if (_reloadTest is not null) StepReloadTest();
-            if (tick.Step % ControlEverySteps == 0) PollControl();
+            if (Environment.TickCount64 >= _nextControl) PollControl();
             if (tick.Step % StatsEverySteps == 0) WriteStats();
             if (_postHandle == 0 && _clientPostHandle == 0) PaceGc();
         }
@@ -847,6 +848,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
     // ---- control folder: kiln/control/<name>.cmd -> <name>.result.json ----
     private void PollControl()
     {
+        _nextControl = Environment.TickCount64 + ControlEveryMs;
         if (!Directory.Exists(_control)) return;
         foreach (var file in Directory.EnumerateFiles(_control, "*.cmd").Order(StringComparer.Ordinal).Take(8))
         {

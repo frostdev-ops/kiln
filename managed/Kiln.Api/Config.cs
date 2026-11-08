@@ -750,7 +750,10 @@ public static class Config
     private static FileSystemWatcher? _watcher;
     private static volatile bool _signal;
     private static ulong _signalStep;
-    private const int PollEverySteps = 25;
+    // The fallback poll stats every registered file. By the clock, not the step count; with a working file watcher
+    // it is only a safety net, so it runs less often.
+    private const long PollEveryMs = 1000, WatchedPollEveryMs = 5000;
+    private static long _nextPoll;
 
     /// <summary>The folder of the config files: the profile's configDir (KILN_PATH_CONFIG), else <c>kiln/config</c>.</summary>
     public static string Directory => KilnPaths.Config;
@@ -888,11 +891,11 @@ public static class Config
                 w.Error += (_, e) => Backend.Current.Log(0, LogLevel.Warn, $"config: file watcher error ({e.GetException().Message}); polling continues");
                 w.EnableRaisingEvents = true;
                 _watcher = w;
-                Backend.Current.Log(0, LogLevel.Info, $"config: watching {KilnPaths.Config} (file watcher, polling every {PollEverySteps} steps as fallback)");
+                Backend.Current.Log(0, LogLevel.Info, $"config: watching {KilnPaths.Config} (file watcher, polling every {WatchedPollEveryMs / 1000} s as fallback)");
             }
             catch (Exception e)
             {
-                Backend.Current.Log(0, LogLevel.Info, $"config: no file watcher ({e.Message}); polling {KilnPaths.Config} every {PollEverySteps} steps");
+                Backend.Current.Log(0, LogLevel.Info, $"config: no file watcher ({e.Message}); polling {KilnPaths.Config} every {PollEveryMs / 1000} s");
             }
         }
     }
@@ -905,8 +908,10 @@ public static class Config
             _signalStep = tick.Step;  // editors write in pieces: look two steps later
         }
         var due = _signalStep != 0 && tick.Step >= _signalStep + 2;
-        if (!due && tick.Step % PollEverySteps != 0) return;
+        var now = Environment.TickCount64;
+        if (!due && now < _nextPoll) return;
         if (due) _signalStep = 0;
+        _nextPoll = now + (_watcher is null ? PollEveryMs : WatchedPollEveryMs);
         Poll();
     }
 }
