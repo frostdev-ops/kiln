@@ -128,7 +128,9 @@ oxygen `+0xB2` (each followed by its max). A raw `attrAdd` marks nothing written
 
 **Not seen in the lab.** A joined player's own values (the client reads `NetworkPlayerAttributes`; whether the client's
 prediction overrides a server-side change to stamina or oxygen), saves of players (a raw `attrAdd` marks nothing written, so a
-value that the game does not re-derive at login may not be saved), and whether the game's recharge programs for body heat
+value that the game does not re-derive at login may not be saved; Kiln's only mark-written path, kiln.world
+`mark_written`, needs the write record of a running ECS program, so a tick-thread call cannot use it, the same as for
+Health), and whether the game's recharge programs for body heat
 and oxygen fight a set value on a real player (client checklist).
 
 ## The hit pipeline

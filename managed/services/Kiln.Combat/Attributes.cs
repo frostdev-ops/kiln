@@ -54,7 +54,13 @@ public readonly record struct AttributeReading(uint Id, GameAttribute Kind, int 
 /// Tick thread only (except <see cref="Ids"/>).
 /// </summary>
 /// <remarks>The ids are also accepted as numbers (the game's attribute hash), which is how EMF's attribute_get and
-/// attribute_add name them; any id of the five components can be read, only a pair's current value can be written.</remarks>
+/// attribute_add name them; any id of the five components can be read, only a pair's current value can be written.
+/// <para><c>Abilities.Attributes</c> (Kiln.Abilities) is the older, narrower API over the same game function: health,
+/// mana, stamina and the special-ability charge by built-in ids, <c>Add</c> only, returning false on a missing attribute.
+/// Both write through the game's attribute add, so a value written by one reads back the same in the other; this class
+/// adds the run-time ids, an explicit clamp, body heat and oxygen, and the pair's bounds.</para>
+/// Player persistence is unverified: a write is not marked written for saving (Kiln's only mark-written path, kiln.world's,
+/// needs an ECS program's write record), the same as <see cref="Combat.SetHealth"/> (docs/re/combat.md "Attributes").</remarks>
 public static unsafe class Attributes
 {
     /// <summary>True when the attribute functions work on this build and a world has started.</summary>
@@ -74,6 +80,7 @@ public static unsafe class Attributes
 
     /// <summary>The current value of a pair with its bounds, or null when the entity has no such attribute (a creature
     /// without mana, a missing entity) or attributes are unavailable.</summary>
+    [TickThreadOnly]
     public static AttributeReading? Get(EntityId entity, GameAttribute attribute)
     {
         var ids = Ids(attribute);
@@ -82,6 +89,7 @@ public static unsafe class Attributes
 
     /// <summary>Any attribute of the five components by its id (current, minimum, maximum, recharge...), with its pair's
     /// current value and bounds; null when the entity lacks it. An id Kiln does not know throws.</summary>
+    [TickThreadOnly]
     public static AttributeReading? Get(EntityId entity, uint attributeId)
     {
         var t = CombatNative.RequireV2("Attributes.Get");
@@ -96,34 +104,40 @@ public static unsafe class Attributes
 
     /// <summary>Sets the current value, clamped to the pair's [min, max]. Returns the new value. Throws when the entity
     /// has no such attribute (see <see cref="TrySet(EntityId, GameAttribute, int, out AttributeReading)"/>).</summary>
+    [TickThreadOnly]
     public static int Set(EntityId entity, GameAttribute attribute, int value) => Write("Attributes.Set", entity, attribute, value, add: false).Current;
 
     /// <summary>Adds <paramref name="delta"/> (negative to spend) to the current value, clamped like Set. Returns the new
     /// value.</summary>
+    [TickThreadOnly]
     public static int Add(EntityId entity, GameAttribute attribute, int delta) => Write("Attributes.Add", entity, attribute, delta, add: true).Current;
 
     /// <summary>Set by the game's attribute id of a pair's current value (see <see cref="Ids"/>).</summary>
+    [TickThreadOnly]
     public static int Set(EntityId entity, uint attributeId, int value) => Write("Attributes.Set", entity, attributeId, value, add: false).Current;
 
     /// <summary>Add by the game's attribute id of a pair's current value.</summary>
+    [TickThreadOnly]
     public static int Add(EntityId entity, uint attributeId, int delta) => Write("Attributes.Add", entity, attributeId, delta, add: true).Current;
 
     /// <summary>Like <see cref="Set(EntityId, GameAttribute, int)"/>, false instead of throwing when the entity lacks the
     /// attribute or attributes are unavailable.</summary>
+    [TickThreadOnly]
     public static bool TrySet(EntityId entity, GameAttribute attribute, int value, out AttributeReading result) =>
         TryWrite(entity, attribute, value, add: false, out result);
 
     /// <summary>Like <see cref="Add(EntityId, GameAttribute, int)"/>, false instead of throwing when the entity lacks
     /// the attribute or attributes are unavailable.</summary>
+    [TickThreadOnly]
     public static bool TryAdd(EntityId entity, GameAttribute attribute, int delta, out AttributeReading result) =>
         TryWrite(entity, attribute, delta, add: true, out result);
 
     private static bool TryWrite(EntityId entity, GameAttribute attribute, int value, bool add, out AttributeReading result)
     {
-        var t = CombatNative.RequireV2(add ? "Attributes.TryAdd" : "Attributes.TrySet");
         Services.RequireTickThread(add ? "Attributes.TryAdd" : "Attributes.TrySet");
         result = default;
-        var ids = Ids(attribute);
+        var t = CombatNative.V2;  // an older runtime without the attribute functions: unavailable, so false (not a throw)
+        var ids = t == null ? null : Ids(attribute);
         if (ids is null) return false;
         CombatNative.AttributeValue v = default;
         v.Size = (uint)sizeof(CombatNative.AttributeValue);

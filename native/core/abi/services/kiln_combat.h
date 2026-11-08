@@ -14,8 +14,8 @@
  *      and maximum. The ids are read from the game's attribute registry at run time (docs/re/combat.md "Attributes").
  * Evidence and engine notes: docs/re/combat.md. Usage: docs/kiln/services/combat.md.
  *
- * Threads: everything except status() is tick-thread only (Pre or Post, or a posted task); elsewhere
- * KILN_ERR_WRONG_THREAD. Managed mods are always called there.
+ * Threads: everything except status(), set_listener() and (v2) attribute_ids() is tick-thread only (Pre or Post, or a
+ * posted task); elsewhere KILN_ERR_WRONG_THREAD. Managed mods are always called there.
  *
  * Amounts are the engine's integer health points (a player starts with about 100-200; the HUD shows these numbers).
  * The table only grows at the end; check header.size before using a field added later. */

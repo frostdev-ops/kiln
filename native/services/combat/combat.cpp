@@ -1270,7 +1270,8 @@ bool check_component(AttrPair* ap, std::string* why) {
         return *why = name + " is not a component type", false;
     if (i.type_size < 8 + 4 * ap->p.attrs.size()) return *why = name + " is too small for its attributes", false;
     bool derived = false;
-    for (const KilnType* b = i.inner; b && !derived;) {
+    int depth = 0;
+    for (const KilnType* b = i.inner; b && !derived && depth < 16; ++depth) {  // a bounded walk: reflection is data
         KilnTypeInfo bi{};
         bi.size = sizeof bi;
         if (T->type_info(b, &bi) != KILN_OK) break;
@@ -1446,7 +1447,14 @@ KilnResult attr_write(KilnEntity e, const AttrPair& ap, AttrLoaded& l, int64_t w
         int32_t applied = 0;
         return t_set_health(e, static_cast<int32_t>(want), &applied);
     }
-    if (want != cur && !attr_add_id(registry(), l.comp, static_cast<int32_t>(want - cur), ap.p.cur_id)) return KILN_ERR_INTERNAL;
+    // want and cur are both s32, so want - cur can need 33 bits (an extreme current value): then a second add from the
+    // value the first one left (the game's formula may have clamped it).
+    for (int pass = 0; pass < 2 && want != cur; ++pass) {
+        const int64_t step = std::clamp<int64_t>(want - cur, INT32_MIN, INT32_MAX);
+        if (!attr_add_id(registry(), l.comp, static_cast<int32_t>(step), ap.p.cur_id)) return KILN_ERR_INTERNAL;
+        if (step == want - cur) break;  // the usual case: one add
+        if (!attr_slot(l, ap.p.cur_slot, &cur)) return KILN_ERR_INTERNAL;
+    }
     return KILN_OK;
 }
 
