@@ -56,17 +56,19 @@ internal static class Harness
 
     public static async Task<ImmutableArray<Diagnostic>> Run(DiagnosticAnalyzer analyzer, string source,
         IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<MetadataReference>? extra = null,
-        IEnumerable<(string Path, string Text)>? files = null)
+        IEnumerable<(string Path, string Text)>? files = null, string? catalog = null)
     {
         var comp = Compile(source, extra);
-        return await Analyze(comp, analyzer, properties, manifest, files);
+        return await Analyze(comp, analyzer, properties, manifest, files, catalog);
     }
 
     public static async Task<ImmutableArray<Diagnostic>> Analyze(Compilation comp, DiagnosticAnalyzer analyzer,
-        IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<(string Path, string Text)>? more = null)
+        IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<(string Path, string Text)>? more = null, string? catalog = null)
     {
         var files = manifest is null ? ImmutableArray<AdditionalText>.Empty : ImmutableArray.Create<AdditionalText>(new Text("/mod/kiln.mod.json", manifest));
         if (more != null) files = files.AddRange(more.Select(f => (AdditionalText)new Text(f.Path, f.Text)));
+        // the local game-data catalog, as Kiln.GameIds.targets adds it (KilnCatalog="true")
+        if (catalog != null) files = files.Add(new Text("/catalog/server.json", catalog, Catalog: true));
         var options = new AnalyzerOptions(files, new Options(properties ?? new Dictionary<string, string>()));
         var diags = await comp.WithAnalyzers(ImmutableArray.Create(analyzer), options).GetAnalyzerDiagnosticsAsync();
         var crashed = diags.Where(d => d.Id == "AD0001").ToList();
@@ -109,8 +111,9 @@ internal static class Harness
         return (await changed.GetTextAsync()).ToString().Replace("\r\n", "\n");
     }
 
-    private sealed class Text(string path, string text) : AdditionalText
+    private sealed class Text(string path, string text, bool Catalog = false) : AdditionalText
     {
+        public bool IsCatalog => Catalog;
         public override string Path => path;
         public override SourceText GetText(CancellationToken cancellationToken = default) => SourceText.From(text);
     }
@@ -120,7 +123,8 @@ internal static class Harness
         private static readonly AnalyzerConfigOptions Empty = new Dict(new Dictionary<string, string>());
         public override AnalyzerConfigOptions GlobalOptions { get; } = new Dict(global);
         public override AnalyzerConfigOptions GetOptions(SyntaxTree tree) => Empty;
-        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => Empty;
+        private static readonly AnalyzerConfigOptions CatalogFile = new Dict(new Dictionary<string, string> { ["build_metadata.AdditionalFiles.KilnCatalog"] = "true" });
+        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => textFile is Text { IsCatalog: true } ? CatalogFile : Empty;
     }
 
     private sealed class Dict(IDictionary<string, string> values) : AnalyzerConfigOptions

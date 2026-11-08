@@ -33,6 +33,8 @@
     <AdditionalFiles Include="$(MSBuildProjectDirectory)/blocks/*.json" />
     <!-- the sound cook recipe: its cue names are sounds a SoundRef may name (KILN111) -->
     <AdditionalFiles Include="$(MSBuildProjectDirectory)/assets/cook.json" Condition="Exists('$(MSBuildProjectDirectory)/assets/cook.json')" />
+    <!-- the mod's data packs: items, perks and templates they add are names an ItemRef, PerkRef or TemplateRef may use (KILN111) -->
+    <AdditionalFiles Include="$(MSBuildProjectDirectory)/content/*.json" />
     <CompilerVisibleProperty Include="KilnModId" />
     <CompilerVisibleProperty Include="KilnApiVersion" />
     <AdditionalFiles Include="$(KilnManifestSource)" Condition="'$(KilnManifestSource)' != '' and Exists('$(KilnManifestSource)')" />

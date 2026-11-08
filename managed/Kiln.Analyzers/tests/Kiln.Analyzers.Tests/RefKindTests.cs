@@ -61,12 +61,12 @@ public sealed class RefKindTests
         Ids(await Run(A, Mod("""
             Blocks.Define("ding", new SoundBlock { Clips = ["a.wav"] });
             Blocks.Define("a", new EffectBlock { Sound = "ding", Spawns = "Wolf" });
-            Blocks.Define("b", new EffectBlock { Sound = "Chime" });
             Blocks.Define("c", new EffectBlock { Sound = "2f3d7c11-90ab-4cde-8f01-23456789abcd" });
             Blocks.Define("frosty", new PerkBlock { Name = "Frosty" });
-            var r = new RecipeBlock { Station = "hand", Needs = new Dictionary<ItemRef, int> { ["Iron_Sword"] = 2, ["other-mod:gem"] = 1 } };
+            Blocks.Define("bolt", new SpellBlock { Name = "Bolt", Cast = new CastBlock(), Delivery = new ProjectileBlock() });
+            var r = new RecipeBlock { Station = "hand", Needs = new Dictionary<ItemRef, int> { ["Iron_Sword"] = 2, ["other-mod:gem"] = 1, ["bolt"] = 1 } };
             var s = new RecipeBlock { Station = "0x1a2b3c4d" };
-            IReadOnlyList<PerkRef> perks = ["Perk_Frost_Damage", "frosty", "none", "item:Iron_Sword"];
+            IReadOnlyList<PerkRef> perks = ["Perk_Frost_Damage", "frosty", "none", "item:Iron_Sword", "2f3d7c1190ab4cde8f0123456789abcd"];
             """)));
     }
 
@@ -121,5 +121,27 @@ public sealed class RefKindTests
         Ids(d, "KILN111", "KILN111", "KILN111", "KILN111");
         Assert.All(d, x => Assert.Contains(" block, and this takes ", x.GetMessage()));
         Assert.Contains("takes a screeneffect", d[1].GetMessage());
+    }
+
+    [Fact]
+    public async Task A_game_cue_is_named_by_its_guid_only()
+    {
+        // SoundId.Named looks a name up in the mod's own cook index: a GameSounds name is no cue there
+        var d = await Run(A, Mod("""Blocks.Define("a", new EffectBlock { Sound = "Chime" });"""));
+        Ids(d, "KILN111");
+        Assert.Contains("GameSounds.Guids", d[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task The_mods_data_packs_count_and_the_game_catalog_does_not()
+    {
+        // an item a data pack adds is the mod's; the catalog (KilnCatalog) holds every game string, so it must not answer for a misspelled name
+        var d = await Run(A, Mod("""
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["Kiln_Sample_Glacier"] = 1, ["Iron_Swrod"] = 1 } };
+            """),
+            files: [("/mod/content/glacier.json", """{ "format": 1, "newItems": [ { "name": "Kiln_Sample_Glacier", "base": "Iron_Sword" } ] }""")],
+            catalog: """{ "items": [ { "name": "Iron_Swrod" } ] }""");
+        Ids(d, "KILN111");
+        Assert.Contains("Iron_Swrod", d[0].GetMessage());
     }
 }

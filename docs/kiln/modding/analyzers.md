@@ -431,9 +431,10 @@ is built at run time, because it could be any name.
 
 It checks every field that names a block: effects, statuses, VFX, sounds, items, perks, abilities, materials, stations, screen effects and spawned
 templates. Some of these also take a game name:
-- An item, perk or template may be the game's. The check uses the generated `GameItems`, `GamePerks` and `GameTemplates`; without a local game
-  catalog it skips those names.
-- A sound may be a `SoundBlock`, a cue in `assets/cook.json`, or a game cue's GUID (or a `GameSounds` name).
+- An item, perk or template may be the game's. The check uses the generated `GameItems`, `GamePerks` and `GameTemplates`; without them (no local
+  game catalog, or the section left out of `KilnGameIds`) it skips those names. Names your data packs in `content/*.json` add count too. An item
+  that code adds at run time, or another mod's by its game name, gets the warning: suppress it there.
+- A sound may be a `SoundBlock`, a cue in `assets/cook.json`, or a game cue's GUID (`GameSounds.Guids`). A game cue has no name a block can use.
 - A perk may also be `"none"` or `"item:<name>"`. A station may be `"hand"` or a workshop's `0x` id.
 
 ```csharp
@@ -446,7 +447,7 @@ Blocks.Define("hit", new EffectBlock { Sound = "dnig" });   // KILN111: no sound
 
 <a id="kiln112"></a>
 ## KILN112: clients too low for the mod's blocks
-**What.** `KilnClients` (or `clients` in `kiln.mod.json`) says less than the mod's blocks need. A new item, spell or status needs `kiln`. A `VfxBlock`, or a field that
+**What.** `KilnClients` (or `clients` in `kiln.mod.json`) says less than the mod's blocks need. A new item, spell or status needs `kiln`. A `VfxBlock`, a `SoundBlock`, or a field that
 names the mod's own file, cue or VFX, needs `mod`. A game VFX by name asks for no more than its block.
 
 **Why.** Kiln refuses the block when the mod loads, because players' games could not show it.

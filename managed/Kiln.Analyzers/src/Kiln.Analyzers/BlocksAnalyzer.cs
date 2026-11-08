@@ -77,12 +77,13 @@ internal static class BlockFacts
         return null;
     }
 
-    // Defined block types an ItemRef must not name (the compiler's ItemName refuses the same).
+    // Defined block types an ItemRef must not name: those the compiler's ItemName refuses, and sounds, materials and screen effects, which make no item.
+    // A spell is an item (its charges).
     private static readonly HashSet<string> NotItems = new(StringComparer.Ordinal)
     {
         "EffectBlock", "StatusBlock", "VfxBlock", "VisualBlock", "OnHitBlock", "WeaponStats", "ArmorStats", "WeaponClass", "ArmorSlot", "ArmorSet", "WornLook",
         "PlacementBlock", "ComfortBlock", "ProcessingBlock", "MenuBlock", "PerkBlock", "AbilityBlock", "TalentBlock", "TalentTreeBlock", "TriggerBlock",
-        "SoundBlock", "MaterialBlock", "ScreenEffectBlock", "SpellBlock",
+        "SoundBlock", "MaterialBlock", "ScreenEffectBlock",
     };
 
     /// <summary>Whether a block of this type answers a reference of this kind.</summary>
@@ -160,13 +161,15 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
                 Report(Descriptors.BlockName, again.Where, $"block \"{group.Key}\" is defined more than once: its ids come from its name, so these are one block");
 
         // ---- references: only when every name is known (a name built at run time could be any)
-        var jsonText = options.AdditionalFiles.Where(f => string.Equals(Path.GetExtension(f.Path), ".json", StringComparison.OrdinalIgnoreCase) && !string.Equals(Path.GetFileName(f.Path), "kiln.mod.json", StringComparison.OrdinalIgnoreCase))
+        // the mod's own data files; not the local game catalog (KilnCatalog, megabytes, read by the GameIds generator): game names come from GameIds
+        var jsonText = options.AdditionalFiles.Where(f => string.Equals(Path.GetExtension(f.Path), ".json", StringComparison.OrdinalIgnoreCase) && !string.Equals(Path.GetFileName(f.Path), "kiln.mod.json", StringComparison.OrdinalIgnoreCase)
+                && !(options.AnalyzerConfigOptionsProvider.GetOptions(f).TryGetValue("build_metadata.AdditionalFiles.KilnCatalog", out var catalog) && string.Equals(catalog, "true", StringComparison.OrdinalIgnoreCase)))
             .Select(f => f.GetText(ctx.CancellationToken)?.ToString() ?? "").ToList();
         var gameCache = new Dictionary<string, HashSet<string>?>();
         if (defined.All(d => d.Name != null))
             foreach (var (name, kind, where) in named)
             {
-                if (name.Contains(':') || GameName.IsMatch(name)) continue;
+                if (name.Contains(':') || GameName.IsMatch(name) || Guid.TryParse(name, out _)) continue;
                 if (Special(kind, name)) continue;
                 var same = defined.FirstOrDefault(d => d.Name == name);
                 if (same != null)
@@ -179,13 +182,15 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
                 if (GameClass(kind) is { } cls)
                 {
                     var game = GameNames(ctx.Compilation, cls, gameCache);
-                    if (game == null ? kind != "sound" : game.Contains(name)) continue;
+                    if (game == null || game.Contains(name)) continue;
                     Report(Descriptors.BlockReference, where, kind == "template"
                         ? $"the game has no template \"{name}\": use a GameTemplates constant or a GUID"
                         : $"this mod has no {kind} block \"{name}\", and the game has none by that name ({cls}): define it, or say \"other-mod:{name}\"");
                     continue;
                 }
-                Report(Descriptors.BlockReference, where, $"this mod has no block \"{name}\": define it, or say \"other-mod:{name}\"");
+                Report(Descriptors.BlockReference, where, kind == "sound"
+                    ? $"this mod has no sound \"{name}\" (a SoundBlock, or a cue of assets/cook.json): define it, say \"other-mod:{name}\", or give a game cue's GUID (GameSounds.Guids)"
+                    : $"this mod has no block \"{name}\": define it, or say \"other-mod:{name}\"");
             }
 
         // ---- clients: what the project says against what its blocks need
@@ -207,13 +212,12 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
         _ => false,
     };
 
-    // The generated GameIds class for kinds that also take a game name.
+    // The generated GameIds class for kinds that also take a game name. Not sounds: a game cue is named by its GUID only (a name is the mod's own cue).
     private static string? GameClass(string kind) => kind switch
     {
         "item" => "GameItems",
         "perk" => "GamePerks",
         "template" => "GameTemplates",
-        "sound" => "GameSounds",
         _ => null,
     };
 
