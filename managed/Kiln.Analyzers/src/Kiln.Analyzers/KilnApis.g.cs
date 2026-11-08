@@ -126,6 +126,7 @@ internal static partial class KilnApis
         "M:Kiln.Combat.TryGetHealth(Kiln.EntityId,Kiln.Health@)", // Combat.TryGetHealth(EntityId, out Health): Services.RequireTickThread
         "M:Kiln.CommandContext.Reply(System.String)", // CommandContext.Reply(string): via Chat.Tell(EntityId, string)
         "M:Kiln.Commands.Execute(Kiln.CommandSource,System.String)", // Commands.Execute(CommandSource, string): Services.RequireTickThread
+        "M:Kiln.Config.RegisterWorld``1(System.String)", // Config.RegisterWorld<T>(string?): Game.AssertTickThread
         "M:Kiln.Config.Register``1(Kiln.ConfigKind,System.String)", // Config.Register<T>(ConfigKind, string?): Game.AssertTickThread
         "M:Kiln.ConfigFile.Reload", // ConfigFile.Reload(): Game.AssertTickThread
         "M:Kiln.ConfigFile.Save", // ConfigFile.Save(): Game.AssertTickThread
@@ -357,6 +358,7 @@ internal static partial class KilnApis
         "M:Kiln.KnowledgeScope.List", // KnowledgeScope.List(): via Knowledge.List(EntityId)
         "M:Kiln.KnowledgeScope.Revoke(System.String,System.Int32)", // KnowledgeScope.Revoke(string, int): via Knowledge.KnowledgeId(string, string)
         "M:Kiln.KnowledgeScope.Set(System.String,System.UInt32)", // KnowledgeScope.Set(string, uint): via Knowledge.KnowledgeId(string, string)
+        "M:Kiln.Mod.WorldConfig``1(System.String)", // Mod.WorldConfig<T>(string?): via Config.RegisterWorld<T>(string?)
         "M:Kiln.NativeQuests.Holds(Kiln.NativeComputed,Kiln.QuestHolder)", // NativeQuests.Holds(NativeComputed, QuestHolder): Game.AssertTickThread
         "M:Kiln.NativeQuests.Resync(Kiln.QuestHolder,System.Boolean)", // NativeQuests.Resync(QuestHolder, bool): Game.AssertTickThread
         "M:Kiln.NativeQuests.Wanted(System.String,Kiln.QuestHolder)", // NativeQuests.Wanted(string, QuestHolder): Game.AssertTickThread
@@ -374,6 +376,9 @@ internal static partial class KilnApis
         "M:Kiln.Offers.Remove(Kiln.EntityId)", // Offers.Remove(EntityId): Services.RequireTickThread
         "M:Kiln.Offers.SpawnWithOffer(System.String,Kiln.WorldPosition,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},Kiln.OfferOptions,Kiln.SpawnOptions)", // Offers.SpawnWithOffer(string, WorldPosition, string?, uint, Action<OfferAccepted>, OfferOptions?, SpawnOptions?): Services.RequireTickThread
         "M:Kiln.Offers.TryAdd(Kiln.EntityId,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},System.String@,Kiln.OfferOptions)", // Offers.TryAdd(EntityId, string?, uint, Action<OfferAccepted>, out string, OfferOptions?): Services.RequireTickThread
+        "M:Kiln.Pacing.CapTaskWorkers(Kiln.TaskWorkerCaps)", // Pacing.CapTaskWorkers(TaskWorkerCaps): Game.AssertTickThread
+        "M:Kiln.Pacing.OnLoopWait(Kiln.LoopWaitHandler)", // Pacing.OnLoopWait(LoopWaitHandler): via Pacing.Add(PacingSites, Delegate)
+        "M:Kiln.Pacing.OnServerWait(Kiln.ServerWaitHandler)", // Pacing.OnServerWait(ServerWaitHandler): via Pacing.Add(PacingSites, Delegate)
         "M:Kiln.Permissions.AddPlayerToGroup(System.UInt64,System.String,System.String)", // Permissions.AddPlayerToGroup(ulong, string, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.MapUserGroup(System.String,System.Collections.Generic.IEnumerable{System.String})", // Permissions.MapUserGroup(string, IEnumerable<string>): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.RemoveGroup(System.String)", // Permissions.RemoveGroup(string): via PermissionStore.Edit(Action<PermissionModel>, string)

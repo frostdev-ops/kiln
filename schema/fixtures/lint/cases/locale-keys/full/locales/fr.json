@@ -1,0 +1,8 @@
+{
+  "greeting": "Bonjour {name}",
+  "shop": { "buy": "Acheter", "sell": "Vendre", "close": "Fermer" },
+  "bye": "Au revoir",
+  "count": "{0} objets",
+  "tip": "Un conseil",
+  "extra": "Plus"
+}

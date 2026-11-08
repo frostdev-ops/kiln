@@ -114,7 +114,24 @@ internal static partial class Ops
             ["dependencies"] = new JsonArray([.. m.Dependencies.Select(d => (JsonNode)$"{d.Id} {d.VersionRange}{(d.Optional ? " (optional)" : "")}")]),
             ["preMsPerStep"] = Math.Round(s.PreMsPerStep, 4), ["postMsPerStep"] = Math.Round(s.PostMsPerStep, 4),
             ["maxMs"] = Math.Round(s.MaxMs, 2), ["faults"] = s.Faults, ["lastFault"] = s.LastFaultMessage,
+            ["statusLines"] = StatusLinesOf(m.Id),
         };
+    }
+
+    // What the mod says about itself (StatusLines, Kiln.Ui); null when it says nothing or Kiln.Ui is not there. Its own method so
+    // the mod list does not need the assembly to be jitted.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static JsonArray? StatusLinesOf(string modId)
+    {
+        try
+        {
+            var lines = StatusLines.Lines(modId);
+            return lines.Count == 0 ? null : new JsonArray([.. lines.Select(l => (JsonNode)l)]);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static JsonObject OpResult(ModOperationResult r) => new()

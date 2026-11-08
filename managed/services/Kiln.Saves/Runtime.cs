@@ -35,6 +35,8 @@ internal static unsafe class SavesRuntime
     {
         try
         {
+            // per-world configs (Kiln.Api's WorldConfig) keep their files in this world's sidecar folder, and follow it
+            WorldConfigs.DirectoryProvider = OpenWorldDirectory;
             Ensure();
         }
         catch
@@ -82,6 +84,15 @@ internal static unsafe class SavesRuntime
     }
 
     internal static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, text);
+
+    /// <summary>The sidecar folder of the world that is open (opened now if nothing used it yet, as WorldData does); null
+    /// before a new world's first save, while a hosted world is closed, or without the native service.</summary>
+    private static string? OpenWorldDirectory()
+    {
+        if (!Ensure()) return null;
+        Store.EnsureOpen();
+        return Store.Root;
+    }
 
     private static bool _shutdownAnnounced;
 

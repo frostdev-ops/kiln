@@ -1,0 +1,9 @@
+// English is the language every other falls back to
+{
+  "greeting": "Hello {name}",
+  "shop": { "buy": "Buy", "sell": "Sell", "close": "Close" },
+  "bye": "Goodbye",
+  "count": "{0} items",
+  "tip": "A tip",
+  "extra": "More",
+}

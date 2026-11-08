@@ -1,0 +1,4 @@
+{
+  "greeting": "Hallo {name}",
+  "probe": { "count": "{0} Welten gesehen" }
+}

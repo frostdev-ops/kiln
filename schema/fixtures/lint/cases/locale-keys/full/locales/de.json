@@ -1,0 +1,6 @@
+{
+  "greeting": "Hallo {name}",
+  "shop": { "buy": "Kaufen" },
+  "bye": "Tschuess",
+  "shop.sel": "Verkaufen"
+}

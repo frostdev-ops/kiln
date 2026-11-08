@@ -9,7 +9,7 @@ using Kiln;
 
 namespace SettingsTest;
 
-public sealed class SettingsTestMod : Mod
+public sealed partial class SettingsTestMod : Mod
 {
     private int _pass, _fail;
     private bool _noReset;
@@ -18,6 +18,7 @@ public sealed class SettingsTestMod : Mod
     public override void OnLoad()
     {
         Log.Info($"settings-test: loaded (kiln.settings available: {Settings.Available})");
+        RegisterPlatform();
         _ = RunAsync();
     }
 
@@ -83,6 +84,7 @@ public sealed class SettingsTestMod : Mod
         await SaveRoundTrip(status.ConfigPath);
         await DayNight();
         await ResetAll(all);
+        await Platform();
         if (File.Exists(Path.Combine(Context.DataDirectory, "arm-restart"))) PersistArm(status.ConfigPath);
     }
 

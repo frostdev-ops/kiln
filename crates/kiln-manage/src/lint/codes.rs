@@ -54,6 +54,7 @@ rules! {
     NATIVE_PREFIX = "KL208", "native-prefix", Warning, "a Kiln native named after another mod id";
     CLIENTS_QUESTS = "KL210", "clients-quests", Error, "a quest in the game's own journal needs \"clients\": \"mod\"";
     CLIENTS_VFX = "KL211", "clients-vfx", Error, "a new VFX or material needs \"clients\": \"mod\"";
+    LOCALE_KEY = "KL212", "locale-key", Warning, "a locale file lacks texts the English file has, or has a key English lacks";
 
     // KL3xx: ids, GUIDs and names
     DUPLICATE_GUID = "KL301", "duplicate-guid", Error, "a GUID defined twice in one mod";

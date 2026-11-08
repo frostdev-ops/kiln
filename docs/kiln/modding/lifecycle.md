@@ -101,3 +101,115 @@ type metadata of shared options such as `JsonSerializerOptions.Default`, reflect
 hot-reload `ClearCache` handlers). Without that, a mod serializing its own types with the default options never
 unloads. What a mod must still release itself: threads, timers, sockets, files, static references held by *other*
 (non-mod) code.
+
+## Per-world config (`WorldConfig<T>`)
+Settings that an admin tunes for each world: one file per world, in the world's folder next to `WorldData`
+(Enshwick's per-world `settings.toml`). The class is the same kind as for `Config.Register` (comments, ranges, enums,
+sections; see [config.md](../config.md)).
+```csharp
+public sealed class ShopRules
+{
+    [Comment("Gold a new character starts with, in this world."), Range(0, 100000)]
+    public int StartGold { get; set; } = 50;
+    [RequiresRestart] public int Slots { get; set; } = 4;
+}
+
+public sealed class ShopMod : Mod
+{
+    public override void OnLoad()
+    {
+        var rules = WorldConfig<ShopRules>();           // the same as Config.RegisterWorld<ShopRules>()
+        rules.Changed += e => { if (e.Source == ConfigChangeSource.World) Log.Info($"now {rules.WorldId}: {rules.Value.StartGold} gold"); };
+    }
+}
+```
+- **File:** `kiln/data/worlds/<world id>/config/<mod id>-world.json` (a second one, `WorldConfig<T>("name")`:
+  `<mod id>-<name>-world.json`). Kiln writes it from the class when the world has none. `ConfigFile.FilePath` and `.WorldId`
+  tell which one is open. Saves.Backup does not copy these files; they are settings, not world state.
+- **Values follow the world.** On a dedicated server there is one world and the file is read at `OnLoad`. A game client hosts
+  one world after another: when the next one opens, the old values are put away (its file keeps them), the new world's file
+  (or the defaults, and a new file) takes their place, and `Changed` fires with `Source == ConfigChangeSource.World` for every
+  entry whose value differs. That happens before `WorldLoadedEvent`, so read `rules.Value` there. While no world is open
+  `Value` holds the defaults (in memory; nothing is written).
+- **A new world** has no id until its first save. The config runs on the defaults, `Set` works in memory, and the file is written
+  with the id.
+- **Edits** of the file while the world runs are picked up like any config (file watcher, five-second poll), `Source == File`.
+  `[RequiresRestart]` entries wait for the next time this world opens, as Enshwick's settings do.
+- `[Synced]` entries reach Kiln clients like those of a server config. `Config.All` and `Config.Schema()` (what the dashboard reads) list the
+  config with `perWorld: true` and `world: <id>`. There is no offline schema snapshot for the launcher: the files of a world do not exist before it does.
+- A world's file is not removed when the mod is.
+
+Lab: `mods/tests/settings-test` ran on a lab server (a new world, with no id when the mod loaded): the config bound to the world
+when the game gave it its id, one world closed and another loaded on Kiln.Saves' lab hooks (the order a hosted game runs, as
+`world-switch-test` plays it), the first world's values came back from its file, and an edit of the file applied 3 steps later
+(the watcher works under Wine). Not yet run in a game client: hosting a second world after the first.
+
+## Mod texts (locales)
+A mod ships its strings in `locales/<language>.json` beside `kiln.mod.json`. `Mod.Text` answers in the language of the game.
+```json
+// locales/en.json                      // locales/de.json
+{ "greeting": "Hello {name}",           { "greeting": "Hallo {name}",
+  "shop": { "buy": "Buy ({0} gold)" } }   "shop": { "buy": "Kaufen ({0} Gold)" } }
+```
+```csharp
+Log.Info(Text("greeting", new { name = player.Name }));      // Mod.Text(key, args), on the tick thread or any other
+var german = TextIn("de-de", "shop.buy", 12);                // a language you chose yourself (a player's own setting)
+var l = Context.Locale;                                      // Languages, Keys, Has, TryGet, Missing("de"), Reload()
+```
+- **Files:** one JSON object per language, named by the language tag (`en`, `de`, `pt-BR`, `zh-CN`; case and `_` do not matter).
+  Comments and trailing commas are fine. Values are strings; a nested object makes dotted keys (`shop.buy`).
+- **Placeholders:** `{0}`, `{1}` for positional arguments; `{name}` for a named value (one object such as `new { name = "Ada" }`, or
+  one dictionary); `{count:N0}` for a number format (always the invariant culture, so every server writes numbers alike);
+  `{{` and `}}` for braces. A placeholder without a value stays as written.
+- **Which text:** the file of `Game.Language` (`de-de`), then its main variety (`de`), then English (`en`). A few languages look
+  in a close relative first: `es-mx` tries `es-419`, `nb` and `no` try each other. `ModLocale.LookupOrder("es-mx")` gives the list.
+  A key no file has comes back as the key (so the gap shows on screen) and is logged once.
+- **`Game.Language`:** a dedicated server says `en-us`, always. A game client says the language of the game's texts as
+  kiln.ui reads it from the game (`de-de`, `pt-br`, ... the game's own keys), `en-us` before the game's UI has drawn a frame or
+  when this build cannot tell. It is read when asked, so a player who changes the language sees the new one at the next call.
+  **Not yet seen in a game client** (the client checklist has it).
+- **Translators:** `Context.Locale.Missing("de")` lists the keys English has and German lacks; `kiln lint` says the same
+  ([KL212](lint.md#kl212-locale-key)). A translation can be late: its player reads English meanwhile.
+- A mod's items, talents and other block texts have their own per-language fields (`Texts`); this is for the strings your code shows.
+
+| Other loader | Kiln |
+|---|---|
+| ShroudForge `locales/*.json`, `shroudforge.i18n.get(key)`, `shroudforge.locale()` | `locales/*.json`, `Mod.Text(key, args)`, `Game.Language` |
+| Enshwick `src/texts.toml` (a table per language, `en` fallback), `i18n::language()` | `locales/*.json` (a file per language, `en` fallback), `Game.Language` |
+
+## Status lines (`StatusLines`, in Kiln.Ui)
+What a mod says about itself where an admin or a player looks it up. A toast is gone in seconds and a HUD line is always on
+screen; a status line is read when someone asks (Enshwick's `add_status` and the `enshwick status` summary).
+```csharp
+StatusLines.Add(() => $"{_merged} zones merged, {_seams} seams");   // a source: Kiln calls it only when someone looks
+StatusLines.Set("state", "waiting for the world");                  // or push a text; an empty text removes the line
+```
+- **A source** runs only when the status is read, on whichever thread reads it, as your mod. Keep it quick; read fields or
+  atomics the tick thread wrote; touch no game state. A source that throws shows nothing and is logged once. Several lines are fine
+  (`\n`); empty ones are dropped. A line has an id within your mod: the same id replaces it.
+- **Where it shows:** the **Mods** tab of Kiln's menu on a client (under the table, refreshed a few times a second);
+  `StatusLines.Summary()` as text, `StatusLines.Lines(modId)`, `StatusLines.All()`; `StatusLines.WriteToLog()` for a server's log;
+  `kiln-admin`'s `mods` operation adds a `statusLines` list per mod for the dashboard.
+- Lines go with the mod that added them. The registry works on a dedicated server too: nothing in it draws.
+
+## Pacing (`Pacing`)
+Where the engine waits and how many worker threads it starts (Enshwick's `pacing`): a mod uses them to make the game use less CPU.
+```csharp
+Pacing.OnServerWait((ref long ns) => { if (ns == Pacing.ServerOnlineWaitNs) ns *= 2; });   // fewer passes between steps
+Pacing.OnLoopWait((in LoopWait w) => { /* sleep up to w.LeftNanoseconds when w.Milliseconds == 0 */ });
+if (!Pacing.CapTaskWorkers(TaskWorkerCaps.AtMost(4))) Log.Info("the task workers stay as the game sizes them");
+```
+- **What runs where:** handlers run inside the game's loops, on the thread that waits, as often as it waits: keep them short, take no
+  locks, call no game API, and expect several threads at once for a loop wait. They run in the mods' load order, each on the
+  last one's answer. A handler that throws three times in a row is removed (logged).
+- **Worker caps** apply when the task system starts, which only a dedicated server does after mods load: the call returns false on a
+  client, once the pools have started, and on a build without the place. The lowest cap of each group wins.
+- **Which places exist** is a fact about the game build: `Pacing.Sites` says which Kiln found and hooked (`PacingSites.LoopWait`,
+  `MessageWait`, `ServerWait`, `TaskWorkers`); a handler's `Found` says whether it will be called. **Today `Sites` is `None` on every
+  build**: this release has the registry and the merge rules, and the part that finds the places in the game and hooks them is not
+  written (Enshwick finds them from the strings of the function around them: `"Main_Server"`, `"[task] Worker count: %u/%u/%u"`,
+  `"Unhandled result code %d in MsgWaitForMultipleObjectsEx"`, then a byte shape in it). Until then a Kiln mod's handler registers and never runs; an
+  Enshwick mod hosted by Kiln does the job itself.
+- `set_change` and `change_data` in Enshwick's table are not pacing: they declare changes of vanilla data values (set, times,
+  reset, merged across mods). Kiln's counterpart is the typed fields of `Kiln.Content` and, with the reflected-resource work,
+  reversible overrides; they are not part of `Pacing`.

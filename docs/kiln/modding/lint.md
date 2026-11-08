@@ -420,6 +420,22 @@ kiln.mod.json:7:14: error KL211: this mod has a new VFX but says "clients": "kil
 ```
 Fix: declare `"clients": "mod"` (quick fix), or use one of the game's VFX.
 
+### KL212 locale-key
+Warning (a hint for a stray key). The files of `locales/` (`<language>.json`, the mod's texts for `Mod.Text`, see
+[lifecycle.md](lifecycle.md#mod-texts-locales)) against the English one. A player whose language lacks a key reads
+English for it, so a gap is a warning. Three findings share the code:
+- a translation lacks keys `en.json` has (warning, at the file's first line);
+- a translation has a key `en.json` lacks (hint, at the key; with "did you mean" for a typo);
+- the folder has files but no `en.json` (warning).
+
+A regional file (`pt-BR.json`) beside its main language's (`pt.json`) only has to hold what differs, so keys of `pt.json` count as its own. Files in
+`en-*` are not compared. Nested objects count as dotted keys (`{ "shop": { "buy": "" } }` is `shop.buy`).
+```text
+locales/de.json:1:1: warning KL212: de.json has no text for 5 key(s) that en.json has: shop.sell, shop.close, count, tip, extra; a player in this language reads English for them
+locales/de.json:5:3: hint KL212: "shop.sel": en.json has no such key (a typo, or the English text is missing); did you mean "shop.sell"?
+```
+Fix: add the texts (or leave them to English on purpose and turn the rule off with `--off locale-key`), or correct the key.
+
 ### KL209 manifest-refused
 Error. The real manifest reader refuses the file for a reason the schema cannot express. It is reported only when the
 schema found no error in the file.

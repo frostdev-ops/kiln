@@ -58,6 +58,11 @@ After a reload with changes: `ConfigFile.Changed` (in the context of the mod tha
 `ConfigChangedEvent` on the bus (tick thread; `Changed`, `PendingRestart`, `Source` File/Api). Entries marked
 `[RequiresRestart]` keep their running value: they show in `PendingRestart` and apply at the next load of the mod.
 
+## Per world
+`Config.RegisterWorld<T>()` (or `Mod.WorldConfig<T>()`) keeps one file of the config for each world, in the world's folder beside
+`WorldData`, and the values follow the world that is open: [modding/lifecycle.md](modding/lifecycle.md#per-world-config-worldconfigt).
+The file is a server-kind config (`<modid>-world`); `ConfigFile.PerWorld`, `WorldId`; `ConfigChangeSource.World` when another world replaces the values.
+
 ## Registry (for the dashboard / an in-game menu)
 - `Config.All`, `Config.Find(id)`, `Config.Schema()` (JSON array), `Config.Directory`.
 - `ConfigFile`: `Id`, `ModId`, `Kind`, `FilePath`, `Entries` (path, type, comment, default, value, file value, min,

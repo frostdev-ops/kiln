@@ -90,6 +90,12 @@ public static class Game
     /// <summary>True on the server-world tick thread, where game state may be touched.</summary>
     public static bool IsTickThread => Backend.Current.IsTickThread;
 
+    /// <summary>The language mod texts are shown in, as a lower-case tag: <c>"en-us"</c>, <c>"de-de"</c>, <c>"pt-br"</c>
+    /// (the game's own language keys). A dedicated server always says <c>"en-us"</c>. A game client says the language of the
+    /// game's texts, and <c>"en-us"</c> before the game's UI has built a frame or when this build cannot tell. Any thread.
+    /// <see cref="ModLocale.LookupOrder"/> turns it into the files that are tried.</summary>
+    public static string Language => GameLanguageSource.Current();
+
     /// <summary>Whether a Kiln feature (e.g. <c>"tick"</c>, <c>"log.mirror"</c>) works on this game build.</summary>
     public static bool HasFeature(string name) => Backend.Current.HasFeature(name);
 

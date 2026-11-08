@@ -19,6 +19,9 @@ public enum ConfigChangeSource
     /// <summary>Client side: values of <see cref="SyncedAttribute"/> entries arrived from the server (Kiln.Network's
     /// config sync), or the local values came back after leaving it.</summary>
     Server = 2,
+    /// <summary>A per-world config (<see cref="Config.RegisterWorld{T}"/>): the world changed, so the values of the new
+    /// world's file (or the defaults) replaced the old world's.</summary>
+    World = 3,
 }
 
 /// <summary>A config's values changed while the server runs (not raised for the first load). Posted on the tick
@@ -83,7 +86,7 @@ public abstract class ConfigFile
     internal (long Ticks, long Length) Stamp;
     internal readonly ModContext? Owner;
 
-    private protected ConfigFile(ModContext? owner, string id, ConfigKind kind, Type type, object value)
+    private protected ConfigFile(ModContext? owner, string id, ConfigKind kind, Type type, object value, bool perWorld = false)
     {
         Owner = owner;
         Id = id;
@@ -91,7 +94,8 @@ public abstract class ConfigFile
         Kind = kind;
         Type = type;
         ValueObject = value;
-        FilePath = System.IO.Path.Combine(KilnPaths.Config, id + ".json");
+        PerWorld = perWorld;
+        FilePath = perWorld ? "" : System.IO.Path.Combine(KilnPaths.Config, id + ".json");
         var defaults = Activator.CreateInstance(type)!;
         _nodes = ConfigSchema.Build(type, defaults);
         Collect(_nodes, []);
@@ -121,8 +125,20 @@ public abstract class ConfigFile
     /// <summary>The config class.</summary>
     public Type Type { get; }
 
-    /// <summary>Full path of the JSONC file.</summary>
-    public string FilePath { get; }
+    /// <summary>Full path of the JSONC file. A per-world config (<see cref="PerWorld"/>) has the file of the world that
+    /// is open now, and an empty path while no world is (its values are the defaults, in memory only).</summary>
+    public string FilePath { get; internal set; }
+
+    /// <summary>The config belongs to a world (<see cref="Config.RegisterWorld{T}"/>): its file lies in the world's
+    /// sidecar folder beside <c>WorldData</c> (<c>kiln/data/worlds/&lt;world id&gt;/config/&lt;id&gt;.json</c>) and its values
+    /// follow the world that is open.</summary>
+    public bool PerWorld { get; }
+
+    /// <summary>Per-world configs: the id of the world whose file is loaded, or null (no world open yet).</summary>
+    public string? WorldId => WorldDirectory is { } d ? System.IO.Path.GetFileName(d) : null;
+
+    /// <summary>Per-world configs: the world's sidecar folder, or null.</summary>
+    internal string? WorldDirectory { get; private set; }
 
     /// <summary>The live config object (the mod's <c>Value</c>).</summary>
     internal object ValueObject { get; }
@@ -282,6 +298,8 @@ public abstract class ConfigFile
             ["mod"] = ModId,
             ["kind"] = Kind.ToString().ToLowerInvariant(),
             ["file"] = FilePath,
+            ["perWorld"] = PerWorld,
+            ["world"] = WorldId,
             ["loadedAt"] = LoadedAt?.ToString("O"),
             ["error"] = LastError,
             ["warnings"] = new JsonArray([.. Warnings.Select(w => (JsonNode)w)]),
@@ -431,6 +449,7 @@ public abstract class ConfigFile
     /// <summary>Reads (or creates) the file, applies its values, rewrites it in canonical form when needed.</summary>
     internal void Load(bool initial)
     {
+        if (FilePath.Length == 0) return;  // a per-world config while no world is open: the defaults, in memory
         string text;
         try
         {
@@ -551,7 +570,9 @@ public abstract class ConfigFile
     private string Generate()
     {
         var sb = new StringBuilder();
-        sb.Append($"// {Id}: {Kind.ToString().ToLowerInvariant()} config of mod \"{ModId}\", written by Kiln from the mod's schema.\n");
+        sb.Append(PerWorld
+            ? $"// {Id}: config of mod \"{ModId}\" for the world {WorldId}, written by Kiln from the mod's schema. Every world has its own.\n"
+            : $"// {Id}: {Kind.ToString().ToLowerInvariant()} config of mod \"{ModId}\", written by Kiln from the mod's schema.\n");
         sb.Append("// Edit and save while the server runs: Kiln reloads it. Entries marked \"Requires a restart\" apply after the\n");
         sb.Append("// mod reloads. Values outside a range are clamped; keys the mod does not know are kept.\n");
         sb.Append("{\n");
@@ -562,10 +583,11 @@ public abstract class ConfigFile
 
     private void Write(string? text = null)
     {
+        if (FilePath.Length == 0) return;  // per-world, no world open
         text ??= Generate();
         try
         {
-            Directory.CreateDirectory(KilnPaths.Config);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(FilePath)!);
             var tmp = FilePath + ".tmp";
             File.WriteAllText(tmp, text, new UTF8Encoding(false));
             File.Move(tmp, FilePath, overwrite: true);
@@ -580,6 +602,7 @@ public abstract class ConfigFile
 
     internal (long, long) ReadStamp()
     {
+        if (FilePath.Length == 0) return (0, 0);
         try
         {
             var fi = new FileInfo(FilePath);
@@ -602,6 +625,51 @@ public abstract class ConfigFile
         lock (_handlers) handlers = _handlers.ToArray();
         foreach (var h in handlers) ModInvoke.Run(h.Owner, () => h.Handler(ev), $"config {Id} Changed handler");
         if (Events.HasSubscribers<ConfigChangedEvent>()) Events.Post(ev);
+    }
+
+    // ---------------------------------------------------------------------------------------- per-world -----------
+    // A per-world config (WorldConfig.cs): the file lies in the open world's sidecar folder, and a world switch (a game
+    // client hosts one world after another) moves the values with it: the old world's values are left in its file, the new
+    // world's file (or the defaults) is read in their place.
+
+    /// <summary>Makes <paramref name="worldDirectory"/> (the world's sidecar folder; null: no world is open) the
+    /// folder of this config's file. Leaving a world puts the defaults back first, so nothing of the old world is kept;
+    /// a new world without a file gets one written from the defaults. Raises <see cref="Changed"/> with
+    /// <see cref="ConfigChangeSource.World"/> for every entry whose value differs afterwards. Tick thread.</summary>
+    internal void BindWorld(string? worldDirectory)
+    {
+        if (!PerWorld || string.Equals(worldDirectory, WorldDirectory, StringComparison.Ordinal)) return;
+        var before = _values.ToDictionary(v => v.Node.Path, v => ConfigSchema.Copy(v.Node, v.Node.Get(Holder(v.Chain))), StringComparer.OrdinalIgnoreCase);
+        var leaving = WorldDirectory is not null;
+        var from = WorldId;
+        WorldDirectory = worldDirectory;
+        if (leaving) ResetToDefaults();
+        FilePath = worldDirectory is null ? "" : System.IO.Path.Combine(worldDirectory, "config", Id + ".json");
+        _lastText = _lastBadText = null;
+        Stamp = default;
+        LastError = null;
+        Warnings = [];
+        if (worldDirectory is not null) Load(initial: true);  // reads the file, or writes it from the running values
+        var changed = new List<string>();
+        foreach (var (node, chain) in _values)
+            if (!ConfigSchema.ValueEquals(before[node.Path], node.Get(Holder(chain)))) changed.Add(node.Path);
+        Log(LogLevel.Info, worldDirectory is null
+            ? $"config {Id}: no world open; the defaults apply{(changed.Count > 0 ? $" ({string.Join(", ", changed)})" : "")}"
+            : $"config {Id}: world {WorldId}: {(changed.Count == 0 ? "no values differ from before" : string.Join(", ", changed.Select(p => $"{p} = {FormatPath(p)}")))} ({FilePath})" +
+              (from is not null ? $" (was world {from})" : ""));
+        Raise(changed, [], ConfigChangeSource.World);
+    }
+
+    private void ResetToDefaults()
+    {
+        _unknown = new Dictionary<string, List<(string Key, string Raw)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (node, chain) in _values)
+        {
+            var def = ConfigSchema.Copy(node, node.Default);
+            _file[node.Path] = def;
+            if (_server.ContainsKey(node.Path)) continue;  // the server's value runs while connected
+            node.Set(Holder(chain), ConfigSchema.Copy(node, def));
+        }
     }
 
     // ---------------------------------------------------------------------------------------- config sync -------
@@ -743,7 +811,7 @@ public sealed class ModConfig<T> : ConfigFile where T : class, new()
 /// Kiln notices file edits within a step or two (file watcher), with a safety poll every five seconds, or every
 /// second when the watcher could not start. Reloads run on the service tick, so wait while it is paused.
 /// </remarks>
-public static class Config
+public static partial class Config
 {
     private static readonly object Lock = new();
     private static readonly List<ConfigFile> Files = new();
@@ -856,6 +924,7 @@ public static class Config
             _watcher?.Dispose();
             _watcher = null;
         }
+        WorldConfigs.Reset();
     }
 
     /// <summary>One check of every file (on watcher signals or the fallback interval). Tests call it.</summary>

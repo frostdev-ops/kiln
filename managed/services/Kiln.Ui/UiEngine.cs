@@ -630,6 +630,7 @@ internal static unsafe class UiEngine
             }
             ui.EndTable();
         }
+        StatusSection(ui);
         if (_configOpen is { } open)
         {
             ui.Separator($"Config: {open}");
@@ -640,6 +641,20 @@ internal static unsafe class UiEngine
         else if (pages.Length == 0)
         {
             ui.TextDisabled("Mods add config pages with Ui.AddConfigPage (the config registry's editor plugs in here).");
+        }
+    }
+
+    /// <summary>What mods say about themselves (<see cref="StatusLines"/>); their sources run here, a few times a second.</summary>
+    private static void StatusSection(UiDraw ui)
+    {
+        IReadOnlyList<ModStatus> status;
+        try { status = StatusLines.Snapshot(TimeSpan.FromMilliseconds(500)); }
+        catch (Exception) { return; }
+        if (status.Count == 0 || !ui.CollapsingHeader($"Status ({status.Count})", true)) return;
+        foreach (var m in status)
+        {
+            ui.TextDisabled(m.Name == m.ModId ? m.ModId : $"{m.Name} ({m.ModId})");
+            foreach (var line in m.Lines) ui.TextWrapped("  " + line);
         }
     }
 

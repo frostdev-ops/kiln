@@ -1,0 +1,37 @@
+{
+  "description": "A mod's locales/: a translation that lacks keys English has (a warning), a key English lacks with a typo suggestion (a hint), a regional file that only holds what differs from its main language's (clean), a folder without en.json. Files in en-* are not compared.",
+  "diagnostics": [
+    {
+      "code": "KL212",
+      "col": 1,
+      "file": "full/locales/de.json",
+      "line": 1,
+      "message": "de.json has no text for 5 key(s) that en.json has: shop.sell, shop.close, count, tip, extra; a player in this language reads English for them",
+      "severity": "warning"
+    },
+    {
+      "code": "KL212",
+      "col": 3,
+      "file": "full/locales/de.json",
+      "line": 5,
+      "message": "\"shop.sel\": en.json has no such key (a typo, or the English text is missing); did you mean \"shop.sell\"?",
+      "severity": "hint"
+    },
+    {
+      "code": "KL212",
+      "col": 1,
+      "file": "noenglish/locales/de.json",
+      "line": 1,
+      "message": "this mod's locales/ has no en.json: a language without a text of its own falls back to English, so without it a player sees the key itself",
+      "severity": "warning"
+    },
+    {
+      "code": "KL212",
+      "col": 1,
+      "file": "regional/locales/zh_CN.json",
+      "line": 1,
+      "message": "zh-cn.json has no text for 2 key(s) that en.json has: b, c; a player in this language reads English for them",
+      "severity": "warning"
+    }
+  ]
+}

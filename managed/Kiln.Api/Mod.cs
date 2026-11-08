@@ -21,6 +21,40 @@ public abstract class Mod
     /// <summary>Shortcut for <c>Context.Log</c>.</summary>
     protected Logger Log => Context.Log;
 
+    /// <summary>A text of the mod, in the game's language (<see cref="Game.Language"/>): <c>Text("shop.buy")</c>,
+    /// <c>Text("shop.price", 12)</c> for <c>{0}</c>, <c>Text("welcome", new { name = "Ada" })</c> for <c>{name}</c>. The
+    /// strings are the mod's <c>locales/&lt;language&gt;.json</c> files; a language without the key uses its main variety and
+    /// then English, and a key no file has comes back as the key. Shortcut for <c>Context.Locale.Get</c>. Any thread.</summary>
+    protected string Text(string key, params object?[] args) => Context.Locale.Get(key, args);
+
+    /// <summary>Like <see cref="Text"/> in another language (e.g. one a player chose in your own settings).</summary>
+    protected string TextIn(string language, string key, params object?[] args) => Context.Locale.GetIn(language, key, args);
+
+    private Dictionary<(Type, string?), ConfigFile>? _worldConfigs;
+
+    /// <summary>The mod's settings for the world that is open: <c>WorldConfig&lt;MySettings&gt;().Value.Difficulty</c>.
+    /// Registers them on the first call (see <see cref="Config.RegisterWorld{T}"/>) and gives the same object afterwards. Tick
+    /// thread.</summary>
+    /// <param name="name">For a second per-world config of the mod.</param>
+    [TickThreadOnly]
+    protected WorldConfig<T> WorldConfig<T>(string? name = null) where T : class, new()
+    {
+        _worldConfigs ??= new();
+        if (_worldConfigs.TryGetValue((typeof(T), name), out var have)) return (WorldConfig<T>)have;
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = Context;
+        try
+        {
+            var cfg = Config.RegisterWorld<T>(name);
+            _worldConfigs[(typeof(T), name)] = cfg;
+            return cfg;
+        }
+        finally
+        {
+            ModContext.CurrentMod = previous;
+        }
+    }
+
     /// <summary>Called once after the mod is loaded.</summary>
     public virtual void OnLoad() { }
 
@@ -91,6 +125,11 @@ public sealed class ModContext
 
     /// <summary>Per-mod persistent directory (<c>kiln/data/&lt;id&gt;</c>), created on first use.</summary>
     public string DataDirectory { get; }
+
+    private ModLocale? _locale;
+
+    /// <summary>The mod's strings from <c>locales/&lt;language&gt;.json</c> (see <see cref="Mod.Text"/>).</summary>
+    public ModLocale Locale => _locale ??= ModLocale.Of(this);
 
     internal bool Alive { get; private set; } = true;
 

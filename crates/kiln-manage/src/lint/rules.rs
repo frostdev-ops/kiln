@@ -151,6 +151,7 @@ pub(crate) fn run(l: &mut Linter) {
         surfaces(&mut out, m);
         quests_native(&mut out, m);
         licences(&mut out, m);
+        locale_keys(&mut out, &mut l.texts, m);
     }
     for f in &l.loose {
         let alone = LMod::empty();
@@ -493,6 +494,97 @@ impl Code {
         }
         let w: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
         self.assemblies.iter().any(|a| a.windows(w.len()).any(|x| x == w.as_slice()))
+    }
+}
+
+// ------------------------------------------------------------------------------------------------- locales ----
+
+/// The dotted keys of a locale file: `{ "shop": { "buy": "Buy" } }` is `shop.buy` (Kiln.Api's `ModLocale` flattens it the same way). Strings, numbers and
+/// booleans are texts; anything else is not a text and ModLocale ignores it.
+fn locale_flatten(members: &[super::json::Member], prefix: &str, keys: &mut Vec<(String, Span)>) {
+    for mem in members {
+        let key = if prefix.is_empty() { mem.key.clone() } else { format!("{prefix}.{}", mem.key) };
+        match &mem.value.value {
+            super::json::Value::Object(inner) => locale_flatten(inner, &key, keys),
+            super::json::Value::String(_) | super::json::Value::Number(..) | super::json::Value::Bool(_) => keys.push((key, mem.key_span)),
+            _ => {}
+        }
+    }
+}
+
+/// KL212 over one mod: the files of `locales/` (`<language>.json`, a mod's texts for `Mod.Text`) against the English one. A player whose language lacks a key
+/// reads English for it, so a gap is a warning: a translation can be late, but it should be known. A key only a translation has is a hint (a typo, or the English
+/// file forgot it). A regional file (`pt-BR.json`) that sits beside its main language's (`pt.json`) only has to hold what differs: its gaps are the main file's too.
+fn locale_keys(out: &mut Out, texts: &mut HashMap<String, Vec<u8>>, m: &LMod) {
+    let Ok(rd) = std::fs::read_dir(m.root.join("locales")) else { return };
+    let mut paths: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("json"))).collect();
+    paths.sort();
+    struct Loc {
+        tag: String,
+        display: String,
+        root: Span,
+        keys: Vec<(String, Span)>,
+    }
+    let mut locs: Vec<Loc> = vec![];
+    for p in paths {
+        let tag = p.file_stem().map(|s| s.to_string_lossy().to_lowercase().replace('_', "-")).unwrap_or_default();
+        let Ok(bytes) = std::fs::read(&p) else { continue };
+        let d = display(&p);
+        texts.insert(d.clone(), bytes.clone());
+        let Ok(text) = std::str::from_utf8(&bytes) else {
+            out.push(Diagnostic::new(&d, codes::NOT_UTF8, Span::new(0, 1), "not valid UTF-8 (Kiln's readers take UTF-8)"));
+            continue;
+        };
+        let parsed = super::json::parse(&d, text, 0, super::json::Dialect::JSONC);
+        for x in parsed.diagnostics {
+            out.push(x);
+        }
+        let Some(root) = parsed.root else { continue };
+        let Some(members) = root.as_object() else {
+            out.push(Diagnostic::new(&d, codes::TYPE, root.span, "a locale file holds one { ... } object of texts"));
+            continue;
+        };
+        let mut keys = vec![];
+        locale_flatten(members, "", &mut keys);
+        locs.push(Loc { tag, display: d, root: Span::new(root.span.start, root.span.start + 1), keys });
+    }
+    if locs.is_empty() {
+        return;
+    }
+    let english = locs.iter().find(|l| l.tag == "en").or_else(|| locs.iter().find(|l| l.tag == "en-us"));
+    let Some(english) = english else {
+        let first = &locs[0];
+        out.push(Diagnostic::new(&first.display, codes::LOCALE_KEY, first.root, "this mod's locales/ has no en.json: a language without a text of its own falls back to English, so without it a player sees the key itself"));
+        return;
+    };
+    let eng: HashSet<&str> = english.keys.iter().map(|(k, _)| k.as_str()).collect();
+    let eng_list: Vec<&str> = english.keys.iter().map(|(k, _)| k.as_str()).collect();
+    for l in locs.iter().filter(|l| !std::ptr::eq(*l, english) && l.tag != "en" && !l.tag.starts_with("en-")) {
+        // what this language has: its own keys, and its main language's file when it is a regional one
+        let mut have: HashSet<&str> = l.keys.iter().map(|(k, _)| k.as_str()).collect();
+        if let Some((primary, _)) = l.tag.split_once('-')
+            && let Some(main) = locs.iter().find(|x| x.tag == primary)
+        {
+            have.extend(main.keys.iter().map(|(k, _)| k.as_str()));
+        }
+        let missing: Vec<&str> = eng_list.iter().copied().filter(|k| !have.contains(k)).collect();
+        if !missing.is_empty() {
+            let shown: Vec<&str> = missing.iter().copied().take(5).collect();
+            let more = if missing.len() > 5 { format!(" and {} more", missing.len() - 5) } else { String::new() };
+            out.push(Diagnostic::new(
+                &l.display,
+                codes::LOCALE_KEY,
+                l.root,
+                &format!("{}.json has no text for {} key(s) that en.json has: {}{more}; a player in this language reads English for {}", l.tag, missing.len(), shown.join(", "), if missing.len() == 1 { "it" } else { "them" }),
+            ));
+        }
+        for (key, span) in l.keys.iter().filter(|(k, _)| !eng.contains(k.as_str())) {
+            let mut d = Diagnostic::new(&l.display, codes::LOCALE_KEY, *span, &format!("\"{key}\": en.json has no such key (a typo, or the English text is missing)")).severity(Severity::Hint);
+            if let Some(sug) = suggest::best(key, &eng_list) {
+                d.message.push_str(&format!("; did you mean \"{sug}\"?"));
+            }
+            out.push(d);
+        }
     }
 }
 

@@ -78,6 +78,7 @@ internal sealed unsafe class WorldStore
         Directory.CreateDirectory(Path.Combine(Root, "manifests"));
         Directory.CreateDirectory(Path.Combine(Root, "blobs"));
         Load(revision, unix);
+        WorldConfigs.Announce(Root);
     }
 
     /// <summary>The game's own load finished. Normally the same world/revision Kiln opened at first use.</summary>
@@ -119,6 +120,7 @@ internal sealed unsafe class WorldStore
         Directory.CreateDirectory(Path.Combine(Root, "manifests"));
         Directory.CreateDirectory(Path.Combine(Root, "blobs"));
         SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: world id {id} (new world); mod data goes to {Root}");
+        WorldConfigs.Announce(Root);
     }
 
     /// <summary>A hosted world closed after its shutdown save. A process hosts one world after another, and the next one starts about
@@ -136,6 +138,7 @@ internal sealed unsafe class WorldStore
         _loadedRevision = _loadedUnix = 0;
         _opened = false;
         _closed = true;
+        WorldConfigs.Announce(null);
     }
 
     private void DetachAll()

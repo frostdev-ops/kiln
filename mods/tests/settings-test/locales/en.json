@@ -1,0 +1,6 @@
+// the mod's English texts (settings-test checks Mod.Text under the real host)
+{
+  "greeting": "Hello {name}",
+  "probe": { "count": "{0} worlds seen" },
+  "only.en": "English only"
+}
