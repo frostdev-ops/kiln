@@ -26,8 +26,9 @@ check("Systems.list search", #Systems.list("stamina") > 0)
 local ticks, healed, profiled, observed = 0, false, false, 0
 Observe("EntityDiedEvent", function(e) observed = observed + 1 end)
 
--- Events: post through the game's own queue, observe it after the next step. TestEvent1 is registered but a server
--- world has no stream for it; DebugEnemyProjectileEvent has one, and nothing on a server acts on it (debug drawing).
+-- Events: post through the game's own queue, observe it after the next step. TestEvent1 (4 bytes) is refused by
+-- kiln.types on a server: its stream's stride is not the 8-byte-padded size Kiln expects. DebugEnemyProjectileEvent
+-- (80 bytes) passes that check; it is a debug-drawing event.
 local posted, seen = false, nil
 Observe("DebugEnemyProjectileEvent", function(e) seen = e.targetPosition.z end)
 

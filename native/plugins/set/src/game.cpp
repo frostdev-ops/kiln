@@ -392,10 +392,12 @@ std::vector<uint32_t> ecs::allWith(uintptr_t w, const int* idx, size_t n) {
 }
 uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
 int ecs::eventIndex(uintptr_t world, uint32_t typeHash) {
-    // kiln.types checks the world's map on every call; any non-negative value means "has a stream".
-    if (!T || !world) return -1;
+    // kiln.types checks the world's map on every call; any non-negative value means "has a stream", a negative one is
+    // the KilnResult negated (KILN_ERR_NOT_FOUND: no stream, WRONG_THREAD, UNAVAILABLE, INVALID_ARGUMENT: layout).
+    if (!T || !world) return -int(KILN_ERR_UNAVAILABLE);
     struct Probe { static void KILN_CALL none(const void*, uint32_t, void*) {} };
-    return T->event_each(world, typeHash, &Probe::none, nullptr) == KILN_OK ? 0 : -1;
+    const KilnResult r = T->event_each(world, typeHash, &Probe::none, nullptr);
+    return r == KILN_OK ? 0 : -int(r);
 }
 void ecs::forEachEvent(uintptr_t world, int, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn) {
     if (!T || !world) return;

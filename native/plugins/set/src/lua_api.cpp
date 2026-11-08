@@ -1715,7 +1715,16 @@ int eventsPost(lua_State* L) {
     if (t.size() >= 0x100) return luaL_error(L, "%s is too big to post", qname(t).c_str());
     needGame(L);
     needWorld(L);
-    if (!gWorld || ecs::eventIndex(gWorld, t.hash()) < 0) return luaL_error(L, "this world has no %s stream", qname(t).c_str());
+    if (!gWorld) return luaL_error(L, "no world to post %s to", qname(t).c_str());
+    switch (int idx = ecs::eventIndex(gWorld, t.hash()); idx < 0 ? KilnResult(-idx) : KILN_OK) {
+        case KILN_OK: break;
+        case KILN_ERR_NOT_FOUND: return luaL_error(L, "this world has no %s stream", qname(t).c_str());
+        case KILN_ERR_WRONG_THREAD: return luaL_error(L, "Events.post: not on the world's tick thread");
+        case KILN_ERR_UNAVAILABLE: return luaL_error(L, "events are unavailable on this game build");
+        case KILN_ERR_INVALID_ARGUMENT:
+            return luaL_error(L, "%s: refused (not a known world, or its stream does not match the reflected size)", qname(t).c_str());
+        default: return luaL_error(L, "%s: events failed (error %d)", qname(t).c_str(), -idx);
+    }
     uint8_t scratch[0x100] = {};
     Ref r{0, -1, 0, t.size(), t.p, scratch, gGen, true};
     refl::Field ts;
