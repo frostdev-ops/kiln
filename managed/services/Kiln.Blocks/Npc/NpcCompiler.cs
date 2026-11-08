@@ -440,6 +440,9 @@ internal static class NpcCompiler
             if (!own && attacks.Any(a => a.Block.Sequence == null)) ctx.Need(ClientsLevel.Kiln, "behaviour.attacks", "an attack of its own is a new sequence: Kiln clients get it from the server");
         }
 
+        // what it drops when it dies: Kiln rolls the table where the death is reported (Items/LootTables.cs)
+        var drops = c.Drops is { } dropsRef ? Compiler.LootPlanOf(ctx, low, dropsRef, "drops") : null;
+
         // the variant every creature of the block is, and where it turns up by itself
         var variant = Variant(ctx, c, info, body, ai, bh, own, moves);
         low.Json["creature"] = new JsonObject
@@ -450,6 +453,7 @@ internal static class NpcCompiler
             ["variantValues"] = JsonSerializer.SerializeToNode(new { variant.Level, Faction = variant.Faction?.ToString(), variant.Scale, variant.DamageFactor, variant.XpFactor,
                 Disable = variant.DisableFeatures.ToString(), Ai = new SortedDictionary<string, string>(variant.Ai) }),
         };
+        if (drops != null) ((JsonObject)low.Json["creature"]!)["drops"] = drops.ToJson();
         var spawns = c.Spawns ?? [];
         foreach (var (s, i) in spawns.Select((s, i) => (s, i)))
         {
@@ -467,6 +471,7 @@ internal static class NpcCompiler
         low.AfterCommit(() =>
         {
             NpcRuntime.Register(info);
+            LootRuntime.Register(info.Variant, $"{ctx.Mod.Id}:{name}", drops);
             AiRuntime.Attach(info, ai);   // npcai: relations, sense filter (Ai/AiRuntime.cs)
             NpcServerSide.Post(ctx.Mod, ctx.Block, () => Register(ctx, info, variant, spawns));
         });

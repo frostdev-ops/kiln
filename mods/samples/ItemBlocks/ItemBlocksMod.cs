@@ -159,7 +159,7 @@ public sealed class ItemBlocksMod : Mod
             Loot = new LootBlock
             {
                 Like = GameItems.Material_T1_Metal_Scraps, StackMin = 1, StackMax = 2,
-                Tables = [new LootTableBlock { DropsLike = GameItems.Material_T1_Metal_Scraps, CountMin = 1, CountMax = 2, Chance = 0.25 }],
+                Tables = [new DropPlace { DropsLike = GameItems.Material_T1_Metal_Scraps, CountMin = 1, CountMax = 2, Chance = 0.25 }],
             },
         });
     }

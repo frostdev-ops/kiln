@@ -1,0 +1,1 @@
+{ "id": "fixture-blocks-loot", "version": "1.0.0", "apiVersion": "0.2", "side": "server", "clients": "kiln", "license": "MIT", "entryAssembly": "FixtureBlocksLoot.dll" }

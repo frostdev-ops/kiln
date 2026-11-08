@@ -1,0 +1,28 @@
+{
+  // The sample's C# in data: each block here lowers to what the C# one with the name before "-json" does (mods/tests/blocks-loot-test).
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "items": {
+    "ember-shard-json": { "name": "Ember Shard", "description": "Still warm.", "stack": 100 }
+  },
+  "lootTables": {
+    "ember-cache-json": {
+      "entries": [
+        { "item": "ember-shard-json", "countMin": 2, "countMax": 4 },
+        { "item": "Material_T1_Metal_Scraps", "countMin": 1, "countMax": 3, "chance": 0.5 }
+      ]
+    },
+    "scrap-salvage-json": {
+      "rolls": 3, "pick": "one",
+      "entries": [ { "item": "Material_T1_Twigs", "countMin": 2, "weight": 3 }, { "item": "Material_T1_Wood_Logs", "weight": 1 } ]
+    }
+  },
+  "creatures": {
+    "ember-scavenger-json": { "name": "Ember Scavenger", "body": "vukah", "stats": { "level": 6 }, "drops": "ember-cache-json" },
+    "log-carrier-json": { "name": "Log Carrier", "body": "vukah", "drops": { "entries": [ { "item": "Material_T1_Wood_Logs", "countMin": 5 } ] } }
+  },
+  "recipes": {
+    "ember-charcoal-json": { "output": "Material_T1_Charcoal", "makes": 2, "station": "0x4da88f73", "needs": { "ember-shard-json": 2, "Material_T1_Wood_Logs": 1 } },
+    "shard-from-twigs-json": { "output": "ember-shard-json", "station": "0x4da88f73", "needs": { "Material_T1_Twigs": 3 } }
+  }
+}

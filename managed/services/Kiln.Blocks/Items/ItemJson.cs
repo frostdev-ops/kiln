@@ -13,6 +13,7 @@ internal static class ItemJson
         ("looks", BlockJson.Make<VisualBlock>), ("weaponStats", BlockJson.Make<WeaponStats>), ("armorStats", BlockJson.Make<ArmorStats>),
         ("weaponClasses", BlockJson.Make<WeaponClass>), ("armorSlots", BlockJson.Make<ArmorSlot>), ("armorSets", BlockJson.Make<ArmorSet>), ("onHits", BlockJson.Make<OnHitBlock>),
         ("props", BlockJson.Make<PropBlock>), ("placements", BlockJson.Make<PlacementBlock>), ("comforts", BlockJson.Make<ComfortBlock>), ("processing", BlockJson.Make<ProcessingBlock>), ("menus", BlockJson.Make<MenuBlock>),
+        ("lootTables", BlockJson.Make<LootTableBlock>), ("recipes", BlockJson.Make<RecipeBlock>),
     ];
 }
 

@@ -161,7 +161,9 @@
     "interactions": {"type": "object", "description": "Parts: what happens when a player uses a placed thing. Use one by name in onInteract.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/interaction"}},
     "blueprints": {"type": "object", "description": "New shapes for the game's building materials, half a metre a cell: a table each game merges at its start, so needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/blueprint"}},
     "hair": {"type": "object", "description": "Hair styles: worn looks on the head. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/hair"}},
-    "beards": {"type": "object", "description": "Beards: worn looks on the jaw. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/beard"}}
+    "beards": {"type": "object", "description": "Beards: worn looks on the jaw. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/beard"}},
+    "lootTables": {"type": "object", "description": "Tables of what drops, rolled by Kiln: a creature's drops name one, and so does code (LootTableHandle.Roll/Drop/Give). Server only.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/lootTable"}},
+    "recipes": {"type": "object", "description": "Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"allOf": [{"$ref": "#/$defs/recipe"}, {"required": ["output"]}]}}
   },
   "additionalProperties": false,
   "$defs": {
@@ -642,7 +644,7 @@
           "additionalProperties": { "type": "integer", "minimum": 1 }
         },
         "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds at a station that works on its own. Needed at one with a workshop of its own." },
-        "output": { "$ref": "#/$defs/itemRef", "description": "What it makes, in a station's list of recipes. Elsewhere a recipe makes the block it is on." },
+        "output": { "$ref": "#/$defs/itemRef", "description": "What it makes: in a station's list of recipes, and in a recipes block of its own, where it is needed. Elsewhere a recipe makes the block it is on." },
         "sheltered": { "type": "boolean", "description": "A player crafts it only under a roof. A station that works on its own never checks a roof, so its recipes refuse it." },
         "comfort": { "type": "integer", "minimum": 0, "description": "The comfort level it asks of whoever makes it." }
       },
@@ -702,9 +704,9 @@
       "items": { "type": ["string", "null"] },
       "description": "Enhancement slots, from the first: a game perk's name or GUID, item:<name> (that item's perk in the same slot), \"none\", or null to keep the slot's. The game's rule applies: a perk runs once its slot is unlocked."
     },
-    "lootTable": {
+    "dropPlace": {
       "type": "object",
-      "description": "A place in the drop tables: table or dropsLike, one of them.",
+      "description": "A place in the game's drop tables: table or dropsLike, one of them.",
       "properties": {
         "table": { "type": "string", "description": "A table's GUID or a glob over GUIDs." },
         "dropsLike": { "$ref": "#/$defs/itemRef", "description": "Every table that drops this item, next to it." },
@@ -722,8 +724,32 @@
         "like": { "$ref": "#/$defs/itemRef", "description": "It is rolled in chests and world pickups where this item is, with its chances." },
         "stackMin": { "type": "integer", "minimum": 1 },
         "stackMax": { "type": "integer", "minimum": 1 },
-        "tables": { "type": "array", "items": { "$ref": "#/$defs/lootTable" }, "description": "Drop tables: what enemies and fixed chests hold." },
+        "tables": { "type": "array", "items": { "$ref": "#/$defs/dropPlace" }, "description": "The game's own drop tables it goes into: what enemies and fixed chests hold. A table of your own is a lootTables block." },
         "rolled": { "type": "boolean", "description": "Gear only: a roll gives it a level and rarity of its own. The opposite of the crafted-item rule, so it refuses a recipe (KL406)." }
+      },
+      "additionalProperties": false
+    },
+    "lootEntry": {
+      "type": "object",
+      "required": ["item"],
+      "description": "One stack a table can give.",
+      "properties": {
+        "item": { "$ref": "#/$defs/itemRef" },
+        "countMin": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many, at least (default 1)." },
+        "countMax": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "How many, at most. Left out: the same as countMin." },
+        "chance": { "type": "number", "minimum": 0, "maximum": 1, "description": "How often it gives anything when it comes up (default 1). With pick \"one\", after it was picked." },
+        "weight": { "type": "number", "minimum": 0, "description": "With pick \"one\": how likely it is the one picked, among the table's (default 1)." }
+      },
+      "additionalProperties": false
+    },
+    "lootTable": {
+      "type": "object",
+      "required": ["entries"],
+      "description": "A table of what drops. Kiln rolls it on the server, apart from the game's own loot: it needs no clients of its own.",
+      "properties": {
+        "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lootEntry" }, "description": "What can come up." },
+        "rolls": { "type": "integer", "minimum": 1, "maximum": 64, "description": "How many times the table rolls (default 1). What comes up is added together per item." },
+        "pick": { "enum": ["each", "one"], "description": "What one roll does: \"each\" (the default) tries every entry's chance; \"one\" picks one entry by weight, then its chance." }
       },
       "additionalProperties": false
     },
@@ -1470,7 +1496,8 @@
         "ai": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/ai" } ] },
         "behaviour": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/behaviour" } ] },
         "stats": { "$ref": "#/$defs/creatureStats" },
-        "spawns": { "type": "array", "items": { "$ref": "#/$defs/creatureSpawn" } }
+        "spawns": { "type": "array", "items": { "$ref": "#/$defs/creatureSpawn" } },
+        "drops": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/lootTable" } ], "description": "What it drops when it dies, besides what the game gives it: a lootTables block by name, or a table written here. Kiln rolls it where the death is reported." }
       }
     },
     "npc": {

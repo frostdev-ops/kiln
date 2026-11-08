@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "effects": { "burst": { "heal": 1 } },
+  "items": { "shard": { "name": "Shard", "stack": 100 } },
+  "stations": { "bench": { "name": "Bench", "kind": "workbench" } },
+  "lootTables": {
+    "pile": { "rolls": 2, "entries": [ { "item": "shard", "countMin": 2 }, { "item": "Weapon_Fixture_Sword", "chance": 0.5 }, { "item": "No_Such_Item" }, { "item": "burst" } ] },
+    "bad-pick": { "pick": "all", "entries": [ { "item": "shard" } ] },
+    "empty": { "entries": [] },
+    "bad-field": { "entries": [ { "item": "shard", "count": 3 } ] }
+  },
+  "creatures": {
+    "good": { "body": "vukah", "drops": "pile" },
+    "inline": { "body": "vukah", "drops": { "entries": [ { "item": "shard" } ] } },
+    "lost": { "body": "vukah", "drops": "no-such-table" },
+    "wrong": { "body": "vukah", "drops": "shard" }
+  },
+  "recipes": {
+    "sword": { "output": "Weapon_Fixture_Sword", "station": "bench", "needs": { "shard": 2 } },
+    "at-the-workbench": { "output": "shard", "station": "0x4da88f73", "makes": 2, "needs": { "Weapon_Fixture_Sword": 1 } },
+    "no-output": { "needs": { "shard": 1 } },
+    "bad-need": { "output": "shard", "needs": { "burst": 1 } },
+    "lost-output": { "output": "No_Such_Item", "needs": { "shard": 1 } }
+  }
+}

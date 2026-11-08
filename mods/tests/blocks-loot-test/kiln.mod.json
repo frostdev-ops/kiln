@@ -1,0 +1,10 @@
+{
+  "id": "blocks-loot-test",
+  "name": "Loot table, drops and recipe blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "BlocksLootTest.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Lab test of the loot table, creature drops and standalone recipe blocks: a creature killed with Combat.SetHealth(0) drops its table's items as pickups, a recipe of its own is at the game's workbench, a table rolls, and wrong blocks are refused by name. PASS and FAIL lines in kiln.log."
+}

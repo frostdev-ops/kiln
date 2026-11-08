@@ -1,0 +1,86 @@
+{
+  "catalog": true,
+  "description": "blocks-loot: lootTables, recipes and a creature's drops: schema (KL102, KL104 ...), KL314 for an item or a table that is nothing or the wrong kind (a game item and a block of the mod are fine).",
+  "diagnostics": [
+    {
+      "code": "KL314",
+      "col": 137,
+      "file": "blocks/loot.json",
+      "line": 7,
+      "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 165,
+      "file": "blocks/loot.json",
+      "line": 7,
+      "message": "\"burst\" is an effect block; this field takes an item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL105",
+      "col": 27,
+      "file": "blocks/loot.json",
+      "line": 8,
+      "message": "\"all\" is not one of \"each\", \"one\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL108",
+      "col": 27,
+      "file": "blocks/loot.json",
+      "line": 9,
+      "message": "an empty list: give at least one entry",
+      "severity": "error"
+    },
+    {
+      "code": "KL102",
+      "col": 52,
+      "file": "blocks/loot.json",
+      "line": 10,
+      "message": "\"count\" is not allowed here (allowed: chance, countMax, countMin, item, weight)",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 41,
+      "file": "blocks/loot.json",
+      "line": 15,
+      "message": "no loot table block \"no-such-table\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:no-such-table\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 42,
+      "file": "blocks/loot.json",
+      "line": 16,
+      "message": "\"shard\" is an item block; this field takes a loot table",
+      "severity": "warning"
+    },
+    {
+      "code": "KL104",
+      "col": 5,
+      "file": "blocks/loot.json",
+      "line": 21,
+      "message": "missing \"output\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL314",
+      "col": 49,
+      "file": "blocks/loot.json",
+      "line": 22,
+      "message": "\"burst\" is an effect block; this field takes an item",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 32,
+      "file": "blocks/loot.json",
+      "line": 23,
+      "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
+      "severity": "warning"
+    }
+  ]
+}

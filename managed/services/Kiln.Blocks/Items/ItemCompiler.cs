@@ -37,6 +37,8 @@ internal static partial class Compiler
         ArmorSet s => Part(ctx, low, name, s, null),
         WornLook l => Part(ctx, low, name, l, CheckWorn),
         CosmeticBlock c => DefineCosmetic(ctx, low, name, c),
+        LootTableBlock t => DefineLootTable(ctx, low, name, t),
+        RecipeBlock r => DefineRecipeBlock(ctx, low, name, r),
         _ => DefineWorldBlock(ctx, low, name, block),
     };
 

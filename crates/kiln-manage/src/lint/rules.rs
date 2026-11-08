@@ -990,7 +990,7 @@ fn contents(m: &LMod) -> Contents {
                         c.new_vfx = Some((f.display.clone(), u.span, "a field that names a new VFX"));
                     }
                 }
-                for (key, what) in [("spells", "a new spell"), ("weapons", "a new weapon"), ("statuses", "a new status"), ("items", "a new item"), ("wands", "a new wand"), ("armor", "a new piece of armor"), ("stations", "a new station"), ("props", "a new prop"), ("cosmetics", "a new cosmetic"), ("perks", "a new perk"), ("containers", "a new container"), ("doors", "a new door"), ("beds", "a new bed"), ("seats", "a new seat"), ("hair", "a new hair style"), ("beards", "a new beard")] {
+                for (key, what) in [("spells", "a new spell"), ("weapons", "a new weapon"), ("statuses", "a new status"), ("items", "a new item"), ("wands", "a new wand"), ("armor", "a new piece of armor"), ("stations", "a new station"), ("props", "a new prop"), ("cosmetics", "a new cosmetic"), ("perks", "a new perk"), ("containers", "a new container"), ("doors", "a new door"), ("beds", "a new bed"), ("seats", "a new seat"), ("hair", "a new hair style"), ("beards", "a new beard"), ("recipes", "a new recipe")] {
                     if c.definition.is_none()
                         && let Some(b) = r.get(key).and_then(Node::as_object).and_then(|o| o.first())
                     {
@@ -1748,6 +1748,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("containers", "container"), ("doors", "door"), ("beds", "bed"), ("seats", "seat"), ("interactions", "interaction"), ("blueprints", "blueprint"), ("hair", "hair"), ("beards", "beard"),
         ("perks", "perk"), ("abilities", "ability"), ("talents", "talent"), ("talentTrees", "talent tree"), ("triggers", "trigger"),
         ("creatures", "creature"), ("npcs", "NPC"), ("bodies", "body"), ("animations", "animation"), ("ais", "AI"), ("behaviours", "behaviour"), ("attacks", "attack"), ("rules", "rule"),
+        ("lootTables", "loot table"), ("recipes", "recipe"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
@@ -1842,7 +1843,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
                     for need in mm.value.as_object().into_iter().flatten() {
                         out.push((need.key.clone(), need.key_span));
                     }
-                } else if let Some(text) = mm.value.as_str().filter(|_| matches!(mm.key.as_str(), "dropsLike" | "dropped" | "output") || (mm.key == "like" && matches!(parent, "visual" | "loot" | "look"))) {
+                } else if let Some(text) = mm.value.as_str().filter(|_| matches!(mm.key.as_str(), "dropsLike" | "dropped" | "output") || (mm.key == "like" && matches!(parent, "visual" | "loot" | "look")) || (mm.key == "item" && parent == "entries")) {
                     out.push((text.to_string(), mm.value.span));
                 } else {
                     items(&mm.value, &mm.key, out);
@@ -1863,6 +1864,11 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         let mut item_names = vec![];
         if let Some(r) = &f.root {
             walk(r, None, &mut names);
+            for c in r.get("creatures").and_then(Node::as_object).into_iter().flatten() {
+                if let Some(d) = c.value.get("drops").filter(|d| d.as_str().is_some()) {
+                    names.push((d.as_str().unwrap_or("").to_string(), &["loot table"], "a loot table", d.span));
+                }
+            }
             items(r, "", &mut item_names);
             // the "looks" section's entries are looks: their "like" is an item too
             for look in r.get("looks").and_then(Node::as_object).into_iter().flatten() {

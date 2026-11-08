@@ -22,9 +22,10 @@ internal static class DataClients
         ["weaponStats"] = Kiln, ["armorStats"] = Kiln, ["weaponClasses"] = Kiln, ["armorSlots"] = Kiln, ["armorSets"] = Kiln, ["onHits"] = Kiln,
         ["props"] = Kiln, ["placements"] = Kiln, ["comforts"] = Kiln, ["processing"] = Kiln, ["menus"] = Kiln,
         ["containers"] = Kiln, ["doors"] = Kiln, ["beds"] = Kiln, ["seats"] = Kiln, ["interactions"] = Kiln, ["hair"] = Kiln, ["beards"] = Kiln,
+        ["recipes"] = Kiln,
         // nothing a player's game has to know, unless a field says so (an ability that places something, an NPC attack of its own: kiln)
         ["effects"] = None, ["abilities"] = None, ["triggers"] = None, ["screenEffects"] = None,
-        ["materialTweaks"] = None, ["strengths"] = None, ["surfaces"] = None,
+        ["materialTweaks"] = None, ["strengths"] = None, ["surfaces"] = None, ["lootTables"] = None,
         ["creatures"] = None, ["bodies"] = None, ["animations"] = None, ["ais"] = None, ["behaviours"] = None, ["attacks"] = None, ["rules"] = None,
         // built by every player's game from the mod's own files
         ["vfx"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,

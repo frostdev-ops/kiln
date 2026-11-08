@@ -38,6 +38,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `interactions` | object |  | Parts: what happens when a player uses a placed thing. Use one by name in onInteract. |
 | `items` | object |  | Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it. |
 | `looks` | object |  | Parts: what an item looks like. Use one by name wherever a field takes a look. |
+| `lootTables` | object |  | Tables of what drops, rolled by Kiln: a creature's drops name one, and so does code (LootTableHandle.Roll/Drop/Give). Server only. |
 | `materialTweaks` | object |  | Changes to game materials: what it takes to dig them. Read at boot by kiln.worldtables; a strength change asks nothing of players' games. |
 | `materials` | `kiln-vfx.schema.json materialSection` |  | Surfaces for models, on the game's own shaders. No base to name, no game data. Built by the game client at start. |
 | `menus` | object |  | Parts: the crafting menu a station opens. |
@@ -47,6 +48,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `placements` | object |  | Parts: where and how a player can place something. |
 | `processing` | object |  | Parts: how a station works on its own. |
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
+| `recipes` | object |  | Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench. |
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
 | `seats` | object |  | Seats: the game's sitting, comfort of the chair category. |
@@ -486,6 +488,7 @@ A creature: its body, animation, AI and behaviour.
 | `animation` | [ref](#ref) or [animation](#animation) |  |  |
 | `behaviour` | [ref](#ref) or [behaviour](#behaviour) |  |  |
 | `body` | [ref](#ref) or [body](#body) | yes |  |
+| `drops` | [ref](#ref) or [lootTable](#loottable) |  | What it drops when it dies, besides what the game gives it: a lootTables block by name, or a table written here. Kiln rolls it where the death is reported. |
 | `name` | string |  |  |
 | `spawns` | array of [creatureSpawn](#creaturespawn) |  |  |
 | `stats` | [creatureStats](#creaturestats) |  |  |
@@ -573,6 +576,19 @@ A door. Starts from the game's wooden door; visual.like names another.
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
 | `visual` | [visualRef](#visualref) |  | Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves). |
 | `was` | [name](#name) |  |  |
+
+## dropPlace
+
+A place in the game's drop tables: table or dropsLike, one of them.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `chance` | number |  | min 0 max 1 |
+| `countMax` | integer |  | min 1 |
+| `countMin` | integer |  | min 1 |
+| `dropsLike` | [itemRef](#itemref) |  | Every table that drops this item, next to it. |
+| `table` | string |  | A table's GUID or a glob over GUIDs. |
+| `weight` | number |  | Where the table picks one of several. min 0 |
 
 ## effect
 
@@ -706,20 +722,29 @@ Where it can be found, besides being made.
 | `rolled` | boolean |  | Gear only: a roll gives it a level and rarity of its own. The opposite of the crafted-item rule, so it refuses a recipe (KL406). |
 | `stackMax` | integer |  | min 1 |
 | `stackMin` | integer |  | min 1 |
-| `tables` | array of [lootTable](#loottable) |  | Drop tables: what enemies and fixed chests hold. |
+| `tables` | array of [dropPlace](#dropplace) |  | The game's own drop tables it goes into: what enemies and fixed chests hold. A table of your own is a lootTables block. |
 
-## lootTable
+## lootEntry
 
-A place in the drop tables: table or dropsLike, one of them.
+One stack a table can give.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `chance` | number |  | min 0 max 1 |
-| `countMax` | integer |  | min 1 |
-| `countMin` | integer |  | min 1 |
-| `dropsLike` | [itemRef](#itemref) |  | Every table that drops this item, next to it. |
-| `table` | string |  | A table's GUID or a glob over GUIDs. |
-| `weight` | number |  | Where the table picks one of several. min 0 |
+| `chance` | number |  | How often it gives anything when it comes up (default 1). With pick "one", after it was picked. min 0 max 1 |
+| `countMax` | integer |  | How many, at most. Left out: the same as countMin. min 1 max 65535 |
+| `countMin` | integer |  | How many, at least (default 1). min 1 max 65535 |
+| `item` | [itemRef](#itemref) | yes |  |
+| `weight` | number |  | With pick "one": how likely it is the one picked, among the table's (default 1). min 0 |
+
+## lootTable
+
+A table of what drops. Kiln rolls it on the server, apart from the game's own loot: it needs no clients of its own.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `entries` | array of [lootEntry](#lootentry) | yes | What can come up. min items 1 |
+| `pick` | `"each"` \| `"one"` |  | What one roll does: "each" (the default) tries every entry's chance; "one" picks one entry by weight, then its chance. |
+| `rolls` | integer |  | How many times the table rolls (default 1). What comes up is added together per item. min 1 max 64 |
 
 ## materialTweak
 
@@ -885,7 +910,7 @@ How something is crafted.
 | `comfort` | integer |  | The comfort level it asks of whoever makes it. min 0 |
 | `makes` | integer |  | How many one craft gives. For a spell: charges. min 1 max 65535 |
 | `needs` | object |  | Item -> count: a game item, an item of this mod by its block name, or "other-mod:name". |
-| `output` | [itemRef](#itemref) |  | What it makes, in a station's list of recipes. Elsewhere a recipe makes the block it is on. |
+| `output` | [itemRef](#itemref) |  | What it makes: in a station's list of recipes, and in a recipes block of its own, where it is needed. Elsewhere a recipe makes the block it is on. |
 | `seconds` | number |  | Seconds at a station that works on its own. Needed at one with a workshop of its own. |
 | `sheltered` | boolean |  | A player crafts it only under a roof. A station that works on its own never checks a roof, so its recipes refuse it. |
 | `station` | string |  | "hand" (the default): the player's own menu; a workshop's 0x id; or a station block by name. In a station's list of recipes: that station, so leave it out. |

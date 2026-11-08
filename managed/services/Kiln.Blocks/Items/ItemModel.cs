@@ -508,8 +508,10 @@ public sealed record AmmoBlock
 
 // ----------------------------------------------------------------------------------------------- how it is made -----
 
-/// <summary>How something is crafted.</summary>
-public sealed record RecipeBlock
+/// <summary>How something is crafted. On an item, a prop or a station it says how that block is made. On its own (in <c>blocks/*.json</c> under <c>"recipes"</c>, or
+/// <c>Blocks.Define("name", new RecipeBlock { Output = ... })</c>) it is one more recipe at a station, for any item: a game item at the game's workbench, or an item of yours
+/// at a game station. Alone it needs <see cref="Output"/>.</summary>
+public sealed record RecipeBlock : IBlock
 {
     /// <summary><see cref="Stations.Hand"/>, a <c>GameWorkshops</c> constant, or a <see cref="StationBlock"/> of this mod.</summary>
     public StationRef Station { get; init; } = Stations.Hand;
@@ -519,7 +521,7 @@ public sealed record RecipeBlock
     public IDictionary<ItemRef, int> Needs { get; init; } = new Dictionary<ItemRef, int>();
     /// <summary>Seconds at a timed station. Null: the station's own.</summary>
     public double? Seconds { get; init; }
-    /// <summary>What it makes, in a station's <see cref="StationBlock.Recipes"/>. Elsewhere a recipe makes the block it is on.</summary>
+    /// <summary>What it makes: in a station's <see cref="StationBlock.Recipes"/>, and in a recipe block of its own, where it is needed. Elsewhere a recipe makes the block it is on.</summary>
     public ItemRef? Output { get; init; }
     /// <summary>Fuel: what each cycle burns. It is an input, as in the game's data, and a station with none left stops the same way: charcoal in a forge is one.</summary>
     public IDictionary<ItemRef, int> Burns { get; init; } = new Dictionary<ItemRef, int>();
@@ -553,14 +555,14 @@ public sealed record LootBlock
     public ItemRef? Like { get; init; }
     public int? StackMin { get; init; }
     public int? StackMax { get; init; }
-    /// <summary>Drop tables it goes into: what enemies and fixed chests hold.</summary>
-    public IReadOnlyList<LootTableBlock>? Tables { get; init; }
+    /// <summary>The game's own drop tables it goes into: what enemies and fixed chests hold. For a table of your own, see <see cref="LootTableBlock"/>.</summary>
+    public IReadOnlyList<DropPlace>? Tables { get; init; }
     /// <summary>Gear only: a roll gives it a level and rarity of its own, rather than the one fixed level and rarity. The opposite of the crafted-item rule, so it refuses a recipe.</summary>
     public bool Rolled { get; init; }
 }
 
-/// <summary>A place in the drop tables.</summary>
-public sealed record LootTableBlock
+/// <summary>A place in the game's drop tables: where an item goes into a table the game already has.</summary>
+public sealed record DropPlace
 {
     /// <summary>A table's GUID or a glob over GUIDs.</summary>
     public string? Table { get; init; }

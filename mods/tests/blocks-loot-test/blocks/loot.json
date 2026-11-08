@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "comment": "The data twin of what BlocksLootTestMod.cs defines under the cs- names.",
+  "items": { "ember-shard": { "name": "Ember Shard", "stack": 100 } },
+  "lootTables": {
+    "ember-cache": { "entries": [ { "item": "ember-shard", "countMin": 3 }, { "item": "Material_T1_Metal_Scraps", "countMin": 2, "countMax": 2 } ] },
+    "ember-pick": { "pick": "one", "rolls": 24, "entries": [ { "item": "ember-shard", "weight": 3 }, { "item": "Material_T1_Twigs", "weight": 1 } ] },
+    "ember-maybe": { "entries": [ { "item": "ember-shard", "chance": 0.5 } ] }
+  },
+  "creatures": {
+    "ember-scavenger": { "name": "Ember Scavenger", "body": "vukah", "stats": { "level": 3 }, "drops": "ember-cache" },
+    "ember-inline": { "name": "Ember Inline", "body": "vukah", "drops": { "entries": [ { "item": "Material_T1_Wood_Logs", "countMin": 5 } ] } },
+    "ember-bare": { "name": "Ember Bare", "body": "vukah" }
+  },
+  "recipes": {
+    "ember-charcoal": { "output": "Material_T1_Charcoal", "makes": 2, "station": "0x4da88f73", "needs": { "ember-shard": 2, "Material_T1_Wood_Logs": 1 } },
+    "ember-sticks": { "output": "ember-shard", "station": "0x4da88f73", "needs": { "Material_T1_Twigs": 3 } }
+  }
+}

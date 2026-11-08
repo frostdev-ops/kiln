@@ -520,6 +520,10 @@ public sealed record CreatureBlock : INpcBlock
     public PartRef<BehaviourBlock>? Behaviour { get; init; }
     public CreatureStats? Stats { get; init; }
     public IReadOnlyList<SpawnBlock>? Spawns { get; init; }
+    /// <summary>What it drops when it dies, besides what the game gives it: a <see cref="LootTableBlock"/> of this mod (<c>"other-mod:name"</c> for another's), or one written here.
+    /// Kiln rolls it on the server where the creature dies, and drops the stacks as loose pickups. The game's own drops come from its death sequence, which runs only near a player;
+    /// this runs wherever the death is reported.</summary>
+    public PartRef<LootTableBlock>? Drops { get; init; }
 }
 
 // --------------------------------------------------------------------------------------------------------- NPCs -----

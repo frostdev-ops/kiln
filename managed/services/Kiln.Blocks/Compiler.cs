@@ -124,7 +124,7 @@ internal static partial class Compiler
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -486,6 +486,7 @@ internal sealed class Lowered(ModBlocks mod)
             if (Json[key] is JsonArray a && a.Count > 0) parts.Add($"{a.Count} {what}");
         }
         Count("items", "item(s)"); Count("recipes", "recipe(s)"); Count("templates", "template(s)"); Count("buffs", "buff(s)"); Count("perks", "perk(s)"); Count("sequences", "sequence(s)"); Count("programs", "program(s)");
+        if (Json["lootTable"] is JsonObject loot && loot["entries"] is JsonArray entries) parts.Add($"loot table of {entries.Count} entr{(entries.Count == 1 ? "y" : "ies")}");
         if (Json["vfx"] is { } vfx) parts.Add($"VFX {vfx} ({Json["status"] ?? "not built here"})");
         if (Json["material"] is { } material) parts.Add($"material {material} ({Json["status"] ?? "not built here"})");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);

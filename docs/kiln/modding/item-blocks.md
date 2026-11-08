@@ -22,7 +22,7 @@ Blocks.Define("ember-sword", new WeaponBlock
   "weapons": { "ember-sword": { "name": "Ember Sword", "class": "sword",
       "stats": { "level": 5, "power": 30, "rarity": "rare" }, "onHit": [ "sear" ], "recipe": { "needs": { "ember-shard": 4 } } } } }
 ```
-JSON sections: `items`, `weapons`, `wands`, `armor`, `stations`, and for parts `looks`, `weaponStats`, `armorStats`, `weaponClasses`, `armorSlots`, `armorSets`, `onHits`, `wornLooks`. Schema: [schemas/kiln-blocks.md](schemas/kiln-blocks.md).
+JSON sections: `items`, `weapons`, `wands`, `armor`, `stations`, `lootTables`, `recipes`, and for parts `looks`, `weaponStats`, `armorStats`, `weaponClasses`, `armorSlots`, `armorSets`, `onHits`, `wornLooks`. Schema: [schemas/kiln-blocks.md](schemas/kiln-blocks.md).
 
 ## Parts
 A part is a block of its own. Write it inline, define it once and share the handle, or name it in JSON. A premade such as `WeaponClass.Sword` is a plain instance of the same record.
@@ -84,7 +84,7 @@ Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new Tool
 - **Staff spell.** A `SpellBlock`: an ammo item, one charge per item in the stack.
 - **Armor.** `Physical` and `Magical` are the tooltip's. `Bonus` is what wearing it adds, for example `[EquipBonus.Health] = 60`. Its look on the body is a game item's (`Visual = new VisualBlock { Like = ... }`) or a model of your own: `Look = new WornLook { Model = "models/mail.glb", Hides = [BodyPart.Chest, BodyPart.Waist] }`, skinned or on one joint, with a `Female` morph or file, as a cosmetic's ([cosmetics.md](cosmetics.md)). `Look` wins over `Visual` for what is worn, and `Visual` still gives the dropped model and the tint. With neither, the piece takes its set's look for its slot, which can be a worn look too. A ring has no look on the body.
 - **Station.** A placeable that opens an existing workshop's menu. A recipe with `Station = bench` is listed there. Forges and racks of your own, with workshops and recipes of their own, and props: [world-blocks.md](world-blocks.md).
-- **Loot.** `Like` rolls it in chests and world pickups where that item is. `Tables` puts it into drop tables, by `DropsLike` or a table GUID.
+- **Loot.** `Like` rolls it in chests and world pickups where that item is. `Tables` puts it into the game's own drop tables, as `DropPlace`s, by `DropsLike` or a table GUID. A table of your own, which a creature drops, is a `LootTableBlock`: see [Loot tables](#loot-tables).
 
 ## What is derived
 
@@ -104,6 +104,67 @@ Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new Tool
 Kiln checks the numbers these formulas use against the game's `keen::BalancingTable` when content is ready, and warns if an update changed them.
 
 `Loot.Rolled` opts out of the crafted-item rule, for loot gear that scales with its area. It refuses a recipe, whose tooltip would then be wrong.
+
+## Loot tables
+A loot table is a list of what can drop. A creature names it in `Drops`, and code can roll it.
+
+```csharp
+var cache = Blocks.Define("ember-cache", new LootTableBlock
+{
+    Entries =
+    [
+        new LootEntry { Item = shard, CountMin = 2, CountMax = 4 },                                           // always, 2 to 4
+        new LootEntry { Item = GameItems.Material_T1_Metal_Scraps, CountMin = 1, CountMax = 3, Chance = 0.5 }, // half the time
+    ],
+});
+Blocks.Define("ember-scavenger", new CreatureBlock { Body = Bodies.Vukah, Drops = cache });   // or Drops = "ember-cache"
+```
+```jsonc
+{ "format": 1,
+  "lootTables": { "ember-cache": { "entries": [
+      { "item": "ember-shard", "countMin": 2, "countMax": 4 },
+      { "item": "Material_T1_Metal_Scraps", "countMin": 1, "countMax": 3, "chance": 0.5 } ] } },
+  "creatures": { "ember-scavenger": { "body": "vukah", "drops": "ember-cache" } } }
+```
+`Drops` takes a table by name (`"other-mod:name"` for another mod's), a handle, or a table written in place.
+
+| Field | Meaning |
+|---|---|
+| `Entries[].Item` | A `GameItems` constant, an item of this mod by its block name, or `"other-mod:name"`. |
+| `Entries[].CountMin`, `CountMax` | How many, 1 to 65535. Leave out `CountMax` for exactly `CountMin`. |
+| `Entries[].Chance` | 0 to 1, how often the entry gives anything. Default 1. |
+| `Entries[].Weight` | With `Pick = LootPick.One`: how likely this entry is the one picked. Default 1. |
+| `Pick` | `Each` (default): every entry tries its own chance. `One`: one entry is picked by weight, then its chance decides. |
+| `Rolls` | How many times the table rolls, 1 to 64. What comes up is added together per item. |
+
+- **Kiln rolls it, not the game.** The game's drop tables are fixed resources: a mod can add a stack to one or change its counts, and cannot make a new one. The game also rolls a creature's loot from its death sequence, which only runs near a player. A loot table is Kiln's instead. It is rolled on the server where a creature of the block dies, with no player needed, and the stacks are dropped as loose pickups around the spot. A creature that dies near a player also drops what the game gives it.
+- **For code**, the handle rolls it: `cache.Roll(random)` gives the stacks and touches nothing; `await cache.Drop(position)` drops them as pickups; `await cache.Give(chest)` puts them into an inventory through `Items.Give`. A seeded `Random` makes a roll repeat.
+- **The world's Loot Amount** setting does not scale it.
+- **Pickups** are the game's generic pickup. They fall once a player is near, and the game does not save them.
+- **The game's own tables.** To put an item into a table the game already has, use `Loot.Tables` on the item (`DropPlace`: a table GUID or glob, or `DropsLike`, every table that drops that item).
+- **Mistakes.** An empty table, a chance outside 0 to 1, a `countMax` under `countMin`, a block that is no item or no table: refused at load, by block and field. An item name that is nobody's is said once content is ready: `block loottable x, entries[1].item: the game has no item "No_Such_Item"`. The rest of the table still rolls.
+- **`clients`.** A table asks nothing of players' games. The items in it ask what they ask.
+
+## Recipes of their own
+A `RecipeBlock` on an item says how that item is made. A `RecipeBlock` of its own, in `recipes`, is one more recipe for any item: a game item at the game's workbench, or an item of yours there. It needs `Output`.
+
+```csharp
+Blocks.Define("ember-charcoal", new RecipeBlock
+{
+    Output = GameItems.Material_T1_Charcoal, Makes = 2, Station = StationKind.Workbench.Workshop,
+    Needs = { [shard] = 2, [GameItems.Material_T1_Wood_Logs] = 1 },
+});
+```
+```jsonc
+{ "format": 1,
+  "recipes": { "ember-charcoal": { "output": "Material_T1_Charcoal", "makes": 2, "station": "0x4da88f73",
+      "needs": { "ember-shard": 2, "Material_T1_Wood_Logs": 1 } } } }
+```
+The fields are the recipe's as everywhere: `Station`, `Makes`, `Needs`, `Burns`, `Seconds`, `Sheltered`, `Comfort`. `Station` is `"hand"`, a game workshop's id (the workbench is `0x4da88f73`, `StationKind.Workbench.Workshop`), or a station block of this mod, by name or handle. A workshop of a station of your own needs `Seconds`, as for any recipe. The recipe is `<mod id>.<name>` in the game, and its id comes from the mod id and the name, so it stays.
+
+- A game recipe for the same item stays. This is another one, listed beside it.
+- `clients` is `kiln`: Kiln clients get the recipe from the server.
+- Mistakes are refused at load by field: no `Output`, nothing in `Needs`, `Makes` outside 1 to 65535, a `Station` that is no station, an `Output` that is not an item.
 
 ## Water containers
 ```csharp
@@ -157,3 +218,5 @@ Each block costs about the same to load however many there are: a lab server wit
 `mods/tests/blocks-items-test` runs on a dedicated server with no player. A spawned player entity has no equipment slots set, so the test says which slot the chest is, through a test-only request of kiln.skills; it creates the switch that request needs, `<kiln>/data/skills/lab-ops`. Start it twice: the second run checks ids and stored items across the restart. It logs `blocks-items-test: PASS` and `FAIL` lines, and `blocks-items-test done: N PASS, M FAIL`. Started with `KILN_PLAYERSTATE_LAB=1` (test labs only), it also eats an Ember Stew as a player does, with the stew as the used item, and checks the status's time. `syncitems.py --port <labPort> --lab <lab folder>` checks what a Kiln client without the mod gets: definitions with their texts, clones, and the programs they name.
 
 `mods/tests/blocks-water-test` checks water containers, with no player: the new cans' templates (1,000, 1,023, a pouch of 60 from `blocks/water.json`), the game's can and template untouched, `Flow` as the items' `Volume`, the recipe's station, what a can holds on the server and what players are sent (a can of 1,000 is 64,000 both ways), and holds 1024 refused. Use a lab made with `--save` from a world with a base: the cans go into one of its chests, and a second start checks that a full can of 1,000 is still full. `Observer/` (mod `blocks-water-observer`) logs what an `unload blocks-water-test` puts back: the recipe off its station, the items registered until the restart, the game's can and template as they were. Lab: fresh 30 PASS, restart 4 PASS.
+
+`mods/tests/blocks-loot-test` checks loot tables, creature drops and recipes of their own, with no player: a creature block spawned and killed with `Combat.SetHealth(0)` drops its table's stacks as pickups (`blocks: blocks-loot-test:ember-scavenger died at (...): drops blocks-loot-test.ember-shard x3, Material_T1_Metal_Scraps x2`), a table written in a creature and a C# twin of the data file do the same, a creature with no `Drops` drops nothing, a table rolls (chance, `Pick`, `Rolls`, a seed) and its stacks are dropped and given into an inventory, a recipe of its own is read back from the game's recipe registry at the workbench (`0x4da88f73`) with its inputs and output, and wrong blocks are refused by block and field. Lab: 36 PASS, 0 FAIL on a fresh world and on a restart. Not proven with a player: that a creature killed near one drops the game's own loot as well, and what the pickups look like in a client. `mods/samples/LootBlocks` is the sample, in C# and as `blocks/twins.json`.

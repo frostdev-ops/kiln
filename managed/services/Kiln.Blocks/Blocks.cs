@@ -67,6 +67,9 @@ public static class Blocks
     /// see <see cref="TableBlockHandle{T}.Status"/>. One in a data file's "terrainMaterials" section is there at once.</summary>
     public static TableBlockHandle<TerrainMaterialBlock> Define(string name, TerrainMaterialBlock block) => (TableBlockHandle<TerrainMaterialBlock>)Define<TerrainMaterialBlock>(name, block);
 
+    /// <summary>Defines a loot table as the calling mod's. The handle goes in a creature's <c>Drops</c>, and rolls, drops and gives by itself: <see cref="LootTableHandle.Roll"/>. It asks nothing of players' games.</summary>
+    public static LootTableHandle Define(string name, LootTableBlock block) => (LootTableHandle)Define<LootTableBlock>(name, block);
+
     /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
     public static BlockHandle? Find(string name, string? mod = null)
     {

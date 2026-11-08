@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: loot tables, creature drops and recipes of their own (docs/kiln/modding/item-blocks.md). A table, a creature that drops it, a recipe at the game's workbench,
+       with no GUIDs and no base items. blocks/twins.json is the same in data. The side and the clients follow from using Blocks (both, kiln). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>loot-blocks</KilnModId>
+    <KilnModName>Loot blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Loot tables, a creature that drops one, and recipes of their own at the game's workbench. blocks/twins.json is the same in data.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

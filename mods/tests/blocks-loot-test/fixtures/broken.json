@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "comment": "Wrong on purpose: the item is no game item (said once content is ready), and the table is empty.",
+  "lootTables": {
+    "no-such-item": { "entries": [ { "item": "No_Such_Item_xyz" }, { "item": "Material_T1_Twigs", "countMin": 2 } ] },
+    "empty": { "entries": [] }
+  },
+  "creatures": {
+    "no-such-table": { "body": "vukah", "drops": "nowhere" }
+  }
+}

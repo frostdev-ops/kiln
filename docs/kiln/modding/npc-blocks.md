@@ -34,7 +34,7 @@ Blocks.Define("stoneling", new CreatureBlock
                                 "ai": { "like": "vukah", "sight": 24, "faction": "Vukah" },
                                 "behaviour": { "attacks": [ { "name": "slam", "plays": "slam", "range": 2.8, "hitAt": 0.55, "onHit": [ "crush" ] } ] } } } }
 ```
-JSON sections: `creatures`, `npcs`, and for parts `bodies`, `animations`, `ais`, `behaviours`, `attacks`, `rules`. A JSON part starts from a premade with
+JSON sections: `creatures` (with `drops`), `npcs`, and for parts `bodies`, `animations`, `ais`, `behaviours`, `attacks`, `rules`. A JSON part starts from a premade with
 `"like"`; in C# that is `AIs.Vukah with { … }`.
 
 ## Two kinds of creature
@@ -161,6 +161,18 @@ menu or in its world joined to another server.
 ## Spawning
 `Blocks.Spawn("stoneling", position)` or the handle's `Spawn`; `/creature spawn <mod>:<name>` takes the variant. `Spawns` puts it in place of the game's
 creatures of a template, by chance, at night or by day.
+
+## Drops
+`Drops` names a loot table: what the creature drops when it dies.
+```csharp
+Blocks.Define("ember-scavenger", new CreatureBlock { Body = Bodies.Vukah, Drops = "ember-cache" });   // a lootTables block, a handle, or one written here
+```
+```jsonc
+{ "creatures": { "ember-scavenger": { "body": "vukah", "drops": "ember-cache" } } }
+```
+Kiln rolls the table on the server where the creature dies, with no player near, and drops the stacks as loose pickups around the spot. A creature that dies near a
+player also drops what the game gives it: this is in addition. The table, its fields and how it rolls: [item-blocks.md](item-blocks.md#loot-tables). The creature
+asks nothing more of players' games (`clients` stays `none`, unless an item in the table is new).
 
 ## NPCs
 ```csharp

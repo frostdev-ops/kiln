@@ -110,6 +110,7 @@ public sealed class DataClientsTests
         { "hair", """{ "name": "Braid", "look": { "model": "item:Hair_Braid" } }""", "kiln" },
         { "hair", """{ "name": "Braid", "look": { "icon": "braid.png" } }""", "mod" },
         { "beards", """{ "name": "Full", "look": { "model": "item:Beard_Full" } }""", "kiln" },
+        { "recipes", """{ "output": "Material_T1_Charcoal", "needs": { "Material_T1_Wood_Logs": 2 } }""", "kiln" },
         // nothing more than none, unless a field asks
         { "effects", """{ "damage": { "fire": 5 } }""", null },
         { "effects", """{ "damage": { "fire": 5 }, "vfx": "game:Fx_Burst" }""", "kiln" },
@@ -143,6 +144,9 @@ public sealed class DataClientsTests
         { "attacks", """{ "sequence": "Wolf_Bite" }""", null },
         { "attacks", """{ "damage": { "cut": 9 } }""", "kiln" },
         { "rules", """{ "where": { "name": "Enemy_Wolf*" }, "health": 2 }""", null },
+        { "lootTables", """{ "entries": [ { "item": "Material_T1_Twigs", "countMin": 2 } ] }""", null },
+        { "creatures", """{ "body": "Enemy_Wolf", "drops": { "entries": [ { "item": "Material_T1_Twigs" } ] } }""", null },
+        { "creatures", """{ "body": "Enemy_Wolf", "drops": "pelts" }""", null },
         // mod: every player's game builds it from the mod's own files
         { "vfx", """{ "particles": [] }""", "mod" },
         { "materials", """{ "texture": "glow.png" }""", "mod" },
