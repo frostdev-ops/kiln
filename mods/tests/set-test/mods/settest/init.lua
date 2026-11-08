@@ -26,13 +26,15 @@ check("Systems.list search", #Systems.list("stamina") > 0)
 local ticks, healed, profiled, observed = 0, false, false, 0
 Observe("EntityDiedEvent", function(e) observed = observed + 1 end)
 
--- Events: post through the game's own queue, observe it after the next step
+-- Events: post through the game's own queue, observe it after the next step. TestEvent1 is registered but a server
+-- world has no stream for it; DebugEnemyProjectileEvent has one, and nothing on a server acts on it (debug drawing).
 local posted, seen = false, nil
-Observe("TestEvent1", function(e) seen = e.data end)
+Observe("DebugEnemyProjectileEvent", function(e) seen = e.targetPosition.z end)
 
--- Hooks.observe: the server's actor_animation system update (server build 26430253; rcx = the job), verified offline
+-- Hooks.observe: the server's event_tracking system update (server build 26430253, rva 0x2190f0; rcx = the job). It
+-- runs every server step with no player; actor_animation, used before, only runs with players.
 local hookCalls, hookDropped = 0, 0
-local HOOK = {[1793791038] = "48 89 4C 24 08 55 41 56 48 8D AC 24 08 FF FF FF"}
+local HOOK = {[1793791038] = "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 81 EC E0 00 00 00 41 B8 88"}
 local okHook, hookErr = pcall(Hooks.observe, {name = "anim", pattern = HOOK[GetGameBuild()] or "00 11 22 33",
   args = {"ptrsize"}, queue = 64, fn = function(ev)
     hookCalls = hookCalls + 1
@@ -97,7 +99,7 @@ Tick.add(function(dt)
     check("Admin.give by English name resolves", okGive or not tostring(giveErr):find("no ItemInfo"), okGive or giveErr)
   end
   if ticks == 60 then
-    local ok, r = pcall(Events.post, "TestEvent1", {data = 42})
+    local ok, r = pcall(Events.post, "DebugEnemyProjectileEvent", {targetPosition = {x = 1, y = 2, z = 42}})
     posted = ok and r
     check("Events.post", posted, ok and tostring(r) or r)
   end
