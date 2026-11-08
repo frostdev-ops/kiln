@@ -4,6 +4,8 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <string>
+#include <vector>
 
 #include "v26_model.h"
 
@@ -408,7 +410,98 @@ static void test_offer_failures() {
     CHECK(!svc.active(1,8000,"m") && f.data[kInteractionOfferRuntime]==std::vector<uint8_t>{99});
 }
 
+static void wheel_cb(EmfWorld*, int, void*) {}
+
+static void test_wheel() {
+    const char* const items[] = {"Wolf", "Bear (level 3)", "Fox"};
+    EmfWheel w{};
+    w.size = sizeof w;
+    w.title = "Pets";
+    w.items = items;
+    w.count = 3;
+    w.world_kind = EMF_WORLD_CLIENT;
+    w.cb = wheel_cb;
+    int token = 0;
+    w.user = &token;
+    WheelRequest r;
+    std::string why;
+    CHECK(copy_wheel_def(&w, &r, &why) && why.empty());
+    CHECK(r.title == "Pets" && r.items.size() == 3 && r.items[1] == "Bear (level 3)" && r.hold_vk == 0 && r.world_kind == EMF_WORLD_CLIENT &&
+          r.cb == wheel_cb && r.user == &token);
+    // the strings are copies
+    std::string label = "Mutable";
+    const char* mutable_items[] = {label.c_str()};
+    EmfWheel c = w;
+    c.items = mutable_items;
+    c.count = 1;
+    CHECK(copy_wheel_def(&c, &r, &why));
+    label = "Changed";
+    CHECK(r.items[0] == "Mutable");
+    // a title and labels are optional / cut, never refused for their length
+    EmfWheel e = w;
+    e.title = nullptr;
+    const char* with_null[] = {nullptr, "ok"};
+    e.items = with_null;
+    e.count = 2;
+    CHECK(copy_wheel_def(&e, &r, &why) && r.title.empty() && r.items[0].empty() && r.items[1] == "ok");
+    const std::string longer(400, 'x');
+    const char* long_items[] = {longer.c_str()};
+    e.items = long_items;
+    e.count = 1;
+    e.title = longer.c_str();
+    CHECK(copy_wheel_def(&e, &r, &why) && r.items[0].size() == kMaxWheelLabelLen && r.title.size() == kMaxWheelTitleLen);
+    // a cut never lands inside a UTF-8 sequence: 255 bytes of "a", then a two-byte character straddling byte 256
+    const std::string straddle = std::string(255, 'a') + "\xC3\xA9" + "zzz";
+    const char* straddle_items[] = {straddle.c_str()};
+    e.items = straddle_items;
+    CHECK(copy_wheel_def(&e, &r, &why) && r.items[0] == std::string(255, 'a'));
+
+    // EMF's refusals: count 1..64, items, size, hold key, world kind, callback
+    EmfWheel bad = w;
+    bad.count = 0;
+    CHECK(!copy_wheel_def(&bad, &r, &why) && why.find("1 to 64") != std::string::npos);
+    bad.count = 65;
+    CHECK(!copy_wheel_def(&bad, &r, &why));
+    bad.count = 64;
+    std::vector<const char*> many(64, "e");
+    bad.items = many.data();
+    CHECK(copy_wheel_def(&bad, &r, &why) && r.items.size() == 64);
+    bad = w;
+    bad.items = nullptr;
+    CHECK(!copy_wheel_def(&bad, &r, &why));
+    bad = w;
+    bad.size = kWheelV10Size - 1;
+    CHECK(!copy_wheel_def(&bad, &r, &why));
+    CHECK(!copy_wheel_def(nullptr, &r, &why));
+    bad = w;
+    bad.cb = nullptr;
+    CHECK(!copy_wheel_def(&bad, &r, &why) && why == "no callback");
+    bad = w;
+    bad.world_kind = 7;
+    CHECK(!copy_wheel_def(&bad, &r, &why));
+    bad = w;
+    bad.world_kind = EMF_WORLD_SERVER;
+    CHECK(copy_wheel_def(&bad, &r, &why));
+    // hold keys: 0 or a generic keyboard code
+    for (uint32_t ok : {0u, 0x10u, 0x11u, 0x12u, 0x20u, uint32_t{'Q'}, 0x70u, 0xFFu}) {
+        bad = w;
+        bad.hold_key = ok;
+        CHECK(copy_wheel_def(&bad, &r, &why) && r.hold_vk == ok);
+    }
+    for (uint32_t no : {1u, 2u, 4u, 5u, 6u, 0xA0u, 0xA1u, 0xA4u, 0xA5u, 0x100u, 0xFFFFFFFFu}) {
+        bad = w;
+        bad.hold_key = no;
+        CHECK(!copy_wheel_def(&bad, &r, &why) && why.find("hold_key") != std::string::npos);
+    }
+    CHECK(valid_hold_key(0) && valid_hold_key(0x10) && !valid_hold_key(0xA0) && !valid_hold_key(1));
+    // an EmfWheel built with a larger (future) size field is read the same way
+    bad = w;
+    bad.size = sizeof w + 64;
+    CHECK(copy_wheel_def(&bad, &r, &why));
+}
+
 int main() {
+    test_wheel();
     test_offer_failures();
     test_queue_lifecycle();
     test_table();

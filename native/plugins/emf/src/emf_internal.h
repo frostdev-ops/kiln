@@ -11,9 +11,11 @@
 //   api_events.cpp on_event and mod programs through kiln.world
 //   api_hooks.cpp resolve / hook / patterns / write_memory, the EMF signature -> sigdb alias table
 //   commands.cpp  EMF commands from players' chat (kiln.chat) and <game>/emf/commands.txt
+//   api_attributes.cpp v18 attribute_get / attribute_add on kiln.combat v2 (health, stamina, mana, body heat, oxygen)
 //   api_level.cpp v22: a player's XP and level through kiln.progression
 //   api_components.cpp v23 change_component (a kiln.world program) and v25 E prompts (offers)
 //   api_windows.cpp v24 mod windows and v26 pictures through kiln.ui (client); refused on a dedicated server
+//   api_wheel.cpp v10 radial wheel through kiln.ui's wheel (client); refused on a dedicated server
 //   v26_model.*   the v22-v26 logic without the game (host tests: tests/run.sh)
 //   seh.cpp       structured-exception guards around every call into a mod
 // Docs: docs/kiln/emf.md (users), docs/re/emf-compat.md (how each function maps onto Kiln).
@@ -22,6 +24,7 @@
 
 #include <atomic>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -205,7 +208,9 @@ void fill_commands(EmfApi* t);  // commands.cpp
 void fill_settings(EmfApi* t);  // settings.cpp
 void fill_level(EmfApi* t);       // api_level.cpp (v22)
 void fill_components(EmfApi* t);  // api_components.cpp (v23, v25)
-void fill_windows(EmfApi* t);     // api_windows.cpp (v24, v26)
+void fill_windows(EmfApi* t);     // api_windows.cpp (v24, v26; it also fills the wheel)
+void fill_wheel(EmfApi* t);       // api_wheel.cpp (v10)
+void fill_attributes(EmfApi* t);  // api_attributes.cpp (v18)
 
 // tick hooks of the parts
 void core_after_step(EmfWorld* w, uint8_t kind);
@@ -227,17 +232,33 @@ void windows_world_stopping(uint8_t kind);
 void windows_world_started(uint8_t kind);
 void events_world_stopping();
 void windows_shutdown();
+// the radial wheel (api_wheel.cpp): the windows' hooks call these
+void wheel_after_step(EmfWorld* w, uint8_t kind);  // delivers the picks and cancels of wheels of that world kind
+void wheel_world_stopping(uint8_t kind);           // closes a wheel of that kind, drops its undelivered results
+void wheel_world_started(uint8_t kind);
+void wheel_shutdown();
+bool wheel_is_open();                              // a wheel is open (any mod's): window_open is refused meanwhile
 void components_world_stopping();
 void components_world_started();
 bool server_requests_allowed();
 bool windows_want_frame();  // a mod window is open (kiln.ui demand)
-// attribute_get / attribute_add of EMF_ATTR_XP* / EMF_ATTR_LEVEL (api_game.cpp hands them over)
+// attribute_get / attribute_add of EMF_ATTR_XP* / EMF_ATTR_LEVEL (api_attributes.cpp hands them over)
 bool level_attribute_get(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out);
 bool level_attribute_add(Mod* m, EmfWorld* w, uint32_t entity, uint32_t attr, int32_t delta);
 // spawn as EMF's spawn does (api_game.cpp), for spawn_offer
 uint32_t spawn_for(Mod* m, EmfWorld* w, const uint8_t guid[16], double x, double y, double z, const char* fn);
 // a listener of kiln-emf itself for an engine event (no mod), before events_on_ready
 bool events_add_internal(const char* name, uint32_t expected_size, EmfWorldEventCallback cb, void* user);
+// a posted task that runs `f` on the server world's tick thread (Pre of the next step); false when it was not queued
+bool post_tick(std::function<void()> f);
+// kiln.ui v2 slots (a core with an older kiln.ui ends its table above them)
+inline bool ui_has_wheel() {
+    return S.ui && S.ui->header.size >= offsetof(KilnUiApi, wheel_active) + sizeof(void*) && S.ui->wheel_open && S.ui->wheel_close &&
+           S.ui->wheel_active;
+}
+inline bool ui_has_item_clicked() {
+    return S.ui && S.ui->header.size >= offsetof(KilnUiApi, is_item_clicked) + sizeof(void*) && S.ui->is_item_clicked;
+}
 // the HUD and windows share kiln.ui's demand
 void ui_refresh_demand();
 

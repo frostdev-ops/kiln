@@ -39,7 +39,7 @@ std::deque<Msg> g_queue;
 WNDPROC g_old_proc = nullptr;
 HWND g_attached = nullptr;
 bool g_raw_keyboard_seen = false;
-bool g_down[256] = {};
+std::atomic<bool> g_down[256] = {};  // keys down, as the window's messages told (the wheel asks from other threads)
 bool g_consumed[256] = {};  // vk consumed by a binding: swallow its legacy messages too
 std::atomic<uint32_t> g_pressed_vk{0}, g_pressed_mods{0};
 bool g_was_capturing = false;
@@ -91,8 +91,8 @@ bool is_key_msg(UINT m) {
 // One key transition: menu key + subscribers. true = keep it from the game.
 bool on_key(uint32_t vk, uint32_t scan, bool down) {
     if (vk == 0 || vk > 255) return false;
-    const bool repeat = down && g_down[vk];
-    g_down[vk] = down;
+    const bool repeat = down && g_down[vk].load();
+    g_down[vk].store(down);
     KilnUiKey k{};
     k.size = sizeof(k);
     k.vk = vk;
@@ -418,6 +418,8 @@ void input_attach(HWND hwnd) {
 }
 
 bool input_attached() { return g_attached != nullptr; }
+
+bool input_key_held(uint32_t vk) { return vk > 0 && vk < 256 && g_down[vk].load(); }
 
 void input_replay() {
     std::deque<Msg> q;

@@ -157,6 +157,15 @@ public sealed unsafe class UiDraw
 
     public bool ItemHovered => T->IsItemHovered() != 0;
 
+    /// <summary>True on the frame <paramref name="button"/> went down over the widget drawn last: <c>if (ui.Button("Item"))</c>
+    /// answers a left click, <c>if (ui.ItemClicked(UiMouseButton.Right))</c> right after it a right click. Costs nothing
+    /// unless called. False when this kiln.ui has no such query (an older Kiln).</summary>
+    public bool ItemClicked(UiMouseButton button = UiMouseButton.Left)
+    {
+        var t = UiNative.T2;
+        return t != null && t->IsItemClicked((uint)button) != 0;
+    }
+
     // ---- free drawing on top of everything (pixels) ----
     public void DrawText(float x, float y, string text, Color? color = null, float size = 0) =>
         T->DrawText(x, y, (color ?? Color.White).Rgba, size, Utf8.Of(text));

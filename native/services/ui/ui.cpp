@@ -244,6 +244,7 @@ bool build_frame(float width, float height, float dpi) {
             std::erase_if(g_frame_subs, [&](const auto& x) { return x == s; });
         }
     }
+    if (wheel_active()) wheel_frame(width, height, dpi);  // on top of the windows
     if (f.menu_open && subs.empty()) fallback_menu();
     style_frame_end();
     t_in_frame = false;
@@ -264,6 +265,7 @@ bool dispatch_key(const KilnUiKey& key) {
         g_menu_open = false;
         return true;
     }
+    if (wheel_active() && wheel_on_key(key)) return true;  // Esc cancels the wheel; its hold key's release is noted
     std::vector<std::shared_ptr<KeySub>> subs;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
@@ -526,6 +528,15 @@ void KILN_CALL t_window_rect(float* x, float* y, float* w, float* h) {
     if (h) *h = s.y;
 }
 void KILN_CALL t_set_hover_capture(uint32_t n) { g_hover_panels = n; }
+bool KILN_CALL t_is_item_clicked(uint32_t button) {
+    IN_FRAME(false);
+    return button < 3 && ImGui::IsItemClicked(static_cast<ImGuiMouseButton>(button));
+}
+KilnResult KILN_CALL t_wheel_open(KilnOwner o, const KilnUiWheel* def, KilnUiWheelFn fn, void* user, KilnHandle* out) {
+    return wheel_open(o, def, fn, user, out);
+}
+KilnResult KILN_CALL t_wheel_close(KilnHandle h) { return wheel_close(h); }
+bool KILN_CALL t_wheel_active() { return wheel_active(); }
 KilnResult KILN_CALL t_subscribe_pre_overlay(KilnOwner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out) {
     return vk_subscribe_pre_overlay(fn, gone, user, out);
 }
@@ -535,6 +546,11 @@ KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, Ki
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
 bool KILN_CALL tt_in_menu() { return game_in_menu(); }
 const KilnUiTickApi kTickTable = {{sizeof(KilnUiTickApi), KILN_UI_TICK_VERSION}, &tt_subscribe, &tt_unsubscribe, &tt_in_menu};
+
+// Kiln.Ui's managed table mirrors these (UiNative.Table2, WheelDef; managed/tests/Kiln.Ui.Tests/WheelTests.cs checks the same numbers)
+static_assert(offsetof(KilnUiApi, is_item_clicked) == offsetof(KilnUiApi, set_hover_capture) + 4 * sizeof(void*),
+              "kiln.ui v2 slots follow add_swapchain_usage");
+static_assert(sizeof(KilnUiWheel) == 40 && offsetof(KilnUiWheel, hold_key) == 36, "KilnUiWheel layout");
 
 const KilnUiApi kTable = {
     {sizeof(KilnUiApi), KILN_UI_VERSION},
@@ -552,6 +568,8 @@ const KilnUiApi kTable = {
     &t_image_load, &t_image_size, &t_image, &t_image_button, &t_image_free, &t_set_next_window_focus, &t_combo,
     &t_input_multiline, &t_dummy, &t_window_rect, &t_set_hover_capture,
     &t_subscribe_pre_overlay, &vk_set_pre_overlay_demand, &vk_add_swapchain_usage,
+    // v2
+    &t_is_item_clicked, &t_wheel_open, &t_wheel_close, &t_wheel_active,
 };
 
 std::string api_path(int kind) {

@@ -10,6 +10,9 @@ internal static class UiModCalls
 
     public static ModContext? Caller => ModContext.CurrentMod;
 
+    /// <summary>The native owner id of a mod (0 = Kiln's own).</summary>
+    public static ulong OwnerId(ModContext? mod) => mod?.Owner ?? 0;
+
     internal static void RequireAlive(ModContext? mod)
     {
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
@@ -265,6 +268,7 @@ internal static unsafe class UiEngine
             Images.RemoveAll(i => ReferenceEquals(i.Owner, mod));
         }
         foreach (var i in imgs) i.Dispose();
+        UiWheel.RemoveOwnedBy(mod);
         Ui.Menus.RemoveOwnedBy(mod);
         Ui.Screens.RemoveOwnedBy(mod);
         Ui.Crafting.RemoveOwnedBy(mod);

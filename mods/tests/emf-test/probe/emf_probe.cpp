@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -80,6 +81,9 @@ struct Flow {
     bool tp1 = false, tp1_ok = false, tp2 = false, put = false, put_ok = false, take = false, take_ok = false;
     bool killed = false, ws_set = false, ws_checked = false, ws_reset = false, save_asked = false;
     bool done = false;
+    int stamina_phase = 0;  // 0 not yet, 1 added (reading back later), 2 done
+    uint64_t stamina_tick = 0;
+    int32_t stamina_before = 0, stamina_want = 0;
 } F;
 
 void tp_cb(EmfWorld*, const EmfTeleportResult* r, void* user) {
@@ -261,9 +265,21 @@ void sync_checks(EmfWorld* w) {
     // screen / chat on a server
     check(A->hud_set("emf_probe.line", "probe", EMF_HUD_TOP_RIGHT, 0) && A->hud_set("emf_probe.line", "", 0, 0),
           "hud_set keeps / removes a line (nothing to draw on a server)");
+    // the radial wheel: a dedicated server has no screen, so a valid definition is refused with EMF's failure value (false)
+    const char* const wheel_items[] = {"Wolf", "Bear (level 3)", "Fox"};
     EmfWheel wh{};
     wh.size = sizeof wh;
-    check(!A->wheel_open(&wh), "wheel_open is refused on a server");
+    wh.title = "Pets";
+    wh.items = wheel_items;
+    wh.count = 3;
+    wh.world_kind = EMF_WORLD_SERVER;
+    wh.cb = [](EmfWorld*, int, void*) {};
+    check(!A->wheel_open(&wh), "wheel_open is refused on a server (a valid definition)");
+    EmfWheel bad_wheel{};
+    bad_wheel.size = sizeof bad_wheel;
+    check(!A->wheel_open(&bad_wheel) && !A->wheel_open(nullptr), "wheel_open refuses a bad definition (no entries) and NULL");
+    wh.hold_key = 0x10;  // VK_SHIFT: a good key, still no screen
+    check(!A->wheel_open(&wh), "wheel_open with a hold key is refused on a server too");
     A->notify("emf-probe note %d", 42);
     check(A->chat_broadcast("[probe] a line for everyone (nobody is online)"), "chat_broadcast queues a line");
     check(!A->chat_tell(w, 1, "x"), "chat_tell to a player who is not there is refused");
@@ -490,7 +506,35 @@ void on_tick(EmfWorld* w, void*) {
     }
     // phase 1: results
     const uint64_t age = F.ticks - F.phase_tick;
-    if (F.vukah && !F.killed && age >= 3) {
+    // stamina and mana go through kiln.combat's attribute functions (v18; they were refused before kiln.combat v2). The
+    // Vukah lives until the readback is done.
+    if (F.vukah && F.stamina_phase == 0 && age >= 3) {
+        int32_t st = -1, stmax = -1, mana = -7;
+        const bool s1 = A->attribute_get(w, F.vukah, EMF_ATTR_STAMINA, &st) && A->attribute_get(w, F.vukah, EMF_ATTR_MAX_STAMINA, &stmax);
+        check(s1 && st >= 0 && stmax >= st && stmax > 0, "attribute_get stamina / max stamina of the Vukah", std::to_string(st) + " / " + std::to_string(stmax));
+        check(!A->attribute_get(w, F.vukah, EMF_ATTR_MANA, &mana) && mana == -7, "attribute_get mana of a Vukah is false (it has no Mana component)");
+        check(!A->attribute_get(w, F.vukah, 0xDEADBEEFu, &mana) && mana == -7, "attribute_get of an id that is no attribute is false");
+        F.stamina_before = st;
+        F.stamina_want = st > 2 ? st - 2 : st + 1;
+        const bool added = s1 && A->attribute_add(w, F.vukah, EMF_ATTR_STAMINA, F.stamina_want - st);
+        check(added, "attribute_add stamina (runs at once in a world callback)");
+        check(!A->attribute_add(w, F.vukah, EMF_ATTR_MAX_STAMINA, 5) && !A->attribute_add(w, F.vukah, EMF_ATTR_MAX_MANA, 5) &&
+                  !A->attribute_add(w, F.vukah, EMF_ATTR_MAX_HEALTH, 5),
+              "attribute_add refuses the maximums (the game computes them)");
+        check(!A->attribute_add(w, F.vukah, EMF_ATTR_MANA, 5), "attribute_add mana of a Vukah is refused (no Mana component)");
+        F.stamina_phase = 1;
+        F.stamina_tick = F.ticks;
+        if (!added) F.stamina_phase = 2;
+    }
+    if (F.vukah && F.stamina_phase == 1 && F.ticks - F.stamina_tick >= 3) {
+        int32_t now = -1;
+        const bool r = A->attribute_get(w, F.vukah, EMF_ATTR_STAMINA, &now);
+        // the game clamps and may regenerate a little: the add must show, give or take the regeneration of a few steps
+        check(r && std::abs(now - F.stamina_want) <= 2, "attribute_add stamina is read back by attribute_get",
+              std::to_string(F.stamina_before) + " -> " + std::to_string(now) + " (asked for " + std::to_string(F.stamina_want) + ")");
+        F.stamina_phase = 2;
+    }
+    if (F.vukah && !F.killed && F.stamina_phase == 2 && age >= 3) {
         int32_t hp = 0, max = 0;
         const bool h = A->attribute_get(w, F.vukah, EMF_ATTR_HEALTH, &hp) && A->attribute_get(w, F.vukah, EMF_ATTR_MAX_HEALTH, &max);
         check(h && hp > 0 && max >= hp, "attribute_get health / max health of the Vukah", std::to_string(hp) + " / " + std::to_string(max));
@@ -535,7 +579,7 @@ void on_tick(EmfWorld* w, void*) {
         F.ws_reset = A->world_setting_reset("xp_combat", 0);
     }
     const bool v26_waiting = v26_results(w, age);
-    const bool waiting = v26_waiting || (F.villager && (!F.tp2 || (!g_died_seen.load() && age < 250))) || (F.container && !F.take) || !F.ws_checked || g_saves.load() == 0 ||
+    const bool waiting = v26_waiting || (F.vukah && F.stamina_phase != 2) || (F.villager && (!F.tp2 || (!g_died_seen.load() && age < 250))) || (F.container && !F.take) || !F.ws_checked || g_saves.load() == 0 ||
                          g_cmd_runs.load() == 0 || g_setting_changes.load() == 0;
     if (waiting && age < 750) return;  // ~30 s
     if (F.villager) {
