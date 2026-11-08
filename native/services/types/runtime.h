@@ -108,7 +108,7 @@ int append_event(const Memory& mem, uint64_t stream, uint64_t poster, uint32_t h
     const uint32_t padded = (size + 7) & ~7u;
     uint32_t stride, used;
     uint64_t buf, capacity;
-    if (!read_at(mem, stream, 0x14, stride) || stride != padded) return 1;
+    if (!read_at(mem, stream, 0x14, stride) || stride != size) return 1;  // streams pack events at their reflected size
     if (!poster || !read_at(mem, poster, 0, buf) || !read_at(mem, poster, 8, capacity) ||
         !read_at(mem, poster, 0x10, used) || !buf || capacity > UINT32_MAX || used > capacity) return 2;
     const uint64_t length = 8ull + padded;
@@ -130,7 +130,7 @@ bool copy_events(const Reader& mem, uint64_t stream, uint32_t size, std::vector<
     uint32_t count, stride;
     uint16_t page;
     if (!size || size >= 256 || !read_at(mem, stream, 0x30, pool) || !read_at(mem, stream, 0x18, count) || count > 65536 ||
-        !read_at(mem, stream, 0x14, stride) || stride != ((size + 7) & ~7u) || !read_at(mem, stream, 0x40, page)) return false;
+        !read_at(mem, stream, 0x14, stride) || stride != size || !read_at(mem, stream, 0x40, page)) return false;
     if (!count) return true;
     copies.reserve(count);
     std::set<uint16_t> pages;

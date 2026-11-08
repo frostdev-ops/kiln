@@ -1780,7 +1780,16 @@ void dispatchEvents(lua_State* L, uintptr_t world) {
     for (uint32_t h : types) {
         refl::Type t = refl::byHash(h);
         int idx = t ? ecs::eventIndex(world, h) : -1;
-        if (idx < 0) continue;
+        if (idx < 0) {
+            // Report once per type instead of skipping silently (no stream on this world, or kiln.types refused it).
+            static std::vector<uint32_t> reported;
+            if (std::find(reported.begin(), reported.end(), h) == reported.end() && reported.size() < 256) {
+                reported.push_back(h);
+                gSink((LV_WARN "Observe: " + (t ? qname(t) : std::string("unknown type")) +
+                       " cannot be read on this world; its handlers will not run").c_str());
+            }
+            continue;
+        }
         lua_rawgeti(L, -1, h);
         ecs::forEachEvent(world, idx, h, [&](const uint8_t* ev) { callHandlers(L, t, ev); });
         lua_pop(L, 1);

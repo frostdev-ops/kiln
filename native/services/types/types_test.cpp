@@ -232,14 +232,19 @@ static void regressions() {
 
     const uint64_t pool = 0x110000;
     f.put(stream + 0x30, pool); f.put(stream + 0x18, uint32_t(2)); f.put(stream + 0x40, uint16_t(1));
-    f.put(pool + 8, uint32_t(42)); f.put(pool + 16, uint32_t(43));
+    f.put(pool + 8, uint32_t(42)); f.put(pool + 12, uint32_t(43));
+    std::vector<std::vector<uint8_t>> padded;
+    CHECK(!copy_events(f, stream, 4, padded), "stride rounded past the reflected size refused");
+    f.put(stream + 0x14, uint32_t(4)); f.put(poster, buffer);
+    CHECK(append_event(f, stream, poster, 9, payload, 4) == 0, "4-byte event posts to a stride-4 stream");
+    f.put(poster + 0x10, uint32_t(0));
     std::vector<std::vector<uint8_t>> copies;
     CHECK(copy_events(f, stream, 4, copies) && copies.size() == 2 && copies[0][0] == 42 && copies[1][0] == 43,
-          "events copied using padded stride");
-    copies.clear(); f.put(stream + 0x18, uint32_t(256)); f.put(pool + 2, uint16_t(1));
+          "events copied at the reflected size (stride 4)");
+    copies.clear(); f.put(stream + 0x18, uint32_t(600)); f.put(pool + 2, uint16_t(1));
     CHECK(!copy_events(f, stream, 4, copies), "cyclic event page chain refused");
     copies.clear(); f.put(pool + 2, uint16_t(2));
-    CHECK(copy_events(f, stream, 4, copies) && copies.size() == 256, "event page transition checked");
+    CHECK(copy_events(f, stream, 4, copies) && copies.size() == 600, "event page transition checked");
     copies.clear(); f.put(stream + 0x40, uint16_t(65535));
     CHECK(!copy_events(f, stream, 4, copies), "unreadable event page refused");
     copies.clear(); f.put(stream + 0x18, UINT32_MAX);

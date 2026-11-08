@@ -36,12 +36,15 @@ public sealed class TypesTestMod : Mod
             if (n == 40) Basics();
             if (n == 43) Resources();
             if (n == 50) ResourcesAgain();
-            if (n == 41) _posted = GameEvents.Post("TestEvent1", new Dictionary<string, object?> { ["data"] = 7 }) ? 1 : 0;
+            // Two 4-byte events in one step: both must come back (the stream packs them at 4 bytes, the poster at 8+8).
+            if (n == 41)
+                _posted = (GameEvents.Post("TestEvent1", new Dictionary<string, object?> { ["data"] = 7 }) ? 1 : 0)
+                          + (GameEvents.Post("TestEvent1", new Dictionary<string, object?> { ["data"] = 8 }) ? 1 : 0);
             if (n == 42)
             {
-                var seen = 0;
-                GameEvents.Each("TestEvent1", e => { if (Convert.ToInt64(e["data"]) == 7) seen++; });
-                Check("GameEvents.Post then Each", _posted == 1 && seen == 1, $"posted {_posted}, seen {seen}");
+                int seen7 = 0, seen8 = 0;
+                GameEvents.Each("TestEvent1", e => { var d = Convert.ToInt64(e["data"]); seen7 += d == 7 ? 1 : 0; seen8 += d == 8 ? 1 : 0; });
+                Check("GameEvents.Post then Each", _posted == 2 && seen7 == 1 && seen8 == 1, $"posted {_posted}, seen {seen7}+{seen8}");
             }
             if (n == 150)
             {

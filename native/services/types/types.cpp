@@ -459,7 +459,8 @@ KilnResult prepare_event(uintptr_t world, uint32_t hash, uint64_t& storage, uint
     if (idx < 0) return KILN_ERR_NOT_FOUND;
     const uint32_t size = g_im.d(type + td::size);
     uint32_t stride;
-    if (!size || size >= 256 || !read_at(g_memory, stream, 0x14, stride) || stride != ((size + 7) & ~7u))
+    // The stream's element stride is the reflected size (4-byte events are packed at 4), not the size rounded to 8.
+    if (!size || size >= 256 || !read_at(g_memory, stream, 0x14, stride) || stride != size)
         return KILN_ERR_INVALID_ARGUMENT;
     return KILN_OK;
 }
