@@ -352,7 +352,12 @@ def enshwick_entries(root):
         if not files and pkg["id"] in members:
             files = license_files(root)  # workspace crates share the repository's licence unless they provide one
         if not files or not any(read(f) for f in files):
-            raise RuntimeError(f"notices: Enshwick dependency {pkg['name']} has no licence text in {directory}")
+            # Like Kiln's own crates: a crate published without a licence file gets the standard text of the licence it
+            # declares (the renderer marks it as such). Refused only when there is neither a file nor a known licence.
+            if not spdx_texts(pkg.get("license")):
+                raise RuntimeError(f"notices: Enshwick dependency {pkg['name']} has no licence text in {directory} "
+                                   f"and no standard text for its licence {pkg.get('license')!r}")
+            files = []
         entries.append((pkg["name"], pkg["version"], pkg.get("license") or "see the licence file", pkg.get("repository") or "",
                         [(os.path.basename(f), read(f)) for f in sorted(set(files))]))
     return entries

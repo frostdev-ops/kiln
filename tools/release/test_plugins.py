@@ -450,6 +450,15 @@ class EnshwickNoticeTests(unittest.TestCase):
             self.assertIn(("LICENSE", "Copyright dependency"), by_name["dependency"][4])
             self.assertIn(("LICENSE", "Copyright upstream\nMIT permission"), by_name["enshwick-api"][4])
             (root / "dependency/LICENSE").unlink()
+            # no licence file but a declared licence with a standard text (bcdec_rs 0.2.1, MIT): no files, so the
+            # renderer prints the standard text and says the package had none
+            with patch.object(notices.subprocess, "check_output", side_effect=["a" * 40, json.dumps(meta).encode()]):
+                entries = notices.enshwick_entries(d)
+            self.assertEqual({e[0]: e for e in entries}["dependency"][4], [])
+            # neither a file nor a licence with a known text: refused
+            for p in packages:
+                if p["name"] == "dependency":
+                    p["license"] = "LicenseRef-Unknown"
             with patch.object(notices.subprocess, "check_output", side_effect=["a" * 40, json.dumps(meta).encode()]):
                 with self.assertRaisesRegex(RuntimeError, "dependency.*licence"):
                     notices.enshwick_entries(d)
