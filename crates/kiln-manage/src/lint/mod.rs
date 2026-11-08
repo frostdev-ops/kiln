@@ -19,6 +19,8 @@ mod regex;
 mod rules;
 pub mod schema;
 mod suggest;
+#[cfg(test)]
+mod sections_test;
 
 pub use catalog::Catalog;
 

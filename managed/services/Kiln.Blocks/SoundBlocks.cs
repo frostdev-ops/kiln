@@ -11,6 +11,7 @@ namespace Kiln;
 
 /// <summary>A sound of the mod's own: one or more clips (a cue that picks one at random each time), how loud, and how far it carries. An effect plays it by its name
 /// (<c>Sound = "frost-hum"</c> or the handle), as a station's running sound, or code with <c>SoundId.Named</c>. Players need the mod: <c>clients: mod</c>.</summary>
+[BlockClients(ClientsLevel.Mod)]
 public sealed record SoundBlock : IBlock
 {
     /// <summary>Audio files in the mod's folder (WAV, FLAC, Ogg Vorbis, MP3): <c>["audio/frost_hum.wav"]</c>. More than one: each play picks one.</summary>

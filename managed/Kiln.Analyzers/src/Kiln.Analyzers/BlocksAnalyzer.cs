@@ -51,14 +51,44 @@ internal static class BlockFacts
         return null;
     }
 
-    /// <summary>The block kind a string converts to where a block is named: "effect", "status", or null.</summary>
-    public static string? NamedKind(ITypeSymbol? converted) => converted?.Name switch
+    /// <summary>The block kind a string converts to where a block is named, or null. The kind is <see cref="KindOf"/>'s for that block type
+    /// ("effect", "status", "vfx", "sound", "perk", "ability", "material", "station", "screeneffect"), plus "item" (any item-like block) and
+    /// "template" (game templates only). <c>IBlockRef&lt;T&gt;</c> names a T.</summary>
+    public static string? NamedKind(ITypeSymbol? converted)
     {
-        "EffectRef" => "effect",
-        "StatusRef" or "StatusApply" => "status",
-        "VfxRef" => "vfx",
-        _ => null,
+        if (converted is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable) converted = nullable.TypeArguments[0];
+        switch (converted?.Name)
+        {
+            case "EffectRef": return "effect";
+            case "StatusRef" or "StatusApply": return "status";
+            case "VfxRef": return "vfx";
+            case "SoundRef": return "sound";
+            case "ItemRef": return "item";
+            case "PerkRef": return "perk";
+            case "AbilityRef": return "ability";
+            case "MaterialRef": return "material";
+            case "StationRef": return "station";
+            case "ScreenRef": return "screeneffect";
+            case "TemplateRef": return "template";
+        }
+        if (converted is not INamedTypeSymbol named) return null;
+        foreach (var i in named.AllInterfaces)
+            if (i is { Name: "IBlockRef", TypeArguments.Length: 1 } && i.TypeArguments[0] is { } t) return KindOf(t);
+        return null;
+    }
+
+    // Defined block types an ItemRef must not name (the compiler's ItemName refuses the same).
+    private static readonly HashSet<string> NotItems = new(StringComparer.Ordinal)
+    {
+        "EffectBlock", "StatusBlock", "VfxBlock", "VisualBlock", "OnHitBlock", "WeaponStats", "ArmorStats", "WeaponClass", "ArmorSlot", "ArmorSet", "WornLook",
+        "PlacementBlock", "ComfortBlock", "ProcessingBlock", "MenuBlock", "PerkBlock", "AbilityBlock", "TalentBlock", "TalentTreeBlock", "TriggerBlock",
+        "SoundBlock", "MaterialBlock", "ScreenEffectBlock", "SpellBlock",
     };
+
+    /// <summary>Whether a block of this type answers a reference of this kind.</summary>
+    public static bool Answers(string kind, ITypeSymbol block) => kind == "item" ? !NotItems.Contains(block.Name) : KindOf(block) == kind;
+
+    public static string Article(string kind) => (kind.Length > 0 && "aeiou".IndexOf(kind[0]) >= 0 ? "an " : "a ") + kind;
 
     public static string KindOf(ITypeSymbol block) => block.Name.EndsWith("Block", StringComparison.Ordinal) ? block.Name.Substring(0, block.Name.Length - 5).ToLowerInvariant() : block.Name;
 }
@@ -132,18 +162,30 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
         // ---- references: only when every name is known (a name built at run time could be any)
         var jsonText = options.AdditionalFiles.Where(f => string.Equals(Path.GetExtension(f.Path), ".json", StringComparison.OrdinalIgnoreCase) && !string.Equals(Path.GetFileName(f.Path), "kiln.mod.json", StringComparison.OrdinalIgnoreCase))
             .Select(f => f.GetText(ctx.CancellationToken)?.ToString() ?? "").ToList();
+        var gameCache = new Dictionary<string, HashSet<string>?>();
         if (defined.All(d => d.Name != null))
             foreach (var (name, kind, where) in named)
             {
                 if (name.Contains(':') || GameName.IsMatch(name)) continue;
+                if (Special(kind, name)) continue;
                 var same = defined.FirstOrDefault(d => d.Name == name);
                 if (same != null)
                 {
-                    var other = BlockFacts.KindOf(same.Type);
-                    if (other != kind) Report(Descriptors.BlockReference, where, $"\"{name}\" is a {other} block, and this takes a {kind}");
+                    if (!BlockFacts.Answers(kind, same.Type)) Report(Descriptors.BlockReference, where, $"\"{name}\" is {BlockFacts.Article(BlockFacts.KindOf(same.Type))} block, and this takes {BlockFacts.Article(kind)}");
                     continue;
                 }
-                if (!jsonText.Any(t => t.Contains($"\"{name}\""))) Report(Descriptors.BlockReference, where, $"this mod has no block \"{name}\": define it, or say \"other-mod:{name}\"");
+                if (jsonText.Any(t => t.Contains($"\"{name}\""))) continue;
+                // a game name: known only from the generated GameIds; without them any name could be the game's
+                if (GameClass(kind) is { } cls)
+                {
+                    var game = GameNames(ctx.Compilation, cls, gameCache);
+                    if (game == null ? kind != "sound" : game.Contains(name)) continue;
+                    Report(Descriptors.BlockReference, where, kind == "template"
+                        ? $"the game has no template \"{name}\": use a GameTemplates constant or a GUID"
+                        : $"this mod has no {kind} block \"{name}\", and the game has none by that name ({cls}): define it, or say \"other-mod:{name}\"");
+                    continue;
+                }
+                Report(Descriptors.BlockReference, where, $"this mod has no block \"{name}\": define it, or say \"other-mod:{name}\"");
             }
 
         // ---- clients: what the project says against what its blocks need
@@ -155,6 +197,45 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
         foreach (var d in defined)
             if (BlockFacts.LevelOf(d.Type) > said)
                 Report(Descriptors.BlockClients, d.Where, $"a new {BlockFacts.KindOf(d.Type)} is drawn by the player's game, and the mod says clients \"{BlockFacts.LevelNames[said.Value]}\": say \"{BlockFacts.LevelNames[BlockFacts.LevelOf(d.Type)]}\", or leave it out and the build works it out");
+    }
+
+    // Values a reference of a kind takes that are no block's name.
+    private static bool Special(string kind, string name) => kind switch
+    {
+        "perk" => name is "none" or "" || name.StartsWith("item:", StringComparison.Ordinal),
+        "station" => name == "hand",
+        _ => false,
+    };
+
+    // The generated GameIds class for kinds that also take a game name.
+    private static string? GameClass(string kind) => kind switch
+    {
+        "item" => "GameItems",
+        "perk" => "GamePerks",
+        "template" => "GameTemplates",
+        "sound" => "GameSounds",
+        _ => null,
+    };
+
+    // The string constants of Kiln.GameIds.<cls> (and its nested classes), or null when the mod has no generated GameIds.
+    private static HashSet<string>? GameNames(Compilation compilation, string cls, Dictionary<string, HashSet<string>?> cache)
+    {
+        if (cache.TryGetValue(cls, out var known)) return known;
+        HashSet<string>? names = null;
+        if (compilation.GetTypeByMetadataName("Kiln.GameIds." + cls) is { } type)
+        {
+            names = new HashSet<string>(StringComparer.Ordinal);
+            var todo = new Stack<INamedTypeSymbol>();
+            todo.Push(type);
+            while (todo.Count > 0)
+            {
+                var t = todo.Pop();
+                foreach (var m in t.GetMembers())
+                    if (m is IFieldSymbol { HasConstantValue: true, ConstantValue: string v }) names.Add(v);
+                    else if (m is INamedTypeSymbol nested) todo.Push(nested);
+            }
+        }
+        return cache[cls] = names;
     }
 
     // kiln.mod.json wins, as in the SDK's manifest task; then KilnClients. Null: nothing said, the build works it out.

@@ -581,6 +581,8 @@ internal static partial class KilnApis
         "Combat",
         "Content",
         "Creatures",
+        "DevTools",
+        "Eml",
         "Example",
         "Gameplay",
         "Hooks",

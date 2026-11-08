@@ -429,6 +429,17 @@ branches of an `if` or `switch` are fine: only one runs.
 that is another kind of block. Names with a `:` (another mod's) and the game's ids (`0x...`, GUIDs) are not checked. Nor is anything when a block's name
 is built at run time, because it could be any name.
 
+It checks every field that names a block: effects, statuses, VFX, sounds, items, perks, abilities, materials, stations, screen effects and spawned
+templates. Some of these also take a game name:
+- An item, perk or template may be the game's. The check uses the generated `GameItems`, `GamePerks` and `GameTemplates`; without a local game
+  catalog it skips those names.
+- A sound may be a `SoundBlock`, a cue in `assets/cook.json`, or a game cue's GUID (or a `GameSounds` name).
+- A perk may also be `"none"` or `"item:<name>"`. A station may be `"hand"` or a workshop's `0x` id.
+
+```csharp
+Blocks.Define("hit", new EffectBlock { Sound = "dnig" });   // KILN111: no sound "dnig"
+```
+
 **Why.** The block throws `BlockError` when the mod loads.
 
 **Fix.** Define it, correct it, or use the handle `Blocks.Define` returned: the compiler checks those.

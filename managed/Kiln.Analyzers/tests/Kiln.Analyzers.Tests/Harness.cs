@@ -55,16 +55,18 @@ internal static class Harness
     }
 
     public static async Task<ImmutableArray<Diagnostic>> Run(DiagnosticAnalyzer analyzer, string source,
-        IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<MetadataReference>? extra = null)
+        IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<MetadataReference>? extra = null,
+        IEnumerable<(string Path, string Text)>? files = null)
     {
         var comp = Compile(source, extra);
-        return await Analyze(comp, analyzer, properties, manifest);
+        return await Analyze(comp, analyzer, properties, manifest, files);
     }
 
     public static async Task<ImmutableArray<Diagnostic>> Analyze(Compilation comp, DiagnosticAnalyzer analyzer,
-        IDictionary<string, string>? properties = null, string? manifest = null)
+        IDictionary<string, string>? properties = null, string? manifest = null, IEnumerable<(string Path, string Text)>? more = null)
     {
         var files = manifest is null ? ImmutableArray<AdditionalText>.Empty : ImmutableArray.Create<AdditionalText>(new Text("/mod/kiln.mod.json", manifest));
+        if (more != null) files = files.AddRange(more.Select(f => (AdditionalText)new Text(f.Path, f.Text)));
         var options = new AnalyzerOptions(files, new Options(properties ?? new Dictionary<string, string>()));
         var diags = await comp.WithAnalyzers(ImmutableArray.Create(analyzer), options).GetAnalyzerDiagnosticsAsync();
         var crashed = diags.Where(d => d.Id == "AD0001").ToList();

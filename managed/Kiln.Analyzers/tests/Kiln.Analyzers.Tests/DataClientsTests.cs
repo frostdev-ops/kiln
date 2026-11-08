@@ -49,7 +49,9 @@ public sealed class DataClientsTests
     [Fact]
     public void Every_field_that_can_name_the_mods_own_files_is_read()
     {
-        var types = BlocksAssembly.GetTypes().Where(t => t.Namespace == "Kiln" && !t.IsGenericTypeDefinition);
+        // a premade (PremadeConverter) is read from JSON by its key alone, so its fields are never a data file's
+        var types = BlocksAssembly.GetTypes().Where(t => t.Namespace == "Kiln" && !t.IsGenericTypeDefinition
+            && !(t.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType is { IsGenericType: true } c && c.GetGenericTypeDefinition().Name == "PremadeConverter`1"));
         var fields = types.SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(p => (Type: t, Property: p)))
             .Where(x => x.Property.GetCustomAttribute<ClientsModWhenAttribute>() != null
                         || (Nullable.GetUnderlyingType(x.Property.PropertyType) ?? x.Property.PropertyType) is var pt && (pt == typeof(VfxRef) || pt == typeof(SoundRef)))
@@ -149,6 +151,7 @@ public sealed class DataClientsTests
         { "buildingMaterials", """{ "name": "Glass" }""", "mod" },
         { "blueprints", """{ "name": "Hut" }""", "mod" },
         { "npcs", """{ "name": "Smith" }""", "mod" },
+        { "terrainMaterials", """{ "name": "Glowstone", "like": "Stone" }""", "mod" },
     };
 
     [Theory]

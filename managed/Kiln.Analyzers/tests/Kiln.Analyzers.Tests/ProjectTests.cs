@@ -156,14 +156,15 @@ public sealed class BlocksTests
             Blocks.Define("status", new StatusBlock { Name = "x", Seconds = 1 });
             Blocks.Define("own-sound", new EffectBlock { Sound = "chime" });
             """);
-        var none = await Run(A, source, Props(("KilnClients", "none")));
+        (string, string)[] cook = [("/mod/assets/cook.json", """{ "sounds": { "chime": {} } }""")];   // "chime" is a cue of the mod's cook recipe
+        var none = await Run(A, source, Props(("KilnClients", "none")), files: cook);
         Ids(none, "KILN112", "KILN112");
         Assert.Contains(none, x => x.GetMessage().Contains("Sound"));
         Assert.Contains(none, x => x.GetMessage().Contains("new status"));
-        Ids(await Run(A, source, Props(("KilnClients", "kiln"))), "KILN112");
-        Ids(await Run(A, source, Props(("KilnClients", "mod"))));
-        Ids(await Run(A, source));   // nothing said: the build works it out
-        Ids(await Run(A, source, manifest: """{ "id": "m", "clients": "mod" }""", properties: Props(("KilnClients", "none"))));   // the file wins
+        Ids(await Run(A, source, Props(("KilnClients", "kiln")), files: cook), "KILN112");
+        Ids(await Run(A, source, Props(("KilnClients", "mod")), files: cook));
+        Ids(await Run(A, source, files: cook));   // nothing said: the build works it out
+        Ids(await Run(A, source, manifest: """{ "id": "m", "clients": "mod" }""", properties: Props(("KilnClients", "none")), files: cook));   // the file wins
     }
 
     [Fact]

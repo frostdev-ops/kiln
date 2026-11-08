@@ -37,10 +37,12 @@ public sealed class TablesTests
         Assert.Equal(folders, KilnApis.Services.OrderBy(n => n, StringComparer.Ordinal));
     }
 
-    private static string FindRepo()
+    private static string FindRepo([System.Runtime.CompilerServices.CallerFilePath] string self = "")
     {
-        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
-            if (File.Exists(Path.Combine(d.FullName, "VERSION")) && Directory.Exists(Path.Combine(d.FullName, "managed/services"))) return d.FullName;
+        // from the test binaries, else from this source file (an --artifacts-path outside the tree)
+        foreach (var start in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(self) ?? "" })
+            for (var d = new DirectoryInfo(start); d != null; d = d.Parent)
+                if (File.Exists(Path.Combine(d.FullName, "VERSION")) && Directory.Exists(Path.Combine(d.FullName, "managed/services"))) return d.FullName;
         var src = new FileInfo(typeof(TablesTests).Assembly.Location).Directory!.FullName;
         throw new DirectoryNotFoundException("repository root not found from " + src);
     }

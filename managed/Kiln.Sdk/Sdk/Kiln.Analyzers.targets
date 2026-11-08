@@ -31,6 +31,8 @@
     <CompilerVisibleProperty Include="KilnSide" />
     <CompilerVisibleProperty Include="KilnClients" />
     <AdditionalFiles Include="$(MSBuildProjectDirectory)/blocks/*.json" />
+    <!-- the sound cook recipe: its cue names are sounds a SoundRef may name (KILN111) -->
+    <AdditionalFiles Include="$(MSBuildProjectDirectory)/assets/cook.json" Condition="Exists('$(MSBuildProjectDirectory)/assets/cook.json')" />
     <CompilerVisibleProperty Include="KilnModId" />
     <CompilerVisibleProperty Include="KilnApiVersion" />
     <AdditionalFiles Include="$(KilnManifestSource)" Condition="'$(KilnManifestSource)' != '' and Exists('$(KilnManifestSource)')" />

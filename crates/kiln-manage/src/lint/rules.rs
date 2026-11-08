@@ -1647,17 +1647,19 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
     if files.is_empty() {
         return;
     }
-    const SECTIONS: [(&str, &str); 43] = [
+    // every section of the schema (lint/sections_test.rs checks it)
+    const SECTIONS: &[(&str, &str)] = &[
         ("sounds", "sound"), ("props", "prop"), ("placements", "placement"), ("comforts", "comfort"), ("processing", "processing"), ("menus", "menu"),
-        ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("terrainMaterials", "terrain material"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
+        ("vfx", "vfx"), ("materials", "material"), ("screenEffects", "screen effect"), ("materialTweaks", "material tweak"), ("buildingMaterials", "building material"), ("terrainMaterials", "terrain material"), ("surfaces", "surface"), ("strengths", "strength"), ("spells", "spell"), ("weapons", "weapon"), ("statuses", "status"), ("effects", "effect"), ("items", "item"), ("wands", "wand"), ("armor", "armor"), ("stations", "station"),
         ("looks", "look"), ("weaponStats", "weapon stats"), ("armorStats", "armor stats"), ("weaponClasses", "weapon class"), ("armorSlots", "armor slot"), ("armorSets", "armor set"), ("onHits", "on-hit"),
         ("cosmetics", "cosmetic"), ("wornLooks", "worn look"),
         ("containers", "container"), ("doors", "door"), ("beds", "bed"), ("seats", "seat"), ("interactions", "interaction"), ("blueprints", "blueprint"), ("hair", "hair"), ("beards", "beard"),
         ("perks", "perk"), ("abilities", "ability"), ("talents", "talent"), ("talentTrees", "talent tree"), ("triggers", "trigger"),
+        ("creatures", "creature"), ("npcs", "NPC"), ("bodies", "body"), ("animations", "animation"), ("ais", "AI"), ("behaviours", "behaviour"), ("attacks", "attack"), ("rules", "rule"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
-        for (key, kind) in SECTIONS {
+        for &(key, kind) in SECTIONS {
             for b in f.root.as_ref().and_then(|r| r.get(key)).and_then(Node::as_object).into_iter().flatten() {
                 if let Some((_, file, first)) = known.get(&b.key) {
                     out.push(Diagnostic::new(&f.display, codes::DUPLICATE_NAME, b.key_span, &format!("block \"{}\" is defined twice in this mod (the later one replaces the earlier)", b.key)).with_related(file, *first, "first here"));
