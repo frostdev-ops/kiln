@@ -76,8 +76,9 @@ void sink(const char* line) {
 // SET's own DLL in the process (the game imports POWRPROF.dll; SET ships as one in the game folder).
 std::string set_in_process() { return kset::runtime_conflict(); }
 
-// Runs on every server step and every client UI frame. The full module check (on_ready's) runs again only once a DLL
-// has loaded since (see kset::ModuleWatch): the steady state is two atomic loads, no lock, no wineserver call.
+// Runs on every server step and every client UI frame. The full module check (on_ready's) runs again only after a DLL
+// load notification or a change of the loaded-module list (a 3 s PEB-list fingerprint, see kset::ModuleWatch): no
+// steady-state lock or wineserver call, and no periodic full check.
 bool may_run() {
     if (!g_running.load(std::memory_order_acquire)) return false;
     if (!g_modules.due()) return true;
@@ -118,10 +119,13 @@ void poll_console() {
 void maybe_poll_console() {
     const uint64_t now = GetTickCount64();
     uint64_t next = g_console_next.load(std::memory_order_relaxed);
-    if (now < next || !g_console_next.compare_exchange_strong(next, now + console_ms, std::memory_order_acq_rel)) return;
+    if (now < next) return;
     if (g_console_busy.exchange(true, std::memory_order_acquire)) return;
+    struct Release { ~Release() { g_console_busy.store(false, std::memory_order_release); } } release;
+    // Re-read under the busy guard: another caller may have completed a poll while we were acquiring it.
+    if (now < g_console_next.load(std::memory_order_relaxed)) return;
+    g_console_next.store(now + console_ms, std::memory_order_relaxed);
     poll_console();
-    g_console_busy.store(false, std::memory_order_release);
 }
 
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
@@ -222,7 +226,9 @@ void KILN_CALL on_ready(void*) {
         std::string("kiln-set 0.1.1 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
             (has_dir ? "" : " (folder missing: no SET mods)") + ", ticks " + (g_running ? "on" : "off") + ", overlay " +
             (ui ? "on" : "off") + ", console " + u8(g_control / "set" / "*.lua") +
-            (notified ? ", SET re-check on DLL load" : ", SET re-check every 3 s (no DLL-load notification)"));
+            (g_modules.fingerprinting()
+                 ? (notified ? ", SET re-check on DLL load or module-list change" : ", SET re-check on module-list change (3 s)")
+                 : (notified ? ", SET re-check on DLL load and every 3 s" : ", SET re-check every 3 s (no DLL-load notification)")));
 }
 
 void KILN_CALL on_unload(void*) {

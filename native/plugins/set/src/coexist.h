@@ -64,9 +64,24 @@ inline std::string runtime_conflict() {
     MODULEENTRY32W mod{};
     mod.dwSize = sizeof mod;
     if (!Module32FirstW(snapshot, &mod)) return "loaded modules could not be inspected";
-    // Retain only fingerprints of the current inventory; an unloaded/reloaded module is inspected again.
-    static std::map<std::filesystem::path, bool> inspected;
-    std::map<std::filesystem::path, bool> current;
+    // An unload and reload can both occur between scans, with the same path and even the same base address.
+    // Cache only by file identity, write time and size. This keeps re-checks from re-reading the game image,
+    // but cannot reuse a negative result for a rebuilt/replaced DLL. If a fingerprint is unavailable, read again.
+    using Fingerprint = std::array<DWORD, 7>;
+    struct Marker { Fingerprint stamp; bool found; };
+    auto fingerprint = [](const std::filesystem::path& file, Fingerprint& stamp) {
+        const HANDLE h = CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                     nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        BY_HANDLE_FILE_INFORMATION i{};
+        const bool ok = GetFileInformationByHandle(h, &i) != 0 && (i.nFileIndexHigh || i.nFileIndexLow);
+        CloseHandle(h);
+        if (ok) stamp = {i.dwVolumeSerialNumber, i.nFileIndexHigh, i.nFileIndexLow, i.nFileSizeHigh, i.nFileSizeLow,
+                         i.ftLastWriteTime.dwHighDateTime, i.ftLastWriteTime.dwLowDateTime};
+        return ok;
+    };
+    static std::map<std::filesystem::path, Marker> inspected;
+    std::map<std::filesystem::path, Marker> current;
     do {
         if (mod.hModule == self) continue;
         wchar_t module_path[32768]{};
@@ -78,10 +93,12 @@ inline std::string runtime_conflict() {
         std::error_code ec;
         if (std::filesystem::equivalent(file.parent_path(), system, ec) && !ec) continue;
         auto it = inspected.find(file);
+        Fingerprint stamp{};
+        const bool stamped = fingerprint(file, stamp);
         bool found = false;
-        if (it != inspected.end()) found = it->second;
+        if (stamped && it != inspected.end() && it->second.stamp == stamp) found = it->second.found;
         else { std::ifstream f(file, std::ios::binary); found = kset::set_marker(f); }
-        current[file] = found;
+        if (stamped) current[file] = {stamp, found};
         if (found) return "a SET-branded module is loaded (" + utf8(file) + ")";
     } while (Module32NextW(snapshot, &mod));
     if (GetLastError() != ERROR_NO_MORE_FILES) return "the loaded module inventory was incomplete";
@@ -90,7 +107,8 @@ inline std::string runtime_conflict() {
 }
 
 // runtime_conflict() costs several wineserver round trips per loaded module under Wine (snapshot, path, stats, file
-// opens): never run it per frame or tick. Gate it with ModuleWatch (re-check after a DLL load only).
+// opens): never run it per frame or tick. Gate it with ModuleWatch (DLL loads, plus module-list changes seen by a cheap
+// 3 s fingerprint; the throttled full check only where the fingerprint is unavailable).
 using ModuleWatch = kcompat::ModuleWatch;
 #endif
 }  // namespace kset

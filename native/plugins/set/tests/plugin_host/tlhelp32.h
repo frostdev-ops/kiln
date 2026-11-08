@@ -3,7 +3,11 @@
 #define TH32CS_SNAPMODULE 8
 #define TH32CS_SNAPMODULE32 16
 struct MODULEENTRY32W { DWORD dwSize; HMODULE hModule; wchar_t szExePath[MAX_PATH]; };
-inline HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) { loader_test::cursor = 0; ++loader_test::snapshots; return reinterpret_cast<void*>(2); }
+inline HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) {
+    loader_test::cursor = 0; ++loader_test::snapshots;
+    if (loader_test::on_snapshot) loader_test::on_snapshot();
+    return reinterpret_cast<void*>(2);
+}
 inline bool Module32NextW(HANDLE, MODULEENTRY32W* out) {
     if (loader_test::cursor >= loader_test::modules.size()) return false;
     out->hModule = reinterpret_cast<void*>(loader_test::cursor++ + 2); return true;

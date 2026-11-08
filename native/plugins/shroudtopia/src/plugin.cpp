@@ -65,7 +65,7 @@ bool g_handoff = false;
 
 std::string own_loader_in_process();
 // The worker observes the loader every wait slice (up to 20 Hz); the full check enumerates every module, stats paths
-// and reads DLL files, wineserver round trips under Wine. It runs again only after a DLL has loaded since on_ready's.
+// and reads DLL files, wineserver round trips under Wine. Re-check only after a DLL load or a module-list change.
 kcompat::ModuleWatch g_loader_watch;
 bool observe_own_loader() {
     if (!g_loader_watch.due()) return false;

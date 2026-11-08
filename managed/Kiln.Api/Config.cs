@@ -740,7 +740,8 @@ public sealed class ModConfig<T> : ConfigFile where T : class, new()
 /// string, enums, <see cref="TimeSpan"/>, lists/arrays of those, and nested classes (sections). Members take
 /// <see cref="CommentAttribute"/>, <see cref="RangeAttribute"/>, <see cref="RequiresRestartAttribute"/>,
 /// <see cref="SyncedAttribute"/>, <see cref="ConfigKeyAttribute"/>, <see cref="ConfigIgnoreAttribute"/>.
-/// Kiln notices file edits within a step or two (file watcher) or within a second (polling, the fallback).
+/// Kiln notices file edits within a step or two (file watcher), with a safety poll every five seconds, or every
+/// second when the watcher could not start. Reloads run on the service tick, so wait while it is paused.
 /// </remarks>
 public static class Config
 {
@@ -857,7 +858,7 @@ public static class Config
         }
     }
 
-    /// <summary>One check of every file (what the service tick does every second). Tests call it.</summary>
+    /// <summary>One check of every file (on watcher signals or the fallback interval). Tests call it.</summary>
     internal static void Poll()
     {
         foreach (var f in All)

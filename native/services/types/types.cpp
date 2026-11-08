@@ -57,8 +57,8 @@ ProfileSession g_profile;
 SystemOwners g_system_owners;
 SafetyHookInline g_runner;
 std::atomic<bool> g_systems_ok{false};
-// When native SET may have appeared since the startup check: after a DLL load, never per tick (the check reaches
-// wineserver once per loaded module under Wine).
+// When native SET may have appeared since the startup check: after a DLL load or a module-list change (3 s
+// fingerprint, no wineserver call), never per tick (the check reaches wineserver once per loaded module under Wine).
 kset::ModuleWatch g_modules;
 bool g_external_runner = false;
 
