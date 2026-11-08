@@ -81,11 +81,18 @@ public sealed class ManifestTests
         Assert.Equal("none", Manifest.ClientsName(m.Clients));
     }
 
+    // The tree above the test binary, or (with --artifacts-path outside the tree) the tree this source file is in.
+    private static string Repo([System.Runtime.CompilerServices.CallerFilePath] string self = "")
+    {
+        for (var dir = AppContext.BaseDirectory; dir is not null; dir = Path.GetDirectoryName(dir))
+            if (Directory.Exists(Path.Combine(dir, "managed", "Kiln.Host"))) return dir;
+        return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(self)!, "..", "..", ".."));
+    }
+
     [Fact]
     public void Every_manifest_in_the_repository_still_parses()
     {
-        var repo = AppContext.BaseDirectory;
-        while (!Directory.Exists(Path.Combine(repo, "managed", "Kiln.Host"))) repo = Path.GetDirectoryName(repo)!;
+        var repo = Repo();
         var files = Directory.EnumerateFiles(Path.Combine(repo, "mods"), Manifest.FileName, SearchOption.AllDirectories)
             .Where(f => !f.Contains("sample-bad-manifest") && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}") &&
                         !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))

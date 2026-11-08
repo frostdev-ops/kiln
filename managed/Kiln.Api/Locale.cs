@@ -30,6 +30,11 @@ public sealed class ModLocale
     /// <summary>The language every other falls back to.</summary>
     public const string Fallback = "en";
 
+    /// <summary>A locale file larger than this is not read (logged): texts, not data.</summary>
+    public const int MaxFileBytes = 1 << 20;
+
+    private const int MaxFiles = 64, MaxReported = 256;
+
     private static readonly Regex Tag = new("^[a-z]{2,3}(-[a-z0-9]{2,8})*$", RegexOptions.CultureInvariant);
 
     private readonly string _modId;
@@ -145,7 +150,7 @@ public sealed class ModLocale
     private void Report(string key, string language)
     {
         lock (_lock)
-            if (!_reported.Add(key)) return;
+            if (_reported.Count >= MaxReported || !_reported.Add(key)) return;
         var t = Load();
         var why = t.Languages.Length == 0 ? $"the mod has no locales/*.json ({_directory})" : $"no file of {string.Join(", ", ModLocale.LookupOrder(language))} has it (files: {string.Join(", ", t.Languages)})";
         Write(LogLevel.Warn, $"text '{key}' of mod {_modId}: {why}; showing the key");
@@ -175,6 +180,11 @@ public sealed class ModLocale
             if (_directory.Length > 0 && System.IO.Directory.Exists(_directory))
                 foreach (var file in System.IO.Directory.EnumerateFiles(_directory, "*.json").Order(StringComparer.Ordinal))
                 {
+                    if (by.Count >= MaxFiles)
+                    {
+                        Write(LogLevel.Warn, $"locales of mod {_modId}: more than {MaxFiles} files; the rest are ignored");
+                        break;
+                    }
                     var tag = Normalize(System.IO.Path.GetFileNameWithoutExtension(file));
                     if (!Tag.IsMatch(tag))
                     {
@@ -202,6 +212,11 @@ public sealed class ModLocale
         var name = System.IO.Path.GetFileName(file);
         try
         {
+            if (new FileInfo(file).Length > MaxFileBytes)
+            {
+                Write(LogLevel.Warn, $"locale file {name} of mod {_modId} is larger than {MaxFileBytes / 1024} KiB; ignored");
+                return null;
+            }
             using var doc = JsonDocument.Parse(File.ReadAllText(file, Encoding.UTF8), ConfigSchema.ReadOptions);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
@@ -267,7 +282,7 @@ public sealed class ModLocale
                 var colon = token.IndexOf(':');
                 var name = (colon >= 0 ? token[..colon] : token).Trim().ToString();
                 var spec = colon >= 0 ? token[(colon + 1)..].ToString() : null;
-                if (name.Length > 0 && TryValue(name, args, out var value)) sb.Append(Text(value, spec));
+                if (name.Length > 0 && TryValue(name, args, out var value) && Text(value, spec) is { } filled) sb.Append(filled);
                 else sb.Append(template, i, end - i + 1);
                 i = end;
             }
@@ -276,12 +291,28 @@ public sealed class ModLocale
         return sb.ToString();
     }
 
-    private static string Text(object? v, string? spec) => v switch
+    // A bad format in a translation ("{0:Q}") or a value whose ToString throws must not throw out of Mod.Text (it runs in
+    // a mod's tick): the value is written without the format, or the placeholder stays as written.
+    private static string? Text(object? v, string? spec)
     {
-        null => "",
-        IFormattable f => f.ToString(spec, CultureInfo.InvariantCulture),
-        _ => v.ToString() ?? "",
-    };
+        try
+        {
+            return v switch
+            {
+                null => "",
+                IFormattable f => f.ToString(spec, CultureInfo.InvariantCulture),
+                _ => v.ToString() ?? "",
+            };
+        }
+        catch (FormatException) when (spec is not null)
+        {
+            return Text(v, null);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 
     private static bool TryValue(string name, object?[] args, out object? value)
     {
@@ -317,8 +348,15 @@ public sealed class ModLocale
             {
                 // an object's property: new { count = 3 }. No cache: a static one would pin a mod's types.
                 var p = args[0]!.GetType().GetProperty(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
-                if (p is null || p.GetIndexParameters().Length > 0) return false;
-                value = p.GetValue(args[0]);
+                if (p is null || p.GetIndexParameters().Length > 0 || p.GetMethod is null) return false;
+                try
+                {
+                    value = p.GetValue(args[0]);
+                }
+                catch (Exception)
+                {
+                    return false;  // the getter threw: the placeholder stays as written
+                }
                 return true;
             }
         }

@@ -48,8 +48,9 @@ public sealed record ModStatus(string ModId, string Name, string Version, IReadO
 /// (<see cref="Set"/>: kept until it changes).
 /// </summary>
 /// <remarks>
-/// <para>A source runs on whichever thread asks (the render thread when the Kiln menu is open, any thread for
-/// <see cref="Summary"/>), as the mod that added it, never inside a game hook. Keep it quick, touch no game state and no
+/// <para>A source runs as the mod that added it, never inside a game hook: on the thread that asks for <see cref="Lines"/>,
+/// <see cref="All"/> or <see cref="Summary"/>, and on a worker thread for the Kiln menu and Kiln.Admin (at most about twice a
+/// second; they show the previous lines while a source takes longer than a few milliseconds). Keep it quick, touch no game state and no
 /// locks the tick thread holds; read fields the tick thread wrote. A source that throws shows no lines (logged once until it
 /// works again). Each line of a multi-line text shows on its own; empty lines are dropped.</para>
 /// <para>Lines go away with the mod that added them.</para>
@@ -59,8 +60,11 @@ public static class StatusLines
     private static readonly object Lock = new();
     private static StatusLine[] _lines = [];
     private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
-    private static long _sequence;
-    private static (long At, IReadOnlyList<ModStatus> Value)? _cache;
+    private static long _sequence, _generation;
+    private static volatile Cached? _cache;
+    private static Task<IReadOnlyList<ModStatus>>? _refresh;
+
+    private sealed record Cached(long At, IReadOnlyList<ModStatus> Value);
 
     /// <summary>Adds a line whose text <paramref name="source"/> computes whenever someone looks. <paramref name="id"/> names
     /// it within the calling mod (a second call with the same id replaces the source); without one a line of its own is made.</summary>
@@ -93,7 +97,7 @@ public static class StatusLines
             var line = _lines.FirstOrDefault(l => ReferenceEquals(l.Owner, owner) && l.ModId == modId && l.Id == id);
             if (line is null) return false;
             _lines = _lines.Where(l => !ReferenceEquals(l, line)).ToArray();
-            _cache = null;
+            Invalidate();
             return true;
         }
     }
@@ -179,12 +183,12 @@ public static class StatusLines
                 existing.Source = source;
                 existing.Pushed = text;
                 existing.Failing = false;
-                _cache = null;
+                Invalidate();
                 return existing;
             }
             var line = new StatusLine(modId, owner, id, source, text, ++_sequence);
             _lines = [.. _lines, line];
-            _cache = null;
+            Invalidate();
             Watch(owner);
             return line;
         }
@@ -195,7 +199,7 @@ public static class StatusLines
         lock (Lock)
         {
             _lines = _lines.Where(l => !ReferenceEquals(l, line)).ToArray();
-            _cache = null;
+            Invalidate();
         }
     }
 
@@ -209,7 +213,7 @@ public static class StatusLines
             {
                 Watched.Remove(mod);
                 _lines = _lines.Where(l => !ReferenceEquals(l.Owner, mod)).ToArray();
-                _cache = null;
+                Invalidate();
             }
         };
     }
@@ -249,16 +253,54 @@ public static class StatusLines
         return text.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 
-    /// <summary>For the Kiln menu: the same as <see cref="All"/>, but not more often than <paramref name="maxAge"/> (the menu
-    /// draws every frame; sources should run a few times a second at most). Render thread.</summary>
+    // Under Lock: a line was added, changed or removed, so the next snapshot reads again.
+    private static void Invalidate()
+    {
+        _generation++;
+        _cache = null;
+    }
+
+    /// <summary>The time a snapshot waits for the sources before it answers with the last one it has.</summary>
+    internal static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>For the Kiln menu (render thread, every frame) and Kiln.Admin (tick thread): the same as <see cref="All"/>,
+    /// but not more often than <paramref name="maxAge"/>, and never holding the caller up for more than <see cref="Budget"/>.
+    /// The sources run on a worker, one refresh at a time; a source that is slow (or hangs) leaves the caller with the
+    /// previous snapshot (empty the first time) instead of stalling a frame or a tick.</summary>
     internal static IReadOnlyList<ModStatus> Snapshot(TimeSpan maxAge)
     {
-        var now = Environment.TickCount64;
-        if (_cache is { } c && now - c.At < maxAge.TotalMilliseconds) return c.Value;
-        var value = All();
-        lock (Lock) _cache = (now, value);
-        return value;
+        var c = _cache;
+        if (c is not null && Environment.TickCount64 - c.At < maxAge.TotalMilliseconds) return c.Value;
+        Task<IReadOnlyList<ModStatus>> task;
+        lock (Lock)
+        {
+            if (_refresh is null || _refresh.IsCompleted)
+            {
+                var generation = _generation;
+                _refresh = Task.Run(() =>
+                {
+                    IReadOnlyList<ModStatus> value = All();
+                    lock (Lock)
+                        if (generation == _generation) _cache = new Cached(Environment.TickCount64, value);
+                    return value;
+                });
+            }
+            task = _refresh;
+        }
+        try
+        {
+            if (task.Wait(Budget)) return task.Result;
+        }
+        catch (Exception)
+        {
+            // All() catches the sources' exceptions; anything else: the last snapshot
+        }
+        return c?.Value ?? [];
     }
+
+    /// <summary>Kiln.Admin's mod list: one mod's lines from <see cref="Snapshot"/> (at most a second old).</summary>
+    internal static IReadOnlyList<string> RecentLines(string modId) =>
+        Snapshot(TimeSpan.FromSeconds(1)).FirstOrDefault(m => m.ModId == modId)?.Lines ?? [];
 
     /// <summary>Test hook.</summary>
     internal static void Reset()
@@ -267,7 +309,8 @@ public static class StatusLines
         {
             _lines = [];
             Watched.Clear();
-            _cache = null;
+            Invalidate();
+            _refresh = null;
         }
     }
 }

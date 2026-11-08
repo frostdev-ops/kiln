@@ -118,20 +118,35 @@ internal static partial class Ops
         };
     }
 
-    // What the mod says about itself (StatusLines, Kiln.Ui); null when it says nothing or Kiln.Ui is not there. Its own method so
-    // the mod list does not need the assembly to be jitted.
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static bool _noStatusLines;
+
+    // What the mod says about itself (StatusLines, Kiln.Ui); null when it says nothing or Kiln.Ui is not there. The assembly is
+    // only touched in ReadStatusLines, so its absence surfaces here (when that method is jitted) and not in the mod list.
     private static JsonArray? StatusLinesOf(string modId)
     {
+        if (_noStatusLines) return null;
         try
         {
-            var lines = StatusLines.Lines(modId);
-            return lines.Count == 0 ? null : new JsonArray([.. lines.Select(l => (JsonNode)l)]);
+            return ReadStatusLines(modId);
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or MissingMethodException)
+        {
+            _noStatusLines = true;
+            return null;
         }
         catch (Exception)
         {
             return null;
         }
+    }
+
+    // A cached snapshot (at most a second old) that never holds this tick up for more than a few milliseconds, however slow a
+    // mod's status source is.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static JsonArray? ReadStatusLines(string modId)
+    {
+        var lines = StatusLines.RecentLines(modId);
+        return lines.Count == 0 ? null : new JsonArray([.. lines.Select(l => (JsonNode)l)]);
     }
 
     private static JsonObject OpResult(ModOperationResult r) => new()

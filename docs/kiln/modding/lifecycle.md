@@ -193,6 +193,9 @@ StatusLines.Set("state", "waiting for the world");                  // or push a
 - Lines go with the mod that added them. The registry works on a dedicated server too: nothing in it draws.
 
 ## Pacing (`Pacing`)
+> **Not working yet.** This release has the API and its merge rules only: Kiln does not hook the game's waits yet, so
+> `Pacing.Available` is false, handlers register but are never called, and `CapTaskWorkers` returns false, on every build.
+
 Where the engine waits and how many worker threads it starts (Enshwick's `pacing`): a mod uses them to make the game use less CPU.
 ```csharp
 Pacing.OnServerWait((ref long ns) => { if (ns == Pacing.ServerOnlineWaitNs) ns *= 2; });   // fewer passes between steps

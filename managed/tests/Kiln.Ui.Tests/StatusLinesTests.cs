@@ -226,6 +226,25 @@ public class StatusLinesTests : IDisposable
         Assert.NotSame(first, StatusLines.Snapshot(TimeSpan.FromSeconds(30)));
     }
 
+    [Fact]
+    public void A_slow_source_does_not_hold_up_the_menu_or_the_admin_list()
+    {
+        var mod = NewMod("sl-slow");
+        using var release = new ManualResetEventSlim();
+        As(mod, () => StatusLines.Set("fast", "ready"));
+        As(mod, () => StatusLines.Add(() => { release.Wait(TimeSpan.FromSeconds(10)); return "slow done"; }, "slow"));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var first = StatusLines.Snapshot(TimeSpan.FromMilliseconds(500));
+        Assert.Empty(first);  // nothing read yet, and the source still runs
+        Assert.Empty(StatusLines.RecentLines("sl-slow"));
+        Assert.True(watch.ElapsedMilliseconds < 2000, $"{watch.ElapsedMilliseconds} ms");
+        release.Set();
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        IReadOnlyList<string> lines = [];
+        while (DateTime.UtcNow < deadline && (lines = StatusLines.RecentLines("sl-slow")).Count == 0) Thread.Sleep(10);
+        Assert.Equal(["ready", "slow done"], lines);
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference AddFromCollectibleScope(ModContext mod)
     {

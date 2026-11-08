@@ -45,6 +45,28 @@ public sealed class LocaleTests : KilnTest
         Assert.Equal(expected.Split(','), ModLocale.LookupOrder(language));
 
     [Fact]
+    public void A_bad_format_in_a_translation_does_not_throw()
+    {
+        var mod = ModWith("lcbadfmt", ("en.json", """{ "n": "{0:Q} left", "d": "{0:yyyy-MM-ddQ%}", "p": "{boom} here" }"""));
+        Assert.Equal("5 left", mod.Locale.Get("n", 5));          // the value without the bad format
+        Assert.Equal("{boom} here", mod.Locale.Get("p", new Throwing()));  // a getter that throws: the placeholder stays
+    }
+
+    private sealed class Throwing
+    {
+        public string Boom => throw new InvalidOperationException("no");
+    }
+
+    [Fact]
+    public void An_oversized_locale_file_is_skipped()
+    {
+        var big = "{ \"pad\": \"" + new string('x', ModLocale.MaxFileBytes) + "\" }";
+        var mod = ModWith("lcbig", ("en.json", """{ "hi": "Hello" }"""), ("de.json", big));
+        Assert.Equal(["en"], mod.Locale.Languages);
+        Assert.Equal("Hello", mod.Locale.GetIn("de", "hi"));
+    }
+
+    [Fact]
     public void A_dedicated_server_speaks_english()
     {
         Assert.Equal("en-us", Game.Language);
