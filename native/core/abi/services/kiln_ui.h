@@ -245,7 +245,8 @@ typedef struct KilnUiWheel {
                                held when the wheel opens: no key, a left click picks */
 } KilnUiWheel;
 
-/* Called once when the wheel ends, on the render thread inside the overlay frame (keep it short). choice = the index
+/* Called once when the wheel ends, on the render thread inside the overlay frame (keep it short; when the overlay turns
+ * off after an error, at the next present with -1). choice = the index
  * into `items`, or -1 when the player cancelled (Esc or a right click, or a release in the centre). The wheel is closed
  * before the call, so fn may open another wheel. */
 typedef void(KILN_CALL* KilnUiWheelFn)(int32_t choice, void* user);
@@ -256,9 +257,11 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* subscribe_frame)(KilnOwner owner, KilnUiFrameFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* subscribe_key)(KilnOwner owner, KilnUiKeyFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* unsubscribe)(KilnHandle handle);
-    /* Things to draw (HUD lines, windows, toasts). 0 = the overlay idles: presents pass through untouched. */
+    /* Things to draw (HUD lines, windows, toasts). 0 = the overlay idles: presents pass through untouched. Each calling
+     * native plugin (DLL; all managed code counts as one caller) sets its own count; the overlay uses the sum. */
     void(KILN_CALL* set_demand)(uint32_t layers);
-    /* Interactive Kiln windows open: > 0 = Kiln takes mouse and keyboard (as when the Kiln menu is open). */
+    /* Interactive Kiln windows open: > 0 = Kiln takes mouse and keyboard (as when the Kiln menu is open). A count per
+     * calling plugin, summed, as for set_demand. */
     void(KILN_CALL* set_capture)(uint32_t interactive);
     /* The Kiln menu: -1 toggle, 0 close, 1 open. Its key toggles it from the window thread (default Insert). */
     void(KILN_CALL* set_menu)(int32_t open);

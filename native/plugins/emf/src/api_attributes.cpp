@@ -5,7 +5,7 @@
 //    the same way (EMF documents only the first three components).
 //  - attribute_get reads any id of those components on the server world's thread, on creatures and players alike.
 //  - attribute_add adds to a pair's current value and clamps to its minimum and maximum (damage stops at 0, a heal at the
-//    maximum). The maximum, the minimum and the other computed ids are refused: the game recomputes them, so a write would
+//    maximum); a heal of a pair without a readable maximum is refused, as EMF documents. The maximum, the minimum and the other computed ids are refused: the game recomputes them, so a write would
 //    not last (as EMF documents for EMF_ATTR_MAX_*). Off the server world's thread the add is posted and runs in the next
 //    step (true = queued, a refusal then is logged); on it, it runs at once.
 //  - XP and level ids stay on kiln.progression (api_level.cpp).
@@ -35,6 +35,13 @@ void off(Mod* m, const char* fn) {
 bool add_now(Mod* m, uint32_t entity, uint32_t attr, int32_t delta) {
     KilnAttributeValue v{};
     v.size = sizeof v;
+    // EMF: "a heal of an attribute without a readable maximum is refused" (kiln.combat would add it unbounded)
+    if (delta > 0 && S.combat->attribute_get(entity, attr, &v) == KILN_OK && v.is_current && !v.has_max) {
+        refuse(m, "attribute_add", format("0x%08X has no readable maximum: a heal of it is refused", attr).c_str());
+        return false;
+    }
+    v = KilnAttributeValue{};
+    v.size = sizeof v;
     const KilnResult rc = S.combat->attribute_add(entity, attr, delta, &v);
     switch (rc) {
         case KILN_OK: return true;
@@ -47,7 +54,8 @@ bool add_now(Mod* m, uint32_t entity, uint32_t attr, int32_t delta) {
             return false;
         case KILN_ERR_NOT_FOUND: refuse(m, "attribute_add", format("entity %u has no such attribute (or it is not set up yet)", entity).c_str()); return false;
         case KILN_ERR_UNAVAILABLE: unsupported(m, "attribute_add", "attributes are off on this game build (see kiln.log)"); return false;
-        default: refuse(m, "attribute_add", "not on the server world's thread"); return false;
+        case KILN_ERR_WRONG_THREAD: refuse(m, "attribute_add", "not on the server world's thread"); return false;
+        default: refuse(m, "attribute_add", format("kiln.combat failed (%d)", static_cast<int>(rc)).c_str()); return false;
     }
 }
 

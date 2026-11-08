@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Runs the real radial wheel (wheel.cpp) on a headless Dear ImGui context, with OS stand-ins, under ASan/UBSan: the open
 // refusals, a pick by click, cancel by Esc and by right click, the hold key (a flick, a hold, a tap), paging with the mouse
-// wheel, wheel_close, a callback that opens another wheel, that windows below get no pointer, and that drawing makes
+// wheel, wheel_close (also against an ending frame), the overlay turning off, a callback that opens another wheel, that windows below get no pointer, and that drawing makes
 // geometry without tripping ImGui's asserts.
 #include <cassert>
 #include <cstdio>
@@ -349,6 +349,25 @@ int main() {
     CHECK(!pressed);              // the wheel took the pointer
     CHECK(!g_results.empty());    // and the click picked an entry instead
     if (kui::wheel_active()) kui::wheel_close(h);
+
+    // ---- exactly once: a wheel_close that wins against an ending frame leaves no callback ----
+    g_results.clear();
+    CHECK(kui::wheel_open(7, &d, on_result, nullptr, &h) == KILN_OK);
+    std::shared_ptr<kui::Wheel> taken;
+    {
+        std::lock_guard<std::mutex> lk(kui::g_mu);
+        taken = kui::g_wheel;  // what the render thread holds while it steps the model
+    }
+    CHECK(kui::wheel_close(h) == KILN_OK);
+    kui::finish(taken, 1);  // the frame's pick arrives after the close
+    CHECK(g_results.empty() && !kui::wheel_active());
+
+    // ---- the overlay turned off with a wheel open: cancelled once, the input released ----
+    CHECK(kui::wheel_open(7, &d, on_result, nullptr, &h) == KILN_OK && kui::capturing());
+    kui::wheel_cancel_undrawable();
+    CHECK(g_results.size() == 1 && g_results[0] == -1 && !kui::wheel_active() && !kui::capturing());
+    kui::wheel_cancel_undrawable();  // nothing open: nothing happens
+    CHECK(g_results.size() == 1 && kui::wheel_close(h) == KILN_ERR_NOT_FOUND);
 
     CHECK(kui::g_errors.empty());
     ImGui::DestroyContext();

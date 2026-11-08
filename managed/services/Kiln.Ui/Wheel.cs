@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // UiWheel: the radial wheel for client mods (EMF's wheel_open as a C# API). Native side: kiln.ui v2's wheel
-// (native/services/ui/wheel.cpp; its rules are wheel_math.h). Usage: docs/kiln/modding/ui-wheel.md.
+// (native/services/ui/wheel.cpp; its rules are wheel_math.h). Usage: docs/kiln/ui.md (Radial wheel).
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;

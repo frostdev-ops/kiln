@@ -384,6 +384,7 @@ static int32_t combat_delta = 0;
 static int combat_get_calls = 0, combat_add_calls = 0;
 static KilnResult combat_get_rc = KILN_OK, combat_add_rc = KILN_OK;
 static int32_t combat_value = 55;
+static bool combat_no_max = false;  // the pair has no readable maximum
 static KilnCombatApi combat_full{};
 static void test_attributes() {
     auto *w = reinterpret_cast<EmfWorld *>(worlds[0]);
@@ -405,8 +406,11 @@ static void test_attributes() {
     combat_full.attribute_get = [](KilnEntity, uint32_t id, KilnAttributeValue *v) -> KilnResult {
         ++combat_get_calls;
         combat_id = id;
-        if (combat_get_rc == KILN_OK)
+        if (combat_get_rc == KILN_OK) {
             v->value = combat_value;
+            v->is_current = 1;
+            v->has_max = combat_no_max ? 0 : 1;
+        }
         return combat_get_rc;
     };
     combat_full.attribute_add = [](KilnEntity, uint32_t id, int32_t delta, KilnAttributeValue *) -> KilnResult {
@@ -462,6 +466,12 @@ static void test_attributes() {
     const int u0 = unsupported_calls;
     CHECK(!table.attribute_add(w, 7, EMF_ATTR_STAMINA, 1) && unsupported_calls == u0 + 1);
     combat_add_rc = KILN_OK;
+    // EMF: a heal of an attribute without a readable maximum is refused; damage to it goes through
+    combat_no_max = true;
+    const int r_nomax = refusals, a_nomax = combat_add_calls;
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_STAMINA, 5) && refusals == r_nomax + 1 && combat_add_calls == a_nomax);
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_STAMINA, -5) && combat_add_calls == a_nomax + 1);
+    combat_no_max = false;
     // any other thread: queued (true), run by the next tick, a later refusal is logged
     tick_thread = false;
     combat_add_calls = 0;

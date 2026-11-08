@@ -79,6 +79,7 @@ KilnResult wheel_open(KilnOwner owner, const KilnUiWheel* def, KilnUiWheelFn fn,
 KilnResult wheel_close(KilnHandle handle);
 void wheel_frame(float width, float height, float dpi);  // render thread, inside the ImGui frame, when wheel_active()
 bool wheel_on_key(const KilnUiKey& key);                 // window thread: Esc and the hold key; true = consumed
+void wheel_cancel_undrawable();                          // render thread: the overlay is off; cancel an open wheel (fn(-1))
 
 // ---- game.cpp (the game's own UI: screens, menu entries, crafting; docs/re/game-ui.md) ----
 bool game_install();   // plugin main: resolve ui.json, hook the game's UI frame and menu-entry renderers

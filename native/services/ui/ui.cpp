@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // kiln.ui: service entry, subscribers, the ImGui frame and the drawing table (native/core/abi/services/kiln_ui.h).
+#include <intrin.h>
 #include <windows.h>
 
 #include <algorithm>
@@ -379,8 +380,46 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
     return KILN_ERR_NOT_FOUND;
 }
 
-void KILN_CALL t_set_demand(uint32_t n) { g_demand = n; }
-void KILN_CALL t_set_capture(uint32_t n) { g_interactive = n; }
+// set_demand / set_capture take a count per calling native plugin, and the overlay uses their sum: kiln-emf (its HUD and
+// window) and Kiln.Ui each send only their own count, so one of them sending 0 no longer ends the other's capture or
+// drawing. The key is the module of the return address when it is a Kiln plugin (exports kiln_plugin_main); everything
+// else (managed code, JIT-compiled or ReadyToRun, the runtime's stubs) shares one key, so a managed caller whose code moves
+// (tiered compilation) keeps one count. The module of a return address is looked up once.
+struct PerCaller {
+    std::mutex mu;
+    std::vector<std::pair<HMODULE, uint32_t>> counts;
+    std::vector<std::pair<void*, HMODULE>> seen;  // return address -> module (call sites are few)
+};
+PerCaller g_demand_by, g_capture_by;
+
+uint32_t per_caller(PerCaller& pc, void* ret, uint32_t n) {
+    std::lock_guard lk(pc.mu);
+    HMODULE m = nullptr;
+    auto at = std::find_if(pc.seen.begin(), pc.seen.end(), [&](const auto& x) { return x.first == ret; });
+    if (at != pc.seen.end()) {
+        m = at->second;
+    } else {
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                static_cast<LPCWSTR>(ret), &m) ||
+            !GetProcAddress(m, "kiln_plugin_main"))
+            m = nullptr;
+        if (pc.seen.size() < 64) pc.seen.emplace_back(ret, m);
+    }
+    auto it = std::find_if(pc.counts.begin(), pc.counts.end(), [&](const auto& x) { return x.first == m; });
+    if (it == pc.counts.end()) {
+        if (n) pc.counts.emplace_back(m, n);
+    } else if (n) {
+        it->second = n;
+    } else {
+        pc.counts.erase(it);
+    }
+    uint64_t sum = 0;
+    for (const auto& c : pc.counts) sum += c.second;
+    return static_cast<uint32_t>(std::min<uint64_t>(sum, UINT32_MAX));
+}
+
+void KILN_CALL t_set_demand(uint32_t n) { g_demand = per_caller(g_demand_by, _ReturnAddress(), n); }
+void KILN_CALL t_set_capture(uint32_t n) { g_interactive = per_caller(g_capture_by, _ReturnAddress(), n); }
 void KILN_CALL t_set_menu(int32_t open) { g_menu_open = open < 0 ? !g_menu_open.load() : open != 0; }
 void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
     if (vk == 0 || vk > 255) return;

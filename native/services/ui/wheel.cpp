@@ -7,7 +7,9 @@
 //    (wheel_on_key), and draws the result.
 //  - It is drawn in the middle of the screen on a full-screen ImGui window with no background that sits on top of the other
 //    windows, so nothing below it gets the pointer. When no wheel is open none of this runs: build_frame asks one atomic.
-//  - The callback runs on the render thread after the wheel was taken out, so it may open another wheel.
+//  - The callback runs on the render thread after the wheel was taken out, so it may open another wheel. When the overlay
+//    turns off (a Vulkan error or fault) an open wheel is cancelled at the next present (wheel_cancel_undrawable): it could
+//    never end otherwise, and the game would keep its input captured.
 #include <windows.h>
 
 #include <algorithm>
@@ -167,13 +169,16 @@ void draw_wheel(Wheel& w, float width, float height, float dpi, int highlight) {
     text_centered(dl, c.x, by + 6.0f * dpi, dim, small, hint);
 }
 
+// Ends `w` with `choice` and calls its fn, unless wheel_close took it out first (then fn must not run: exactly once). The
+// gate is taken before the wheel is taken out, so a wheel_close that finds nothing waits until fn has returned. Only the
+// fn call runs under the gate (it is SEH-guarded), never the ImGui drawing: a fault there cannot leave the gate locked.
 void finish(const std::shared_ptr<Wheel>& w, int choice) {
+    std::lock_guard<std::recursive_mutex> gate(g_gate);
     {
         std::lock_guard<std::mutex> lk(g_mu);
-        if (g_wheel == w) {
-            g_wheel.reset();
-            g_wheel_active.store(false, std::memory_order_relaxed);
-        }
+        if (g_wheel != w) return;  // closed (wheel_close) in the meantime: no callback
+        g_wheel.reset();
+        g_wheel_active.store(false, std::memory_order_relaxed);
     }
     logf(KILN_LOG_DEBUG, "ui: wheel %s", choice >= 0 ? ("picked entry " + std::to_string(choice)).c_str() : "cancelled");
     if (!guarded_wheel_fn(w->fn, choice, w->user)) set_error("a wheel callback faulted");
@@ -182,7 +187,6 @@ void finish(const std::shared_ptr<Wheel>& w, int choice) {
 }  // namespace
 
 void wheel_frame(float width, float height, float dpi) {
-    std::lock_guard<std::recursive_mutex> gate(g_gate);
     std::shared_ptr<Wheel> w;
     {
         std::lock_guard<std::mutex> lk(g_mu);
@@ -227,6 +231,17 @@ void wheel_frame(float width, float height, float dpi) {
     ImGui::PopStyleVar(2);
     if (step.kind == kwheel::Step::Pick) finish(w, step.choice);
     else if (step.kind == kwheel::Step::Cancel) finish(w, -1);
+}
+
+void wheel_cancel_undrawable() {
+    std::shared_ptr<Wheel> w;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        w = g_wheel;
+    }
+    if (!w) return;
+    logf(KILN_LOG_WARN, "ui: the overlay is off: the open wheel is cancelled (the game gets its input back)");
+    finish(w, -1);
 }
 
 bool wheel_on_key(const KilnUiKey& k) {
