@@ -150,6 +150,43 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
  settings.info=[](uint32_t,KilnSettingInfo* o)->KilnResult{o->kind=KILN_SETTING_BOOL;return KILN_OK;};
  gKSettings=&settings;assert(!run(L,two,"Admin.changeSettings{flag=0}"));gKSettings=nullptr;
  must(L,two,"local ok,e=pcall(Admin.give,'x',1,0,4294967296);assert(not ok and tostring(e):find('rarity'))");
+ // WP-05: English names (Admin.give, Res.text) from the shimmed item catalog and kiln.spawn; Admin.setLevel on a
+ // shimmed kiln.progression.
+ {
+  static const SetItemName names[]={{7u,"Material_T1_Wood_Logs","Wood Logs"},{9u,"Material_T1_Wood_Logs_Blueprint","Wood Logs"},{8u,"Potion","Mana \"Potion\""}};
+  gItemNames=names;gItemNameCount=3;resetNames();
+  KilnItemsApi items{};
+  items.item_id_of_guid=[](const uint8_t g[16])->KilnItemId{return g[0]==0x11?7u:0u;};
+  items.find_item=[](KilnStr)->KilnItemId{return 0;};
+  items.item_info=[](KilnItemId id,KilnItemInfo* o)->KilnResult{o->id=id;o->item_flags=id==9?0x8u:0u;return KILN_OK;};
+  KilnSpawnApi spawn{};
+  spawn.template_find=[](KilnStr n,KilnTemplateInfo* o)->KilnResult{if(std::string_view(n.ptr,n.len)!="22222222-2222-2222-2222-222222222222")return KILN_ERR_NOT_FOUND;strcpy(o->display,"Common Goat");return KILN_OK;};
+  static std::vector<KilnProgressionRequest> submitted;static KilnResult submitRc=KILN_OK;
+  KilnProgressionApi prog{};
+  prog.submit=[](KilnOwner,const KilnProgressionRequest* q,uint64_t*)->KilnResult{submitted.push_back(*q);return submitRc;};
+  if(!core.log)core.log=[](KilnOwner,int32_t,KilnStr){};
+  assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{*n=0;return KILN_OK;};
+  gKItems=&items;gKSpawn=&spawn;
+  must(L,two,"assert(Res.text('11111111-1111-1111-1111-111111111111')=='Wood Logs')");
+  must(L,two,"assert(Res.text('22222222-2222-2222-2222-222222222222')=='Common Goat')");
+  must(L,two,"assert(Res.text('33333333-3333-3333-3333-333333333333')==nil)");
+  must(L,two,"assert(not pcall(Res.text,'wood logs'))");
+  assert(itemIdByDisplay("WOOD LOGS")==7&&itemIdByDisplay("mana \"potion\"")==8&&itemIdByDisplay("nope")==0);
+  size_t queued=gAdminQueue.size();
+  must(L,two,"Admin.give('wood logs',5)");assert(gAdminQueue.size()==queued+1);
+  must(L,two,"local ok,e=pcall(Admin.give,'Nothing Like This');assert(not ok and tostring(e):find('no ItemInfo'))");
+  // setLevel: range, the service, and the refusal with no player (kiln.players is not shimmed: ecs::player() is 0)
+  must(L,two,"local ok,e=pcall(Admin.setLevel,20);assert(not ok and tostring(e):find('unavailable'))");
+  gKProgression=&prog;
+  must(L,two,"local ok,e=pcall(Admin.setLevel,0);assert(not ok and tostring(e):find('1 to 255'))");
+  must(L,two,"local ok,e=pcall(Admin.setLevel,256);assert(not ok and tostring(e):find('1 to 255'))");
+  must(L,two,"local ok,e=pcall(Admin.setLevel,20);assert(not ok and tostring(e):find('no player'))");
+  assert(gAdminQueue.size()==queued+1&&submitted.empty());
+  // a later refusal from kiln.progression is logged with its reason
+  KilnProgressionResult later{};later.status=KILN_ERR_NOT_FOUND;strcpy(later.reason,"level above the cap");logs.clear();setLevelDone(&later,nullptr);
+  assert(logs.size()==1&&logs[0].find("level above the cap")!=std::string::npos);
+  gKItems=nullptr;gKSpawn=nullptr;gKProgression=nullptr;gItemNames=nullptr;gItemNameCount=0;resetNames();
+ }
  for(auto& [name,owner]:gSystemOwners){(void)name;sys::releaseOwner(owner);}
  lua_close(L);gSystemOwners.clear();gInWorld=false;gWorld=0;
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.

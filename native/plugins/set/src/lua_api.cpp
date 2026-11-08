@@ -634,16 +634,24 @@ const res::Entry* findNamed(uint32_t type, const std::string& want) {
     return nullptr;
 }
 
-// Res.text(guid): the English text a LocaTag reference (item.name, item.description, ...) names; nil if none.
+std::string setDisplayText(const uint8_t g[16], std::string_view guidText);  // admin.inl
+
+// Res.text(guid): the English text a LocaTag reference (item.name, ...) names, or the English name of an item or a
+// template by its GUID (Kiln's catalogs, admin.inl); nil if none. Looked up only when called.
 int resText(lua_State* L) {
-    needRes(L);
     size_t n;
     const char* s = luaL_checklstring(L, 1, &n);
     uint8_t g[16];
     if (!res::parseGuid({s, n}, g)) return luaL_argerror(L, 1, "not a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)");
-    std::string_view t = res::text(g);
-    if (t.empty()) lua_pushnil(L);
-    else lua_pushlstring(L, t.data(), t.size());
+    needAlive(L);
+    std::string_view t = res::text(g);  // the localization table (not ported yet: empty)
+    if (!t.empty()) {
+        lua_pushlstring(L, t.data(), t.size());
+        return 1;
+    }
+    const std::string d = setDisplayText(g, {s, n});
+    if (d.empty()) lua_pushnil(L);
+    else lua_pushlstring(L, d.data(), d.size());
     return 1;
 }
 
@@ -2278,6 +2286,8 @@ void rt::bindKiln(const KilnApi* api, KilnOwner owner) {
     gKSpawn = static_cast<const KilnSpawnApi*>(get(KILN_SPAWN_SERVICE, 1));
     gKItems = static_cast<const KilnItemsApi*>(get(KILN_ITEMS_SERVICE, 1));
     gKSettings = static_cast<const KilnSettingsApi*>(get(KILN_SETTINGS_SERVICE, 1));
+    gKProgression = static_cast<const KilnProgressionApi*>(get(KILN_PROGRESSION_SERVICE, KILN_PROGRESSION_VERSION));
+    resetNames();
 }
 bool rt::systemsAvailable() { return gSysOk; }
 void rt::setSystemsAvailable(bool ok) { gSysOk = ok; }

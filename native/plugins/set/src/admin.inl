@@ -3,7 +3,13 @@
 // SET writes the game's own admin commands into the host's input; Kiln has typed services for the same jobs, which
 // also work on a dedicated server: kiln.time (setTime), kiln.world (teleport), kiln.spawn (spawn), kiln.items (give),
 // kiln.settings (settings, changeSettings). Calls queue and run at the next server tick, as in SET.
-// setLevel / setFlameLevel / send have no native Kiln service yet and raise an error saying so.
+// setLevel runs on kiln.progression (SET_LEVEL, as kiln-emf's player_level_set). setFlameLevel / send have no native
+// Kiln service yet and raise an error saying so.
+// English names (Admin.give, Res.text) come from the item catalog Kiln ships (Kiln.Items' Data/items.tsv, generated
+// at build time into kiln_set_items.inc) and kiln.spawn's template display names. Tables are built on the first call
+// that needs them, never per frame.
+#include <unordered_map>
+#include "../../../services/players/kiln_progression.h"
 #include "services/kiln_items.h"
 #include "services/kiln_settings.h"
 #include "services/kiln_spawn.h"
@@ -16,6 +22,106 @@ const KilnWorldApi* gKWorld = nullptr;
 const KilnSpawnApi* gKSpawn = nullptr;
 const KilnItemsApi* gKItems = nullptr;
 const KilnSettingsApi* gKSettings = nullptr;
+const KilnProgressionApi* gKProgression = nullptr;
+
+// ---- English names ----
+struct SetItemName { uint32_t id; const char* debug; const char* display; };
+#if __has_include("kiln_set_items.inc")
+const SetItemName kSetItemNames[] = {
+#include "kiln_set_items.inc"
+};
+const SetItemName* gItemNames = kSetItemNames;
+size_t gItemNameCount = sizeof kSetItemNames / sizeof kSetItemNames[0];
+#else
+const SetItemName* gItemNames = nullptr;  // host tests set their own
+size_t gItemNameCount = 0;
+#endif
+
+std::mutex gNamesMx;
+bool gNamesBuilt = false, gLocaBuilt = false;
+std::unordered_map<uint32_t, const char*> gDisplayById;        // item id -> English name
+std::unordered_map<std::string, uint32_t> gIdByDisplay;        // lowercase English name -> item id
+std::unordered_map<std::string, uint32_t> gIdByNameTag;        // the item's name LocaTag (16 raw bytes) -> item id
+
+void resetNames() {
+    std::lock_guard lock(gNamesMx);
+    gNamesBuilt = gLocaBuilt = false;
+    gDisplayById.clear(), gIdByDisplay.clear(), gIdByNameTag.clear();
+}
+
+void buildNamesLocked() {
+    if (gNamesBuilt) return;
+    gNamesBuilt = true;
+    std::unordered_map<std::string, bool> blueprint;  // the chosen id's blueprint flag, per name
+    for (size_t i = 0; i < gItemNameCount; ++i) {
+        const SetItemName& n = gItemNames[i];
+        if (!n.display || !*n.display) continue;
+        gDisplayById.emplace(n.id, n.display);
+        bool bp = false;
+        if (gKItems && gKItems->item_info) {
+            KilnItemInfo info{};
+            info.size = sizeof info;
+            if (gKItems->item_info(n.id, &info) == KILN_OK) bp = (info.item_flags & 0x8u) != 0;
+        }
+        const std::string key = lower(n.display);
+        auto it = gIdByDisplay.find(key);
+        // as Kiln.Items: a non-blueprint first, then the lowest id
+        if (it == gIdByDisplay.end() || (blueprint[key] && !bp) || (blueprint[key] == bp && n.id < it->second)) {
+            gIdByDisplay[key] = n.id;
+            blueprint[key] = bp;
+        }
+    }
+}
+
+// The item an English name names (case-insensitive), 0 if none.
+uint32_t itemIdByDisplay(const std::string& name) {
+    std::lock_guard lock(gNamesMx);
+    buildNamesLocked();
+    auto it = gIdByDisplay.find(lower(name));
+    return it == gIdByDisplay.end() ? 0 : it->second;
+}
+
+const char* itemDisplay(uint32_t id) {
+    std::lock_guard lock(gNamesMx);
+    buildNamesLocked();
+    auto it = gDisplayById.find(id);
+    return it == gDisplayById.end() ? nullptr : it->second;
+}
+
+// The item whose name field is this LocaTag reference (Res.text(item.name)), 0 if none or resources are not ready.
+uint32_t itemIdByNameTag(const uint8_t g[16]) {
+    std::lock_guard lock(gNamesMx);
+    if (!gLocaBuilt && res::ready() && gKItems) {
+        gLocaBuilt = true;
+        refl::Type t = refl::byName("keen::ItemInfo");
+        refl::Field f;
+        if (t && refl::field(t, "name", f) && res::isText(f.type)) {
+            for (const res::Entry* e : res::ofType(t.hash())) {
+                const uint8_t* p = res::data(*e);
+                if (!p || !res::inside(*e, p + f.offset, 16)) continue;
+                gIdByNameTag.emplace(std::string(reinterpret_cast<const char*>(p + f.offset), 16), gKItems->item_id_of_guid(e->guid));
+            }
+        }
+    }
+    auto it = gIdByNameTag.find(std::string(reinterpret_cast<const char*>(g), 16));
+    return it == gIdByNameTag.end() ? 0 : it->second;
+}
+
+// Res.text for items and templates: the English name of an item (its GUID or its name LocaTag) or a template (its
+// GUID). Empty when Kiln has none (other text ids: a later version).
+std::string setDisplayText(const uint8_t g[16], std::string_view guidText) {
+    if (gKItems && gKItems->item_id_of_guid)
+        if (const char* d = itemDisplay(gKItems->item_id_of_guid(g))) return d;
+    if (gKSpawn && gKSpawn->template_find) {
+        KilnTemplateInfo info{};
+        info.size = sizeof info;
+        if (gKSpawn->template_find(KilnStr{guidText.data(), guidText.size()}, &info) == KILN_OK && info.display[0])
+            return std::string(info.display, strnlen(info.display, sizeof info.display));
+    }
+    if (gKItems && gKItems->item_id_of_guid)  // last: the first call indexes the ItemInfo resources once
+        if (const uint32_t id = itemIdByNameTag(g)) if (const char* d = itemDisplay(id)) return d;
+    return {};
+}
 
 // Queued admin work: run on the next server tick (armAdmin), one closure per call.
 std::mutex gAdminMx;
@@ -72,8 +178,36 @@ int adminTeleport(lua_State* L) {
     return 0;
 }
 
+// Admin.setLevel(n): the host's (on a server: the first player's) level, 1 to 255, as the game's admin "set level"
+// (level, XP 0). Refused at once when no player is in game; a later refusal (level above the cap, the player left)
+// is logged.
+void KILN_CALL setLevelDone(const KilnProgressionResult* r, void*) {
+    if (r && r->status != KILN_OK)
+        adminLog(std::string(LV_WARN "admin command adminSetCharacterLevel was not run by the game: ") + r->reason);
+}
+
 int adminSetLevel(lua_State* L) {
-    return luaL_error(L, "Admin.setLevel is not available on Kiln yet");
+    const lua_Integer level = luaL_checkinteger(L, 1);
+    if (level < 1 || level > 255) return luaL_error(L, "level is 1 to 255, not %d", int(level));
+    if (!gKProgression) return luaL_error(L, "Admin.setLevel is unavailable: kiln.progression is not running");
+    needGame(L);
+    needWorld(L);
+    if (!ecs::player()) return luaL_error(L, "Admin.setLevel: no player in game");
+    queueAdmin(L, [level] {
+        const uint32_t p = ecs::player();
+        if (!p) return adminLog(LV_WARN "admin command adminSetCharacterLevel was not run by the game (no player)");
+        KilnProgressionRequest q{};
+        q.size = sizeof q;
+        q.op = KILN_PROG_OP_SET_LEVEL;
+        q.entity = p;
+        q.value = static_cast<uint32_t>(level);
+        q.callback = &setLevelDone;
+        const KilnResult rc = gKProgression->submit(gKOwner, &q, nullptr);
+        if (rc != KILN_OK)
+            adminLog(std::string(LV_WARN "admin command adminSetCharacterLevel was not run by the game (") +
+                     (rc == KILN_ERR_NOT_FOUND ? "not a player in game" : rc == KILN_ERR_UNAVAILABLE ? "levels are off on this game build" : "the level is out of range") + ")");
+    });
+    return 0;
 }
 
 int adminSetFlameLevel(lua_State* L) {
@@ -131,11 +265,13 @@ int adminGive(lua_State* L) {
     }
     needGame(L);
     if (!gKItems) return luaL_error(L, "Admin.give is unavailable: kiln.items is not running");
-    // By GUID, debugName or English name, as SET: GUID text and debug names resolve here; English names through Res.
+    // By GUID, debugName or English name, as SET: GUID text and debug names through kiln.items, English names through
+    // the shipped catalog, then Res.
     KilnItemId id = 0;
     uint8_t g[16];
     if (res::parseGuid(item, g)) id = gKItems->item_id_of_guid(g);
     if (!id) id = gKItems->find_item(KilnStr{item.data(), item.size()});
+    if (!id) id = itemIdByDisplay(item);
     if (!id) {
         refl::Type t = refl::byName("keen::ItemInfo");
         if (t && res::ready()) {

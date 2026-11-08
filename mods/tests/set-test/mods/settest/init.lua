@@ -50,7 +50,13 @@ registerForEvent("onWorldEnter", function()
   if logs then
     check("Res field read", logs.maxStackSize ~= nil and logs.maxStackSize > 0, logs.maxStackSize)
     check("Res.get by GUID", Res.get(g, "ItemInfo") ~= nil)
+    -- English names (Kiln's item catalog and kiln.spawn's template names)
+    check("Res.text item", Res.text(g) == "Wood Logs", Res.text(g))
+    check("Res.text item name ref", Res.text(logs.name) == "Wood Logs", Res.text(logs.name))
   end
+  local tg = Res.find("TemplateResource", "Animal_Wildlife_T1_Goat_AG2")
+  check("Res.text template", tg ~= nil and Res.text(tg) == "Common Goat", tg and Res.text(tg))
+  check("Res.text unknown is nil", Res.text("00000000-0000-0000-0000-000000000001") == nil)
   -- Systems switch and profiler
   Systems.enable("stamina_depletion_sprint", false)
   check("Systems.enable off", Systems.enabled("stamina_depletion_sprint") == false)
@@ -85,6 +91,10 @@ Tick.add(function(dt)
       healed = true
     end
     check("Ecs.player on a server without players", Ecs.player() == nil)
+    local okLevel, levelErr = pcall(Admin.setLevel, 20)
+    check("Admin.setLevel refuses with no player", not okLevel and tostring(levelErr):find("no player") ~= nil, levelErr)
+    local okGive, giveErr = pcall(Admin.give, "wood logs", 1)
+    check("Admin.give by English name resolves", okGive or not tostring(giveErr):find("no ItemInfo"), okGive or giveErr)
   end
   if ticks == 60 then
     local ok, r = pcall(Events.post, "TestEvent1", {data = 42})
