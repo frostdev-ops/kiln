@@ -367,6 +367,9 @@ pub fn refuse_symlink_path(path: &Path) -> Result<()> {
             return Err(Error::new(ErrorCode::Refused, format!("{}: parent traversal is not allowed", path.display())));
         }
         prefix.push(component.as_os_str());
+        // A Windows prefix alone (e.g. `\\?\C:`) is not the drive root. Inspect it only after
+        // the RootDir separator is appended, then keep checking every descendant for reparse points.
+        if matches!(component, std::path::Component::Prefix(_)) { continue; }
         match std::fs::symlink_metadata(&prefix) {
             Ok(meta) => {
                 #[cfg(windows)]
