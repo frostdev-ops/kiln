@@ -269,6 +269,16 @@ class LinuxReleaseTests(unittest.TestCase):
         self.assertTrue(scanner.problems)
         self.assertNotIn(secret.decode(), "\n".join(scanner.problems))
 
+    def test_kfc_containers_are_game_data_but_text_about_them_is_not(self):
+        scanner = release.Scanner([], str(self.dir))
+        # the real header: "KFC4" then binary fields (sizes, offsets) with NUL bytes
+        scanner.scan_bytes("leak/archive.bin", b"KFC4\xb0\x02A\x00\x0c\x00\x00\x00" + b"\x00" * 64)
+        self.assertEqual(scanner.problems, ["leak/archive.bin: game data (a KFC container)"])
+        scanner = release.Scanner([], str(self.dir))
+        scanner.scan_bytes("docs/review-summary.de.md", "KFC4-Profilanalyse für Enshrouded\n\nSteam-Build 1.".encode())
+        scanner.scan_bytes("big.kfc_data", b"x" * 5000)  # the name alone still counts
+        self.assertEqual(scanner.problems, ["big.kfc_data: game data (a KFC container)"])
+
     def test_short_key_password_is_not_ignored(self):
         password = self.dir / "updater.key.password"
         password.write_bytes(b"short\n")

@@ -329,7 +329,9 @@ class Scanner:
         for lit in self.literals:
             if lit in data:
                 self.bad(where, "a release secret (key password or credential)")
-        if data[:3] == b"KFC" or (re.search(r"(?i)\.kfc(_data|_resources)?$", where) and len(data) > 4096):
+        # A KFC container starts "KFC" + a version, then binary header fields (NUL bytes within the first 16 bytes on
+        # every build seen). Text that merely starts with "KFC4-..." (ShroudForge's German analysis notes) is not one.
+        if (data[:3] == b"KFC" and b"\0" in data[:64]) or (re.search(r"(?i)\.kfc(_data|_resources)?$", where) and len(data) > 4096):
             self.bad(where, "game data (a KFC container)")
 
     def scan_name(self, where):
