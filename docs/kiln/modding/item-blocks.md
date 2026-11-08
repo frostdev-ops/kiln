@@ -137,12 +137,12 @@ Blocks.Define("ember-scavenger", new CreatureBlock { Body = Bodies.Vukah, Drops 
 | `Pick` | `Each` (default): every entry tries its own chance. `One`: one entry is picked by weight, then its chance decides. |
 | `Rolls` | How many times the table rolls, 1 to 64. What comes up is added together per item. |
 
-- **Kiln rolls it, not the game.** The game's drop tables are fixed resources: a mod can add a stack to one or change its counts, and cannot make a new one. The game also rolls a creature's loot from its death sequence, which only runs near a player. A loot table is Kiln's instead. It is rolled on the server where a creature of the block dies, with no player needed, and the stacks are dropped as loose pickups around the spot. A creature that dies near a player also drops what the game gives it.
+- **Kiln rolls it, not the game.** The game's drop tables are fixed resources: a mod can add a stack to one or change its counts, and cannot make a new one. The game also rolls a creature's loot from its death sequence, which only runs near a player. A loot table is Kiln's instead. It is rolled on the server where a creature of the block dies, with no player needed, and the stacks are dropped as loose pickups around the spot. The game's own loot for the creature is not touched: one that dies near a player should drop that as well (not yet checked with a player).
 - **For code**, the handle rolls it: `cache.Roll(random)` gives the stacks and touches nothing; `await cache.Drop(position)` drops them as pickups; `await cache.Give(chest)` puts them into an inventory through `Items.Give`. A seeded `Random` makes a roll repeat.
 - **The world's Loot Amount** setting does not scale it.
-- **Pickups** are the game's generic pickup. They fall once a player is near, and the game does not save them.
-- **The game's own tables.** To put an item into a table the game already has, use `Loot.Tables` on the item (`DropPlace`: a table GUID or glob, or `DropsLike`, every table that drops that item).
-- **Mistakes.** An empty table, a chance outside 0 to 1, a `countMax` under `countMin`, a block that is no item or no table: refused at load, by block and field. An item name that is nobody's is said once content is ready: `block loottable x, entries[1].item: the game has no item "No_Such_Item"`. The rest of the table still rolls.
+- **Pickups** are the game's generic pickup (`Spawn.Item`), and the game does not save them. The lab reads them back on the server; how they look and fall in a player's game is not checked yet.
+- **The game's own tables.** To put an item into a table the game already has, use `Loot.Tables` on the item (`DropPlace`: a table GUID or glob, or `DropsLike`, every table that drops that item). Up to 0.2.0-dev.19 `DropPlace` was called `LootTableBlock`: C# that still writes `new LootTableBlock { DropsLike = ... }` there stops at build with error CS0619 saying so. The JSON (`loot.tables`) did not change.
+- **Mistakes.** An empty table, `Pick = One` with every weight 0 (or weights too large to add up), a chance outside 0 to 1, a `countMax` under `countMin`, a block that is no item or no table: refused at load, by block and field. An item name that is nobody's is said once content is ready: `block loottable x, entries[1].item: the game has no item "No_Such_Item"` (`drops.entries[1].item` in a table written in a creature). The rest of the table still rolls.
 - **`clients`.** A table asks nothing of players' games. The items in it ask what they ask.
 
 ## Recipes of their own
@@ -162,7 +162,7 @@ Blocks.Define("ember-charcoal", new RecipeBlock
 ```
 The fields are the recipe's as everywhere: `Station`, `Makes`, `Needs`, `Burns`, `Seconds`, `Sheltered`, `Comfort`. `Station` is `"hand"`, a game workshop's id (the workbench is `0x4da88f73`, `StationKind.Workbench.Workshop`), or a station block of this mod, by name or handle. A workshop of a station of your own needs `Seconds`, as for any recipe. The recipe is `<mod id>.<name>` in the game, and its id comes from the mod id and the name, so it stays.
 
-- A game recipe for the same item stays. This is another one, listed beside it.
+- A game recipe for the same item stays. This is another one, registered beside it (read back from the game's recipe registry; the workbench screen in a player's game is not checked yet).
 - `clients` is `kiln`: Kiln clients get the recipe from the server.
 - Mistakes are refused at load by field: no `Output`, nothing in `Needs`, `Makes` outside 1 to 65535, a `Station` that is no station, an `Output` that is not an item.
 

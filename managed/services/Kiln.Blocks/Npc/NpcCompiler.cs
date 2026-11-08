@@ -471,7 +471,7 @@ internal static class NpcCompiler
         low.AfterCommit(() =>
         {
             NpcRuntime.Register(info);
-            LootRuntime.Register(info.Variant, $"{ctx.Mod.Id}:{name}", drops);
+            LootRuntime.Register(info.Variant, ctx.Mod.Id, name, drops);
             AiRuntime.Attach(info, ai);   // npcai: relations, sense filter (Ai/AiRuntime.cs)
             NpcServerSide.Post(ctx.Mod, ctx.Block, () => Register(ctx, info, variant, spawns));
         });

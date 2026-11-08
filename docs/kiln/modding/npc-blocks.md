@@ -170,8 +170,8 @@ Blocks.Define("ember-scavenger", new CreatureBlock { Body = Bodies.Vukah, Drops 
 ```jsonc
 { "creatures": { "ember-scavenger": { "body": "vukah", "drops": "ember-cache" } } }
 ```
-Kiln rolls the table on the server where the creature dies, with no player near, and drops the stacks as loose pickups around the spot. A creature that dies near a
-player also drops what the game gives it: this is in addition. The table, its fields and how it rolls: [item-blocks.md](item-blocks.md#loot-tables). The creature
+Kiln rolls the table on the server where the creature dies, with or without a player near, and drops the stacks as loose pickups around the spot. The game's own
+loot is not touched, so a creature that dies near a player should drop that as well (not yet checked with a player). The table, its fields and how it rolls: [item-blocks.md](item-blocks.md#loot-tables). The creature
 asks nothing more of players' games (`clients` stays `none`, unless an item in the table is new).
 
 ## NPCs

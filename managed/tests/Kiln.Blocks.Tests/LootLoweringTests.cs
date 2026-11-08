@@ -70,6 +70,7 @@ public sealed class LootLoweringTests : IDisposable
     [InlineData("chance", "entries[0].chance")]
     [InlineData("weight", "entries[0].weight")]
     [InlineData("zeroWeights", "entries")]
+    [InlineData("hugeWeights", "entries")]
     public void Wrong_values_are_refused_by_block_and_field(string what, string field)
     {
         static LootEntry E(Func<LootEntry, LootEntry>? edit = null) => (edit ?? (x => x))(new LootEntry { Item = "Material_T1_Twigs" });
@@ -83,6 +84,7 @@ public sealed class LootLoweringTests : IDisposable
             "chance" => new LootTableBlock { Entries = [E(x => x with { Chance = 1.5 })] },
             "weight" => new LootTableBlock { Entries = [E(x => x with { Weight = double.NaN })] },
             "zeroWeights" => new LootTableBlock { Entries = [E(x => x with { Weight = 0 })], Pick = LootPick.One },
+            "hugeWeights" => new LootTableBlock { Entries = [E(x => x with { Weight = double.MaxValue }), E(x => x with { Weight = double.MaxValue })], Pick = LootPick.One },
             _ => throw new ArgumentException(what),
         };
         var e = Assert.Throws<BlockError>(() => Lower(Mod("loot-bad"), "bad", table));
@@ -118,6 +120,34 @@ public sealed class LootLoweringTests : IDisposable
         // a weight of 0 is never picked
         var never = Compiler.LootPlanOf(ctx, new LootTableBlock { Entries = [entries[0] with { Weight = 0 }, entries[1]], Pick = LootPick.One }, "");
         Assert.All(Enumerable.Range(0, 200).Select(_ => Assert.Single(never.Roll(rng))), s => Assert.Equal("Material_T1_Plant_Fibre", s.Item));
+    }
+
+    [Fact]
+    public void One_never_falls_back_to_an_entry_of_weight_0()
+    {
+        // a Random at the very top of its range: rounding must not hand the roll to the last entry when that one cannot be picked
+        var plan = Compiler.LootPlanOf(new BlockContext(Mod("loot-edge"), "loot table edge"),
+            new LootTableBlock { Pick = LootPick.One, Entries = [new LootEntry { Item = "Material_T1_Twigs", Weight = 0.2 }, new LootEntry { Item = "Material_T1_Plant_Fibre", Weight = 0.1 }, new LootEntry { Item = "Material_T1_Stone", Weight = 0 }] }, "");
+        Assert.Equal("Material_T1_Plant_Fibre", Assert.Single(plan.Roll(new TopRandom())).Item);
+    }
+
+    private sealed class TopRandom : Random
+    {
+        public override double NextDouble() => 1.0;   // past what Random gives, as rounding can make x
+        public override int Next(int minValue, int maxValue) => minValue;
+    }
+
+    [Fact]
+    public void A_reloading_mod_forgets_its_creatures_drops()
+    {
+        var plan = Compiler.LootPlanOf(new BlockContext(Mod("loot-forget"), "loot table forget"), Scrap, "");
+        LootRuntime.Register("loot-forget.v1", "loot-forget", "v1", plan);
+        LootRuntime.Register("loot-other.v1", "loot-other", "v1", plan);
+        new ModBlocks("loot-forget", 1).Reset();
+        Assert.False(LootRuntime.HasDrops("loot-forget.v1"));
+        Assert.True(LootRuntime.HasDrops("loot-other.v1"));
+        LootRuntime.Register("loot-other.v1", "loot-other", "v1", null);
+        Assert.False(LootRuntime.HasDrops("loot-other.v1"));
     }
 
     [Fact]

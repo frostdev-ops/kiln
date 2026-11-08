@@ -6,7 +6,9 @@
 // Kiln's: it is rolled on the server when a creature of the block dies (CreatureBlock.Drops), by code (LootTableHandle.Roll/Give/Drop), and by whatever
 // later names it (a container's default loot). It needs no native code of its own: the stacks are dropped as loose pickups (kiln.spawn) or given into
 // an inventory (kiln.items).
+using System.ComponentModel;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Kiln;
 
@@ -35,6 +37,18 @@ public sealed record LootTableBlock : IBlock
 
     /// <summary>What one roll does: every entry tries its own chance, or one entry is picked by weight.</summary>
     public LootPick Pick { get; init; } = LootPick.Each;
+
+    // Up to 0.2.0-dev.19 LootTableBlock was an item's place in the game's drop tables (Loot.Tables). Code written for that fails to build here with this
+    // message, rather than with nothing but "no such field". Not fields: no JSON, no schema.
+    private const string WasDropPlace = "Since 0.2.0-dev.20 LootTableBlock is a loot table of your own (Entries). An item's place in the game's drop tables (Loot.Tables) is now DropPlace, with the same fields: new DropPlace { DropsLike = ..., Chance = ... }.";
+
+    /// <summary>Not a field of a loot table: see <see cref="DropPlace.Table"/>.</summary>
+    [Obsolete(WasDropPlace, error: true), JsonIgnore, EditorBrowsable(EditorBrowsableState.Never)]
+    public string? Table { get => null; init { } }
+
+    /// <summary>Not a field of a loot table: see <see cref="DropPlace.DropsLike"/>.</summary>
+    [Obsolete(WasDropPlace, error: true), JsonIgnore, EditorBrowsable(EditorBrowsableState.Never)]
+    public ItemRef? DropsLike { get => null; init { } }
 }
 
 /// <summary>One stack a <see cref="LootTableBlock"/> can give.</summary>
@@ -120,10 +134,11 @@ internal sealed class LootPlan
             var total = Entries.Sum(e => e.Weight);
             if (total <= 0) continue;
             var x = rng.NextDouble() * total;
-            var picked = Entries[^1];
+            // rounding can leave x at the very end: then the last entry that can be picked, never one of weight 0
+            var picked = Entries.Last(e => e.Weight > 0);
             foreach (var e in Entries)
             {
-                if (x < e.Weight)
+                if (e.Weight > 0 && x < e.Weight)
                 {
                     picked = e;
                     break;
@@ -172,6 +187,7 @@ internal static partial class Compiler
             list.Add(new LootPlan.Entry(ctx.ItemName(e.Item, $"{p}.item"), e.CountMin, max, e.Chance, e.Weight));
         }
         if (t.Pick == LootPick.One && list.All(e => e.Weight <= 0)) throw new BlockError(ctx.Block, $"{path}entries", "pick \"one\" chooses by weight, and every weight is 0");
+        if (t.Pick == LootPick.One && !double.IsFinite(list.Sum(e => e.Weight))) throw new BlockError(ctx.Block, $"{path}entries", "the weights add up to more than a number holds: make them smaller");
         return new LootPlan { Label = ctx.Block, Entries = list, Rolls = t.Rolls, Pick = t.Pick };
     }
 
@@ -181,20 +197,20 @@ internal static partial class Compiler
         if (r.Name != null && ctx.Find(r.Name, path) is LootTableHandle h) return h.Plan;
         var table = ctx.Part(r, path);
         var plan = LootPlanOf(ctx, table, $"{path}.");
-        LootChecks(ctx, low, plan);
+        LootChecks(ctx, low, plan, $"{path}.");
         return plan;
     }
 
     private static BlockHandle DefineLootTable(BlockContext ctx, Lowered low, string name, LootTableBlock t)
     {
         var plan = LootPlanOf(ctx, t, "");
-        LootChecks(ctx, low, plan);
+        LootChecks(ctx, low, plan, "");
         low.Json["lootTable"] = plan.ToJson();
         return new LootTableHandle(ctx.Mod.Id, name, BlockIds.Derive(ctx.Mod.Id, "loot", name), $"{ctx.Mod.Id}.{name}", t, plan);
     }
 
     // The game's items are known when content is ready: an entry naming one that is not there is said once, by block and entry.
-    private static void LootChecks(BlockContext ctx, Lowered low, LootPlan plan)
+    private static void LootChecks(BlockContext ctx, Lowered low, LootPlan plan, string path)
     {
         var mod = ctx.Mod;
         var block = ctx.Block;
@@ -202,7 +218,7 @@ internal static partial class Compiler
         {
             for (var i = 0; i < plan.Entries.Count; i++)
                 if (LootRuntime.IdOf(plan.Entries[i].Item) == null)
-                    problem($"block {block}, entries[{i}].item: the game has no item \"{plan.Entries[i].Item}\"");
+                    problem($"block {block}, {path}entries[{i}].item: the game has no item \"{plan.Entries[i].Item}\"");
         }));
     }
 
@@ -232,7 +248,7 @@ internal static partial class Compiler
 internal static class LootRuntime
 {
     private static readonly object Gate = new();
-    private static readonly Dictionary<string, (string Name, LootPlan Plan)> ByVariant = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, (string Mod, string Name, LootPlan Plan)> ByVariant = new(StringComparer.Ordinal);
     private static IDisposable? _tick, _deaths;
     private static readonly Dictionary<string, uint> Ids = new(StringComparer.Ordinal);
 
@@ -264,13 +280,29 @@ internal static class LootRuntime
     // ---- creatures ----
 
     /// <summary>A creature block's drops: rolled where one of its creatures dies. Replaces what an earlier definition of the variant had.</summary>
-    internal static void Register(string variant, string name, LootPlan? plan)
+    internal static void Register(string variant, string mod, string name, LootPlan? plan)
     {
         lock (Gate)
         {
             if (plan == null) ByVariant.Remove(variant);
-            else ByVariant[variant] = (name, plan);
+            else ByVariant[variant] = (mod, $"{mod}:{name}", plan);
             if (plan != null) _tick ??= BlocksBridge.AddTick("kiln blocks loot", OnTick);
+        }
+    }
+
+    internal static bool HasDrops(string variant)
+    {
+        lock (Gate) return ByVariant.ContainsKey(variant);
+    }
+
+    /// <summary>A mod reloads or unloads (<see cref="ModBlocks.Reset"/>): its creatures drop nothing until its blocks are made again, and item ids are
+    /// looked up again (a mod's item can come back under another).</summary>
+    internal static void Forget(string mod)
+    {
+        lock (Gate)
+        {
+            foreach (var v in ByVariant.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) ByVariant.Remove(v);
+            Ids.Clear();
         }
     }
 
@@ -288,7 +320,7 @@ internal static class LootRuntime
     private static void OnDeath(EntityDeathEvent e)
     {
         if (e.IsPlayer) return;
-        (string Name, LootPlan Plan) drops;
+        (string Mod, string Name, LootPlan Plan) drops;
         lock (Gate)
             if (ByVariant.Count == 0 || CreatureVariants.Of(e.Victim) is not { } v || !ByVariant.TryGetValue(v.Id, out drops))
                 return;
