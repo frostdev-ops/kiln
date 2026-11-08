@@ -89,6 +89,8 @@ The Lua adapter fills `timeStamp` from the supported game clock. A full queue re
 | `/component <entity> <Component> [path]` | everyone | read a component (all scalar fields, or one) |
 | `/component <entity> <Component> <path> <value>` | admin | checked write |
 | `/devtools systems\|types` | everyone | in the game: open the Systems or Types window |
+| `/devtools open <window>` | everyone | in the game: toggle `bindings`, `resources`, `hooks`, `log`, `status` or `console` |
+| `/devtools bindings\|hooks\|status\|log [n]\|resources <type>` | everyone | the same data as text (works on servers) |
 
 ## Windows (in the game)
 - **Kiln: Systems**: filter, Off only, a checkbox per system, Profile / Stop profiling, Turn all on, Log top 30, and
@@ -96,6 +98,21 @@ The Lua adapter fills `timeStamp` from the supported game clock. A full queue re
   the Kiln menu's Keys tab.
 - **Kiln: Types**: search, then a type's fields, base class (click to follow) and enum values. `/devtools types` or
   `kiln.devtools.types`.
+
+The windows below match Shrouded Engine Tweaks' overlay. Each is closed at start; bind `kiln.devtools.<window>` or
+use `/devtools open <window>`. A closed window gathers nothing. An open one refreshes a few times a second at most.
+Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
+- **Kiln: Bindings**: every key binding by mod. Red keys clash with another binding. Pick one, then Set, Unbind or
+  Default (saved to keybinds.json).
+- **Kiln: Resources**: type a resource type (`keen::ItemInfo`) or hash (`0x...`), List, then pick a GUID. The detail
+  is raw (size and first bytes) until the reflected view is plugged in (`ResourcesView.Detail`).
+- **Kiln: Hooks**: kiln.hooks counts (detour and mid targets, handlers, patches) and calls per second.
+- **Kiln: Game Log**: follows `enshrouded.log` (client) or `logs/enshrouded_server.log` (server); warnings yellow,
+  errors red, "Hide noise" drops state-machine lines; 5000 lines.
+- **Kiln: Status**: each `kiln/state/*.json` file rated OK, `(!)` or ERR (errors, unverified exe, missing signatures,
+  failed or faulting mods), with its top-level values.
+- **Kiln: Console**: runs a line through `kiln/control/console` (as `kilnctl cmd` does) and shows the output; last
+  2000 lines, history buttons.
 
 ## C
 `kiln_types.h`: `status`, `type_count/type_at/type_by_hash/type_by_name/type_info/type_field/type_enum`,

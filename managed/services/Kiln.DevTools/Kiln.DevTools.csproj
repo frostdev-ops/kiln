@@ -11,5 +11,7 @@
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Hooks/Kiln.Hooks.csproj" Private="false" />
   </ItemGroup>
 </Project>

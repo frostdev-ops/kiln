@@ -12,7 +12,7 @@ namespace Kiln;
 
 /// <summary>Started at the first service tick (or by <see cref="Start"/>): registers the commands and, in the game,
 /// the windows.</summary>
-public static class KilnDevTools
+public static partial class KilnDevTools
 {
     private static int _started;
     private static UiWindow? _systems, _types;
@@ -27,8 +27,10 @@ public static class KilnDevTools
         {
             ModContext.CurrentMod = null; // Shared tools outlive whichever mod first asks to start them.
             RegisterCommands();
-            ServiceTick.Add("kiln developer tools", static (in TickInfo _) => RunChanges());
-            if (Ui.Available) CreateWindows();
+            ServiceTick.Add("kiln developer tools", static (in TickInfo _) => { RunChanges(); PumpPanels(); });
+            var root = InfoCommands(Commands.Literal("devtools").Describe("Kiln's developer windows (in the game) and their text forms"));
+            if (Ui.Available) CreateWindows(root);
+            Commands.Register(root, CommandPermission.Everyone);
         }
         finally { ModContext.CurrentMod = caller; }
     }
@@ -161,15 +163,22 @@ public static class KilnDevTools
     private static bool _offOnly;
     private static GameType? _selected;
 
-    private static void CreateWindows()
+    private static void CreateWindows(LiteralNode root)
     {
         _systems = Ui.Window("Kiln: Systems", DrawSystems, new UiWindowOptions { Width = 560, Height = 520, StartOpen = false });
         _types = Ui.Window("Kiln: Types", DrawTypes, new UiWindowOptions { Width = 720, Height = 560, StartOpen = false });
         KeyBindings.Register("kiln.devtools.systems", "None", () => _systems.Toggle(), "Kiln: Systems window");
         KeyBindings.Register("kiln.devtools.types", "None", () => _types.Toggle(), "Kiln: Types window");
-        Commands.Register(Commands.Literal("devtools").Describe("opens Kiln's Systems or Types window (in the game)")
-            .Then(Commands.Literal("systems").Executes(c => { _systems.Toggle(); c.Reply("Systems window toggled"); }))
-            .Then(Commands.Literal("types").Executes(c => { _types.Toggle(); c.Reply("Types window toggled"); })), CommandPermission.Everyone);
+        CreatePanelWindows();
+        root.Then(Commands.Literal("systems").Executes(c => { _systems.Toggle(); c.Reply("Systems window toggled"); }))
+            .Then(Commands.Literal("types").Executes(c => { _types.Toggle(); c.Reply("Types window toggled"); }))
+            .Then(Commands.Literal("open").Then(Commands.Argument("window", Arg.Word()).Executes(c =>
+            {
+                var id = c.Get<string>("window");
+                if (!WindowsById.TryGetValue(id, out var w)) throw new CommandException("windows: " + string.Join(", ", WindowsById.Keys));
+                w.Toggle();
+                c.Reply(id + " window toggled");
+            })));
     }
 
     private static void DrawSystems(UiDraw ui)
