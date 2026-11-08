@@ -8,10 +8,14 @@ export function partsFor(b: RuntimeBundle, side: RunSide): BundlePart[] {
   return (b.parts ?? []).filter((p) => p.sides.includes(side));
 }
 
-function withRequires(want: string[], parts: BundlePart[]): string[] {
+/** An explicit selection and its available transitive requirements. The backend validates the full manifest. */
+export function selectParts(b: RuntimeBundle, side: RunSide, want: string[]): string[] {
+  const parts = partsFor(b, side);
   const out = [...want];
   for (let i = 0; i < out.length; i++) {
-    for (const r of parts.find((p) => p.name === out[i])?.requires ?? []) if (!out.includes(r) && parts.some((p) => p.name === r)) out.push(r);
+    const part = parts.find((p) => p.name === out[i]);
+    if (!part) throw new Error(`component ${out[i]} is unavailable for the ${side} side`);
+    for (const r of part.requires ?? []) if (!out.includes(r) && parts.some((p) => p.name === r)) out.push(r);
   }
   return [...new Set(out)].sort();
 }
@@ -21,19 +25,20 @@ function withRequires(want: string[], parts: BundlePart[]): string[] {
 export function resolveParts(b: RuntimeBundle, side: RunSide, receipt: InstallReceipt | null): string[] {
   const parts = partsFor(b, side);
   const defaults = parts.filter((p) => p.default).map((p) => p.name);
-  if (!receipt || receipt.side !== side) return withRequires(defaults, parts);
+  if (!receipt || receipt.side !== side) return selectParts(b, side, defaults);
   const off = receipt.runtime.deselected ?? [];
-  const want = receipt.runtime.components.filter((c) => parts.some((p) => p.name === c));
+  const want = receipt.runtime.components.filter((c) => !off.includes(c) && parts.some((p) => p.name === c));
   for (const d of defaults) if (!off.includes(d) && !want.includes(d)) want.push(d);
-  return withRequires(want, parts);
+  return selectParts(b, side, want);
 }
 
-/** The defaults an explicit choice leaves out, plus earlier opt-outs of parts `b` lacks (the receipt's `deselected`). */
+/** Defaults an explicit choice leaves out, plus earlier opt-outs not selected (even if now optional or absent). */
 export function deselectedFor(b: RuntimeBundle, side: RunSide, chosen: string[], receipt: InstallReceipt | null): string[] {
   const parts = partsFor(b, side);
+  const selected = selectParts(b, side, chosen);
   const before = receipt?.side === side ? receipt.runtime.deselected ?? [] : [];
-  const off = parts.filter((p) => p.default && !chosen.includes(p.name)).map((p) => p.name)
-    .concat(before.filter((c) => !(b.parts ?? []).some((p) => p.name === c)));
+  const off = parts.filter((p) => p.default && !selected.includes(p.name)).map((p) => p.name)
+    .concat(before.filter((c) => !selected.includes(c)));
   return [...new Set(off)].sort();
 }
 
@@ -43,14 +48,15 @@ export type PartState = "installed" | "missing" | "off" | "optional";
 export interface PartRow { name: string; state: PartState; part: BundlePart | null }
 
 /** The parts of the installed bundle (`b`, when the launcher has it) against what the receipt says is in the game:
- *  installed, missing (a default that is not there and was not turned off), turned off, or optional. Parts the receipt
+ *  installed, missing (a default not turned off or a required dependency), turned off, or optional. Parts the receipt
  *  names that `b` lacks (or every part, without `b`) show as installed. */
 export function partRows(b: RuntimeBundle | null, side: RunSide, receipt: InstallReceipt): PartRow[] {
   const inGame = receipt.runtime.components;
   const off = receipt.runtime.deselected ?? [];
+  const plan = b ? resolveParts(b, side, receipt) : [];
   const rows: PartRow[] = (b ? partsFor(b, side) : []).map((p) => ({
     name: p.name, part: p,
-    state: inGame.includes(p.name) ? "installed" : off.includes(p.name) ? "off" : p.default ? "missing" : "optional",
+    state: inGame.includes(p.name) ? "installed" : plan.includes(p.name) ? "missing" : off.includes(p.name) ? "off" : "optional",
   }));
   for (const c of inGame) if (!rows.some((r) => r.name === c)) rows.push({ name: c, state: "installed", part: null });
   return rows;

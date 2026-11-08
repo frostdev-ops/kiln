@@ -55,5 +55,6 @@ export function installBundle(qc: QueryClient, game: GameInstall, b: RuntimeBund
   const back = !!current && b.version !== current && isOlder(b.version, current, bundles);
   const what = !current ? `Install of ${b.version}` : back ? `Rollback to ${b.version}` : `Update to ${b.version}`;
   return runRuntimeChange(qc, game, bundles, what, b.version, `Kiln ${b.version} installed`,
-    () => (back ? api.runtimeRollback(game.id, b.version) : api.runtimeInstall(game.id, b.version, opts)));
+    () => (back && opts.components == null && !opts.switchFromShroudforge
+      ? api.runtimeRollback(game.id, b.version) : api.runtimeInstall(game.id, b.version, opts)));
 }

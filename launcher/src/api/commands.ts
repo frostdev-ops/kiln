@@ -219,8 +219,8 @@ export interface InstallReceipt {
   installed: string;
   updated?: string;
   installer?: string;
-  /** `deselected`: the defaults the player turned off (updates keep them off and add every other new or newly default
-   *  part); absent in receipts from before it existed (nothing turned off). */
+  /** `deselected`: default parts the player turned off. Requirements may install them without clearing the opt-out;
+   *  updates add other defaults, including new and newly default parts. Absent in older receipts means nothing turned off. */
   runtime: { version: string; sha256?: string; components: string[]; deselected?: string[] };
   side: RunSide;
   platform?: Platform;
@@ -245,8 +245,8 @@ export interface InstallState {
   proxy: ProxyClass | null;
   modified: string[];
   upgradeAvailable: string | null;
-  /** Default parts of the installed bundle that are not in the game folder and were not turned off (a reinstall adds
-   *  them). Absent from older backends. */
+  /** Parts absent from the receipt that a reinstall adds: defaults not turned off, plus required dependencies.
+   *  Absent from older backends. */
   missingParts?: string[];
 }
 

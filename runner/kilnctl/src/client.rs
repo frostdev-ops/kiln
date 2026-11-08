@@ -56,10 +56,10 @@ pub fn status(dir: Option<PathBuf>) -> Result<i32> {
         None => println!("kiln      not installed by the installer (no kiln/.install.json)"),
     }
     if let Some(off) = st.runtime.receipt.as_ref().and_then(|r| r.runtime.deselected.as_ref()).filter(|d| !d.is_empty()) {
-        println!("off       {} (turned off; updates keep them off)", off.join(", "));
+        println!("off       {} (opt-outs; updates keep them off unless required)", off.join(", "));
     }
     if !st.runtime.missing_parts.is_empty() {
-        println!("missing   {} (defaults of the installed bundle; `kilnctl client install` adds them)", st.runtime.missing_parts.join(", "));
+        println!("missing   {} (defaults or requirements of the installed bundle; `kilnctl client install` adds them)", st.runtime.missing_parts.join(", "));
     }
     if let Some(u) = &st.runtime.upgrade_available {
         println!("upgrade   {u} is in {}", dirs.runtime().display());

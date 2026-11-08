@@ -1061,3 +1061,156 @@ fn resolve_components_follows_the_side_and_explicit_choices() {
     let again = install::resolve_components(&m, RunSide::Client, Some(&r), None).unwrap();
     assert_eq!(again.components, ["core", "sigdb-client"]);
 }
+
+#[test]
+fn review_opt_out_survives_an_explicit_choice_while_the_part_is_optional_or_on_another_side() {
+    use kiln_manage::manifest::RunSide;
+    let t = tmp("parts-off-optional");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let b = bundle::create(&stage_plus(&t.0, "a", &[("eml", true)]), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let r = install::install(&dirs, &client(&game), &b, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into()]), ..Default::default()
+    }, &mut NoProgress).unwrap();
+    let mut m = bundle::read(&b).unwrap();
+    for sides in [vec![RunSide::Client], vec![RunSide::Server]] {
+        m.components.get_mut("eml").unwrap().default = false;
+        m.components.get_mut("eml").unwrap().sides = sides;
+        let choice = install::resolve_components(&m, RunSide::Client, Some(&r), Some(&r.runtime.components)).unwrap();
+        assert_eq!(choice.deselected, ["emf", "eml"]);
+        let mut older = r.clone();
+        older.runtime.deselected = Some(choice.deselected);
+        m.components.get_mut("eml").unwrap().default = true;
+        m.components.get_mut("eml").unwrap().sides = vec![RunSide::Client];
+        assert!(!install::resolve_components(&m, RunSide::Client, Some(&older), None).unwrap().components.contains(&"eml".into()));
+    }
+}
+
+#[test]
+fn review_automatic_dependency_does_not_erase_an_opt_out() {
+    use kiln_manage::manifest::RunSide;
+    let t = tmp("parts-off-required");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let b = bundle::create(&stage_plus(&t.0, "a", &[("eml", true), ("bridge", false)]), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let r = install::install(&dirs, &client(&game), &b, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-client".into()]), ..Default::default()
+    }, &mut NoProgress).unwrap();
+    let mut m = bundle::read(&b).unwrap();
+    m.components.get_mut("bridge").unwrap().default = true;
+    m.components.get_mut("bridge").unwrap().requires = vec!["eml".into()];
+    let required = install::resolve_components(&m, RunSide::Client, Some(&r), None).unwrap();
+    assert!(required.components.contains(&"eml".into()), "requires takes precedence for this install");
+    assert_eq!(required.deselected, ["emf", "eml"], "an automatic dependency is not a player changing their choice");
+    let mut updated = r.clone();
+    updated.runtime.components = required.components;
+    updated.runtime.deselected = Some(required.deselected);
+    m.components.remove("bridge");
+    let later = install::resolve_components(&m, RunSide::Client, Some(&updated), None).unwrap();
+    assert_eq!(later.components, ["core", "sigdb-client"]);
+    assert_eq!(later.deselected, ["emf", "eml"]);
+}
+
+#[test]
+fn review_status_includes_missing_transitive_requirements() {
+    let t = tmp("parts-missing-required");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let s = stage_plus(&t.0, "a", &[("eml", true), ("helper", false), ("leaf", false)]);
+    let path = s.join("kiln-runtime.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    m["components"]["eml"]["requires"] = serde_json::json!(["helper"]);
+    m["components"]["helper"]["requires"] = serde_json::json!(["leaf"]);
+    std::fs::write(path, serde_json::to_vec(&m).unwrap()).unwrap();
+    let b = bundle::create(&s, &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let b = bundle::import(&dirs, &b).unwrap();
+    install::install(&dirs, &client(&game), &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    make_legacy(&game, &["core", "emf", "sigdb-client"]);
+    assert_eq!(install::status(&dirs, &client(&game)).unwrap().missing_parts, ["eml", "helper", "leaf"]);
+    let r = install::install(&dirs, &client(&game), &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(comps(&r), ["core", "emf", "eml", "helper", "leaf", "sigdb-client"]);
+    assert!(install::status(&dirs, &client(&game)).unwrap().missing_parts.is_empty());
+}
+
+#[test]
+fn review_deselection_removes_only_unchanged_files_and_receipt_failure_restores_the_old_choice() {
+    use kiln_manage::task::Progress;
+    struct FailReceipt(PathBuf);
+    impl Progress for FailReceipt {
+        fn report(&mut self, _: Option<f32>, message: &str) {
+            if message == "installed dinput8.dll" {
+                std::fs::create_dir_all(self.0.join("kiln/.install.json.tmp")).unwrap();
+            }
+        }
+    }
+    let t = tmp("parts-remove-atomic");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let s = stage_plus(&t.0, "a", &[("eml", true), ("fresh", false)]);
+    put(&s, "eml/kiln/plugins/eml/edited.dll", b"original edit");
+    put(&s, "eml/kiln/plugins/eml/settings.json", b"settings");
+    let manifest_path = s.join("kiln-runtime.json");
+    let mut manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["config"] = serde_json::json!(["kiln/kiln.json", "kiln/plugins/eml/settings.json"]);
+    std::fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let b1 = bundle::create(&s, &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let old = install::install(&dirs, &client(&game), &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    put(&game, "kiln/plugins/eml/edited.dll", b"player edit");
+    let receipt_before = std::fs::read(game.join("kiln/.install.json")).unwrap();
+    let b2 = bundle::create(&stage_plus(&t.0, "b", &[("eml", true), ("fresh", false)]), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let options = InstallOptions { components: Some(vec!["core".into(), "sigdb-client".into(), "fresh".into()]), ..Default::default() };
+    let err = install::install(&dirs, &client(&game), &b2, &options, &mut FailReceipt(game.clone())).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Io);
+    assert_eq!(std::fs::read(game.join("kiln/.install.json")).unwrap(), receipt_before);
+    assert_eq!(install::read_receipt(&game).unwrap(), Some(old.clone()));
+    for f in &old.files {
+        if f.path != "kiln/plugins/eml/edited.dll" {
+            assert_eq!(hash::sha256_file(&game.join(&f.path)).unwrap().0, f.sha256, "{} restored", f.path);
+        }
+    }
+    assert!(!game.join("kiln/plugins/fresh/fresh.dll").exists());
+    assert_eq!(std::fs::read(game.join("kiln/plugins/eml/edited.dll")).unwrap(), b"player edit");
+    std::fs::remove_dir(game.join("kiln/.install.json.tmp")).unwrap();
+    let r = install::install(&dirs, &client(&game), &b2, &options, &mut NoProgress).unwrap();
+    assert_eq!(r.runtime.deselected.as_deref().unwrap(), ["emf", "eml"]);
+    assert!(!game.join("kiln/plugins/eml/eml.dll").exists());
+    assert_eq!(std::fs::read(game.join("kiln/plugins/eml/edited.dll")).unwrap(), b"player edit");
+    assert!(game.join("kiln/plugins/fresh/fresh.dll").is_file());
+    assert_eq!(std::fs::read(game.join("kiln/plugins/eml/settings.json")).unwrap(), b"settings");
+}
+
+#[test]
+fn review_samples_addition_keeps_opt_outs_and_resolves_the_server_selection_under_the_install_lock() {
+    let t = tmp("parts-server-samples");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("server");
+    put(&game, "enshrouded_server.exe", b"MZ");
+    let mut inst = client(&game);
+    inst.kind = GameKind::Server;
+    inst.exe = "enshrouded_server.exe".into();
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &inst, &b1, &InstallOptions {
+        components: Some(vec!["core".into(), "sigdb-server".into()]), ..Default::default()
+    }, &mut NoProgress).unwrap();
+    let s = stage_plus(&t.0, "b", &[("eml", true)]);
+    let path = s.join("kiln-runtime.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    m["components"]["eml"]["requires"] = serde_json::json!(["emf"]);
+    std::fs::write(path, serde_json::to_vec(&m).unwrap()).unwrap();
+    let b2 = bundle::create(&s, &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r = install::install_adding(&dirs, &inst, &b2, &InstallOptions::default(), &["samples".into()], &mut NoProgress).unwrap();
+    assert_eq!(comps(&r), ["core", "emf", "eml", "samples", "sigdb-server"]);
+    assert_eq!(r.runtime.deselected.as_deref().unwrap(), ["emf"]);
+    assert!(game.join("kiln/mods/hello/Hello.dll").is_file());
+    assert!(!game.join("kiln/sigdb/client.json").exists());
+    // A server-to-client receipt mismatch must fail before changing either files or preference.
+    put(&game, "enshrouded.exe", b"MZ");
+    let before = std::fs::read(game.join("kiln/.install.json")).unwrap();
+    assert_eq!(install::install(&dirs, &client(&game), &b1, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(std::fs::read(game.join("kiln/.install.json")).unwrap(), before);
+    assert_eq!(std::fs::read(game.join("kiln/plugins/eml/eml.dll")).unwrap(), b"eml b");
+}

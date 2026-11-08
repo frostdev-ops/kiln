@@ -212,23 +212,17 @@ pub fn deploy_bundle(inst: &Instance, zip: &Path, samples: bool) -> Result<()> {
     g.platform = kiln_manage::game::Platform::Wine;
     g.prefix = Some(inst.prefix.clone());
     g.source = "kilnctl".into();
-    let components = if samples || inst.kiln.samples {
-        let m = kiln_manage::bundle::read(zip).map_err(|e| anyhow::anyhow!(e.message))?;
-        if !m.components.contains_key("samples") {
-            bail!("{} has no samples component", zip.display());
-        }
-        let old = kiln_manage::install::read_receipt(&inst.dir).map_err(|e| anyhow::anyhow!(e.message))?;
-        let mut c = kiln_manage::install::resolve_components(&m, kiln_manage::manifest::RunSide::Server, old.as_ref(), None)
-            .map_err(|e| anyhow::anyhow!(e.message))?
-            .components;
-        if !c.iter().any(|x| x == "samples") {
-            c.push("samples".into());
-        }
-        Some(c)
+    if samples || inst.kiln.samples {
+        let dirs = crate::bundle::data_dirs()?;
+        let options = kiln_manage::install::InstallOptions {
+            installer: Some(format!("kilnctl {}", env!("CARGO_PKG_VERSION"))), ..Default::default()
+        };
+        let r = kiln_manage::install::install_adding(&dirs, &g, zip, &options, &["samples".into()], &mut crate::bundle::Printer::new())
+            .map_err(|e| anyhow::anyhow!(e.message))?;
+        crate::bundle::print_receipt(&r, &g.path);
     } else {
-        None
-    };
-    crate::bundle::install_into(&g, zip, components, false)?;
+        crate::bundle::install_into(&g, zip, None, false)?;
+    }
     // the bundle's kiln.json is installed only when missing; the instance's policy goes in either way (in place)
     let kiln_json = kiln::kiln_dir(inst).join("kiln.json");
     if let Some(new) = kiln::set_policy(&std::fs::read_to_string(&kiln_json)?, inst.kiln.policy.as_str())? {
@@ -847,6 +841,68 @@ pub fn list() -> Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sample_bundle_deploy_preserves_opt_outs_when_new_defaults_require_them() {
+        // Isolate DataDirs::locate in a child test process instead of changing this process's environment.
+        const ROOT: &str = "KILN_COMP19_DEPLOY_TEST_ROOT";
+        let Some(root) = std::env::var_os(ROOT).map(PathBuf::from) else {
+            let root = std::env::temp_dir().join(format!("kilnctl-sample-deploy-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "ops::tests::sample_bundle_deploy_preserves_opt_outs_when_new_defaults_require_them", "--nocapture"])
+                .env(ROOT, &root).env("KILN_DATA_DIR", root.join("data"))
+                .output().unwrap();
+            let _ = std::fs::remove_dir_all(&root);
+            assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+            return;
+        };
+        let put = |base: &Path, rel: &str, bytes: &[u8]| {
+            let p = base.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        };
+        let game = root.join("server");
+        put(&game, "enshrouded_server.exe", b"MZ synthetic server");
+        let g = kiln_manage::game::inspect(&game).unwrap();
+        let dirs = kiln_manage::paths::DataDirs::at(root.join("data"));
+        for (tag, late_default, epoch) in [("aaaaaaa", false, 1_793_793_600), ("bbbbbbb", true, 1_793_880_000)] {
+            let stage = root.join(tag);
+            let manifest = serde_json::json!({
+                "format": 1, "kiln": "0.2.0-dev", "abi": 2, "config": ["kiln/kiln.json"],
+                "components": {
+                    "core": {"sides": ["client", "server"], "default": true},
+                    "emf": {"sides": ["client", "server"], "default": true, "requires": ["core"]},
+                    "late": {"sides": ["client", "server"], "default": late_default, "requires": ["emf"]},
+                    "sigdb-server": {"sides": ["server"], "default": true, "requires": ["core"]},
+                    "samples": {"sides": ["server"], "default": false, "requires": ["core"]}
+                }
+            });
+            put(&stage, "kiln-runtime.json", &serde_json::to_vec(&manifest).unwrap());
+            put(&stage, "core/dinput8.dll", &kiln_manage::pe::build_test_dll(&["DirectInput8Create", "KilnProxyInfo"], b"KilnProxy/2 0.2.0-dev\0"));
+            put(&stage, "core/kiln/kiln.json", b"{\"policy\":\"verified-only\"}");
+            for (part, path) in [("emf", "kiln/plugins/emf.dll"), ("late", "kiln/plugins/late.dll"),
+                                 ("sigdb-server", "kiln/sigdb/server.json"), ("samples", "kiln/mods/sample.dll")] {
+                put(&stage, &format!("{part}/{path}"), tag.as_bytes());
+            }
+            let zip = kiln_manage::bundle::create(&stage, &root.join("out"), &kiln_manage::bundle::CreateOptions {
+                source_date_epoch: epoch, git: tag.into()
+            }).unwrap();
+            if !late_default {
+                kiln_manage::install::install(&dirs, &g, &zip, &kiln_manage::install::InstallOptions {
+                    components: Some(vec!["core".into(), "sigdb-server".into()]), ..Default::default()
+                }, &mut kiln_manage::task::NoProgress).unwrap();
+            } else {
+                let inst = config::parse("synthetic-review", &root.join("instance.toml"),
+                    &format!("dir = {:?}\nwine = \"system\"\n", game.to_str().unwrap()), &root).unwrap();
+                deploy_bundle(&inst, &zip, true).unwrap();
+            }
+        }
+        let r = kiln_manage::install::read_receipt(&game).unwrap().unwrap();
+        assert_eq!(r.runtime.components, ["core", "emf", "late", "samples", "sigdb-server"]);
+        assert_eq!(r.runtime.deselected.as_deref().unwrap(), ["emf"]);
+        assert!(game.join("kiln/mods/sample.dll").is_file());
+    }
 
     #[test]
     fn backup_args_save_then_kiln_data() {

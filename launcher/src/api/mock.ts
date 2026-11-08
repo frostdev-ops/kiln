@@ -25,7 +25,7 @@ import bigStacksSchema from "../../../schema/examples/config-schema.json";
 import beastmasterSchema from "../../../schema/examples/config-schema-emf.json";
 import kilnJsonSnapshot from "../data/kiln-json.snapshot.json";
 import { MOD_KINDS, emptyMods } from "./kinds";
-import { deselectedFor, partRows, resolveParts } from "../shell/parts";
+import { deselectedFor, partRows, resolveParts, selectParts } from "../shell/parts";
 
 /** Kiln's own four kinds (the drop-in folders); MOD_KINDS (./kinds.ts) has every kind. */
 const KINDS: ModKind[] = ["kiln", "native", "plugin", "emf"];
@@ -93,7 +93,7 @@ function mockPart(name: string, sides: RunSide[] = ["server", "client"], isDefau
   return { name, sides, default: isDefault, requires: name === "core" ? [] : ["core"] };
 }
 
-/** Like install::status: the installed bundle's default parts that are not in the game and were not turned off. */
+/** Like install::status: missing defaults and requirements that a reinstall adds. */
 function withMissing(st: InstallState, side: RunSide): InstallState {
   const r = st.receipt;
   const b = r && bundles.find((x) => x.version === r.runtime.version);
@@ -105,8 +105,8 @@ const bundles: RuntimeBundle[] = [
     created: "2026-11-04T10:10:00Z", sides: ["server", "client"], components: ["core", "admin", "emf", "eml", "samples"],
     parts: [mockPart("core"), mockPart("admin", ["server"]), mockPart("emf"), mockPart("eml"), mockPart("samples", ["server"], false)] },
   { version: "0.1.9+20261101.a41c2d0", kiln: "0.1.9", file: "runtime/kiln-runtime-0.1.9+20261101.a41c2d0.zip", sha256: hex("rt1"),
-    created: "2026-11-01T18:00:00Z", sides: ["server", "client"], components: ["core", "admin", "samples"],
-    parts: [mockPart("core"), mockPart("admin", ["server"]), mockPart("samples", ["server"], false)] },
+    created: "2026-11-01T18:00:00Z", sides: ["server", "client"], components: ["core", "admin", "emf", "samples"],
+    parts: [mockPart("core"), mockPart("admin", ["server"]), mockPart("emf"), mockPart("samples", ["server"], false)] },
 ];
 
 // ---------------------------------------------------------------- library
@@ -669,8 +669,10 @@ const handlers: Record<string, Handler> = {
     const b = bundles.find((x) => x.version === version) ?? reject("not_found", `No bundle ${version}.`);
     const opts = (a.options ?? {}) as { switchFromShroudforge?: boolean; components?: string[] | null };
     // like the backend: a part this side cannot take is refused before the task starts
-    const wrong = opts.components?.find((c) => ["admin", "samples", "sigdb-server"].includes(c));
-    if (wrong) reject("invalid_argument", `component ${wrong} is not for the client side`);
+    if (opts.components) {
+      try { selectParts(b, g.kind, opts.components); }
+      catch (e) { reject("invalid_argument", (e as Error).message); }
+    }
     const fail = failNextInstall;
     failNextInstall = null;
     return startTask("runtime_install", `Install Kiln ${b.kiln}`, ["Staging", "Verifying hashes", "Classifying dinput8.dll", "Backing up", "Placing files", "Writing receipt"], () => {
@@ -680,9 +682,9 @@ const handlers: Record<string, Handler> = {
       // like install::resolve_components: an explicit choice records the defaults it leaves out; none keeps the game's
       // parts and adds every new or newly default one not turned off
       const prev = st?.receipt ?? null;
-      const components = opts.components ? [...new Set(["core", ...opts.components])].sort() : resolveParts(b, g.kind, prev);
-      const deselected = opts.components ? deselectedFor(b, g.kind, components, prev) : (prev?.runtime.deselected ?? []).filter((c) => !components.includes(c));
-      const receipt: InstallReceipt = { ...baseReceipt, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components, deselected } };
+      const components = opts.components ? selectParts(b, g.kind, opts.components) : resolveParts(b, g.kind, prev);
+      const deselected = opts.components ? deselectedFor(b, g.kind, components, prev) : prev?.side === g.kind ? prev.runtime.deselected ?? [] : [];
+      const receipt: InstallReceipt = { ...baseReceipt, side: g.kind, installed: st?.receipt?.installed ?? now(), updated: now(), runtime: { version: b.version, sha256: b.sha256, components, deselected } };
       // like the backend: Kiln files changed by hand are replaced, their copies kept in the install's backup
       const changed = st?.modified ?? [];
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };

@@ -7,7 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import * as api from "../api/commands";
 import type { BootJson, InstallReceipt, InstallState, RunSide, RuntimeBundle } from "../api/commands";
 import { qk, useGame, useGameStatus, useLaunchState, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
-import { partRows, partsFor, resolveParts, type PartState } from "../shell/parts";
+import { partRows, partsFor, resolveParts, selectParts, type PartState } from "../shell/parts";
 import { installBundle, isOlder, runRuntimeChange } from "../shell/runtimeChange";
 import {
   Banner, Button, Card, ConfirmDanger, DropZone, EmptyState, Modal, Page, PageHeader, Skeleton, Table,
@@ -201,19 +201,21 @@ function InstallModal({ bundle, side, receipt, onClose, onInstall }: {
   }
   if (!bundle) return null;
   const offered = partsFor(bundle, side);
-  const toggle = (c: string, on: boolean) => setParts(on ? [...parts, c] : parts.filter((x) => x !== c));
+  const toggle = (c: string, on: boolean) => setParts(on ? selectParts(bundle, side, [...parts, c]) : parts.filter((x) => x !== c));
   return (
     <Modal open onClose={onClose} title={`Install Kiln ${bundle.kiln}`} width={480}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={custom && !parts.includes("core")} onClick={() => onInstall(bundle, custom ? parts : null)}>Install</Button></>}>
       <span className="k-mono k-muted">{bundle.version}</span>
       <Toggle checked={!custom} onChange={(on) => setCustom(!on)} label={receipt ? "Keep my parts" : "Default parts"}
-        hint={receipt ? "Keeps your parts and adds the ones that are new or now default, unless you turned them off. Off: choose below."
+        hint={receipt ? "Keeps your parts and adds defaults you have not turned off. Off: choose below."
           : "Core, signatures and the parts for EMF, EML, ShroudForge and Enshwick mods, for this side."} />
       {custom ? (
         <div className="k-stack">
           {offered.map((p) => (
-            <Toggle key={p.name} checked={parts.includes(p.name)} onChange={(on) => toggle(p.name, on)} disabled={p.name === "core"} label={p.name} hint={PART_HINT[p.name] ?? p.description} />
+            <Toggle key={p.name} checked={parts.includes(p.name)} onChange={(on) => toggle(p.name, on)}
+              disabled={p.name === "core" || selectParts(bundle, side, parts.filter((c) => c !== p.name)).includes(p.name)}
+              label={p.name} hint={PART_HINT[p.name] ?? p.description} />
           ))}
         </div>
       ) : (

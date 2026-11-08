@@ -19,7 +19,7 @@
         "version": { "type": "string", "description": "kiln-runtime.json version" },
         "sha256": { "$ref": "common.schema.json#/$defs/sha256", "description": "of the bundle zip" },
         "components": { "type": "array", "items": { "type": "string" } },
-        "deselected": { "type": "array", "items": { "type": "string" }, "description": "Default components the player turned off (an explicit choice). Updates keep them off and add every other component that is new or became a default. Absent (older receipts): nothing was turned off." }
+        "deselected": { "type": "array", "items": { "type": "string" }, "description": "Default components the player turned off. Updates keep them off unless required and add every other default for the side. Automatic requirements preserve opt-outs; explicit choices preserve earlier unselected opt-outs even if now optional or absent. Absent (older receipts): nothing was turned off." }
       }
     },
     "side": { "$ref": "common.schema.json#/$defs/runSide" },

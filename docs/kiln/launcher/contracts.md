@@ -379,7 +379,9 @@ A parity test checks the bundle's tree against `tools/deploy-server.sh`'s output
 ### 5.7 `.install.json` (receipt) and the install rules
 Fields: `format`, `installId` (uuid, stable across upgrades), `installed`, `updated`, `installer`,
 `runtime{version, sha256, components, deselected}` (`deselected`: the defaults the player turned off; updates keep
-them off and add every other new or newly default component; absent in older receipts = nothing turned off), `side`, `platform` (`proton|wine|windows`), `game{exe, sha256, steamBuild}`,
+them off unless required and add every other default for the side; automatic requirements preserve
+opt-outs, and explicit choices preserve unselected earlier opt-outs even if now optional or absent;
+absent in older receipts = nothing turned off), `side`, `platform` (`proton|wine|windows`), `game{exe, sha256, steamBuild}`,
 `files[]` (`{path, sha256, size, component, config}`), `replaced[]` (`{path, sha256, size, class, action, chainPath,
 backup, engine}`; `class`: `kiln|shroudforge|emf|unknown|file`; `engine`: the 5.3 `ProxyKind` when Kiln knows the
 file's engine (`eml`, `set`, `flame` ...), absent otherwise, so older readers keep their five classes; `action`:

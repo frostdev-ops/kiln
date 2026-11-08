@@ -218,13 +218,13 @@ test("Runtime shows installed versus missing parts; Reinstall adds a missing def
   const back = page.getByRole("dialog", { name: "Install Kiln 0.1.9" });
   await back.getByText("Keep my parts", { exact: true }).click();
   await expect(back.getByRole("switch", { name: /^Keep my parts/ })).not.toBeChecked();
+  await back.getByText("emf", { exact: true }).click();
   await back.getByRole("button", { name: "Install" }).click();
-  await expect(parts.getByRole("listitem", { name: "core: Installed" })).toBeVisible({ timeout: 8000 });
+  await expect(parts.getByRole("listitem", { name: "emf: Turned off" })).toBeVisible({ timeout: 8000 });
   await expect(parts.getByRole("listitem", { name: /^eml/ })).toHaveCount(0);
   await page.getByRole("row").filter({ hasText: "0.2.0-dev+20261104.0f1ffa6" }).getByRole("button", { name: "Update" }).click();
   const up = page.getByRole("dialog", { name: "Install Kiln 0.2.0-dev" });
-  await up.getByText("Keep my parts", { exact: true }).click();
-  await up.getByText("emf", { exact: true }).click();
+  await expect(up.getByRole("switch", { name: /^Keep my parts/ })).toBeChecked();
   await up.getByRole("button", { name: "Install" }).click();
   await expect(parts.getByRole("listitem", { name: "emf: Turned off" })).toBeVisible({ timeout: 8000 });
   await expect(parts.getByRole("listitem", { name: "eml: Installed" })).toBeVisible();
@@ -237,6 +237,60 @@ test("Runtime shows installed versus missing parts; Reinstall adds a missing def
   await up.getByRole("button", { name: "Install" }).click();
   await expect(parts.getByRole("listitem", { name: "emf: Turned off" })).toBeVisible({ timeout: 8000 });
   await expect(parts.getByRole("listitem", { name: "eml: Installed" })).toBeVisible();
+});
+
+test("part previews preserve opt-outs across optional bundles and required dependencies", async () => {
+  const { deselectedFor, partRows, resolveParts, selectParts } = await import("../src/shell/parts");
+  type Bundle = import("../src/api/commands").RuntimeBundle;
+  type Receipt = import("../src/api/commands").InstallReceipt;
+  const bundle = {
+    parts: [
+      { name: "core", sides: ["client"], default: true },
+      { name: "eml", sides: ["client"], default: false, requires: ["core"] },
+      { name: "bridge", sides: ["client"], default: true, requires: ["eml"] },
+      { name: "server", sides: ["server"], default: true },
+    ],
+  } as Bundle;
+  const receipt = { side: "client", runtime: { components: ["core"], deselected: ["eml"] } } as Receipt;
+  expect(selectParts(bundle, "client", ["bridge"])).toEqual(["bridge", "core", "eml"]);
+  expect(deselectedFor(bundle, "client", ["core"], receipt)).toEqual(["bridge", "eml"]);
+  expect(deselectedFor(bundle, "client", ["bridge"], receipt)).toEqual([]);
+  expect(resolveParts(bundle, "client", receipt)).toEqual(["bridge", "core", "eml"]);
+  expect(partRows(bundle, "client", receipt).find((p) => p.name === "eml")?.state).toBe("missing");
+  const older = { ...bundle, parts: bundle.parts.filter((p) => p.name !== "bridge") };
+  expect(resolveParts(older, "client", { ...receipt, runtime: { ...receipt.runtime, components: ["core", "eml", "bridge"] } })).toEqual(["core"]);
+  expect(() => selectParts(bundle, "client", ["server"])).toThrow(/client side/);
+});
+
+test("custom parts select their requirements and keep them checked until their dependent is turned off", async ({ page }) => {
+  const bundle: import("../src/api/commands").RuntimeBundle = {
+    version: "0.2.1+20261107.1111111", kiln: "0.2.1", file: "runtime/test.zip", sha256: "a".repeat(64),
+    created: "2026-11-07T12:00:00Z", sides: ["client", "server"], components: ["core", "emf", "eml", "bridge", "sigdb-server"],
+    parts: [
+      { name: "core", sides: ["client", "server"], default: true },
+      { name: "emf", sides: ["client", "server"], default: true, requires: ["core"] },
+      { name: "eml", sides: ["client", "server"], default: false, requires: ["core"] },
+      { name: "bridge", sides: ["client", "server"], default: false, requires: ["eml"] },
+      { name: "sigdb-server", sides: ["server"], default: true, requires: ["core"] },
+    ],
+  };
+  await page.addInitScript((b) => {
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { runtime_list: Array.from({ length: 12 }, () => ({ result: [b] })) };  // one per call: the shell lists runtimes too
+  }, bundle);
+  await open(page, "/runtime");
+  await page.getByRole("row").filter({ hasText: bundle.version }).getByRole("button", { name: "Update" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install Kiln 0.2.1" });
+  await dialog.getByText("Keep my parts", { exact: true }).click();
+  const eml = dialog.getByRole("switch", { name: /^eml/ });
+  await expect(eml).not.toBeChecked();
+  await dialog.getByText("bridge", { exact: true }).click();
+  await expect(eml).toBeChecked();
+  await expect(eml).toBeDisabled();
+  await expect(dialog.getByText("sigdb-server", { exact: true })).toHaveCount(0);
+  await dialog.getByText("bridge", { exact: true }).click();
+  await expect(eml).toBeEnabled();
+  await dialog.getByText("eml", { exact: true }).click();
+  await expect(eml).not.toBeChecked();
 });
 
 test("a server without Kiln offers Install Kiln on Overview; one with Kiln offers Update Kiln", async ({ page }) => {

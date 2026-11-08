@@ -47,8 +47,8 @@ pub struct ReceiptRuntime {
     pub sha256: Option<String>,
     #[serde(default)]
     pub components: Vec<String>,
-    /// Default components the player turned off (an explicit choice): upgrades keep them off. Every other component
-    /// that is new in a bundle, or became a default, is added on upgrade. `None`: a receipt from before this field
+    /// Default components the player turned off (an explicit choice): upgrades keep them off unless required.
+    /// Other defaults, including new and newly default components, are added on upgrade. `None`: before this field
     /// (its plain list records no choice against anything, so nothing counts as turned off). Opt-outs of components
     /// a bundle no longer has are kept, so a rollback and a later update do not bring them back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,8 +164,8 @@ pub struct InstallState {
     pub modified: Vec<String>,
     /// A newer bundle in `<data>/runtime/` (its version).
     pub upgrade_available: Option<String>,
-    /// Default components of the installed bundle (when it is in `<data>/runtime/`) for this side that are not in
-    /// the game folder and were not turned off: an install of the same bundle adds them.
+    /// Components of the installed bundle (when it is in `<data>/runtime/`) missing from the receipt that a
+    /// reinstall adds: defaults not turned off and requirements of the resulting selection.
     #[serde(default)]
     pub missing_parts: Vec<String>,
 }
@@ -267,12 +267,12 @@ pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
         .as_ref()
         .and_then(|r| {
             let b = bundles.as_ref()?.iter().find(|b| b.version == r.runtime.version)?;
-            let off = r.runtime.deselected.as_deref().unwrap_or_default();
+            let manifest = crate::bundle::read(&b.file).ok()?;
+            let choice = resolve_components(&manifest, side, Some(r), None).ok()?;
             Some(
-                b.parts
-                    .iter()
-                    .filter(|p| p.default && p.sides.contains(&side) && !r.runtime.components.contains(&p.name) && !off.contains(&p.name))
-                    .map(|p| p.name.clone())
+                choice.components
+                    .into_iter()
+                    .filter(|p| !r.runtime.components.contains(p))
                     .collect(),
             )
         })
@@ -342,11 +342,12 @@ pub struct ComponentChoice {
 
 /// The components an install of `manifest` puts into a `side` folder whose receipt is `old`:
 /// - `requested` (an explicit choice): exactly those, plus what they require; the bundle's defaults it leaves out are
-///   recorded as turned off, as are earlier opt-outs of components this bundle does not have;
+///   recorded as turned off, as are earlier opt-outs not selected (even if now optional or absent);
 /// - none and no receipt: the side's defaults;
 /// - none and a receipt (update, reinstall, rollback): the installed components the bundle still has for the side,
 ///   plus every default of the bundle the player did not turn off (new components, components that became
-///   defaults). A receipt without `deselected` (written before it existed) turned nothing off.
+///   defaults). Requirements override opt-outs for this install without erasing them. A receipt without
+///   `deselected` (written before it existed) turned nothing off.
 pub fn resolve_components(manifest: &RuntimeManifest, side: RunSide, old: Option<&InstallReceipt>, requested: Option<&[String]>)
                           -> Result<ComponentChoice> {
     let defaults: Vec<&String> =
@@ -361,7 +362,7 @@ pub fn resolve_components(manifest: &RuntimeManifest, side: RunSide, old: Option
                 .runtime
                 .components
                 .iter()
-                .filter(|c| manifest.components.get(*c).is_some_and(|m| m.sides.contains(&side)))
+                .filter(|c| !before.contains(c) && manifest.components.get(*c).is_some_and(|m| m.sides.contains(&side)))
                 .cloned()
                 .collect();
             for d in &defaults {
@@ -374,9 +375,9 @@ pub fn resolve_components(manifest: &RuntimeManifest, side: RunSide, old: Option
     };
     let mut deselected: Vec<String> = match requested {
         Some(_) => defaults.iter().filter(|d| !components.contains(d)).map(|d| (*d).clone())
-            .chain(before.iter().filter(|c| !manifest.components.contains_key(*c)).cloned())
+            .chain(before.iter().filter(|c| !components.contains(c)).cloned())
             .collect(),
-        None => before.into_iter().filter(|c| !components.contains(c)).collect(),
+        None => before,
     };
     deselected.sort();
     deselected.dedup();
@@ -657,6 +658,18 @@ pub fn install(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &
 /// `install`, with what it backed up besides the receipt (hand-changed Kiln files).
 pub fn install_report(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
                       progress: &mut dyn Progress) -> Result<(InstallReceipt, InstallReport)> {
+    install_report_adding(dirs, install, bundle, options, &[], progress)
+}
+
+/// Install while adding named parts to the automatic selection (e.g. `deploy --samples`). This is not an
+/// explicit replacement of the player's selection: only the named additions clear earlier opt-outs.
+pub fn install_adding(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
+                      additions: &[String], progress: &mut dyn Progress) -> Result<InstallReceipt> {
+    install_report_adding(dirs, install, bundle, options, additions, progress).map(|(r, _)| r)
+}
+
+fn install_report_adding(dirs: &DataDirs, install: &GameInstall, bundle: &Path, options: &InstallOptions,
+                         additions: &[String], progress: &mut dyn Progress) -> Result<(InstallReceipt, InstallReport)> {
     let game_dir = install.path.as_path();
     let exe = game_dir.join(&install.exe);
     if !exe.is_file() {
@@ -685,7 +698,12 @@ pub fn install_report(dirs: &DataDirs, install: &GameInstall, bundle: &Path, opt
     {
         return Err(Error::new(ErrorCode::Conflict, format!("the receipt says {} side, this is a {} install", side_name(o.side), side_name(side))));
     }
-    let choice = resolve_components(&manifest, side, old.as_ref(), options.components.as_deref())?;
+    let mut choice = resolve_components(&manifest, side, old.as_ref(), options.components.as_deref())?;
+    if !additions.is_empty() {
+        choice.components.extend_from_slice(additions);
+        choice.components = select_components(&manifest, side, Some(&choice.components))?;
+        choice.deselected.retain(|c| !additions.contains(c));
+    }
     let files = plan(&manifest, side, Some(&choice.components))?;
     for f in &files {
         let low = f.path.to_ascii_lowercase();

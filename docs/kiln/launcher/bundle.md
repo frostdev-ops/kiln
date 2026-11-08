@@ -77,7 +77,11 @@ as it is; otherwise it downloads from `builds.dotnet.microsoft.com` and checks t
      became a default, goes in on the next update unless the player turned it off; a component the bundle lacks
      (rollback) is left out, not an error.
    - `runtime.deselected` carries over (opt-outs of components a bundle lacks too, so a rollback and the next
-     update keep them off). A receipt without it (written before 0.2.0-dev.19) holds a plain list that records no
+     update keep them off). An explicit choice keeps earlier opt-outs of unselected parts even when they are now
+     optional or on the other side. Requirements take precedence for the current install; an automatic update
+     does not erase the opt-out, so the part stays off again when no longer required. `deploy --bundle --samples`
+     adds samples to the automatic selection under the install lock; it does not replace the player's selection.
+     A receipt without `deselected` (written before 0.2.0-dev.19) holds a plain list that records no
      choice: nothing counts as turned off, so the defaults it lacks go in. The 0.2.0-dev.18 update froze every
      player's earlier list this way (the launcher and the installer passed the receipt's list back as the choice)
      and skipped eml, shroudforge and enshwick.
@@ -121,8 +125,9 @@ path, `adopted` ones excepted) can come back from its chain file or backup with 
 receipt's unchanged non-config files that were not there before (adopted files stay), removes the `[chain]` lines it added, puts the originals back (a displaced proxy is moved back,
 others copied from the backup) and verifies each sha256, removes the receipt. `kiln/` stays (mods, configs, data,
 logs, backups). `rollback(version)` installs a bundle from `<data>/runtime/` with the player's parts (step 4, no
-explicit choice). `status` lists `missingParts`: defaults of the installed bundle (when it is in `<data>/runtime/`)
-that are neither in the folder nor turned off; Runtime shows them and offers Reinstall.
+explicit choice). `status` lists `missingParts`: parts absent from the receipt that reinstalling the installed bundle
+(when it is in `<data>/runtime/`) adds: defaults not turned off and transitive requirements, including optional or
+turned-off parts required by another selected part. Runtime shows them and offers Reinstall.
 
 ## Verified
 - Two `bundle create` runs: byte-identical zip (365 files, 205 MB unpacked).
