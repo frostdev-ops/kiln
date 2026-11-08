@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.Assets/Kiln.Assets.csproj" />
     <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
     <ProjectReference Include="../../services/Kiln.Permissions/Kiln.Permissions.csproj" />
     <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />

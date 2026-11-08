@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Lab test of the reflected-types API (GameTypes, Reflected, GameSystems, GameEvents) and the devtools commands.
-       Prints PASS/FAIL lines to kiln.log. -->
+  <!-- Lab test of the reflected-types API (GameTypes, Reflected, GameSystems, GameEvents), reflected resources with Overrides
+       claims (ReflectedResources, GuidHash), and the devtools commands. Prints PASS/FAIL lines to kiln.log. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -12,6 +12,8 @@
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.DevTools/Kiln.DevTools.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Assets/Kiln.Assets.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Eml/Kiln.Eml.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

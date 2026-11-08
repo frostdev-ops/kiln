@@ -13,7 +13,10 @@ internal sealed class FakeBackend : IKilnBackend
     public string Version => "test";
     public bool IsTickThread => TickThread;
     public bool HasFeature(string name) => false;
-    public nint Service(string name, uint minVersion) => 0;
+    /// <summary>Native service tables a test provides (the fake kiln.types and kiln.assets).</summary>
+    public readonly Dictionary<string, nint> Tables = [];
+    public nint Service(string name, uint minVersion) => Tables.GetValueOrDefault(name);
+    public ulong OwnerCreate(string id) => 777;
 
     public void Log(ulong owner, LogLevel level, string text)
     {

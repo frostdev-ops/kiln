@@ -88,6 +88,13 @@ public sealed class AssetsTestMod : Mod
             Check(id == 0x43108313, $"ItemInfo itemId field = 0x{id:x8} (expected 0x43108313)");
         }
 
+        // 1b. The same resource as a reflected struct: a typed view over its bytes (kiln.types + kiln.assets).
+        var reflected = Assets.Reflect(itemKey);
+        Check(reflected != null && reflected.Type.QualifiedName == "keen::ItemInfo" && reflected.Get<uint>("itemId") == 0x43108313,
+              $"Assets.Reflect: {reflected} itemId 0x{reflected?.Get<uint>("itemId") ?? 0:x8}");
+        Check(reflected != null && reflected.Get<string>("debugName") == "Weapon_T1_1H_SwordEpic_01" && reflected.Bytes.AsSpan().SequenceEqual(item),
+              $"Assets.Reflect reads its text through the blob offsets: {reflected?["debugName"]}");
+
         // 2. Register a new resource under a fresh GUID+type and read it back.
         var newGuid = Guid.NewGuid();
         var newKey = new AssetKey(newGuid, "kiln::AssetTest", 0);
@@ -102,6 +109,10 @@ public sealed class AssetsTestMod : Mod
         new Random(99).NextBytes(blob);
         var hash = Assets.AddBlob(blob);
         Check(hash.Size == (uint)blob.Length, $"blob hash size {hash.Size} == {blob.Length}");
+        var listed = Assets.ListBlobs();
+        Check(listed.Count == 1 && listed[0].Hash == hash && listed[0].Kind == BlobKind.Added && listed[0].Mod == "assets-test",
+              $"ListBlobs lists the blob this mod added: {string.Join(", ", listed.Select(b => $"{b.Kind} {b.Hash}"))}");
+        Check(Assets.ListAllBlobs().Any(b => b.Hash == hash && b.Mod == "assets-test"), "ListAllBlobs lists it too");
         // reading a blob by hash needs the content reader; skip quietly if content is off on this build
         var status = Assets.Status();
         if (status.Contains("\"content\":true"))
@@ -125,6 +136,8 @@ public sealed class AssetsTestMod : Mod
             Assets.OverrideBlob(hash, other);
             var served = ReadBlob(hash, other.Length);
             Check(served != null && served.AsSpan().SequenceEqual(other), "the content map serves a hash the game lacks, under bytes that don't derive it");
+            Check(Assets.ListBlobs().Count == 1 && Assets.ListBlobs()[0].Hash == hash && Assets.ListBlobs()[0].Kind == BlobKind.Override,
+                  $"ListBlobs lists the override: {string.Join(", ", Assets.ListBlobs().Select(b => $"{b.Kind} {b.Hash}"))}");
             var refused = false;
             try { Assets.OverrideBlob(hash, new byte[16]); } catch (Exception) { refused = true; }
             Check(refused, "a blob whose length isn't the hash's size is refused");
@@ -150,6 +163,7 @@ public sealed class AssetsTestMod : Mod
         // clean up the test's new resource / blob
         Assets.RemoveResource(newKey);
         Assets.RemoveBlob(hash);
+        Check(Assets.ListBlobs().Count == 0, "ListBlobs is empty again after RemoveBlob");
     }
 
     private static byte[]? ReadBlob(ContentHash hash, int size)

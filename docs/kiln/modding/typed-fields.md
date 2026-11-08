@@ -117,6 +117,72 @@ locals. A `GameDataEntry` passed in as a parameter could be anything, so it isn'
 suggestion. The rules: [analyzers.md](analyzers.md#kiln194). Data packs get the same check from `kiln lint`
 ([lint.md](lint.md)).
 
+## Any resource
+Items and templates have typed fields. The game keeps hundreds of other kinds of data as resources: buffs, perks, balancing tables,
+recipes, sound containers. `ReflectedResources` reads any of them, with the types your game reports about itself (kiln.types).
+No catalog is needed.
+```csharp
+var sword = ReflectedResources.Get(Guid.Parse("1d622bd9-8170-41b1-822e-d3984b386d95"), "keen::ItemInfo")!;
+Log.Info($"{sword["debugName"]} stacks to {sword["maxStackSize"]}");     // "Weapon_T1_1H_SwordEpic_01 stacks to 1"
+sword["maxStackSize"] = 5;                                              // an override, undone when your mod unloads
+```
+**Paths** are the ones `Reflected.Component` takes: `"maxStackSize"`, `"damageSetup.dmgMod"`, `"tags[2]"`. They also go through the
+parts the game stores behind the resource: lists (`"tags[2]"` on a list), optional parts (`"extra.power"`) and variants (`"part.x"`, the
+fields of whatever struct the variant holds).
+`Count("tags")`, `IsSet("extra")`, `VariantType("part")` and `Describe()` show what a resource holds. A read gives `bool`, `long`,
+`ulong`, `double`, `string` or `Guid`.
+
+**Find by a field's value.** `FindByField` looks at every resource of a type. The value is checked like a write (an enum by name,
+text for text, a GUID or its text for a reference):
+```csharp
+foreach (var item in ReflectedResources.FindByField("keen::ItemInfo", "maxStackSize", 1)) { /* every item that does not stack */ }
+var byName = ReflectedResources.FindByField("keen::ItemInfo", "debugName", "Weapon_T1_1H_SwordEpic_01").Single();
+```
+A resource that has no such element (an optional that is not set, a list that is too short) does not match. A path that is no field of
+the type throws. `ReflectedResources.All(type)` lists the resources of a type. `Assets.Reflect(key)` opens one by `AssetKey`.
+
+**Writes are claims.** A write keeps the resource's size: it changes numbers, enums, flags, bools, GUIDs and references, and it does
+not make text or lists longer or shorter. The game gets the resource with your value in it (copy-on-write: its own bytes are never
+touched). The value is checked first; one that does not fit throws and changes nothing.
+```csharp
+var result = sword.Set("maxStackSize", 5);          // a result, not an exception, when another mod has the field
+if (!result.Ok) Log.Warn(result.Message);
+sword.Restore("maxStackSize");                      // the original comes back; sword.RestoreAll() for the whole resource
+```
+- When your mod unloads, everything it changed is given back.
+- Two mods can change **different fields** of one resource: the game gets both, and each mod takes out only its own.
+- Two mods that want **the same field**: the first keeps it. The second gets `OverrideStatus.Conflict`, nothing changes, and its log has
+  a warning that names both mods. The indexer (`sword["x"] = 1`) throws `InvalidOperationException` with the same message.
+- `Overrides.Active` lists every claim in force. `sword.HeldBy("path")` says who has a field. `sword.Original("path")` reads what the
+  game had before any change.
+- The game uses a changed resource when it next loads it. Data it keeps resident is read at the start: change that in `OnLoad`
+  ([assets.md](../services/assets.md)).
+
+**Reversible changes of any kind.** `Overrides.Claim` gives the same rules to anything you can undo:
+```csharp
+var r = Overrides.Claim("mymod:spawn-rate", () => myRate = 2, () => myRate = 1);
+if (!r.Ok) Log.Warn(r.Message);    // another mod claimed "mymod:spawn-rate"; apply did not run
+Overrides.Release("mymod:spawn-rate");     // or Overrides.RestoreAll(); the unload does it too
+```
+Use one name for one thing, the same in every mod that may want it. `restore` runs when you release the claim or your mod unloads.
+
+### Helpers from EML and ShroudForge
+Small ports that EML and ShroudForge mods use, as C# (clean implementations, MIT):
+| What | In Kiln |
+|---|---|
+| `game.guid.hash(guid)` | `GuidHash.Of(guid)` (Kiln.Eml). `GuidHash.IdOf(guid)` is the id the game makes of a GUID: 0 for the zero GUID. `ItemInfo.itemId` is `IdOf(its GUID)` |
+| `game.types.of(value)` | `GameTypes.TypeOf(value)`: a reflected component, event copy or resource, a field, or a type |
+| `game.assets.get_all_contents()` | `Assets.ListBlobs()`: the blobs your mod added or overrode (`ListAllBlobs()` for every mod). Blobs from `assets.json` and the game's own are not listed |
+| `image.create`, `get_pixel`, `set_pixel`, `encode`, `decode` | `DataImage` (Kiln.Eml): RGBA8 pixels, `GetPixel`/`SetPixel`, packed `0xRRGGBBAA`, `DecodePng`/`EncodePng` |
+```csharp
+var img = new DataImage(256, 256);
+for (var y = 0; y < 256; y++) for (var x = 0; x < 256; x++) img.SetPixel(x, y, (byte)x, (byte)y, 0x80, 0xFF);
+Assets.RegisterIcon(itemGuid, img.EncodePng());     // an icon drawn in code (client)
+```
+`DataImage` reads every PNG (all colour types and bit depths, transparency, interlaced) and writes 8-bit RGBA. Other formats and the
+game's block-compressed textures are not in it: `Assets.OverrideTexture` takes a PNG and encodes it to the texture's format.
+Types by Impact name (`get_by_impact_name`) are not here: kiln.types does not report them yet.
+
 ## Limits
 - **Below a variant, nothing is typed:** sequence events' own fields and collider shapes. Use `Below`, or a string.
 - **A field is typed per section, not per entry.** `GameFields.Templates.Health` exists on every template, whether or not that one has

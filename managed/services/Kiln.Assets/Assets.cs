@@ -20,7 +20,7 @@ public readonly struct AssetKey
 }
 
 /// <summary>A content blob hash (keen::ContentHash): the identity of a streamed blob (texture pixels, mesh data).</summary>
-public readonly struct ContentHash
+public readonly struct ContentHash : IEquatable<ContentHash>
 {
     public uint Size { get; }
     public uint H0 { get; }
@@ -28,7 +28,21 @@ public readonly struct ContentHash
     public uint H2 { get; }
     internal ContentHash(uint size, uint h0, uint h1, uint h2) { Size = size; H0 = h0; H1 = h1; H2 = h2; }
     public override string ToString() => $"{Size}-{H0:x8}-{H1:x8}-{H2:x8}";
+    public bool Equals(ContentHash other) => Size == other.Size && H0 == other.H0 && H1 == other.H1 && H2 == other.H2;
+    public override bool Equals(object? obj) => obj is ContentHash other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(Size, H0, H1, H2);
+    public static bool operator ==(ContentHash a, ContentHash b) => a.Equals(b);
+    public static bool operator !=(ContentHash a, ContentHash b) => !a.Equals(b);
 }
+
+/// <summary>How a mod supplied a content blob: new bytes under a new hash, or bytes served instead of the game's blob.</summary>
+public enum BlobKind { Added = 0, Override = 1 }
+
+/// <summary>A content blob a mod supplied through <see cref="Assets"/> (see <see cref="Assets.ListBlobs"/>).</summary>
+/// <param name="Hash">The blob's content hash.</param>
+/// <param name="Kind">New blob, or an override of the game's.</param>
+/// <param name="Mod">The id of the mod that supplied it.</param>
+public readonly record struct BlobEntry(ContentHash Hash, BlobKind Kind, string Mod);
 
 /// <summary>The UI state of a registered icon (see <see cref="Assets.IconStateOf"/>).</summary>
 public enum IconState { None = 0, Pending = 1, Served = 2, Failed = 3 }
@@ -65,7 +79,11 @@ public static unsafe class Assets
             if (!Watched.Add(mod)) return;
         mod.Retiring += () =>
         {
-            lock (Lock) Watched.Remove(mod);
+            lock (Lock)
+            {
+                Watched.Remove(mod);
+                Blobs.RemoveAll(b => b.Owner == mod.Owner);
+            }
             var t = T;
             if (t != null) t->RevertOwner(mod.Owner);
         };
@@ -199,6 +217,12 @@ public static unsafe class Assets
         return buf;
     }
 
+    /// <summary>The resource as a reflected struct: read any field by path, change one copy-on-write (see
+    /// <see cref="ReflectedResource"/>). Null when the game has no such resource. Throws when the key's type is not a reflected
+    /// type of this build. <see cref="ReflectedResources"/> finds resources by type and by the value of a field.</summary>
+    public static ReflectedResource? Reflect(AssetKey key) =>
+        ReflectedResources.Get(key.Guid, GameTypes.ByHash(key.Type) ?? throw new ArgumentException($"no reflected type has the hash 0x{key.Type:x8}"), key.Part);
+
     /// <summary>Every key of a type (the game's plus new ones).</summary>
     public static AssetKey[] ListResources(uint type)
     {
@@ -218,28 +242,67 @@ public static unsafe class Assets
     }
 
     // ---- content blobs ------------------------------------------------------------------------------------------
+    // What each mod supplied through this class, for ListBlobs: kiln.assets has no blob listing of its own, so the managed side
+    // keeps the record (and drops a mod's entries when it unloads, as kiln.assets drops its blobs).
+    private sealed record BlobRecord(ulong Owner, string Mod, ContentHash Hash, BlobKind Kind);
+    private static readonly List<BlobRecord> Blobs = new();
+
+    private static void RecordBlob(ulong owner, string mod, ContentHash hash, BlobKind kind)
+    {
+        lock (Lock)
+        {
+            Blobs.RemoveAll(b => b.Owner == owner && b.Hash.Equals(hash));
+            Blobs.Add(new BlobRecord(owner, mod, hash, kind));
+        }
+    }
+
     /// <summary>Add a new blob; the returned hash goes into a resource's content reference.</summary>
     public static ContentHash AddBlob(byte[] bytes)
     {
         var t = Require();
+        var owner = Owner();
         AssetsNative.ContentHash h;
-        fixed (byte* p = bytes) Check(t->BlobAdd(Owner(), p, (nuint)bytes.Length, &h), "AddBlob");
-        return new ContentHash(h.Size, h.H0, h.H1, h.H2);
+        fixed (byte* p = bytes) Check(t->BlobAdd(owner, p, (nuint)bytes.Length, &h), "AddBlob");
+        var hash = new ContentHash(h.Size, h.H0, h.H1, h.H2);
+        RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Added);
+        return hash;
     }
 
     /// <summary>Serve `bytes` instead of the game's blob `hash` (bytes.Length must equal hash.Size).</summary>
     public static void OverrideBlob(ContentHash hash, byte[] bytes)
     {
         var t = Require();
+        var owner = Owner();
         var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
-        fixed (byte* p = bytes) Check(t->BlobOverride(Owner(), &h, p, (nuint)bytes.Length), "OverrideBlob");
+        fixed (byte* p = bytes) Check(t->BlobOverride(owner, &h, p, (nuint)bytes.Length), "OverrideBlob");
+        RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Override);
     }
 
     public static void RemoveBlob(ContentHash hash)
     {
         var t = Require();
+        var owner = Owner();
         var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
-        t->BlobRemove(Owner(), &h);
+        t->BlobRemove(owner, &h);
+        lock (Lock) Blobs.RemoveAll(b => b.Owner == owner && b.Hash.Equals(hash));
+    }
+
+    /// <summary>
+    /// The content blobs this mod added with <see cref="AddBlob"/> or overrode with <see cref="OverrideBlob"/> and has not
+    /// removed, oldest first (EML's <c>get_all_contents</c>, for the mod's own blobs). Blobs a mod declares in assets.json
+    /// are registered by the native side and are not listed; the game's own blobs (several hundred thousand) are not either.
+    /// Call it from mod code.
+    /// </summary>
+    public static IReadOnlyList<BlobEntry> ListBlobs()
+    {
+        var owner = Owner();
+        lock (Lock) return Blobs.Where(b => b.Owner == owner).Select(b => new BlobEntry(b.Hash, b.Kind, b.Mod)).ToList();
+    }
+
+    /// <summary>The blobs every mod has supplied through this class (see <see cref="ListBlobs"/>), oldest first. Any thread.</summary>
+    public static IReadOnlyList<BlobEntry> ListAllBlobs()
+    {
+        lock (Lock) return Blobs.Select(b => new BlobEntry(b.Hash, b.Kind, b.Mod)).ToList();
     }
 
     // ---- textures (client) --------------------------------------------------------------------------------------

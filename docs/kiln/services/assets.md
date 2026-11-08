@@ -79,12 +79,17 @@ public override void OnLoad()
     Assets.Override(new AssetKey(guid, AssetKey.ItemInfoType), editedItemInfo);
     byte[]? bytes = Assets.ReadResource(new AssetKey(guid, AssetKey.ItemInfoType));  // override if any, else vanilla
     var keys = Assets.ListResources(AssetKey.UiTextureType);  // game's + new
+    var item = Assets.Reflect(new AssetKey(guid, AssetKey.ItemInfoType));  // the same resource as a reflected struct: item["maxStackSize"]
+    IReadOnlyList<BlobEntry> mine = Assets.ListBlobs();       // the blobs this mod added or overrode (ListAllBlobs: every mod's)
     string report = Assets.LoadManifest(Context.Directory);   // register this folder's assets/assets.json
     string dumpPath = Assets.Dump($"{guid}:keen::RenderModel");
 }
 ```
 - Everything a mod registers is owned by it and reverted when it unloads (`Assets.RemoveIcon/RemoveResource/RemoveBlob`
   do it sooner). Calls may be made from any thread; game lookups are thread-safe reads.
+- `Assets.Reflect(key)` and `ReflectedResources` read any resource by field path, find resources by a field's value, and change a
+  field claim-backed and reversible: [typed-fields.md](../modding/typed-fields.md#any-resource). `ListBlobs` lists what this
+  mod supplied through `Assets`; blobs from `assets.json` and the game's own are not listed.
 - `Assets.IconStateOf(guid)` → `None` / `Pending` / `Served` / `Failed`: content code aliases a new item's GUID to its
   base item's only until `Served` (the UI cache is fatal on a key it was never told about). kiln.content already does
   this; a mod does not need to.

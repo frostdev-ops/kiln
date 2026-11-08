@@ -1,0 +1,8 @@
+{
+  "id": "types-peer-test",
+  "name": "Reflected resources peer test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "TypesPeerTest.dll",
+  "side": "server"
+}

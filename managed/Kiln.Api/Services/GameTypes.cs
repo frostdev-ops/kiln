@@ -182,6 +182,18 @@ public static unsafe class GameTypes
         return table == null ? null : Of(table->TypeByHash(hash));
     }
 
+    /// <summary>The reflected type of a value (EML's <c>types.of</c>): a <see cref="ReflectedValue"/> (a component or an event
+    /// copy), a <see cref="ReflectedResource"/>, a <see cref="GameField"/> (the field's type), or a <see cref="GameType"/>
+    /// itself. Null for anything else.</summary>
+    public static GameType? TypeOf(object? value) => value switch
+    {
+        ReflectedValue v => v.Type,
+        ReflectedResource r => r.Type,
+        GameField f => f.Type,
+        GameType t => t,
+        _ => null,
+    };
+
     /// <summary>Every type, in the game's order.</summary>
     public static IEnumerable<GameType> All
     {
