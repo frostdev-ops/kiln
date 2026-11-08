@@ -12,7 +12,10 @@ import tempfile
 build, adapter = map(lambda p: Path(p).resolve(), sys.argv[1:3])
 with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) as tmp:
     root = Path(tmp)
-    env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1')
+    # No window may reach the desktop: no X display, a Wayland socket that does not exist, winedbg off.
+    env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1',
+               WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
+    env.pop('DISPLAY', None)
     def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None):
         game = root / name
         if linked_layout:

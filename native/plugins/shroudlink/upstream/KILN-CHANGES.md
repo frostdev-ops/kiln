@@ -28,7 +28,7 @@ Launcher server sync (marked `kiln:`):
 
 | File | Change |
 |---|---|
-| `server/src/kiln.rs` | `roots` also takes the direct subfolders of `shroudlink_mods/` (`mod_folders`: not hidden, not an EML folder, no links), where the launcher's server sync puts each mod (`shroudlink_mods/<id>/`). Upstream's own core still reads only `shroudlink_mods/*.dll`. |
+| `server/src/kiln.rs` | `roots` also takes the direct subfolders of `shroudlink_mods/` (`mod_folders`: not hidden, not an EML folder, no links), where the launcher's server sync puts each mod (`shroudlink_mods/<id>/`). Discovery keeps the outermost listed root as its path-check boundary; the running loader retains checked directory handles for its automatic dropin root from before discovery until process exit, preventing root/ancestor replacement between discovery, copying and hot reload while allowing DLL updates. Handles use `OwnedHandle` for ownership and cross-thread transfer. Discovery deduplicates DLLs by volume/file identity and exact contents, including hard links and separately copied/renamed DLLs, with the first profile/dropin occurrence winning. Content comparisons hold checked paths and use bounded buffers for equal-sized files; distinct DLLs sharing a filename remain separate. Profile order, then sorted flat DLLs, then sorted subfolders and their DLLs determine load order. Overlapping-root/copy/hard-link, directory-pinning/update and replaced-dropin-root regression tests. Upstream's own core still reads only `shroudlink_mods/*.dll`. |
 
 The enclosing workspace enables `Win32_Storage_FileSystem` and `Win32_Security` for those checked handles.
 `../build.sh --test` also includes the common crate's tests. `../src/guard.c` and `../tests/nearby/` are Kiln's own

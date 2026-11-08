@@ -44,6 +44,9 @@ if ((test)); then
   if [[ -n $ref && -d $ref/mod/examples/hello_mod ]]; then
     (cd "$ref/mod" && cargo xwin build --release --locked -p hello_mod --target $win)
   fi
+  # the tests run under Wine: no window may reach the desktop (no display, a Wayland socket that does not exist,
+  # winedbg off)
+  DISPLAY= WAYLAND_DISPLAY=kiln-no-display WINEDEBUG=${WINEDEBUG:--all} WINEDLLOVERRIDES=${WINEDLLOVERRIDES:-winedbg.exe=d} \
   CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER=${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER:-wine} \
     CARGO_ENCODED_RUSTFLAGS=$flags cargo xwin test --release --locked -p shroudlink-server -p chestsort-common --features kiln --target $win
 fi

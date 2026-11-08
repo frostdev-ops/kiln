@@ -21,7 +21,7 @@ const HINT: Partial<Record<ModKind, string>> = {
   greeneye: "DLL mods on the client, loaded by kiln-greeneye as Greeneye Loader would.",
   flame: "DLL mods started by kiln-flame (FlameStartRuntime).",
   shroudtopia: "DLL mods, run by kiln-shroudtopia. Their settings live in this profile's shroudtopia.json.",
-  enshwick: "DLL mods, data packs and Luau mods. kiln-enshwick copies them into the game's mods folder and runs Enshwick's own loader; players need the same mods to join.",
+  enshwick: "DLL mods, data packs and Luau mods. kiln-enshwick copies them into the game's mods folder and runs Enshwick's own loader; players need the same both-side mods to join. Server-only packs do not need a client copy.",
   shroudlink: "Server mod DLLs, run by kiln-shroudlink (shroudlink's own server core). Players use shroudlink's client addon.",
   ember: "Server mods, one library each. kiln-ember finds and reports them.",
 };
@@ -41,7 +41,7 @@ export default function ProfileEnginesPage() {
       {lib.isLoading && <Skeleton lines={3} />}
       {lib.error && <EmptyState title="The library is not readable" hint={errorText(lib.error)} />}
       {kinds.length === 0 ? (
-        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page: Kiln runs it with its engine plugin." />
+        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page. Kiln runs supported mods with their engine plugins; Ember mods are stored but don't run yet." />
       ) : kinds.map((k) => (
         <section key={k} className="k-card" data-kind={k}>
           <header className="k-card-head">

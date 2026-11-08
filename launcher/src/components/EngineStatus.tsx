@@ -16,7 +16,8 @@ const str = (v: Json | undefined): string | null => (typeof v === "string" && v 
  *  say `steppedAside`/`started`, and Ember's `abi: null` means it is waiting for Ember to publish its mod ABI. */
 export function headline(state: Json | null): string | null {
   if (!isObj(state)) return null;
-  const word = str(state.phase) ?? str(state.mode) ?? str(state.state) ?? str(state.status);
+  // Enshwick's phase is when its loader starts (early/world), not whether it succeeded.
+  const word = str(state.status) ?? str(state.phase) ?? str(state.mode) ?? str(state.state);
   if (word) return word;
   if (state.steppedAside === true) return "stepped aside";
   if ("abi" in state && state.abi === null) return "waiting for Ember's ABI";

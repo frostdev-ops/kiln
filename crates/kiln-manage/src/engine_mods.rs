@@ -90,10 +90,17 @@ fn read_json(p: &Path) -> Option<serde_json::Value> {
     crate::jsonc::parse(crate::manifest::read_text(p).ok()?.trim_start_matches('\u{feff}')).ok()
 }
 
+// Detection owns framework precedence: an ancillary pack.toml must not replace a
+// Flame, ShroudForge, Kiln or native manifest selected before Enshwick's pack rule.
+fn is_enshwick_pack(folder: &Path) -> bool {
+    folder.join("pack.toml").is_file()
+        && crate::library::detect(folder).is_ok_and(|d| d.kind == DetectKind::Enshwick)
+}
+
 /// The manifest an engine's mod folder has (mod.json, flame.json, shroudtopia.json, Enshwick's pack.toml), as JSON.
 pub fn manifest_json(folder: &Path) -> Option<serde_json::Value> {
+    if is_enshwick_pack(folder) { return crate::engines::pack_toml(folder); }
     ["mod.json", "flame.json", "shroudtopia.json"].iter().find_map(|f| read_json(&folder.join(f)))
-        .or_else(|| crate::engines::pack_toml(folder))
 }
 
 fn side_of(kind: ModKind, folder: &Path) -> (Side, Clients) {
@@ -101,14 +108,11 @@ fn side_of(kind: ModKind, folder: &Path) -> (Side, Clients) {
     if matches!(kind, ModKind::Shroudlink | ModKind::Ember) {
         return (side, clients); // server-only engines: joining players never need their mods
     }
-    if kind == ModKind::Enshwick
-        && let Some(m) = crate::engines::pack_toml(folder)
-    {
-        match m.get("side").and_then(|s| s.as_str()) {
-            Some("server") => (side, clients) = (Side::Server, Clients::None),
-            Some("both") => (side, clients) = (Side::Both, Clients::Mod),
-            _ => {}
-        }
+    if kind == ModKind::Enshwick {
+        // Only Enshwick's own pack controls its join requirements. An unrelated mod.json
+        // must not turn a both-side pack into a server-only advertisement.
+        return crate::engines::pack_toml(folder).and_then(|m| m.get("side").and_then(|s| s.as_str()).map(str::to_owned))
+            .filter(|s| s == "server").map_or((side, clients), |_| (Side::Server, Clients::None));
     }
     if kind == ModKind::ShroudForge
         && let Ok(m) = crate::shroudforge::read_mod(folder)
@@ -174,6 +178,16 @@ fn dll_of(dir: &Path, kind: ModKind) -> Result<Option<PathBuf>> {
     Ok(files.into_iter().find(|p| crate::library::detect(p).is_ok_and(|d| ModKind::of_detect(d.kind) == Some(kind))))
 }
 
+/// Enshwick's Windows folder rule, in addition to Kiln's ASCII identity rule.
+fn safe_enshwick_id(id: &str) -> bool {
+    let stem = id.split('.').next().unwrap_or_default();
+    let device = matches!(stem, "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4 && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    crate::manifest::is_mod_id(id) && !id.chars().any(char::is_control)
+        && !id.ends_with('.') && !device && !id.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)
+}
+
 /// The importer of every engine kind: the folder (or the lone mod DLL, wrapped into a folder with the manifest its
 /// engine needs) goes into `library/<kind>/<id>/<version>+<hash8>/`.
 pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
@@ -213,6 +227,14 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         // kiln-enshwick copies the mod into <game>/mods/<id>/, and mods/enshwick/ is the loader's own folder
         return skip(ctx.report, format!("{}: id \"enshwick\" is Enshwick's own loader folder, not a mod", d.path));
     }
+    if kind == ModKind::Enshwick {
+        if !safe_enshwick_id(&id) {
+            return skip(ctx.report, format!("{}: id {id:?} is not a safe Windows mod folder", d.path));
+        }
+        if src.is_dir() && src.join("pack.toml").is_file() && crate::engines::pack_toml(src).is_none() {
+            return skip(ctx.report, format!("{}: invalid or unsupported pack.toml metadata", d.path));
+        }
+    }
     let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
         parsed.to_string()
     } else if version.is_empty() {
@@ -232,7 +254,15 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         }
         // what each plugin needs to find the mod in the folder, checked on the copy that is committed
         let found = match kind {
-            ModKind::Enshwick => work.join("pack.toml").is_file() || dll_of(&work, kind)?.is_some(),
+            ModKind::Enshwick => {
+                if work.join("pack.toml").is_file() {
+                    crate::engines::pack_toml(&work).is_some_and(|m| {
+                        m.get("id").and_then(|v| v.as_str()).map(str::to_owned)
+                            .or_else(|| src.file_name().and_then(|n| n.to_str()).map(crate::library::id_from_name)) == d.id
+                            && m.get("version").and_then(|v| v.as_str()).map(str::to_owned) == d.version
+                    })
+                } else { dll_of(&work, kind)?.is_some() }
+            },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
             _ => true,
@@ -240,7 +270,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         if !found {
             let why = match kind {
                 ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
-                ModKind::Enshwick => "no pack.toml and no DLL exporting enshwick_mod_abi/_query/_init",
+                ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
             return skip(ctx.report, format!("{}: {why}", d.path));
@@ -635,13 +665,23 @@ pub fn folder_is(kind: ModKind, dir: &Path) -> bool {
     }
 }
 
-/// id, version, name of an engine mod folder (mod.json `id`/`version`/`name`, else Enshwick's pack.toml, else the
-/// folder name).
+/// An engine folder's identity. An Enshwick pack.toml is authoritative; invalid pack
+/// metadata has no identity and must never fall through to mod.json or a folder alias.
 pub fn identity(dir: &Path) -> (String, Option<String>, Option<String>) {
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let m = read_json(&dir.join("mod.json")).or_else(|| crate::engines::pack_toml(dir));
+    let pack = is_enshwick_pack(dir);
+    let m = if pack {
+        let Some(m) = crate::engines::pack_toml(dir) else { return (String::new(), None, None); };
+        Some(m)
+    } else { read_json(&dir.join("mod.json")) };
     let s = |k: &str| m.as_ref().and_then(|v| v.get(k)).and_then(|x| x.as_str()).map(str::to_owned);
-    (s("id").filter(|i| crate::manifest::is_mod_id(i)).unwrap_or(folder), s("version"), s("name"))
+    let explicit = s("id");
+    let id = if pack {
+        let id = explicit.unwrap_or(folder);
+        if !safe_enshwick_id(&id) { return (String::new(), None, None); }
+        id
+    } else { explicit.filter(|i| crate::manifest::is_mod_id(i)).unwrap_or(folder) };
+    (id, s("version"), s("name"))
 }
 
 /// What joining players need for an engine mod folder (its mod.json `clients`/`side`, else the kind's default).

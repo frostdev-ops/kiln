@@ -10,7 +10,8 @@ export KILN_OUT
 "$here/../../build.sh" sehprobe-ehsc sehprobe-eha >/dev/null || exit 1
 bin=$KILN_OUT/cmake/bin/sehprobe
 export WINEPREFIX=$KILN_OUT/sehprobe/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d"
-unset DISPLAY WAYLAND_DISPLAY
+# no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
+unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 mkdir -p "$WINEPREFIX"
 wine "$bin/sehprobe-ehsc.exe" 2>"$KILN_OUT/sehprobe/ehsc.err" | tr -d '\r'
 wine "$bin/sehprobe-eha.exe" 2>"$KILN_OUT/sehprobe/eha.err" | tr -d '\r' | tee "$KILN_OUT/sehprobe/eha.log"

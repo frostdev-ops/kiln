@@ -319,3 +319,160 @@ fn modpacks_carry_the_enshwick_mods_players_need_and_never_server_only_ones() {
     got.sort();
     assert_eq!(got, req.iter().map(|m| (m.id.clone(), m.hash.clone())).collect::<Vec<_>>());
 }
+
+#[test]
+fn enshwick_metadata_is_bounded_unambiguous_and_authoritative() {
+    let t = tmp("pack-adversarial");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let invalid = [
+        "id = 'safe'\nid = 'enshwick'\n",
+        "id = 'safe'\nside = 'server'\nside = 'both'\n",
+        "id = 'safe'\nside = 1\n",
+        "\u{feff}\u{feff}id = 'safe'\n",
+        "id = 'safe'\nversion = 'not-a-version'\n",
+        "id = 'safe'\nversion = '1.0.0-01'\n",
+        "id = 'safe'\nversion = '01.0.0'\n",
+        "id = 'safe'\nversion = ''\n",
+        "id = 'safe'\nversion = '1'\n",
+        "id = 'safe'\nname = \"bad\\q\"\n",
+        "id = 'safe'\nname = \"bad\\uD800\"\n",
+        "id = 'safe'\nname = \"bad\\U00110000\"\n",
+        "id = 'safe'\nname = \"open\n",
+        "id = 'safe'\nside = \"server\\n\"\n",
+        "id = 'safe'\nauthors = [\n# ]\nid = 'enshwick'\n]\n",
+        "id = 'safe'\nx = { name = 'x',\nid = 'enshwick'\n}\n",
+        "id = 'safe'\nx = [\"[\"]\n",
+    ];
+    for (i, text) in invalid.iter().enumerate() {
+        let folder = t.0.join(format!("invalid{i}"));
+        put(&folder, "pack.toml", text.as_bytes());
+        assert_eq!(engine_mods::identity(&folder).0, "", "invalid metadata has no fallback identity");
+        let r = library::import(&dirs, &[folder], &mut NoProgress).unwrap();
+        assert!(r.imported.is_empty() && r.existing.is_empty() && !r.skipped.is_empty(), "{text:?}: {r:?}");
+    }
+    let huge = t.0.join("huge");
+    put(&huge, "pack.toml", format!("id = 'huge'\n#{}", "x".repeat(1024 * 1024)).as_bytes());
+    assert!(kiln_manage::engines::pack_toml(&huge).is_none());
+    let deep = t.0.join("deep");
+    put(&deep, "pack.toml", format!("id = 'deep'\nx = {}", "[".repeat(100_000)).as_bytes());
+    assert!(kiln_manage::engines::pack_toml(&deep).is_none());
+    let bad_utf8 = t.0.join("utf8");
+    put(&bad_utf8, "pack.toml", b"id = 'safe'\n# \xff");
+    assert!(kiln_manage::engines::pack_toml(&bad_utf8).is_none());
+    assert!(library::list(&dirs, None).unwrap().is_empty());
+
+    let valid = t.0.join("valid");
+    put(&valid, "pack.toml", b"id = \"\"\"you.\\\n  pack\"\"\"\nversion = '''1.2.3'''\nname = \"Unicode \\U0001F525\"\nside = '''server'''\n[ requires . foo ]\nid = 'ignored'\n");
+    // mod.json belongs to a different framework and cannot weaken Enshwick's join requirement.
+    put(&valid, "mod.json", br#"{"id":"other","side":"both","clients":"mod"}"#);
+    assert_eq!(engine_mods::identity(&valid).0, "you.pack");
+    let r = library::import(&dirs, &[valid], &mut NoProgress).unwrap();
+    let x = refs(&r, ModKind::Enshwick, "you.pack");
+    assert_eq!(x.version, "1.2.3");
+    let rec = library::record(&dirs, &x).unwrap();
+    assert_eq!((rec.side, rec.clients), (Some(Side::Server), Some(Clients::None)));
+    let both = t.0.join("both");
+    put(&both, "pack.toml", b"id = 'you.both'\nside = 'both'\n");
+    put(&both, "mod.json", br#"{"side":"server","clients":"none"}"#);
+    let r = library::import(&dirs, &[both], &mut NoProgress).unwrap();
+    let rec = library::record(&dirs, &refs(&r, ModKind::Enshwick, "you.both")).unwrap();
+    assert_eq!((rec.side, rec.clients), (Some(Side::Both), Some(Clients::Mod)));
+}
+
+#[test]
+fn enshwick_ids_must_be_safe_for_the_windows_loader_folder() {
+    let t = tmp("windows-ids");
+    let dirs = DataDirs::at(t.0.join("data"));
+    for (i, id) in ["enshwick.", "enshwick..", "con", "nul.mod", "aux", "com1", "lpt9.mod", "trail.", "Enshwick", "enshwiсk"].iter().enumerate() {
+        let folder = t.0.join(format!("bad{i}"));
+        put(&folder, "pack.toml", format!("id = '{id}'\n").as_bytes());
+        let r = library::import(&dirs, &[folder], &mut NoProgress).unwrap();
+        assert!(r.imported.is_empty() && r.existing.is_empty() && !r.skipped.is_empty(), "{id}: {r:?}");
+    }
+    assert!(library::list(&dirs, None).unwrap().is_empty());
+}
+
+#[cfg(feature = "server")]
+#[test]
+fn new_engine_sync_preserves_hand_installed_and_modified_folders_and_stages_replacements() {
+    use kiln_manage::server::{control, instance::ServerInstance};
+    let t = tmp("ownership");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let imported = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let inst = |dir: &Path| -> ServerInstance {
+        std::fs::create_dir_all(dir.join("kiln")).unwrap();
+        serde_json::from_value(serde_json::json!({"id":"t","name":"t","kind":"local","dir":dir,
+            "port":27140,"queryPort":27140,"wine":null,"policy":"any","source":"launcher","remote":null})).unwrap()
+    };
+    for (kind, id, rel) in [
+        (ModKind::Enshwick, "you.lanterns", "mods/you.lanterns"),
+        (ModKind::Shroudlink, "chestsort", "shroudlink_mods/chestsort"),
+        (ModKind::Ember, "private-chests", "ember/mods/private-chests"),
+    ] {
+        let x = refs(&imported, kind, id);
+        let own_server = t.0.join(format!("own-{}", kind.as_str()));
+        let own = inst(&own_server);
+        let dst = own_server.join(rel);
+        put(&dst, "owner.txt", b"owner data");
+        // A matching source marker is only a claim; an independently stored receipt is required.
+        put(&dst, ".kiln-source.json", serde_json::to_vec(&serde_json::json!({
+            "format":1,"library":x,"synced":"now","by":"kiln-launcher"})).unwrap().as_slice());
+        assert_eq!(control::sync(&dirs, &own, &[x.clone()], &mut NoProgress).unwrap_err().code, ErrorCode::Conflict);
+        control::sync(&dirs, &own, &[], &mut NoProgress).unwrap();
+        assert_eq!(std::fs::read(dst.join("owner.txt")).unwrap(), b"owner data");
+
+        let server = t.0.join(format!("managed-{}", kind.as_str()));
+        let managed = inst(&server);
+        control::sync(&dirs, &managed, &[x.clone()], &mut NoProgress).unwrap();
+        let dst = server.join(rel);
+        let original = hash::dirhash(&dst).unwrap();
+        // A corrupt replacement must fail validation before the installed payload is changed.
+        let replacement_source = if kind == ModKind::Ember {
+            t.0.join("replacement/ember/mods").join(id)
+        } else { t.0.join("replacement").join(id) };
+        std::fs::create_dir_all(&replacement_source).unwrap();
+        for e in std::fs::read_dir(library::path_of(&dirs, &x).unwrap()).unwrap() {
+            let e = e.unwrap();
+            if e.file_type().unwrap().is_file() && !e.file_name().to_string_lossy().starts_with('.') {
+                std::fs::copy(e.path(), replacement_source.join(e.file_name())).unwrap();
+            }
+        }
+        put(&replacement_source, "new-payload.txt", b"new version");
+        let replacement = library::import(&dirs, &[replacement_source], &mut NoProgress).unwrap();
+        let replacement = refs(&replacement, kind, id);
+        assert_ne!(replacement.hash, x.hash);
+        let payload = library::path_of(&dirs, &replacement).unwrap().join("new-payload.txt");
+        std::fs::write(&payload, b"corrupted after import").unwrap();
+        assert!(control::sync(&dirs, &managed, &[replacement], &mut NoProgress).is_err());
+        assert_eq!(hash::dirhash(&dst).unwrap(), original);
+        std::fs::remove_file(payload).unwrap();
+        // Changes made by the owner revoke deletion and replacement authority.
+        put(&dst, "local-settings.txt", b"keep settings");
+        control::sync(&dirs, &managed, &[], &mut NoProgress).unwrap();
+        assert_eq!(std::fs::read(dst.join("local-settings.txt")).unwrap(), b"keep settings");
+        assert_eq!(control::sync(&dirs, &managed, &[x], &mut NoProgress).unwrap_err().code, ErrorCode::Conflict);
+    }
+}
+
+#[test]
+fn ancillary_pack_does_not_override_another_engines_manifest() {
+    let t = tmp("pack-precedence");
+    for (label, kind) in [("flame", DetectKind::Flame), ("sf", DetectKind::ShroudForge)] {
+        let folder = t.0.join(label);
+        let manifest = if kind == DetectKind::Flame {
+            br#"{"id":"you.flame","name":"Flame name","version":"1.0.0"}"#.as_slice()
+        } else {
+            br#"{"id":"you.sf","name":"SF name","version":"1.0.0","capabilities":{"runtime":true},"$schema":"shroudforge.schema.json","targets":["client"]}"#.as_slice()
+        };
+        put(&folder, "mod.json", manifest);
+        if kind == DetectKind::Flame { put(&folder, "flame.json", b"{}"); }
+        // Both valid and invalid ancillary pack metadata retain framework precedence.
+        for pack in ["id = 'you.pack'\nversion = '2.0.0'\n", "id = 'enshwick'\nid = 'duplicate'\n"] {
+            put(&folder, "pack.toml", pack.as_bytes());
+            assert_eq!(library::detect(&folder).unwrap().kind, kind);
+            let id = format!("you.{label}");
+            assert_eq!(engine_mods::identity(&folder).0, id);
+            assert_eq!(engine_mods::manifest_json(&folder).unwrap()["id"], id);
+        }
+    }
+}

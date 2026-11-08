@@ -40,7 +40,7 @@ internal static partial class NetAdvertise
             {
                 if (Path.GetFileName(dir).StartsWith('.') || (File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
                 if (EngineKindOf(kind, dir) is not { } needed || !needed) continue;
-                var (id, version, name) = EngineIdentity(dir);
+                var (id, version, name) = EngineIdentity(dir, kind);
                 if (id != null) list.Add(new Candidate(kind, id, version, name, dir));
             }
         }
@@ -86,8 +86,12 @@ internal static partial class NetAdvertise
                 if (string.Equals(Path.GetFileName(dir), "enshwick", StringComparison.OrdinalIgnoreCase) || Has("flame.json") ||
                     Has("extended.mod.json") || Has("init.lua") || Has("shroudtopia.json")) return null;
                 if (Has("pack.toml"))
-                    return TomlStrings(Path.Combine(dir, "pack.toml")).TryGetValue("side", out var side) && side == "server" ? false : Need(true);
-                return HasEnshwickDll(dir) ? Need(true) : null;
+                {
+                    if (!TryTomlStrings(Path.Combine(dir, "pack.toml"), out var pack)) return null;
+                    // Enshwick consumes pack.toml, not another engine's mod.json beside it.
+                    return pack.GetValueOrDefault("side") != "server";
+                }
+                return HasEnshwickDll(dir) ? true : null;
             }
             case "shroudtopia":
                 return Has("mod.json") && !Has("flame.json") && !Has(Path.Combine("src", "mod.lua")) && Directory.EnumerateFiles(dir, "*.dll").Any()
@@ -129,67 +133,224 @@ internal static partial class NetAdvertise
         return false;
     }
 
-    /// <summary>The top-level <c>key = "string"</c> pairs of a TOML file (Enshwick's pack.toml: id, version, name, side),
-    /// as kiln-manage's engines::toml_strings reads them: up to the first table, multi-line strings and arrays skipped.</summary>
-    internal static Dictionary<string, string> TomlStrings(string file)
+    // A deliberately conservative TOML metadata reader shared in policy with kiln-manage. Unsupported
+    // containers fail closed; a line scanner must never interpret multiline text as identity or side.
+    private const int MaxPackBytes = 1024 * 1024;
+
+    internal static Dictionary<string, string> TomlStrings(string file) =>
+        TryTomlStrings(file, out var result) ? result : new(StringComparer.Ordinal);
+
+    private static bool TryTomlStrings(string file, out Dictionary<string, string> result)
     {
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        string text;
-        try { text = File.ReadAllText(file); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return map; }
-        string? skipUntil = null;
-        var depth = 0;
-        foreach (var raw in text.TrimStart('\uFEFF').Split('\n'))
+        result = new(StringComparer.Ordinal);
+        try
         {
-            var line = raw.Trim();
-            if (skipUntil != null) { if (line.Contains(skipUntil, StringComparison.Ordinal)) skipUntil = null; continue; }
-            if (depth > 0) { depth += line.Count(c => c == '[') - line.Count(c => c == ']'); continue; }
-            if (line.StartsWith('[')) break;
-            var eq = line.IndexOf('=');
-            if (eq < 0) continue;
-            var key = line[..eq].Trim().Trim('"');
-            var value = line[(eq + 1)..].Trim();
-            if (value.StartsWith("\"\"\"", StringComparison.Ordinal) || value.StartsWith("'''", StringComparison.Ordinal))
+            var info = new FileInfo(file);
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > MaxPackBytes) return false;
+            // Bound the read itself, including a file which grows after the metadata check.
+            using var stream = File.OpenRead(file);
+            var bytes = new byte[MaxPackBytes + 1];
+            var count = 0;
+            while (count < bytes.Length)
             {
-                if (!value[3..].Contains(value[..3], StringComparison.Ordinal)) skipUntil = value[..3];
-                continue;
+                var read = stream.Read(bytes, count, bytes.Length - count);
+                if (read == 0) break;
+                count += read;
             }
-            if (value.StartsWith('[')) { depth = value.Count(c => c == '[') - value.Count(c => c == ']'); continue; }
-            if (key.Length == 0 || !key.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-')) continue;
-            if (TomlString(value) is { } parsed && !map.ContainsKey(key)) map[key] = parsed;
+            if (count > MaxPackBytes) return false;
+            var text = new System.Text.UTF8Encoding(false, true).GetString(bytes, 0, count);
+            if (text.StartsWith('\uFEFF')) text = text[1..];
+            for (var i = 0; i < text.Length; i++)
+                if (text[i] == '\u007f' || (char.IsControl(text[i]) && text[i] is not ('\t' or '\n' or '\r')) ||
+                    (text[i] == '\r' && (i + 1 == text.Length || text[i + 1] != '\n'))) return false;
+            var reader = new PackMetadataReader(text);
+            if (!reader.Read(out var parsed)) return false;
+            result = parsed;
+            return true;
         }
-        return map;
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.DecoderFallbackException) { return false; }
     }
 
-    private static string? TomlString(string v)
+    private static bool PackId(string value)
     {
-        string? Rest(string rest, string result) { rest = rest.Trim(); return rest.Length == 0 || rest[0] == '#' ? result : null; }
-        if (v.StartsWith('\''))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(value, @"^[a-z0-9][a-z0-9._-]{0,63}$") ||
+            value.EndsWith('.') || value == "enshwick") return false;
+        var stem = value.Split('.')[0];
+        return stem is not ("con" or "prn" or "aux" or "nul") &&
+            !(stem.Length == 4 && (stem.StartsWith("com", StringComparison.Ordinal) || stem.StartsWith("lpt", StringComparison.Ordinal)) && stem[3] is >= '1' and <= '9');
+    }
+
+    private static bool PackVersion(string value)
+    {
+        // Match kiln-manage's canonical SemVersion text: three i32 components, no v prefix or whitespace.
+        var match = System.Text.RegularExpressions.Regex.Match(value,
+            @"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$");
+        if (!match.Success) return false;
+        for (var i = 1; i <= 3; i++)
+            if (!int.TryParse(match.Groups[i].Value, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out _)) return false;
+        return !match.Groups[4].Success || match.Groups[4].Value.Split('.').All(part =>
+            part.Length == 1 || part[0] != '0' || !part.All(char.IsAsciiDigit));
+    }
+
+    private sealed class PackMetadataReader(string text)
+    {
+        private int _at;
+        private readonly Dictionary<string, string> _strings = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _keys = new(StringComparer.Ordinal);
+        private void Space() { while (_at < text.Length && text[_at] is ' ' or '\t') _at++; }
+        private void Comment() { if (_at < text.Length && text[_at] == '#') while (_at < text.Length && text[_at] != '\n') _at++; }
+        private bool EndLine()
         {
-            var end = v.IndexOf('\'', 1);
-            return end < 0 ? null : Rest(v[(end + 1)..], v[1..end]);
+            Space(); Comment();
+            if (_at == text.Length) return true;
+            if (text[_at] == '\r') _at++;
+            return _at < text.Length && text[_at++] == '\n';
         }
-        if (!v.StartsWith('"')) return null;
-        var sb = new System.Text.StringBuilder();
-        for (var i = 1; i < v.Length; i++)
+        private static bool Bare(char c) => char.IsAsciiLetterOrDigit(c) || c is '_' or '-';
+        private static bool Metadata(string key) => key is "id" or "version" or "name" or "side";
+        internal bool Read(out Dictionary<string, string> result)
         {
-            var c = v[i];
-            if (c == '"') return Rest(v[(i + 1)..], sb.ToString());
-            if (c != '\\') { sb.Append(c); continue; }
-            if (++i >= v.Length) return null;
-            switch (v[i])
+            result = _strings;
+            while (_at < text.Length)
             {
-                case 'n': sb.Append('\n'); break;
-                case 't': sb.Append('\t'); break;
-                case 'r': sb.Append('\r'); break;
-                case '"': sb.Append('"'); break;
-                case '\\': sb.Append('\\'); break;
-                case 'u' when i + 4 < v.Length && int.TryParse(v.AsSpan(i + 1, 4), System.Globalization.NumberStyles.HexNumber, null, out var u):
-                    sb.Append((char)u); i += 4; break;
-                default: return null;
+                Space(); Comment();
+                if (_at == text.Length) break;
+                if (text[_at] is '\r' or '\n') { if (!EndLine()) return false; continue; }
+                // A table switches out of the root. Do not interpret any table values as metadata.
+                if (text[_at] == '[') return Table();
+                string key;
+                if (text[_at] is '\'' or '"')
+                {
+                    if (!String(out key, false)) return false;
+                }
+                else
+                {
+                    var start = _at;
+                    while (_at < text.Length && Bare(text[_at])) _at++;
+                    key = text[start.._at];
+                    if (key.Length == 0) return false;
+                }
+                if (!_keys.Add(key)) return false;
+                Space();
+                if (_at == text.Length || text[_at++] != '=') return false;
+                Space();
+                if (_at == text.Length) return false;
+                if (text[_at] is '\'' or '"')
+                {
+                    if (!String(out var value, true)) return false;
+                    if (Metadata(key))
+                    {
+                        var limit = key == "id" ? 64 : key == "side" ? 16 : 128;
+                        if (System.Text.Encoding.UTF8.GetByteCount(value) > limit || value.Any(char.IsControl)) return false;
+                        if (key == "id" && !PackId(value) || key == "version" && !PackVersion(value)) return false;
+                    }
+                    _strings.Add(key, value);
+                }
+                else
+                {
+                    if (Metadata(key)) return false;
+                    var start = _at;
+                    while (_at < text.Length && text[_at] is not ('#' or '\r' or '\n')) _at++;
+                    var value = text[start.._at].TrimEnd(' ', '\t');
+                    // Unsupported values (including containers) must never leak their inner lines.
+                    if (value is not ("true" or "false") &&
+                        !System.Text.RegularExpressions.Regex.IsMatch(value, @"^[+-]?(0|[1-9][0-9]*)$")) return false;
+                }
+                if (!EndLine()) return false;
             }
+            return true;
         }
-        return null;
+        private bool Table()
+        {
+            // Only simple dotted bare table names are supported by this conservative reader.
+            _at++;
+            if (_at < text.Length && text[_at] == '[') return false;
+            Space();
+            while (true)
+            {
+                var start = _at;
+                while (_at < text.Length && Bare(text[_at])) _at++;
+                if (start == _at) return false;
+                Space();
+                if (_at < text.Length && text[_at] == '.') { _at++; Space(); continue; }
+                break;
+            }
+            if (_at == text.Length || text[_at++] != ']') return false;
+            return EndLine();
+        }
+        private bool String(out string value, bool multilineAllowed)
+        {
+            value = "";
+            var quote = text[_at++];
+            var multiline = _at + 1 < text.Length && text[_at] == quote && text[_at + 1] == quote;
+            if (multiline)
+            {
+                if (!multilineAllowed) return false;
+                _at += 2;
+                if (_at < text.Length && text[_at] == '\r')
+                {
+                    _at++;
+                    if (_at == text.Length || text[_at] != '\n') return false;
+                    _at++;
+                }
+                else if (_at < text.Length && text[_at] == '\n') _at++;
+            }
+            var output = new System.Text.StringBuilder();
+            while (_at < text.Length)
+            {
+                var c = text[_at++];
+                if (c == quote)
+                {
+                    if (!multiline) { value = output.ToString(); return true; }
+                    var count = 1;
+                    while (_at < text.Length && text[_at] == quote) { count++; _at++; }
+                    if (count >= 3)
+                    {
+                        if (count > 5) return false;
+                        output.Append(quote, count - 3);
+                        value = output.ToString(); return true;
+                    }
+                    output.Append(quote, count); continue;
+                }
+                if (c == '\r')
+                {
+                    if (!multiline || _at == text.Length || text[_at++] != '\n') return false;
+                    output.Append('\n'); continue;
+                }
+                if (c == '\n') { if (!multiline) return false; output.Append(c); continue; }
+                if (char.IsControl(c) && c != '\t' || c == '\u007f') return false;
+                if (c != '\\' || quote == '\'') { output.Append(c); continue; }
+                if (_at == text.Length) return false;
+                c = text[_at++];
+                if (multiline && c is ' ' or '\t' or '\r' or '\n')
+                {
+                    while (c is ' ' or '\t') { if (_at == text.Length) return false; c = text[_at++]; }
+                    if (c == '\r') { if (_at == text.Length || text[_at++] != '\n') return false; }
+                    else if (c != '\n') return false;
+                    while (_at < text.Length && text[_at] is ' ' or '\t' or '\r' or '\n') _at++;
+                    continue;
+                }
+                switch (c)
+                {
+                    case 'b': output.Append('\b'); break;
+                    case 't': output.Append('\t'); break;
+                    case 'n': output.Append('\n'); break;
+                    case 'f': output.Append('\f'); break;
+                    case 'r': output.Append('\r'); break;
+                    case '"': output.Append('"'); break;
+                    case '\\': output.Append('\\'); break;
+                    case 'u': case 'U':
+                        var digits = c == 'u' ? 4 : 8;
+                        if (_at + digits > text.Length || !uint.TryParse(text.AsSpan(_at, digits),
+                            System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out var scalar) ||
+                            scalar > 0x10ffff || scalar is >= 0xd800 and <= 0xdfff) return false;
+                        output.Append(char.ConvertFromUtf32((int)scalar)); _at += digits; break;
+                    default: return false;
+                }
+            }
+            return false;
+        }
     }
 
     private static bool ServerOnly(string manifest)
@@ -204,14 +365,14 @@ internal static partial class NetAdvertise
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return false; }
     }
 
-    internal static (string? Id, string Version, string? Name) EngineIdentity(string dir)
+    internal static (string? Id, string Version, string? Name) EngineIdentity(string dir, string? kind = null)
     {
         var folder = Path.GetFileName(dir);
         string? id = null, version = null, name = null;
         try
         {
             var manifest = Path.Combine(dir, "mod.json");
-            if (File.Exists(manifest))
+            if (File.Exists(manifest) && kind != "enshwick")
             {
                 using var doc = JsonDocument.Parse(File.ReadAllText(manifest),
                     new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
@@ -222,7 +383,7 @@ internal static partial class NetAdvertise
             else if (File.Exists(Path.Combine(dir, "pack.toml")))
             {
                 // an Enshwick data pack or Luau mod names itself in pack.toml (kiln-manage engine_mods::identity)
-                var pack = TomlStrings(Path.Combine(dir, "pack.toml"));
+                if (!TryTomlStrings(Path.Combine(dir, "pack.toml"), out var pack)) return (null, "0.0.0", null);
                 id = pack.GetValueOrDefault("id");
                 version = pack.GetValueOrDefault("version");
                 name = pack.GetValueOrDefault("name");
@@ -233,6 +394,7 @@ internal static partial class NetAdvertise
             (value[0] is >= 'a' and <= 'z' or >= '0' and <= '9') &&
             value.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-');
         id = ValidId(id) ? id : folder;
-        return (ValidId(id) ? id : null, version ?? "0.0.0", name);
+        return (id is not null && ValidId(id) && (kind != "enshwick" || PackId(id)) ? id : null, SafeText(version) ?? "0.0.0", SafeText(name));
+        static string? SafeText(string? value) => value is { Length: <= 128 } && !value.Any(char.IsControl) ? value : null;
     }
 }

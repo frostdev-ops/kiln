@@ -125,18 +125,27 @@ fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
     }
 }
 
+// The loader lives beside several engines' mods. Neither a forged marker nor a manually constructed
+// library reference grants permission to move, replace or remove it (including Win32 trailing-dot aliases).
+fn loader_folder(server: &Path, path: &Path) -> bool {
+    path.parent() == Some(server.join("mods").as_path())
+        && path.file_name().and_then(|n| n.to_str()).is_some_and(|n|
+            n.trim_end_matches(['.', ' ']).eq_ignore_ascii_case(crate::engine_mods::ENSHWICK_LOADER_FOLDER))
+}
+
 /// The kinds a server takes: Kiln's managed and native mods, then every engine kind with a server folder.
 fn server_kinds() -> impl Iterator<Item = ModKind> {
     ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || k.is_engine())
 }
 
 /// The folders of `kind` in `dir` (a root several engines may share: each folder is checked for the kind).
-fn kind_dirs(dir: &Path, kind: ModKind) -> Vec<PathBuf> {
+fn kind_dirs(server: &Path, dir: &Path, kind: ModKind) -> Vec<PathBuf> {
     let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut dirs: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.is_dir() && !p.file_name().and_then(|n| n.to_str()).unwrap_or(".").starts_with('.'))
+        .filter(|p| !loader_folder(server, p))
         .filter(|p| !kind.is_engine() || read_marker(p).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, p))
         .collect();
     dirs.sort();
@@ -162,7 +171,7 @@ pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
         if kind.is_engine() {
             // engine mods: on in the engine's folder, off in kiln/disabled/<kind>/
             let off = crate::engine_mods::server_disabled_root(kind, server);
-            for (d, enabled) in kind_dirs(&r, kind).into_iter().map(|d| (d, true)).chain(kind_dirs(&off, kind).into_iter().map(|d| (d, false))) {
+            for (d, enabled) in kind_dirs(server, &r, kind).into_iter().map(|d| (d, true)).chain(kind_dirs(server, &off, kind).into_iter().map(|d| (d, false))) {
                 let folder = d.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
                 let (id, version, _) = crate::engine_mods::identity(&d);
                 out.push(ServerMod {
@@ -178,7 +187,7 @@ pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
             }
             continue;
         }
-        for d in kind_dirs(&r, kind) {
+        for d in kind_dirs(server, &r, kind) {
             let folder = d.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
             let (id, version, clients) = match kind {
                 ModKind::Kiln => match crate::manifest::read_kiln(&d) {
@@ -237,6 +246,9 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
     for r in mods {
         if !folder_ok(&r.id) { return Err(Error::invalid(format!("mod id {:?} cannot be a folder name", r.id))); }
         crate::library::path_of(dirs, r)?;
+        if loader_folder(&server, &root(&server, r.kind)?.join(&r.id)) {
+            return Err(Error::new(ErrorCode::Refused, "mods/enshwick is the loader's own folder"));
+        }
     }
     let live = admin(instance);
     let mut conflicts = Vec::new();
@@ -250,6 +262,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         for place in &places { crate::engine_mods::refuse_symlink_path(place)?; }
         for e in places.iter().filter_map(|p| std::fs::read_dir(p).ok()).flat_map(|rd| rd.flatten()) {
             let d = e.path();
+            if loader_folder(&server, &d) { continue; }
             let Some(m) = read_marker(&d) else { continue };
             if m.library.kind != kind {
                 continue; // a root several engines share: another kind's synced folder
@@ -387,6 +400,7 @@ fn engine_switch_candidates(server: &Path, folder: &str, enabled: bool) -> Resul
         let off_root = crate::engine_mods::server_disabled_root(kind, server);
         let (on, off) = (on_root.join(folder), off_root.join(folder));
         let (from, to) = if enabled { (off, on) } else { (on, off) };
+        if loader_folder(server, &from) || loader_folder(server, &to) { continue; }
         crate::engine_mods::refuse_symlink_path(&from)?;
         crate::engine_mods::refuse_symlink_path(&to)?;
         if from.is_dir() && (read_marker(&from).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, &from)) {
@@ -450,6 +464,46 @@ pub fn set_enabled(instance: &ServerInstance, folder: &str, enabled: bool) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enshwick_loader_is_protected_even_with_a_forged_source_marker_and_receipt() {
+        let temp = crate::library::TempDir::new(&std::env::temp_dir(), "enshwick-loader-guard").unwrap();
+        let server = temp.path().join("server");
+        let dirs = DataDirs::at(temp.path().join("data"));
+        let instance: ServerInstance = serde_json::from_value(serde_json::json!({
+            "id": "t", "name": "t", "kind": "local", "dir": server,
+            "port": 27140, "queryPort": 27140, "wine": null, "policy": "any",
+            "source": "launcher", "remote": null
+        })).unwrap();
+        let mut copies = EngineCopies::new();
+        for id in ["enshwick", "ENSHWICK", "enshwick."] {
+            let dir = server.join("mods").join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("loader.dll"), b"loader: preserve me").unwrap();
+            let reference = LibraryRef { kind: ModKind::Enshwick, id: id.into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "a".repeat(64)) };
+            crate::util::write_json_atomic(&dir.join(MARKER), &SourceMarker {
+                format: 1, library: reference.clone(), synced: "now".into(), by: "forged".into()
+            }).unwrap();
+            copies.insert(dir.clone(), EngineCopy { library: reference, payload: payload(&dir, ModKind::Enshwick).unwrap() });
+            assert!(engine_switch_candidates(&server, id, false).unwrap().is_empty());
+            assert!(!mods(&instance).unwrap().iter().any(|m| m.folder == id));
+        }
+        save_engine_copies(&server, &copies).unwrap();
+        // Even an authentic-looking old receipt must never authorize removal of the loader.
+        sync(&dirs, &instance, &[], &mut crate::task::NoProgress).unwrap();
+        for id in ["enshwick", "ENSHWICK", "enshwick."] {
+            assert_eq!(std::fs::read(server.join("mods").join(id).join("loader.dll")).unwrap(), b"loader: preserve me");
+        }
+        // Import checks are not a trust boundary: callers can construct library references directly.
+        for id in ["enshwick", "enshwick."] {
+            let reference = LibraryRef { kind: ModKind::Enshwick, id: id.into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "a".repeat(64)) };
+            assert_eq!(sync(&dirs, &instance, &[reference], &mut crate::task::NoProgress).unwrap_err().code, ErrorCode::Refused);
+        }
+        // A different engine's isolated root is not the Enshwick loader.
+        assert!(!loader_folder(&server, &server.join("ember/mods/enshwick")));
+        assert!(!loader_folder(&server, &server.join("kiln/mods/enshwick")));
+    }
+
     #[test]
     fn engine_disk_changes_require_a_stopped_server() {
         assert_eq!(refuse_running_engine(true).unwrap_err().code, ErrorCode::GameRunning);

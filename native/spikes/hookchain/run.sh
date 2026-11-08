@@ -6,8 +6,9 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 export KILN_OUT=${KILN_OUT:-$here/../../build}
 "$here/../../build.sh" hookchain >/dev/null
-export WINEPREFIX=$KILN_OUT/hookchain-pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml="
-unset DISPLAY WAYLAND_DISPLAY
+export WINEPREFIX=$KILN_OUT/hookchain-pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d"
+# no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
+unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 mkdir -p "$WINEPREFIX"
 [[ -f $WINEPREFIX/system.reg ]] || wine wineboot -i >/dev/null 2>&1
 wine "$KILN_OUT/cmake/bin/hookchain/hookchain.exe"

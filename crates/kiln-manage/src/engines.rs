@@ -388,78 +388,123 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     crate::jsonc::parse(&crate::manifest::read_text(path).ok()?).ok()
 }
 
-/// The top-level `key = "string"` pairs of a TOML file (Enshwick's `pack.toml`: `id`, `version`, `name`, `side`), as a
-/// JSON object. Tables, arrays, multi-line strings and non-string values are skipped; the default build has no TOML
-/// parser, and these few keys are all the launcher reads.
-pub fn toml_strings(text: &str) -> serde_json::Map<String, serde_json::Value> {
-    fn string(v: &str) -> Option<(String, &str)> {
+/// A bounded, fail-closed TOML metadata subset. Containers are unsupported: guessing where
+/// they end can turn their contents into an identity or side declaration.
+fn parse_toml_strings(text: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    fn string(input: &str) -> Option<(String, &str)> {
+        let quote = input.chars().next()?;
+        if quote != '\'' && quote != '"' { return None; }
+        let delimiter = quote.to_string().repeat(3);
+        let multiline = input.starts_with(&delimiter);
+        let mut rest = &input[if multiline { 3 } else { 1 }..];
+        if multiline { rest = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')).unwrap_or(rest); }
         let mut out = String::new();
-        if let Some(rest) = v.strip_prefix('\'') {
-            let end = rest.find('\'')?;
-            return Some((rest[..end].to_string(), &rest[end + 1..]));
-        }
-        let mut chars = v.strip_prefix('"')?.char_indices();
-        while let Some((i, c)) = chars.next() {
-            match c {
-                '"' => return Some((out, &v[i + 2..])),
-                '\\' => match chars.next()?.1 {
-                    'n' => out.push('\n'),
-                    't' => out.push('\t'),
-                    'r' => out.push('\r'),
-                    '"' => out.push('"'),
-                    '\\' => out.push('\\'),
-                    'u' => {
-                        let hex: String = (0..4).filter_map(|_| chars.next().map(|x| x.1)).collect();
-                        out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+        loop {
+            if multiline && rest.starts_with(&delimiter) {
+                rest = &rest[3..];
+                for _ in 0..2 {
+                    if rest.starts_with(quote) { out.push(quote); rest = &rest[1..]; }
+                }
+                return Some((out, rest));
+            }
+            let c = rest.chars().next()?;
+            rest = &rest[c.len_utf8()..];
+            if !multiline && c == quote { return Some((out, rest)); }
+            if c == '\\' && quote == '"' {
+                if multiline && rest.starts_with(|c: char| c.is_ascii_whitespace()) {
+                    let trimmed = rest.trim_start_matches([' ', '\t']);
+                    if !trimmed.starts_with(['\r', '\n']) { return None; }
+                    rest = trimmed.trim_start_matches([' ', '\t', '\r', '\n']);
+                    continue;
+                }
+                let escape = rest.chars().next()?;
+                rest = &rest[escape.len_utf8()..];
+                match escape {
+                    'b' => out.push('\u{8}'), 't' => out.push('\t'), 'n' => out.push('\n'),
+                    'f' => out.push('\u{c}'), 'r' => out.push('\r'), '"' => out.push('"'), '\\' => out.push('\\'),
+                    'u' | 'U' => {
+                        let n = if escape == 'u' { 4 } else { 8 };
+                        let hex = rest.get(..n)?;
+                        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) { return None; }
+                        out.push(char::from_u32(u32::from_str_radix(hex, 16).ok()?)?);
+                        rest = &rest[n..];
                     }
                     _ => return None,
-                },
-                c => out.push(c),
+                }
+            } else if c == '\r' && multiline {
+                rest = rest.strip_prefix('\n')?;
+                out.push('\n');
+            } else {
+                if c.is_control() && c != '\t' && !(multiline && c == '\n') { return None; }
+                out.push(c);
             }
         }
-        None
     }
+    if text.len() > 1024 * 1024 || text.chars().any(|c| c.is_control() && !matches!(c, '\t' | '\r' | '\n'))
+        || text.replace("\r\n", "").contains('\r') { return None; }
+    let mut rest = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut map = serde_json::Map::new();
-    let mut skip_until: Option<&str> = None;
-    let mut depth = 0i32;
-    for line in text.trim_start_matches('\u{feff}').lines() {
-        let line = line.trim();
-        if let Some(end) = skip_until {
-            if line.contains(end) { skip_until = None; }
+    let mut keys = std::collections::HashSet::new();
+    loop {
+        rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
+        if rest.is_empty() { return Some(map); }
+        if rest.starts_with('#') {
+            rest = rest.split_once('\n').map_or("", |(_, r)| r);
             continue;
         }
-        if depth > 0 {
-            depth += line.matches('[').count() as i32 - line.matches(']').count() as i32;
-            continue;
+        if rest.starts_with('[') {
+            // Metadata is top-level. Tables belong to the engine; do not scan their contents.
+            let header = rest.lines().next()?.split('#').next()?.trim();
+            let key = header.strip_prefix('[')?.strip_suffix(']')?;
+            if key.is_empty() || !key.split('.').map(str::trim).all(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')) { return None; }
+            return Some(map);
         }
-        if line.starts_with('[') { break; } // the first table ends the top level
-        let Some((key, value)) = line.split_once('=') else { continue };
-        let key = key.trim().trim_matches('"');
-        let value = value.trim();
-        if value.starts_with("\"\"\"") || value.starts_with("'''") {
-            let delim = &value[..3];
-            if !value[3..].contains(delim) { skip_until = Some(if delim == "'''" { "'''" } else { "\"\"\"" }); }
-            continue;
+        let (key, after_key) = if rest.starts_with(['\'', '"']) {
+            if rest.starts_with("\"\"\"") || rest.starts_with("'''") { return None; }
+            string(rest)?
+        } else {
+            let n = rest.find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-').unwrap_or(rest.len());
+            if n == 0 { return None; }
+            (rest[..n].to_string(), &rest[n..])
+        };
+        if !keys.insert(key.clone()) { return None; }
+        rest = after_key.trim_start_matches([' ', '\t']).strip_prefix('=')?.trim_start_matches([' ', '\t']);
+        if rest.starts_with(['\'', '"']) {
+            let (value, tail) = string(rest)?;
+            let max = match key.as_str() { "id" => 64, "version" | "name" => 128, "side" => 16, _ => 1024 * 1024 };
+            if value.len() > max || (matches!(key.as_str(), "id" | "version" | "name" | "side") && value.chars().any(char::is_control)) { return None; }
+            if key == "version" && !crate::semver::SemVersion::parse(&value).is_ok_and(|v| v.to_string() == value) { return None; }
+            map.insert(key, serde_json::Value::String(value));
+            rest = tail;
+        } else {
+            let end = rest.find(['#', '\r', '\n']).unwrap_or(rest.len());
+            let value = rest[..end].trim();
+            if matches!(key.as_str(), "id" | "version" | "name" | "side") { return None; }
+            let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+            let integer = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) && (digits == "0" || !digits.starts_with('0'));
+            if value != "true" && value != "false" && !integer { return None; }
+            rest = &rest[end..];
         }
-        if value.starts_with('[') {
-            depth = value.matches('[').count() as i32 - value.matches(']').count() as i32;
-            continue;
-        }
-        if key.is_empty() || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') { continue; }
-        if let Some((v, rest)) = string(value) {
-            let rest = rest.trim();
-            if rest.is_empty() || rest.starts_with('#') {
-                map.entry(key.to_string()).or_insert(serde_json::Value::String(v));
-            }
-        }
+        rest = rest.trim_start_matches([' ', '\t']);
+        if rest.starts_with('#') { rest = rest.split_once('\n').map_or("", |(_, r)| r); }
+        else if let Some(tail) = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) { rest = tail; }
+        else if !rest.is_empty() { return None; }
     }
-    map
 }
 
-/// `pack.toml`'s top-level strings (Enshwick data packs and Luau mods), as JSON.
+pub fn toml_strings(text: &str) -> serde_json::Map<String, serde_json::Value> {
+    parse_toml_strings(text).unwrap_or_default()
+}
+
+/// Read pack metadata without links, unbounded allocation, or invalid UTF-8 replacement.
 pub fn pack_toml(dir: &Path) -> Option<serde_json::Value> {
-    let text = crate::manifest::read_text(&dir.join("pack.toml")).ok()?;
-    Some(serde_json::Value::Object(toml_strings(&text)))
+    use std::io::Read;
+    let path = dir.join("pack.toml");
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() > 1024 * 1024 { return None; }
+    let mut text = String::new();
+    std::fs::File::open(path).ok()?.take(1024 * 1024 + 1).read_to_string(&mut text).ok()?;
+    Some(serde_json::Value::Object(parse_toml_strings(&text)?))
 }
 
 /// A folder in Ember's mods folder, `.../ember/mods/<mod>/` (Ember's mods carry no manifest or known export yet, so the
@@ -761,13 +806,13 @@ mod tests {
     #[test]
     fn toml_strings_reads_the_top_level_only() {
         let m = toml_strings("\u{feff}# a pack\nid = \"you.lanterns\" # the id\nversion = '1.0.0'\nname = \"L\\u00e4nterns \\\"x\\\"\"\n\
-            description = \"\"\"\nid = \"not.this\"\n\"\"\"\nauthors = [\n  \"side = x\",\n]\nn = 3\nside = \"server\"\n\
+            description = \"\"\"\nid = \"not.this\"\n\"\"\"\nn = 3\nside = \"server\"\n\
             [requires]\nversion = \"9.9.9\"\n");
         assert_eq!(m.get("id").and_then(|v| v.as_str()), Some("you.lanterns"));
         assert_eq!(m.get("version").and_then(|v| v.as_str()), Some("1.0.0"));
         assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("L\u{e4}nterns \"x\""));
         assert_eq!(m.get("side").and_then(|v| v.as_str()), Some("server"));
-        assert!(m.get("n").is_none() && m.get("description").is_none() && m.get("authors").is_none());
+        assert!(m.get("n").is_none() && m.get("description").is_some());
         assert!(toml_strings("{}").is_empty() && toml_strings("id = \"open").is_empty());
     }
 }

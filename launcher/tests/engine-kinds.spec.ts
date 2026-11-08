@@ -218,9 +218,11 @@ test("Enshwick, shroudlink and Ember mods: library labels, Engines cards, and Em
   await desktop(page, "/profiles/ember-run/engines");
   for (const kind of ["enshwick", "shroudlink", "ember"]) await expect(page.locator(`[data-kind="${kind}"]`)).toContainText(`kiln-${kind}`);
   await expect(page.locator('[data-kind="enshwick"]')).not.toContainText(/run yet/i);
+  await expect(page.locator('[data-kind="enshwick"]')).toContainText("Server-only packs do not need a client copy");
   const ember = page.locator('[data-kind="ember"]');
   await expect(ember).toContainText(/doesn't run yet/i);
   await expect(ember.getByRole("status").filter({ hasText: "These mods don't run yet" })).toContainText("Ember has not published its mod ABI");
+  await expect(ember).toContainText("compatible loader update");
   for (const [kind, name, id] of [["ember", "private-chests", "private-chests"], ["enshwick", "Lanterns", "you.lanterns"], ["shroudlink", "chestsort.dll", "chestsort"]] as const) {
     const card = page.locator(`[data-kind="${kind}"]`);
     await card.scrollIntoViewIfNeeded();
@@ -252,8 +254,51 @@ test("Logs > Engines reads Enshwick's and Ember's state files", async ({ page })
   await desktop(page, "/logs");
   await page.getByRole("tab", { name: "Engines" }).click();
   const list = page.getByLabel("Engine plugins");
-  await expect(list.locator('[data-engine="enshwick"]')).toContainText("running");
+  await expect(list.locator('[data-engine="enshwick"]')).toContainText("started");
   await expect(list.locator('[data-engine="enshwick"]')).toContainText("you.lanterns copy");
   await expect(list.locator('[data-engine="ember"]')).toContainText("waiting for Ember's ABI");
   await expect(list.locator('[data-engine="ember"]')).toContainText("private-chests waiting-for-abi");
+});
+
+test("engine headlines show Enshwick's result rather than its start phase", async ({ page }) => {
+  await desktop(page, "/logs");
+  const words = await page.evaluate(async () => {
+    const { headline } = await import("/src/components/EngineStatus.tsx");
+    return [
+      headline({ status: "failed", phase: "early", reason: "loader faulted" }),
+      headline({ status: "started", phase: "world" }),
+      headline({ phase: "done" }),
+      headline({ mode: "hosted" }),
+      headline({ abi: null, steppedAside: true }),
+      headline({ abi: null, steppedAside: false }),
+    ];
+  });
+  expect(words).toEqual(["failed", "started", "done", "hosted", "stepped aside", "waiting for Ember's ABI"]);
+});
+
+test("the mock library matches Rust's kind and id ordering before and after import", async ({ page }) => {
+  await desktop(page, "/library");
+  const sorted = async () => page.evaluate(async () => {
+    const { libraryList } = await import("/src/api/commands.ts");
+    const { MOD_KINDS } = await import("/src/api/kinds.ts");
+    const entries = (await libraryList()).map(({ kind, id }) => ({ kind, id }));
+    const expected = [...entries].sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { entries, expected };
+  });
+  const before = await sorted();
+  expect(before.entries).toEqual(before.expected);
+  const task = await api<string>(page, "libraryImport", ["middle-example-1.0.0.zip", "aaa-native-1.0.0.zip"]);
+  await expect.poll(async () => (await api<{ state: string }>(page, "taskGet", task)).state).toBe("done");
+  const after = await sorted();
+  expect(after.entries.length).toBe(before.entries.length + 2);
+  expect(after.entries).toEqual(after.expected);
+});
+
+test("the empty Engines page says Ember mods are stored without running", async ({ page }) => {
+  await page.goto("/?mock=empty#/profiles");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  const profile = await api<{ id: string }>(page, "profileCreate", "Empty engines");
+  await page.goto(`/?mock=empty#/profiles/${profile.id}/engines`);
+  await expect(page.getByText("No other engines' mods.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Ember mods are stored but don't run yet/)).toBeVisible();
 });

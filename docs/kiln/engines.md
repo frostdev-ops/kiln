@@ -125,7 +125,13 @@ engines' mods") and 5.8.
   the DLL. Each import checks what its plugin needs in the committed copy: an Enshwick `pack.toml` or mod DLL, a
   shroudlink mod DLL, exactly one library in an Ember folder (kiln-ember refuses more). An Enshwick mod may not take
   the id `enshwick` (the loader's own `mods/enshwick/`). Ember needs the folder: a lone DLL says nothing about Ember.
-  `side`/`clients` come from the mod's `mod.json` when it states them (Enshwick: also `pack.toml`'s `side`), else the
+  Enshwick's identity and side come only from `pack.toml`, when present; an adjacent `mod.json` cannot override them.
+  Pack metadata is limited to 1 MiB of UTF-8. The conservative reader supports top-level single-line and multiline
+  strings with TOML escapes, plus inert booleans and decimal integers; duplicate keys, invalid metadata, containers
+  (including author arrays), and unsupported table headers are refused. Extraction ends at the first supported
+  table; its body is left to Enshwick. Explicit versions must be canonical SemVer, with numeric core parts at most
+  2147483647. IDs must also be safe Windows folder names: no device names or trailing dots.
+  For other engines, `side`/`clients` come from the mod's `mod.json` when it states them, else the
   kind's default: EML, ShroudForge, Flame and Enshwick `both`/`mod`, since both sides need the same data (Enshwick's
   join check refuses players without a `both` mod); Greeneye `client`/`none`; shroudlink and Ember `server`/`none`
   always (server frameworks: players never need their mods); others `both`/`none`.

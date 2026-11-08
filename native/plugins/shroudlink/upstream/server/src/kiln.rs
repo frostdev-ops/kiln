@@ -13,6 +13,7 @@
 
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -183,10 +184,10 @@ fn profile() -> Option<&'static KilnProfileApi> {
 
 /// kiln: hold the path open while reading/copying it. Ancestors above the authorized root may be links; the root
 /// and everything below it may not. Final handle paths must still agree (also under Wine's drive mappings).
-pub(crate) struct CheckedPath(Vec<windows_sys::Win32::Foundation::HANDLE>);
-impl Drop for CheckedPath {
-    fn drop(&mut self) { for h in self.0.drain(..) { unsafe { windows_sys::Win32::Foundation::CloseHandle(h); } } }
-}
+pub(crate) struct CheckedPath(Vec<OwnedHandle>);
+// kiln: the running loader keeps its automatic dropin boundary pinned across discovery, copying and hot reload.
+// Only directories are held here: DLL contents remain replaceable between loads. The core's hooks run until exit.
+static DROPIN_GUARD: Mutex<Option<CheckedPath>> = Mutex::new(None);
 pub(crate) fn safe_path_syntax(path: &Path) -> bool {
     let Some(s) = path.to_str() else { return false };
     if s.contains('\0') || !path.is_absolute() || s.starts_with("\\\\?\\") || s.starts_with("\\\\.\\") { return false; }
@@ -196,6 +197,14 @@ pub(crate) fn safe_path_syntax(path: &Path) -> bool {
     })
 }
 impl CheckedPath {
+    /// kiln: aliases (including hard links) must not initialize the same DLL twice.
+    fn file_identity(&self) -> Option<(u32, u32, u32)> {
+        use windows_sys::Win32::Storage::FileSystem::*;
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe { GetFileInformationByHandle(self.0.last()?.as_raw_handle(), &mut info) } == 0 { return None; }
+        Some((info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow))
+    }
+
     pub(crate) fn open(root: &Path, file: &Path, regular: bool) -> Option<Self> {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::*;
@@ -217,7 +226,7 @@ impl CheckedPath {
             let h = unsafe { CreateFileW(wide.as_ptr(), GENERIC_READ, FILE_SHARE_READ | if last_file { 0 } else { FILE_SHARE_WRITE },
                 std::ptr::null(), OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, std::ptr::null_mut()) };
             if h == INVALID_HANDLE_VALUE { return None; }
-            checked.0.push(h);
+            checked.0.push(unsafe { OwnedHandle::from_raw_handle(h) });
             if i + 1 < bases.len() { continue; }
             if i + 1 == bases.len() { root_handle = h; }
             let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
@@ -232,7 +241,7 @@ impl CheckedPath {
             (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]).to_lowercase())
         }
         let base = final_path(root_handle)?;
-        let full = final_path(*checked.0.last()?)?;
+        let full = final_path(checked.0.last()?.as_raw_handle())?;
         if full != base && !full.starts_with(&(base.trim_end_matches('\\').to_string() + "\\")) { return None; }
         Some(checked)
     }
@@ -386,17 +395,53 @@ pub fn mod_folders(dir: &Path) -> Vec<PathBuf> {
 
 /// Mod DLLs below the roots (a root DLL, or the DLLs directly in a root folder), as the loader will see them.
 pub fn mod_dlls(roots: &[PathBuf]) -> Vec<PathBuf> {
+    // kiln: byte-identical copies in the old flat and synced layouts are one mod too. Compare only equal-sized
+    // candidates, with bounded buffers; names alone cannot identify mods (several mods may use `mod.dll`).
+    fn same_contents(a: &Path, b: &Path, mut len: u64) -> std::io::Result<bool> {
+        use std::io::Read;
+        let mut a = std::fs::File::open(a)?;
+        let mut b = std::fs::File::open(b)?;
+        let mut left = [0u8; 16384];
+        let mut right = [0u8; 16384];
+        while len > 0 {
+            let n = len.min(left.len() as u64) as usize;
+            a.read_exact(&mut left[..n])?;
+            b.read_exact(&mut right[..n])?;
+            if left[..n] != right[..n] { return Ok(false); }
+            len -= n as u64;
+        }
+        Ok(true)
+    }
     let is_dll = |p: &Path| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"));
     let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut accepted: Vec<(u64, PathBuf, CheckedPath)> = Vec::new();
+    let mut add = |path: PathBuf| {
+        // kiln: preserve the outer authorized boundary even when a child was added as another root. In particular,
+        // a discovered subfolder must not authorize a subsequently replaced shroudlink_mods junction above it.
+        let base = roots.iter().filter_map(|r| {
+            let a: Vec<_> = r.components().collect();
+            let b: Vec<_> = path.components().collect();
+            if a.len() > b.len() || !a.iter().zip(&b).all(|(a, b)|
+                a.as_os_str().to_string_lossy().eq_ignore_ascii_case(&b.as_os_str().to_string_lossy())) { return None; }
+            if a.len() == b.len() { r.parent() } else { Some(r.as_path()) }
+        }).min_by_key(|r| r.components().count());
+        let Some(guard) = base.and_then(|base| CheckedPath::open(base, &path, true)) else { return };
+        let Some(id) = guard.file_identity() else { return };
+        if !seen.insert(id) { return; }
+        let Ok(meta) = std::fs::metadata(&path) else { return };
+        if accepted.iter().any(|(len, other, _)| *len == meta.len() && same_contents(other, &path, *len).unwrap_or(false)) { return; }
+        // Keep both files stable during subsequent comparisons, including their checked directory components.
+        accepted.push((meta.len(), path.clone(), guard));
+        out.push(path);
+    };
     for root in roots {
         if root.is_file() {
-            if is_dll(root) && root.parent().is_some_and(|p| CheckedPath::open(p, root, true).is_some()) {
-                out.push(root.clone());
-            }
+            if is_dll(root) { add(root.clone()); }
         } else if let Ok(entries) = std::fs::read_dir(root) {
-            let mut v: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| is_dll(p) && CheckedPath::open(root, p, true).is_some()).collect();
+            let mut v: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| is_dll(p)).collect();
             v.sort();
-            out.extend(v);
+            for p in v { add(p); }
         }
     }
     out
@@ -608,8 +653,16 @@ pub unsafe extern "C" fn kiln_plugin_main(api: *const KilnApi, owner: u64, info:
 }
 
 unsafe extern "C" fn on_ready(_user: *mut c_void) {
-    let plan = plan();
+    let mut plan = plan();
     let game = kiln_path(PATH_GAME).unwrap_or_else(chestsort_common::game_dir);
+    // kiln: children added by roots() must not turn the automatic directory into a permitted linked ancestor.
+    // Keep its directory handles alive from before discovery until the loader stops (process exit).
+    let dropin_guard = if plan.read_folder {
+        let dir = game.join(plugins::DIR);
+        let guard = CheckedPath::open(&dir, &dir, false);
+        if guard.is_none() { plan.read_folder = false; }
+        guard
+    } else { None };
     let roots = roots(&plan, &game);
     {
         let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -639,6 +692,9 @@ unsafe extern "C" fn on_ready(_user: *mut c_void) {
     // as the core's own DllMain: on a thread of its own, so the game goes on starting while it scans and hooks
     std::thread::spawn(move || {
         let started = crate::start(move || plugins::load_from(roots, shadow));
+        if started {
+            *DROPIN_GUARD.lock().unwrap_or_else(|e| e.into_inner()) = dropin_guard;
+        }
         {
             let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
             st.started = started;
@@ -828,13 +884,78 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_profile_and_dropin_roots_load_each_file_once() {
+        let base = std::env::temp_dir().join(format!("sl-overlap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mods = base.join("shroudlink_mods");
+        let folder = mods.join("meter");
+        std::fs::create_dir_all(&folder).unwrap();
+        let flat = mods.join("flat.dll");
+        let nested = folder.join("meter.dll");
+        std::fs::write(&flat, b"flat").unwrap();
+        std::fs::write(&nested, b"nested").unwrap();
+        let mut roots = vec![nested.clone(), folder.clone(), flat.clone(), mods.clone()];
+        roots.extend(mod_folders(&mods));
+        assert_eq!(mod_dlls(&roots), vec![nested.clone(), flat.clone()], "first profile occurrence wins");
+        let alias = mods.join("alias.dll");
+        std::fs::hard_link(&nested, &alias).unwrap();
+        assert_eq!(mod_dlls(&[nested.clone(), mods.clone(), folder.clone()]), vec![nested.clone(), flat.clone()], "hard links also refer to the same file");
+        let copied = mods.join("meter.dll");
+        std::fs::copy(&nested, &copied).unwrap();
+        std::fs::copy(&nested, mods.join("renamed.dll")).unwrap();
+        assert_eq!(mod_dlls(&[mods.clone(), folder.clone()]), vec![alias.clone(), flat.clone()], "flat files win over identical synced copies, even renamed");
+        std::fs::write(&copied, b"others").unwrap();
+        assert_eq!(mod_dlls(&[folder, mods]), vec![nested, flat, copied], "equal-sized distinct DLLs with the same name remain separate mods");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn dropin_directory_guard_blocks_replacement_but_allows_mod_updates() {
+        let base = std::env::temp_dir().join(format!("sl-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mods = base.join("shroudlink_mods");
+        std::fs::create_dir_all(mods.join("meter")).unwrap();
+        let dll = mods.join("meter/meter.dll");
+        std::fs::write(&dll, b"before").unwrap();
+        let guard = CheckedPath::open(&mods, &mods, false).unwrap();
+        assert!(std::fs::rename(&mods, base.join("moved")).is_err(), "the automatic root must remain pinned through copying and reloads");
+        std::fs::write(&dll, b"after").unwrap();
+        assert_eq!(std::fs::read(&dll).unwrap(), b"after");
+        drop(guard);
+        std::fs::rename(&mods, base.join("moved")).unwrap();
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn discovered_subfolders_keep_the_dropin_root_as_their_boundary() {
+        let base = std::env::temp_dir().join(format!("sl-boundary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mods = base.join("shroudlink_mods");
+        let moved = base.join("moved");
+        std::fs::create_dir_all(mods.join("meter")).unwrap();
+        std::fs::write(mods.join("meter/meter.dll"), b"x").unwrap();
+        let mut roots = vec![mods.clone()];
+        roots.extend(mod_folders(&mods));
+        assert_eq!(mod_dlls(&roots).len(), 1);
+        std::fs::rename(&mods, &moved).unwrap();
+        if std::os::windows::fs::symlink_dir(&moved, &mods).is_ok() {
+            // A previously discovered child cannot make the dropin root a permitted linked ancestor.
+            assert!(mod_dlls(&roots).is_empty());
+            std::fs::remove_dir(&mods).unwrap();
+        } else {
+            eprintln!("skipped dropin replacement: directory symlinks unavailable");
+        }
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn finds_dlls_and_eml_mods() {
         let base = std::env::temp_dir().join(format!("kiln-shroudlink-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let mods = base.join("shroudlink_mods");
         std::fs::create_dir_all(mods.join("stacks").join("src")).unwrap();
-        std::fs::write(mods.join("b.dll"), b"").unwrap();
-        std::fs::write(mods.join("a.DLL"), b"").unwrap();
+        std::fs::write(mods.join("b.dll"), b"b").unwrap();
+        std::fs::write(mods.join("a.DLL"), b"a").unwrap();
         std::fs::write(mods.join("notes.txt"), b"").unwrap();
         std::fs::write(mods.join("stacks").join("mod.json"), b"{}").unwrap();
         std::fs::write(mods.join("stacks").join("src").join("mod.lua"), b"").unwrap();

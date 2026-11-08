@@ -131,7 +131,8 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   ember: [{ id: "private-chests", name: "private-chests", version: "0.0.0", side: "server", clients: "none" }],
 };
 
-const library: LibraryEntry[] = FRESH ? [] : MOD_KINDS.flatMap((kind) => seedMods[kind].map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
+const library: LibraryEntry[] = FRESH ? [] : MOD_KINDS.flatMap((kind) => [...seedMods[kind]].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  .map((m) => entryFor(kind, m, "2026-11-0" + (2 + (m.id.length % 3)) + "T09:00:00Z")));
 
 function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: string): LibraryEntry {
   const hash = kdh(kind + m.id + m.version);
@@ -817,7 +818,7 @@ const handlers: Record<string, Handler> = {
       st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
       st("flame", "flame.json", null),
       st("shroudtopia", "shroudtopia.json", { mods: [{ name: "Fly Mode", status: "active", updates: 120 }], refused: [] }),
-      st("enshwick", "enshwick.json", { status: "running", mods: [{ folder: "you.lanterns", form: "pack", origin: "profile", action: "copy", note: "" }] }),
+      st("enshwick", "enshwick.json", { status: "started", phase: "early", mods: [{ folder: "you.lanterns", form: "pack", origin: "profile", action: "copy", note: "" }] }),
       st("shroudlink", "shroudlink.json", null),
       st("ember", "ember.json", { abi: null, steppedAside: false, mods: [{ id: "private-chests", status: "waiting-for-abi",
         reason: "not loaded: Ember has not published its mod ABI yet" }] }),

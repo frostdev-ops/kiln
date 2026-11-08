@@ -17,7 +17,7 @@ export const ENGINE_KINDS: ModKind[] = IMPORTED_KINDS;
 export const NOT_RUNNING_KINDS: ModKind[] = ["ember"];
 /** What to tell a player about a kind that doesn't run yet. */
 export const NOT_RUNNING_NOTE: Partial<Record<ModKind, string>> = {
-  ember: "Ember mods don't run yet: Ember has not published its mod ABI, so kiln-ember only finds and reports them. They stay in the profile and start once Ember ships.",
+  ember: "Ember mods don't run yet: Ember has not published its mod ABI, so kiln-ember only finds and reports them. They stay in the profile; running them will require a compatible loader update.",
 };
 
 export const isEngineKind = (k: ModKind) => !CORE_KINDS.includes(k);

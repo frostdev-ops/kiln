@@ -33,9 +33,11 @@ WINE = os.environ.get("COMPAT_WINE", "wine")
 
 def env(extra=None):
     e = dict(os.environ)
-    e.update(WINEPREFIX=PFX, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree=;mshtml=")
+    e.update(WINEPREFIX=PFX, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d")
+    # No window may reach the desktop (a crash dialog included): no X display, and a Wayland socket that does not
+    # exist (unset, libwayland falls back to $XDG_RUNTIME_DIR/wayland-0, the desktop); winedbg is off.
     e.pop("DISPLAY", None)
-    e.pop("WAYLAND_DISPLAY", None)
+    e["WAYLAND_DISPLAY"] = "kiln-no-display"
     e.update(extra or {})
     return e
 
