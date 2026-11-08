@@ -157,6 +157,7 @@ void entities_status(uint64_t* joined, uint64_t* left, uint64_t* filtered, uint3
 // ---- Kiln's own program (program.cpp) ----
 void program_register(const void* world_api);
 KilnResult inject(const KilnGameplayInject* r);
+KilnResult component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const void* data, uint32_t size, uint32_t op);
 bool program_active();
 uint16_t program_pid();  // engine id of kiln_gameplay (0 before its first emit)
 

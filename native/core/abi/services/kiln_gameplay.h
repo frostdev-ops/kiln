@@ -287,6 +287,9 @@ typedef struct KilnGameplayStatus {
     uint64_t discards_seen, discards_canceled;
 } KilnGameplayStatus;
 
+/* component_change ops */
+enum { KILN_GAMEPLAY_COMPONENT_ADD = 1u, KILN_GAMEPLAY_COMPONENT_REMOVE = 2u };
+
 typedef struct KilnGameplayApi {
     KilnServiceHeader header; /* { sizeof(KilnGameplayApi), KILN_GAMEPLAY_VERSION } */
 
@@ -332,6 +335,16 @@ typedef struct KilnGameplayApi {
     KilnResult(KILN_CALL* spawn_replace)(KilnOwner owner, const uint8_t* from_guid, const uint8_t* to_guid, float chance);
     /* Removes every replacement rule of `owner` (a mod unloading). Any thread. Returns the number removed in *out. */
     KilnResult(KILN_CALL* spawn_replace_clear)(KilnOwner owner, uint32_t* out_removed);
+
+    /* --- added later in v1: check header.size --- */
+    /* Queues one component change on `entity` (never a player): op KILN_GAMEPLAY_COMPONENT_ADD adds component `hash`
+     * with `size` bytes of `data` (1..256; the engine keeps the old data if the entity already has it),
+     * KILN_GAMEPLAY_COMPONENT_REMOVE removes it (data/size ignored). Kiln's program writes the kind-3/4 record in the
+     * next step; the engine applies it at the end of that step. There is no answer: read the component back (kiln.world
+     * component) a step or two later. Used by the managed Kiln.Gameplay Offers. Tick thread. UNAVAILABLE: the program
+     * is off on this build. BUFFER_TOO_SMALL: 256 changes are queued already (retry next step). */
+    KilnResult(KILN_CALL* component_change)(KilnOwner owner, KilnEntity entity, uint32_t hash, const void* data,
+                                            uint32_t size, uint32_t op);
 } KilnGameplayApi;
 
 #ifdef __cplusplus

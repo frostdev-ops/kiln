@@ -362,6 +362,10 @@ internal static partial class KilnApis
         "M:Kiln.NpcView.get_Target", // NpcView.Target.get: via NpcView.Info.get
         "M:Kiln.NpcView.get_TargetDistance", // NpcView.TargetDistance.get: via NpcView.Target.get
         "M:Kiln.Obelisk.ReadBy(Kiln.Player)", // Obelisk.ReadBy(Player): via ProgressFact.Holds(EntityId)
+        "M:Kiln.Offers.Add(Kiln.EntityId,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},Kiln.OfferOptions)", // Offers.Add(EntityId, string?, uint, Action<OfferAccepted>, OfferOptions?): via Offers.TryAdd(EntityId, string?, uint, Action<OfferAccepted>, out string, OfferOptions?)
+        "M:Kiln.Offers.Remove(Kiln.EntityId)", // Offers.Remove(EntityId): Services.RequireTickThread
+        "M:Kiln.Offers.SpawnWithOffer(System.String,Kiln.WorldPosition,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},Kiln.OfferOptions,Kiln.SpawnOptions)", // Offers.SpawnWithOffer(string, WorldPosition, string?, uint, Action<OfferAccepted>, OfferOptions?, SpawnOptions?): via Offers.Add(EntityId, string?, uint, Action<OfferAccepted>, OfferOptions?)
+        "M:Kiln.Offers.TryAdd(Kiln.EntityId,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},System.String@,Kiln.OfferOptions)", // Offers.TryAdd(EntityId, string?, uint, Action<OfferAccepted>, out string, OfferOptions?): Services.RequireTickThread
         "M:Kiln.Permissions.AddPlayerToGroup(System.UInt64,System.String,System.String)", // Permissions.AddPlayerToGroup(ulong, string, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.MapUserGroup(System.String,System.Collections.Generic.IEnumerable{System.String})", // Permissions.MapUserGroup(string, IEnumerable<string>): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.RemoveGroup(System.String)", // Permissions.RemoveGroup(string): via PermissionStore.Edit(Action<PermissionModel>, string)
@@ -562,6 +566,7 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.RunProgram(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunProgram(Guid, WorldPosition, ImpactOptions?)
         "M:Kiln.AbilityCast.Impact(System.String,System.Nullable{Kiln.WorldPosition},Kiln.ImpactConfigs)", // AbilityCast.Impact(string, WorldPosition?, ImpactConfigs?)
         "M:Kiln.Creatures.Spawn(System.String,Kiln.WorldPosition,System.Single,Kiln.CreatureSpawnOptions)", // Creatures.Spawn(string, WorldPosition, float, CreatureSpawnOptions?)
+        "M:Kiln.Offers.SpawnWithOffer(System.String,Kiln.WorldPosition,System.String,System.UInt32,System.Action{Kiln.OfferAccepted},Kiln.OfferOptions,Kiln.SpawnOptions)", // Offers.SpawnWithOffer(string, WorldPosition, string?, uint, Action<OfferAccepted>, OfferOptions?, SpawnOptions?)
         "M:Kiln.Spawn.Entity(System.Guid,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(Guid, WorldPosition, float, SpawnOptions?)
         "M:Kiln.Spawn.Entity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(string, WorldPosition, float, SpawnOptions?)
         "M:Kiln.Spawn.Group(System.String,Kiln.WorldPosition,System.Int32,System.Double,Kiln.SpawnOptions)", // Spawn.Group(string, WorldPosition, int, double, SpawnOptions?)

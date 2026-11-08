@@ -485,7 +485,7 @@ public static unsafe class Gameplay
         if (Events.HasSubscribers<CraftEvent>()) m |= GameplayNative.Mask(GameplayNative.Craft);
         if (Events.HasSubscribers<ItemCraftedEvent>()) m |= GameplayNative.Mask(GameplayNative.Crafted);
         if (Events.HasSubscribers<InteractEvent>()) m |= GameplayNative.Mask(GameplayNative.Interact);
-        if (Events.HasSubscribers<InteractionResultEvent>()) m |= GameplayNative.Mask(GameplayNative.Interacted);
+        if (Events.HasSubscribers<InteractionResultEvent>() || Offers.Wanted) m |= GameplayNative.Mask(GameplayNative.Interacted);
         if (Events.HasSubscribers<LootEvent>()) m |= GameplayNative.Mask(GameplayNative.Loot);
         if (Events.HasSubscribers<ItemPickupEvent>()) m |= GameplayNative.Mask(GameplayNative.Pickup);
         if (Events.HasSubscribers<BuildEvent>()) m |= GameplayNative.Mask(GameplayNative.Build);
@@ -529,6 +529,7 @@ public static unsafe class Gameplay
     {
         var canceled = (e->Flags & GameplayNative.FCanceled) != 0;
         var injected = (e->Flags & GameplayNative.FInjected) != 0;
+        if (e->Kind == GameplayNative.Interacted && e->Op == 1) Offers.OnAccepted(e->Actor, e->Target);
         switch (e->Kind)
         {
             case GameplayNative.Craft when Events.HasSubscribers<CraftEvent>():

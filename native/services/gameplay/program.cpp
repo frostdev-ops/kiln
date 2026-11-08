@@ -20,6 +20,15 @@ std::vector<KilnGameplayInject> g_queue;
 bool g_active = false;
 std::atomic<uint16_t> g_pid{0};
 
+// component_change (Kiln.Gameplay Offers): applied through kiln.world's queue_add / queue_remove in the next update.
+struct Change {
+    KilnEntity entity;
+    uint32_t hash;
+    uint32_t op;
+    std::vector<uint8_t> data;
+};
+std::vector<Change> g_changes;  // under g_mu
+
 void emit_one(KilnProgramCtx* ctx, const uint64_t* iter, const KilnGameplayInject& r) {
     int32_t slot = -1;
     uint32_t hash = 0, size = 0;
@@ -57,12 +66,22 @@ void emit_one(KilnProgramCtx* ctx, const uint64_t* iter, const KilnGameplayInjec
 
 void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
     std::vector<KilnGameplayInject> q;
+    std::vector<Change> c;
     {
         std::lock_guard lock(g_mu);
-        if (g_queue.empty()) return;
+        if (g_queue.empty() && g_changes.empty()) return;
         q.swap(g_queue);
+        c.swap(g_changes);
     }
     for (auto& r : q) emit_one(ctx, iter, r);
+    for (auto& ch : c) {
+        const KilnResult rc = ch.op == KILN_GAMEPLAY_COMPONENT_ADD
+                                  ? g_world_api->queue_add(ctx, ch.entity, ch.hash, ch.data.data(),
+                                                           static_cast<uint32_t>(ch.data.size()))
+                                  : g_world_api->queue_remove(ctx, ch.entity, ch.hash);
+        if (rc != KILN_OK)
+            KG_W("component_change: entity %u component 0x%08x op %u not queued (%d)", ch.entity, ch.hash, ch.op, rc);
+    }
 }
 
 }  // namespace
@@ -113,6 +132,19 @@ KilnResult inject(const KilnGameplayInject* r) {
     std::lock_guard lock(g_mu);
     if (g_queue.size() >= 256) return KILN_ERR_BUFFER_TOO_SMALL;
     g_queue.push_back(*r);
+    return KILN_OK;
+}
+
+KilnResult component_change(KilnOwner, KilnEntity e, uint32_t hash, const void* data, uint32_t size, uint32_t op) {
+    if (!e || !hash) return KILN_ERR_INVALID_ARGUMENT;
+    if (op != KILN_GAMEPLAY_COMPONENT_ADD && op != KILN_GAMEPLAY_COMPONENT_REMOVE) return KILN_ERR_INVALID_ARGUMENT;
+    if (op == KILN_GAMEPLAY_COMPONENT_ADD && (!data || size == 0 || size > 256)) return KILN_ERR_INVALID_ARGUMENT;
+    if (!program_active()) return KILN_ERR_UNAVAILABLE;
+    Change ch{e, hash, op, {}};
+    if (op == KILN_GAMEPLAY_COMPONENT_ADD) ch.data.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
+    std::lock_guard lock(g_mu);
+    if (g_changes.size() >= 256) return KILN_ERR_BUFFER_TOO_SMALL;
+    g_changes.push_back(std::move(ch));
     return KILN_OK;
 }
 

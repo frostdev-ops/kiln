@@ -10,6 +10,9 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Api.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <!-- template names / kinds of the entity lifecycle events -->
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />

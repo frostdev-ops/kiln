@@ -232,6 +232,12 @@ KilnResult KILN_CALL t_spawn_replace_clear(KilnOwner owner, uint32_t* out) {
     return KILN_OK;
 }
 
+KilnResult KILN_CALL t_component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const void* data, uint32_t size,
+                                        uint32_t op) {
+    if (!tick_ok()) return KILN_ERR_WRONG_THREAD;
+    return component_change(owner, e, hash, data, size, op);
+}
+
 const KilnGameplayApi kTable = {
     {sizeof(KilnGameplayApi), KILN_GAMEPLAY_VERSION},
     &t_subscribe,
@@ -248,6 +254,7 @@ const KilnGameplayApi kTable = {
     &t_entity_filter,
     &t_spawn_replace,
     &t_spawn_replace_clear,
+    &t_component_change,
 };
 
 KilnHandle g_pre = 0, g_post = 0, g_late_pre = 0;

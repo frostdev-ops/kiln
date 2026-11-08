@@ -21,6 +21,7 @@
     <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
     <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
+    <ProjectReference Include="../../services/Kiln.Gameplay/Kiln.Gameplay.csproj" />
     <!-- Built first so the leak test can load it into a collectible context. -->
     <ProjectReference Include="../../../mods/tests/api-test/ApiTest.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>

@@ -121,6 +121,12 @@ internal static unsafe class GameplayNative
             ? *(delegate* unmanaged[Cdecl]<ulong, uint*, int>*)((byte*)t + sizeof(Table) + 2 * sizeof(nint))
             : null;
 
+    /// <summary>component_change (appended after spawn_replace_clear), or null when the DLL predates it.</summary>
+    public static delegate* unmanaged[Cdecl]<ulong, uint, uint, void*, uint, uint, int> ComponentChange(Table* t) =>
+        t != null && t->Header.Size >= (uint)(sizeof(Table) + 4 * sizeof(nint))
+            ? *(delegate* unmanaged[Cdecl]<ulong, uint, uint, void*, uint, uint, int>*)((byte*)t + sizeof(Table) + 3 * sizeof(nint))
+            : null;
+
     private static Table* _table;
     public static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.gameplay", 1));
 
