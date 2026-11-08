@@ -1786,7 +1786,7 @@ void dispatchEvents(lua_State* L, uintptr_t world) {
             if (std::find(reported.begin(), reported.end(), h) == reported.end() && reported.size() < 256) {
                 reported.push_back(h);
                 gSink((LV_WARN "Observe: " + (t ? qname(t) : std::string("unknown type")) +
-                       " cannot be read on this world; its handlers will not run").c_str());
+                       " cannot be read on this world (error " + std::to_string(-idx) + "); its handlers will not run").c_str());
             }
             continue;
         }

@@ -468,7 +468,7 @@ public static unsafe class GameEvents
             0 => true,
             5 => false,
             2 => throw new ArgumentException($"this world has no {t} stream"),
-            1 => throw new InvalidOperationException($"kiln.types refused {t}: not the server world, or its stream does not match the reflected layout"),
+            1 => throw new InvalidOperationException($"kiln.types refused {t}: a value the game would not accept, or its stream does not match the reflected layout"),
             4 => throw new InvalidOperationException("GameEvents.Post: not on the world thread"),
             _ => throw new NotSupportedException($"events are unavailable on this build ({r})"),
         };
