@@ -362,11 +362,16 @@ pub struct PlaceReport {
 /// Mutation callers check the parent before creating missing components as well as the leaf.
 pub fn refuse_symlink_path(path: &Path) -> Result<()> {
     let mut prefix = PathBuf::new();
-    for component in path.components() {
+    let mut components = path.components().peekable();
+    while let Some(component) = components.next() {
         if matches!(component, std::path::Component::ParentDir) {
             return Err(Error::new(ErrorCode::Refused, format!("{}: parent traversal is not allowed", path.display())));
         }
         prefix.push(component.as_os_str());
+        // An absolute Windows prefix (e.g. `\\?\C:`) needs its following root separator.
+        // Drive-relative prefixes (`C:child`) still need inspection of the drive's current directory.
+        if matches!(component, std::path::Component::Prefix(_))
+            && matches!(components.peek(), Some(std::path::Component::RootDir)) { continue; }
         match std::fs::symlink_metadata(&prefix) {
             Ok(meta) => {
                 #[cfg(windows)]
