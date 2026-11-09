@@ -58,7 +58,7 @@ public sealed class Bank : Mod
 | `WorldData.Get<T>(key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys` / `Loaded` | per world, per calling mod. `Get` creates `new T()`. JSON via System.Text.Json (public properties and fields) |
 | `PlayerData.Get<T>(steamId, key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys(steamId)` / `Players` | per world, per Steam id, per mod; the player need not be online. All characters of the account share it: for character progress use `CharacterData` |
 | `CharacterData.Get<T>(key or entity, k)`, `CharacterData.Carried.*` | per character, per mod: this world's record of the character, and what goes with it to other worlds. [character-data.md](character-data.md) |
-| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); saved entities get it back after a restart. Player entities map to `PlayerData` (Steam id) |
+| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only. Player entities map to `PlayerData` (Steam id) |
 
 Rules: tick thread, from mod code (handlers, `OnLoad`, tasks; in a hosted world, once `Saves.WorldDataReady`: see "In a game client"). Keys belong to the calling mod (`kiln.mod.json` id).
 A stored value that no longer reads as `T` throws `InvalidDataException` and is kept as it was. A mod reload keeps the
@@ -77,8 +77,10 @@ data (objects are serialized when the mod unloads and read into the new instance
   loads the newest older generation (`DataMatch.Older`, logged as a warning).
 - Entities: attachments are stored with the entity's template and position at the save and given back to the loaded
   entity of that template there (props within 0.5 m; creatures and NPCs within 16 m, nearest unclaimed), retried for
-  10 minutes after a load (entities stream in), kept for 3 sessions if never matched. DoNotSave templates (most
-  enemies, loot pickups): session only.
+  10 minutes after a load (entities stream in), kept for 3 sessions if never matched. This needs a known, saved
+  template with `CurrentTransform`. DoNotSave templates (most enemies, loot pickups), inventory item entities,
+  and unknown templates: session only. An inventory item's default position is not a persistent identity;
+  old item attachments are never matched to a different sword after a restart.
 
 ## Saves
 
