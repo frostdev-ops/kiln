@@ -65,5 +65,10 @@ client=""
 if [[ -f $out/screen.xwd ]] && command -v magick >/dev/null; then
   if magick "xwd:$out/screen.xwd" "$out/screen.png"; then rm -f "$out/screen.xwd"; else code=1; fi
 fi
+if ((code == 0)); then
+  # Validate compiled metadata against the host release environment, just like AppImage and Wine checks.
+  source "$here/../checks.sh"
+  ck_report "$out/selftest.json" "$distribution" || code=1
+fi
 echo "start-test: $distro/$distribution: results in $out"
 exit "$code"

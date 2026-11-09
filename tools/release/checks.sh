@@ -12,18 +12,36 @@ ck_display() { # starts Xvfb on a free display; prints the display number
   echo "$n $!"
 }
 
-# a --selftest report: every check passed, and the build is the distribution it should be
+# A --selftest report must match the distribution and Nexus capability/registration requested by this release.
 ck_report() { # report.json distribution
-  python3 -c 'import json,sys
+  python3 -c 'import json,os,re,sys
+flag = os.environ.get("KILN_NEXUS_ENABLED")
+if flag not in (None, "1", "0"):
+    sys.exit("KILN_NEXUS_ENABLED must be 0 or 1.")
+enabled = flag != "0"
+client_id = os.environ.get("KILN_NEXUS_OAUTH_CLIENT_ID") if enabled else None
+redirect_uri = os.environ.get("KILN_NEXUS_OAUTH_REDIRECT_URI") if enabled else None
+if enabled:
+    # Keep the public registration shape in sync with nexus/oauth/registration.rs.
+    callback = re.fullmatch(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})/([A-Za-z0-9_./-]{1,128})", redirect_uri or "")
+    if not (re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", client_id or "") and callback
+            and int(callback[1]) <= 65535 and all(p not in ("", ".", "..") for p in callback[2].split("/"))):
+        sys.exit("Enabled release requires valid expected Nexus OAuth public registration.")
 r = json.load(open(sys.argv[1]))
 print("\n".join(("PASS " if c["ok"] else "FAIL ") + c["name"] + ": " + c["detail"] for c in r["checks"]))
 print("distribution:", r.get("distribution"), "(expected " + sys.argv[2] + ")")
-oauth = r.get("nexusOAuth") or {}
-print("Nexus enabled:", oauth.get("enabled"), "configured:", oauth.get("configured") is True)
-valid_oauth = ((oauth.get("enabled") is False and oauth.get("configured") is False and oauth.get("clientId") is None and oauth.get("redirectUri") is None)
-    or (oauth.get("enabled") is True and oauth.get("configured") is True and isinstance(oauth.get("clientId"), str) and bool(oauth["clientId"]) and isinstance(oauth.get("redirectUri"), str) and bool(oauth["redirectUri"])))
+oauth = r.get("nexusOAuth")
+if not isinstance(oauth, dict):
+    oauth = {}
+print("Nexus enabled:", oauth.get("enabled"), "(expected", enabled, ") configured:", oauth.get("configured") is True)
+valid_oauth = ({"enabled", "configured", "clientId", "redirectUri"} <= oauth.keys()
+    and oauth["enabled"] is enabled and oauth["configured"] is enabled
+    and oauth["clientId"] == client_id and oauth["redirectUri"] == redirect_uri)
+if not valid_oauth:
+    print("Nexus capability/registration does not match the release environment.", file=sys.stderr)
 marker = "KILN-LAUNCHER-DISTRIBUTION:" + sys.argv[2] + ":self-update=" + ("1" if sys.argv[2] == "direct" else "0")
-sys.exit(0 if r["ok"] and r.get("distribution") == sys.argv[2] and r.get("buildMarker") == marker
+sys.exit(0 if r["ok"] is True and all(c["ok"] is True for c in r["checks"])
+    and sys.argv[2] in ("direct", "nexus") and r.get("distribution") == sys.argv[2] and r.get("buildMarker") == marker
     and r.get("releaseBuild") is True and valid_oauth else 1)' "$1" "$2"
 }
 
