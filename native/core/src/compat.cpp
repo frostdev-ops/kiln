@@ -280,7 +280,15 @@ void fill(ojson& doc) {
 }
 
 void map_extension(void* json, const char*) {
-    if (json) fill(*static_cast<ojson*>(json));
+    if (!json) return;
+    // Runs on the map writer's timer thread too: shroudforge.json (another runtime's file) with an unexpected type must
+    // not throw out of it (std::terminate). The map is still written, without the compat sections.
+    try {
+        fill(*static_cast<ojson*>(json));
+    } catch (const std::exception& e) {
+        std::lock_guard lock(g_mu);
+        if (log_once(std::string("fill|") + e.what())) KLOG_W("compat: overlap/rule report skipped: %s", e.what());
+    }
 }
 
 void load_file(const fs::path& file, const char* source, std::vector<Rule>* rules) {
@@ -321,12 +329,14 @@ void init() {
     // The last session's report, before this one overwrites it (the first write is at boot end).
     {
         std::string text;
-        if (read_file(paths().state / L"hooks.json", &text)) {
+        if (read_file(paths().state / L"hooks.json", &text)) try {
             const ojson prev = ojson::parse(text, nullptr, false);
             if (prev.is_object() && prev.contains("rules") && prev["rules"].is_array())
                 for (const auto& r : prev["rules"])
                     if (r.is_object() && r.value("action", std::string()) == "late" && r.value("applied", false) && r.contains("id") && r["id"].is_string())
                         g_prev_late.insert(r["id"].get<std::string>());
+        } catch (const std::exception&) {
+            g_prev_late.clear();  // an edited or damaged file (a key of another type): no sticky rules this start
         }
     }
     std::vector<Rule> shipped, user;
@@ -370,7 +380,7 @@ void boot_done() {
         ojson doc;
         doc["targets"] = ojson::array();
         doc["foreign"] = ojson::array();
-        fill(doc);
+        map_extension(&doc, "boot");
         return;
     }
     // ShroudForge reports its hooks a little after boot: write the map again once it had time to

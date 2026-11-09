@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 # compat_test.exe: the compatibility rules and the overlap report (core/src/compat_rules.cpp, compat_overlaps.cpp) run under
 # Wine against schema/fixtures/compat-rules/cases.json, no game: native/core/tests/test-compat.sh.
-# late-stub.dll: a stand-in for a closed-source DLL mod in lab tests (late_stub.cpp). Not deployed.
 add_executable(compat_test
     ../../core/tests/compat_test.cpp
     ../../core/src/compat_rules.cpp

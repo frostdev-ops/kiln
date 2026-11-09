@@ -96,6 +96,7 @@ struct LateDll {
     HMODULE module = nullptr;
 };
 std::vector<LateDll> g_late;
+bool g_late_collected = false;
 bool g_late_ran = false;
 
 void fail(Mod& m, St st, std::string reason) {
@@ -775,6 +776,7 @@ const char* const kChainSources[] = {"chain", "profile", "emf"};
 
 // The proxy's KILN_CHAIN_LATE entries, in its list order.
 void collect_late() {
+    g_late_collected = true;
     g_late.clear();
     const KilnBootInfo& bi = boot_info();
     for (uint32_t i = 0; i < bi.chain_count; ++i) {
@@ -837,6 +839,7 @@ void run_late() {
     std::lock_guard lock(g_mutex);
     if (g_late_ran) return;
     g_late_ran = true;
+    if (!g_late_collected) collect_late();  // safe idle before discover() (the game image cannot be parsed)
     if (g_late.empty()) return;
     KLOG_I("native: loading %zu chain DLL(s) named in kiln/chain.ini [late], after the plugins", g_late.size());
     for (LateDll& l : g_late) {

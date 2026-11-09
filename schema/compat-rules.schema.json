@@ -23,7 +23,11 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 260,
-              "description": "A DLL file name, case-insensitive; `*` matches any run of characters, `?` one character (`xhl-*.dll`). Matches the whole file name (give no path). Present: a chain entry that is on (not switched off, not refused) or a module loaded in the process."
+              "anyOf": [
+                { "pattern": "^[^*?]*$" },
+                { "maxLength": 64, "pattern": "^[^*]*(\\*[^*]*){0,4}$" }
+              ],
+              "description": "A DLL file name, case-insensitive; `*` matches any run of characters, `?` one character (`xhl-*.dll`). Matches the whole file name (give no path). A pattern with wildcards has at most 64 characters and 4 `*`. Present: a chain entry that is on (not switched off, not refused) or a module loaded in the process."
             }
           },
           "additionalProperties": false
@@ -79,7 +83,7 @@
           "pattern": "^[A-Za-z0-9._:-]{1,128}$",
           "description": "Unique in a file (the first of a repeated id stays). A rule of the player's file with a shipped rule's id replaces it."
         },
-        "when": { "type": "array", "items": { "$ref": "#/$defs/matcher" }, "description": "Every matcher must be present for the rule to fire. Empty or absent: the rule always fires." },
+        "when": { "type": "array", "items": { "$ref": "#/$defs/matcher" }, "maxItems": 8, "description": "Every matcher must be present for the rule to fire (at most 8). Empty or absent: the rule always fires." },
         "action": { "enum": ["warn", "late", "disable"] },
         "subject": {
           "$ref": "#/$defs/matcher",

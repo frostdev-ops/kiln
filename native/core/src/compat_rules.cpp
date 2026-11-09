@@ -19,6 +19,17 @@ constexpr size_t kMaxRules = 512;      // as the launcher's reader (crates/kiln-
 constexpr size_t kMaxText = 1024 * 1024;
 constexpr size_t kMaxMatcher = 260;
 constexpr size_t kMaxMessage = 2000;
+constexpr size_t kMaxWhen = 8;          // as MAX_WHEN: bounds the work of one evaluation
+constexpr size_t kMaxGlob = 64;         // a module pattern with wildcards: at most this long (MAX_GLOB) ...
+constexpr size_t kMaxStars = 4;         // ... and with at most this many `*` (MAX_STARS)
+
+// Characters (Unicode code points) of UTF-8 text, as JSON Schema's maxLength and the launcher count them.
+size_t chars_of(std::string_view s) {
+    size_t n = 0;
+    for (unsigned char c : s)
+        if ((c & 0xC0) != 0x80) ++n;
+    return n;
+}
 
 std::wstring wide(std::string_view s) {
     if (s.empty()) return {};
@@ -62,9 +73,14 @@ bool parse_matcher(const json& j, Matcher* out, std::string* why) {
         return false;
     }
     const std::string v = it.value().get<std::string>();
-    const size_t chars = wide(v).size();
+    const size_t chars = chars_of(v);
     if (chars == 0 || chars > kMaxMatcher) {
         *why = "a matcher's text must be 1-260 characters";
+        return false;
+    }
+    if (key == "module" && v.find_first_of("*?") != std::string::npos &&
+        (chars > kMaxGlob || static_cast<size_t>(std::count(v.begin(), v.end(), '*')) > kMaxStars)) {
+        *why = "a module pattern with wildcards has at most 64 characters and 4 *";
         return false;
     }
     if (key == "module") out->kind = Matcher::Kind::Module;
@@ -106,6 +122,10 @@ bool parse_rule(const json& j, const char* source, Rule* r, std::string* why) {
             *why = "\"when\" must be a list of matchers";
             return false;
         }
+        if (j["when"].size() > kMaxWhen) {
+            *why = "more than 8 conditions in \"when\"";
+            return false;
+        }
         for (const auto& m : j["when"]) {
             Matcher mt;
             if (!parse_matcher(m, &mt, why)) return false;
@@ -127,7 +147,7 @@ bool parse_rule(const json& j, const char* source, Rule* r, std::string* why) {
             return false;
         }
         r->message = j["message"].get<std::string>();
-        if (wide(r->message).size() > kMaxMessage) {
+        if (chars_of(r->message) > kMaxMessage) {
             *why = "\"message\" is longer than 2000 characters";
             return false;
         }
@@ -249,6 +269,8 @@ std::vector<Rule> merge_rules(std::vector<Rule> shipped, const std::vector<Rule>
 }
 
 bool glob_match(std::string_view pattern, std::string_view name) {
+    // no file name is longer, and rules are checked to be short: bounds the work of a match (as the launcher's glob)
+    if (chars_of(pattern) > kMaxMatcher || chars_of(name) > kMaxMatcher) return false;
     const std::wstring p = folded(pattern), n = folded(name);
     size_t pi = 0, ni = 0, star = std::wstring::npos, mark = 0;
     while (ni < n.size()) {

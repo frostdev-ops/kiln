@@ -132,9 +132,16 @@ pub fn parse_rules(bytes: &[u8], source: RuleSource) -> (Vec<SourcedRule>, Vec<S
     };
     let mut out: Vec<SourcedRule> = Vec::new();
     for (i, r) in list.iter().enumerate() {
-        if out.len() >= MAX_RULES {
+        // the first MAX_RULES entries of the list count (schema maxItems; kiln-core drops the same ones)
+        if i >= MAX_RULES {
             errors.push(format!("more than {MAX_RULES} rules: the rest are ignored"));
             break;
+        }
+        // a matcher is an object: `"subject": null` is not one (serde would read it as no subject)
+        if r.get("subject").is_some_and(|s| s.is_null()) {
+            let id = r.get("id").and_then(|x| x.as_str()).map(|s| format!(" ({s})")).unwrap_or_default();
+            errors.push(format!("rule {}{id}: \"subject\" must be a matcher", i + 1));
+            continue;
         }
         let rule: Rule = match serde_json::from_value(r.clone()) {
             Ok(rule) => rule,
@@ -161,7 +168,7 @@ fn check_rule(r: &Rule) -> std::result::Result<(), String> {
     if r.id.is_empty() || r.id.len() > 128 || !r.id.chars().all(|c| c.is_ascii_alphanumeric() || "._-:".contains(c)) {
         return Err("\"id\" must be 1-128 characters: letters, digits, . _ - :".into());
     }
-    if r.message.len() > 2000 {
+    if r.message.chars().count() > 2000 {
         return Err("\"message\" is longer than 2000 characters".into());
     }
     if r.action != RuleAction::Warn && r.subject.is_none() {
@@ -174,10 +181,11 @@ fn check_rule(r: &Rule) -> std::result::Result<(), String> {
         let text = match m {
             Matcher::Module(s) | Matcher::Engine(s) | Matcher::Mod(s) | Matcher::Symbol(s) => s,
         };
-        if text.is_empty() || text.len() > 260 {
+        // characters, as the schema's maxLength (and kiln-core) count them
+        if text.is_empty() || text.chars().count() > 260 {
             return Err("a matcher's text must be 1-260 characters".into());
         }
-        if matches!(m, Matcher::Module(g) if g.contains(['*', '?']) && (g.len() > MAX_GLOB || g.matches('*').count() > MAX_STARS)) {
+        if matches!(m, Matcher::Module(g) if g.contains(['*', '?']) && (g.chars().count() > MAX_GLOB || g.matches('*').count() > MAX_STARS)) {
             return Err(format!("a module pattern with wildcards has at most {MAX_GLOB} characters and {MAX_STARS} *"));
         }
         if let Matcher::Mod(s) = m
@@ -277,7 +285,7 @@ pub fn file_name(p: &str) -> &str {
 /// `*` (any run) and `?` (one character) glob, ASCII case ignored.
 pub fn glob(pattern: &str, name: &str) -> bool {
     // no file name is longer (Windows: 255), and rules are checked to be short: bounds the work of a match
-    if name.len() > MAX_NAME || pattern.len() > MAX_NAME {
+    if name.chars().count() > MAX_NAME || pattern.chars().count() > MAX_NAME {
         return false;
     }
     if !pattern.contains(['*', '?']) {

@@ -194,7 +194,8 @@ yours with the same `id` replaces Kiln's. Plain JSON, no comments.
 
 - `when`: every matcher must be present. `{"module": "xhl-*.dll"}` (a DLL file name; `*` and `?`, case ignored),
   `{"engine": "shroudforge"}`, `{"mod": "emf:coolmod"}` (`kiln:` and `native:` both name Kiln's native mods),
-  `{"symbol": "chat/ChatLogAdd"}` (an overlap on that function). No `when`: always.
+  `{"symbol": "chat/ChatLogAdd"}` (an overlap on that function). No `when`: always. At most 8 matchers; a module
+  pattern with wildcards has at most 64 characters and 4 `*`.
 - `action`: `warn` (log the message), `late` (the `subject` module loads late), `disable` (the `subject` module, mod or
   engine does not load). `late` and `disable` need a `subject`.
 - Who applies what: the launcher writes `chain.ini` and the profile, so it applies `late` and `disable` of chain entries
@@ -209,7 +210,8 @@ yours with the same `id` replaces Kiln's. Plain JSON, no comments.
 
 Limits: the core knows an engine from the profile's lists, ShroudForge's state and a few DLL names (`shroudforge-runtime.dll`,
 `emf_core.dll`, `enshwick.dll`); a mod folder placed by hand (not in a profile list) cannot be switched off by a rule in
-the core, and the report says so. Schema: `schema/compat-rules.schema.json`.
+the core, and the report says so. A `disable` on a native mod whose DLLs load in phase dllmain does not stop the proxy
+from loading them (it ran before the core): the launcher's chain.ini is what keeps them out. Schema: `schema/compat-rules.schema.json`.
 
 ## Status files and logs
 
