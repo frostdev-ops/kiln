@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: screen effects (docs/kiln/modding/screen-effects.md). A cold tint while a status is on a player, a white flash where a spell lands,
+       and a slow fade from code. blocks/twins.json is the same in data. The screen effect itself asks nothing of players' games; the spell does (kiln). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>screen-effects</KilnModId>
+    <KilnModName>Screen effects (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A cold tint while frozen, a white flash where a flash spell lands, and a red pulse when a player is hurt badly. blocks/twins.json is the same in data.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Vfx</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

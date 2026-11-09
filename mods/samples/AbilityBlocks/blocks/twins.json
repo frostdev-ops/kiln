@@ -1,0 +1,63 @@
+{
+  // The sample's C# in data: each block here makes what the C# one with the name before "-json" does (AbilityBlocksMod.cs).
+  // Perks, abilities, a talent tree, a node in the game's tree, triggers and a status on a player state.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "statuses": {
+    "kindled-json": { "name": "Kindled", "description": "Burning a little every second.", "look": "fire", "seconds": 4, "onTick": [ { "damage": { "fire": 3 }, "flinch": "none" } ] },
+    "updraft-json": { "name": "Updraft", "kind": "buff", "while": "Gliding", "modifies": { "stamina-use-glide": -0.5 } }
+  },
+  "effects": {
+    "burn-json": { "damage": { "fire": 10 }, "flinch": "none", "applies": "kindled-json" }
+  },
+  "perks": {
+    "ember-edge-json": { "name": "Ember Edge", "description": "Hits may set the target alight.", "onHit": [ { "chance": 0.25, "then": [ "burn-json" ] } ] },
+    "ember-might-json": { "name": "Ember Might", "modifies": { "strength": 3 } }
+  },
+  "weapons": {
+    "ember-blade-json": {
+      "name": "Ember Blade", "class": "sword",
+      "stats": { "level": 5, "power": 25, "rarity": "uncommon" },
+      "perks": [ "ember-edge-json", "ember-might-json" ],
+      "recipe": { "needs": { "Material_T1_Twigs": 3 } }
+    }
+  },
+  "abilities": {
+    "flame-step-json": {
+      "name": "Flame Step", "key": "Shift+G", "command": "flamestepjson",
+      "cast": { "manaCost": 20, "staminaCost": 10 }, "cooldown": 6,
+      "delivery": { "type": "cone", "range": 8, "angle": 70, "effects": [ "burn-json", { "damage": { "fire": 20 }, "knockback": "small" } ] }
+    },
+    "ember-bolt-json": {
+      "name": "Ember Bolt", "command": "emberboltjson", "aim": "nearestEnemy", "range": 30, "cooldown": 3,
+      "cast": { "manaCost": 10, "charges": 0 },
+      "item": { "name": "Ember Charm", "description": "Sends a bolt after the nearest enemy.", "recipe": { "needs": { "Material_T1_Twigs": 2 } } },
+      "delivery": { "type": "projectile", "speed": 18, "homing": { "turnSpeed": 60 }, "onHit": [ "burn-json" ] }
+    }
+  },
+  "talentTrees": {
+    "ember-path-json": {
+      "name": "Ember Path (data)", "key": "Shift+K",
+      "nodes": {
+        "kindle": { "name": "Kindle", "maxLevel": 3, "modifies": { "intelligence": 1 } },
+        "hearth": { "name": "Hearth", "description": "Your hits burn.", "requires": [ "kindle" ], "onHit": [ { "chance": 0.2, "then": [ "burn-json" ] } ] },
+        "step": { "name": "Flame Step", "description": "Shift+G sends fire ahead of you.", "requires": [ "kindle" ], "cost": 2, "unlocks": "flame-step-json" }
+      }
+    }
+  },
+  "talents": {
+    "ember-ward-json": { "name": "Ember Ward", "description": "+1 Strength per level.", "maxLevel": 3, "modifies": { "strength": 1 }, "game": { "from": [ "0x8efcc472" ], "offset": [ 170, 40 ] } }
+  },
+  "triggers": {
+    "hearthside-json": { "on": "Sitting", "do": [ { "restores": { "mana": 15 } } ], "cooldown": 10 }
+  },
+  "items": {
+    "ember-bun-json": {
+      "name": "Ember Bun", "description": "Restores mana, but only away from a fight.", "kind": "consumable",
+      "onUse": [ { "heal": 5 } ],
+      "onEat": [ { "restores": { "mana": 40 } } ],
+      "canEat": { "unless": [ "InCombat" ], "onRefused": [ { "applies": "kindled-json" } ] },
+      "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 1 } }
+    }
+  }
+}

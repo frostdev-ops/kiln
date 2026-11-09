@@ -1,0 +1,15 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A friendly NPC from building blocks. blocks/npcs.json is there at the first start; quests/talk.json holds its dialogue. Docs: docs/kiln/modding/npc-blocks.md, quests.md.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Then `kiln blocks show <name>` says what a block became, and `kiln lint` checks blocks/*.json. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnNpc1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnNpc1: a friendly NPC from blocks.</Description>
+    <KilnServices>Blocks</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

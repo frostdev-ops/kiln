@@ -1,0 +1,48 @@
+{
+  // Blocks as data: the same fields as in C#, in camelCase. Blocks in data files are in the game's tables from the first start.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "comforts": {
+    "cosy": { "amount": 2, "category": "hearth", "range": 5, "warmth": 1 }
+  },
+  "props": {
+    "pine-banner": {
+      "name": "Pine Banner",
+      "visual": { "like": "Prop_Decoration_T4_Banner_Wall" },
+      "comfort": "cosy",
+      "provides": true,
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 6 } }
+    }
+  },
+  "stations": {
+    "cold-forge": {
+      "name": "Cold Forge", "description": "Burns charcoal into metal sheets.",
+      "kind": "forge",
+      "processing": { "slots": 8, "goesOutInRain": false },
+      "recipe": { "station": "0x4da88f73", "needs": { "Build_TerrainMaterial_T1_Stone": 20 } },
+      "recipes": [
+        { "seconds": 3, "burns": { "Material_T1_Charcoal": 1 }, "needs": { "Material_T1_Metal_Scraps": 1 }, "output": "Material_T1_Metal_Sheets", "needsProps": [ "pine-banner" ] }
+      ]
+    }
+  },
+  "lootTables": {
+    // A craftable container gets only cheap contents; each new location is a new fill.
+    "starter-twigs": { "entries": [ { "item": "Material_T1_Twigs", "countMin": 1, "countMax": 2 } ] }
+  },
+  "containers": {
+    "pine-chest": {
+      "name": "Pine Chest", "slots": 12,
+      "defaultLoot": "starter-twigs",
+      "lid": { "moves": true },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 4 } }
+    }
+  },
+  "doors": {
+    "pine-door": {
+      "name": "Pine Door",
+      "opens": "back", "sides": "front",
+      "onInteract": { "requires": { "time": "day" } },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 6 } }
+    }
+  }
+}

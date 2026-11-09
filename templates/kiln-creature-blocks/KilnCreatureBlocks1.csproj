@@ -1,0 +1,15 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A creature from building blocks, as data (blocks/creatures.json): a game body with a mind of your own. The entry class is only there because the loader needs an entry assembly. Docs: docs/kiln/modding/npc-blocks.md, npc-ai.md.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Then `kiln blocks show <name>` says what a block became, and `kiln lint` checks blocks/*.json. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnCreatureBlocks1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnCreatureBlocks1: a creature from blocks.</Description>
+    <KilnServices>Blocks</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>
