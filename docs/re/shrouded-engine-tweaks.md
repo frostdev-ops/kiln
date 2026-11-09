@@ -19,7 +19,9 @@ not been rerun in a live server or client. Current contracts are in [kiln.types]
 ## API coverage
 SET function → Kiln C# equivalent → kiln-set implementation → status. "lab" = checked on a dedicated-server lab
 (svn 1287369, `mods/tests/set-test` and `mods/tests/types-test` PASS lines); "built" = compiles and is wired, not run;
-"client" = needs the real game (manual checklist).
+"client" = needs the real game (manual checklist). The older WP15 SET probe reported 37 PASS and 2 FAIL because its
+`TestEvent1` stream was absent; that branch predated the event-layout/cache fixes in WP20/21. The integrated
+types/SET rebuild and probe are pending, so this is not a final integration result.
 
 | SET | Kiln C# | kiln-set | Status |
 |---|---|---|---|
@@ -35,9 +37,9 @@ SET function → Kiln C# equivalent → kiln-set implementation → status. "lab
 | `Hooks.observe`, `Hooks.remove` | `Hooks.Mid` (Kiln.Hooks) | kiln.hooks mid hook at entry, bounded queues | lab (74 captures, 0 dropped); remove built |
 | `Systems.list/enable/enabled` | `GameSystems.All/Search/SetEnabled`, `/systems`, `/system` | kiln.types runner detour; disabling restricted to two leaf systems, owner scoped | original lab; restrictions host tested |
 | `Systems.profile/stats` | `GameSystems.Profile/Stats`, `/systems top` | kiln.types | lab (236 systems timed) |
-| `Res.get/find/each/types` | Kiln.Assets, Kiln.Content catalogs | kiln.assets `resource_list/resource_data` + reflection | lab (get, find); each/types built |
-| `Res` edits | kiln.assets overrides (copy-on-write) | in-place write, page protection lifted for the bytes | built |
-| `Res.text`, English names | Kiln.Content names (items, templates) | missing (nil) | missing |
+| `Res.get/find/each/types` | `ReflectedResources.Get/All/FindByField`, `Assets.ListResources`, catalogs | kiln.assets `resource_list/resource_data` + reflection | lab (get, find); each/types built |
+| `Res` edits | `ReflectedResource.Set/Restore`, copy-on-write overrides and claims | in-place write, page protection lifted for the bytes | built |
+| `Res.text`, English names | `Texts.Get/GetPlain` (`Kiln.Content`), item/template catalogs | item/template English names; arbitrary tags need a locally generated client text catalog | catalog absent: unavailable/nil; no server-only arbitrary-text source |
 | `GameOptions.machine/user/dump` | none | missing ("game options not found yet") | missing (client only) |
 | `Tick.add`, `onUpdate` | `Context.Tick.Pre/Post` | Kiln Pre tick (server), UI tick (menu) | lab |
 | `registerForEvent` onInit / onWorldEnter | `Mod.OnLoad`, world events | SET code, Kiln ticks | lab |
@@ -50,13 +52,16 @@ SET function → Kiln C# equivalent → kiln-set implementation → status. "lab
 | `Admin.settings`, `changeSettings` | `Settings` (Kiln.Settings) | kiln.settings, ranges checked | lab (1 → 0.75 → 1; 99999 refused) |
 | `Admin.teleport` | `Teleport` (Kiln.World) | kiln.world `teleport` | built (needs a player) |
 | `Admin.spawn` | `Spawn` (Kiln.Spawn) | kiln.spawn | lab: refuses cleanly without a player |
-| `Admin.give` | `Items.Give` (Kiln.Items) | kiln.items, by GUID or debug name | built (English names missing) |
-| `Admin.setLevel`, `setFlameLevel`, `send` | Kiln.Players progression, world progress | missing (error says so) | missing |
+| `Admin.give` | `Items.Give` (Kiln.Items) | kiln.items, by GUID, debug name or English item name | adapter host tests; needs a player for the give |
+| `Admin.setLevel` | `PlayerProgression.SetLevel` | kiln.progression, queued | host tests; needs a player |
+| `Admin.setFlameLevel` | `WorldProgress.SetFlameLevel`, `LimitsAt`, status | kiln.knowledge authoritative write | worldstatus lab: 61 PASS, restart 59 PASS; client fog/placement unchecked |
+| `Admin.send` | typed services for individual commands | missing (unavailable error) | deferred |
 | `GetMod`, `GetVersion`, `GetGameBuild`, `require`, `io`, `json`, `print`, sandbox | .NET | adapted SET code; mod-local file handles, isolated libraries and instruction/deadline limits | original lab; hardening host tested |
-| Console window | `kiln/control/console/*.cmd`, `kilnctl cmd` | `kiln/control/set/*.lua` files | lab |
+| Console window | Kiln.DevTools Console, `kiln/control/console/*.cmd`, `kilnctl cmd` | `kiln/control/set/*.lua` files | file path: lab; window: view-model tests, client drawing/input unchecked |
 | Systems window | **Kiln: Systems** window | Kiln's window | client |
 | Types browser | **Kiln: Types** window | - | client |
-| Bindings, Resources, Hooks, Game Log, Settings/Status, ImGui Debug windows | Kiln menu Keys tab (bindings only) | missing | missing |
+| Bindings, Resources, Hooks, Game Log, Status windows | Kiln.DevTools windows; resources include reflected fields | Kiln windows: bindings use Kiln KeyBindings, hooks show Kiln stats; SET private registries are not exposed | view-model tests; client drawing/input unchecked |
+| Settings editor, ImGui Debug | Kiln config UI covers its own settings; no SET settings.ini editor or ImGui Debug | not implemented | remaining difference |
 
 ## 1. What SET is
 - **Loader:** `powrprof.dll` proxy (forwards all 126 exports of the system DLL). At load it runs every `.dll` in
@@ -125,42 +130,27 @@ Everything except the two table scans uses code patterns that match exactly once
 **file on disk with relocations applied**, so another mod's detour cannot hide a target (falls back to live `.text`).
 
 ## 4. Gap table: SET against Kiln
-Kiln before this work; section "API coverage" above has what is done now. Size: S < 1 day, M 1-3 days, L > 3 days. Risk: what breaks on a game update.
+Current implementation state. The API table above distinguishes historical lab observations, host tests and client
+checks. A wired API or a tested view-model does not prove a window rendered or accepted input.
 
-| SET feature | Kiln equivalent | State | Size | Risk |
-|---|---|---|---|---|
-| Ecs.get by name, field reflection | kiln.world `component(entity, hash)` (raw bytes), Kiln.Game generated structs (9 types, one build), per-service TypeByHash readers (content, settings, players, creatures) | partial: no generic reflected access by name, no checked writes | M | low (static table, no patterns) |
-| Ecs.each, Ecs.player | kiln.world `find`, Kiln.Players | has | - | - |
-| Ecs.types / Types.fields / enum / defaults | none generic (TypeByHash needs a known name) | missing: no enumeration of the 11-12k types, no default values | S | low |
-| Type/field browser window | none | missing | S | low |
-| Systems list, enable/disable | kiln.world registers its own programs; no list of the game's | missing | M | medium (runner pattern) |
-| Per-system profiling | Kiln's tick-stats (whole step only) | missing | S (with the above) | medium |
-| Resources browser / Res.* | kiln.assets (by key, by type, data), kiln.gamedata/content catalogs (items, recipes, templates) | partial: no generic browser over every type, no reflected field view | M | low |
-| Resource in-place edits | kiln.assets overrides (copy-on-write, safer), kiln.content field patches | has (different model: overrides, not pokes) | - | - |
-| Res.text (English names) | kiln.gamedata names for items/templates | partial | S | low |
-| GameOptions machine/user, dump | none (Kiln.Settings is the *world* settings) | missing, client only | M | medium (slot offsets moved between builds) |
-| Events observe (any ECS event by name) | kiln.gameplay subscribes a fixed set of events; event bus for Kiln's own events | partial | M | medium (events pattern) |
-| Events.post (any ECS event) | kiln.gameplay `inject` (some events), kiln.world programs with `events_out` | partial | M | medium |
-| Hooks.observe from scripts | kiln.hooks (`scan`, `detour`, `mid`, `read`/`write`) from C# and C | has (more powerful: can change calls) | - | - |
-| Hooks window | `kiln.hooks.stats` (no window) | partial | S | low |
-| Tick / lifecycle | `Context.Tick.Pre/Post`, `Mod.OnLoad/OnUnload`, world events | has | - | - |
-| Keys / Bindings window | `KeyBindings`, the Kiln menu's Keys tab (remap by press, keybinds.json) | has | - | - |
-| Draw / ImGui | `Ui.Window`, `UiDraw`, `Hud`, kiln.ui C table | has | - | - |
-| Console (REPL) | `kiln/control/console/*.cmd`, chat commands, `kilnctl cmd` | partial: no in-overlay console window | S | low |
-| Game Log window | `Context.GameLog.Line` (managed), kiln.log mirror | partial: no window | S | low |
-| Status window | `kiln/state/*.json`, the Kiln menu's Mods tab, sigdb report | partial | S | low |
-| Admin setTime | Kiln.Time `set_time_of_day` | has | - | - |
-| Admin teleport | kiln.world `teleport` | has | - | - |
-| Admin spawn | Kiln.Spawn `spawn` | has | - | - |
-| Admin give | Kiln.Items `give` | has | - | - |
-| Admin setLevel | Kiln.Players progression | has | - | - |
-| Admin setFlameLevel / settings / changeSettings | Kiln.Settings (world settings, flame level) | has | - | - |
-| Admin.send (raw admin commands) | none | missing (low value; typed services cover it) | M | medium |
-| Reload Mods | `kiln/control/reload <id>`, collectible contexts | has | - | - |
-| mods/files/json/require | .NET mods (System.IO, System.Text.Json); per-mod config/data dirs | has (different language) | - | - |
-| Lua mods | kiln-emf runs EMF's Lua mods through EMF's own `lua` mod | missing for SET's API | L | see section 6 |
-| Proxy chain-load (`plugins/`) | proxy chain (`kiln/chain.ini`, `dinput8-chain.ini`) | has | - | - |
-| Dedicated server | Kiln's main target | Kiln has, SET has not | - | - |
+| SET feature | Kiln equivalent | State |
+|---|---|---|
+| Component access, type/field/enum/default enumeration | `Reflected.Component/All`, `GameTypes`, `GameType.Defaults`, checked `ReflectedValue` setter | implemented; host tests and historical server checks |
+| Resources and field edits | `ReflectedResources.Get/All/FindByField`, `Assets.Reflect`, `ReflectedResource.Set/Restore`, `Overrides` | implemented; copy-on-write instead of SET's in-place pokes; C# unit tests |
+| Item/template English names | item/template catalogs, `Items.Lookup` | implemented in kiln-set |
+| Arbitrary English loca tags | `Texts.Get/GetPlain`, SET `Res.text` | partial: needs the locally generated client catalog; absent catalog is unavailable |
+| Systems and profiling | `GameSystems.All/SetEnabled/Profile/Stats` | implemented; only two leaf systems may be disabled; owner cleanup |
+| Events by type name | `GameEvents.Each/Post` | implemented; stream availability still matters; older WP15 run had 2 stream failures before WP20/21, integration probe pending |
+| Hooks, tick and lifecycle | `Kiln.Hooks`, `Context.Tick`, world events | implemented |
+| Keys and draw | `KeyBindings`, `Ui.Window`, `UiDraw` | implemented; client checks pending |
+| Bindings, Resources, Hooks, Game Log, Status, Console, Systems, Types windows | `Kiln.DevTools` | implemented for Kiln APIs; no SET private Lua-binding/capture registry; command/view-model tests, client checks pending |
+| SET Settings editor, ImGui Debug | no matching window | missing; Kiln's Status window does not edit SET's settings.ini |
+| GameOptions machine/user/dump | no client-options API (`Kiln.Settings` is world settings) | deferred: client object/slot offsets and behaviour need a client |
+| Admin time, teleport, spawn, give, level, settings | typed Time, World, Spawn, Items, PlayerProgression and Settings APIs | wired; player operations need a joined player |
+| Mother Flame level | `WorldProgress.SetFlameLevel/LimitsAt`, kiln-set `Admin.setFlameLevel` | server write/restart lab checked; client fog/placement unchecked |
+| Admin.send | typed services cover individual commands | missing; raw command format deferred |
+| Console files and reload | `kiln/control/set/*.lua`, `kilnctl`, mod reload | implemented |
+| SET Lua mods and proxy coexistence | kiln-set, proxy chain, runtime detector | implemented subject to sandbox/system restrictions; dedicated-server support added by Kiln |
 
 ## 5. What SET does better, and what Kiln adopts
 1. **Reflection from the static table.** SET enumerates every type (names, sizes, fields, base classes, enums,
@@ -173,8 +163,7 @@ Kiln before this work; section "API coverage" above has what is done now. Size: 
 3. **Checked writes:** every write is checked against the reflected type (range, enum names, fixed-size structs
    only), for components, resources, options, events and admin commands alike. Adopted for Kiln's reflected access.
 4. **Clean-code scanning:** patterns are matched against the on-disk `.text` with relocations applied, so another
-   mod's detour cannot hide a target. Kiln's sigdb scans the live image; worth adding to the core resolver (S, not
-   done here).
+   mod's detour cannot hide a target. Kiln's sigdb now scans the exe file too, so Enshwick hooks no longer hide those matches.
 5. **Overlay key picker:** refuses typing keys and F10, ignores modifier-held keys, blocks game input until picked.
    Kiln defaults to Insert with remap in the Keys tab; the modifier-held rule is worth copying into Kiln's remap (S).
 6. **Plugins chain-load:** same idea as Kiln's `chain.ini`; SET's is zero-config (a folder). Kiln and SET use
@@ -195,8 +184,9 @@ Kiln before this work; section "API coverage" above has what is done now. Size: 
 Recommendation taken: build it (the loader's goal is to run every engine's mods). The cheapest faithful route was to
 reuse SET's own Lua layer (MIT, notice kept) and give it a Kiln game layer. Safety hardening intentionally changes
 unsafe script and system-control behavior; compatibility is subject to the restrictions in the service docs.
-Risks: SET's ImGui windows and keys are untested in the game; `GameOptions`, English
-names and three Admin commands remain. Built as the plugin `kiln-set` (`native/plugins/set/`, docs/kiln/set.md): a Lua 5.4 runtime with SET's API on
+Risks: SET's ImGui windows and keys are untested in the game; `GameOptions` and `Admin.send` remain unavailable.
+Arbitrary English localisation tags require a locally generated client text catalog, and SET's Settings editor and
+ImGui Debug window are not reproduced. Built as the plugin `kiln-set` (`native/plugins/set/`, docs/kiln/set.md): a Lua 5.4 runtime with SET's API on
 Kiln's services and `kiln.types`. Mods load from `<game>/shrouded_engine_tweaks/mods/<name>/init.lua`. When SET's
 own runtime is detected, kiln-set steps aside; detection also conservatively refuses non-system power proxies and
 checks modules loaded after startup. The API coverage table and what

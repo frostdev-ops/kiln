@@ -42,12 +42,17 @@ matching Kiln C# API and how each was tested, is in
 - **Ecs, Types, Systems, Events, Hooks, Res, Tick, lifecycle, require/io/json**: SET's own Lua code, on Kiln's
   services (kiln.types, kiln.world, kiln.assets, kiln.hooks).
 - **Admin**: on Kiln's typed services: `setTime` (kiln.time), `teleport` (kiln.world), `spawn` (kiln.spawn), `give`
-  (kiln.items; by GUID or debug name), `settings` / `changeSettings` (kiln.settings, checked against its ranges). They
+  (kiln.items; by GUID, debug name or English item name), `setLevel` (kiln.progression),
+  `setFlameLevel` (kiln.knowledge), `settings` / `changeSettings` (kiln.settings, checked against its ranges). They
   act on the host player in a hosted game and on the first player on a dedicated server.
-- **Missing**: `GameOptions.*` (raises "game options not found yet"), `Res.text` and English names (nil), `Admin.send`,
-  `Admin.setLevel`, `Admin.setFlameLevel` (raise an error saying so). SET's overlay windows other than the Systems view
-  (Kiln's own Systems window) are not there: no Bindings, Resources, Hooks, Game Log, Settings/Status or ImGui Debug
-  window yet; the console is the file above.
+- **Texts**: `Res.text` resolves shipped item/template names. Other English localisation tags need the locally
+  generated client text catalog (`Texts` in `Kiln.Content`); a server without that catalog returns nil.
+- **Tools**: `Kiln.DevTools` supplies Bindings, Resources, Hooks, Game Log, Status and Console windows, as well as
+  Systems and Types. They are Kiln windows, with view-model tests; their drawing and input still need a client.
+  Bindings lists Kiln `KeyBindings`, and Hooks lists Kiln hook statistics; they do not expose SET's private Lua binding
+  registry or its full capture diagnostics.
+- **Missing**: `GameOptions.*` (raises "game options not found yet"), `Admin.send` (raises an unavailable error), and
+  ImGui Debug. SET's `settings.ini` editor is not reproduced by the Status window.
 
 ## Differences from SET
 - Only `stamina_depletion_sprint` and `fall_damage_infliction` can be disabled; critical and unknown systems are
@@ -68,16 +73,21 @@ matching Kiln C# API and how each was tested, is in
 - `Hooks.observe` uses kiln.hooks' entry hooks. Targets Kiln itself hooks (the world step, the program runner) are
   refused. A pattern that registered once keeps its target after reload.
 - `GetGameBuild()` is the exe's link time stamp, as in SET (server 26430253: 1793791038).
-- Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET, but there is no Bindings window yet.
+- Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET, the Kiln.DevTools Bindings view lists Kiln `KeyBindings`, so SET's private Lua bindings still use this file.
 - `ImGui.BeginChild(id, w, h, border, flags)` uses SET's argument order; the current `kiln.ui` service always draws
   a child border. Window/child nesting is checked and unwound between callbacks, including callbacks that omit End.
 
 ## Offline regression tests
-`KILN_OUT=/tmp/kiln-review-set bash native/plugins/set/tests/test-lua.sh` builds the real Lua adapter against a
+`KILN_OUT=<out> bash native/plugins/set/tests/test-lua.sh` builds the real Lua adapter against a
 small host shim and tests sandbox escapes, script limits, isolation, reflection and reload without launching the
 game. `bash native/plugins/set/test-review.sh` tests the real hook capture adapter with ASan/UBSan, the plugin's
 startup/late-load coexistence checks, and mocked ImGui nesting/recovery. These do not verify client rendering.
 
 ## Lab test
 `mods/tests/set-test/mods/` holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which checks
-the API on a server and prints PASS/FAIL lines. Copy both folders to `<lab>/shrouded_engine_tweaks/mods/`.
+the API on a server and prints PASS/FAIL lines. The WP15 SET run reported 37 PASS and 2 FAIL: its
+`TestEvent1` stream was absent. That branch predated the integrated event-layout/cache fixes (WP20/21); the
+integrated types/SET rebuild and probe must determine the current result. This older run is not a fully passing
+probe or evidence of a final integration regression.
+Flame progress tests separately reported 61 PASS and 59 PASS after restart; they checked the stored and replicated
+level and restoration. They do not prove client fog or placement limits. Copy both folders to `<lab>/shrouded_engine_tweaks/mods/`.
