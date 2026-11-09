@@ -7,7 +7,7 @@ public sealed unsafe class EcsProgramsTests : KilnTest
 {
     private readonly FakeNative _native;
     public EcsProgramsTests() { _native=new FakeNative(Backend); }
-    public override void Dispose() { base.Dispose(); _native.Dispose(); }
+    public override void Dispose() { try { base.Dispose(); } finally { _native.Dispose(); } }
     [Fact]
     public void Native_layouts_keep_v1_offsets_and_append_v2_fields()
     {
@@ -107,6 +107,7 @@ public sealed unsafe class EcsProgramsTests : KilnTest
     private sealed class FakeNative : IDisposable
     {
         private static FakeNative? Current;
+        private readonly FakeServiceRegistration _service;
         internal readonly EcsWorldTable* Table;
         internal readonly int* Component;
         internal ulong Owner;
@@ -125,13 +126,17 @@ public sealed unsafe class EcsProgramsTests : KilnTest
             Table->Prefix.ReadOther=(void*)(delegate* unmanaged[Cdecl]<void*,ulong,uint,uint*,void*>)&ReadOther;
             Table->WriteOther=&ReadOther; Table->Bind=&Bind; Table->Unregister=&Unregister;
             Table->Capabilities=&Capabilities; Table->Events=&Events; Table->Emit=&Emit;
-            backend.Tables["kiln.world"]=(nint)Table;
+            _service=new(backend.Tables,"kiln.world",(nint)Table);
         }
         internal void Run() {
             ulong* iterator=stackalloc ulong[4]; iterator[0]=11;iterator[1]=22;
             if (_callback!=null) _callback((void*)1234,iterator,0,_user);
         }
-        public void Dispose() { Current=null; NativeMemory.Free(Component);NativeMemory.Free(Table); }
+        public void Dispose() {
+            _service.Dispose();
+            if (ReferenceEquals(Current,this)) Current=null;
+            NativeMemory.Free(Component);NativeMemory.Free(Table);
+        }
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
         private static uint Capabilities()=>7;
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
@@ -161,7 +166,7 @@ public sealed unsafe class GameSystemsHookTests : KilnTest
 {
     private readonly FakeSystems _native;
     public GameSystemsHookTests() { _native=new FakeSystems(Backend); }
-    public override void Dispose() { base.Dispose();_native.Dispose(); }
+    public override void Dispose() { try { base.Dispose(); } finally { _native.Dispose(); } }
     [Fact]
     public void Before_after_run_as_owner_and_dispose_and_retirement_release_callbacks()
     {
@@ -196,6 +201,7 @@ public sealed unsafe class GameSystemsHookTests : KilnTest
     private sealed class FakeSystems : IDisposable
     {
         private static FakeSystems? Current;
+        private readonly FakeServiceRegistration _service;
         private readonly TypesNative.Table* _table;
         private readonly byte* _name;
         private delegate* unmanaged[Cdecl]<void*,void*,void> _before,_after;
@@ -209,10 +215,14 @@ public sealed unsafe class GameSystemsHookTests : KilnTest
             _table->Header=new ServiceHeader {Size=(uint)sizeof(TypesNative.Table),Version=1};
             _table->SystemFind=&Find;_table->SystemInfo=&Info;
             _table->SystemHook=&Hook;_table->SystemUnhook=&Unhook;_table->SystemReleaseOwner=&Release;
-            backend.Tables["kiln.types"]=(nint)_table;
+            _service=new(backend.Tables,"kiln.types",(nint)_table);
         }
         internal void Run() { if (_before!=null) _before((void*)1234,_user);if (_after!=null) _after((void*)1234,_user); }
-        public void Dispose() { Current=null;NativeMemory.Free(_table);Marshal.FreeCoTaskMem((nint)_name); }
+        public void Dispose() {
+            _service.Dispose();
+            if (ReferenceEquals(Current,this)) Current=null;
+            NativeMemory.Free(_table);Marshal.FreeCoTaskMem((nint)_name);
+        }
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
         private static int Find(NativeStr name)=>name.ToString()=="sample"?0:-1;
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]

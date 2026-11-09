@@ -381,7 +381,7 @@ public sealed class PacingTests : KilnTest
             Marshal.WriteInt32(table, 4, 1);
             Marshal.WriteIntPtr(table, 8, Marshal.GetFunctionPointerForDelegate(sites));
             Marshal.WriteIntPtr(table, 16, Marshal.GetFunctionPointerForDelegate(refuse));
-            Backend.Tables["kiln.pacing"] = table;
+            using var service = new FakeServiceRegistration(Backend.Tables, "kiln.pacing", table);
             PacingNative.Attach();
             Assert.False(Pacing.Available);
             Assert.Equal(PacingSites.None, Pacing.Sites);
@@ -393,6 +393,7 @@ public sealed class PacingTests : KilnTest
             GC.KeepAlive(sites);
             GC.KeepAlive(refuse);
         }
+        Assert.Equal(0, Backend.Service("kiln.pacing", 1));
     }
 
     [Fact]

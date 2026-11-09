@@ -5,6 +5,27 @@ using Xunit;
 
 namespace Kiln.Api.Tests;
 
+/// <summary>A fake table is published only for its allocation's lifetime; a replacement belongs to its own scope.</summary>
+internal sealed class FakeServiceRegistration : IDisposable
+{
+    private readonly Dictionary<string, nint> _tables;
+    private readonly string _name;
+    private readonly nint _table;
+
+    internal FakeServiceRegistration(Dictionary<string, nint> tables, string name, nint table)
+    {
+        _tables = tables;
+        _name = name;
+        _table = table;
+        tables[name] = table;
+    }
+
+    public void Dispose()
+    {
+        if (_tables.TryGetValue(_name, out var current) && current == _table) _tables.Remove(_name);
+    }
+}
+
 /// <summary>A backend that records log lines and lets a test say whether it is on the tick thread.</summary>
 internal sealed class FakeBackend : IKilnBackend
 {
@@ -33,6 +54,7 @@ internal sealed class FakeBackend : IKilnBackend
 public abstract class KilnTest : IDisposable
 {
     private static ulong _owners = 100;
+    private readonly IKilnBackend _previousBackend = Kiln.Backend.Current;
     internal readonly FakeBackend Backend;
     protected readonly string Root;
     private readonly List<ModContext> _mods = [];
@@ -67,15 +89,23 @@ public abstract class KilnTest : IDisposable
 
     public virtual void Dispose()
     {
-        foreach (var m in _mods) m.Retire();
-        HostAccess.Current = null;
-        Config.Reset();
         try
         {
-            Directory.Delete(Path.GetDirectoryName(Root)!, recursive: true);
+            // Derived fixtures must keep their native fakes alive until every owner's cleanup has run.
+            foreach (var m in _mods) m.Retire();
+            HostAccess.Current = null;
+            Config.Reset();
+            try
+            {
+                Directory.Delete(Path.GetDirectoryName(Root)!, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
         }
-        catch (IOException)
+        finally
         {
+            if (ReferenceEquals(Kiln.Backend.Current, Backend)) Kiln.Backend.Current = _previousBackend;
         }
     }
 
