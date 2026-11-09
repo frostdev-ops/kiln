@@ -1,8 +1,8 @@
 <Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
-  <!-- A quest chain from building blocks: a giver, his conversation and quests, in C# (KilnQuest1Mod.cs) and the same kind as data (blocks/ilse.json). The game
-       shows them in its own journal, tracked-quest line, map and NPC menu, so players need this mod ("clients": "mod": the build works it out from the blocks).
+  <!-- A quest chain from building blocks: a giver, his conversation and quests, in C# (KilnQuest1Mod.cs) and the same kind as data (blocks/ilse.json). They go
+       into the game's own journal and NPC menu, built by every player's game, so players need this mod ("clients": "mod": the build works it out from the blocks).
          dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
-       The game builds its journal and NPC menu at start: the data file's quest is there at the first start, the code's from the next. Docs: docs/kiln/modding/quests.md. -->
+       The game builds its journal and NPC menu at start: the data file's quest is built at the first start, the code's from the next. Docs: docs/kiln/modding/quests.md. -->
   <PropertyGroup>
     <KilnModId>kiln-mod-id</KilnModId>
     <KilnModName>KilnQuest1</KilnModName>

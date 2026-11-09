@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.Quest",
   "groupIdentity": "Kiln.Templates.Quest",
   "name": "Kiln quest",
-  "description": "A quest chain from building blocks: a giver and his conversation, quests with objectives and rewards, in C# and the same as data (blocks/*.json). The game shows them in its own journal and NPC menu; no GUIDs, no game data to read.",
+  "description": "A quest chain from building blocks: a giver and his conversation, quests with objectives and rewards, in C# and the same as data (blocks/*.json). For the game's own journal and NPC menu; no GUIDs, no game data to read.",
   "shortName": "kiln-quest",
   "sourceName": "KilnQuest1",
   "preferNameDirectory": true,

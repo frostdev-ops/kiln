@@ -323,7 +323,7 @@ public sealed record ActionBlock
 // ---------------------------------------------------------------------------------------------------- rewards -----
 
 /// <summary>
-/// What a quest or a step pays, all at once: experience, items, a status, knowledge. <c>Rewards = new RewardBlock { Xp = 1500, Items = { ["Weapon_T1_1H_SwordEpic_01"] = 1 } }</c>.
+/// What a quest or a step pays, all at once: experience, items, a status, knowledge, a loot table. <c>Rewards = new RewardBlock { Xp = 1500, Items = { ["Weapon_T1_1H_SwordEpic_01"] = 1 } }</c>.
 /// Each part is paid on its own: one that cannot be (a full inventory drops the rest at the player's feet) is logged and the others still are. A world quest pays every
 /// player in game.
 /// </summary>
@@ -338,8 +338,8 @@ public sealed record RewardBlock
     /// <summary>The game's knowledge granted: <c>npc:….unlock</c> unlocks an NPC.</summary>
     public IReadOnlyList<string>? Knowledge { get; init; }
     /// <summary>
-    /// A loot table, rolled for the player when the reward is paid: the name of a <c>lootTables</c> block. Reserved for the loot table blocks (dev.20 WP-03): a build
-    /// without them refuses the block with a message that says so. The hook is <see cref="QuestRewards.LootTable"/>.
+    /// A loot table, rolled when the reward is paid: the name of a <see cref="LootTableBlock"/> (<c>lootTables</c>) of this mod, or <c>"other-mod:name"</c>. What comes
+    /// up is given like <see cref="Items"/>. A name that is no loot table refuses the block.
     /// </summary>
     public string? LootTable { get; init; }
 }

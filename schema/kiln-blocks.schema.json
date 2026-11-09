@@ -1532,7 +1532,7 @@
         "animation": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/animation" } ] },
         "ai": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/ai" } ] },
         "behaviour": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/behaviour" } ] },
-        "talk": { "type": "string", "description": "A dialogue of the mod's quests/*.json." },
+        "talk": { "type": "string", "description": "A dialogue block or quests/*.json dialogue of this mod. Another mod's dialogue is not supported by the startup build." },
         "names": { "type": "object", "additionalProperties": { "type": "string" } },
         "vendor": {
           "type": "object",
@@ -3014,7 +3014,7 @@
         "lootTable": {
           "type": "string",
           "minLength": 1,
-          "description": "A loot table rolled for the player when the reward is paid: the name of a lootTables block. Reserved for the loot table blocks (dev.20): a build without them refuses it."
+          "description": "A loot table rolled when the reward is paid: the name of a lootTables block of this mod (or \"other-mod:name\"). What comes up is given like items. A name that is no loot table refuses the quest."
         }
       }
     },

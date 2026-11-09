@@ -1,5 +1,6 @@
 {
   "format": 1,
+  // Native parser regression: comment braces are not nesting. {{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   // Quest and dialogue blocks as data (docs/kiln/modding/quests.md "Quests as blocks"). The game reads this file at its start: all of it is in the game's journal and
   // NPC menu at the first start. blocks-quest-test's code defines a twin of bq-twin, and a chain of its own that is there from the next start.
   "statuses": {

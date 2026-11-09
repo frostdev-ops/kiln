@@ -195,8 +195,8 @@ by the game at start**:
   redeploy keeps it, and nothing is written into the mod) and it is there from the next start. Write NPCs in data files to have them at once.
 
 `Talk` is the handle `Blocks.Define("tobin-talk", new DialogueBlock { ... })` gives back, or any `DialogueDefinition` from `Dialogues.Define`. In JSON, and in C# as `TalkName`, a
-name: a dialogue block of the mod by its block name (`"talk": "tobin-talk"`, or `"other-mod:tobin-talk"`), compiled first when a data file defines it later, or, when no block has
-that name, one of the mod's `quests/*.json`. A name that is another kind of block is refused. [quests.md](quests.md) "Quests as blocks" has the dialogue and quest blocks.
+name: a dialogue block of this mod by its block name (`"talk": "tobin-talk"`), compiled first when a data file defines it later, or, when no block has
+that name, one of this mod's `quests/*.json`. Another mod's dialogue is refused: the startup build compiles each mod's NPC lines separately. A name that is another kind of block is refused. [quests.md](quests.md) "Quests as blocks" has the dialogue and quest blocks.
 
 `Place` puts it once per world: `At` a spot, or `Distance` metres from the first player in game. A base is fine (`InBase`, default true), so it comes
 that near while the player is home; `InBase = false` keeps it 20 m outside every base zone, as a quest's places are. `Exact` takes `At` as it is. The

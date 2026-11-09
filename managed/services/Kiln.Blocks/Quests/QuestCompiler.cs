@@ -20,17 +20,19 @@ internal static partial class Compiler
     };
 }
 
-/// <summary>Where the loot table blocks (dev.20 WP-03) plug into a reward: <see cref="RewardBlock.LootTable"/>.</summary>
-internal static class QuestRewards
-{
-    /// <summary>Set by whatever compiles the <c>lootTables</c> blocks: given the block compiling, the name of a loot table and the field's path, the actions that roll the
-    /// table for the player and give what it drops (<see cref="QuestAction.Code"/> or the engine's own kinds). Throw <see cref="BlockError"/> for a table that does not exist.
-    /// Null: this build has no loot table blocks, and a reward that names one is refused.</summary>
-    internal static Func<BlockContext, string, string, IReadOnlyList<QuestAction>>? LootTable { get; set; }
-}
-
 internal static class QuestCompiler
 {
+    // Data-only blocks commit from the service tick, without a mod context or Retiring event. Their registry entries belong to this block lifetime.
+    internal static void Forget(ModBlocks mod)
+    {
+        foreach (var handle in mod.Handles.Values)
+            switch (handle)
+            {
+                case QuestHandle quest: Quests.ForgetBlock(quest.Definition); break;
+                case DialogueHandle dialogue: Dialogues.ForgetBlock(dialogue.Definition); break;
+            }
+    }
+
     private static readonly string[] QuestStates = ["locked", "available", "active", "done", "failed", "started"];
     private static readonly string[] StepStates = ["pending", "active", "done"];
     // keen::QuestSourceType, as schema/kiln-quests.schema.json lists them (the boot build refuses another)
@@ -433,15 +435,30 @@ internal static class QuestCompiler
             list.Add(QuestAction.GrantKnowledge(k));
         }
         if (r.Status is { } status) list.Add(StatusAction(ctx, status, $"{path}.status"));
-        if (r.LootTable is { } table)
-        {
-            if (string.IsNullOrWhiteSpace(table)) throw new BlockError(ctx.Block, $"{path}.lootTable", "the name of a lootTables block");
-            if (QuestRewards.LootTable is not { } hook)
-                throw new BlockError(ctx.Block, $"{path}.lootTable", $"\"{table}\": this build has no lootTables blocks to name (they come with the loot table blocks, dev.20 WP-03)");
-            list.AddRange(hook(ctx, table, $"{path}.lootTable"));
-        }
-        if (list.Count == 0) throw new BlockError(ctx.Block, path, "a reward pays nothing: say xp, items, status or knowledge");
+        if (r.LootTable is { } table) list.Add(LootAction(ctx, table, $"{path}.lootTable"));
+        if (list.Count == 0) throw new BlockError(ctx.Block, path, "a reward pays nothing: say xp, items, status, knowledge or lootTable");
         return list;
+    }
+
+    // A loot table rolled when the reward is paid, and what came up given as the reward's items are (the same path: the game's "+N" popup, the rest of a full inventory
+    // at the player's feet). One roll for whoever is paid: a world quest gives every player in game what that roll gave, as it does with items.
+    private static QuestAction LootAction(BlockContext ctx, string table, string path)
+    {
+        if (string.IsNullOrWhiteSpace(table)) throw new BlockError(ctx.Block, path, "the name of a lootTables block");
+        var h = ctx.Find(table, path) ?? throw new BlockError(ctx.Block, path, $"no lootTables block \"{table}\" in this mod; define it, or say \"other-mod:{table}\"");
+        if (h is not LootTableHandle loot) throw new BlockError(ctx.Block, path, $"\"{table}\" is {Kind(h.BlockType)} block, not a loot table");
+        var plan = loot.Plan;
+        var name = $"lootTable {(table.Contains(':') ? table : $"{ctx.Mod.Id}:{table}")}";
+        var action = QuestAction.Code(async c =>
+        {
+            var stacks = plan.Roll(Random.Shared);
+            var who = $"{c.Holder.Key} {c.Quest?.FullId ?? c.ModId} reward";
+            QuestActions.Note($"{who}: {name}: rolled {(stacks.Count == 0 ? "nothing" : string.Join(", ", stacks.Select(s => $"{s.Item} x{s.Count}")))}");
+            if (stacks.Count == 0) return;
+            await QuestActions.RunAll(stacks.Select(s => QuestAction.Item(s.Item, s.Count)).ToList(), c, $"reward {name}", keepGoing: true).OnTick();
+        });
+        action.Name = name;
+        return action;
     }
 
     // A status put on whoever is paid: a code action, as the engine has no kind for it. A block's status is its GUID; a game status's GUID is found when it is paid.
@@ -540,6 +557,18 @@ internal static class QuestCompiler
     /// <summary>A dialogue by name: a block of this mod (or "other-mod:name") becomes its id; a name that is no block is one of the mod's quests/*.json, and stays as written.</summary>
     internal static string Dialogue(BlockContext ctx, string name, string path) => Named(ctx, name, path, typeof(DialogueBlock), "a dialogue", h => h.Name);
 
+    internal static string NpcDialogue(BlockContext ctx, string name)
+    {
+        var colon = name.IndexOf(':');
+        if (colon >= 0)
+        {
+            if (!name[..colon].Equals(ctx.Mod.Id, StringComparison.Ordinal))
+                throw new BlockError(ctx.Block, "talk", "an NPC's native dialogue must belong to this mod; other-mod:name is not supported by the startup build");
+            name = name[(colon + 1)..];
+        }
+        return Dialogue(ctx, name, "talk");
+    }
+
     /// <summary>An NPC by name: an NPC block of this mod (or "other-mod:name") becomes its id in the engine; any other name is an NPC of quests/*.json, a template or
     /// <c>npc:…</c>, and stays as written.</summary>
     internal static string Npc(BlockContext ctx, string name, string path) =>
@@ -600,7 +629,7 @@ internal static class QuestCompiler
         {
             QuestActionKind.Xp => $"xp {a.Value}",
             QuestActionKind.Give => $"item {a.Name} x{a.Count}",
-            QuestActionKind.Call when a.Name is null => "status",
+            QuestActionKind.Call when a.Run is not null => a.Name ?? "status",
             _ => $"{a.Kind.ToString().ToLowerInvariant()} {a.Name}".TrimEnd(),
         };
         static JsonArray Actions(IEnumerable<QuestAction> list) => new(list.Select(a => (JsonNode)JsonValue.Create(Action(a))!).ToArray());

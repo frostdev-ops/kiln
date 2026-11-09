@@ -177,6 +177,7 @@ internal sealed class ModBlocks(string id, ulong owner)
     /// <summary>Forgets what the mod made: it is reloading, and makes it again.</summary>
     public void Reset()
     {
+        QuestCompiler.Forget(this);
         Handles.Clear();
         Lowered.Clear();
         Programs.Clear();

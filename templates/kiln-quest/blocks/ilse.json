@@ -1,6 +1,6 @@
 {
   // Quests as data: the same fields as in C#. A field that names an item, a status or an NPC takes a block of the mod by its name.
-  // The game reads this file at its start, so the quest, the NPC and the conversation are there at the first start.
+  // The game's start-up build reads this file, so the quest, the NPC and the conversation are built at the first start.
   "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
   "format": 1,
   "npcs": {

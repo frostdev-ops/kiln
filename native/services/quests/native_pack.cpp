@@ -13,6 +13,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -94,28 +95,18 @@ bool template_by_name(const std::string& name, qb::Guid* out) {
     return true;
 }
 
-// blocks/*.json as the block loader reads it: comments (nlohmann skips them) and trailing commas, dropped here outside strings.
-qb::ojson parse_relaxed(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    bool in_str = false;
-    for (size_t i = 0; i < text.size(); ++i) {
-        const char c = text[i];
-        if (in_str) {
-            out.push_back(c);
-            if (c == '\\' && i + 1 < text.size()) out.push_back(text[++i]);
-            else if (c == '"') in_str = false;
-            continue;
-        }
-        if (c == '"') in_str = true;
-        if (c == ',') {
-            size_t j = i + 1;
-            while (j < text.size() && std::isspace(static_cast<unsigned char>(text[j]))) ++j;
-            if (j < text.size() && (text[j] == '}' || text[j] == ']')) continue;
-        }
-        out.push_back(c);
+// Bound the read itself too: a block file can grow after file_size, and must not exhaust the game's memory at startup.
+std::string read_block_file(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    std::string text;
+    char buffer[8192];
+    while (file) {
+        file.read(buffer, sizeof buffer);
+        const size_t n = static_cast<size_t>(file.gcount());
+        if (text.size() + n > qb::kMaxBlockFile) return {};
+        text.append(buffer, n);
     }
-    return qb::ojson::parse(out, nullptr, false, true);
+    return file.bad() ? std::string{} : text;
 }
 
 // The NPC blocks of a mod's blocks/*.json ("npcs"), in the quests' file format, so the game builds them at the first start: what Kiln.Blocks'
@@ -215,7 +206,7 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         const fs::path base(widen(dir));
         const fs::path qdir = base / L"quests";
         const qb::ojson mf = qb::ojson::parse(read_file(base / L"kiln.mod.json"), nullptr, false, true);
-        if (mf.is_discarded() || !mf.is_object() || !mf.contains("id")) {
+        if (mf.is_discarded() || !mf.is_object() || !mf.contains("id") || !mf["id"].is_string()) {
             if (fs::is_directory(qdir, ec)) KW("native: %s has quests/ but no readable kiln.mod.json: skipped", dir.c_str());
             return;
         }
@@ -227,24 +218,63 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         std::vector<qb::ojson> block_docs;
         // the quest and dialogue blocks ("quests", "dialogues"): the quests' file format, key for key as far as the build reads it (a block's rewards are a bundle that
         // no key here reads, and its actions and conditions are the file's), so they are built at the first start from the mod's folder like the NPC blocks. Kiln.Blocks
-        // leaves what it read from a data file out of the file it writes for code (Kiln.Quests Native/NativeExport.cs), so nothing is built twice.
-        qb::ojson block_quests = qb::ojson::object();
-        for (auto it = fs::directory_iterator(base / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
-            if (it->path().extension() == L".json") {
-                qb::ojson d = parse_relaxed(read_file(it->path()));
-                if (d.is_discarded() || !d.is_object()) continue;
-                for (const char* key : {"quests", "dialogues"})
-                    if (d.contains(key) && d[key].is_object())
-                        for (const auto& [name, v] : d[key].items()) block_quests[key][name] = v;
-                if (d.contains("npcs")) block_docs.push_back(std::move(d));
-            }
-        ec.clear();
-        if (!block_docs.empty())  // bodies a block names may be in any of the files
+        // leaves what it read from a data file out of the file it writes for code (Kiln.Quests Native/NativeExport.cs), so nothing is built twice. One document per
+        // file, named for messages ("blocks/<file>.json"), in name order.
+        std::vector<std::pair<std::string, qb::ojson>> block_quests;
+        {
+            std::vector<fs::path> paths;
             for (auto it = fs::directory_iterator(base / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
-                if (it->path().extension() == L".json") {
-                    qb::ojson d = parse_relaxed(read_file(it->path()));
-                    if (!d.is_discarded() && d.is_object() && d.contains("bodies") && !d.contains("npcs")) block_docs.push_back(std::move(d));
+                if (it->path().extension() == L".json") paths.push_back(it->path());
+            std::sort(paths.begin(), paths.end());
+            std::vector<qb::ojson> bodies;
+            for (const fs::path& path : paths) {
+                const std::u8string u = path.filename().u8string();
+                const std::string label = "blocks/" + std::string(u.begin(), u.end());
+                const uintmax_t size = fs::file_size(path, ec);
+                qb::ojson d = ec || size > qb::kMaxBlockFile ? qb::ojson(qb::ojson::value_t::discarded) : qb::parse_blocks_json(read_block_file(path));
+                ec.clear();
+                if (d.is_discarded() || !d.is_object()) {
+                    KW("native: %s: %s: not read (not a JSON object, over 16 MiB, or nested deeper than %d): its quests, dialogues and NPCs are not built at start",
+                       mf["id"].get_ref<const std::string&>().c_str(), label.c_str(), qb::kMaxBlockDepth);
+                    continue;
                 }
+                qb::ojson q = qb::ojson::object();
+                for (const char* key : {"quests", "dialogues"})
+                    if (d.contains(key) && d[key].is_object() && !d[key].empty()) q[key] = d[key];
+                if (!q.empty()) {
+                    q["format"] = 1;
+                    block_quests.emplace_back(label, std::move(q));
+                }
+                if (d.contains("npcs")) block_docs.push_back(std::move(d));
+                else if (d.contains("bodies")) bodies.push_back(std::move(d));
+            }
+            // bodies a block names may be in any of the files
+            if (!block_docs.empty())
+                for (qb::ojson& b : bodies) block_docs.push_back(std::move(b));
+            // an NPC block with "was" is that NPC in the build (npcs_from_blocks) and in the engine (QuestCompiler.Npc): a quest or dialogue block names it by its block name
+            std::map<std::string, std::string> renamed;
+            for (const qb::ojson& d : block_docs)
+                if (d.contains("npcs") && d["npcs"].is_object())
+                    for (const auto& [name, n] : d["npcs"].items())
+                        if (n.is_object() && n.contains("was") && n["was"].is_string() && n["was"].get_ref<const std::string&>() != name) renamed[name] = n["was"].get<std::string>();
+            if (!renamed.empty()) {
+                // depth is bounded by parse_blocks_json
+                const std::function<void(qb::ojson&)> rename = [&](qb::ojson& j) {
+                    if (j.is_array())
+                        for (qb::ojson& x : j) rename(x);
+                    if (!j.is_object()) return;
+                    for (auto& [k, v] : j.items()) {
+                        if (v.is_string() && (k == "giver" || k == "near" || k == "to" || k == "npc" || k == "bindNpc")) {
+                            auto r = renamed.find(v.get<std::string>());
+                            if (r != renamed.end()) v = r->second;
+                        } else {
+                            rename(v);
+                        }
+                    }
+                };
+                for (auto& [label, d] : block_quests) rename(d);
+            }
+        }
         ec.clear();
         const qb::ojson block_npcs = block_docs.empty() ? qb::ojson::object() : npcs_from_blocks(mf["id"].get<std::string>(), block_docs);
         if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty() && block_quests.empty()) return;
@@ -272,11 +302,9 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
                 m.documents.push_back(qb::ojson{{"format", 1}, {"npcs", block_npcs}});
                 m.files.push_back("blocks/*.json");
             }
-            if (!block_quests.empty()) {
-                qb::ojson d = block_quests;
-                d["format"] = 1;
+            for (auto& [label, d] : block_quests) {
                 m.documents.push_back(std::move(d));
-                m.files.push_back("blocks/*.json");
+                m.files.push_back(label);
             }
         };
         for (size_t i = 0; i < files.size(); ++i) {
@@ -339,7 +367,12 @@ void build_locked() {
     g_api->build_info(&bi);
     const bool client = bi.side == KILN_SIDE_CLIENT;
     std::vector<qb::ModInput> mods;
-    collect_mods(&mods, client);
+    try {
+        collect_mods(&mods, client);  // the mods' files: nothing they hold may throw out of the game's resource init
+    } catch (const std::exception& e) {
+        KW("native: reading the mods' quest files failed: %s", e.what());
+        return;
+    }
     if (mods.empty()) return;
     qb::GameData game;
     game.read = &res_read;

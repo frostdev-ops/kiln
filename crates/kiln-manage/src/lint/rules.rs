@@ -1904,6 +1904,15 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
                     names.push((d.as_str().unwrap_or("").to_string(), &["loot table"], "a loot table", d.span));
                 }
             }
+            // a quest's and a step's reward "lootTable"
+            for q in r.get("quests").and_then(Node::as_object).into_iter().flatten() {
+                let steps = q.value.get("steps").and_then(Node::as_array).into_iter().flatten();
+                for rewards in std::iter::once(&q.value).chain(steps).filter_map(|n| n.get("rewards")) {
+                    if let Some(t) = rewards.get("lootTable").filter(|t| t.as_str().is_some()) {
+                        names.push((t.as_str().unwrap_or("").to_string(), &["loot table"], "a loot table", t.span));
+                    }
+                }
+            }
             items(r, "", &mut item_names);
             for section in ["quests", "dialogues"] {
                 if let Some(s) = r.get(section) {

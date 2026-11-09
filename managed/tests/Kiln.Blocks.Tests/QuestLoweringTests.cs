@@ -239,7 +239,7 @@ public sealed class QuestLoweringTests
     // ---- rewards ----
 
     [Fact]
-    public void A_reward_status_is_a_code_action_and_a_loot_table_waits_for_its_blocks()
+    public void A_reward_status_is_a_code_action()
     {
         var mod = Mod();
         Add(mod, "chilled", new StatusBlock { Name = "Chilled", Seconds = 8 });
@@ -257,17 +257,58 @@ public sealed class QuestLoweringTests
         var e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { Status = "no-such" } }, mod));
         Assert.Equal("rewards.status", e.Field);
 
-        QuestRewards.LootTable = null;
-        e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { LootTable = "boss-drops" } }, mod));
-        Assert.Equal("rewards.lootTable", e.Field);
-        Assert.Contains("loot table", e.Message);
-        try
+    }
+
+    [Fact]
+    public void A_reward_loot_table_is_a_lootTables_block_rolled_when_paid()
+    {
+        var mod = Mod();
+        Add(mod, "chilled", new StatusBlock { Name = "Chilled", Seconds = 8 });
+        Add(mod, "boss-drops", new LootTableBlock { Entries = [new LootEntry { Item = "Material_T1_Twigs", CountMin = 2, CountMax = 4 }] });
+        var q = Quest(new QuestBlock
         {
-            QuestRewards.LootTable = (ctx, table, path) => [QuestAction.Item($"from-{table}")];
-            var withLoot = Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { Xp = 1, LootTable = "boss-drops" } }, mod);
-            Assert.Equal("from-boss-drops", withLoot.Rewards[1].Name);
-        }
-        finally { QuestRewards.LootTable = null; }
+            Name = "R", Steps = [new StepBlock { Id = "go", Text = "Do it", Objective = Goal.Custom("x"), Rewards = new RewardBlock { LootTable = "boss-drops" } }],
+            Rewards = new RewardBlock { Xp = 1, LootTable = "boss-drops" },
+        }, mod);
+        // after the other parts, as code the engine runs when the reward is paid: one roll, given as the reward's items are
+        Assert.Equal([QuestActionKind.Xp, QuestActionKind.Call], q.Rewards.Select(a => a.Kind));
+        Assert.NotNull(q.Rewards[1].Run);
+        Assert.Equal("lootTable quest-test:boss-drops", q.Rewards[1].Name);
+        Assert.Equal("lootTable quest-test:boss-drops", q.Steps[0].OnDone[0].Name);
+        // the same in a data file, and what `kiln blocks show` says
+        var low = Compiler.Lower(mod, "from-json", BlockJson.Parse<QuestBlock>("""
+            { "name": "J", "steps": [{ "id": "go", "text": "Do it", "objective": { "custom": { "signal": "x" } } }], "rewards": { "lootTable": "boss-drops" } }
+            """));
+        Assert.Equal("lootTable quest-test:boss-drops", ((QuestHandle)low.Handle).Definition.Rewards[0].Name);
+        Assert.Equal("lootTable quest-test:boss-drops", low.Low.Json["quest"]!["rewards"]![0]!.GetValue<string>());
+
+        // a name that is no block, a block that is no loot table, nothing
+        var e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { LootTable = "no-such" } }, mod));
+        Assert.Equal("rewards.lootTable", e.Field);
+        Assert.Contains("no lootTables block \"no-such\"", e.Message);
+        e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { LootTable = "chilled" } }, mod));
+        Assert.Equal("rewards.lootTable", e.Field);
+        Assert.Contains("not a loot table", e.Message);
+        e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { LootTable = " " } }, mod));
+        Assert.Equal("rewards.lootTable", e.Field);
+        e = Refused(() => Quest(new QuestBlock { Name = "R", Steps = [Step()], Rewards = new RewardBlock { LootTable = "other-mod:boss-drops" } }, mod));
+        Assert.Equal("rewards.lootTable", e.Field);
+    }
+
+    [Fact]
+    public async Task A_loot_reward_rolls_at_execution_and_runs_the_item_reward_path()
+    {
+        var mod = Mod();
+        Add(mod, "execution-loot", new LootTableBlock { Entries = [new LootEntry { Item = "Material_T1_Twigs", CountMin = 3, CountMax = 3 }] });
+        var q = Quest(new QuestBlock { Name = "Loot execution", Steps = [Step()], Rewards = new RewardBlock { LootTable = "execution-loot" } }, mod, "loot-execution");
+        var holder = QuestHolder.Synthetic("loot-execution");
+        var ctx = new QuestActionContext(holder, q, EntityId.None, mod.Id);
+        var label = $"{holder.Key} {q.FullId}";
+        Assert.DoesNotContain(Quests.RecentActions, line => line.StartsWith(label, StringComparison.Ordinal));
+        await q.Rewards[0].Run!(ctx);
+        Assert.Contains(Quests.RecentActions, line => line.StartsWith(label, StringComparison.Ordinal) && line.Contains("lootTable quest-test:execution-loot: rolled Material_T1_Twigs x3", StringComparison.Ordinal));
+        // A synthetic holder has no inventory: the normal item action logs the amount and skips it, without a native service.
+        Assert.Contains(Quests.RecentActions, line => line.StartsWith(label, StringComparison.Ordinal) && line.Contains("give 3 x Material_T1_Twigs: skipped (no player)", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -456,6 +497,103 @@ public sealed class QuestLoweringTests
     }
 
     // ---- JSON ----
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Data_quests_and_dialogues_end_with_the_block_lifetime_and_removed_ids_stay_gone(bool unload)
+    {
+        Assert.Null(typeof(Mod).Assembly.GetType("Kiln.HostAccess")!.GetProperty("Current")!.GetValue(null));
+        var id = "quest-lifetime-" + Guid.NewGuid().ToString("N");
+        var directory = Path.Combine(Environment.GetEnvironmentVariable("KILN_OUT") ?? Path.GetTempPath(), id);
+        Directory.CreateDirectory(Path.Combine(directory, "blocks"));
+        var mod = new ModBlocks(id, 61) { ManifestClients = "mod" };
+        var player = new EntityId(unchecked((uint)Guid.NewGuid().GetHashCode()) | 1u);
+        void Write(string suffix) => File.WriteAllText(Path.Combine(directory, "blocks", "quests.json"), $$"""
+            { "format": 1,
+              "quests": { "quest-{{suffix}}": { "name": "Q", "steps": [{ "id": "s", "text": "T", "objective": { "custom": "x" } }] } },
+              "dialogues": { "talk-{{suffix}}": { "nodes": { "start": { "text": "Hello" } } } } }
+            """);
+        try
+        {
+            Write("old");
+            Assert.Equal(2, BlockJson.LoadMod(mod, directory));
+            Assert.Empty(mod.Errors);
+            Assert.NotNull(Quests.Find($"{id}:quest-old"));
+            Assert.True(Dialogues.Open(player, $"{id}:talk-old").Ok);
+            Assert.NotNull(Dialogues.View(QuestHolder.Of(player)));
+            if (unload) BlockJson.Unloaded(mod);
+            else mod.Reset();
+            Assert.Null(Quests.Find($"{id}:quest-old"));
+            Assert.Null(Dialogues.Find($"{id}:talk-old"));
+            Assert.Null(Dialogues.View(QuestHolder.Of(player)));
+            Write("new");
+            Assert.Equal(2, BlockJson.LoadMod(mod, directory));
+            Assert.NotNull(Quests.Find($"{id}:quest-new"));
+            Assert.NotNull(Dialogues.Find($"{id}:talk-new"));
+            Assert.Null(Quests.Find($"{id}:quest-old"));
+            Assert.Null(Dialogues.Find($"{id}:talk-old"));
+        }
+        finally
+        {
+            Dialogues.Close(QuestHolder.Of(player));
+            BlockJson.Unloaded(mod);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Resetting_an_old_lifetime_does_not_remove_a_replacement_definition()
+    {
+        var id = "quest-replaced-" + Guid.NewGuid().ToString("N");
+        var old = new ModBlocks(id, 71) { ManifestClients = "mod" };
+        var next = new ModBlocks(id, 72) { ManifestClients = "mod" };
+        try
+        {
+            Compiler.Define(old, "q", Simple(Step()));
+            Compiler.Define(old, "d", Talk());
+            var q = Compiler.Define(next, "q", Simple(Step()));
+            var d = Compiler.Define(next, "d", Talk());
+            old.Reset();
+            Assert.Same(((QuestHandle)q).Definition, Quests.Find($"{id}:q"));
+            Assert.Same(((DialogueHandle)d).Definition, Dialogues.Find($"{id}:d"));
+            next.Reset();
+            Assert.Null(Quests.Find($"{id}:q"));
+            Assert.Null(Dialogues.Find($"{id}:d"));
+        }
+        finally { old.Reset(); next.Reset(); }
+    }
+
+    [Fact]
+    public void An_npcs_native_dialogue_must_belong_to_the_same_mod()
+    {
+        var mod = Mod();
+        Add(mod, "local-talk", Talk());
+        var own = Compiler.Lower(mod, "own-npc", new NpcBlock { Name = "Own", Body = Bodies.Villager, TalkName = "quest-test:local-talk" });
+        Assert.Equal("local-talk", own.Low.Json["npc"]!["dialogue"]!.GetValue<string>());
+        var error = Refused(() => Compiler.Lower(mod, "external-npc", new NpcBlock { Name = "External", Body = Bodies.Villager, TalkName = "other-mod:talk" }));
+        Assert.Equal("talk", error.Field);
+        Assert.Contains("not supported", error.Message);
+        var otherDialogue = Dialogue(Talk(), new ModBlocks("other-mod", 81) { ManifestClients = "mod" });
+        error = Refused(() => Compiler.Lower(mod, "external-handle", new NpcBlock { Name = "External", Body = Bodies.Villager, Talk = otherDialogue }));
+        Assert.Equal("talk", error.Field);
+    }
+
+    [Fact]
+    public void Redefining_a_block_dialogue_does_not_leave_old_sessions_after_reset()
+    {
+        var mod = new ModBlocks("dialogue-redefined-" + Guid.NewGuid().ToString("N"), 82) { ManifestClients = "mod" };
+        var player = new EntityId(unchecked((uint)Guid.NewGuid().GetHashCode()) | 1u);
+        try
+        {
+            Compiler.Define(mod, "d", new DialogueBlock { Nodes = { ["start"] = new() { Text = "Before" } } });
+            Assert.True(Dialogues.Open(player, $"{mod.Id}:d").Ok);
+            Compiler.Define(mod, "d", new DialogueBlock { Nodes = { ["start"] = new() { Text = "After" } } });
+            mod.Reset();
+            Assert.Null(Dialogues.View(QuestHolder.Of(player)));
+        }
+        finally { Dialogues.Close(QuestHolder.Of(player)); mod.Reset(); }
+    }
 
     [Fact]
     public void Json_shapes_that_c_writes_as_values()

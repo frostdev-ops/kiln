@@ -827,7 +827,7 @@ A friendly NPC on a game NPC's body: talk, wares, a place in the roster.
 | `names` | object |  |  |
 | `place` | object |  |  |
 | `roster` | object |  |  |
-| `talk` | string |  | A dialogue of the mod's quests/*.json. |
+| `talk` | string |  | A dialogue block or quests/*.json dialogue of this mod. Another mod's dialogue is not supported by the startup build. |
 | `vendor` | object |  |  |
 | `was` | string |  |  |
 
@@ -1079,7 +1079,7 @@ What a quest or a step pays, all at once: experience, items, a status, knowledge
 |---|---|---|---|
 | `items` | object |  | Item and count: a game item, or an item this mod defines. |
 | `knowledge` | array of string |  | The game's knowledge granted: npc:….unlock unlocks an NPC. |
-| `lootTable` | string |  | A loot table rolled for the player when the reward is paid: the name of a lootTables block. Reserved for the loot table blocks (dev.20): a build without them refuses it. min length 1 |
+| `lootTable` | string |  | A loot table rolled when the reward is paid: the name of a lootTables block of this mod (or "other-mod:name"). What comes up is given like items. A name that is no loot table refuses the quest. min length 1 |
 | `status` | [ref](#ref) or object |  | A status put on the player: a status block of this mod, or a game status; its own time, or seconds. |
 | `xp` | integer |  | Experience, through the game's quest path. min 0 |
 

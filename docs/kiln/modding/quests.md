@@ -254,7 +254,7 @@ The block's name is the id: letters, digits, `_` and `-`. Keep it and the steps'
 | `items` | `{ "item": count }`: game items, or items of the mod by their block name. What does not fit lands at the player's feet |
 | `status` | a status put on the player: a status block of the mod, a game status (`"0x…"`, `"buff_…"`, a GUID), or `{ "status": "blessed", "seconds": 60 }`. A world quest pays every player in game |
 | `knowledge` | the game's knowledge granted: `"npc:….unlock"` unlocks an NPC |
-| `lootTable` | reserved for the loot table blocks (`lootTables`): a build without them refuses the quest and says so |
+| `lootTable` | a loot table rolled when the reward is paid: a `lootTables` block of the mod by its name, or `"other-mod:name"` ([item-blocks.md](item-blocks.md)). What comes up is given like `items`; a world quest gives every player in game what that one roll gave. A name that is no loot table refuses the quest |
 
 Each part is paid on its own, as in `quests/*.json`: one that fails is logged and the rest still are. `onStart`, `onFail`, a step's `onEnter` and `onDone`, and a node's and an option's `do` are
 action lists with the keys of the table in "Actions" above, except `toast` and `waypoint`.
@@ -263,11 +263,12 @@ action lists with the keys of the table in "Actions" above, except `toast` and `
 `knowledge` section, no option `set`, no `toast` and `waypoint` actions (the step's place gives the marker and the pin); a key it does not know is an error, not a warning.
 
 **When the game has it.** The game builds its journal and NPC menu at start, so a change to a quest block needs a restart on the server and on every client.
-- A block in `blocks/*.json` is read by that start-up build from the mod's folder: it is in the game's journal at the **first start**, with the NPC blocks.
-- A block written in C# is known only once the mod's code runs. Kiln writes it to `kiln/data/kiln-quests/native/<mod>.json` and it is in the journal from the next start; until then it
+- A block in `blocks/*.json` is read by that start-up build from the mod's folder: it is built into the game's journal data at the **first start**, with the NPC blocks (a lab
+  server counts it in kiln.log's `native:` line; how it looks in a player's journal is still to be checked with a client).
+- A block written in C# is known only once the mod's code runs. Kiln writes it to `kiln/data/kiln-quests/native/<mod>.json` and the start-up build reads it from the next start; until then it
   runs with chat lines, and kiln.log says so. Ship that file as `quests/generated/<mod>.json` to have it at once ("Code" above).
 
-`kiln lint` checks the sections against the schema, item, status, NPC, quest, step and dialogue names, and says when the manifest's `clients` is below "mod" (KL210).
+`kiln lint` checks the sections against the schema, item, status, NPC, quest, step, dialogue and loot table names, and says when the manifest's `clients` is below "mod" (KL210).
 `kiln blocks show <name>` says what a block became. `mods/tests/blocks-quest-test` is the lab test, and `dotnet new kiln-quest` a project to start from ([mdk.md](mdk.md)).
 
 ## Saving, and changing a quest later
