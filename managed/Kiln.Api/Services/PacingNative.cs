@@ -54,8 +54,12 @@ internal static unsafe class PacingNative
         if (t == null) return;
         var found = (PacingSites)t->Sites();
         if (found == PacingSites.None) return;
+        if (t->SetReceiver(&OnLoopWait, &OnServerWait, null) != 0)
+        {
+            Backend.Current.Log(0, LogLevel.Warn, "kiln.pacing: the native receiver could not attach; pacing is unavailable");
+            return;
+        }
         _t = t;
-        t->SetReceiver(&OnLoopWait, &OnServerWait, null);
         Pacing.TasksStartedProbe = TasksStarted;
         Pacing.Attach(found);
         Pacing.Changed += Sync;

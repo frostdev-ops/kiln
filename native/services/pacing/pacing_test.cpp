@@ -3,6 +3,7 @@
 // with a stand-in for the game's registers and for the hook installer. No game, no Wine.
 #define KILN_PACING_HOST_TEST
 #include "pacing.cpp"
+#include <thread>
 
 namespace {
 int failures = 0;
@@ -17,6 +18,13 @@ struct Seen {
     uint64_t server_in = 0, server_out = 0;
     bool server_write = false;
 } seen;
+
+int receiver_a, receiver_b;
+std::atomic<int> wrong_receiver{0};
+void KILN_CALL loop_a(const KilnPacingLoopWait*, void* user) { if (user != &receiver_a) ++wrong_receiver; }
+void KILN_CALL loop_b(const KilnPacingLoopWait*, void* user) { if (user != &receiver_b) ++wrong_receiver; }
+void KILN_CALL server_a(uint64_t*, void* user) { if (user != &receiver_a) ++wrong_receiver; }
+void KILN_CALL server_b(uint64_t*, void* user) { if (user != &receiver_b) ++wrong_receiver; }
 
 void KILN_CALL on_loop(const KilnPacingLoopWait* w, void* user) {
     ++static_cast<Seen*>(user)->loop_calls;
@@ -37,6 +45,7 @@ void reset(bool server) {
     g_tasks_started = false;
     g_loop_calls = g_server_calls = 0;
     g_test_refuse = false;
+    g_test_refuse_place = -1;
     g_test_installs = 0;
     seen = Seen{};
     t_set_receiver(&on_loop, &on_server, &seen);
@@ -102,17 +111,21 @@ int main() {
     seen.server_out = 2'000'000;
     hk_server_wait(s);
     check(s.r9 == 2'000'000, "a receiver that doubles the wait doubles r9");
-    seen.server_out = ~0ull;  // -1 as the game's signed ns
+    seen.server_out = 5'000'000'000ull;
     hk_server_wait(s);
     check(s.r9 == KILN_PACING_MAX_WAIT_NS, "a wild wait is clamped to the maximum");
+    s.r9 = 1'000'000;
+    seen.server_out = ~0ull;  // -1 as the game's signed ns
+    hk_server_wait(s);
+    check(s.r9 == 1'000'000, "a negative wait is garbage: the game's pick stays");
     seen.server_out = 0;
     hk_server_wait(s);
-    check(s.r9 == 0, "zero is allowed (poll)");
+    check(s.r9 == KILN_PACING_MIN_WAIT_NS, "zero is raised to the floor (no busy spin)");
     t_arm(0);
     s.r9 = 40'000'000;
     seen.server_out = 5;
     hk_server_wait(s);
-    check(s.r9 == 40'000'000 && seen.server_calls == 4, "disarmed: r9 untouched");
+    check(s.r9 == 40'000'000 && seen.server_calls == 5, "disarmed: r9 untouched");
 
     // A refused hook drops the place: found shrinks, nothing is delivered.
     reset(true);
@@ -125,6 +138,21 @@ int main() {
     check(t_status(&st) == KILN_OK && (st.refused & KILN_PACING_LOOP_WAIT) && (st.refused & KILN_PACING_SERVER_WAIT) && st.hooked == 0, "status names what was refused");
     g_test_refuse = false;
     check(t_arm(KILN_PACING_LOOP_WAIT) == 0, "a refused place is not retried");
+
+    // A multi-group request must not report success or publish a partial cap after a refused hook.
+    reset(true);
+    find_all();
+    g_slot[kBackgroundWorkers].refused = true;
+    check((t_sites() & KILN_PACING_TASK_WORKERS) == 0, "a refused worker hook drops the combined worker capability");
+    check(t_cap_task_workers(4, 3) == KILN_ERR_UNAVAILABLE && g_cap_default == 0 && g_cap_background == 0,
+          "a refused worker hook refuses the whole request without changing either cap");
+
+    reset(true);
+    find_all();
+    g_test_refuse_place = kBackgroundWorkers;
+    check(t_cap_task_workers(4, 3) == KILN_ERR_UNAVAILABLE && g_cap_default == 0 && g_cap_background == 0,
+          "failure installing the second worker hook cannot apply the first cap alone");
+    check((t_sites() & KILN_PACING_TASK_WORKERS) == 0, "a failed worker install drops the combined capability");
 
     // Task workers: the lowest cap wins, a cap only lowers the game's own limit, both groups are separate.
     reset(true);
@@ -167,6 +195,36 @@ int main() {
     g_slot[kDefaultWorkers].found = true;
     g_slot[kDefaultWorkers].at = 0x2000;
     check((t_sites() & KILN_PACING_TASK_WORKERS) == 0, "one worker place alone is no cap");
+
+    // A receiver may be replaced while loops are running: its callback and user must come from the same binding.
+    reset(true);
+    find_all();
+    t_set_receiver(&loop_a, &server_a, &receiver_a);
+    t_arm(KILN_PACING_LOOP_WAIT | KILN_PACING_SERVER_WAIT);
+    std::atomic<bool> run{true};
+    std::atomic<int> deliveries{0};
+    std::thread reader([&] {
+        safetyhook::Context regs;
+        regs.r9 = 1'000'000;
+        while (run.load()) {
+            hk_loop_wait(regs);
+            hk_server_wait(regs);
+            ++deliveries;
+        }
+    });
+    while (deliveries.load() == 0) std::this_thread::yield();
+    for (int i = 0; i < 100'000; ++i) {
+        if (i & 1) t_set_receiver(&loop_a, &server_a, &receiver_a);
+        else t_set_receiver(&loop_b, &server_b, &receiver_b);
+    }
+    run = false;
+    reader.join();
+    check(deliveries > 0 && wrong_receiver == 0, "concurrent receiver replacement never mixes callback and user");
+    const auto loops = g_loop_calls.load(), servers = g_server_calls.load();
+    t_set_receiver(nullptr, nullptr, nullptr);
+    hk_loop_wait(c);
+    hk_server_wait(s);
+    check(g_loop_calls == loops && g_server_calls == servers, "clearing the receiver stops new deliveries with hooks left in place");
 
     std::printf("%d failure(s)\n", failures);
     return failures ? 1 : 0;

@@ -130,14 +130,19 @@ public static class Pacing
     /// <summary>The server loop's wait after a pass longer than 14 ms.</summary>
     public const long ServerSlowWaitNs = 100_000;
 
-    /// <summary>The longest wait a handler can set for the server loop: what handlers leave is clamped into 0 to this (the
-    /// loop still wakes for its own timers, and a negative or wild value is never what anyone meant).</summary>
+    /// <summary>The longest wait a handler can set for the server loop: what handlers leave is clamped into
+    /// <see cref="ServerMinWaitNs"/> to this (the loop still wakes for its own timers, and a wild value is never what anyone
+    /// meant). A negative value is ignored: the game's own pick stays.</summary>
     public const long ServerMaxWaitNs = 1_000_000_000;
+
+    /// <summary>The shortest wait a handler can set for the server loop: the game's own shortest
+    /// (<see cref="ServerSlowWaitNs"/>). A 0 would turn the loop into a busy spin, one step after another at 100 % CPU.</summary>
+    public const long ServerMinWaitNs = ServerSlowWaitNs;
 
     private const int FaultLimit = 3;
 
     private static readonly object Lock = new();
-    private static PacingHandler[] _handlers = [];
+    private static volatile PacingHandler[] _handlers = [];
     private static readonly List<(TaskWorkerCaps Caps, ModContext? Owner)> Caps = new();
     private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
     private static volatile int _sites;
@@ -164,7 +169,7 @@ public static class Pacing
     }
 
     /// <summary>Handlers registered now, per site (diagnostics).</summary>
-    public static int HandlerCount(PacingSites site) => _handlers.Count(h => h.Site == site);
+    public static int HandlerCount(PacingSites site) => _handlers.Count(h => (h.Site & site) != 0 && !h.Removed);
 
     /// <summary>Runs <paramref name="handler"/> before every wait of the engine's event loop on its handles, on the thread
     /// that waits: the main loop, the server's game loop and its session, and on a client the message wait too. A handler
@@ -178,8 +183,8 @@ public static class Pacing
     /// <summary>Runs <paramref name="handler"/> where the server's game loop has picked its wait between two passes
     /// (<see cref="ServerIdleWaitNs"/>, <see cref="ServerOnlineWaitNs"/> or <see cref="ServerSlowWaitNs"/>); it may change it.
     /// A longer wait with players online means fewer passes between the simulation steps and up to that much more latency for
-    /// what arrives between them. The loop still wakes for its own timers, and what the handlers leave is clamped into 0 to
-    /// <see cref="ServerMaxWaitNs"/>. On the server loop's thread, once a pass. Tick thread; owned by the calling mod. Never
+    /// what arrives between them. The loop still wakes for its own timers, and what the handlers leave is clamped into
+    /// <see cref="ServerMinWaitNs"/> to <see cref="ServerMaxWaitNs"/> (a negative value leaves the game's pick). On the server loop's thread, once a pass. Tick thread; owned by the calling mod. Never
     /// called where <see cref="Sites"/> lacks the place.</summary>
     [TickThreadOnly]
     public static PacingHandler OnServerWait(ServerWaitHandler handler) => Add(PacingSites.ServerWait, handler);
@@ -343,7 +348,8 @@ public static class Pacing
             var wait = waitNanoseconds;
             if (Call(h, RunServerWait, ref wait, default)) waitNanoseconds = wait;
         }
-        if (waitNanoseconds != before) waitNanoseconds = Math.Clamp(waitNanoseconds, 0, ServerMaxWaitNs);
+        if (waitNanoseconds != before)
+            waitNanoseconds = waitNanoseconds < 0 ? before : Math.Clamp(waitNanoseconds, ServerMinWaitNs, ServerMaxWaitNs);
     }
 
     /// <summary>The event loop is about to wait: every loop-wait handler sees it. On the waiting thread.</summary>
@@ -389,7 +395,7 @@ public static class Pacing
         try
         {
             invoke(h.Handler, ref wait, in loop);
-            h.Faults = 0;
+            Interlocked.Exchange(ref h.Faults, 0);
             return true;
         }
         catch (Exception e)
@@ -406,7 +412,7 @@ public static class Pacing
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void Fault(PacingHandler h, Exception e)
     {
-        var n = ++h.Faults;
+        var n = Interlocked.Increment(ref h.Faults);
         var what = $"pacing handler ({h.Site}) threw ({n} of {FaultLimit})";
         if (h.Owner is not null) h.Owner.Log.Error(e, what);
         else Backend.Current.Log(0, LogLevel.Error, $"kiln: {what}: {e}");

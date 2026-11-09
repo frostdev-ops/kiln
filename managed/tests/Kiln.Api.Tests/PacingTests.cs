@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using Xunit;
+using System.Runtime.InteropServices;
 
 namespace Kiln.Api.Tests;
 
@@ -82,7 +83,7 @@ public sealed class PacingTests : KilnTest
         var seen = new List<string>();
         As(second, () => Pacing.OnServerWait((ref long w) => { seen.Add("second"); w = w * 10; }));
         As(first, () => Pacing.OnServerWait((ref long w) => { seen.Add("first"); w += 1; }));
-        Assert.Equal(110, ServerWait(10));  // (10 + 1) * 10: the first-loaded mod acts first
+        Assert.Equal(10_000_010, ServerWait(1_000_000));  // (1 ms + 1 ns) * 10: the first-loaded mod acts first
         Assert.Equal(["first", "second"], seen);
     }
 
@@ -115,10 +116,10 @@ public sealed class PacingTests : KilnTest
             Pacing.OnLoopWait((in LoopWait w) => calls++);
             Assert.True(Pacing.CapTaskWorkers(TaskWorkerCaps.AtMost(2)));
         });
-        As(other, () => Pacing.OnServerWait((ref long w) => w = 7));
+        As(other, () => Pacing.OnServerWait((ref long w) => w = 7_000_000));
         Assert.Equal(new TaskWorkerCaps(2, 2), Pacing.EffectiveTaskWorkerCaps);
         mod.Retire();
-        Assert.Equal(7, ServerWait(1));
+        Assert.Equal(7_000_000, ServerWait(Pacing.ServerOnlineWaitNs));
         Pacing.DispatchLoopWait(new LoopWait(0, 500_000));
         Assert.Equal(0, calls);
         Assert.Equal(1, Pacing.HandlerCount(PacingSites.ServerWait));
@@ -135,6 +136,17 @@ public sealed class PacingTests : KilnTest
         Pacing.DispatchLoopWait(new LoopWait(3, 3_900_000, LoopWaitKind.Messages));
         Assert.Equal([new LoopWait(0, 400_000), new LoopWait(3, 3_900_000, LoopWaitKind.Messages)], seen);
         Assert.Equal(LoopWaitKind.Handles, seen[0].Kind);
+    }
+
+    [Fact]
+    public void Handler_counts_include_a_loop_handler_for_both_loop_sites()
+    {
+        var handler = As(NewMod("pcloopcount"), () => Pacing.OnLoopWait((in LoopWait w) => { }));
+        Assert.Equal(1, Pacing.HandlerCount(PacingSites.LoopWait));
+        Assert.Equal(1, Pacing.HandlerCount(PacingSites.MessageWait));
+        Assert.Equal(0, Pacing.HandlerCount(PacingSites.ServerWait));
+        handler.Dispose();
+        Assert.Equal(0, Pacing.HandlerCount(PacingSites.LoopWait | PacingSites.MessageWait));
     }
 
     [Fact]
@@ -162,14 +174,92 @@ public sealed class PacingTests : KilnTest
             throw new InvalidOperationException("boom");
         }));
         As(mod, () => Pacing.OnServerWait((ref long w) => w += 1));  // an honest handler of the same mod runs on
-        Assert.Equal(11, ServerWait(10));
-        Assert.Equal(11, ServerWait(10));
+        Assert.Equal(1_000_001, ServerWait(Pacing.ServerOnlineWaitNs));
+        Assert.Equal(1_000_001, ServerWait(Pacing.ServerOnlineWaitNs));
         Assert.False(h.Faulted);
-        Assert.Equal(11, ServerWait(10));
+        Assert.Equal(1_000_001, ServerWait(Pacing.ServerOnlineWaitNs));
         Assert.True(h.Faulted);
-        Assert.Equal(11, ServerWait(10));
+        Assert.Equal(1_000_001, ServerWait(Pacing.ServerOnlineWaitNs));
         Assert.Equal(3, n);  // gone
         Assert.Equal(1, Pacing.HandlerCount(PacingSites.ServerWait));
+    }
+
+    [Fact]
+    public async Task Concurrent_throwing_loop_calls_do_not_lose_faults()
+    {
+        const int workers = 16, rounds = 64;
+        var cancellation = TestContext.Current.CancellationToken;
+        using var dispatch = new Barrier(workers + 1);
+        using var throwing = new Barrier(workers);
+        var mod = NewMod("pcparallelfaults");
+        var tasks = Enumerable.Range(0, workers).Select(_ => Task.Factory.StartNew(() =>
+        {
+            for (var round = 0; round < rounds; round++)
+            {
+                dispatch.SignalAndWait(cancellation);
+                Pacing.DispatchLoopWait(new LoopWait(0, 1));
+                dispatch.SignalAndWait(cancellation);
+            }
+        }, cancellation, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+        var lostFaults = 0;
+        var allRemoved = true;
+        for (var round = 0; round < rounds; round++)
+        {
+            var handler = As(mod, () => Pacing.OnLoopWait((in LoopWait wait) =>
+            {
+                // Every invocation is already in the handler before any can throw and remove it.
+                throwing.SignalAndWait(cancellation);
+                throw new InvalidOperationException("concurrent failure");
+            }));
+            dispatch.SignalAndWait(cancellation);
+            dispatch.SignalAndWait(cancellation);
+            lostFaults += workers - handler.Faults;
+            allRemoved &= handler.Faulted && Pacing.HandlerCount(PacingSites.LoopWait) == 0;
+            handler.Dispose();
+        }
+        await Task.WhenAll(tasks);
+        Assert.Equal(0, lostFaults);
+        Assert.True(allRemoved);
+    }
+
+    [Fact]
+    public async Task An_in_flight_success_resets_failures_that_completed_before_it()
+    {
+        var cancellation = TestContext.Current.CancellationToken;
+        using var entered = new ManualResetEventSlim();
+        using var finish = new ManualResetEventSlim();
+        var handler = As(NewMod("pcoverlapreset"), () => Pacing.OnLoopWait((in LoopWait wait) =>
+        {
+            if (wait.LeftNanoseconds == 123)
+            {
+                entered.Set();
+                finish.Wait(cancellation);
+                return;
+            }
+            throw new InvalidOperationException("failure before or after a successful completion");
+        }));
+        var success = Task.Run(() => Pacing.DispatchLoopWait(new LoopWait(0, 123)), cancellation);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5), cancellation));
+            Pacing.DispatchLoopWait(new LoopWait(0, 1));
+            Pacing.DispatchLoopWait(new LoopWait(0, 1));
+            Assert.Equal(2, handler.Faults);
+            Assert.False(handler.Faulted);
+        }
+        finally
+        {
+            finish.Set();
+            await success;
+        }
+        Assert.Equal(0, handler.Faults);
+        Pacing.DispatchLoopWait(new LoopWait(0, 1));
+        Pacing.DispatchLoopWait(new LoopWait(0, 1));
+        Assert.Equal(2, handler.Faults);
+        Assert.False(handler.Faulted);
+        Pacing.DispatchLoopWait(new LoopWait(0, 1));
+        Assert.True(handler.Faulted);
+        Assert.Equal(0, Pacing.HandlerCount(PacingSites.LoopWait));
     }
 
     [Fact]
@@ -204,7 +294,7 @@ public sealed class PacingTests : KilnTest
     }
 
     [Fact]
-    public void What_handlers_leave_for_the_server_loop_is_clamped_into_zero_to_the_maximum()
+    public void What_handlers_leave_for_the_server_loop_is_clamped_into_the_floor_to_the_maximum()
     {
         var mod = NewMod("pcclamp");
         long set = 0;
@@ -212,7 +302,9 @@ public sealed class PacingTests : KilnTest
         set = long.MaxValue;
         Assert.Equal(Pacing.ServerMaxWaitNs, ServerWait(Pacing.ServerIdleWaitNs));
         set = -1;
-        Assert.Equal(0, ServerWait(Pacing.ServerIdleWaitNs));  // a negative wait would be a spin the game never asked for
+        Assert.Equal(Pacing.ServerIdleWaitNs, ServerWait(Pacing.ServerIdleWaitNs));  // garbage: the game's pick stays
+        set = 0;
+        Assert.Equal(Pacing.ServerMinWaitNs, ServerWait(Pacing.ServerIdleWaitNs));  // a 0 wait would be a busy spin
         set = 2_000_000;
         Assert.Equal(2_000_000, ServerWait(Pacing.ServerOnlineWaitNs));
         set = Pacing.ServerOnlineWaitNs;
@@ -268,6 +360,39 @@ public sealed class PacingTests : KilnTest
     public void The_native_mirrors_have_the_sizes_the_service_checks()
     {
         Assert.True(PacingNative.LayoutMatchesNative);
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate uint NativeSitesFn();
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SetReceiverFn(nint loop, nint server, nint user);
+
+    [Fact]
+    public void A_refused_native_receiver_leaves_pacing_unavailable()
+    {
+        NativeSitesFn sites = () => (uint)PacingSites.ServerWait;
+        SetReceiverFn refuse = (_, _, _) => 7;
+        var table = Marshal.AllocHGlobal(48);
+        try
+        {
+            Marshal.Copy(new byte[48], 0, table, 48);
+            Marshal.WriteInt32(table, 0, 48);
+            Marshal.WriteInt32(table, 4, 1);
+            Marshal.WriteIntPtr(table, 8, Marshal.GetFunctionPointerForDelegate(sites));
+            Marshal.WriteIntPtr(table, 16, Marshal.GetFunctionPointerForDelegate(refuse));
+            Backend.Tables["kiln.pacing"] = table;
+            PacingNative.Attach();
+            Assert.False(Pacing.Available);
+            Assert.Equal(PacingSites.None, Pacing.Sites);
+            Assert.True(Backend.Logged("native receiver could not attach"));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(table);
+            GC.KeepAlive(sites);
+            GC.KeepAlive(refuse);
+        }
     }
 
     [Fact]

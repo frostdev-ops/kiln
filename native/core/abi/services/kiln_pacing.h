@@ -42,7 +42,11 @@ enum {
     KILN_PACING_KIND_MESSAGES = 1,
 };
 
-/* The nanoseconds a server-wait receiver may leave: the service clamps what it writes into [0, KILN_PACING_MAX_WAIT_NS]. */
+/* The nanoseconds a server-wait receiver may leave. When it changes the wait, the service clamps what it writes into
+ * [KILN_PACING_MIN_WAIT_NS, KILN_PACING_MAX_WAIT_NS]; a negative value (as the game's signed ns) is ignored and the game's
+ * own pick stays. The floor is the game's own shortest wait (0.1 ms after a slow pass): a 0 would turn the loop into a
+ * busy spin, one sim step after another at 100 % CPU. */
+#define KILN_PACING_MIN_WAIT_NS 100000ull
 #define KILN_PACING_MAX_WAIT_NS 1000000000ull
 
 /* An event loop wait, about to happen. Valid only during the call. */
@@ -56,7 +60,7 @@ typedef struct KilnPacingLoopWait {
 
 /* Runs on the thread that waits, before every wait of the kinds armed. */
 typedef void(KILN_CALL* KilnPacingLoopWaitFn)(const KilnPacingLoopWait* wait, void* user);
-/* Runs on the server loop's thread once a pass: *wait_ns is what the loop picked; write it to change it. */
+/* Runs on the server loop's thread once a pass: *wait_ns is what the loop picked; write it to change it (clamped, above). */
 typedef void(KILN_CALL* KilnPacingServerWaitFn)(uint64_t* wait_ns, void* user);
 
 typedef struct KilnPacingStatus {
@@ -77,7 +81,9 @@ typedef struct KilnPacingApi {
     KilnServiceHeader header;
     /* The places this build has (KILN_PACING_*). Any thread. */
     uint32_t(KILN_CALL* sites)(void);
-    /* The one receiver of loop and server waits (the managed half; either may be NULL). Set it before `arm`. */
+    /* The one receiver of loop and server waits (the managed half; either may be NULL). Set it before `arm`.
+     * Callback code and user data must remain valid for the process. Replacement publishes the whole binding together;
+     * clearing both callbacks stops new deliveries but does not wait for calls already in progress. */
     KilnResult(KILN_CALL* set_receiver)(KilnPacingLoopWaitFn loop, KilnPacingServerWaitFn server, void* user);
     /* Which places deliver now (KILN_PACING_LOOP_WAIT | MESSAGE_WAIT | SERVER_WAIT). The first request for a place puts
      * its hook in the game's code, on the calling thread; later calls only flip a flag. Returns the places that deliver
@@ -85,7 +91,8 @@ typedef struct KilnPacingApi {
      * rhythm, not from a receiver. */
     uint32_t(KILN_CALL* arm)(uint32_t sites);
     /* Caps the worker threads each task group starts with (0: leave a group). The lowest cap of every caller wins.
-     * KILN_ERR_UNAVAILABLE: not a dedicated server, the build lacks the place, the pools have started, or both caps are 0. */
+     * Every requested hook must install before either cap changes. KILN_ERR_UNAVAILABLE: not a dedicated server, the build
+     * lacks either worker place, a requested hook was refused, or the pools have started. Both caps 0: KILN_ERR_INVALID_ARGUMENT. */
     KilnResult(KILN_CALL* cap_task_workers)(uint32_t default_workers, uint32_t background_workers);
     KilnResult(KILN_CALL* status)(KilnPacingStatus* out);
 } KilnPacingApi;

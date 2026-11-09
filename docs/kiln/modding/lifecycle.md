@@ -209,7 +209,7 @@ if (!Pacing.Available) Log.Info("this build's waits are not known: the handlers 
   With no deadline `Milliseconds` is `int.MaxValue` and `LeftNanoseconds` is `long.MaxValue`. The handler cannot change the wait.
 - **Server wait** (`OnServerWait`): the server loop picked its wait between two passes: `Pacing.ServerIdleWaitNs` (40 ms) with nobody
   online, `ServerOnlineWaitNs` (1 ms) with players, `ServerSlowWaitNs` (0.1 ms) after a pass longer than 14 ms. Change it with `ref`. The
-  loop still wakes for an event and for its own timers; what handlers leave is clamped into 0 to `Pacing.ServerMaxWaitNs` (1 s). With nobody
+  loop still wakes for an event and for its own timers; what handlers leave is clamped into `Pacing.ServerMinWaitNs` (0.1 ms, the game's own shortest: 0 would spin the loop) to `Pacing.ServerMaxWaitNs` (1 s), and a negative value leaves the game's pick. With nobody
   online a pass is the wait plus the step itself, so doubling the idle wait roughly halves the step rate. A longer wait with players online
   means fewer passes between the simulation steps and up to that much more latency for what arrives between them.
 - **Worker caps** (`CapTaskWorkers`) cannot be set by a Kiln mod. The task system sizes its pools when the game starts, before the first server

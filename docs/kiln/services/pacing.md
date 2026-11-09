@@ -22,7 +22,8 @@ API hooks (MIT; semantics from its docs and loader). How the places were found a
   hook goes over a jump that is already there (kiln.log: `pacing/LoopWait is already hooked by someone else (jmp to ...); this hook chains with it`).
 - A place whose hook the game's code refuses is dropped (`sites()` shrinks, `status().refused` names it); nothing retries it.
 - The receiver (`set_receiver`) runs inside the game's loops on the thread that waits, concurrently from several threads; the service takes no lock there.
-  What a server-wait receiver writes is clamped into `0..KILN_PACING_MAX_WAIT_NS` (1 s).
+  Its callbacks and user data must live for the process. Replacing it publishes one complete binding; clearing it does not wait for calls already in progress.
+  What a server-wait receiver writes is clamped into `KILN_PACING_MIN_WAIT_NS..KILN_PACING_MAX_WAIT_NS` (0.1 ms to 1 s; 0 would spin the loop); a negative value leaves the game's pick.
 
 ## Operator file
 `kiln/config/kiln-pacing.json` (the profile's config folder when a profile is active), read when the service loads:
@@ -32,6 +33,7 @@ API hooks (MIT; semantics from its docs and loader). How the places were found a
 `"taskWorkers": 4` caps both groups. The game's pools start before any mod loads, so this file (or native code that calls `cap_task_workers` during
 boot) is the only way to cap them on a Kiln server. A cap is the most workers a group starts with; the default group adds its two main workers on
 top (4 gives `Worker:6 Main:2`).
+If a requested worker hook is refused, neither requested cap changes and the combined worker capability is unavailable.
 
 ## Lab switch
 `KILN_PACING_LAB=boot` in the server's environment puts the wait hooks in at boot instead of at the first handler, to test how another loader that starts

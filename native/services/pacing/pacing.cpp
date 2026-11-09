@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <new>
 #include <string>
 
 #include "kiln_api.h"
@@ -42,6 +43,9 @@ struct Context {
 #include "safetyhook.hpp"
 #endif
 #include "services/kiln_pacing.h"
+
+// Kiln.Api's mirror (Services/PacingNative.cs, LayoutMatchesNative) has the same sizes.
+static_assert(sizeof(KilnPacingLoopWait) == 24 && sizeof(KilnPacingStatus) == 48 && sizeof(KilnPacingApi) == 48);
 
 namespace {
 
@@ -95,9 +99,14 @@ Slot g_slot[kPlaces];
 
 // What the hooks read. Written under g_mu (or at boot), read anywhere.
 std::atomic<uint32_t> g_armed{0};  // KILN_PACING_LOOP_WAIT | MESSAGE_WAIT | SERVER_WAIT: places that deliver
-std::atomic<KilnPacingLoopWaitFn> g_loop_fn{nullptr};
-std::atomic<KilnPacingServerWaitFn> g_server_fn{nullptr};
-std::atomic<void*> g_user{nullptr};
+struct Receiver {
+    KilnPacingLoopWaitFn loop;
+    KilnPacingServerWaitFn server;
+    void* user;
+};
+// Publish a whole immutable binding at once: separate atomics can pair an old callback with a new user's pointer.
+// Like the hooks, bindings stay for the process: a waiting thread may already have loaded an older one.
+std::atomic<const Receiver*> g_receiver{nullptr};
 std::atomic<uint32_t> g_cap_default{0}, g_cap_background{0};  // 0: left to the game
 std::atomic<bool> g_tasks_started{false};
 std::atomic<uint64_t> g_loop_calls{0}, g_server_calls{0};
@@ -107,11 +116,11 @@ std::atomic<uint64_t> g_loop_calls{0}, g_server_calls{0};
 
 void deliver_loop(uint32_t ms, int64_t left_ns, uint32_t kind, uint32_t bit) {
     if (!(g_armed.load(std::memory_order_relaxed) & bit)) return;
-    const KilnPacingLoopWaitFn fn = g_loop_fn.load(std::memory_order_acquire);
-    if (!fn) return;
+    const Receiver* receiver = g_receiver.load(std::memory_order_acquire);
+    if (!receiver || !receiver->loop) return;
     const KilnPacingLoopWait wait{sizeof(KilnPacingLoopWait), kind, ms, 0, left_ns};
     g_loop_calls.fetch_add(1, std::memory_order_relaxed);
-    fn(&wait, g_user.load(std::memory_order_relaxed));
+    receiver->loop(&wait, receiver->user);
 }
 
 void hk_loop_wait(safetyhook::Context& c) {
@@ -122,19 +131,24 @@ void hk_message_wait(safetyhook::Context& c) {
     deliver_loop(static_cast<uint32_t>(c.r8), static_cast<int64_t>(c.rbx), KILN_PACING_KIND_MESSAGES, KILN_PACING_MESSAGE_WAIT);
 }
 
-// What the loop may be told to wait: never negative as a signed value, never longer than KILN_PACING_MAX_WAIT_NS (the loop
-// still wakes for its own timers, but a wild value is never what anyone meant).
-uint64_t clamp_wait(uint64_t wait) { return wait > KILN_PACING_MAX_WAIT_NS ? KILN_PACING_MAX_WAIT_NS : wait; }
+// What the loop may be told to wait, when a receiver changed it: a negative value (the game's ns are signed) is garbage and
+// leaves the game's pick; otherwise never shorter than KILN_PACING_MIN_WAIT_NS (0 would make the loop spin, one sim step after
+// another at 100 % CPU) and never longer than KILN_PACING_MAX_WAIT_NS (the loop still wakes for its own timers, but a wild
+// value is never what anyone meant).
+uint64_t clamp_wait(uint64_t wait, uint64_t before) {
+    if (static_cast<int64_t>(wait) < 0) return before;
+    return std::clamp<uint64_t>(wait, KILN_PACING_MIN_WAIT_NS, KILN_PACING_MAX_WAIT_NS);
+}
 
 void hk_server_wait(safetyhook::Context& c) {
     if (!(g_armed.load(std::memory_order_relaxed) & KILN_PACING_SERVER_WAIT)) return;
-    const KilnPacingServerWaitFn fn = g_server_fn.load(std::memory_order_acquire);
-    if (!fn) return;
+    const Receiver* receiver = g_receiver.load(std::memory_order_acquire);
+    if (!receiver || !receiver->server) return;
     const uint64_t before = c.r9;
     uint64_t wait = before;
     g_server_calls.fetch_add(1, std::memory_order_relaxed);
-    fn(&wait, g_user.load(std::memory_order_relaxed));
-    if (wait != before) c.r9 = static_cast<uintptr_t>(clamp_wait(wait));
+    receiver->server(&wait, receiver->user);
+    if (wait != before) c.r9 = static_cast<uintptr_t>(clamp_wait(wait, before));
 }
 
 // rax is the group's own limit, a byte the game loaded from its settings; the cap only lowers it.
@@ -158,9 +172,10 @@ constexpr HookFn kHooks[kPlaces] = {&hk_loop_wait, &hk_message_wait, &hk_server_
 
 #ifdef KILN_PACING_HOST_TEST
 bool g_test_refuse = false;
+int g_test_refuse_place = -1;
 int g_test_installs = 0;
 bool put_in(Slot& s, HookFn) {
-    if (g_test_refuse) return false;
+    if (g_test_refuse || &s - g_slot == g_test_refuse_place) return false;
     ++g_test_installs;
     s.hook = &s;
     return true;
@@ -234,7 +249,9 @@ uint32_t found_mask() {
     for (int p = 0; p < kPlaces; ++p)
         if (g_slot[p].found && !g_slot[p].refused) m |= kInfo[p].bit;
     // the worker caps need both groups' limits
-    if (!(g_slot[kDefaultWorkers].found && g_slot[kBackgroundWorkers].found && g_server)) m &= ~static_cast<uint32_t>(KILN_PACING_TASK_WORKERS);
+    if (!(g_slot[kDefaultWorkers].found && !g_slot[kDefaultWorkers].refused &&
+          g_slot[kBackgroundWorkers].found && !g_slot[kBackgroundWorkers].refused && g_server))
+        m &= ~static_cast<uint32_t>(KILN_PACING_TASK_WORKERS);
     return m;
 }
 
@@ -257,9 +274,12 @@ uint32_t KILN_CALL t_sites() {
 }
 
 KilnResult KILN_CALL t_set_receiver(KilnPacingLoopWaitFn loop, KilnPacingServerWaitFn server, void* user) {
-    g_user.store(user, std::memory_order_relaxed);
-    g_loop_fn.store(loop, std::memory_order_release);
-    g_server_fn.store(server, std::memory_order_release);
+    const Receiver* receiver = nullptr;
+    if (loop || server) {
+        receiver = new (std::nothrow) Receiver{loop, server, user};
+        if (!receiver) return KILN_ERR_INTERNAL;
+    }
+    g_receiver.store(receiver, std::memory_order_release);
     return KILN_OK;
 }
 
@@ -284,16 +304,13 @@ KilnResult KILN_CALL t_cap_task_workers(uint32_t default_workers, uint32_t backg
     background_workers = std::min<uint32_t>(background_workers, 255);
     std::lock_guard lk(g_mu);
     if ((found_mask() & KILN_PACING_TASK_WORKERS) == 0 || tasks_started()) return KILN_ERR_UNAVAILABLE;
-    bool any = false;
-    if (default_workers != 0 && install(kDefaultWorkers)) {
-        lower(g_cap_default, default_workers);
-        any = true;
-    }
-    if (background_workers != 0 && install(kBackgroundWorkers)) {
-        lower(g_cap_background, background_workers);
-        any = true;
-    }
-    return any ? KILN_OK : KILN_ERR_UNAVAILABLE;
+    // Install every requested place before publishing either cap. A refused second hook must not make a partial
+    // application look successful. Any successfully installed hook stays inert with its previous cap.
+    if ((default_workers != 0 && !install(kDefaultWorkers)) ||
+        (background_workers != 0 && !install(kBackgroundWorkers))) return KILN_ERR_UNAVAILABLE;
+    if (default_workers != 0) lower(g_cap_default, default_workers);
+    if (background_workers != 0) lower(g_cap_background, background_workers);
+    return KILN_OK;
 }
 
 KilnResult KILN_CALL t_status(KilnPacingStatus* out) {
@@ -325,8 +342,7 @@ const KilnPacingApi kTable = {{sizeof(KilnPacingApi), KILN_PACING_VERSION}, &t_s
 // (they cannot be taken out safely) but deliver nothing.
 void KILN_CALL on_unload(void*) {
     g_armed.store(0, std::memory_order_release);
-    g_loop_fn.store(nullptr, std::memory_order_release);
-    g_server_fn.store(nullptr, std::memory_order_release);
+    g_receiver.store(nullptr, std::memory_order_release);
 }
 
 bool sym(const char* name, uintptr_t* out) { return g_api->symbol(KilnStr{name, std::strlen(name)}, out) == KILN_OK; }
