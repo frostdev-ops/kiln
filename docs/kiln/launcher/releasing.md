@@ -63,7 +63,9 @@ builds without complete valid public registration. Ordinary unconfigured develop
 
 `--selftest` reports `releaseBuild` and `nexusOAuth: {enabled, configured, clientId, redirectUri}` from the compiled
 backend. Disabled builds report false/false/null/null and require no provider or token-store access. Release report
-checks accept this explicit disabled variant and require complete registration for enabled variants. A configured
+checks require the reported capability to match `KILN_NEXUS_ENABLED` and, for enabled variants, the exact public
+client ID and redirect URI supplied for the release. Keep those expected environment values set when running
+standalone AppImage, Windows or clean-Linux startup checks. A configured
 selftest cannot establish Nexus approval: approval, confirmed scopes/API compatibility, and real consent/API/
 refresh/sign-out/keyring evidence on Windows and Linux/Deck are release gates only when Nexus is enabled. Shipping
 the disabled variant is authorized while that approval is pending.
