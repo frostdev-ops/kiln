@@ -24,6 +24,13 @@ check("Systems.list", #all > 500, #all .. " systems")
 check("Systems.list search", #Systems.list("stamina") > 0)
 
 local ticks, healed, profiled, observed = 0, false, false, 0
+-- the world's flame: the replicated level (NetworkServerProgress) and the stored one (the progress entity's Level attribute)
+local function flame()
+  for e, np in Ecs.each("NetworkServerProgress") do
+    return np.level, Ecs.get(e, "Level").dataStorage[0], Ecs.get(e, "Level").dataStorage[1]
+  end
+end
+local flameBefore, flameTarget
 Observe("EntityDiedEvent", function(e) observed = observed + 1 end)
 
 -- Events: post through the game's own queue, observe it after the next step
@@ -54,6 +61,9 @@ registerForEvent("onWorldEnter", function()
     check("Res.text item", Res.text(g) == "Wood Logs", Res.text(g))
     check("Res.text item name ref", Res.text(logs.name) == "Wood Logs", Res.text(logs.name))
   end
+  -- Res.text for a tag that is no item or template: a perk's name, from the client catalog's loca table (a server has no loca)
+  local pg, perk = Res.find("Perk", "Perk_Resistance_Lightning_T1")
+  check("Res.text any loca tag (a perk's name)", pg ~= nil and Res.text(perk.name) == "Shock Resistance", pg and Res.text(perk.name))
   local tg = Res.find("TemplateResource", "Animal_Wildlife_T1_Goat_AG2")
   check("Res.text template", tg ~= nil and Res.text(tg) == "Common Goat", tg and Res.text(tg))
   check("Res.text unknown is nil", Res.text("00000000-0000-0000-0000-000000000001") == nil)
@@ -91,10 +101,33 @@ Tick.add(function(dt)
       healed = true
     end
     check("Ecs.player on a server without players", Ecs.player() == nil)
+    -- Admin.setFlameLevel (kiln.knowledge's flame): argument range now, the write over the next ticks, put back at the end
+    check("Admin.setFlameLevel range", not pcall(Admin.setFlameLevel, 0) and not pcall(Admin.setFlameLevel, 256))
+    local fl, stored, max = flame()
+    flameBefore = fl
+    check("flame level readable", fl ~= nil and fl == stored and max >= 2, tostring(fl) .. " / " .. tostring(stored) .. " / " .. tostring(max))
+    if fl then
+      flameTarget = fl < max and fl + 1 or fl - 1
+      Admin.setFlameLevel(flameTarget)
+    end
     local okLevel, levelErr = pcall(Admin.setLevel, 20)
     check("Admin.setLevel refuses with no player", not okLevel and tostring(levelErr):find("no player") ~= nil, levelErr)
     local okGive, giveErr = pcall(Admin.give, "wood logs", 1)
     check("Admin.give by English name resolves", okGive or not tostring(giveErr):find("no ItemInfo"), okGive or giveErr)
+  end
+  if ticks == 58 and flameBefore then
+    local fl, stored = flame()
+    check("Admin.setFlameLevel sets the world's flame level", fl == flameTarget and stored == flameTarget, tostring(fl) .. " / " .. tostring(stored) .. " (was " .. flameBefore .. ")")
+    Admin.setFlameLevel(250)
+  end
+  if ticks == 66 and flameBefore then
+    local fl, stored, max = flame()
+    check("a level above the game's maximum is limited by the game's formula", fl == max and stored == max, tostring(fl) .. " / " .. tostring(stored) .. " (maximum " .. tostring(max) .. ")")
+    Admin.setFlameLevel(flameBefore)
+  end
+  if ticks == 74 and flameBefore then
+    local fl, stored = flame()
+    check("the flame level is put back", fl == flameBefore and stored == flameBefore, tostring(fl) .. " / " .. tostring(stored))
   end
   if ticks == 60 then
     local ok, r = pcall(Events.post, "TestEvent1", {data = 42})

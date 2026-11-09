@@ -197,6 +197,91 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   assert(logs.size()==1&&logs[0].find("level above the cap")!=std::string::npos);
   gKItems=nullptr;gKSpawn=nullptr;gKProgression=nullptr;gItemNames=nullptr;gItemNameCount=0;resetNames();
  }
+ // WP-15: Admin.setFlameLevel on a shimmed kiln.knowledge (the real one writes the world's Level attribute, lab-tested), and
+ // Res.text for any loca tag from a catalog file.
+ {
+  gAdminQueue.clear();
+  must(L,two,"local ok,e=pcall(Admin.setFlameLevel,3);assert(not ok and tostring(e):find('unavailable'))");
+  static std::vector<uint32_t> asked;static KilnResult setRc=KILN_OK,resultRc=KILN_ERR_NOT_FOUND;static KilnFlameResult out{};
+  KilnKnowledgeApi know{};know.header={sizeof(know),KILN_KNOWLEDGE_VERSION};
+  know.flame_set=[](KilnOwner,uint32_t level,uint64_t* id)->KilnResult{if(setRc==KILN_OK){asked.push_back(level);*id=7;}return setRc;};
+  know.flame_result=[](uint64_t request,KilnFlameResult* o)->KilnResult{if(request!=7||resultRc!=KILN_OK)return KILN_ERR_NOT_FOUND;*o=out;return KILN_OK;};
+  gKKnowledge=&know;
+  must(L,two,"local ok,e=pcall(Admin.setFlameLevel,0);assert(not ok and tostring(e):find('1 to 255'))");
+  must(L,two,"local ok,e=pcall(Admin.setFlameLevel,256);assert(not ok and tostring(e):find('1 to 255'))");
+  must(L,two,"local ok,e=pcall(Admin.setFlameLevel,'x');assert(not ok)");
+  gInWorld=false;must(L,two,"local ok,e=pcall(Admin.setFlameLevel,5);assert(not ok and tostring(e):find('not in a world you host'))");gInWorld=true;
+  assert(gAdminQueue.empty()&&asked.empty());
+  must(L,two,"Admin.setFlameLevel(6)");assert(gAdminQueue.size()==1&&asked.empty());  // queued, as SET
+  logs.clear();armAdmin(0);assert(asked.size()==1&&asked[0]==6&&gFlameWatch.size()==1&&logs.empty());
+  armAdmin(0);assert(gFlameWatch.size()==1&&logs.empty());                              // no result yet: waits
+  out={};out.size=sizeof out;out.status=KILN_OK;out.requested=6;out.after=6;out.mirrored=1;resultRc=KILN_OK;
+  armAdmin(0);assert(gFlameWatch.empty()&&logs.empty());                                // written as asked: silent
+  resultRc=KILN_ERR_NOT_FOUND;must(L,two,"Admin.setFlameLevel(250)");armAdmin(0);assert(asked.back()==250&&gFlameWatch.size()==1);
+  out.requested=250;out.after=20;out.clamped=1;resultRc=KILN_OK;armAdmin(0);                             // the game's formula limited it
+  assert(gFlameWatch.empty()&&logs.size()==1&&logs[0].find("above the game's maximum")!=std::string::npos&&logs[0].find("20")!=std::string::npos);
+  logs.clear();setRc=KILN_ERR_UNAVAILABLE;must(L,two,"Admin.setFlameLevel(4)");armAdmin(0);
+  assert(gFlameWatch.empty()&&logs.size()==1&&logs[0].find("was not run by the game")!=std::string::npos);
+  logs.clear();setRc=KILN_OK;resultRc=KILN_ERR_NOT_FOUND;must(L,two,"Admin.setFlameLevel(4)");armAdmin(0);
+  out={};out.size=sizeof out;out.status=KILN_ERR_INTERNAL;strcpy(out.reason,"the attribute write faulted");resultRc=KILN_OK;armAdmin(0);
+  assert(gFlameWatch.empty()&&logs.size()==1&&logs[0].find("the attribute write faulted")!=std::string::npos);
+  logs.clear();resultRc=KILN_ERR_NOT_FOUND;must(L,two,"Admin.setFlameLevel(4)");armAdmin(0);
+  out={};out.size=sizeof out;out.status=KILN_OK;out.after=4;out.mirrored=0;strcpy(out.reason,"NetworkServerProgress.level did not follow within 180 updates");resultRc=KILN_OK;armAdmin(0);
+  assert(gFlameWatch.empty()&&logs.size()==1&&logs[0].find("not mirrored")!=std::string::npos&&logs[0].find("180 updates")!=std::string::npos);
+  logs.clear();resultRc=KILN_ERR_NOT_FOUND;
+  for(int i=0;i<8;++i) { must(L,two,"Admin.setFlameLevel(4)"); }
+  armAdmin(0);
+  for(int i=0;i<1700;++i)armAdmin(0);  // eight serialized 181-step mirror waits exceed the old watcher deadline
+  assert(gFlameWatch.size()==8&&logs.empty());
+  out={};out.size=sizeof out;out.status=KILN_OK;out.after=4;out.mirrored=1;resultRc=KILN_OK;armAdmin(0);
+  assert(gFlameWatch.empty()&&logs.empty());
+  know.header.size=8;must(L,two,"local ok,e=pcall(Admin.setFlameLevel,3);assert(not ok and tostring(e):find('unavailable'))");  // an older kiln.knowledge
+  gKKnowledge=nullptr;gAdminQueue.clear();logs.clear();
+
+  // Res.text: any loca tag from the catalog's `loca` section (a server has no loca of its own). Hermetic: no other place may
+  // hold a catalog (this machine may have a real one under HOME).
+  std::vector<std::pair<std::string,std::string>> savedEnv;
+  for(const char* n:{"HOME","XDG_DATA_HOME","KILN_DATA_DIR","WINE_HOST_HOME","WINE_HOST_XDG_DATA_HOME","WINEHOMEDIR","LOCALAPPDATA","KILN_CATALOG"}){
+   if(const char* v=std::getenv(n))savedEnv.emplace_back(n,v);
+   unsetenv(n);
+  }
+  uint8_t g[16];assert(res::parseGuid("4d8d0e3a-1b0f-4783-808c-1203bdd118ca",g));
+  const uint32_t tag=refl::fnv(std::string_view(reinterpret_cast<const char*>(g),16));
+  char hex[16];snprintf(hex,sizeof hex,"0x%08x",tag);
+  auto catalog=root/"catalog";std::filesystem::create_directories(catalog);
+  std::ofstream(catalog/"client.json")<<"{\"format\":1,\"game\":{\"steamBuild\":\"26430625\",\"svn\":\"1287369\"},\"sections\":{\"items\":[{\"name\":\"x\",\"id\":\"0x00000001\",\"text\":\"not loca\"}],\"loca\":["
+    "{\"id\":\""<<hex<<"\",\"text\":\"Shock Resistance\"},{\"id\":\"0x00000002\",\"text\":\"<b>Bold</b> \\\"quoted\\\"\"},{\"id\":\"bad\",\"text\":\"skipped\"}],"
+    "\"fields\":{\"loca\":[]}}}";
+  setenv("KILN_CATALOG",catalog.string().c_str(),1);settexts::reset();
+  std::string guidText="4d8d0e3a-1b0f-4783-808c-1203bdd118ca";
+  must(L,two,("assert(Res.text('"+guidText+"')=='Shock Resistance')").c_str());
+  assert(settexts::table()->text.size()==2&&settexts::table()->build=="26430625 (svn 1287369)");
+  assert(settexts::table()->text.at(2)=="<b>Bold</b> \"quoted\"");                                   // raw, with the game's markup
+  {
+   // Bad entries must not truncate the table or turn an oversized hexadecimal id into a real low id.
+   std::ofstream(catalog/"bad-entries.json")<<"{\"sections\":{\"loca\":[null,5,[],{\"id\":\"0x100000001\",\"text\":\"wrapped\"},"
+     "{\"id\":\"0x00000007\",\"text\":\"seven\"},{\"id\":\"0x00000008\",\"id\":\"bad\",\"text\":\"bad duplicate\"}]}}";
+   std::string why;
+   auto parsed=settexts::parseFile(catalog/"bad-entries.json",why);
+   assert(parsed&&parsed->text.size()==1&&parsed->text.at(7)=="seven");
+   std::ofstream(catalog/"deep.json")<<std::string(70,'[')<<std::string(70,']');
+   assert(!settexts::parseFile(catalog/"deep.json",why)&&why.find("not a readable catalog")!=std::string::npos);
+  }
+  must(L,two,"assert(Res.text('00000000-0000-0000-0000-000000000000')==nil)");                           // the zero GUID
+  must(L,two,"assert(Res.text('4d8d0e3a-1b0f-4783-808c-1203bdd118cb')==nil)");                           // an unknown tag
+  tickThread=false;must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());tickThread=true;    // reads on the tick thread only
+  // a catalog without a loca section (a server catalog), then none at all: nil, one console line per attempt, no retry for 60 s
+  std::ofstream(catalog/"client.json")<<"{\"format\":1,\"sections\":{\"items\":[]}}";settexts::reset();logs.clear();
+  must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());
+  assert(logs.size()==1&&logs[0].find("no 'loca' section")!=std::string::npos);
+  must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1);
+  std::ofstream(catalog/"client.json")<<"{ not json";settexts::reset();logs.clear();
+  must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("not a readable catalog")!=std::string::npos);
+  setenv("KILN_CATALOG",(root/"nowhere").string().c_str(),1);settexts::reset();logs.clear();
+  must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("no client catalog found")!=std::string::npos);
+  unsetenv("KILN_CATALOG");settexts::reset();logs.clear();
+  for(auto& [n,v]:savedEnv)setenv(n.c_str(),v.c_str(),1);
+ }
  for(auto& [name,owner]:gSystemOwners){(void)name;sys::releaseOwner(owner);}
  lua_close(L);gSystemOwners.clear();gInWorld=false;gWorld=0;
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.

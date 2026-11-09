@@ -536,6 +536,7 @@ internal static partial class KilnApis
         "M:Kiln.WorldProgress.Chest(System.UInt32,Kiln.WorldPosition)", // WorldProgress.Chest(uint, WorldPosition): Services.RequireTickThread
         "M:Kiln.WorldProgress.ChestOf(Kiln.EntityId)", // WorldProgress.ChestOf(EntityId): Services.RequireTickThread
         "M:Kiln.WorldProgress.Chests(Kiln.WorldPosition,System.Double)", // WorldProgress.Chests(WorldPosition, double): Services.RequireTickThread
+        "M:Kiln.WorldProgress.LimitsAt(System.Int32)", // WorldProgress.LimitsAt(int): Services.RequireTickThread
         "M:Kiln.WorldProgress.get_Flame", // WorldProgress.Flame.get: Services.RequireTickThread
         "M:Kiln.WorldProgress.get_FlameLevel", // WorldProgress.FlameLevel.get: via WorldProgress.Flame.get
         "M:Kiln.WorldProgress.get_Survivors", // WorldProgress.Survivors.get: via Knowledge.Npcs.get

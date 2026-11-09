@@ -1,6 +1,6 @@
 # World progress: the world's flame, difficulty, spires, shrines, bosses, chests and a character's quests
 
-Read-only, typed answers to "how far is this world, and this character?": the flame level, the difficulty, Ancient
+Typed answers to "how far is this world, and this character?": the flame level, the difficulty, Ancient
 Spires, Flame Shrines and Sanctums, Shroud Roots and Elixir Wells, Ancient Obelisks, bosses, survivors, chests, and a
 character's quests (the game's and Kiln's), with events when they change. Evidence: [docs/re/world-status.md](../../re/world-status.md).
 
@@ -12,8 +12,8 @@ character's quests (the game's and Kiln's), with events when they change. Eviden
 | Catalog | `kiln catalog` sections `spires`, `shrines`, `shroudRoots`, `obelisks`, `bosses` ([catalogs.md](../modding/catalogs.md)) |
 | Tests | `managed/tests/Kiln.Quests.Tests` (no game), `mods/tests/worldstatus-test` (lab) |
 
-Nothing here changes the game. To change progress use [Knowledge](knowledge.md) (grant, revoke, set: their rules apply)
-and [Quests](quests.md).
+`SetFlameLevel` changes the Mother Flame. To change other progress use [Knowledge](knowledge.md) (grant, revoke, set:
+their rules apply) and [Quests](quests.md).
 
 ## What the game keeps, and where
 | Fact | Per | Read as |
@@ -71,6 +71,9 @@ if (WorldProgress.Chest(new WorldPosition(3800, 833, 1434)) is { } c) Log.Info(c
 | `WorldProgress.Available`, `Status` | any | `WorldProgressStatus`: the services in use, the index state (`Places`, `Bosses`: NotStarted, Building, Ready, Failed), counts, seconds, problems |
 | `PlacesReady`, `BossesReady`, `WhenReady(bosses, timeout)` | any | the lists are read once per process in the background, from a moment after the first use (places well under a second, bosses a second or two) |
 | `Flame`, `FlameLevel` | tick | `FlameStatus {Level, Altars, HighestAltarLevel, WaterSources, Entity}`; null before the world runs |
+| `Flame.Stored`, `Flame.Max`, `Flame.SystemLevel` | tick | the authoritative Level attribute, its maximum, and the level the game's rules read; null when unavailable |
+| `SetFlameLevel(level)` | any | `Task<FlameChange>`; writes the world's Level attribute, marks it for saving, runs the game's formula and waits for its replicated copy |
+| `LimitsAt(level)` | tick | `FlameLimits {Level, Altars, WaterSources, FogResistance, FogRemovalLevel?, FogRemoved?}` from the balancing table and current server setting; null when unavailable or outside the table |
 | `Difficulty` | tick | `WorldDifficulty {Preset, Settings, IsCustom, Number(name)}`; null until kiln.settings is ready |
 | `Spires`, `Spire(id)` | any (reads: tick) | `Spire {Id, Template, NameTag, Position, Unlock, TopReached?, Beacon?}`, `Unlocked`, `UnlockedFor(p)`, `TopReachedBy(p)`, `BeaconLit` |
 | `Shrines`, `Shrine(id)` | any (reads: tick) | `FlameShrine {Id, Kind (Shrine, Sanctum), Region, Template, NameTag, Position, Discovery}`, `FoundBy(p)` |
@@ -89,8 +92,30 @@ Readable, stable for a game build, and the same as the catalog's `name` (rules: 
 - bosses: the boss template, lower-case, numbered when placed more than once: `enemy_boss_fog_dragon`, `enemy_midboss_vukah_bigfoot_bosshealthbar`;
 - vanilla quests: `quest:0x<entryId>`, with a `Name` from the game's query behind them (142 of 188); Kiln quests: `<mod>:<quest>`.
 
-Display names are loca: the server has none. `NameTag` is the loca tag id; `kiln catalog` gives the English text
-(`displayName`) and the launcher shows it.
+Display names are loca: the server's game data has none. `NameTag` is the loca tag id; [Texts.Get](../modding/texts.md)
+reads the English text from a client catalog installed on the server machine.
+
+### Change the Mother Flame
+
+```csharp
+var change = await WorldProgress.SetFlameLevel(4);
+if (!change.Ok || !change.Mirrored) Log.Warn(change.ToString());
+Log.Info($"{WorldProgress.Flame}; {WorldProgress.LimitsAt(4)}");
+```
+
+The write uses the same attribute functions as the game's admin command. The level is saved in the world; it stays after
+the mod unloads. `FlameChange` reports the stored value before and after, whether it was marked written, whether the game
+mirrored it, and any refusal. `Ok` means the write ran; check `Mirrored` for the replicated copy. With no running Mother
+Flame or unsupported game functions it returns a failed result. An invalid level throws `ArgumentOutOfRangeException`
+(1 through `Flame.Max`, normally 20). Lowering a level is allowed; the game decides what happens to existing altars.
+If the attribute formula fails, Kiln restores and verifies the old level and maximum; a failed restoration is explicit
+in the result. Accepted changes complete from the native result. They serialize, so a full queue can take 1638 program
+updates, or longer while the program is paused; callers do not report a timeout while a queued write can still run.
+
+`Flame.Altars` and `Flame.WaterSources` count existing objects. `LimitsAt` reports their permitted maxima. The
+`flameLevelFogRemoval` setting is a threshold, not a stored flame level; changing the level does not change that setting.
+The game's `ServerProgressSystem` reads the new level for the altar, water-source and fog rules. A joined client is still
+needed to check menus, placement and visible fog.
 
 ### Facts
 `ProgressFact {Query, Scope}`: the requirement as the game stores it and where it lives (`World`, `Character`, `Both` = a
