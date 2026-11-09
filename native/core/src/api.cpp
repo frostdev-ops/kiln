@@ -115,7 +115,8 @@ const void* KILN_CALL api_service(KilnStr name, uint32_t min_version) {
     if (sv(name) == KILN_PROFILE_SERVICE) return min_version <= KILN_PROFILE_VERSION ? profile::table() : nullptr;
     // kiln.hooks is the one service early plugins may use before hooks are decided (hooks::serve_early; its `available`
     // flag says whether it is on, and boot clears it again in safe idle).
-    if (!g_hooks && sv(name) != KILN_HOOKS_SERVICE) return nullptr;
+    // Only the core's own table, never a published one of the same name.
+    if (!g_hooks) return sv(name) == KILN_HOOKS_SERVICE ? svc::find(sv(name), min_version) : nullptr;
     if (const void* t = svc::find(sv(name), min_version)) return t;
     std::lock_guard lock(g_published_mutex);
     for (const auto& p : g_published) {

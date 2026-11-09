@@ -24,7 +24,8 @@ bool serve_early();
 void withdraw_early();
 
 // Boot end, after every plugin and native mod started: checks nothing hooked over Kiln's detours, writes
-// <kiln>/state/hooks.json (phase "boot") and logs the summary. No-op when the service is off (safe idle).
+// <kiln>/state/hooks.json (phase "boot") and logs the summary. No-op when the registry never started (safe idle;
+// a safe idle start where early plugins placed links still writes the map).
 void boot_complete();
 
 // Writes hooks.json now (phase is recorded in the file). The first world and link changes write it on their own.
