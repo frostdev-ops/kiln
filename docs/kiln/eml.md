@@ -184,9 +184,10 @@ It fails soft:
 | `directory metadata (src) failed` | the folder has no `src` (or `src` is a file). |
 | `file metadata failed` | `src/mod.lua` is missing, or it is a folder. |
 | `canonicalize failed` | the folder and file exist, but the OS cannot resolve the path. Under Wine/Proton, report the raw error text. |
-| `containment check failed` | `src/mod.lua` is a link, or resolves outside the mod folder. Links are refused. |
+| `containment check failed` | `src/mod.lua` resolves outside the mod folder (a link that leaves it). |
 | `open failed` | the file exists but cannot be opened (permissions, or another program has it locked). |
-| `read failed` | the file is not valid UTF-8 text. |
+| `read failed` | the file is not valid UTF-8 text, or reading it failed. `(it reads fine now: ...)` means it changed on disk in between. |
+| `zip entry failed` | a zipped mod has no `src/mod.lua`. |
 
 The last part of the line says which parts of the path exist right now (`root exists, src missing`).
 If a read fails later, during the run, eml.log and kiln.log have a line
@@ -194,8 +195,10 @@ If a read fails later, during the run, eml.log and kiln.log have a line
 the stage, whether the mod folder and `src` still exist, and how long after the mod loaded it happened. Only that mod
 is switched off. A long gap means something changed the folder while the game was starting.
 
-The launcher refuses to remove a Library version while a game or server runs ("Close Enshrouded first: the game may be
-reading this mod"), and "Clean up" never lists a version the game's `kiln/profile.json` still points at.
+The launcher refuses to remove a Library version while the game runs ("Close Enshrouded first: the game may be
+reading this mod"), and "Clean up" never lists a version the game's `kiln/profile.json` still points at. A running
+dedicated server blocks removal only when its own `kiln/profile.json` or `profile.once.json` points into the Library;
+servers normally get copies of their mods (`kiln/mods/`), so an always-on server does not block it.
 
 How it composes with Kiln's asset layer: EML changes the files before the game reads them, and `kiln.assets`
 overrides resources and blobs in memory after the game reads them. An override in a Kiln asset pack wins over an EML

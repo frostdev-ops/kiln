@@ -830,9 +830,22 @@ struct Usage {
 }
 
 struct ActiveFile {
-    install: crate::game::GameInstall,
+    /// The game folder's name, for `<profile> (active in <game>)`.
+    game: String,
     once: bool,
-    file: crate::profile::ProfileFile,
+    /// The profile id the file was written from.
+    id: String,
+    entries: Vec<Listed>,
+}
+
+/// One mod entry of a game's profile file, its game-side path resolved to the host once (canonical form; lower case on
+/// Windows), so `unused` does not resolve every entry again for every library version.
+struct Listed {
+    kind: ModKind,
+    id: Option<String>,
+    version: Option<String>,
+    hash: Option<String>,
+    host: Option<PathBuf>,
 }
 
 impl Usage {
@@ -847,7 +860,7 @@ impl Usage {
             for (once, rel) in [(false, crate::paths::game::PROFILE), (true, crate::paths::game::PROFILE_ONCE)] {
                 // an unreadable file lists nothing we can name; the running check still protects a live game
                 if let Ok(Some(file)) = crate::util::read_json::<crate::profile::ProfileFile>(&install.path.join(rel)) {
-                    games.push(ActiveFile { install: install.clone(), once, file });
+                    games.push(ActiveFile::of(&install, once, &file));
                 }
             }
         }
@@ -861,13 +874,12 @@ impl Usage {
             .filter(|(_, mods)| mods.list(r.kind).iter().any(|m| m.id == r.id && m.version == r.version && m.hash == r.hash))
             .map(|(id, _)| id.clone())
             .collect();
-        let entry = checked_entry(dirs, r).ok();
+        let entry = checked_entry(dirs, r).ok().map(|e| host_key(&e));
         for g in &self.games {
-            if out.iter().any(|u| *u == g.file.id) || !file_lists(&g.file, &g.install, r, entry.as_deref()) {
+            if out.iter().any(|u| *u == g.id) || !g.lists(r, entry.as_deref()) {
                 continue;
             }
-            let game = g.install.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| g.install.id.clone());
-            out.push(format!("{} ({} in {game})", g.file.id, if g.once { "play-once" } else { "active" }));
+            out.push(format!("{} ({} in {})", g.id, if g.once { "play-once" } else { "active" }, g.game));
         }
         out.sort();
         out.dedup();
@@ -875,27 +887,38 @@ impl Usage {
     }
 }
 
-/// Is `path` the folder or inside it (canonical forms; Windows compares without case)?
-fn is_inside(path: &Path, folder: &Path) -> bool {
-    let (p, f) = (crate::steam::canon(path), crate::steam::canon(folder));
-    if cfg!(windows) {
-        PathBuf::from(p.to_string_lossy().to_lowercase()).starts_with(f.to_string_lossy().to_lowercase())
-    } else {
-        p.starts_with(&f)
-    }
+/// A host path as compared here: canonical (symlinks such as `/home -> /var/home` resolved), lower case on Windows.
+fn host_key(path: &Path) -> PathBuf {
+    let c = crate::steam::canon(path);
+    if cfg!(windows) { PathBuf::from(c.to_string_lossy().to_lowercase()) } else { c }
 }
 
-/// Does a game's profile file list this library version? By id + version + hash when the file carries them (Z and
-/// native paths do too), else by its game-side path (`Z:\...` or a Windows path) mapped back to the host and compared
-/// with the entry's folder (`path_of` for a plugin DLL lies inside it).
-fn file_lists(file: &crate::profile::ProfileFile, install: &crate::game::GameInstall, r: &LibraryRef, entry: Option<&Path>) -> bool {
-    let by_path = |game_path: &str| entry.is_some_and(|e| {
-        crate::winpath::to_host(game_path, install).is_ok_and(|host| is_inside(&host, e))
-    });
-    let by_id = |id: &str, version: Option<&str>, hash: Option<&str>| id == r.id && version == Some(r.version.as_str()) && hash == Some(r.hash.as_str());
-    match file.mods.folders(r.kind) {
-        Some(list) => list.iter().any(|m| by_id(&m.id, m.version.as_deref(), m.hash.as_deref()) || by_path(&m.path)),
-        None => file.mods.plugin.iter().any(|m| by_id(m.id.as_deref().unwrap_or(""), m.version.as_deref(), m.hash.as_deref()) || by_path(&m.path)),
+impl ActiveFile {
+    fn of(install: &crate::game::GameInstall, once: bool, file: &crate::profile::ProfileFile) -> ActiveFile {
+        let host = |game_path: &str| crate::winpath::to_host(game_path, install).ok().map(|h| host_key(&h));
+        let mut entries = Vec::new();
+        for k in ModKind::ALL {
+            match file.mods.folders(k) {
+                Some(list) => entries.extend(list.iter().map(|m| Listed {
+                    kind: k, id: Some(m.id.clone()), version: m.version.clone(), hash: m.hash.clone(), host: host(&m.path),
+                })),
+                None => entries.extend(file.mods.plugin.iter().map(|m| Listed {
+                    kind: k, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone(), host: host(&m.path),
+                })),
+            }
+        }
+        let game = install.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| install.id.clone());
+        ActiveFile { game, once, id: file.id.clone(), entries }
+    }
+
+    /// Does this profile file list the library version? By id + version + hash when the entry carries them (Z and
+    /// native paths do too), else by its game-side path (`Z:\...` or a Windows path) mapped back to the host and
+    /// compared with the entry's folder (`entry`, a [`host_key`]; a plugin DLL lies inside it).
+    fn lists(&self, r: &LibraryRef, entry: Option<&Path>) -> bool {
+        self.entries.iter().filter(|m| m.kind == r.kind).any(|m| {
+            (m.id.as_deref() == Some(r.id.as_str()) && m.version.as_deref() == Some(r.version.as_str()) && m.hash.as_deref() == Some(r.hash.as_str()))
+                || entry.is_some_and(|e| m.host.as_deref().is_some_and(|h| h.starts_with(e)))
+        })
     }
 }
 
@@ -920,55 +943,110 @@ pub fn unused(dirs: &DataDirs) -> Result<Vec<LibraryRef>> {
     Ok(out)
 }
 
-/// Folders whose game or server process may be reading the library, with the exe to look for first: the installs the
-/// launcher knows (clients and servers) and its local servers (`<data>/servers/*.json`).
-fn game_folders(dirs: &DataDirs) -> Result<Vec<(PathBuf, String)>> {
+/// A folder whose game or server process may be reading the library: the installs the launcher knows (clients and
+/// servers) and its local servers (`<data>/servers/*.json`, as a server install), with the exe to look for first.
+fn game_folders(dirs: &DataDirs) -> Result<Vec<crate::game::GameInstall>> {
     #[derive(Deserialize)]
     struct ServerFolder {
         #[serde(default)]
         dir: Option<PathBuf>,
+        #[serde(default)]
+        prefix: Option<PathBuf>,
     }
-    let mut out: Vec<(PathBuf, String)> = Vec::new();
-    let mut add = |dir: PathBuf, exe: &str| {
-        let c = crate::steam::canon(&dir);
-        if !out.iter().any(|(d, _)| crate::steam::same_path(&crate::steam::canon(d), &c)) {
-            out.push((dir, exe.to_string()));
+    let mut out: Vec<crate::game::GameInstall> = Vec::new();
+    let mut add = |g: crate::game::GameInstall| {
+        let c = crate::steam::canon(&g.path);
+        if !out.iter().any(|d| crate::steam::same_path(&crate::steam::canon(&d.path), &c)) {
+            out.push(g);
         }
     };
     for g in crate::game::known(dirs)? {
-        add(g.path, &g.exe);
+        add(g);
     }
     for e in std::fs::read_dir(dirs.root.join("servers")).into_iter().flatten().flatten() {
         if e.path().extension().is_some_and(|x| x == "json")
-            && let Ok(Some(ServerFolder { dir: Some(dir) })) = crate::util::read_json::<ServerFolder>(&e.path())
+            && let Ok(Some(ServerFolder { dir: Some(dir), prefix })) = crate::util::read_json::<ServerFolder>(&e.path())
         {
-            add(dir, crate::game::SERVER_EXE);
+            add(crate::game::GameInstall {
+                id: format!("server:{}", dir.display()),
+                kind: crate::game::GameKind::Server,
+                path: dir,
+                exe: crate::game::SERVER_EXE.into(),
+                app_id: crate::SERVER_APP_ID,
+                library: None,
+                platform: if cfg!(windows) { crate::game::Platform::Windows } else { crate::game::Platform::Wine },
+                prefix,
+                build_id: None,
+                exe_sha256: None,
+                steam_flavor: None,
+                path_mode: crate::game::PathMode::Copy,
+                source: "server".into(),
+            });
         }
     }
     Ok(out)
 }
 
-/// Refuses (GameRunning) while a game or server of this machine runs: it may be reading a mod from the library, and a
-/// folder removed under it fails minutes into its start (EML reads a mod's `src/mod.lua` long after its `mod.json`).
-/// Uses the running check activation uses (`profile::running_process_with`), for every known game folder.
-fn refuse_while_running(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<()> {
-    for (dir, exe) in game_folders(dirs)? {
-        if let Some(p) = crate::profile::running_process_with(&dir, &exe, &mut *find)? {
+/// Could the dedicated server in `install` be reading library version `r`? Servers get their mods as copies
+/// (`server::control::sync` into `<server>/kiln/mods`, engine folders via `engine_mods::place`), so they read the
+/// library only through a profile file the launcher wrote for them (`profile::activate` / `write_once` work on any
+/// install): `kiln/profile.json` or `kiln/profile.once.json` (chain.ini's DLL paths come from the same entries). True
+/// when one of those entries resolves into this version's folder, or into the library when the version's folder is
+/// unknown, or cannot be resolved at all, or when a file exists but cannot be read (it may point anywhere).
+fn server_reads(dirs: &DataDirs, r: &LibraryRef, install: &crate::game::GameInstall) -> bool {
+    let entry = checked_entry(dirs, r).ok().map(|e| host_key(&e));
+    let library = host_key(&dirs.library());
+    for rel in [crate::paths::game::PROFILE, crate::paths::game::PROFILE_ONCE] {
+        let file = match crate::util::read_json::<crate::profile::ProfileFile>(&install.path.join(rel)) {
+            Ok(Some(f)) => f,
+            Ok(None) => continue,
+            Err(_) => return true,
+        };
+        let reads = ActiveFile::of(install, false, &file).entries.iter().any(|m| match &m.host {
+            None => true,
+            Some(h) => match &entry {
+                Some(e) => h.starts_with(e),
+                None => h.starts_with(&library),
+            },
+        });
+        if reads {
+            return true;
+        }
+    }
+    false
+}
+
+/// Refuses (GameRunning) while a game, or a server that may be reading this version, runs on this machine: a folder
+/// removed under it fails minutes into its start (EML reads a mod's `src/mod.lua` long after its `mod.json`). A client
+/// always counts (a play-once start can point anywhere); a server only when `server_reads` says so, so a server that
+/// runs all the time with synced copies does not block the library. Uses the running check activation uses
+/// (`profile::running_process_with`), for every known game folder.
+fn refuse_while_running(
+    dirs: &DataDirs,
+    r: &LibraryRef,
+    find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>,
+) -> Result<()> {
+    for install in game_folders(dirs)? {
+        if let Some(p) = crate::profile::running_process_with(&install.path, &install.exe, &mut *find)? {
             let server = p.name.to_ascii_lowercase().starts_with("enshrouded_serv");
+            if server && !server_reads(dirs, r, &install) {
+                continue;
+            }
             let message = if server {
                 "Stop the Enshrouded server first: it may be reading this mod."
             } else {
                 "Close Enshrouded first: the game may be reading this mod."
             };
             return Err(Error::new(ErrorCode::GameRunning, message)
-                .with_detail(serde_json::json!({ "pid": p.pid, "name": p.name, "folder": dir.display().to_string() })));
+                .with_detail(serde_json::json!({ "pid": p.pid, "name": p.name, "folder": install.path.display().to_string() })));
         }
     }
     Ok(())
 }
 
-/// Removes a version. Refuses (GameRunning) while a game or server runs, whatever `force` says. Refuses (Conflict)
-/// while a profile lists the version, or a known game's active or play-once profile file points at it, unless `force`.
+/// Removes a version. Refuses (GameRunning) while a game runs, or a server whose profile file may point at the
+/// version, whatever `force` says. Refuses (Conflict) while a profile lists the version, or a known game's active or
+/// play-once profile file points at it, unless `force`.
 pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: bool) -> Result<()> {
     remove_with(dirs, r, force, &mut crate::proc::find_exe)
 }
@@ -984,7 +1062,7 @@ pub fn remove_with(
     if !folder.is_dir() {
         return Err(Error::not_found(format!("{} {} {} is not in the library", r.kind.as_str(), r.id, r.version)));
     }
-    refuse_while_running(dirs, find)?;
+    refuse_while_running(dirs, r, find)?;
     let used = users(dirs, r);
     if !used.is_empty() && !force {
         return Err(Error::new(ErrorCode::Conflict, format!("{} {} is used by profile(s) {}", r.id, r.version, used.join(", "))).with_detail(used));

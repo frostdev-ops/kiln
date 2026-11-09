@@ -256,7 +256,7 @@ impl ModRegistry {
             inner: Arc::new(ModInner {
                 info: mod_info,
                 fs: Mutex::new(fs),
-                loaded: std::time::Instant::now(),
+                loaded: std::time::Instant::now(), // kiln-eml: Mod::age
             }),
         }))
     }

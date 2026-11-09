@@ -68,7 +68,8 @@ pub async fn library_add(app: AppHandle, game_id: String, paths: Vec<String>) ->
     }))
 }
 
-/// Refuses (game_running) while a game or server runs, whatever `force` says (the game may be reading the mod).
+/// Refuses (game_running) while a game runs, or a server whose profile file points into the library, whatever `force`
+/// says (it may be reading the mod).
 #[tauri::command]
 pub async fn library_remove(entry: LibraryRef, force: bool) -> Result<(), Error> {
     blocking(move || library::remove(&dirs()?, &entry, force)).await

@@ -1,10 +1,10 @@
 use std::{cell::{Ref, RefCell}, collections::{HashMap, HashSet}, rc::Rc};
 
 use mlua::Table;
-use mod_loader::{FileSystem, Mod, ModManifest, ReadFailure};
+use mod_loader::{FileSystem, Mod, ModManifest, ReadFailure}; // kiln-eml: ReadFailure
 use parking_lot::MutexGuard;
 
-use crate::{log::error, lua::{LuaError, LuaValue}, util::RequirePath};
+use crate::{log::error, lua::{LuaError, LuaValue}, util::RequirePath}; // kiln-eml: log::error
 
 pub struct ModLuaState {
     r#mod: Mod,

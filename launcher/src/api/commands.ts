@@ -1033,7 +1033,7 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
-/** Rejects with game_running while a game or server runs, even with force (it may be reading the mod). */
+/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod). */
 export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
 /** The versions Clean up may remove: in no profile, and not in any known game's active or play-once profile file. */
 export const libraryUnused = () => call<LibraryRef[]>("library_unused");

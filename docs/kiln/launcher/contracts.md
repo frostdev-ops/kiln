@@ -660,7 +660,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
-| library | `library_remove` | entry: LibraryRef, force: boolean | null (`game_running` while a game or server runs, even with `force`) |
+| library | `library_remove` | entry: LibraryRef, force: boolean | null (`game_running` while a game runs, or a server whose `profile.json` / `profile.once.json` points into the library, even with `force`) |
 | library | `library_unused` | | `LibraryRef[]` (in no profile and no known game's `profile.json` / `profile.once.json`) |
 | library | `library_lint` | entry: LibraryRef \| null, profileId: ProfileId \| null | `LintReport` (`schema/lint-report.schema.json`) |
 | config | `config_list` | target: ConfigTarget | `ConfigFileInfo[]` |
@@ -901,7 +901,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `manifest` | `parse_kiln(&str) -> Result<KilnManifest>`, `read_kiln`, `parse_native(&str) -> Result<NativeManifest>`, `read_native`; `Side`, `RunSide`, `Clients::default_for`, `ModKind`, `KilnManifest`, `Dependency`, `Incompatibility`, `TestsSpec`, `NativeManifest`, `NativePhase`, `IncompatibleSpec`, `OneOrMany` |
 | `semver` | `SemVersion::{parse, compare, release}`, `VersionRange::{parse, at_least_same_major, satisfies, is_any}` |
 | `resolver` | `resolve(&[Candidate], &Environment) -> Result<Resolution>`; `Candidate`, `Environment`, `ModState`, `Rejection`, `Resolution` |
-| `library` | `list(&DataDirs, Option<ModKind>)`, `detect(&Path)`, `import(&DataDirs, &[PathBuf], &mut dyn Progress)`, `remove(&DataDirs, &LibraryRef, bool)` (GameRunning while a game or server runs, whatever the bool), `unused(&DataDirs)`, `users`, `path_of`; `LibraryRef`, `LibraryEntry`, `LibraryVersion`, `ImportSource`, `DetectKind`, `Detected`, `ImportReport`, `Skipped` |
+| `library` | `list(&DataDirs, Option<ModKind>)`, `detect(&Path)`, `import(&DataDirs, &[PathBuf], &mut dyn Progress)`, `remove(&DataDirs, &LibraryRef, bool)` (GameRunning while a game runs, or a server whose profile file points into the library, whatever the bool), `unused(&DataDirs)`, `users`, `path_of`; `LibraryRef`, `LibraryEntry`, `LibraryVersion`, `ImportSource`, `DetectKind`, `Detected`, `ImportReport`, `Skipped` |
 | `profile` | `list`, `get`, `create(&DataDirs, &str, Option<&str>)`, `save`, `delete`, `resolve_preview`, `activate(&DataDirs, &str, &GameInstall) -> Result<Activation>`, `deactivate`, `active`, `render`, `read_game_profile`, `fingerprint(&Profile)`; `ProfileFile`, `ProfileFileMods`, `FolderMod`, `PluginMod`, `Dropins`, `BoundServer`, `ModpackRef`, `Profile`, `ProfileMods`, `ProfileMod`, `DataDirMode`, `ProfileSummary`, `ProfileCounts`, `Activation`, `ResolvePreview`, `NativePlanEntry` |
 | `quick` | `add(&DataDirs, &GameInstall, &[PathBuf], &mut dyn Progress) -> Result<AddReport>`, `add_with` (running given), `ensure_default`, `ensure_default_with`, `revert(&DataDirs, &str, &[ProfileChange]) -> Result<Profile>`, `is_modpack`, `DEFAULT_PROFILE`; `AddReport`, `AddedMod`, `MissingMod`, `ProfileChange`, `Target` |
 | `playonce` | `render(&PlayOnce) -> String`, `decide(&[u8], i64, bool, bool)`, `write(&Path, &PlayOnce)`, `pending(&Path)`, `new_nonce()`; `PlayOnce`, `PlayOnceMode`, `PlayOnceStatus` |

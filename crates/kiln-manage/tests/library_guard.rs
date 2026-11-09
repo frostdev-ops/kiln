@@ -87,24 +87,58 @@ fn removal_refuses_while_the_game_runs_and_force_does_not_change_that() {
 }
 
 #[test]
-fn a_server_that_runs_blocks_removal_too() {
+fn a_running_server_blocks_removal_only_when_its_profile_file_points_at_the_library() {
     let t = tmp("server");
     let dirs = DataDirs::at(t.0.join("data"));
     let r = import(&dirs, &t.0, "new-items", "1.0.0", "a");
-    // a server folder the launcher knows only through its server record
+    let other = import(&dirs, &t.0, "new-items", "1.1.0", "b");
+    let z = |x: &LibraryRef| kiln_manage::winpath::unix_to_z(&library::path_of(&dirs, x).unwrap()).unwrap();
+    // a server folder the launcher knows only through its server record, with its mods synced in as copies
     let srv = t.0.join("EnshroudedServer");
-    std::fs::create_dir_all(&srv).unwrap();
+    put(&srv, "kiln/mods/new-items/.kiln-source.json", b"{}");
     put(&t.0, "data/servers/home.json", format!(r#"{{ "id": "home", "dir": {:?} }}"#, srv.display().to_string()).as_bytes());
-    let e = library::remove_with(&dirs, &r, true, &mut only(&srv, game::SERVER_EXE, running(77, "enshrouded_serv"))).unwrap_err();
+    let server = || only(&srv, game::SERVER_EXE, running(77, "enshrouded_serv"));
+    // copies only: the running server does not read the library, removal goes ahead (the user's always-on server)
+    library::remove_with(&dirs, &other, false, &mut server()).unwrap();
+    let other = import(&dirs, &t.0, "new-items", "1.1.0", "b");
+
+    // a profile activated on the server in Z mode points at r: refused, force or not
+    write_profile_file(&srv, "kiln/profile.json", "srv", serde_json::json!([{ "id": "new-items", "path": z(&r) }]));
+    let e = library::remove_with(&dirs, &r, true, &mut server()).unwrap_err();
     assert_eq!(e.code, ErrorCode::GameRunning);
     assert!(e.message.starts_with("Stop the Enshrouded server first"), "{}", e.message);
-    // a server installed like a game (an install record) is covered by the same check
+    // ... another version of the mod is not read by it (it is free to go, force because the file lists the mod id)
+    library::remove_with(&dirs, &other, true, &mut server()).unwrap();
+    // a copy-mode file (game-side relative paths) does not read the library either
+    write_profile_file(&srv, "kiln/profile.json", "srv", serde_json::json!([
+        { "id": "new-items", "version": r.version, "hash": r.hash, "path": "profiles/srv/kiln/new-items" }]));
+    library::remove_with(&dirs, &r, true, &mut server()).unwrap();
+    let r = import(&dirs, &t.0, "new-items", "1.0.0", "a");
+    // a file that cannot be read, or an entry that cannot be mapped to the host, may point anywhere: refused
+    put(&srv, "kiln/profile.json", b"{ not json");
+    assert_eq!(library::remove_with(&dirs, &r, true, &mut server()).unwrap_err().code, ErrorCode::GameRunning);
+    if cfg!(not(windows)) {
+        // a UNC path has no host path under Wine
+        write_profile_file(&srv, "kiln/profile.json", "srv", serde_json::json!([{ "id": "x", "path": "\\\\host\\share\\x" }]));
+        assert_eq!(library::remove_with(&dirs, &r, true, &mut server()).unwrap_err().code, ErrorCode::GameRunning);
+    }
+    // play-once file too
+    std::fs::remove_file(srv.join("kiln/profile.json")).unwrap();
+    write_profile_file(&srv, "kiln/profile.once.json", "srv", serde_json::json!([{ "id": "new-items", "path": z(&r) }]));
+    assert_eq!(library::remove_with(&dirs, &r, true, &mut server()).unwrap_err().code, ErrorCode::GameRunning);
+
+    // a server installed like a game (an install record) follows the same rule; a client there always refuses
     let t2 = tmp("server-install");
     let dirs2 = DataDirs::at(t2.0.join("data"));
     let r2 = import(&dirs2, &t2.0, "new-items", "1.0.0", "a");
     let srv2 = t2.0.join("srv");
-    game::write_record(&dirs2, &install(&srv2, "srv", GameKind::Server, PathMode::Z), None).unwrap();
-    assert_eq!(library::remove_with(&dirs2, &r2, false, &mut only(&srv2, game::SERVER_EXE, running(78, "enshrouded_serv"))).unwrap_err().code, ErrorCode::GameRunning);
+    game::write_record(&dirs2, &install(&srv2, "srv", GameKind::Server, PathMode::Copy), None).unwrap();
+    let client = t2.0.join("Enshrouded");
+    game::write_record(&dirs2, &install(&client, "client", GameKind::Client, PathMode::Copy), None).unwrap();
+    let e = library::remove_with(&dirs2, &r2, false, &mut only(&client, game::CLIENT_EXE, running(79, "enshrouded.exe"))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning, "a running client refuses even with copies only");
+    assert!(library::path_of(&dirs2, &r2).unwrap().is_dir());
+    library::remove_with(&dirs2, &r2, false, &mut only(&srv2, game::SERVER_EXE, running(78, "enshrouded_serv"))).unwrap();
 }
 
 #[test]
@@ -210,4 +244,30 @@ fn a_real_process_named_like_the_game_blocks_removal() {
     assert_eq!(e.message, "Close Enshrouded first: the game may be reading this mod.");
     assert!(library::path_of(&dirs, &r).unwrap().is_dir());
     library::remove(&dirs, &r, false).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_maps_both_ways() {
+    // Fedora Atomic / Bazzite: /home -> /var/home. The launcher may know the data dir by either path, and Wine may
+    // write the game-side path through either (`Z:\home\...` or `Z:\var\home\...`).
+    let t = tmp("symhome");
+    let real = t.0.join("var/home");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = t.0.join("home");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let game_dir = real.join("Enshrouded");
+    for (data_root, written_through) in [(&link, &real), (&real, &link)] {
+        let dirs = DataDirs::at(data_root.join("data"));
+        let r = import(&dirs, data_root, "new-items", "1.0.0", "a");
+        game::write_record(&dirs, &install(&game_dir, "client", GameKind::Client, PathMode::Z), None).unwrap();
+        let entry = library::path_of(&dirs, &r).unwrap();
+        let rel = entry.strip_prefix(data_root).unwrap();
+        let z = kiln_manage::winpath::unix_to_z(&written_through.join(rel)).unwrap();
+        write_profile_file(&game_dir, "kiln/profile.json", "work", serde_json::json!([{ "id": "new-items", "path": z }]));
+        assert_eq!(library::users(&dirs, &r), ["work (active in Enshrouded)"], "data at {}, Z: path {z}", data_root.display());
+        assert!(library::unused(&dirs).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(real.join("data"));
+        let _ = std::fs::remove_dir_all(real.join("src"));
+    }
 }
