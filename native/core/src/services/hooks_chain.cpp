@@ -390,7 +390,8 @@ void rebuild(Target& t) {
         next[i] = following;
         if (merged[i]->live.load(std::memory_order_acquire)) following = entry_of(merged[i]);
     }
-    // New links first (unreachable until a cell names them), then existing cells tail to head, head last.
+    // New links first (unreachable until a cell names them), then existing cells tail to head, head last. A new link's
+    // cell already holds the trampoline (install()); the tail-to-head pass sets it before any earlier cell names it.
     for (size_t i = 0; i < merged.size(); ++i)
         if (merged[i]->next->load(std::memory_order_relaxed) == 0) merged[i]->next->store(next[i], std::memory_order_release);
     for (size_t i = merged.size(); i-- > 0;)
@@ -682,6 +683,10 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
         return KILN_ERR_UNAVAILABLE;
     }
     l->next = &cells[0];
+    // dev.21 integration fix: never 0, even before rebuild() places the link. `*original` is written below before the
+    // link is reachable, and a thread still inside a revoked link that shared that variable (a RawHook re-installed in
+    // place) jumps through this cell at once. The real function is a safe target until rebuild() names the next link.
+    cells[0].store(t->trampoline, std::memory_order_relaxed);
     cells[1].store(reinterpret_cast<uintptr_t>(l.get()), std::memory_order_relaxed);
     Em e(stub);
     if (kind == Kind::Raw) {
