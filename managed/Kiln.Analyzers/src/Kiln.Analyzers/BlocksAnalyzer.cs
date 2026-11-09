@@ -66,6 +66,7 @@ internal static class BlockFacts
             case "ItemRef": return "item";
             case "PerkRef": return "perk";
             case "AbilityRef": return "ability";
+            case "WindowRef": return "window";
             case "MaterialRef": return "material";
             case "StationRef": return "station";
             case "ScreenRef": return "screeneffect";
@@ -83,7 +84,7 @@ internal static class BlockFacts
     {
         "EffectBlock", "StatusBlock", "VfxBlock", "VisualBlock", "OnHitBlock", "WeaponStats", "ArmorStats", "WeaponClass", "ArmorSlot", "ArmorSet", "WornLook",
         "PlacementBlock", "ComfortBlock", "ProcessingBlock", "MenuBlock", "PerkBlock", "AbilityBlock", "TalentBlock", "TalentTreeBlock", "TriggerBlock",
-        "SoundBlock", "MaterialBlock", "ScreenEffectBlock",
+        "SoundBlock", "MaterialBlock", "ScreenEffectBlock", "WindowBlock", "HudLineBlock", "KeyBindingBlock",
     };
 
     /// <summary>Whether a block of this type answers a reference of this kind.</summary>

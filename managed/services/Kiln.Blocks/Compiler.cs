@@ -118,13 +118,20 @@ internal static partial class Compiler
     }
 
     /// <summary>What a block becomes, before anything reaches the game: <see cref="Define{T}"/> without the commit (tests read <see cref="Lowered.Json"/>).</summary>
-    internal static (BlockHandle Handle, Lowered Low, string Label) Lower<T>(ModBlocks mod, string name, T block) where T : class, IBlock
+    internal static (BlockHandle Handle, Lowered Low, string Label) Lower<T>(ModBlocks mod, string name, T block, bool uiGenerated = false) where T : class, IBlock
     {
         var label = Label<T>(name);
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
+        // Check authored names before lowering: a later block (or an ability's Was alias) must not replace an
+        // earlier UI-generated ability in the case-insensitive runtime registry.
+        if (!uiGenerated)
+        {
+            if (name.StartsWith("ui-apply.", StringComparison.OrdinalIgnoreCase)) throw new BlockError(label, "name", "ui-apply.* names are reserved for UI actions' hidden abilities");
+            if (block is AbilityBlock { Was: { } was } && was.StartsWith("ui-apply.", StringComparison.OrdinalIgnoreCase)) throw new BlockError(label, "was", "ui-apply.* names are reserved for UI actions' hidden abilities");
+        }
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not INpcBlock and not IUiBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -139,7 +146,7 @@ internal static partial class Compiler
             StrengthBlock s => DefineStrength(ctx, low, name, s),
             SurfaceBlock s => DefineSurface(ctx, low, name, s),
             SoundBlock s => DefineSound(ctx, low, name, s),
-            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
+            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? DefineUiBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
         return (handle, low, label);
@@ -488,6 +495,9 @@ internal sealed class Lowered(ModBlocks mod)
         Count("items", "item(s)"); Count("recipes", "recipe(s)"); Count("templates", "template(s)"); Count("buffs", "buff(s)"); Count("perks", "perk(s)"); Count("sequences", "sequence(s)"); Count("programs", "program(s)");
         if (Json["vfx"] is { } vfx) parts.Add($"VFX {vfx} ({Json["status"] ?? "not built here"})");
         if (Json["material"] is { } material) parts.Add($"material {material} ({Json["status"] ?? "not built here"})");
+        if (Json["window"] is JsonObject window) parts.Add($"{window["kind"]} with {(window["rows"] as JsonArray)?.Count ?? 0} row(s), drawn by players' games");
+        if (Json["hudLine"] is JsonObject hud) parts.Add($"HUD line {hud["id"]}, drawn by players' games");
+        if (Json["keyBinding"] is JsonObject key) parts.Add($"key {key["id"]} ({key["key"]}), bound on players' games");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);
     }
 }

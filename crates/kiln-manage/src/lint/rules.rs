@@ -1656,6 +1656,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("containers", "container"), ("doors", "door"), ("beds", "bed"), ("seats", "seat"), ("interactions", "interaction"), ("blueprints", "blueprint"), ("hair", "hair"), ("beards", "beard"),
         ("perks", "perk"), ("abilities", "ability"), ("talents", "talent"), ("talentTrees", "talent tree"), ("triggers", "trigger"),
         ("creatures", "creature"), ("npcs", "NPC"), ("bodies", "body"), ("animations", "animation"), ("ais", "AI"), ("behaviours", "behaviour"), ("attacks", "attack"), ("rules", "rule"),
+        ("windows", "window"), ("hudLines", "HUD line"), ("keyBindings", "key binding"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
@@ -1676,7 +1677,9 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "strength" => (&["strength"], "a strength", &[]),
             "onHit" | "onKill" | "onHitTaken" => (&["effect", "on-hit"], "an effect or an on-hit", &[]),
             "applies" | "status" | "feeds" | "removes" | "keeps" => (&["status"], "a status", &[]),
-            "casts" | "unlocks" => (&["ability"], "an ability", &[]),
+            "casts" | "unlocks" | "castAbility" => (&["ability"], "an ability", &[]),
+            "applyEffect" => (&["effect"], "an effect", &[]),
+            "openWindow" | "closeWindow" => (&["window"], "a window", &[]),
             "visual" => (&["look"], "a look", &[]),
             "head" | "chest" | "arms" | "legs" | "feet" => (&["look", "worn look"], "a look or a worn look", &[]),
             "stats" => (&["weapon stats", "armor stats"], "stats", &[]),

@@ -152,6 +152,9 @@ public sealed class DataClientsTests
         { "blueprints", """{ "name": "Hut" }""", "mod" },
         { "npcs", """{ "name": "Smith" }""", "mod" },
         { "terrainMaterials", """{ "name": "Glowstone", "like": "Stone" }""", "mod" },
+        { "windows", """{ "title": "Clock", "rows": [ { "type": "text", "text": "hi" } ] }""", "mod" },
+        { "hudLines", """{ "text": "{game.fps:0} fps" }""", "mod" },
+        { "keyBindings", """{ "key": "F8", "does": { "openWindow": "settings" } }""", "mod" },
     };
 
     [Theory]

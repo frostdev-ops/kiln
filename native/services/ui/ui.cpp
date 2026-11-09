@@ -19,6 +19,7 @@
 #include "safetyhook.hpp"
 #include "services/kiln_render.h"
 #include "ui.h"
+#include "slider.h"
 
 namespace kui {
 
@@ -417,7 +418,7 @@ void KILN_CALL t_text_disabled(KilnStr s) {
 bool KILN_CALL t_button(KilnStr l, float w, float h) { IN_FRAME(false); return ImGui::Button(z(l), ImVec2(w, h)); }
 bool KILN_CALL t_small_button(KilnStr l) { IN_FRAME(false); return ImGui::SmallButton(z(l)); }
 bool KILN_CALL t_checkbox(KilnStr l, bool* v) { IN_FRAME(false); return v && ImGui::Checkbox(z(l), v); }
-bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(false); return v && ImGui::SliderFloat(z(l), v, a, b); }
+bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(false); return v && kui::slider_float(z(l), v, a, b); }
 bool KILN_CALL t_slider_int(KilnStr l, int32_t* v, int32_t a, int32_t b) { IN_FRAME(false); return v && ImGui::SliderInt(z(l), v, a, b); }
 bool KILN_CALL t_input_text(KilnStr l, char* buf, size_t cap, uint32_t flags) {
     IN_FRAME(false);

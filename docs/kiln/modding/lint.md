@@ -545,7 +545,7 @@ quests/tobin.json:21:9: warning KL313: npc tobin: the Survivors list shows this 
 ### KL314 block-reference
 
 Warning. A field of a `blocks/*.json` file names a block that no `blocks/*.json` file of the mod defines and the mod's code does not mention, or one of the wrong kind
-(a status where an effect goes, stats where a look goes, an effect where a VFX goes). Kiln.Blocks refuses that block at load. A premade's key is fine (`"class": "sword"`), and `other-mod:name` is not checked.
+(a status where an effect goes, stats where a look goes, an effect where a VFX goes, an effect where a button's `openWindow` goes). Kiln.Blocks refuses that block at load. A premade's key is fine (`"class": "sword"`), and `other-mod:name` is not checked.
 A `vfx` field's `"game:<name>"` and GUIDs are [KL323](#kl323-vfx-reference)'s.
 With the catalog, the same goes for an item a block names (`recipe.needs`, `like`, `dropsLike`, `dropped`) that is neither a block of the mod nor an item of the game.
 

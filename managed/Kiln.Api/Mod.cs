@@ -92,7 +92,24 @@ public sealed class ModContext
     /// <summary>Per-mod persistent directory (<c>kiln/data/&lt;id&gt;</c>), created on first use.</summary>
     public string DataDirectory { get; }
 
-    internal bool Alive { get; private set; } = true;
+    private volatile bool _alive = true;
+    internal bool Alive => _alive;
+
+    // A snapshot's exact metadata object identifies its loaded instance. Weak values avoid retaining a retired
+    // context, and reference keys keep equal mod ids (or client/server instances) from sharing a lifetime.
+    private static readonly object LiveGate = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModInfo, WeakReference<ModContext>> LiveByInfo = new();
+
+    internal static void TrackLive(ModContext mod)
+    {
+        lock (LiveGate) LiveByInfo.AddOrUpdate(mod.Info, new WeakReference<ModContext>(mod));
+    }
+
+    internal static ModContext? FindLive(ModInfo info)
+    {
+        lock (LiveGate)
+            return LiveByInfo.TryGetValue(info, out var weak) && weak.TryGetTarget(out var mod) && mod.Alive ? mod : null;
+    }
 
     /// <summary>Native owner id: everything this mod registers in the core is revoked with it.</summary>
     internal ulong Owner { get; init; }
@@ -129,8 +146,12 @@ public sealed class ModContext
 
     internal void Retire()
     {
-        if (!Alive) return;
-        Alive = false;
+        lock (LiveGate)
+        {
+            if (!Alive) return;
+            _alive = false;
+            if (LiveByInfo.TryGetValue(Info, out var weak) && weak.TryGetTarget(out var current) && ReferenceEquals(current, this)) LiveByInfo.Remove(Info);
+        }
         try { Retiring?.Invoke(); } catch { /* a service's cleanup must not stop the unload */ }
         Retiring = null;
         Tick.Clear();

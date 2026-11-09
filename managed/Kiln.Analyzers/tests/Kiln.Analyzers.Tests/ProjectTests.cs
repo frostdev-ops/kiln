@@ -177,6 +177,18 @@ public sealed class BlocksTests
     }
 
     [Fact]
+    public async Task UI_blocks_ask_for_the_mod_on_every_client()
+    {
+        var source = Mod("""
+            Blocks.Define("settings", new WindowBlock { Title = "S", Rows = [new TextRow { Text = "x" }] });
+            Blocks.Define("fps", new HudLineBlock { Text = "{game.fps}" });
+            Blocks.Define("open", new KeyBindingBlock { Key = "F8", Does = new UiAction { OpenWindow = "settings" } });
+            """);
+        Ids(await Run(A, source, Props(("KilnClients", "kiln"))), "KILN112", "KILN112", "KILN112");
+        Ids(await Run(A, source, Props(("KilnClients", "mod"))));
+    }
+
+    [Fact]
     public async Task A_new_vfx_asks_for_the_mod_on_every_client()
     {
         var source = Mod("""

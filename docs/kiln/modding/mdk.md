@@ -115,7 +115,7 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-spell` | A staff spell from building blocks, in C# and `blocks/*.json` | both, kiln | `spell frostshard -> 1 item(s), 1 recipe(s), 2 template(s), 1 program(s)` |
 | `kiln-vfx` | An effect from nothing, in C# and `blocks/*.json`, a small PNG, keys to play it | both, mod | Builds, lints and cooks from a clean feed. How it looks is a manual check in a client |
 | `kiln-ability` | An ability; `--impact` adds an Impact program | both, none | `ability tpl-ability:blast registered` |
-| `kiln-ui` | A game UI overlay | client, mod | Correctly skipped by a server (`side` client). A client check is manual |
+| `kiln-ui` | A game UI overlay (`--blocks true`: as blocks in `blocks/ui.json`, [ui-blocks.md](ui-blocks.md)) | client, mod | Correctly skipped by a server (`side` client). A client check is manual |
 | `kiln-native` | A C++ mod, `CMakeLists.txt` + `native.json` | both | `native mod tpl-native 0.1.0 loaded (boot, … kiln_native_init ok)` |
 | `kiln-model` | A glTF model with `assets/cook.json` | both, mod | `PASS TplModel_Blade.iconModel = …`, 3 references |
 | `kiln-sound` | Sounds and cues, `audio/`, `assets/cook.json` | both, mod | `sound chime: … (new)`, `cue chime: … (new)` |
