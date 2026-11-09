@@ -1,5 +1,8 @@
 # Wiki note: the Catalog (mods from Nexus Mods in the launcher)
 
+> Archived draft: the personal API-key instructions below are obsolete. Dev.20 disables Nexus integration while
+> OAuth approval is pending. Use the current [Catalog guide](../launcher/catalog.md) and browser downloads/manual import.
+
 What changed: the Kiln Launcher has a Catalog of Enshrouded mods on Nexus Mods, with Kiln mods first. You can browse
 and search, see a mod's details, and add it to your active profile with Undo. Mods added from the Catalog show when
 their author uploads a newer version, and updating is one click.
