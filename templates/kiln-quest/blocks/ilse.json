@@ -1,0 +1,45 @@
+{
+  // Quests as data: the same fields as in C#. A field that names an item, a status or an NPC takes a block of the mod by its name.
+  // The game's start-up build reads this file, so the quest, the NPC and the conversation are built at the first start.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "npcs": {
+    "ilse": { "name": "Ilse the Caravan Master", "body": "villager", "talk": "ilse-talk", "place": { "distance": [8, 14] } }
+  },
+  "dialogues": {
+    "ilse-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": "Scavengers took our crates on the old road.",
+          "options": [
+            { "text": "I'll find them.", "if": { "quest": "lost-crates", "is": "available" }, "do": [ { "start": "lost-crates" } ], "reply": "Six of them, near the old road." },
+            { "text": "Here are your logs.", "if": { "step": "lost-crates.return", "is": "active" }, "do": [ { "advance": "lost-crates.return" } ], "reply": "The road is safe again. Take this." }
+          ]
+        }
+      }
+    }
+  },
+  "quests": {
+    "lost-crates": {
+      "name": { "en": "The Lost Crates" },
+      "giver": "ilse",
+      "requires": [ { "level": 2 } ],
+      "steps": [
+        {
+          "id": "bandits",
+          "title": "Drive off the scavengers",
+          "text": "They took the crates on the old road.",
+          "objective": { "kill": { "tag": "crates", "count": 6 } },
+          "spawn": { "template": "Enemy_Scavenger_Melee01", "count": 6, "tag": "crates", "near": "ilse", "distance": [60, 120] }
+        },
+        {
+          "id": "return",
+          "text": "Bring three logs to Ilse.",
+          "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "ilse" } }
+        }
+      ],
+      "rewards": { "xp": 1500, "items": { "Material_T1_Twigs": 20 }, "status": "blessed" }
+    }
+  }
+}

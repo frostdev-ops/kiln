@@ -975,6 +975,14 @@ fn contents(m: &LMod) -> Contents {
                         c.block_talents.get_or_insert((f.display.clone(), t.key_span));
                     }
                 }
+                // a quest block is in the game's journal and a dialogue block in its NPC menu, both built by every client from the mod's files
+                for section in ["quests", "dialogues"] {
+                    if c.native_journal.is_none()
+                        && let Some(b) = r.get(section).and_then(Node::as_object).and_then(|o| o.first())
+                    {
+                        c.native_journal = Some((f.display.clone(), b.key_span));
+                    }
+                }
                 // an ability that places something makes new templates; one with only effects on the caster asks nothing
                 if c.definition.is_none()
                     && let Some(a) = r.get("abilities").and_then(Node::as_object).and_then(|o| o.iter().find(|b| b.value.get("delivery").is_some() || b.value.get("item").is_some()))
@@ -1594,7 +1602,8 @@ fn natives(out: &mut Out, m: &LMod, f: &LFile) {
 /// References inside a mod's quests/*.json files: what Kiln.Quests would refuse or never find. Ids with a ':' name another
 /// mod's entry and are not checked; C# definitions are invisible here, so these are warnings.
 fn quests(out: &mut Out, m: &LMod) {
-    let files: Vec<&LFile> = m.files.iter().filter(|f| f.kind == "quests").collect();
+    // quests/*.json, and the quest, dialogue and NPC blocks of blocks/*.json (the same keys: a block's rewards are a bundle, and no key here reads them)
+    let files: Vec<&LFile> = m.files.iter().filter(|f| f.kind == "quests" || (f.kind == "blocks" && ["quests", "dialogues", "npcs"].iter().any(|k| f.root.as_ref().is_some_and(|r| r.get(k).is_some())))).collect();
     if files.is_empty() {
         return;
     }
@@ -1671,6 +1680,13 @@ fn quests(out: &mut Out, m: &LMod) {
         for n in r.get("npcs").and_then(Node::as_object).into_iter().flatten() {
             if let Some(d) = n.value.get("dialogue") {
                 refer(out, f, d, "dialogue", &dialogue_ids);
+            }
+            // an NPC block's "talk": a dialogue block, or one of quests/*.json (a C# one is invisible here, so only a file that has dialogues is checked)
+            if f.kind == "blocks"
+                && let Some(t) = n.value.get("talk")
+                && !dialogue_ids.is_empty()
+            {
+                refer(out, f, t, "dialogue", &dialogue_ids);
             }
         }
         for q in r.get("quests").and_then(Node::as_object).into_iter().flatten() {
@@ -1749,6 +1765,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("perks", "perk"), ("abilities", "ability"), ("talents", "talent"), ("talentTrees", "talent tree"), ("triggers", "trigger"),
         ("creatures", "creature"), ("npcs", "NPC"), ("bodies", "body"), ("animations", "animation"), ("ais", "AI"), ("behaviours", "behaviour"), ("attacks", "attack"), ("rules", "rule"),
         ("lootTables", "loot table"), ("recipes", "recipe"),
+        ("quests", "quest"), ("dialogues", "dialogue"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
@@ -1855,6 +1872,24 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             }
         }
     }
+    // Names of items in the quest and dialogue sections: what an objective, a condition or an action says is "item", "take" or a build's "prop", and a reward's "items".
+    fn quest_items(n: &Node, out: &mut Vec<(String, Span)>) {
+        if let Some(obj) = n.as_object() {
+            for mm in obj {
+                if mm.key == "items" && mm.value.as_object().is_some() {
+                    out.extend(mm.value.as_object().into_iter().flatten().map(|it| (it.key.clone(), it.key_span)));
+                } else if let (true, Some(text)) = (matches!(mm.key.as_str(), "item" | "take" | "prop"), mm.value.as_str()) {
+                    out.push((text.to_string(), mm.value.span));
+                } else {
+                    quest_items(&mm.value, out);
+                }
+            }
+        } else if let Some(arr) = n.as_array() {
+            for x in arr {
+                quest_items(x, out);
+            }
+        }
+    }
     fn a_or_an(word: &str) -> &'static str {
         if word.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" }
     }
@@ -1869,7 +1904,21 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
                     names.push((d.as_str().unwrap_or("").to_string(), &["loot table"], "a loot table", d.span));
                 }
             }
+            // a quest's and a step's reward "lootTable"
+            for q in r.get("quests").and_then(Node::as_object).into_iter().flatten() {
+                let steps = q.value.get("steps").and_then(Node::as_array).into_iter().flatten();
+                for rewards in std::iter::once(&q.value).chain(steps).filter_map(|n| n.get("rewards")) {
+                    if let Some(t) = rewards.get("lootTable").filter(|t| t.as_str().is_some()) {
+                        names.push((t.as_str().unwrap_or("").to_string(), &["loot table"], "a loot table", t.span));
+                    }
+                }
+            }
             items(r, "", &mut item_names);
+            for section in ["quests", "dialogues"] {
+                if let Some(s) = r.get(section) {
+                    quest_items(s, &mut item_names);
+                }
+            }
             // the "looks" section's entries are looks: their "like" is an item too
             for look in r.get("looks").and_then(Node::as_object).into_iter().flatten() {
                 items(&look.value, "visual", &mut item_names);

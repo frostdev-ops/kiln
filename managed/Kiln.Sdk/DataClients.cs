@@ -29,6 +29,8 @@ internal static class DataClients
         ["creatures"] = None, ["bodies"] = None, ["animations"] = None, ["ais"] = None, ["behaviours"] = None, ["attacks"] = None, ["rules"] = None,
         // built by every player's game from the mod's own files
         ["vfx"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
+        // the game's own journal and NPC menu, built from the mod's files at start
+        ["quests"] = Mod, ["dialogues"] = Mod,
     };
 
     /// <summary>The fields whose value can name the mod's own file, cue, VFX or key ([ClientsModWhen], and what the compilers check):

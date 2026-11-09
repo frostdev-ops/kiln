@@ -21,5 +21,10 @@
     "no-output": { "needs": { "shard": 1 } },
     "bad-need": { "output": "shard", "needs": { "burst": 1 } },
     "lost-output": { "output": "No_Such_Item", "needs": { "shard": 1 } }
+  },
+  "quests": {
+    "errand": { "name": "Errand", "rewards": { "lootTable": "pile" },
+      "steps": [ { "id": "go", "text": "Go", "objective": { "custom": { "signal": "go" } }, "rewards": { "lootTable": "no-such-table" } },
+                 { "id": "back", "text": "Back", "objective": { "custom": { "signal": "back" } }, "rewards": { "lootTable": "shard" } } ] }
   }
 }
