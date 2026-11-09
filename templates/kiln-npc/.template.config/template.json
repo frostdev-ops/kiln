@@ -17,6 +17,18 @@
   "forms": {
     "kebab": {
       "identifier": "kebabCase"
+    },
+    "xmlAttribute": {
+      "identifier": "chain",
+      "steps": [
+        "xmlEncode",
+        "xmlQuote"
+      ]
+    },
+    "xmlQuote": {
+      "identifier": "replace",
+      "pattern": "\"",
+      "replacement": "&quot;"
     }
   },
   "tags": {
@@ -56,8 +68,13 @@
       "type": "parameter",
       "datatype": "text",
       "defaultValue": "",
-      "replaces": "KILN_FEED",
       "description": "Local NuGet feed holding Kiln.Sdk/Kiln.Api (writes a nuget.config next to the project)"
+    },
+    "feedXml": {
+      "type": "derived",
+      "valueSource": "feed",
+      "valueTransform": "xmlAttribute",
+      "replaces": "KILN_FEED"
     },
     "hasFeed": {
       "type": "computed",
@@ -67,8 +84,13 @@
       "type": "parameter",
       "datatype": "text",
       "defaultValue": "",
-      "replaces": "KILN_SERVER",
       "description": "Server (or game) folder with Kiln for deploy (KilnServer)"
+    },
+    "serverXml": {
+      "type": "derived",
+      "valueSource": "server",
+      "valueTransform": "xmlEncode",
+      "replaces": "KILN_SERVER"
     },
     "hasServer": {
       "type": "computed",
