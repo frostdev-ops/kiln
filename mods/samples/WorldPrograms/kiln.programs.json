@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "programs": {
+    "echo": {
+      "eventsIn": ["TestEvent1"],
+      "eventsOut": ["TestEvent1"]
+    }
+  }
+}

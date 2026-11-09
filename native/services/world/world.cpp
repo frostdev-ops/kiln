@@ -81,6 +81,15 @@ bool resolve() {
     fn.queue_push = reinterpret_cast<QueuePushFn>(sym("world/QueuePush"));
     fn.mark_written = reinterpret_cast<MarkWrittenFn>(sym("world/MarkWritten"));
     fn.read_other = reinterpret_cast<ReadOtherFn>(sym("world/ReadOther"));
+    // Tracked path already captured and lab checked by kiln.items (docs/re/items.md section 12).
+    fn.write_other = reinterpret_cast<WriteOtherFn>(sym("items/WriteOther"));
+    fn.job_tracker = reinterpret_cast<JobTrackerFn>(sym("items/JobTracker"));
+    fn.job_write_flag = reinterpret_cast<JobWriteFlagFn>(sym("items/JobWriteFlag"));
+    F.write_other = fn.write_other && fn.job_tracker && fn.job_write_flag;
+    fn.emit_event = reinterpret_cast<EmitEventFn>(sym("gameplay/EmitEvent"));
+    fn.job_program_id = reinterpret_cast<JobProgramIdFn>(sym("gameplay/JobProgramId"));
+    fn.job_event_buffer = reinterpret_cast<JobEventBufferFn>(sym("gameplay/JobEventBuffer"));
+    fn.program_time = reinterpret_cast<ProgramTimeFn>(sym("gameplay/ProgramTime"));
     fn.get_component = reinterpret_cast<GetComponentFn>(sym("GetComponent"));
     fn.get_transform = reinterpret_cast<GetEntityTransformFn>(sym("GetEntityTransform"));
 
@@ -190,6 +199,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
              static_cast<unsigned long long>(g_world.load()), engine_program_count(g_world.load()));
     }
     if (live) programs_after_first_step(g_world.load());
+    programs_reap_owners();
     teleport_pre(tick);
     selftest_pre(tick);
 }
@@ -276,6 +286,12 @@ const KilnWorldApi kTable = {
     &t_teleport,
     &t_teleport_cancel,
     &t_status,
+    &write_other,
+    &unregister_program,
+    &bind_program,
+    &program_capabilities,
+    &program_events,
+    &program_emit,
 };
 
 }  // namespace
@@ -286,8 +302,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_owner = owner;
+    if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
+        info->on_ready = [](void*) { boot_programs_init(); };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
-    info->version = KilnStr{"1", 1};
+    info->version = KilnStr{"2", 1};
     resolve();
     const bool hooked = programs_init();
     if (!hooked) F.programs = F.teleport = false;

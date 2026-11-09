@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-programs.schema.json",
+  "title": "Kiln boot-time ECS programs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "programs"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "programs": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 8,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_]{1,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tpl": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "tplOptional": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "read": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "readOptional": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "write": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "writeOptional": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "singletonsRead": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_:]+$"
+            }
+          },
+          "singletonsWrite": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_:]+$"
+            }
+          },
+          "otherTpl": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "otherRead": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "otherWrite": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "with": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "without": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "anyOf": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "eventsIn": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "eventsOut": {
+            "type": "array",
+            "maxItems": 160,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9_]+$"
+            }
+          },
+          "flags": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "system",
+                "init",
+                "hostOnly",
+                "exclusive",
+                "chunked",
+                "pinned",
+                "barrier"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

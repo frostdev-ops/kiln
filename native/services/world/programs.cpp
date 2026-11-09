@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <array>
 #include <utility>
+#include <set>
+#include <shared_mutex>
 
 #include "safetyhook.hpp"
 #include "world_internal.h"
+#include "services/kiln_types.h"
 
 namespace kw {
 namespace {
@@ -42,12 +45,14 @@ struct List {
 
 struct Program {
     KilnOwner owner = 0;
+    std::shared_mutex callback_mutex;
     std::string name;
     uint32_t flags = 0;
     KilnProgramEachFn each = nullptr;
     KilnProgramUpdateFn update = nullptr;
     void* user = nullptr;
     bool internal = false;
+    std::string reserved_mod, reserved_key;
     List lists[L_COUNT];
     uint64_t sread_opt = 0, swrite_opt = 0;
     EngineDesc desc{};
@@ -66,6 +71,8 @@ Program* g_by_slot[kMaxPrograms] = {};
 SafetyHookInline g_hook;
 std::atomic<bool> g_registered_once{false};
 std::atomic<uintptr_t> g_finalize_checked{0};
+thread_local ProgramCtx* t_context = nullptr;
+thread_local uint64_t* t_iterator = nullptr;
 thread_local Program* t_prog = nullptr;  // the Kiln program whose update runs on this thread
 
 void internal_update(ProgramCtx* ctx);
@@ -116,6 +123,7 @@ void run_each(Program* p, ProgramCtx* ctx) {
         fault(p, "iter_begin faulted", code);
         return;
     }
+    t_iterator = it;
     if (p->flags & KILN_PROGRAM_SYSTEM) {
         if (!seh_each(p->each, kctx, it, 0, p->user, &code)) fault(p, "update faulted", code);
         return;
@@ -143,11 +151,14 @@ void run_each(Program* p, ProgramCtx* ctx) {
 void dispatch(int i, void* raw) {
     Program* p = g_by_slot[i];
     auto* ctx = static_cast<ProgramCtx*>(raw);
-    if (!p || p->state.load(std::memory_order_relaxed) != KILN_PROGRAM_ACTIVE) return;  // iterate none: allowed
+    if (!p) return;
+    std::shared_lock callback_lock(p->callback_mutex);
+    if (p->state.load(std::memory_order_relaxed) != KILN_PROGRAM_ACTIVE) return;  // iterate none: allowed
     p->updates.fetch_add(1, std::memory_order_relaxed);
     if (!counts_match(p, ctx)) return;
     t_in_program = true;
     t_prog = p;
+    t_context = ctx;
     if (p->internal) {
         internal_update(ctx);
     } else if (p->each) {
@@ -159,6 +170,8 @@ void dispatch(int i, void* raw) {
             repair(ctx);
         }
     }
+    t_context = nullptr;
+    t_iterator = nullptr;
     t_prog = nullptr;
     t_in_program = false;
 }
@@ -215,9 +228,7 @@ void layout(Program& p, Key key) {
     const uint32_t owrite = assign(p, {L_OWRITE}, at, 1, true, key);
     at += owrite;
     p.O = oread + owrite;
-    p.EI = assign(p, {L_EIN}, at, 1, false, key);
-    if (p.EI != 1)
-        for (auto& s : p.lists[L_EIN].slot) s = -1;  // queue order of several events is not verified
+    p.EI = assign(p, {L_EIN}, at, 1, true, key);
     at += p.EI;
     p.EO = assign(p, {L_EOUT}, at, 1, false, key);
     at += p.EO;
@@ -620,19 +631,23 @@ KilnResult iter_begin(KilnProgramCtx* c, uint64_t* iter, uint32_t size) {
     if (!ctx || !iter || !t_in_program) return KILN_ERR_WRONG_THREAD;
     // The engine ignores the size: the buffer must hold the whole iterator.
     if (t_prog && size < t_prog->iter_size) return KILN_ERR_BUFFER_TOO_SMALL;
+    if (ctx != t_context) return KILN_ERR_INVALID_ARGUMENT;
+    if (!fn.iter_begin) return KILN_ERR_UNAVAILABLE;
     fn.iter_begin(ctx, iter, size);
+    t_iterator = iter;
     return KILN_OK;
 }
 
 bool iter_next(KilnProgramCtx* c, uint64_t* iter, uint32_t size) {
     auto* ctx = reinterpret_cast<ProgramCtx*>(c);
-    if (!ctx || !iter || !t_in_program) return false;
+    if (!ctx || ctx != t_context || !t_in_program || !t_prog || iter != t_iterator ||
+        !iter || size < t_prog->iter_size || !fn.iter_next) return false;
     return fn.iter_next(ctx, iter, size);
 }
 
 KilnEntity current_entity(KilnProgramCtx* c) {
     auto* ctx = reinterpret_cast<ProgramCtx*>(c);
-    if (!ctx || !t_in_program) return 0;
+    if (!ctx || ctx != t_context || !t_in_program || !fn.current_entity) return 0;
     uint32_t e = 0;
     fn.current_entity(ctx, &e);
     return e;
@@ -640,7 +655,7 @@ KilnEntity current_entity(KilnProgramCtx* c) {
 
 void* command_buffer(KilnProgramCtx* c) {
     auto* ctx = reinterpret_cast<ProgramCtx*>(c);
-    if (!ctx || !t_in_program || !F.queue) return nullptr;
+    if (!ctx || ctx != t_context || !t_in_program || !F.queue || L.job_cmdbuf < 0) return nullptr;
     return *reinterpret_cast<void* const*>(ctx->job + L.job_cmdbuf);
 }
 
@@ -683,7 +698,13 @@ KilnResult queue_remove(KilnProgramCtx* c, KilnEntity entity, uint32_t hash) {
 }
 
 void mark_written(KilnProgramCtx* c, const uint64_t* w) {
-    if (!c || !w || !t_in_program || !F.write || !w[5]) return;
+    if (!c || reinterpret_cast<ProgramCtx*>(c) != t_context || !w || !t_in_program || !t_prog ||
+        !t_iterator || !F.write || !fn.mark_written) return;
+    bool declared = false;
+    for (int id : {L_WRITE, L_WRITE_OPT})
+        for (int32_t slot : t_prog->lists[id].slot)
+            if (slot >= 0 && w == t_iterator + slot) { declared = true; break; }
+    if (!declared || !w[5]) return;
     fn.mark_written(reinterpret_cast<void*>(w[5]), reinterpret_cast<void*>(w[1]), reinterpret_cast<void*>(w[2]),
                     reinterpret_cast<void*>(w[3]), static_cast<uint16_t>(w[4]), static_cast<uint8_t>(w[4] >> 16));
 }
@@ -691,12 +712,169 @@ void mark_written(KilnProgramCtx* c, const uint64_t* w) {
 const void* read_other(KilnProgramCtx* c, uint64_t accessor, KilnEntity entity, uint32_t* out_size) {
     if (out_size) *out_size = 0;
     auto* ctx = reinterpret_cast<ProgramCtx*>(c);
-    if (!ctx || !t_in_program || !F.read_other || !accessor || !entity) return nullptr;
+    if (!ctx || ctx != t_context || !t_in_program || !t_prog || !t_iterator || !F.read_other ||
+        !fn.read_other || L.job_storage < 0 || !accessor || !entity) return nullptr;
+    bool declared = false;
+    for (int32_t slot : t_prog->lists[L_OREAD].slot)
+        if (slot >= 0 && t_iterator[slot] == accessor) { declared = true; break; }
+    if (!declared) return nullptr;
     void* storage = *reinterpret_cast<void* const*>(ctx->job + L.job_storage);
     Slice s{};
     fn.read_other(&s, storage, reinterpret_cast<void*>(accessor), entity);
+    if (s.size > UINT32_MAX) return nullptr;
     if (out_size) *out_size = static_cast<uint32_t>(s.size);
     return s.ptr;
+}
+
+void* write_other(KilnProgramCtx* c, uint64_t accessor, KilnEntity entity, uint32_t* out_size) {
+    if (out_size) *out_size = 0;
+    auto* ctx = reinterpret_cast<ProgramCtx*>(c);
+    if (!ctx || ctx != t_context || !t_prog || !t_iterator || !F.write_other || !accessor || !entity) return nullptr;
+    bool declared = false;
+    for (int32_t slot : t_prog->lists[L_OWRITE].slot)
+        if (slot >= 0 && t_iterator[slot] == accessor) { declared = true; break; }
+    if (!declared) return nullptr;
+    Slice s{};
+    void* storage = *reinterpret_cast<void* const*>(ctx->job + L.job_storage);
+    fn.write_other(&s, storage, fn.job_tracker(ctx->job), accessor, entity, fn.job_write_flag(ctx));
+    if (s.size > UINT32_MAX) return nullptr;
+    if (out_size) *out_size = static_cast<uint32_t>(s.size);
+    return const_cast<void*>(s.ptr);
+}
+
+KilnResult unregister_program(KilnHandle h) {
+    if (t_in_program || (g_registered_once.load() && !g_api->on_tick_thread())) return KILN_ERR_WRONG_THREAD;
+    Program* p = by_handle(h);
+    if (!p || p->internal) return KILN_ERR_NOT_FOUND;
+    std::unique_lock lock(p->callback_mutex);
+    if (!p->reserved_mod.empty()) {
+        p->owner = g_owner;
+        p->each = [](KilnProgramCtx*, uint64_t*, KilnEntity, void*) {};
+        if (p->state.load() == KILN_PROGRAM_FAULTED) {
+            p->state.store(p->entry.load() ? KILN_PROGRAM_ACTIVE : KILN_PROGRAM_PENDING);
+            p->fault_logged = false;
+        }
+    } else {
+        p->state.store(KILN_PROGRAM_FAULTED);
+        p->each = nullptr;
+    }
+    p->update = nullptr;
+    p->user = nullptr;
+    return KILN_OK;
+}
+
+void KILN_CALL program_noop(void*) {}
+void programs_reap_owners() {
+    std::vector<Program*> snapshot;
+    { std::lock_guard lock(g_mutex); snapshot = g_programs; }
+    for (Program* p : snapshot) {
+        if (p->internal || p->owner == g_owner) continue;
+        if (g_api->post(p->owner, &program_noop, nullptr) == KILN_ERR_REVOKED)
+            unregister_program(static_cast<KilnHandle>(p->slot + 1));
+    }
+}
+
+KilnResult reserve_program(const std::string& mod, const std::string& key, const KilnProgramDesc* desc) {
+    KilnHandle handle = 0;
+    const auto result = register_program(g_owner, desc, &handle, false);
+    if (result != KILN_OK) return result;
+    Program* p = by_handle(handle);
+    p->reserved_mod = mod;
+    p->reserved_key = key;
+    return KILN_OK;
+}
+KilnResult KILN_CALL bind_program(KilnOwner owner, KilnStr mod, KilnStr key, KilnProgramEachFn each, void* user, KilnHandle* out) {
+    if (out) *out = 0;
+    if (!F.programs) return KILN_ERR_UNAVAILABLE;
+    if (t_in_program || !g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    if (!owner || !each || !out) return KILN_ERR_INVALID_ARGUMENT;
+    if (g_api->post(owner, &program_noop, nullptr) == KILN_ERR_REVOKED) return KILN_ERR_REVOKED;
+    std::lock_guard lock(g_mutex);
+    for (Program* p : g_programs) {
+        if (p->reserved_mod != sv(mod) || p->reserved_key != sv(key)) continue;
+        std::unique_lock callback_lock(p->callback_mutex);
+        if (p->owner != g_owner) return KILN_ERR_INVALID_ARGUMENT;
+        if (p->state.load() != KILN_PROGRAM_ACTIVE && p->state.load() != KILN_PROGRAM_PENDING) return KILN_ERR_UNAVAILABLE;
+        p->owner = owner; p->each = each; p->user = user;
+        *out = static_cast<KilnHandle>(p->slot + 1);
+        return KILN_OK;
+    }
+    return KILN_ERR_NOT_FOUND;
+}
+uint32_t KILN_CALL program_capabilities() {
+    return (F.programs && F.write_other ? KILN_WORLD_CAP_WRITE_OTHER : 0) |
+        (F.programs && F.events ? KILN_WORLD_CAP_MULTI_EVENTS : 0) |
+        (F.programs ? KILN_WORLD_CAP_BIND_PROGRAM : 0);
+}
+
+const KilnTypesApi* program_types() {
+    const auto* types = static_cast<const KilnTypesApi*>(g_api->service(kstr(KILN_TYPES_SERVICE),1));
+    return types && types->header.size >= offsetof(KilnTypesApi,system_count) ? types : nullptr;
+}
+bool event_info(const KilnTypesApi* types, KilnStr name, KilnTypeInfo& info) {
+    if (!types) return false;
+    const auto* type = types->type_by_name(name);
+    info.size = sizeof info;
+    return type && types->type_info(type,&info) == KILN_OK && info.type_size && info.type_size < 0x800;
+}
+KilnResult KILN_CALL program_events(KilnProgramCtx* c, KilnStr name, KilnProgramEventFn callback, void* user) {
+    if (!t_prog || reinterpret_cast<ProgramCtx*>(c) != t_context || !t_iterator) return KILN_ERR_WRONG_THREAD;
+    if (!callback) return KILN_ERR_INVALID_ARGUMENT;
+    const int32_t slot = program_slot(static_cast<KilnHandle>(t_prog->slot+1),KILN_SLOT_EVENT_IN,name);
+    if (slot < 0) return KILN_ERR_INVALID_ARGUMENT;
+    KilnTypeInfo info{};
+    if (!event_info(program_types(),name,info)) return KILN_ERR_UNAVAILABLE;
+    auto constant = [](const char* key) { int64_t value = -1; g_api->constant(kstr(key),&value); return value; };
+    const auto first = constant("combat/evq.first"), blocks = constant("combat/evq.blocks"), count = constant("combat/evq.count"),
+        next = constant("combat/evq.next"), shift = constant("combat/evq.block_shift");
+    if (first < 0 || blocks < 0 || count < 0 || next < 0 || shift < 5 || shift > 20) return KILN_ERR_UNAVAILABLE;
+    const auto queue = t_iterator[slot];
+    uint32_t length = 0; uint16_t page = 0; uintptr_t pool = 0;
+    if (!queue || !seh_copy(&length,reinterpret_cast<void*>(queue+count),4) || length > 65536 ||
+        !seh_copy(&page,reinterpret_cast<void*>(queue+first),2) || !seh_copy(&pool,reinterpret_cast<void*>(queue+blocks),8)) return KILN_ERR_INTERNAL;
+    const uint64_t page_size = uint64_t{1} << shift;
+    if (info.type_size > page_size-8 || uint64_t(length)*info.type_size > 16*1024*1024) return KILN_ERR_INTERNAL;
+    std::vector<uint8_t> copies(static_cast<size_t>(length)*info.type_size);
+    uint64_t offset = 0;
+    uintptr_t block = page && pool ? pool + uint64_t(page-1)*page_size : 0;
+    std::set<uint16_t> visited;
+    if (page) visited.insert(page);
+    for (uint32_t i = 0; i < length; ++i) {
+        if (offset+info.type_size > page_size-8) {
+            uint16_t following = 0;
+            if (!block || !seh_copy(&following,reinterpret_cast<void*>(block+next),2) || !following || !visited.insert(following).second) return KILN_ERR_INTERNAL;
+            block = pool + uint64_t(following-1)*page_size; offset = 0;
+        }
+        if (!block || !seh_copy(copies.data()+size_t(i)*info.type_size,reinterpret_cast<void*>(block+8+offset),info.type_size)) return KILN_ERR_INTERNAL;
+        offset += info.type_size;
+    }
+    for (uint32_t i = 0; i < length; ++i) callback(copies.data()+size_t(i)*info.type_size,info.type_size,user);
+    return KILN_OK;
+}
+KilnResult KILN_CALL program_emit(KilnProgramCtx* c, KilnStr name, const void* data, uint32_t size) {
+    if (!t_prog || reinterpret_cast<ProgramCtx*>(c) != t_context || !t_iterator) return KILN_ERR_WRONG_THREAD;
+    if (!data || !size || size >= 256) return KILN_ERR_INVALID_ARGUMENT;
+    const int32_t slot = program_slot(static_cast<KilnHandle>(t_prog->slot+1),KILN_SLOT_EVENT_OUT,name);
+    if (slot < 0) return KILN_ERR_INVALID_ARGUMENT;
+    const auto* types = program_types();
+    KilnTypeInfo info{};
+    if (!event_info(types,name,info) || !fn.emit_event || !fn.job_event_buffer || !fn.job_program_id) return KILN_ERR_UNAVAILABLE;
+    if (size != info.type_size) return KILN_ERR_INVALID_ARGUMENT;
+    uint8_t copy[256];
+    if (!seh_copy(copy,data,size)) return KILN_ERR_INVALID_ARGUMENT;
+    bool stamp = false;
+    for (unsigned depth = 0; depth < 16; ++depth) {
+        if (sv(info.name) == "GameEvent") { stamp = true; break; }
+        if (!info.inner || types->type_info(info.inner,&info) != KILN_OK) break;
+    }
+    if (stamp && (!fn.program_time || size < 8)) return KILN_ERR_UNAVAILABLE;
+    auto* ctx = reinterpret_cast<ProgramCtx*>(c);
+    void* buffer = fn.job_event_buffer(ctx->job);
+    void* out = buffer ? fn.emit_event(buffer,component_hash(sv(name)),size,fn.job_program_id(ctx->job)) : nullptr;
+    if (!out) return KILN_ERR_BUFFER_TOO_SMALL;
+    std::memcpy(out,copy,size);
+    if (stamp) fn.program_time(ctx,static_cast<int64_t*>(out));
+    return KILN_OK;
 }
 
 }  // namespace kw

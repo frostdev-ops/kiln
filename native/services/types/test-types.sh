@@ -12,3 +12,5 @@ if ((${#exes[@]} == 0)); then
   for e in "${KILN_SERVER_EXE:-}" "${KILN_CLIENT_EXE:-}"; do [[ -n $e && -f $e ]] && exes+=("$e"); done
 fi
 "$out/types_test" "${exes[@]}"
+
+KILN_OUT=${KILN_OUT:-$here/../../build} "$here/test-system-hooks.sh"

@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "programs": {
+    "pulse": {
+      "otherRead": ["Health"],
+      "otherWrite": ["Health"],
+      "eventsIn": ["TestEvent2", "TestEvent1"],
+      "eventsOut": ["TestEvent2", "TestEvent1"]
+    }
+  }
+}
