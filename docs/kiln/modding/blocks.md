@@ -32,9 +32,9 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
 ```
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
 stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
-AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quest chains and conversations: [quests.md](quests.md) "Quests as blocks" (`kiln new quest`).
+AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quest chains and conversations: [quests.md](quests.md) "Quests as blocks" (`kiln new quest`). Windows, HUD lines and key bindings on a player's game: [ui-blocks.md](ui-blocks.md).
 
-A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named.
+A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named (windows that open each other are the exception).
 
 ## Effects
 An effect is what happens. It has no resource of its own: it becomes statements in the program of whatever triggers it, so the same effect works on a spell, a weapon or a status.

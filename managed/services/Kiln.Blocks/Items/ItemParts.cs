@@ -47,7 +47,7 @@ internal static class ItemParts
     {
         var h = ctx.Find(r.Value, path);
         if (h == null) return r.Value;
-        if (h is BlockHandle<EffectBlock> or BlockHandle<StatusBlock> or BlockHandle<VfxBlock> or BlockHandle<VisualBlock> or BlockHandle<OnHitBlock> or BlockHandle<WeaponStats> or BlockHandle<ArmorStats> or BlockHandle<WeaponClass> or BlockHandle<ArmorSlot> or BlockHandle<ArmorSet> or BlockHandle<WornLook> or BlockHandle<PlacementBlock> or BlockHandle<ComfortBlock> or BlockHandle<ProcessingBlock> or BlockHandle<MenuBlock> or BlockHandle<PerkBlock> or BlockHandle<AbilityBlock> or BlockHandle<TalentBlock> or BlockHandle<TalentTreeBlock> or BlockHandle<TriggerBlock> or BlockHandle<LootTableBlock> or BlockHandle<RecipeBlock> or BlockHandle<QuestBlock> or BlockHandle<DialogueBlock>)
+        if (h is BlockHandle<EffectBlock> or BlockHandle<StatusBlock> or BlockHandle<VfxBlock> or BlockHandle<VisualBlock> or BlockHandle<OnHitBlock> or BlockHandle<WeaponStats> or BlockHandle<ArmorStats> or BlockHandle<WeaponClass> or BlockHandle<ArmorSlot> or BlockHandle<ArmorSet> or BlockHandle<WornLook> or BlockHandle<PlacementBlock> or BlockHandle<ComfortBlock> or BlockHandle<ProcessingBlock> or BlockHandle<MenuBlock> or BlockHandle<PerkBlock> or BlockHandle<AbilityBlock> or BlockHandle<TalentBlock> or BlockHandle<TalentTreeBlock> or BlockHandle<TriggerBlock> or BlockHandle<LootTableBlock> or BlockHandle<RecipeBlock> or BlockHandle<QuestBlock> or BlockHandle<DialogueBlock> or BlockHandle<WindowBlock> or BlockHandle<HudLineBlock> or BlockHandle<KeyBindingBlock>)
             throw new BlockError(ctx.Block, path, $"\"{r.Value}\" is a {KindOf(h.BlockType)}, not an item");
         return h.GameName;
     }

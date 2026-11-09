@@ -183,6 +183,36 @@
       "additionalProperties": {
         "$ref": "#/$defs/dialogue"
       }
+    },
+    "windows": {
+      "type": "object",
+      "description": "Windows and screens of rows: text, values, buttons, toggles and sliders on the mod's config. Drawn by each player's game from the mod's own file, so needs \"clients\": \"mod\"; on a dedicated server checked and kept, nothing drawn.",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/window"
+      }
+    },
+    "hudLines": {
+      "type": "object",
+      "description": "Lines of text on the game's screen with values in them, a condition and a refresh rate. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hudLine"
+      }
+    },
+    "keyBindings": {
+      "type": "object",
+      "description": "Keys that run an action (open a window, toggle a config value, run a command, cast an ability), rebindable in the Kiln menu. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/keyBinding"
+      }
     }
   },
   "additionalProperties": false,
@@ -3390,6 +3420,619 @@
           "description": "Replaces the line between topics."
         }
       }
+    },
+    "uiText": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^(\\*|[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*)$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ],
+      "description": "A text: plain, or one per language ({ \"en\": \"Save\", \"de\": \"Speichern\" }, \"*\" for every other language). The game's language picks it: the exact key (\"pt-br\"), the primary language (\"pt\"), then \"en\", then \"*\"."
+    },
+    "uiWhen": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Shown only while this is true: a name (game.inGame, config.clock.show: true, not 0, not empty), !name, or name == value with == != < <= > >=, joined with &&. Examples: \"game.inGame\", \"!game.inGame\", \"game.screen == InGame\", \"game.fps < 30 && config.hud.on\"."
+    },
+    "uiBind": {
+      "type": "string",
+      "pattern": "^(game|config)\\.[A-Za-z0-9_.\\-/]+$",
+      "description": "A value: game.<name> (fps, frameMs, state, inGame, screen, language, clock) or config.<path> of this mod's config (config.<config id>/<path> when two configs have the path)."
+    },
+    "uiSet": {
+      "type": "object",
+      "required": [
+        "bind",
+        "to"
+      ],
+      "description": "A config entry and the value to give it: true or false, a number in its range, or an option of an enum.",
+      "properties": {
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "to": {
+          "type": [
+            "boolean",
+            "number",
+            "string"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiAction": {
+      "type": "object",
+      "description": "What a button or a key does: exactly one of command, toggle, set, castAbility, applyEffect, openWindow, closeWindow, toast. Runs on the player's game, never on a dedicated server.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "A command line of this game's command registry, as the console runs it: as the host's own character when this game hosts the world, else as the console. It does not reach a server this game joined."
+        },
+        "toggle": {
+          "$ref": "#/$defs/uiBind",
+          "description": "Flips a true/false config entry."
+        },
+        "set": {
+          "$ref": "#/$defs/uiSet"
+        },
+        "castAbility": {
+          "$ref": "#/$defs/ref",
+          "description": "Asks the server to cast an ability of this mod (or \"other-mod:name\"), as its key would. The server needs the mod."
+        },
+        "applyEffect": {
+          "$ref": "#/$defs/effectRef",
+          "description": "Applies an effect to the player, through a hidden ability named ui-apply.<name>. The server needs the mod."
+        },
+        "openWindow": {
+          "$ref": "#/$defs/ref",
+          "description": "Opens a window block of this mod (or \"other-mod:name\")."
+        },
+        "closeWindow": {
+          "$ref": "#/$defs/ref",
+          "description": "Closes a window block."
+        },
+        "toast": {
+          "$ref": "#/$defs/uiText",
+          "description": "A short message in the corner of the screen."
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRow": {
+      "description": "One line of a window. \"type\" says which: text, value, toggle, slider, choice, separator, button.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uiRowText"
+        },
+        {
+          "$ref": "#/$defs/uiRowValue"
+        },
+        {
+          "$ref": "#/$defs/uiRowToggle"
+        },
+        {
+          "$ref": "#/$defs/uiRowSlider"
+        },
+        {
+          "$ref": "#/$defs/uiRowChoice"
+        },
+        {
+          "$ref": "#/$defs/uiRowSeparator"
+        },
+        {
+          "$ref": "#/$defs/uiRowButton"
+        }
+      ]
+    },
+    "uiRowText": {
+      "type": "object",
+      "required": [
+        "type",
+        "text"
+      ],
+      "description": "A line of text. {game.fps:0} and {config.clock.scale:0.00} in it show a value (refreshed at the window's pace); {{ and }} are braces.",
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "text": {
+          "$ref": "#/$defs/uiText"
+        },
+        "color": {
+          "$ref": "#/$defs/uiColor"
+        },
+        "wrap": {
+          "type": "boolean",
+          "description": "Break long text at the window's edge. The overlay's wrapped text has no colour: not with color."
+        }
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "color",
+          "wrap"
+        ],
+        "properties": {
+          "wrap": {
+            "const": true
+          }
+        }
+      }
+    },
+    "uiRowValue": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A label and a value that cannot be edited here: Label: value.",
+      "properties": {
+        "type": {
+          "const": "value"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How a number shows (\"0\", \"0.00\", \"#,##0\") or a true/false (\"yes|no\")."
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowToggle": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A checkbox on a true/false config entry. A click writes the config.",
+      "properties": {
+        "type": {
+          "const": "toggle"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowSlider": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A slider on a whole-number or decimal config entry. A drag writes the config once it rests for a moment.",
+      "properties": {
+        "type": {
+          "const": "slider"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "min": {
+          "type": "number",
+          "description": "Default: the entry's own range, which it must have when min and max are left out."
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowChoice": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A drop-down on an enum config entry, with its options.",
+      "properties": {
+        "type": {
+          "const": "choice"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowSeparator": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "description": "A line, with a heading when it has text.",
+      "properties": {
+        "type": {
+          "const": "separator"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "text": {
+          "$ref": "#/$defs/uiText"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowButton": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "does"
+      ],
+      "description": "A button that runs an action.",
+      "properties": {
+        "type": {
+          "const": "button"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "does": {
+          "$ref": "#/$defs/uiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiColor": {
+      "type": "string",
+      "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|white|black|gray|grey|red|green|yellow|orange|cyan)$",
+      "description": "#rrggbb, #rrggbbaa, or white, black, gray, red, green, yellow, orange, cyan."
+    },
+    "uiMenu": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "description": "An entry in the game's pause menu and/or main menu that opens the window.",
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/uiText"
+        },
+        "in": {
+          "enum": [
+            "pause",
+            "main",
+            "both"
+          ],
+          "description": "Default pause."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Lower first. Kiln's own Mods entry has 1000."
+        }
+      },
+      "additionalProperties": false
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "title",
+        "rows"
+      ],
+      "description": "A window or a screen of rows: text, values, buttons, toggles, sliders, choices and separators. Drawn by each player's game from the mod's own file, so the mod needs \"clients\": \"mod\"; on a dedicated server it is checked and kept, and nothing is drawn. What it shows refreshes every \"refresh\" seconds, not every frame; a closed window costs nothing.",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/uiText"
+        },
+        "kind": {
+          "enum": [
+            "window",
+            "screen"
+          ],
+          "description": "window (default): an overlay window the player can drag. screen: a full screen in the game's look, dimming the game, closed by Escape."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Pixels at UI scale 1. 0: a window fits its rows, a screen is 720 wide."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Pixels at UI scale 1. 0: a window fits its rows, a screen is 520 high."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "A window: where its centre is, [x, y] as 0..1 of the screen."
+        },
+        "autoResize": {
+          "type": "boolean",
+          "description": "A window: it grows and shrinks with its rows."
+        },
+        "titleBar": {
+          "type": "boolean",
+          "description": "Default true."
+        },
+        "alpha": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "A window: how opaque the background is."
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "A window: false gives a panel the player only looks at (default true)."
+        },
+        "dim": {
+          "type": "boolean",
+          "description": "A screen: darken the game behind it (default true)."
+        },
+        "openAtStart": {
+          "type": "boolean",
+          "description": "Open as soon as the game has it. Default: closed until a key, a button or a menu entry opens it."
+        },
+        "refresh": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3600,
+          "description": "Seconds between updates of the values and conditions it shows. Default 0.25."
+        },
+        "menu": {
+          "$ref": "#/$defs/uiMenu"
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/uiRow"
+          }
+        },
+        "comment": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "screen"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "position"
+                  ]
+                },
+                {
+                  "required": [
+                    "alpha"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "autoResize": {
+                "const": false
+              },
+              "interactive": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "dim"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "hudLine": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "description": "A line of text on the game's screen. It shows while its condition holds and updates at its own pace; hidden, it costs nothing. Drawn by each player's game, so the mod needs \"clients\": \"mod\".",
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/uiText",
+          "description": "The text, with {game.fps:0} and {config.clock.scale:0.00} for values; {{ and }} are braces."
+        },
+        "anchor": {
+          "enum": [
+            "topLeft",
+            "topCenter",
+            "topRight",
+            "middleLeft",
+            "center",
+            "middleRight",
+            "bottomLeft",
+            "bottomCenter",
+            "bottomRight"
+          ],
+          "description": "Default topLeft."
+        },
+        "color": {
+          "$ref": "#/$defs/uiColor",
+          "description": "Default white."
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "refresh": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3600,
+          "description": "Seconds between updates. Default 1."
+        },
+        "comment": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "keyBinding": {
+      "type": "object",
+      "required": [
+        "key",
+        "does"
+      ],
+      "description": "A key that runs an action. The player can rebind it in the Kiln menu's Keys tab; the choice is kept in keybinds.json under <mod>:<name>. Bound on each player's game, so the mod needs \"clients\": \"mod\".",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The default key: F8, Ctrl+K, Shift+Alt+F2, Numpad5, or None to bind it only once the player chooses."
+        },
+        "description": {
+          "$ref": "#/$defs/uiText",
+          "description": "What the Keys tab says. Default: the block's name."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The group in the Keys tab. Default: the mod's name."
+        },
+        "does": {
+          "$ref": "#/$defs/uiAction"
+        },
+        "onGameScreens": {
+          "type": "boolean",
+          "description": "A key that types something (a letter, a digit) fires in play only; true fires on every game screen too, chat included."
+        },
+        "whileCapturing": {
+          "type": "boolean",
+          "description": "Also fire while the Kiln menu is open."
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        },
+        "comment": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -36,8 +36,10 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `effects` | object |  | What happens: the same effect plugs in everywhere. |
 | `format` | `1` | yes |  |
 | `hair` | object |  | Hair styles: worn looks on the head. A look with files of the mod's own needs "clients": "mod". |
+| `hudLines` | object |  | Lines of text on the game's screen with values in them, a condition and a refresh rate. Needs "clients": "mod". |
 | `interactions` | object |  | Parts: what happens when a player uses a placed thing. Use one by name in onInteract. |
 | `items` | object |  | Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it. |
+| `keyBindings` | object |  | Keys that run an action (open a window, toggle a config value, run a command, cast an ability), rebindable in the Kiln menu. Needs "clients": "mod". |
 | `looks` | object |  | Parts: what an item looks like. Use one by name wherever a field takes a look. |
 | `lootTables` | object |  | Tables of what drops, rolled by Kiln: a creature's drops name one, and so does code (LootTableHandle.Roll/Drop/Give). Server only. |
 | `materialTweaks` | object |  | Changes to game materials: what it takes to dig them. Read at boot by kiln.worldtables; a strength change asks nothing of players' games. |
@@ -69,6 +71,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `weaponClasses` | object |  | Parts: your own class of weapon, starting from a premade. |
 | `weaponStats` | object |  | Parts: a weapon's numbers. |
 | `weapons` | object |  | Weapons that are made exactly as their recipe tooltip shows. |
+| `windows` | object |  | Windows and screens of rows: text, values, buttons, toggles and sliders on the mod's config. Drawn by each player's game from the mod's own file, so needs "clients": "mod"; on a dedicated server checked and kept, nothing drawn. |
 | `wornLooks` | object |  | Parts: what something looks like on the body. Use one by name wherever a field takes a worn look. The cook finds the files of every look here by itself. |
 
 ## ability
@@ -685,6 +688,19 @@ A list of effects, a block of onHits or an effect by name, or an onHit inline.
 
 Type: [ref](#ref) or [effects](#effects) or [onHit](#onhit)
 
+## hudLine
+
+A line of text on the game's screen. It shows while its condition holds and updates at its own pace; hidden, it costs nothing. Drawn by each player's game, so the mod needs "clients": "mod".
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `anchor` | `"topLeft"` \| `"topCenter"` \| `"topRight"` \| `"middleLeft"` \| `"center"` \| `"middleRight"` \| `"bottomLeft"` \| `"bottomCenter"` \| `"bottomRight"` |  | Default topLeft. |
+| `color` | [uiColor](#uicolor) |  | Default white. |
+| `comment` | string |  |  |
+| `refresh` | number |  | Seconds between updates. Default 1. min 0.1 max 3600 |
+| `text` | [uiText](#uitext) | yes | The text, with {game.fps:0} and {config.clock.scale:0.00} for values; {{ and }} are braces. |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
 ## interaction
 
 What happens when a player uses a placed thing. A field left out is what its starter does. verb, plays, toggle and the game's lock in requires are the game's own; effects and requires' when, unless are Kiln's, on the server.
@@ -741,6 +757,21 @@ Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else 
 An item: a game item (Material_T1_Twigs), an item of this mod by its block name, or "other-mod:name". min length 1
 
 Type: string
+
+## keyBinding
+
+A key that runs an action. The player can rebind it in the Kiln menu's Keys tab; the choice is kept in keybinds.json under <mod>:<name>. Bound on each player's game, so the mod needs "clients": "mod".
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string |  | The group in the Keys tab. Default: the mod's name. min length 1 |
+| `comment` | string |  |  |
+| `description` | [uiText](#uitext) |  | What the Keys tab says. Default: the block's name. |
+| `does` | [uiAction](#uiaction) | yes |  |
+| `key` | string | yes | The default key: F8, Ctrl+K, Shift+Alt+F2, Numpad5, or None to bind it only once the player chooses. min length 1 |
+| `onGameScreens` | boolean |  | A key that types something (a letter, a digit) fires in play only; true fires on every game screen too, chat included. |
+| `was` | [name](#name) |  |  |
+| `whileCapturing` | boolean |  | Also fire while the Kiln menu is open. |
 
 ## knockback
 
@@ -1481,6 +1512,164 @@ Game fields this block does not cover, by the path a data pack writes, set on wh
 
 Type: object
 
+## uiAction
+
+What a button or a key does: exactly one of command, toggle, set, castAbility, applyEffect, openWindow, closeWindow, toast. Runs on the player's game, never on a dedicated server.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `applyEffect` | [effectRef](#effectref) |  | Applies an effect to the player, through a hidden ability named ui-apply.<name>. The server needs the mod. |
+| `castAbility` | [ref](#ref) |  | Asks the server to cast an ability of this mod (or "other-mod:name"), as its key would. The server needs the mod. |
+| `closeWindow` | [ref](#ref) |  | Closes a window block. |
+| `command` | string |  | A command line of this game's command registry, as the console runs it: as the host's own character when this game hosts the world, else as the console. It does not reach a server this game joined. min length 1 max length 256 |
+| `openWindow` | [ref](#ref) |  | Opens a window block of this mod (or "other-mod:name"). |
+| `set` | [uiSet](#uiset) |  |  |
+| `toast` | [uiText](#uitext) |  | A short message in the corner of the screen. |
+| `toggle` | [uiBind](#uibind) |  | Flips a true/false config entry. |
+
+## uiBind
+
+A value: game.<name> (fps, frameMs, state, inGame, screen, language, clock) or config.<path> of this mod's config (config.<config id>/<path> when two configs have the path). Pattern `^(game\|config)\.[A-Za-z0-9_.\-/]+$`.
+
+Type: string
+
+## uiColor
+
+#rrggbb, #rrggbbaa, or white, black, gray, red, green, yellow, orange, cyan.
+
+Type: string
+
+## uiMenu
+
+An entry in the game's pause menu and/or main menu that opens the window.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `in` | `"pause"` \| `"main"` \| `"both"` |  | Default pause. |
+| `order` | integer |  | Lower first. Kiln's own Mods entry has 1000. |
+| `text` | [uiText](#uitext) | yes |  |
+
+## uiRow
+
+One line of a window. "type" says which: text, value, toggle, slider, choice, separator, button.
+
+Type: [uiRowText](#uirowtext) or [uiRowValue](#uirowvalue) or [uiRowToggle](#uirowtoggle) or [uiRowSlider](#uirowslider) or [uiRowChoice](#uirowchoice) or [uiRowSeparator](#uirowseparator) or [uiRowButton](#uirowbutton)
+
+## uiRowButton
+
+A button that runs an action.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `does` | [uiAction](#uiaction) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"button"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowChoice
+
+A drop-down on an enum config entry, with its options.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"choice"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowSeparator
+
+A line, with a heading when it has text.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `text` | [uiText](#uitext) |  |  |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"separator"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowSlider
+
+A slider on a whole-number or decimal config entry. A drag writes the config once it rests for a moment.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `max` | number |  |  |
+| `min` | number |  | Default: the entry's own range, which it must have when min and max are left out. |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"slider"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowText
+
+A line of text. {game.fps:0} and {config.clock.scale:0.00} in it show a value (refreshed at the window's pace); {{ and }} are braces.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `color` | [uiColor](#uicolor) |  |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `text` | [uiText](#uitext) | yes |  |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"text"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+| `wrap` | boolean |  | Break long text at the window's edge. The overlay's wrapped text has no colour: not with color. |
+
+## uiRowToggle
+
+A checkbox on a true/false config entry. A click writes the config.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"toggle"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowValue
+
+A label and a value that cannot be edited here: Label: value.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `format` | string |  | How a number shows ("0", "0.00", "#,##0") or a true/false ("yes\|no"). min length 1 |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"value"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiSet
+
+A config entry and the value to give it: true or false, a number in its range, or an option of an enum.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `to` | boolean \| number \| string | yes |  |
+
+## uiText
+
+A text: plain, or one per language ({ "en": "Save", "de": "Speichern" }, "*" for every other language). The game's language picks it: the exact key ("pt-br"), the primary language ("pt"), then "en", then "*".
+
+Type: string or object
+
+## uiWhen
+
+Shown only while this is true: a name (game.inGame, config.clock.show: true, not 0, not empty), !name, or name == value with == != < <= > >=, joined with &&. Examples: "game.inGame", "!game.inGame", "game.screen == InGame", "game.fps < 30 && config.hud.on". min length 1
+
+Type: string
+
 ## vfx
 
 A VFX and where it shows: a VFX block of this mod by name, "other-mod:name", or "game:<name>" for one of the game's (a template that carries it, a sequence that plays it, or a GUID). A new VFX needs "clients": "mod".
@@ -1585,6 +1774,28 @@ A weapon's numbers: the tooltip's, made exactly so.
 | `power` | integer |  | The tooltip's damage at that level. Default: what the class has, or damage's total. min 0 |
 | `rarity` | [rarity](#rarity) |  |  |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. min 0 |
+
+## window
+
+A window or a screen of rows: text, values, buttons, toggles, sliders, choices and separators. Drawn by each player's game from the mod's own file, so the mod needs "clients": "mod"; on a dedicated server it is checked and kept, and nothing is drawn. What it shows refreshes every "refresh" seconds, not every frame; a closed window costs nothing.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `alpha` | number |  | A window: how opaque the background is. min 0 max 1 |
+| `autoResize` | boolean |  | A window: it grows and shrinks with its rows. |
+| `comment` | string |  |  |
+| `dim` | boolean |  | A screen: darken the game behind it (default true). |
+| `height` | number |  | Pixels at UI scale 1. 0: a window fits its rows, a screen is 520 high. min 0 max 4096 |
+| `interactive` | boolean |  | A window: false gives a panel the player only looks at (default true). |
+| `kind` | `"window"` \| `"screen"` |  | window (default): an overlay window the player can drag. screen: a full screen in the game's look, dimming the game, closed by Escape. |
+| `menu` | [uiMenu](#uimenu) |  |  |
+| `openAtStart` | boolean |  | Open as soon as the game has it. Default: closed until a key, a button or a menu entry opens it. |
+| `position` | array of number |  | A window: where its centre is, [x, y] as 0..1 of the screen. min items 2 max items 2 |
+| `refresh` | number |  | Seconds between updates of the values and conditions it shows. Default 0.25. min 0.1 max 3600 |
+| `rows` | array of [uiRow](#uirow) | yes | min items 1 max items 200 |
+| `title` | [uiText](#uitext) | yes |  |
+| `titleBar` | boolean |  | Default true. |
+| `width` | number |  | Pixels at UI scale 1. 0: a window fits its rows, a screen is 720 wide. min 0 max 4096 |
 
 ## wornLook
 

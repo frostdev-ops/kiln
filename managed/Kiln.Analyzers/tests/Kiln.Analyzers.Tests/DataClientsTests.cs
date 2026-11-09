@@ -158,6 +158,9 @@ public sealed class DataClientsTests
         { "terrainMaterials", """{ "name": "Glowstone", "like": "Stone" }""", "mod" },
         { "quests", """{ "name": "Errand", "steps": [ { "id": "go", "objective": { "custom": "x" } } ] }""", "mod" },
         { "dialogues", """{ "nodes": { "start": { "text": "Hello" } } }""", "mod" },
+        { "windows", """{ "title": "Clock", "rows": [ { "type": "text", "text": "hi" } ] }""", "mod" },
+        { "hudLines", """{ "text": "{game.fps:0} fps" }""", "mod" },
+        { "keyBindings", """{ "key": "F8", "does": { "openWindow": "settings" } }""", "mod" },
     };
 
     [Theory]

@@ -28,7 +28,7 @@ internal static class DataClients
         ["materialTweaks"] = None, ["strengths"] = None, ["surfaces"] = None, ["lootTables"] = None,
         ["creatures"] = None, ["bodies"] = None, ["animations"] = None, ["ais"] = None, ["behaviours"] = None, ["attacks"] = None, ["rules"] = None,
         // built by every player's game from the mod's own files
-        ["vfx"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
+        ["vfx"] = Mod, ["windows"] = Mod, ["hudLines"] = Mod, ["keyBindings"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
         // the game's own journal and NPC menu, built from the mod's files at start
         ["quests"] = Mod, ["dialogues"] = Mod,
     };

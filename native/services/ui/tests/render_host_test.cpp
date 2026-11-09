@@ -5,6 +5,7 @@
 #include <thread>
 #include <limits>
 #include "../render.cpp"
+#include "../slider.h"
 
 namespace kui {
 const KilnApi* g_api = nullptr;
@@ -90,6 +91,40 @@ int main() {
     for (const auto& v : d->VtxBuffer) assert(std::isfinite(v.pos.x) && std::isfinite(v.pos.y));
     kui::drawing = false;
     ImGui::Render();
+
+    // Real mouse input must select values inside a tiny float range. ImGui's default %.3f rounds this to 0.
+    constexpr float tiny_min = 1e-5f, tiny_max = 2e-5f;
+    float tiny = tiny_min;
+    ImVec2 tiny_start{}, tiny_end{};
+    io.ConfigInputTrickleEventQueue = false;
+    auto slider_frame = [&](ImVec2 mouse, bool down) {
+        io.AddMousePosEvent(mouse.x, mouse.y);
+        io.AddMouseButtonEvent(0, down);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(20, 20));
+        ImGui::SetNextWindowSize(ImVec2(400, 100));
+        ImGui::Begin("slider input test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::SetNextItemWidth(240);
+        const bool changed = kui::slider_float("##tiny", &tiny, tiny_min, tiny_max);
+        tiny_start = ImGui::GetItemRectMin();
+        tiny_end = ImGui::GetItemRectMax();
+        ImGui::End();
+        ImGui::Render();
+        return changed;
+    };
+    slider_frame(ImVec2(-100, -100), false);
+    const ImVec2 middle((tiny_start.x + tiny_end.x) * 0.5f, (tiny_start.y + tiny_end.y) * 0.5f);
+    slider_frame(middle, false); // hover the actual widget before pressing
+    assert(slider_frame(middle, true));
+    assert(std::isfinite(tiny) && tiny > tiny_min && tiny < tiny_max);
+    const float midpoint = tiny;
+    const ImVec2 three_quarters(tiny_start.x + (tiny_end.x - tiny_start.x) * 0.75f, middle.y);
+    assert(slider_frame(three_quarters, true));
+    assert(std::isfinite(tiny) && tiny > midpoint && tiny < tiny_max);
+    const float selected = tiny;
+    slider_frame(three_quarters, false);
+    assert(tiny == selected);
+    std::printf("float_slider: actual mouse selected %.9g in [%.9g, %.9g], release kept it\n", tiny, tiny_min, tiny_max);
     ImGui::DestroyContext();
 
     // A snapshot cannot call a canceled callback, and unsubscribe waits for an in-flight call.

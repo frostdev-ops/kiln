@@ -1,0 +1,55 @@
+{
+  // UI blocks as data. The config they bind to is registered by the mod's code (UiBlocksTestMod.cs). "main" and "settings" open each other, and "twin-json" is "twin-code" of the C# side.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "statuses": { "calm": { "name": "Calm", "seconds": 5, "kind": "buff" } },
+  "effects": {
+    "burst": { "heal": 5 },
+    "calm-fx": { "applies": "calm" }
+  },
+  "abilities": { "nova": { "name": "Nova", "onCast": [ "burst" ] } },
+  "windows": {
+    "main": {
+      "title": "Main",
+      "menu": { "text": "UI blocks test", "in": "both" },
+      "rows": [
+        { "type": "text", "text": "{game.fps:0} fps, {game.state}, {config.hud.label}" },
+        { "type": "button", "label": "Settings", "does": { "openWindow": "settings" } },
+        { "type": "button", "label": "Close", "does": { "closeWindow": "main" } }
+      ]
+    },
+    "settings": {
+      "title": { "en": "Settings", "de": "Einstellungen" },
+      "kind": "screen",
+      "refresh": 0.5,
+      "rows": [
+        { "type": "toggle", "label": "Show", "bind": "config.hud.show" },
+        { "type": "slider", "label": "Volume", "bind": "config.hud.volume" },
+        { "type": "slider", "label": "Scale", "bind": "config.hud.scale", "min": 1, "max": 2 },
+        { "type": "choice", "label": "Mood", "bind": "config.hud.mood" },
+        { "type": "value", "label": "Label", "bind": "config.hud.label" },
+        { "type": "button", "label": "Cast", "does": { "castAbility": "nova" } },
+        { "type": "button", "label": "Calm", "sameLine": true, "does": { "applyEffect": "calm-fx" } },
+        { "type": "button", "label": "Heal", "does": { "applyEffect": { "heal": 3 } } },
+        { "type": "button", "label": "Run", "does": { "command": "help" } },
+        { "type": "button", "label": "Back", "does": { "openWindow": "main" } }
+      ]
+    },
+    "twin-json": {
+      "title": "Twin",
+      "refresh": 1,
+      "rows": [
+        { "type": "text", "text": "{game.clock} {config.hud.label}", "color": "orange", "when": "game.inGame" },
+        { "type": "toggle", "label": "Show", "bind": "config.hud.show", "tooltip": "tip" },
+        { "type": "separator", "text": "Heading" },
+        { "type": "button", "label": "Back", "does": { "toggle": "config.hud.show" } }
+      ]
+    }
+  },
+  "hudLines": {
+    "fps": { "text": "{game.fps:0} fps", "anchor": "topRight", "color": "cyan", "when": "game.inGame && config.hud.show", "refresh": 0.5 }
+  },
+  "keyBindings": {
+    "open-main": { "key": "F8", "description": "Open the UI blocks test window", "does": { "openWindow": "main" } }
+  }
+}
