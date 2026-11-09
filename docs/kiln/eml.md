@@ -167,7 +167,11 @@ It fails soft:
   capability (or `export`, when export is on), so only those are checked; a library mod that others `require` is not.
 - **A mod whose Lua fails is switched off, and the run repeats without it.** EML names each chunk `mods.<id>.<module>`,
   so the error names the mod. The other mods still patch. A module that cannot be read at that point (a `require` of a
-  file that vanished or is unreadable) names its mod too: `failed to load module: mods.<id>.<module> (<file>): ...`.
+  file that vanished or is unreadable) names its mod too: `failed to load module: mods.<id>.<module> (<file>): ...`;
+  that mod is switched off, even when another mod required the module. A module its mod simply does not have (the mod
+  folder and `src` are there, the file is not: a typo in a `require`, or a version of the mod without that module)
+  says `no such module: mods.<id>.<module> (<file>): ...`; the mod whose chunk required it is switched off, not the
+  intact one named.
 - **A failure that names no mod** (a write error, a panic): a compatible valid backup restores vanilla, and the
   cache is dropped so the next start re-runs. Restore failures are reported as failures; they are never labelled idle.
   An install-lock failure stops startup instead of entering the game alongside a possible active writer.
@@ -191,14 +195,17 @@ It fails soft:
 
 The last part of the line says which parts of the path exist right now (`root exists, src missing`).
 If a read fails later, during the run, eml.log and kiln.log have a line
-`module mods.<id>.<module> could not be read 184.2s after the mod was loaded: <stage> failed: ...; root exists, ...`:
-the stage, whether the mod folder and `src` still exist, and how long after the mod loaded it happened. Only that mod
+`module mods.<id>.<module> could not be read 184.2s after the mod was loaded: <stage> failed: ...; root exists, ...`
+(`does not exist` instead of `could not be read` for a module the intact mod does not have):
+the stage, whether the mod folder and `src` still exist, and how long after the mod loaded it happened. Only one mod
 is switched off. A long gap means something changed the folder while the game was starting.
 
 The launcher refuses to remove a Library version while the game runs ("Close Enshrouded first: the game may be
-reading this mod"), and "Clean up" never lists a version the game's `kiln/profile.json` still points at. A running
-dedicated server blocks removal only when its own `kiln/profile.json` or `profile.once.json` points into the Library;
-servers normally get copies of their mods (`kiln/mods/`), so an always-on server does not block it.
+reading this mod"), and "Clean up" never lists a version the game's `kiln/profile.json` still points at, or its
+`kiln/profile.once.json` while `kiln/play-once.ini` still asks the next start for it (the once file stays after its
+start; nothing reads it again). Remove names the same users and removes past them once confirmed. A running dedicated
+server blocks removal only when its own `kiln/profile.json` points into the Library (servers ignore play-once); servers
+normally get copies of their mods (`kiln/mods/`), so an always-on server does not block it.
 
 How it composes with Kiln's asset layer: EML changes the files before the game reads them, and `kiln.assets`
 overrides resources and blobs in memory after the game reads them. An override in a Kiln asset pack wins over an EML

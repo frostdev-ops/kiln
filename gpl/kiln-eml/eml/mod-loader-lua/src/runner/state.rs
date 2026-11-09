@@ -53,7 +53,9 @@ impl RunnerState {
         self.mods.borrow_mut().insert(id, state);
     }
 
-    // kiln-eml: logs one error line for a module that could not be read and builds the Lua error naming it.
+    // kiln-eml: logs one error line for a module that could not be read and builds the Lua error naming it: `no such
+    // module` when the mod is intact and simply has no such file (the requiring chunk is at fault), else `failed to load
+    // module` (the mod's own files are unreadable).
     fn module_load_error(
         r#mod: &Mod,
         mod_id: &str,
@@ -65,16 +67,24 @@ impl RunnerState {
         let since_load_ms = r#mod.age().as_millis() as u64;
         let since = format!("{:.1}s", since_load_ms as f64 / 1000.0);
 
+        let what = if why.missing { "does not exist" } else { "could not be read" };
+
         error!(
             mod_id,
             module = qualified_id,
             path,
             root = fs.root().as_str(),
             since_load_ms,
-            "module {qualified_id} could not be read {since} after the mod was loaded: {why}",
+            "module {qualified_id} {what} {since} after the mod was loaded: {why}",
         );
 
-        LuaError::module_load(qualified_id, path, format!("{why}; mod loaded {since} ago"))
+        let cause = format!("{why}; mod loaded {since} ago");
+
+        if why.missing {
+            LuaError::module_missing(qualified_id, path, cause)
+        } else {
+            LuaError::module_load(qualified_id, path, cause)
+        }
     }
 
     pub fn require(

@@ -7,7 +7,7 @@ import type {
   Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
   EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
-  NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
+  NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
 import { adminMockHandlers } from "../admin/mock";
@@ -796,18 +796,22 @@ const handlers: Record<string, Handler> = {
   },
   library_lint: () => ({ format: 1, tool: "kiln-lint", version: "mock", ok: true, checked: [], summary: { errors: 0, warnings: 0, infos: 0, hints: 0 }, catalog: null, diagnostics: [] }),
   library_unused: () => library.flatMap((e) => e.versions
-    .filter((v) => ![...profiles.values()].some((p) => p.mods[e.kind].some((m) => m.id === e.id && m.version === v.version)))
-    .map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash }))),
+    .map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash }))
+    .filter((r) => !mockLibraryUsers(r).length)),
+  library_users: (a) => mockLibraryUsers(a.entry as LibraryRef),
   library_remove: (a) => {
-    const r = a.entry as LibraryRef;
     if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
-    const used = [...profiles.values()].filter((p) => p.mods[r.kind].some((m) => m.id === r.id && m.version === r.version));
-    if (used.length && !a.force) reject("conflict", `Used by ${used.map((p) => p.name).join(", ")}.`, { profiles: used.map((p) => p.id) });
-    const e = library.find((l) => l.kind === r.kind && l.id === r.id);
-    if (!e) reject("not_found", "Not in the library.");
-    e!.versions = e!.versions.filter((v) => v.version !== r.version);
-    if (!e!.versions.length) library.splice(library.indexOf(e!), 1);
+    mockLibraryRemove(a.entry as LibraryRef, !!a.force);
     return null;
+  },
+  library_remove_many: (a) => {
+    if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
+    const report: RemoveReport = { removed: [], failed: [] };
+    for (const r of a.entries as LibraryRef[]) {
+      try { mockLibraryRemove(r, !!a.force); report.removed.push(r); }
+      catch (e) { report.failed.push({ entry: r, error: e as KilnError }); }
+    }
+    return report;
   },
 
   // other engines' mods (kiln_manage::engine_mods)
@@ -1055,6 +1059,26 @@ function reapplyWhereActive(pid: string) {
   }
 }
 
+/** Games' profile files listing a version without a profile listing it (tests: `__kilnMock.setGameFileUsers`):
+ *  `<profile> (active in <game>)` per `<kind>/<id>/<version>`. */
+let gameFileUsers: Record<string, string[]> = {};
+
+/** library_users (kiln_manage::library::users): the profiles listing the version, then the games' profile files. */
+function mockLibraryUsers(r: LibraryRef): string[] {
+  const inProfiles = [...profiles.values()].filter((p) => p.mods[r.kind].some((m) => m.id === r.id && m.version === r.version)).map((p) => p.id);
+  return [...new Set([...inProfiles, ...(gameFileUsers[`${r.kind}/${r.id}/${r.version}`] ?? [])])].sort();
+}
+
+/** One version out of the library, as library_remove after its running check (conflict while a profile lists it). */
+function mockLibraryRemove(r: LibraryRef, force: boolean) {
+  const used = mockLibraryUsers(r);
+  if (used.length && !force) reject("conflict", `${r.id} ${r.version} is used by profile(s) ${used.join(", ")}`, used);
+  const e = library.find((l) => l.kind === r.kind && l.id === r.id && l.versions.some((v) => v.version === r.version));
+  if (!e) reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
+  e!.versions = e!.versions.filter((v) => v.version !== r.version);
+  if (!e!.versions.length) library.splice(library.indexOf(e!), 1);
+}
+
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
 function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
   const r: AddReport = { import: { imported: [], existing: [], skipped: [] }, profileId: null, profileName: null, created: false, added: [], already: [],
@@ -1178,6 +1202,7 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
+  setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],

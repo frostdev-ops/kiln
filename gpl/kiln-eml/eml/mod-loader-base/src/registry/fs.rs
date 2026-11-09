@@ -220,6 +220,7 @@ impl FileSystem {
                 stage: "file system".to_string(),
                 error: failed.to_string(),
                 state: "no file system available".to_string(),
+                missing: false,
             },
         }
     }
@@ -237,6 +238,10 @@ pub struct ReadFailure {
     pub error: String,
     /// Which parts of the path exist right now: `root exists, src missing`.
     pub state: String,
+    /// The mod's root and its `src` folder are there, only the file (or a folder below `src`) is not: the path names
+    /// nothing this mod has (a typo in a `require`, or a module another version of the mod has). False when the mod's
+    /// own files cannot be read (root or `src` gone, a file that cannot be opened or read, a link leaving the mod).
+    pub missing: bool,
 }
 
 impl std::fmt::Display for ReadFailure {
@@ -613,7 +618,12 @@ fn disk_state(root: &Path, rel: &Path) -> String {
 // `sanitize_path` steps (canonicalize, containment, link check) EML reads with, each one on its own.
 fn diagnose_disk(root: &Path, rel: &Path, failed: &Error) -> ReadFailure {
     let state = disk_state(root, rel);
-    let fail = |stage: String, error: String| ReadFailure { stage, error, state: state.clone() };
+    let fail = |stage: String, error: String| ReadFailure { stage, error, state: state.clone(), missing: false };
+    // the file, or a folder below the first one (`src`), is not there while everything above it is
+    let absent = |stage: String, e: std::io::Error| ReadFailure {
+        missing: e.kind() == ErrorKind::NotFound,
+        ..fail(stage, e.to_string())
+    };
 
     if let Err(e) = std::fs::metadata(root) {
         return fail("root metadata".to_string(), e.to_string());
@@ -632,6 +642,7 @@ fn diagnose_disk(root: &Path, rel: &Path, failed: &Error) -> ReadFailure {
         let stage = format!("directory metadata ({})", parts[..=i].join("/"));
 
         match std::fs::metadata(&current) {
+            Err(e) if i > 0 => return absent(stage, e),
             Err(e) => return fail(stage, e.to_string()),
             Ok(m) if !m.is_dir() => return fail(stage, "not a directory".to_string()),
             Ok(_) => {}
@@ -641,6 +652,7 @@ fn diagnose_disk(root: &Path, rel: &Path, failed: &Error) -> ReadFailure {
     current.push(file);
 
     match std::fs::metadata(&current) {
+        Err(e) if !folders.is_empty() => return absent("file metadata".to_string(), e),
         Err(e) => return fail("file metadata".to_string(), e.to_string()),
         Ok(m) if !m.is_file() => return fail("file metadata".to_string(), "not a regular file".to_string()),
         Ok(_) => {}
@@ -671,21 +683,27 @@ fn diagnose_disk(root: &Path, rel: &Path, failed: &Error) -> ReadFailure {
 
 // kiln-eml: the same for a zip mod: the archive file, then the entry.
 fn diagnose_zip(fs: &ZipFileSystem, rel: &Path, failed: &Error) -> ReadFailure {
-    let name = rel_parts(rel).join("/");
+    let parts = rel_parts(rel);
+    let name = parts.join("/");
 
     if let Err(e) = std::fs::metadata(fs.root()) {
         return ReadFailure {
             stage: "root metadata".to_string(),
             error: e.to_string(),
             state: "zip missing".to_string(),
+            missing: false,
         };
     }
 
     if !fs.exists(rel) {
+        // the archive has the first folder (`src`) but not this entry: a path the mod does not have
+        let missing = parts.len() > 1 && fs.exists(Path::new(parts[0]));
+
         return ReadFailure {
             stage: "zip entry".to_string(),
             error: "no such entry in the archive".to_string(),
             state: format!("zip exists, {name} missing"),
+            missing,
         };
     }
 
@@ -693,6 +711,7 @@ fn diagnose_zip(fs: &ZipFileSystem, rel: &Path, failed: &Error) -> ReadFailure {
         stage: "read".to_string(),
         error: failed.to_string(),
         state: format!("zip exists, {name} present"),
+        missing: false,
     }
 }
 

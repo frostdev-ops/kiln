@@ -5,6 +5,7 @@
 use kiln_manage::game::{self, GameInstall, GameKind, PathMode, Platform};
 use kiln_manage::library::{self, LibraryRef};
 use kiln_manage::paths::DataDirs;
+use kiln_manage::playonce::{self, PlayOnce, PlayOnceMode};
 use kiln_manage::proc::ProcessInfo;
 use kiln_manage::profile::{self, ProfileMod};
 use kiln_manage::task::NoProgress;
@@ -66,6 +67,12 @@ fn write_profile_file(game: &Path, rel: &str, id: &str, entries: serde_json::Val
     put(game, rel, serde_json::to_string_pretty(&text).unwrap().as_bytes());
 }
 
+/// `kiln/play-once.ini` asking the next start for `kiln/profile.once.json`, written `age_s` seconds ago.
+fn queue_once(game: &Path, age_s: i64) {
+    let flag = PlayOnce { mode: PlayOnceMode::Profile, created: kiln_manage::util::now_unix() - age_s, nonce: "n0nce".into(), profile: None };
+    playonce::write(game, &flag).unwrap();
+}
+
 #[test]
 fn removal_refuses_while_the_game_runs_and_force_does_not_change_that() {
     let t = tmp("running");
@@ -122,10 +129,11 @@ fn a_running_server_blocks_removal_only_when_its_profile_file_points_at_the_libr
         write_profile_file(&srv, "kiln/profile.json", "srv", serde_json::json!([{ "id": "x", "path": "\\\\host\\share\\x" }]));
         assert_eq!(library::remove_with(&dirs, &r, true, &mut server()).unwrap_err().code, ErrorCode::GameRunning);
     }
-    // play-once file too
+    // a server never reads profile.once.json (play-once is ignored on servers), flag or not
     std::fs::remove_file(srv.join("kiln/profile.json")).unwrap();
     write_profile_file(&srv, "kiln/profile.once.json", "srv", serde_json::json!([{ "id": "new-items", "path": z(&r) }]));
-    assert_eq!(library::remove_with(&dirs, &r, true, &mut server()).unwrap_err().code, ErrorCode::GameRunning);
+    queue_once(&srv, 0);
+    library::remove_with(&dirs, &r, true, &mut server()).unwrap();
 
     // a server installed like a game (an install record) follows the same rule; a client there always refuses
     let t2 = tmp("server-install");
@@ -170,9 +178,11 @@ fn users_counts_the_files_the_game_holds() {
     assert!(library::users(&dirs, &v2).is_empty(), "another version of the mod is not used");
     assert!(library::users(&dirs, &other).is_empty());
 
-    // profile.once.json: a start queued for one launch; a native-form (host) path counts the same
+    // profile.once.json: a start queued for one launch (play-once.ini asks for it); a native-form (host) path counts
+    // the same
     let host = library::path_of(&dirs, &v2).unwrap().display().to_string();
     write_profile_file(&game_dir, "kiln/profile.once.json", "tryout", serde_json::json!([{ "id": "new-items", "path": host }]));
+    queue_once(&game_dir, 5);
     assert_eq!(library::users(&dirs, &v2), ["tryout (play-once in Enshrouded)"]);
 
     // Clean up never lists them; the unused one stays listed
@@ -185,6 +195,71 @@ fn users_counts_the_files_the_game_holds() {
     assert!(e.message.contains("work (active in Enshrouded)"), "{}", e.message);
     library::remove_with(&dirs, &v1, true, &mut nothing).unwrap();
     library::remove_with(&dirs, &other, false, &mut nothing).unwrap();
+}
+
+#[test]
+fn a_left_over_play_once_file_does_not_pin_its_versions() {
+    // "Play once" with profile tryout, then normal starts: the proxy deleted play-once.ini at that start, and nothing
+    // deletes profile.once.json. No start reads it again.
+    let t = tmp("once");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let v2 = import(&dirs, &t.0, "new-items", "2.0.0", "b");
+    let game_dir = t.0.join("Enshrouded");
+    game::write_record(&dirs, &install(&game_dir, "client", GameKind::Client, PathMode::Z), None).unwrap();
+    let z = kiln_manage::winpath::unix_to_z(&library::path_of(&dirs, &v2).unwrap()).unwrap();
+    write_profile_file(&game_dir, "kiln/profile.once.json", "tryout", serde_json::json!([{ "id": "new-items", "path": z }]));
+    assert!(library::users(&dirs, &v2).is_empty());
+    assert_eq!(library::unused(&dirs).unwrap(), vec![v2.clone()]);
+
+    // a flag the next start would apply counts; one it ignores does not
+    queue_once(&game_dir, 0);
+    assert_eq!(library::users(&dirs, &v2), ["tryout (play-once in Enshrouded)"]);
+    queue_once(&game_dir, playonce::MAX_AGE_S + 60);
+    assert!(library::users(&dirs, &v2).is_empty(), "expired: the proxy ignores it");
+    let vanilla = PlayOnce { mode: PlayOnceMode::Vanilla, created: kiln_manage::util::now_unix(), nonce: "n".into(), profile: None };
+    playonce::write(&game_dir, &vanilla).unwrap();
+    assert!(library::users(&dirs, &v2).is_empty(), "a vanilla start does not read the once file");
+    let elsewhere = PlayOnce { profile: Some("other.json".into()), ..vanilla.clone() };
+    playonce::write(&game_dir, &PlayOnce { mode: PlayOnceMode::Profile, ..elsewhere }).unwrap();
+    assert!(library::users(&dirs, &v2).is_empty(), "a flag naming another profile file");
+
+    // the left-over file does not block a plain Remove either
+    playonce::clear(&game_dir).unwrap();
+    library::remove_with(&dirs, &v2, false, &mut nothing).unwrap();
+}
+
+#[test]
+fn clean_up_removes_a_batch_with_one_process_lookup_per_folder() {
+    let t = tmp("batch");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let refs: Vec<LibraryRef> = (0..6).map(|i| import(&dirs, &t.0, &format!("mod-{i}"), "1.0.0", &format!("c{i}"))).collect();
+    let game_dir = t.0.join("Enshrouded");
+    game::write_record(&dirs, &install(&game_dir, "client", GameKind::Client, PathMode::Z), None).unwrap();
+    let srv = t.0.join("EnshroudedServer");
+    put(&t.0, "data/servers/home.json", format!(r#"{{ "id": "home", "dir": {:?} }}"#, srv.display().to_string()).as_bytes());
+    // mod-0 is in the game's active profile file (Conflict without force), mod-1 is not in the library any more
+    let z = kiln_manage::winpath::unix_to_z(&library::path_of(&dirs, &refs[0]).unwrap()).unwrap();
+    write_profile_file(&game_dir, "kiln/profile.json", "work", serde_json::json!([{ "id": "mod-0", "path": z }]));
+    library::remove_with(&dirs, &refs[1], false, &mut nothing).unwrap();
+
+    // a running game refuses the whole batch: nothing is removed
+    let e = library::remove_many_with(&dirs, &refs, false, &mut only(&game_dir, game::CLIENT_EXE, running(9, "enshrouded.exe"))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning);
+    assert!(refs.iter().filter(|r| r.id != "mod-1").all(|r| library::path_of(&dirs, r).unwrap().is_dir()));
+
+    // closed: one lookup per folder and exe name, however many versions go
+    let mut calls = 0;
+    let report = library::remove_many_with(&dirs, &refs, false, &mut |_, _| { calls += 1; Ok(None) }).unwrap();
+    assert_eq!(calls, 2 * 2, "two folders (the game, the server), each looked up as client and server");
+    assert_eq!(report.removed, refs[2..].to_vec());
+    let failed: Vec<(&str, ErrorCode)> = report.failed.iter().map(|f| (f.entry.id.as_str(), f.error.code)).collect();
+    assert_eq!(failed, [("mod-0", ErrorCode::Conflict), ("mod-1", ErrorCode::NotFound)]);
+    assert!(library::path_of(&dirs, &refs[0]).unwrap().is_dir());
+    assert!(refs[2..].iter().all(|r| !library::path_of(&dirs, r).unwrap().exists()));
+    // the report crosses to the launcher as { removed, failed: [{ entry, error: { code, message, detail } }] }
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["failed"][0]["error"]["code"], "conflict");
+    assert_eq!(json["failed"][0]["entry"]["id"], "mod-0");
 }
 
 #[test]

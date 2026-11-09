@@ -121,15 +121,43 @@ fn names_id(error: &str, needle: &str) -> bool {
     })
 }
 
-/// The mod id a failure names: EML's chunk names are `mods.<id>.<module>`. A module that cannot be read says so
-/// (`failed to load module: mods.<id>.<module> (...)`, kiln-eml: EML's error carries the qualified module); that mod
-/// is the one at fault even when another mod's chunk is on the Lua stack (it required the module).
+/// kiln-eml's EML error for a module whose mod's files cannot be read (root or `src` gone, open or read failed).
+const UNREADABLE: &str = "failed to load module: ";
+/// kiln-eml's EML error for a module its (intact) mod does not have: a `require` with a wrong path.
+const MISSING: &str = "no such module: ";
+
+/// `error` with the module named after each `no such module: ` left out, so the mod of a module that does not exist
+/// does not count as named.
+fn without_missing_modules(error: &str) -> String {
+    let mut out = String::with_capacity(error.len());
+    let mut rest = error;
+    while let Some(i) = rest.find(MISSING) {
+        let after = i + MISSING.len();
+        out.push_str(&rest[..after]);
+        let end = rest[after..].find(char::is_whitespace).map_or(rest.len(), |n| after + n);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The mod id a failure names: EML's chunk names are `mods.<id>.<module>`. kiln-eml's EML errors name the module a
+/// `require` could not load, in one of two ways:
+/// - `failed to load module: mods.<id>.<module> (...)`: that mod's files cannot be read. It is at fault even when
+///   another mod's chunk is on the Lua stack (that one only required it).
+/// - `no such module: mods.<id>.<module> (...)`: the mod is intact and has no such module (a typo, or a version of the
+///   mod without it). The chunk that required it is at fault; the named mod only when no other chunk is named.
 pub fn failing_mod<'a>(error: &str, ids: impl IntoIterator<Item = &'a str>) -> Option<String> {
     let ids: Vec<&str> = ids.into_iter().collect();
-    // the longest id wins ("mods.foo_bar" also contains "mods.foo")
-    let longest = |hit: &dyn Fn(&str) -> bool| ids.iter().copied().filter(|id| hit(id)).max_by_key(|id| id.len());
-    longest(&|id| names_id(error, &format!("failed to load module: mods.{id}")))
-        .or_else(|| longest(&|id| names_id(error, &format!("mods.{id}"))))
+    // the longest id wins ("mods.foo_bar" also contains "mods.foo"); the first one listed on a tie
+    let longest = |text: &str, prefix: &str| {
+        ids.iter().copied()
+            .filter(|id| names_id(text, &format!("{prefix}mods.{id}")))
+            .fold(None, |best: Option<&str>, id| if best.is_none_or(|b| id.len() > b.len()) { Some(id) } else { best })
+    };
+    longest(error, UNREADABLE)
+        .or_else(|| longest(&without_missing_modules(error), ""))
+        .or_else(|| longest(error, MISSING))
         .map(str::to_owned)
 }
 
@@ -431,6 +459,69 @@ mod tests {
         let nested = "runtime error: [string \"mods.a.mod\"]:3: failed to load module: mods.b.util (src/util.lua): open failed: Access denied (os error 5); root exists, src exists, src/util.lua exists\nstack traceback:\n\t[C]: in ?";
         assert_eq!(failing_mod(nested, ["a", "b"]).as_deref(), Some("b"));
         assert_eq!(failing_mod("failed to load module: mods.zed.mod (src/mod.lua): x", ["a", "b"]), None);
+    }
+
+    #[test]
+    fn a_module_the_mod_does_not_have_blames_the_mod_that_required_it() {
+        // mod a requires mods.b.util, but the installed b has no src/util.lua (a typo, or another version of b)
+        let missing = "runtime error: [string \"mods.a.mod\"]:3: no such module: mods.b.util (src/util.lua): file metadata failed: No such file or directory (os error 2); root exists, src exists, src/util.lua missing; mod loaded 3.0s ago\nstack traceback:\n\t[C]: in ?";
+        assert_eq!(failing_mod(missing, ["a", "b"]).as_deref(), Some("a"));
+        assert_eq!(failing_mod(missing, ["b", "a"]).as_deref(), Some("a"), "whatever order the mods are listed in");
+        // b's own chunk requires the module it does not have: b
+        assert_eq!(failing_mod(&missing.replace("mods.a.mod", "mods.b.mod"), ["a", "b"]).as_deref(), Some("b"));
+        // the module's mod id is left out as a whole: b_extra is not taken for b (or the other way round)
+        assert_eq!(failing_mod(&missing.replace("mods.b.util", "mods.b_extra.util"), ["b", "b_extra", "a"]).as_deref(), Some("a"));
+        // nothing else on the stack (EML's runner itself required the module): the named mod
+        let alone = "no such module: mods.b (src/mod.lua): file metadata failed: x; root exists, src exists, src/mod.lua missing";
+        assert_eq!(failing_mod(alone, ["a", "b"]).as_deref(), Some("b"));
+        assert_eq!(failing_mod(&format!("{alone}\n{alone}"), ["a", "b"]).as_deref(), Some("b"));
+        // an unreadable module still wins over the requiring chunk, wherever it is in the text
+        let both = format!("{missing}\ncaused by: failed to load module: mods.c.x (src/x.lua): open failed: y");
+        assert_eq!(failing_mod(&both, ["a", "b", "c"]).as_deref(), Some("c"));
+        assert_eq!(without_missing_modules("no such module: mods.b.util (src/util.lua) no such module: mods.c"), "no such module:  (src/util.lua) no such module: ");
+    }
+
+    #[test]
+    fn a_path_the_intact_mod_does_not_have_is_missing_not_unreadable() {
+        let (d, paths) = mods_fixture("missing", &["a"]);
+        let env = env_of(&d, &paths);
+        let m = env.mod_registry().iter().next().unwrap().1.clone();
+        let probe = |rel: &str| m.fs().probe_read(rel).unwrap_err();
+        // the mod is intact: a file, or a folder below src, that it does not have
+        assert!(probe("src/util.lua").missing, "{}", probe("src/util.lua"));
+        assert!(probe("src/lib/util.lua").missing, "{}", probe("src/lib/util.lua"));
+        // a file that is there but cannot be loaded is the mod's own problem
+        std::fs::create_dir(paths[0].join("src/dir.lua")).unwrap();
+        assert!(!probe("src/dir.lua").missing);
+        // src (or the whole mod) gone: the mod's files cannot be read
+        std::fs::remove_dir_all(paths[0].join("src")).unwrap();
+        assert!(!probe("src/util.lua").missing, "{}", probe("src/util.lua"));
+        std::fs::remove_dir_all(&paths[0]).unwrap();
+        assert!(!probe("src/util.lua").missing, "{}", probe("src/util.lua"));
+        let _ = std::fs::remove_dir_all(d);
+
+        // a zip: the entry is not in an archive that has src/, or the archive has no src/ at all
+        let (d, _) = mods_fixture("missing-zip", &[]);
+        std::fs::create_dir_all(&d).unwrap();
+        let zip = |name: &str, entries: &[&str]| {
+            let path = d.join(name);
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            let opt = zip::write::SimpleFileOptions::default();
+            let id = name.trim_end_matches(".zip");
+            z.start_file("mod.json", opt).unwrap();
+            std::io::Write::write_all(&mut z, format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","capabilities":["patch"]}}"#).as_bytes()).unwrap();
+            for e in entries {
+                z.start_file(*e, opt).unwrap();
+                std::io::Write::write_all(&mut z, b"-- fixture").unwrap();
+            }
+            z.finish().unwrap();
+            path
+        };
+        let env = env_of(&d, &[zip("full.zip", &["src/mod.lua"]), zip("bare.zip", &[])]);
+        let probe = |id: &str, rel: &str| env.mod_registry().iter().find(|(i, _)| *i == id).unwrap().1.fs().probe_read(rel).unwrap_err();
+        assert!(probe("full", "src/util.lua").missing);
+        assert!(!probe("bare", "src/util.lua").missing);
+        let _ = std::fs::remove_dir_all(d);
     }
 
     /// A game folder with the given EML mods, each with `mod.json` (patch capability) and `src/mod.lua`.

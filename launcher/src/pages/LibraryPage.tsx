@@ -2,11 +2,11 @@
 // active profile" on (the default) it goes the way of a drop anywhere on the window (shell/drop.tsx: import, add to the
 // active profile, apply); off: detection, then the import task only. Filter by kind; remove a version (typed); clean
 // up versions no profile uses (typed).
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import * as api from "../api/commands";
-import { toKilnError, type Detected, type ImportReport, type LibraryEntry, type ModKind } from "../api/commands";
+import type { Detected, ImportReport, LibraryEntry, LibraryRef, ModKind } from "../api/commands";
 import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
 import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, isEngineKind, runsYet } from "../api/kinds";
 import { useAddMods } from "../shell/drop";
@@ -34,6 +34,7 @@ export default function LibraryPage() {
   const [importing, setImporting] = useState(false);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const usage = useUsage();
+  const profiles = useProfiles();
   const settings = useSettings();
   const addMods = useAddMods();
   const toProfile = settings.data?.addToActiveProfile !== false;
@@ -107,6 +108,22 @@ export default function LibraryPage() {
     ) },
   ];
 
+  // The version the Remove dialog is about, and what lists it: the backend sees the games' own profile files too (the
+  // game reads those), which the profiles here do not show. Remove forces past exactly what the dialog named.
+  const rmRef: LibraryRef | null = useMemo(() => {
+    const v = rm?.e.versions.find((x) => x.version === rm.version);
+    return rm && v ? { kind: rm.e.kind, id: rm.e.id, version: v.version, hash: v.hash } : null;
+  }, [rm]);
+  const rmUsers = useQuery({ queryKey: ["library_users", rmRef], queryFn: () => api.libraryUsers(rmRef!), enabled: !!rmRef, staleTime: 0, gcTime: 0 });
+  const profileName = (id: string) => profiles.data?.find((p) => p.id === id)?.name ?? id;
+  // "work" or "work (active in Enshrouded)": the profile by its name
+  const userLabel = (u: string) => {
+    const m = /^(.*) \((active|play-once) in (.*)\)$/.exec(u);
+    return m ? `${profileName(m[1])} (${m[2]} in ${m[3]})` : profileName(u);
+  };
+  // what the dialog names: the backend's list, or the profiles here until it answers
+  const rmUsedBy = !rm ? [] : rmUsers.data ? rmUsers.data.map(userLabel) : usage.uses(rm.e.kind, rm.e.id, rm.version) ? usage.names(rm.e.kind, rm.e.id) : [];
+
   // The backend knows what profiles and the games' own profile files list (the game reads those), so it names what is unused.
   const cleanUp = async () => {
     try { setGc(await api.libraryUnused()); }
@@ -142,25 +159,25 @@ export default function LibraryPage() {
       <DetectModal detected={detected} onClose={() => setDetected(null)} onImport={doImport} />
       <ReportModal report={report} onClose={() => setReport(null)} />
       <ConfirmDanger open={!!rm} onClose={() => setRm(null)} title={`Remove ${rm?.e.name} ${rm?.version}?`} word={rm?.e.id ?? ""} action="Remove"
-        message={rm && usage.uses(rm.e.kind, rm.e.id, rm.version) ? <>Profiles use it: {usage.names(rm.e.kind, rm.e.id).join(", ")}. They will show it as missing.</> : "Its files leave the library."}
+        message={rmUsedBy.length ? <>Used by {rmUsedBy.join(", ")}. They will show it as missing.</> : "Its files leave the library."}
         onConfirm={async () => {
-          const v = rm!.e.versions.find((x) => x.version === rm!.version)!;
-          try { await api.libraryRemove({ kind: rm!.e.kind, id: rm!.e.id, version: v.version, hash: v.hash }, usage.uses(rm!.e.kind, rm!.e.id, v.version)); toast.ok("Removed"); refresh(); }
-          catch (e) { toast.error(e); throw e; }
+          // force only past what the dialog named (a conflict the dialog did not show stays a conflict)
+          try { await api.libraryRemove(rmRef!, rmUsedBy.length > 0); toast.ok("Removed"); refresh(); }
+          catch (e) { toast.error(e); void rmUsers.refetch(); throw e; }
         }} />
       <ConfirmDanger open={!!gc && gc.length > 0} onClose={() => setGc(null)} title={`Remove ${gc?.length ?? 0} unused?`} word="clean" action="Remove"
         message="They are in no profile. Profiles and saves stay as they are."
         onConfirm={async () => {
-          let n = 0;
-          for (const g of gc ?? []) {
-            try { await api.libraryRemove(g, false); n++; }
-            catch (e) {
-              // a running game stops the whole clean up: say so once ("Close Enshrouded first: ...")
-              if (toKilnError(e).code === "game_running") { toast.error(e); break; }
-              toast.error(e, `${g.id} ${g.version}`);
-            }
+          // one call: the backend looks at the running processes and the profiles once for the whole batch
+          try {
+            const r = await api.libraryRemoveMany(gc ?? []);
+            for (const f of r.failed) toast.error(f.error, `${f.entry.id} ${f.entry.version}`);
+            const n = r.removed.length;
+            if (n) toast.ok(`Removed ${n}`, `${n} version${n === 1 ? "" : "s"} left the library.`);
+          } catch (e) {
+            // a running game stops the whole clean up before anything goes ("Close Enshrouded first: ...")
+            toast.error(e);
           }
-          if (n) toast.ok(`Removed ${n}`, `${n} version${n === 1 ? "" : "s"} left the library.`);
           refresh();
         }} />
       {gc && gc.length === 0 && <Modal open onClose={() => setGc(null)} title="Nothing to clean" width={480} footer={<Button onClick={() => setGc(null)}>OK</Button>}>Every version is in a profile, or in the profile file of a game.</Modal>}

@@ -5,7 +5,7 @@ use super::TaskId;
 use super::app::{spawn_task, to_value};
 use crate::state::{blocking, dirs};
 use kiln_manage::Error;
-use kiln_manage::library::{self, Detected, LibraryEntry, LibraryRef};
+use kiln_manage::library::{self, Detected, LibraryEntry, LibraryRef, RemoveReport};
 use kiln_manage::lint::{self, LintOptions, LintReport};
 use kiln_manage::manifest::ModKind;
 use std::path::PathBuf;
@@ -75,10 +75,25 @@ pub async fn library_remove(entry: LibraryRef, force: bool) -> Result<(), Error>
     blocking(move || library::remove(&dirs()?, &entry, force)).await
 }
 
-/// The versions "Clean up" may remove: listed by no profile and by no known game's active or play-once profile file.
+/// "Clean up": removes the versions with one look at the running processes and what lists them. Refuses (game_running)
+/// the whole batch while a game runs, or a server may read one of them; otherwise reports each version not removed.
+#[tauri::command]
+pub async fn library_remove_many(entries: Vec<LibraryRef>, force: bool) -> Result<RemoveReport, Error> {
+    blocking(move || library::remove_many(&dirs()?, &entries, force)).await
+}
+
+/// The versions "Clean up" may remove: listed by no profile and by no known game's active profile file or play-once
+/// file a start can still read.
 #[tauri::command]
 pub async fn library_unused() -> Result<Vec<LibraryRef>, Error> {
     blocking(move || library::unused(&dirs()?)).await
+}
+
+/// What lists one version: profile ids, and `<profile> (active in <game>)` / `(play-once in <game>)` for each game
+/// whose profile file points at it (what `library_remove` refuses with, Conflict, unless `force`).
+#[tauri::command]
+pub async fn library_users(entry: LibraryRef) -> Result<Vec<String>, Error> {
+    blocking(move || Ok(library::users(&dirs()?, &entry))).await
 }
 
 /// `kiln lint` on one library entry (with `profile_id`, the profile's other mods join the cross-mod checks), or on a
