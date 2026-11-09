@@ -2,8 +2,18 @@
 // `--selftest` mode embeds (resolver parity cases and Steam VDF samples from ../../schema/fixtures).
 use std::fmt::Write as _;
 use std::path::Path;
+#[path = "../../crates/kiln-manage/src/nexus/oauth/registration.rs"]
+mod oauth_registration;
 
 fn main() {
+    for name in ["KILN_RELEASE_BUILD", "KILN_NEXUS_OAUTH_CLIENT_ID", "KILN_NEXUS_OAUTH_REDIRECT_URI"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    println!("cargo:rerun-if-changed=../../crates/kiln-manage/src/nexus/oauth/registration.rs");
+    let client_id = std::env::var("KILN_NEXUS_OAUTH_CLIENT_ID").ok();
+    let redirect_uri = std::env::var("KILN_NEXUS_OAUTH_REDIRECT_URI").ok();
+    oauth_registration::preflight(std::env::var_os("KILN_RELEASE_BUILD").is_some(), client_id.as_deref(), redirect_uri.as_deref())
+        .unwrap_or_else(|reason| panic!("Nexus OAuth release preflight: {reason}"));
     // Plain `cargo build --no-default-features` must be safe too; do not rely on the packaging wrapper to remove
     // the updater key. Both tauri-build and generate_context! read this same final RFC 7396 merge patch.
     println!("cargo:rerun-if-changed=tauri.nexus.conf.json");

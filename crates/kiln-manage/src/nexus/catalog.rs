@@ -11,7 +11,7 @@
 //! The answers are kept in `<data>/nexus/verdicts.json` per mod and its `updated_at`: a mod is looked at again only
 //! after its page changes. The mod list itself is kept 10 minutes in memory.
 //!
-//! Files and their manifests need the user's API key (anonymous calls get search and mod pages only): without one the
+//! File metadata needs account authorization (anonymous calls get search and mod pages only): without one the
 //! catalog lists every Enshrouded mod and says that finding Kiln mods needs the key.
 
 use super::api::{Client, FileVersion, ModDetails, ModFile, ModSummary};
@@ -119,7 +119,7 @@ pub struct CatalogMod {
     pub created: String,
     pub updated: String,
     pub adult: bool,
-    /// None: not looked at (older than Kiln, or no API key).
+    /// None: not looked at (older than Kiln, or signed out).
     pub kind: Option<ModType>,
     pub url: String,
     pub installed: Option<InstalledInfo>,
@@ -185,8 +185,8 @@ pub struct Page {
     pub page_size: u32,
     /// Mods that may be Kiln mods and were not looked at yet (ask again to check the next batch).
     pub unchecked: usize,
-    /// The Kiln filter needs the API key.
-    pub needs_key: bool,
+    /// The Kiln filter needs sign-in.
+    pub needs_sign_in: bool,
     /// When the mod list was fetched.
     pub fetched: String,
 }
@@ -235,8 +235,8 @@ pub struct Details {
     pub best_file: Option<CatalogFile>,
     pub requirements: Vec<Requirement>,
     pub files_url: String,
-    /// Files and requirements need the API key.
-    pub needs_key: bool,
+    /// Files and requirements need sign-in.
+    pub needs_sign_in: bool,
 }
 
 /// A mod installed from the catalog (`<data>/nexus/installs.json`).
@@ -457,14 +457,14 @@ impl Catalog {
         sort(&mut list, q.sort);
         let installed = self.installed(dirs).unwrap_or_default();
         let inst_of = |gsid: &str| installed.iter().find(|i| i.record.mod_id == gsid).map(|i| i.info.clone());
-        let mut needs_key = false;
+        let mut needs_sign_in = false;
         let mut unchecked = 0;
         let keep: Vec<&ModSummary> = match q.filter {
             Filter::All => list,
             Filter::Installed => list.into_iter().filter(|m| inst_of(&m.game_scoped_id).is_some_and(|i| i.in_library)).collect(),
             Filter::Kiln => {
-                if !self.client.has_key() {
-                    needs_key = true;
+                if !self.client.has_credentials() {
+                    needs_sign_in = true;
                     vec![]
                 } else {
                     let mut budget = CHECK_BATCH;
@@ -502,7 +502,7 @@ impl Catalog {
                 to_catalog_mod(m, kind, inst_of(&m.game_scoped_id))
             })
             .collect();
-        Ok(Page { mods, total, page, page_size, unchecked, needs_key, fetched })
+        Ok(Page { mods, total, page, page_size, unchecked, needs_sign_in, fetched })
     }
 
     // ------------------------------------------------------------ details
@@ -518,8 +518,8 @@ impl Catalog {
         let mut kind = summary_from_list.as_ref().and_then(|s| self.cached_verdict(&s.id, &s.updated_at)).map(|v| v.kind);
         let mut best = None;
         let mut requirements = Vec::new();
-        let needs_key = !self.client.has_key();
-        if !needs_key {
+        let needs_sign_in = !self.client.has_credentials();
+        if !needs_sign_in {
             let fv = self.files(&d.id)?;
             let primary = d.primary_file_version.as_ref().map(|p| p.id.clone());
             let v = self.verdict_from_files(&d.id, if updated.is_empty() { "?" } else { &updated }, &fv)?;
@@ -570,7 +570,7 @@ impl Catalog {
             files,
             best_file: best,
             requirements,
-            needs_key,
+            needs_sign_in,
             summary,
         })
     }

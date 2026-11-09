@@ -18,8 +18,11 @@ ck_report() { # report.json distribution
 r = json.load(open(sys.argv[1]))
 print("\n".join(("PASS " if c["ok"] else "FAIL ") + c["name"] + ": " + c["detail"] for c in r["checks"]))
 print("distribution:", r.get("distribution"), "(expected " + sys.argv[2] + ")")
+oauth = r.get("nexusOAuth") or {}
+print("compiled Nexus OAuth:", oauth.get("configured") is True)
 marker = "KILN-LAUNCHER-DISTRIBUTION:" + sys.argv[2] + ":self-update=" + ("1" if sys.argv[2] == "direct" else "0")
-sys.exit(0 if r["ok"] and r.get("distribution") == sys.argv[2] and r.get("buildMarker") == marker else 1)' "$1" "$2"
+sys.exit(0 if r["ok"] and r.get("distribution") == sys.argv[2] and r.get("buildMarker") == marker
+    and r.get("releaseBuild") is True and oauth.get("configured") is True and oauth.get("clientId") and oauth.get("redirectUri") else 1)' "$1" "$2"
 }
 
 check_appimage() { # [AppImage folder-name distribution]: default the direct build

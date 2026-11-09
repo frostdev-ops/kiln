@@ -156,6 +156,9 @@ rm -rf "$KILN_OUT" && mkdir -p "$KILN_OUT"
 # the "tree this was built from" defaults of kilnctl and kiln
 unset RUSTFLAGS
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$work=/build/work"$'\x1f'"--remap-path-prefix=$HOME=/build"$'\x1f'"--remap-path-prefix=$src=/kiln" KILN_RELEASE_BUILD=1
+# Public, Nexus-approved desktop registration, shared by the direct/Nexus Linux and Windows builds.
+# Launcher build.rs rejects official builds without valid values; approval/live-provider proof remains manual.
+export KILN_NEXUS_OAUTH_CLIENT_ID KILN_NEXUS_OAUTH_REDIRECT_URI
 export ContinuousIntegrationBuild=true DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NO_STRIP=${NO_STRIP:-true}
 cache=${KILN_RELEASE_CACHE:-$HOME/.cache/kiln-release}
 mkdir -p "$cache"
@@ -191,6 +194,7 @@ else
     CARGO_TARGET_DIR=$lin_target CARGO_ENCODED_RUSTFLAGS=$lin_rustflags "$here/linux-build/run.sh" "${nice[@]}" \
       --mount "$src" --mount "$work" --ro "$here" \
       --env KILN_GIT --env SOURCE_DATE_EPOCH --env KILN_OUT --env CARGO_TARGET_DIR --env KILN_SDK_VERSION --env CARGO_ENCODED_RUSTFLAGS \
+      --env KILN_NEXUS_OAUTH_CLIENT_ID --env KILN_NEXUS_OAUTH_REDIRECT_URI \
       --env KILN_RELEASE_BUILD --env ContinuousIntegrationBuild --env NO_STRIP -- "$@"
   }
   step "Linux build image (Ubuntu 22.04, glibc $glibc_max)"

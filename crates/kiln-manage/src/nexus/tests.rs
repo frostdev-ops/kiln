@@ -5,7 +5,7 @@ use super::api::*;
 use super::catalog::*;
 use super::handler::{self, HandlerPlatform, Previous};
 use super::install::{self, InstallRequest};
-use super::keystore::{KeyPlace, KeyStore, SecretBackend};
+use super::keystore::{TokenPlace, TokenStore, SecretBackend};
 use crate::game::{GameInstall, GameKind, PathMode, Platform};
 use crate::paths::DataDirs;
 use crate::{ErrorCode, Result};
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 const API: &str = "https://api.test";
-const KEY: &str = "SECRET-KEY-123";
+const KEY: &str = "OAUTH-ACCESS-TOKEN-123";
 
 // ---------------------------------------------------------------- the mock
 
@@ -152,7 +152,7 @@ fn kiln_filter_finds_mods_with_kiln_mod_json_and_never_checks_old_ones() {
     let names: Vec<&str> = p.mods.iter().map(|x| x.name.as_str()).collect();
     assert_eq!(names, ["Lantern Glow", "Night Sky"], "endorsements order, Kiln mods only");
     assert!(p.mods.iter().all(|x| x.kind == Some(ModType::Kiln)));
-    assert_eq!((p.total, p.unchecked, p.needs_key), (2, 0, false));
+    assert_eq!((p.total, p.unchecked, p.needs_sign_in), (2, 0, false));
     // Kiln's own page and a mod older than Kiln were never looked at
     assert_eq!(m.calls(&format!("/mods/{}/files", uid("301"))), 0);
     assert_eq!(m.calls(&format!("/mods/{}/files", uid("311"))), 0);
@@ -187,14 +187,14 @@ fn text_search_sort_and_paging() {
 }
 
 #[test]
-fn without_a_key_the_kiln_filter_says_so_and_all_still_lists() {
+fn signed_out_the_kiln_filter_says_so_and_all_still_lists() {
     let (m, cat, t) = setup(None);
     let p = cat.search(&dirs(&t), &Query::default()).unwrap();
-    assert!(p.needs_key && p.mods.is_empty());
+    assert!(p.needs_sign_in && p.mods.is_empty());
     let all = cat.search(&dirs(&t), &Query { filter: Filter::All, ..Default::default() }).unwrap();
     assert_eq!(all.total, 5);
     assert_eq!(m.calls("/files"), 0, "no key: no file calls");
-    assert!(m.log.lock().unwrap().iter().all(|r| !r.headers.iter().any(|(k, _)| k == "apikey")));
+    assert!(m.log.lock().unwrap().iter().all(|r| !r.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("authorization"))));
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn checks_are_batched_and_the_rest_reported_unchecked() {
 }
 
 #[test]
-fn the_key_goes_to_the_api_only_and_every_request_names_the_app() {
+fn the_token_goes_to_the_api_only_and_every_request_names_the_app() {
     let (m, cat, t) = setup(Some(KEY));
     cat.search(&dirs(&t), &Query::default()).unwrap();
     let log = m.log.lock().unwrap();
@@ -226,9 +226,9 @@ fn the_key_goes_to_the_api_only_and_every_request_names_the_app() {
         assert_eq!(h("Application-Version"), Some("0.2.0-test"));
         assert!(h("User-Agent").unwrap().starts_with("Kiln-Launcher/0.2.0-test ("));
         if r.url.starts_with(API) {
-            assert_eq!(h("apikey"), Some(KEY));
+            assert_eq!(h("Authorization"), Some(format!("Bearer {KEY}").as_str()));
         } else {
-            assert_eq!(h("apikey"), None, "no key to {}", r.url);
+            assert_eq!(h("Authorization"), None, "no key to {}", r.url);
         }
     }
     assert!(log.iter().any(|r| r.url.starts_with("https://files.test/")), "manifests were read from storage");
@@ -412,8 +412,8 @@ fn an_nxm_download_is_checked_added_to_the_profile_recorded_and_undoable() {
     assert!(r.download.ends_with("lantern-glow-1.2.0.zip"));
     assert_eq!(r.requirements.len(), 1);
     assert_eq!((r.requirements[0].mod_id.as_str(), r.requirements[0].installed), ("313", false));
-    // the CDN got no API key
-    assert!(m.log.lock().unwrap().iter().filter(|x| x.url.starts_with("https://cdn.test")).all(|x| !x.headers.iter().any(|(k, _)| k == "apikey")));
+    // the CDN got no account authorization
+    assert!(m.log.lock().unwrap().iter().filter(|x| x.url.starts_with("https://cdn.test")).all(|x| !x.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("authorization"))));
     // recorded: the catalog shows it installed, up to date
     let inst = cat.installed(&d).unwrap();
     assert_eq!(inst.len(), 1);
@@ -611,31 +611,23 @@ impl SecretBackend for Arc<FakeRing> {
 }
 
 #[test]
-fn the_key_goes_to_the_keyring_else_a_private_file() {
-    let t = tmp("keys");
+fn oauth_tokens_go_to_the_keyring_else_a_private_file() {
+    let t = tmp("tokens");
+    let tokens = super::oauth::Tokens { client_id: "kiln-test".into(), access_token: KEY.into(), refresh_token: "refresh-token".into(), expires_at: 2000000000 };
     let ring = Arc::new(FakeRing::default());
-    let ks = KeyStore::with_backend(&t.0, Some(Box::new(ring.clone())));
-    assert_eq!(ks.set(&format!(" {KEY} ")).unwrap(), KeyPlace::Keyring);
-    assert_eq!(ks.get().unwrap(), Some((KEY.into(), KeyPlace::Keyring)));
-    assert!(!ks.file_path().exists());
-    ks.clear().unwrap();
-    assert_eq!(ks.get().unwrap(), None);
-    assert!(ks.set("two words").is_err());
-
+    let store = TokenStore::with_backend(&t.0, Some(Box::new(ring)));
+    assert_eq!(store.set(&tokens).unwrap(), TokenPlace::Keyring);
+    assert_eq!(store.get().unwrap(), Some((tokens.clone(), TokenPlace::Keyring)));
+    assert!(!store.file_path().exists());
+    store.clear().unwrap(); assert!(store.get().unwrap().is_none());
     let broken = Arc::new(FakeRing { broken: true, ..Default::default() });
-    let ks = KeyStore::with_backend(&t.0, Some(Box::new(broken)));
-    assert!(ks.set(KEY).is_err());
-    assert!(!ks.file_path().exists());
-    let ks = KeyStore::with_backend(&t.0, None);
-    assert_eq!(ks.set(KEY).unwrap(), KeyPlace::File);
-    assert_eq!(ks.get().unwrap(), Some((KEY.into(), KeyPlace::File)));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(ks.file_path()).unwrap().permissions().mode() & 0o777, 0o600);
-    }
-    ks.clear().unwrap();
-    assert!(!ks.file_path().exists());
+    let store = TokenStore::with_backend(&t.0, Some(Box::new(broken)));
+    assert!(store.set(&tokens).is_err()); assert!(!store.file_path().exists());
+    let store = TokenStore::with_backend(&t.0, None);
+    assert_eq!(store.set(&tokens).unwrap(), TokenPlace::File);
+    assert_eq!(store.get().unwrap(), Some((tokens, TokenPlace::File)));
+    #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; assert_eq!(std::fs::metadata(store.file_path()).unwrap().permissions().mode() & 0o777, 0o600); }
+    store.clear().unwrap(); assert!(!store.file_path().exists());
 }
 
 #[test]
@@ -673,9 +665,9 @@ fn live_anonymous_catalog() {
     eprintln!("{} Enshrouded mods, fetched {}", p.total, p.fetched);
     assert!(p.total > 100, "{}", p.total);
     let k = cat.search(&dirs(&t), &Query::default()).unwrap();
-    assert!(k.needs_key, "the Kiln filter needs a key");
+    assert!(k.needs_sign_in, "the Kiln filter needs a key");
     let d = cat.details(&dirs(&t), KILN_MOD).unwrap();
     eprintln!("{} {} by {} ({} images, {} chars of description)", d.summary.name, d.summary.version.as_deref().unwrap_or("?"), d.summary.author, d.images.len(), d.description.len());
-    assert!(d.summary.name.starts_with("Kiln") && d.needs_key && !d.images.is_empty());
+    assert!(d.summary.name.starts_with("Kiln") && d.needs_sign_in && !d.images.is_empty());
     eprintln!("calls: {:?}", cat.client().rate());
 }

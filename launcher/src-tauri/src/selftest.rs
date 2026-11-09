@@ -13,37 +13,20 @@ use kiln_manage::paths::DataDirs;
 use kiln_manage::steam::{self, SteamRoot};
 use kiln_manage::task::NoProgress;
 use kiln_manage::{bundle, install, jsonc, manifest, pe, playonce, resolver};
-use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 
-#[derive(Serialize)]
-struct Check {
-    name: &'static str,
-    ok: bool,
-    ms: u128,
-    detail: String,
-}
+mod report;
+use report::{Check, NexusOAuth, Report};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Report {
-    format: u32,
-    ok: bool,
-    launcher: &'static str,
-    kiln: &'static str,
-    /// "direct" (updates itself) or "nexus" (no self-update): crate::distribution.
-    distribution: &'static str,
-    build_marker: &'static str,
-    platform: &'static str,
-    arch: &'static str,
-    temp: String,
-    passed: usize,
-    failed: usize,
-    checks: Vec<Check>,
+fn nexus_oauth(_: &Path) -> R {
+    let config = kiln_manage::nexus::oauth::Config::registered().map_err(e)?;
+    ensure(option_env!("KILN_RELEASE_BUILD").is_none() || config.is_some(), "Official release has no compiled Nexus OAuth registration.")?;
+    Ok(if config.is_some() { "public-client registration compiled; provider approval and live sign-in need separate verification" }
+        else { "unconfigured development build; browser sign-in disabled" }.into())
 }
 
 type R = Result<String, String>;
@@ -432,6 +415,7 @@ pub fn run(args: &[String]) -> i32 {
     run("zstd", &zstd);
     run("play_once", &play_once);
     run("self_update", &self_update);
+    run("nexus_oauth", &nexus_oauth);
     #[cfg(not(windows))]
     run("winpath", &winpath);
     #[cfg(windows)]
@@ -447,6 +431,9 @@ pub fn run(args: &[String]) -> i32 {
         kiln: kiln_manage::VERSION,
         distribution: crate::distribution::CURRENT.as_str(),
         build_marker: crate::distribution::build_marker(),
+        release_build: option_env!("KILN_RELEASE_BUILD").is_some(),
+        nexus_oauth: kiln_manage::nexus::oauth::Config::registered().ok().flatten()
+            .map(|c| NexusOAuth { configured: true, client_id: Some(c.client_id), redirect_uri: Some(c.redirect_uri) }).unwrap_or_default(),
         platform: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         temp: t.display().to_string(),
