@@ -1,5 +1,9 @@
 # The online catalog (Nexus Mods)
 
+The official **0.2.0-dev.20** build uses `KILN_NEXUS_ENABLED=0`: no Catalog, Nexus account/settings or `nxm://`
+handler. Download archives in a browser and import them manually. Existing credentials and handler ownership are
+left untouched. The enabled implementation described below is for a future approved configuration, not this build.
+
 The launcher's Catalog lists Enshrouded's mods on Nexus Mods, Kiln mods first. It shows each mod's details, adds a
 mod to the active profile (with Undo), takes "Mod Manager Download" (`nxm://`) links, and tells you when an installed
 mod has a newer file. Desktop: the Catalog page (`/catalog`) and Settings > Nexus Mods. Deck mode: the Catalog tab.
@@ -98,8 +102,8 @@ Nexus must approve Kiln's own public client ID and callback URI. Builds take the
 Absent registration, sign-in is unavailable; there is no borrowed test registration or personal-key fallback.
 The proposed callback for registration is `http://127.0.0.1:8089/callback`; it remains subject to Nexus approval.
 
-The guide requires an email to support@nexusmods.com with the application name, description, dark-background logo,
-source link and callback URI. An enabled Nexus release remains blocked until approval and real-account checks on the
+The registration request has been sent to Nexus support with the application name, description, dark-background logo,
+source link and callback URI. Approval, client ID, scopes and redirect configuration remain pending. An enabled Nexus release remains blocked until approval and real-account checks on the
 supported platforms complete. A release compiled with `KILN_NEXUS_ENABLED=0` disables the whole integration and
 may ship while approval is pending. Mock-provider tests demonstrate local flow behavior, not Nexus approval.
 

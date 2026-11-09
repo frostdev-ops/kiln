@@ -30,6 +30,8 @@ It stays in `gpl/kiln-eml`; its copyright, license and source pin are in that co
 Kiln releases contain no pictures extracted from the game. The offline tool `kiln-portraits request.json` and its
 tests are described in `gpl/kiln-eml/README.md`.
 
-An offline archive check drew and inspected a textured wolf from the current client archive. Dedicated-server
-archives omit render models, including creature-pack models. Drawing custom-pack client pictures and displaying
-them in Beastmaster's window still need the corresponding client archive and an in-game check.
+Read-only archive checks through the actual Windows DLL drew textured wolf frames and reused the cache on Wine C:
+and mounted Z: paths. Only synthetic nonredirecting Wine volume ancestors are accepted; symbolic links, junctions and
+redirecting parents are refused, and cache paths must remain regular. These checks observed no external mutation.
+Dedicated-server archives omit render models, including creature-pack models. Automatic startup and drawing custom-pack
+client pictures in Beastmaster's window still need the corresponding client archive and an in-game check.

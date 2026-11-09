@@ -332,9 +332,10 @@ renderer accepts at most 32 portraits and 32 million output pixels per request. 
 publication; a failed replacement preserves the prior frames. EMF's `image_load("portrait:<key>")` uses that cache.
 A dedicated server does not automatically generate or draw portraits.
 
-Offline Rust/cache checks and six read-only archive checks passed. A Windows DLL ABI check rendered four 128-pixel
-textured wolf frames from the real client archive, then reused the cache. These results do not prove automatic
-client startup, custom client portraits, Beastmaster's pictures, taming, UI or multiplayer behaviour. The build and
+Offline Rust/cache and read-only archive checks passed. Actual Windows DLL ABI checks rendered textured wolf frames
+from the client archive and reused the cache on Wine C: and mounted Z: paths. Synthetic nonredirecting Wine volume
+ancestors are accepted; symbolic/junction redirects are refused without external mutation, and caches remain regular paths.
+These results do not prove automatic client startup, custom client portraits, Beastmaster's pictures, taming, UI or multiplayer behaviour. The build and
 focused test commands are in `gpl/kiln-eml/README.md`; the existing 89-function EML coverage count is unchanged.
 
 ## 5. Tests and evidence

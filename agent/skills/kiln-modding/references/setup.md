@@ -2,8 +2,9 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-Three NuGet packages at the MDK version (0.2.0): `Kiln.Api`, `Kiln.Sdk`, `Kiln.Templates`. They aren't on nuget.org yet: a Kiln
-checkout builds them into a local feed. Pass it as `--feed` or `$KILN_FEED`.
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.20` for this release, or a unique
+`0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
+not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
 ## New project
 ```sh
@@ -33,7 +34,7 @@ installed MDK to confirm availability. These add typed blocks and/or `blocks/*.j
 
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.20">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -81,7 +82,8 @@ None in the project folder: the build generates one. One there: the build valida
 `kiln` drives these: `dotnet build` (the output folder is the mod folder), `-t:KilnDeploy -p:KilnServer=<server>`, `-p:KilnReload=true`,
 `-t:KilnPack`.
 
-After re-packing the same SDK version, clear `~/.nuget/packages/kiln.*/0.2.0`, or you build against the old packages.
+NuGet caches each package id/version. Give each local pack a new full version and update the project to it; re-packing
+the same version can leave the project using its old cached packages.
 
 ## A finished mod
 ```

@@ -291,10 +291,12 @@ Beastmaster 1.13. The first committed 89 resources and changed the item count fr
 used the cached result with identical patched KFC/resource hashes. Lua and Beastmaster each loaded once, and the
 API 27 network probe passed 11 checks on each boot. These are dedicated-server observations, with no joined player.
 
-A clean official component was then built from the pinned fork with matching `version.json`, `SOURCE.txt`, notices
-and licenses. The clean-component build and the two mixed boots are separate evidence; the final combined package
-still needs its integration checks. Portrait archive/PNG checks are offline proof only. SF's client windows,
-custom portraits, taming, stable interactions and multiplayer behaviour remain unchecked.
+The current clean component was rebuilt from `1ef3896` with matching `version.json`, `SOURCE.txt`, all three submodule
+revisions and six licenses. Recovery hardening passed seven host and five Windows checks. The mixed boots above predate
+that final recovery guard; they are separate evidence from the clean rebuild and recovery checks, not a fresh test of
+every mod pairing. Final native/GPL source review is complete. Windows DLL portrait archive/cache checks cover read-only
+C: and mounted Z: inputs and refusal of symbolic/junction redirects without external mutation. SF's client windows,
+custom portraits in game, taming, stable interactions and multiplayer behaviour remain unchecked.
 
 ## 9a. Evidence, bundled runtime (lab `wv-sf-2`, UDP 27061, server build 26430253, no ShroudForge installed)
 
