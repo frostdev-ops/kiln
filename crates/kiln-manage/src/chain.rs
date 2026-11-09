@@ -197,6 +197,8 @@ fn ensure_eol(lines: &mut [String], nl: &str) {
     if let Some(last) = lines.last_mut()
         && !last.ends_with('\n')
     {
+        // a last line that ends in a lone CR (no LF) gets one line end, not two
+        last.truncate(last.trim_end_matches('\r').len());
         last.push_str(nl);
     }
 }
@@ -297,11 +299,36 @@ fn dll_line(p: &str) -> String {
     p.replace('/', "\\")
 }
 
-fn write_section(path: &Path, section: &str, edit: impl FnOnce(Vec<String>) -> Vec<String>) -> Result<()> {
-    let text = read_text(path)?;
-    let mut edit = Some(edit);
-    let out = rewrite_chain_ini(&text, |name, lines| if name == section { edit.take().map(|f| f(lines)) } else { None });
+/// The proxy refuses a chain.ini larger than this (native/proxy/dinput8.cpp kMaxIni): it would load no chain at all.
+pub const MAX_BYTES: usize = 256 * 1024;
+
+/// Every read-modify-write of chain.ini in this process runs under this lock (a launcher toggle and a profile
+/// refresh must not lose each other's change).
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn locked<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    f()
+}
+
+/// Atomic replace; refuses a result the proxy would not read (unless it is no bigger than what is there).
+fn store(path: &Path, old: &str, out: &str) -> Result<()> {
+    if out.len() > MAX_BYTES && out.len() > old.len() {
+        return Err(crate::Error::new(
+            crate::ErrorCode::Refused,
+            format!("{}: would grow past {} KiB, which the proxy refuses to read; remove old lines or comments first", path.display(), MAX_BYTES / 1024),
+        ));
+    }
     crate::util::write_atomic(path, out.as_bytes())
+}
+
+fn write_section(path: &Path, section: &str, edit: impl FnOnce(Vec<String>) -> Vec<String>) -> Result<()> {
+    locked(|| {
+        let text = read_text(path)?;
+        let mut edit = Some(edit);
+        let out = rewrite_chain_ini(&text, |name, lines| if name == section { edit.take().map(|f| f(lines)) } else { None });
+        store(path, &text, &out)
+    })
 }
 
 /// Replaces the [chain] section (installer), keeping [profile] and everything else.
@@ -311,14 +338,15 @@ pub fn write_chain_section(game_dir: &Path, dlls: &[String]) -> Result<()> {
 }
 
 /// Replaces the [profile] section (deactivation: none), keeping [chain] and everything else. [late] lines that named
-/// a [profile] entry go with it (a profile's late entries come from the profile).
+/// a [profile] entry go with it (a profile's late entries come from the profile). No rule applies without a profile:
+/// the [chain] lines rules switched off come back and the late lines rules added go (the player's own lines stay).
 pub fn write_profile_section(game_dir: &Path, dlls: &[String]) -> Result<()> {
     let path = game_dir.join(crate::paths::game::CHAIN);
-    let text = read_text(&path)?;
-    let plan = ProfilePlan { profile: dlls.iter().map(|d| dll_line(d)).collect(), ..Default::default() };
-    // keeps rule lines: only an activation evaluates rules
-    let out = render_plan(&text, &plan, false);
-    crate::util::write_atomic(&path, out.as_bytes())
+    locked(|| {
+        let text = read_text(&path)?;
+        let plan = ProfilePlan { profile: dlls.iter().map(|d| dll_line(d)).collect(), ..Default::default() };
+        store(&path, &text, &render_plan(&text, &plan, true))
+    })
 }
 
 /// What a profile activation writes into chain.ini: [profile], the late lines of the profile and of compat rules,
@@ -369,7 +397,7 @@ fn restore_off(lines: Vec<String>) -> Vec<String> {
     lines
         .into_iter()
         .map(|l| match rule_off_line(&l) {
-            Some((_, orig)) => format!("{orig}\n"),
+            Some((_, orig)) => orig.to_string(), // the writer adds the file's own line end
             None => l,
         })
         .collect()
@@ -386,7 +414,8 @@ fn mark_off(lines: Vec<String>, off: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
-/// chain.ini as an activation leaves it. `rules`: false keeps the rule-made lines as they are (deactivation).
+/// chain.ini as an activation leaves it. `rules`: false keeps the rule-made lines as they are (no caller now: a
+/// deactivation drops them, see [`write_profile_section`]).
 fn render_plan(text: &str, plan: &ProfilePlan, rules: bool) -> String {
     let mut old_profile: Vec<String> = Vec::new();
     let mut kept_rule_late: Vec<(String, String)> = Vec::new();
@@ -444,13 +473,15 @@ fn render_plan(text: &str, plan: &ProfilePlan, rules: bool) -> String {
 /// that (nothing written).
 pub fn write_profile_plan(game_dir: &Path, plan: &ProfilePlan) -> Result<bool> {
     let path = game_dir.join(crate::paths::game::CHAIN);
-    let text = read_text(&path)?;
-    let out = render_plan(&text, plan, true);
-    if out == text {
-        return Ok(false);
-    }
-    crate::util::write_atomic(&path, out.as_bytes())?;
-    Ok(true)
+    locked(|| {
+        let text = read_text(&path)?;
+        let out = render_plan(&text, plan, true);
+        if out == text {
+            return Ok(false);
+        }
+        store(&path, &text, &out)?;
+        Ok(true)
+    })
 }
 
 /// chain.ini as text ("" when there is none).
@@ -488,26 +519,43 @@ pub fn is_late(ini: &ChainIni, dll: &str) -> bool {
     ini.late.iter().any(|e| e.path.eq_ignore_ascii_case(&dll.replace('/', "\\")))
 }
 
+/// `lines` without the active ones naming `dll` (and the rule comment right before such a line).
+fn without_late(lines: Vec<String>, dll: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in lines {
+        if !is_comment(&l) && same_entry(&l, dll) {
+            if out.last().is_some_and(|p| rule_mark_line(p).is_some()) {
+                out.pop();
+            }
+            continue;
+        }
+        out.push(l);
+    }
+    out
+}
+
 /// The player's late switch for one entry (game-wide; [chain] and dinput8-chain.ini entries). On: adds a [late]
-/// line unless one names it; off: removes the lines that name it (a rule's line too: the next activation puts a
-/// rule's line back while the rule applies). Other lines stay as they are.
+/// line unless one names it (a line a rule added becomes the player's); off: removes the lines that name it (a
+/// rule's line too: the next activation puts a rule's line back while the rule applies). Other lines stay as they are.
 pub fn set_late(game_dir: &Path, dll: &str, late: bool) -> Result<()> {
     let dll = dll_line(dll);
     write_section(&game_dir.join(crate::paths::game::CHAIN), "late", |lines| {
+        if !late {
+            return without_late(lines, &dll);
+        }
         let mut out: Vec<String> = Vec::new();
         let mut found = false;
         for l in lines {
-            let hit = !is_comment(&l) && same_entry(&l, &dll);
-            found |= hit;
-            if hit && !late {
+            if !is_comment(&l) && same_entry(&l, &dll) {
+                found = true;
+                // a line a rule added becomes the player's: it stays when the rule stops applying
                 if out.last().is_some_and(|p| rule_mark_line(p).is_some()) {
                     out.pop();
                 }
-                continue;
             }
             out.push(l);
         }
-        if late && !found {
+        if !found {
             out.push(dll.clone());
         }
         out
@@ -535,24 +583,35 @@ pub fn add_chain_entry(game_dir: &Path, dll: &str) -> Result<()> {
     })
 }
 
-/// Removes the active lines of [chain] that name `dll` (uninstall); other lines stay. Returns how many it removed.
+/// Removes the active lines of [chain] that name `dll` (uninstall); other lines stay. The lines that only name it
+/// are removed too: a `; kiln rule <id> off:` comment of a rule that had switched it off (it would bring the line
+/// back), and its [late] lines. Returns how many active [chain] lines it removed.
 pub fn remove_chain_entry(game_dir: &Path, dll: &str) -> Result<usize> {
     let path = game_dir.join(crate::paths::game::CHAIN);
     if !path.exists() {
         return Ok(0);
     }
-    let mut removed = 0;
-    write_section(&path, "chain", |lines| {
-        lines
-            .into_iter()
-            .filter(|l| {
-                let hit = !is_comment(l) && same_entry(l, dll);
-                removed += hit as usize;
-                !hit
-            })
-            .collect()
-    })?;
-    Ok(removed)
+    locked(|| {
+        let text = read_text(&path)?;
+        let mut removed = 0;
+        let out = rewrite_chain_ini(&text, |name, lines| match name {
+            "chain" => Some(
+                lines
+                    .into_iter()
+                    .filter(|l| {
+                        let hit = !is_comment(l) && same_entry(l, dll);
+                        removed += hit as usize;
+                        let off = rule_off_line(l).is_some_and(|(_, orig)| same_entry(orig, dll));
+                        !(hit || off)
+                    })
+                    .collect(),
+            ),
+            "late" => Some(without_late(lines, dll)),
+            _ => None,
+        });
+        store(&path, &text, &out)?;
+        Ok(removed)
+    })
 }
 
 fn is_comment(l: &str) -> bool {
@@ -679,6 +738,214 @@ mod tests {
         assert!(ini5.late.is_empty() && ini5.chain.len() == 2, "{out5}");
         assert_eq!(render_plan(&out5, &off, true), out5);
         assert_eq!(render_plan(&out5, &ProfilePlan::default(), true), out4);
+    }
+
+    /// A hand-written file in, a long run of random edits (player toggles, activations with rules that switch lines
+    /// off and move others late), a rule-free activation out: the player's comments and other sections are still
+    /// there, every line a rule switched off is back, no rule line is left, and no line end got mixed.
+    #[test]
+    fn fuzzed_edits_keep_the_players_lines() {
+        struct Rng(u64);
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                self.0
+            }
+            fn below(&mut self, n: usize) -> usize {
+                (self.next() % n as u64) as usize
+            }
+            fn pick<'a, T>(&mut self, v: &'a [T]) -> &'a T {
+                &v[self.below(v.len())]
+            }
+        }
+        // what the player owns: comments (outside [profile]) and everything in sections Kiln does not know
+        fn owned(text: &str) -> Vec<String> {
+            let header = HEADER.trim().to_string();
+            let mut out = Vec::new();
+            for (name, lines) in blocks(text) {
+                for l in lines {
+                    let t = l.trim_matches([' ', '\t', '\r', '\n']).to_string();
+                    if t.is_empty() || t == header || rule_off_line(&t).is_some() || rule_mark_line(&t).is_some() {
+                        continue;
+                    }
+                    match name.as_deref() {
+                        None | Some("chain") | Some("late") => {
+                            if is_comment(&t) {
+                                out.push(t);
+                            }
+                        }
+                        Some("profile") => {}
+                        Some(_) => out.push(t),
+                    }
+                }
+            }
+            out.sort();
+            out
+        }
+        let chain_lines = [
+            "chain\\emf-dinput8.dll", "chain/xhl-core.dll", "  chain\\old-tool-dinput8.dll  ", "key = chain\\keyed.dll",
+            "Z:\\home\\u\\tool.dll", "chain\\Ünï.dll", "\tchain\\tabbed.dll",
+        ];
+        let noise = [
+            "; my own note", "# another", "// third kind", ";; kiln rule not ours off: chain\\x.dll", "; caf\u{e9} comment", "",
+            "; ; kiln rule x off: chain\\emf-dinput8.dll", "; chain\\disabled-by-me.dll",
+        ];
+        let other = ["[Other]", "x = 1", "[tool.settings]", "path = C:\\tool\\tool.dll", "; inside", "[chain-extra]", "chain\\not-ours.dll"];
+        let mut rng = Rng(0x9E3779B97F4A7C15);
+        let d = std::env::temp_dir().join(format!("km-chain-fuzz-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        for round in 0..300 {
+            std::fs::create_dir_all(d.join("kiln")).unwrap();
+            let f = d.join("kiln/chain.ini");
+            let nl = *rng.pick(&["\r\n", "\n"]);
+            let mut text = String::new();
+            let mut parts: Vec<Vec<String>> = Vec::new();
+            let mut sections = vec!["[chain]", "[Profile]", "[LATE]", "[Other]", "[tool.settings]", "[late]", "[chain]"];
+            for i in (1..sections.len()).rev() {
+                sections.swap(i, rng.below(i + 1));
+            }
+            sections.insert(0, "");
+            for sect in sections {
+                if !sect.is_empty() && rng.below(4) == 0 {
+                    continue;
+                }
+                let mut b: Vec<String> = Vec::new();
+                if !sect.is_empty() {
+                    b.push(sect.to_string());
+                }
+                for _ in 0..rng.below(5) {
+                    b.push(match sect {
+                        "[Other]" | "[tool.settings]" => rng.pick(&other).to_string(),
+                        "[Profile]" => format!("Z:\\p\\{}.dll", rng.below(3)),
+                        "[LATE]" | "[late]" => rng.pick(&chain_lines).to_string(),
+                        _ => if rng.below(3) == 0 { rng.pick(&noise).to_string() } else { rng.pick(&chain_lines).to_string() },
+                    });
+                }
+                if (sect == "[Other]" || sect == "[tool.settings]") && b.len() == 1 {
+                    b.push(other[1].to_string());
+                }
+                parts.push(b);
+            }
+            for b in &parts {
+                for l in b {
+                    text.push_str(l);
+                    text.push_str(nl);
+                }
+            }
+            if rng.below(5) == 0 {
+                text.pop(); // no final line end
+            }
+            std::fs::write(&f, &text).unwrap();
+            let before_owned = owned(&text);
+            let before_chain = parse(text.as_bytes()).chain.iter().map(|e| e.path.to_lowercase()).collect::<Vec<_>>();
+            let mut before_late = parse(text.as_bytes()).late.iter().map(|e| e.path.to_lowercase()).collect::<Vec<_>>();
+            for _ in 0..rng.below(8) + 1 {
+                let now = parse(&std::fs::read(&f).unwrap());
+                let chain_paths: Vec<String> = now.chain.iter().map(|e| e.path.clone()).collect();
+                let all: Vec<String> = chain_paths.iter().cloned().chain(rule_off_entries(&std::fs::read_to_string(&f).unwrap()).into_iter().map(|(_, p)| p)).collect();
+                match rng.below(4) {
+                    0 if !all.is_empty() => {
+                        let (p, on) = (rng.pick(&all).clone(), rng.below(2) == 0);
+                        set_late(&d, &p, on).unwrap();
+                        let key = p.replace('/', "\\").to_lowercase();
+                        before_late.retain(|x| *x != key);
+                        if on {
+                            before_late.push(key);
+                        }
+                    }
+                    1 => write_profile_section(&d, &["Z:\\p\\0.dll".to_string()]).unwrap(),
+                    _ => {
+                        let mut plan = ProfilePlan::default();
+                        for i in 0..rng.below(3) {
+                            let p = format!("Z:\\p\\{i}.dll");
+                            plan.profile.push(p.clone());
+                            if rng.below(2) == 0 {
+                                plan.profile_late.push(p);
+                            }
+                        }
+                        for p in &all {
+                            match rng.below(4) {
+                                0 => plan.rule_off.push((format!("r{}", rng.below(3)), p.clone())),
+                                1 => plan.rule_late.push((format!("r{}", rng.below(3)), p.clone())),
+                                _ => {}
+                            }
+                        }
+                        if rng.below(3) == 0 {
+                            plan.rule_late.push(("r-profile".into(), "Z:\\p\\0.dll".into()));
+                        }
+                        write_profile_plan(&d, &plan).unwrap();
+                        // idempotent
+                        assert!(!write_profile_plan(&d, &plan).unwrap(), "round {round}: second write changed the file");
+                    }
+                }
+            }
+            // no rule applies any more
+            write_profile_plan(&d, &ProfilePlan::default()).unwrap();
+            let after = std::fs::read_to_string(&f).unwrap();
+            let ctx = format!("round {round}\n--- before\n{text}\n--- after\n{after}");
+            assert_eq!(owned(&after), before_owned, "{ctx}");
+            assert_eq!(parse(after.as_bytes()).chain.iter().map(|e| e.path.to_lowercase()).collect::<Vec<_>>(), before_chain, "{ctx}");
+            assert!(!after.lines().any(|l| rule_off_line(l).is_some() || rule_mark_line(l).is_some()), "rule line left: {ctx}");
+            // the player's own late lines (before and from toggles) are all that is left of [late]
+            let late_after = parse(after.as_bytes()).late.iter().map(|e| e.path.to_lowercase()).collect::<Vec<_>>();
+            for l in &before_late {
+                assert!(late_after.contains(l), "player's late line {l} lost: {ctx}");
+            }
+            if nl == "\r\n" {
+                assert!(!after.replace("\r\n", "").contains('\n'), "mixed line ends: {ctx}");
+            }
+            std::fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
+    #[test]
+    fn deactivation_and_uninstall_clean_up_rule_lines() {
+        let d = std::env::temp_dir().join(format!("km-chain-deact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("kiln")).unwrap();
+        let f = d.join("kiln/chain.ini");
+        std::fs::write(&f, "[chain]\r\nchain\\a-dinput8.dll\r\nchain\\b-dinput8.dll\r\n; mine\r\n[other]\r\nx = 1\r\n").unwrap();
+        let plan = ProfilePlan {
+            rule_off: vec![("r1".into(), "chain\\a-dinput8.dll".into())],
+            rule_late: vec![("r2".into(), "chain\\b-dinput8.dll".into())],
+            ..Default::default()
+        };
+        assert!(write_profile_plan(&d, &plan).unwrap());
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert!(t.contains("; kiln rule r1 off: chain\\a-dinput8.dll\r\n") && t.contains("; kiln rule r2\r\nchain\\b-dinput8.dll\r\n"), "{t}");
+        // deactivation: no profile, no rules: the switched-off line is back, the rule's late line is gone
+        write_profile_section(&d, &[]).unwrap();
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert!(!t.contains("kiln rule"), "{t}");
+        assert_eq!(parse(t.as_bytes()).chain.len(), 2, "{t}");
+        assert!(parse(t.as_bytes()).late.is_empty(), "{t}");
+        assert!(t.contains("; mine\r\n[other]\r\nx = 1\r\n"), "{t}");
+        assert!(!t.replace("\r\n", "").contains('\n'), "{t}");
+        // uninstall of a proxy a rule switched off: nothing is left that would bring it back
+        assert!(write_profile_plan(&d, &plan).unwrap());
+        set_late(&d, "chain\\a-dinput8.dll", true).unwrap();
+        assert_eq!(remove_chain_entry(&d, "chain\\a-dinput8.dll").unwrap(), 0, "the active line was already switched off");
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert!(!t.contains("a-dinput8"), "{t}");
+        assert!(t.contains("chain\\b-dinput8.dll"), "{t}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_write_the_proxy_would_refuse_is_refused() {
+        let d = std::env::temp_dir().join(format!("km-chain-big-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("kiln")).unwrap();
+        let f = d.join("kiln/chain.ini");
+        let mut text = String::from("[chain]\n; padding\n");
+        text.push_str(&format!("; {}\n", "x".repeat(MAX_BYTES - 40)));
+        std::fs::write(&f, &text).unwrap();
+        let e = set_late(&d, "chain\\a.dll", true).unwrap_err();
+        assert_eq!(e.code, crate::ErrorCode::Refused, "{e:?}");
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), text, "left as it was");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

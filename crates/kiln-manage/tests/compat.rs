@@ -156,8 +156,36 @@ fn activation_writes_late_and_rules_and_the_view_maps_overlaps() {
     assert!(chain::read(&game).unwrap().late.is_empty());
     profile::activate(&dirs, &p.id, &inst).unwrap();
     assert_eq!(chain::read(&game).unwrap().late.len(), 1);
-    // deactivation leaves no [late] line naming a profile DLL
+    // deactivation leaves no [late] line naming a profile DLL, no rule line, and every switched-off line is back
     profile::deactivate(&dirs, &inst).unwrap();
     let c = chain::read(&game).unwrap();
-    assert!(c.profile.is_empty() && c.late.iter().all(|e| e.path.starts_with("chain\\")), "{c:?}");
+    assert!(c.profile.is_empty() && c.late.is_empty(), "{c:?}");
+    let text = chain::read_raw(&game).unwrap();
+    assert!(!text.contains("kiln rule"), "{text}");
+    assert_eq!(c.chain.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["chain\\xhl-core.dll", "chain\\chain-loader-dinput8.dll"], "{text}");
+}
+
+#[test]
+fn a_profile_file_without_late_reads_and_a_bad_late_id_is_refused() {
+    let t = Tmp(std::env::temp_dir().join(format!("km-compat-late-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&t.0);
+    let dirs = DataDirs::at(t.0.join("data"));
+    let p = profile::create(&dirs, "Plain", None).unwrap();
+    // meta.json from before dev.21 has no "late"; one without a late list writes none back
+    let meta = dirs.profile(&p.id).join("meta.json");
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+    assert!(v.get("late").is_none(), "an empty late list is not written");
+    v.as_object_mut().unwrap().remove("late");
+    std::fs::write(&meta, serde_json::to_vec(&v).unwrap()).unwrap();
+    let mut p = profile::get(&dirs, &p.id).unwrap();
+    assert!(p.late.is_empty());
+    p.late = vec!["fps-unlock".into()];
+    let p = profile::save(&dirs, &p).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+    assert_eq!(v["late"], serde_json::json!(["fps-unlock"]));
+    let mut bad = p.clone();
+    bad.late = vec!["Not A Mod Id\nsecond line".into()];
+    assert!(profile::save(&dirs, &bad).is_err());
+    bad.late = (0..5000).map(|i| format!("m{i}")).collect();
+    assert!(profile::save(&dirs, &bad).is_err());
 }

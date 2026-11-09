@@ -502,6 +502,14 @@ fn check_profile(p: &Profile) -> Result<()> {
             }
         }
     }
+    if p.late.len() > 4096 {
+        problems.push("late exceeds 4096 entries".to_string());
+    }
+    for id in p.late.iter().take(4096) {
+        if !crate::manifest::is_mod_id(id) || id.ends_with('\n') {
+            problems.push(format!("late mod id {id:?} is not valid"));
+        }
+    }
     if !problems.is_empty() {
         return Err(Error::new(ErrorCode::Schema, format!("the profile breaks the format's rules: {}", problems.join("; "))).with_detail(problems));
     }
@@ -849,7 +857,7 @@ fn running_process(install: &GameInstall) -> Result<Option<crate::proc::ProcessI
     running_process_with(&install.path, &install.exe, crate::proc::find_exe)
 }
 
-fn refuse_running(install: &GameInstall) -> Result<()> {
+pub(crate) fn refuse_running(install: &GameInstall) -> Result<()> {
     if let Some(p) = running_process(install)? {
         return Err(Error::new(ErrorCode::GameRunning, format!("{} is running (pid {}); quit it first", p.name, p.pid))
             .with_detail(serde_json::json!({ "pid": p.pid })));

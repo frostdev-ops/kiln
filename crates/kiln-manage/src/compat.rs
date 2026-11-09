@@ -30,6 +30,31 @@ pub const RULES_FILE: &str = "compat-rules.json";
 /// Larger rule files are refused (a player's file, read on every activation).
 pub const MAX_RULES_BYTES: u64 = 1 << 20;
 pub const MAX_RULES: usize = 512;
+/// Conditions in one rule.
+pub const MAX_WHEN: usize = 8;
+/// A module glob with wildcards: at most this long and with at most [`MAX_STARS`] `*`.
+pub const MAX_GLOB: usize = 64;
+pub const MAX_STARS: usize = 4;
+/// hooks.json is written by the game's core, but any mod in the process can shape its module names; larger files are
+/// not read.
+pub const MAX_HOOKS_BYTES: u64 = 8 << 20;
+/// Overlaps shown, owners per overlap, and the facts a start can add (module names of at most 260 characters).
+pub const MAX_OVERLAPS: usize = 512;
+const MAX_OWNERS: usize = 16;
+const MAX_FACT_MODULES: usize = 256;
+const MAX_FACT_SYMBOLS: usize = 1024;
+const MAX_NAME: usize = 260;
+
+/// The file's bytes; an error when it is larger than `max` (checked on what was read: a special file reports no size).
+fn read_capped(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::fs::File::open(path)?.take(max + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > max {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("larger than {max} bytes")));
+    }
+    Ok(buf)
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // compat rules
@@ -142,12 +167,18 @@ fn check_rule(r: &Rule) -> std::result::Result<(), String> {
     if r.action != RuleAction::Warn && r.subject.is_none() {
         return Err(format!("action {:?} needs a \"subject\"", r.action).to_lowercase());
     }
+    if r.when.len() > MAX_WHEN {
+        return Err(format!("more than {MAX_WHEN} conditions in \"when\""));
+    }
     for m in r.when.iter().chain(&r.subject) {
         let text = match m {
             Matcher::Module(s) | Matcher::Engine(s) | Matcher::Mod(s) | Matcher::Symbol(s) => s,
         };
         if text.is_empty() || text.len() > 260 {
             return Err("a matcher's text must be 1-260 characters".into());
+        }
+        if matches!(m, Matcher::Module(g) if g.contains(['*', '?']) && (g.len() > MAX_GLOB || g.matches('*').count() > MAX_STARS)) {
+            return Err(format!("a module pattern with wildcards has at most {MAX_GLOB} characters and {MAX_STARS} *"));
         }
         if let Matcher::Mod(s) = m
             && !s.contains(':')
@@ -164,18 +195,8 @@ pub fn load_rules(files: &[(PathBuf, RuleSource)]) -> (Vec<SourcedRule>, Vec<Str
     let mut rules: Vec<SourcedRule> = Vec::new();
     let mut errors = Vec::new();
     for (path, source) in files {
-        let bytes = match std::fs::metadata(path) {
-            Ok(m) if m.len() > MAX_RULES_BYTES => {
-                errors.push(format!("{}: larger than {} bytes", path.display(), MAX_RULES_BYTES));
-                continue;
-            }
-            Ok(_) => match std::fs::read(path) {
-                Ok(b) => b,
-                Err(e) => {
-                    errors.push(format!("{}: {e}", path.display()));
-                    continue;
-                }
-            },
+        let bytes = match read_capped(path, MAX_RULES_BYTES) {
+            Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
                 errors.push(format!("{}: {e}", path.display()));
@@ -211,8 +232,13 @@ pub struct Facts {
 impl Facts {
     fn add_module(&mut self, name: &str) {
         let n = file_name(name).to_lowercase();
-        if !n.is_empty() && !self.modules.contains(&n) {
+        if !n.is_empty() && n.len() <= MAX_NAME && self.modules.len() < MAX_FACT_MODULES && !self.modules.contains(&n) {
             self.modules.push(n);
+        }
+    }
+    fn add_symbol(&mut self, name: &str) {
+        if !name.is_empty() && name.len() <= MAX_NAME && self.symbols.len() < MAX_FACT_SYMBOLS && !self.symbols.iter().any(|s| s == name) {
+            self.symbols.push(name.to_string());
         }
     }
     fn add_engine(&mut self, word: &str) {
@@ -250,6 +276,13 @@ pub fn file_name(p: &str) -> &str {
 
 /// `*` (any run) and `?` (one character) glob, ASCII case ignored.
 pub fn glob(pattern: &str, name: &str) -> bool {
+    // no file name is longer (Windows: 255), and rules are checked to be short: bounds the work of a match
+    if name.len() > MAX_NAME || pattern.len() > MAX_NAME {
+        return false;
+    }
+    if !pattern.contains(['*', '?']) {
+        return pattern.to_lowercase() == name.to_lowercase();
+    }
     let p: Vec<char> = pattern.to_lowercase().chars().collect();
     let n: Vec<char> = name.to_lowercase().chars().collect();
     let (mut pi, mut ni) = (0usize, 0usize);
@@ -300,6 +333,13 @@ pub struct PlanEntry {
 }
 
 impl PlanEntry {
+    /// Kiln's own modules (`kiln-*.dll`) and a Kiln or ShroudForge proxy: a rule never moves or switches these off
+    /// (the proxy refuses them in the chain anyway).
+    pub fn is_kiln_own(&self) -> bool {
+        let f = self.file.to_ascii_lowercase();
+        matches!(self.engine.as_deref(), Some("kiln" | "shroudforge")) || (f.starts_with("kiln-") && f.ends_with(".dll"))
+    }
+
     fn matches(&self, m: &Matcher) -> bool {
         match m {
             Matcher::Module(g) => glob(g, &self.file),
@@ -352,10 +392,12 @@ pub fn evaluate(rules: &[SourcedRule], facts: &Facts, entries: &[PlanEntry]) -> 
             match (r.action, &r.subject) {
                 (RuleAction::Warn, _) => res.applied = true,
                 (_, Some(subject)) => {
-                    res.targets = entries.iter().filter(|e| e.matches(subject)).map(|e| e.path.clone()).collect();
+                    let matched: Vec<&PlanEntry> = entries.iter().filter(|e| e.matches(subject)).collect();
+                    res.targets = matched.iter().filter(|e| !e.is_kiln_own()).map(|e| e.path.clone()).collect();
                     res.applied = !res.targets.is_empty();
                     if res.targets.is_empty() {
                         res.note = Some(match subject {
+                            _ if !matched.is_empty() => "Kiln's own files and ShroudForge's proxy are never moved or switched off".into(),
                             Matcher::Mod(s) if r.action == RuleAction::Disable && canon_mod(s).split(':').next() != Some("kiln") => {
                                 "Kiln skips this mod when the game starts".into()
                             }
@@ -477,6 +519,12 @@ pub enum OverlapKind {
     Other,
 }
 
+impl OverlapKind {
+    fn other() -> Self {
+        OverlapKind::Other
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overlap {
@@ -484,6 +532,8 @@ pub struct Overlap {
     pub symbol: String,
     #[serde(default)]
     pub rva: String,
+    /// A missing or unknown kind reads as `other`: one odd row does not hide the rest of hooks.json.
+    #[serde(default = "OverlapKind::other")]
     pub kind: OverlapKind,
     #[serde(default)]
     pub foreign: Option<ForeignDest>,
@@ -543,7 +593,7 @@ pub fn parse_hooks(bytes: &[u8]) -> Result<HooksState> {
 /// The last session's hooks.json; None when the game never wrote one.
 pub fn read_hooks(game_dir: &Path) -> Result<Option<HooksState>> {
     let p = game_dir.join(HOOKS_JSON);
-    match std::fs::read(&p) {
+    match read_capped(&p, MAX_HOOKS_BYTES) {
         Ok(b) => parse_hooks(&b).map(Some),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(crate::util::io_at(&p, "reading")(e)),
@@ -554,18 +604,26 @@ pub fn read_hooks(game_dir: &Path) -> Result<Option<HooksState>> {
 /// before or over Kiln's links. Kiln's own modules never count.
 pub fn overlaps(s: &HooksState) -> Vec<Overlap> {
     if let Some(o) = &s.overlaps {
-        return o.iter().filter(|o| !o.foreign.as_ref().is_some_and(|f| f.own)).cloned().collect();
+        return o
+            .iter()
+            .filter(|o| !o.foreign.as_ref().is_some_and(|f| f.own))
+            .take(MAX_OVERLAPS)
+            .map(|o| Overlap { owners: o.owners.iter().take(MAX_OWNERS).cloned().collect(), ..o.clone() })
+            .collect();
     }
     let mut out = Vec::new();
     for t in &s.targets {
-        let owners: Vec<String> = t.links.iter().fold(Vec::new(), |mut v, l| {
-            if !v.contains(&l.owner) {
-                v.push(l.owner.clone());
+        let mut owners: Vec<String> = Vec::new();
+        for l in &t.links {
+            if owners.len() < MAX_OWNERS && !owners.contains(&l.owner) {
+                owners.push(l.owner.clone());
             }
-            v
-        });
+        }
         for (kind, d) in [(OverlapKind::ForeignBefore, &t.foreign_before), (OverlapKind::ForeignOver, &t.foreign_over)] {
             if let Some(d) = d.as_ref().filter(|d| !d.own) {
+                if out.len() >= MAX_OVERLAPS {
+                    return out;
+                }
                 out.push(Overlap {
                     symbol: t.symbol.clone().unwrap_or_else(|| t.label.clone()),
                     rva: t.rva.clone(),
@@ -676,9 +734,7 @@ pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_d
             if let Some(f) = &o.foreign {
                 facts.add_module(&f.module);
             }
-            if !o.symbol.is_empty() && !facts.symbols.contains(&o.symbol) {
-                facts.symbols.push(o.symbol.clone());
-            }
+            facts.add_symbol(&o.symbol);
         }
     }
 
@@ -785,7 +841,14 @@ pub struct ChainView {
 
 fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::LibraryEntry]) -> OverlapView {
     let module = o.foreign.as_ref().map(|f| f.module.clone()).unwrap_or_default();
-    let hit = (!module.is_empty()).then(|| entries.iter().find(|e| e.entry.file.eq_ignore_ascii_case(file_name(&module)))).flatten();
+    // hooks.json names the module by file name only: two entries with that name cannot be told apart
+    let named: Vec<&ChainViewEntry> = if module.is_empty() {
+        Vec::new()
+    } else {
+        entries.iter().filter(|e| e.entry.file.eq_ignore_ascii_case(file_name(&module))).collect()
+    };
+    let ambiguous = named.len() > 1;
+    let hit = if ambiguous { None } else { named.first().copied() };
     let library = match hit.and_then(|e| e.entry.mod_id.as_ref()) {
         Some(id) => lib.iter().find(|l| l.kind == ModKind::Native && &l.id == id),
         None if !module.is_empty() => lib.iter().find(|l| {
@@ -802,6 +865,7 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
     let owners = if o.owners.is_empty() { "Kiln".to_string() } else { o.owners.join(", ") };
     let name = if module.is_empty() { "another module".to_string() } else { module.clone() };
     let (fix, hint) = match (o.kind, hit) {
+        _ if ambiguous => ("none", format!("{} chain entries are named {name}: switch the right one to load late in the list above.", named.len())),
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && e.off_by.is_none() => {
             ("late", format!("Load {} after Kiln and ShroudForge, so {owners} hook first and {name} chains after them.", e.entry.file))
         }
@@ -867,7 +931,8 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
 }
 
 /// The late switch of one chain entry of the view: a [profile] entry changes the profile (`late` list; the caller
-/// saves it), a [chain] entry changes chain.ini [late] (game-wide). Returns true when the profile changed.
+/// saves it), a [chain] entry changes chain.ini [late] (game-wide; refused while the game runs). Returns true when the
+/// profile changed.
 pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &PlanEntry, late: bool) -> Result<bool> {
     match (entry.section, &entry.mod_id) {
         (Section::Profile, Some(id)) => {
@@ -884,6 +949,11 @@ pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &Plan
         }
         (Section::Profile, None) => Err(Error::invalid("a [profile] entry without a mod id")),
         (Section::Chain, _) => {
+            if entry.is_kiln_own() {
+                return Err(Error::invalid(format!("{} is Kiln's own: it always loads first", entry.file)));
+            }
+            // chain.ini is the proxy's input for the next start: not while a game that reads it is running
+            crate::profile::refuse_running(install)?;
             chain::set_late(&install.path, &entry.path, late)?;
             Ok(false)
         }
@@ -996,5 +1066,106 @@ mod tests {
         assert_eq!((o[0].symbol.as_str(), o[0].kind, o[0].owners.clone()), ("ChatLogAdd", OverlapKind::ForeignBefore, vec!["kiln.chat".to_string(), "kiln-emf".to_string()]));
         assert_eq!(s.foreign[0].dest.module, "reshade.dll");
         assert!(parse_hooks(br#"{"format": 2}"#).is_err());
+    }
+
+    #[test]
+    fn hostile_rules_and_hooks_stay_bounded() {
+        let t = std::time::Instant::now();
+        // a glob built to backtrack against a name that almost matches
+        let name = format!("{}b.dll", "a".repeat(240));
+        assert!(!glob("*a*a*a*a*c.dll", &name));
+        assert!(glob("*a*a*a*a*b.dll", &name));
+        assert!(!glob("*", &"x".repeat(100_000)), "no file name is that long");
+        assert!(!glob(&"*a".repeat(100_000), "a"));
+        // rules: too many conditions, patterns with too many wildcards
+        let many = vec![r#"{"engine":"kiln"}"#; MAX_WHEN + 1].join(",");
+        let stars = "a*".repeat(MAX_STARS + 1);
+        let text = format!(
+            r#"{{"format":1,"rules":[{{"id":"w","when":[{many}],"action":"warn"}},{{"id":"s","when":[{{"module":"{stars}"}}],"action":"warn"}},{{"id":"ok","when":[{{"module":"a*b*c*d*e"}}],"action":"warn"}}]}}"#
+        );
+        let (rules, errors) = parse_rules(text.as_bytes(), RuleSource::User);
+        assert_eq!(rules.iter().map(|r| r.rule.id.as_str()).collect::<Vec<_>>(), ["ok"], "{errors:?}");
+        assert_eq!(errors.len(), 2);
+        // deep nesting, an enormous id, garbage: errors, never a panic
+        for bad in [format!("{}{}", "[".repeat(100_000), "]".repeat(100_000)), "\u{0}\u{0}".into(), format!(r#"{{"format":1,"rules":[{{"id":"{}","action":"warn"}}]}}"#, "x".repeat(1 << 16))] {
+            let (r, e) = parse_rules(bad.as_bytes(), RuleSource::User);
+            assert!(r.is_empty() && !e.is_empty());
+        }
+        // a hooks.json with a very long owner list on one target and a flood of names stays quick
+        let links = (0..60_000).map(|i| format!(r#"{{"owner":"o{i}","kind":"raw"}}"#)).collect::<Vec<_>>().join(",");
+        let json = format!(
+            r#"{{"format":1,"targets":[{{"rva":"0x1","symbol":"S","links":[{links}],"foreignBefore":{{"module":"{}.dll","offset":"0x1"}}}}]}}"#,
+            "m".repeat(5000)
+        );
+        let h = parse_hooks(json.as_bytes()).unwrap();
+        let o = overlaps(&h);
+        assert_eq!((o.len(), o[0].owners.len()), (1, MAX_OWNERS));
+        let mut f = Facts::default();
+        for i in 0..100_000 {
+            f.add_module(&format!("m{i}.dll"));
+            f.add_symbol(&format!("S{i}"));
+        }
+        f.add_module(&"x".repeat(5000));
+        assert_eq!((f.modules.len(), f.symbols.len()), (MAX_FACT_MODULES, MAX_FACT_SYMBOLS));
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn files_over_the_cap_are_not_read() {
+        let d = std::env::temp_dir().join(format!("km-compat-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("kiln/state")).unwrap();
+        std::fs::write(d.join(HOOKS_JSON), vec![b' '; MAX_HOOKS_BYTES as usize + 1]).unwrap();
+        assert!(read_hooks(&d).is_err());
+        std::fs::write(d.join("r.json"), vec![b' '; MAX_RULES_BYTES as usize + 1]).unwrap();
+        let (rules, errors) = load_rules(&[(d.join("r.json"), RuleSource::User)]);
+        assert!(rules.is_empty() && errors.len() == 1, "{errors:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn rules_never_move_kiln_s_own_files() {
+        let (rules, e) = parse_rules(br#"{ "format": 1, "rules": [
+            { "id": "all-off", "action": "disable", "subject": {"module": "*"} },
+            { "id": "all-late", "action": "late", "subject": {"module": "*"} },
+            { "id": "own-off", "action": "disable", "subject": {"module": "kiln-chat.dll"} }
+        ] }"#, RuleSource::User);
+        assert!(e.is_empty());
+        let entries = vec![
+            entry("chain\\emf-dinput8.dll", Section::Chain, Some("emf"), None),
+            entry("chain\\kiln-old-dinput8.dll", Section::Chain, Some("kiln"), None),
+            entry("chain\\sf-dinput8.dll", Section::Chain, Some("shroudforge"), None),
+            entry("Z:\\lib\\kiln-chat.dll", Section::Profile, None, Some("chat")),
+        ];
+        let res = evaluate(&rules, &Facts::default(), &entries);
+        assert_eq!(res[0].targets, ["chain\\emf-dinput8.dll"]);
+        assert_eq!(res[1].targets, ["chain\\emf-dinput8.dll"]);
+        assert!(!res[2].applied && res[2].note.as_deref().is_some_and(|n| n.contains("never")), "{:?}", res[2]);
+        let install = GameInstall {
+            id: "g".into(), kind: crate::game::GameKind::Client, path: std::env::temp_dir(), exe: "enshrouded.exe".into(),
+            app_id: crate::CLIENT_APP_ID, library: None, platform: crate::game::Platform::Proton, prefix: None, build_id: None,
+            exe_sha256: None, steam_flavor: None, path_mode: crate::game::PathMode::Copy, source: "manual".into(),
+        };
+        let mut p = Profile {
+            format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
+            notes: String::new(), mods: Default::default(), dropins: vec![], data_dir: Default::default(), server: None, late: vec![],
+        };
+        assert!(set_entry_late(&install, &mut p, &entries[1], true).is_err(), "Kiln's own proxy always loads first");
+    }
+
+    #[test]
+    fn two_entries_with_one_file_name_get_no_one_click_fix() {
+        let v = |path: &str, section, mod_id: Option<&str>| ChainViewEntry {
+            entry: entry(path, section, None, mod_id), late: false, late_by: None, off_by: None,
+        };
+        let overlap = Overlap {
+            symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()],
+            foreign: Some(ForeignDest { module: "Hook.dll".into(), offset: "0x1".into(), ..Default::default() }),
+        };
+        let one = overlap_view(overlap.clone(), &[v("chain\\hook.dll", Section::Chain, None)], &[]);
+        assert_eq!((one.fix.as_str(), one.entry.as_deref()), ("late", Some("chain\\hook.dll")));
+        let two = overlap_view(overlap, &[v("chain\\hook.dll", Section::Chain, None), v("Z:\\a\\hook.dll", Section::Profile, Some("a"))], &[]);
+        assert_eq!((two.fix.as_str(), two.entry.as_deref()), ("none", None));
+        assert!(two.hint.contains("2 chain entries"), "{}", two.hint);
     }
 }
