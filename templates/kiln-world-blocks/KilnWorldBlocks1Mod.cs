@@ -8,7 +8,7 @@ public sealed class KilnWorldBlocks1Mod : Mod
 {
     public override void OnLoad()
     {
-        // a crafting prop: the press below needs it nearby. C# crafting props enter the game's tables on the second start;
+        // a crafting prop: the manual bench below needs it nearby. C# crafting props enter the game's tables on the second start;
         // the JSON pine-banner is there on the first. A crafting prop needs the mod on clients.
         var table = Blocks.Define("oak-table", new PropBlock
         {
@@ -26,7 +26,15 @@ public sealed class KilnWorldBlocks1Mod : Mod
             Placement = new PlacementBlock { On = Surface.Floor, InBase = true },
             Processing = new ProcessingBlock { Slots = 8 },
             Recipe = new RecipeBlock { Station = StationKind.Workbench.Workshop, Needs = { ["Material_T1_Wood_Logs"] = 6 } },
-            Recipes = [new RecipeBlock { Seconds = 4, Needs = { ["Material_T1_Twigs"] = 3 }, Output = "Material_T1_Wood_Logs", NeedsProps = [table] }],
+            Recipes = [new RecipeBlock { Seconds = 4, Needs = { ["Material_T1_Twigs"] = 3 }, Output = "Material_T1_Wood_Logs" }],
+        });
+
+        // nearby crafting props are checked for a player's craft at a manual station, not an automated factory
+        Blocks.Define("oak-bench", new StationBlock
+        {
+            Name = "Oak Workbench", Kind = StationKind.Workbench,
+            Recipe = new RecipeBlock { Needs = { ["Material_T1_Wood_Logs"] = 6 } },
+            Recipes = [new RecipeBlock { Needs = { ["Material_T1_Twigs"] = 3 }, Output = "Material_T1_Resin", NeedsProps = [table] }],
         });
 
         // a container: 8 slots, and it opens only for whoever carries scrap metal

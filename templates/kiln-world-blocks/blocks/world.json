@@ -21,8 +21,14 @@
       "processing": { "slots": 8, "goesOutInRain": false },
       "recipe": { "station": "0x4da88f73", "needs": { "Build_TerrainMaterial_T1_Stone": 20 } },
       "recipes": [
-        { "seconds": 3, "burns": { "Material_T1_Charcoal": 1 }, "needs": { "Material_T1_Metal_Scraps": 1 }, "output": "Material_T1_Metal_Sheets", "needsProps": [ "pine-banner" ] }
+        { "seconds": 3, "burns": { "Material_T1_Charcoal": 1 }, "needs": { "Material_T1_Metal_Scraps": 1 }, "output": "Material_T1_Metal_Sheets" }
       ]
+    },
+    // needsProps is for a player's craft at a manual station; factories do not receive nearby-prop context.
+    "banner-bench": {
+      "name": "Banner Workbench", "kind": "workbench",
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 6 } },
+      "recipes": [ { "needs": { "Material_T1_Twigs": 3 }, "output": "Material_T1_Resin", "needsProps": [ "pine-banner" ] } ]
     }
   },
   "lootTables": {

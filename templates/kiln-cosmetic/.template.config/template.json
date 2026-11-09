@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.Cosmetic",
   "groupIdentity": "Kiln.Templates.Cosmetic",
   "name": "Kiln cosmetic",
-  "description": "Vanity items from building blocks: a hat and a cape for the cosmetic slots, on the game's looks, in C# and the same as data (blocks/*.json).",
+  "description": "Vanity from building blocks: a hat for the cosmetic head slot, a hair style and a beard, on the game's looks, in C# and the same as data (blocks/*.json).",
   "shortName": "kiln-cosmetic",
   "sourceName": "KilnCosmetic1",
   "preferNameDirectory": true,

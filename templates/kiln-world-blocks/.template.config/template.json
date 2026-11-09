@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.WorldBlocks",
   "groupIdentity": "Kiln.Templates.WorldBlocks",
   "name": "Kiln world blocks",
-  "description": "Things to place from building blocks: a prop, a crafting station that works on its own, a container and a door, in C# and the same as data (blocks/*.json).",
+  "description": "Things to place from building blocks: a crafting prop, a manual bench that needs it, an automated station, a container with starter loot and a lid, and a door with its swing and usable sides, in C# and blocks/*.json.",
   "shortName": "kiln-world-blocks",
   "sourceName": "KilnWorldBlocks1",
   "preferNameDirectory": true,

@@ -124,7 +124,7 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-test` | A separate test mod; `--target <mod>` depends on it | server, none | `tests: tpl-test: 4 passed, 0 failed, 1 skipped` (the skip needs a joined player) |
 | `kiln-service` | A native + managed service, run at the repository root | | Not part of this run |
 | `kiln-item-blocks` | Items from blocks: a material, food, a sword, armor, a wand, a loot table and a recipe at a game station, in C# and `blocks/*.json` | both, kiln | See [below](#block-templates) |
-| `kiln-world-blocks` | A crafting prop, a station that needs it, a container with starter loot and a lid, and a door with its swing and usable sides, in C# and `blocks/*.json` | both, mod | See [below](#block-templates) |
+| `kiln-world-blocks` | A crafting prop, a manual bench that needs it, an automated station, a container with starter loot and a lid, and a door with its swing and usable sides, in C# and `blocks/*.json` | both, mod | See [below](#block-templates) |
 | `kiln-npc` | A friendly NPC on a game NPC's body: talk (`quests/talk.json`), wares, a roster entry; in data and C# | both, mod | Builds and lints. Talk and wares need a client |
 | `kiln-creature-blocks` | A creature as data: a game body, a tuned AI, a behaviour with a rule, drops and spawns | both, kiln | Builds and lints |
 | `kiln-cosmetic` | A hat, a hair style and a beard on the game's looks, in C# and `blocks/*.json` | both, kiln | Builds and lints. How it looks needs a client |
@@ -146,6 +146,7 @@ Templates with C# block definitions also have `blocks/*.json` with the same kind
 you can keep the half you like. A lab load of `kiln-item-blocks` and `kiln-world-blocks` logs one `Blocks.Lowered` line per block
 (results in WP-12's report for dev.20).
 Crafting props written in C# enter the game's tables on the second start; the JSON versions work on the first.
+`NeedsProps` is for a player's craft at a manual station. Automated stations reject it.
 Container starter loot fills once per placed location. Lid movement, door direction and crafting menus need a client check.
 
 Cooked files come from your own game: run `kiln cook` before the first build of `kiln-model`, `kiln-ability --impact`
