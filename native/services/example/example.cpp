@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Template service (kiln.example). A service is a DLL in kiln/services/ that:
 //  1. in kiln_plugin_main: checks the ABI, resolves what it needs (api->symbol / api->constant / api->feature from its
-//     sigdb/symbols/server.d/<name>.json), installs its own hooks (safetyhook), subscribes ticks, and publishes its
+//     sigdb/symbols/server.d/<name>.json), installs its hooks through kiln.hooks v2 (kiln_hook.hpp), subscribes ticks, and publishes its
 //     table with api->register_service. Returning non-OK (or not registering) = the service is unavailable.
 //  2. optionally in on_ready: looks up other services (api->service) it depends on.
 // Game state is only touched on the tick thread (Pre, or Post after the world's jobs) or inside an ECS program.

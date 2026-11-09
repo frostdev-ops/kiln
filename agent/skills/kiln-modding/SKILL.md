@@ -84,5 +84,5 @@ Mistakes seen in practice: [references/pitfalls.md](references/pitfalls.md).
 ## When something isn't documented
 
 Don't guess at game internals. Read the wiki and the XML docs that ship with Kiln.Api. If a service doesn't offer what you need,
-say so instead of patching game memory. Low-level hooks are for mods that opt into the advanced tier (`"advanced": true`) and are
-out of scope here.
+say so instead of patching game memory. Low-level hooks are for mods that opt into the advanced tier (`"advanced": true`);
+the short rules (kiln.hooks v2, `caller()`, `hooks.json`, closed DLL mods) are at the end of [api.md](references/api.md).

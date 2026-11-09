@@ -125,8 +125,8 @@ alive until those callbacks return, or drain again from outside all transfer cal
 ## Next to shroudlink
 
 kiln-shroudlink hosts shroudlink's own server core, which hooks the same two functions (`quick_stack`, `move_all`). Both can be
-installed, in either order. kiln.items hooks with safetyhook, which copies a jump already at the function's entry into its
-trampoline; shroudlink's detour library does the same on top of ours (it matches its pattern against the exe file when the
+installed, in either order. kiln.items hooks through [kiln.hooks](../services/hooks.md), whose one detour per function copies a
+jump already at the function's entry into its trampoline; shroudlink's detour library does the same on top of ours (it matches its pattern against the exe file when the
 code in memory is already hooked). Each runs once per call. Neither is ever removed: a hook taken down under another
 one would take the other down with it, so kiln.items leaves its hooks in for the life of the process and ends rules, handlers
 and reports with a flag. Removing shroudlink's mods never touches Kiln's hooks.

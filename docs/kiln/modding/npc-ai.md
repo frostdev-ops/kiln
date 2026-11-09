@@ -70,7 +70,7 @@ The five faction hooks go in at the next Pre with the first effective relation a
 kiln.hooks keeps every link slot for the process, so after 64 such in-and-out rounds the hooks stay in through quiet spells and simply answer nothing.
 Rows and pairs apply to pointer forms, which carry the creatures' Faction component addresses; value forms see only the world table.
 World lifecycle support must be available, and all five checks must resolve and install; a missing pattern or failed installation leaves the game's answers in place, with a log line. A failed
-installation is not retried each tick. Disabled trampolines stay allocated until process exit so concurrent calls can finish safely.
+installation is not retried each tick. Revoked links stay allocated until process exit (kiln.hooks never frees one), so concurrent calls can finish safely.
 Per-creature overrides also require an entity-destruction observer. When it is unavailable those overrides are refused. The observer invalidates
 lifetime tokens before storage is reused (a refused destroy conservatively drops overrides too). World stops clear entity state and the world table; register persistent host-world relations from `ServerStartedEvent`. Native workers
 read retained immutable snapshots and atomic table cells. A creature's row and pair changes reach the hooks at the next Pre. A friendly fighter is a creature block with `Faction = Faction.PlayerAlly` (an `NpcBlock` villager has no

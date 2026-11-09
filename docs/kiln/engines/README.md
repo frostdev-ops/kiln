@@ -106,7 +106,8 @@ file can't be used (unreadable, or a different build than the one loaded), Kiln 
 logs a warning.
 
 **Hooking the same function.** Kiln's hooks use safetyhook, through one registry (`kiln.hooks` v2,
-[../services/hooks.md](../services/hooks.md)) that places **one** detour per game address for every handler registered with it (the services move over during dev.21).
+[../services/hooks.md](../services/hooks.md)) that places **one** detour per game address for every handler registered with it.
+Since dev.21 Kiln's services, the core tick and the hosted engines' hook slots all register there.
 safetyhook decodes at least 5 bytes at the target and moves them into its trampoline. A `jmp rel32` (E9, Enshwick's
 5-byte hook) or a `jmp [rip+0]` (FF 25, a 14-byte absolute hook) there is IP-relative, so it is copied with its
 displacement rewritten. The trampoline still reaches the other engine's hook. A call then runs:
@@ -133,18 +134,19 @@ stand-in hooker.
 The one path that can still undo someone's hook is a safetyhook unhook outside the registry: it writes its saved bytes
 back without checking them. If Kiln hooked first and another engine hooked over Kiln's `jmp`, such an unhook removes
 the other engine's hook too, and the other engine's trampoline then leads into freed memory. Registry links are never
-unhooked, only revoked from the chain. Hooks that a service still places with its own safetyhook calls (being moved to
-the registry in dev.21) keep the old guard: npcai's lifetime observers, for example, stay armed when they find a foreign
-jump on top.
+unhooked, only revoked from the chain. Since dev.21 no Kiln hook on the game exe is placed outside the registry. Only
+hooks on system DLL exports (`LoadLibraryExW`, Vulkan, XInput on the client) and EMF/Shroudtopia mod hooks on targets
+outside the game exe still use plain safetyhook; those stay installed for the life of the process.
 
 One limit: safetyhook needs its trampoline within ±2 GB of both the target and the other engine's relay (a 5-byte
 `jmp` already keeps the relay within ±2 GB of the target). If no such memory is free, safetyhook falls back to a
 14-byte absolute hook, which refuses to move an IP-relative instruction. The hook then fails, and kiln.log says
-`hooks: safetyhook could not detour <address>` (or a service names the hook it could not arm). The other engine's
+`hooks: safetyhook could not detour rva <rva> (error <n>)` (or a service names the hook it could not arm). The other engine's
 hook keeps working.
 
 When a closed-source DLL is the other engine, the overlap report and `[late]` (see [Closed-source DLL
 mods](#closed-source-dll-mods)) tell you which one hooked first and let you swap the order.
+
 ShroudForge's native runtime (its six engine hooks, named by a legacy game profile) is hosted the same way: Kiln finds the
 places in the exe file's bytes and places them as mid links, so a DLL that hooked one first (XHL, a closed mod) no longer
 switches the runtime off ([../shroudforge-compat.md](../shroudforge-compat.md#engine-hooks-through-kilnhooks)).

@@ -37,8 +37,8 @@ their output. The service remembers at most 128 distinct rejection diagnostics p
 Callbacks run after the destination world's step, under the mod fault guard. A fault disables that callback. World
 teardown drops queued messages, welcomes, fragments and peer state. A queued message from a disconnected player does
 not follow that account to a new connection. Plugin shutdown waits for entered callbacks and client engine calls,
-unsubscribes the chat receiver, and revokes the server observer. The client detours stay mapped but inactive, so a
-foreign hook layered above them keeps its trampoline.
+unsubscribes the chat receiver, and revokes the server observer. The client hooks are kiln.hooks links that stay in the
+chain but pass calls through; Kiln never unhooks the function, so a foreign hook layered above it keeps working.
 
 `kiln.log` reports whether each chat endpoint is on. A missing service, unresolved signature or unknown client layout
 leaves that endpoint off; host loopback still works. Client engine access requires an exact reviewed executable hash

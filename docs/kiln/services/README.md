@@ -12,8 +12,10 @@ A service is one capability (teleport, items, chat, ...) with three layers. The 
 
 ## Native rules
 - `kiln_plugin_main(api, owner, info)`: check `api->abi_version == KILN_ABI_VERSION`, resolve symbols with
-  `api->symbol` / constants with `api->constant` / features with `api->feature`, install hooks (safetyhook is linked
-  into every service: `#include "safetyhook.hpp"`), subscribe ticks, then `api->register_service(owner, name, &table)`.
+  `api->symbol` / constants with `api->constant` / features with `api->feature`, install hooks through `kiln.hooks`
+  (below), subscribe ticks, then `api->register_service(owner, name, &table)`. safetyhook is still linked into every
+  service: mid handlers take its `safetyhook::Context&`, and hooks on system DLL exports (outside the game exe) use it
+  directly.
   Missing pieces: return `KILN_ERR_UNAVAILABLE` (or publish a table whose functions return it). Never crash.
 - The server world and its singletons: `api->server_world()` (0 before the first server-world step) and
   `api->singleton(world, "ServerPlayers")` (exact registered name; tick thread). Use these instead of hooking

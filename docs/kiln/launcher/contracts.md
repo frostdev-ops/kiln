@@ -76,8 +76,8 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
 | `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size}` |
-| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`) |
-| `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/` and `native.json` |
+| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty) |
+| `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
 | `installs/<installId>.json` | the launcher's record of a game install: the `GameInstall` + a copy of its receipt |
@@ -792,6 +792,8 @@ or emits `kiln://update`; its UI calls none of these commands.
 | engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?}` (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`) |
 | engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
 | engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
+| compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it, the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
+| compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
 
 `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
 AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs: applies at the next
@@ -921,7 +923,8 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `winpath` | `unix_to_z(&Path)`, `z_to_unix(&str)`, `z_drive_ok(&Path)`, `to_game(&Path, &GameInstall)`, `to_host(&str, &GameInstall)` |
 | `bundle` | `read(&Path)`, `verify(&Path, &mut dyn Progress)`, `create(&Path, &Path, &CreateOptions)`, `list(&DataDirs)`, `import(&DataDirs, &Path)`; `RuntimeManifest`, `RuntimeComponent`, `RuntimeFile`, `RuntimeBuilds`, `RuntimeBuild`, `RuntimeBundle`, `CreateOptions` |
 | `install` | `read_receipt(&Path)`, `status`, `install(&DataDirs, &GameInstall, &Path, &InstallOptions, &mut dyn Progress)`, `uninstall`, `rollback`, `plan`; `InstallReceipt`, `ReceiptRuntime`, `ReceiptGame`, `ReceiptFile`, `ReplacedFile`, `ReplacedClass`, `ReplacedAction`, `InstallOptions`, `InstallState` |
-| `chain` | `parse(&[u8]) -> ChainIni`, `parse_once(&[u8]) -> OnceIni`, `read(&Path)`, `write_chain_section`, `write_profile_section`, `write_once`; `ChainEntry`, `EntryStatus` |
+| `chain` | `parse(&[u8]) -> ChainIni`, `parse_once(&[u8]) -> OnceIni`, `read(&Path)`, `read_raw`, `write_chain_section`, `write_profile_section`, `write_profile_plan(&Path, &ProfilePlan)`, `write_once`, `is_late`, `set_late(&Path, &str, bool)`, `add_chain_entry`, `remove_chain_entry`, `rule_off_entries`, `plan_is_current`, `game_path`; `ChainEntry`, `ChainIni`, `OnceIni`, `EntryStatus`, `ProfilePlan` |
+| `compat` | `parse_rules`, `load_rules`, `evaluate(&[SourcedRule], &Facts, &[PlanEntry])`, `apply`, `glob`, `file_name`, `parse_hooks`, `read_hooks(&Path)`, `overlaps(&HooksState)`, `plan`, `dllmain_entries`, `view(&DataDirs, &Profile, &GameInstall) -> Result<ChainView>`, `set_entry_late`, `kind_engine`; `Matcher`, `Rule`, `RuleAction`, `RuleSource`, `SourcedRule`, `Facts`, `Section`, `PlanEntry`, `RuleResult`, `HooksState`, `HookTarget`, `HookLink`, `ForeignDest`, `ForeignSymbol`, `Overlap`, `OverlapKind`, `CoreRule`, `Plan`, `ChainView`, `ChainViewEntry`, `OverlapView`, `LibraryHit`, `SessionInfo` |
 | `manifest` | `parse_kiln(&str) -> Result<KilnManifest>`, `read_kiln`, `parse_native(&str) -> Result<NativeManifest>`, `read_native`; `Side`, `RunSide`, `Clients::default_for`, `ModKind`, `KilnManifest`, `Dependency`, `Incompatibility`, `TestsSpec`, `NativeManifest`, `NativePhase`, `IncompatibleSpec`, `OneOrMany` |
 | `semver` | `SemVersion::{parse, compare, release}`, `VersionRange::{parse, at_least_same_major, satisfies, is_any}` |
 | `resolver` | `resolve(&[Candidate], &Environment) -> Result<Resolution>`; `Candidate`, `Environment`, `ModState`, `Rejection`, `Resolution` |

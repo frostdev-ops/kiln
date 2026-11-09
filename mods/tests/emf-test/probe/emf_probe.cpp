@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// emf_probe: an EMF mod (EMF C API v26, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
+// emf_probe: an EMF mod (EMF C API v27, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
 // one "PASS <what>" / "FAIL <what>" line per check, then "emf-probe done: N PASS, M FAIL". Player-free: it uses a
 // villager of the copied world (teleport, put/take items), spawns one Vukah next to it and kills it (damage ->
 // EntityDiedEvent), changes and resets a world setting, asks for a save, runs its own command through
@@ -671,9 +671,9 @@ void on_tick(EmfWorld* w, void*) {
 }  // namespace
 
 extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
-    if (!api || api->version < 26 || api->size < sizeof(EmfApi)) return false;
+    if (!api || api->version < 27 || api->size < sizeof(EmfApi)) return false;
     A = api;
-    check(api->version == 26 && api->size == sizeof(EmfApi) && sizeof(EmfApi) == 688, "the table is EmfApi v26 of the SDK's size",
+    check(api->version == 27 && api->size == sizeof(EmfApi) && sizeof(EmfApi) == 728, "the table is EmfApi v27 of the SDK's size",
           std::to_string(api->version) + ", " + std::to_string(api->size) + " bytes");
     bool all = true;
     for (size_t i = 0; i < (sizeof(EmfApi) - 8) / sizeof(void*); ++i)

@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: MIT
 // compat-rules.schema.json and hooks-state.schema.json against their examples and the shared fixtures
 // (schema/fixtures/compat-rules/cases.json, schema/fixtures/hooks-state/, and the launcher's launcher-*.json beside them). Uses the launcher's ajv:
-//   node schema/tests/closed_dll_schemas.mjs        (AJV_2020=<path to ajv/dist/2020.js> when launcher/node_modules is absent)
+//   node schema/tests/closed_dll_schemas.mjs
+// ajv is looked up in this order: $AJV_2020 (a path to ajv/dist/2020.js), this tree's launcher/node_modules, then the
+// main checkout's launcher/node_modules when this tree is a git worktree (found with `git rev-parse --git-common-dir`).
+// None found: run `bun install` in launcher/ or set AJV_2020.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = new URL(".", import.meta.url);
 const read = (file) => JSON.parse(readFileSync(new URL(file, here), "utf8"));
-const candidates = [process.env.AJV_2020, new URL("../../launcher/node_modules/ajv/dist/2020.js", here).pathname].filter(Boolean);
+const mainCheckout = () => {
+  try {
+    const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: fileURLToPath(here), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return join(dirname(common), "launcher/node_modules/ajv/dist/2020.js");
+  } catch { return null; }
+};
+const candidates = [process.env.AJV_2020, fileURLToPath(new URL("../../launcher/node_modules/ajv/dist/2020.js", here)), mainCheckout()]
+  .filter(Boolean);
 const found = candidates.find((p) => existsSync(p));
 assert(found, `ajv 2020 not found; set AJV_2020 (tried ${candidates.join(", ")})`);
 const Ajv2020 = (await import(pathToFileURL(found).href)).default;

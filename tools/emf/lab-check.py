@@ -95,7 +95,7 @@ def main():
     bad = admin("settings.set", key="experienceCombatFactor", value=9, expected=cur)
     save = admin("save")
     results["server-admin"] = (
-        ping.get("ok") and ping["data"].get("api") == 26 and items.get("ok") and items["data"]["count"] > 4000 and sset.get("ok")
+        ping.get("ok") and ping["data"].get("api") == 27 and items.get("ok") and items["data"]["count"] > 4000 and sset.get("ok")
         and sres.get("ok") and not bad.get("ok") and save.get("ok"),
         f"ping api {ping['data'].get('api')}; items {items['data'].get('count')} (wood max stack {wood[0]['maxStack'] if wood else '?'}); "
         f"settings.set {new} {'ok' if sset.get('ok') else 'FAIL'} (read back {sset['data'].get('value')}), reset {'ok' if sres.get('ok') else 'FAIL'}, "
@@ -142,13 +142,13 @@ def main():
         results[m] = (has(rf"\[emf:{m}\] running \(main\.lua\)"), "run by the lua mod")
     probe = grab(r"emf-probe done: (\d+ PASS, \d+ FAIL)")
     results["emf_probe"] = (probe is not None and probe.endswith(" 0 FAIL"), f"conformance probe: {probe}")
-    # EMF 0.5 mods (built against EmfApi v26): they load only on a v26-sized table
+    # EMF 0.5 mods (built against EmfApi v26): the v27 table is a superset, so they load
     for m, rx in (("blessings", r"\[emf:blessings\] "), ("event_log", r"\[emf:event_log\] "), ("guid_dump", r"\[emf:guid_dump\] "),
                   ("model_probe", r"\[emf:model_probe\] "), ("model_survey", r"\[emf:model_survey\] "),
                   ("npc_explorer", r"\[emf:npc_explorer\] "), ("sample_mod", r"\[emf:sample_mod\] "),
                   ("sim_rate", r"\[emf:sim_rate\] "), ("write_test", r"\[emf:write_test\] ")):
         if m in mods:
-            results[m] = (mods[m]["status"] == "loaded" and has(rx), "loaded on EmfApi v26; " + (mods[m].get("reason") or "ready"))
+            results[m] = (mods[m]["status"] == "loaded" and has(rx), "built for EmfApi v26, loaded on v27; " + (mods[m].get("reason") or "ready"))
     chk = grab(r"emf-check done: (\d+ PASS, \d+ FAIL)")
     results["(emf-check)"] = (chk is not None and chk.endswith(" 0 FAIL"), f"Kiln-side cross-check: {chk}")
 
