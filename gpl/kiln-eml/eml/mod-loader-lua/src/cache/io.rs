@@ -1,4 +1,4 @@
-use std::io::{BufReader, BufWriter};
+use std::io::BufReader;
 
 use crate::{alias::Path, cache::FileStateCache, log::warn};
 
@@ -56,11 +56,11 @@ impl FileStateCache {
         } else {
             let cache_file = cache_dir.join("files.json");
 
-            match std::fs::File::create(&cache_file) {
-                Ok(file) => {
-                    let writer = BufWriter::new(file);
-
-                    if let Err(e) = serde_json::to_writer(writer, self) {
+            // kiln-eml: replace the file whole. A hit that only adds stamps rewrites a good cache; a crash in the
+            // middle of that must not leave a torn file that costs the next start a full patch run.
+            match serde_json::to_vec(self) {
+                Ok(bytes) => {
+                    if let Err(e) = crate::transaction::atomic_write(cache_file.as_std_path(), &bytes) {
                         warn!(
                             error = %e,
                             path = cache_file.as_str(),
@@ -72,7 +72,7 @@ impl FileStateCache {
                     warn!(
                         error = %e,
                         path = cache_file.as_str(),
-                        "Failed to create cache file"
+                        "Failed to serialize cache file"
                     );
                 }
             }

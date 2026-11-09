@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use kfc::reflection::LookupKey;
 use mod_loader::ModEnvironment;
 
-use crate::{alias::Path, cache::{CacheDiff, FileStateCache}, env::{AppFeatures, AppState}, log::info, runner::LuaModRunner};
+use crate::{alias::Path, cache::{CacheDiff, FileStateCache, Fingerprints}, env::{AppFeatures, AppState}, log::info, runner::LuaModRunner};
+
+// kiln-eml: what a run spent fingerprinting the game's files (bytes read, files reused), for the log and Kiln's state.
+pub use cache::FingerprintStats;
 
 mod runner;
 mod definition;
@@ -47,6 +50,8 @@ pub struct RunResult {
     pub cached: bool,
     /// Resources written by this run (0 when cached or when no mod changed anything).
     pub patched: usize,
+    /// What the change cache and the input barriers read of the game's files.
+    pub fingerprint: FingerprintStats,
 }
 
 pub fn run(
@@ -57,20 +62,32 @@ pub fn run(
 
     let cache_key = format!("{}|{:?}", args.file_name, args.options);
     let file_name = args.file_name.clone();
+    // kiln-eml: one memo of file fingerprints for the whole run (cache/prints.rs): every barrier below re-stats its files
+    // and reads only those that changed since they were hashed, so the game data is read once, not four times.
+    let mut prints = Fingerprints::new(env.game_dir().as_std_path());
+    let current_cache = (!args.options.skip_cache).then(|| FileStateCache::read(env.cache_dir()));
+    if let Some(saved) = &current_cache {
+        prints.seed(saved);
+    }
     let mut mods_before = FileStateCache::default();
-    track_mods(&mut mods_before, env);
+    track_mods(&mut mods_before, env, &mut prints);
 
     // check cache if files have changed
 
-    let cache_diff = if !args.options.skip_cache {
-        let current_cache = FileStateCache::read(env.cache_dir());
+    let cache_diff = if let Some(current_cache) = &current_cache {
         let mut new_cache = FileStateCache::default();
         new_cache.configuration(&cache_key);
 
-        new_cache.track_game_files(env.game_dir());
-        track_mods(&mut new_cache, env);
+        new_cache.track_game_files(env.game_dir(), &mut prints);
+        track_mods(&mut new_cache, env, &mut prints);
 
-        let cache_diff = new_cache.diff(&current_cache);
+        let cache_diff = new_cache.diff(current_cache);
+
+        // kiln-eml: nothing changed, but this start learned stamps the saved cache lacks (it predates them, or its
+        // files were still too fresh to stamp): save them, so the next start reads nothing either.
+        if cache_diff.is_none() && new_cache.stamps_differ(current_cache) {
+            new_cache.write(env.cache_dir());
+        }
 
         if cache_diff.is_none() && args.options.patch && !args.options.export {
             args.options.patch = false;
@@ -78,7 +95,7 @@ pub fn run(
             info!("No changes detected, skipping patching");
 
             if !args.options.runtime {
-                return Ok(RunResult { cached: true, ..RunResult::default() });
+                return Ok(RunResult { cached: true, fingerprint: prints.stats(), ..RunResult::default() });
             }
         }
 
@@ -100,7 +117,7 @@ pub fn run(
     };
     let vanilla_containers = app_state.kfc_file().containers().len();
     let mut inputs_before = FileStateCache::default();
-    inputs_before.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
+    inputs_before.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, &mut prints);
 
     // setup and run all mods
 
@@ -125,7 +142,7 @@ pub fn run(
 
     if app_state.has_feature(AppFeatures::PATCH) {
         let mut inputs_now = FileStateCache::default();
-        inputs_now.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
+        inputs_now.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, &mut prints);
         if inputs_before.diff(&inputs_now).is_some() {
             anyhow::bail!("Game inputs changed or became unreadable during patch preparation");
         }
@@ -183,11 +200,11 @@ pub fn run(
 
     if app_state.has_feature(AppFeatures::PATCH) {
         let mut mods_after = FileStateCache::default();
-        track_mods(&mut mods_after, env);
+        track_mods(&mut mods_after, env, &mut prints);
         let mut new_cache = mods_after.clone();
         new_cache.configuration(&cache_key);
 
-        new_cache.track_game_files(env.game_dir());
+        new_cache.track_game_files(env.game_dir(), &mut prints);
         // Reuse the exact fingerprints being saved; a second independent after-snapshot can hide an ABA edit.
         let inputs_after = new_cache.clone().only_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
         if mods_before.diff(&mods_after).is_none() && inputs_before.diff(&inputs_after).is_none() { new_cache.write(env.cache_dir()); }
@@ -200,6 +217,7 @@ pub fn run(
     Ok(RunResult {
         cached,
         patched,
+        fingerprint: prints.stats(),
         dlls: app_state.registered_dlls()
             .into_iter()
             .map(|path| path.into_std_path_buf())
@@ -209,12 +227,12 @@ pub fn run(
 
 // kiln-eml: an environment from explicit mod paths (ModEnvironment::load_from) tracks exactly those, so switching a
 // mod off in a Kiln profile re-patches too; otherwise EML's `<game>/mods`.
-fn track_mods(cache: &mut FileStateCache, env: &ModEnvironment) {
+fn track_mods(cache: &mut FileStateCache, env: &ModEnvironment, prints: &mut Fingerprints) {
     if env.mod_paths().is_empty() {
-        cache.track_mod_files(env.mods_dir());
+        cache.track_mod_files(env.mods_dir(), prints);
     } else {
         for path in env.mod_paths() {
-            cache.track_directory(path);
+            cache.track_directory(path, prints);
         }
     }
 }

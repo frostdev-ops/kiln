@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use mod_loader::lua::{self, RunArgs, RunOptions};
+use mod_loader::lua::{self, FingerprintStats, RunArgs, RunOptions};
 use mod_loader::{Capability, ModEnvironment};
 use serde::Serialize;
 
@@ -68,6 +68,10 @@ pub struct Outcome {
     pub cached: bool,
     pub restored: bool,
     pub ms: f64,
+    // kiln-eml: what fingerprinting the game's files cost the run that finished (bytes hashed, files reused; the cache
+    // and input barriers of EML's runner), when one did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<FingerprintStats>,
     pub error: Option<String>,
     pub aside: Option<String>,
     pub mods: Vec<Entry>,
@@ -87,6 +91,7 @@ impl Outcome {
             cached: false,
             restored: false,
             ms: 0.0,
+            fingerprint: None,
             error: None,
             aside: None,
             mods,
@@ -390,6 +395,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             Ok(r) => {
                 out.patched = r.patched;
                 out.cached = r.cached;
+                out.fingerprint = Some(r.fingerprint);
                 for p in &mods {
                     set_state(&mut out.mods, p, "loaded", None);
                 }

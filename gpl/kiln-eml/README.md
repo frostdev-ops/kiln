@@ -56,6 +56,24 @@ Each is marked `kiln-eml:` in the source.
    module: ...`, so the mod that required it is dropped, not the one named. `kiln-eml/src/runner.rs` `preflight` reads every
    mod's `src/mod.lua` through that file system before the game-data phase.
 
+9. `mod-loader-lua/cache` (`prints.rs`, `stamp.rs`, `tests.rs`), `lib.rs`, `load.rs`: each game file is fingerprinted
+   once per run and not at all while the OS shows it unchanged. EML 0.2.0 CRC-hashed every `.dat`/`.kfc`/`.exe` file
+   up to four times per start (the change cache, the barrier before Lua, the barrier before publication, the snapshot
+   it saves): on a real client, 55 containers of about 48 GiB, a patch run read about 190 GiB and a start that changed
+   nothing 48 GiB. `Fingerprints` keeps a memo of (length, last-write time, CRC-64, OS stamp) per file for the run and
+   seeds it from the saved `files.json`; every barrier re-stats and re-reads only what changed. The stamp is the OS's
+   file identity and change time (Linux: device, inode, `ctime`; Windows and Wine: `FileIdInfo` volume and file id,
+   `FileBasicInfo.ChangeTime`), which a program cannot set back the way it can a last-write time. It is trusted only
+   when it is complete, the file is on a volume where a scratch-file test in the game folder (a same-size rewrite
+   with the last-write time restored) moved the change time, the change is older than three seconds (a coarse clock could give a later
+   change the same stamp), and the file did not change while it was read. Everything else is read in full, as
+   before; `KILN_EML_FULL_HASH=1` turns reuse off. `files.json` gains an optional `stamps` map (older files load
+   without it, and older readers ignore it) and is replaced whole. The CRC-64 values are unchanged but computed with
+   sixteen-way tables (`crc::Table<16>`), several times faster than the crate's default. `RunResult` and kiln's
+   `eml.json` report the bytes hashed and files reused. The problem, and OS change stamps as the way out, were
+   analysed by the reporter of [bisdat/kiln-mods#17](https://github.com/bisdat/kiln-mods/issues/17) (whose draft
+   PR 18 explored the same idea); this code is written independently.
+
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.
 Wine exposes directory links by name but hides Unix file symlinks, which the installer must exclude.

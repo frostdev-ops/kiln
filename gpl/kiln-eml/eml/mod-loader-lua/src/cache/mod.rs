@@ -3,7 +3,15 @@ use std::{collections::HashMap, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 mod io;
+mod prints;
+mod stamp;
 mod track;
+
+pub use prints::{FingerprintStats, Fingerprints};
+pub(crate) use prints::CRC64;
+#[cfg(test)]
+pub(crate) use prints::RACY_WINDOW_OVERRIDE;
+use stamp::Stamp;
 
 const BUILD_ID: &str = env!("BUILD_ID");
 
@@ -11,6 +19,11 @@ const BUILD_ID: &str = env!("BUILD_ID");
 pub struct FileStateCache {
     build_id: String,
     files: HashMap<PathBuf, (u64, u128, u64)>,
+    // kiln-eml: the OS stamp each fingerprint above was taken under, for the files where it can tell a later change
+    // (prints.rs). Not part of what `diff` compares; a cache file from before this field loads with none, so its
+    // files are read once and the next save carries stamps.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    stamps: HashMap<PathBuf, Stamp>,
 }
 
 impl Default for FileStateCache {
@@ -18,6 +31,7 @@ impl Default for FileStateCache {
         Self {
             build_id: BUILD_ID.to_string(),
             files: HashMap::new(),
+            stamps: HashMap::new(),
         }
     }
 }
@@ -32,35 +46,35 @@ impl FileStateCache {
         Self {
             build_id: String::new(),
             files: HashMap::new(),
+            stamps: HashMap::new(),
         }
     }
 
     pub fn track(
         &mut self,
         path: impl Into<PathBuf>,
+        prints: &mut Fingerprints,
     ) {
         let path = path.into();
         // kiln-eml: whole-second mtimes miss rapid edits, preserved timestamps and resource/backup changes.
-        // Hash bytes as well; unreadable files poison this snapshot rather than producing a cache hit.
-        use std::io::Read;
-        let fingerprint = (|| -> std::io::Result<_> {
-            let m = path.symlink_metadata()?;
-            if m.file_type().is_symlink() { return Err(std::io::Error::other("symlink")); }
-            let nanos = m.modified()?.duration_since(std::time::UNIX_EPOCH).map_err(std::io::Error::other)?.as_nanos();
-            let crc = crc::Crc::<u64>::new(&crc::CRC_64_ECMA_182);
-            let mut digest = crc.digest();
-            if m.is_file() {
-                let mut f = std::fs::File::open(&path)?;
-                let mut buf = [0u8; 65536];
-                loop { let n = f.read(&mut buf)?; if n == 0 { break; } digest.update(&buf[..n]); }
+        // Hash bytes as well (once per file while its OS stamp shows it unchanged: prints.rs); unreadable files
+        // poison this snapshot rather than producing a cache hit.
+        match prints.fingerprint(&path) {
+            Ok((sig, stamp)) => {
+                match stamp {
+                    Some(stamp) => { self.stamps.insert(path.clone(), stamp); }
+                    None => { self.stamps.remove(&path); }
+                }
+                self.files.insert(path, sig);
             }
-            Ok((m.len(), nanos, digest.finalize()))
-        })();
-        let timestamp = match fingerprint {
-            Ok(v) => v,
-            Err(_) => { self.build_id.clear(); return; }
-        };
-        self.files.insert(path, timestamp);
+            Err(_) => { self.build_id.clear(); }
+        }
+    }
+
+    /// Does `saved` lack, or hold other stamps than, this snapshot? A hit that finds so is saved again, which is how
+    /// a cache file from before stamps (or one whose files were changed recently) gets them without a patch run.
+    pub fn stamps_differ(&self, saved: &Self) -> bool {
+        self.stamps != saved.stamps
     }
 
 }
@@ -137,21 +151,4 @@ impl FileStateCache {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn preserved_timestamp_edit_and_unreadable_file_invalidate_cache() {
-        let p = std::env::temp_dir().join(format!("kiln-cache-{}", uuid::Uuid::new_v4()));
-        std::fs::write(&p, "before").unwrap();
-        let time = p.metadata().unwrap().modified().unwrap();
-        let mut a = FileStateCache::default(); a.track(&p);
-        std::fs::write(&p, "after!").unwrap();
-        std::fs::File::options().write(true).open(&p).unwrap().set_modified(time).unwrap();
-        let mut b = FileStateCache::default(); b.track(&p);
-        assert!(a.diff(&b).is_some());
-        std::fs::remove_file(&p).unwrap();
-        let mut c = FileStateCache::default(); c.track(&p);
-        c.configuration("options");
-        assert!(c.diff(&c).is_some());
-    }
-}
+mod tests;

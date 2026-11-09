@@ -129,8 +129,9 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   targets its actual host executable even when client and server data share a folder; target identity is part of the
   patch cache key and reflection caches are separate. It fingerprints
   file contents, size and full-resolution mtimes, including resources, backups and `eml.json`, plus runner code and
-  options. Switching a mod off re-patches. Reading those fingerprints has I/O cost on large installs; export passes
-  always run. Unreadable inputs and inputs changed during a run cannot produce a reusable cache entry.
+  options. Switching a mod off re-patches. Each file is read once per run, and not at all while the OS shows it
+  unchanged ([Reading the game data](#reading-the-game-data)); export passes always run. Unreadable inputs and inputs
+  changed during a run cannot produce a reusable cache entry.
 - **The header backup is EML's own** `<exe>.kfc.bak`. New backups also save `<exe>.kfc_resources.bak` for exact
   resource-file restoration. `<exe>.kfc.bak.integrity` records both files' lengths and CRC64 checksums and is
   published durably before patching. Malformed or checksum-mismatched backups are refused. An interrupted seal
@@ -177,6 +178,52 @@ It fails soft:
   An install-lock failure stops startup instead of entering the game alongside a possible active writer.
 - **No EML mods (left):** if a `.kfc.bak` exists and differs, `<exe>.kfc` is restored from it byte for byte, once.
   Otherwise kiln-eml touches nothing (`idle`).
+
+#### Reading the game data
+EML decides whether to patch by fingerprinting the game's files: length, last-write time and a CRC-64 of every byte of
+each `.dat`, `.kfc`, `.kfc_resources`, `.exe` and backup file, plus the mod files. EML 0.2.0 does that four times per
+start (the change cache, the check before Lua, the check before publication, the snapshot it saves). A real client has
+55 containers, about 48 GiB, so a patch run read about 190 GiB and even a start that changed nothing read 48 GiB
+(GitHub issue [bisdat/kiln-mods#17](https://github.com/bisdat/kiln-mods/issues/17), whose analysis this follows).
+
+Since dev.21 a file is read once per run, and not at all when the OS shows it unchanged since it was last read (the
+exceptions below are read at every step, as before). The integrity checks are the same checks; they just no longer
+re-read what cannot have changed.
+- **What is compared.** `kiln/eml/cache/files.json` keeps, for each file, the length, the last-write time and the CRC-64
+  as before, and now also the OS's file identity and change time (the "stamp"): on Linux the device, inode and
+  `ctime`, on Windows and Wine the volume serial number and file id (`FileIdInfo`) and the `ChangeTime`
+  (`FileBasicInfo`). A program can set a last-write time back; it cannot set the change time back. A same-size edit
+  with the old last-write time restored still moves it.
+- **When a recorded CRC is reused.** Only when all of this holds: the stamp is complete, the length and last-write time
+  are unchanged, the file's volume passed a test in this run, the change was older than three seconds when the CRC was
+  taken, and the file did not change while it was being read. The test runs first, in the game folder: it writes a
+  scratch file there, rewrites it with other bytes of the same length, puts the last-write time back and checks that
+  the change time moved (and, on Windows, that the file system is not FAT or exFAT); the scratch file is removed. Mod
+  folders are never written to. The three-second rule is for coarse file system clocks, where a later edit could get
+  the same stamp as the one recorded.
+- **Everything else is read in full, exactly as before:** a stamp that cannot be read, a changed or replaced file, a
+  file on another volume than the game folder (usually only small mod files; under Wine, a mount that Wine gives no
+  serial number is trusted only in the folder that was tested), a file changed in the last three seconds, a cache file
+  from before dev.21. An unreadable or missing input has no fingerprint and still prevents a cache hit.
+- **Before publication** each input's stamp is read again. An input that changed since it was hashed is read again
+  and, being different, stops the run, as before.
+- **After a patch** the files the patch wrote are too new to stamp. The next start reads them once, writes their
+  stamps into `files.json` and reads nothing from then on.
+- **Escape hatch.** `KILN_EML_FULL_HASH=1` in the game's environment turns reuse off: every file is read in full at
+  every step, as in EML 0.2.0. `kiln-eml-run --skip-cache` ignores the saved cache but still reuses within the run.
+- **The CRC-64 values did not change** (an old `files.json` still loads, and an old Kiln reads a new one), but they are
+  computed with sixteen-way tables, several times faster than the crate's default.
+
+What this trusts: that the operating system updates the change time when a file's data changes. A process with the
+rights to set the system clock and edit the game files could defeat that; so could a file system that does not keep a
+change time but passes the test above. Neither is a threat to a normal install, and `KILN_EML_FULL_HASH=1` removes
+the assumption.
+
+Each run logs what it read (eml.log, and kiln.log as `[eml] Fingerprints: ...`), and the summary line and
+`kiln/state/eml.json` carry it:
+```
+[I 15:02:41.118] [early:kiln-eml.dll] [eml] Fingerprints: hashed 562 B in 4 file(s), reused 22 file(s) (7.6 GiB not read), 19 ms
+```
 
 #### When a mod cannot be read
 `state/eml.json` and kiln.log give the reason: `entry src/mod.lua: <stage> failed: <OS error>; <what exists>`. Example:
@@ -227,10 +274,12 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
 ### Logs and state
 - `kiln.log`, owner `early:kiln-eml.dll`: EML's info, warning and error lines as `[eml] ...`, one line per failed or
   skipped mod, and a summary such as
-  `kiln-eml: 2 EML mod(s) loaded, 3 resource(s) patched in enshrouded_server (1263 ms)`.
+  `kiln-eml: 2 EML mod(s) loaded, 3 resource(s) patched in enshrouded_server (1263 ms; hashed 12.0 KiB, reused 23 file(s))`.
 - `kiln/logs/eml.log`: everything, debug included.
 - `kiln/state/eml.json` (format 1, for the launcher and `Kiln.Eml`):
-  `{ pid, phase: done|failed|aside|idle, file, patched, cached, restored, ms, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }] }`.
+  `{ pid, phase: done|failed|aside|idle, file, patched, cached, restored, ms, fingerprint, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }] }`.
+  `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }`: what
+  reading the game's files for the change cache cost this start.
 
 ### Licence layout
 | What | Licence | Where |
@@ -382,7 +431,15 @@ focused test commands are in `gpl/kiln-eml/README.md`; the existing 89-function 
 ### Host
 - Rust tests: `gpl/kiln-eml/build.sh --test` runs the plugin, Lua runner and base-container tests before attempting
   the Windows build. Regressions cover interrupted publication, exact restoration, corrupt backups, preserved-time
-  edits, process locks, ABI versions, path validation, zip classification and removed-content padding.
+  edits, process locks, ABI versions, path validation, zip classification and removed-content padding. The
+  fingerprint tests (`cache/tests.rs`, `load.rs`) cover: a cache hit hashes 0 bytes of unchanged files; each file is
+  hashed once across the four steps of a run; a same-size edit with the last-write time restored is read again (across
+  runs and between steps); a replaced file is read again; a vanished, unreadable or symlinked input poisons the
+  snapshot; a change newer than three seconds is not stamped; a change during the read is not stamped; a volume whose
+  change time never moves, a stamp that cannot be read, a second volume, and a volume the OS does not name are never
+  trusted; a cache file from before stamps loads, is read once and then is fast; the CRC-64 values equal the crate's
+  reference implementation; an input edited in place after the last barrier is never cached. They also run as a
+  Windows build under Wine (`cargo xwin test --no-run`, the test exe under GE-Proton's Wine).
 - C# tests: `dotnet test managed/tests/Kiln.Eml.Tests` covers hash check values, buffer round trips, byte order,
   zero-filling after cursor changes, overflow and current-process state validation.
 - `kiln-eml-run --game <dir> [--mod <path>]... [--profile <json>] [--no-patch] [--export --export-dir <d>] [--state <file>]`:
@@ -433,6 +490,36 @@ are kiln.log lines:
 - **Bug found and fixed** (change 3 in the README): after the probe's created content was removed, the server
   refused to start (`Container ..._010.dat has wrong size 4'096 (expected: 0)`). kiln-eml now truncates the padding
   containers. EML 0.2.0 has the same bug; it is worth reporting upstream.
+
+### Fingerprint cost (2026-11-09, dev.21; GitHub issue bisdat/kiln-mods#17)
+**Synthetic 55 containers of 1 GiB** (sparse files, 55.0 GiB; Linux host, the four fingerprint steps of a start
+replayed with the same code `run` uses, `cargo test --release -p mod-loader-lua bench_ -- --ignored --nocapture`).
+"Read" is the process's read counter. The page cache was warm for every row, so the times are CPU-bound CRC and mean
+more for the ratios than as absolutes. Both columns use the new sixteen-way CRC tables; EML 0.2.0's own (byte-at-a-time)
+CRC ran at about 0.2 to 0.4 GiB/s here, several times slower again.
+
+| Start | EML 0.2.0 behaviour (`KILN_EML_FULL_HASH`) | dev.21 |
+|---|---|---|
+| cold, patch run (no cache) | 220 GiB read, 95.9 s | 55 GiB read, 22.3 s |
+| nothing changed (cache hit) | 55 GiB read, 23.0 s | 0 B read, under 1 ms |
+| a mod changed, warm cache (patch run) | 220 GiB read, 93.8 s | 0 B read, 1 ms |
+
+The patch run row replays the steps without writing: a real patch run also reads the files it publishes, once (see
+below). The warm rows are 0 B because every file passed its stamp check.
+
+**Real server data through the whole pipeline** (7.5 GiB, 10 containers; the real `kiln-eml.dll` in a lab server under
+Wine, `kiln.log` lines, one test mod; times are those of kiln-eml's own summary line):
+
+| Start | `KILN_EML_FULL_HASH=1` | stamps |
+|---|---|---|
+| cold, patch run | 30.2 GiB in 78 files, 15.3 s (`kiln-eml-run`, native Linux, same data) | `hashed 7.8 GiB in 36 file(s), reused 42 file(s) (22.4 GiB not read)`, 6.6 s |
+| first start after a patch run | as in a start that changed nothing | `hashed 141.5 MiB in 12 file(s), reused 14 file(s)`, 150 ms |
+| nothing changed | `hashed 7.6 GiB, reused 0 file(s)`, 5.4 s | `hashed 562 B in 4 file(s), reused 22 file(s) (7.6 GiB not read)`, 64 ms |
+| a mod changed, warm cache | `hashed 30.2 GiB in 78 file(s)`, 13.4 s | `hashed 141.5 MiB in 14 file(s), reused 64 file(s) (30.1 GiB not read)`, 1.0 s |
+
+The 562 B are the mod's own files, which sit on a mount Wine gives no serial number, so they are read in full. The
+141.5 MiB are the files the patch wrote, read once because they were too new to stamp. The cold times are for a warm
+page cache (in the first lab start, with a cold page cache, reading the 7.5 GiB took 36 s).
 
 ### Lab check for GitHub issue 4 (2026-11-09, lab server under Wine, server build 1287369)
 Two good mods and one broken mod in `kiln/eml/mods/`. The state file marks the broken mod `failed` with the stage and
@@ -494,6 +581,13 @@ client testing:
    remove that mod's version on the launcher's Library page. The launcher must refuse with "Close Enshrouded first: the
    game may be reading this mod", with or without "force". Close the game: removal works. "Clean up" must not list a
    version that the game's `kiln/profile.json` still points at.
+
+9. Start cost on the real install (GitHub issue bisdat/kiln-mods#17): the first start after this Kiln update reads the
+   game folder once (about 48 GiB, a minute or more), because the saved cache has no stamps. kiln.log then shows
+   `[eml] Fingerprints: hashed 48.x GiB ...`. The start after a patch run reads only what the patch wrote, and every
+   start after that should show `hashed` in KiB or less and `kiln-eml: ... nothing changed ...` within a second or
+   two. If kiln.log says `Change stamps are not trusted here`, it names the reason and the start reads everything, as
+   before. Only the real install shows the real numbers.
 
 Mods we need from the user (Nexus downloads, which agents can't fetch):
 - 2-3 popular EML mods: one stat or balancing mod, one with `create_resource`/`create_content` (new items), one with

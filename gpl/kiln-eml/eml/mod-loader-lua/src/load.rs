@@ -247,8 +247,8 @@ struct BackupSeal { header: (u64, u64), resources: (u64, u64) }
 fn seal_path(path: &Path) -> PathBuf { path.with_extension("kfc.bak.integrity") }
 
 fn fingerprint_reader(mut reader: impl std::io::Read) -> std::io::Result<(u64, u64)> {
-    let crc = crc::Crc::<u64>::new(&crc::CRC_64_ECMA_182);
-    let mut digest = crc.digest();
+    // kiln-eml: same CRC-64, sixteen-way tables (cache/prints.rs); the backups are hundreds of MiB
+    let mut digest = crate::cache::CRC64.digest();
     let mut len = 0;
     let mut buf = [0u8; 65536];
     loop {
@@ -602,6 +602,80 @@ mod kiln_tests {
         assert!(crate::run(&env, args.clone()).unwrap().cached);
         let other = crate::RunArgs { file_name: "other".into(), ..args };
         assert!(crate::run(&env, other).is_err(), "another target must not reuse g's completed patch");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // kiln-eml: a game folder whose one mod patches (nothing, but the run publishes), and the run's arguments.
+    fn patch_fixture() -> (PathBuf, mod_loader::ModEnvironment, crate::RunArgs) {
+        let dir = fixture();
+        let cache = dir.join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let mut types = TypeRegistry::default(); types.version = "fixture".into();
+        std::fs::write(cache.join("g-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+        let mod_dir = dir.join("mods/a");
+        std::fs::create_dir_all(mod_dir.join("src")).unwrap();
+        std::fs::write(mod_dir.join("mod.json"), r#"{"id":"a","name":"a","version":"1.0.0","capabilities":["patch"]}"#).unwrap();
+        std::fs::write(mod_dir.join("src/mod.lua"), "-- fixture").unwrap();
+        let env = mod_loader::ModEnvironment::load_from(&dir, &cache, vec![mod_dir]).unwrap();
+        let args = crate::RunArgs { file_name: "g".into(), options: crate::RunOptions { patch: true, ..Default::default() } };
+        (dir, env, args)
+    }
+
+    #[test]
+    fn a_start_that_changes_nothing_reads_none_of_the_game_data() {
+        // the fixture's files are seconds old: let their stamps count at once (the recent-change rule is tested in cache)
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        // bytes of the game folder's own files (the ones the change cache reads) and of the mod
+        let game_bytes = || std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap())
+            .filter(|e| e.file_type().unwrap().is_file()).map(|e| e.metadata().unwrap().len()).sum::<u64>();
+        let mod_bytes = || ["mods/a/mod.json", "mods/a/src/mod.lua"].iter().map(|n| std::fs::metadata(dir.join(n)).unwrap().len()).sum::<u64>();
+
+        // a file is read once per version of it: the game files before the patch, what the run publishes after
+        let before = game_bytes();
+        let first = crate::run(&env, args.clone()).unwrap();
+        assert!(!first.cached && env.cache_dir().join("files.json").exists());
+        assert!(first.fingerprint.hashed_bytes <= before + game_bytes() + mod_bytes(), "{}", first.fingerprint);
+        assert!(first.fingerprint.reused_files > 0, "the later steps reuse the earlier ones: {}", first.fingerprint);
+
+        // nothing changed: a hit that reads nothing
+        let hit = crate::run(&env, args.clone()).unwrap();
+        assert!(hit.cached);
+        assert_eq!(hit.fingerprint.hashed_bytes, 0, "{}", hit.fingerprint);
+        assert_eq!(hit.fingerprint.hashed_files, 0);
+        assert!(hit.fingerprint.reused_files >= 5, "{}", hit.fingerprint);
+
+        // a mod changed: the game data that did not change is still not read; the mod and what the run publishes are
+        std::fs::write(dir.join("mods/a/src/mod.lua"), "-- fixture, changed").unwrap();
+        let patched_before = game_bytes();
+        let patch = crate::run(&env, args.clone()).unwrap();
+        assert!(!patch.cached);
+        let backups = ["g.kfc.bak", "g.kfc_resources.bak", "g.kfc.bak.integrity"].iter().map(|n| std::fs::metadata(dir.join(n)).unwrap().len()).sum::<u64>();
+        assert!(patch.fingerprint.hashed_bytes <= patched_before - backups + game_bytes() - backups + mod_bytes(), "{}", patch.fingerprint);
+        assert!(patch.fingerprint.reused_files >= 5, "{}", patch.fingerprint);
+        println!("first: {}\nhit:   {}\npatch: {}", first.fingerprint, hit.fingerprint, patch.fingerprint);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_input_edited_in_place_after_the_last_barrier_is_never_cached() {
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        // after the barrier before publication, an edit of the same size with the last-write time restored
+        crate::transaction::BEFORE_PUBLISH.with(|check| check.set(Some(|game| {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let backup = game.join("g.kfc.bak");
+            let modified = std::fs::metadata(&backup).unwrap().modified().unwrap();
+            let mut bytes = std::fs::read(&backup).unwrap();
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0x55;
+            let mut f = std::fs::OpenOptions::new().write(true).open(&backup).unwrap();
+            f.write_all(&bytes).unwrap();
+            f.set_modified(modified).unwrap();
+        })));
+        let result = crate::run(&env, args).unwrap();
+        assert!(result.fingerprint.reused_files > 0, "the earlier steps were reused, so the edit had to be noticed by its stamp");
+        assert!(!env.cache_dir().join("files.json").exists(), "the changed input must not be cached");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
