@@ -24,5 +24,6 @@
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- On purpose not in blocks/ in the repository: these are wrong, and the repository's mods must pass the schemas. -->
     <None Include="fixtures/broken.json" Link="blocks/broken.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="fixtures/jsonc.json" Link="blocks/jsonc.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

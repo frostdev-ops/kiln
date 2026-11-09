@@ -44,6 +44,7 @@ constexpr uint32_t kTypeVoxelModel = 0xe53afbafu; // keen::VoxelModelResource
 constexpr uint32_t kTypeVfx = 0x293464a1u;       // keen::VoxelMaterialVfxDataResource
 constexpr uint32_t kTypeBlend2 = 0xdbfc162cu;    // keen::WorldMaterialBlending2Resource (client)
 constexpr uint32_t kTypeSimple = 0xebdb76f1u;    // keen::SimpleWorldMaterialResource (client)
+constexpr uint32_t kTypeWorkshops = 0xa8ea5924u; // keen::WorkshopRegistryResource: workshops, NPCs and the crafting props recipes can ask for
 
 const KilnApi* g_api = nullptr;
 KilnOwner g_self = 0;
@@ -80,6 +81,9 @@ TerrainTables g_terrain_tables;
 std::vector<std::string> g_refused;
 std::vector<Shape> g_shapes;              // every enabled mod's shapes, then those the shapes table took
 std::vector<Shape> g_shapes_in;
+std::vector<CraftingProp> g_craft_read;   // every enabled mod's crafting props, as read
+std::vector<CraftingProp> g_craft;        // those the game's table took, each with its place
+CraftingPropLayout g_craft_layout;
 ModelLayout g_model;
 bool g_model_ok = false;
 std::vector<RegistryChange> g_changes;
@@ -284,7 +288,10 @@ void read_mod(const std::string& dir, const fs::path& pending_root) {
             g_errors.push_back(mf.file + ": not valid JSON");
             continue;
         }
-        if (!doc.is_object() || (!doc.contains("materialTweaks") && !doc.contains("buildingMaterials") && !doc.contains("blueprints") && !doc.contains("terrainMaterials"))) continue;
+        if (!doc.is_object() ||
+            (!doc.contains("materialTweaks") && !doc.contains("buildingMaterials") && !doc.contains("blueprints") && !doc.contains("terrainMaterials") && !doc.contains("craftingProps") &&
+             !doc.contains("props") && !doc.contains("stations") && !doc.contains("containers") && !doc.contains("doors") && !doc.contains("beds") && !doc.contains("seats")))
+            continue;
         read_blocks(doc, &mf);
         g_errors.insert(g_errors.end(), mf.errors.begin(), mf.errors.end());
         for (Tweak& t : mf.tweaks) {
@@ -304,6 +311,12 @@ void read_mod(const std::string& dir, const fs::path& pending_root) {
             g_boot_definitions[man.id + "/b/" + sh.block] = sh.definition;
             if (label.rfind("kept from code: ", 0) == 0) g_from_code.insert(man.id + "/" + sh.block);
             g_shapes.push_back(std::move(sh));
+        }
+        for (CraftingProp& c : mf.craft_props) {
+            if (!seen.insert("c/" + c.block).second) continue;
+            g_boot_definitions[man.id + "/c/" + c.block] = c.definition;
+            if (label.rfind("kept from code: ", 0) == 0) g_from_code.insert(man.id + "/" + c.block);
+            g_craft_read.push_back(std::move(c));
         }
     }
 }
@@ -571,6 +584,18 @@ std::string status_text() {
         shapes.push_back(std::move(m));
     }
     o["shapes"] = std::move(shapes);
+    ojson props = ojson::array();
+    for (const CraftingProp& c : g_craft) {
+        ojson m = ojson::object();
+        m["mod"] = c.mod;
+        m["block"] = c.block;
+        m["guid"] = c.guid.text();
+        m["id"] = c.prop_id;
+        m["index"] = c.index;
+        m["item"] = c.item.text();
+        props.push_back(std::move(m));
+    }
+    o["craftingProps"] = std::move(props);
     o["tables"] = g_tables;
     return o.dump(1);
 }
@@ -794,6 +819,45 @@ void merge_locked() {
             if (std::none_of(refused.begin(), refused.end(), [&](const std::string& r) { return r.rfind("block blueprint " + sh.block + " (mod " + sh.mod + ")", 0) == 0; }))
                 g_shapes_in.push_back(sh);
     }
+    // The crafting props recipes can ask to stand near: the next free places of the game's table of them. A build that doesn't resolve it leaves them out and keeps the rest.
+    Output workshops;
+    bool craft_merged = false;
+    {
+        std::string cwhy;
+        g_craft.clear();
+        if (!g_craft_read.empty()) {
+            uint64_t used = 0;
+            std::set<uint32_t> ids;
+            if (!g_craft_layout.ok && !read_crafting_prop_layout(own_base(), own_size(), &g_craft_layout, &cwhy)) {
+                WT_W("worldtables: this build's crafting prop table doesn't resolve (%s): crafting props are left out this session", cwhy.c_str());
+            } else if (!one(kTypeWorkshops, "crafting props", &workshops)) {
+                WT_W("worldtables: the game's workshop registry isn't there: crafting props are left out this session");
+            } else if (!read_crafting_prop_table(workshops.game, g_craft_layout, &used, &ids, &cwhy)) {
+                WT_W("worldtables: %s: crafting props are left out this session", cwhy.c_str());
+            } else {
+                std::vector<CraftingProp> mine;
+                for (CraftingProp& c : g_craft_read) {
+                    if (ids.count(c.prop_id)) {
+                        g_errors.push_back("block craftingProp " + c.block + " (mod " + c.mod + "): its id is one of the game's crafting props");
+                        continue;
+                    }
+                    mine.push_back(c);
+                }
+                std::vector<std::string> over;
+                allocate_crafting_props(&mine, used, &over);
+                for (const std::string& r : over) {
+                    g_refused.push_back(r);
+                    WT_E("worldtables: %s", r.c_str());
+                }
+                if (merge_crafting_props(workshops.game, g_craft_layout, mine, &workshops.merged, &cwhy)) {
+                    g_craft = std::move(mine);
+                    craft_merged = true;
+                } else {
+                    WT_W("worldtables: %s: crafting props are left out this session", cwhy.c_str());
+                }
+            }
+        }
+    }
     const size_t building_n = g_placed.size();
     g_placed.insert(g_placed.end(), ta.placed.begin(), ta.placed.end());
     for (Output& w : worlds)
@@ -805,6 +869,7 @@ void merge_locked() {
     outputs.push_back(std::move(pools));
     outputs.push_back(std::move(blueprints));
     for (Output& w : worlds) outputs.push_back(std::move(w));
+    if (craft_merged) outputs.push_back(std::move(workshops));
     // A terrain material's particle class (both sides) and look (a client's tables): the entries of the game material it looks like. A table that
     // doesn't read costs that much: the material still digs and saves.
     if (!ta.placed.empty()) {
@@ -870,7 +935,7 @@ void merge_locked() {
             WT_I("worldtables: shape %s (mod %s): item %s (0x%08x), %ux%ux%u cells%s", sh.block.c_str(), sh.mod.c_str(), sh.item.text().c_str(), sh.item_id, sh.x, sh.y, sh.z, sh.roof ? ", roof" : "");
     }
     g_changes = std::move(changes);
-    g_hash = handshake_hash(g_placed);
+    g_hash = handshake_hash(g_placed, g_craft);
     g_state.store(any ? KILN_WT_MERGED : KILN_WT_UNTOUCHED);
 
     for (const RegistryChange& c : g_changes) WT_I("worldtables: %s", c.text.c_str());
@@ -1106,6 +1171,7 @@ KilnResult KILN_CALL t_define(KilnStr json, char* report, size_t cap, size_t* ou
             for (const Tweak& t : mf.tweaks) g_defined.insert(mf.mod + "/" + t.block);
             for (const Material& m : mf.materials) g_defined.insert(mf.mod + "/" + m.block);
             for (const Shape& sh : mf.shapes) g_defined.insert(mf.mod + "/" + sh.block);
+            for (const CraftingProp& c : mf.craft_props) g_defined.insert(mf.mod + "/" + c.block);
             const std::string off = state_name(g_state.load());
             const bool usable = g_state.load() != KILN_WT_OFF;
             for (const Tweak& t : mf.tweaks) {
@@ -1209,6 +1275,27 @@ KilnResult KILN_CALL t_define(KilnStr json, char* report, size_t cap, size_t* ou
                     if (r.find("block blueprint " + sh.block + " (mod " + mf.mod + ")") == 0) errors.push_back(r);
                 blocks.push_back(std::move(b));
             }
+            for (const CraftingProp& c : mf.craft_props) {
+                ojson b = ojson::object();
+                b["name"] = c.block;
+                b["kind"] = "craftingProp";
+                b["guid"] = c.guid.text();
+                b["id"] = c.prop_id;
+                const auto it = g_boot_definitions.find(mf.mod + "/c/" + c.block);
+                const auto in = std::find_if(g_craft.begin(), g_craft.end(), [&](const CraftingProp& x) { return x.guid == c.guid; });
+                if (!usable) b["status"] = off;
+                else if (it != g_boot_definitions.end() && it->second == c.definition && in != g_craft.end()) {
+                    b["status"] = "registered";
+                    b["index"] = in->index;
+                    if (g_from_code.count(mf.mod + "/" + c.block)) keep_block("craftingProps", c.block);
+                } else {
+                    b["status"] = "pending";
+                    keep_block("craftingProps", c.block);
+                }
+                for (const std::string& r : g_refused)
+                    if (r.find("block craftingProp " + c.block + " (mod " + mf.mod + ")") == 0) errors.push_back(r);
+                blocks.push_back(std::move(b));
+            }
         }
     } catch (const std::exception& e) {
         errors.push_back(std::string("internal: ") + e.what());
@@ -1292,6 +1379,42 @@ int32_t KILN_CALL t_game_material_id(KilnStr text) {
     return resolve_material(std::string(text.ptr, text.len), g_world_game);
 }
 
+uint32_t KILN_CALL t_craft_count() {
+    std::lock_guard lock(g_mu);
+    return merged_locked() ? static_cast<uint32_t>(g_craft.size()) : 0;
+}
+
+KilnResult KILN_CALL t_craft_at(uint32_t i, KilnWtCraftingProp* out) {
+    if (!out || out->size < sizeof(KilnWtCraftingProp)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    if (!merged_locked() || i >= g_craft.size()) return KILN_ERR_NOT_FOUND;
+    // the props don't change after the merge: their strings are made once
+    static std::vector<std::array<KilnStr, 2>> strings;
+    if (strings.size() != g_craft.size()) {
+        strings.clear();
+        for (const CraftingProp& c : g_craft) strings.push_back({keep_str(c.mod), keep_str(c.block)});
+    }
+    const CraftingProp& c = g_craft[i];
+    out->state = KILN_WT_LIVE;
+    std::memcpy(out->guid, c.guid.b.data(), 16);
+    out->prop_id = c.prop_id;
+    out->index = static_cast<uint32_t>(c.index);
+    out->item_id = c.item_id;
+    out->name_tag = c.name_tag;
+    out->mod = strings[i][0];
+    out->block = strings[i][1];
+    return KILN_OK;
+}
+
+int32_t KILN_CALL t_craft_index(const uint8_t guid[16]) {
+    if (!guid) return -1;
+    std::lock_guard lock(g_mu);
+    if (!merged_locked()) return -1;
+    for (const CraftingProp& c : g_craft)
+        if (std::memcmp(c.guid.b.data(), guid, 16) == 0) return c.index;
+    return -1;
+}
+
 const KilnWorldTablesApi kTable = {
     {sizeof(KilnWorldTablesApi), KILN_WORLDTABLES_VERSION},
     &t_state,
@@ -1308,6 +1431,9 @@ const KilnWorldTablesApi kTable = {
     &t_tweak_count,
     &t_tweak_at,
     &t_game_material_id,
+    &t_craft_count,
+    &t_craft_at,
+    &t_craft_index,
 };
 const KilnWorldTablesApi* table() { return &kTable; }
 

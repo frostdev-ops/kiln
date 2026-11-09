@@ -529,6 +529,10 @@ public sealed record RecipeBlock : IBlock
     public bool? Sheltered { get; init; }
     /// <summary>The comfort level it asks of whoever makes it.</summary>
     public int? Comfort { get; init; }
+    /// <summary>Props that have to stand near the station: blocks that <see cref="PropBlock.Provides"/> one, by handle or name (<c>"other-mod:name"</c> for another's). At most 8. A craft at a station
+    /// the prop is not near is refused. This is for manual stations: the game's automated factory craft path has no nearby-prop context, so factory recipes refuse this field.
+    /// The prop's block has to be in the game's table first: see <see cref="PropBlock.Provides"/>.</summary>
+    public IReadOnlyList<PropRef>? NeedsProps { get; init; }
 }
 
 public static partial class Stations

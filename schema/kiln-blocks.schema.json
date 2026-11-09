@@ -646,7 +646,8 @@
         "seconds": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds at a station that works on its own. Needed at one with a workshop of its own." },
         "output": { "$ref": "#/$defs/itemRef", "description": "What it makes: in a station's list of recipes, and in a recipes block of its own, where it is needed. Elsewhere a recipe makes the block it is on." },
         "sheltered": { "type": "boolean", "description": "A player crafts it only under a roof. A station that works on its own never checks a roof, so its recipes refuse it." },
-        "comfort": { "type": "integer", "minimum": 0, "description": "The comfort level it asks of whoever makes it." }
+        "comfort": { "type": "integer", "minimum": 0, "description": "The comfort level it asks of whoever makes it." },
+        "needsProps": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1 }, "description": "Props that have to stand near a manual station: blocks with provides, by name (\"other-mod:name\" for another mod's). The game's automated factory path has no nearby-prop context, so factory block recipes refuse this field." }
       },
       "additionalProperties": false
     },
@@ -1024,7 +1025,8 @@
         "ownWorkshop": { "type": "boolean", "description": "A workshop of its own, which decides which recipes it runs. Default: yes for a kind that works on its own, with processing or recipes." },
         "menu": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/menu" } ] },
         "processing": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/processing" } ] },
-        "recipes": { "type": "array", "items": { "$ref": "#/$defs/recipe" }, "description": "What it makes, each with output." }
+        "recipes": { "type": "array", "items": { "$ref": "#/$defs/recipe" }, "description": "What it makes, each with output." },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." }
       },
       "additionalProperties": false
     },
@@ -1065,13 +1067,25 @@
             "center": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[x, y, z] of its centre from the model's origin. Default: standing on the floor, half its height up." }
           }
         },
+        "colliders": {
+          "type": "array", "minItems": 1, "maxItems": 16,
+          "description": "Several boxes in place of one, all solid, together one shape in the template: a table's top and legs, a doorway's two posts. The same rules as collider. The box the cursor checks for room stays one: the box around them all.",
+          "items": {
+            "type": "object", "required": ["size"], "additionalProperties": false,
+            "properties": {
+              "size": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 32 }, "minItems": 3, "maxItems": 3, "description": "[width, height, depth]." },
+              "center": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[x, y, z] of its centre from the model's origin. Default: standing on the floor, half its height up." }
+            }
+          }
+        },
         "placement": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/placement" } ] },
         "comfort": { "anyOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/comfort" } ] },
         "onInteract": { "$ref": "#/$defs/interactionRef", "description": "What happens when a player uses it." },
         "light": { "$ref": "#/$defs/vfx", "description": "A VFX on it for as long as it stands: where the game's lamps have their light." },
         "recipe": { "$ref": "#/$defs/recipe", "description": "How the item that places it is made." },
         "loot": { "$ref": "#/$defs/loot" },
-        "was": { "$ref": "#/$defs/name" }
+        "was": { "$ref": "#/$defs/name" },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." }
       },
       "additionalProperties": false
     },
@@ -1917,6 +1931,21 @@
         "was": {
           "$ref": "#/$defs/name"
         },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." },
+        "defaultLoot": {
+          "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/lootTable" } ],
+          "description": "What it holds when it is placed: a lootTables block by name, or a table written here. Kiln rolls it on the server and gives the stacks into the container once for each container it finds (after a restart, or placed again on the same spot, it is not filled again). A container a player can make is filled at each new spot."
+        },
+        "lid": {
+          "type": "object", "additionalProperties": false,
+          "description": "How its lid moves: the game's toggle animation. A client sight. A field left out is the starter's.",
+          "properties": {
+            "moves": { "type": "boolean", "description": "False: nothing moves (a barrel, a model of yours with no lid): the toggle animation is taken off. Default true." },
+            "graph": { "type": "string", "format": "uuid", "description": "The animation graph that moves it, by GUID (kiln catalog graphs lists the game's, with their states). Default: the starter's." },
+            "openState": { "type": "string", "format": "uuid", "description": "The graph's state while open, by GUID. Default: the game's open state (bcf39dc8-d81e-450a-a77d-3b626d4106c4)." },
+            "shutState": { "type": "string", "format": "uuid", "description": "The graph's state while shut, by GUID. Default: the game's shut state (48775f5b-13ed-442a-9c6e-cec65ae16342)." }
+          }
+        },
         "slots": {
           "type": "integer",
           "minimum": 1,
@@ -1988,7 +2017,10 @@
         },
         "was": {
           "$ref": "#/$defs/name"
-        }
+        },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." },
+        "opens": { "enum": ["both", "front", "back"], "description": "Which way it swings. both: away from whoever uses it, as the game's wooden door. front or back: always that way, whichever side the player stands on. A client sight; the angle is in the animation. Default: the starter's." },
+        "sides": { "enum": ["both", "front", "back"], "description": "Which side a player can use it from (default both). A player on the other side is declined, as Kiln's other checks decline. Kiln's, on the server." }
       },
       "additionalProperties": false
     },
@@ -2055,6 +2087,7 @@
         "was": {
           "$ref": "#/$defs/name"
         },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." },
         "lies": {
           "$ref": "#/$defs/spot",
           "description": "Where the player lies. Default: the starter's spot."
@@ -2133,6 +2166,7 @@
         "was": {
           "$ref": "#/$defs/name"
         },
+        "provides": { "type": "boolean", "description": "A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs \"clients\": \"mod\"." },
         "sits": {
           "$ref": "#/$defs/spot",
           "description": "Where the player sits. Default: the starter's spot."

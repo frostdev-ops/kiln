@@ -368,9 +368,10 @@ internal sealed class Lowered(ModBlocks mod)
     }
 
     public void Clone(string section, Guid guid, string name, string baseName, JsonObject fields, string? displayName = null, string? description = null, IReadOnlyList<string>? addComponents = null,
-        IReadOnlyList<string>? removeComponents = null, JsonObject? texts = null)
+        IReadOnlyList<string>? removeComponents = null, JsonObject? texts = null, IReadOnlyDictionary<string, int>? growArrays = null)
     {
         var def = new JsonObject { ["guid"] = guid.ToString(), ["name"] = name, ["base"] = baseName, ["fields"] = fields };
+        if (growArrays is { Count: > 0 }) def["growArrays"] = new JsonObject(growArrays.Select(g => KeyValuePair.Create(g.Key, (JsonNode?)JsonValue.Create(g.Value))));
         if (texts is { Count: > 0 }) def["texts"] = texts.DeepClone();
         if (addComponents != null) def["addComponents"] = new JsonArray(addComponents.Select(c => (JsonNode)JsonValue.Create(c)).ToArray());
         if (removeComponents != null) def["removeComponents"] = new JsonArray(removeComponents.Select(c => (JsonNode)JsonValue.Create(c)).ToArray());
@@ -419,10 +420,12 @@ internal sealed class Lowered(ModBlocks mod)
     public void Recipe(RecipeDefinition d)
     {
         _recipes.Add(d);
-        Arr("recipes").Add(new JsonObject { ["guid"] = d.Guid.ToString(), ["name"] = d.Name, ["station"] = d.Station, ["menu"] = d.Menu, ["seconds"] = d.Duration?.TotalSeconds,
+        var json = new JsonObject { ["guid"] = d.Guid.ToString(), ["name"] = d.Name, ["station"] = d.Station, ["menu"] = d.Menu, ["seconds"] = d.Duration?.TotalSeconds,
             ["fields"] = d.Fields is { Count: > 0 } f ? new JsonObject(f.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => KeyValuePair.Create(x.Key, (JsonNode?)JsonValue.Create(x.Value.ToString())))) : null,
             ["inputs"] = new JsonArray(d.Inputs.Select(x => (JsonNode)new JsonObject { ["item"] = x.Item, ["count"] = x.Count }).ToArray()),
-            ["outputs"] = new JsonArray(d.Outputs.Select(x => (JsonNode)new JsonObject { ["item"] = x.Item, ["count"] = x.Count }).ToArray()) });
+            ["outputs"] = new JsonArray(d.Outputs.Select(x => (JsonNode)new JsonObject { ["item"] = x.Item, ["count"] = x.Count }).ToArray()) };
+        if (d.Props is { Count: > 0 }) json["props"] = new JsonArray(d.Props.Select(x => (JsonNode)new JsonObject { ["id"] = $"0x{x.Id:x8}", ["index"] = x.Index }).ToArray());
+        Arr("recipes").Add(json);
     }
 
     public void ItemRules(string item, JsonObject rules)

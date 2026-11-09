@@ -38,18 +38,25 @@ internal static partial class Compiler
         public readonly Guid Guid = guid;
         public readonly JsonObject Fields = new();
         public readonly List<string> Add = [];
+        /// <summary>Components of its starter it does without.</summary>
+        public readonly List<string> Remove = [];
         /// <summary>The template's own texts, by slot: language -> slot -> text. Its loca fields name them by a tag derived from its GUID.</summary>
         public readonly JsonObject Texts = new();
         /// <summary>A glTF of the mod's own that it shows, in the mod's folder: its box is the default collision.</summary>
         public string? ModelFile;
+        /// <summary>Component arrays its template needs longer than the starter's: path -> how many elements. kiln.gamedata makes them (growArrays).</summary>
+        public readonly Dictionary<string, int> Grow = new();
+        /// <summary>It provides a crafting prop that has no place in this game's table yet (a block of code, the first start): nothing is made until it has.</summary>
+        public bool Waiting;
     }
 
     /// <summary>What every placed thing says, on its item and its template.</summary>
     private static void PlacedParts(Placed p, PropBlock b, bool starterIsLook)
     {
-        if (b.Collider != null && b.GetType() != typeof(PropBlock))
-            throw new BlockError(p.Item.Ctx.Block, "collider", "a station or a piece of furniture keeps the collision of the game's it starts from: a box of yours is for a prop with a model of yours");
+        if ((b.Collider != null || b.Colliders != null) && b.GetType() != typeof(PropBlock))
+            throw new BlockError(p.Item.Ctx.Block, b.Collider != null ? "collider" : "colliders", "a station or a piece of furniture keeps the collision of the game's it starts from: a box of yours is for a prop with a model of yours");
         PlacedVisual(p, b.Visual, starterIsLook);
+        if (b.Provides) ProvideProp(p, b);
         ApplyLoot(p.Item, b.Loot);
         if (b.Placement != null) ApplyPlacement(p.Item, p.Item.Ctx.Part(b.Placement, "placement"));
         if (b.Comfort != null)
@@ -79,7 +86,10 @@ internal static partial class Compiler
 
     private static void CommitPlaced(BlockContext ctx, Lowered low, Placed p, PropBlock b, string name, string key)
     {
-        low.Clone("templates", p.Guid, p.Template, p.Starter, p.Fields, addComponents: p.Add.Count > 0 ? p.Add : null, texts: p.Texts.Count > 0 ? p.Texts : null);
+        // a prop that provides a crafting prop is made once the game's table has its place: the item would place a thing whose id the game can't read (see ProvideProp)
+        if (p.Waiting) return;
+        low.Clone("templates", p.Guid, p.Template, p.Starter, p.Fields, addComponents: p.Add.Count > 0 ? p.Add : null, removeComponents: p.Remove.Count > 0 ? p.Remove : null, texts: p.Texts.Count > 0 ? p.Texts : null,
+            growArrays: p.Grow.Count > 0 ? p.Grow : null);
         p.Item.Refs["equipment.placedEntity"] = p.Guid.ToString();
         p.Item.Commit(b.Name, b.Description);
         if (b.TweakPlaced.Count > 0) low.Tweak(ctx.Block, "templates", p.Template, b.TweakPlaced);
@@ -152,40 +162,68 @@ internal static partial class Compiler
         }
     }
 
-    // A prop with a model of its own starts from a plain game prop with one collider: a box (floor, wall) or a capsule (ceiling). The box becomes the model's,
-    // on what is placed and on the item's placement check alike. Each collider names a physics shape by a hash; the clone's has its own, so the game can't
-    // take it for the starter's shape.
-    private static void ApplyCollider(Placed p, BoxCollider? c, PlacementBlock? placement, string key)
+    // A prop with a model of its own starts from a plain game prop with one collider: a box (floor, wall) or a capsule (ceiling). The box becomes the model's, or the boxes
+    // the block says (a game collider holds a list of shapes: Kiln lengthens the starter's list, kiln.gamedata's growArrays), on what is placed and on the item's placement check alike
+    // (that one stays a single box: the box around them all). Each collider names a physics shape by a hash; the clone's has its own, so the game can't take it for the starter's shape.
+    private const int MaxColliders = 16;
+
+    private static void ApplyColliders(Placed p, PropBlock b, PlacementBlock? placement, string key)
     {
         var ctx = p.Item.Ctx;
-        Vector3 centre, half;
-        if (c != null)
+        if (b.Collider != null && b.Colliders != null) throw new BlockError(ctx.Block, "colliders", "one box in collider, or several in colliders: not both");
+        if (b.Colliders is { Count: 0 }) throw new BlockError(ctx.Block, "colliders", "a list of boxes has at least one; leave it out for the box around the model");
+        if (b.Colliders is { Count: > MaxColliders } many) throw new BlockError(ctx.Block, "colliders", $"{many.Count} boxes: at most {MaxColliders}");
+        var capsule = placement?.On is { } on && !on.HasFlag(Surface.Floor) && !on.HasFlag(Surface.Wall);
+        if (b.Colliders is { Count: > 1 } && capsule)
+            throw new BlockError(ctx.Block, "colliders", "a prop on a ceiling starts from a prop with one capsule: several boxes need a floor or a wall (placement.on)");
+        var boxes = new List<(Vector3 Centre, Vector3 Half)>();
+        string? from = null;
+        if (b.Collider != null || b.Colliders != null)
         {
-            if (c.Size.X <= 0 || c.Size.Y <= 0 || c.Size.Z <= 0 || float.IsNaN(c.Size.X + c.Size.Y + c.Size.Z))
-                throw new BlockError(ctx.Block, "collider.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: a size in metres is more than 0 each way");
-            if (Math.Max(c.Size.X, Math.Max(c.Size.Y, c.Size.Z)) > MaxColliderSize)
-                throw new BlockError(ctx.Block, "collider.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: at most {MaxColliderSize} m each way");
-            half = c.Size / 2;
-            centre = c.Center ?? new Vector3(0, half.Y, 0);
+            var list = b.Colliders ?? [b.Collider!];
+            for (var i = 0; i < list.Count; i++)
+            {
+                var path = b.Colliders != null ? $"colliders[{i}]" : "collider";
+                var c = list[i] ?? throw new BlockError(ctx.Block, path, "a box that is empty");
+                if (c.Size.X <= 0 || c.Size.Y <= 0 || c.Size.Z <= 0 || float.IsNaN(c.Size.X + c.Size.Y + c.Size.Z))
+                    throw new BlockError(ctx.Block, $"{path}.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: a size in metres is more than 0 each way");
+                if (Math.Max(c.Size.X, Math.Max(c.Size.Y, c.Size.Z)) > MaxColliderSize)
+                    throw new BlockError(ctx.Block, $"{path}.size", $"[{c.Size.X}, {c.Size.Y}, {c.Size.Z}]: at most {MaxColliderSize} m each way");
+                var half = c.Size / 2;
+                var centre = c.Center ?? new Vector3(0, half.Y, 0);
+                if (!Finite(centre)) throw new BlockError(ctx.Block, $"{path}.center", "a center in metres must be finite each way");
+                boxes.Add((centre, half));
+            }
+            from = "block";
         }
         else if (p.ModelFile != null && GltfBounds.Of(p.ModelFile) is var (min, max))
         {
-            half = Vector3.Max((max - min) / 2, new Vector3(MinHalf));
-            centre = (min + max) / 2;
+            var half = Vector3.Max((max - min) / 2, new Vector3(MinHalf));
+            var centre = (min + max) / 2;
+            if (!Finite(centre)) throw new BlockError(ctx.Block, "collider.center", "a center in metres must be finite each way");
+            if (!Finite(half) || Math.Max(half.X, Math.Max(half.Y, half.Z)) > MaxColliderSize / 2)
+                throw new BlockError(ctx.Block, "collider.size", $"the model's collision is at most {MaxColliderSize} m each way; give it a smaller collider");
+            boxes.Add((centre, half));
+            from = "model";
         }
         else return;
-        if (!Finite(centre)) throw new BlockError(ctx.Block, "collider.center", "a center in metres must be finite each way");
-        if (!Finite(half) || Math.Max(half.X, Math.Max(half.Y, half.Z)) > MaxColliderSize / 2)
-            throw new BlockError(ctx.Block, "collider.size", $"the model's collision is at most {MaxColliderSize} m each way; give it a smaller collider");
-        var capsule = placement?.On is { } on && !on.HasFlag(Surface.Floor) && !on.HasFlag(Surface.Wall);
+        // the box around them all: what the placement check and the cursor's box have
+        var lo = boxes.Select(x => x.Centre - x.Half).Aggregate(Vector3.Min);
+        var hi = boxes.Select(x => x.Centre + x.Half).Aggregate(Vector3.Max);
+        var (centreAll, halfAll) = ((lo + hi) / 2, (hi - lo) / 2);
+        if (!Finite(halfAll) || Math.Max(halfAll.X, Math.Max(halfAll.Y, halfAll.Z)) > MaxColliderSize / 2)
+            throw new BlockError(ctx.Block, b.Colliders != null ? "colliders" : "collider.size", $"the boxes together are at most {MaxColliderSize} m each way");
         // Jolt caches shapes by hash across reloads: changing the geometry must change the hash too.
-        var shape = string.Join(":", new[] { centre.X, centre.Y, centre.Z, half.X, half.Y, half.Z }.Select(v => BitConverter.SingleToInt32Bits(v).ToString("x8")));
+        var shape = string.Join(":", boxes.SelectMany(x => new[] { x.Centre.X, x.Centre.Y, x.Centre.Z, x.Half.X, x.Half.Y, x.Half.Z }).Select(v => BitConverter.SingleToInt32Bits(v).ToString("x8")));
         var hash = (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", $"{key}:{capsule}:{shape}"));
-        void Put(Action<string, double> set, string at, string jolt)
+        void Offset(Action<string, double> set, string at, Vector3 centre)
         {
             set($"{at}.offset.x", centre.X);
             set($"{at}.offset.y", centre.Y);
             set($"{at}.offset.z", centre.Z);
+        }
+        void Shape(Action<string, double> set, string at, Vector3 half)
+        {
             if (capsule)
             {
                 var r = Math.Max(half.X, half.Z);
@@ -198,23 +236,42 @@ internal static partial class Compiler
                 set($"{at}.shape.halfSize.y", half.Y);
                 set($"{at}.shape.halfSize.z", half.Z);
             }
-            set(jolt, hash);
         }
-        Put((k, v) => p.Fields[k] = v, "ColliderResourceComponent.colliders[0].dataArray[0]", "ColliderResourceComponent.colliders[0].joltObjects[0].hash");
-        Put((k, v) => p.Item.DataRules[k] = v, "equipment.placementColliders[0].dataArray[0]", "equipment.placementColliders[0].joltObjects[0].hash");
+        const string Group = "ColliderResourceComponent.colliders[0]";
+        for (var i = 0; i < boxes.Count; i++)
+        {
+            Offset((k, v) => p.Fields[k] = v, $"{Group}.dataArray[{i}]", boxes[i].Centre);
+            Shape((k, v) => p.Fields[k] = v, $"{Group}.dataArray[{i}]", boxes[i].Half);
+        }
+        // Physics uses the Jolt object's indices, not every entry of dataArray automatically. Extend both lists and name each box.
+        if (boxes.Count > 1)
+        {
+            p.Grow[$"{Group}.dataArray"] = boxes.Count;
+            p.Grow[$"{Group}.joltObjects[0].shapeIndexList"] = boxes.Count;
+            for (var i = 0; i < boxes.Count; i++) p.Fields[$"{Group}.joltObjects[0].shapeIndexList[{i}]"] = i;
+        }
+        p.Fields[$"{Group}.joltObjects[0].hash"] = hash;
+        const string Placing = "equipment.placementColliders[0]";
+        Offset((k, v) => p.Item.DataRules[k] = v, $"{Placing}.dataArray[0]", centreAll);
+        Shape((k, v) => p.Item.DataRules[k] = v, $"{Placing}.dataArray[0]", halfAll);
+        // Several placed boxes and the cursor's bounding box are different shapes; they must not share a physics-cache key.
+        p.Item.DataRules[$"{Placing}.joltObjects[0].hash"] = boxes.Count == 1 ? hash : (double)BlockIds.Fnv(BlockIds.Derive(ctx.Mod.Id, "collider", $"{key}:placement:{shape}"));
         if (placement?.Size == null)
         {
-            foreach (var (axis, lo, hi) in new[] { ("x", centre.X - half.X, centre.X + half.X), ("y", centre.Y - half.Y, centre.Y + half.Y), ("z", centre.Z - half.Z, centre.Z + half.Z) })
+            foreach (var (axis, l, h) in new[] { ("x", lo.X, hi.X), ("y", lo.Y, hi.Y), ("z", lo.Z, hi.Z) })
             {
-                p.Item.Fields[$"equipment.placementAABBmin.{axis}"] = (double)lo;
-                p.Item.Fields[$"equipment.placementAABBmax.{axis}"] = (double)hi;
+                p.Item.Fields[$"equipment.placementAABBmin.{axis}"] = (double)l;
+                p.Item.Fields[$"equipment.placementAABBmax.{axis}"] = (double)h;
             }
         }
-        p.Item.Low.Json["collider"] = new JsonObject
+        var json = new JsonObject
         {
-            ["shape"] = capsule ? "capsule" : "box", ["center"] = new JsonArray(centre.X, centre.Y, centre.Z), ["half"] = new JsonArray(half.X, half.Y, half.Z),
-            ["from"] = c != null ? "block" : "model",
+            ["shape"] = capsule ? "capsule" : "box", ["center"] = new JsonArray(centreAll.X, centreAll.Y, centreAll.Z), ["half"] = new JsonArray(halfAll.X, halfAll.Y, halfAll.Z),
+            ["from"] = from,
         };
+        if (boxes.Count > 1)
+            json["boxes"] = new JsonArray(boxes.Select(x => (JsonNode)new JsonObject { ["center"] = new JsonArray(x.Centre.X, x.Centre.Y, x.Centre.Z), ["half"] = new JsonArray(x.Half.X, x.Half.Y, x.Half.Z) }).ToArray());
+        p.Item.Low.Json["collider"] = json;
     }
 
     private const float MaxColliderSize = 32, MinHalf = 0.02f;
@@ -304,9 +361,9 @@ internal static partial class Compiler
             _ => "item:" + starter,
         });
         PlacedParts(p, b, starterIsLook: look.Like != null);
-        if (look.Like != null && b.Collider != null)
-            throw new BlockError(ctx.Block, "collider", "a game item's look brings its own collision: a box of yours goes with a model of yours (visual.model)");
-        if (look.Like == null) ApplyCollider(p, b.Collider, placement, key);
+        if (look.Like != null && (b.Collider != null || b.Colliders != null))
+            throw new BlockError(ctx.Block, b.Collider != null ? "collider" : "colliders", "a game item's look brings its own collision: a box of yours goes with a model of yours (visual.model)");
+        if (look.Like == null) ApplyColliders(p, b, placement, key);
         CommitPlaced(ctx, low, p, b, name, key);
         return new BlockHandle<PropBlock>(mod, name, d.Guid, d.Game, b);
     }
@@ -361,7 +418,7 @@ internal static partial class Compiler
             for (var n = 2; !made.Add(entry); n++) entry = n == 2 ? $"{entry}.{n}" : $"{entry[..entry.LastIndexOf('.')]}.{n}";
             if (timed && r.Sheltered != null)
                 throw new BlockError(ctx.Block, $"{path}.sheltered", $"a {kind.Key} works on its own, and the game's stations that do never check a roof: rain is what puts them out (GoesOutInRain). Leave this out");
-            LowerRecipe(ctx, low, $"{key}.makes.{entry}", $"{mod}.{name}.makes.{entry}", item, r, path, (station, menu, own ? d.Game : null), timed && own, r.Sheltered);
+            LowerRecipe(ctx, low, $"{key}.makes.{entry}", $"{mod}.{name}.makes.{entry}", item, r, path, (station, menu, own ? d.Game : null), timed && own, r.Sheltered, factory: timed);
         }
         low.Json["workshop"] = new JsonObject { ["id"] = $"0x{workshop:x8}", ["station"] = station, ["menu"] = menu, ["own"] = own };
         return new StationHandle(mod, name, d.Guid, d.Game, s, station, menu, own ? d.Game : null);
@@ -407,8 +464,10 @@ internal static partial class Compiler
     /// <summary>A recipe that makes <paramref name="item"/>. <paramref name="at"/>: the station, when the block's list says it, not the recipe; with a workshop of its own, the item that
     /// places it, which names that workshop in a player's game. <paramref name="needsTime"/>: a workshop of its own has no recipes of the game to take a time from, and a cycle of no
     /// time would run every step. Burns are inputs: fuel is an input in the game's data too.</summary>
-    private static void LowerRecipe(BlockContext ctx, Lowered low, string key, string name, string item, RecipeBlock r, string path, (string Station, string? Menu, string? Item)? at, bool needsTime, bool? sheltered)
+    private static void LowerRecipe(BlockContext ctx, Lowered low, string key, string name, string item, RecipeBlock r, string path, (string Station, string? Menu, string? Item)? at, bool needsTime, bool? sheltered, bool factory = false)
     {
+        if (r.NeedsProps is { Count: > 0 } && (factory || (at == null && FactoryStation(ctx, r.Station, $"{path}.station"))))
+            throw new BlockError(ctx.Block, $"{path}.needsProps", "a station that works on its own has no nearby-prop context in the game's craft check: needsProps is for a player's craft at a workbench or another manual station");
         if (r.Makes is < 1 or > 65535) throw new BlockError(ctx.Block, $"{path}.makes", $"{r.Makes} is outside 1..65535");
         if (r.Needs.Count == 0 && r.Burns.Count == 0) throw new BlockError(ctx.Block, $"{path}.needs", "a recipe that needs nothing is not listed by the game");
         if (r.Seconds is <= 0) throw new BlockError(ctx.Block, $"{path}.seconds", $"{r.Seconds} must be more than 0");
@@ -431,10 +490,28 @@ internal static partial class Compiler
         var fields = new Dictionary<string, object>();
         if (sheltered is { } roof) fields["requiresSheltered"] = roof;
         if (r.Comfort is { } comfort) fields["comfortLevel"] = comfort;
+        var props = NeededProps(ctx, r.NeedsProps, $"{path}.needsProps", out var waiting);
+        if (props == null)
+        {
+            // a prop of code that the game's table doesn't have yet: the recipe is made from the next start, with the prop
+            low.Json["recipeWaits"] = waiting;
+            var (mod, block) = (ctx.Mod, ctx.Block);
+            low.AfterCommit(() =>
+            {
+                var text = $"block {block}: recipe {name} is made from the next start: {waiting}";
+                lock (mod.Warnings)
+                    if (!mod.Warnings.Contains(text)) mod.Warnings.Add(text);
+                mod.ReportDirty = true;
+                BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod.Id}: {text}");
+            });
+            return;
+        }
+        if (props.Count > 0) low.Json["needsProps"] = new JsonArray(props.Select(x => (JsonNode)new JsonObject { ["id"] = $"0x{x.Id:x8}", ["index"] = x.Index }).ToArray());
         low.Recipe(new RecipeDefinition
         {
             Guid = BlockIds.Derive(ctx.Mod.Id, "recipe", key), Name = name, Station = station, Menu = menu, StationItem = stationItem, Inputs = inputs,
             Outputs = [new RecipeIngredient(item, r.Makes)], Duration = r.Seconds is { } d ? TimeSpan.FromSeconds(d) : null, Fields = fields.Count > 0 ? fields : null,
+            Props = props.Count > 0 ? props : null,
         });
     }
 }

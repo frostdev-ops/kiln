@@ -55,7 +55,7 @@ JSON sections: `props`, `stations`, and for parts `placements`, `comforts`, `pro
 
 | Block | Fields |
 |---|---|
-| `PropBlock` | `Visual`, `Collider`, `Placement`, `Comfort`, `Light`, `OnInteract` ([interactions](#furniture-and-interactions)), `Recipe`, `Loot`, `Tweak` (its item), `TweakPlaced` (its template) |
+| `PropBlock` | `Visual`, `Collider` or `Colliders`, `Placement`, `Comfort`, `Light`, `Provides`, `OnInteract` ([interactions](#furniture-and-interactions)), `Recipe`, `Loot`, `Tweak` (its item), `TweakPlaced` (its template) |
 | `StationBlock` | all of a prop's, and `Kind`, `Processing`, `Recipes`, `OwnWorkshop`, `Menu` |
 | `PlacementBlock` | `On` (`Surface.Floor`, `Wall`, `Ceiling`, or several: the first is tried first), `InBase`, `Size` (metres), `Snap`, `Water`, `Fog`, `Consumed` |
 | `ComfortBlock` | `Amount`, `Category` (`ComfortCategory`), `Range` (metres, 5), `Warmth` (1) |
@@ -67,10 +67,27 @@ All take `Name`, `Description` and `Was`. A field left out is what the block sta
 - **What it starts from.** A station starts from its `Kind`: `Workbench`, `Carpenter` and `Kitchen` craft at once; `Forge`, `Oven`, `Alchemy`, `DryingRack`, `CharcoalKiln`, `Kiln`, `Smelter`, `Fireplace`, `Grinder`, `Tannery` and `TableSaw` work on their own. A prop starts from its look: `Visual.Like` names a game item that places something, which brings its model, collision and how it places. With only `Visual.Model`, a plain game prop for the surface in `Placement.On` brings the rest.
 - **Its look.** `Visual.Like` or `Visual.Model` sets all three places a model shows: what stands, the ghost under the cursor, and the item's picture. `Model` is a glTF in the mod's folder (`"models/lantern.glb"`), `"item:<name>"`, or the GUID of a model your `assets/assets.json` serves ([models.md](models.md)). A glTF in a block of `blocks/*.json` is cooked by `kiln cook` with nothing else to write: modelcook finds it there, cooks it as a rigid model with its glTF materials, and adds it to `assets/assets.json`. Its GUID follows from `<mod>:model:<path without the extension>`, so the block and the cook agree. A glTF in a block written in code needs a model step in `assets/cook.json` (`{ "op": "model", "gltf": "../models/lantern.glb", "mode": "new", "materials": "gltf", "name": "models/lantern" }`). Until it is cooked, a client shows the starter's look and the block's warnings say so.
 - **Its collision.** With a model of your own, what a player bumps into and what hits stop at is one box: the box around the glTF's meshes, or `Collider = new BoxCollider { Size = new Vector3(1, 0.5f, 1) }` (`Center` moves it; default: standing on the floor). It goes on what stands there, on the item's placement check, and on the box the cursor checks (unless `Placement.Size` says otherwise). On a ceiling the starter's collider is a capsule around the same box. A game item's look, a station and furniture keep the collision they start from, and refuse `Collider`.
+- **Several boxes.** `Colliders` says a list in place of one box: a table's top and its legs, a doorway's two posts (at most 16, each as `Collider`; not with `Collider`). They are all solid and together one shape in the template: the game's collider holds a list of shapes, and Kiln makes the starter's list as long as yours (kiln.gamedata's `growArrays`, [services/gamedata.md](../services/gamedata.md)) before it sets each box by index. The physics shape has one hash for all of them, so a changed box is a new shape. The box a player's cursor checks for room, and the item's placement collider, stay one: the box around them all, unless `Placement.Size` says otherwise. A prop on a ceiling starts from one capsule, so several boxes need a floor or a wall. Only boxes are built: a sphere or a capsule among them is not.
 ```csharp
 Blocks.Define("lantern", new PropBlock { Name = "Lantern", Visual = new VisualBlock { Model = "models/lantern.glb" }, Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Twigs] = 1 } } });
+
+// a table is its top and its legs: three boxes, one shape
+Blocks.Define("trestle", new PropBlock
+{
+    Name = "Trestle Table", Visual = new VisualBlock { Model = "models/trestle.glb" },
+    Colliders = [new BoxCollider { Size = new(2, 0.15f, 1), Center = new(0, 0.9f, 0) }, new BoxCollider { Size = new(0.15f, 0.85f, 0.8f), Center = new(-0.85f, 0.425f, 0) }, new BoxCollider { Size = new(0.15f, 0.85f, 0.8f), Center = new(0.85f, 0.425f, 0) }],
+});
 ```
 - **A workshop of its own.** A station that works on its own and has `Processing` or `Recipes` gets one: it runs those recipes and no others, and the game's stations of its kind don't run them. `OwnWorkshop = false` shares its kind's instead: it runs the game's recipes too, and its own also run at the game's stations. A bench shares by default: the server doesn't check a player's craft against the bench's workshop, so one of its own would only change what its menu lists.
+- **Crafting props.** Some of the game's recipes ask for a prop near the station that makes them. `Provides = true` makes your prop one that a recipe of yours can ask for: `NeedsProps = [thatProp]` in a `RecipeBlock` (a station's list, an item's recipe, or a block of its own), or `"needsProps": ["rune-table"]` in JSON, by name (`"other-mod:name"` for another mod's; at most 8). The game keeps 13 free places for such props, for every mod together; yours takes the next one in every game that has the mod ([services/worldtables.md](../services/worldtables.md)), so a mod that provides one says `clients: mod`. The game's normal craft request succeeds only while a placed prop of yours stands near the station, and its own check refuses it otherwise. This is for manual stations such as workbenches. The automated factory path passes no nearby-prop context to that check, so factory block recipes refuse `NeedsProps` rather than register a recipe that never runs. The game's table is read once at its start: a prop of code is in it from the second start, and the block and the recipes that ask for it are made then (the log says so on the first); a prop in a data file is there from the first. The recipe's tooltip names the prop by its item's name.
+```csharp
+var runeTable = Blocks.Define("rune-table", new PropBlock { Name = "Rune Table", Visual = new VisualBlock { Like = GameItems.Prop_Decoration_Comfort1_T0_Table_Medium }, Provides = true });
+Blocks.Define("rune-bench", new StationBlock
+{
+    Name = "Rune Workbench", Kind = StationKind.Workbench,
+    Recipes = [new RecipeBlock { Needs = { [GameItems.Material_T1_Twigs] = 2 }, Output = GameItems.Material_T1_Wood_Logs, NeedsProps = [runeTable] }],
+});
+```
 - **Its recipes.** `Recipes` lists what it makes, each with `Output`. An item says the same from its side with `Recipe = new RecipeBlock { Station = thisStation, ... }`. At a workshop of its own a recipe needs `Seconds`: there are no recipes of the game to take a time from. `Seconds` is at the game's normal speed: a world's production speed setting divides it as it does the game's own recipes, so a 4 s recipe takes 2 s in a world set to twice the speed. A cycle takes its inputs when it starts and gives its outputs when it ends; with nothing left it stops, and starts again by itself when given more.
 - **Fuel.** `Burns` lists fuel the way `Needs` lists ingredients. It's an input, as charcoal is in the game's forge, so a station out of fuel stops like one out of anything else. A burn timer that runs on its own isn't a block yet.
 - **The menu.** A station with a workshop of its own has a menu of its own: its recipes and no others, each once, under the tabs and headings its kind's menu (or `Menu.Like`'s) would list them under, and titled with the station's name. Its screen offers its first recipe until a player picks one, and its recipe picker ("Change recipe") lists the same. The game's stations of its kind don't list these recipes. A station that shares its kind's workshop opens its kind's menu, or `Menu.Like`'s, and its recipes are listed there among that station's own. A menu with tabs of its own is a later block that plugs into `Menu`.
@@ -104,9 +121,9 @@ blocks/forge.json: block station rack, recipes[0].seconds: a station of its own 
 ```
 
 ### What players' games need
-`clients: kiln`: a new item, template and recipe. A model of your own, a PNG icon or a cue of your own needs `mod`.
+`clients: kiln`: a new item, template and recipe. A model of your own, a PNG icon, a cue of your own or `Provides` needs `mod`.
 
-Not proven with a client: a cooked prop model drawn, the cursor's ghost, and bumping into its box. The lab reads the box back from the template and the item (`mods/tests/blocks-more-test`).
+Not proven with a client: a cooked prop model drawn, the cursor's ghost, and bumping into its box or boxes. The lab reads the boxes back from the template and the item (`mods/tests/blocks-more-test`, `mods/tests/furniture-test`). Also not proven with a client: that a recipe's tooltip lists a crafting prop under its item's name, and that a station's screen offers the recipe once the prop stands near it (the server's check is the lab's).
 
 ### Test
 `mods/tests/stations-test` runs on a dedicated server with no player: the exact cycle, running out, burning fuel, a workshop of its own, placing clones, comfort through the game's own system, C# and JSON the same, the errors a mistake gets, and that every placed thing of the block samples loaded with it (stations, props, furniture) has its starter's item and template apart from what the block sets. Start it twice: the second run checks what the first one saved. It logs `stations-test: PASS` and `FAIL` lines and `stations-test done: N PASS, M FAIL`.
@@ -129,23 +146,37 @@ Blocks.Define("camp-bed", new BedBlock
     SpawnPoint = true, SkipsNight = true,
 });
 
+// a container that holds something when it is placed, once: a loot table by name (or written in place)
+Blocks.Define("scrap-pile", new LootTableBlock { Entries = [new LootEntry { Item = GameItems.Material_T1_Metal_Scraps, CountMin = 3 }, new LootEntry { Item = GameItems.Material_T1_Twigs, CountMin = 2 }] });
+Blocks.Define("supply-cache", new ContainerBlock { Name = "Supply Cache", DefaultLoot = "scrap-pile" });
+
+// a barrel has no lid to lift; a door that swings one way and is used from one side
+Blocks.Define("barrel", new ContainerBlock { Name = "Barrel", Lid = new LidBlock { Moves = false } });
+Blocks.Define("one-way-door", new DoorBlock { Name = "One Way Door", Opens = DoorSide.Front, Sides = DoorSide.Front });
+
 // an interaction is a part: Kiln checks the player on the server, and declines the way the game does
 var pray = Blocks.Define("pray", new InteractBlock { Verb = InteractVerb.Use, Requires = new RequiresBlock { Unless = ["InCombat"] }, Effects = [new EffectBlock { Heal = 25 }] });
 Blocks.Define("prayer-bench", new SeatBlock { Name = "Prayer Bench", Visual = new VisualBlock { Like = GameItems.Prop_Decoration_Comfort1_T0_Bench }, OnInteract = pray });
 ```
 ```jsonc
 { "format": 1,
-  "containers": { "lockbox": { "name": "Lockbox", "slots": 8, "onInteract": { "requires": { "item": "Material_T1_Metal_Scraps" } } } },
+  "containers": {
+    "lockbox": { "name": "Lockbox", "slots": 8, "onInteract": { "requires": { "item": "Material_T1_Metal_Scraps" } } },
+    "supply-cache": { "name": "Supply Cache", "defaultLoot": "scrap-pile" },
+    "barrel": { "name": "Barrel", "lid": { "moves": false } }
+  },
   "beds": { "camp-bed": { "name": "Camp Bed", "visual": { "like": "Prop_Decoration_Comfort1_T0_Bed_Cot" }, "spawnPoint": true, "skipsNight": true } },
+  "lootTables": { "scrap-pile": { "entries": [ { "item": "Material_T1_Metal_Scraps", "countMin": 3 }, { "item": "Material_T1_Twigs", "countMin": 2 } ] } },
+  "doors": { "one-way-door": { "name": "One Way Door", "opens": "front", "sides": "front" } },
   "interactions": { "pray": { "verb": "use", "requires": { "unless": ["InCombat"] }, "effects": [ { "heal": 25 } ] } },
   "seats": { "prayer-bench": { "name": "Prayer Bench", "visual": { "like": "Prop_Decoration_Comfort1_T0_Bench" }, "onInteract": "pray" } } }
 ```
-JSON sections: `containers`, `doors`, `beds`, `seats`, and `interactions` for parts.
+JSON sections: `containers`, `doors`, `beds`, `seats`, and `interactions` for parts (loot tables are the `lootTables` section, [item-blocks.md](item-blocks.md)).
 
 | Block | Starts from | Fields of its own |
 |---|---|---|
-| `ContainerBlock` | the game's small chest: its lid, sounds, upgrades | `Slots` (1..120) |
-| `DoorBlock` | the game's wooden door: opens both ways, paths and water follow it | |
+| `ContainerBlock` | the game's small chest: its lid, sounds, upgrades | `Slots` (1..120), `DefaultLoot`, `Lid` (`LidBlock`: `Moves`, `Graph`, `OpenState`, `ShutState`) |
+| `DoorBlock` | the game's wooden door: opens both ways, paths and water follow it | `Opens`, `Sides` (`DoorSide.Both`, `Front`, `Back`) |
 | `BedBlock` | the game's wooden bed: its sleep, comfort of the bed category | `Lies`, `SpawnPoint`, `SkipsNight` |
 | `SeatBlock` | the game's wooden chair: its sitting, comfort of the chair category | `Sits` |
 | `InteractBlock` | the part in `OnInteract` | `Verb` or `Prompt`, `Plays`, `Toggle` (`On`, `Off`, `OnPrompt`, `OffPrompt`, `StartsOn`), `Requires`, `Effects`, `OnRefused` |
@@ -159,6 +190,9 @@ All four take a prop's fields (`Visual`, `Placement`, `Comfort`, `Light`, `Recip
 - **Effects** run on the player once the game has accepted the use: a seat sat on, a bed lain in, a door used. Villagers that use furniture get nothing.
 - **Beds.** The game's sleep gives the game's rest by the comfort around the player. The game's beds are no spawn point and skip no night: `SpawnPoint` makes the last such bed a player slept in the place they come back after dying (kept per player in `kiln/data/blocks/`, and dropped when the bed is gone), and `SkipsNight` brings the morning, as the admin menu's clock does, when every player in the world sleeps in a bed that says so. Both are Kiln's, on the server.
 - **Hard-coded cases.** A prop whose look has no interaction of its own has nothing to start: say `Plays`, or start from a game item that has one. Kiln says so by name when the game's templates are there.
+- **What a container holds when it is placed.** `DefaultLoot` is a loot table (a `lootTables` block by name, or one written in the block: [item-blocks.md](item-blocks.md)). Kiln rolls it on the server and gives the stacks into the container, once for each container: it looks through the world every second for containers of the block, and records each it fills, by template and spot (to 1/16 m), in the world's data (`WorldData`, a bundle of Kiln.Blocks'; it reaches the disk with the world save that holds the container). A restart, a mod reload, or taking the container away and placing it again on the same spot fills nothing again, and what a player took out stays out. A new spot is a new fill, so for a container players can make, each placement is a fill: give a loot container no `Recipe`, or place it from code (`Build.PlaceProp`). The game's own `DefaultInventory` isn't used: it puts its stacks in twice at placement and sets the inventory back to them at every load. What does not fit is lost; the world's Loot Amount setting does not scale the table. The log says `blocks: <mod>: container <block> ... default loot scrap x3, twigs x2`.
+- **Its lid.** The game's lid is a toggle animation (`ToggleAnimation`: two states of the container's animation graph) that using the container flips. `Lid = new LidBlock { Moves = false }` takes it off: the container still opens its screen and nothing moves. `Graph`, `OpenState` and `ShutState` (GUIDs: `kiln catalog graphs` lists the game's graphs with their states) name another graph and its two states; a state left out is the game's (every game lid and door uses the same two). The graph has to be one the container's model is skinned for, which is what a game graph of another container is for: a model of your own has none yet, so a lid of its own waits for an animation of its own. The lid is a client sight.
+- **A door's swing and sides.** The game's door has a front way and a back way to swing (`DirectionalInteraction`: the state it plays when used from the front, and from the back). `Opens = DoorSide.Front` makes both ways the front swing, as the game's doors that swing one way only have it; `Back` the back swing; `Both` (the wooden door's) swings away from whoever uses it. The angle is in the animation: the game's data has no angle to set. `Sides` is Kiln's: `Front` or `Back` declines a player on the other side of the door, the way Kiln's other checks decline (`OnRefused` runs), so a door that is a wall from one side. The front is the door's own +z side, turned with it (a door placed at yaw 0 has its front towards +z). The swing is a client sight.
 
 ### From code
 ```csharp
@@ -167,19 +201,23 @@ Barber.Wear(player, shortCrop);                                // hair or beard 
 ```
 
 ### Saves
-Placed furniture is a placed prop: in a base it comes back after a restart with what a container holds, outside one the world's save keeps none of it. A door comes back shut, as the game's own doors do.
+Placed furniture is a placed prop: in a base it comes back after a restart with what a container holds, outside one the world's save keeps none of it. A door comes back shut, as the game's own doors do. A container's default loot is recorded in the world's data once given, so it comes back with what is left in it; the record is kept with that world, not the mod, so a world played with the mod removed and back doesn't fill again.
 
 ### What players' games need
-`clients: kiln`: new items and templates on the game's art. A model of your own or a PNG icon needs `mod`.
+`clients: kiln`: new items and templates on the game's art. A model of your own, a PNG icon, or `Provides` needs `mod`. Default loot, `Sides` and the checks of `OnInteract` are the server's, and ask nothing of a player's game.
+
+Not proven with a client: the lid and the door moving, in the swing `Opens` says and with `Lid.Graph` and its states; that a player's use of a door on its back side is declined without a stuck prompt; that a player opens the cache and sees what it was given. The lab proves the template's fields, and that the game's interaction code accepts a guest on the front side and Kiln declines one on the back.
 
 ### Mistakes
 ```
 blocks/house.json: block door bad-count, onInteract.requires.count: 0 is outside 1..65535
 blocks/house.json: block door refused-lock, onInteract.onRefused: only Kiln's checks (requires.when, unless, if) can refuse with effects: the game's own lock refuses in the player's game, where nothing runs
+blocks/house.json: block container barrel, lid: it doesn't move (moves = false), so a graph and states have nothing to do: leave them out
+blocks/house.json: block container cache, defaultLoot.entries: a loot table with no entries drops nothing: give it at least one
 ```
 
 ### Test
-`mods/tests/furniture-test` runs on a dedicated server with no player: what the templates say, interactions through the game's own interaction code with a spawned character as the guest (accepted, declined by the game's lock, by the time of day and by Kiln's checks, effects once accepted, an item used up), C# and JSON the same, the errors a mistake gets, and what a restart keeps. Start it twice. It logs `furniture-test: PASS` and `FAIL` lines and `furniture-test done: N PASS, M FAIL`.
+`mods/tests/furniture-test` runs on a dedicated server with no player: what the templates say, interactions through the game's own interaction code with a spawned character as the guest (accepted, declined by the game's lock, by the time of day and by Kiln's checks, effects once accepted, an item used up), C# and JSON the same, the errors a mistake gets, and what a restart keeps. It also runs default loot (filled once, not again after a restart, nor when placed again on the same spot, nor when a player took something out), a barrel's lid, a door's swing and sides (a guest on each side), a prop with three boxes (what its template holds and that it places), and a crafting prop (its place in the game's table, the station's mask with and without the prop near, the recipe running only with it near; the code's twin from the second start). Start it twice. It logs `furniture-test: PASS` and `FAIL` lines and `furniture-test done: N PASS, M FAIL`.
 
 ## Materials
 Sample: `mods/samples/MaterialTweaks` (C#, and `blocks/twins.json` as data). The service under these blocks: [services/worldtables.md](../services/worldtables.md).

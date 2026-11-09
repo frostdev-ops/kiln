@@ -54,6 +54,19 @@ typedef struct KilnWtMaterial {
 } KilnWtMaterial;
 
 /* A game material a mod changes (MaterialTweakBlock), for a writer of per-material tables (a retexture). */
+/* A crafting prop a mod made (PropBlock.Provides): a place in the game's table of props a recipe can ask to stand near. */
+typedef struct KilnWtCraftingProp {
+    uint32_t size;      /* set by the caller: sizeof(KilnWtCraftingProp) */
+    uint32_t state;     /* KILN_WT_LIVE */
+    uint8_t guid[16];   /* UUIDv5(<mod>:craftingprop:<block name or its "was">) */
+    uint32_t prop_id;   /* keen::CraftingPropId: FNV-1a over the GUID's 16 bytes */
+    uint32_t index;     /* its bit in keen::CraftingPropMask: 51..63 (the game's own are 0..50) */
+    uint32_t item_id;   /* the ItemId of the item that places it */
+    uint32_t name_tag;  /* the loca tag in its table entry: the name of that item */
+    KilnStr mod;
+    KilnStr block;
+} KilnWtCraftingProp;
+
 typedef struct KilnWtTweak {
     uint32_t size;      /* set by the caller: sizeof(KilnWtTweak) */
     uint32_t cell_id;   /* the game material's id in a cell: 1..127 terrain, 128..255 building */
@@ -90,7 +103,8 @@ typedef struct KilnWorldTablesApi {
     /* Adds a table writer. In on_ready: the merge runs after every service's on_ready. KILN_ERR_UNAVAILABLE: too late. */
     KilnResult(KILN_CALL* add_writer)(KilnOwner owner, KilnWtWriterFn fn, void* user);
 
-    /* A definition from code: {"format": 1, "mod": "<id>", "dir": "<folder>", "materialTweaks": {...}, "buildingMaterials": {...}},
+    /* A definition from code: {"format": 1, "mod": "<id>", "dir": "<folder>", "materialTweaks": {...}, "buildingMaterials": {...}, "blueprints": {...},
+     * "craftingProps": {"<name>": {"key": <name or was>, "item": <GUID of the placing item>, "name": <text>}}},
      * the same blocks as a JSON file. Validates it. A block the boot merge already has unchanged is "registered"; any
      * other is kept for the next start ("pending"), as the game reads these tables once. report: JSON, with "errors" by
      * field and per block "status" and "id". KILN_ERR_INVALID_ARGUMENT: a block is wrong. */
@@ -113,6 +127,13 @@ typedef struct KilnWorldTablesApi {
     /* A game material's cell id from what a mod writes: a GameMaterials name, "Cell<id>", or the material's GUID. -1: not a game material, or before the
      * merge. On the game's thread or a writer's. Added v1 (appended). */
     int32_t(KILN_CALL* game_material_id)(KilnStr text);
+
+    /* The mods' crafting props in the game's table, in the order of their places: 0 before the merge and when off. A recipe's required prop is
+     * keen::RecipeInfo.requiredProps (the id) and a bit of requiredPropsMask (the index). Added v1 (appended); check header.size before calling. */
+    uint32_t(KILN_CALL* crafting_prop_count)(void);
+    KilnResult(KILN_CALL* crafting_prop_at)(uint32_t index, KilnWtCraftingProp* out);
+    /* The place (bit) of a crafting prop's GUID, or -1: not in the table. Added v1 (appended). */
+    int32_t(KILN_CALL* crafting_prop_index)(const uint8_t guid[16]);
 } KilnWorldTablesApi;
 
 #ifdef __cplusplus
