@@ -17,15 +17,15 @@ public sealed class EntityIdentityTests
 
     public EntityIdentityTests()
     {
-        SpawnLink.Reset();
-        SpawnLink.Templates[Sword] = (5, false, "WeaponSwordPide", false);
-        SpawnLink.Templates[Chest] = (3, false, "PropChest", true);
+        TestWorld.Reset();
+        TestWorld.Templates[Sword] = new(5, 1, "WeaponSwordPide");
+        TestWorld.Templates[Chest] = new(3, 9, "PropChest");
     }
 
     private static EntityId Place(uint id, Guid template, double x = 0)
     {
         var entity = new EntityId(id);
-        SpawnLink.World[id] = new SpawnLink.Ent(entity, template, null, new WorldPosition(x, 0, 0), 0);
+        TestWorld.World[id] = new SpawnLink.Ent(entity, template, null, new WorldPosition(x, 0, 0), 0);
         return entity;
     }
 
@@ -54,7 +54,7 @@ public sealed class EntityIdentityTests
         Assert.Equal("\"level5\"", t.Find(b)!.ByMod["test"]["engraving"].Json);
         Assert.Empty(t.Stage(Options));
         var loaded = Reload(t);
-        SpawnLink.World.Clear();
+        TestWorld.World.Clear();
         a = Place(3001, Sword);
         b = Place(3002, Sword);
         loaded.Tick();
@@ -90,7 +90,7 @@ public sealed class EntityIdentityTests
         var old = Place(2001, Chest, 42);
         Tag(t, old, "chest-data");
         var loaded = Reload(t);
-        SpawnLink.World.Clear();
+        TestWorld.World.Clear();
         var current = Place(3001, Chest, 42);
         loaded.Tick();
         Assert.Equal("\"chest-data\"", loaded.FindOrMatch(current)!.ByMod["test"]["engraving"].Json);

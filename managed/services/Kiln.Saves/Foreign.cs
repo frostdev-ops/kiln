@@ -56,7 +56,7 @@ internal static unsafe class SpawnLink
     private const uint KindCreature = 1, KindNpc = 4, FlagKnown = 1, FlagDoNotSave = 2, FlagTransform = 8;
     private static Table* _t;
     private static bool _looked;
-    private static readonly Dictionary<Guid, (uint kind, bool neverSaved, string name, bool canPersist)> Templates = new();
+    private static readonly Dictionary<Guid, (uint kind, bool neverSaved, string name, bool canPersist, bool known)> Templates = new();
 
     private static Table* T
     {
@@ -109,24 +109,24 @@ internal static unsafe class SpawnLink
         return list;
     }
 
-    /// <summary>Kind, DoNotSave, name, and whether the known template has a saved world position. Any thread.</summary>
-    public static (uint kind, bool neverSaved, string name, bool canPersist) Template(Guid g)
+    /// <summary>Kind, DoNotSave, name, positional persistence, and whether the template flags are known. Any thread.</summary>
+    public static (uint kind, bool neverSaved, string name, bool canPersist, bool known) Template(Guid g)
     {
         lock (Templates)
             if (Templates.TryGetValue(g, out var hit)) return hit;
         var t = T;
-        if (t == null) return (0, false, "", false);
+        if (t == null) return (0, false, "", false, false);
         var info = new TemplateInfo { Size = (uint)sizeof(TemplateInfo) };
         var b = g.ToByteArray();
         int rc;
         fixed (byte* p = b) rc = t->TemplateGet(p, &info);
-        if (rc != 0) return (0, false, "", false);
+        if (rc != 0) return (0, false, "", false, false);
         var name = Marshal.PtrToStringUTF8((nint)info.Name) ?? "";
         // Positional identity is safe only for a known, saved world template. Item entities have ItemState but no
         // CurrentTransform: Inspect reports the same default position for every sword, which is not an identity.
         var known = (info.Flags & FlagKnown) != 0;
         var r = (info.Kind, known && (info.Flags & FlagDoNotSave) != 0, name,
-            known && (info.Flags & (FlagDoNotSave | FlagTransform)) == FlagTransform);
+            known && (info.Flags & (FlagDoNotSave | FlagTransform)) == FlagTransform, known);
         // Before the engine's template registry is ready, flags are unknown. Do not cache that temporary answer.
         if (known) lock (Templates) Templates[g] = r;
         return r;
