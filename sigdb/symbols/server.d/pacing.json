@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.pacing: the places where the game waits and sizes its task pools (what Enshwick's pacing API hooks). Every symbol is a mid-function address for a mid-hook, not a function: the instruction after the one that fills the register Kiln reads or writes. Sites, found from the strings of the function around them (\"Unhandled result code %d in MsgWaitForMultipleObjectsEx\", \"Main_Server\", \"[task] Worker count: %u/%u/%u\") and re-derived on svn 1285601/1287369 (docs/re/pacing.md): LoopWait is after the ns->ms clamp (r9d = ms, rbx = ns left; the pattern holds the whole division from the 1/1e6 multiplier on, so rbx is known to be the time left), ServerWait is the call that takes the wait in r9 (40 ms idle, 1 ms online, 0.1 ms after a slow pass), DefaultWorkers and BackgroundWorkers are the loads of the two group limits in the task system's constructor (rax = the group's limit, which Kiln lowers).",
+  "symbols": {
+    "pacing/LoopWait": {
+      "find": [
+        {
+          "pattern": "48 B8 DB 34 B6 D7 82 DE 1B 43 BF FF FF FF FF 48 F7 EB 48 C1 FA 12 48 8B C2 48 C1 E8 3F 48 03 D0 79 05 44 8B CE EB 0A 48 3B D7 44 8B CF 44 0F 4C CA 48 8B 55 ?? 45 33 C0 8B 4D ?? C7 44 24 20 01 00 00 00 FF 15",
+          "offset": 49
+        }
+      ]
+    },
+    "pacing/ServerWait": {
+      "find": [
+        {
+          "pattern": "41 B9 00 5A 62 02 EB 12 48 81 7D ?? 80 9F D5 00 41 B9 40 42 0F 00 4C 0F 4F CF 4D 8B C4 48 8D 55 ?? 48 8D 4D ?? E8",
+          "offset": 26
+        }
+      ]
+    },
+    "pacing/DefaultWorkers": {
+      "find": [
+        {
+          "pattern": "41 0F B6 47 09 8B CF 40 3A C7 0F 42 C8 84 DB 89 8D ?? ?? ?? ?? 8B CF 0F B6 C3 0F 45 C8 41 0F B6 47 0A 44 0F B6 E9 41 3A C5 0F B6 CA 44 0F 42 E8 41 0F B6 47 0B 3A C2 0F 42 C8 89 8D",
+          "offset": 5
+        }
+      ]
+    },
+    "pacing/BackgroundWorkers": {
+      "find": [
+        {
+          "pattern": "41 0F B6 47 09 8B CF 40 3A C7 0F 42 C8 84 DB 89 8D ?? ?? ?? ?? 8B CF 0F B6 C3 0F 45 C8 41 0F B6 47 0A 44 0F B6 E9 41 3A C5 0F B6 CA 44 0F 42 E8 41 0F B6 47 0B 3A C2 0F 42 C8 89 8D",
+          "offset": 34
+        }
+      ]
+    }
+  },
+  "features": {
+    "pacing.loop_wait": { "symbols": ["pacing/LoopWait"] },
+    "pacing.server_wait": { "symbols": ["pacing/ServerWait"] },
+    "pacing.task_workers": { "symbols": ["pacing/DefaultWorkers", "pacing/BackgroundWorkers"] }
+  }
+}
