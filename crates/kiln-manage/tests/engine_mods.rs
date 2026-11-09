@@ -11,6 +11,7 @@ use kiln_manage::paths::DataDirs;
 use kiln_manage::pe::build_test_dll;
 use kiln_manage::profile::{self, ProfileMod};
 use kiln_manage::task::NoProgress;
+use kiln_manage::ErrorCode;
 use kiln_manage::{hash, modpack};
 use std::path::{Path, PathBuf};
 
@@ -410,6 +411,56 @@ fn placement_refuses_modified_owned_trees_and_symlinked_roots() {
     // Also refuse traversal inputs before constructing a destination.
     p.mods.set.push(ProfileMod { id: "../escape".into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "0".repeat(64)), enabled: false });
     assert!(engine_mods::place(&dirs, &p, &t.0.join("other-game")).is_err());
+}
+
+/// Fedora Atomic / Bazzite: `/home` is a link to `/var/home`. The data dir and the game folder are reached through it.
+/// Links above the managed roots work; links inside the Library entry or the destination tree are still refused.
+#[test]
+fn placement_works_through_symlinked_system_ancestors_but_refuses_links_inside() {
+    let t = tmp("system-ancestors");
+    std::fs::create_dir_all(t.0.join("var/home/jame")).unwrap();
+    std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
+    let dirs = DataDirs::at(t.0.join("home/jame/.local/share/kiln"));
+    let game = t.0.join("home/jame/game");
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "atomic", None).unwrap();
+    let sf = refs(&r, ModKind::ShroudForge, "sfpack");
+    let set = refs(&r, ModKind::Set, "flymode");
+    p.mods.shroudforge.push(pm(&sf, true));
+    p.mods.set.push(pm(&set, true));
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.placed.len(), 2, "{rep:?}");
+    assert!(game.join("shrouded_engine_tweaks/mods/flymode/init.lua").is_file());
+    assert!(game.join("mods/sfpack/mod.json").is_file());
+    // a second pass keeps them, and settings and the EML-style status reads work through the link too
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().kept.len(), 2);
+    let cfg = t.0.join("home/jame/config");
+    let s = engine_mods::set_setting(ModKind::ShroudForge, "sfpack", "speed", &serde_json::json!(5), Some(&game), &cfg, None).unwrap();
+    assert_eq!(s.values["speed"], 5);
+    assert!(engine_mods::status(&game).iter().all(|s| s.error.is_none()));
+    // removing the mod from the profile removes the placed SET copy through the link as well
+    p.mods.set.clear();
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().removed.len(), 1);
+    assert!(!game.join("shrouded_engine_tweaks/mods/flymode").exists());
+
+    // A link INSIDE the destination tree is refused, even behind the linked ancestor.
+    let elsewhere = t.0.join("home/jame/elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::remove_dir_all(game.join("shrouded_engine_tweaks")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, game.join("shrouded_engine_tweaks")).unwrap();
+    p.mods.set.push(pm(&set, true));
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none(), "nothing was written through the link");
+    std::fs::remove_file(game.join("shrouded_engine_tweaks")).unwrap();
+
+    // A link as the Library entry is refused too: the entry becomes a link to a copy of itself.
+    let entry = library::path_of(&dirs, &set).unwrap();
+    let copy = t.0.join("home/jame/entry-copy");
+    kiln_manage::util::copy_tree(&entry, &copy).unwrap();
+    std::fs::remove_dir_all(&entry).unwrap();
+    std::os::unix::fs::symlink(&copy, &entry).unwrap();
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    assert!(!game.join("shrouded_engine_tweaks/mods/flymode").exists());
 }
 
 #[test]

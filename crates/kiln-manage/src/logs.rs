@@ -83,7 +83,7 @@ fn allowed(name: &str) -> bool {
     if name.is_empty() || name.starts_with('/') || name.contains('\\') || name.contains(':') {
         return false;
     }
-    if name.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+    if name.split('/').any(|c| c.is_empty() || c == "." || c == ".." || crate::bundle::windows_would_rename(c)) {
         return false;
     }
     name.starts_with("kiln/logs/")
@@ -575,6 +575,9 @@ mod tests {
         assert!(allowed("logs/enshrouded_server.log"));
         assert!(allowed("enshrouded.log"));
         assert!(!allowed("kiln/logs/../kiln.json"));
+        // Windows turns `".. "` into `..` and `"kiln.log."` into `kiln.log`
+        assert!(!allowed("kiln/logs/.. /kiln.json"));
+        assert!(!allowed("kiln/logs/kiln.log."));
         assert!(!allowed("/etc/passwd"));
         assert!(!allowed("kiln/kiln.json"));
         assert_eq!(kind_of("kiln/logs/kiln.log"), LogKind::Kiln);

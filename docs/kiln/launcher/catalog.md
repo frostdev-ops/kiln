@@ -1,8 +1,10 @@
 # The online catalog (Nexus Mods)
 
 The official **0.2.0-dev.20** build uses `KILN_NEXUS_ENABLED=0`: no Catalog, Nexus account/settings or `nxm://`
-handler. Download archives in a browser and import them manually. Existing credentials and handler ownership are
-left untouched. The enabled implementation described below is for a future approved configuration, not this build.
+handler. Download archives in a browser and import them manually. Kiln removes what an older build (0.2.0-dev.19)
+left behind, and only Kiln's own: the personal API key and the nxm registration (see "Leftovers of older builds").
+Your OAuth sign-in, if any, and other programs' handlers are not touched. The enabled implementation described below is
+for a future approved configuration, not this build.
 
 The launcher's Catalog lists Enshrouded's mods on Nexus Mods, Kiln mods first. It shows each mod's details, adds a
 mod to the active profile (with Undo), takes "Mod Manager Download" (`nxm://`) links, and tells you when an installed
@@ -55,8 +57,34 @@ catalog lists Enshrouded mods anonymously and offers browser sign-in to identify
 `KILN_NEXUS_ENABLED=0` disables the whole integration at compile time. Backend `app_info.nexusEnabled` controls
 both UIs; no frontend-only environment override can enable it. Catalog routes, account/settings controls and Nexus
 navigation are hidden. Nexus IPC, provider requests, token/keyring access, downloads, nxm opt-in, inbox processing
-and refresh are refused before side effects. Direct nxm callbacks exit without network or forwarding. This mode
-leaves existing account/handler data untouched and requires no OAuth registration for an official release.
+and refresh are refused before side effects. Direct nxm callbacks are never queued or downloaded (see below). This
+mode requires no OAuth registration for an official release.
+
+### Leftovers of older builds
+Version 0.2.0-dev.19 let you paste a personal API key and could register Kiln for `nxm://` links. A build with Nexus
+off cleans up after that at every start. It names only Kiln's own entries and writes nothing to the log but the facts
+below; the key is never printed, logged or sent.
+
+- **The personal API key.** In every build, Kiln deletes `<data>/nexus/apikey.json` and the keyring entry
+  `nexusmods-api-key` (Linux: application `kiln-launcher`; Windows: Credential Manager `Kiln Launcher/nexusmods-api-key`).
+  The log says `nexus: removed the stored Nexus personal API key` when it found one. The OAuth entry is a different
+  slot and stays. The keyring is read only to learn that the old entry exists.
+- **The nxm handler.** If `<data>/nexus/handler.json` says Kiln registered itself, a build with Nexus off gives the
+  links back at start:
+  - Kiln is still the system's nxm handler: the manager before it (Vortex, Mod Organizer 2, ...) is restored the way
+    turning the option off did it (Linux: the nxm line in `mimeapps.list` and Kiln's `.desktop` file; Windows: the
+    `HKCU\Software\Classes\nxm` values), then `handler.json` is removed. The log says
+    `nexus: Nexus Mods is off in this build: gave the nxm links back to Vortex`. If no manager was set before Kiln,
+    Kiln's registration is simply removed.
+  - Another program has the links since: Kiln only drops its own record. The system's association is not changed.
+  - A restore that fails keeps the record, so the next start tries again.
+- **A link that still arrives.** A browser may start `kiln-launcher --nxm <link>` before the handler is given back.
+  Kiln gives the handler back first, then hands that link to the manager before it (any game's link). With no such
+  manager recorded, the window opens with a message: the integration is off and how to reset the handler (Linux:
+  `xdg-mime default <your mod manager>.desktop x-scheme-handler/nxm`; Windows: Settings > Apps > Default apps >
+  Choose defaults by link type > NXM). Nothing is queued and nothing is downloaded.
+
+A build with Nexus on does none of the handler steps: a registration there is your choice.
 
 ## Nexus's rules for apps, and how Kiln follows them
 - **Naming the app:** every request sends `Application-Name: Kiln Launcher`, `Application-Version: <launcher version>`
@@ -205,6 +233,13 @@ nxm default, and its own HKCU key.
     folders; the command-line helpers; the token store (keyring failure, migration and private file mode); the instance lock and
     the inbox; unsafe ZIPs, expansion limits, parallel downloads/records, exact handler restore, malformed links,
     rate concurrency, large versions, pagination failures and retry behavior.
+- `tools/test-nexus-disabled.sh` builds the tests with `KILN_NEXUS_ENABLED=0` and runs the `disabled_nexus` ones: the
+  tripwires (a build with Nexus off never reaches the provider, the keyring, the handler or the disk), the removal of
+  the personal key (a fake keyring, and the real keyring adapter against a stand-in `secret-tool`), and the nxm
+  leftovers (fakes, and the real `xdg-mime` in private XDG folders). The flag is read when the code is compiled, so a
+  plain `cargo test` runs them against a build with Nexus on, where the tripwires return at once. Do not run the other
+  `nexus` tests with the flag off: they test the enabled build. `tools/release/checks.sh` runs the script when a
+  release is built with `KILN_NEXUS_ENABLED=0`. None of these tests touches your keyring, `mimeapps.list` or registry.
 - `cargo test -p kiln-manage --features full --lib nexus::tests::live -- --ignored --nocapture` uses the real Nexus
   Mods, anonymously and read-only: every Enshrouded mod (237 over 3 cursor pages, 2026-11-07) and Kiln's page parse.
   4 API calls.

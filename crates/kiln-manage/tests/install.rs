@@ -220,6 +220,31 @@ fn unsafe_zip_entries_are_refused() {
     assert!(bundle::safe_rel_path("kiln/dotnet/host/fxr/10.0.14/hostfxr.dll").is_ok());
 }
 
+/// Windows drops trailing dots and spaces: `".. "` is `..` there, `"a."` is `a`. Refuse them on every platform, so a
+/// bundle or modpack that works on Linux cannot escape or collide on Windows.
+#[test]
+fn names_windows_would_normalise_are_refused() {
+    for bad in ["a/.. /b", ".. ", "a/...", "...", "a/b.", "a/b ", "a/ b /c", "a/. /b", ". ", "a./b", "kiln/x.dll.", "kiln/x.dll "] {
+        let e = bundle::safe_rel_path(bad).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused, "{bad:?}");
+    }
+    // dots and spaces inside or at the start of a name are fine on every platform
+    for ok in ["a b/c d.txt", " lead/x", "a.b/c..d", ".hidden/x", "x/.config", "name with spaces.dll", "a/..b", "a/b..c"] {
+        assert!(bundle::safe_rel_path(ok).is_ok(), "{ok:?}");
+    }
+    // the same guard on a manifest listing and on a zip entry name
+    let m = |path: &str| -> kiln_manage::bundle::RuntimeManifest {
+        serde_json::from_value(serde_json::json!({
+            "format": 1, "version": "0.2.0-dev+20261104.0f1ffa6", "kiln": "0.2.0-dev", "abi": 2,
+            "components": { "core": { "sides": ["client"] } },
+            "files": [{ "path": path, "size": 1, "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "component": "core" }]
+        })).unwrap()
+    };
+    assert!(bundle::validate(&m("kiln/ok.dll")).is_ok());
+    assert!(bundle::validate(&m("kiln/.. /evil.dll")).is_err());
+    assert!(bundle::validate(&m("kiln/evil.dll.")).is_err());
+}
+
 #[test]
 fn install_chains_emf_backs_up_and_uninstall_restores_it() {
     let t = tmp("emf");

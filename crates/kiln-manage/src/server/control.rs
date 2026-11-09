@@ -28,13 +28,13 @@ type EngineCopies = BTreeMap<PathBuf, EngineCopy>;
 
 fn engine_copies(server: &Path) -> Result<EngineCopies> {
     let file = server.join(ENGINE_RECEIPT);
-    crate::engine_mods::refuse_symlink_path(&file)?;
+    crate::engine_mods::refuse_symlink_path(server, &file)?;
     Ok(crate::util::read_json(&file)?.unwrap_or_default())
 }
 
 fn save_engine_copies(server: &Path, copies: &EngineCopies) -> Result<()> {
     let file = server.join(ENGINE_RECEIPT);
-    crate::engine_mods::refuse_symlink_path(&file)?;
+    crate::engine_mods::refuse_symlink_path(server, &file)?;
     let parent = file.parent().expect("receipt parent");
     std::fs::create_dir_all(parent)?;
     let staging = crate::library::TempDir::new(parent, "server-receipt")?;
@@ -45,7 +45,7 @@ fn save_engine_copies(server: &Path, copies: &EngineCopies) -> Result<()> {
 
 fn server_library_lock(server: &Path) -> Result<std::fs::File> {
     let path = server.join("kiln/state/server-library.lock");
-    crate::engine_mods::refuse_symlink_path(&path)?;
+    crate::engine_mods::refuse_symlink_path(server, &path)?;
     std::fs::create_dir_all(path.parent().expect("lock parent"))?;
     let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
     file.lock()?;
@@ -54,19 +54,19 @@ fn server_library_lock(server: &Path) -> Result<std::fs::File> {
 
 // Include hidden files and empty directories too. SF's mutable setting values and enabled switch are omitted.
 fn payload(dir: &Path, kind: ModKind) -> Result<String> {
-    fn walk(dir: &Path, rel: &str, kind: ModKind, out: &mut BTreeMap<String, String>) -> Result<()> {
-        crate::engine_mods::refuse_symlink_path(dir)?;
+    fn walk(root: &Path, dir: &Path, rel: &str, kind: ModKind, out: &mut BTreeMap<String, String>) -> Result<()> {
+        crate::engine_mods::refuse_symlink_path(root, dir)?;
         for e in std::fs::read_dir(dir)? {
             let e = e?;
             let name = e.file_name().into_string().map_err(|_| Error::invalid("non-Unicode mod path"))?;
             if rel.is_empty() && name == MARKER { continue; }
             let path = e.path();
-            crate::engine_mods::refuse_symlink_path(&path)?;
+            crate::engine_mods::refuse_symlink_path(root, &path)?;
             let key = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let ft = e.file_type()?;
             if ft.is_dir() {
                 out.insert(format!("{key}/"), String::new());
-                walk(&path, &key, kind, out)?;
+                walk(root, &path, &key, kind, out)?;
             } else if ft.is_file() {
                 let hash = if kind == ModKind::ShroudForge && rel.is_empty() && name == "extended.mod.json" {
                     let mut v = crate::jsonc::parse(&crate::manifest::read_text(&path)?)?;
@@ -87,12 +87,13 @@ fn payload(dir: &Path, kind: ModKind) -> Result<String> {
         Ok(())
     }
     let mut files = BTreeMap::new();
-    walk(dir, "", kind, &mut files)?;
+    walk(dir, dir, "", kind, &mut files)?;
     Ok(crate::hash::sha256_hex(&serde_json::to_vec(&files)?))
 }
 
-fn owned_engine(dir: &Path, kind: ModKind, copies: &EngineCopies) -> Result<bool> {
-    crate::engine_mods::refuse_symlink_path(dir)?;
+/// `server` is the managed root `dir` lies under.
+fn owned_engine(server: &Path, dir: &Path, kind: ModKind, copies: &EngineCopies) -> Result<bool> {
+    crate::engine_mods::refuse_symlink_path(server, dir)?;
     let Some(saved) = copies.get(dir) else { return Ok(false) };
     let Some(marker) = read_marker(dir) else { return Ok(false) };
     Ok(marker.format == 1 && marker.library.kind == kind && marker.library == saved.library
@@ -178,7 +179,7 @@ pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
                     id,
                     version,
                     enabled,
-                    source: if owned_engine(&d, kind, &copies)? { read_marker(&d).map(|m| m.library) } else { None },
+                    source: if owned_engine(server, &d, kind, &copies)? { read_marker(&d).map(|m| m.library) } else { None },
                     clients: Some(crate::engine_mods::clients_of(kind, &d).1),
                     state: None,
                     folder,
@@ -259,7 +260,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         if kind.is_engine() {
             places.push(crate::engine_mods::server_disabled_root(kind, &server));
         }
-        for place in &places { crate::engine_mods::refuse_symlink_path(place)?; }
+        for place in &places { crate::engine_mods::refuse_symlink_path(&server, place)?; }
         for e in places.iter().filter_map(|p| std::fs::read_dir(p).ok()).flat_map(|rd| rd.flatten()) {
             let d = e.path();
             if loader_folder(&server, &d) { continue; }
@@ -270,7 +271,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             if mods.iter().any(|x| x.kind == kind && x.id == m.library.id) {
                 continue;
             }
-            if kind.is_engine() && !owned_engine(&d, kind, &copies)? { continue; }
+            if kind.is_engine() && !owned_engine(&server, &d, kind, &copies)? { continue; }
             if kind == ModKind::Kiln {
                 op(&live, "mod_unload", "id", &m.library.id, progress);
             }
@@ -298,8 +299,8 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             // a switched-off engine mod stays off: its new version goes to kiln/disabled/<kind>/
             let off = crate::engine_mods::server_disabled_root(r.kind, &server);
             let off_target = off.join(&r.id);
-            crate::engine_mods::refuse_symlink_path(&off_target)?;
-            if off_target.exists() && !owned_engine(&off_target, r.kind, &copies)? {
+            crate::engine_mods::refuse_symlink_path(&server, &off_target)?;
+            if off_target.exists() && !owned_engine(&server, &off_target, r.kind, &copies)? {
                 conflicts.push(format!("{}: {} has player changes and was left disabled", r.id, off_target.display()));
                 continue;
             }
@@ -307,16 +308,16 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
                 dst_root = off;
             }
         }
-        crate::engine_mods::refuse_symlink_path(&dst_root)?;
+        crate::engine_mods::refuse_symlink_path(&server, &dst_root)?;
         std::fs::create_dir_all(&dst_root).map_err(crate::util::io_at(&dst_root, "creating"))?;
         if !folder_ok(&r.id) {
             return Err(Error::invalid(format!("mod id {:?} cannot be a folder name", r.id)));
         }
         let target = dst_root.join(&r.id);
-        crate::engine_mods::refuse_symlink_path(&target)?;
+        crate::engine_mods::refuse_symlink_path(&server, &target)?;
         let marker = read_marker(&target);
         if target.exists() && (marker.as_ref().is_none_or(|m| m.library.kind != r.kind || m.library.id != r.id)
-            || (r.kind.is_engine() && !owned_engine(&target, r.kind, &copies)?)) {
+            || (r.kind.is_engine() && !owned_engine(&server, &target, r.kind, &copies)?)) {
             conflicts.push(format!("{}: {} exists and was not put there by the launcher", r.id, target.display()));
             continue;
         }
@@ -324,7 +325,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             continue;  // unchanged
         }
         let src = crate::library::path_of(dirs, r)?;
-        crate::engine_mods::refuse_symlink_path(&src)?;
+        crate::engine_mods::refuse_symlink_path(&dirs.root, &src)?;
         if crate::hash::dirhash(&src)? != r.hash {
             return Err(Error::new(ErrorCode::HashMismatch, format!("library entry {} {} changed on disk", r.id, r.version)));
         }
@@ -401,8 +402,8 @@ fn engine_switch_candidates(server: &Path, folder: &str, enabled: bool) -> Resul
         let (on, off) = (on_root.join(folder), off_root.join(folder));
         let (from, to) = if enabled { (off, on) } else { (on, off) };
         if loader_folder(server, &from) || loader_folder(server, &to) { continue; }
-        crate::engine_mods::refuse_symlink_path(&from)?;
-        crate::engine_mods::refuse_symlink_path(&to)?;
+        crate::engine_mods::refuse_symlink_path(server, &from)?;
+        crate::engine_mods::refuse_symlink_path(server, &to)?;
         if from.is_dir() && (read_marker(&from).is_some_and(|m| m.library.kind == kind) || crate::engine_mods::folder_is(kind, &from)) {
             candidates.push((from, to, kind));
         }
@@ -418,7 +419,7 @@ fn set_engine_enabled(server: &Path, folder: &str, enabled: bool, running: bool)
     if candidates.len() > 1 { return Err(Error::new(ErrorCode::Conflict, format!("more than one engine has a mod folder {folder}"))); }
     let Some((from, to, kind)) = candidates.pop() else { return Err(Error::not_found(format!("no mod folder {folder} to switch"))); };
     if to.exists() { return Err(Error::new(ErrorCode::Conflict, format!("{} exists already", to.display()))); }
-    let owned = owned_engine(&from, kind, &copies)?;
+    let owned = owned_engine(server, &from, kind, &copies)?;
     if let Some(p) = to.parent() { std::fs::create_dir_all(p).map_err(crate::util::io_at(p, "creating"))?; }
     std::fs::rename(&from, &to).map_err(crate::util::io_at(&from, "moving"))?;
     if owned {

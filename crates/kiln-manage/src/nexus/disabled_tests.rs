@@ -59,3 +59,220 @@ fn disabled_nexus_never_reaches_provider_credentials_or_handler_and_preserves_fi
     assert!(handler::take_links(&root).is_empty());
     assert!(!root.exists(), "disabled entrypoints created Nexus data/lock/handler files");
 }
+
+// ---------------------------------------------------------------- what older builds left behind
+//
+// Everything below runs in every build (it names the leftovers, not the Nexus switch): a build with Nexus off must still
+// remove the dev.19 personal API key and give back dev.19's nxm registration, and it must do so without touching
+// anything of the OAuth slot or another manager's association. Nothing here reaches this machine's keyring,
+// mimeapps.list or registry: fakes and temporary XDG folders only.
+
+use std::sync::Mutex;
+
+#[derive(Default)]
+struct Ring { value: Mutex<Option<String>>, fail_clear: bool }
+impl keystore::SecretBackend for Ring {
+    fn get(&self) -> Result<Option<String>> { Ok(self.value.lock().unwrap().clone()) }
+    fn set(&self, _: &str) -> Result<()> { panic!("the retired slot is never written") }
+    fn clear(&self) -> Result<()> {
+        if self.fail_clear { return Err(crate::Error::new(ErrorCode::Io, "locked")); }
+        *self.value.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+#[test]
+fn disabled_nexus_retires_the_dev19_personal_key_file_and_keyring_entry() {
+    let temp = crate::library::TempDir::new(&std::env::temp_dir(), "nexus-legacy-key").unwrap();
+    let root = temp.path().join("nexus");
+    // nothing stored: nothing created, nothing reported
+    assert!(!keystore::retire_personal_key_in(&root, Some(&Ring::default())).unwrap());
+    assert!(!root.exists());
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("apikey.json"), br#"{"key":"fixture-not-a-real-key"}"#).unwrap();
+    std::fs::write(root.join("oauth.json"), b"fixture oauth file").unwrap();
+    std::fs::write(root.join("handler.json"), b"fixture handler record").unwrap();
+    let ring = Ring { value: Mutex::new(Some("fixture-keyring-entry".into())), fail_clear: false };
+    assert!(keystore::retire_personal_key_in(&root, Some(&ring)).unwrap());
+    assert!(!root.join("apikey.json").exists());
+    assert!(ring.value.lock().unwrap().is_none());
+    // nothing else of the data folder was touched
+    assert_eq!(std::fs::read(root.join("oauth.json")).unwrap(), b"fixture oauth file");
+    assert_eq!(std::fs::read(root.join("handler.json")).unwrap(), b"fixture handler record");
+    // a second start finds nothing
+    assert!(!keystore::retire_personal_key_in(&root, Some(&ring)).unwrap());
+    // only the keyring holds one (the file is long gone)
+    *ring.value.lock().unwrap() = Some("fixture-keyring-entry".into());
+    assert!(keystore::retire_personal_key_in(&root, Some(&ring)).unwrap());
+    // no keyring on this system: the file alone
+    std::fs::write(root.join("apikey.json"), b"{}").unwrap();
+    assert!(keystore::retire_personal_key_in(&root, None).unwrap());
+    // a keyring that will not clear is an error, and no error text carries the entry
+    let stuck = Ring { value: Mutex::new(Some("fixture-keyring-entry".into())), fail_clear: true };
+    let error = keystore::retire_personal_key_in(&root, Some(&stuck)).unwrap_err();
+    assert!(!format!("{error:?}").contains("fixture-keyring-entry"));
+}
+
+// ---- nxm: a registration dev.19 made
+
+#[derive(Default)]
+struct FakeOs {
+    current: Mutex<Option<String>>,
+    restored: Mutex<Vec<Option<String>>>,
+    forwarded: Mutex<Vec<(String, String)>>,
+    fail_restore: bool,
+}
+impl handler::HandlerPlatform for FakeOs {
+    fn supported(&self) -> bool { panic!("a build with Nexus off never asks whether it can take the links") }
+    fn current(&self) -> Result<Option<handler::Previous>> { panic!("a build with Nexus off never looks for a handler to replace") }
+    fn is_ours(&self) -> bool { self.current.lock().unwrap().as_deref() == Some("kiln") }
+    fn install(&self, _: &Path) -> Result<()> { panic!("a build with Nexus off never registers") }
+    fn restore(&self, previous: Option<&handler::Previous>) -> Result<()> {
+        if self.fail_restore { return Err(crate::Error::new(ErrorCode::Io, "xdg-mime failed")); }
+        let id = previous.map(|p| match p { handler::Previous::Desktop { id } => id.clone(), handler::Previous::Command { command, .. } => command.clone() });
+        self.restored.lock().unwrap().push(id.clone());
+        *self.current.lock().unwrap() = id;
+        Ok(())
+    }
+    fn forward(&self, p: &handler::Previous, url: &str) -> Result<()> {
+        self.forwarded.lock().unwrap().push((p.label(), url.into()));
+        Ok(())
+    }
+}
+
+fn vortex() -> handler::Previous { handler::Previous::Desktop { id: "com.nexusmods.vortex.desktop".into() } }
+
+/// The state file a dev.19 registration wrote (`register`: format 2, the previous handler, the launcher's path).
+fn write_record(root: &Path, previous: Option<handler::Previous>, snapshot: Option<serde_json::Value>) {
+    std::fs::create_dir_all(root).unwrap();
+    let state = handler::HandlerState { format: 2, registered: true, previous, exe: Some("/apps/Kiln.AppImage".into()),
+        registered_at: Some("2026-10-01T00:00:00Z".into()), snapshot };
+    std::fs::write(root.join("handler.json"), serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+}
+
+#[test]
+fn disabled_nexus_gives_back_kilns_own_nxm_registration_and_only_that() {
+    let temp = crate::library::TempDir::new(&std::env::temp_dir(), "nexus-leftover").unwrap();
+    let root = temp.path().join("nexus");
+
+    // 1. no record: nothing is read, nothing is created, the system is not asked anything
+    let os = FakeOs::default();
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::Nothing);
+    assert!(!root.exists());
+    assert_eq!(handler::recorded_previous(&root), None);
+
+    // 2. Kiln is the handler and Vortex was recorded: Vortex is back, the record is gone, a link can go to Vortex
+    write_record(&root, Some(vortex()), None);
+    *os.current.lock().unwrap() = Some("kiln".into());
+    assert_eq!(handler::recorded_previous(&root), Some(vortex()));
+    let given = handler::retire_leftover(&root, &os).unwrap();
+    assert_eq!(given, handler::Leftover::GivenBack { previous: Some(vortex()) });
+    assert_eq!(os.current.lock().unwrap().as_deref(), Some("com.nexusmods.vortex.desktop"));
+    assert!(!root.join("handler.json").exists());
+    assert_eq!(handler::forward_to_previous(&os, &vortex(), "nxm://enshrouded/mods/1/files/2?key=k&expires=9").unwrap(), "Vortex");
+    assert_eq!(os.forwarded.lock().unwrap()[0].1, "nxm://enshrouded/mods/1/files/2?key=k&expires=9");
+    assert!(handler::forward_to_previous(&os, &vortex(), "https://example.invalid/").is_err());
+    // the next start finds nothing to do
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::Nothing);
+    assert_eq!(os.restored.lock().unwrap().len(), 1);
+
+    // 3. another manager has the links since: Kiln forgets its record and changes nothing in the system
+    let os = FakeOs::default();
+    write_record(&root, Some(vortex()), None);
+    *os.current.lock().unwrap() = Some("org.example.other.desktop".into());
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::Forgotten);
+    assert_eq!(os.current.lock().unwrap().as_deref(), Some("org.example.other.desktop"));
+    assert!(os.restored.lock().unwrap().is_empty());
+    assert!(!root.join("handler.json").exists());
+
+    // 4. Kiln was the only handler: giving it back leaves none, as before Kiln
+    let os = FakeOs::default();
+    write_record(&root, None, None);
+    *os.current.lock().unwrap() = Some("kiln".into());
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::GivenBack { previous: None });
+    assert_eq!(*os.current.lock().unwrap(), None);
+
+    // 5. a restore that fails keeps the record (the next start tries again) and the recorded handler stays known
+    let os = FakeOs { fail_restore: true, ..Default::default() };
+    write_record(&root, Some(vortex()), None);
+    *os.current.lock().unwrap() = Some("kiln".into());
+    assert!(handler::retire_leftover(&root, &os).is_err());
+    assert!(root.join("handler.json").is_file());
+    assert_eq!(handler::recorded_previous(&root), Some(vortex()));
+    assert_eq!(os.current.lock().unwrap().as_deref(), Some("kiln"));
+    std::fs::remove_file(root.join("handler.json")).unwrap();
+
+    // 6. the option was off already, or the record is damaged or from a newer launcher: nothing changes
+    let os = FakeOs::default();
+    *os.current.lock().unwrap() = Some("kiln".into());
+    std::fs::write(root.join("handler.json"), br#"{"format":2,"registered":false}"#).unwrap();
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::Nothing);
+    for bytes in [b"{broken".as_slice(), br#"{"format":3,"registered":true}"#.as_slice()] {
+        std::fs::write(root.join("handler.json"), bytes).unwrap();
+        assert!(handler::retire_leftover(&root, &os).is_err());
+        assert_eq!(std::fs::read(root.join("handler.json")).unwrap(), bytes);
+        assert_eq!(handler::recorded_previous(&root), None);
+    }
+    assert!(os.restored.lock().unwrap().is_empty());
+    assert_eq!(os.current.lock().unwrap().as_deref(), Some("kiln"));
+}
+
+/// The real xdg-mime and the real Linux adapter, in private XDG folders: dev.19's registration (a .desktop file and
+/// the nxm default in mimeapps.list) goes back to the manager before Kiln, and everything else in the files stays.
+#[cfg(target_os = "linux")]
+#[test]
+fn disabled_nexus_restores_the_linux_association_dev19_wrote_in_private_xdg_folders() {
+    if crate::util::which("xdg-mime").is_none() {
+        eprintln!("xdg-mime not installed: skipped");
+        return;
+    }
+    let temp = crate::library::TempDir::new(&std::env::temp_dir(), "nexus-leftover-xdg").unwrap();
+    let data = temp.path().join("data");
+    let config = temp.path().join("config");
+    let root = temp.path().join("nexus");
+    std::fs::create_dir_all(data.join("applications")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let other = "[Desktop Entry]\nType=Application\nName=Other\nExec=/bin/true --nxm %u\nMimeType=x-scheme-handler/nxm;\n";
+    std::fs::write(data.join("applications/othermm.desktop"), other).unwrap();
+    let before = "[Default Applications]\nx-scheme-handler/nxm=othermm.desktop\ntext/plain=gedit.desktop\n";
+    let env = vec![
+        ("XDG_DATA_HOME".to_string(), data.display().to_string()),
+        ("XDG_CONFIG_HOME".to_string(), config.display().to_string()),
+        ("XDG_DATA_DIRS".to_string(), data.display().to_string()),
+        ("XDG_CURRENT_DESKTOP".to_string(), "X-Generic".to_string()),
+        ("HOME".to_string(), temp.path().display().to_string()),
+    ];
+    let os = handler::LinuxMime { data_home: data.clone(), config_home: config.clone(), data_dirs: vec![], env };
+    let kiln_entry = "[Desktop Entry]\nType=Application\nName=Kiln Launcher (Nexus Mods links)\nExec=\"/apps/Kiln.AppImage\" --nxm %u\nMimeType=x-scheme-handler/nxm;\n";
+    // what dev.19's register left: Kiln's .desktop, Kiln as the nxm default, and the format-2 record with its snapshot
+    let register_like_dev19 = || {
+        // update-desktop-database's cache from an earlier step would still name the old handler: xdg-mime reads it
+        let _ = std::fs::remove_file(data.join("applications/mimeinfo.cache"));
+        std::fs::write(data.join("applications").join(handler::DESKTOP_ID), kiln_entry).unwrap();
+        std::fs::write(config.join("mimeapps.list"), "[Default Applications]\nx-scheme-handler/nxm=kiln-launcher-nxm.desktop\ntext/plain=gedit.desktop\n").unwrap();
+        let snapshot = serde_json::json!({"mime": before, "desktop": null, "path": config.join("mimeapps.list")});
+        write_record(&root, Some(handler::Previous::Desktop { id: "othermm.desktop".into() }), Some(snapshot));
+    };
+
+    register_like_dev19();
+    assert!(handler::HandlerPlatform::is_ours(&os), "the fixture must look like a registration");
+    let given = handler::retire_leftover(&root, &os).unwrap();
+    assert_eq!(given, handler::Leftover::GivenBack { previous: Some(handler::Previous::Desktop { id: "othermm.desktop".into() }) });
+    assert_eq!(std::fs::read_to_string(config.join("mimeapps.list")).unwrap(), before);
+    assert!(!data.join("applications").join(handler::DESKTOP_ID).exists());
+    assert!(!root.join("handler.json").exists());
+
+    // a format-1 record (no snapshot) gives back the recorded handler by id
+    register_like_dev19();
+    write_record(&root, Some(handler::Previous::Desktop { id: "othermm.desktop".into() }), None);
+    handler::retire_leftover(&root, &os).unwrap();
+    let list = std::fs::read_to_string(config.join("mimeapps.list")).unwrap();
+    assert!(list.contains("x-scheme-handler/nxm=othermm.desktop") && list.contains("text/plain=gedit.desktop") && !list.contains("kiln-launcher-nxm"), "{list}");
+
+    // the user chose another manager after Kiln: it keeps the links, only the record goes
+    std::fs::write(config.join("mimeapps.list"), "[Default Applications]\nx-scheme-handler/nxm=chosen-later.desktop\n").unwrap();
+    write_record(&root, Some(handler::Previous::Desktop { id: "othermm.desktop".into() }), None);
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::Forgotten);
+    assert_eq!(std::fs::read_to_string(config.join("mimeapps.list")).unwrap(), "[Default Applications]\nx-scheme-handler/nxm=chosen-later.desktop\n");
+    assert!(!root.join("handler.json").exists());
+}

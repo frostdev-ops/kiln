@@ -1,4 +1,7 @@
 //! Path checks used before profile activation and engine-mod placement.
+//!
+//! `refuse_symlink_path(root, path)` refuses links from the managed `root` down. The folders above `root` belong to the
+//! system (Fedora Atomic: `/home -> /var/home`) and may be links.
 
 use kiln_manage::engine_mods::refuse_symlink_path;
 use kiln_manage::ErrorCode;
@@ -21,7 +24,7 @@ fn existing_paths_and_missing_descendants_are_accepted() {
     let t = tmp("ordinary");
     std::fs::write(t.0.join("file.json"), b"{}").unwrap();
     for path in [&t.0, &t.0.join("file.json"), &t.0.join("missing/child.json")] {
-        refuse_symlink_path(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        refuse_symlink_path(&t.0, path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     }
 }
 
@@ -32,7 +35,9 @@ fn parent_traversal_is_refused() {
     let path = kiln_manage::util::with_suffix(&t.0,
         if cfg!(windows) { r"\missing\..\file.json" } else { "/missing/../file.json" });
     assert!(path.components().any(|c| c == std::path::Component::ParentDir));
-    assert_eq!(refuse_symlink_path(&path).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(refuse_symlink_path(&t.0, &path).unwrap_err().code, ErrorCode::Refused);
+    // `..` is refused whether or not the link check would have reached it.
+    assert_eq!(refuse_symlink_path(&path, &path).unwrap_err().code, ErrorCode::Refused);
 }
 
 #[cfg(windows)]
@@ -44,7 +49,7 @@ fn windows_drive_roots_and_plain_paths_are_accepted() {
     let root = t.0.ancestors().last().unwrap();
     for path in [root.to_path_buf(), kiln_manage::steam::strip_verbatim(root.to_path_buf()),
                  kiln_manage::steam::strip_verbatim(t.0.clone())] {
-        refuse_symlink_path(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        refuse_symlink_path(&path, &path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     }
 }
 
@@ -57,8 +62,55 @@ fn symlink_leaves_ancestors_and_dangling_links_are_refused() {
     std::os::unix::fs::symlink(&target, t.0.join("link")).unwrap();
     std::os::unix::fs::symlink(t.0.join("absent"), t.0.join("dangling")).unwrap();
     for path in [t.0.join("link"), t.0.join("link/missing/child"), t.0.join("dangling")] {
-        assert_eq!(refuse_symlink_path(&path).unwrap_err().code, ErrorCode::Refused, "{}", path.display());
+        assert_eq!(refuse_symlink_path(&t.0, &path).unwrap_err().code, ErrorCode::Refused, "{}", path.display());
     }
+}
+
+/// Fedora Atomic / Bazzite: `/home` is a link to `/var/home`. Everything above the managed root may be a link.
+#[cfg(unix)]
+#[test]
+fn symlinked_system_ancestors_above_the_root_are_accepted() {
+    let t = tmp("system-ancestors");
+    // <t>/var/home/jame/.local/share/kiln is the data dir; <t>/home -> var/home (relative, like the real one).
+    let data = t.0.join("var/home/jame/.local/share/kiln");
+    std::fs::create_dir_all(data.join("library/set/m/1.0.0")).unwrap();
+    std::fs::write(data.join("library/set/m/1.0.0/init.lua"), b"x").unwrap();
+    std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
+    let linked = t.0.join("home/jame/.local/share/kiln");
+    for path in [linked.clone(), linked.join("library/set/m/1.0.0/init.lua"), linked.join("kiln/state/engine-mods.lock"),
+                 linked.join("missing/child")] {
+        refuse_symlink_path(&linked, &path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    }
+    // a second linked ancestor, further up the chain
+    std::os::unix::fs::symlink(t.0.join("var"), t.0.join("mnt")).unwrap();
+    let through_mnt = t.0.join("mnt/home/jame/.local/share/kiln");
+    refuse_symlink_path(&through_mnt, &through_mnt.join("library")).unwrap();
+}
+
+/// A link at or below the managed root is still refused, whatever lies above it.
+#[cfg(unix)]
+#[test]
+fn symlinks_inside_the_root_are_refused_behind_a_linked_ancestor() {
+    let t = tmp("inside-root");
+    let real = t.0.join("var/home/jame/game");
+    std::fs::create_dir_all(real.join("mods")).unwrap();
+    std::fs::create_dir_all(t.0.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
+    let game = t.0.join("home/jame/game");
+    // a link below the root: directory, file, and a dangling one
+    std::os::unix::fs::symlink(t.0.join("elsewhere"), real.join("mods/linked")).unwrap();
+    std::os::unix::fs::symlink(t.0.join("elsewhere/none"), real.join("mods/dangling")).unwrap();
+    for path in [game.join("mods/linked"), game.join("mods/linked/child"), game.join("mods/dangling")] {
+        assert_eq!(refuse_symlink_path(&game, &path).unwrap_err().code, ErrorCode::Refused, "{}", path.display());
+    }
+    refuse_symlink_path(&game, &game.join("mods")).unwrap();
+    // the root itself being a link is refused as before (only what lies above it is the system's)
+    std::os::unix::fs::symlink(&real, t.0.join("var/home/jame/game-link")).unwrap();
+    let linked_root = t.0.join("home/jame/game-link");
+    assert_eq!(refuse_symlink_path(&linked_root, &linked_root.join("mods")).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(refuse_symlink_path(&linked_root, &linked_root).unwrap_err().code, ErrorCode::Refused);
+    // a path that is not under the root gets the strict check from its first component: the link above it refuses
+    assert_eq!(refuse_symlink_path(&t.0.join("elsewhere"), &game.join("mods")).unwrap_err().code, ErrorCode::Refused);
 }
 
 #[cfg(windows)]
@@ -80,7 +132,7 @@ fn windows_junctions_are_refused() {
     std::fs::create_dir(&target).unwrap();
     junction_at(&junction, &target);
     for path in [&junction, &junction.join("missing/child")] {
-        assert_eq!(refuse_symlink_path(path).unwrap_err().code, ErrorCode::Refused, "{}", path.display());
+        assert_eq!(refuse_symlink_path(&t.0, path).unwrap_err().code, ErrorCode::Refused, "{}", path.display());
     }
 }
 
@@ -95,7 +147,7 @@ fn windows_junction_fixture_handles_cmd_metacharacters() {
     std::fs::create_dir_all(&target).unwrap();
     junction_at(&junction, &target);
     assert_ne!(std::fs::symlink_metadata(&junction).unwrap().file_attributes() & 0x400, 0);
-    assert_eq!(refuse_symlink_path(&junction).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(refuse_symlink_path(&root, &junction).unwrap_err().code, ErrorCode::Refused);
 }
 
 #[cfg(windows)]
@@ -128,7 +180,7 @@ fn windows_drive_relative_bases_are_checked() {
         for tail in ["", "child", r".\child", r"missing\child", "."] {
             for drive in [drive, drive.to_ascii_lowercase()] {
                 let path = PathBuf::from(format!("{drive}:{tail}"));
-                let result = refuse_symlink_path(&path);
+                let result = refuse_symlink_path(std::path::Path::new(&format!("{drive}:")), &path);
                 if case == "junction" {
                     assert_eq!(result.unwrap_err().code, ErrorCode::Refused, "{} in {}", path.display(), cwd.display());
                 } else {

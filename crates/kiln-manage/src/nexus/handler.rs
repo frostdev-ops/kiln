@@ -13,6 +13,11 @@
 //!
 //! A second launcher process started for a link hands it to the running one through `<data>/nexus/inbox/` and exits
 //! ([`acquire_instance`], [`queue_link`], [`take_links`]).
+//!
+//! A build with Nexus off takes no links and registers nothing, but it gives back a registration an older build made
+//! ([`retire_leftover`], [`forward_to_previous`]): the platform calls that undo Kiln's own registration (`is_ours`,
+//! `restore`, `restore_snapshot`, `forward`) are not behind the Nexus switch; every call that takes the links over
+//! (`install`, `current`, `snapshot`, [`register`]) is.
 
 use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
@@ -81,9 +86,12 @@ pub trait HandlerPlatform {
     fn supported(&self) -> bool;
     /// The current nxm handler, unless it is Kiln's own.
     fn current(&self) -> Result<Option<Previous>>;
+    /// Not behind the Nexus switch: a build with Nexus off still gives back the registration an older build made
+    /// ([`retire_leftover`]). Everything that takes the links over (`install`, `current`, `snapshot`) stays behind it.
     fn is_ours(&self) -> bool;
-    fn matches_registered(&self, _: Option<&str>) -> bool {
-        if !crate::nexus::enabled() { return false } self.is_ours() }
+    fn matches_registered(&self, _: Option<&str>) -> bool { self.is_ours() }
+    /// The system's nxm handler is a Kiln registration, wherever its launcher has moved to since (the leftover check).
+    fn is_kiln_registration(&self) -> bool { self.is_ours() }
     fn install(&self, exe: &Path) -> Result<()>;
     /// Gives the handler back (None: there was none before Kiln).
     fn restore(&self, previous: Option<&Previous>) -> Result<()>;
@@ -92,7 +100,7 @@ pub trait HandlerPlatform {
     fn snapshot(&self) -> Result<Option<serde_json::Value>> {
         crate::nexus::require_enabled()?; Ok(None) }
     fn restore_snapshot(&self, previous: Option<&Previous>, _: Option<&serde_json::Value>) -> Result<()> {
-        crate::nexus::require_enabled()?; self.restore(previous) }
+        self.restore(previous) }
 
 }
 
@@ -252,7 +260,6 @@ impl LinuxMime {
 
     /// Where a desktop id's file is (the user's folder first).
     pub fn find_desktop(&self, id: &str) -> Option<PathBuf> {
-        if !crate::nexus::enabled() { return None }
         if id.contains('/') || id.contains("..") {
             return None;
         }
@@ -408,8 +415,12 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn is_ours(&self) -> bool {
-        if !crate::nexus::enabled() { return false }
         self.xdg_mime(&["query", "default", MIME]).is_ok_and(|id| id.trim() == DESKTOP_ID) && self.desktop_file().is_file()
+    }
+
+    fn is_kiln_registration(&self) -> bool {
+        // Kiln's id is the default even if its .desktop file was deleted by hand since.
+        self.xdg_mime(&["query", "default", MIME]).is_ok_and(|id| id.trim() == DESKTOP_ID)
     }
 
     fn install(&self, exe: &Path) -> Result<()> {
@@ -427,7 +438,6 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn restore(&self, previous: Option<&Previous>) -> Result<()> {
-        crate::nexus::require_enabled()?;
         match previous {
             Some(Previous::Desktop { id }) => {
                 self.set_default(Some(id))?;
@@ -451,7 +461,6 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn restore_snapshot(&self, previous: Option<&Previous>, snapshot: Option<&serde_json::Value>) -> Result<()> {
-        crate::nexus::require_enabled()?;
         let Some(snapshot) = snapshot else { return self.restore(previous) };
         let old: Option<String> = serde_json::from_value(snapshot["mime"].clone())?;
         let path: PathBuf = snapshot.get("path").cloned().map(serde_json::from_value).transpose()?.unwrap_or_else(|| self.mime_path());
@@ -481,7 +490,6 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn forward(&self, previous: &Previous, url: &str) -> Result<()> {
-        crate::nexus::require_enabled()?;
         if super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
         let Previous::Desktop { id } = previous else { return Err(Error::new(ErrorCode::Unsupported, "not a desktop entry")) };
         let file = self.find_desktop(id).ok_or_else(|| Error::not_found(format!("{id} is gone")))?;
@@ -634,11 +642,16 @@ pub mod win {
             Ok(Self::command_of(HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes\nxm").filter(|c| !ours(c)).map(|c| Previous::Command { command: c, icon: None, scope: "hklm".into() }))
         }
         fn is_ours(&self) -> bool {
-        if !crate::nexus::enabled() { return false }
             Self::command_of(HKEY_CURRENT_USER, KEY).is_some_and(|c| c.contains("--nxm") && c.to_lowercase().contains(&Self::exe_lower()))
         }
+        fn is_kiln_registration(&self) -> bool {
+            // Kiln's own command line: `"<...>kiln-launcher.exe" --nxm "%1"`, wherever the launcher lives now.
+            Self::command_of(HKEY_CURRENT_USER, KEY).is_some_and(|c| {
+                let c = c.to_lowercase();
+                c.contains("--nxm") && c.contains("kiln-launcher")
+            })
+        }
         fn matches_registered(&self, exe: Option<&str>) -> bool {
-        if !crate::nexus::enabled() { return false }
             let Some(exe) = exe else { return self.is_ours() };
             let expected = format!("\"{exe}\" --nxm \"%1\"");
             Self::command_of(HKEY_CURRENT_USER, KEY).is_some_and(|c| c.eq_ignore_ascii_case(&expected))
@@ -661,7 +674,6 @@ pub mod win {
             Ok(Some(serde_json::to_value(values)?))
         }
         fn restore_snapshot(&self, previous: Option<&Previous>, snapshot: Option<&serde_json::Value>) -> Result<()> {
-        crate::nexus::require_enabled()?;
             let Some(snapshot) = snapshot else { return self.restore(previous) };
             let values: Vec<SavedValue> = serde_json::from_value(snapshot.clone())?;
             if values.iter().any(|v| !nxm_registry_slot(&v.key, v.name.as_deref())) {
@@ -690,7 +702,6 @@ pub mod win {
             Ok(())
         }
         fn restore(&self, previous: Option<&Previous>) -> Result<()> {
-        crate::nexus::require_enabled()?;
             match previous {
                 Some(Previous::Command { command, icon, scope }) if scope == "hkcu" => {
                     set(HKEY_CURRENT_USER, &format!(r"{KEY}\shell\open\command"), None, command)?;
@@ -711,7 +722,6 @@ pub mod win {
             }
         }
         fn forward(&self, previous: &Previous, url: &str) -> Result<()> {
-        crate::nexus::require_enabled()?;
             use std::os::windows::process::CommandExt;
             if super::super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
             let Previous::Command { command, .. } = previous else { return Err(Error::new(ErrorCode::Unsupported, "not a command")) };
@@ -738,7 +748,12 @@ pub struct Instance {
 
 /// Makes a private state directory, refusing symbolic links and directories owned by another account.
 pub fn private_dir(path: &Path) -> Result<()> {
-        crate::nexus::require_enabled()?;
+    crate::nexus::require_enabled()?;
+    private_dir_inner(path)
+}
+
+/// [`private_dir`] without the Nexus switch: only for the folders an older build already made ([`retire_leftover`]).
+fn private_dir_inner(path: &Path) -> Result<()> {
     if !path.exists() {
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
@@ -813,7 +828,7 @@ fn secure_windows_dir(path: &Path) -> Result<()> {
 }
 
 fn open_lock(root: &Path, name: &str) -> Result<std::fs::File> {
-    private_dir(root)?;
+    private_dir_inner(root)?;
     let p = root.join(name);
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).truncate(false).write(true);
@@ -835,7 +850,11 @@ fn open_lock(root: &Path, name: &str) -> Result<std::fs::File> {
 
 /// Serializes a state read/modify/write operation across launcher processes.
 pub fn lock_state(root: &Path, name: &str) -> Result<Instance> {
-        crate::nexus::require_enabled()?;
+    crate::nexus::require_enabled()?;
+    lock_state_inner(root, name)
+}
+
+fn lock_state_inner(root: &Path, name: &str) -> Result<Instance> {
     if name.contains(['/', '\\']) || name == "." || name == ".." { return Err(Error::invalid("invalid lock name")); }
     let f = open_lock(root, name)?;
     f.lock()?;
@@ -908,6 +927,61 @@ pub fn take_links(root: &Path) -> Vec<String> {
         let _ = std::fs::remove_file(&path);
     }
     out
+}
+
+// ---------------------------------------------------------------- a registration an older build left behind
+
+/// What [`retire_leftover`] did with an nxm registration an older build (dev.19) made, in a build with Nexus off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Leftover {
+    /// Kiln recorded no registration, or already gave the links back.
+    Nothing,
+    /// Kiln was still the system's nxm handler. The handler before it is back (`previous`; None: there was none, and
+    /// the system has no nxm handler now, as before Kiln).
+    GivenBack { previous: Option<Previous> },
+    /// Another program has the links since. Kiln dropped only its own record and changed nothing in the system.
+    Forgotten,
+}
+
+/// Gives back the nxm registration an older Kiln made, when this build has Nexus off: with the option on in dev.19, the
+/// links would otherwise keep going to a launcher that no longer takes them. Only Kiln's own registration is undone:
+/// when the system's nxm handler is Kiln's (this launcher or a moved one), the association before Kiln is restored
+/// exactly as `unregister` does it (the snapshot from `register`, else the recorded previous handler); when another
+/// manager has the links, only Kiln's record is dropped. Without a record (`handler.json`), nothing is read or created.
+/// A failed restore keeps the record, so the next start tries again.
+pub fn retire_leftover(root: &Path, p: &dyn HandlerPlatform) -> Result<Leftover> {
+    if !state_path(root).is_file() { return Ok(Leftover::Nothing); }
+    let _lock = lock_state_inner(root, "handler.lock")?;
+    let s = read_state(root)?;
+    if !s.registered { return Ok(Leftover::Nothing); }
+    let ours = p.matches_registered(s.exe.as_deref()) || p.is_kiln_registration();
+    let outcome = if ours {
+        p.restore_snapshot(s.previous.as_ref(), s.snapshot.as_ref())?;
+        Leftover::GivenBack { previous: s.previous.clone() }
+    } else {
+        Leftover::Forgotten
+    };
+    let file = state_path(root);
+    match std::fs::remove_file(&file) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(crate::util::io_at(&file, "removing")(e)),
+    }
+    Ok(outcome)
+}
+
+/// The handler Kiln recorded before its own registration (for a link that still reaches Kiln when giving the links back
+/// failed). Reads `handler.json` only.
+pub fn recorded_previous(root: &Path) -> Option<Previous> {
+    if !state_path(root).is_file() { return None; }
+    read_state(root).ok().filter(|s| s.registered).and_then(|s| s.previous)
+}
+
+/// Hands one link to the handler before Kiln, in a build with Nexus off (any game's link). Returns its name.
+pub fn forward_to_previous(p: &dyn HandlerPlatform, previous: &Previous, url: &str) -> Result<String> {
+    if super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
+    p.forward(previous, url)?;
+    Ok(previous.label())
 }
 
 #[cfg(test)]

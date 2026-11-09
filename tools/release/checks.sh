@@ -162,6 +162,17 @@ check_start_ubuntu() { # the Linux files on a clean Ubuntu 22.04 (start-test.sh:
   "$here/linux-build/start-test.sh" "$out" --distro ubuntu22 --distribution "$dist" --out "$ck/start-ubuntu22$suffix" --wait 5
 }
 
+# The tripwire tests of a build with Nexus off return at once in a build with Nexus on, so a plain cargo test checks
+# nothing of them. A release built with KILN_NEXUS_ENABLED=0 runs them compiled that way (own target folders under
+# the release's cargo folder). A release with Nexus on has no disabled build to test.
+check_disabled_nexus_tests() {
+  if [[ ${KILN_NEXUS_ENABLED:-1} != 0 ]]; then
+    echo "Nexus is on in this release: the disabled-build tests do not apply"
+    return 0
+  fi
+  (cd "$src" && linux "$src/tools/test-nexus-disabled.sh")
+}
+
 check_template() {
   local d=$ck/template
   rm -rf "$d" && mkdir -p "$d"
@@ -235,6 +246,8 @@ run_checks() {
     check_start_ubuntu
   check "Nexus AppImage starts on a clean Ubuntu 22.04 (distribution nexus; screenshot in checks/start-ubuntu22-nexus)" \
     check_start_ubuntu nexus
+  check "the disabled-Nexus tripwire tests run with KILN_NEXUS_ENABLED=0 and pass (skipped when the release has Nexus on)" \
+    check_disabled_nexus_tests
   check "dotnet new kiln-mod from the packed templates builds against the packed SDK (local feed)" check_template
   check "the vsix lists its files" check_vsix
   if ((signing)); then check "Authenticode signatures verify" check_authenticode; fi

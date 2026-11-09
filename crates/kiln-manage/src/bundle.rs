@@ -141,8 +141,15 @@ pub fn sides(m: &RuntimeManifest) -> Vec<RunSide> {
     v
 }
 
+/// Windows drops trailing dots and spaces from a file name: `".. "` and `"..."` open the parent folder, `"a."` and
+/// `"a "` open `a`. A component like that names a different file there than it does in the archive.
+pub fn windows_would_rename(component: &str) -> bool {
+    component.ends_with(['.', ' '])
+}
+
 /// A zip entry name or manifest path that is safe to join to a folder (zip-slip guard): relative, '/' separated, no
-/// empty, `.` or `..` component, no backslash, drive letter, NUL or control character. Returns it unchanged.
+/// empty, `.` or `..` component, no component that ends in a dot or a space (Windows normalises those to another
+/// name, `".. "` to `..`), no backslash, drive letter, NUL or control character. Returns it unchanged.
 pub fn safe_rel_path(name: &str) -> Result<&str> {
     let bad = |why: &str| Err(Error::new(ErrorCode::Refused, format!("unsafe path {name:?} in the bundle: {why}")));
     if name.is_empty() {
@@ -160,6 +167,9 @@ pub fn safe_rel_path(name: &str) -> Result<&str> {
     for part in name.split('/') {
         if part.is_empty() || part == "." || part == ".." {
             return bad("empty, . or .. component");
+        }
+        if windows_would_rename(part) {
+            return bad("a name ending in a dot or a space (Windows would turn it into another name)");
         }
     }
     Ok(name)
