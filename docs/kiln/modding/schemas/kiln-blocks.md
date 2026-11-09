@@ -306,6 +306,7 @@ A bed: the game's sleep and rest. Starts from the game's wooden bed; visual.like
 | `name` | string | yes | min length 1 |
 | `onInteract` | [interactionRef](#interactionref) |  | What happens when a player uses it. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `skipsNight` | boolean |  | When every player in the world sleeps at night in such beds, the morning comes. Kiln's, on the server. |
 | `spawnPoint` | boolean |  | A player who dies comes back at the last of these beds they slept in. Kiln's, on the server. |
@@ -454,12 +455,15 @@ Something that holds items. Starts from the game's small chest; visual.like name
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `comfort` | [ref](#ref) or [comfort](#comfort) |  |  |
+| `defaultLoot` | [ref](#ref) or [lootTable](#loottable) |  | What it holds when it is placed: a lootTables block by name, or a table written here. Kiln rolls it on the server and gives the stacks into the container once for each container it finds (after a restart, or placed again on the same spot, it is not filled again). A container a player can make is filled at each new spot. |
 | `description` | string |  |  |
+| `lid` | object |  | How its lid moves: the game's toggle animation. A client sight. A field left out is the starter's. |
 | `light` | [vfx](#vfx) |  | A VFX on it for as long as it stands: where the game's lamps have their light. |
 | `loot` | [loot](#loot) |  |  |
 | `name` | string | yes | min length 1 |
 | `onInteract` | [interactionRef](#interactionref) |  | What happens when a player uses it. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `slots` | integer |  | Inventory slots. Default: the starter's. min 1 max 120 |
 | `tweak` | [tweak](#tweak) |  |  |
@@ -615,8 +619,11 @@ A door. Starts from the game's wooden door; visual.like names another.
 | `loot` | [loot](#loot) |  |  |
 | `name` | string | yes | min length 1 |
 | `onInteract` | [interactionRef](#interactionref) |  | What happens when a player uses it. |
+| `opens` | `"both"` \| `"front"` \| `"back"` |  | Which way it swings. both: away from whoever uses it, as the game's wooden door. front or back: always that way, whichever side the player stands on. A client sight; the angle is in the animation. Default: the starter's. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
+| `sides` | `"both"` \| `"front"` \| `"back"` |  | Which side a player can use it from (default both). A player on the other side is declined, as Kiln's other checks decline. Kiln's, on the server. |
 | `tweak` | [tweak](#tweak) |  |  |
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
 | `visual` | [visualRef](#visualref) |  | Its look: like (a game item that places something: model, collision and how it places), or model (item:<name>, or the GUID of a model your assets/assets.json serves). |
@@ -954,6 +961,7 @@ Something placed that stands there: furniture, a banner, a lamp.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `collider` | object |  | What a player bumps into and hits stop at: one box, in metres. Default with a glTF model: the box around the model. Only with a model of yours. |
+| `colliders` | array of object |  | Several boxes in place of one, all solid, together one shape in the template: a table's top and legs, a doorway's two posts. The same rules as collider. The box the cursor checks for room stays one: the box around them all. min items 1 max items 16 |
 | `comfort` | [ref](#ref) or [comfort](#comfort) |  |  |
 | `description` | string |  |  |
 | `light` | [vfx](#vfx) |  | A VFX on it for as long as it stands: where the game's lamps have their light. |
@@ -961,6 +969,7 @@ Something placed that stands there: furniture, a banner, a lamp.
 | `name` | string | yes | min length 1 |
 | `onInteract` | [interactionRef](#interactionref) |  | What happens when a player uses it. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `tweak` | [tweak](#tweak) |  |  |
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
@@ -1169,6 +1178,7 @@ How something is crafted.
 | `comfort` | integer |  | The comfort level it asks of whoever makes it. min 0 |
 | `makes` | integer |  | How many one craft gives. For a spell: charges. min 1 max 65535 |
 | `needs` | object |  | Item -> count: a game item, an item of this mod by its block name, or "other-mod:name". |
+| `needsProps` | array of string |  | Props that have to stand near a manual station: blocks with provides, by name ("other-mod:name" for another mod's). The game's automated factory path has no nearby-prop context, so factory block recipes refuse this field. max items 8 |
 | `output` | [itemRef](#itemref) |  | What it makes: in a station's list of recipes, and in a recipes block of its own, where it is needed. Elsewhere a recipe makes the block it is on. |
 | `seconds` | number |  | Seconds at a station that works on its own. Needed at one with a workshop of its own. |
 | `sheltered` | boolean |  | A player crafts it only under a roof. A station that works on its own never checks a roof, so its recipes refuse it. |
@@ -1254,6 +1264,7 @@ A seat: the game's sitting. Starts from the game's wooden chair; visual.like nam
 | `name` | string | yes | min length 1 |
 | `onInteract` | [interactionRef](#interactionref) |  | What happens when a player uses it. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `sits` | [spot](#spot) |  | Where the player sits. Default: the starter's spot. |
 | `tweak` | [tweak](#tweak) |  |  |
@@ -1329,6 +1340,7 @@ A station a player builds: a prop that makes things. With processing it works on
 | `ownWorkshop` | boolean |  | A workshop of its own, which decides which recipes it runs. Default: yes for a kind that works on its own, with processing or recipes. |
 | `placement` | [ref](#ref) or [placement](#placement) |  |  |
 | `processing` | [ref](#ref) or [processing](#processing) |  |  |
+| `provides` | boolean |  | A recipe elsewhere can ask for it nearby (needsProps). It takes one of the game's 13 free places for crafting props, in every game that has the mod; a prop of code is there from the second start. Needs "clients": "mod". |
 | `recipe` | [recipe](#recipe) |  | How the item that places it is made. |
 | `recipes` | array of [recipe](#recipe) |  | What it makes, each with output. |
 | `tweak` | [tweak](#tweak) |  |  |

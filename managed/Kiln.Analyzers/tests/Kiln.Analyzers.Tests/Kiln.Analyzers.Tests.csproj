@@ -29,5 +29,6 @@
   <ItemGroup>
     <!-- what the KilnManifest task works out from a mod's data files, against Kiln.Blocks' block types (DataClientsTests) -->
     <Compile Include="../../../Kiln.Sdk/DataClients.cs" Link="Shared/DataClients.cs" />
+    <Compile Include="../../tools/ApiScan/ProjectSources.cs" Link="Shared/ApiScanProjectSources.cs" />
   </ItemGroup>
 </Project>

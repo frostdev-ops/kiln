@@ -12,6 +12,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Kiln.Analyzers.Tools;
 
 var opts = new Dictionary<string, string>();
 for (var i = 0; i + 1 < args.Length; i += 2) opts[args[i].TrimStart('-')] = args[i + 1];
@@ -49,13 +50,12 @@ var errors = 0;
 
 // Two passes: the second sees the first's completed-task members of other assemblies (Kiln.Creatures awaits Kiln.Spawn).
 var completedAnywhere = new HashSet<string>(StringComparer.Ordinal);
+var projectFiles = projects.ToDictionary(p => p.Name,
+    p => ApiScanProjectSources.Read(Path.Combine(p.Dir, p.Name + ".csproj")), StringComparer.Ordinal);
 for (var pass = 0; pass < 2; pass++)
 foreach (var (name, dir) in projects)
 {
-    var files = Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories)
-        .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
-                    !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-        .OrderBy(f => f, StringComparer.Ordinal).ToList();
+    var files = projectFiles[name];
     var trees = files.Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f)).ToList();
     trees.Add(CSharpSyntaxTree.ParseText(implicitUsings, parse, "ImplicitUsings.g.cs"));
     var refs = frameworkRefs.Concat(stageDlls
@@ -213,6 +213,11 @@ sb.AppendLine("    {");
 foreach (var s in services) sb.AppendLine($"        \"{s}\",");
 sb.AppendLine("    };");
 sb.AppendLine("}");
+if (errors > 0)
+{
+    Console.Error.WriteLine($"apiscan: refusing to replace {outFile}: {errors} compile errors while scanning");
+    return 1;
+}
 File.WriteAllText(outFile, sb.ToString().Replace("\r\n", "\n"));
 Console.WriteLine($"apiscan: {tick.Count} tick-thread, {advanced.Count} advanced, {completed.Count} completed-task members, {services.Count} services -> {outFile}" +
                   (errors > 0 ? $" ({errors} compile errors while scanning)" : ""));
