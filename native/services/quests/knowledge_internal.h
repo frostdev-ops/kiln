@@ -73,6 +73,12 @@ void native_pack_ready();     // on_ready: the resource service may be up alread
 std::string native_pack_manifest();
 bool native_pack_resolve(const std::string& lower_name, uint32_t* id);  // "<mod>:<name>" (lower case)
 
+// The Mother Flame's level (flame.cpp): the service functions and the program's registration (on_ready).
+KilnResult KILN_CALL flame_status(KilnFlameStatus* out);
+KilnResult KILN_CALL flame_set(KilnOwner owner, uint32_t level, uint64_t* out_request);
+KilnResult KILN_CALL flame_result(uint64_t request, KilnFlameResult* out);
+void flame_ready();
+
 // NpcRegistry unlock state (quests.npc): bit i = npc i unlocked; false when unreadable.
 bool npc_unlock_mask(uint64_t* mask, uint16_t* version);
 

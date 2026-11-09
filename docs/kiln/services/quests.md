@@ -71,6 +71,7 @@ await Quests.Advance(q.FullId, who, "turnin");            // finishes the step; 
 | Member | Threads | Notes |
 |---|---|---|
 | `Quests.Define`, `DefineNpc`, `Dialogues.Define` | any, normally `OnLoad` | as the calling mod's; go away when it unloads; invalid definitions throw `ArgumentException` |
+| `Blocks.Define(name, QuestBlock)`, `Blocks.Define(name, DialogueBlock)` | `OnLoad`, or the data pass | the same definitions as typed blocks, or the `quests` and `dialogues` sections of `blocks/*.json`; the handles hold what `Quests.Define` and `Dialogues.Define` took: [modding/quests.md](../modding/quests.md) "Quests as blocks" |
 | `Quests.Definitions`, `NpcDefinitions`, `Find(id)` | any | by full id, or by own id when only one mod has it |
 | `Quests.Reload()` | tick | reads `quests/*.json` of every loaded mod again; keeps what code defined and all states |
 | `Quests.Start`, `Complete`, `Fail`, `Abandon`, `Reset`, `SetStep` | tick | `QuestResult`; `force` on `Start` skips the requirements |

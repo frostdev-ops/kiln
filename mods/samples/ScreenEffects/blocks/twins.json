@@ -1,0 +1,27 @@
+{
+  // The sample's C# in data: each block here makes what the C# one with the name before "-json" does (ScreenEffectsMod.cs).
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "screenEffects": {
+    "cold-json": { "temperature": -0.6, "saturation": 0.7, "vignette": { "color": "#10243a", "amount": 0.6 }, "fadeIn": 1, "fadeOut": 1 },
+    "flash-json": { "fill": "#ffffff", "seconds": 0.2, "fadeOut": 1.5 }
+  },
+  "statuses": {
+    "frozen-json": { "name": "Frozen", "description": "Slow, and the world goes pale.", "seconds": 10, "modifies": { "move-speed": -0.4 }, "screen": "cold-json" },
+    "bleed-json": {
+      "name": "Bleeding", "seconds": 6, "tickEvery": 2,
+      "onTick": [ { "damage": { "pierce": 3 }, "flinch": "none", "screen": { "tint": "#ff2020", "seconds": 0.3, "fadeOut": 0.5 } } ]
+    }
+  },
+  "spells": {
+    "flash-frost-json": {
+      "name": "Flash Frost", "description": "Lands with a blinding flash, and freezes.",
+      "cast": { "manaCost": 25 },
+      "delivery": {
+        "type": "projectile", "speed": 30,
+        "onImpact": [ { "screen": "flash-json", "area": { "radius": 4, "effects": [ { "damage": { "ice": 15 }, "applies": "frozen-json" } ] } } ]
+      },
+      "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 2 } }
+    }
+  }
+}

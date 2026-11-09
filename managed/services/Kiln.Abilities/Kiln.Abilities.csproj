@@ -12,6 +12,8 @@
     <NoWarn>$(NoWarn);CS1591;CA2255;CS0419;CS1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- a button or a key of a UI block asks the server to cast, as an ability's own key does -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />

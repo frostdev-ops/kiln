@@ -5,9 +5,9 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Question | Page |
 |---|---|
 | Start a project | `first-mod`, `dev-kit` |
-| Make a spell, a status, an effect, an item or a weapon | `blocks`, `item-blocks` |
+| Make a spell, a status, an effect, an item or a weapon | `blocks`, `new-items` |
 | Make a prop, a station that works on its own (a forge, a drying rack), comfort | `world-blocks` |
-| A cosmetic, a hat, a cape: a model worn on the body | `cosmetics`, `models` |
+| A cosmetic, a hat, a cape: a model worn on the body | `blocks`, `models` |
 | The `kiln` command | `cli` |
 | Manifest, sides, `clients`, version ranges | `manifest` |
 | Events, configs, commands, saved data, other mods | `code-mods` |
@@ -19,6 +19,8 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Game ids | `catalogs` |
 | Items, recipes, loot, drops | `data-packs` |
 | New items | `new-items` |
+| Move gear with its state; quick-stack rules; chest names | `inventory` |
+| Boot ECS declarations, worker callbacks, other-entity writes | `world-programs` |
 | Spells, creatures, attacks as data; clones | `game-data` |
 | One creature, variants, spawn rules, guard | `creatures` |
 | Scripted abilities, per-cast tweaks, buffs | `abilities` |
@@ -28,18 +30,18 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Quests, conversations | `quests` |
 | Placed and new NPCs, the game's journal and menus | `npcs` |
 | Sounds, music, voice | `sounds` |
-| Particles, lights, the game's VFX: [vfx.md](vfx.md) | `vfx` |
+| Particles, lights, the game's VFX: [vfx.md](vfx.md) | `blocks`, `shaders` |
 | Icons, retextures, resources | `assets` |
 | 3D models | `models` |
-| New surfaces for models from PNGs and numbers | `materials` |
+| New surfaces for models from PNGs and numbers | `blocks`, `shaders` |
 | Terrain, props, schematics, zones | `world-edits` |
-| Menus, screens, crafting tabs, HUD, keys | `game-ui` |
+| Menus, screens, crafting tabs, HUD, keys | `game-ui`; data blocks: `ui-blocks` |
 | Network channels, synced configs, client code | `multiplayer` |
 | Forge concepts | `forge` |
 | What works today | `status` |
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
 ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,
-NetSample, Claims.
+NetSample, Claims. dev.20+: UiBlocks, WorldPrograms and the block templates in [setup.md](setup.md).
 
 Kiln's reverse-engineering notes are for its own developers. Mods never need them. Don't copy addresses or offsets into mod code.

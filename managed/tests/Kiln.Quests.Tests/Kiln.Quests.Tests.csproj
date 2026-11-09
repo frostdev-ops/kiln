@@ -5,6 +5,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- not Kiln.Quests.*: a namespace of that name would hide the Quests class -->
     <RootNamespace>Kiln.QuestTests</RootNamespace>

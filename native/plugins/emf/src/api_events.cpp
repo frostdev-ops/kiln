@@ -7,8 +7,8 @@
 //    one kiln.combat uses (constants combat/evq.*; EMF docs/engine_parts/re_events.md).
 //  - programs: the mod's fn(program_context, user) runs inside kiln.world's SYSTEM program on a game worker thread;
 //    program_singleton / program_read_other use kiln.world's iterator slots; emit_event uses the game's own emitter
-//    on the job in the events-out slot (as kiln.gameplay does). read_events with more than one event type and
-//    program_write_other are not available (kiln.world v1 resolves one events-in queue and has no other-entity writes).
+//    on the job in the events-out slot (as kiln.gameplay does). kiln.world v2 resolves every events-in slot and
+//    exposes tracked other-entity writes using the original program descriptor and its job tracker.
 // Everything is registered in on_ready, after every emf_mod_load, before the server world sets up its programs.
 #include <intrin.h>
 
@@ -36,7 +36,7 @@ struct EventType {
     KilnHandle program = 0;
     int32_t slot = -1;
     uint32_t stride = 0;     // 0 until the first update read the reflected size
-    bool broken = false;     // size unknown / not a multiple of 8 / queue walk faulted
+    bool broken = false;     // size unknown / out of bounds / queue walk faulted
     std::vector<std::unique_ptr<EventReg>> regs;
     std::mutex mu;
     std::vector<uint8_t> buffer;  // copies of this step's events, stride bytes each
@@ -99,8 +99,8 @@ void KILN_CALL event_each(KilnProgramCtx*, uint64_t* iter, KilnEntity, void* use
             return;
         }
         const uint32_t size = real ? real : expected;
-        if (size % 8 != 0 || size >= 0x800) {
-            logf(KILN_LOG_WARN, "event %s: %u bytes is not a multiple of 8: its queue layout is not confirmed, not delivered",
+        if (size == 0 || size >= 0x800) {
+            logf(KILN_LOG_WARN, "event %s: %u bytes exceeds the supported event size, not delivered",
                  t->name.c_str(), size);
             t->broken = true;
             return;
@@ -255,8 +255,8 @@ bool add_program(Mod* m, const char* name, uint8_t kind, EmfProgramCallback fn, 
         }
         if (def->size >= offsetof(EmfProgramDef, other_write) + sizeof(def->other_write)) p->other_write = list(def->other_write, 16);
         if (p->events_in.size() + p->events_out.size() > 24) return refuse(m, fnname, "more than 24 events"), false;
-        if (!p->other_write.empty())
-            unsupported(m, "program_write_other (other_write)", "kiln.world v1 has no other-entity writes");
+        if (!p->other_write.empty() && (S.world->header.size < offsetof(KilnWorldApi, write_other) + sizeof(S.world->write_other) || !S.world->write_other))
+            return unsupported(m, "program_write_other", "kiln.world tracked writes are unavailable"), false;
     }
     g_progs.push_back(std::move(p));
     return true;
@@ -312,16 +312,13 @@ uint32_t api_read_events(void* ctx, const char* name, uint32_t expected, EmfEven
     if (!name || !cb || !in_program(ctx, "read_events", &m)) return 0;
     const int32_t slot = S.world->program_slot(t_prog.prog->handle, KILN_SLOT_EVENT_IN, kstr(name));
     if (slot < 0) {
-        if (t_prog.prog->events_in.size() > 1)
-            unsupported(m, "read_events with several events_in", "kiln.world resolves the queue only for one event type");
-        else
-            refuse(m, "read_events", "not declared in events_in", true);
+        refuse(m, "read_events", "not declared in events_in", true);
         return 0;
     }
     const uint32_t size = type_size(fnv1a("keen::ecs::" + std::string(name)));
     const uint32_t stride = size ? size : expected;
-    if (!stride || stride % 8 || (expected && size && expected != size)) {
-        refuse(m, "read_events", "size mismatch or a size that is not a multiple of 8", true);
+    if (!stride || stride >= 0x800 || (expected && size && expected != size)) {
+        refuse(m, "read_events", "size mismatch or an event size outside 1..2047", true);
         return 0;
     }
     std::vector<uint8_t> buf;
@@ -401,9 +398,18 @@ void* api_emit_event(void* ctx, const char* name, uint32_t expected) {
     return c.out;
 }
 
-void* api_program_write_other(void*, const char*, uint32_t, uint32_t) {
-    unsupported(caller_mod(_ReturnAddress()), "program_write_other", "kiln.world v1 has no other-entity writes");
-    return nullptr;
+void* api_program_write_other(void* ctx, const char* component, uint32_t entity, uint32_t expected) {
+    Mod* m;
+    if (!component || !in_program(ctx, "program_write_other", &m)) return nullptr;
+    if (S.world->header.size < offsetof(KilnWorldApi, write_other) + sizeof(S.world->write_other) || !S.world->write_other)
+        return unsupported(m, "program_write_other", "kiln.world tracked writes are unavailable"), nullptr;
+    const int32_t slot = S.world->program_slot(t_prog.prog->handle, KILN_SLOT_OTHER_WRITE, kstr(component));
+    if (slot < 0) return refuse(m, "program_write_other", "not declared in EmfProgramDef.other_write", true), nullptr;
+    uint32_t size = 0;
+    void* data = S.world->write_other(t_prog.ctx, t_prog.iter[slot], entity, &size);
+    if (data && expected && size != expected)
+        return refuse(m, "program_write_other", "component size mismatch", true), nullptr;
+    return data;
 }
 
 std::vector<KilnStr> kstrs(const std::vector<std::string>& v) {
@@ -463,7 +469,7 @@ void events_on_ready() {
     std::lock_guard plock(g_prog_mutex);
     for (auto& p : g_progs) {
         const auto ein = kstrs(p->events_in), eout = kstrs(p->events_out), sg = kstrs(p->singletons),
-                   orr = kstrs(p->other_read);
+                   orr = kstrs(p->other_read), owr = kstrs(p->other_write);
         KilnProgramDesc d{};
         d.size = sizeof d;
         d.flags = KILN_PROGRAM_SYSTEM | KILN_PROGRAM_HOST_ONLY;
@@ -474,6 +480,7 @@ void events_on_ready() {
         d.events_out = KilnNames{eout.data(), static_cast<uint32_t>(eout.size()), 0};
         d.singletons_read = KilnNames{sg.data(), static_cast<uint32_t>(sg.size()), 0};
         d.other_read = KilnNames{orr.data(), static_cast<uint32_t>(orr.size()), 0};
+        d.other_write = KilnNames{owr.data(), static_cast<uint32_t>(owr.size()), 0};
         if (S.world->register_program(p->mod ? p->mod->owner : g_owner, &d, &p->handle) != KILN_OK) {
             refuse(p->mod, "register_program", ("kiln.world refused program " + p->name).c_str());
             p->dead = true;
@@ -532,6 +539,23 @@ void events_world_stopping() {
         std::lock_guard queue_lock(t->mu);
         t->buffer.clear();
     }
+}
+
+void events_shutdown() {
+    const bool can_remove = S.world && S.world->header.size >= offsetof(KilnWorldApi,unregister_program)+sizeof(S.world->unregister_program)
+        && S.world->unregister_program;
+    bool drained = can_remove;
+    { std::lock_guard lock(g_prog_mutex);
+      for (auto& program : g_progs) {
+          program->dead = true;
+          if (program->handle && (!can_remove || S.world->unregister_program(program->handle) != KILN_OK)) drained=false;
+      } }
+    { std::lock_guard lock(g_ev_mutex);
+      for (auto& [name,event] : g_events) {
+          for (auto& registration : event->regs) registration->dead=true;
+          if (event->program && (!can_remove || S.world->unregister_program(event->program) != KILN_OK)) drained=false;
+      } }
+    if (!drained) keep_adapter_mapped();
 }
 
 void fill_events(EmfApi* t) {

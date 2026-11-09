@@ -1,19 +1,47 @@
 {
   "$schema": "../../../../schema/kiln-blocks.schema.json",
   "format": 1,
+  "lootTables": {
+    "scrap-pile-json": { "entries": [ { "item": "Material_T1_Metal_Scraps", "countMin": 3 }, { "item": "Material_T1_Twigs", "countMin": 2 } ] }
+  },
   "containers": {
     "lockbox-json": {
       "name": "Lockbox", "description": "Opens for whoever carries scrap.",
       "slots": 8,
       "onInteract": { "requires": { "item": "Material_T1_Metal_Scraps" } },
       "recipe": { "needs": { "Material_T1_Wood_Logs": 4, "Material_T1_Metal_Scraps": 1 } }
-    }
+    },
+    "supply-cache-json": { "name": "Supply Cache", "description": "Packed before you came.", "defaultLoot": "scrap-pile-json" },
+    "barrel-json": { "name": "Barrel", "lid": { "moves": false } }
   },
   "doors": {
     "night-door-json": {
       "name": "Night Door",
       "onInteract": { "requires": { "time": "night" } },
       "recipe": { "needs": { "Material_T1_Wood_Logs": 6 } }
+    },
+    "one-way-door-json": { "name": "One Way Door", "opens": "front", "sides": "front" }
+  },
+  "props": {
+    "trestle-json": {
+      "name": "Trestle Table",
+      "visual": { "model": "item:Prop_Decoration_Comfort1_T0_Table_Medium" },
+      "colliders": [
+        { "size": [2, 0.15, 1], "center": [0, 0.9, 0] },
+        { "size": [0.15, 0.85, 0.8], "center": [-0.85, 0.425, 0] },
+        { "size": [0.15, 0.85, 0.8], "center": [0.85, 0.425, 0] }
+      ]
+    },
+    "rune-table-json": {
+      "name": "Rune Table", "visual": { "like": "Prop_Decoration_Comfort1_T0_Table_Medium" },
+      "provides": true,
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 4 } }
+    }
+  },
+  "stations": {
+    "rune-bench-json": {
+      "name": "Rune Workbench", "kind": "workbench",
+      "recipes": [ { "needs": { "Material_T1_Twigs": 2 }, "output": "Material_T1_Wood_Logs", "needsProps": ["rune-table-json"] } ]
     }
   },
   "beds": {

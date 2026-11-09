@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.Creature",
   "groupIdentity": "Kiln.Templates.Creature",
   "name": "Kiln creature",
-  "description": "A new creature: a template clone with its own level, size and senses (kiln.gamedata), a spawn rule that replaces a share of natural spawns (kiln.creatures), and an admin spawn command.",
+  "description": "A new creature: a template clone with its own level, size and senses (kiln.gamedata), a spawn rule that replaces a share of natural spawns (kiln.creatures), and an admin spawn command. Advanced: a content-pack clone. For a creature from blocks (body, AI, behaviour, drops) start with kiln-creature-blocks.",
   "shortName": "kiln-creature",
   "sourceName": "KilnCreature1",
   "preferNameDirectory": true,

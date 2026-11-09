@@ -236,6 +236,8 @@ void KILN_CALL on_ready(void*) {
 
 void KILN_CALL on_unload(void*) {
     net_shutdown();
+    events_shutdown();
+    program_hooks_shutdown();
     components_world_stopping();
     windows_shutdown();
     write_status();

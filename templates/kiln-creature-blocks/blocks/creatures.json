@@ -1,0 +1,39 @@
+{
+  // A creature from parts: the game's Vukah body, a tuned AI, a behaviour that keeps the Vukah's attacks and adds a rule,
+  // a loot table it drops, and where it spawns. Each part is a block of its own, so other creatures can name it.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "ais": {
+    // starts from the Vukah's tuning ("like"); only what is written changes
+    "keen-eyes": { "like": "vukah", "sight": 30, "sightAngle": 80, "aggro": 8, "faction": "Vukah" }
+  },
+  "behaviours": {
+    "cornered": {
+      "like": "vukah-melee",
+      "phases": [ "enraged" ],
+      "rules": [
+        { "name": "rally", "every": 1, "cooldown": 20, "when": [ { "healthBelow": 0.5 } ], "do": [ { "setPhase": "enraged" }, { "effect": { "heal": 60 }, "on": "self" } ] }
+      ]
+    }
+  },
+  "lootTables": {
+    "scout-pouch": {
+      "entries": [
+        { "item": "Material_T1_Metal_Scraps", "countMin": 1, "countMax": 3 },
+        { "item": "Material_T1_Twigs", "countMin": 2, "countMax": 5, "chance": 0.5 }
+      ]
+    }
+  },
+  "creatures": {
+    "vukah-scout": {
+      "name": "Vukah Scout",
+      "body": "vukah",
+      "ai": "keen-eyes",
+      "behaviour": "cornered",
+      "stats": { "level": 8 },
+      "drops": "scout-pouch",
+      // one Vukah in ten at night is a scout instead
+      "spawns": [ { "replaces": "Enemy_Vukah_Melee", "chance": 0.1, "nightOnly": true } ]
+    }
+  }
+}

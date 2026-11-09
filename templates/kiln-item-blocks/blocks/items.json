@@ -1,0 +1,43 @@
+{
+  // Blocks as data: the same fields as in C#, in camelCase. A field that takes a block takes it inline, or by name
+  // (a name of this file, of the C# blocks, or a game item's). `kiln lint` checks this file against the schema.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "statuses": {
+    "well-fed": { "name": "Well Fed", "kind": "buff", "seconds": 600, "modifies": { "move-speed": 0.05 } }
+  },
+  "items": {
+    "dusk-shard": { "name": "Dusk Shard", "description": "Cool to the touch.", "stack": 100, "recipe": { "makes": 5, "needs": { "Material_T1_Twigs": 2 } } },
+    "dusk-pie": { "name": "Dusk Pie", "feeds": "well-fed", "recipe": { "needs": { "dusk-shard": 1, "Material_T1_Twigs": 2 } } },
+    "dusk-draught": { "name": "Dusk Draught", "heals": 100, "stack": 10, "recipe": { "makes": 2, "needs": { "dusk-shard": 1 } } }
+  },
+  "weapons": {
+    "dusk-sword": { "name": "Dusk Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "uncommon" }, "recipe": { "needs": { "dusk-shard": 4 } } }
+  },
+  "armor": {
+    "dusk-helm": { "name": "Dusk Helm", "slot": "head", "set": "warrior", "stats": { "level": 5, "physical": 16, "magical": 8, "rarity": "uncommon" }, "recipe": { "needs": { "dusk-shard": 3 } } }
+  },
+  "wands": {
+    "dusk-wand": {
+      "name": "Dusk Wand",
+      "stats": { "level": 5, "rarity": "uncommon" },
+      "primary": {
+        "cast": { "manaCost": 6 },
+        "delivery": { "type": "projectile", "speed": 40, "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 20 } } ] } } ] }
+      },
+      "recipe": { "needs": { "dusk-shard": 5 } }
+    }
+  },
+  "lootTables": {
+    "dusk-cache": {
+      "entries": [
+        { "item": "dusk-shard", "countMin": 2, "countMax": 4 },
+        { "item": "Material_T1_Metal_Scraps", "chance": 0.5 }
+      ]
+    }
+  },
+  "recipes": {
+    // "0x4da88f73" is the game's workbench (StationKind.Workbench.Workshop in C#)
+    "dusk-resin": { "output": "Material_T1_Resin", "makes": 2, "station": "0x4da88f73", "needs": { "dusk-shard": 1 } }
+  }
+}

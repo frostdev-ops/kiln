@@ -1,0 +1,15 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- A building material, its surface and a terrain material, as data (blocks/materials.json): in the game's tables from the first start. Every player needs the mod. Docs: docs/kiln/modding/world-blocks.md.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Then `kiln blocks show <name>` says what a block became, and `kiln lint` checks blocks/*.json. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnMaterial1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnMaterial1: building and terrain materials from blocks.</Description>
+    <KilnServices>Blocks</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,8 @@
+{
+  "id": "world-programs-test",
+  "name": "World programs v2 lab probe",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "WorldProgramsTest.dll",
+  "side": "server"
+}

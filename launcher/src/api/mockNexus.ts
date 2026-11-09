@@ -1,8 +1,8 @@
 // Mock answers for the nexus_* commands (browser mock mode; src/api/mock.ts registers them): a small Enshrouded
 // catalog on a fake Nexus Mods. The account comes from the URL:
-//   ?nexus=free (default)  a free account with a key: Add opens the file's page (Mod Manager Download)
+//   ?nexus=free (default)  a signed-in free account: Add opens the file's page (Mod Manager Download)
 //   ?nexus=premium         a premium account: Add downloads in the launcher
-//   ?nexus=nokey           no API key yet: every Enshrouded mod listed, Kiln mods need the key
+//   ?nexus=signedout       no authorization yet: every Enshrouded mod listed, Kiln mods need sign-in
 // Tests and the console: `__kilnNexusMock.nxm("nxm://enshrouded/mods/310/files/1001?key=k&expires=...")` sends a Mod
 // Manager Download link as the browser would; `__kilnNexusMock.state()` shows the account and the handler.
 import type { AddReport } from "./commands";
@@ -16,6 +16,9 @@ type StartTask = (kind: string, title: string, steps: string[], finish: () => un
 type QuickAdd = (gameId: string, paths: string[], makeIt: boolean) => AddReport;
 
 const MODE = typeof location !== "undefined" ? new URLSearchParams(location.search).get("nexus") ?? "free" : "free";
+export const NEXUS_MOCK_ENABLED = MODE !== "disabled";
+const SIGNED_OUT = ["signedout", "denied", "unconfigured", "storageerror"].includes(MODE);
+let authEpoch = 0;
 
 interface MockMod {
   id: string;
@@ -88,8 +91,8 @@ interface State {
 
 const st: State = {
   account: {
-    keySet: MODE !== "nokey", keyPlace: MODE === "nokey" ? null : "keyring", name: MODE === "nokey" ? null : "embervale_player", premium: MODE === "premium", error: null,
-    rate: { hourlyRemaining: 498, dailyRemaining: 19990, blockedFor: 0, calls: 0 }, keyPage: "https://www.nexusmods.com/settings/api-keys",
+    configured: NEXUS_MOCK_ENABLED && MODE !== "unconfigured", signedIn: !SIGNED_OUT, tokenPlace: SIGNED_OUT ? null : "keyring", name: SIGNED_OUT ? null : "embervale_player", premium: MODE === "premium", error: MODE === "storageerror" ? { code: "parse", message: "Nexus OAuth credential storage is invalid." } : null,
+    rate: { hourlyRemaining: 498, dailyRemaining: 19990, blockedFor: 0, calls: 0 },
   },
   handler: { supported: true, registered: false, active: false, previous: "Vortex" },
   installed: [{
@@ -104,7 +107,7 @@ const st: State = {
 const inst = (id: string) => st.installed.find((i) => i.modId === id)?.info ?? null;
 
 function toMod(m: MockMod): CatalogMod {
-  const known = st.account.keySet || m.kind === null ? m.kind : null;
+  const known = st.account.signedIn || m.kind === null ? m.kind : null;
   return {
     id: m.id, uid: `2495805495${m.id.padStart(4, "0")}`, name: m.name, summary: m.summary, version: m.version, author: m.author, category: m.category,
     thumbnail: art(m), endorsements: m.endorsements, downloads: m.downloads, created: m.created, updated: m.updated, adult: false,
@@ -149,21 +152,26 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
 
   const h: Record<string, Handler> = {
     nexus_account: () => st.account,
-    nexus_key_set: (a) => {
-      const key = String(a.key ?? "").trim();
-      if (!key || key === "bad") err("auth_failed", "Nexus Mods did not accept the API key. Check it in Settings.");
-      st.account = { ...st.account, keySet: true, keyPlace: "keyring", name: "embervale_player", premium: key.startsWith("premium"), error: null };
-      return st.account;
+    nexus_sign_in: () => {
+      if (!st.account.configured) err("unsupported", "Nexus Mods sign-in is not available in this build.");
+      const epoch = ++authEpoch;
+      handlers.app_open_url({ url: "https://users.nexusmods.com/oauth/authorize?mock=1" });
+      return startTask("nexus-sign-in", "Sign in to Nexus Mods", ["Complete sign-in in your browser"], () => {
+        if (epoch !== authEpoch) err("canceled", "Nexus Mods sign-in canceled.");
+        if (MODE === "denied") err("canceled", "Nexus Mods sign-in was not authorized.");
+        st.account = { ...st.account, signedIn: true, tokenPlace: "keyring", name: "embervale_player", premium: MODE === "premium", error: null };
+        return st.account;
+      }, 250);
     },
-    nexus_key_clear: () => { st.account = { ...st.account, keySet: false, keyPlace: null, name: null, premium: false }; return st.account; },
+    nexus_sign_out: () => { ++authEpoch; st.account = { ...st.account, signedIn: false, tokenPlace: null, name: null, premium: false, error: null }; return st.account; },
     nexus_search: (a): CatalogPage => {
       const q = (a.query ?? {}) as CatalogQuery;
       const words = (q.text ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       let list = MODS.filter((m) => words.every((w) => `${m.name} ${m.summary} ${m.author} ${m.category}`.toLowerCase().includes(w)));
       const filter = q.filter ?? "kiln";
-      let needsKey = false;
+      let needsSignIn = false;
       if (filter === "kiln") {
-        if (!st.account.keySet) { needsKey = true; list = []; } else list = list.filter((m) => m.kind === "kiln");
+        if (!st.account.signedIn) { needsSignIn = true; list = []; } else list = list.filter((m) => m.kind === "kiln");
       } else if (filter === "installed") list = list.filter((m) => inst(m.id));
       const by: Record<string, (x: MockMod, y: MockMod) => number> = {
         endorsements: (x, y) => y.endorsements - x.endorsements, downloads: (x, y) => y.downloads - x.downloads,
@@ -173,17 +181,17 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
       const size = q.pageSize || 24;
       const p = Math.max(1, q.page ?? 1);
       st.account.rate.calls++;
-      return { mods: list.slice((p - 1) * size, p * size).map(toMod), total: list.length, page: p, pageSize: size, unchecked: 0, needsKey, fetched: new Date().toISOString() };
+      return { mods: list.slice((p - 1) * size, p * size).map(toMod), total: list.length, page: p, pageSize: size, unchecked: 0, needsSignIn, fetched: new Date().toISOString() };
     },
     nexus_mod: (a): CatalogDetails => {
       const m = modOf(a.modId);
-      const files = st.account.keySet ? m.files.map((f) => file(m, f)) : [];
+      const files = st.account.signedIn ? m.files.map((f) => file(m, f)) : [];
       const best = files[0] ?? null;
       return {
         ...toMod(m), description: m.description, credit: m.author, tags: [m.category], uniqueDownloads: Math.round(m.downloads * 0.7),
         images: [{ url: art(m), thumb: art(m), title: null }, { url: art({ ...m, hue: (m.hue + 60) % 360 }), thumb: art({ ...m, hue: (m.hue + 60) % 360 }), title: "In the fog" }],
-        files, bestFile: best, requirements: st.account.keySet ? requirements(m) : [],
-        filesUrl: `${page(m.id)}?tab=files${best ? `&file_id=${best.versionGsid}&nmm=1` : ""}`, needsKey: !st.account.keySet,
+        files, bestFile: best, requirements: st.account.signedIn ? requirements(m) : [],
+        filesUrl: `${page(m.id)}?tab=files${best ? `&file_id=${best.versionGsid}&nmm=1` : ""}`, needsSignIn: !st.account.signedIn,
       };
     },
     nexus_installed: () => st.installed,
@@ -191,7 +199,7 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
       const m = modOf(a.modId);
       if (m.id === "301") err("refused", "That is Kiln itself: update the launcher from its page instead.");
       const f = fileOf(m, a.fileId);
-      if (!st.account.keySet) err("auth_failed", "Add your Nexus Mods API key in Settings first.");
+      if (!st.account.signedIn) err("auth_failed", "Sign in to Nexus Mods in Settings first.");
       if (!st.account.premium) err("refused", "Free accounts download through the Nexus Mods website.", { url: `${page(m.id)}?tab=files&file_id=${f.gsid}&nmm=1` });
       return install(String(a.gameId), m, f, "catalog");
     },
@@ -209,10 +217,13 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
     nexus_handler_set: (a) => { st.handler = { ...st.handler, registered: !!a.on, active: !!a.on }; return st.handler; },
   };
 
+  const calls: string[] = [];
   if (typeof window !== "undefined") {
     (window as unknown as { __kilnNexusMock?: unknown }).__kilnNexusMock = {
       /** A Mod Manager Download link, as the browser hands it to the registered handler. */
+      calls: () => [...calls],
       nxm: (url: string) => {
+        if (!NEXUS_MOCK_ENABLED) return false;
         const m = /^nxm:\/\/([^/]+)\/mods\/(\d+)\/files\/(\d+)(?:\?(.*))?$/i.exec(url);
         if (!m || m[1].toLowerCase() !== "enshrouded") return false;
         const q = new URLSearchParams(m[4] ?? "");
@@ -226,6 +237,10 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
       setUpdate: (modId: string, latest: string) => { const i = st.installed.find((x) => x.modId === modId); if (i) i.info = { ...i.info, latestVersion: latest, updateAvailable: latest !== i.version }; },
     };
   }
-  return h;
+  return Object.fromEntries(Object.entries(h).map(([name, handler]) => [name, (args: Record<string, unknown>) => {
+    calls.push(name);
+    if (!NEXUS_MOCK_ENABLED) err("unsupported", "Nexus Mods is disabled in this build.");
+    return handler(args);
+  }]));
 }
 

@@ -7,7 +7,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
-import { useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
+import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../api/hooks";
 import { useTaskFeed, Lockup } from "../ui";
 import { useAutoDetect } from "../shell/firstRun";
 import { clock, usePlayControl } from "../shell/play";
@@ -18,6 +18,7 @@ import { Glyph, useGlyphStyle } from "./glyphs";
 import { isDir, useDeckInput, usePads, type Press } from "./input";
 import { topLayer, useInertBelowTop, useLayers, type DeckAction } from "./layers";
 import { DeckToaster, Dialog, Row } from "./ui";
+import { NexusRoute } from "../components/NexusGate";
 import Home from "./screens/Home";
 import Mods from "./screens/Mods";
 import AddMods from "./screens/AddMods";
@@ -37,7 +38,10 @@ export const TABS = [
   { to: "/deck/settings", label: "Settings" },
 ] as const;
 
-const tabOf = (path: string) => Math.max(0, TABS.findIndex((t) => t.to === path.replace(/\/+$/, "")));
+type Tab = typeof TABS[number];
+const WITHOUT_NEXUS = TABS.filter((t) => t.to !== "/deck/catalog");
+const tabsFor = (enabled: boolean): readonly Tab[] => enabled ? TABS : WITHOUT_NEXUS;
+const tabOf = (path: string, tabs: readonly Tab[] = TABS) => Math.max(0, tabs.findIndex((t) => t.to === path.replace(/\/+$/, "")));
 
 /** 1 rem = 16 px at 1280×800; other window sizes scale the whole frame. */
 function useScale() {
@@ -126,12 +130,13 @@ export default function DeckApp() {
   const settings = useSettings();
   // the Hearth fire, as on the desktop: unless Settings' Animated fire is off or KILN_LAUNCHER_NO_WEBGL=1
   const fire = info.isFetched && settings.isFetched && !info.data?.noWebgl && settings.data?.animatedFire !== false;
-  const tab = tabOf(loc.pathname);
+  const tabs = tabsFor(useNexusEnabled());
+  const tab = tabOf(loc.pathname, tabs);
   const tabRef = useRef(tab);
   tabRef.current = tab;
-  useEffect(() => { document.title = `${TABS[tab].label} · Kiln`; }, [tab]);
+  useEffect(() => { document.title = `${tabs[tab].label} · Kiln`; }, [tab, tabs]);
 
-  const goTab = (i: number) => { if (i >= 0 && i < TABS.length && i !== tabRef.current) nav(TABS[i].to); };
+  const goTab = (i: number) => { if (i >= 0 && i < tabs.length && i !== tabRef.current) nav(tabs[i].to); };
   const back = () => {
     const top = topLayer();
     if (top?.back) top.back();
@@ -184,13 +189,13 @@ export default function DeckApp() {
     <div ref={root} className="deck" data-deck-root="">
       <DeckFire root={root} key={fire ? "fire" : "plain"} enabled={fire} />
       <div className="deck-glow" aria-hidden />
-      <TopBar tab={tab} goTab={goTab} />
+      <TopBar tab={tab} tabs={tabs} goTab={goTab} />
       <main className="deck-main">
         <Routes>
           <Route index element={<Home />} />
           <Route path="mods" element={<Mods />} />
           <Route path="add" element={<AddMods />} />
-          <Route path="catalog" element={<Catalog />} />
+          <Route path="catalog" element={<NexusRoute home="/deck"><Catalog /></NexusRoute>} />
           <Route path="kiln" element={<Kiln />} />
           <Route path="help" element={<Help />} />
           <Route path="settings" element={<Settings />} />
@@ -206,7 +211,7 @@ export default function DeckApp() {
   );
 }
 
-function TopBar({ tab, goTab }: { tab: number; goTab: (i: number) => void }) {
+function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab: (i: number) => void }) {
   const style = useGlyphStyle();
   const ctl = usePlayControl();
   const v = ctl.view;
@@ -226,14 +231,14 @@ function TopBar({ tab, goTab }: { tab: number; goTab: (i: number) => void }) {
     window.addEventListener("resize", place);
     document.fonts?.ready.then(place).catch(() => {});
     return () => window.removeEventListener("resize", place);
-  }, [tab]);
+  }, [tab, tabs]);
   return (
     <header className="deck-top">
       <div className="deck-logo"><Lockup height={30} /></div>
       <nav ref={nav} className="deck-tabs" aria-label="Deck tabs" data-deck-skip="">
         <span className="deck-tab-dia" aria-hidden><i /></span>
         <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label="Previous tab" onClick={() => goTab(tab - 1)}><Glyph button="lb" style={style} size={1.6} /></button>
-        {TABS.map((t, i) => (
+        {tabs.map((t, i) => (
           <button key={t.to} type="button" tabIndex={-1} className={"deck-tab" + (i === tab ? " on" : "")} aria-current={i === tab ? "page" : undefined} onClick={() => goTab(i)}>{t.label}</button>
         ))}
         <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label="Next tab" onClick={() => goTab(tab + 1)}><Glyph button="rb" style={style} size={1.6} /></button>
@@ -278,12 +283,13 @@ function MenuDialog({ onClose }: { onClose: () => void }) {
   const nav = useNavigate();
   const loc = useLocation();
   const [quit, setQuit] = useState(false);
-  const cur = tabOf(loc.pathname);
+  const tabs = tabsFor(useNexusEnabled());
+  const cur = tabOf(loc.pathname, tabs);
   if (quit) return <QuitDialog onClose={() => { setQuit(false); onClose(); }} />;
   return (
     <Dialog name="menu" title="Menu" onClose={onClose} backLabel="Close" actions={[{ button: "start", label: "Close", run: onClose }]}>
       <div className="deck-list">
-        {TABS.map((t, i) => <Row key={t.to} id={`menu-${i}`} title={t.label} a="Open" end={i === cur ? <span className="deck-dim">here</span> : undefined} onClick={() => { onClose(); nav(t.to); }} />)}
+        {tabs.map((t, i) => <Row key={t.to} id={`menu-${i}`} title={t.label} a="Open" end={i === cur ? <span className="deck-dim">here</span> : undefined} onClick={() => { onClose(); nav(t.to); }} />)}
         <Row id="menu-quit" title="Quit Kiln" a="Quit" onClick={() => setQuit(true)} />
       </div>
     </Dialog>

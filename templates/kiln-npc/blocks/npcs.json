@@ -1,0 +1,15 @@
+{
+  // A friendly NPC on a game NPC's body ("fisher", "villager"): its talk, its wares, its roster entry, and where it first stands.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "npcs": {
+    "maren": {
+      "name": "Maren the Angler",
+      "body": "fisher",
+      "talk": "angler-talk",
+      "vendor": { "sells": { "Material_T1_Plant_Fibre": { "item": "Material_T1_Twigs", "count": 2 } } },
+      "roster": { "summonTool": "Maren's Whistle", "description": "An angler who trades a little." },
+      "place": { "distance": [ 6, 10 ] }
+    }
+  }
+}

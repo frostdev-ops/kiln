@@ -1,0 +1,31 @@
+{
+  // A building material with a surface of the game's textures, and a terrain material. Cells reach players as ids,
+  // so every player needs the mod ("clients": "mod", which the build works out from these sections).
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "surfaces": {
+    // a surface from the game's own textures; PNGs of your own go in "albedo", "normal", ... (docs: world-blocks.md, "Surfaces")
+    "mossy-stone": { "side": { "game": "StoneRough" }, "top": { "game": "StoneAncientMoonstone" }, "bevel": 0.2 }
+  },
+  "buildingMaterials": {
+    "mossy-brick": {
+      "name": "Mossy Brick", "description": "Old stone, kept for building.",
+      "surface": "mossy-stone",
+      "strength": { "hardness": "hard", "health": 1200, "breaks": "stone" },
+      "recipe": { "makes": 20, "needs": { "Build_TerrainMaterial_T1_Stone": 10, "Material_T1_Plant_Fibre": 2 } }
+    }
+  },
+  "terrainMaterials": {
+    // starts from the game's snow ("like"), looks like its ice, and can be placed with the terrain tools
+    "packed-snow": {
+      "name": "Packed Snow",
+      "description": "Snow trodden hard enough to slide on.",
+      "like": "TerrainSnow",
+      "look": "TerrainIce",
+      "sliding": true,
+      "placeable": true,
+      "strength": { "hardness": "slightlyHard", "health": 6 },
+      "recipe": { "makes": 4, "needs": { "Build_TerrainMaterial_T5_Snow": 8 } }
+    }
+  }
+}

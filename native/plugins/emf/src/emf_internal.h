@@ -240,6 +240,9 @@ void windows_after_step(EmfWorld* w, uint8_t kind);
 void windows_world_stopping(uint8_t kind);
 void windows_world_started(uint8_t kind);
 void events_world_stopping();
+void events_shutdown();
+void program_hooks_shutdown();
+void keep_adapter_mapped();
 void windows_shutdown();
 // the radial wheel (api_wheel.cpp): the windows' hooks call these
 void wheel_after_step(EmfWorld* w, uint8_t kind);  // delivers the picks and cancels of wheels of that world kind

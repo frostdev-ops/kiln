@@ -53,6 +53,26 @@ public sealed class ConfigTests : KilnTest
         As(mod, () => Config.Register<TestConfig>(kind));
 
     [Fact]
+    public void Reset_discards_the_previous_watchers_future_poll_deadline()
+    {
+        Register(NewMod("old"));
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        typeof(Config).GetField("_nextPoll", flags)!.SetValue(null, Environment.TickCount64 + 60_000);
+        typeof(Config).GetField("_signalStep", flags)!.SetValue(null, 9000UL);
+        typeof(Config).GetField("_signal", flags)!.SetValue(null, true);
+        Config.Reset();
+        var fresh = Register(NewMod("fresh"));
+        ConfigChangedEvent? changed = null;
+        fresh.Changed += value => changed = value;
+        var text = System.IO.File.ReadAllText(File("fresh")).Replace("\"maxHomes\": 3", "\"maxHomes\": 12");
+        System.IO.File.WriteAllText(File("fresh"), text);
+        System.IO.File.SetLastWriteTimeUtc(File("fresh"), DateTime.UtcNow.AddSeconds(5));
+        Step(); // first poll must run even before the new watcher's two-step debounce is due
+        Assert.NotNull(changed);
+        Assert.Contains("maxHomes", changed!.Changed);
+    }
+
+    [Fact]
     public void First_load_writes_a_commented_file_with_the_defaults()
     {
         var mod = NewMod("cfgmod");

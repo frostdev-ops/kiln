@@ -115,13 +115,39 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-spell` | A staff spell from building blocks, in C# and `blocks/*.json` | both, kiln | `spell frostshard -> 1 item(s), 1 recipe(s), 2 template(s), 1 program(s)` |
 | `kiln-vfx` | An effect from nothing, in C# and `blocks/*.json`, a small PNG, keys to play it | both, mod | Builds, lints and cooks from a clean feed. How it looks is a manual check in a client |
 | `kiln-ability` | An ability; `--impact` adds an Impact program | both, none | `ability tpl-ability:blast registered` |
-| `kiln-ui` | A game UI overlay | client, mod | Correctly skipped by a server (`side` client). A client check is manual |
+| `kiln-quest` | A quest chain with its giver and conversation from building blocks, in C# and `blocks/*.json` | both, mod | `quest tpl-quest:road-work defined (Player, 1 steps, journal Native, owner tpl-quest)`, `quest tpl-quest:lost-crates defined (Player, 2 steps, …)` |
+| `kiln-ui` | A game UI overlay (`--blocks true`: as blocks in `blocks/ui.json`, [ui-blocks.md](ui-blocks.md)) | client, mod | Correctly skipped by a server (`side` client). A client check is manual |
 | `kiln-native` | A C++ mod, `CMakeLists.txt` + `native.json` | both | `native mod tpl-native 0.1.0 loaded (boot, … kiln_native_init ok)` |
 | `kiln-model` | A glTF model with `assets/cook.json` | both, mod | `PASS TplModel_Blade.iconModel = …`, 3 references |
 | `kiln-sound` | Sounds and cues, `audio/`, `assets/cook.json` | both, mod | `sound chime: … (new)`, `cue chime: … (new)` |
 | `kiln-talents` | A talent tree, `skills/`, `icons/` | both, mod | `tree tpl-talents:talents registered (2 nodes…)` |
 | `kiln-test` | A separate test mod; `--target <mod>` depends on it | server, none | `tests: tpl-test: 4 passed, 0 failed, 1 skipped` (the skip needs a joined player) |
 | `kiln-service` | A native + managed service, run at the repository root | | Not part of this run |
+| `kiln-item-blocks` | Items from blocks: a material, food, a sword, armor, a wand, a loot table and a recipe at a game station, in C# and `blocks/*.json` | both, kiln | See [below](#block-templates) |
+| `kiln-world-blocks` | A crafting prop, a manual bench that needs it, an automated station, a container with starter loot and a lid, and a door with its swing and usable sides, in C# and `blocks/*.json` | both, mod | See [below](#block-templates) |
+| `kiln-npc` | A friendly NPC on a game NPC's body: talk (`quests/talk.json`), wares, a roster entry; in data and C# | both, mod | Builds and lints. Talk and wares need a client |
+| `kiln-creature-blocks` | A creature as data: a game body, a tuned AI, a behaviour with a rule, drops and spawns | both, kiln | Builds and lints |
+| `kiln-cosmetic` | A hat, a hair style and a beard on the game's looks, in C# and `blocks/*.json` | both, kiln | Builds and lints. How it looks needs a client |
+| `kiln-building-material` | A building material with a surface, and a terrain material, as data | both, mod | Builds and lints |
+| `kiln-ability-blocks` | A weapon perk, an ability on a key, a talent tree and a trigger, in C# and `blocks/*.json` | both, mod | Builds and lints. Keys and the tree need a client |
+
+### Block templates
+The `-blocks` templates and `kiln-npc`, `kiln-cosmetic`, `kiln-building-material` build everything from typed blocks
+([blocks.md](blocks.md)): no GUIDs, no game items to clone, and the build works out `clients` from the blocks. Start here.
+`kiln-items` and `kiln-creature` stay for the advanced path: content-pack clones of game items and creatures, when you
+need a field no block has yet.
+
+```sh
+dotnet new kiln-item-blocks -n MyItems --feed $KILN_OUT/nuget
+cd MyItems && dotnet build && kiln lint .
+```
+
+Templates with C# block definitions also have `blocks/*.json` with the same kinds as data, under other names, so
+you can keep the half you like. A lab load of `kiln-item-blocks` and `kiln-world-blocks` logs one `Blocks.Lowered` line per block
+(results in WP-12's report for dev.20).
+Crafting props written in C# enter the game's tables on the second start; the JSON versions work on the first.
+`NeedsProps` is for a player's craft at a manual station. Automated stations reject it.
+Container starter loot fills once per placed location. Lid movement, door direction and crafting menus need a client check.
 
 Cooked files come from your own game: run `kiln cook` before the first build of `kiln-model`, `kiln-ability --impact`
 and `kiln-sound`. `kiln build` does it when a recipe is out of date.

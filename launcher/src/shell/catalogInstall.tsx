@@ -10,12 +10,12 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
 import type { GameStatus } from "../api/commands";
-import { invalidateGame, qk, useGame, useGameStatus } from "../api/hooks";
+import { invalidateGame, qk, useGame, useGameStatus, useNexusEnabled } from "../api/hooks";
 import * as nx from "../api/nexus";
 import type { CatalogFile, InstallReport, NexusAccount } from "../api/nexus";
 import { runTask, toast } from "../ui";
 
-export const useNexusAccount = () => useQuery({ queryKey: nx.nk.account, queryFn: nx.nexusAccount, staleTime: 60_000, retry: false });
+export const useNexusAccount = () => useQuery({ queryKey: nx.nk.account, queryFn: nx.nexusAccount, staleTime: 60_000, retry: false, enabled: useNexusEnabled() });
 
 /** The requirements worth offering: on Nexus, for Enshrouded, not Kiln, not installed. */
 export const offered = (r: InstallReport) => r.requirements.filter((q) => !q.kiln && !q.otherGame && !q.installed);
@@ -117,18 +117,21 @@ export function useReportToast() {
 
 /** Takes the nxm links that arrive (`kiln://nxm`) and adds each; `onReport` shows the outcome (a toast, a dialog). */
 export function useNxmLinks(onReport: (r: InstallReport) => void) {
+  const nexusEnabled = useNexusEnabled();
   const { installLink, blocked } = useCatalogInstall();
   const { game } = useGame();
   const status = useGameStatus(game?.id);
   const cb = useRef(onReport);
   cb.current = onReport;
   useEffect(() => {
+    if (!nexusEnabled) return;
     const listener = (r: InstallReport) => cb.current(r);
     reportListener = listener;
     waitingReports.splice(0).forEach(listener);
     return () => { if (reportListener === listener) reportListener = undefined; };
-  }, []);
+  }, [nexusEnabled]);
   useEffect(() => {
+    if (!nexusEnabled) return;
     let live = true;
     const take = async () => {
       let links: nx.PendingLink[] = [];
@@ -154,7 +157,7 @@ export function useNxmLinks(onReport: (r: InstallReport) => void) {
     }).catch(() => { if (live) void take(); });
     return () => { live = false; off?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game?.id, status.data?.runtime.installed]);
+  }, [nexusEnabled, game?.id, status.data?.runtime.installed]);
 }
 
 /** Desktop: mounted once in the shell. */

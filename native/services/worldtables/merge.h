@@ -104,8 +104,21 @@ struct Shape {
     bool roof = false;
 };
 
+// A crafting prop of a mod (PropBlock.Provides): a place in the game's table of props a recipe can ask to stand near (WorkshopRegistryResource.craftingProps), kiln.worldtables'
+// own like a material's id. Read from the "provides" of a prop block in a data file, or from a "craftingProps" block that code defined. docs/kiln/services/worldtables.md.
+struct CraftingProp {
+    std::string mod, block, name;   // name: what players read, from the block's "name"
+    std::string definition;         // the normal form a define compares
+    Guid guid;                      // UUIDv5(<mod>:craftingprop:<key>): as Kiln.Blocks makes it
+    uint32_t prop_id = 0;           // keen::CraftingPropId: the GUID's FNV-1a
+    Guid item;                      // the item that places it: UUIDv5(<mod>:item:<key>)
+    uint32_t item_id = 0, name_tag = 0;
+    int index = -1;                 // its place in the game's mask of props, once allocated
+};
+
 struct ModFile {
     std::string mod, dir, file, clients;
+    std::vector<CraftingProp> craft_props;
     std::vector<Shape> shapes;
     std::map<std::string, ojson> strengths;  // the mod's "strengths" section: what "strength": "<name>" means
     std::map<std::string, ojson> surfaces;   // the mod's "surfaces" sections: what "surface": "<name>" means
@@ -207,6 +220,27 @@ struct ModelLayout {
 Bytes voxel_model(const Shape& s, const ModelLayout& M);
 inline constexpr uint8_t kFullCell = 0x12, kRoofCell = 0x08;
 inline constexpr uint32_t kMaxShapeCells = 32;
+
+// ---- crafting props -----------------------------------------------------------------------------------------------
+// keen::WorkshopRegistryResource.craftingProps: BlobArray<keen::CraftingPropResource> {guid, id (FNV-1a of the GUID), index (the bit in the 64-bit CraftingPropMask), name (a loca
+// tag), item, itemRef}. The game uses 51 of the 64 places. Offsets come from the game's reflection (reflect.cpp), so a game update that moves a field turns the feature off with a line.
+struct CraftingPropLayout {
+    bool ok = false;
+    uint32_t array = 0, stride = 0, guid = 0, id = 0, index = 0, name = 0, item = 0, item_ref = 0;
+};
+inline constexpr uint32_t kCraftingPropPlaces = 64;
+// kiln.content's tag of an item's name (a clone's name slot): what a prop's "name" shows in a recipe's tooltip, the name of the item that places it.
+uint32_t name_tag_of_item(const Guid& item);
+// Reads the "craftingProps" blocks of a document (code's define) and the "provides" of its prop blocks (data files).
+void read_crafting_props(const ojson& doc, ModFile* out);
+// The places the game's own table uses (bit i = place i) and the ids it has. false + *why: the table doesn't read as its layout says.
+bool read_crafting_prop_table(const Bytes& res, const CraftingPropLayout& C, uint64_t* used, std::set<uint32_t>* ids, std::string* why);
+// Gives each live prop a free place, in the order of the GUIDs, so every game with the same mods agrees. A prop over the room goes in *refused by name and is left out of *props.
+void allocate_crafting_props(std::vector<CraftingProp>* props, uint64_t used, std::vector<std::string>* refused);
+// The game's table with the props appended (each by its place); the rest of the resource is the game's. Nothing to add: the same bytes.
+bool merge_crafting_props(const Bytes& game, const CraftingPropLayout& C, const std::vector<CraftingProp>& props, Bytes* out, std::string* why);
+// The handshake hash with the props in it: the same as handshake_hash(placed) when there are none.
+std::string handshake_hash(const std::vector<Placed>& placed, const std::vector<CraftingProp>& props);
 
 // The stable name of a game material, the one mods write: from the debug name of the item that places it.
 // "Block_T1_Wood_Rough_CRAFTING" -> "WoodRough", "Block_Roof_T1_PlantFibre" -> "RoofPlantFibre",

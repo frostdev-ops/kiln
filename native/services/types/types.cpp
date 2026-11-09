@@ -11,6 +11,8 @@
 #include <windows.h>
 
 #include <atomic>
+#include <array>
+#include <utility>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -23,6 +25,7 @@
 #include "safetyhook.hpp"
 #include "scan.h"
 #include "runtime.h"
+#include "system_hooks.h"
 #include "services/kiln_types.h"
 #include "../../plugins/set/src/coexist.h"
 
@@ -61,6 +64,20 @@ std::atomic<bool> g_systems_ok{false};
 // fingerprint, no wineserver call), never per tick (the check reaches wineserver once per loaded module under Wine).
 kset::ModuleWatch g_modules;
 bool g_external_runner = false;
+
+// Requested update-function hooks, separate from the slice runner so callbacks get its actual ProgramContext.
+constexpr size_t kMaxSystemHooks = 64;
+struct SystemHook {
+    uint64_t fn = 0;
+    SystemHookCallbacks callbacks;
+    SafetyHookInline detour;
+};
+std::array<std::atomic<std::shared_ptr<SystemHook>>, kMaxSystemHooks> g_hooks;
+std::mutex g_hooks_mu;
+KilnHandle g_next_hook = 1;
+bool g_retained_updates = false;
+std::atomic<bool> g_have_step{false};
+thread_local bool t_system_callback = false;
 
 // Events
 int64_t g_ev_map = 0, g_ev_streams = 0, g_storage = 0;  // world.storage: Kiln's world pointer -> the ECS storage
@@ -315,6 +332,91 @@ void runner_detour(uintptr_t world, void* job, uint64_t index, uint64_t slot) {
     if (kind < 8) g_kinds[size_t(i)].fetch_or(uint8_t(1u << kind), std::memory_order_relaxed);
 }
 
+// Only the callback frame holds SEH: no C++ destructors can be skipped by a structured exception.
+bool guarded_system_hook(KilnSystemHookFn fn, void* ctx, void* user) {
+    const bool previous = t_system_callback;
+    t_system_callback = true;
+    __try { fn(ctx, user); t_system_callback = previous; return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { t_system_callback = previous; return false; }
+}
+void call_system_hook(size_t index, void* ctx) {
+    auto hook = g_hooks[index].load(std::memory_order_acquire);
+    if (!hook) return; // published before enable, never reclaimed while the process runs
+    run_system_update(hook->callbacks,ctx,[&](void* context) {
+        // The trampoline is immutable and retained: keep parallel worlds/slices parallel (call() holds a mutex).
+        hook->detour.original<void (*)(void*)>()(context);
+    },[](KilnSystemHookFn callback,void* context,void* user,KilnHandle handle) {
+        if (guarded_system_hook(callback,context,user)) return true;
+        logf(KILN_LOG_ERROR,"system hook %llu: callback faulted; disabled",static_cast<unsigned long long>(handle));
+        return false;
+    });
+}
+template<size_t I> void system_hook_trampoline(void* ctx) { call_system_hook(I, ctx); }
+template<size_t... I> constexpr auto system_hook_trampolines(std::index_sequence<I...>) {
+    return std::array<void (*)(void*), sizeof...(I)>{&system_hook_trampoline<I>...};
+}
+constexpr auto kSystemHookTrampolines = system_hook_trampolines(std::make_index_sequence<kMaxSystemHooks>{});
+bool may_change_system_hooks() { return !t_system_callback && (!g_have_step.load() || g_api->on_tick_thread()); }
+KilnResult KILN_CALL system_hook(KilnOwner owner, uint32_t index, KilnSystemHookFn before,
+                                KilnSystemHookFn after, void* user, KilnHandle* out) {
+    if (out) *out = 0;
+    if (!g_systems_ok) return KILN_ERR_UNAVAILABLE;
+    if (!may_change_system_hooks()) return KILN_ERR_WRONG_THREAD;
+    if (!owner || (!before && !after) || !out) return KILN_ERR_INVALID_ARGUMENT;
+    if (index >= g_sys.size()) return KILN_ERR_NOT_FOUND;
+    if (g_api->post(owner, &noop, nullptr) == KILN_ERR_REVOKED) return KILN_ERR_REVOKED;
+    std::lock_guard lock(g_hooks_mu);
+    const int chosen = system_hook_slot<kMaxSystemHooks>(g_sys[index].fn,[](size_t i) {
+        const auto hook=g_hooks[i].load();
+        return SystemHookSlot{hook?hook->fn:0,hook && hook->callbacks.identity().handle!=0};
+    });
+    if (chosen<0) return chosen==-2?KILN_ERR_INVALID_ARGUMENT:KILN_ERR_UNAVAILABLE;
+    const size_t slot=static_cast<size_t>(chosen);
+    auto hook=g_hooks[slot].load();
+    if (!hook) {
+        hook=std::make_shared<SystemHook>();
+        hook->fn=g_sys[index].fn;
+        hook->detour=safetyhook::create_inline(reinterpret_cast<void*>(hook->fn),
+            reinterpret_cast<void*>(kSystemHookTrampolines[slot]),safetyhook::InlineHook::StartDisabled);
+        if (!hook->detour) return KILN_ERR_UNAVAILABLE;
+        HMODULE pin=nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN|GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                reinterpret_cast<LPCWSTR>(&call_system_hook),&pin)) return KILN_ERR_UNAVAILABLE;
+        // Fully initialize the original trampoline before any world's thread can enter the destination.
+        g_hooks[slot].store(hook,std::memory_order_release);
+        if (!hook->detour.enable()) { g_hooks[slot].store({}); return KILN_ERR_UNAVAILABLE; }
+        g_retained_updates=true;
+    }
+    const KilnHandle handle=g_next_hook++;
+    if (!hook->callbacks.bind(owner,handle,before,after,user)) return KILN_ERR_INVALID_ARGUMENT;
+    *out=handle;
+    return KILN_OK;
+}
+KilnResult KILN_CALL system_unhook(KilnHandle handle) {
+    if (t_system_callback) return KILN_ERR_WRONG_THREAD;
+    std::lock_guard registry_lock(g_hooks_mu);
+    for (auto& slot:g_hooks) {
+        auto hook=slot.load();
+        if (hook && hook->callbacks.retire(handle)) return KILN_OK;
+    }
+    return KILN_ERR_NOT_FOUND;
+}
+void release_system_hooks(KilnOwner owner, bool all = false) {
+    std::vector<KilnHandle> handles;
+    { std::lock_guard lock(g_hooks_mu);
+      for (auto& slot:g_hooks) { auto h=slot.load(); if (!h) continue; const auto id=h->callbacks.identity();
+          if (id.handle && (all || id.owner==owner)) handles.push_back(id.handle); } }
+    for (auto handle : handles) system_unhook(handle);
+}
+void reap_system_hooks() {
+    std::vector<KilnHandle> handles;
+    { std::lock_guard lock(g_hooks_mu);
+      for (auto& slot : g_hooks) { auto h = slot.load();
+        if (h) { const auto id=h->callbacks.identity();
+          if (id.handle && g_api->post(id.owner,&noop,nullptr)==KILN_ERR_REVOKED) handles.push_back(id.handle); } } }
+    for (auto handle : handles) system_unhook(handle);
+}
+
 uint32_t KILN_CALL system_count() { return static_cast<uint32_t>(g_sys.size()); }
 KilnResult KILN_CALL system_info(uint32_t i, KilnSystemInfo* out) {
     if (!out || out->size < sizeof(KilnSystemInfo)) return KILN_ERR_INVALID_ARGUMENT;
@@ -360,14 +462,18 @@ KilnResult KILN_CALL system_set_enabled(KilnOwner owner, uint32_t i, bool enable
     return KILN_OK;
 }
 KilnResult KILN_CALL system_release_owner(KilnOwner owner) {
-    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    if (!may_change_system_hooks()) return KILN_ERR_WRONG_THREAD;
+    release_system_hooks(owner);
     std::lock_guard lock(g_sys_mu);
     g_system_owners.release(owner);
     publish_system_switches();
     return KILN_OK;
 }
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
+    g_have_step = true;
+    reap_system_hooks();
     if (g_systems_ok && g_modules.due() && !kset::runtime_conflict().empty()) {
+        {
         std::lock_guard lock(g_sys_mu);
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
@@ -375,6 +481,8 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         g_systems_ok = false;
         g_prof = false;
         publish_system_switches();
+        }
+        release_system_hooks(0,true);
         // A later MinHook can retain our trampoline. Keep this now-passive adapter mapped until process exit;
         // restoring the entry or unloading its code here would invalidate the other runtime's hook chain.
         HMODULE pin = nullptr;
@@ -410,13 +518,14 @@ KilnResult KILN_CALL profile(bool on) {
 }
 void KILN_CALL on_unload(void*) {
     g_modules.disarm();
+    release_system_hooks(0, true);
     profile(false);
     {
         std::lock_guard lock(g_sys_mu);
         g_system_owners.disabled.clear();
         publish_system_switches();
     }
-    if (!g_external_runner) g_runner.reset();
+    if (!g_external_runner && !g_retained_updates) g_runner.reset();
 }
 
 // ---- events: registered inline types, bounded maps/pages/posters, copied callback data ----
@@ -496,7 +605,7 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
-    &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner,
+    &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner, &system_hook, &system_unhook,
 };
 
 bool sym(const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }

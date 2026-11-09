@@ -78,6 +78,13 @@ using QueuePushFn = void* (*)(void* cb, void* buf, uint8_t kind, uint32_t size, 
 using MarkWrittenFn = void (*)(void* tracker, void* mask_a, void* mask_b, void* entity_rec, uint16_t type_index,
                                uint8_t variant);
 using ReadOtherFn = void (*)(Slice* out, void* storage, void* accessor, uint32_t entity);
+using WriteOtherFn = Slice* (*)(Slice* out, void* storage, void* tracker, uint64_t accessor, uint32_t entity, uint8_t flag);
+using JobTrackerFn = void* (*)(void* job);
+using JobWriteFlagFn = uint8_t (*)(void* ctx);
+using EmitEventFn = void* (*)(void* buffer, uint32_t hash, uint32_t size, uint16_t program);
+using JobProgramIdFn = uint16_t (*)(void* job);
+using JobEventBufferFn = void* (*)(void* job);
+using ProgramTimeFn = int64_t* (*)(void* ctx, int64_t* out);
 using GetComponentFn = void (*)(Slice* out, uintptr_t world, uint32_t hash, uint32_t entity);
 using GetEntityTransformFn = const void* (*)(uintptr_t world, uint32_t entity);
 
@@ -90,6 +97,13 @@ struct Fns {
     QueuePushFn queue_push = nullptr;
     MarkWrittenFn mark_written = nullptr;
     ReadOtherFn read_other = nullptr;
+    WriteOtherFn write_other = nullptr;
+    JobTrackerFn job_tracker = nullptr;
+    JobWriteFlagFn job_write_flag = nullptr;
+    EmitEventFn emit_event = nullptr;
+    JobProgramIdFn job_program_id = nullptr;
+    JobEventBufferFn job_event_buffer = nullptr;
+    ProgramTimeFn program_time = nullptr;
     GetComponentFn get_component = nullptr;
     GetEntityTransformFn get_transform = nullptr;
 };
@@ -121,7 +135,7 @@ extern Layout L;
 
 struct Features {
     bool programs = false, names = false, singletons = false, events = false, queue = false, write = false,
-         read_other = false, entities = false, find = false, teleport = false, dead = false;
+         read_other = false, write_other = false, entities = false, find = false, teleport = false, dead = false;
 };
 extern Features F;
 
@@ -169,6 +183,17 @@ KilnResult queue_add(KilnProgramCtx* ctx, KilnEntity entity, uint32_t hash, cons
 KilnResult queue_remove(KilnProgramCtx* ctx, KilnEntity entity, uint32_t hash);
 void mark_written(KilnProgramCtx* ctx, const uint64_t* write_record);
 const void* read_other(KilnProgramCtx* ctx, uint64_t accessor, KilnEntity entity, uint32_t* out_size);
+
+void* write_other(KilnProgramCtx* ctx, uint64_t accessor, KilnEntity entity, uint32_t* out_size);
+KilnResult unregister_program(KilnHandle program);
+void programs_reap_owners();
+void boot_programs_init();
+KilnResult reserve_program(const std::string& mod, const std::string& key, const KilnProgramDesc* desc);
+KilnResult KILN_CALL bind_program(KilnOwner owner, KilnStr mod, KilnStr key, KilnProgramEachFn each, void* user, KilnHandle* out);
+uint32_t KILN_CALL program_capabilities();
+KilnResult KILN_CALL program_events(KilnProgramCtx* ctx, KilnStr name, KilnProgramEventFn callback, void* user);
+KilnResult KILN_CALL program_emit(KilnProgramCtx* ctx, KilnStr name, const void* data, uint32_t size);
+bool seh_copy(void* out, const void* source, size_t size);
 
 // ---- entities.cpp ----
 bool may_touch_world();  // tick thread or inside a program

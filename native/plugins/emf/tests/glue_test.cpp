@@ -84,6 +84,7 @@ bool read_file(const std::filesystem::path &p, std::string *out) {
     return bool(f);
 }
 void ui_refresh_demand() {}
+void keep_adapter_mapped() {}
 uint32_t spawn_for(Mod *, EmfWorld *, const uint8_t *, double, double, double, const char *) { return 5000; }
 uint32_t fnv1a(std::string_view s) {
     uint32_t h = 2166136261u;
@@ -91,7 +92,7 @@ uint32_t fnv1a(std::string_view s) {
         h = (h ^ static_cast<uint8_t>(c)) * 16777619u;
     return h;
 }
-uint32_t type_size(uint32_t) { return 24; }
+uint32_t type_size(uint32_t hash) { return hash==fnv1a("keen::ecs::EventB")?12:24; }
 std::string format(const char *, ...) { return {}; }
 } // namespace kemf
 using namespace kemf;
@@ -296,11 +297,25 @@ static void test_images(KilnUiApi &ui) {
 static std::map<std::string, KilnProgramDesc> programs;
 static std::map<std::pair<uint32_t, uint32_t>, std::vector<uint8_t>> components;
 static int accepts = 0;
+static int program_first = 0, program_second = 0;
+static bool passed_other_write = false;
+static uint8_t written_component[24]{};
+static void test_program(void* ctx,void*) {
+    CHECK(table.read_events(ctx,"EventA",24,[](const void* data,void*) { CHECK(*static_cast<const uint32_t*>(data)==11); ++program_first; },nullptr)==1);
+    CHECK(table.read_events(ctx,"EventB",12,[](const void* data,void*) { CHECK(*static_cast<const uint32_t*>(data)==22); ++program_second; },nullptr)==1);
+    auto* data=static_cast<uint8_t*>(table.program_write_other(ctx,"Health",5000,24));
+    CHECK(data==written_component);
+    if (data) *data=91;
+    CHECK(table.program_write_other(ctx,"undeclared",5000,24)==nullptr);
+    CHECK(table.program_write_other(ctx,"Health",5000,25)==nullptr);
+}
 static void accepted_cb(EmfWorld *, uint32_t player, uint32_t entity, void *) {
     CHECK(player == 2 && entity == 5000);
     ++accepts;
 }
 static void test_components(KilnWorldApi &world) {
+    world.header.size=sizeof world;
+    world.write_other=[](KilnProgramCtx*,uint64_t accessor,uint32_t entity,uint32_t* size)->void* { CHECK(accessor==0xfeed && entity==5000); *size=24; return written_component; };
     world.component_hash = [](KilnStr s) { return fnv1a(std::string_view(s.ptr, s.len)); };
     world.component = [](uint32_t e, uint32_t h, uint32_t *size) -> const void * {
         auto it = components.find({e, h});
@@ -312,11 +327,17 @@ static void test_components(KilnWorldApi &world) {
     world.exists = [](uint32_t e) { return e == 5000; };
     world.position = [](uint32_t e, KilnVec3 *) -> KilnResult { return e == 5000 ? KILN_OK : KILN_ERR_NOT_FOUND; };
     world.register_program = [](KilnOwner, const KilnProgramDesc *d, KilnHandle *h) -> KilnResult {
+        if (std::string(d->name.ptr,d->name.len)=="two_events")
+            passed_other_write=d->other_write.count==1 && std::string(d->other_write.items[0].ptr,d->other_write.items[0].len)=="Health";
         programs[std::string(d->name.ptr, d->name.len)] = *d;
         *h = programs.size();
         return KILN_OK;
     };
-    world.program_slot = [](KilnHandle, int32_t, KilnStr) -> int32_t { return 0; };
+    world.program_slot = [](KilnHandle,int32_t kind,KilnStr name)->int32_t {
+        const std::string key(name.ptr,name.len);
+        if (kind==KILN_SLOT_OTHER_WRITE) return key=="Health"?2:-1;
+        return key=="EventB"?1:0;
+    };
     world.queue_add = [](KilnProgramCtx *, uint32_t e, uint32_t h, const void *data, uint32_t n) -> KilnResult {
         auto p = static_cast<const uint8_t *>(data);
         components[{e, h}] = {p, p + n};
@@ -326,8 +347,24 @@ static void test_components(KilnWorldApi &world) {
         components.erase({e, h});
         return KILN_OK;
     };
+    const char* inputs[]={"EventB","EventA",nullptr};
+    const char* writes[]={"Health",nullptr};
+    EmfProgramDef definition{}; definition.size=sizeof definition; definition.name="two_events";
+    definition.world_kind=EMF_WORLD_SERVER; definition.fn=&test_program; definition.events_in=inputs; definition.other_write=writes;
+    CHECK(table.register_program_def(&definition));
     components_on_ready();
     events_on_ready();
+    CHECK(passed_other_write);
+    struct ProgramQueue { uint16_t first=1; uint8_t pad[6]{}; uintptr_t blocks=0; uint32_t count=1; } qa,qb;
+    alignas(8) uint8_t page_a[256]{},page_b[256]{};
+    uint32_t one=11,two=22; std::memcpy(page_a+8,&one,4); std::memcpy(page_b+8,&two,4);
+    qa.blocks=reinterpret_cast<uintptr_t>(page_a); qb.blocks=reinterpret_cast<uintptr_t>(page_b);
+    uint64_t program_iter[]={reinterpret_cast<uintptr_t>(&qa),reinterpret_cast<uintptr_t>(&qb),0xfeed};
+    auto& program=programs.at("two_events");
+    program.each(reinterpret_cast<KilnProgramCtx*>(0x1234),program_iter,0,program.user);
+    CHECK(program_first==1 && program_second==1 && written_component[0]==91);
+    CHECK(table.program_write_other(reinterpret_cast<void*>(0x1234),"Health",5000,24)==nullptr);
+    CHECK(table.read_events(reinterpret_cast<void*>(0x1234),"EventA",24,[](const void*,void*){},nullptr)==0);
     auto w = reinterpret_cast<EmfWorld *>(worlds[0]);
     EmfOffer o{};
     o.size = sizeof o;
@@ -723,6 +760,7 @@ int main(int argc, char **argv) {
     fill_attributes(&table);
     fill_level(&table);
     fill_components(&table);
+    fill_events(&table);
     static KilnWorldApi world{};
     S.world = &world;
     test_components(world);

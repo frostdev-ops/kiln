@@ -19,7 +19,7 @@ internal static class QuestActions
         }
     }
 
-    private static void Note(string line)
+    internal static void Note(string line)
     {
         lock (Recent)
         {

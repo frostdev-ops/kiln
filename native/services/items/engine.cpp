@@ -7,8 +7,12 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <vector>
+
+#include "xfer.h"
 
 namespace kitems {
 
@@ -156,9 +160,9 @@ bool verify_impl(const uint64_t* it, const int* sing, const int* accs, const int
 }
 
 // ---- transactions ----
-void fill_setup(const Access& a, const KilnItemsRequest& r, uint8_t flags, uint8_t* s) {
+void fill_setup_for(const Access& a, KilnEntity entity, uint8_t flags, uint8_t* s) {
     std::memset(s, 0, kSetupBlock);
-    const bool player = r.entity >= 1 && r.entity <= kMaxPlayer;
+    const bool player = entity >= 1 && entity <= kMaxPlayer;
     s[0x00] = flags;
     s[0x01] = 0;  // stock mode: own inventory only
     auto put = [s](int off, const void* v) { std::memcpy(s + off, &v, 8); };
@@ -178,8 +182,12 @@ void fill_setup(const Access& a, const KilnItemsRequest& r, uint8_t flags, uint8
     put(0xA0, a.ev_pickup);
     put(0xA8, a.ev_full);
     put(0xC0, player ? a.knowledge : nullptr);  // "item obtained" knowledge only for players
-    const uint32_t op = player ? r.entity : 0;
+    const uint32_t op = player ? entity : 0;
     std::memcpy(s + E.setup_operator, &op, 4);  // PickupEvent receiver; the source entity (+4) stays 0
+}
+
+void fill_setup(const Access& a, const KilnItemsRequest& r, uint8_t flags, uint8_t* s) {
+    fill_setup_for(a, r.entity, flags, s);
 }
 
 struct Ops {
@@ -687,6 +695,295 @@ void run_fuel_impl(const Access& a, const KilnItemsFuelRequest& r, KilnItemsFuel
     res->status = KILN_ITEMS_DONE;
 }
 
+
+// ---- moves (v3): docs/re/items.md section 13 ----
+const void* other_sized(const Access& a, Acc which, KilnEntity e, uint64_t min_size) {
+    PtrSize ps{};
+    E.read_other(&ps, a.storage, a.acc[which], e);
+    return ps.ptr && ps.size >= min_size ? ps.ptr : nullptr;
+}
+
+constexpr uint32_t kSelectionSize = 216;  // ecs::SlotSelection
+
+// The slot's stack as the entity's Inventory component holds it right now.
+const uint8_t* live_stack(const Access& a, uint64_t slot) {
+    if ((slot >> 40) != 0 || KILN_SLOT_INDEX(slot) > 7) return nullptr;
+    const auto* inv = static_cast<const uint8_t*>(other_sized(a, A_INVENTORY, KILN_SLOT_INVENTORY(slot), kInventorySize));
+    return inv ? inv + 12 * KILN_SLOT_INDEX(slot) : nullptr;
+}
+
+bool read_pages_impl(const Access& a, KilnEntity e, PageSet* out, bool* initialized) {
+    out->n = 0;
+    const auto* setup = static_cast<const uint8_t*>(other_sized(a, A_SETUP, e, kSetupSize));
+    if (!setup) return false;
+    if (initialized) *initialized = setup[E.setup_initialized] != 0;
+    Tree t{};
+    walk(setup, &setup_via_access, &a, &t, 0, -1);
+    for (uint32_t i = 0; i < t.n; ++i) {
+        Page& pg = out->p[out->n++];
+        pg = Page{};
+        pg.entity = t.ids[i];
+        const auto* inv = static_cast<const uint8_t*>(other_sized(a, A_INVENTORY, t.ids[i], kInventorySize));
+        for (uint32_t k = 0; k < kSlotsPerPage; ++k) {
+            Stack& st = pg.s[k];
+            st.slot = KILN_SLOT_ID(t.ids[i], k);
+            if (!inv) continue;
+            st.item = rd<uint32_t>(inv, 12 * k);
+            st.count = rd<uint32_t>(inv, 12 * k + 4);
+            st.pide = rd<uint32_t>(inv, 12 * k + 8);
+        }
+    }
+    return true;
+}
+
+void player_guard_impl(const Access& a, KilnEntity e, PlayerGuard* g) {
+    *g = PlayerGuard{};
+    const auto* sel = static_cast<const uint8_t*>(other_sized(a, A_SLOTSEL, e, kSelectionSize));
+    if (!sel) return;
+    const uint32_t bar0 = rd<uint32_t>(sel, 0xa0), bar1 = rd<uint32_t>(sel, 0xa4);
+    if (bar0 == 0) return;  // a player's selection always has its first action-bar page
+    g->is_player = true;
+    g->actionbar[0] = bar0;
+    g->actionbar[1] = bar1;
+    auto add = [g](uint32_t entity, uint8_t index) {
+        if (entity != 0 && index < kSlotsPerPage && g->protect_n < 24) g->protect[g->protect_n++] = KILN_SLOT_ID(entity, index);
+    };
+    for (uint32_t i = 0; i < 20; ++i) add(rd<uint32_t>(sel, i * 8), sel[i * 8 + 4]);  // equipment
+    add(rd<uint32_t>(sel, 0xa8), sel[0xac]);                                          // the item in hand
+}
+
+uint32_t read_slots_impl(const Access& a, KilnEntity e, KilnItemsSlot* out, uint32_t capacity) {
+    std::vector<PageSet> v(1);
+    if (!read_pages_impl(a, e, &v[0], nullptr)) return 0;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < v[0].n; ++i) {
+        for (uint32_t k = 0; k < kSlotsPerPage; ++k) {
+            const Stack& st = v[0].p[i].s[k];
+            KilnItemsSlot sl{};
+            sl.slot = st.slot;
+            sl.link = static_cast<uint8_t>(i);
+            sl.rarity = 0xFF;
+            if (!is_empty(st)) {
+                sl.item = st.item;
+                sl.count = st.count;
+                sl.pide = pide_of(st);
+                if (const auto* info = static_cast<const uint8_t*>(E.item_find(st.item, a.items))) {
+                    sl.rarity = info[0x17];
+                    if (rd<uint32_t>(info, E.item_flags) & 2u) sl.flags |= KILN_ITEMS_SLOT_GEAR;
+                }
+                if (sl.pide) {
+                    sl.flags |= KILN_ITEMS_SLOT_GEAR;
+                    if (const auto* is = static_cast<const uint8_t*>(other_sized(a, A_ITEMSTATE, sl.pide, kItemStateSize))) {
+                        sl.state = rd<uint16_t>(is, 0x0E);
+                        sl.rarity = is[0x10];
+                        sl.level = is[0x11];
+                        if (sl.state & (1u << 3)) sl.flags |= KILN_ITEMS_SLOT_EQUIPPED;
+                        if (sl.state & (1u << 0)) sl.flags |= KILN_ITEMS_SLOT_BROKEN;
+                    }
+                }
+            }
+            if (n < capacity) out[n] = sl;
+            ++n;
+        }
+    }
+    return n < capacity ? n : capacity;
+}
+
+void move_why(MoveOutcome* mo, int32_t status, const char* fmt, uint32_t a = 0, uint32_t b = 0) {
+    mo->status = status;
+    std::snprintf(mo->why, sizeof mo->why, fmt, a, b);
+}
+
+uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t slot, KilnEntity to, uint32_t count,
+                         uint64_t to_slot, bool allow_equipped, bool actionbar, MoveOutcome* mo) {
+    *mo = MoveOutcome{};
+    if (!E.slot_transfer) return move_why(mo, KILN_ITEMS_UNAVAILABLE, "the game's slot transfer is not available"), 0;
+    std::vector<PageSet> sets(2);
+    PageSet& fp = sets[0];
+    PageSet& tp = sets[1];
+    bool init_f = false, init_t = false;
+    if (!read_pages_impl(a, from, &fp, &init_f) || !init_f)
+        return move_why(mo, KILN_ITEMS_NO_INVENTORY, "entity %u has no initialized inventory", from), 0;
+    if (!read_pages_impl(a, to, &tp, &init_t) || !init_t)
+        return move_why(mo, KILN_ITEMS_NO_INVENTORY, "entity %u has no initialized inventory", to), 0;
+    const uint32_t inv = KILN_SLOT_INVENTORY(slot);
+    const Stack* src = nullptr;
+    for (uint32_t i = 0; i < fp.n && !src; ++i)
+        if (fp.p[i].entity == inv && KILN_SLOT_INDEX(slot) < kSlotsPerPage) src = &fp.p[i].s[KILN_SLOT_INDEX(slot)];
+    if (!src) return move_why(mo, KILN_ITEMS_SLOT_CHANGED, "the slot (inventory %u) is not one of entity %u's slots", inv, from), 0;
+    if (is_empty(*src)) return move_why(mo, KILN_ITEMS_SLOT_CHANGED, "the slot holds nothing"), 0;
+    const Stack first = *src;
+    PlayerGuard gf, gt;
+    player_guard_impl(a, from, &gf);
+    player_guard_impl(a, to, &gt);
+    if (gf.is_player && !allow_equipped && gf.protects(slot))
+        return move_why(mo, KILN_ITEMS_REFUSED, "the slot is equipped or held by player %u", from), 0;
+    if (gf.is_player && !actionbar && (inv == gf.actionbar[0] || inv == gf.actionbar[1]))
+        return move_why(mo, KILN_ITEMS_REFUSED, "the slot is on player %u's action bar", from), 0;
+    const auto* info = static_cast<const uint8_t*>(E.item_find(first.item, a.items));
+    if (!info) return move_why(mo, KILN_ITEMS_REFUSED, "item 0x%08x is not in the item registry", first.item), 0;
+    const uint32_t max_stack = rd<uint16_t>(info, E.item_max_stack);
+    const bool gear = pide_of(first) != 0 || (rd<uint32_t>(info, E.item_flags) & 2u) != 0;
+    const uint32_t want = count ? count : first.count;
+    if (want > first.count) return move_why(mo, KILN_ITEMS_NOT_ENOUGH, "the slot holds %u, not %u", first.count, want), 0;
+    const uint32_t skip[2] = {gt.is_player && !actionbar ? gt.actionbar[0] : 0u, gt.is_player && !actionbar ? gt.actionbar[1] : 0u};
+    const bool whole = want == first.count;
+    uint32_t moved = 0;
+    bool placed_first = false;
+    for (uint32_t guard = 0; guard < 200000 && moved < want; ++guard) {
+        if (!read_pages_impl(a, to, &tp, nullptr)) break;
+        const uint8_t* cur = live_stack(a, slot);
+        if (!cur || rd<uint32_t>(cur, 0) != first.item || rd<uint32_t>(cur, 4) == 0) break;
+        uint64_t dst = 0;
+        if (!find_destination(tp.p, tp.n, first.item, max_stack, gear, skip, 2, placed_first ? 0 : to_slot, &dst)) break;
+        alignas(8) Result12 r[3] = {};
+        E.slot_transfer(&r[0], tx, dst, slot, whole ? 0 : 2);
+        if (r[0].error != 0) {
+            mo->error = r[0].error;
+            break;
+        }
+        if (r[0].value == 0) break;
+        moved += r[0].value;
+        placed_first = true;
+    }
+    if (moved >= want) return mo->status = KILN_ITEMS_DONE, moved;
+    if (moved > 0) return move_why(mo, KILN_ITEMS_PARTIAL, "only %u of %u fit", moved, want), moved;
+    if (mo->error) return move_why(mo, KILN_ITEMS_REFUSED, "the game refused the transfer (error 0x%02x)", mo->error), 0;
+    return move_why(mo, KILN_ITEMS_NO_ROOM, "no room in entity %u for item 0x%08x", to, first.item), 0;
+}
+
+void move_fail(KilnItemsMoveResult* res, int32_t status, const char* fmt, uint32_t a = 0, uint32_t b = 0) {
+    res->status = status;
+    std::snprintf(res->message, sizeof res->message, fmt, a, b);
+}
+
+void fill_changes(KilnItemsMoveResult* res, const std::vector<PageSet>& v) {
+    // v: from before, from after, to before, to after
+    std::vector<Change> ch(512);
+    LedgerTotals t{};
+    const size_t n = build_ledger(v[0].p, v[1].p, v[0].n, v[2].p, v[3].p, v[2].n, ch.data(), ch.size(), &t);
+    res->done = t.done;
+    res->stacks = t.stacks;
+    for (size_t i = 0; i < n && res->change_count < KILN_ITEMS_MAX_MOVE_CHANGES; ++i) {
+        KilnItemsMoveChange& c = res->changes[res->change_count++];
+        c.from_slot = ch[i].from_slot;
+        c.to_slot = ch[i].to_slot;
+        c.item = ch[i].item;
+        c.amount = ch[i].amount;
+        c.pide = ch[i].pide;
+    }
+}
+
+void run_move_impl(const Access& a, const KilnItemsMoveRequest& r, uint8_t* tx, KilnItemsMoveResult* res) {
+    if (!E.slot_transfer || !E.quick_stack || !E.move_all)
+        return move_fail(res, KILN_ITEMS_UNAVAILABLE, "the game's slot transfer is not available on this build");
+    std::vector<PageSet> v(4);
+    bool init_f = false, init_t = false;
+    if (!read_pages_impl(a, r.from, &v[0], &init_f) || !init_f)
+        return move_fail(res, KILN_ITEMS_NO_INVENTORY, "entity %u has no initialized inventory", r.from);
+    if (!read_pages_impl(a, r.to, &v[2], &init_t) || !init_t)
+        return move_fail(res, KILN_ITEMS_NO_INVENTORY, "entity %u has no initialized inventory", r.to);
+    const bool dry = (r.flags & KILN_ITEMS_MOVE_DRY_RUN) != 0;
+    alignas(16) uint8_t s[kSetupBlock];
+    fill_setup_for(a, 0, 0, s);
+    E.tx_ctor(tx);
+    E.tx_init(tx, s);
+    bool canceled = false;
+    uint32_t game_error = 0;
+    if (r.kind == KILN_MOVE_STACK) {
+        MoveOutcome mo;
+        const uint32_t moved = move_stack_impl(a, tx, r.from, r.slot, r.to, r.count, r.to_slot,
+                                               (r.flags & KILN_ITEMS_MOVE_EQUIPPED) != 0,
+                                               (r.flags & KILN_ITEMS_MOVE_ACTIONBAR) != 0, &mo);
+        res->status = mo.status;
+        res->game_error = mo.error;
+        std::snprintf(res->message, sizeof res->message, "%s", mo.why);
+        const Stack* st = nullptr;
+        for (uint32_t i = 0; i < v[0].n && !st; ++i)
+            if (v[0].p[i].entity == KILN_SLOT_INVENTORY(r.slot) && KILN_SLOT_INDEX(r.slot) < kSlotsPerPage)
+                st = &v[0].p[i].s[KILN_SLOT_INDEX(r.slot)];
+        res->requested = r.count ? r.count : (st ? st->count : 0);
+        (void)moved;
+    } else {
+        Result12 out[3] = {};
+        xfer_mod_begin((r.flags & KILN_ITEMS_MOVE_SILENT) != 0, dry);
+        if (r.kind == KILN_MOVE_QUICK_STACK) {
+            E.quick_stack(&out[0], tx, r.to, r.from, nullptr);
+        } else {
+            PlayerGuard g;
+            player_guard_impl(a, r.from, &g);
+            const bool bar = (r.flags & KILN_ITEMS_MOVE_ACTIONBAR) != 0;
+            E.move_all(&out[0], tx, r.from, r.to, 1, (g.is_player && !bar) ? 0 : 1);
+        }
+        canceled = xfer_mod_end();
+        game_error = out[0].error;
+        res->game_error = game_error;
+        res->status = KILN_ITEMS_DONE;
+    }
+    // what changed, from the inventories themselves (the writes are in place before the commit)
+    read_pages_impl(a, r.from, &v[1], nullptr);
+    read_pages_impl(a, r.to, &v[3], nullptr);
+    fill_changes(res, v);
+    const bool ok = res->status == KILN_ITEMS_DONE || res->status == KILN_ITEMS_PARTIAL;
+    // A canceled quick stack / move all still commits what a handler moved itself first (shroudlink's `on_transfer`
+    // moves are the mods' own, whatever the game's transfer then does); nothing moved: nothing to commit.
+    const bool failed = game_error != 0 || (r.kind != KILN_MOVE_STACK && canceled && res->done == 0);
+    if (!failed && ok && !dry) E.commit(tx);
+    else E.rollback(tx);
+    E.free_arrays(tx);
+    if (r.kind == KILN_MOVE_STACK) {
+        if (!ok) {
+            res->done = 0;
+            res->change_count = 0;
+        }
+        return;
+    }
+    res->canceled = canceled ? 1 : 0;
+    if (game_error) {
+        res->done = 0;
+        res->change_count = 0;
+        return move_fail(res, KILN_ITEMS_REFUSED, "the game refused it (error 0x%02x)", game_error);
+    }
+    if (canceled && res->done == 0) return move_fail(res, KILN_ITEMS_REFUSED, "a transfer rule or handler canceled it");
+    if (res->done == 0) return move_fail(res, KILN_ITEMS_NO_ROOM, "nothing moved from entity %u to entity %u", r.from, r.to);
+    res->status = KILN_ITEMS_DONE;
+}
+
+// ---- the game's own transaction, seen from the quick-stack / move-all hooks ----
+std::atomic<void*> g_tx_registry{nullptr};  // the ECS registry whose component map the tx words were checked against
+
+bool access_from_tx_impl(void* tx, Access* a) {
+    if (!tx || !E.job_storage || !E.component_map_find) return false;
+    auto* w = static_cast<void**>(tx);
+    a->ctx = w[0];
+    if (!a->ctx) return false;
+    a->job = *static_cast<void**>(a->ctx);
+    if (!a->job) return false;
+    a->storage = E.job_storage(a->job);
+    if (!a->storage || rd<uint8_t>(a->storage, 8) != 0) return false;  // the server world only
+    a->items = w[1];
+    a->balancing = w[2];
+    a->attributes = w[0xF];
+    a->acc[A_FUEL] = reinterpret_cast<uint64_t>(w[7]);
+    a->acc[A_INVENTORY] = reinterpret_cast<uint64_t>(w[4]);
+    a->acc[A_EMPTY] = reinterpret_cast<uint64_t>(w[0x14]);
+    a->acc[A_SETUP] = reinterpret_cast<uint64_t>(w[3]);
+    a->acc[A_ITEMSTATE] = reinterpret_cast<uint64_t>(w[5]);
+    a->acc[A_OWNER] = reinterpret_cast<uint64_t>(w[0x12]);
+    a->acc[A_SLOTSEL] = reinterpret_cast<uint64_t>(w[0x1D]);
+    if (!a->items) return false;
+    void* registry = *static_cast<void**>(a->storage);
+    if (!registry) return false;
+    if (g_tx_registry.load(std::memory_order_acquire) == registry) return true;
+    for (int i = 0; i < A_COUNT; ++i) {
+        if (!a->acc[i]) return false;
+        const uint32_t h = kAccHashes[i];
+        const uint16_t* p = E.component_map_find(static_cast<uint8_t*>(registry) + E.registry_components, &h);
+        if (!p || *reinterpret_cast<const uint16_t*>(a->acc[i]) != *p) return false;
+    }
+    g_tx_registry.store(registry, std::memory_order_release);
+    return true;
+}
 }  // namespace
 
 // ---- guarded entry points ----
@@ -801,6 +1098,59 @@ bool register_program(uintptr_t world, void* desc, int* outcome, char* why, unsi
         register_impl(world, desc, outcome, why);
         return true;
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool read_pages(const Access& a, KilnEntity e, PageSet* out, bool* initialized) {
+    __try {
+        return read_pages_impl(a, e, out, initialized);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        out->n = 0;
+        return false;
+    }
+}
+
+void player_guard(const Access& a, KilnEntity e, PlayerGuard* g) {
+    __try {
+        player_guard_impl(a, e, g);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *g = PlayerGuard{};
+    }
+}
+
+uint32_t move_stack_in(const Access& a, void* tx, KilnEntity from, uint64_t slot, KilnEntity to, uint32_t count,
+                       uint64_t to_slot, bool allow_equipped, bool actionbar, MoveOutcome* out) {
+    __try {
+        return move_stack_impl(a, tx, from, slot, to, count, to_slot, allow_equipped, actionbar, out);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        move_why(out, KILN_ITEMS_UNAVAILABLE, "the move faulted");
+        return 0;
+    }
+}
+
+uint32_t read_slots(const Access& a, KilnEntity e, KilnItemsSlot* out, uint32_t capacity) {
+    __try {
+        return read_slots_impl(a, e, out, capacity);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+bool access_from_tx(void* tx, Access* a) {
+    __try {
+        return access_from_tx_impl(tx, a);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool run_move(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMoveResult* res, unsigned long* code) {
+    __try {
+        run_move_impl(a, job.r, tx, res);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        xfer_mod_end();
         return false;
     }
 }

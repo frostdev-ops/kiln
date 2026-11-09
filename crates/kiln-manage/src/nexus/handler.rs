@@ -82,14 +82,17 @@ pub trait HandlerPlatform {
     /// The current nxm handler, unless it is Kiln's own.
     fn current(&self) -> Result<Option<Previous>>;
     fn is_ours(&self) -> bool;
-    fn matches_registered(&self, _: Option<&str>) -> bool { self.is_ours() }
+    fn matches_registered(&self, _: Option<&str>) -> bool {
+        if !crate::nexus::enabled() { return false } self.is_ours() }
     fn install(&self, exe: &Path) -> Result<()>;
     /// Gives the handler back (None: there was none before Kiln).
     fn restore(&self, previous: Option<&Previous>) -> Result<()>;
     fn forward(&self, previous: &Previous, url: &str) -> Result<()>;
     /// Snapshot only the nxm association before changing it; persisted before install for crash recovery.
-    fn snapshot(&self) -> Result<Option<serde_json::Value>> { Ok(None) }
-    fn restore_snapshot(&self, previous: Option<&Previous>, _: Option<&serde_json::Value>) -> Result<()> { self.restore(previous) }
+    fn snapshot(&self) -> Result<Option<serde_json::Value>> {
+        crate::nexus::require_enabled()?; Ok(None) }
+    fn restore_snapshot(&self, previous: Option<&Previous>, _: Option<&serde_json::Value>) -> Result<()> {
+        crate::nexus::require_enabled()?; self.restore(previous) }
 
 }
 
@@ -98,6 +101,7 @@ fn state_path(root: &Path) -> PathBuf {
 }
 
 pub fn state(root: &Path) -> HandlerState {
+    if !crate::nexus::enabled() { return HandlerState::default() }
     read_state(root).unwrap_or_default()
 }
 
@@ -108,6 +112,7 @@ fn read_state(root: &Path) -> Result<HandlerState> {
 }
 
 pub fn status(root: &Path, p: &dyn HandlerPlatform) -> HandlerStatus {
+    if !crate::nexus::enabled() { return HandlerStatus { supported: false, registered: false, active: false, previous: None } }
     let s = state(root);
     HandlerStatus { supported: p.supported(), registered: s.registered, active: s.registered && p.matches_registered(s.exe.as_deref()), previous: s.previous.as_ref().map(Previous::label) }
 }
@@ -115,6 +120,7 @@ pub fn status(root: &Path, p: &dyn HandlerPlatform) -> HandlerStatus {
 /// Turns the option on: remembers the current handler (unless it is Kiln's), then makes Kiln the handler. Again while
 /// on: refreshes the launcher's path (an AppImage that moved) and keeps the remembered handler.
 pub fn register(root: &Path, p: &dyn HandlerPlatform, exe: &Path) -> Result<HandlerStatus> {
+        crate::nexus::require_enabled()?;
     if !p.supported() {
         return Err(Error::new(ErrorCode::Unsupported, "Kiln can't take Nexus Mods links on this system."));
     }
@@ -139,6 +145,7 @@ pub fn register(root: &Path, p: &dyn HandlerPlatform, exe: &Path) -> Result<Hand
 
 /// Turns the option off: the handler before Kiln comes back.
 pub fn unregister(root: &Path, p: &dyn HandlerPlatform) -> Result<HandlerStatus> {
+        crate::nexus::require_enabled()?;
     let _lock = lock_state(root, "handler.lock")?;
     let s = read_state(root)?;
     if p.matches_registered(s.exe.as_deref()) {
@@ -150,6 +157,7 @@ pub fn unregister(root: &Path, p: &dyn HandlerPlatform) -> Result<HandlerStatus>
 
 /// A link for another game: to the handler before Kiln.
 pub fn forward(root: &Path, p: &dyn HandlerPlatform, url: &str) -> Result<String> {
+        crate::nexus::require_enabled()?;
     if super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
     let s = read_state(root)?;
     let prev = s.previous.ok_or_else(|| Error::not_found("No other mod manager was set up for Nexus Mods links before Kiln."))?;
@@ -171,21 +179,27 @@ pub fn platform() -> Box<dyn HandlerPlatform> {
 struct Unsupported;
 impl HandlerPlatform for Unsupported {
     fn supported(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
         false
     }
     fn current(&self) -> Result<Option<Previous>> {
+        crate::nexus::require_enabled()?;
         Ok(None)
     }
     fn is_ours(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
         false
     }
     fn install(&self, _: &Path) -> Result<()> {
+        crate::nexus::require_enabled()?;
         Err(Error::new(ErrorCode::Unsupported, "not on this system"))
     }
     fn restore(&self, _: Option<&Previous>) -> Result<()> {
+        crate::nexus::require_enabled()?;
         Ok(())
     }
     fn forward(&self, _: &Previous, _: &str) -> Result<()> {
+        crate::nexus::require_enabled()?;
         Err(Error::new(ErrorCode::Unsupported, "not on this system"))
     }
 }
@@ -238,6 +252,7 @@ impl LinuxMime {
 
     /// Where a desktop id's file is (the user's folder first).
     pub fn find_desktop(&self, id: &str) -> Option<PathBuf> {
+        if !crate::nexus::enabled() { return None }
         if id.contains('/') || id.contains("..") {
             return None;
         }
@@ -381,20 +396,24 @@ fn desktop_exec(file: &Path) -> Option<String> {
 
 impl HandlerPlatform for LinuxMime {
     fn supported(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
         crate::util::which("xdg-mime").is_some()
     }
 
     fn current(&self) -> Result<Option<Previous>> {
+        crate::nexus::require_enabled()?;
         let id = self.xdg_mime(&["query", "default", MIME])?;
         let id = id.lines().next().unwrap_or("").trim().to_string();
         Ok((!id.is_empty() && id != DESKTOP_ID).then_some(Previous::Desktop { id }))
     }
 
     fn is_ours(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
         self.xdg_mime(&["query", "default", MIME]).is_ok_and(|id| id.trim() == DESKTOP_ID) && self.desktop_file().is_file()
     }
 
     fn install(&self, exe: &Path) -> Result<()> {
+        crate::nexus::require_enabled()?;
         if !exe.is_absolute() || exe.to_string_lossy().chars().any(char::is_control) { return Err(Error::invalid("launcher path must be an absolute path without control characters")); }
         let entry = format!(
             "[Desktop Entry]\nType=Application\nName=Kiln Launcher (Nexus Mods links)\nComment=Mod Manager Download links for Enshrouded\n\
@@ -408,6 +427,7 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn restore(&self, previous: Option<&Previous>) -> Result<()> {
+        crate::nexus::require_enabled()?;
         match previous {
             Some(Previous::Desktop { id }) => {
                 self.set_default(Some(id))?;
@@ -420,6 +440,7 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn snapshot(&self) -> Result<Option<serde_json::Value>> {
+        crate::nexus::require_enabled()?;
         let mime = self.read_mime()?;
         let desktop = match std::fs::read(self.desktop_file()) {
             Ok(bytes) => Some(bytes),
@@ -430,6 +451,7 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn restore_snapshot(&self, previous: Option<&Previous>, snapshot: Option<&serde_json::Value>) -> Result<()> {
+        crate::nexus::require_enabled()?;
         let Some(snapshot) = snapshot else { return self.restore(previous) };
         let old: Option<String> = serde_json::from_value(snapshot["mime"].clone())?;
         let path: PathBuf = snapshot.get("path").cloned().map(serde_json::from_value).transpose()?.unwrap_or_else(|| self.mime_path());
@@ -459,6 +481,7 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn forward(&self, previous: &Previous, url: &str) -> Result<()> {
+        crate::nexus::require_enabled()?;
         if super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
         let Previous::Desktop { id } = previous else { return Err(Error::new(ErrorCode::Unsupported, "not a desktop entry")) };
         let file = self.find_desktop(id).ok_or_else(|| Error::not_found(format!("{id} is gone")))?;
@@ -594,9 +617,11 @@ pub mod win {
 
     impl HandlerPlatform for WinRegistry {
         fn supported(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
             true
         }
         fn current(&self) -> Result<Option<Previous>> {
+        crate::nexus::require_enabled()?;
             let me = Self::exe_lower();
             let ours = |c: &str| c.to_lowercase().contains("--nxm") && (me.is_empty() || c.to_lowercase().contains(&me) || c.to_lowercase().contains("kiln-launcher"));
             if let Some(c) = Self::command_of(HKEY_CURRENT_USER, KEY) {
@@ -609,14 +634,17 @@ pub mod win {
             Ok(Self::command_of(HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes\nxm").filter(|c| !ours(c)).map(|c| Previous::Command { command: c, icon: None, scope: "hklm".into() }))
         }
         fn is_ours(&self) -> bool {
+        if !crate::nexus::enabled() { return false }
             Self::command_of(HKEY_CURRENT_USER, KEY).is_some_and(|c| c.contains("--nxm") && c.to_lowercase().contains(&Self::exe_lower()))
         }
         fn matches_registered(&self, exe: Option<&str>) -> bool {
+        if !crate::nexus::enabled() { return false }
             let Some(exe) = exe else { return self.is_ours() };
             let expected = format!("\"{exe}\" --nxm \"%1\"");
             Self::command_of(HKEY_CURRENT_USER, KEY).is_some_and(|c| c.eq_ignore_ascii_case(&expected))
         }
         fn install(&self, exe: &Path) -> Result<()> {
+        crate::nexus::require_enabled()?;
             let e = exe.display().to_string();
             if !exe.is_absolute() || e.chars().any(|c| c.is_control() || c == '"') { return Err(Error::invalid("invalid launcher path")); }
             set(HKEY_CURRENT_USER, KEY, None, "URL:NXM Protocol")?;
@@ -625,6 +653,7 @@ pub mod win {
             set(HKEY_CURRENT_USER, &format!(r"{KEY}\shell\open\command"), None, &format!("\"{e}\" --nxm \"%1\""))
         }
         fn snapshot(&self) -> Result<Option<serde_json::Value>> {
+        crate::nexus::require_enabled()?;
             let mut values = Vec::new();
             for (key, name) in [(KEY.to_string(), None), (KEY.to_string(), Some("URL Protocol")), (format!(r"{KEY}\DefaultIcon"), None), (format!(r"{KEY}\shell"), None), (format!(r"{KEY}\shell\open"), None), (format!(r"{KEY}\shell\open\command"), None)] {
                 values.push(snapshot_value(&key, name)?);
@@ -632,6 +661,7 @@ pub mod win {
             Ok(Some(serde_json::to_value(values)?))
         }
         fn restore_snapshot(&self, previous: Option<&Previous>, snapshot: Option<&serde_json::Value>) -> Result<()> {
+        crate::nexus::require_enabled()?;
             let Some(snapshot) = snapshot else { return self.restore(previous) };
             let values: Vec<SavedValue> = serde_json::from_value(snapshot.clone())?;
             if values.iter().any(|v| !nxm_registry_slot(&v.key, v.name.as_deref())) {
@@ -660,6 +690,7 @@ pub mod win {
             Ok(())
         }
         fn restore(&self, previous: Option<&Previous>) -> Result<()> {
+        crate::nexus::require_enabled()?;
             match previous {
                 Some(Previous::Command { command, icon, scope }) if scope == "hkcu" => {
                     set(HKEY_CURRENT_USER, &format!(r"{KEY}\shell\open\command"), None, command)?;
@@ -680,6 +711,7 @@ pub mod win {
             }
         }
         fn forward(&self, previous: &Previous, url: &str) -> Result<()> {
+        crate::nexus::require_enabled()?;
             use std::os::windows::process::CommandExt;
             if super::super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
             let Previous::Command { command, .. } = previous else { return Err(Error::new(ErrorCode::Unsupported, "not a command")) };
@@ -706,6 +738,7 @@ pub struct Instance {
 
 /// Makes a private state directory, refusing symbolic links and directories owned by another account.
 pub fn private_dir(path: &Path) -> Result<()> {
+        crate::nexus::require_enabled()?;
     if !path.exists() {
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
@@ -802,6 +835,7 @@ fn open_lock(root: &Path, name: &str) -> Result<std::fs::File> {
 
 /// Serializes a state read/modify/write operation across launcher processes.
 pub fn lock_state(root: &Path, name: &str) -> Result<Instance> {
+        crate::nexus::require_enabled()?;
     if name.contains(['/', '\\']) || name == "." || name == ".." { return Err(Error::invalid("invalid lock name")); }
     let f = open_lock(root, name)?;
     f.lock()?;
@@ -810,6 +844,7 @@ pub fn lock_state(root: &Path, name: &str) -> Result<Instance> {
 
 /// Takes the process-lifetime lock; only its owner may consume the inbox.
 pub fn acquire_instance(root: &Path) -> Result<Option<Instance>> {
+        crate::nexus::require_enabled()?;
     let f = open_lock(root, "instance.lock")?;
     match f.try_lock() {
         Ok(()) => Ok(Some(Instance { _file: f })),
@@ -824,6 +859,7 @@ fn inbox(root: &Path) -> PathBuf {
 
 /// Puts a link into the inbox (readable by the user only: it carries a download key).
 pub fn queue_link(root: &Path, url: &str) -> Result<PathBuf> {
+        crate::nexus::require_enabled()?;
     #[derive(Serialize)]
     struct L<'a> {
         url: &'a str,
@@ -840,6 +876,7 @@ pub fn queue_link(root: &Path, url: &str) -> Result<PathBuf> {
 
 /// Takes every queued link, oldest first (links older than a day are dropped unread).
 pub fn take_links(root: &Path) -> Vec<String> {
+    if !crate::nexus::enabled() { return Vec::new() }
     #[derive(Deserialize)]
     struct L {
         url: String,

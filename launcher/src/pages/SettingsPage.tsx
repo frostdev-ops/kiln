@@ -4,7 +4,7 @@ import { FolderPlus, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import * as api from "../api/commands";
 import type { ConfigDocument, Json, LauncherSettings } from "../api/commands";
-import { qk, useAppInfo, useGame, useGameStatus, useSettings } from "../api/hooks";
+import { qk, useAppInfo, useGame, useGameStatus, useNexusEnabled, useSettings } from "../api/hooks";
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import { UpdatesCard } from "../components/UpdateSettings";
@@ -19,6 +19,7 @@ import {
 const WIN = /Windows/i.test(navigator.userAgent);
 
 export default function SettingsPage() {
+  const nexusEnabled = useNexusEnabled();
   return (
     <Page>
       <PageHeader title="Settings" sub="The launcher, the games it knows, and Kiln's own settings for this game." />
@@ -28,7 +29,7 @@ export default function SettingsPage() {
         <AppearanceCard />
         <UpdatesCard />
         <DeckModeCard />
-        <NexusCard />
+        {nexusEnabled && <NexusCard />}
       </div>
       <KilnJsonCard />
       <AssetsCard />

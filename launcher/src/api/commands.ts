@@ -77,6 +77,8 @@ export interface AppInfo {
   dataDir: string;
   commit: string | null;
   mock: boolean;
+  /** Compiled Nexus integration capability. Missing from older backends: unavailable. */
+  nexusEnabled?: boolean;
   /** KILN_LAUNCHER_NO_WEBGL=1 for this start: the plain Play button, no WebGL fire. */
   noWebgl?: boolean;
   /** Steam Deck / SteamOS / gamescope detection and `--deck` / `--desktop` (src/deck/mode.tsx chooses the UI). */
@@ -1231,7 +1233,7 @@ export const COMMANDS = [
   "update_status", "update_check", "update_install", "update_restart", "update_skip", "update_ack",
   "library_add", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
-  "nexus_account", "nexus_key_set", "nexus_key_clear", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
+  "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
