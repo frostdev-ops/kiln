@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 mod io;
+// kiln-eml: fingerprint reuse (bisdat/kiln-mods#17)
 mod prints;
 mod stamp;
 mod track;
@@ -71,6 +72,7 @@ impl FileStateCache {
         }
     }
 
+    // kiln-eml
     /// Does `saved` lack, or hold other stamps than, this snapshot? A hit that finds so is saved again, which is how
     /// a cache file from before stamps (or one whose files were changed recently) gets them without a patch run.
     pub fn stamps_differ(&self, saved: &Self) -> bool {

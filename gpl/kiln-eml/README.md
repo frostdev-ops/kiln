@@ -63,10 +63,12 @@ Each is marked `kiln-eml:` in the source.
    nothing 48 GiB. `Fingerprints` keeps a memo of (length, last-write time, CRC-64, OS stamp) per file for the run and
    seeds it from the saved `files.json`; every barrier re-stats and re-reads only what changed. The stamp is the OS's
    file identity and change time (Linux: device, inode, `ctime`; Windows and Wine: `FileIdInfo` volume and file id,
-   `FileBasicInfo.ChangeTime`), which a program cannot set back the way it can a last-write time. It is trusted only
-   when it is complete, the file is on a volume where a scratch-file test in the game folder (a same-size rewrite
-   with the last-write time restored) moved the change time, the change is older than three seconds (a coarse clock could give a later
-   change the same stamp), and the file did not change while it was read. Everything else is read in full, as
+   `FileBasicInfo.ChangeTime`), which moves with every write, also when the last-write time is put back (on Windows
+   a program can still set it on purpose: this catches tools and accidents, not deliberate hiding). It is trusted
+   only when it is complete, the file is on a volume where a scratch-file test in the game folder (a same-size
+   rewrite with the last-write time restored) moved the change time and a 100 ns last-write time survived (FAT and
+   exFAT fail), the change is older than three seconds (a coarse clock could give a later change the same stamp),
+   and the file did not change while it was read. Everything else is read in full, as
    before; `KILN_EML_FULL_HASH=1` turns reuse off. `files.json` gains an optional `stamps` map (older files load
    without it, and older readers ignore it) and is replaced whole. The CRC-64 values are unchanged but computed with
    sixteen-way tables (`crc::Table<16>`), several times faster than the crate's default. `RunResult` and kiln's

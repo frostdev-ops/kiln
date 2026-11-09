@@ -3,7 +3,7 @@
 // last-write time that any program can set. `Fingerprints` (prints.rs) uses it to avoid re-reading a file whose
 // bytes it already hashed; see there for what it is trusted for. Nothing here reads file contents.
 
-use std::{fs::{self, File, OpenOptions}, io::Write, path::Path, time::Duration};
+use std::{fs::{self, File, OpenOptions}, io::Write, path::Path, time::{Duration, UNIX_EPOCH}};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 ///   (`FileBasicInfo`), both asked from the open handle.
 ///
 /// The change time moves whenever the file's data or metadata is written, including a write whose last-write time
-/// is then put back (`utimes`, `SetFileTime`): a program can set the last-write time, not this one.
+/// is then put back (`utimes`, `SetFileTime`). On Linux no program can set it back. On Windows a program can, on
+/// purpose (`SetFileInformationByHandle` with a `ChangeTime`, or -1 to stop its updates): the stamp catches tools and
+/// accidents, not a program written to hide an edit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stamp {
     /// Volume the file is on (Unix `st_dev`, Windows volume serial number).
@@ -123,14 +125,36 @@ fn file_system_is_trustworthy(_file: &File) -> Result<(), String> {
 
 /// Does a same-size rewrite whose last-write time is put back move the change time on the volume of `dir`?
 ///
-/// Runs on a scratch file in `dir` (Kiln's own cache folder, removed again) and nothing else. `Ok(volume)` is the
-/// volume the answer holds for; a stamp is only ever trusted for files on that volume. `Err` carries the reason:
-/// the file system keeps no usable change time, so every file is hashed in full.
+/// Runs on a scratch file in `dir` (the game folder; removed again, and earlier leftovers too) and nothing else.
+/// `Ok(volume)` is the volume the answer holds for; a stamp is only ever trusted for files on that volume. `Err`
+/// carries the reason: the file system keeps no usable change time, so every file is hashed in full.
 pub fn probe(dir: &Path, read: Reader) -> Result<u64, String> {
-    let path = dir.join(format!(".kiln-eml-stamp-probe-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+    sweep(dir);
+    let path = dir.join(format!("{PROBE_PREFIX}{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
     let result = probe_file(&path, read);
     let _ = fs::remove_file(&path);
     result
+}
+
+const PROBE_PREFIX: &str = ".kiln-eml-stamp-probe-";
+
+/// kiln-eml: a run that died inside the test (or whose scratch file a virus scanner held open) left its file behind:
+/// remove those older than a minute. A test in progress is younger than that.
+fn sweep(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(PROBE_PREFIX) {
+            continue;
+        }
+        let stale = entry.metadata().ok()
+            .filter(|m| m.is_file())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > Duration::from_secs(60));
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn probe_file(path: &Path, read: Reader) -> Result<u64, String> {
@@ -138,7 +162,16 @@ fn probe_file(path: &Path, read: Reader) -> Result<u64, String> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path).map_err(io("create the scratch file"))?;
     file.write_all(b"kiln-eml").map_err(io("write the scratch file"))?;
     file.sync_all().map_err(io("flush the scratch file"))?;
-    let written = file.metadata().and_then(|m| m.modified()).map_err(io("read the last-write time"))?;
+    // kiln-eml: a last-write time with 100 ns detail must come back unchanged. FAT keeps 2 s and exFAT 10 ms; Wine
+    // reports both as NTFS when they are host mounts, and Linux keeps exFAT's change time only in memory (it is the
+    // last-write time again after a remount), so the rewrite test below would pass there and say nothing.
+    let now = file.metadata().and_then(|m| m.modified()).map_err(io("read the last-write time"))?;
+    let seconds = now.duration_since(UNIX_EPOCH).map_err(|e| format!("the clock is before 1970: {e}"))?.as_secs();
+    let written = UNIX_EPOCH + Duration::new(seconds, 123_456_700);
+    file.set_modified(written).map_err(io("set the last-write time"))?;
+    if file.metadata().and_then(|m| m.modified()).map_err(io("read the last-write time"))? != written {
+        return Err("the file system keeps coarse times (FAT or exFAT): its change time does not survive a remount".into());
+    }
     file_system_is_trustworthy(&file)?;
     let first = read(&file).ok_or("the file system reports no file identity or change time")?;
     drop(file);

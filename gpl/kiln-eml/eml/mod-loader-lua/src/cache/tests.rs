@@ -90,6 +90,13 @@ fn the_fast_crc_computes_the_same_values() {
     for len in [0, 1, 7, 15, 16, 17, 31, 255, 4096, 65_537, bytes.len()] {
         assert_eq!(CRC64.checksum(&bytes[..len]), reference.checksum(&bytes[..len]), "{len} bytes");
     }
+    // every start alignment and odd length of the sixteen-byte blocks
+    for start in 0..17 {
+        for len in (0..80).chain([1021, 4093, 65_535]) {
+            let part = &bytes[start..start + len];
+            assert_eq!(CRC64.checksum(part), reference.checksum(part), "{len} bytes at offset {start}");
+        }
+    }
     // split updates, as the file loop does
     let mut digest = CRC64.digest();
     for chunk in bytes.chunks(4093) {
@@ -105,8 +112,25 @@ mod reuse {
     #[test]
     fn the_volume_test_passes_where_the_change_time_moves() {
         let dir = Dir::new();
+        // a scratch file a crashed run left behind is removed; one of a test in progress (young) is not
+        let stale = dir.file(".kiln-eml-stamp-probe-1-stale", b"kiln-eml");
+        File::options().write(true).open(&stale).unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(600)).unwrap();
+        let young = dir.file(".kiln-eml-stamp-probe-2-young", b"kiln-eml");
         stamp::probe(&dir.0, stamp::read).expect("this file system keeps a change time");
+        assert!(!stale.exists() && young.exists());
+        fs::remove_file(&young).unwrap();
+        stamp::probe(&dir.0, stamp::read).unwrap();
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0, "the scratch file is removed");
+    }
+
+    /// `KILN_EML_PROBE_DIR=<folder> cargo test -p mod-loader-lua probe_a_real_folder -- --ignored --nocapture`: the
+    /// volume test's verdict on a real file system (an exFAT or FAT mount must be refused).
+    #[test]
+    #[ignore]
+    fn probe_a_real_folder() {
+        let dir = PathBuf::from(std::env::var("KILN_EML_PROBE_DIR").expect("KILN_EML_PROBE_DIR"));
+        println!("PROBE {}: {:?}", dir.display(), stamp::probe(&dir, stamp::read));
     }
 
     #[test]

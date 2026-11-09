@@ -192,13 +192,15 @@ re-read what cannot have changed.
 - **What is compared.** `kiln/eml/cache/files.json` keeps, for each file, the length, the last-write time and the CRC-64
   as before, and now also the OS's file identity and change time (the "stamp"): on Linux the device, inode and
   `ctime`, on Windows and Wine the volume serial number and file id (`FileIdInfo`) and the `ChangeTime`
-  (`FileBasicInfo`). A program can set a last-write time back; it cannot set the change time back. A same-size edit
-  with the old last-write time restored still moves it.
+  (`FileBasicInfo`). Any program can set a last-write time back; the change time moves with every write and with
+  that reset, so a same-size edit with the old last-write time restored still shows.
 - **When a recorded CRC is reused.** Only when all of this holds: the stamp is complete, the length and last-write time
   are unchanged, the file's volume passed a test in this run, the change was older than three seconds when the CRC was
   taken, and the file did not change while it was being read. The test runs first, in the game folder: it writes a
   scratch file there, rewrites it with other bytes of the same length, puts the last-write time back and checks that
-  the change time moved (and, on Windows, that the file system is not FAT or exFAT); the scratch file is removed. Mod
+  the change time moved; it also checks that the file system keeps last-write times to 100 ns, which FAT and exFAT
+  do not (their change time is not kept on disk; under Wine they are reported as NTFS). The scratch file is removed,
+  and so is one a crashed start left behind. Mod
   folders are never written to. The three-second rule is for coarse file system clocks, where a later edit could get
   the same stamp as the one recorded.
 - **Everything else is read in full, exactly as before:** a stamp that cannot be read, a changed or replaced file, a
@@ -214,10 +216,11 @@ re-read what cannot have changed.
 - **The CRC-64 values did not change** (an old `files.json` still loads, and an old Kiln reads a new one), but they are
   computed with sixteen-way tables, several times faster than the crate's default.
 
-What this trusts: that the operating system updates the change time when a file's data changes. A process with the
-rights to set the system clock and edit the game files could defeat that; so could a file system that does not keep a
-change time but passes the test above. Neither is a threat to a normal install, and `KILN_EML_FULL_HASH=1` removes
-the assumption.
+What this trusts: that the operating system updates the change time when a file's data changes. It catches tools,
+updates and accidents, not a program written to hide an edit: on Windows a program can set the change time back
+(`SetFileInformationByHandle`), and anywhere a process allowed to set the system clock could. A file system that
+does not keep a change time but passes the test above would defeat it too. `KILN_EML_FULL_HASH=1` removes the
+assumption.
 
 Each run logs what it read (eml.log, and kiln.log as `[eml] Fingerprints: ...`), and the summary line and
 `kiln/state/eml.json` carry it:
