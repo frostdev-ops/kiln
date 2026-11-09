@@ -61,6 +61,22 @@ public static class Dialogues
         return dialogue;
     }
 
+    internal static void ForgetBlock(DialogueDefinition definition)
+    {
+        bool ownsId;
+        lock (Quests.Gate)
+        {
+            ownsId = !Quests.DialogueRegistry.TryGetValue(definition.FullId, out var current) || ReferenceEquals(current.Def, definition);
+            if (ownsId)
+            {
+                Quests.DialogueRegistry.Remove(definition.FullId);
+                NativeExport.DefinedInData('d', definition.FullId, false);
+                NativeExport.Changed(definition.ModId);
+            }
+        }
+        foreach (var session in Sessions.Values.Where(s => ownsId ? s.Def.FullId == definition.FullId : ReferenceEquals(s.Def, definition)).ToArray()) CloseFor(session.Holder, true);
+    }
+
     public static IReadOnlyList<DialogueDefinition> Definitions
     {
         get

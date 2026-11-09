@@ -14,12 +14,19 @@ namespace Kiln;
 /// the windows.</summary>
 public static partial class KilnDevTools
 {
+    private static readonly object StartGate = new();
     private static int _started;
     private static UiWindow? _systems, _types;
     private static readonly ConcurrentQueue<Action> Changes = new();
 
     /// <summary>Registers the commands (once). Safe to call from any mod.</summary>
     public static void Start()
+    {
+        // Other callers must not return while the first call is still registering the shared commands.
+        lock (StartGate) StartCore();
+    }
+
+    private static void StartCore()
     {
         if (Interlocked.Exchange(ref _started, 1) != 0) return;
         var caller = ModContext.CurrentMod;

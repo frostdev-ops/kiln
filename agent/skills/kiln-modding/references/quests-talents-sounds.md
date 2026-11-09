@@ -4,17 +4,11 @@ Wiki: [talents](https://frostdev.io/kiln/wiki/talents), [progression](https://fr
 [quests](https://frostdev.io/kiln/wiki/quests), [NPCs](https://frostdev.io/kiln/wiki/npcs),
 [sounds](https://frostdev.io/kiln/wiki/sounds). `kiln lint` checks every format here.
 
-## What's been seen in a real game
-Kept current at https://frostdev.io/kiln/wiki/status.
+## Client evidence
 
-| Feature | Seen | Not yet: list as "needs a client check" |
-|---|---|---|
-| Game-tree nodes | drawn, unlocked, kept after a rejoin, joined servers | keeping an unlock when a new mod moves a node past the game's caps, or back |
-| Kiln trees | unlock, refund, kept after a rejoin, other worlds, joined servers | respec; German labels |
-| Quests, dialogue (the game's UI, the default) | journal, tracked quest, notifications, counters, markers, NPC menu, hand-ins, rewards, hosted and joined | party scope with two players; an NPC placed in a second hosted world of one session; done quests staying quiet after a world switch |
-| NPCs | directory, trades, voice, summon tool, bed, `Follow`, `Stay` | Survivors text from the NPC, not its tool; `Follow` past about 20 m |
-| Sounds | UI, 3D, loops, music, voice-over, narration | server sounds relayed to a joined player; `Sound.Replace` at run time |
-| Who can join | | holding and refusing clients without Kiln; refusing a Kiln client without a stated `mod` mod; withheld entities |
+The dated [status page](https://frostdev.io/kiln/wiki/status) is the source for what a player has seen. Do not infer a new
+block form, party scope, joined-player behaviour, UI or sound check from a server pass. Report the specific unobserved
+result as "needs a client check".
 
 ## Progression (`Player.Progression`, service Players; works, seen with vanilla clients)
 `Read()`, `AddExperience(n, source)`, `SetLevel(n)` (cap 50), `GiveSkillPoints(n)` (up to 60), `Unlock(node, force)`,
@@ -70,6 +64,32 @@ Comments and trailing commas allowed.
 - C#: `Quests.Define`, `Quests.Start`, `Quests.Signal`, `Quests.Advance`, `Quests.BindNpc`, `Dialogues.Open`, `QuestHolder.Of(player)`.
   Events: `QuestStartedEvent`, `QuestStepEvent`, `QuestCompletedEvent`, `QuestFailedEvent` (cancelable), `QuestStateChangedEvent`.
 - Test without a player: `QuestHolder.Synthetic("name")` and `QuestInput`. `/questadmin reload | state | start | step | advance`.
+
+## Quest and dialogue blocks (dev.20+)
+Use `QuestBlock` / `DialogueBlock` or `quests` / `dialogues` inside `blocks/*.json`; `kiln new quest MyQuest` scaffolds one.
+`NpcBlock.Talk` names a dialogue block. Item, NPC, status and loot-table fields can name blocks of this mod. Typed pieces:
+`StepBlock`, `Goal.Kill(...)`, `Req.Level(8)`, `Do.Start("errand")`, `RewardBlock`.
+
+```jsonc
+{ "format": 1,
+  "quests": { "errand": { "name": "Wood for Ilse", "giver": "ilse",
+    "steps": [ { "id": "wood", "text": "Bring three logs to Ilse",
+      "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "ilse" } } } ],
+    "rewards": { "xp": 100 } } },
+  "dialogues": { "ilse-talk": { "start": "hello", "nodes": { "hello": { "options": [
+    { "text": "Do you need wood?", "if": { "quest": "errand", "is": "available" },
+      "do": [ { "start": "errand" } ], "reply": "Three logs, please." } ] } } } },
+  "npcs": { "ilse": { "name": "Ilse", "body": "villager", "talk": "ilse-talk" } } }
+```
+
+- `Blocks.Define` returns `QuestHandle`; use `.FullId` with `Quests.Start` / `StatusOf`. Keep block names and step ids fixed.
+- Rewards are one bundle: `xp`, `items`, `status`, `knowledge`, `lootTable`; step rewards run before `onDone`. Inventory
+  overflow lands at the player's feet. A world quest pays every player present from one loot roll.
+- Blocks use the game's UI: `side: both`, `clients: mod`. For vanilla clients, keep `quests/*.json` with chat/non-native flags.
+- JSON blocks enter native journal data at the first start. C# definitions are written to the native sidecar for the next
+  start; ship the generated `quests/generated/<mod>.json` for first-start UI. Restart server and clients after changes.
+- The block form has no top-level `knowledge`, option `set`, `toast` or `waypoint` action. Unknown keys fail. Native appearance,
+  party scope and dialogue interaction still need the client checks listed on the wiki; server lowering is not visual proof.
 
 ## Friendly NPCs and native quests (same files)
 `clone`, `roster`, and quests and dialogue in the game's UI need `"clients": "mod"`, `"side": "both"` (not `kiln`: the client

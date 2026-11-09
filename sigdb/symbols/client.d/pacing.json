@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/pacing.json",
+  "comment": "Client builds 26404966 and the current one: the server's ServerWait and worker patterns match once on the client unchanged. The event loop's wait is one function with two waits (the client's loop also waits on window messages), so LoopWait (handles; also used by the client's loop when it has no window) and MessageWait (handles and window messages, MsgWaitForMultipleObjectsEx) come from one pattern, which holds the whole division so that rbx is known to be the time left. Static only: matched on both client exes offline, never run (docs/kiln/modding/lifecycle.md, client checklist).",
+  "symbols": {
+    "pacing/LoopWait": {
+      "find": [
+        {
+          "pattern": "48 B8 DB 34 B6 D7 82 DE 1B 43 48 F7 EB 48 C1 FA 12 48 8B C2 48 C1 E8 3F 48 03 D0 45 38 65 ?? 74 ?? 49 8B 45 ?? 48 85 D2 79 05 45 8B C4 EB 0F B9 FF FF FF FF 48 3B D1 44 8B C1 44 0F 4C C2 48 8B 55 ?? 41 B9 FF 1C 00 00 8B 4D ?? C7 44 24 20 06 00 00 00 FF D0 EB ?? 48 85 D2 79 05 45 8B CC EB 0F B8 FF FF FF FF 48 3B D0 44 8B C8 44 0F 4C CA 48 8B 55 ?? 45 33 C0 8B 4D ?? C7 44 24 20 01 00 00 00 FF 15",
+          "offset": 112
+        }
+      ]
+    },
+    "pacing/MessageWait": {
+      "find": [
+        {
+          "pattern": "48 B8 DB 34 B6 D7 82 DE 1B 43 48 F7 EB 48 C1 FA 12 48 8B C2 48 C1 E8 3F 48 03 D0 45 38 65 ?? 74 ?? 49 8B 45 ?? 48 85 D2 79 05 45 8B C4 EB 0F B9 FF FF FF FF 48 3B D1 44 8B C1 44 0F 4C C2 48 8B 55 ?? 41 B9 FF 1C 00 00 8B 4D ?? C7 44 24 20 06 00 00 00 FF D0 EB ?? 48 85 D2 79 05 45 8B CC EB 0F B8 FF FF FF FF 48 3B D0 44 8B C8 44 0F 4C CA 48 8B 55 ?? 45 33 C0 8B 4D ?? C7 44 24 20 01 00 00 00 FF 15",
+          "offset": 62
+        }
+      ]
+    }
+  },
+  "features": {
+    "pacing.message_wait": { "symbols": ["pacing/MessageWait"] }
+  }
+}

@@ -16,12 +16,28 @@ internal static class AbilityRuntime
     private static IDisposable? _signals, _gates;
 
     /// <summary>Registers an ability, in place of what the same block made before: a data file's block has no mod to take it away at a reload.</summary>
-    public static void Register(AbilityDefinition d)
+    public static AbilityHandle Register(AbilityDefinition d)
     {
         lock (Gate)
         {
             if (Handles.Remove(d.Id, out var old)) old.Dispose();
-            Handles[d.Id] = Abilities.Register(d);
+            return Handles[d.Id] = Abilities.Register(d);
+        }
+    }
+
+    internal static AbilityHandle? Find(string id)
+    {
+        lock (Gate) return Handles.GetValueOrDefault(id);
+    }
+
+    /// <summary>UI-generated abilities only: an old UI lifetime must not remove a newer registration.</summary>
+    internal static void Remove(string id, AbilityHandle expected)
+    {
+        lock (Gate)
+        {
+            if (!Handles.TryGetValue(id, out var current) || !ReferenceEquals(current, expected)) return;
+            Handles.Remove(id);
+            if (ReferenceEquals(AbilityRegistry.Get(id), expected.Definition)) expected.Dispose();
         }
     }
 

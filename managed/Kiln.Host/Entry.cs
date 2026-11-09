@@ -290,6 +290,14 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         ModsBackend.Current = host._mods;
         Kiln.Testing.Tests.Starter = host.RequestTests;
         ServiceTick.HostDriven = true;  // Kiln's service tick runs from the host's Pre, not from a mod's
+        try
+        {
+            PacingNative.Attach();  // kiln.pacing: which waits this build lets mods pace; hooks go in when a mod asks
+        }
+        catch (Exception e)
+        {
+            host.Log(LogLevel.Warn, $"kiln.pacing is not available: {e.Message}");
+        }
         AppDomain.CurrentDomain.UnhandledException += (_, e) => host.Unhandled(e.ExceptionObject as Exception, e.IsTerminating);
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {

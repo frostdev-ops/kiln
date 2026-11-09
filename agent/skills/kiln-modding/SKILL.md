@@ -1,6 +1,6 @@
 ---
 name: kiln-modding
-description: Build, test and debug Kiln mods for Enshrouded. Use when writing or changing a Kiln mod (C# with Kiln.Sdk, kiln.mod.json, content/*.json data packs, game data, new items, creatures, abilities, talents, quests, friendly NPCs, sounds, particles and VFX, game UI, assets, world edits), when using the kiln command, kiln lint, the analyzers or the debugger, when deploying to a local test server, hot reloading, running in-server tests, or reading kiln.log to find out why a mod did not load.
+description: Build, test and debug Enshrouded mods with Kiln.Sdk, C# APIs, JSON blocks, data packs and assets. Use for Kiln mod projects, the kiln CLI, local test servers, hot reload, lint and mod-load failures; not for Kiln launcher or framework internals.
 ---
 
 # Kiln modding
@@ -15,7 +15,8 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 
 1. Read the page for what you're using: https://frostdev.io/kiln/wiki. [references/docs-map.md](references/docs-map.md) says
    which one.
-2. Today's mod API is 0.2 (Kiln.Sdk 0.2.0). Within a major version it only grows.
+2. The mod API is 0.2 (Kiln.Sdk 0.2.0). Check the installed Kiln build too: references marked **dev.20+** describe
+   staged additions absent from 0.2.0-dev.19. They do not mean dev.20 is released or its client checks passed.
 3. Decide the side and what players need, before writing code:
    - `side`: `server` (default), `client`, or `both`;
    - `clients`: `none` (vanilla players can join), `kiln` (players need Kiln; the server sends definitions), or `mod`
@@ -26,7 +27,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 1. **Scaffold**: `kiln new <template> <Name> --server <server>` (`kiln new --list`; or `dotnet new kiln-mod`). Never by hand.
    [references/setup.md](references/setup.md).
 2. **Write**: to make something new, building blocks first (`kiln new spell`, `Blocks.Define`, `blocks/*.json`; [references/docs-map.md](references/docs-map.md)): no GUIDs, no base items. `kiln blocks show <name>` says what a block became. Data over code where you can.
-   [references/data-packs.md](references/data-packs.md),
+   [references/blocks.md](references/blocks.md) for the block families, then [references/data-packs.md](references/data-packs.md),
    [references/quests-talents-sounds.md](references/quests-talents-sounds.md),
    [references/vfx.md](references/vfx.md),
    [references/api.md](references/api.md).
@@ -44,15 +45,19 @@ Never deploy to a server players are using. Use a separate local test server.
 
 ## Rules that matter
 
-- **Tick thread.** `OnLoad`, `OnUnload`, handlers and every `await` in mod code run on the server's tick thread. Game state
-  must be touched there. From other threads, use `Context.Scheduler.Post(...)` or `await Context.Scheduler.NextTick()`. Never
-  block it (`.Result`, `.Wait()`, `Thread.Sleep`).
+- **Tick thread.** `OnLoad`, `OnUnload` and ordinary server event handlers run on the tick thread; their `await`
+  continuations return there. Game state must be touched there. ECS/system-hook callbacks instead run on game workers;
+  see [references/world-programs.md](references/world-programs.md). From other threads, use `Context.Scheduler.Post(...)`
+  or `await Context.Scheduler.NextTick()`. Never block the tick thread (`.Result`, `.Wait()`, `Thread.Sleep`).
 - **Client threads.** Client-world work runs on the main thread (`Client.Tick`, `Client.Post`). Draw functions run every frame:
   keep them short.
 - **Register in `OnLoad`, work later.** On a client `OnLoad` can run in the main menu. Do world work from
   `ServerStartedEvent` or `Client.Tick`.
-- **Everything registered is removed at unload.** Release what you created: threads, timers, sockets, files, static references
-  held by non-mod code.
+- **Registrations belong to one mod lifetime.** Do not retain callbacks or handles from an old load. Release threads, timers,
+  sockets, files and static references held by non-mod code. ECS bindings drain callbacks at unload but keep an inert scheduler
+  entry until restart; see [references/world-programs.md](references/world-programs.md).
+- **Item state (dev.20+).** Use `Items.Move` for gear transfers, not take + give. Item-entity `EntityData` is session-only; no persistent
+  per-item payload or affix API is supplied. [references/api.md](references/api.md#inventory-transfers-dev20).
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.

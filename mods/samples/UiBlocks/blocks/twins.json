@@ -1,0 +1,42 @@
+{
+  // The same kind of blocks as data, with every kind of row. A window can open another before it is defined: names are looked at when the file is read.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "windows": {
+    "tour": {
+      "title": { "en": "UI blocks tour", "de": "Rundgang" },
+      "kind": "screen",
+      "width": 460,
+      "height": 420,
+      "refresh": 0.25,
+      "menu": { "text": "UI blocks tour", "in": "pause", "order": 31 },
+      "rows": [
+        { "type": "text", "text": "Every kind of row. Values update four times a second.", "wrap": true },
+        { "type": "separator", "text": "Values" },
+        { "type": "value", "label": "Frames per second", "bind": "game.fps", "format": "0.0" },
+        { "type": "value", "label": "Playing", "bind": "game.inGame", "format": "yes|no" },
+        { "type": "value", "label": "Screen", "bind": "game.screen" },
+        { "type": "text", "text": "Volume is {config.audio.volume} and the scale {config.audio.scale:0.00}", "when": "game.inGame" },
+        { "type": "text", "text": "(Not in a world: the line above waits for one.)", "color": "gray", "when": "!game.inGame" },
+        { "type": "separator", "text": "Settings" },
+        { "type": "toggle", "label": "Show the status line", "bind": "config.status.show" },
+        { "type": "slider", "label": "Volume", "bind": "config.audio.volume", "tooltip": "Written to the config once the slider rests" },
+        { "type": "slider", "label": "Scale", "bind": "config.audio.scale", "min": 1, "max": 2 },
+        { "type": "choice", "label": "Mood", "bind": "config.audio.mood" },
+        { "type": "separator", "text": "Actions" },
+        { "type": "button", "label": "Pulse", "does": { "castAbility": "pulse" } },
+        { "type": "button", "label": "Calm", "sameLine": true, "does": { "applyEffect": "calm" } },
+        { "type": "button", "label": "Say hello", "does": { "toast": { "en": "Hello from a block", "de": "Hallo von einem Block" } } },
+        { "type": "button", "label": "Loud", "sameLine": true, "does": { "set": { "bind": "config.audio.mood", "to": "Loud" } } },
+        { "type": "button", "label": "Back to the settings", "does": { "openWindow": "settings" } },
+        { "type": "button", "label": "Close", "sameLine": true, "does": { "closeWindow": "tour" } }
+      ]
+    }
+  },
+  "hudLines": {
+    "mood": { "text": { "en": "mood: {config.audio.mood}", "de": "Stimmung: {config.audio.mood}" }, "anchor": "bottomLeft", "color": "#ffd070", "when": "game.screen == InGame && config.audio.volume > 0", "refresh": 1 }
+  },
+  "keyBindings": {
+    "open-tour": { "key": "F9", "description": "Open the UI blocks tour", "does": { "openWindow": "tour" } }
+  }
+}

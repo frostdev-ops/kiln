@@ -123,6 +123,7 @@ the live code.
 | Server console | Enshwick reads the server's stdin. Kiln doesn't (Kiln's console is `kilnctl`), so they don't collide. |
 | Server browser | Enshwick appends `[mods: N]` to the Steam server name and sets the `enshwick*` rules. Kiln advertises its modpack in handshake properties. They don't collide. |
 | Main menu "Mods" button, Enshwick's own UI and net channel | Enshwick's own; Kiln's UI and network services don't use the same widgets or message ids. |
+| **Pacing sites** (event loop wait, server loop wait, task workers; `kiln.pacing`) | Kiln puts a hook in a site when its first handler registers (the first server step) or, for worker caps, at boot from `kiln-pacing.json`. With the default `"start": "early"` Enshwick's hook is already there and Kiln's goes over it: both run (lab: with Enshwick's optimizer mod sleeping through the short waits the loop made about 500 waits a second instead of 150,000, its own log kept counting `exact waits 140/s`, and a Kiln mod's handlers saw every wait and changed the server wait). A site Kiln hooked **first** (`"start": "ready"` with a worker cap in `kiln-pacing.json`) is a site Enshwick no longer finds: its pacing feature reports those places missing and its mods get "not found". Nothing crashes. |
 | Gameplay rules on one system (both change building cost, loot, rates) | Both apply. Kiln's conflict registry (universal-loader 3.6) is planned to name such pairs. |
 
 ## Coverage
@@ -168,7 +169,7 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Chat and console (`chat`, `chat_mute_*`, `run_console`, `account_*`) | hosted | `Kiln.Chat`, `kilnctl` commands | hosted; lab |
 | Net between a mod's server and client (`net_channel`, `net_send`, `net_ready`) | hosted | `Kiln.Network` | hosted; client |
 | Sound (`sound`) | hosted | `Kiln.Audio` | hosted; client |
-| Pacing (`pacing`, `set_change`, `change_data`) | hosted | `Pacing.OnLoopWait/OnServerWait`, `Pacing.CapTaskWorkers` (check `Sites`) | hosted; lab; Kiln pacing: 48 native checks, 20 lab PASS |
+| Pacing (`pacing`, `set_change`, `change_data`) | hosted | **`Pacing`** (`OnLoopWait`, `OnServerWait`; worker caps by `kiln-pacing.json`, not by a mod: [lifecycle.md](../modding/lifecycle.md#pacing-pacing)); `set_change`, `change_data`: none | hosted; lab (Enshwick's optimizer mod next to a Kiln mod's handlers); Kiln's own: lab |
 | Status lines (`status`), mods list (`mods`, `mod_dir`, `host_version`, `game_version`, `language`, `feature`) | hosted | `Mods.All`, `StatusLines.Add/Set/All` (`Kiln.Ui`) | hosted; host |
 | Logging (`log`, `log_level`) | hosted; key lines mirrored into kiln.log | `ModContext.Log` | hosted; host + lab |
 

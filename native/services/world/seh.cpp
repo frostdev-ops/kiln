@@ -102,4 +102,9 @@ bool seh_read_u64(uintptr_t address, uint64_t* out) {
     }
 }
 
+bool seh_copy(void* out, const void* source, size_t size) {
+    __try { std::memcpy(out,source,size); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 }  // namespace kw

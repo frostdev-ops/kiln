@@ -1,7 +1,7 @@
 // Smoke (browser mock, src/api/mockNexus.ts): the online catalog on Nexus Mods (docs/kiln/launcher/catalog.md) in the
 // desktop UI and in Deck mode. Kiln mods by default, every Enshrouded mod and the installed ones on demand, search;
 // a mod's details; free accounts open the file's page (Mod Manager Download), premium accounts add in the launcher;
-// an nxm link adds the mod with Undo and "Get" for what it needs; updates are a click; the API key and the nxm opt-in
+// an nxm link adds the mod with Undo and "Get" for what it needs; updates are a click; OAuth sign-in and the nxm opt-in
 // in Settings. Screenshots go to $SHOTS_DIR, default .out/catalog/shots/ (SHOTS=0 skips).
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -123,32 +123,50 @@ test.describe("desktop", () => {
     expect(await opened(page)).toEqual([]);
   });
 
-  test("no key: everything listed, Kiln mods need the key; Settings takes it and the nxm opt-in", async ({ page }) => {
-    await open(page, "?nexus=nokey");
-    await expect(page.getByText("Add your Nexus Mods API key")).toBeVisible();
-    await expect(page.getByText("Kiln mods need your API key")).toBeVisible();
+  test("signed out: browser consent connects the account and preserves the nxm opt-in", async ({ page }) => {
+    await open(page, "?nexus=signedout");
+    await expect(page.getByText("Sign in to Nexus Mods", { exact: true })).toBeVisible();
+    await expect(page.getByText("Sign in to find Kiln mods")).toBeVisible();
     await page.getByRole("button", { name: "Show all" }).click();
     await expect(card(page, "Lantern Glow")).toBeVisible();
-    await shot(page, "desktop-nokey");
+    await shot(page, "desktop-signedout");
 
-    await open(page, "?nexus=nokey", "/settings");
+    await open(page, "?nexus=signedout", "/settings");
     const c = page.locator(".k-card", { has: page.getByRole("heading", { name: "Nexus Mods" }) });
-    await expect(c.getByTestId("nexus-account")).toContainText("No API key yet.");
-    await c.getByLabel("Nexus Mods API key").fill("bad");
-    await c.getByRole("button", { name: "Save" }).click();
-    await expect(page.locator(".k-toast").filter({ hasText: "Key not saved" })).toBeVisible();
-    await c.getByLabel("Nexus Mods API key").fill("my-personal-key");
-    await c.getByRole("button", { name: "Save" }).click();
+    await expect(c.getByTestId("nexus-account")).toContainText("Not signed in.");
+    await expect(c.getByRole("textbox")).toHaveCount(0);
+    await c.getByRole("button", { name: "Sign in to Nexus Mods", exact: true }).click();
     await expect(c.getByTestId("nexus-account")).toContainText("Signed in as embervale_player");
     await expect(c.getByTestId("nexus-account")).toContainText("Free");
-    await expect(c).toContainText("Kept in your system keyring.");
-    await expect(c.getByLabel("Nexus Mods API key")).toHaveValue("");
+    expect((await opened(page)).some((url) => url.startsWith("https://users.nexusmods.com/oauth/authorize"))).toBeTruthy();
     const sw = c.getByRole("switch");
     await expect(sw).not.toBeChecked();
     await expect(c).toContainText("Other games' links go to Vortex");
     await c.getByText("Mod Manager Download links").click();
     await expect(sw).toBeChecked();
     await shot(page, "desktop-settings");
+    await c.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(c.getByTestId("nexus-account")).toContainText("Not signed in.");
+    await expect(sw).toBeChecked();
+  });
+
+  test("denied browser consent leaves the account signed out", async ({ page }) => {
+    await open(page, "?nexus=denied", "/settings");
+    const c = page.locator(".k-card", { has: page.getByRole("heading", { name: "Nexus Mods" }) });
+    const signIn = c.getByRole("button", { name: "Sign in to Nexus Mods", exact: true });
+    await signIn.click();
+    await page.getByRole("button", { name: /^Tasks/ }).click();
+    await expect(page.getByRole("dialog", { name: "Tasks", exact: true })).toContainText("Nexus Mods sign-in was not authorized.");
+    await expect(signIn).toBeEnabled();
+    await expect(c.getByTestId("nexus-account")).toContainText("Not signed in.");
+  });
+
+  test("unregistered development build cannot request consent", async ({ page }) => {
+    await open(page, "?nexus=unconfigured", "/settings");
+    const c = page.locator(".k-card", { has: page.getByRole("heading", { name: "Nexus Mods" }) });
+    await expect(c).toContainText("Nexus Mods sign-in is not available in this build.");
+    await expect(c.getByRole("button", { name: "Sign in to Nexus Mods", exact: true })).toBeDisabled();
+    expect(await opened(page)).toEqual([]);
   });
 
   test("the Nexus Mods build downloads mods too (no launcher update anywhere)", async ({ page }) => {
@@ -162,6 +180,33 @@ test.describe("desktop", () => {
 
 test.describe("Deck mode", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("Nexus browser sign-in and sign-out work in Deck Settings", async ({ page }) => {
+    await page.goto("/?deck=steamdeck&nexus=signedout#/deck/settings");
+    const row = page.locator('[data-deck-id="set-nexus"]');
+    await expect(row).toContainText("Not signed in");
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(row).toContainText("embervale_player");
+    expect((await opened(page)).some((url) => url.startsWith("https://users.nexusmods.com/oauth/authorize"))).toBeTruthy();
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(row).toContainText("Not signed in");
+  });
+
+  test("Deck Settings can clear damaged credentials before reconnecting", async ({ page }) => {
+    await page.goto("/?deck=steamdeck&nexus=storageerror#/deck/settings");
+    const row = page.locator('[data-deck-id="set-nexus"]');
+    await expect(row).toContainText("Nexus OAuth credential storage is invalid.");
+    await expect(row).toHaveAttribute("data-deck-a", "Sign out");
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(row).not.toContainText("credential storage is invalid");
+    await expect(row).toHaveAttribute("data-deck-a", "Sign in");
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(row).toContainText("embervale_player");
+  });
 
   async function pad(page: Page, button: string) {
     const send = (pressed: boolean) => page.evaluate(([b, p]) => (window as unknown as { __kilnMock: { emit: (n: string, v: unknown) => void } }).__kilnMock
@@ -263,5 +308,41 @@ test.describe("Deck mode", () => {
     await page.evaluate(() => { location.hash = "#/deck"; });
     await expect(page.locator(".deck")).toBeVisible();
     await expect(page.locator('[data-deck-dialog="catalog-added"]')).toContainText("Added Night Sky");
+  });
+});
+
+test.describe("disabled Nexus build", () => {
+  const calls = (page: Page) => page.evaluate(() => (window as unknown as { __kilnNexusMock: { calls: () => string[] } }).__kilnNexusMock.calls());
+  test("desktop hides Nexus and blocks catalog without invoking Nexus commands", async ({ page }) => {
+    await open(page, "?nexus=disabled", "/");
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Catalog" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page.locator("#nexus")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Sign in to Nexus Mods|Reconnect/ })).toHaveCount(0);
+    await page.evaluate(() => { location.hash = "#/catalog?mod=310"; });
+    await expect(page).toHaveURL(/#\/$/);
+    expect(await nxm(page, `nxm://enshrouded/mods/310/files/1001?key=k&expires=${future()}`)).toBe(false);
+    await page.evaluate(() => (window as unknown as { __kilnMock: { emit: (n: string, p: unknown) => void } }).__kilnMock.emit("kiln://nxm", { count: 1 }));
+    await expect(page.locator(".k-toast").filter({ hasText: /Nexus Mods|Added Lantern Glow/ })).toHaveCount(0);
+    expect(await calls(page)).toEqual([]);
+    expect(await opened(page)).toEqual([]);
+  });
+  test("Deck hides catalog and settings, skips its tab and blocks its route", async ({ page }) => {
+    await page.goto("/?deck=steamdeck&nexus=disabled#/deck");
+    await expect(page.locator('[data-deck-screen="home"]')).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Deck tabs" }).getByRole("button", { name: "Catalog", exact: true })).toHaveCount(0);
+    for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Next tab", exact: true }).click();
+    await expect(page.locator('[data-deck-screen="kiln"]')).toBeVisible();
+    await page.locator('[data-hint="start"]').click();
+    await expect(page.locator('[data-deck-dialog="menu"]')).toBeVisible();
+    await expect(page.locator('[data-deck-dialog="menu"]').getByText("Catalog", { exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("navigation", { name: "Deck tabs" }).getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator('[data-deck-id="set-nexus"]')).toHaveCount(0);
+    await page.evaluate(() => { location.hash = "#/deck/catalog?mod=310"; });
+    await expect(page.locator('[data-deck-screen="home"]')).toBeVisible();
+    expect(await nxm(page, `nxm://enshrouded/mods/310/files/1001?key=k&expires=${future()}`)).toBe(false);
+    expect(await calls(page)).toEqual([]);
+    expect(await opened(page)).toEqual([]);
   });
 });

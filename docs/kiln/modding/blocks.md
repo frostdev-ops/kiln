@@ -38,7 +38,7 @@ Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md).
 These pages describe the implemented API. A compile, lowered-resource readback or dedicated-server test does not
 prove client drawing, animation, input or the player's interaction. Those checks remain on the feature's client checklist.
 
-A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named.
+A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named (windows that open each other are the exception).
 
 ## Effects
 An effect is what happens. It has no resource of its own: it becomes statements in the program of whatever triggers it, so the same effect works on a spell, a weapon or a status.

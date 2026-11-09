@@ -1,0 +1,94 @@
+{
+  "catalog": false,
+  "description": "blocks-ui: the UI sections' schema (KL102, KL105, KL107 ...), and KL314 for a window, an ability or an effect a button or a key names that is nothing or the wrong kind.",
+  "diagnostics": [
+    {
+      "code": "KL314",
+      "col": 70,
+      "file": "blocks/ui.json",
+      "line": 11,
+      "message": "no window block \"settngs\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:settngs\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 72,
+      "file": "blocks/ui.json",
+      "line": 12,
+      "message": "\"burst\" is an effect block; this field takes a window",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 75,
+      "file": "blocks/ui.json",
+      "line": 14,
+      "message": "\"burst\" is an effect block; this field takes an ability",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 76,
+      "file": "blocks/ui.json",
+      "line": 16,
+      "message": "\"nova\" is an ability block; this field takes an effect",
+      "severity": "warning"
+    },
+    {
+      "code": "KL108",
+      "col": 53,
+      "file": "blocks/ui.json",
+      "line": 17,
+      "message": "at most 1 keys",
+      "severity": "error"
+    },
+    {
+      "code": "KL109",
+      "col": 9,
+      "file": "blocks/ui.json",
+      "line": 18,
+      "message": "matches none of the alternatives",
+      "severity": "error"
+    },
+    {
+      "code": "KL102",
+      "col": 40,
+      "file": "blocks/ui.json",
+      "line": 19,
+      "message": "\"colour\" is not allowed here; did you mean \"color\"?",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 15,
+      "file": "blocks/ui.json",
+      "line": 24,
+      "message": "\"popup\" is not one of \"window\", \"screen\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL105",
+      "col": 58,
+      "file": "blocks/ui.json",
+      "line": 28,
+      "message": "\"top\" is not one of \"topLeft\", \"topCenter\", \"topRight\", \"middleLeft\", \"center\", \"middleRight\", \"bottomLeft\", \"bottomCenter\", \"bottomRight\"",
+      "severity": "error"
+    },
+    {
+      "code": "KL107",
+      "col": 76,
+      "file": "blocks/ui.json",
+      "line": 28,
+      "message": "0 is below the minimum 0.1",
+      "severity": "error"
+    },
+    {
+      "code": "KL104",
+      "col": 79,
+      "file": "blocks/ui.json",
+      "line": 29,
+      "message": "missing \"does\"",
+      "severity": "error"
+    }
+  ]
+}

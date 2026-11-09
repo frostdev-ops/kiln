@@ -48,15 +48,15 @@ export default function Catalog() {
   ];
   const p = list.data;
   const say = list.isLoading ? "Asking Nexus Mods…" : list.error ? api.toKilnError(list.error).message
-    : p?.needsKey ? "Kiln mods need your Nexus Mods API key"
+    : p?.needsSignIn ? "Sign in to Nexus Mods to find Kiln mods"
     : p ? `${FILTERS[f].label} · ${SORTS[s].label} · ${p.total}${unchecked ? ` · looking at ${unchecked} more` : ""}` : "";
 
   return (
     <Screen name="catalog" title="Catalog" say={say} actions={actions}>
-      {account.data && !account.data.keySet && (
-        <p className="deck-line"><Word tone="warn">No API key</Word> Add it in the desktop UI's Settings (Nexus Mods). All Enshrouded mods are listed without it.</p>
+      {account.data && !account.data.signedIn && (
+        <DeckButton id="nexus-sign-in" onClick={() => nav("/deck/settings")}>Sign in to Nexus Mods</DeckButton>
       )}
-      {p?.needsKey ? (
+      {p?.needsSignIn ? (
         <DeckButton id="show-all" primary onClick={() => setF(1)}>Show all Enshrouded mods</DeckButton>
       ) : (
         <div className="deck-list deck-scroll" role="list" aria-label="Catalog">
@@ -100,7 +100,7 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
         <DeckButton id="mod-close" disabled={busy} onClick={onClose}>Close</DeckButton>
         {id !== "301" && (acc?.premium
           ? <DeckButton id="mod-add" primary autoFocus disabled={busy || !m.bestFile} a={update ? "Update" : "Add"} onClick={go}>{busy ? "Adding…" : update ? `Update to ${m.installed?.latestVersion ?? ""}` : m.installed?.inLibrary ? "Add again" : "Add"}</DeckButton>
-          : <DeckButton id="mod-site" primary autoFocus disabled={busy || !acc?.keySet} a="Open" onClick={go}>Open on Nexus Mods</DeckButton>)}
+          : <DeckButton id="mod-site" primary autoFocus disabled={busy || !acc?.signedIn} a="Open" onClick={go}>Open on Nexus Mods</DeckButton>)}
       </>}>
       {d.isLoading ? <p className="deck-note">Asking Nexus Mods…</p> : d.error ? <p className="deck-note">{api.toKilnError(d.error).message}</p> : m && (
         <div className="deck-catalog-mod">
@@ -108,7 +108,7 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
           {m.installed && <p className="deck-line">{update ? <Word tone="warn">Update ready: {m.installed.latestVersion}</Word> : <Word tone="ok">Installed {m.installed.version}</Word>}</p>}
           {m.summary && <p className="deck-line">{m.summary}</p>}
           {need.length > 0 && <p className="deck-line">Needs {need.map((r) => `${r.name}${r.installed ? " (installed)" : ""}`).join(", ")}</p>}
-          {!acc?.premium && acc?.keySet && <p className="deck-note">Free accounts download on the site.</p>}
+          {!acc?.premium && acc?.signedIn && <p className="deck-note">Free accounts download on the site.</p>}
         </div>
       )}
     </Dialog>

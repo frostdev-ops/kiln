@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT
- * kiln.world v1: the server world's ECS for other services and mods.
+ * kiln.world v2: the server world's ECS for other services and mods.
  *   1. ECS programs: register your own program (system) into the game's scheduler, with declared component,
  *      singleton and event access, and helpers to use inside its update (iterator, command buffer, other entities).
  *   2. Entity access on the tick thread: component lookup by name/hash, transform and position in metres, "all
@@ -36,7 +36,7 @@ extern "C" {
 #endif
 
 #define KILN_WORLD_SERVICE "kiln.world"
-#define KILN_WORLD_VERSION 1u
+#define KILN_WORLD_VERSION 2u
 
 /* ======================================================================================= programs ============== */
 
@@ -113,8 +113,8 @@ enum {
     KILN_SLOT_SINGLETON = 3,   /* iter[slot] = singleton object (NULL if optional+missing) */
     KILN_SLOT_OTHER_TPL = 4,   /* iter[slot] = other-entity template accessor */
     KILN_SLOT_OTHER_READ = 5,  /* iter[slot] = other-entity accessor; use read_other */
-    KILN_SLOT_OTHER_WRITE = 6, /* iter[slot] = other-entity write accessor (writes: not in v1) */
-    KILN_SLOT_EVENT_IN = 7,    /* iter[slot] = event queue; only resolved when events_in has one entry */
+    KILN_SLOT_OTHER_WRITE = 6, /* iter[slot] = other-entity write accessor; use write_other */
+    KILN_SLOT_EVENT_IN = 7,    /* iter[slot] = event queue, in event type-index order */
     KILN_SLOT_EVENT_OUT = 8,   /* iter[slot] = event sender */
 };
 
@@ -218,6 +218,8 @@ typedef struct KilnWorldStatus {
 
 /* ======================================================================================= the table ============= */
 
+typedef void(KILN_CALL* KilnProgramEventFn)(const void* data, uint32_t size, void* user);
+
 typedef struct KilnWorldApi {
     KilnServiceHeader header; /* { sizeof(KilnWorldApi), KILN_WORLD_VERSION } */
 
@@ -288,7 +290,31 @@ typedef struct KilnWorldApi {
     KilnResult(KILN_CALL* teleport_cancel)(uint64_t request);
 
     KilnResult(KILN_CALL* status)(KilnWorldStatus* out);
+    /* Appended in v1: tracked other-entity writes. The accessor MUST come from this program's OTHER_WRITE slot.
+     * Calls the engine's WriteOther with the job tracker and write flag, so replication/save dirtiness is recorded
+     * before returning the mutable component. NULL: absent, undeclared, wrong callback, or unavailable build. */
+    void*(KILN_CALL* write_other)(KilnProgramCtx* ctx, uint64_t accessor, KilnEntity entity, uint32_t* out_size);
+    /* Disable the callback permanently; engine descriptors remain allocated. Tick thread (or before world setup).
+     * After success no callback is in flight. Required before freeing callback/user memory or unloading code. */
+    KilnResult(KILN_CALL* unregister_program)(KilnHandle program);
+    /* v2: bind the inert descriptor reserved from <mod>/kiln.programs.json at boot. Same lists survive callback
+     * unload/reload; edited/new declarations need a restart. Mod identity and key are copied. Tick thread only. */
+    KilnResult(KILN_CALL* bind_program)(KilnOwner owner, KilnStr mod_id, KilnStr key, KilnProgramEachFn each,
+                                       void* user, KilnHandle* out);
+    /* KILN_WORLD_CAP_*; any thread. Check this as well as the table extent. */
+    uint32_t(KILN_CALL* capabilities)(void);
+    /* v2: all events of the declared input type, in queue order. Copies the complete bounded batch before callbacks.
+     * The event bytes last for the callback only. Inside this program's update only. */
+    KilnResult(KILN_CALL* program_events)(KilnProgramCtx* ctx, KilnStr name, KilnProgramEventFn callback, void* user);
+    /* v2: copy an exact reflected payload into a declared output stream; GameEvent timestamps use program time. */
+    KilnResult(KILN_CALL* program_emit)(KilnProgramCtx* ctx, KilnStr name, const void* data, uint32_t size);
 } KilnWorldApi;
+
+enum {
+    KILN_WORLD_CAP_WRITE_OTHER = 1u << 0,
+    KILN_WORLD_CAP_MULTI_EVENTS = 1u << 1,
+    KILN_WORLD_CAP_BIND_PROGRAM = 1u << 2,
+};
 
 #ifdef __cplusplus
 }

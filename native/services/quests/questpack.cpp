@@ -21,11 +21,76 @@
 #include "questpack.h"
 
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 #include <map>
 #include <set>
 
 namespace kiln::qb {
+
+ojson parse_blocks_json(const std::string& text) {
+    const auto invalid = [] { return ojson(ojson::value_t::discarded); };
+    if (text.size() > kMaxBlockFile) return invalid();
+    std::string out;
+    out.reserve(text.size());
+    bool in_str = false;
+    int depth = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (in_str) {
+            out.push_back(c);
+            if (c == '\\' && i + 1 < text.size()) out.push_back(text[++i]);
+            else if (c == '"') in_str = false;
+            continue;
+        }
+        // Strip comments before looking at brackets or trailing commas; keep whitespace between adjacent tokens.
+        if (c == '/' && i + 1 < text.size()) {
+            if (text[i + 1] == '/') {
+                out.push_back(' ');
+                i += 2;
+                while (i < text.size() && text[i] != '\n' && text[i] != '\r') ++i;
+                if (i < text.size()) out.push_back(text[i]);
+                continue;
+            }
+            if (text[i + 1] == '*') {
+                out.push_back(' ');
+                i += 2;
+                while (i + 1 < text.size() && !(text[i] == '*' && text[i + 1] == '/')) ++i;
+                if (i + 1 >= text.size()) return invalid();
+                ++i;
+                continue;
+            }
+        }
+        if (c == '"') in_str = true;
+        if ((c == '{' || c == '[') && ++depth > kMaxBlockDepth) return invalid();
+        if ((c == '}' || c == ']') && --depth < 0) return invalid();
+        out.push_back(c);
+    }
+    in_str = false;
+    std::string clean;
+    clean.reserve(out.size());
+    for (size_t i = 0; i < out.size(); ++i) {
+        const char c = out[i];
+        if (in_str) {
+            clean.push_back(c);
+            if (c == '\\' && i + 1 < out.size()) clean.push_back(out[++i]);
+            else if (c == '"') in_str = false;
+            continue;
+        }
+        if (c == '"') in_str = true;
+        if (c == ',') {
+            size_t j = i + 1;
+            while (j < out.size() && std::isspace(static_cast<unsigned char>(out[j]))) ++j;
+            if (j < out.size() && (out[j] == '}' || out[j] == ']')) {
+                size_t before = i;
+                while (before > 0 && std::isspace(static_cast<unsigned char>(out[before - 1]))) --before;
+                if (before > 0 && out[before - 1] != '[' && out[before - 1] != '{' && out[before - 1] != ',' && out[before - 1] != ':') continue;
+            }
+        }
+        clean.push_back(c);
+    }
+    return ojson::parse(clean, nullptr, false);
+}
 
 namespace {
 
@@ -517,7 +582,7 @@ void compile_dialogue(Ctx& c, const std::string& dlg, const ojson& d, Ctx::Tpl& 
         const std::string path = dlg + ".farewell" + std::to_string(fi++);
         LineDef l;  // farewell lines are not knowledge in the game's data
         l.id = c.id("line", path);
-        l.bodies.push_back(c.text("dlg." + path + ".text", f.is_object() ? f.value("text", ojson()) : f));
+        l.bodies.push_back(c.text("dlg." + path + ".text", f.is_object() && f.contains("text") ? f["text"] : f));
         l.voiceovers.push_back(f.is_object() && f.contains("voice") ? c.voice(f["voice"], where + " farewell") : Guid{});
         l.requirement = Query{};
         e.farewell.push_back(std::move(l));
@@ -528,7 +593,7 @@ void compile_dialogue(Ctx& c, const std::string& dlg, const ojson& d, Ctx::Tpl& 
         const std::string path = dlg + ".transition" + std::to_string(ti++);
         LineDef l;
         l.id = c.id("line", path);
-        l.bodies.push_back(c.text("dlg." + path + ".text", f.is_object() ? f.value("text", ojson()) : f));
+        l.bodies.push_back(c.text("dlg." + path + ".text", f.is_object() && f.contains("text") ? f["text"] : f));
         l.voiceovers.push_back(f.is_object() && f.contains("voice") ? c.voice(f["voice"], where + " transition") : Guid{});
         e.transition.push_back(std::move(l));
         e.replace_transition = true;
@@ -633,6 +698,14 @@ ojson summon_item_def(Ctx& c, const ojson& npc, ojson def, const std::string& wh
 
 void compile_npc(Ctx& c, const std::string& nid, const ojson& n) {
     const std::string where = "npc " + nid;
+    std::string dlg = str(n, "dialogue");
+    if (const size_t colon = dlg.find(':'); colon != std::string::npos) {
+        if (dlg.substr(0, colon) != c.mod->id) {
+            c.err(where + ": native dialogue \"" + dlg + "\" must belong to this mod; cross-mod dialogue references are not supported");
+            return;
+        }
+        dlg = dlg.substr(colon + 1);
+    }
     const std::string base_name = str(n, "template");
     Guid base;
     if (base_name.empty() || !c.find_template(base_name, &base)) {
@@ -640,7 +713,6 @@ void compile_npc(Ctx& c, const std::string& nid, const ojson& n) {
         return;
     }
     const bool clone = n.contains("clone") && !(n["clone"].is_boolean() && !n["clone"].get<bool>());
-    const std::string dlg = str(n, "dialogue");
     const ojson* dialogue = nullptr;
     if (!dlg.empty()) {
         auto it = c.dialogues.find(dlg);
@@ -790,17 +862,36 @@ PackOut compile_pack(const std::vector<ModInput>& mods, const GameData& game) {
         Ctx c{game, out};
         c.mod = &mod;
         bool native = false;
+        // which file a quest or an NPC came from, and an entry's errors and a throw named after it: a mod with one broken entry builds none of its native data
+        std::map<std::string, std::string> quest_file, npc_file;
+        const auto file_of = [&](size_t i) { return i < mod.files.size() ? mod.files[i] : std::string("?"); };
+        const auto entry = [&](const std::string& what, const std::string& file, const auto& f) {
+            const size_t before = c.errors.size();
+            try {
+                f();
+            } catch (const std::exception& e) {
+                c.err(what + ": bad JSON: " + e.what());
+            }
+            for (size_t i = before; i < c.errors.size(); ++i) c.errors[i] += " (" + file + ")";
+        };
         try {
-            for (const ojson& doc : mod.documents) {
+            for (size_t di = 0; di < mod.documents.size(); ++di) {
+                const ojson& doc = mod.documents[di];
                 for (const auto& [k, v] : section(doc, "dialogues").items()) {
                     (void)v;
                     c.dialogues[k] = &doc["dialogues"][k];
                 }
                 // the game's journal is where a quest goes, unless it says "chat" (a mod vanilla clients join)
                 for (const auto& [k, v] : section(doc, "quests").items())
-                    if (v.is_object() && str(v, "journal") != "chat" && !c.doc_quests.count(k)) c.doc_quests[k] = &doc["quests"][k];
+                    if (v.is_object() && str(v, "journal") != "chat" && !c.doc_quests.count(k)) {
+                        c.doc_quests[k] = &doc["quests"][k];
+                        quest_file[k] = file_of(di);
+                    }
                 for (const auto& [k, v] : section(doc, "npcs").items())
-                    if (v.is_object() && !c.doc_npcs.count(k)) c.doc_npcs[k] = &doc["npcs"][k];
+                    if (v.is_object() && !c.doc_npcs.count(k)) {
+                        c.doc_npcs[k] = &doc["npcs"][k];
+                        npc_file[k] = file_of(di);
+                    }
             }
             for (const ojson& doc : mod.documents) {
                 for (const auto& [k, v] : section(doc, "knowledge").items()) {
@@ -814,17 +905,19 @@ PackOut compile_pack(const std::vector<ModInput>& mods, const GameData& game) {
             }
             for (const auto& [k, q] : c.doc_quests) {
                 native = true;
-                compile_quest(c, k, *q);
+                entry("quest " + k, quest_file[k], [&] { compile_quest(c, k, *q); });
             }
             for (const auto& [k, np] : c.doc_npcs) {
                 const ojson& v = *np;
-                const bool native_dialogue = v.contains("dialogue") && c.dialogues.count(str(v, "dialogue")) && truthy(*c.dialogues[str(v, "dialogue")], "native", true);
+                const std::string dialogue = str(v, "dialogue");
+                const bool native_dialogue = v.contains("dialogue") && (dialogue.find(':') != std::string::npos ||
+                    (c.dialogues.count(dialogue) && truthy(*c.dialogues[dialogue], "native", true)));
                 const bool topics = !v.contains("dialogue") && has_auto_topics(c, k);
                 if (v.contains("clone") || v.contains("roster") || native_dialogue || (topics && v.contains("template"))) {
                     native = true;
-                    compile_npc(c, k, v);
+                    entry("npc " + k, npc_file[k], [&] { compile_npc(c, k, v); });
                 } else if (v.contains("place") && v.contains("template")) {
-                    compile_npc(c, k, v);  // a game NPC placed as a giver: no resource changes, vanilla clients are fine
+                    entry("npc " + k, npc_file[k], [&] { compile_npc(c, k, v); });  // a game NPC placed as a giver: no resource changes, vanilla clients are fine
                 }
             }
         } catch (const std::exception& e) {

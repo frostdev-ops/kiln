@@ -118,6 +118,7 @@ fn sniff(head: &[u8]) -> Format {
 /// Downloads `url` into `dir` (https only; at most 2 GB), naming it from the URL (else `fallback`) with the right
 /// extension. Returns the path, its sha256 and size.
 pub fn download(catalog: &Catalog, url: &str, dir: &Path, fallback: &str, progress: &mut dyn Progress) -> Result<(PathBuf, String, u64)> {
+        super::require_enabled()?;
     use sha2::Digest;
     let mut s = catalog.client().open_download(url)?;
     if s.length.is_some_and(|n| n > super::MAX_DOWNLOAD) {
@@ -230,6 +231,7 @@ fn archive_path(name: &str) -> Result<String> {
 /// Paths are matched as published, then without one top folder on either side (repacked uploads).
 #[cfg(feature = "zip")]
 pub fn check_zip(path: &Path, manifest: &[ManifestEntry]) -> Result<CheckReport> {
+        super::require_enabled()?;
     check_zip_bounded(path, manifest, MAX_UNPACKED, MAX_ARCHIVE_ENTRIES)
 }
 
@@ -308,11 +310,13 @@ fn check_zip_bounded(path: &Path, manifest: &[ManifestEntry], max_size: u64, max
 
 #[cfg(not(feature = "zip"))]
 pub fn check_zip(_path: &Path, _manifest: &[ManifestEntry]) -> Result<CheckReport> {
+        super::require_enabled()?;
     Err(Error::new(ErrorCode::Unsupported, "kiln-manage was built without the zip feature"))
 }
 
 /// Downloads, checks and adds one file. `running`: None asks the system whether the game runs (tests pass it).
 pub fn install(catalog: &Catalog, dirs: &DataDirs, game: &GameInstall, req: &InstallRequest, running: Option<bool>, progress: &mut dyn Progress) -> Result<InstallReport> {
+        super::require_enabled()?;
     let valid_id = |id: &str| !id.is_empty() && id.len() <= 20 && id.bytes().all(|b| b.is_ascii_digit()) && id.parse::<u64>().is_ok_and(|n| n > 0);
     if !valid_id(&req.mod_id) || !valid_id(&req.file_id) {
         return Err(Error::invalid("A Nexus Mods mod or file id is invalid."));
