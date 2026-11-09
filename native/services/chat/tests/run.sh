@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # kiln.chat and kiln-emf's client hooks layered on one function (ChatLogAdd) in the real kiln.hooks v2 registry engine,
-# under plain Wine, no game (chat_layers_test.cpp). Three processes, one per install order: kiln.chat first, kiln-emf first,
-# and an EMF mod's hook in front of both. Exit code 0 = every check passed.
+# under plain Wine, no game (chat_layers_test.cpp). Four processes, one per install order: kiln.chat first, kiln-emf first,
+# and an EMF mod's hook in front of both, added first or last. Exit code 0 = every check passed.
 #   KILN_OUT=<build dir> native/services/chat/tests/run.sh
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -15,7 +15,7 @@ unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 mkdir -p "$WINEPREFIX"
 [[ -f $WINEPREFIX/system.reg ]] || wine wineboot -i >/dev/null 2>&1
 rc=0
-for mode in chat-first emf-first front; do
+for mode in chat-first emf-first front front-last; do
   echo "== chat-layers-test ($mode)"
   wine "$exe" "$mode" || rc=1
 done

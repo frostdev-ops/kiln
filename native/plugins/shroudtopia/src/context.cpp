@@ -378,12 +378,23 @@ uint8_t* alloc_near(uintptr_t near_addr, size_t size) {
 std::mutex g_detour_mu;
 std::vector<std::unique_ptr<safetyhook::InlineHook>> g_detours;  // targets outside the game exe, kept for the process life
 std::map<std::string, KilnOwner> g_mod_owners;                   // "shroudtopia:<mod>", for the hook map (never revoked)
+std::map<uintptr_t, int32_t> g_links_on;                         // CreateDetour links per target (for their order)
+
+// A mod's name (from its own GetMetaData: any bytes, any length) as it may appear in an owner or link label: printable
+// ASCII, at most 64 bytes. Both go into kiln.log and state/hooks.json (the JSON writer refuses invalid UTF-8).
+std::string link_name(const std::string& mod) {
+    std::string s = mod.substr(0, 64);
+    for (char& c : s)
+        if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E) c = '?';
+    return s.empty() ? "?" : s;
+}
 
 // The owner a mod's hooks are filed under (g_detour_mu held): its own, so hooks.json and kiln.log name the mod.
 KilnOwner owner_of(const std::string& mod) {
     if (mod.empty() || !H.api || !H.api->owner_create) return H.owner;
     auto it = g_mod_owners.find(mod);
-    if (it == g_mod_owners.end()) it = g_mod_owners.emplace(mod, H.api->owner_create(kcompat::kstr("shroudtopia:" + mod))).first;
+    if (it == g_mod_owners.end())
+        it = g_mod_owners.emplace(mod, H.api->owner_create(kcompat::kstr("shroudtopia:" + link_name(mod)))).first;
     return it->second;
 }
 
@@ -497,12 +508,17 @@ bool ctx_create_detour(LPVOID target, LPVOID detour, void** trampoline) {
     // The registry writes the continuation to the mod's trampoline storage before the link can be reached, so the
     // detour may call it on its first run on any thread (the caller must pass the storage its detour actually uses).
     const std::string mod = current_mod();
-    const std::string label = "shroudtopia/" + (mod.empty() ? std::string("?") : mod);  // names the link in kiln.log and hooks.json
+    const std::string label = "shroudtopia/" + link_name(mod);  // names the link in kiln.log and hooks.json
+    // As before dev.21 (a detour layered over Kiln's own hooks and the earlier ones): mods' links run before Kiln's own
+    // (priority 0), a later one on the same function before an earlier one, so a mod's detour still sees the game's call.
+    int32_t& earlier = g_links_on[reinterpret_cast<uintptr_t>(target)];
     KilnHookOrder order{};
     order.size = sizeof order;
+    order.priority = 1 + std::min<int32_t>(earlier, 1000);
     order.label = KilnStr{label.data(), label.size()};
     KilnHandle link = 0;
     const KilnResult rc = hooks->raw_detour(owner_of(mod), reinterpret_cast<uintptr_t>(target), &order, detour, trampoline, &link);
+    if (rc == KILN_OK) ++earlier;
     if (rc == KILN_ERR_INVALID_ARGUMENT) {
         // Not the game exe (another module's code): kiln.hooks does not reach it. A plain safetyhook detour, as before.
         auto hook = safetyhook::InlineHook::create(target, detour, safetyhook::InlineHook::StartDisabled);

@@ -15,6 +15,7 @@
 //   chat_layers_test.exe chat-first         kiln.chat links first, then kiln-emf's
 //   chat_layers_test.exe emf-first          kiln-emf's link first (its `after kiln.chat` puts kiln.chat in front)
 //   chat_layers_test.exe front              an extra link (an EMF mod's hook) in front of both, installed first
+//   chat_layers_test.exe front-last         the same link added last, to a live chain (an EMF mod loads after both)
 #include <windows.h>
 
 #include <algorithm>
@@ -447,7 +448,9 @@ int main(int argc, char** argv) {
         install_chat();
         install_emf();
     }
-    const std::string want_order = mode == "front" ? "emfmod/ChatLogAdd,chat/ChatLogAdd,emf/ChatLogAdd"
+    if (mode == "front-last") install_front();
+    const bool front = mode == "front" || mode == "front-last";
+    const std::string want_order = front ? "emfmod/ChatLogAdd,chat/ChatLogAdd,emf/ChatLogAdd"
                                                    : "chat/ChatLogAdd,emf/ChatLogAdd";
     check(order_labels() == want_order, "chain on ChatLogAdd: kiln.chat's link, then kiln-emf's (after kiln.chat)",
           order_labels());
@@ -536,8 +539,13 @@ int main(int argc, char** argv) {
         check(g_heard.size() == heard_before + 200 && inbox_size() == inbox_before + static_cast<size_t>(notices.load()) + 200,
               "all 200 held lines were delivered and added", "heard +" + std::to_string(g_heard.size() - heard_before));
     }
-    if (mode == "front") check(g_front_calls.load() > 0, "the mod link in front saw the calls");
-    if (mode == "front")
+    if (front) check(g_front_calls.load() > 0, "the mod link in front saw the calls");
+    if (front) {
+        std::lock_guard lock(g_caller_mutex);
+        check(!g_front_callers.empty() && g_front_callers[0] == receive_site + 5,
+              "the mod link in front read the receive loop's call site from caller() too");
+    }
+    if (front)
         for (uintptr_t c : g_front_callers) std::printf("  front caller %p (receive site+5 = %p)\n", reinterpret_cast<void*>(c), reinterpret_cast<void*>(receive_site + 5));
 
     // ---- log ----

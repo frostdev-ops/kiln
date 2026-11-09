@@ -49,15 +49,15 @@ Text is cut to 1024 UTF-8 bytes per line; "\n" splits it into several lines.
 chain. A player's line is the call that comes **from the receive loop**: the hook tells it by `caller()`, the return
 address of the game's call, so another hook on `ChatLogAdd` can sit in front of it without breaking it. (Before dev.21 a
 second hook placed in front of `kiln.chat`'s, such as `kiln-emf`'s, made it see that hook's return address, and it no
-longer recognised players' lines.) `kiln-emf`'s client hook is ordered after `kiln.chat`'s. An EMF mod's `hook("ChatLogAdd", ...)` is a link of its
-own and runs before both.
+longer recognised players' lines.) `kiln-emf`'s client hook is ordered after `kiln.chat`'s. An EMF mod's `hook("ChatLogAdd", ...)` or a Shroudtopia mod's
+`CreateDetour` is a link of its own and runs before both.
 
-A line that nobody consumes is added back with the original arguments through the rest of the chain, so other links on
-`ChatLogAdd` see it then (a link that reads `caller()` in that call gets the record of the earlier game call on the same
-thread, not a new one). `state/hooks.json` lists the links: labels `chat/ChatLogAdd` and `chat/ChatReceive`.
+A line that nobody consumes is added back with the original arguments through the rest of the chain, so the links after
+`kiln.chat`'s on `ChatLogAdd` see it then; links in front of it saw it when the game called. A link that reads `caller()` in that call gets the
+record of the earlier game call on the same thread, not a new one. `state/hooks.json` lists the links: labels `chat/ChatLogAdd` and `chat/ChatReceive`.
 
 Evidence: `native/services/chat/tests/run.sh` (Wine, no game) builds the real `kiln.chat` and `kiln-emf` hook code on one
-function in the real chain, in three install orders (including an EMF mod's hook in front): a typed line is held back and
+function in the real chain, in four install orders (including an EMF mod's hook in front, added first or last): a typed line is held back and
 delivered, other call sites are not, and 4 threads x 50 lines are told apart per thread.
 
 ## Commands

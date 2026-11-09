@@ -110,6 +110,16 @@ bool executable_image(uintptr_t a) {
     return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
 }
 
+// A mod's hook name as a link label: printable ASCII, at most 96 bytes. The label goes into kiln.log and
+// state/hooks.json; hook_address / hook_pattern take any string from the mod (the JSON writer refuses invalid UTF-8).
+std::string link_label(const char* name) {
+    if (!name) return "?";
+    std::string s(name, strnlen(name, 96));
+    for (char& c : s)
+        if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E) c = '?';
+    return s.empty() ? "?" : s;
+}
+
 // Mods' links run before Kiln's own (priority 0), a later one before an earlier one (EMF: the new detour runs first).
 constexpr int32_t kModLinkPriority = 1;
 
@@ -118,7 +128,7 @@ bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** o
     if (!executable_image(target)) return refuse(m, fn, "the target is not executable code of a loaded image"), false;
     std::lock_guard lock(g_hook_mutex);
     auto h = std::make_unique<Hook>();
-    h->name = label ? label : "?";
+    h->name = link_label(label);
     h->mod = m;
     h->target = target;
     size_t earlier = 0;  // hooks already on this target (every mod's)
