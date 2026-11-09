@@ -31,7 +31,8 @@ The unchanged line format supports text and binary, at most 24 fragments of 1024
 discovery, sequence numbers, duplicate rejection, channel versions and line/byte rates. Kiln also expires partial
 messages, queued callbacks and server output after 30 seconds. Its callback queue holds at most 1024 entries; the
 server output holds at most 256 lines per player and 4096 total. A whole message is accepted or refused together.
-The server holds output while that player's chat reader has more than 16 KiB pending.
+The server holds output while that player's chat reader has more than 16 KiB pending; other players still receive
+their output. The service remembers at most 128 distinct rejection diagnostics per world session.
 
 Callbacks run after the destination world's step, under the mod fault guard. A fault disables that callback. World
 teardown drops queued messages, welcomes, fragments and peer state. A queued message from a disconnected player does

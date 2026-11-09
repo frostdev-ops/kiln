@@ -60,9 +60,12 @@ pub(crate) fn cache_lock(path: &Path) -> Result<File, String> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("cache_dir must be absolute without parent traversal".into());
     }
-    if let Ok(m) = std::fs::symlink_metadata(path) {
-        if is_link(&m) || !m.is_dir() {
-            return Err("cache_dir must be a regular directory".into());
+    // Check existing parents before create_dir_all can follow a link and create files outside the cache tree.
+    for ancestor in path.ancestors() {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(m) if !is_link(&m) && m.is_dir() => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err("cache_dir and its parents must be regular directories".into()),
         }
     }
     std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
@@ -296,6 +299,20 @@ mod tests {
         std::fs::remove_dir(root.join("key127")).unwrap();
         assert!(cache_budget(&root, &request).is_ok());
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn cache_ancestors_are_not_followed_or_created_through_links() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("kiln-portrait-parent-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("outside/existing")).unwrap();
+        symlink(dir.join("outside"), dir.join("linked")).unwrap();
+        assert!(cache_lock(&dir.join("linked/existing")).is_err());
+        assert!(!dir.join("outside/existing/.kiln-portraits.lock").exists());
+        assert!(cache_lock(&dir.join("linked/new/cache")).is_err());
+        assert!(!dir.join("outside/new").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[cfg(unix)]
     #[test]

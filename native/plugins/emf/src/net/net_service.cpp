@@ -7,6 +7,11 @@ namespace emf::core::net {
 
 namespace {
 
+constexpr size_t kMaxRememberedErrors = 128;
+bool remember_error(std::set<std::string>& logged, std::string message) {
+    return logged.size() < kMaxRememberedErrors && logged.insert(std::move(message)).second;
+}
+
 bool part_ok(const std::string& s, size_t max) {
     if (s.empty() || s.size() > max) return false;
     for (const char c : s)
@@ -249,7 +254,7 @@ void NetService::remote_to_server(uint32_t handle, uint64_t account, const std::
             handler = c->def.on_server;
             from.account = account;
             from.peer_version = peer_version;
-        } else if (!logged_.insert("in " + channel + ": " + why).second) {
+        } else if (!remember_error(logged_, "in " + channel + ": " + why)) {
             why.clear();  // told before
         }
     }
@@ -294,7 +299,7 @@ void NetService::remote_to_client(const std::string& channel, uint32_t server_ve
         if (why.empty()) {
             handler = c->def.on_player;
             from.peer_version = server_version;
-        } else if (!logged_.insert("from the server on " + channel + ": " + why).second) {
+        } else if (!remember_error(logged_, "from the server on " + channel + ": " + why)) {
             why.clear();
         }
     }

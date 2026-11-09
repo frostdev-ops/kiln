@@ -3,6 +3,8 @@
 #include "emf_internal.h"
 #include "net_bridge.h"
 #include "net/net_link.h"
+#include "net/net_service.h"
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <stdexcept>
@@ -72,9 +74,11 @@ namespace wire = emf::core::net;
 static EmfApi api{};
 static KilnChatReceiveFn receive = nullptr;
 static KilnChatPlayer person{};
+static KilnChatPlayer second_person{};
 static uint32_t session = KILN_SESSION_HOST;
 static std::array<uint8_t, 0xA0 * 7> infos{};
 static std::vector<std::string> server_lines;
+static std::vector<uint32_t> server_recipients;
 static bool subscribed = false;
 static KilnDetourFn observe = nullptr;
 static std::array<uint8_t, 0x40> game_server{};
@@ -110,12 +114,19 @@ static KilnResult client_state(KilnClientState *c) {
     return KILN_OK;
 }
 static KilnResult chat_players(KilnChatPlayer *out, uint32_t cap, uint32_t *n) {
-    *n = person.connection ? 1 : 0;
-    if (cap && *n)
-        *out = person;
+    *n = 0;
+    for (const auto &p : {person, second_person})
+        if (p.connection) {
+            if (*n < cap) out[*n] = p;
+            ++*n;
+        }
     return KILN_OK;
 }
 static KilnResult find_player(uint32_t e, KilnChatPlayer *out) {
+    if (e == second_person.entity && second_person.connection) {
+        *out = second_person;
+        return KILN_OK;
+    }
     if (e != person.entity || !person.connection)
         return KILN_ERR_NOT_FOUND;
     *out = person;
@@ -137,8 +148,9 @@ static KilnResult unsubscribe(KilnHandle) {
     return KILN_OK;
 }
 static KilnResult say(uint32_t who, KilnStr text, uint32_t to) {
-    CHECK(who == 7 && to == 7);
+    CHECK(who == to && (to == 7 || to == 8));
     server_lines.emplace_back(text.ptr, text.len);
+    server_recipients.push_back(to);
     return KILN_OK;
 }
 static uintptr_t singleton(uintptr_t, KilnStr) { return reinterpret_cast<uintptr_t>(infos.data()); }
@@ -357,6 +369,32 @@ static void framing() {
     CHECK(!wire::parse_line(std::string(1025, 'x'), &why));
     CHECK(!wire::parse_line("#!emf1 M 0 test/up@3 0/1 b !!", &why) || !wire::base64url_decode("!!"));
 }
+static void unknown_channel_diagnostics_are_bounded() {
+    uint64_t clock = 1000;
+    size_t diagnostics = 0;
+    wire::NetDeps deps;
+    deps.now_ms = [&] { return clock; };
+    deps.hosted = [](uint32_t *) { return false; };
+    deps.post = [](uint8_t, std::function<void(EmfWorld *)>) { CHECK(false); };
+    deps.log = [&](const std::string &message) {
+        if (message.find("was dropped: no such channel") != std::string::npos) ++diagnostics;
+    };
+    wire::NetService service(std::move(deps));
+    wire::ServerEnv env;
+    env.send_lines = [](uint32_t, uint64_t, const std::vector<std::string> &) { return true; };
+    service.enable_server(std::move(env));
+    for (int i = 0; i < 512; ++i) {
+        const std::string name = "unknown/" + std::to_string(i);
+        wire::HelloInfo hello;
+        hello.channels = {{name, 1}};
+        for (const auto &line : wire::split_message('H', 0, "emf/net", 1, wire::hello_text(hello), nullptr))
+            service.server_line(71, 123, wire::encode_line(line));
+        for (const auto &line : wire::split_message('M', 1, name, 1, "rejected", nullptr))
+            service.server_line(71, 123, wire::encode_line(line));
+        clock += 1000; // Under the peer's line/byte rate; changing names must not grow the diagnostic cache forever.
+    }
+    CHECK(diagnostics > 0 && diagnostics <= 128);
+}
 static void remote_wire() {
     // A standalone upstream EMF ClientLink, not a Kiln-native transport. It speaks the published #!emf1 protocol.
     session = KILN_SESSION_REMOTE;
@@ -445,6 +483,49 @@ static void remote_wire() {
     net_after_step(ws, EMF_WORLD_SERVER);
     CHECK(got_server.size() == old + 1);
 }
+static void backpressure_is_per_recipient() {
+    session = KILN_SESSION_REMOTE;
+    second_person = person;
+    second_person.entity = 8;
+    second_person.connection = 81;
+    second_person.account = 456;
+    second_person.reader = 2;
+    captured_server();
+    wire::HelloInfo hello;
+    hello.channels = {{"test/down", 3}};
+    for (const auto &line : wire::split_message('H', 0, "emf/net", 1, wire::hello_text(hello), nullptr)) {
+        inject(wire::encode_line(line));
+        inject(wire::encode_line(line), 456, 81);
+    }
+    {
+        ContextScope c(&mod, ws, true);
+        CHECK(api.net_to_player(ws, 7, "test/down", "first", 5));
+        CHECK(api.net_to_player(ws, 7, "test/down", "second", 6));
+        CHECK(api.net_to_player(ws, 8, "test/down", "ready", 5));
+    }
+    int32_t pending = 20000;
+    std::memcpy(chat_system.data() + 0x14 + person.reader * 12, &pending, 4);
+    server_lines.clear();
+    server_recipients.clear();
+    net_server_pre();
+    CHECK(!server_recipients.empty());
+    CHECK(std::all_of(server_recipients.begin(), server_recipients.end(), [](uint32_t to) { return to == 8; }));
+    CHECK(std::any_of(server_lines.begin(), server_lines.end(), [](const std::string &line) { return line.ends_with(" ready"); }));
+    pending = 0;
+    std::memcpy(chat_system.data() + 0x14 + person.reader * 12, &pending, 4);
+    server_lines.clear();
+    server_recipients.clear();
+    net_server_pre();
+    std::vector<std::string> delivered;
+    for (const auto &line : server_lines) {
+        const auto parsed = wire::parse_line(line, nullptr);
+        if (parsed && parsed->type == 'M') delivered.push_back(parsed->payload);
+    }
+    CHECK((delivered == std::vector<std::string>{"first", "second"}));
+    second_person = {};
+    net_world_stopping(EMF_WORLD_SERVER);
+    net_world_started(EMF_WORLD_SERVER);
+}
 static int flushed = 0, added = 0, sent = 0;
 static bool pool_full = false;
 static void game_flush(uint8_t *) { ++flushed; }
@@ -512,10 +593,12 @@ static void client_hooks() {
 }
 int main() {
     framing();
+    unknown_channel_diagnostics_are_bounded();
     init();
     CHECK(subscribed);
     loopback();
     remote_wire();
+    backpressure_is_per_recipient();
     client_hooks();
     session = KILN_SESSION_HOST;
     CHECK(api.net_to_server("test/up", "queued", 6));

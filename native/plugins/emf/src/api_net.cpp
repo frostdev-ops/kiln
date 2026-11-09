@@ -7,6 +7,7 @@
 #include <array>
 #include <deque>
 #include <optional>
+#include <set>
 #include <sstream>
 
 #include "emf_internal.h"
@@ -417,24 +418,32 @@ void net_server_pre() {
         std::lock_guard lock(g_mutex);
         available = std::min<size_t>(g_out.size(), 32);
     }
+    std::set<std::pair<uint32_t, uint64_t>> blocked;
     for (size_t i = 0; i < available; ++i) {
         Outbound o;
         {
             std::lock_guard lock(g_mutex);
             if (g_out.empty() || g_stopping[EMF_WORLD_SERVER])
                 break;
-            o = std::move(g_out.front());
-            g_out.pop_front();
+            const auto next = std::find_if(g_out.begin(), g_out.end(), [&](const Outbound &queued) {
+                return !blocked.contains({queued.handle, queued.account});
+            });
+            if (next == g_out.end())
+                break;
+            o = std::move(*next);
+            g_out.erase(next);
             if (o.epoch != g_epoch[EMF_WORLD_SERVER] || now_ms() - o.when > kExpireMs)
                 continue;
         }
         const auto p = connection(o.handle, o.account);
         if (p && p->entity && S.chat && S.chat->say) {
             if (!reader_ready(p->reader)) {
-                // Preserve this recipient's order: defer all of its remaining lines until a later frame.
+                // Keep this recipient's oldest line ahead of its remaining output, including concurrent enqueues.
+                // Other recipients can still drain during this frame.
+                blocked.emplace(o.handle, o.account);
                 std::lock_guard lock(g_mutex);
                 g_out.push_front(std::move(o));
-                break;
+                continue;
             }
             S.chat->say(p->entity, kstr(o.line),
                         p->entity); // typed, spoken as the recipient: upstream client verifies it
