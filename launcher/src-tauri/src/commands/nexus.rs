@@ -62,6 +62,7 @@ fn version() -> String {
 }
 
 fn auth_session() -> Result<Option<Arc<Session>>, Error> {
+    kiln_manage::nexus::require_enabled()?;
     let mut auth = AUTH.lock().unwrap();
     if !LEGACY_RETIRED.load(Ordering::Acquire) {
         kiln_manage::nexus::keystore::retire_legacy(&root()?)?;
@@ -141,11 +142,13 @@ fn account_now() -> Result<NexusAccount, Error> {
 }
 
 #[tauri::command]
-pub async fn nexus_account() -> Result<NexusAccount, Error> { blocking(account_now).await }
+pub async fn nexus_account() -> Result<NexusAccount, Error> {
+    kiln_manage::nexus::require_enabled()?; blocking(account_now).await }
 
 /// Browser consent and a one-use loopback callback. The task runner supports cancellation.
 #[tauri::command]
 pub async fn nexus_sign_in(app: AppHandle) -> Result<TaskId, Error> {
+    kiln_manage::nexus::require_enabled()?;
     let config = oauth::Config::registered()?.ok_or_else(|| Error::new(ErrorCode::Unsupported, "Nexus Mods sign-in is not available in this build."))?;
     let auth = auth_session()?.ok_or_else(|| Error::new(ErrorCode::Unsupported, "Nexus Mods sign-in is not available in this build."))?;
     let login = oauth::Login::bind(config)?;
@@ -178,6 +181,7 @@ pub async fn nexus_sign_in(app: AppHandle) -> Result<TaskId, Error> {
 
 #[tauri::command]
 pub async fn nexus_sign_out() -> Result<NexusAccount, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(|| {
         let _mutation = AUTH_MUTATION.lock().unwrap();
         AUTH_EPOCH.fetch_add(1, Ordering::AcqRel);
@@ -192,17 +196,20 @@ pub async fn nexus_sign_out() -> Result<NexusAccount, Error> {
 
 #[tauri::command]
 pub async fn nexus_search(query: Query) -> Result<Page, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(move || the_catalog()?.search(&dirs()?, &query)).await
 }
 
 #[tauri::command]
 pub async fn nexus_mod(mod_id: String) -> Result<Details, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(move || the_catalog()?.details(&dirs()?, &mod_id)).await
 }
 
 /// Mods installed from the catalog; `check`: look up their newest versions on Nexus (cached 30 minutes per file).
 #[tauri::command]
 pub async fn nexus_installed(check: bool) -> Result<Vec<InstalledMod>, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(move || {
         let cat = the_catalog()?;
         let d = dirs()?;
@@ -237,6 +244,7 @@ fn run_install(app: &AppHandle, game: kiln_manage::game::GameInstall, req: Insta
 /// with `detail.url`, the file's page with its Mod Manager Download.
 #[tauri::command]
 pub async fn nexus_download(app: AppHandle, game_id: String, mod_id: String, file_id: String) -> Result<TaskId, Error> {
+    kiln_manage::nexus::require_enabled()?;
     let (g, title) = blocking(move || {
         catalog::refuse_kiln(&mod_id)?;
         nxm::parse(&format!("nxm://enshrouded/mods/{mod_id}/files/{file_id}"))?;
@@ -270,6 +278,7 @@ pub struct PendingLink {
 /// Enshrouded links that arrived and wait (the UI starts each with `nexus_link_install`).
 #[tauri::command]
 pub async fn nexus_links() -> Result<Vec<PendingLink>, Error> {
+    kiln_manage::nexus::require_enabled()?;
     let now = kiln_manage::util::now_unix();
     Ok(LINKS.lock().unwrap().iter().map(|p| PendingLink {
         id: p.id.clone(), mod_id: p.link.mod_id.clone(), file_id: p.link.file_id.clone(), expired: p.link.expired(now), received: p.received.clone(),
@@ -279,6 +288,7 @@ pub async fn nexus_links() -> Result<Vec<PendingLink>, Error> {
 /// Downloads, checks and adds the file an nxm link names (a task; result `InstallReport`).
 #[tauri::command]
 pub async fn nexus_link_install(app: AppHandle, game_id: String, link_id: String) -> Result<TaskId, Error> {
+    kiln_manage::nexus::require_enabled()?;
     let link = {
         let l = LINKS.lock().unwrap();
         l.iter().find(|p| p.id == link_id).ok_or_else(|| Error::not_found("That link is gone. Click Mod Manager Download again."))?.link.clone()
@@ -306,12 +316,14 @@ pub async fn nexus_link_install(app: AppHandle, game_id: String, link_id: String
 
 #[tauri::command]
 pub async fn nexus_link_dismiss(link_id: String) -> Result<(), Error> {
+    kiln_manage::nexus::require_enabled()?;
     LINKS.lock().unwrap().retain(|p| p.id != link_id);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn nexus_handler_status() -> Result<HandlerStatus, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(|| Ok(handler::status(&root()?, handler::platform().as_ref()))).await
 }
 
@@ -319,6 +331,7 @@ pub async fn nexus_handler_status() -> Result<HandlerStatus, Error> {
 /// the handler before it), off gives that handler back. Only ever on the user's click.
 #[tauri::command]
 pub async fn nexus_handler_set(on: bool) -> Result<HandlerStatus, Error> {
+    kiln_manage::nexus::require_enabled()?;
     blocking(move || {
         let r = root()?;
         let p = handler::platform();
@@ -348,6 +361,7 @@ fn launcher_exe() -> Result<std::path::PathBuf, Error> {
 /// whether this process should start the UI: false when the link went to another game's handler or to the launcher
 /// that already runs.
 pub fn nxm_entry(url: &str) -> bool {
+    if !kiln_manage::nexus::enabled() { return false }
     let Ok(r) = root() else { return true };
     match nxm::game_of(url) {
         None => return true,
@@ -378,6 +392,7 @@ pub fn nxm_entry(url: &str) -> bool {
 /// At setup: holds the instance lock and watches the inbox (every 500 ms). Enshrouded links wait in memory for the UI
 /// (`kiln://nxm`, the window comes to the front); others go to the previous handler.
 pub fn start(app: &AppHandle) {
+    if !kiln_manage::nexus::enabled() { return }
     let _ = APP_VERSION.set(app.package_info().version.to_string());
     let Ok(r) = root() else { return };
     {
@@ -424,4 +439,32 @@ pub fn start(app: &AppHandle) {
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     });
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+    fn unsupported<T>(value: Result<T, Error>) { assert!(matches!(value, Err(error) if error.code == ErrorCode::Unsupported)); }
+    #[test]
+    fn disabled_nexus_commands_and_direct_links_do_not_initialize_auth_or_inbox() {
+        if kiln_manage::nexus::enabled() { return; }
+        assert!(!nxm_entry("nxm://enshrouded/mods/1/files/2"));
+        assert!(!nxm_entry("nxm://another-game/mods/1/files/2"));
+        tauri::async_runtime::block_on(async {
+            unsupported(nexus_account().await);
+            unsupported(nexus_sign_out().await);
+            unsupported(nexus_search(Query::default()).await);
+            unsupported(nexus_mod("1".into()).await);
+            unsupported(nexus_installed(true).await);
+            unsupported(nexus_links().await);
+            unsupported(nexus_link_dismiss("anything".into()).await);
+            unsupported(nexus_handler_status().await);
+            unsupported(nexus_handler_set(true).await);
+            unsupported(nexus_handler_set(false).await);
+        });
+        assert!(AUTH.lock().unwrap().is_none());
+        assert!(!LEGACY_RETIRED.load(Ordering::Acquire));
+        assert!(INSTANCE.lock().unwrap().is_none());
+        assert!(LINKS.lock().unwrap().is_empty());
+    }
 }

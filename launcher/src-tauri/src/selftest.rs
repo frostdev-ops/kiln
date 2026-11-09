@@ -23,6 +23,7 @@ mod report;
 use report::{Check, NexusOAuth, Report};
 
 fn nexus_oauth(_: &Path) -> R {
+    if !kiln_manage::nexus::enabled() { return Ok("Nexus disabled; no provider, credential store or nxm handler access".into()) }
     let config = kiln_manage::nexus::oauth::Config::registered().map_err(e)?;
     ensure(option_env!("KILN_RELEASE_BUILD").is_none() || config.is_some(), "Official release has no compiled Nexus OAuth registration.")?;
     Ok(if config.is_some() { "public-client registration compiled; provider approval and live sign-in need separate verification" }
@@ -433,7 +434,7 @@ pub fn run(args: &[String]) -> i32 {
         build_marker: crate::distribution::build_marker(),
         release_build: option_env!("KILN_RELEASE_BUILD").is_some(),
         nexus_oauth: kiln_manage::nexus::oauth::Config::registered().ok().flatten()
-            .map(|c| NexusOAuth { configured: true, client_id: Some(c.client_id), redirect_uri: Some(c.redirect_uri) }).unwrap_or_default(),
+            .map(|c| NexusOAuth { enabled: true, configured: true, client_id: Some(c.client_id), redirect_uri: Some(c.redirect_uri) }).unwrap_or_else(|| NexusOAuth { enabled: kiln_manage::nexus::enabled(), ..Default::default() }),
         platform: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         temp: t.display().to_string(),

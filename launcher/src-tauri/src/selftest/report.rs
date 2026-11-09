@@ -34,6 +34,7 @@ pub(super) struct Report {
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct NexusOAuth {
+    pub(super) enabled: bool,
     pub(super) configured: bool,
     pub(super) client_id: Option<String>,
     pub(super) redirect_uri: Option<String>,
@@ -53,7 +54,7 @@ mod tests {
         };
         let value = serde_json::to_value(&report).unwrap();
         assert_eq!(value["releaseBuild"], false);
-        assert_eq!(value.get("nexusOAuth"), Some(&serde_json::json!({"configured": false, "clientId": null, "redirectUri": null})));
+        assert_eq!(value.get("nexusOAuth"), Some(&serde_json::json!({"enabled": false, "configured": false, "clientId": null, "redirectUri": null})));
         assert!(value.get("nexusOauth").is_none());
     }
 }

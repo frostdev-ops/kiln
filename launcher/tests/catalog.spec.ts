@@ -310,3 +310,39 @@ test.describe("Deck mode", () => {
     await expect(page.locator('[data-deck-dialog="catalog-added"]')).toContainText("Added Night Sky");
   });
 });
+
+test.describe("disabled Nexus build", () => {
+  const calls = (page: Page) => page.evaluate(() => (window as unknown as { __kilnNexusMock: { calls: () => string[] } }).__kilnNexusMock.calls());
+  test("desktop hides Nexus and blocks catalog without invoking Nexus commands", async ({ page }) => {
+    await open(page, "?nexus=disabled", "/");
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Catalog" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page.locator("#nexus")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Sign in to Nexus Mods|Reconnect/ })).toHaveCount(0);
+    await page.evaluate(() => { location.hash = "#/catalog?mod=310"; });
+    await expect(page).toHaveURL(/#\/$/);
+    expect(await nxm(page, `nxm://enshrouded/mods/310/files/1001?key=k&expires=${future()}`)).toBe(false);
+    await page.evaluate(() => (window as unknown as { __kilnMock: { emit: (n: string, p: unknown) => void } }).__kilnMock.emit("kiln://nxm", { count: 1 }));
+    await expect(page.locator(".k-toast").filter({ hasText: /Nexus Mods|Added Lantern Glow/ })).toHaveCount(0);
+    expect(await calls(page)).toEqual([]);
+    expect(await opened(page)).toEqual([]);
+  });
+  test("Deck hides catalog and settings, skips its tab and blocks its route", async ({ page }) => {
+    await page.goto("/?deck=steamdeck&nexus=disabled#/deck");
+    await expect(page.locator('[data-deck-screen="home"]')).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Deck tabs" }).getByRole("button", { name: "Catalog", exact: true })).toHaveCount(0);
+    for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Next tab", exact: true }).click();
+    await expect(page.locator('[data-deck-screen="kiln"]')).toBeVisible();
+    await page.locator('[data-hint="start"]').click();
+    await expect(page.locator('[data-deck-dialog="menu"]')).toBeVisible();
+    await expect(page.locator('[data-deck-dialog="menu"]').getByText("Catalog", { exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("navigation", { name: "Deck tabs" }).getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator('[data-deck-id="set-nexus"]')).toHaveCount(0);
+    await page.evaluate(() => { location.hash = "#/deck/catalog?mod=310"; });
+    await expect(page.locator('[data-deck-screen="home"]')).toBeVisible();
+    expect(await nxm(page, `nxm://enshrouded/mods/310/files/1001?key=k&expires=${future()}`)).toBe(false);
+    expect(await calls(page)).toEqual([]);
+    expect(await opened(page)).toEqual([]);
+  });
+});

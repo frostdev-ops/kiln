@@ -798,10 +798,14 @@ boolean, device: "jupiter"|"galileo"|null, forced: "deck"|"desktop"|null}` (`for
 line, the last one wins, else `KILN_LAUNCHER_UI=deck|desktop`). The UI: `forced`, else `uiMode` when not auto, else
 `detected`, else the desktop UI ([deck.md](deck.md)).
 
-Official launcher builds (`KILN_RELEASE_BUILD` set) require valid public Nexus OAuth registration at build time.
-The headless `--selftest` report adds `releaseBuild` and `nexusOAuth {configured, clientId, redirectUri}` from the
+Official launcher builds (`KILN_RELEASE_BUILD` set) require valid public Nexus OAuth registration when Nexus is enabled.
+`KILN_NEXUS_ENABLED=0` disables the entire integration; absent/`1` enables it, other values fail the build.
+`app_info.nexusEnabled` is the backend capability for both UIs. Disabled `nexus_*` commands return `unsupported`
+before storage/provider/handler access; direct nxm callbacks exit without side effects.
+The headless `--selftest` report adds `releaseBuild` and `nexusOAuth {enabled, configured, clientId, redirectUri}` from the
 actual compiled configuration. Unconfigured development builds pass selftest with `configured: false`; release
-report checks reject them. This metadata proves configuration, not Nexus approval or a working provider session.
+report checks reject enabled unconfigured variants and accept explicit disabled official variants. This metadata
+proves configuration, not Nexus approval or a working provider session.
 
 Catalog types (`kiln_manage::nexus`, `launcher/src/api/nexus.ts`; [catalog.md](catalog.md)): `CatalogQuery {text, filter:
 'kiln'|'all'|'installed' (default kiln), sort: 'endorsements'|'updated'|'new'|'downloads'|'name', page (1-based),

@@ -19,6 +19,7 @@ import ProfileConfigsPage from "./pages/profiles/ProfileConfigsPage";
 import ProfileSavesPage from "./pages/profiles/ProfileSavesPage";
 import LibraryPage from "./pages/LibraryPage";
 import CatalogPage from "./pages/CatalogPage";
+import { NexusRoute } from "./components/NexusGate";
 import RuntimePage from "./pages/RuntimePage";
 import LogsPage from "./pages/LogsPage";
 import SavesPage from "./pages/SavesPage";
@@ -68,7 +69,7 @@ export default function App() {
           <Route path="saves" element={<ProfileSavesPage />} />
         </Route>
         <Route path="library" element={<LibraryPage />} />
-        <Route path="catalog" element={<CatalogPage />} />
+        <Route path="catalog" element={<NexusRoute home="/"><CatalogPage /></NexusRoute>} />
         <Route path="runtime" element={<RuntimePage />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="saves" element={<SavesPage />} />

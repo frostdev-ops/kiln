@@ -19,10 +19,12 @@ r = json.load(open(sys.argv[1]))
 print("\n".join(("PASS " if c["ok"] else "FAIL ") + c["name"] + ": " + c["detail"] for c in r["checks"]))
 print("distribution:", r.get("distribution"), "(expected " + sys.argv[2] + ")")
 oauth = r.get("nexusOAuth") or {}
-print("compiled Nexus OAuth:", oauth.get("configured") is True)
+print("Nexus enabled:", oauth.get("enabled"), "configured:", oauth.get("configured") is True)
+valid_oauth = ((oauth.get("enabled") is False and oauth.get("configured") is False and oauth.get("clientId") is None and oauth.get("redirectUri") is None)
+    or (oauth.get("enabled") is True and oauth.get("configured") is True and isinstance(oauth.get("clientId"), str) and bool(oauth["clientId"]) and isinstance(oauth.get("redirectUri"), str) and bool(oauth["redirectUri"])))
 marker = "KILN-LAUNCHER-DISTRIBUTION:" + sys.argv[2] + ":self-update=" + ("1" if sys.argv[2] == "direct" else "0")
 sys.exit(0 if r["ok"] and r.get("distribution") == sys.argv[2] and r.get("buildMarker") == marker
-    and r.get("releaseBuild") is True and oauth.get("configured") is True and oauth.get("clientId") and oauth.get("redirectUri") else 1)' "$1" "$2"
+    and r.get("releaseBuild") is True and valid_oauth else 1)' "$1" "$2"
 }
 
 check_appimage() { # [AppImage folder-name distribution]: default the direct build

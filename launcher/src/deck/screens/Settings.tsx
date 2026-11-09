@@ -8,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { UiMode, UpdateStatus } from "../../api/commands";
 import { NEXUS_PAGE } from "../../api/distribution";
-import { useAppInfo, useDistribution, useSettings } from "../../api/hooks";
+import { useAppInfo, useDistribution, useNexusEnabled, useSettings } from "../../api/hooks";
 import * as nx from "../../api/nexus";
 import { useNexusAccount } from "../../shell/catalogInstall";
 import { runTask, toast } from "../../ui";
@@ -34,6 +34,7 @@ export default function Settings() {
   const [upBusy, setUpBusy] = useState(false);
   const [nexusBusy, setNexusBusy] = useState(false);
   const nexus = useNexusAccount();
+  const nexusEnabled = useNexusEnabled();
   const nexusDisconnect = !!(nexus.data?.signedIn || nexus.data?.error);
   const nexusAccount = async () => {
     if (nexusBusy) return;
@@ -109,11 +110,11 @@ export default function Settings() {
           <Row id="set-versions" title="New versions" a="Open" sub={info.data ? `Kiln Launcher ${info.data.version}` : undefined}
             end={<Word tone="info">Nexus Mods</Word>} onClick={() => void api.appOpenUrl(NEXUS_PAGE).catch((e) => toast.error(e))} />
         )}
-        <Row id="set-nexus" title="Nexus Mods" a={nexusDisconnect ? "Sign out" : "Sign in"}
+        {nexusEnabled && <Row id="set-nexus" title="Nexus Mods" a={nexusDisconnect ? "Sign out" : "Sign in"}
           disabled={nexusBusy || !nexus.data || (!nexus.data.configured && !nexusDisconnect)}
           sub={nexus.data?.error?.message ?? (nexus.data?.configured === false ? "Sign-in is not available in this build." : undefined)}
           end={<Word tone={nexus.data?.signedIn ? "ok" : "idle"}>{nexus.data?.signedIn ? nexus.data.name ?? "Signed in" : "Not signed in"}</Word>}
-          onClick={() => void nexusAccount()} />
+          onClick={() => void nexusAccount()} />}
         <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
       </div>
       <p className="deck-foot-note" data-testid="deck-detection">
