@@ -505,6 +505,12 @@ void commands_after_step(EmfWorld* w, uint8_t kind) {
         }
 }
 
+bool commands_is_admin(uint32_t entity, uint64_t account) {
+    read_config();
+    return game_admin(entity) || g_cfg.everyone ||
+           std::find(g_cfg.admins.begin(), g_cfg.admins.end(), account) != g_cfg.admins.end();
+}
+
 void fill_commands(EmfApi* t) {
     t->register_command = &api_register_command;
     t->command_reply = &api_command_reply;

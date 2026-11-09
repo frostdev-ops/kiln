@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-// Frozen x64 slot map reviewed against EMF 0.5.1 sdk/include/emf/emf_api.h.
+// Frozen x64 slot map reviewed against EMF 0.6.0 sdk/include/emf/emf_api.h.
 #include "emf/emf_api.h"
 #include <cstddef>
 #define SLOT(name, offset) static_assert(offsetof(EmfApi, name) == offset)
-static_assert(sizeof(EmfApi)==688 && alignof(EmfApi)==8);
+static_assert(sizeof(EmfApi)==728 && alignof(EmfApi)==8);
 static_assert(offsetof(EmfApi,version)==0 && offsetof(EmfApi,size)==4);
 SLOT(log, 8);
 SLOT(server_world, 16);
@@ -90,4 +90,11 @@ SLOT(offer, 656);
 SLOT(offer_remove, 664);
 SLOT(image_load, 672);
 SLOT(offer_active, 680);
-int main() { return EMF_API_VERSION == 26 ? 0 : 1; }
+SLOT(net_channel, 688);
+SLOT(net_to_server, 696);
+SLOT(net_to_player, 704);
+SLOT(net_to_players, 712);
+SLOT(net_peer, 720);
+static_assert(sizeof(EmfNetFrom) == 24 && offsetof(EmfNetFrom, account) == 8);
+static_assert(sizeof(EmfNetChannel) == 56 && offsetof(EmfNetChannel, on_server) == 32);
+int main() { return EMF_API_VERSION == 27 ? 0 : 1; }

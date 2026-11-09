@@ -61,3 +61,20 @@ resource snapshots restore the header exactly and retain their resource prefix; 
 Copy the eight crates from the new tag over `eml/`, re-apply the listed changes (search `kiln-eml:` in the old copy),
 update the tag and commit here, in `NOTICE.txt` and in `kiln-eml/src/lib.rs` (`EML_VERSION`), run
 `build.sh --host --test` and the probe mod (docs/kiln/eml.md, "Tests").
+
+## EMF creature portraits
+
+The separate GPL component also provides `kiln_eml_portraits`: bounded UTF-8 JSON in/out, called by kiln-emf before
+EMF mod DLLs enter. It uses the offline CPU renderer from EMF 0.6.0, commit
+`bd6d90644785df80e4a61cb6ec55f9dab8e16b22`, under its MIT copyright notice (NOTICE.txt). The reader/decoder stays in
+this GPL directory. It reads game archives and writes only the requested portrait cache, never game data.
+
+`cargo build --release -p kiln-eml --bin kiln-portraits` builds the same renderer as an offline tool:
+`kiln-portraits request.json`. The JSON contains `game_dir`, `file_name` (`enshrouded` or `enshrouded_server`),
+`cache_dir`, and `items` with `key`, one of `template`/`model`, `frames` and `size`. Keys follow EMF's image cache
+rules. There are at most 32 items, 32 million output pixels, 64 frames per item and 512 pixels per side. A cache
+lock serializes processes. Symlinks/reparse points are refused in the cache and its portrait folders. New frames
+and their index replace one whole folder; failures preserve the prior drawing.
+
+Focused checks: `cargo test --release -p kiln-eml --lib portrait`. Optional read-only archive tests take
+`EMF_PORTRAIT_GAME=<game folder>` and `EMF_PORTRAIT_OUT=<output folder>`. Keep their output outside the game.

@@ -11,6 +11,14 @@
 pub mod discover;
 pub mod logging;
 pub mod runner;
+pub mod portraits;
+pub mod portrait_export;
+
+// Status codes of the bounded portrait export (not KilnResult).
+pub const OK: i32 = 0;
+pub const BAD_REQUEST: i32 = 2;
+pub const RUN_FAILED: i32 = 3;
+pub const ITEMS_FAILED: i32 = 4;
 
 #[cfg(any(windows, test))]
 mod plugin;

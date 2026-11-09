@@ -15,3 +15,28 @@ Corresponding source: the folder gpl/kiln-eml in Kiln's source archive of this r
 also https://github.com/frostdev-ops/kiln at the release tag). Build it with gpl/kiln-eml/build.sh (cargo xwin).
 
 There is no warranty, to the extent permitted by law (GPL-3.0 sections 15 and 16).
+
+Portrait renderer source: EMF 0.6.0, https://github.com/matenm/emf-enshrouded
+commit bd6d90644785df80e4a61cb6ec55f9dab8e16b22, src/content/src/portraits (MIT source, combined here with GPL-3 EML).
+
+MIT License
+
+Copyright (c) 2026 EMF contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

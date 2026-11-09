@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf.dll: a Kiln plugin (<game>/kiln/plugins/) that loads unmodified EMF mods (EMF 0.3.3 to 0.5.1, EmfApi v26) on Kiln's
+// kiln-emf.dll: a Kiln plugin (<game>/kiln/plugins/) that loads unmodified EMF mods (EMF 0.3.3 to 0.6.0, EmfApi v27) on Kiln's
 // services. In on_ready, after every service is up and before the game's entry point:
 //   1. step aside when the real EMF runs in this process (emf_core.dll, or EMF's loader chained by Kiln's proxy);
 //   2. find the mods (the active profile's "emf" entries through kiln.profile, and <game>/emf/mods);
@@ -153,11 +153,13 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
 void KILN_CALL on_world_event(const KilnWorldEvent* e, void*) {
     if (!e || e->kind >= KILN_WORLD_KINDS) return;
     if (e->event == KILN_WORLD_STARTED) {
+        net_world_started(static_cast<uint8_t>(e->kind));
         if (e->kind == KILN_WORLD_SERVER) components_world_started();
         windows_world_started(static_cast<uint8_t>(e->kind));
         return;
     }
     if (e->event != KILN_WORLD_STOPPING) return;
+    net_world_stopping(static_cast<uint8_t>(e->kind));
     if (e->kind == KILN_WORLD_SERVER) {
         events_world_stopping();
         components_world_stopping();
@@ -214,6 +216,7 @@ void KILN_CALL on_ready(void*) {
 
     // 2-4. find, decide, order, load
     const EmfApi* table = api_table();
+    net_on_ready();  // before commands: marked protocol lines never reach commands or on_chat
     commands_on_ready();  // before the mods: on_chat in emf_mod_load needs to know whether chat lines arrive
     discover_mods();
     load_mods(table);
@@ -232,6 +235,7 @@ void KILN_CALL on_ready(void*) {
 }
 
 void KILN_CALL on_unload(void*) {
+    net_shutdown();
     events_shutdown();
     program_hooks_shutdown();
     components_world_stopping();
@@ -258,6 +262,7 @@ void install_ticks() {
 }
 
 void dispatch_server_pre() {
+    net_server_pre();
     game_server_pre();
     commands_server_pre();
     const uint64_t now = now_ms();
