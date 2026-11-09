@@ -30,6 +30,9 @@
 #include <filesystem>
 #include <cstring>
 #include <deque>
+#include <fstream>
+#include <memory>
+#include <unordered_map>
 #include <initializer_list>
 #include <iterator>
 #include <map>
@@ -40,6 +43,7 @@
 #include <vector>
 
 // Lua is compiled as C++ (runtime/CMakeLists.txt), so its headers are included without extern "C".
+#include "nlohmann/json.hpp"  // Res.text reads the catalog (texts.inl)
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
@@ -636,9 +640,11 @@ const res::Entry* findNamed(uint32_t type, const std::string& want) {
 }
 
 std::string setDisplayText(const uint8_t g[16]);  // admin.inl
+std::string setLocaText(const uint8_t g[16]);      // texts.inl, via admin.inl
 
 // Res.text(guid): the English text a LocaTag reference (item.name, ...) names, or the English name of an item or a
-// template by its GUID (Kiln's catalogs, admin.inl); nil if none. Looked up only when called.
+// template by its GUID (Kiln's catalogs, admin.inl), or the text of any other loca tag (the client catalog's table,
+// texts.inl: a dedicated server has no loca of its own); nil if none. Looked up only when called.
 int resText(lua_State* L) {
     size_t n;
     const char* s = luaL_checklstring(L, 1, &n);
@@ -650,7 +656,8 @@ int resText(lua_State* L) {
         lua_pushlstring(L, t.data(), t.size());
         return 1;
     }
-    const std::string d = setDisplayText(g);
+    std::string d = setDisplayText(g);
+    if (d.empty() && kset::tickThread()) d = setLocaText(g);  // any other tag: the English table (texts.inl), loaded on the first such call
     if (d.empty()) lua_pushnil(L);
     else lua_pushlstring(L, d.data(), d.size());
     return 1;
@@ -2317,7 +2324,9 @@ void rt::bindKiln(const KilnApi* api, KilnOwner owner) {
     gKItems = static_cast<const KilnItemsApi*>(get(KILN_ITEMS_SERVICE, 1));
     gKSettings = static_cast<const KilnSettingsApi*>(get(KILN_SETTINGS_SERVICE, 1));
     gKProgression = static_cast<const KilnProgressionApi*>(get(KILN_PROGRESSION_SERVICE, KILN_PROGRESSION_VERSION));
+    gKKnowledge = static_cast<const KilnKnowledgeApi*>(get(KILN_KNOWLEDGE_SERVICE, KILN_KNOWLEDGE_VERSION));
     resetNames();
+    settexts::reset();
 }
 bool rt::systemsAvailable() { return gSysOk; }
 void rt::setSystemsAvailable(bool ok) { gSysOk = ok; }
