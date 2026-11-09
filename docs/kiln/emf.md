@@ -1,8 +1,9 @@
 # EMF mods on Kiln (kiln-emf)
 
-Kiln loads unmodified mods for **EMF** (Enshrouded Modding Framework, MIT; mods built for EMF 0.3.3 up to 0.5.1)
-through the plugin `kiln/plugins/kiln-emf.dll`. It hands every EMF mod an `EmfApi` table of version 26, the one EMF
-0.5.1 ships, built on Kiln's services. Every function and its status: [emf-parity.md](emf-parity.md). You keep your EMF DLL mods and EMF's Lua mods; you do not need EMF's own `dinput8.dll` or
+Kiln loads unmodified mods for **EMF** (Enshrouded Modding Framework, MIT; API versions through EMF 0.6.0 / v27)
+through the plugin `kiln/plugins/kiln-emf.dll`. It supplies an `EmfApi` v27 table built on Kiln's services:
+77 full, 13 partial and no missing C slots out of 90. API coverage is not a guarantee for every mod pairing or
+player-facing feature. Every function and its evidence: [emf-parity.md](emf-parity.md). You keep your EMF DLL mods and EMF's Lua mods; you do not need EMF's own `dinput8.dll` or
 `emf_core.dll`.
 
 Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re/emf-compat.md).
@@ -44,7 +45,7 @@ Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re
 ### Which mods load
 - **Switch:** `enabled` in the ini decides. Without a value, `mod.json`'s `"enabled"` decides (default on). A
   profile entry with `enabled: false` is always off.
-- **API version:** `"emf": N` above 26 is refused ("needs EMF API vN"). Mods built for older versions keep working.
+- **API version:** `"emf": N` above 27 is refused ("needs EMF API vN"). Older API prefixes are accepted; individual mods remain subject to the compatibility limits below.
 - **Side:** `"side": "client"` mods do nothing on a dedicated server, so the server skips them (clock). Everything
   else loads everywhere, as in EMF.
 - **Dependencies:** `depends` / `dependencies` take EMF's version ranges (`^1.2`, `~1.2`, `>=1.0 <2`, `1.2.x`,
@@ -59,8 +60,8 @@ Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re
 - **kiln-emf steps aside** when EMF's real core runs in the same process: `emf_core.dll` is loaded, or EMF's loader
   was chained by Kiln's proxy (`kiln/chain.ini [chain]`, `dinput8-chain.ini`). The log says
   `kiln-emf steps aside: ...`. Then EMF loads the EMF mods, never both.
-- **EMF 0.5.x runs on current game builds; EMF 0.3.3 does not.** 0.3.3 goes idle there (`a required signature is
-  missing: EMF stays idle`). kiln-emf notices this about 2 s in and logs how to hand the mods back. Put `;` in front of EMF's line in `kiln/chain.ini` (or remove it from `dinput8-chain.ini`), then
+- **The older EMF 0.3.3 core went idle on the tested game build.** It reports `a required signature is
+  missing: EMF stays idle`. kiln-emf notices this about 2 s in and logs how to hand the mods back. Put `;` in front of EMF's line in `kiln/chain.ini` (or remove it from `dinput8-chain.ini`), then
   restart. EMF's files can stay in `emf/`; only its loader must not run.
 
 ### What a mod costs
@@ -86,11 +87,15 @@ Built-ins: `emf.help [page]`, `emf.mods`, `emf.settings <mod>`, `emf.set <mod> <
 `commands.txt` also without the `emf.` prefix). `/help` stays Kiln's own command.
 
 ## Compatibility by mod
-Tested in a lab dedicated server on svn 1285601, with a copy of a real world and no players
+The following table preserves an earlier lab snapshot on svn 1285601, with a copy of a real world and no players
 (`tools/emf/lab-check.py`). "Loads" means `emf_mod_load` returned true. "Works" means the
-player-free check from its source passed. What only a joined player can show is in the client checklist below.
+player-free check from its source passed. It is not the current API gap list; use [emf-parity.md](emf-parity.md).
+The dev.20 mixed-server checks loaded Lua 1.19, Beastmaster 1.13 and ShroudForge in two boots, including the bear/beasts
+asset packs. They do not establish taming, custom portrait display or joined multiplayer. Current messaging and
+offline portrait evidence: [emf-network.md](emf-network.md), [emf-portraits.md](emf-portraits.md).
+What only a joined player can show is in the client checklist below.
 
-| Mod | Loads | Works (player-free evidence) | Missing on Kiln |
+| Mod | Loads | Works (player-free evidence) | Limitation at that earlier check |
 |---|---|---|---|
 | big_stacks | yes | Raised 2252 items x4 (at most 9999). Kiln's own content registry agrees: wood logs 250 → 1000, 0 items off the formula. The stack guard is on. | - |
 | server-admin | yes | Its file ops all work: `ping` (api 21), `items` (4213, wood max stack 1000), `settings.set` with read-back, `settings.reset`, an out-of-range refusal, `save` acknowledged through `on_save`. It publishes `state.json` with 38 world settings. | - |
@@ -107,10 +112,11 @@ player-free check from its source passed. What only a joined player can show is 
 | emf_probe (Kiln's test mod) | yes | 72 checks over the whole table, 0 failures. | - |
 
 ## Compatibility by function
-The full table for EmfApi v26 (85 functions, and EMF's Lua API) is [emf-parity.md](emf-parity.md). v22-v26 in short:
+The full table for EmfApi v27 (90 functions, and EMF's Lua API) is [emf-parity.md](emf-parity.md). v22-v27 in short:
 player level and XP through `kiln.progression`; `change_component` and E-prompt offers through kiln-emf's own
 `kiln.world` program; mod windows and pictures through `kiln.ui` in the game client (refused on a dedicated server, as
-in EMF). The v21 part:
+in EMF). API v27 adds mod messaging on the official `#!emf1` wire; joined-client handshake and gameplay still need checks.
+The v21 prefix, with current implementations:
 
 EmfApi v21 has 73 functions. **Full** means it behaves as EMF documents. **Partial** means the differences are
 listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and returns a safe failure.
@@ -127,10 +133,10 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 | `on_event` | partial | One `kiln.world` program per event type. Server world only. EntityDiedEvent arrives only near a player. |
 | `register_program`, `register_program_def` | partial | `kiln.world` system programs (server world). Programs on the client world are not supported. |
 | `emit_event` | full | the game's emitter, as `kiln.gameplay` uses it |
-| `read_events` | partial | one `events_in` per program (all shipped mods) |
+| `read_events` | full | multiple declared event inputs through `kiln.world` programs |
 | `program_singleton`, `program_read_other` | full | `kiln.world` iterator slots |
-| `program_write_other` | no | `kiln.world` v1 has no other-entity writes |
-| `hook_program` | no | no program-update hook in Kiln yet |
+| `program_write_other` | full | declared other-entity writes through `kiln.world` programs |
+| `hook_program` | full | program-update pre/post callbacks through `kiln.types` |
 | `resolve`, `hook` | full | EMF signature name → Kiln sigdb symbol (42 of 51 resolve on the server, 47 on the client; 4 `Post*` client names are open) |
 | `find_pattern`, `hook_pattern`, `hook_address` | full | on-disk scan, safetyhook detours that chain over Kiln's own hooks |
 | `write_memory` | full | private data pages only, never code |
@@ -141,8 +147,8 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 | `put_items`, `put_items_ex`, `take_items` | full | `kiln.items` transactions |
 | `give_item` | full | `kiln.spawn` pickup 1 m above the player |
 | `spawn`, `destroy` | full | `kiln.spawn` (not saved, except villagers) |
-| `spawn_ex` | partial | without extra components it is `spawn`; with components it is refused |
-| `attribute_get`, `attribute_add` | partial | Current and maximum health (`kiln.combat`). Stamina and mana are not supported. |
+| `spawn_ex` | full | spawn-time extra components through `kiln.spawn` |
+| `attribute_get`, `attribute_add` | partial | health, stamina and mana through `kiln.combat`; XP/level keep queued progression timing and request limits |
 | `damage` | full | `kiln.combat` hit (light reaction, kill credit) |
 | `teleport` | full | `kiln.world` teleport. `NOTIFY_READY` for players: READY 1 s after MOVED. |
 | `chat_tell`, `chat_broadcast`, `player_name`, `on_chat` | full | `kiln.chat` (30 lines / 10 s per mod) |
@@ -151,7 +157,7 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 | `world_setting_get/set/reset/info`, `on_world_setting_changed` | full | `kiln.settings` (short names, minutes; `persist` per world slot) |
 | `setting_*`, `on_setting_changed`, `mod_info`, `mod_info_at` | full | kept by kiln-emf (`<configDir>/emf/<id>.ini`) |
 | `hud_set`, `notify` | partial | `kiln.ui` overlay on the client (`hud_set` verified in game with clock; `notify` not yet seen); a server keeps HUD lines and logs notes |
-| `wheel_open` | no | no radial wheel yet (client) |
+| `wheel_open` | full | radial wheel through `kiln.ui`; host checks pass, client drawing/input still need a player |
 
 ## Client checklist (needs a joined player)
 - The clock shows the time of day in the bottom-right corner (`hud_set` through `kiln.ui`, client and

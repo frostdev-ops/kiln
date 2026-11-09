@@ -8,6 +8,10 @@ Code: `launcher/src/deck/` (frontend), `launcher/src-tauri/src/deck/` (detection
 browser), `launcher/src-tauri/src/commands/deck.rs` (commands). Contracts: [contracts.md](contracts.md) section 9
 (`deck_*`, `AppInfo.deck`, `uiMode`), section 10 (`kiln://gamepad`).
 
+**Official 0.2.0-dev.20:** the Nexus Catalog, account controls and Mod Manager Download links are disabled on Deck
+and desktop while OAuth approval is pending. Download mod archives in a browser and add them from Downloads.
+The Catalog descriptions below apply only to an enabled, approved future build; personal API keys are not a fallback.
+
 ## How Deck mode is chosen
 Decided once at the start, before anything renders (`src/deck/mode.tsx`, `UiModeGate`), in this order:
 
@@ -97,7 +101,7 @@ an in-progress Hold action. A disabled focused control returns focus to the curr
 | Home | the active profile's name, the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("12 mods loaded", "11 mods loaded, 1 failed", safe idle, no mods) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Switch profile, Pick folder, One Steam setting (to Help) as the state needs; Y profile; X play once (without mods, vanilla) |
 | Mods | the active profile's mods (Kiln, native, EMF, plugins), a flame per mod | A on/off; X remove (confirm; the library keeps it); Y switch profile. No profile yet: Choose a profile / Add mods |
 | Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, DLLs and mod folders), newest first, "In profile" when it is there; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, add to the active profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
-| Catalog | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. No API key: All Enshrouded only, the key goes in the desktop Settings |
+| Catalog (enabled builds only) | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. Account sign-in uses OAuth in desktop Settings; this tab is hidden in dev.20 |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
 | Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Quit; the last line shows the version, what the detection saw and the controller | A |
@@ -174,7 +178,7 @@ steps instead:
   "Desktop UI" for those.
 - The game-art extraction (`GameArtAuto`) does not run in Deck mode (only the save editor and the admin map use it).
 - No on-screen keyboard of our own: no screen needs typing. The Catalog has no text search in Deck mode (X and Y
-  filter and sort), and the Nexus Mods API key is pasted in the desktop UI's Settings.
+  filter and sort). In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20 has neither Catalog nor account controls.
 - Rumble, gyro and the trackpads are not used. Steam's virtual controller sends the Deck's buttons; with Steam
   Input off, the Deck's own `hid-steam` device works the same.
 - WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, `WEBKIT_DISABLE_COMPOSITING_MODE=1`
