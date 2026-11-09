@@ -106,6 +106,23 @@ int main() {
     pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0.1f); tick(); assert(g_installed == 31);
     test_now += 200; tick(); assert(g_pairs.empty() && g_installed == 0); // the last expiring pair removes all five
 
+    // kiln.hooks never frees a link: a relation that keeps coming and going (timed pairs) stops adding links after
+    // kMaxCycles sets, and the links then stay in through the idle spells without answering.
+    const int installs0 = kiln::test::installs;
+    for (int i = 0; i < 200; ++i) {
+        assert(pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0.1f) == KILN_OK);
+        tick(); assert(g_answering && !hk_hostile(&factions[1], &factions[2]));
+        test_now += 200; tick(); assert(g_pairs.empty() && !g_answering);
+        if (g_cycles >= kMaxCycles) assert(g_installed == 31 && g_destroy);
+    }
+    assert(g_cycles == kMaxCycles && g_installed == 31);
+    assert(kiln::test::installs - installs0 <= 6 * static_cast<int>(kMaxCycles));
+    assert(hk_hostile(&factions[1], &factions[2]));  // idle: the game decides
+    assert(pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0) == KILN_OK);
+    tick(); assert(g_answering && !hk_hostile(&factions[1], &factions[2]));  // the same links answer again
+    assert(kiln::test::installs - installs0 <= 6 * static_cast<int>(kMaxCycles));
+    owner_release(1); tick(); assert(!g_answering && g_installed == 31);
+
     std::atomic<bool> stop{false};
     std::thread worker([&] {
         test_tick = false;

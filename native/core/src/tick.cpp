@@ -19,6 +19,8 @@
 namespace kiln::tick {
 namespace {
 
+constexpr int32_t kBasePriority = -1000000;  // below every other link: the tick is the innermost, see Link::install
+
 // A kiln.hooks v2 raw link (owner 0 = "kiln"): `original` is the chain's continuation (the rest of the chain, then the
 // game's function). Links live for the process, like the safetyhook hooks they replace.
 struct Link {
@@ -31,6 +33,9 @@ struct Link {
         if (!hooks::ensure_ready()) return false;
         hooks::chain::Order o;
         o.label = label;
+        // The tick wraps the game's function itself, as it did when it was the first hook put on it: every link added
+        // later (a service's, a mod's) runs before it.
+        o.priority = kBasePriority;
         return hooks::chain::install_raw(0, target, o, fn, &original, &handle) == KILN_OK;
     }
 };

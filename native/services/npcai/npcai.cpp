@@ -190,6 +190,10 @@ uintptr_t g_at[5] = {};
 // stays valid after revoke, so a game thread still inside a handler finishes safely.
 std::array<kiln::RawHook, 5> g_h;
 uint32_t g_resolved = 0;
+// kiln.hooks never frees a link (65536 in all, five per cycle here), so relations that come and go must not add five
+// every time: after kMaxCycles sets of links the links stay in through idle spells and just answer nothing.
+constexpr uint32_t kMaxCycles = 64;
+uint32_t g_cycles = 0;  // sets of links added so far (tick thread)
 std::atomic<uint32_t> g_installed{0};
 std::atomic<bool> g_answering{false}, g_install_failed{false};
 // The game's function past Kiln's link: the link's continuation once it was ever installed (it stays valid after
@@ -320,12 +324,22 @@ void uninstall() {
     if (g_lives.empty() && g_destroy) g_destroy.revoke();
 }
 
+// No relation is left: answers stop now. The links go out too, unless they have come and gone kMaxCycles times already.
+void idle() {
+    if (g_cycles >= kMaxCycles && g_installed.load() == 0x1f) {
+        g_answering.store(false, std::memory_order_release);
+        return;
+    }
+    uninstall();
+}
+
 bool install() {
     if (g_install_failed.load()) return false;
     if (g_installed.load() == 0x1f) {
         g_answering.store(true, std::memory_order_release);
         return true;
     }
+    if (g_installed.load() == 0) ++g_cycles;
     for (int i = 0; i < 5; ++i) {
         if (g_h[i]) continue;
         if (!g_h[i].install(g_api, g_owner, g_at[i], kDetours[i], kNames[i])) {
@@ -452,7 +466,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     if (g_dirty_table) rebuild_table();
     if (g_world && server_world_ok()) publish();
     const bool want = g_table_n.load(std::memory_order_relaxed) || !g_rows.empty() || !g_pairs.empty();
-    if (want && !g_installed) {
+    if (want && !g_answering.load(std::memory_order_relaxed)) {
         if (!install()) {
             // keep the settings; the game answers alone
             static bool warned = false;
@@ -462,7 +476,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     }
     if (!want) {
         g_live.store(nullptr, std::memory_order_release);
-        uninstall();
+        idle();
     }
 }
 

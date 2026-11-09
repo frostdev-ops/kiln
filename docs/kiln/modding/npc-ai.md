@@ -67,6 +67,7 @@ Scavenger's own block says otherwise. `Factions.Between(a, b)` answers what the 
 `Factions.Status` counts what Kiln answered.
 
 The five faction hooks go in at the next Pre with the first effective relation and come out at the next Pre after the last is cleared or expires.
+kiln.hooks keeps every link slot for the process, so after 64 such in-and-out rounds the hooks stay in through quiet spells and simply answer nothing.
 Rows and pairs apply to pointer forms, which carry the creatures' Faction component addresses; value forms see only the world table.
 World lifecycle support must be available, and all five checks must resolve and install; a missing pattern or failed installation leaves the game's answers in place, with a log line. A failed
 installation is not retried each tick. Disabled trampolines stay allocated until process exit so concurrent calls can finish safely.
@@ -132,7 +133,7 @@ the queue keeps its previous ID-based behaviour and warns once.
 are refused with the block and field. JSON property order does not matter. `kiln lint` checks the AI and rule shapes against the schema.
 
 ## Costs
-Faction hooks retain a snapshot for each pointer check and read atomic table cells. With no effective relations the five hooks are disabled.
+Faction hooks retain a snapshot for each pointer check and read atomic table cells. With no effective relations the five hooks are taken out (after 64 rounds of that they stay in and answer nothing).
 The destruction observer remains while lifetime tokens are tracked. A SenseFilter is tick-thread work: keep it short and avoid blocking.
 Summons, casts, heals and status effects also run on the tick thread. The older timings in [npc-internals.md](../../re/npc-internals.md) 3.6 predate
 snapshot lifetime protection and are not measurements of the current implementation.
