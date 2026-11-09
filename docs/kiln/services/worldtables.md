@@ -11,6 +11,7 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
 | Native | `native/services/worldtables/` → `kiln/services/kiln-worldtables.dll`. `merge.cpp` and `terrain.cpp` are portable: ids, the handshake hash, and writers over a resource's bytes |
 | Managed | `managed/services/Kiln.Blocks/World/` (`MaterialTweakBlock`, `BuildingMaterialBlock`, `TerrainMaterialBlock`, `StrengthBlock`, `WorldTables`; `SurfaceBlock` is kiln.surfaces') |
 | Handshake | `managed/services/Kiln.Network/WorldTablesGate.cs` |
+| Crafting props | `merge.cpp` (`read_crafting_props`, `allocate_crafting_props`, `merge_crafting_props`), `reflect.cpp` (`read_crafting_prop_layout`), `native/services/content/newcontent.cpp` (a recipe's `props`) |
 | Lint | KL330 material-budget, KL331 material-count, KL332 material-reference; KL201 for a material in a mod that doesn't say `clients: "mod"` |
 | Catalog | section `materials` (`GameMaterials`): name, cell id, GUID, hardness, health, class |
 | Test | `mods/tests/worldtables-test/` (`run.py` drives a lab server through 15 scenarios), `mods/tests/terrain-test/` (terrain materials, 6 scenarios) |
@@ -101,6 +102,27 @@ a room of their own (`TerrainMaterialBlock`, section `terrainMaterials`). Eviden
   per world, and while the mod is away.
 - `material_at` lists building materials first, then terrain ones (`cell_id` < 128), live first in each; the hash covers both, so a client with other
   terrain ids is refused like one with other building ids. A table writer for building slots skips terrain rows.
+
+## Crafting props
+A recipe can ask for props near its station (`RecipeInfo.requiredProps`, and a bit of `requiredPropsMask`). The game's table of them is `WorkshopRegistryResource.craftingProps`:
+51 entries, each a GUID, an id (FNV-1a of the GUID), a place 0..63 in a 64-bit mask, a loca tag, and the item that places the prop. A placed thing is one by a
+`RequiredCraftingProp {craftingPropId}` component, and a station's `CraftingInteraction.craftingPropsInRange` is the mask of the places of the props near it. 13 places are free for all
+mods together.
+
+- A prop block with `provides: true` (`PropBlock.Provides`) is read from `blocks/*.json` at boot (the sections `props`, `stations`, `containers`, `doors`, `beds`, `seats`), or from
+  `define_json`'s `"craftingProps": {"<block>": {"key", "item", "name"}}` for a block of code. Its GUID is `UUIDv5(<mod>:craftingprop:<block name or its "was">)` (`BlockIds.Derive`),
+  its item the block's item. The mod has to say `"clients": "mod"`: every game merges the table from the mods' files.
+- Each live prop takes the next free place, in the order of the GUIDs as text, so every game with the same mods agrees. A 14th is refused by name. The entries are appended to the
+  resource (`merge_crafting_props`); the game's own 51 stay as they are. The table's name tag for a prop is the name tag of its item (kiln.content's derivation).
+- The status is `registered` when the boot merge has the block as defined, else `pending`, as for shapes: a block of code is in the table from the next start, and Kiln.Blocks makes
+  the prop and a recipe that asks for it from then on (until then the log says so).
+- `crafting_prop_count/at/index` (appended to the C table) list them and answer a GUID's place; `WorldTables.CraftingProps` and `WorldTables.CraftingPropIndex` are the C# side.
+  kiln.content takes a recipe's `"props": [{"id", "index"}]`: each id is added to `requiredProps` and its bit to `requiredPropsMask`.
+- The game's normal craft-request path checks that mask. Its automated factory path has no nearby-prop context: factory block recipes reject `NeedsProps` with a field error.
+  The dedicated lab checks manual requests with a spawned guest; the menu, tooltip and a real player's request still need a client check.
+- The handshake hash covers the props (their GUIDs and places) once there is one; with none it is what it was. A client whose props differ is refused with the materials' text
+  ("the lists differ"): join with the same mods.
+- A build whose `WorkshopRegistryResource` or `CraftingPropResource` doesn't resolve leaves crafting props out with a line in kiln.log, and keeps the rest of the service.
 
 ## Worlds and absent mods
 Without Kiln's help, a world opened without a material's mod turns its cells to air: the game's load maps an unknown GUID to 0, and the next save makes that

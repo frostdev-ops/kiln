@@ -2,10 +2,12 @@
 // kiln.worldtables' portable part on the host: see run.sh.
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <tuple>
 
 #include "merge.h"
 #include "terrain.h"
@@ -110,6 +112,194 @@ uint32_t pool_size(const Bytes& b, const std::string& name) {
 }
 
 }  // namespace
+
+// ---- crafting props: WorkshopRegistryResource.craftingProps -----------------------------------------------------------
+// The layout on the current builds (the service reads it from reflection): BlobArray at 16 of 48-byte entries {guid 0, id 16, index 20, name 24, item 28, itemRef 32}.
+CraftingPropLayout craft_layout() {
+    CraftingPropLayout C;
+    C.ok = true, C.array = 16, C.stride = 48, C.guid = 0, C.id = 16, C.index = 20, C.name = 24, C.item = 28, C.item_ref = 32;
+    return C;
+}
+
+// A registry resource whose crafting props take the places 0..n-1, as the game's 51 do, followed by 5 bytes of something else (the blobs after the array).
+Bytes craft_registry(uint32_t n) {
+    Bytes b(24 + 8 + size_t{n} * 48 + 5, 0xEE);
+    for (size_t i = 0; i < 24; ++i) b[i] = 0;
+    wr<int32_t>(b, 16, 16), wr<uint32_t>(b, 20, n);
+    for (uint32_t i = 0; i < n; ++i) {
+        uint8_t* e = b.data() + 32 + size_t{i} * 48;
+        std::memset(e, 0, 48);
+        e[0] = static_cast<uint8_t>(i + 1), e[16] = static_cast<uint8_t>(0x40 + i), e[20] = static_cast<uint8_t>(i), e[24] = 7;
+    }
+    return b;
+}
+
+ojson craft_doc(const std::string& section, const std::string& block, const ojson& body) {
+    ojson d = ojson::object();
+    d[section] = ojson::object();
+    d[section][block] = body;
+    return d;
+}
+
+void jsonc_test() {
+    const auto mixed = parse_relaxed(R"({
+        // A mixed block file has the same JSONC syntax as the managed loader.
+        "props": {"table": {"name": "Table /* literal } */", "provides": true,},},
+        "quests": {"q": {"name": "Q", "steps": ["x", /* } ] , */],},},
+    })");
+    check("jsonc.mixed-trailing-and-comments", mixed.is_object() && mixed.contains("quests") && mixed["props"]["table"]["name"] == "Table /* literal } */");
+    ModFile mf;
+    mf.mod = "jsonc", mf.file = "mixed.json", mf.clients = "mod";
+    if (!mixed.is_discarded()) read_crafting_props(mixed, &mf);
+    check("jsonc.mixed-provides-still-merged", mf.errors.empty() && mf.craft_props.size() == 1);
+    check("jsonc.escaped-strings", parse_relaxed(R"(["quote: \" , ]", "slash: \\",])").is_array());
+    for (const char* bad : {"[,]", "[1,,]", "{,}", "{\"a\":,}", "{\"a\":1,,}", "[1,/* unterminated", "[1,] true"})
+        check("jsonc.malformed-remains-invalid", parse_relaxed(bad).is_discarded(), bad);
+    check("jsonc.depth-64", parse_relaxed(std::string(64, '[') + "0" + std::string(64, ']')).is_array());
+    check("jsonc.depth-65-refused", parse_relaxed(std::string(65, '[') + "0" + std::string(65, ']')).is_discarded());
+    check("jsonc.comment-braces-do-not-affect-depth", parse_relaxed("[/*" + std::string(100, '[') + "*/1,]").is_array());
+}
+
+void crafting_props_test() {
+    const CraftingPropLayout C = craft_layout();
+    std::string why;
+
+    // read from a data file: the "provides" of a prop block, the block's name is what players read, "was" keeps the id through a rename
+    ModFile mf;
+    mf.mod = "cp-mod", mf.file = "cp-mod: blocks/a.json", mf.clients = "mod";
+    ojson doc = ojson::object();
+    doc["stations"] = ojson::object();
+    doc["stations"]["cold-forge"] = {{"name", "Cold Forge"}, {"provides", true}};
+    doc["stations"]["plain-bench"] = {{"name", "Plain Bench"}};
+    doc["props"] = ojson::object();
+    doc["props"]["lamp"] = {{"name", "Lamp"}, {"provides", true}, {"was", "old-lamp"}};
+    doc["containers"] = ojson::object();
+    doc["containers"]["off"] = {{"name", "Off"}, {"provides", false}};
+    read_crafting_props(doc, &mf);
+    check("craft.read-provides", mf.errors.empty() && mf.craft_props.size() == 2, std::to_string(mf.craft_props.size()) + " " + (mf.errors.empty() ? "" : mf.errors[0]));
+    const CraftingProp* forge = nullptr;
+    const CraftingProp* lamp = nullptr;
+    for (const CraftingProp& p : mf.craft_props) (p.block == "cold-forge" ? forge : lamp) = &p;
+    check("craft.guid-follows-the-block", forge && forge->guid == derive_guid("cp-mod", "craftingprop", "cold-forge") && forge->name == "Cold Forge");
+    check("craft.was-keeps-the-id", lamp && lamp->guid == derive_guid("cp-mod", "craftingprop", "old-lamp") && lamp->item == derive_guid("cp-mod", "item", "old-lamp"));
+    check("craft.id-is-the-guids-fnv", forge && forge->prop_id == item_id_of(forge->guid) && forge->item_id == item_id_of(derive_guid("cp-mod", "item", "cold-forge")));
+    check("craft.name-is-the-items-tag", forge && forge->name_tag == name_tag_of_item(forge->item) && forge->name_tag != name_tag_of_item(lamp->item));
+
+    // a mod that says clients none or kiln can't have one: each game merges its table from the mod's files
+    ModFile kiln;
+    kiln.mod = "cp-kiln", kiln.file = "cp-kiln: blocks/a.json", kiln.clients = "kiln";
+    read_crafting_props(doc, &kiln);
+    check("craft.needs-clients-mod", kiln.craft_props.empty() && kiln.errors.size() == 2 && kiln.errors[0].find("clients") != std::string::npos &&
+                                         std::any_of(kiln.errors.begin(), kiln.errors.end(), [](const std::string& e) { return e.find("block station cold-forge") != std::string::npos; }),
+          kiln.errors.empty() ? "" : kiln.errors[0]);
+
+    // wrong values are refused by block and field
+    for (const auto& [name, body, word] : std::vector<std::tuple<std::string, ojson, std::string>>{
+             {"no-name", {{"provides", true}}, "name"}, {"not-a-bool", {{"name", "x"}, {"provides", "yes"}}, "provides"}}) {
+        ModFile bad;
+        bad.mod = "cp-bad", bad.file = "f", bad.clients = "mod";
+        read_crafting_props(craft_doc("props", name, body), &bad);
+        check(("craft.refuses-" + name).c_str(), bad.craft_props.empty() && bad.errors.size() == 1 && bad.errors[0].find("block prop " + name) != std::string::npos && bad.errors[0].find(word) != std::string::npos,
+              bad.errors.empty() ? "" : bad.errors[0]);
+    }
+
+    // from code: {"craftingProps": {"<block>": {key, item, name}}}
+    const Guid item = derive_guid("cp-code", "item", "kept");
+    ModFile code;
+    code.mod = "cp-code", code.file = "code", code.clients = "mod";
+    read_crafting_props(craft_doc("craftingProps", "anvil", {{"key", "kept"}, {"item", item.text()}, {"name", "Anvil"}}), &code);
+    check("craft.read-from-code", code.errors.empty() && code.craft_props.size() == 1 && code.craft_props[0].guid == derive_guid("cp-code", "craftingprop", "kept") && code.craft_props[0].item == item,
+          code.errors.empty() ? "" : code.errors[0]);
+    ModFile code_bad;
+    code_bad.mod = "cp-code", code_bad.file = "code", code_bad.clients = "mod";
+    read_crafting_props(craft_doc("craftingProps", "anvil", {{"item", "nope"}, {"name", "Anvil"}, {"colour", 1}}), &code_bad);
+    check("craft.code-refuses", code_bad.craft_props.empty() && code_bad.errors.size() == 2, std::to_string(code_bad.errors.size()));
+
+    // the game's table: 51 places used, the first free place is 51
+    Bytes game = craft_registry(51);
+    uint64_t used = 0;
+    std::set<uint32_t> ids;
+    check("craft.table-reads", read_crafting_prop_table(game, C, &used, &ids, &why) && used == (uint64_t{1} << 51) - 1 && ids.size() == 51 && ids.count(0x40), why);
+    Bytes broken = game;
+    broken[32 + 20] = 64;
+    check("craft.table-refuses-a-place-past-the-mask", !read_crafting_prop_table(broken, C, &used, &ids, &why) && why.find("place 64") != std::string::npos, why);
+    check("craft.table-refuses-a-wrong-layout", !read_crafting_prop_table(Bytes(8, 0), C, &used, &ids, &why));
+
+    // places: the next free ones, in the order of the GUIDs, whatever order the mods came in
+    check("craft.table-reads-again", read_crafting_prop_table(game, C, &used, &ids, &why) && used == (uint64_t{1} << 51) - 1, why);
+    std::vector<CraftingProp> props = mf.craft_props;
+    props.insert(props.end(), code.craft_props.begin(), code.craft_props.end());
+    std::vector<CraftingProp> reversed(props.rbegin(), props.rend());
+    std::vector<std::string> refused;
+    allocate_crafting_props(&props, used, &refused);
+    allocate_crafting_props(&reversed, used, &refused);
+    bool same = props.size() == 3 && reversed.size() == 3;
+    for (size_t i = 0; same && i < 3; ++i) same = props[i].guid == reversed[i].guid && props[i].index == 51 + static_cast<int>(i) && (i == 0 || props[i - 1].guid.text() < props[i].guid.text());
+    check("craft.places-follow-the-guids", same && refused.empty());
+
+    // 13 fit; the 14th is refused by name
+    std::vector<CraftingProp> many;
+    for (int i = 0; i < 14; ++i) {
+        CraftingProp p;
+        p.mod = "cp-many", p.block = "p" + std::to_string(i), p.guid = derive_guid("cp-many", "craftingprop", p.block);
+        many.push_back(p);
+    }
+    refused.clear();
+    allocate_crafting_props(&many, used, &refused);
+    check("craft.room-is-13", many.size() == 13 && refused.size() == 1 && refused[0].find("room for 13 new crafting props") != std::string::npos && many.back().index == 63, refused.empty() ? "" : refused[0]);
+
+    // the table with them appended: the game's entries untouched, the new ones where the layout says
+    Bytes merged;
+    check("craft.merge-none-is-identical", merge_crafting_props(game, C, {}, &merged, &why) && merged == game, why);
+    check("craft.merge", merge_crafting_props(game, C, props, &merged, &why), why);
+    ArrayView v;
+    check("craft.merge-reads-back", array_at(merged, C.array, C.stride, &v) && v.count == 54, std::to_string(v.count));
+    bool first_same = true;
+    for (uint32_t i = 0; i < 51; ++i) first_same = first_same && std::memcmp(v.base + size_t{i} * 48, game.data() + 32 + size_t{i} * 48, 48) == 0;
+    check("craft.merge-keeps-the-games-entries", first_same);
+    bool written = true;
+    for (size_t i = 0; i < props.size(); ++i) {
+        const uint8_t* e = v.base + (51 + i) * 48;
+        written = written && std::memcmp(e + C.guid, props[i].guid.b.data(), 16) == 0 && rd<uint32_t>(merged, e + C.id - merged.data()) == props[i].prop_id && e[C.index] == 51 + i &&
+                  rd<uint32_t>(merged, e + C.name - merged.data()) == props[i].name_tag && rd<uint32_t>(merged, e + C.item - merged.data()) == props[i].item_id &&
+                  std::memcmp(e + C.item_ref, props[i].item.b.data(), 16) == 0;
+    }
+    check("craft.merge-writes-each-field", written);
+    check("craft.merge-leaves-the-rest-of-the-resource", merged.size() > game.size() && std::equal(game.begin(), game.begin() + 16, merged.begin()) &&
+                                                             std::equal(game.begin() + 24, game.end(), merged.begin() + 24));
+    uint64_t used2 = 0;
+    std::set<uint32_t> ids2;
+    check("craft.merged-table-reads", read_crafting_prop_table(merged, C, &used2, &ids2, &why) && used2 == (uint64_t{1} << 54) - 1 && ids2.size() == 54, why);
+    check("craft.merge-refuses-a-wrong-layout", !merge_crafting_props(Bytes(8, 0), C, props, &merged, &why) && why.find("doesn't read") != std::string::npos, why);
+
+    // the handshake hash: unchanged without props; with them it follows the places and GUIDs
+    check("craft.hash-unchanged-without-props", handshake_hash({}, {}) == kEmptyHash);
+    const std::string h1 = handshake_hash({}, props);
+    std::vector<CraftingProp> moved = props;
+    moved[0].index += 1;
+    std::vector<CraftingProp> other = props;
+    other[1].guid = derive_guid("cp-other", "craftingprop", "x");
+    check("craft.hash-follows-places-and-guids", h1 != kEmptyHash && h1 == handshake_hash({}, props) && h1 != handshake_hash({}, moved) && h1 != handshake_hash({}, other));
+
+    // the game's own WorkshopRegistryResource, when given (KILN_WORKSHOP_RES=<file>, local data never in the repo): 51 props on places 0..50, ids the GUIDs' FNV-1a, and a merge reads back
+    if (const char* path = std::getenv("KILN_WORKSHOP_RES")) {
+        std::ifstream f(path, std::ios::binary);
+        const Bytes real((std::istreambuf_iterator<char>(f)), {});
+        uint64_t u = 0;
+        std::set<uint32_t> gids;
+        std::string w;
+        check("game.craft-table-reads", read_crafting_prop_table(real, C, &u, &gids, &w) && u == (uint64_t{1} << 51) - 1 && gids.size() == 51, w);
+        ArrayView rv;
+        bool ids_ok = array_at(real, C.array, C.stride, &rv) && rv.count == 51;
+        for (uint32_t i = 0; ids_ok && i < rv.count; ++i) ids_ok = fnv1a(rv.base + size_t{i} * C.stride + C.guid, 16) == rd<uint32_t>(real, rv.base + size_t{i} * C.stride + C.id - real.data());
+        check("game.craft-ids-are-the-guids-fnv", ids_ok);
+        Bytes same, grown;
+        check("game.craft-merge-none-identical", merge_crafting_props(real, C, {}, &same, &w) && same == real, w);
+        std::vector<CraftingProp> two = {props[0], props[1]};
+        two[0].index = 51, two[1].index = 52;
+        check("game.craft-merge-reads-back", merge_crafting_props(real, C, two, &grown, &w) && read_crafting_prop_table(grown, C, &u, &gids, &w) && u == (uint64_t{1} << 53) - 1 && gids.size() == 53 && gids.count(two[1].prop_id), w);
+    }
+}
 
 int main(int argc, char** argv) {
     // ids follow Kiln.Blocks' BlockIds.Derive (the same GUID on every machine)
@@ -430,6 +620,8 @@ int main(int argc, char** argv) {
         array_at(np, static_cast<uint32_t>(pools.base - np.data()) + L.pool_materials, 4, &items);
         check("game.new-reads-back", gi.building_at.count(213) && items.count == 62 && rd<uint32_t>(np, items.base - np.data() + 61 * 4) == nm.item_id);
     }
+    jsonc_test();
+    crafting_props_test();
     std::printf("%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

@@ -134,10 +134,56 @@ public sealed record ContainerBlock : PropBlock
 {
     /// <summary>Inventory slots, 1..120. Null: the starter's.</summary>
     public int? Slots { get; init; }
+
+    /// <summary>What it holds when it is placed: a <see cref="LootTableBlock"/> of this mod by name (<c>"other-mod:name"</c> for another's), or one written here. Kiln rolls it on the server
+    /// and gives the stacks into the container once for each container it finds: after a restart, or when the container is placed again on the same spot, it is not filled again, and what
+    /// a player took out stays out. Take care with a container a player can make: each new spot is a new fill.</summary>
+    public PartRef<LootTableBlock>? DefaultLoot { get; init; }
+
+    /// <summary>How its lid moves. Null: the starter's.</summary>
+    public LidBlock? Lid { get; init; }
+}
+
+/// <summary>A container's lid: the game's toggle animation, which the container's use flips. A field left out is the starter's. The lid is a client sight: the server only carries the toggle,
+/// so a player's game has to be where its movement is checked (docs/kiln/modding/world-blocks.md, "What players' games need").</summary>
+public sealed record LidBlock
+{
+    /// <summary>False: nothing moves (a barrel, a pile of sacks, a model of yours with no lid): the toggle animation is taken off. The container still opens its screen.</summary>
+    public bool Moves { get; init; } = true;
+
+    /// <summary>The animation graph that moves it, by GUID: a game graph (<c>kiln catalog graphs</c> lists them, with their states) or one your assets serve. Null: the starter's.</summary>
+    public Guid? Graph { get; init; }
+
+    /// <summary>The graph's state while the lid is open, by GUID. Null: the game's open state, which every game lid has (<see cref="Open"/>).</summary>
+    public Guid? OpenState { get; init; }
+
+    /// <summary>The graph's state while the lid is shut, by GUID. Null: the game's shut state (<see cref="Shut"/>).</summary>
+    public Guid? ShutState { get; init; }
+
+    /// <summary>The state the game's lids and doors play while open.</summary>
+    public static readonly Guid Open = new("bcf39dc8-d81e-450a-a77d-3b626d4106c4");
+
+    /// <summary>The state the game's lids and doors play while shut.</summary>
+    public static readonly Guid Shut = new("48775f5b-13ed-442a-9c6e-cec65ae16342");
 }
 
 /// <summary>A door: it opens and closes for whoever uses it, and paths and water follow it, as the game's doors do. It starts from the game's wooden door.</summary>
-public sealed record DoorBlock : PropBlock;
+public sealed record DoorBlock : PropBlock
+{
+    /// <summary>Which way it swings. <see cref="DoorSide.Both"/>: away from whoever uses it, as the game's wooden door. <see cref="DoorSide.Front"/> or <see cref="DoorSide.Back"/>: always the front way or the back way,
+    /// whichever side the player stands on, as the game's doors that swing one way only. The angle is in the animation, and a door with a model of yours has none of its own yet. Null: the starter's.</summary>
+    [JsonConverter(typeof(NamedNullableConverter<DoorSide>))]
+    public DoorSide? Opens { get; init; }
+
+    /// <summary>Which side a player can use it from. <see cref="DoorSide.Both"/> (the default): either. <see cref="DoorSide.Front"/> or <see cref="DoorSide.Back"/>: a player on the other side is declined, the way
+    /// Kiln's other checks decline (<see cref="InteractBlock.Requires"/>), so a door that is a wall from one side. Kiln's, on the server. Front is the side the game calls its front: the side its
+    /// swing, <see cref="Opens"/>, calls the front way.</summary>
+    [JsonConverter(typeof(NamedNullableConverter<DoorSide>))]
+    public DoorSide? Sides { get; init; }
+}
+
+/// <summary>A door's side: its front, its back, or both.</summary>
+public enum DoorSide { Both, Front, Back }
 
 /// <summary>A bed: the game's sleep and rest (a player who sleeps in it gets the game's rested status, by the comfort around them), and comfort of the bed category. It starts from the game's wooden bed.
 /// <see cref="SpawnPoint"/> and <see cref="SkipsNight"/> are Kiln's, on the server: the game's beds do neither.</summary>

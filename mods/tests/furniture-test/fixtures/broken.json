@@ -1,9 +1,15 @@
 {
   "format": 1,
+  "stations": {
+    "factory-props": { "name": "x", "kind": "forge", "recipes": [ { "seconds": 3, "needs": { "Material_T1_Twigs": 2 }, "output": "Material_T1_Wood_Logs", "needsProps": ["furniture-blocks:rune-table-json"] } ] }
+  },
   "containers": {
     "no-name": { "slots": 4 },
     "many-slots": { "name": "x", "slots": 500 },
-    "typo-field": { "name": "x", "slotz": 4 }
+    "typo-field": { "name": "x", "slotz": 4 },
+    "lid-stuck": { "name": "x", "lid": { "moves": false, "graph": "be434836-4c77-4c86-bee0-a49bc5992800" } },
+    "empty-loot": { "name": "x", "defaultLoot": { "entries": [] } },
+    "no-loot-table": { "name": "x", "defaultLoot": "gone-table" }
   },
   "doors": {
     "bad-time": { "name": "x", "onInteract": { "requires": { "time": "dusk" } } },
@@ -15,7 +21,15 @@
     "blank-prompt": { "name": "x", "onInteract": { "toggle": { "onPrompt": " " } } },
     "verb-and-prompt": { "name": "x", "onInteract": { "verb": "use", "prompt": "Knock" } },
     "refused-lock": { "name": "x", "onInteract": { "requires": { "time": "night" }, "onRefused": [ { "heal": 1 } ] } },
-    "no-such-interaction": { "name": "x", "onInteract": "gone" }
+    "no-such-interaction": { "name": "x", "onInteract": "gone" },
+    "bad-opens": { "name": "x", "opens": "sideways" },
+    "bad-sides": { "name": "x", "sides": "up" }
+  },
+  "props": {
+    "both-colliders": { "name": "x", "visual": { "model": "item:Prop_Decoration_T2_Vase_Clay_01" }, "collider": { "size": [1, 1, 1] }, "colliders": [ { "size": [1, 1, 1] } ] },
+    "flat-collider": { "name": "x", "visual": { "model": "item:Prop_Decoration_T2_Vase_Clay_01" }, "colliders": [ { "size": [1, 1, 1] }, { "size": [1, 0, 1] } ] },
+    "needs-other": { "name": "x", "visual": { "like": "Prop_Decoration_T2_Vase_Clay_01" }, "recipe": { "needs": { "Material_T1_Twigs": 1 }, "needsProps": ["furniture-blocks:trestle-json"] } },
+    "no-such-prop": { "name": "x", "visual": { "like": "Prop_Decoration_T2_Vase_Clay_01" }, "recipe": { "needs": { "Material_T1_Twigs": 1 }, "needsProps": ["nothing-here"] } }
   },
   "beds": {
     "far-spot": { "name": "x", "lies": { "at": [0, 50, 0] } }

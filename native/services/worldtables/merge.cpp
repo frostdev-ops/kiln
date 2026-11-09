@@ -146,7 +146,62 @@ Guid derive_guid(const std::string& mod, const std::string& kind, const std::str
 
 uint32_t item_id_of(const Guid& g) { return fnv1a(g.b.data(), 16); }
 
-ojson parse_relaxed(const std::string& text) { return ojson::parse(text, nullptr, false, true); }
+ojson parse_relaxed(const std::string& text) {
+    // Match BlockJson: JSON comments, trailing commas and at most 64 nested containers. Strip comments first so a comma can see a closing token
+    // across them, while braces and quotes in comments never affect strings or the depth guard. Whitespace keeps tokens from joining together.
+    std::string clean = text;
+    bool quoted = false, escaped = false;
+    unsigned depth = 0;
+    for (size_t i = 0; i < clean.size(); ++i) {
+        const char c = clean[i];
+        if (quoted) {
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') quoted = false;
+            continue;
+        }
+        if (c == '"') { quoted = true; continue; }
+        if (c == '/' && i + 1 < clean.size() && (clean[i + 1] == '/' || clean[i + 1] == '*')) {
+            const bool line = clean[i + 1] == '/';
+            clean[i++] = ' ';
+            clean[i] = ' ';
+            bool closed = line;
+            while (++i < clean.size()) {
+                if (line && (clean[i] == '\n' || clean[i] == '\r')) break;
+                if (!line && clean[i] == '*' && i + 1 < clean.size() && clean[i + 1] == '/') {
+                    clean[i++] = ' ';
+                    clean[i] = ' ';
+                    closed = true;
+                    break;
+                }
+                if (clean[i] != '\n' && clean[i] != '\r') clean[i] = ' ';
+            }
+            if (!closed) return ojson(ojson::value_t::discarded);
+            continue;
+        }
+        if (c == '[' || c == '{') {
+            if (++depth > 64) return ojson(ojson::value_t::discarded);
+        } else if ((c == ']' || c == '}') && depth) --depth;
+    }
+    quoted = escaped = false;
+    char previous = 0;
+    for (size_t i = 0; i < clean.size(); ++i) {
+        const char c = clean[i];
+        if (quoted) {
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') quoted = false;
+        } else if (c == '"') quoted = true;
+        else if (c == ',') {
+            const size_t next = clean.find_first_not_of(" \t\r\n", i + 1);
+            // A real value must precede it: never turn [,], {,} or a double comma into valid JSON.
+            const bool value = previous == '"' || previous == ']' || previous == '}' || (previous >= '0' && previous <= '9') || previous == 'e' || previous == 'l';
+            if (value && next != std::string::npos && (clean[next] == ']' || clean[next] == '}')) clean[i] = ' ';
+        }
+        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') previous = c;
+    }
+    return ojson::parse(clean, nullptr, false);
+}
 
 // ---- blocks ------------------------------------------------------------------------------------------------------
 void read_strength(const ojson& j, const std::string& where, const std::string& label, Strength* s, std::vector<std::string>* errors) {
@@ -344,6 +399,7 @@ void read_blocks(const ojson& doc, ModFile* out) {
                 out->shapes.push_back(std::move(sh));
             }
     }
+    read_crafting_props(doc, out);
 }
 
 // The same cells Kiln.Blocks' ShapeCells makes: layers from the bottom up, rows from the back, cells from the left; # a cell, . or a space none. Or, from code,
@@ -510,6 +566,190 @@ std::string handshake_hash(const std::vector<Placed>& placed) {
         add(p.m.guid.b.data(), 16);
     }
     if (!any) return kEmptyHash;
+    char s[17];
+    std::snprintf(s, sizeof s, "%016llx", static_cast<unsigned long long>(h));
+    return s;
+}
+
+// ---- crafting props ----------------------------------------------------------------------------------------------
+// kiln.content derives a clone's name tag from its GUID (newcontent.cpp derive_guid, purpose "kiln.item.name"): the first four bytes XOR the purpose's hash, the last byte 'K'.
+uint32_t name_tag_of_item(const Guid& item) {
+    static const char purpose[] = "kiln.item.name";
+    uint8_t g[16];
+    std::memcpy(g, item.b.data(), 16);
+    const uint32_t h = fnv1a(purpose, sizeof purpose - 1);
+    for (int i = 0; i < 4; ++i) g[i] ^= static_cast<uint8_t>(h >> (8 * i));
+    g[15] ^= 0x4B;
+    return fnv1a(g, 16);
+}
+
+namespace {
+void make_crafting_prop(CraftingProp* p, const std::string& key, const Guid* item) {
+    p->guid = derive_guid(p->mod, "craftingprop", key);
+    p->prop_id = item_id_of(p->guid);
+    p->item = item ? *item : derive_guid(p->mod, "item", key);
+    p->item_id = item_id_of(p->item);
+    p->name_tag = name_tag_of_item(p->item);
+    ojson d = ojson::object();
+    d["key"] = key;
+    d["item"] = p->item.text();
+    d["name"] = p->name;
+    p->definition = d.dump();
+}
+}  // namespace
+
+void read_crafting_props(const ojson& doc, ModFile* out) {
+    auto err = [&](const std::string& t) { out->errors.push_back(out->file + ": " + t); };
+    const auto need_mod = [&](const std::string& label) {
+        if (out->clients == "mod") return true;
+        err(label + ", provides: mod " + out->mod + " says \"clients\": \"" + out->clients + "\", and a crafting prop has its place in a table every game merges at its start, so it has to be on every player's game. Set \"clients\": \"mod\" in kiln.mod.json");
+        return false;
+    };
+    // a data file: the "provides" of a prop block (the block's own name is what players read)
+    static const char* const kSections[] = {"props", "stations", "containers", "doors", "beds", "seats"};
+    static const char* const kKinds[] = {"prop", "station", "container", "door", "bed", "seat"};
+    for (size_t k = 0; k < std::size(kSections); ++k) {
+        const auto it = doc.find(kSections[k]);
+        if (it == doc.end() || !it->is_object()) continue;
+        for (auto b = it->begin(); b != it->end(); ++b) {
+            if (!b.value().is_object() || !b.value().contains("provides")) continue;
+            const std::string label = std::string("block ") + kKinds[k] + " " + b.key();
+            const ojson& v = b.value()["provides"];
+            if (!v.is_boolean()) { err(label + ", provides: takes true or false"); continue; }
+            if (!v.get<bool>()) continue;
+            if (!valid_name(b.key())) { err(label + ": a block name takes letters, digits, '-', '_' and '.'"); continue; }
+            if (!need_mod(label)) continue;
+            const ojson& j = b.value();
+            if (!j.contains("name") || !j["name"].is_string() || j["name"].get<std::string>().empty()) { err(label + ", name: is required: what players read"); continue; }
+            CraftingProp p;
+            p.mod = out->mod;
+            p.block = b.key();
+            p.name = j["name"].get<std::string>();
+            const std::string key = j.contains("was") && j["was"].is_string() && !j["was"].get<std::string>().empty() ? j["was"].get<std::string>() : b.key();
+            make_crafting_prop(&p, key, nullptr);
+            out->craft_props.push_back(std::move(p));
+        }
+    }
+    // code's define: {"craftingProps": {"<block>": {"key": ..., "item": GUID, "name": ...}}}
+    if (const auto it = doc.find("craftingProps"); it != doc.end()) {
+        if (!it->is_object()) { err("craftingProps: expected block name -> block"); return; }
+        for (auto b = it->begin(); b != it->end(); ++b) {
+            const std::string label = "block craftingProp " + b.key();
+            if (!valid_name(b.key())) { err(label + ": a block name takes letters, digits, '-', '_' and '.'"); continue; }
+            if (!b.value().is_object()) { err(label + ": expected an object"); continue; }
+            const ojson& j = b.value();
+            CraftingProp p;
+            p.mod = out->mod;
+            p.block = b.key();
+            std::string key = b.key();
+            Guid item;
+            bool has_item = false, bad = false;
+            for (auto f = j.begin(); f != j.end(); ++f) {
+                if (f.key() == "key") {
+                    if (!f->is_string() || f->get<std::string>().empty()) { err(label + ", key: takes the block's name or its \"was\""); bad = true; }
+                    else key = f->get<std::string>();
+                } else if (f.key() == "item") {
+                    if (!f->is_string() || !Guid::parse(f->get<std::string>(), &item)) { err(label + ", item: takes the GUID of the item that places it"); bad = true; }
+                    else has_item = true;
+                } else if (f.key() == "name") {
+                    if (!f->is_string() || f->get<std::string>().empty()) { err(label + ", name: takes what players read"); bad = true; }
+                    else p.name = f->get<std::string>();
+                } else {
+                    err(label + ", " + f.key() + ": is not a field of a crafting prop; there are key, item, name");
+                    bad = true;
+                }
+            }
+            if (bad || !need_mod(label)) continue;
+            if (p.name.empty()) { err(label + ", name: is required: what players read"); continue; }
+            make_crafting_prop(&p, key, has_item ? &item : nullptr);
+            out->craft_props.push_back(std::move(p));
+        }
+    }
+}
+
+bool read_crafting_prop_table(const Bytes& res, const CraftingPropLayout& C, uint64_t* used, std::set<uint32_t>* ids, std::string* why) {
+    ArrayView v;
+    if (!C.ok || !array_at(res, C.array, C.stride, &v)) {
+        *why = "the crafting prop table doesn't read as its layout says";
+        return false;
+    }
+    *used = 0;
+    ids->clear();
+    for (uint32_t i = 0; i < v.count; ++i) {
+        const uint8_t* e = v.base + size_t{i} * C.stride;
+        const uint8_t index = e[C.index];
+        if (index >= kCraftingPropPlaces) {
+            *why = "a crafting prop of the game has place " + std::to_string(index) + ": past the " + std::to_string(kCraftingPropPlaces) + " a mask holds";
+            return false;
+        }
+        *used |= uint64_t{1} << index;
+        ids->insert(rd<uint32_t>(e + C.id));
+    }
+    return true;
+}
+
+void allocate_crafting_props(std::vector<CraftingProp>* props, uint64_t used, std::vector<std::string>* refused) {
+    // in the order of the GUIDs as text, as the materials' ids are given
+    std::sort(props->begin(), props->end(), [](const CraftingProp& a, const CraftingProp& b) { return a.guid.text() < b.guid.text(); });
+    std::vector<int> free_places;
+    for (uint32_t i = 0; i < kCraftingPropPlaces; ++i)
+        if (!(used >> i & 1)) free_places.push_back(static_cast<int>(i));
+    std::vector<CraftingProp> kept;
+    for (CraftingProp& p : *props) {
+        if (kept.size() >= free_places.size()) {
+            refused->push_back("block craftingProp " + p.block + " (mod " + p.mod + "): refused: the game has room for " + std::to_string(free_places.size()) + " new crafting props across all mods, and " +
+                               std::to_string(kept.size()) + " are taken");
+            continue;
+        }
+        p.index = free_places[kept.size()];
+        kept.push_back(std::move(p));
+    }
+    *props = std::move(kept);
+}
+
+bool merge_crafting_props(const Bytes& game, const CraftingPropLayout& C, const std::vector<CraftingProp>& props, Bytes* out, std::string* why) {
+    *out = game;
+    if (props.empty()) return true;
+    ArrayView v;
+    if (!C.ok || !array_at(game, C.array, C.stride, &v)) {
+        *why = "the crafting prop table doesn't read as its layout says";
+        return false;
+    }
+    const size_t old_at = v.base ? static_cast<size_t>(v.base - game.data()) : 0;
+    while (out->size() % 16) out->push_back(0);
+    const size_t at = out->size();
+    out->resize(at + (size_t{v.count} + props.size()) * C.stride, 0);
+    if (v.count) std::memcpy(out->data() + at, game.data() + old_at, size_t{v.count} * C.stride);
+    for (size_t i = 0; i < props.size(); ++i) {
+        const CraftingProp& p = props[i];
+        uint8_t* e = out->data() + at + (size_t{v.count} + i) * C.stride;
+        std::memcpy(e + C.guid, p.guid.b.data(), 16);
+        wr<uint32_t>(e + C.id, p.prop_id);
+        e[C.index] = static_cast<uint8_t>(p.index);
+        wr<uint32_t>(e + C.name, p.name_tag);
+        wr<uint32_t>(e + C.item, p.item_id);
+        std::memcpy(e + C.item_ref, p.item.b.data(), 16);
+    }
+    wr<int32_t>(out->data() + C.array, static_cast<int32_t>(int64_t(at) - int64_t(C.array)));
+    wr<uint32_t>(out->data() + C.array + 4, static_cast<uint32_t>(v.count + props.size()));
+    return true;
+}
+
+std::string handshake_hash(const std::vector<Placed>& placed, const std::vector<CraftingProp>& props) {
+    const std::string materials = handshake_hash(placed);
+    if (props.empty()) return materials;
+    uint64_t h = 0xcbf29ce484222325ull;
+    const auto add = [&](const void* p, size_t n) {
+        const auto* b = static_cast<const uint8_t*>(p);
+        for (size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 0x100000001b3ull;
+    };
+    add(materials.data(), materials.size());
+    for (const CraftingProp& p : props) {
+        const uint8_t index = static_cast<uint8_t>(p.index);
+        add("p", 1);
+        add(&index, 1);
+        add(p.guid.b.data(), 16);
+    }
     char s[17];
     std::snprintf(s, sizeof s, "%016llx", static_cast<unsigned long long>(h));
     return s;

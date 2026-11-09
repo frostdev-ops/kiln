@@ -173,6 +173,11 @@ that needs its own permanent numbers and its own name is a **clone**.
   clone's list (the base's gear, on a creature with a body of its own). A name the base doesn't have is refused, and so are `CurrentTransform`
   and, on an actor, what a puppet needs to live (`Actor`, `ActorInput`, `NetworkActor`, `Velocity`, `LastTransform`, `Faction` and the four
   animation graph components).
+- **A list the base has too short**: `"growArrays": {"ColliderResourceComponent.colliders[0].dataArray": 3}` makes that list (a BlobArray of the base's data, named as a field
+  path is) at least that long: it moves behind the clone's data, and each new element is a copy of the last (a variant gets an object of its own), so the clone's `fields` can set
+  `dataArray[1]` and `dataArray[2]` by index. A list that is long enough stays; one with no element to copy, or no list at that path, is refused by name. A prop block with several
+  `Colliders` uses it. A collider's `joltObjects[0].shapeIndexList` must also grow to include each new shape, with indices `0, 1, 2`: `dataArray` alone does not add those boxes
+  to the physics object. The block compiler sets both lists, and gives the placed compound shape and the cursor's bounding box different cache hashes.
 - **A reference from an item**: a reference field takes `"item:<name>.<path>"`, what that item has in that field:
   `"ModelResource.model": "item:Prop_Production_T1_Drying_Rack.iconModel"`. A dedicated server has no models or
   sounds, so it carries a model's or a sound's GUID for its clients unchecked.
