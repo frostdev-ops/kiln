@@ -85,9 +85,10 @@ startup/late-load coexistence checks, and mocked ImGui nesting/recovery. These d
 
 ## Lab test
 `mods/tests/set-test/mods/` holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which checks
-the API on a server and prints PASS/FAIL lines. The WP15 SET run reported 37 PASS and 2 FAIL: its
-`TestEvent1` stream was absent. That branch predated the integrated event-layout/cache fixes (WP20/21); the
-integrated types/SET rebuild and probe must determine the current result. This older run is not a fully passing
-probe or evidence of a final integration regression.
+the API on a server and prints PASS/FAIL lines. The final assembled dev.20 probe reported **39 PASS, 0 FAIL**
+in the private `dev20-final-set` lab. This includes localisation, hooks, event posting/observation, and flame-level
+changes with restoration. The event check posts the registered `DebugEnemyProjectileEvent` stream and observes
+its payload on the next step. The earlier WP15 result (37 PASS, 2 FAIL) used an absent `TestEvent1` stream and
+predated the integrated event-layout/cache fixes; it is superseded by the assembled-source run.
 Flame progress tests separately reported 61 PASS and 59 PASS after restart; they checked the stored and replicated
 level and restoration. They do not prove client fog or placement limits. Copy both folders to `<lab>/shrouded_engine_tweaks/mods/`.

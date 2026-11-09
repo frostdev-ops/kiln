@@ -15,8 +15,10 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 
 1. Read the page for what you're using: https://frostdev.io/kiln/wiki. [references/docs-map.md](references/docs-map.md) says
    which one.
-2. The mod API is 0.2 (Kiln.Sdk 0.2.0). Check the installed Kiln build too: references marked **dev.20+** describe
-   staged additions absent from 0.2.0-dev.19. They do not mean dev.20 is released or its client checks passed.
+2. The current build is **0.2.0-dev.20**, with mod API 0.2 and the matching dev.20 MDK pack. References marked **dev.20+** require
+   that runtime and MDK or newer; dev.19 lacks those additions. Check the installed build. Server/offline verification
+   does not establish the pending client rendering, input or multiplayer checks. The official dev.20 launcher has
+   Nexus integration disabled: import downloaded archives manually; no Catalog, account sign-in or `nxm://` handler.
 3. Decide the side and what players need, before writing code:
    - `side`: `server` (default), `client`, or `both`;
    - `clients`: `none` (vanilla players can join), `kiln` (players need Kiln; the server sends definitions), or `mod`

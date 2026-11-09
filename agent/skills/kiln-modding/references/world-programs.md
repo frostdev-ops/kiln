@@ -2,7 +2,8 @@
 
 Use this only when ordinary tick events and service APIs cannot express the work. `EcsPrograms` is in `Kiln.Api`, backed
 by `kiln.world` v2. `Available` checks boot declaration/binding support; `SupportsOtherWrites` checks tracked writes to
-another entity. This is staged for dev.20, not a claim about released dev.19 or real-client replication.
+another entity. These APIs require 0.2.0-dev.20 or newer. Dedicated-server and reload checks do not establish
+real-client replication; client-world ECS programs remain unsupported.
 
 Ship strict JSON at the mod root, `kiln.programs.json`; Kiln.Sdk copies it for build, deploy and pack:
 

@@ -17,8 +17,8 @@ and a missing or broken copy falls back to the bundled one. Kiln's own `kiln-shr
 
 The original source inventory used upstream `823823a` (1.7.9, recorded 2026-11-05). Historical lab evidence below
 used SF 1.7.8 and the current server profile. The dev.20 bundled fork is pinned at
-`03b4950e620836cb0fbd771968e9410c4fa2b558`, including the archive-reader/publication fixes. Its clean component
-records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as `1.7.9 kiln.03b4950`,
+`1ef3896068b9106a96743e55850b599d8cd08aad`, including the archive-reader/publication and recovery-path fixes. Its clean component
+records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as `1.7.9 kiln.1ef3896`,
 and includes the component's notices and licenses. The dev.20 mixed-server evidence is separate from the older
 observations below; neither is a client rendering or player-interaction test.
 
@@ -99,7 +99,9 @@ The Kiln layer lives in `kiln/` (MIT): `build.sh` (SF's web UI, `shroudforge-run
 `sync-upstream.sh`, `UPSTREAM-VERSION` and `UPSTREAM-PATCHES.md`. The app-icon build script
 is skipped under `SHROUDFORGE_NO_APP_ICON`, because winres cannot run `rc.exe` on Linux. The fork also fixes startup
 archive publication on Windows: release the component's own readers/writers before commit or abort, and keep the
-previous target intact when a rename fails. `kiln/README.md` documents merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
+previous target intact when a rename fails. Recovery validates staging, rollback and journal paths before deleting or replacing files;
+linked paths and malformed or duplicate journal entries are refused. Focused recovery tests pass on the host (7) and under Wine (5).
+`kiln/README.md` documents merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
 In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tools/package/stage.sh` builds it into the
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
@@ -109,7 +111,7 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the default. **Installed**: `<game>/shroudforge/`,
 used when `kiln.json` has `"shroudforge": {"useInstalled": true}` (the launcher Settings toggle "Use my installed
 ShroudForge"; env `KILN_SHROUDFORGE_RUNTIME=installed|bundled` overrides). It logs which one runs
-(`ShroudForge runtime: bundled 1.7.9 kiln.03b4950 from ...` for the current pin). When both are present it says how to switch. A chosen
+(`ShroudForge runtime: bundled 1.7.9 kiln.1ef3896 from ...` for the current pin). When both are present it says how to switch. A chosen
 runtime that is missing, unsafe, fails to load, has an unsupported version or lacks compatible exports falls back to
 the other one with a warning. Supported unversioned bootstrap contracts are SF 1.7.8 and 1.7.9; the native DLL must
 provide all five required exports and ABI 12. Missing `version.json` is incompatible. The runtime directory and its
@@ -289,10 +291,12 @@ Beastmaster 1.13. The first committed 89 resources and changed the item count fr
 used the cached result with identical patched KFC/resource hashes. Lua and Beastmaster each loaded once, and the
 API 27 network probe passed 11 checks on each boot. These are dedicated-server observations, with no joined player.
 
-A clean official component was then built from the pinned fork with matching `version.json`, `SOURCE.txt`, notices
-and licenses. The clean-component build and the two mixed boots are separate evidence; the final combined package
-still needs its integration checks. Portrait archive/PNG checks are offline proof only. SF's client windows,
-custom portraits, taming, stable interactions and multiplayer behaviour remain unchecked.
+The current clean component was rebuilt from `1ef3896` with matching `version.json`, `SOURCE.txt`, all three submodule
+revisions and six licenses. Recovery hardening passed seven host and five Windows checks. The mixed boots above predate
+that final recovery guard; they are separate evidence from the clean rebuild and recovery checks, not a fresh test of
+every mod pairing. Final native/GPL source review is complete. Windows DLL portrait archive/cache checks cover read-only
+C: and mounted Z: inputs and refusal of symbolic/junction redirects without external mutation. SF's client windows,
+custom portraits in game, taming, stable interactions and multiplayer behaviour remain unchecked.
 
 ## 9a. Evidence, bundled runtime (lab `wv-sf-2`, UDP 27061, server build 26430253, no ShroudForge installed)
 
