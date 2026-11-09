@@ -3,6 +3,15 @@
   "description": "Which schema validates which file a mod writes, and the JSON dialect the real Kiln reader accepts for it. fileMatch: VS Code / minimatch globs over the workspace-relative path ('!' excludes). dialect.comments: // and /* */ comments; dialect.trailingCommas: a comma before } or ]. kind: the rule set kiln lint (crates/kiln-manage/src/lint) runs on the file. container: the JSON is embedded in a binary file. Readers: kiln lint, tools/vscode.",
   "schemas": [
     {
+      "schema": "kiln-programs.schema.json",
+      "name": "Kiln boot-time ECS programs",
+      "kind": "programs",
+      "fileMatch": ["**/kiln.programs.json"],
+      "dialect": {"comments": false, "trailingCommas": false, "bom": true},
+      "reader": "native/services/world/boot_programs.h (strict JSON, duplicate keys refused, 64 KiB limit)",
+      "docs": "docs/kiln/modding/ecs-programs.md"
+    },
+    {
       "schema": "kiln.mod.schema.json",
       "name": "Kiln mod manifest",
       "kind": "manifest",

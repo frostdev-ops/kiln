@@ -120,8 +120,39 @@ register if they move). Struct: `native/services/world/world_internal.h` (`Engin
   (one more Pre subscriber; the own program returns at once without work).
 
 ## Open questions
-- Order of several events-in queue pointers in the iterator (only a single events-in slot is resolved).
-- The other-write path (`WriteOther` `0x64e7c0`) and its tracker argument inside a program: not exposed in v1.
 - A missing singleton: does the engine skip the program on 1285601 exactly as on 1269579 (entry flag 0x20)? The check
   is in place; no case was seen.
 - Players: not testable without a client (see the client checklist in docs/kiln/services/world.md).
+
+
+## Programs v2 (dev.20)
+
+`EngineDesc.other_write` already reaches the real engine registration at descriptor offset `0xF0`; v2 keeps that
+scheduler declaration and uses the tracked `items/WriteOther`, `items/JobTracker`, and `items/JobWriteFlag` symbols
+already captured by `items.json` (see [items evidence](items.md), section 12). The helper checks the accessor belongs
+to this callback's declared other-write list. It passes the real job's storage, tracker, and write flag.
+
+The event-name resolver sets event-type bits. `IterBegin` copies the resolved queue vector into its input slots.
+Input slots therefore follow event type-index order, including when the descriptor names them in reverse order.
+Queue records pack at their reflected size, including 4-byte events. EMF and the managed program reader now use
+that size without requiring an 8-byte multiple.
+
+Managed server mods load on the first Pre, after scheduler finalization. `kiln.programs.json` therefore reserves real
+access declarations at native `on_ready`; `EcsPrograms.Bind` only installs a callback into the reserved entry. An
+unbind drains callbacks and leaves the entry inert, so hot reload never rebuilds an active scheduler plan.
+
+The `dev20-wp14` dedicated lab used the stopped `world` lab's populated save and a reviewed runtime dependency
+baseline (`56f9e14`), overlaid with current world/types/EMF DLLs and managed API. Observed results:
+
+- EMF: `emf-probe done: 124 PASS, 0 FAIL`; tracked Health write `118 wanted 118`; spawn-time scale `1.750000`
+  present on the first read; Start/StopGuardingEvent and packed TestEvent1 each emitted/read three times.
+- Managed: `world-programs-test: done, 11 PASS, 0 FAIL`; both input types read three events; Health `118` read back;
+  immediate spawn component; unregister/rebind of the reserved descriptor; hook removal stops callbacks.
+- Both C# and EMF hooks: `100/100 = profiled 100` for before/after callbacks and the independent runner profiler.
+- Existing probes: world `24 passed, 0 failed`; hooks `17 passed, 0 failed`; spawn phases `43`, `9`, and `5` PASS,
+  each with `0 FAIL`. Eight reloads with a live program and system hook reported `0 leaked context(s)`.
+
+Update hooks retain at most 64 distinct native trampolines for process lifetime. Only the callback lease retires.
+The portable production helper is tested with one world's original update blocked during retire/rebind, including
+freeing the old user record under ASan. The old invocation cannot call the new owner's after callback. This tests the
+concurrent-world lifetime policy without claiming an actual joined-client/multiple-world run.

@@ -2,6 +2,7 @@
   <!-- Unit tests of the mod-facing API backbone: event bus, config, typed commands, permissions, console folder. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
     <NoWarn>$(NoWarn);CS1591</NoWarn>

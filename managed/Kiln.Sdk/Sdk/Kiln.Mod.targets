@@ -71,6 +71,7 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(KilnIncludeModFolders)' != 'false'">
     <None Update="$(_KilnModFolderGlobs)" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="kiln.programs.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <UsingTask TaskName="Kiln.Sdk.KilnManifest" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" Condition="'$(KilnRepoMode)' != 'true'" />
@@ -171,7 +172,7 @@
     <Error Condition="'$(KilnServer)' != '' and !Exists('$(KilnServer)/kiln')" Code="KILN011"
            Text="$(KilnServer) has no kiln folder: deploy Kiln to that server first (tools/deploy-server.sh)" />
     <ItemGroup>
-      <_KilnStale Include="$(_KilnDeployDir)/*.dll;$(_KilnDeployDir)/*.pdb;$(_KilnDeployDir)/kiln.mod.json" />
+      <_KilnStale Include="$(_KilnDeployDir)/*.dll;$(_KilnDeployDir)/*.pdb;$(_KilnDeployDir)/kiln.mod.json;$(_KilnDeployDir)/kiln.programs.json" />
     </ItemGroup>
     <Delete Files="@(_KilnStale)" />
     <Copy SourceFiles="@(_KilnModFile)" DestinationFiles="@(_KilnModFile->'$(_KilnDeployDir)/%(RecursiveDir)%(Filename)%(Extension)')" />

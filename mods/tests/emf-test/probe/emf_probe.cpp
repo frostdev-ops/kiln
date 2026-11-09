@@ -146,8 +146,28 @@ void cmd_cb(EmfWorld* w, int argc, const char* const* argv, void*) {
 // entity with itself, so nobody acts on it), read back by the same program in the next step
 constexpr uint32_t kMarker = 0x7FFFFF01u;
 std::atomic<uint32_t> g_emitted{0}, g_echoed{0};
-std::atomic<uint32_t> g_emit_size{0};
+std::atomic<uint32_t> g_emit_size{0}, g_emitted_second{0}, g_echoed_second{0}, g_emitted_tiny{0}, g_echoed_tiny{0};
+std::atomic<uint64_t> g_hook_before{0}, g_hook_after{0};
+std::atomic<uint32_t> g_write_target{0};
+std::atomic<int32_t> g_write_want{0};
+std::atomic<bool> g_write_done{false}, g_write_same_accessor{false};
+void hook_before(void* ctx, void*) { if (ctx) ++g_hook_before; }
+void hook_after(void* ctx, void*) { if (ctx) ++g_hook_after; }
 void echo_fn(void* ctx, void*) {
+    A->read_events(ctx,"TestEvent1",4,[](const void* data,void*) { uint32_t value=0;std::memcpy(&value,data,4);if (value==kMarker) ++g_echoed_tiny; },nullptr);
+    if (g_emitted_tiny.load()<3) {
+        void* event=A->emit_event(ctx,"TestEvent1",4);
+        if (event) {std::memcpy(event,&kMarker,4);++g_emitted_tiny;}
+    }
+    A->read_events(ctx, "StartGuardingEvent", 0, [](const void* e, void*) {
+        uint32_t who = 0;
+        std::memcpy(&who, static_cast<const uint8_t*>(e) + 8, 4);
+        if (who == kMarker) ++g_echoed_second;
+    }, nullptr);
+    if (g_emitted_second.load() < 3) {
+        auto* event = static_cast<uint8_t*>(A->emit_event(ctx,"StartGuardingEvent",0));
+        if (event) { std::memcpy(event+8,&kMarker,4); ++g_emitted_second; }
+    }
     A->read_events(ctx, "StopGuardingEvent", 0, [](const void* e, void*) {
         uint32_t who = 0;
         std::memcpy(&who, static_cast<const uint8_t*>(e) + 8, 4);
@@ -167,6 +187,21 @@ void echo_fn(void* ctx, void*) {
 
 void prog_fn(void* ctx, void*) {
     g_prog_updates.fetch_add(1, std::memory_order_relaxed);
+    const auto target = g_write_target.load();
+    if (target && !g_write_done.load()) {
+        auto* data = static_cast<uint8_t*>(A->program_write_other(ctx,"Health",target,40));
+        auto* read = static_cast<uint8_t*>(A->program_read_other(ctx,"Health",target,40));
+        if (data && data==read && (data[6]&1)) {
+            uint16_t offset = 0; std::memcpy(&offset,data+4,2);
+            if (offset+4 <= 40) {
+                int32_t health = 0; std::memcpy(&health,data+offset,4);
+                if (health > 2) {
+                    --health; std::memcpy(data+offset,&health,4);
+                    g_write_want = health; g_write_same_accessor = true; g_write_done = true;
+                }
+            }
+        }
+    }
     if (!g_prog_daytime.load()) g_prog_daytime = A->program_singleton(ctx, "g38_daytime::Daytime");
 }
 
@@ -462,6 +497,12 @@ void on_tick(EmfWorld* w, void*) {
         check(g_emitted.load() == 3 && g_echoed.load() >= 3 && g_emit_size.load() == 1,
               "emit_event + read_events: 3 StopGuardingEvents sent (time-stamped) and read back the next step",
               std::to_string(g_emitted.load()) + " sent, " + std::to_string(g_echoed.load()) + " read");
+        check(g_emitted_second.load()==3 && g_echoed_second.load()>=3,
+              "read_events multi events_in: StartGuardingEvent and StopGuardingEvent both round trip",
+              std::to_string(g_emitted_second.load())+" sent, "+std::to_string(g_echoed_second.load())+" read");
+        check(g_emitted_tiny.load()==3 && g_echoed_tiny.load()>=3,
+              "read_events multi input includes packed 4-byte TestEvent1",
+              std::to_string(g_emitted_tiny.load())+" sent, "+std::to_string(g_echoed_tiny.load())+" read");
         sync_checks(w);
         // async work (v22-v26 below, after the villager search)
         if (F.villager) {
@@ -479,6 +520,15 @@ void on_tick(EmfWorld* w, void*) {
             else skip("put / take", "no container in this world");
             F.vukah = A->spawn(w, kVukah, F.vpos.x + 6, F.vpos.y + 0.5, F.vpos.z);
             check(F.vukah > 1023, "spawn Enemy_Vukah_Melee 6 m from the villager", std::to_string(F.vukah));
+            g_write_target = F.vukah;
+            float spawn_scale = 1.75f;
+            EmfComponentInit init{comp("ScaleComponent"),sizeof(spawn_scale),&spawn_scale};
+            const uint32_t extra = A->spawn_ex(w,kVukah,F.vpos.x+18,F.vpos.y+0.5,F.vpos.z,&init,1);
+            uint64_t extra_size = 0;
+            const void* bytes = extra ? A->get_component(w,comp("ScaleComponent"),extra,&extra_size) : nullptr;
+            float observed = 0; if (bytes && extra_size==4) std::memcpy(&observed,bytes,4);
+            check(extra>1023 && observed==spawn_scale,"spawn_ex extra component visible on first read",std::to_string(observed));
+            if (extra) A->destroy(w,extra);
         } else {
             skip("teleport / put / take / spawn", "no villager in this world");
         }
@@ -535,6 +585,11 @@ void on_tick(EmfWorld* w, void*) {
         F.stamina_phase = 2;
     }
     if (F.vukah && !F.killed && F.stamina_phase == 2 && age >= 3) {
+        int32_t written = 0;
+        const bool written_ok = A->attribute_get(w,F.vukah,EMF_ATTR_HEALTH,&written);
+        check(g_write_done.load() && g_write_same_accessor.load() && written_ok && written==g_write_want.load(),
+              "program_write_other Health tracked write read back (same component also declared other_read)",
+              std::to_string(written)+" wanted "+std::to_string(g_write_want.load()));
         int32_t hp = 0, max = 0;
         const bool h = A->attribute_get(w, F.vukah, EMF_ATTR_HEALTH, &hp) && A->attribute_get(w, F.vukah, EMF_ATTR_MAX_HEALTH, &max);
         check(h && hp > 0 && max >= hp, "attribute_get health / max health of the Vukah", std::to_string(hp) + " / " + std::to_string(max));
@@ -625,12 +680,19 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     check(api->mod_info(kMod, &mi) && mi.status == EMF_MOD_PENDING && std::strcmp(mi.source, "emf_probe\\") == 0,
           "mod_info(emf_probe) from emf_mod_load: PENDING, source emf_probe\\");
     uint32_t listed = 0;
-    for (;; ++listed) {
+    bool listed_self = false, roundtrip = true;
+    std::vector<std::string> listed_ids;
+    for (; listed < 1024; ++listed) {
         mi = {};
         mi.size = sizeof mi;
         if (!api->mod_info_at(listed, &mi)) break;
+        listed_self |= std::strcmp(mi.id,kMod)==0;
+        EmfModInfo named{}; named.size=sizeof named;
+        roundtrip &= api->mod_info(mi.id,&named) && named.status==mi.status && std::strcmp(named.source,mi.source)==0;
+        for (const auto& id : listed_ids) if (id==mi.id) roundtrip=false;
+        listed_ids.emplace_back(mi.id);
     }
-    check(listed >= 2, "mod_info_at lists every mod", std::to_string(listed));
+    check(listed>0 && listed<1024 && listed_self && roundtrip, "mod_info_at enumerates unique mods with matching named lookups", std::to_string(listed));
     // signatures and patterns
     const char* names[] = {"SimStep", "GetComponent", "SpawnWrapper", "AttrFind", "AttrAdd", "QueuePush", "NpcWorker", "WriteOther",
                            "ServerWorldSetup", "RequestServerSave", "ChatLogAdd", "InventoryCommit"};
@@ -679,6 +741,8 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     check(api->setting_declare(kMod, &sd) && api->setting_int(kMod, "declared", -1) == 5, "setting_declare at run time");
     api->on_setting_changed(kMod, &setting_cb, nullptr);
     check(api->on_world_setting_changed(&ws_cb, nullptr), "on_world_setting_changed");
+    check(api->hook_program("combat_experience_source",&hook_before,&hook_after,nullptr),"hook_program true before/after context");
+    check(!api->hook_program("combat_experience_source",&hook_before,nullptr,nullptr),"hook_program duplicate function refused");
     // events, programs, commands, saves
     check(api->on_event(EMF_WORLD_SERVER, "EntityDiedEvent", 16, &died_cb, nullptr), "on_event(EntityDiedEvent)");
     check(api->on_event(EMF_WORLD_SERVER, "HitEvent", 0, &hit_cb, nullptr), "on_event(HitEvent, no size check)");
@@ -690,8 +754,10 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     pd.world_kind = EMF_WORLD_SERVER;
     pd.fn = &prog_fn;
     pd.singletons = singletons;
+    static const char* health[] = {"Health",nullptr};
+    pd.other_read = health; pd.other_write = health;
     check(api->register_program_def(&pd), "register_program_def with a singleton");
-    static const char* echo_ev[] = {"StopGuardingEvent", nullptr};
+    static const char* echo_ev[] = {"StopGuardingEvent", "StartGuardingEvent", "TestEvent1", nullptr};
     EmfProgramDef ed{};
     ed.size = sizeof ed;
     ed.name = "emf_probe_echo";
@@ -699,7 +765,7 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     ed.fn = &echo_fn;
     ed.events_in = echo_ev;
     ed.events_out = echo_ev;
-    check(api->register_program_def(&ed), "register_program_def with one event in and out");
+    check(api->register_program_def(&ed), "register_program_def with three event types including reverse name order");
     check(api->register_command("probe.cmd", "<a> <b>: the probe's own command", &cmd_cb, nullptr), "register_command probe.cmd");
     check(!api->register_command("probe.cmd", "again", reinterpret_cast<EmfCommandCallback>(&prog_fn), nullptr),
           "a second probe.cmd with another callback is refused");
@@ -720,3 +786,8 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     A->log(kMod, "emf-probe loaded: %d PASS, %d FAIL so far; the rest runs once the world has loaded", g_pass, g_fail);
     return true;
 }
+
+// Lab-only counters read by world-programs-test while no jobs run, alongside kiln.types profiler totals.
+extern "C" __declspec(dllexport) void wp14_hook_reset() { g_hook_before=0; g_hook_after=0; }
+extern "C" __declspec(dllexport) uint64_t wp14_hook_before() { return g_hook_before.load(); }
+extern "C" __declspec(dllexport) uint64_t wp14_hook_after() { return g_hook_after.load(); }
