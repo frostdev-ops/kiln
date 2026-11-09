@@ -62,7 +62,7 @@ export default function CatalogPage() {
   const p = list.data;
   const pages = p ? Math.max(1, Math.ceil(p.total / p.pageSize)) : 1;
   const say = list.isLoading ? "Asking Nexus Mods." : list.error ? errorText(list.error)
-    : p?.needsKey ? "Finding Kiln mods needs your Nexus Mods API key."
+    : p?.needsSignIn ? "Sign in to Nexus Mods to find Kiln mods."
     : p ? `${p.total} ${filter === "kiln" ? "Kiln mod" : filter === "installed" ? "installed mod" : "Enshrouded mod"}${p.total === 1 ? "" : "s"} on Nexus Mods.${unchecked ? ` Looking at ${unchecked} more.` : ""}` : "";
 
   return (
@@ -72,12 +72,12 @@ export default function CatalogPage() {
         <Button variant="ghost" icon={<ExternalLink />} onClick={() => void api.appOpenUrl("https://www.nexusmods.com/games/enshrouded/mods").catch((e) => toast.error(e))}>Nexus Mods</Button>
       </>} />
 
-      {acc && !acc.keySet && (
-        <Banner tone="info" title="Add your Nexus Mods API key" actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>
-          Kiln needs it to find Kiln mods and to download.
+      {acc && !acc.signedIn && (
+        <Banner tone="info" title="Sign in to Nexus Mods" actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>
+          Connect your account to find Kiln mods and download them.
         </Banner>
       )}
-      {acc?.error && <Banner tone="warn" title={acc.error.code === "auth_failed" ? "Nexus Mods refused the key" : "Nexus Mods could not check the key"} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>{acc.error.message}</Banner>}
+      {acc?.error && <Banner tone="warn" title={acc.error.code === "auth_failed" ? "Sign in to Nexus Mods again" : "Nexus Mods could not check your account"} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>{acc.error.message}</Banner>}
       {updates.length > 0 && (
         <Banner tone="warn" title={updates.length === 1 ? `Update ready: ${updates[0].name}` : `${updates.length} updates ready`}
           actions={<Button size="s" onClick={() => { setFilter("installed"); setPage(1); }}>Show</Button>}>
@@ -97,7 +97,7 @@ export default function CatalogPage() {
       </div>
 
       {list.isLoading ? <Skeleton lines={6} /> : list.error ? <EmptyState title="Nexus Mods did not answer" hint={errorText(list.error)} action={<Button onClick={() => list.refetch()}>Try again</Button>} />
-        : p?.needsKey ? <EmptyState title="Kiln mods need your API key" hint="Every Enshrouded mod is under All Enshrouded." action={<Button onClick={() => setFilter("all")}>Show all</Button>} />
+        : p?.needsSignIn ? <EmptyState title="Sign in to find Kiln mods" hint="Every Enshrouded mod is under All Enshrouded." action={<Button onClick={() => setFilter("all")}>Show all</Button>} />
         : !p?.mods.length ? <EmptyState title={text ? "No mod matches that." : filter === "installed" ? "Nothing installed from Nexus Mods yet." : unchecked ? "Looking for Kiln mods…" : "No mods here yet."} />
         : (
           <div className="k-cat-grid" role="list" aria-label="Mods">
@@ -166,7 +166,7 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <Modal open onClose={onClose} width={780} locked={busy} title={m?.name ?? "Mod"} footer={<>
       <Button variant="ghost" icon={<ExternalLink />} onClick={() => void api.appOpenUrl(m?.url ?? `https://www.nexusmods.com/enshrouded/mods/${id}`).catch((e) => toast.error(e))}>Open on Nexus Mods</Button>
-      {!isKiln && m && <Button variant="primary" loading={busy} disabled={!acc?.keySet || (!m.bestFile && !!acc?.premium)} onClick={go}>{label}</Button>}
+      {!isKiln && m && <Button variant="primary" loading={busy} disabled={!acc?.signedIn || (!m.bestFile && !!acc?.premium)} onClick={go}>{label}</Button>}
     </>}>
       {d.isLoading ? <Skeleton lines={8} /> : d.error ? <EmptyState title="Not available" hint={errorText(d.error)} /> : m && (
         <div className="k-cat-detail">
@@ -196,7 +196,7 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
             m.updated && ["Updated", fmtAgo(m.updated)],
           ]} />
           {m.summary && <p className="k-cat-lead">{m.summary}</p>}
-          {m.needsKey ? <Banner tone="info" title="Files and requirements need your API key">Add it in Settings.</Banner> : (
+          {m.needsSignIn ? <Banner tone="info" title="Files and requirements need your authorization">Add it in Settings.</Banner> : (
             <>
               {m.requirements.filter((r) => !r.kiln).length > 0 && (
                 <section>
@@ -224,7 +224,7 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
               {!loadable && m.files.length > 0 && <Banner tone="warn" title="Kiln may not load this">No kiln.mod.json, native.json or DLL in its files.</Banner>}
             </>
           )}
-          {!acc?.premium && acc?.keySet && !isKiln && <p className="k-hint">Free accounts download on the Nexus Mods site. Its Mod Manager Download brings the mod back here (Settings, Nexus Mods).</p>}
+          {!acc?.premium && acc?.signedIn && !isKiln && <p className="k-hint">Free accounts download on the Nexus Mods site. Its Mod Manager Download brings the mod back here (Settings, Nexus Mods).</p>}
           {m.description && <div className="k-cat-desc">{m.description}</div>}
         </div>
       )}

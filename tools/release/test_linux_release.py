@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -154,7 +155,18 @@ class LinuxReleaseTests(unittest.TestCase):
     def test_selftest_report_requires_the_matching_compiled_marker(self):
         report = self.dir / "selftest.json"
         for marker, ok in [(release.BUILD_MARKERS["nexus"].decode(), True), (None, False), (release.BUILD_MARKERS["direct"].decode(), False)]:
-            report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [], "buildMarker": marker}))
+            report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [], "buildMarker": marker,
+                "releaseBuild": True, "nexusOAuth": {"configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}}))
+            r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
+            self.assertEqual(r.returncode == 0, ok, r.stderr)
+
+    def test_official_selftest_report_refuses_missing_or_unconfigured_oauth(self):
+        report = self.dir / "selftest.json"
+        registered = {"configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}
+        for oauth, release_build, ok in [(None, True, False), ({"configured": False}, True, False),
+                ({"configured": True}, True, False), (registered, False, False), (registered, True, True)]:
+            report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [],
+                "buildMarker": release.BUILD_MARKERS["nexus"].decode(), "releaseBuild": release_build, "nexusOAuth": oauth}))
             r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
             self.assertEqual(r.returncode == 0, ok, r.stderr)
 
@@ -342,6 +354,28 @@ if sys.argv[1] == "run":
     def script(self, name, *args, env=None):
         return subprocess.run(["bash", str(HERE / "linux-build" / name), *map(str, args)], env=env,
                               cwd=self.dir, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def test_release_linux_wrapper_forwards_public_oauth_registration(self):
+        # Exercise release.sh's actual Linux wrapper through run.sh and a fake Docker client.
+        # No release, signing environment, image build or provider request is involved.
+        env = self.mock_docker()
+        env.update(KILN_NEXUS_OAUTH_CLIENT_ID="unit-test-registration",
+                   KILN_NEXUS_OAUTH_REDIRECT_URI="http://127.0.0.1:8089/callback",
+                   KILN_LINUX_IMAGE="sha256:" + "a" * 64)
+        wrapper = re.search(r"^  linux\(\) \{\n.*?^  \}", (HERE / "release.sh").read_text(), re.M | re.S)
+        self.assertIsNotNone(wrapper)
+        source, work = self.dir / "source", self.dir / "work"
+        source.mkdir(); work.mkdir()
+        harness = self.dir / "wrapper.sh"
+        harness.write_text('set -euo pipefail\nhere=$1\nsrc=$2\nwork=$3\nlin_target=$4\nlin_rustflags=fixture\n'
+                           + wrapper.group() + '\nlinux true\n')
+        r = subprocess.run(["bash", str(harness), str(HERE), str(source), str(work), str(self.dir / "target")],
+                           cwd=source, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run = next(json.loads(line) for line in self.calls.read_text().splitlines() if json.loads(line)[0] == "run")
+        forwarded = [run[i + 1] for i, arg in enumerate(run[:-1]) if arg == "-e"]
+        self.assertIn("KILN_NEXUS_OAUTH_CLIENT_ID", forwarded)
+        self.assertIn("KILN_NEXUS_OAUTH_REDIRECT_URI", forwarded)
 
     def test_secret_mount_rejected_before_docker(self):
         env = self.mock_docker()
