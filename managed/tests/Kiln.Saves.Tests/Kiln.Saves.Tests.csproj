@@ -3,14 +3,14 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
-    <EntityTableSource Condition="'$(EntityTableSource)' == ''">../../services/Kiln.Saves/Entities.cs</EntityTableSource>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit.v3" Version="3.1.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
-    <!-- Exercise the production identity/matching code with a deterministic world; no game or service mocks at ABI level. -->
-    <Compile Include="$(EntityTableSource)" Link="Entities.cs" />
+    <!-- Exercise the real metadata, identity, stage, manifest and restart code; only the native world is a stand-in. -->
+    <ProjectReference Include="../../services/Kiln.Saves/Kiln.Saves.csproj" />
   </ItemGroup>
 </Project>

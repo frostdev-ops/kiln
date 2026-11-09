@@ -15,7 +15,8 @@ namespace Kiln;
 /// <remarks>Entities without a known, saved world template carrying CurrentTransform keep attachments for the session
 /// only. In particular, inventory item entities have no world position and cannot use this positional identity.
 /// A destroyed entity loses its attachments within a second. Attachments not matched within 10 minutes of a
-/// load are kept for 3 sessions, then dropped.</remarks>
+/// load are kept for 3 sessions, then dropped. Already-saved attachments survive temporarily unknown metadata
+/// within that retention window, but cannot match until their template's persistence flags are known.</remarks>
 internal sealed class EntityTable
 {
     private const double StaticRadius = 0.5, MobileRadius = 16;
@@ -142,20 +143,29 @@ internal sealed class EntityTable
 
     private static bool CanPersist(Guid? template) => template is { } g && SpawnLink.Template(g).canPersist;
 
+    private static bool CanRetainSaved(Guid? template)
+    {
+        if (template is not { } g) return false;
+        var metadata = SpawnLink.Template(g);
+        // An unresolved saved record already has an identity; unavailable metadata cannot disprove it.
+        // Keep it under the usual session TTL, without granting unknown live entities a positional identity.
+        return !metadata.known || metadata.canPersist;
+    }
+
     public void Drop(uint entity) => _live.Remove(entity);
 
     // ---- periodic (tick thread, ~1 s) ----
     public void Tick()
     {
         if (_live.Count == 0 && _unresolved.Count == 0) return;
-        if (!SpawnLink.Available) return;
+        var available = SpawnLink.Available;
         var now = DateTime.UtcNow;
-        if (now >= _nextCheck && _live.Count > 0)
+        if (available && now >= _nextCheck && _live.Count > 0)
         {
             _nextCheck = now + TimeSpan.FromSeconds(1);
             CheckDestroyed();
         }
-        if (_unresolved.Count > 0 && now < _matchUntil && now >= _nextMatch && SpawnLink.WorldRunning)
+        if (available && _unresolved.Count > 0 && now < _matchUntil && now >= _nextMatch && SpawnLink.WorldRunning)
         {
             _nextMatch = now + TimeSpan.FromSeconds(5);
             MatchLoaded();
@@ -254,7 +264,7 @@ internal sealed class EntityTable
     {
         if (SpawnLink.Available) CheckDestroyed();
         var perMod = new SortedDictionary<string, List<(Rec r, SortedDictionary<string, WorldStore.Slot> keys)>>(StringComparer.Ordinal);
-        foreach (var r in _live.Values.Where(r => !r.Transient).Concat(_unresolved.Where(r => CanPersist(r.Template))))
+        foreach (var r in _live.Values.Where(r => !r.Transient).Concat(_unresolved.Where(r => CanRetainSaved(r.Template))))
             foreach (var (mod, keys) in r.ByMod)
                 if (keys.Count > 0)
                 {
