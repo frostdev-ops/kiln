@@ -1,0 +1,35 @@
+{
+  "expect": {
+    "chain": [
+      {
+        "path": "chain\\emf-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "chain\\chain-loader-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      }
+    ],
+    "profile": [
+      {
+        "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\native\\fps-unlock\\2.0.0+00000000\\fpsunlock.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ],
+    "late": [
+      {
+        "path": "chain\\chain-loader-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\native\\fps-unlock\\2.0.0+00000000\\fpsunlock.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ]
+  }
+}

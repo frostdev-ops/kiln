@@ -194,7 +194,9 @@ pub fn run() {
             commands::engines::engine_settings_set,
             commands::engines::engine_status,
             commands::engines::eml_backup,
-            commands::engines::eml_restore
+            commands::engines::eml_restore,
+            commands::compat::chain_view,
+            commands::compat::chain_set_late
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")

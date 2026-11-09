@@ -1,0 +1,1000 @@
+//! Closed-source DLL mods next to Kiln (dev.21, launcher side): compat rules, the last session's hook map
+//! (`<game>/kiln/state/hooks.json`) and its overlaps, and what a profile's activation writes into chain.ini
+//! ([profile], [late], rule switches). Formats: docs/kiln/engines/README.md "Closed DLLs"; schemas
+//! `schema/compat-rules.schema.json` and `schema/hooks-state.schema.json` (kiln-core writes hooks.json and evaluates
+//! the same rules at boot; the launcher applies `late` and `disable` on chain entries when it writes chain.ini).
+//!
+//! - [`parse_rules`] / [`load_rules`]: `<game>/kiln/compat-rules.json` (shipped with Kiln) then
+//!   `<configDir>/compat-rules.json` (the player's; a rule with the id of a shipped one replaces it).
+//! - [`evaluate`]: which rules fire for a set of [`Facts`] and which chain entries they move or switch off.
+//! - [`read_hooks`] / [`overlaps`]: the last session's hooks.json and its overlaps (derived from the targets when the
+//!   core wrote none).
+//! - [`plan`]: the chain.ini lines of a profile; [`view`]: the same plus overlaps mapped to chain entries and Library
+//!   items, for the launcher's profile page.
+
+use crate::chain::{self, ProfilePlan};
+use crate::game::GameInstall;
+use crate::manifest::{ModKind, NativePhase};
+use crate::paths::DataDirs;
+use crate::profile::Profile;
+use crate::{Error, ErrorCode, Result};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+/// `<game>/kiln/state/hooks.json` (kiln.hooks' map of the last session).
+pub const HOOKS_JSON: &str = "kiln/state/hooks.json";
+/// The rules Kiln ships, in the game: `<game>/kiln/compat-rules.json`.
+pub const SHIPPED_RULES: &str = "kiln/compat-rules.json";
+/// The player's rules: `<configDir>/compat-rules.json`.
+pub const RULES_FILE: &str = "compat-rules.json";
+/// Larger rule files are refused (a player's file, read on every activation).
+pub const MAX_RULES_BYTES: u64 = 1 << 20;
+pub const MAX_RULES: usize = 512;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// compat rules
+
+/// One condition. Exactly one key: `{"module": "xhl-*.dll"}` (a DLL file name, case ignored, `*` and `?` globs),
+/// `{"engine": "shroudforge"}` (an engine word of engines.rs), `{"mod": "emf:foo"}` (`<engine>:<mod id>`; Kiln's
+/// native mods are `kiln:<id>` or `native:<id>`), `{"symbol": "ChatLogAdd"}` (an overlap on that sigdb symbol in the
+/// last session).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", deny_unknown_fields)]
+pub enum Matcher {
+    Module(String),
+    Engine(String),
+    Mod(String),
+    Symbol(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleAction {
+    /// Log and show the message.
+    Warn,
+    /// Load the subject's chain entries after Kiln and ShroudForge (chain.ini [late]).
+    Late,
+    /// Switch the subject off: its chain entries (launcher) or the engine mod (kiln-core skips it).
+    Disable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Rule {
+    pub id: String,
+    /// Every matcher must hold this start (none: always).
+    #[serde(default)]
+    pub when: Vec<Matcher>,
+    pub action: RuleAction,
+    /// What `late` / `disable` act on (`warn` may leave it out).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<Matcher>,
+    #[serde(default)]
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleSource {
+    /// `<game>/kiln/compat-rules.json`
+    Kiln,
+    /// `<configDir>/compat-rules.json`
+    User,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourcedRule {
+    #[serde(flatten)]
+    pub rule: Rule,
+    pub source: RuleSource,
+}
+
+/// The rules of a file, and why the others were left out. A file that is not JSON, or not format 1, gives no rules
+/// and one error; a bad rule is left out with its error; the others still count.
+pub fn parse_rules(bytes: &[u8], source: RuleSource) -> (Vec<SourcedRule>, Vec<String>) {
+    let mut errors = Vec::new();
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let v: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
+        Err(e) => return (Vec::new(), vec![format!("not JSON: {e}")]),
+    };
+    if v.get("format").and_then(|f| f.as_u64()) != Some(1) {
+        return (Vec::new(), vec!["\"format\" must be 1".into()]);
+    }
+    let Some(list) = v.get("rules").and_then(|r| r.as_array()) else {
+        return (Vec::new(), if v.get("rules").is_some() { vec!["\"rules\" must be a list".into()] } else { Vec::new() });
+    };
+    let mut out: Vec<SourcedRule> = Vec::new();
+    for (i, r) in list.iter().enumerate() {
+        if out.len() >= MAX_RULES {
+            errors.push(format!("more than {MAX_RULES} rules: the rest are ignored"));
+            break;
+        }
+        let rule: Rule = match serde_json::from_value(r.clone()) {
+            Ok(rule) => rule,
+            Err(e) => {
+                let id = r.get("id").and_then(|x| x.as_str()).map(|s| format!(" ({s})")).unwrap_or_default();
+                errors.push(format!("rule {}{id}: {e}", i + 1));
+                continue;
+            }
+        };
+        if let Err(e) = check_rule(&rule) {
+            errors.push(format!("rule {} ({}): {e}", i + 1, rule.id));
+            continue;
+        }
+        if out.iter().any(|o| o.rule.id == rule.id) {
+            errors.push(format!("rule {} ({}): the id is used twice; the first one counts", i + 1, rule.id));
+            continue;
+        }
+        out.push(SourcedRule { rule, source });
+    }
+    (out, errors)
+}
+
+fn check_rule(r: &Rule) -> std::result::Result<(), String> {
+    if r.id.is_empty() || r.id.len() > 128 || !r.id.chars().all(|c| c.is_ascii_alphanumeric() || "._-:".contains(c)) {
+        return Err("\"id\" must be 1-128 characters: letters, digits, . _ - :".into());
+    }
+    if r.message.len() > 2000 {
+        return Err("\"message\" is longer than 2000 characters".into());
+    }
+    if r.action != RuleAction::Warn && r.subject.is_none() {
+        return Err(format!("action {:?} needs a \"subject\"", r.action).to_lowercase());
+    }
+    for m in r.when.iter().chain(&r.subject) {
+        let text = match m {
+            Matcher::Module(s) | Matcher::Engine(s) | Matcher::Mod(s) | Matcher::Symbol(s) => s,
+        };
+        if text.is_empty() || text.len() > 260 {
+            return Err("a matcher's text must be 1-260 characters".into());
+        }
+        if let Matcher::Mod(s) = m
+            && !s.contains(':')
+        {
+            return Err(format!("mod matcher {s:?} must be <engine>:<mod id>"));
+        }
+    }
+    Ok(())
+}
+
+/// Shipped rules then the player's (a player rule with a shipped rule's id replaces it). Missing files count as
+/// empty; unreadable or broken ones give errors ("<file>: <why>"), never a failure.
+pub fn load_rules(files: &[(PathBuf, RuleSource)]) -> (Vec<SourcedRule>, Vec<String>) {
+    let mut rules: Vec<SourcedRule> = Vec::new();
+    let mut errors = Vec::new();
+    for (path, source) in files {
+        let bytes = match std::fs::metadata(path) {
+            Ok(m) if m.len() > MAX_RULES_BYTES => {
+                errors.push(format!("{}: larger than {} bytes", path.display(), MAX_RULES_BYTES));
+                continue;
+            }
+            Ok(_) => match std::fs::read(path) {
+                Ok(b) => b,
+                Err(e) => {
+                    errors.push(format!("{}: {e}", path.display()));
+                    continue;
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                errors.push(format!("{}: {e}", path.display()));
+                continue;
+            }
+        };
+        let (rs, es) = parse_rules(&bytes, *source);
+        errors.extend(es.into_iter().map(|e| format!("{}: {e}", path.display())));
+        for r in rs {
+            match rules.iter_mut().find(|o| o.rule.id == r.rule.id) {
+                Some(o) => *o = r,
+                None => rules.push(r),
+            }
+        }
+    }
+    (rules, errors)
+}
+
+/// What is present this start, for the `when` matchers. Module names and engine words in lower case.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Facts {
+    /// DLL file names: chain entries, DLLs under a proxy name next to the game, foreign modules of the last session.
+    pub modules: Vec<String>,
+    /// Engine words (engines.rs `word`; "kiln" always).
+    pub engines: Vec<String>,
+    /// `<engine>:<mod id>` of the profile's enabled mods.
+    pub mods: Vec<String>,
+    /// Symbols with an overlap in the last session.
+    pub symbols: Vec<String>,
+}
+
+impl Facts {
+    fn add_module(&mut self, name: &str) {
+        let n = file_name(name).to_lowercase();
+        if !n.is_empty() && !self.modules.contains(&n) {
+            self.modules.push(n);
+        }
+    }
+    fn add_engine(&mut self, word: &str) {
+        let w = word.to_lowercase();
+        if !self.engines.contains(&w) {
+            self.engines.push(w);
+        }
+    }
+
+    pub fn holds(&self, m: &Matcher) -> bool {
+        match m {
+            Matcher::Module(g) => self.modules.iter().any(|n| glob(g, n)),
+            Matcher::Engine(w) => self.engines.iter().any(|e| e.eq_ignore_ascii_case(w)),
+            Matcher::Mod(s) => {
+                let want = canon_mod(s);
+                self.mods.iter().any(|m| canon_mod(m) == want)
+            }
+            Matcher::Symbol(s) => self.symbols.iter().any(|x| x == s),
+        }
+    }
+}
+
+/// `native:x` and `kiln:x` name the same mod; the engine word ignores case, the id does not.
+fn canon_mod(s: &str) -> String {
+    let (e, id) = s.split_once(':').unwrap_or(("", s));
+    let e = e.to_ascii_lowercase();
+    let e = if e == "native" || e == "plugin" { "kiln".to_string() } else { e };
+    format!("{e}:{id}")
+}
+
+/// The file name of a game-side or host path ('\' or '/').
+pub fn file_name(p: &str) -> &str {
+    p.rsplit(['\\', '/']).next().unwrap_or(p)
+}
+
+/// `*` (any run) and `?` (one character) glob, ASCII case ignored.
+pub fn glob(pattern: &str, name: &str) -> bool {
+    let p: Vec<char> = pattern.to_lowercase().chars().collect();
+    let n: Vec<char> = name.to_lowercase().chars().collect();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let (mut star, mut mark) = (None::<usize>, 0usize);
+    while ni < n.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == n[ni]) {
+            pi += 1;
+            ni += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            mark = ni;
+            pi += 1;
+        } else if let Some(s) = star {
+            pi = s + 1;
+            mark += 1;
+            ni = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Section {
+    /// chain.ini [chain]: proxies the installer moved aside (game-wide).
+    Chain,
+    /// chain.ini [profile]: the profile's native mods with phase dllmain.
+    Profile,
+}
+
+/// One DLL the proxy would load from chain.ini.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEntry {
+    /// As in chain.ini ('\', relative to `<game>/kiln/` unless absolute).
+    pub path: String,
+    pub file: String,
+    pub section: Section,
+    /// [chain]: the engine word its markers name (None: unknown).
+    pub engine: Option<String>,
+    /// [profile]: the native mod's id.
+    pub mod_id: Option<String>,
+}
+
+impl PlanEntry {
+    fn matches(&self, m: &Matcher) -> bool {
+        match m {
+            Matcher::Module(g) => glob(g, &self.file),
+            Matcher::Engine(w) => self.engine.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(w)),
+            Matcher::Mod(s) => self.mod_id.as_ref().is_some_and(|id| canon_mod(s) == canon_mod(&format!("kiln:{id}"))),
+            Matcher::Symbol(_) => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleResult {
+    pub id: String,
+    pub source: RuleSource,
+    pub action: RuleAction,
+    pub message: String,
+    /// Every `when` matcher held.
+    pub fired: bool,
+    /// The launcher applies it: it fired and its subject names chain entries (`late` / `disable`), or it is a `warn`
+    /// that fired.
+    pub applied: bool,
+    /// The chain entries it moves or switches off.
+    pub targets: Vec<String>,
+    /// Why a fired rule is not applied by the launcher (e.g. kiln-core skips an engine mod itself).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Every rule against the facts and the chain entries, in file order.
+pub fn evaluate(rules: &[SourcedRule], facts: &Facts, entries: &[PlanEntry]) -> Vec<RuleResult> {
+    rules
+        .iter()
+        .map(|sr| {
+            let r = &sr.rule;
+            let fired = r.when.iter().all(|m| facts.holds(m));
+            let mut res = RuleResult {
+                id: r.id.clone(),
+                source: sr.source,
+                action: r.action,
+                message: r.message.clone(),
+                fired,
+                applied: false,
+                targets: Vec::new(),
+                note: None,
+            };
+            if !fired {
+                return res;
+            }
+            match (r.action, &r.subject) {
+                (RuleAction::Warn, _) => res.applied = true,
+                (_, Some(subject)) => {
+                    res.targets = entries.iter().filter(|e| e.matches(subject)).map(|e| e.path.clone()).collect();
+                    res.applied = !res.targets.is_empty();
+                    if res.targets.is_empty() {
+                        res.note = Some(match subject {
+                            Matcher::Mod(s) if r.action == RuleAction::Disable && canon_mod(s).split(':').next() != Some("kiln") => {
+                                "Kiln skips this mod when the game starts".into()
+                            }
+                            Matcher::Symbol(_) => "a symbol names no DLL to move".into(),
+                            _ => "no chain entry matches the subject".into(),
+                        });
+                    }
+                }
+                (_, None) => res.note = Some("no subject".into()),
+            }
+            res
+        })
+        .collect()
+}
+
+/// The chain.ini lines for a profile's [profile] entries (`profile_late`: their paths that the profile loads late),
+/// with the rule results applied: `disable` drops [profile] entries and switches [chain] lines off, `late` adds
+/// [late] lines (`disable` wins over `late`).
+pub fn apply(entries: &[PlanEntry], profile_late: &[String], results: &[RuleResult]) -> ProfilePlan {
+    let fired = |a: RuleAction| results.iter().filter(move |r| r.applied && r.action == a);
+    let off = |p: &str| fired(RuleAction::Disable).find(|r| r.targets.iter().any(|t| t.eq_ignore_ascii_case(p)));
+    let mut plan = ProfilePlan::default();
+    for e in entries {
+        let disabled = off(&e.path);
+        match (e.section, disabled) {
+            (Section::Profile, None) => {
+                plan.profile.push(e.path.clone());
+                if profile_late.iter().any(|p| p.eq_ignore_ascii_case(&e.path)) {
+                    plan.profile_late.push(e.path.clone());
+                }
+            }
+            (Section::Profile, Some(_)) => {}
+            (Section::Chain, Some(r)) => plan.rule_off.push((r.id.clone(), e.path.clone())),
+            (Section::Chain, None) => {}
+        }
+        if disabled.is_none()
+            && let Some(r) = fired(RuleAction::Late).find(|r| r.targets.iter().any(|t| t.eq_ignore_ascii_case(&e.path)))
+            && !plan.profile_late.iter().any(|p| p.eq_ignore_ascii_case(&e.path))
+        {
+            plan.rule_late.push((r.id.clone(), e.path.clone()));
+        }
+    }
+    plan
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// hooks.json (kiln.hooks' map, WP-E) and overlaps (WP-G1)
+
+/// A jump destination in another module.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignDest {
+    #[serde(default)]
+    pub module: String,
+    /// Hex text ("0x1a2b").
+    #[serde(default)]
+    pub offset: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// A `kiln-*.dll` (not foreign for overlaps).
+    #[serde(default)]
+    pub own: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_place: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookLink {
+    #[serde(default)]
+    pub owner: String,
+    /// raw | structured | v1 | mid
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub priority: i64,
+    #[serde(default)]
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookTarget {
+    #[serde(default)]
+    pub rva: String,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub links: Vec<HookLink>,
+    #[serde(default)]
+    pub foreign_before: Option<ForeignDest>,
+    #[serde(default)]
+    pub foreign_over: Option<ForeignDest>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignSymbol {
+    #[serde(default)]
+    pub symbol: String,
+    #[serde(default)]
+    pub rva: String,
+    #[serde(flatten)]
+    pub dest: ForeignDest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlapKind {
+    /// Another module's jump was there before a Kiln-hosted link.
+    ForeignBefore,
+    /// Another module hooked over Kiln's detour.
+    ForeignOver,
+    /// A hosted engine refused or failed a hook there.
+    Refused,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Overlap {
+    #[serde(default)]
+    pub symbol: String,
+    #[serde(default)]
+    pub rva: String,
+    pub kind: OverlapKind,
+    #[serde(default)]
+    pub foreign: Option<ForeignDest>,
+    /// Kiln-hosted owners on that target ("shroudforge", "emf:foo", "kiln-chat.dll", ...).
+    #[serde(default)]
+    pub owners: Vec<String>,
+}
+
+/// A rule's result as kiln-core reported it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreRule {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub applied: bool,
+    #[serde(default)]
+    pub message: String,
+}
+
+/// `<game>/kiln/state/hooks.json`. Unknown fields are ignored; missing ones default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HooksState {
+    #[serde(default)]
+    pub format: u32,
+    #[serde(default)]
+    pub kiln: Option<String>,
+    /// boot | world | change | query
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub world_checked: bool,
+    #[serde(default)]
+    pub generated: Option<String>,
+    #[serde(default)]
+    pub targets: Vec<HookTarget>,
+    #[serde(default)]
+    pub foreign: Vec<ForeignSymbol>,
+    /// WP-G1; None from a core that writes none (then [`overlaps`] derives them from the targets).
+    #[serde(default)]
+    pub overlaps: Option<Vec<Overlap>>,
+    #[serde(default)]
+    pub rules: Vec<CoreRule>,
+}
+
+pub fn parse_hooks(bytes: &[u8]) -> Result<HooksState> {
+    let s: HooksState = serde_json::from_slice(bytes).map_err(|e| Error::new(ErrorCode::Parse, format!("hooks.json: {e}")))?;
+    if s.format != 1 {
+        return Err(Error::new(ErrorCode::Unsupported, format!("hooks.json format {} (this launcher reads 1)", s.format)));
+    }
+    Ok(s)
+}
+
+/// The last session's hooks.json; None when the game never wrote one.
+pub fn read_hooks(game_dir: &Path) -> Result<Option<HooksState>> {
+    let p = game_dir.join(HOOKS_JSON);
+    match std::fs::read(&p) {
+        Ok(b) => parse_hooks(&b).map(Some),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(crate::util::io_at(&p, "reading")(e)),
+    }
+}
+
+/// The overlaps of a session: the core's list, or (from a core that writes none) the targets with a foreign jump
+/// before or over Kiln's links. Kiln's own modules never count.
+pub fn overlaps(s: &HooksState) -> Vec<Overlap> {
+    if let Some(o) = &s.overlaps {
+        return o.iter().filter(|o| !o.foreign.as_ref().is_some_and(|f| f.own)).cloned().collect();
+    }
+    let mut out = Vec::new();
+    for t in &s.targets {
+        let owners: Vec<String> = t.links.iter().fold(Vec::new(), |mut v, l| {
+            if !v.contains(&l.owner) {
+                v.push(l.owner.clone());
+            }
+            v
+        });
+        for (kind, d) in [(OverlapKind::ForeignBefore, &t.foreign_before), (OverlapKind::ForeignOver, &t.foreign_over)] {
+            if let Some(d) = d.as_ref().filter(|d| !d.own) {
+                out.push(Overlap {
+                    symbol: t.symbol.clone().unwrap_or_else(|| t.label.clone()),
+                    rva: t.rva.clone(),
+                    kind,
+                    foreign: Some(d.clone()),
+                    owners: owners.clone(),
+                });
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// a profile's chain plan
+
+/// Host path of a chain.ini entry (relative ones resolve against `<game>/kiln/`).
+fn entry_host_path(install: &GameInstall, path: &str) -> Option<PathBuf> {
+    let (p, relative) = chain::game_path(path);
+    if relative {
+        let mut h = install.path.join(crate::paths::game::KILN);
+        for part in p.split('\\').filter(|s| !s.is_empty()) {
+            h.push(part);
+        }
+        Some(h)
+    } else {
+        crate::winpath::to_host(&p, install).ok()
+    }
+}
+
+fn engine_word_of(path: &Path) -> Option<String> {
+    let class = crate::pe::classify_proxy(path).ok()?;
+    crate::engines::Engine::of_proxy(class.kind).map(|e| crate::engines::info(e).word.to_string())
+}
+
+/// The engine word of a mod kind (Kiln's own kinds are "kiln").
+pub fn kind_engine(k: ModKind) -> &'static str {
+    if ModKind::CORE.contains(&k) && k != ModKind::Emf { "kiln" } else { k.as_str() }
+}
+
+/// Everything [`plan`] worked from, and what it writes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    /// [chain] entries (switched-off ones too) then the profile's [profile] entries.
+    pub entries: Vec<PlanEntry>,
+    pub facts: Facts,
+    pub rules: Vec<RuleResult>,
+    /// Rule files that did not read ("<file>: <why>").
+    pub rule_errors: Vec<String>,
+    #[serde(skip)]
+    pub chain: ProfilePlan,
+}
+
+/// The chain.ini plan of a profile in an install. `profile_dlls`: (native mod id, game-side DLL path) of its enabled
+/// dllmain natives (profile.rs computes them from the rendered profile). Reads chain.ini, the proxies next to the
+/// game, the last hooks.json and both rule files; never fails on a broken one (rule_errors says so).
+pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_dlls: &[(String, String)]) -> Plan {
+    let text = chain::read_raw(&install.path).unwrap_or_default();
+    let ini = chain::parse(text.as_bytes());
+    let mut entries: Vec<PlanEntry> = Vec::new();
+    let chain_paths = ini.chain.iter().filter(|e| e.status == chain::EntryStatus::Ok).map(|e| e.path.clone())
+        .chain(chain::rule_off_entries(&text).into_iter().map(|(_, p)| p));
+    for p in chain_paths {
+        if entries.iter().any(|e| e.path.eq_ignore_ascii_case(&p)) {
+            continue;
+        }
+        let engine = entry_host_path(install, &p).and_then(|h| engine_word_of(&h));
+        entries.push(PlanEntry { file: file_name(&p).to_string(), path: p, section: Section::Chain, engine, mod_id: None });
+    }
+    for (id, p) in profile_dlls {
+        entries.push(PlanEntry { path: p.clone(), file: file_name(p).to_string(), section: Section::Profile, engine: None, mod_id: Some(id.clone()) });
+    }
+
+    let mut facts = Facts::default();
+    facts.add_engine("kiln");
+    for e in &entries {
+        facts.add_module(&e.file);
+        if let Some(w) = &e.engine {
+            facts.add_engine(w);
+        }
+    }
+    for slot in crate::engines::scan_proxies(&install.path) {
+        facts.add_module(&slot.name);
+        if let Some(e) = crate::engines::Engine::of_proxy(slot.class.kind) {
+            facts.add_engine(crate::engines::info(e).word);
+        }
+    }
+    for k in ModKind::ALL {
+        let on: Vec<&crate::profile::ProfileMod> = profile.mods.list(k).iter().filter(|m| m.enabled).collect();
+        if !on.is_empty() && k.is_engine() {
+            facts.add_engine(kind_engine(k));
+        }
+        for m in on {
+            let m = format!("{}:{}", kind_engine(k), m.id);
+            if !facts.mods.contains(&m) {
+                facts.mods.push(m);
+            }
+        }
+    }
+    if let Ok(Some(h)) = read_hooks(&install.path) {
+        for f in &h.foreign {
+            if !f.dest.own && !f.dest.module.is_empty() {
+                facts.add_module(&f.dest.module);
+            }
+        }
+        for o in overlaps(&h) {
+            if let Some(f) = &o.foreign {
+                facts.add_module(&f.module);
+            }
+            if !o.symbol.is_empty() && !facts.symbols.contains(&o.symbol) {
+                facts.symbols.push(o.symbol.clone());
+            }
+        }
+    }
+
+    let (rules, rule_errors) = load_rules(&[
+        (install.path.join(SHIPPED_RULES), RuleSource::Kiln),
+        (dirs.profile(&profile.id).join("config").join(RULES_FILE), RuleSource::User),
+    ]);
+    let results = evaluate(&rules, &facts, &entries);
+    let late_paths: Vec<String> = profile_dlls.iter().filter(|(id, _)| profile.late.contains(id)).map(|(_, p)| p.clone()).collect();
+    let chain = apply(&entries, &late_paths, &results);
+    Plan { entries, facts, rules: results, rule_errors, chain }
+}
+
+/// The profile's enabled native mods with phase dllmain: (mod id, game-side DLL path), from its rendered file.
+pub fn dllmain_entries(dirs: &DataDirs, profile: &Profile, file: &crate::profile::ProfileFile) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for (m, fm) in profile.mods.native.iter().zip(&file.mods.native) {
+        if !m.enabled {
+            continue;
+        }
+        let r = crate::library::LibraryRef { kind: ModKind::Native, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+        let folder = crate::library::path_of(dirs, &r)?;
+        let Ok(n) = crate::manifest::read_native(&folder) else { continue };
+        if n.phase != NativePhase::Dllmain {
+            continue;
+        }
+        for d in &n.dlls {
+            // chain.ini paths use '\'; relative ones resolve against <game>/kiln/
+            out.push((m.id.clone(), format!("{}\\{d}", fm.path.trim_end_matches(['\\', '/'])).replace('/', "\\")));
+        }
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// the launcher's view
+
+/// One chain entry on the profile page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainViewEntry {
+    #[serde(flatten)]
+    pub entry: PlanEntry,
+    /// Loads after Kiln and ShroudForge.
+    pub late: bool,
+    /// Who made it late: "player" ([chain], game-wide), "profile", or "rule:<id>".
+    pub late_by: Option<String>,
+    /// A rule switches it off ("rule:<id>").
+    pub off_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryHit {
+    pub kind: ModKind,
+    pub id: String,
+    pub name: String,
+}
+
+/// An overlap of the last session, mapped to what the launcher can change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlapView {
+    #[serde(flatten)]
+    pub overlap: Overlap,
+    /// The chain entry that loads the foreign module (None: Kiln did not load it, e.g. another loader did).
+    pub entry: Option<String>,
+    pub section: Option<Section>,
+    /// The Library item it came from, when known.
+    pub library: Option<LibraryHit>,
+    /// The entry loads late already (in the plan).
+    pub late: bool,
+    /// "late" (one click: load the entry late), or "none" (only a hint).
+    pub fix: String,
+    /// The suggestion in words.
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    pub generated: Option<String>,
+    pub phase: Option<String>,
+    pub kiln: Option<String>,
+    pub world_checked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainView {
+    pub entries: Vec<ChainViewEntry>,
+    pub rules: Vec<RuleResult>,
+    pub rule_errors: Vec<String>,
+    /// None: no hooks.json yet (the game has not started with this Kiln).
+    pub session: Option<SessionInfo>,
+    pub overlaps: Vec<OverlapView>,
+    /// The profile is the install's active one.
+    pub active: bool,
+    /// Active, and chain.ini already says what the plan says (false: the next activation or launch writes it).
+    pub current: bool,
+    /// Why the profile's entries are not listed (it does not render: a mod missing from the Library).
+    pub error: Option<String>,
+}
+
+fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::LibraryEntry]) -> OverlapView {
+    let module = o.foreign.as_ref().map(|f| f.module.clone()).unwrap_or_default();
+    let hit = (!module.is_empty()).then(|| entries.iter().find(|e| e.entry.file.eq_ignore_ascii_case(file_name(&module)))).flatten();
+    let library = match hit.and_then(|e| e.entry.mod_id.as_ref()) {
+        Some(id) => lib.iter().find(|l| l.kind == ModKind::Native && &l.id == id),
+        None if !module.is_empty() => lib.iter().find(|l| {
+            l.versions.iter().any(|v| {
+                v.manifest.as_ref().and_then(|m| m.get("dlls")).and_then(|d| d.as_array()).is_some_and(|ds| {
+                    ds.iter().filter_map(|d| d.as_str()).any(|d| file_name(d).eq_ignore_ascii_case(file_name(&module)))
+                })
+            })
+        }),
+        None => None,
+    }
+    .map(|l| LibraryHit { kind: l.kind, id: l.id.clone(), name: l.name.clone() });
+    let late = hit.is_some_and(|e| e.late);
+    let owners = if o.owners.is_empty() { "Kiln".to_string() } else { o.owners.join(", ") };
+    let name = if module.is_empty() { "another module".to_string() } else { module.clone() };
+    let (fix, hint) = match (o.kind, hit) {
+        (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && e.off_by.is_none() => {
+            ("late", format!("Load {} after Kiln and ShroudForge, so {owners} hook first and {name} chains after them.", e.entry.file))
+        }
+        (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(_)) => {
+            ("none", format!("{name} loads late already. Switch it or the other mod off, or add a compat rule."))
+        }
+        (OverlapKind::ForeignOver, Some(e)) if late => {
+            ("none", format!("{} loads late and hooked over {owners}. Try it without late, or switch one of them off.", e.entry.file))
+        }
+        (OverlapKind::ForeignOver, _) => {
+            ("none", format!("{name} hooked over {owners} after the start. Switch one of them off, or ask its author."))
+        }
+        (_, None) => ("none", format!("{name} is not in Kiln's chain (another loader loaded it). Add it to Kiln's chain to load it late, or use a compat rule.")),
+        (OverlapKind::Other, Some(_)) => ("none", format!("{name} and {owners} hook the same function.")),
+    };
+    OverlapView { overlap: o, entry: hit.map(|e| e.entry.path.clone()), section: hit.map(|e| e.entry.section), library, late, fix: fix.into(), hint }
+}
+
+/// The profile page's chain view: the plan for `profile` in `install`, which entries load late and why, the rules,
+/// and the last session's overlaps mapped to chain entries and Library items.
+pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<ChainView> {
+    let mode = crate::game::path_mode(install, dirs)?;
+    let (dlls, error) = match crate::profile::render(dirs, profile, install, mode)
+        .or_else(|e| if e.code == ErrorCode::Unsupported { crate::profile::render(dirs, profile, install, crate::game::PathMode::Copy) } else { Err(e) })
+        .and_then(|f| dllmain_entries(dirs, profile, &f))
+    {
+        Ok(d) => (d, None),
+        Err(e) => (Vec::new(), Some(e.message)),
+    };
+    let p = plan(dirs, profile, install, &dlls);
+    let text = chain::read_raw(&install.path)?;
+    let ini = chain::parse(text.as_bytes());
+    let active = crate::profile::read_game_profile(&install.path).ok().flatten().is_some_and(|f| f.id == profile.id);
+    let current = active && error.is_none() && chain::plan_is_current(&text, &p.chain);
+    let entries: Vec<ChainViewEntry> = p
+        .entries
+        .iter()
+        .map(|e| {
+            let eq = |x: &String| x.eq_ignore_ascii_case(&e.path);
+            let off_by = p.chain.rule_off.iter().find(|(_, d)| eq(d)).map(|(id, _)| format!("rule:{id}"));
+            let removed = e.section == Section::Profile && !p.chain.profile.iter().any(eq);
+            let off_by = off_by.or_else(|| {
+                removed.then(|| p.rules.iter().find(|r| r.applied && r.action == RuleAction::Disable && r.targets.iter().any(eq)))
+                    .flatten().map(|r| format!("rule:{}", r.id))
+            });
+            let late_by = if p.chain.profile_late.iter().any(eq) {
+                Some("profile".to_string())
+            } else if let Some((id, _)) = p.chain.rule_late.iter().find(|(_, d)| eq(d)) {
+                Some(format!("rule:{id}"))
+            } else if e.section == Section::Chain && chain::is_late(&ini, &e.path) {
+                Some("player".to_string())
+            } else {
+                None
+            };
+            ChainViewEntry { entry: e.clone(), late: late_by.is_some() && off_by.is_none(), late_by, off_by }
+        })
+        .collect();
+    let hooks = read_hooks(&install.path).ok().flatten();
+    let lib = crate::library::list(dirs, None).unwrap_or_default();
+    let overlaps = hooks.as_ref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
+    let session = hooks.map(|h| SessionInfo { generated: h.generated, phase: h.phase, kiln: h.kiln, world_checked: h.world_checked });
+    Ok(ChainView { entries, rules: p.rules, rule_errors: p.rule_errors, session, overlaps, active, current, error })
+}
+
+/// The late switch of one chain entry of the view: a [profile] entry changes the profile (`late` list; the caller
+/// saves it), a [chain] entry changes chain.ini [late] (game-wide). Returns true when the profile changed.
+pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &PlanEntry, late: bool) -> Result<bool> {
+    match (entry.section, &entry.mod_id) {
+        (Section::Profile, Some(id)) => {
+            let has = profile.late.contains(id);
+            if has == late {
+                return Ok(false);
+            }
+            if late {
+                profile.late.push(id.clone());
+            } else {
+                profile.late.retain(|x| x != id);
+            }
+            Ok(true)
+        }
+        (Section::Profile, None) => Err(Error::invalid("a [profile] entry without a mod id")),
+        (Section::Chain, _) => {
+            chain::set_late(&install.path, &entry.path, late)?;
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str, section: Section, engine: Option<&str>, mod_id: Option<&str>) -> PlanEntry {
+        PlanEntry { path: path.into(), file: file_name(path).into(), section, engine: engine.map(Into::into), mod_id: mod_id.map(Into::into) }
+    }
+
+    #[test]
+    fn globs() {
+        assert!(glob("xhl-*.dll", "XHL-Core.dll"));
+        assert!(glob("*", "a"));
+        assert!(glob("a?c.dll", "abc.dll"));
+        assert!(!glob("a?c.dll", "ac.dll"));
+        assert!(glob("*dinput8*", "chain-loader-dinput8.dll"));
+        assert!(!glob("xhl.dll", "xhl.dll.bak"));
+    }
+
+    #[test]
+    fn parses_rules_and_reports_bad_ones() {
+        let text = br#"{ "format": 1, "rules": [
+            { "id": "a", "when": [{"module": "xhl-*.dll"}, {"engine": "shroudforge"}], "action": "late", "subject": {"module": "xhl-*.dll"}, "message": "XHL after SF" },
+            { "id": "b", "action": "warn", "message": "always" },
+            { "id": "c", "action": "late" },
+            { "id": "d", "when": [{"module": "x", "engine": "y"}], "action": "warn" },
+            { "id": "e", "when": [{"mod": "nocolon"}], "action": "warn" },
+            { "id": "a", "action": "warn" },
+            { "id": "f", "action": "explode" }
+        ] }"#;
+        let (rules, errors) = parse_rules(text, RuleSource::Kiln);
+        assert_eq!(rules.iter().map(|r| r.rule.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(errors.len(), 5, "{errors:?}");
+        assert!(parse_rules(b"{\"format\":2}", RuleSource::User).1[0].contains("format"));
+        assert!(parse_rules(b"nope", RuleSource::User).1[0].contains("JSON"));
+        assert_eq!(parse_rules(b"{\"format\":1}", RuleSource::User), (Vec::new(), Vec::new()));
+    }
+
+    #[test]
+    fn evaluates_and_applies() {
+        let (rules, e) = parse_rules(br#"{ "format": 1, "rules": [
+            { "id": "xhl-late", "when": [{"module": "xhl-*.dll"}, {"engine": "shroudforge"}], "action": "late", "subject": {"module": "xhl-*.dll"} },
+            { "id": "chat", "when": [{"symbol": "ChatLogAdd"}], "action": "warn", "message": "two chat hooks" },
+            { "id": "old-off", "when": [{"engine": "chain-loader"}], "action": "disable", "subject": {"engine": "chain-loader"} },
+            { "id": "fps-off", "when": [{"mod": "native:fps"}], "action": "disable", "subject": {"mod": "kiln:fps"} },
+            { "id": "emf-off", "action": "disable", "subject": {"mod": "emf:foo"} },
+            { "id": "never", "when": [{"engine": "greeneye"}], "action": "warn" }
+        ] }"#, RuleSource::Kiln);
+        assert!(e.is_empty(), "{e:?}");
+        let entries = vec![
+            entry("chain\\xhl-core.dll", Section::Chain, None, None),
+            entry("chain\\chain-loader-dinput8.dll", Section::Chain, Some("chain-loader"), None),
+            entry("Z:\\lib\\fps\\fps.dll", Section::Profile, None, Some("fps")),
+            entry("Z:\\lib\\other\\o.dll", Section::Profile, None, Some("other")),
+        ];
+        let facts = Facts {
+            modules: vec!["xhl-core.dll".into(), "chain-loader-dinput8.dll".into()],
+            engines: vec!["kiln".into(), "shroudforge".into(), "chain-loader".into()],
+            mods: vec!["kiln:fps".into()],
+            symbols: vec!["ChatLogAdd".into()],
+        };
+        let res = evaluate(&rules, &facts, &entries);
+        let by = |id: &str| res.iter().find(|r| r.id == id).unwrap();
+        assert!(by("xhl-late").applied && by("xhl-late").targets == ["chain\\xhl-core.dll"]);
+        assert!(by("chat").fired && by("chat").applied);
+        assert_eq!(by("old-off").targets, ["chain\\chain-loader-dinput8.dll"]);
+        assert_eq!(by("fps-off").targets, ["Z:\\lib\\fps\\fps.dll"]);
+        assert!(by("emf-off").fired && !by("emf-off").applied);
+        assert_eq!(by("emf-off").note.as_deref(), Some("Kiln skips this mod when the game starts"));
+        assert!(!by("never").fired);
+        let plan = apply(&entries, &["Z:\\lib\\other\\o.dll".into()], &res);
+        assert_eq!(plan.profile, ["Z:\\lib\\other\\o.dll"]);
+        assert_eq!(plan.profile_late, ["Z:\\lib\\other\\o.dll"]);
+        assert_eq!(plan.rule_late, [("xhl-late".to_string(), "chain\\xhl-core.dll".to_string())]);
+        assert_eq!(plan.rule_off, [("old-off".to_string(), "chain\\chain-loader-dinput8.dll".to_string())]);
+    }
+
+    #[test]
+    fn shipped_rules_are_replaced_by_the_players() {
+        let d = std::env::temp_dir().join(format!("km-compat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("kiln.json"), r#"{"format":1,"rules":[{"id":"a","action":"warn","message":"kiln"},{"id":"b","action":"warn"}]}"#).unwrap();
+        std::fs::write(d.join("user.json"), r#"{"format":1,"rules":[{"id":"a","action":"warn","message":"mine"},{"id":"c","action":"warn"}]}"#).unwrap();
+        let (rules, errors) = load_rules(&[(d.join("kiln.json"), RuleSource::Kiln), (d.join("user.json"), RuleSource::User), (d.join("none.json"), RuleSource::User)]);
+        assert!(errors.is_empty());
+        assert_eq!(rules.iter().map(|r| (r.rule.id.as_str(), r.rule.message.as_str(), r.source)).collect::<Vec<_>>(),
+            [("a", "mine", RuleSource::User), ("b", "", RuleSource::Kiln), ("c", "", RuleSource::User)]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn derives_overlaps_from_targets() {
+        let s = parse_hooks(br#"{ "format": 1, "kiln": "0.2.0-dev.21", "phase": "world", "worldChecked": true,
+            "targets": [
+              { "rva": "0x1000", "symbol": "ChatLogAdd", "label": "chat/ChatLogAdd",
+                "links": [ {"owner": "kiln.chat", "kind": "raw", "priority": 0, "label": "chat/ChatLogAdd"}, {"owner": "kiln-emf", "kind": "raw", "priority": 0, "label": "x"} ],
+                "foreignBefore": {"module": "xhl-core.dll", "offset": "0x2a0", "own": false}, "foreignOver": null },
+              { "rva": "0x2000", "symbol": null, "label": "tick", "links": [], "foreignBefore": {"module": "kiln-emf.dll", "offset": "0x10", "own": true}, "foreignOver": null }
+            ],
+            "foreign": [ {"symbol": "Other", "rva": "0x3000", "module": "reshade.dll", "offset": "0x5", "own": false} ],
+            "unknownField": 1 }"#).unwrap();
+        let o = overlaps(&s);
+        assert_eq!(o.len(), 1);
+        assert_eq!((o[0].symbol.as_str(), o[0].kind, o[0].owners.clone()), ("ChatLogAdd", OverlapKind::ForeignBefore, vec!["kiln.chat".to_string(), "kiln-emf".to_string()]));
+        assert_eq!(s.foreign[0].dest.module, "reshade.dll");
+        assert!(parse_hooks(br#"{"format": 2}"#).is_err());
+    }
+}

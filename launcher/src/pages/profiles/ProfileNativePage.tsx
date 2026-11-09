@@ -7,6 +7,7 @@ import * as api from "../../api/commands";
 import type { NativePhase, ProfileMod } from "../../api/commands";
 import { qk, useLibrary } from "../../api/hooks";
 import { Banner, Button, FlameToggle, Menu, Modal, NameId, Panel, SortableList, Toggle } from "../../ui";
+import { ChainCard } from "./ChainCard";
 import { libName, ModList } from "./ModList";
 import { ProfileFacts } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
@@ -74,6 +75,7 @@ export default function ProfileNativePage() {
           );
         })}
       </section>
+      <ChainCard profile={profile} update={update} />
       <section className="k-card">
         <header className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Kiln plugins</h2><span className="k-card-sub">DLLs with kiln_plugin_main. They load after Kiln's services.</span></div></header>
         <ModList kind="plugin" mods={profile.mods.plugin} onToggle={(m, on) => toggle("plugin", m, on)} onRemove={(m) => remove("plugin", m)}

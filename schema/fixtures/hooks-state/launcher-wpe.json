@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.21",
+  "phase": "boot",
+  "worldChecked": false,
+  "generated": "2026-11-09T12:00:00Z",
+  "targets": [
+    {
+      "rva": "0x1a2b30",
+      "symbol": "ChatLogAdd",
+      "label": "chat/ChatLogAdd",
+      "links": [{ "owner": "kiln.chat", "kind": "raw", "priority": 0, "label": "chat/ChatLogAdd" }],
+      "foreignBefore": { "module": "xhl-core.dll", "offset": "0x2a0", "own": false, "inPlace": true },
+      "foreignOver": null
+    },
+    {
+      "rva": "0x50",
+      "symbol": null,
+      "label": "core/tick",
+      "links": [{ "owner": "kiln-core", "kind": "raw", "priority": 100, "label": "core/tick" }],
+      "foreignBefore": { "module": "kiln-emf.dll", "offset": "0x10", "own": true },
+      "foreignOver": null
+    }
+  ],
+  "foreign": []
+}

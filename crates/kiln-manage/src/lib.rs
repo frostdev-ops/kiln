@@ -21,6 +21,7 @@
 //! | [`bundle`] | runtime bundles (`kiln-runtime.json`) |
 //! | [`install`] | install / upgrade / uninstall / rollback, receipts (`.install.json`) |
 //! | [`chain`] | `kiln/chain.ini`, `kiln/chain/once.ini` |
+//! | [`compat`] | closed DLL mods: compat rules, the last session's hooks.json overlaps, chain.ini [late] plans |
 //! | [`manifest`] | `kiln.mod.json` (port of Manifest.cs), `native.json` |
 //! | [`semver`] | port of SemVer.cs |
 //! | [`resolver`] | port of Resolver.cs |
@@ -65,6 +66,7 @@ pub mod winpath;
 // install and profiles
 pub mod bundle;
 pub mod chain;
+pub mod compat;
 pub mod install;
 pub mod library;
 pub mod manifest;

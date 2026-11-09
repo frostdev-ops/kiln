@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.21",
+  "phase": "world",
+  "worldChecked": true,
+  "generated": "2026-11-09T12:00:00Z",
+  "targets": [
+    {
+      "rva": "0x1a2b30",
+      "symbol": "ChatLogAdd",
+      "label": "chat/ChatLogAdd",
+      "links": [
+        { "owner": "kiln.chat", "kind": "raw", "priority": 0, "label": "chat/ChatLogAdd" },
+        { "owner": "kiln-emf", "kind": "raw", "priority": 0, "label": "emf/ChatLogAdd" }
+      ],
+      "foreignBefore": { "module": "xhl-core.dll", "offset": "0x2a0", "address": "0x7ffb12340000", "own": false },
+      "foreignOver": null
+    },
+    {
+      "rva": "0x22c010",
+      "symbol": "WorldTick",
+      "label": "shroudforge/WorldTick",
+      "links": [{ "owner": "shroudforge", "kind": "mid", "priority": 0, "label": "shroudforge/WorldTick" }],
+      "foreignBefore": null,
+      "foreignOver": { "module": "foo-hook.dll", "offset": "0x10", "own": false }
+    }
+  ],
+  "foreign": [
+    { "symbol": "ChatLogAdd", "rva": "0x1a2b30", "module": "xhl-core.dll", "offset": "0x2a0", "own": false },
+    { "symbol": "RenderFrame", "rva": "0x400000", "module": "reshade64.dll", "offset": "0x99", "own": false }
+  ],
+  "overlaps": [
+    { "symbol": "ChatLogAdd", "rva": "0x1a2b30", "kind": "foreign-before", "foreign": { "module": "xhl-core.dll", "offset": "0x2a0" }, "owners": ["kiln.chat", "kiln-emf"] },
+    { "symbol": "WorldTick", "rva": "0x22c010", "kind": "foreign-over", "foreign": { "module": "foo-hook.dll", "offset": "0x10" }, "owners": ["shroudforge"] },
+    { "symbol": "SpawnNpc", "rva": "0x30aa00", "kind": "refused", "foreign": { "module": "fpsunlock.dll", "offset": "0x44" }, "owners": ["shroudforge"] }
+  ],
+  "rules": [
+    { "id": "chat-overlap", "action": "warn", "applied": true, "message": "Two mods hook the chat log." },
+    { "id": "xhl-after-sf", "action": "late", "applied": false, "message": "XHL-Core hooks functions ShroudForge needs; load it after ShroudForge." }
+  ]
+}
