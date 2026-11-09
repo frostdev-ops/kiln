@@ -38,6 +38,21 @@ public sealed record BoxCollider
     public Vector3? Center { get; init; }
 }
 
+/// <summary>A prop that <see cref="PropBlock.Provides"/> a crafting prop, by handle or name: a block of this mod, or <c>"other-mod:name"</c>.</summary>
+[JsonConverter(typeof(PropRefConverter))]
+public readonly record struct PropRef(string Value)
+{
+    public static implicit operator PropRef(string value) => new(value);
+    public static implicit operator PropRef(BlockHandle handle) => new(handle.ToString());
+    public override string ToString() => Value;
+}
+
+internal sealed class PropRefConverter : JsonConverter<PropRef>
+{
+    public override PropRef Read(ref System.Text.Json.Utf8JsonReader r, Type t, System.Text.Json.JsonSerializerOptions o) => new(r.GetString() ?? throw new System.Text.Json.JsonException("a prop's name"));
+    public override void Write(System.Text.Json.Utf8JsonWriter w, PropRef v, System.Text.Json.JsonSerializerOptions o) => w.WriteStringValue(v.Value);
+}
+
 /// <summary>What the game's comfort counts, for whoever rests within range. The tooltip's Comfort row follows.</summary>
 public sealed record ComfortBlock : IBlock
 {
@@ -63,8 +78,15 @@ public record PropBlock : IBlock, ITweakable
     public PartRef<PlacementBlock>? Placement { get; init; }
     public PartRef<ComfortBlock>? Comfort { get; init; }
     /// <summary>What a player bumps into and what hits stop at: one box. Null: with a cooked model of yours, the box around that model; with a game item's look, that item's
-    /// collision. Only a prop with a <see cref="VisualBlock.Model"/> of its own takes one: a game item's look, a station or furniture keeps the collision it starts from.</summary>
+    /// collision. Only a prop with a <see cref="VisualBlock.Model"/> of its own takes one: a game item's look, a station or furniture keeps the collision it starts from.
+    /// For more than one box see <see cref="Colliders"/>.</summary>
     public BoxCollider? Collider { get; init; }
+    /// <summary>Several boxes in place of one: a table's top and its legs, a doorway's two posts. They are all solid, and together one shape in the template. The same rules as <see cref="Collider"/>
+    /// (a model of yours, a floor or wall prop) and at most <see cref="BoxCollider"/> 16 of them. The box a player's cursor checks for room stays one: the box around them all.</summary>
+    public IReadOnlyList<BoxCollider>? Colliders { get; init; }
+    /// <summary>A recipe elsewhere can ask for it nearby: <c>NeedsProps = ["cold-forge"]</c> in a <see cref="RecipeBlock"/>. It takes one of the game's 13 free places for such props, in every
+    /// game that has the mod: each game gives it its place when the game starts, from the mods' files. A prop of code is there from the second start.</summary>
+    public bool Provides { get; init; }
     /// <summary>What happens when a player uses it: the prompt, what they play, a toggle, what it takes, effects. Furniture has its kind's; this changes what it says.</summary>
     public PartRef<InteractBlock>? OnInteract { get; init; }
     /// <summary>A VFX on it for as long as it stands, which is where the game's lamps have their light. A client check: nothing on a server draws it.</summary>

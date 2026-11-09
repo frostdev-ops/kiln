@@ -26,6 +26,13 @@ const TEMPLATES: &[&str] = &[
     include_str!("../../../templates/kiln-talents/.template.config/template.json"),
     include_str!("../../../templates/kiln-test/.template.config/template.json"),
     include_str!("../../../templates/kiln-service/.template.config/template.json"),
+    include_str!("../../../templates/kiln-item-blocks/.template.config/template.json"),
+    include_str!("../../../templates/kiln-world-blocks/.template.config/template.json"),
+    include_str!("../../../templates/kiln-npc/.template.config/template.json"),
+    include_str!("../../../templates/kiln-creature-blocks/.template.config/template.json"),
+    include_str!("../../../templates/kiln-cosmetic/.template.config/template.json"),
+    include_str!("../../../templates/kiln-building-material/.template.config/template.json"),
+    include_str!("../../../templates/kiln-ability-blocks/.template.config/template.json"),
 ];
 
 /// Options every template has that `kiln new` sets itself (or that are internal).
@@ -217,4 +224,27 @@ fn install_templates(feed: Option<&Path>, hive: &[String], json: bool) -> Result
         return Err(CliError::new("template_failed", "dotnet new install Kiln.Templates failed").into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every templates/kiln-*/ folder is in TEMPLATES, and every entry parses with a short name of its own.
+    #[test]
+    fn every_template_folder_is_listed() {
+        let listed: Vec<String> = templates().iter().map(|t| t.id.clone()).collect();
+        assert_eq!(listed.len(), TEMPLATES.len(), "a template.json did not parse");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
+        for e in std::fs::read_dir(&root).unwrap().flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("kiln-") && e.path().join(".template.config/template.json").exists() {
+                assert!(listed.contains(&name), "templates/{name} is not in new.rs TEMPLATES");
+            }
+        }
+        let mut uniq = listed.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), listed.len(), "two templates share a short name");
+    }
 }

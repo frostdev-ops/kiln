@@ -697,6 +697,130 @@ bool add_components(const Def& d, const TType* type, std::vector<uint8_t>* bytes
     return true;
 }
 
+// "growArrays": {"ColliderResourceComponent.colliders[0].dataArray": 3}: lists of the base's data that a clone needs longer, as a prop with three boxes needs a collider's list of
+// shapes three long. The list moves behind the clone's data with its elements, and each new element is a copy of the list's last: the clone's "fields" then set the values of every
+// element, by index. A copy of a plain struct shares what the original points to (strings, lists: read-only data); a copy of a variant gets an object of its own (its shape's values
+// are what the fields set). Every offset in the data is self-relative, so each moved or copied record has its offsets turned by how far it moved. A list that is long enough stays.
+// The path is the one the clone's fields use (a component's name first, then fields and [i]); it has to name one list the base has, with at least one element.
+void shift_blobs(const TType* decl, uint8_t* at, int64_t delta, int depth = 0) {
+    const TType* t = decl ? decl->resolved() : nullptr;
+    if (!t || depth > 10) return;
+    const auto shift = [&](uint8_t* field) {
+        int32_t rel = 0;
+        std::memcpy(&rel, field, 4);
+        if (!rel) return;
+        rel = static_cast<int32_t>(rel - delta);
+        std::memcpy(field, &rel, 4);
+    };
+    switch (t->kind) {
+        case K_BLOBARRAY: case K_BLOBSTRING: case K_BLOBOPT: shift(at); break;
+        case K_BLOBVAR: shift(at + 4); break;
+        case K_STRUCT:
+            for (const TField& f : t->fields) shift_blobs(f.type(), at + f.offset, delta, depth + 1);
+            break;
+        case K_ARRAY:
+            if (const TType* el = t->inner())
+                for (uint32_t i = 0; i < t->count && i < 1024; ++i) shift_blobs(el, at + size_t{i} * el->size, delta, depth + 1);
+            break;
+        default: break;
+    }
+}
+
+bool grow_one(const std::string& path, uint32_t want, const TType* type, std::vector<uint8_t>* bytes, std::string* err) {
+    const std::string label = "\"growArrays\": " + path;
+    std::vector<Resolved> rs;
+    std::string why;
+    if (!resolve(Root::Template, Node{type, reinterpret_cast<uintptr_t>(bytes->data())}, path, &rs, &why) || rs.size() != 1 || !rs[0].node.t) {
+        *err = label + ": " + (why.empty() ? "it is not one list of the base" : why);
+        return false;
+    }
+    const TType* list = rs[0].node.t;
+    const TType* el = list->kind == K_BLOBARRAY && list->inner() ? list->inner()->resolved() : nullptr;
+    if (!el || !el->size || el->size > 4096) {
+        *err = label + ": it is not a list of the base's data";
+        return false;
+    }
+    const size_t head = bytes->size() - kCloneRoom;
+    const uintptr_t where = rs[0].node.addr - reinterpret_cast<uintptr_t>(bytes->data());
+    if (rs[0].node.addr < reinterpret_cast<uintptr_t>(bytes->data()) || where + 8 > head) {
+        *err = label + ": the list is not in the base's data";
+        return false;
+    }
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, bytes->data() + where, 4);
+    std::memcpy(&count, bytes->data() + where + 4, 4);
+    if (count >= want) return true;
+    const int64_t old_at = static_cast<int64_t>(where) + rel;
+    if (!count || !rel || old_at < 0 || static_cast<uint64_t>(old_at) + size_t{count} * el->size > head) {
+        *err = label + ": the base's list is " + (count ? "not readable" : "empty: there is no element to copy");
+        return false;
+    }
+    // the objects the new variants own, after the list
+    struct Own { size_t at, size; const TType* type; int64_t from; };
+    std::vector<Own> owned;
+    const size_t list_at = (head + 15) & ~size_t(15);
+    size_t next = list_at + size_t{want} * el->size;
+    const uint8_t* last = bytes->data() + old_at + size_t{count - 1} * el->size;
+    if (el->kind == K_BLOBVAR) {
+        uint32_t hash = 0, size = 0;
+        int32_t vrel = 0;
+        std::memcpy(&hash, last, 4);
+        std::memcpy(&vrel, last + 4, 4);
+        std::memcpy(&size, last + 8, 4);
+        const TType* vt = type_hash(hash);
+        const int64_t from = static_cast<int64_t>(old_at) + int64_t{count - 1} * el->size + 4 + vrel;
+        if (!hash || !vt || !size || size > 4096 || from < 0 || static_cast<uint64_t>(from) + size > head) {
+            *err = label + ": the last element of the base's list is empty or of a type the game doesn't know";
+            return false;
+        }
+        for (uint32_t i = count; i < want; ++i) {
+            next = (next + 15) & ~size_t(15);
+            owned.push_back({next, size, vt, from});
+            next += size;
+        }
+    }
+    std::vector<uint8_t> out(next + kCloneRoom, 0);
+    std::memcpy(out.data(), bytes->data(), head);
+    for (uint32_t i = 0; i < want; ++i) {
+        uint8_t* e = out.data() + list_at + size_t{i} * el->size;
+        const uint8_t* src = bytes->data() + old_at + size_t(i < count ? i : count - 1) * el->size;
+        std::memcpy(e, src, el->size);
+        const int64_t delta = static_cast<int64_t>(list_at + size_t{i} * el->size) - (old_at + int64_t(i < count ? i : count - 1) * int64_t(el->size));
+        shift_blobs(el, e, delta);
+        if (i >= count && el->kind == K_BLOBVAR) {
+            // its own object: a copy of the last element's, with its offsets turned, and the variant pointing at it
+            const Own& o = owned[i - count];
+            std::memcpy(out.data() + o.at, bytes->data() + o.from, o.size);
+            shift_blobs(o.type, out.data() + o.at, static_cast<int64_t>(o.at) - o.from);
+            const int32_t vrel = static_cast<int32_t>(static_cast<int64_t>(o.at) - static_cast<int64_t>(list_at + size_t{i} * el->size + 4));
+            std::memcpy(e + 4, &vrel, 4);
+        }
+    }
+    const int32_t new_rel = static_cast<int32_t>(static_cast<int64_t>(list_at) - static_cast<int64_t>(where));
+    std::memcpy(out.data() + where, &new_rel, 4);
+    std::memcpy(out.data() + where + 4, &want, 4);
+    *bytes = std::move(out);
+    return true;
+}
+
+bool grow_arrays(const Def& d, const TType* type, std::vector<uint8_t>* bytes, std::string* err) {
+    if (!d.body.contains("growArrays")) return true;
+    const gjson& want = d.body["growArrays"];
+    if (!want.is_object()) {
+        *err = "\"growArrays\" must be {\"<path>\": count}";
+        return false;
+    }
+    for (auto it = want.begin(); it != want.end(); ++it) {
+        if (!it.value().is_number_integer() || it.value().get<int64_t>() < 1 || it.value().get<int64_t>() > 64) {
+            *err = "\"growArrays\": " + it.key() + ": a count of 1 to 64";
+            return false;
+        }
+        if (!grow_one(it.key(), static_cast<uint32_t>(it.value().get<int64_t>()), type, bytes, err)) return false;
+    }
+    return true;
+}
+
 // Registers one template definition in the active world (store_mutex held, on its thread).
 void register_template(Def& d, uintptr_t world) {
     GRegistry& T = greg(KILN_GD_TEMPLATES);
@@ -748,7 +872,8 @@ void register_template(Def& d, uintptr_t world) {
             bool built = false;
             {
                 PhaseTimer bt(PH_BUILD_BYTES);
-                built = build_bytes(d, *base, T.type, "name", &bytes, &err) && remove_components(d, T.type, &bytes, &err) && add_components(d, T.type, &bytes, &err);
+                built = build_bytes(d, *base, T.type, "name", &bytes, &err) && remove_components(d, T.type, &bytes, &err) && add_components(d, T.type, &bytes, &err) &&
+                        grow_arrays(d, T.type, &bytes, &err);
             }
             if (!built) {
                 d.state = "error", d.problem = err;

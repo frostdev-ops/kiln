@@ -147,6 +147,9 @@ internal static class DataClients
                 case "model" when parent == "body" && text.Length > 0:
                 case "clips" when parent == "animation" && text.Length > 0:
                     return Mod;
+                // a crafting prop has its place in a table every game merges from the mods' files at its start
+                case "provides" when parent == null && p.Value.ValueKind == JsonValueKind.True && section is "props" or "stations" or "containers" or "doors" or "beds" or "seats":
+                    return Mod;
                 case "attacks" when section is "creatures" or "behaviours" && p.Value.ValueKind == JsonValueKind.Array:
                     if (p.Value.EnumerateArray().Any(a => a.ValueKind == JsonValueKind.Object && !a.TryGetProperty("sequence", out _))) level = Max(level, Kiln);
                     break;

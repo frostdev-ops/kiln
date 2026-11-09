@@ -194,6 +194,8 @@ internal sealed class ModBlocks(string id, ulong owner)
         PlayerTriggers.Forget(Id);
         LootRuntime.Forget(Id);
         UiRuntime.Forget(Id);
+        ContainerRuntime.Forget(Id);
+        InteractRuntime.Forget(Id);
         VfxRaw.Clear();
         VfxLates.Clear();
         Carriers.Clear();

@@ -64,6 +64,46 @@ public sealed class FurnitureBlocksMod : Mod
             Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Wood_Logs] = 3 } },
         });
 
+        // A container that holds something when it is placed. Kiln rolls the table and fills it once: not again after a restart, nor when it is placed again on the same spot.
+        Blocks.Define("scrap-pile", new LootTableBlock
+        {
+            Entries = [new LootEntry { Item = GameItems.Material_T1_Metal_Scraps, CountMin = 3 }, new LootEntry { Item = GameItems.Material_T1_Twigs, CountMin = 2 }],
+        });
+        Blocks.Define("supply-cache", new ContainerBlock { Name = "Supply Cache", Description = "Packed before you came.", DefaultLoot = "scrap-pile" });
+
+        // A barrel has no lid to lift: the container still opens its screen, and nothing moves.
+        Blocks.Define("barrel", new ContainerBlock { Name = "Barrel", Lid = new LidBlock { Moves = false } });
+
+        // A door that swings one way and can be used from one side: the other side is a wall.
+        Blocks.Define("one-way-door", new DoorBlock { Name = "One Way Door", Opens = DoorSide.Front, Sides = DoorSide.Front });
+
+        // A table is its top and its legs: three boxes, one shape. (A model of yours has a box around it by itself; say them when one box is wrong.)
+        Blocks.Define("trestle", new PropBlock
+        {
+            Name = "Trestle Table",
+            Visual = new VisualBlock { Model = "item:" + GameItems.Prop_Decoration_Comfort1_T0_Table_Medium },
+            Colliders =
+            [
+                new BoxCollider { Size = new(2, 0.15f, 1), Center = new(0, 0.9f, 0) },
+                new BoxCollider { Size = new(0.15f, 0.85f, 0.8f), Center = new(-0.85f, 0.425f, 0) },
+                new BoxCollider { Size = new(0.15f, 0.85f, 0.8f), Center = new(0.85f, 0.425f, 0) },
+            ],
+        });
+
+        // A prop a recipe can ask for nearby. The game keeps 13 free places for such props, for every mod together.
+        var runeTable = Blocks.Define("rune-table", new PropBlock
+        {
+            Name = "Rune Table", Visual = new VisualBlock { Like = GameItems.Prop_Decoration_Comfort1_T0_Table_Medium },
+            Provides = true,
+            Recipe = new RecipeBlock { Needs = { [GameItems.Material_T1_Wood_Logs] = 4 } },
+        });
+        // ... and a workbench whose recipe asks for it: the player can craft only with a rune table near.
+        Blocks.Define("rune-bench", new StationBlock
+        {
+            Name = "Rune Workbench", Kind = StationKind.Workbench,
+            Recipes = [new RecipeBlock { Needs = { [GameItems.Material_T1_Twigs] = 2 }, Output = GameItems.Material_T1_Wood_Logs, NeedsProps = [runeTable] }],
+        });
+
         // A shape of your own for every building material: a 4 m wall with an arched window. Half a metre a cell; layers from the bottom up.
         string[] Row(string cells) => [cells];
         Blocks.Define("arched-window", new BlueprintBlock

@@ -99,6 +99,20 @@ internal static unsafe class BlocksBridge
         return Path.GetFullPath(Path.Combine(dir, "..", "..", "data", "blocks", mod + ".json"));
     }
 
+    /// <summary>The world's own data can be read (Kiln.Saves): on a dedicated server always, on a game client's hosted world once the game has loaded it.</summary>
+    public static bool WorldDataReady => Saves.Available && Saves.WorldDataReady && Saves.WorldId is not null;
+
+    /// <summary>Runs <paramref name="fn"/> (a <c>WorldData</c> call, on the tick thread) under a data context of Kiln's own, <paramref name="id"/>: a service has no mod whose keys these would be.
+    /// The context is made once, into <paramref name="context"/>.</summary>
+    public static T AsData<T>(ref ModContext? context, string id, Func<T> fn)
+    {
+        context ??= HostAccess.CreateContext(new ModInfo(id, id, "1", AppContext.BaseDirectory), 0, AppContext.BaseDirectory);
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = context;
+        try { return fn(); }
+        finally { ModContext.CurrentMod = previous; }
+    }
+
     /// <summary>What the content sync would send a Kiln client now.</summary>
     public static string? SyncExport() => ContentSync.ExportJson((1u << (int)ContentKind.Items) | (1u << (int)ContentKind.Recipes) | (1u << 16), out _);
 
