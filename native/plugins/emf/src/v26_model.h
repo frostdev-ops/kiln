@@ -39,6 +39,7 @@ constexpr uint32_t kApiV23Size = KEMF_FIELD_END(EmfApi, change_component);
 constexpr uint32_t kApiV24Size = KEMF_FIELD_END(EmfApi, window_close);
 constexpr uint32_t kApiV25Size = KEMF_FIELD_END(EmfApi, offer_remove);
 constexpr uint32_t kApiV26Size = KEMF_FIELD_END(EmfApi, offer_active);
+constexpr uint32_t kApiV27Size = KEMF_FIELD_END(EmfApi, net_peer);
 constexpr uint32_t kComponentChangeV23Size = KEMF_FIELD_END(EmfComponentChange, user);
 constexpr uint32_t kWindowDefV24Size = KEMF_FIELD_END(EmfWindowDef, user);
 constexpr uint32_t kUiWidgetV24Size = KEMF_FIELD_END(EmfUiWidget, pad);
@@ -50,7 +51,8 @@ constexpr uint32_t kWheelV10Size = KEMF_FIELD_END(EmfWheel, user);
 static_assert(kApiV21Size == 592, "EmfApi v21 size");
 static_assert(kApiV22Size == 616 && kApiV23Size == 624 && kApiV24Size == 648 && kApiV25Size == 672,
               "EmfApi v22-v25 sizes");
-static_assert(kApiV26Size == 688 && sizeof(EmfApi) == kApiV26Size, "EmfApi v26 size");
+static_assert(kApiV26Size == 688 && offsetof(EmfApi, net_channel) == kApiV26Size, "EmfApi v26 prefix");
+static_assert(kApiV27Size == 728 && sizeof(EmfApi) == kApiV27Size, "EmfApi v27 size");
 static_assert(kComponentChangeV23Size == 48 && sizeof(EmfComponentChange) == 48, "EmfComponentChange layout (v23)");
 static_assert(kWindowDefV24Size == 72 && sizeof(EmfWindowDef) == 72 && offsetof(EmfWindowDef, cb) == 56,
               "EmfWindowDef layout (v24)");

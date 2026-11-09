@@ -28,13 +28,14 @@ static uint32_t fnv(const char* s) {
 }
 
 static void test_table() {
-    CHECK(api_requirement((uint64_t{1} << 32) + 26) > EMF_API_VERSION);
+    CHECK(api_requirement((uint64_t{1} << 32) + 27) > EMF_API_VERSION);
     CHECK(api_requirement(UINT64_MAX) > EMF_API_VERSION);
     CHECK(api_requirement(0)==1 && api_requirement(26)==26);
     CHECK(api_size_for(21) == 592);
-    CHECK(api_size_for(26) == sizeof(EmfApi));
-    CHECK(api_size_for(27) == 0);
-    CHECK(EMF_API_VERSION == 26);
+    CHECK(api_size_for(26) == 688);
+    CHECK(api_size_for(27) == sizeof(EmfApi));
+    CHECK(api_size_for(28) == 0);
+    CHECK(EMF_API_VERSION == 27);
     // the hashes are kiln.world's component_hash: FNV-1a of "keen::ecs::<Name>"
     CHECK(fnv("keen::ecs::ScaleComponent") == kScaleComponent);
     CHECK(fnv("keen::ecs::InteractionPause") == kInteractionPause);

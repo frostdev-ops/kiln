@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "EMF 0.6.0 mod-message client chat functions. Patterns from matenm/emf-enshrouded v0.6.0 src/common/signatures.cpp (MIT, EMF contributors); checked upstream on client svn 1273043, 1285601 and 1287369. api_net_client.cpp additionally requires an exact reviewed image hash before using GameClient+0xF8. No server overlay.",
+  "symbols": {
+    "emf/ChatClientSend": {
+      "find": [{"pattern": "48 89 6C 24 20 56 41 54 41 57 48 83 EC 20 49 8B 41 08 4D 8B F9 45 0F B6 E0 48 8B EA 48 8B F1 48 3D 00 04 00 00 76 ?? 33 D2 C6 01 12"}]
+    },
+    "emf/ClientOutboxFlush": {
+      "find": [{"pattern": "40 55 53 56 48 8D AC 24 10 FC FF FF"}]
+    }
+  }
+}

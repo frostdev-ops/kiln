@@ -760,7 +760,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "camino",
+ "half",
+ "kfc",
  "mod-loader",
+ "png",
  "serde",
  "serde_json",
  "tracing",

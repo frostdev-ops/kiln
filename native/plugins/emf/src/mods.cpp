@@ -664,6 +664,7 @@ void load_mods(const EmfApi* table) {
         }
         order = resolve_order();
     }
+    portraits_on_ready();  // selected manifests only; the early startup asset writer has already finished
     for (Mod* m : order) {
         // a dependency that failed while loading rejects its dependents
         std::string why;
