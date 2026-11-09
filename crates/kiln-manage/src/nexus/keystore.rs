@@ -27,7 +27,7 @@ struct TokenFile { format: u32, tokens: Tokens }
 impl TokenStore {
     pub fn new(root: &Path) -> Self {
         let off = std::env::var("KILN_NO_KEYRING").is_ok_and(|v| !v.is_empty() && v != "0");
-        let keyring = if off { None } else { platform_keyring(false) };
+        let keyring = if off || !super::enabled() { None } else { platform_keyring(false) };
         // The platform keyring slot is shared across data roots, so its lock must be shared too.
         let lock = if keyring.is_some() { crate::util::state_dir().join("nexus-oauth.lock") } else { root.join("oauth.lock") };
         Self { file: root.join("oauth.json"), lock, keyring }
@@ -37,6 +37,7 @@ impl TokenStore {
     }
     pub fn file_path(&self) -> &Path { &self.file }
     pub(crate) fn lock(&self) -> Result<std::fs::File> {
+        super::require_enabled()?;
         std::fs::create_dir_all(self.lock.parent().ok_or_else(|| Error::invalid("No OAuth lock folder."))?)?;
         let mut options = std::fs::OpenOptions::new();
         options.create(true).truncate(false).read(true).write(true);
@@ -63,6 +64,7 @@ impl TokenStore {
         Ok(tokens)
     }
     pub fn get(&self) -> Result<Option<(Tokens, TokenPlace)>> {
+        super::require_enabled()?;
         if let Some(k) = &self.keyring {
             if let Some(secret) = k.get()?.filter(|s| !s.is_empty()) {
                 let tokens = Self::parse(&secret)?;
@@ -104,6 +106,7 @@ impl TokenStore {
         } else { Ok(Some((file.tokens, TokenPlace::File))) }
     }
     pub fn set(&self, tokens: &Tokens) -> Result<TokenPlace> {
+        super::require_enabled()?;
         tokens.validate()?;
         if let Some(k) = &self.keyring {
             let secret = serde_json::to_string(tokens)?;
@@ -120,10 +123,12 @@ impl TokenStore {
     fn remove_file(&self) -> Result<()> { remove_file(&self.file) }
     /// Clear stored authorization even when damaged credentials prevent creating a Session.
     pub fn clear(&self) -> Result<()> {
+        super::require_enabled()?;
         let _lock = self.lock()?;
         self.clear_locked()
     }
     pub(crate) fn clear_locked(&self) -> Result<()> {
+        super::require_enabled()?;
         let ring = self.keyring.as_ref().map(|k| k.clear()).transpose();
         self.remove_file()?;
         ring.map(|_| ())
@@ -138,6 +143,7 @@ fn remove_file(path: &Path) -> Result<()> {
 }
 /// Delete the retired credential slots; no personal key is loaded or sent to Nexus.
 pub fn retire_legacy(root: &Path) -> Result<()> {
+        super::require_enabled()?;
     remove_file(&root.join("apikey.json"))?;
     let off = std::env::var("KILN_NO_KEYRING").is_ok_and(|v| !v.is_empty() && v != "0");
     if !off { if let Some(backend) = platform_keyring(true) { backend.clear()?; } }
@@ -146,6 +152,7 @@ pub fn retire_legacy(root: &Path) -> Result<()> {
 
 /// Writes JSON readable by the user only (created 0600 on Unix, then renamed over the target).
 pub fn write_private<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    super::require_enabled()?;
     use std::io::Write;
     let dir = path.parent().ok_or_else(|| Error::invalid("no folder"))?;
     std::fs::create_dir_all(dir).map_err(crate::util::io_at(dir, "creating"))?;
@@ -234,14 +241,17 @@ impl SecretTool {
 #[cfg(target_os = "linux")]
 impl SecretBackend for SecretTool {
     fn get(&self) -> Result<Option<String>> {
+        super::require_enabled()?;
         let (ok, out) = self.run(&["lookup"], None)?;
         Ok(ok.then(|| out.trim().to_string()).filter(|s| !s.is_empty()))
     }
     fn set(&self, secret: &str) -> Result<()> {
+        super::require_enabled()?;
         let (ok, _) = self.run(&["store", "--label=Kiln Launcher: Nexus Mods authorization"], Some(secret))?;
         if ok { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "the keyring refused authorization")) }
     }
     fn clear(&self) -> Result<()> {
+        super::require_enabled()?;
         let (ok, _) = self.run(&["clear"], None)?;
         if ok || self.get()?.is_none() { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring could not remove the Nexus Mods authorization.")) }
     }
@@ -268,6 +278,7 @@ fn wide(s: &str) -> Vec<u16> {
 #[cfg(windows)]
 impl SecretBackend for WinCred {
     fn get(&self) -> Result<Option<String>> {
+        super::require_enabled()?;
         use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CREDENTIALW, CredFree, CredReadW};
         let target = wide(target(self.legacy));
         let mut p: *mut CREDENTIALW = std::ptr::null_mut();
@@ -288,6 +299,7 @@ impl SecretBackend for WinCred {
         }
     }
     fn set(&self, secret: &str) -> Result<()> {
+        super::require_enabled()?;
         use windows_sys::Win32::Security::Credentials::{CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredWriteW};
         let target = wide(target(self.legacy));
         let user = wide("nexusmods");
@@ -306,6 +318,7 @@ impl SecretBackend for WinCred {
         if ok != 0 { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "Credential Manager refused authorization")) }
     }
     fn clear(&self) -> Result<()> {
+        super::require_enabled()?;
         use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredDeleteW};
         let target = wide(target(self.legacy));
         // SAFETY: NUL-terminated target.

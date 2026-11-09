@@ -16,6 +16,7 @@ type StartTask = (kind: string, title: string, steps: string[], finish: () => un
 type QuickAdd = (gameId: string, paths: string[], makeIt: boolean) => AddReport;
 
 const MODE = typeof location !== "undefined" ? new URLSearchParams(location.search).get("nexus") ?? "free" : "free";
+export const NEXUS_MOCK_ENABLED = MODE !== "disabled";
 const SIGNED_OUT = ["signedout", "denied", "unconfigured", "storageerror"].includes(MODE);
 let authEpoch = 0;
 
@@ -90,7 +91,7 @@ interface State {
 
 const st: State = {
   account: {
-    configured: MODE !== "unconfigured", signedIn: !SIGNED_OUT, tokenPlace: SIGNED_OUT ? null : "keyring", name: SIGNED_OUT ? null : "embervale_player", premium: MODE === "premium", error: MODE === "storageerror" ? { code: "parse", message: "Nexus OAuth credential storage is invalid." } : null,
+    configured: NEXUS_MOCK_ENABLED && MODE !== "unconfigured", signedIn: !SIGNED_OUT, tokenPlace: SIGNED_OUT ? null : "keyring", name: SIGNED_OUT ? null : "embervale_player", premium: MODE === "premium", error: MODE === "storageerror" ? { code: "parse", message: "Nexus OAuth credential storage is invalid." } : null,
     rate: { hourlyRemaining: 498, dailyRemaining: 19990, blockedFor: 0, calls: 0 },
   },
   handler: { supported: true, registered: false, active: false, previous: "Vortex" },
@@ -216,10 +217,13 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
     nexus_handler_set: (a) => { st.handler = { ...st.handler, registered: !!a.on, active: !!a.on }; return st.handler; },
   };
 
+  const calls: string[] = [];
   if (typeof window !== "undefined") {
     (window as unknown as { __kilnNexusMock?: unknown }).__kilnNexusMock = {
       /** A Mod Manager Download link, as the browser hands it to the registered handler. */
+      calls: () => [...calls],
       nxm: (url: string) => {
+        if (!NEXUS_MOCK_ENABLED) return false;
         const m = /^nxm:\/\/([^/]+)\/mods\/(\d+)\/files\/(\d+)(?:\?(.*))?$/i.exec(url);
         if (!m || m[1].toLowerCase() !== "enshrouded") return false;
         const q = new URLSearchParams(m[4] ?? "");
@@ -233,6 +237,10 @@ export function nexusMockHandlers(handlers: Record<string, Handler>, emit: (name
       setUpdate: (modId: string, latest: string) => { const i = st.installed.find((x) => x.modId === modId); if (i) i.info = { ...i.info, latestVersion: latest, updateAvailable: latest !== i.version }; },
     };
   }
-  return h;
+  return Object.fromEntries(Object.entries(h).map(([name, handler]) => [name, (args: Record<string, unknown>) => {
+    calls.push(name);
+    if (!NEXUS_MOCK_ENABLED) err("unsupported", "Nexus Mods is disabled in this build.");
+    return handler(args);
+  }]));
 }
 

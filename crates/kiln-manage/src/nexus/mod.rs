@@ -37,3 +37,12 @@ pub fn client(token: Option<String>, app_version: &str) -> api::Client {
     let t = std::sync::Arc::new(api::UreqTransport::new(&app.user_agent()));
     api::Client::new(t, token, app)
 }
+
+/// Compiled backend capability; no runtime environment override can enable a disabled build.
+pub fn enabled() -> bool { oauth::registration::compiled_enabled() }
+pub fn require_enabled() -> crate::Result<()> {
+    if enabled() { Ok(()) } else { Err(crate::Error::new(crate::ErrorCode::Unsupported, "Nexus Mods is disabled in this build.")) }
+}
+
+#[cfg(test)]
+mod disabled_tests;

@@ -14,7 +14,7 @@ import { adminMockHandlers } from "../admin/mock";
 import { serverMockHandlers } from "../pages/servers/mockServers";
 import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
-import { nexusMockHandlers } from "./mockNexus";
+import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -611,7 +611,7 @@ const S = (v: unknown) => String(v ?? "");
 const handlers: Record<string, Handler> = {
   // app
   app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false,
-    distribution: MOCK_DISTRIBUTION }),
+    distribution: MOCK_DISTRIBUTION, nexusEnabled: NEXUS_MOCK_ENABLED }),
   app_settings_get: () => settings,
   app_settings_set: (a) => (settings = { ...(a.settings as LauncherSettings) }),
   app_open_path: () => null,

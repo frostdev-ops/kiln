@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 pub const ORIGIN: &str = "https://users.nexusmods.com";
 pub const TOKEN_URL: &str = "https://users.nexusmods.com/oauth/token";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(180);
-mod registration;
+pub(crate) mod registration;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -28,7 +28,8 @@ pub struct Config {
 impl Config {
     /// Both values must come from Kiln's own approved public-client registration.
     pub fn registered() -> Result<Option<Self>> {
-        registration::preflight(false, option_env!("KILN_NEXUS_OAUTH_CLIENT_ID"), option_env!("KILN_NEXUS_OAUTH_REDIRECT_URI")).map_err(Error::invalid)?;
+        if !super::enabled() { return Ok(None) }
+        registration::preflight(false, option_env!("KILN_NEXUS_ENABLED"), option_env!("KILN_NEXUS_OAUTH_CLIENT_ID"), option_env!("KILN_NEXUS_OAUTH_REDIRECT_URI")).map_err(Error::invalid)?;
         match (option_env!("KILN_NEXUS_OAUTH_CLIENT_ID"), option_env!("KILN_NEXUS_OAUTH_REDIRECT_URI")) {
             (Some(id), Some(uri)) if !id.is_empty() && !uri.is_empty() => Self::new(id, uri).map(Some),
             _ => Ok(None),
@@ -107,6 +108,7 @@ pub struct Login {
 }
 impl Login {
     pub fn bind(config: Config) -> Result<Self> {
+        super::require_enabled()?;
         let listener = TcpListener::bind(config.address).map_err(|_| Error::new(ErrorCode::Busy, "The Nexus sign-in callback port is in use. Close the other sign-in attempt and try again."))?;
         listener.set_nonblocking(true)?;
         Ok(Self { config, verifier: crate::hash::hex(&crate::util::random_bytes::<32>()?), state: crate::hash::hex(&crate::util::random_bytes::<32>()?), listener })
@@ -133,6 +135,7 @@ impl Login {
         self.wait_timeout(transport, canceled, LOGIN_TIMEOUT)
     }
     fn wait_timeout(self, transport: &dyn Transport, canceled: impl Fn() -> bool, timeout: Duration) -> Result<Tokens> {
+        super::require_enabled()?;
         let started = Instant::now();
         loop {
             if canceled() { return Err(Error::new(ErrorCode::Canceled, "Nexus Mods sign-in canceled.")); }
@@ -178,6 +181,7 @@ impl Login {
 }
 
 fn token_request(transport: &dyn Transport, config: &Config, fields: &[(&str, &str)]) -> Result<Tokens> {
+        super::require_enabled()?;
     let response = transport.send(&HttpRequest { method: "POST", url: TOKEN_URL.into(),
         headers: vec![("Content-Type".into(), "application/x-www-form-urlencoded".into()), ("Accept".into(), "application/json".into())], body: Some(form(fields).into_bytes()) })?;
     if response.status == 429 { return Err(Error::new(ErrorCode::Busy, "Nexus Mods asked Kiln to wait before signing in again.")); }
@@ -203,12 +207,14 @@ pub struct Session {
 }
 impl Session {
     pub fn new(config: Config, transport: Arc<dyn Transport>, store: TokenStore) -> Result<Self> {
+        super::require_enabled()?;
         let _lock = store.lock()?;
         let tokens = store.get()?.map(|(t,_)| t).filter(|t| t.client_id == config.client_id);
         drop(_lock);
         Ok(Self { config, transport, store, tokens: Mutex::new(tokens) })
     }
     pub fn save(&self, tokens: Tokens) -> Result<TokenPlace> {
+        super::require_enabled()?;
         tokens.validate()?;
         if tokens.client_id != self.config.client_id { return Err(Error::new(ErrorCode::Refused, "OAuth credentials belong to a different application registration.")); }
         let mut state = self.tokens.lock().unwrap();
@@ -228,12 +234,14 @@ impl Session {
         Ok(place)
     }
     pub fn clear(&self) -> Result<()> {
+        super::require_enabled()?;
         let mut state = self.tokens.lock().unwrap();
         let _lock = self.store.lock()?;
         *state = None;
         self.store.clear_locked()
     }
     pub fn place(&self) -> Result<Option<TokenPlace>> {
+        super::require_enabled()?;
         let mut state = self.tokens.lock().unwrap();
         let _lock = self.store.lock()?;
         let stored = self.store.get()?.filter(|(t,_)| t.client_id == self.config.client_id);
@@ -241,6 +249,7 @@ impl Session {
         Ok(stored.map(|(_, place)| place))
     }
     fn refresh(&self, rejected: Option<&str>) -> Result<Option<String>> {
+        super::require_enabled()?;
         let mut state = self.tokens.lock().unwrap();
         let _lock = self.store.lock()?;
         *state = self.store.get()?.map(|(t,_)| t).filter(|t| t.client_id == self.config.client_id);
@@ -266,10 +275,11 @@ impl Session {
     }
 }
 impl Credentials for Session {
-    fn present(&self) -> bool { self.tokens.lock().unwrap().is_some() }
+    fn present(&self) -> bool { super::enabled() && self.tokens.lock().unwrap().is_some() }
     fn access_token(&self) -> Result<Option<String>> { self.refresh(None) }
     fn refresh_rejected(&self, token: &str) -> Result<Option<String>> { self.refresh(Some(token)) }
     fn forget_rejected(&self, rejected: &str) -> Result<()> {
+        super::require_enabled()?;
         let mut state = self.tokens.lock().unwrap();
         let _lock = self.store.lock()?;
         *state = self.store.get()?.map(|(tokens,_)| tokens).filter(|tokens| tokens.client_id == self.config.client_id);

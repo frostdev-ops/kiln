@@ -390,6 +390,7 @@ impl Catalog {
 
     /// A cached verdict still valid for this `updated_at`.
     pub fn cached_verdict(&self, uid: &str, updated: &str) -> Option<Verdict> {
+        if !super::enabled() { return None }
         self.with_verdicts(|v| v.get(uid).filter(|x| x.updated == updated).cloned())
     }
 
@@ -399,6 +400,7 @@ impl Catalog {
 
     /// The active files of a mod with their newest listed version, most recently updated first.
     pub fn files(&self, mod_uid: &str) -> Result<Vec<(ModFile, FileVersion)>> {
+        super::require_enabled()?;
         let mut files: Vec<ModFile> = self.client.mod_files(mod_uid)?.into_iter().filter(|f| f.is_active).collect();
         files.sort_by(|a, b| b.last_file_uploaded_at.cmp(&a.last_file_uploaded_at));
         let mut out = Vec::new();
@@ -413,6 +415,7 @@ impl Catalog {
 
     /// Looks at a mod's files (at most three manifests) and remembers what it is.
     pub fn verify(&self, m: &ModSummary) -> Result<Verdict> {
+        super::require_enabled()?;
         let files = self.files(&m.id)?;
         self.verdict_from_files(&m.id, &m.updated_at, &files)
     }
@@ -443,6 +446,7 @@ impl Catalog {
     /// The catalog page for a query. With the Kiln filter, up to [`CHECK_BATCH`] mods that may be Kiln mods are looked
     /// at per call; `unchecked` says how many still wait.
     pub fn search(&self, dirs: &DataDirs, q: &Query) -> Result<Page> {
+        super::require_enabled()?;
         let (mods, fetched) = self.all_mods(q.adult, q.refresh)?;
         let text = q.text.trim().to_lowercase();
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -509,6 +513,7 @@ impl Catalog {
 
     /// One mod's page, files and requirements (files and requirements only with the key).
     pub fn details(&self, dirs: &DataDirs, gsid: &str) -> Result<Details> {
+        super::require_enabled()?;
         let d: ModDetails = self.client.mod_details(GAME, gsid)?;
         let installed = self.installed(dirs).unwrap_or_default();
         let inst = installed.iter().find(|i| i.record.mod_id == d.game_scoped_id).map(|i| i.info.clone());
@@ -577,6 +582,7 @@ impl Catalog {
 
     /// Nexus's file requirements of one version (first alternative of each), Kiln and other games marked.
     pub fn requirements(&self, version_id: &str, installed: &[InstalledMod]) -> Vec<Requirement> {
+        if !super::enabled() { return Vec::new() }
         let Ok(defs) = self.client.dependencies(version_id) else { return vec![] };
         let mut out: Vec<Requirement> = Vec::new();
         for d in defs {
@@ -621,6 +627,7 @@ impl Catalog {
 
     /// Remembers an install (one record per mod: a newer one replaces it).
     pub fn record_install(&self, rec: InstallRecord) -> Result<()> {
+        super::require_enabled()?;
         let _lock = super::handler::lock_state(&self.root, "catalog.lock")?;
         let mut i = self.read_installs()?;
         // A previous update check may predate this install (including a re-upload of the same version). Never
@@ -637,6 +644,7 @@ impl Catalog {
 
     /// The mods installed from the catalog, with the newest versions last seen (no network).
     pub fn installed(&self, dirs: &DataDirs) -> Result<Vec<InstalledMod>> {
+        super::require_enabled()?;
         let recs = self.read_installs()?.mods;
         if recs.is_empty() {
             return Ok(vec![]);
@@ -665,6 +673,7 @@ impl Catalog {
 
     /// Looks up the newest version of each installed mod's file (at most every 30 minutes per file, unless `force`).
     pub fn check_updates(&self, dirs: &DataDirs, force: bool) -> Result<Vec<InstalledMod>> {
+        super::require_enabled()?;
         let _lock = super::handler::lock_state(&self.root, "catalog.lock")?;
         let recs = self.read_installs()?.mods;
         let mut latest = self.read_latest();

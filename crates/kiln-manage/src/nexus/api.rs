@@ -117,6 +117,7 @@ fn api_url(url: &str) -> bool {
 #[cfg(feature = "http")]
 impl Transport for UreqTransport {
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
+        super::require_enabled()?;
         if req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey")) {
             return Err(Error::new(ErrorCode::Refused, "Personal API key authentication is not supported."));
         }
@@ -150,6 +151,7 @@ impl Transport for UreqTransport {
     }
 
     fn open(&self, url: &str, headers: &[(String, String)]) -> Result<HttpStream> {
+        super::require_enabled()?;
         if headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey") || k.eq_ignore_ascii_case("authorization")) {
             return Err(Error::new(ErrorCode::Refused, "Downloads must not carry account credentials."));
         }
@@ -478,7 +480,7 @@ pub struct Client {
 
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Client").field("origin", &self.origin).field("authenticated", &self.credentials.present()).field("app", &self.app).finish()
+        f.debug_struct("Client").field("origin", &self.origin).field("authenticated", &self.has_credentials()).field("app", &self.app).finish()
     }
 }
 
@@ -508,7 +510,7 @@ impl Client {
     }
 
     pub fn has_credentials(&self) -> bool {
-        self.credentials.present()
+        super::enabled() && self.credentials.present()
     }
 
     pub fn app(&self) -> &AppId {
@@ -587,6 +589,7 @@ impl Client {
     }
 
     fn request(&self, method: &'static str, path: &str, body: Option<serde_json::Value>, need_auth: bool) -> Result<HttpResponse> {
+        super::require_enabled()?;
         let _request = self.request_lock.lock().unwrap();
         let mut token = self.credentials.access_token()?;
         if need_auth && token.is_none() {
@@ -750,6 +753,7 @@ impl Client {
 
     /// An archive's manifest (`manifest_url`): a public file on Nexus's storage, fetched without account credentials.
     pub fn manifest(&self, url: &str) -> Result<Vec<ManifestEntry>> {
+        super::require_enabled()?;
         if !url.starts_with("https://") {
             return Err(Error::new(ErrorCode::Refused, "the archive manifest is not on https"));
         }
@@ -765,6 +769,7 @@ impl Client {
 
     /// Opens a download link (the CDN; no key).
     pub fn open_download(&self, url: &str) -> Result<HttpStream> {
+        super::require_enabled()?;
         if !url.starts_with("https://") {
             return Err(Error::new(ErrorCode::Refused, "Nexus Mods gave a download link that is not https"));
         }

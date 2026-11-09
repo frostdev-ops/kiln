@@ -46,6 +46,14 @@ Cost and caching:
 File metadata needs an authorized account; public archive manifests are fetched without credentials. Signed out, the
 catalog lists Enshrouded mods anonymously and offers browser sign-in to identify Kiln mods.
 
+## Disabled builds
+
+`KILN_NEXUS_ENABLED=0` disables the whole integration at compile time. Backend `app_info.nexusEnabled` controls
+both UIs; no frontend-only environment override can enable it. Catalog routes, account/settings controls and Nexus
+navigation are hidden. Nexus IPC, provider requests, token/keyring access, downloads, nxm opt-in, inbox processing
+and refresh are refused before side effects. Direct nxm callbacks exit without network or forwarding. This mode
+leaves existing account/handler data untouched and requires no OAuth registration for an official release.
+
 ## Nexus's rules for apps, and how Kiln follows them
 - **Naming the app:** every request sends `Application-Name: Kiln Launcher`, `Application-Version: <launcher version>`
   and `User-Agent: Kiln-Launcher/<version> (<os>; <arch>)`. No user name, machine name or anything personal.
@@ -91,8 +99,9 @@ Absent registration, sign-in is unavailable; there is no borrowed test registrat
 The proposed callback for registration is `http://127.0.0.1:8089/callback`; it remains subject to Nexus approval.
 
 The guide requires an email to support@nexusmods.com with the application name, description, dark-background logo,
-source link and callback URI. The dev.20 release gate remains blocked until approval and real-account checks on the
-supported platforms complete. Mock-provider tests demonstrate local flow behavior, not Nexus approval.
+source link and callback URI. An enabled Nexus release remains blocked until approval and real-account checks on the
+supported platforms complete. A release compiled with `KILN_NEXUS_ENABLED=0` disables the whole integration and
+may ship while approval is pending. Mock-provider tests demonstrate local flow behavior, not Nexus approval.
 
 ## Adding a mod
 1. **The file:**

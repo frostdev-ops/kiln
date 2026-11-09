@@ -77,6 +77,8 @@ export interface AppInfo {
   dataDir: string;
   commit: string | null;
   mock: boolean;
+  /** Compiled Nexus integration capability. Missing from older backends: unavailable. */
+  nexusEnabled?: boolean;
   /** KILN_LAUNCHER_NO_WEBGL=1 for this start: the plain Play button, no WebGL fire. */
   noWebgl?: boolean;
   /** Steam Deck / SteamOS / gamescope detection and `--deck` / `--desktop` (src/deck/mode.tsx chooses the UI). */

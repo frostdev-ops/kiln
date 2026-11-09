@@ -156,15 +156,19 @@ class LinuxReleaseTests(unittest.TestCase):
         report = self.dir / "selftest.json"
         for marker, ok in [(release.BUILD_MARKERS["nexus"].decode(), True), (None, False), (release.BUILD_MARKERS["direct"].decode(), False)]:
             report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [], "buildMarker": marker,
-                "releaseBuild": True, "nexusOAuth": {"configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}}))
+                "releaseBuild": True, "nexusOAuth": {"enabled": True, "configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}}))
             r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
             self.assertEqual(r.returncode == 0, ok, r.stderr)
 
     def test_official_selftest_report_refuses_missing_or_unconfigured_oauth(self):
         report = self.dir / "selftest.json"
-        registered = {"configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}
+        registered = {"enabled": True, "configured": True, "clientId": "unit-test-registration", "redirectUri": "http://127.0.0.1:8089/callback"}
         for oauth, release_build, ok in [(None, True, False), ({"configured": False}, True, False),
-                ({"configured": True}, True, False), (registered, False, False), (registered, True, True)]:
+                ({"configured": True}, True, False), (registered, False, False), (registered, True, True),
+                ({"enabled": False, "configured": False, "clientId": None, "redirectUri": None}, True, True),
+                ({"enabled": False, "configured": True, "clientId": "stale", "redirectUri": None}, True, False),
+                ({"enabled": "0", "configured": False}, True, False),
+                ({"enabled": True, "configured": False}, True, False)]:
             report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [],
                 "buildMarker": release.BUILD_MARKERS["nexus"].decode(), "releaseBuild": release_build, "nexusOAuth": oauth}))
             r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
@@ -359,7 +363,7 @@ if sys.argv[1] == "run":
         # Exercise release.sh's actual Linux wrapper through run.sh and a fake Docker client.
         # No release, signing environment, image build or provider request is involved.
         env = self.mock_docker()
-        env.update(KILN_NEXUS_OAUTH_CLIENT_ID="unit-test-registration",
+        env.update(KILN_NEXUS_ENABLED="0", KILN_NEXUS_OAUTH_CLIENT_ID="unit-test-registration",
                    KILN_NEXUS_OAUTH_REDIRECT_URI="http://127.0.0.1:8089/callback",
                    KILN_LINUX_IMAGE="sha256:" + "a" * 64)
         wrapper = re.search(r"^  linux\(\) \{\n.*?^  \}", (HERE / "release.sh").read_text(), re.M | re.S)
@@ -374,6 +378,7 @@ if sys.argv[1] == "run":
         self.assertEqual(r.returncode, 0, r.stderr)
         run = next(json.loads(line) for line in self.calls.read_text().splitlines() if json.loads(line)[0] == "run")
         forwarded = [run[i + 1] for i, arg in enumerate(run[:-1]) if arg == "-e"]
+        self.assertIn("KILN_NEXUS_ENABLED", forwarded)
         self.assertIn("KILN_NEXUS_OAUTH_CLIENT_ID", forwarded)
         self.assertIn("KILN_NEXUS_OAUTH_REDIRECT_URI", forwarded)
 
