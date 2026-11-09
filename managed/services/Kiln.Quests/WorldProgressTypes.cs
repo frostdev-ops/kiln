@@ -42,7 +42,54 @@ public sealed record ProgressFact(KnowledgeQuery Query, ProgressScope Scope)
 /// world's progress entity, the level the Flame Altar menu shows).</summary>
 public sealed record FlameStatus(int Level, int Altars, int HighestAltarLevel, int WaterSources, EntityId Entity)
 {
+    /// <summary>The <c>Level</c> attribute of the progress entity: the store the game writes when the flame levels up (and its
+    /// admin command writes); <see cref="Level"/> is its replicated copy. Null when kiln.knowledge's flame part is off.</summary>
+    public int? Stored { get; init; }
+
+    /// <summary>The game's maximum flame level (the second value of the <c>Level</c> attribute, <c>flameLevelMax</c>).</summary>
+    public int? Max { get; init; }
+
+    /// <summary>What the game's own altar, water-source and fog rules read (<c>ServerProgressSystem.progressLevel</c>).</summary>
+    public int? SystemLevel { get; init; }
+
     public override string ToString() => $"flame level {Level}, {Altars} altar(s) (highest level {HighestAltarLevel}), {WaterSources} water source(s)";
+}
+
+/// <summary>What the game derives from a flame level (the balancing table's per-level lists and the fog rule).</summary>
+/// <param name="Level">The flame level asked about.</param>
+/// <param name="Altars">How many Flame Altars the world may have (<c>altarsPerFlameLevel</c>).</param>
+/// <param name="WaterSources">How many water sources it may have (<c>waterSourcesPerFlameLevel</c>).</param>
+/// <param name="FogResistance">The Shroud resistance of a player: <c>playerBaseFogResistance + playerFogResistancePerFlameLevel * level</c>.</param>
+/// <param name="FogRemovalLevel">The server setting <c>flameLevelFogRemoval</c> (null when kiln.settings is not ready).</param>
+/// <param name="FogRemoved">The level reaches <see cref="FogRemovalLevel"/>.</param>
+public sealed record FlameLimits(int Level, int Altars, int WaterSources, int FogResistance, int? FogRemovalLevel, bool? FogRemoved)
+{
+    public override string ToString() =>
+        $"flame level {Level}: {Altars} altar(s), {WaterSources} water source(s), fog resistance {FogResistance}" +
+        (FogRemovalLevel is { } f ? $", fog removal from level {f} ({(FogRemoved == true ? "yes" : "no")})" : "");
+}
+
+/// <summary>The outcome of <see cref="WorldProgress.SetFlameLevel"/>.</summary>
+/// <param name="Request">The native request id (0 when refused at once).</param>
+/// <param name="Ok">The requested write completed (see <see cref="Mirrored"/>). False with <see cref="Reason"/> otherwise;
+/// a failed rollback can leave changed state, reported explicitly in the reason.</param>
+/// <param name="Status">"ok", "unavailable", "internal", ...</param>
+/// <param name="Requested">What was asked for.</param>
+/// <param name="Before">The stored level before and after the write (after: once the game's attribute formula ran).</param>
+/// <param name="Max">The game's maximum level (0 when unknown).</param>
+/// <param name="Clamped">The game's formula limited the value.</param>
+/// <param name="Marked">The component was marked written (so the game saves and replicates it).</param>
+/// <param name="Mirrored"><c>NetworkServerProgress.level</c> followed (what players see).</param>
+/// <param name="Steps">Steps from the write until it was mirrored.</param>
+public sealed record FlameChange(ulong Request, bool Ok, string Status, int Requested, int Before, int After, int Max, bool Clamped,
+    bool Marked, bool Mirrored, int Steps, string Reason)
+{
+    internal static FlameChange Failed(int requested, string status, string reason) =>
+        new(0, false, status, requested, 0, 0, 0, false, false, false, 0, reason);
+
+    public override string ToString() => Ok
+        ? $"flame level {Before} -> {After}{(Reason.Length > 0 ? $" ({Reason})" : "")}{(Mirrored ? $", mirrored after {Steps} step(s)" : ", not mirrored yet")}"
+        : $"flame level {Requested} refused: {Reason}";
 }
 
 /// <summary>The world's difficulty: the server's preset and the game settings in effect (kiln.settings).</summary>

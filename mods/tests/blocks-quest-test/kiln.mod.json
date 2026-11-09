@@ -1,0 +1,11 @@
+{
+  "id": "blocks-quest-test",
+  "name": "Quest and dialogue blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "BlocksQuestTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Lab test of the quest and dialogue blocks: quests, a conversation and an NPC from blocks/*.json (built into the game's journal at the first start) and the same kinds written in C# (built from the next start), registered with the engine, their knowledge ids allocated, their steps advanced through Quests commands and a conversation with a synthetic player, the twins lowering to the same, wrong blocks refused by block and field. Start it twice. PASS and FAIL lines in kiln.log."
+}

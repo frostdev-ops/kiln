@@ -17,6 +17,12 @@ call it freely).
 | GUI overlays, toasts, KeyMappings, the Mods screen | `Hud`, `Hud.Toast`, `KeyBindings`, the Kiln menu (Insert, and the game menus' **Mods** entry) |
 | `Component.translatable` | `UiText` (per-language texts; the game's language) |
 
+**As data.** A window, a HUD line and a key binding can also be blocks (`WindowBlock`, `HudLineBlock`, `KeyBindingBlock`, or `windows`,
+`hudLines`, `keyBindings` in `blocks/*.json`): rows bound to the mod's config and to a few read-only game values, buttons that run a command, set a
+value, cast an ability or open a window, with no draw code. They sit on this API (`Ui.Window` / `Ui.Screen`, `Hud`, `KeyBindings`, `Ui.Menus`) and
+change nothing in it: [modding/ui-blocks.md](modding/ui-blocks.md). What they cannot do (text fields, tables, tabs, images, free drawing) is what
+this page is for.
+
 ## The game's own UI
 Mods load in the game's menu (docs/kiln/modding/lifecycle.md), so `OnLoad` can add menu entries before any world
 exists. Everything here is client only; players without Kiln are unaffected.
@@ -124,6 +130,7 @@ w.Toggle();   // Show / Hide / Open = true; the X button closes it too
 - `UiDraw` exposes:
   - text: `Text`, `Text(color, …)`, `TextWrapped`, `TextDisabled`, `Separator(text)`, `Tooltip`;
   - widgets: `Button`, `SmallButton`, `Checkbox`, `Slider` (float/int), `InputText`, `Selectable`, `Progress`;
+    `ItemClicked(UiMouseButton.Right)` right after any widget answers a right click on it (`Button` answers the left one);
   - layout: `CollapsingHeader`, `TreeNode`/`TreePop`, `SameLine`, `Spacing`, `Id(...)` scopes, tables
     (`BeginTable`, `Row`, `NextRow`/`NextColumn`), tabs (`BeginTabBar`/`BeginTab`), `BeginChild`;
   - free drawing: `DrawText`, `DrawRect`, `MeasureText`;
@@ -139,6 +146,28 @@ w.Toggle();   // Show / Hide / Open = true; the X button closes it too
   Read state the mod keeps (copies, snapshots). Act through `Client.Post` (client world) or `Context.Scheduler.Post`
   (server world, when hosting).
 - A window belongs to its mod and goes away when the mod unloads. A draw that throws 5 times closes the window.
+
+## Radial wheel
+A wheel in the middle of the screen: 1 to 64 entries, 8 per page. It is what EMF's `wheel_open` draws. From any thread:
+```csharp
+var wheel = Ui.OpenWheel(["Wolf", "Bear (level 3)", "Fox"],
+    pick => Log.Info(pick < 0 ? "cancelled" : $"picked {pick}"),          // render thread, as your mod
+    new UiWheelOptions { Title = "Pets", HoldKey = UiWheel.HoldShift });
+int choice = await wheel!.Result;                                           // or await it: -1 = cancelled
+```
+- While it is open Kiln has the mouse and keyboard, as for an interactive window: the pointer picks the highlighted
+  sector (nothing in the middle), the camera does not move, keys do not reach the game (releases do).
+- A left click on the highlighted entry chooses it. Esc or a right click cancels. The mouse wheel turns the page.
+- `HoldKey` (a generic key code: `UiWheel.HoldShift`, `HoldCtrl`, `HoldAlt`, or a letter): the player holds it while the
+  wheel is open, and letting go chooses the highlighted entry (in the middle: cancels). A tap (let go within 300 ms with
+  nothing highlighted) leaves the wheel open for a click. A key that is not held as the wheel opens counts as none.
+  No mouse buttons, no left/right-specific codes (they throw `ArgumentException`).
+- "Name (details)" shows the details on a second line. Long labels are shortened; the highlighted entry shows in full
+  under the wheel.
+- One wheel at a time, and not while the Kiln menu is open: `OpenWheel` returns null then (and on a dedicated server).
+  `UiWheel.Close()` / `Dispose()` ends it without calling `pick`; a mod that unloads loses its wheel.
+- `UiWheel.Result` resumes on the context that awaited it, so `await` from tick-thread code stays on the tick thread.
+- Not done: gamepad steering. The pad is idle for the game while the wheel is open.
 
 ## HUD and toasts
 ```csharp
@@ -193,7 +222,11 @@ is not running.
 `kiln_ui.h` (later additions, check `header.size`): `screen`, `subscribe_screen`, `subscribe_ui_tick`,
 `menu_add` / `menu_set` (`KILN_UI_MENU_MAIN` / `PAUSE`), `push_style` / `pop_style`, `image_*`, `combo`,
 `input_multiline`, `set_hover_capture`, and work at present under the overlay: `subscribe_pre_overlay`, `set_pre_overlay_demand`,
-`add_swapchain_usage` (kiln.screen draws its full-screen effects there: [services/screen.md](services/screen.md)). `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
+`add_swapchain_usage` (kiln.screen draws its full-screen effects there: [services/screen.md](services/screen.md)). Version 2
+appends `is_item_clicked(button)` (a click of `KILN_UI_MOUSE_LEFT/RIGHT/MIDDLE` on the item drawn last, inside a frame callback) and
+the wheel: `wheel_open(owner, &KilnUiWheel, fn, user, &handle)` (`fn(choice, user)` once on the render thread; -1 = cancelled),
+`wheel_close(handle)` (ends it without `fn`) and `wheel_active()`. The pure rules (pages, hit test, hold key, tap) are in
+`native/services/ui/wheel_math.h`, tested by `native/services/ui/tests/run.sh`. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
 tables in the same header.
 
@@ -205,6 +238,8 @@ tables in the same header.
 - Resize, minimise and SDR↔HDR swapchain changes are handled. HDR (PQ) output is not tone-mapped yet, so the overlay
   is too bright there.
 - Work under the overlay (kiln.screen) is called only while it says it has something to do; otherwise the present reads one counter.
+- No wheel open: the wheel costs one atomic read per frame and per input message. `is_item_clicked` costs nothing unless a
+  window asks. With a wheel open it is one more ImGui window with a few shapes.
 - `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only
   while their menu is open. `KILN_NO_MENU_LOAD=1` keeps the mods' load at the first world step.

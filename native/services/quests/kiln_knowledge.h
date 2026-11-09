@@ -327,6 +327,56 @@ typedef struct KilnKnowledgeStatus {
 
 /* ---------------------------------------------------------------------------------------------- the table ----- */
 
+/* ------------------------------------------------------------------------------------- the Mother Flame ------ */
+/* The world's flame level. The authoritative store is the `Level` attribute of the world's progress entity (template
+ * 3_MotherFlame); the game copies it into NetworkServerProgress.level (what clients get) and into
+ * ServerProgressSystem.progressLevel (what the altar, water-source and fog rules read) every step. flame_set writes it the
+ * way the game's own admin command does (MarkWritten, the attribute's slot, the attribute formula), from a program of
+ * Kiln's inside the step. Evidence: docs/re/world-status.md section 11. */
+#define KILN_FLAME_NO_VALUE 0xffffffffu
+enum {
+    KILN_FLAME_QUEUE_MAX = 8,
+    KILN_FLAME_MIRROR_UPDATES = 180,
+    /* One active request plus eight waiting; each can use its apply update and 181 mirror updates. Pauses can extend it. */
+    KILN_FLAME_BATCH_UPDATES = (KILN_FLAME_QUEUE_MAX + 1) * (KILN_FLAME_MIRROR_UPDATES + 2)
+};
+
+typedef struct KilnFlameStatus {
+    uint32_t size;           /* sizeof(KilnFlameStatus) */
+    uint8_t available;       /* 1: flame_set can work (the game's attribute functions resolved, program active) */
+    uint8_t found;           /* 1: the program saw the progress entity in the last 3 s (a world with a Mother Flame runs) */
+    uint8_t tracked;         /* 1: the Level component has a change tracker, so a write is marked for save and replication */
+    uint8_t reserved;
+    KilnEntity entity;       /* the progress entity, 0 until seen */
+    uint32_t level;          /* the Level attribute's value (the authoritative store) */
+    uint32_t cap;            /* its second value: the game's formula limits the level to it (the game's flameLevelMax) */
+    uint32_t network_level;  /* NetworkServerProgress.level (the copy clients get) */
+    uint32_t system_level;   /* ServerProgressSystem.progressLevel, KILN_FLAME_NO_VALUE when it cannot be read (tick thread only) */
+    uint32_t pending;        /* requests waiting for the next step */
+    uint64_t step;           /* the program's update counter at the last sample */
+    uint64_t submitted, applied, failed;
+    char reason[96];         /* why available is 0, "" otherwise */
+} KilnFlameStatus;           /* 160 bytes */
+
+typedef struct KilnFlameResult {
+    uint32_t size;           /* sizeof(KilnFlameResult) */
+    KilnResult status;       /* KILN_OK: written (see mirrored), else why not (reason) */
+    uint64_t request;
+    uint32_t requested;
+    uint32_t before;         /* the Level attribute before and after (after is read back once the game's formula ran) */
+    uint32_t after;
+    uint32_t cap;
+    uint8_t marked;          /* 1: MarkWritten ran (the component has a change tracker) */
+    uint8_t mirrored;        /* 1: NetworkServerProgress.level followed */
+    uint8_t clamped;         /* 1: the game's formula limited the value (after != requested) */
+    uint8_t reserved;
+    uint32_t steps_to_mirror;  /* steps from the write until NetworkServerProgress.level read the new value (0: not seen) */
+    uint32_t system_level;   /* KILN_FLAME_NO_VALUE (read it with flame_status) */
+    uint32_t reserved2;
+    uint64_t step;           /* the program update the write ran in */
+    char reason[96];
+} KilnFlameResult;           /* 152 bytes */
+
 typedef struct KilnKnowledgeApi {
     KilnServiceHeader header; /* { sizeof(KilnKnowledgeApi), KILN_KNOWLEDGE_VERSION } */
 
@@ -402,6 +452,19 @@ typedef struct KilnKnowledgeApi {
      * phase 2 takes the block back. KILN_ERR_INVALID_ARGUMENT when the block has a player. The game's own knowledge update
      * then consumes the flag, in the same step's update, exactly as for a real record. */
     KilnResult(KILN_CALL* lab_record)(KilnEntity target, uint32_t phase, const uint32_t* ids, const uint32_t* values, uint32_t count);
+
+    /* Appended: the Mother Flame's level (check header.size before calling any of these).
+     * flame_status: any thread (system_level only on the tick thread). KILN_ERR_INVALID_ARGUMENT: out->size too small.
+     * flame_set: queues a new level (1 to 255; the game's formula limits it to the maximum, see KilnFlameResult.clamped);
+     *   *out_request = its id. Applied in the next server-world step. KILN_ERR_UNAVAILABLE: flame off on this build, no
+     *   world, or no Mother Flame seen; KILN_ERR_BUFFER_TOO_SMALL: 8 requests are waiting. Any thread.
+     * flame_result: KILN_ERR_NOT_FOUND while the request is pending or after it was forgotten (the last 16 are kept).
+     *   The result is final once the game mirrored the level, 180 program updates passed, or its world ended. A full
+     *   batch can take KILN_FLAME_BATCH_UPDATES updates (1638), longer if paused. Callers must await the native final
+     *   result, not report a timeout while a queued request can still run. Any thread. */
+    KilnResult(KILN_CALL* flame_status)(KilnFlameStatus* out);
+    KilnResult(KILN_CALL* flame_set)(KilnOwner owner, uint32_t level, uint64_t* out_request);
+    KilnResult(KILN_CALL* flame_result)(uint64_t request, KilnFlameResult* out);
 } KilnKnowledgeApi;
 
 #ifdef __cplusplus

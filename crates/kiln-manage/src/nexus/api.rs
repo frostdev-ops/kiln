@@ -5,7 +5,7 @@
 //! Nexus's rules for apps, as this client follows them:
 //! - Every request names the app: `Application-Name` + `Application-Version` and a `User-Agent` of the same; nothing
 //!   personal (no user name, no machine name).
-//! - The user's API key goes only to the API host (`apikey` header), never to the CDN or the archive manifests, and is
+//! - The OAuth access token goes only to the API host (`Authorization: Bearer` header), never to the CDN or the archive manifests, and is
 //!   never logged, printed or put into an error message ([`Client`]'s `Debug` hides it).
 //! - Rate limits: one request at a time per client, at least [`MIN_GAP`] apart; the `x-rl-*-remaining` headers are
 //!   read and requests stop before the hourly or daily budget runs out; a 429 blocks the client for its `Retry-After`.
@@ -20,7 +20,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// The API host. The key is sent to this origin only.
+/// The API host. Access tokens are sent to this origin only.
 pub const API_ORIGIN: &str = "https://api.nexusmods.com";
 /// The smallest gap between two API requests of one client.
 pub const MIN_GAP: Duration = Duration::from_millis(150);
@@ -76,7 +76,7 @@ pub struct HttpStream {
 /// The HTTP layer: ureq in the app, a mock in tests.
 pub trait Transport: Send + Sync {
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse>;
-    /// GET with a streamed body (no API key is ever passed here: the URLs are the CDN's).
+    /// GET with a streamed body (no authorization is ever passed here: the URLs are the CDN's).
     fn open(&self, url: &str, headers: &[(String, String)]) -> Result<HttpStream>;
 }
 
@@ -117,13 +117,16 @@ fn api_url(url: &str) -> bool {
 #[cfg(feature = "http")]
 impl Transport for UreqTransport {
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
-        let credentialed = req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey"));
-        if credentialed && !api_url(&req.url) {
-            return Err(Error::new(ErrorCode::Refused, "API keys may only be sent to the Nexus Mods API."));
+        if req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey")) {
+            return Err(Error::new(ErrorCode::Refused, "Personal API key authentication is not supported."));
         }
-        // ureq strips Authorization on redirects, but preserves custom headers such as apikey. Never follow a
-        // credentialed redirect, even to a same-origin URL that could then redirect elsewhere.
-        let redirects = if credentialed { 0 } else { 5 };
+        let credentialed = req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("authorization"));
+        let oauth = req.url == super::oauth::TOKEN_URL;
+        if credentialed && !api_url(&req.url) {
+            return Err(Error::new(ErrorCode::Refused, "Access tokens may only be sent to the Nexus Mods API."));
+        }
+        // Neither access-token headers nor OAuth form bodies may follow redirects.
+        let redirects = if credentialed || oauth { 0 } else { 5 };
         let mut resp = match req.method {
             "POST" => {
                 let mut b = self.agent.post(&req.url).config().max_redirects(redirects).build();
@@ -142,13 +145,13 @@ impl Transport for UreqTransport {
         };
         let status = resp.status().as_u16();
         let headers = resp.headers().iter().map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())).collect();
-        let body = resp.body_mut().with_config().limit(32 * 1024 * 1024).read_to_vec().map_err(|e| net(&req.url, e))?;
+        let body = resp.body_mut().with_config().limit(if oauth { 64 * 1024 } else { 32 * 1024 * 1024 }).read_to_vec().map_err(|e| net(&req.url, e))?;
         Ok(HttpResponse { status, headers, body })
     }
 
     fn open(&self, url: &str, headers: &[(String, String)]) -> Result<HttpStream> {
-        if headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey")) {
-            return Err(Error::new(ErrorCode::Refused, "Downloads must not carry an API key."));
+        if headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("apikey") || k.eq_ignore_ascii_case("authorization")) {
+            return Err(Error::new(ErrorCode::Refused, "Downloads must not carry account credentials."));
         }
         let mut b = self.agent.get(url);
         for (k, v) in headers {
@@ -450,10 +453,23 @@ pub struct RateState {
     pub calls: u64,
 }
 
+/// Backend-held bearer credentials. A session refreshes on expiry and serializes token rotation.
+pub trait Credentials: Send + Sync {
+    fn present(&self) -> bool;
+    fn access_token(&self) -> Result<Option<String>>;
+    fn refresh_rejected(&self, _token: &str) -> Result<Option<String>> { Ok(None) }
+    fn forget_rejected(&self, _token: &str) -> Result<()> { Ok(()) }
+}
+struct FixedCredentials(Option<String>);
+impl Credentials for FixedCredentials {
+    fn present(&self) -> bool { self.0.is_some() }
+    fn access_token(&self) -> Result<Option<String>> { Ok(self.0.clone()) }
+}
+
 pub struct Client {
     origin: String,
     transport: Arc<dyn Transport>,
-    key: Option<String>,
+    credentials: Arc<dyn Credentials>,
     app: AppId,
     gate: Mutex<Gate>,
     request_lock: Mutex<()>,
@@ -462,24 +478,27 @@ pub struct Client {
 
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Client").field("origin", &self.origin).field("key", &self.key.as_ref().map(|_| "<hidden>")).field("app", &self.app).finish()
+        f.debug_struct("Client").field("origin", &self.origin).field("authenticated", &self.credentials.present()).field("app", &self.app).finish()
     }
 }
 
 impl Client {
-    pub fn new(transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
-        Self::build(API_ORIGIN, transport, key, app)
+    pub fn new(transport: Arc<dyn Transport>, token: Option<String>, app: AppId) -> Client {
+        Self::build(API_ORIGIN, transport, Arc::new(FixedCredentials(token)), app)
     }
 
     /// Tests point the client at a mock origin.
     #[cfg(test)]
-    pub fn with_origin(origin: &str, transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
-        Self::build(origin, transport, key, app)
+    pub fn with_origin(origin: &str, transport: Arc<dyn Transport>, token: Option<String>, app: AppId) -> Client {
+        Self::build(origin, transport, Arc::new(FixedCredentials(token)), app)
     }
 
-    fn build(origin: &str, transport: Arc<dyn Transport>, key: Option<String>, app: AppId) -> Client {
-        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
-        Client { origin: origin.trim_end_matches('/').to_string(), transport, key, app, gate: Mutex::new(Gate::default()), request_lock: Mutex::new(()), gap: MIN_GAP }
+    pub fn with_credentials(transport: Arc<dyn Transport>, credentials: Arc<dyn Credentials>, app: AppId) -> Client {
+        Self::build(API_ORIGIN, transport, credentials, app)
+    }
+
+    fn build(origin: &str, transport: Arc<dyn Transport>, credentials: Arc<dyn Credentials>, app: AppId) -> Client {
+        Client { origin: origin.trim_end_matches('/').to_string(), transport, credentials, app, gate: Mutex::new(Gate::default()), request_lock: Mutex::new(()), gap: MIN_GAP }
     }
 
     /// Tests: no gap between requests.
@@ -488,8 +507,8 @@ impl Client {
         self
     }
 
-    pub fn has_key(&self) -> bool {
-        self.key.is_some()
+    pub fn has_credentials(&self) -> bool {
+        self.credentials.present()
     }
 
     pub fn app(&self) -> &AppId {
@@ -538,7 +557,7 @@ impl Client {
             g.blocked_until = None;
         }
         if g.hourly_remaining.is_some_and(|n| n < RESERVE) || g.daily_remaining.is_some_and(|n| n < RESERVE) {
-            return Err(Error::new(ErrorCode::Busy, "Nexus Mods' request limit for your key is nearly used up. Try again later."));
+            return Err(Error::new(ErrorCode::Busy, "Nexus Mods' request limit for your account is nearly used up. Try again later."));
         }
         if let Some(last) = g.last {
             let wait = self.gap.saturating_sub(last.elapsed());
@@ -567,27 +586,41 @@ impl Client {
         }
     }
 
-    fn request(&self, method: &'static str, path: &str, body: Option<serde_json::Value>, need_key: bool) -> Result<HttpResponse> {
-        if need_key && self.key.is_none() {
-            return Err(Error::new(ErrorCode::AuthFailed, "Add your Nexus Mods API key in Settings first."));
-        }
+    fn request(&self, method: &'static str, path: &str, body: Option<serde_json::Value>, need_auth: bool) -> Result<HttpResponse> {
         let _request = self.request_lock.lock().unwrap();
+        let mut token = self.credentials.access_token()?;
+        if need_auth && token.is_none() {
+            return Err(Error::new(ErrorCode::AuthFailed, "Sign in to Nexus Mods in Settings first."));
+        }
         self.admit()?;
         let mut headers = self.app_headers();
         headers.push(("Accept".into(), "application/json".into()));
-        if let Some(k) = &self.key {
-            headers.push(("apikey".into(), k.clone()));
+        if let Some(token) = &token {
+            headers.push(("Authorization".into(), format!("Bearer {token}")));
         }
         let body = body.map(|b| {
             headers.push(("Content-Type".into(), "application/json".into()));
             serde_json::to_vec(&b).unwrap_or_default()
         });
-        let req = HttpRequest { method, url: format!("{}{}", self.origin, path), headers, body };
-        let resp = self.transport.send(&req)?;
+        let mut req = HttpRequest { method, url: format!("{}{}", self.origin, path), headers, body };
+        let mut resp = self.transport.send(&req)?;
         self.note(&resp);
+        if resp.status == 401 {
+            if let Some(rejected) = token.as_deref() {
+                if let Some(fresh) = self.credentials.refresh_rejected(rejected)? {
+                    self.admit()?;
+                    req.headers.retain(|(name,_)| !name.eq_ignore_ascii_case("authorization"));
+                    req.headers.push(("Authorization".into(), format!("Bearer {fresh}")));
+                    token = Some(fresh);
+                    resp = self.transport.send(&req)?;
+                    self.note(&resp);
+                }
+            }
+            if resp.status == 401 { if let Some(rejected) = token.as_deref() { self.credentials.forget_rejected(rejected)?; } }
+        }
         match resp.status {
             200..=299 => Ok(resp),
-            401 => Err(Error::new(ErrorCode::AuthFailed, "Nexus Mods did not accept the API key. Check it in Settings.")),
+            401 => Err(Error::new(ErrorCode::AuthFailed, "Nexus Mods authorization expired or was revoked. Sign in again.")),
             403 => Err(Error::new(ErrorCode::Refused, "Nexus Mods refused this request. Check your account and download permissions.")),
             404 => Err(Error::not_found("Not found on Nexus Mods.")),
             410 => Err(Error::new(ErrorCode::Refused, "The download link has expired. Click Mod Manager Download on the site again.")),
@@ -707,7 +740,7 @@ impl Client {
         Ok(links)
     }
 
-    /// v1 `GET /v1/users/validate.json`: the key's account (name, premium). Nothing else of the answer is kept.
+    /// v1 `GET /v1/users/validate.json`: the authorized account (name, premium). Nothing else of the answer is kept.
     pub fn validate(&self) -> Result<Account> {
         let resp = self.request("GET", "/v1/users/validate.json", None, true)?;
         let v: serde_json::Value = serde_json::from_slice(&resp.body).map_err(|_| Error::new(ErrorCode::Parse, "Nexus Mods account: invalid response"))?;
@@ -715,7 +748,7 @@ impl Client {
         Ok(Account { name: v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(), premium: flag("is_premium") || flag("is_premium?") })
     }
 
-    /// An archive's manifest (`manifest_url`): a public file on Nexus's storage, fetched without the key.
+    /// An archive's manifest (`manifest_url`): a public file on Nexus's storage, fetched without account credentials.
     pub fn manifest(&self, url: &str) -> Result<Vec<ManifestEntry>> {
         if !url.starts_with("https://") {
             return Err(Error::new(ErrorCode::Refused, "the archive manifest is not on https"));
@@ -943,5 +976,10 @@ mod safety_tests {
         }
         assert!(api_url("https://api.nexusmods.com/v3/mods/search"));
         assert!(transport.open("https://cdn.test/file", &[("apikey".into(), "test-secret".into())]).is_err());
+        let bearer = vec![("Authorization".into(), "Bearer test-secret".into())];
+        for url in ["https://cdn.test/file", "https://api.nexusmods.com.evil.test/file", "https://users.nexusmods.com/oauth/userinfo"] {
+            assert!(transport.send(&HttpRequest { method: "GET", url: url.into(), headers: bearer.clone(), body: None }).is_err());
+        }
+        assert!(transport.open("https://cdn.test/file", &bearer).is_err());
     }
 }

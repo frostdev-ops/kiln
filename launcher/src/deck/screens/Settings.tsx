@@ -9,6 +9,8 @@ import * as api from "../../api/commands";
 import type { UiMode, UpdateStatus } from "../../api/commands";
 import { NEXUS_PAGE } from "../../api/distribution";
 import { useAppInfo, useDistribution, useSettings } from "../../api/hooks";
+import * as nx from "../../api/nexus";
+import { useNexusAccount } from "../../shell/catalogInstall";
 import { runTask, toast } from "../../ui";
 import { QuitDialog } from "../dialogs";
 import { useGlyphPref, type GlyphPref } from "../glyphs";
@@ -30,6 +32,19 @@ export default function Settings() {
   const [quit, setQuit] = useState(false);
   const [full, setFull] = useState<boolean | null>(null);
   const [upBusy, setUpBusy] = useState(false);
+  const [nexusBusy, setNexusBusy] = useState(false);
+  const nexus = useNexusAccount();
+  const nexusDisconnect = !!(nexus.data?.signedIn || nexus.data?.error);
+  const nexusAccount = async () => {
+    if (nexusBusy) return;
+    setNexusBusy(true);
+    try {
+      const account = nexusDisconnect ? await nx.nexusSignOut() : await runTask<nx.NexusAccount>(nx.nexusSignIn, { failed: "Not signed in" });
+      qc.setQueryData(nx.nk.account, account);
+      for (const queryKey of [["nexus_search"], ["nexus_mod"], nx.nk.installed]) qc.invalidateQueries({ queryKey });
+    } catch (e) { if (nexusDisconnect) toast.error(e); }
+    finally { setNexusBusy(false); }
+  };
   const updateLock = useRef(false);
   const dist = useDistribution();
   const selfUpdates = dist === "direct";
@@ -94,6 +109,11 @@ export default function Settings() {
           <Row id="set-versions" title="New versions" a="Open" sub={info.data ? `Kiln Launcher ${info.data.version}` : undefined}
             end={<Word tone="info">Nexus Mods</Word>} onClick={() => void api.appOpenUrl(NEXUS_PAGE).catch((e) => toast.error(e))} />
         )}
+        <Row id="set-nexus" title="Nexus Mods" a={nexusDisconnect ? "Sign out" : "Sign in"}
+          disabled={nexusBusy || !nexus.data || (!nexus.data.configured && !nexusDisconnect)}
+          sub={nexus.data?.error?.message ?? (nexus.data?.configured === false ? "Sign-in is not available in this build." : undefined)}
+          end={<Word tone={nexus.data?.signedIn ? "ok" : "idle"}>{nexus.data?.signedIn ? nexus.data.name ?? "Signed in" : "Not signed in"}</Word>}
+          onClick={() => void nexusAccount()} />
         <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
       </div>
       <p className="deck-foot-note" data-testid="deck-detection">

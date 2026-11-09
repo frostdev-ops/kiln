@@ -5,6 +5,7 @@
 #include "v26_model.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <stdexcept>
@@ -31,8 +32,24 @@ Mod *caller_mod(const void *) { return active_mod; }
 Mod *mod_of_address(const void *) { return active_mod; }
 void logf(int, const char *, ...) {}
 void mod_logf(const Mod *, int, const char *, ...) {}
-void unsupported(const Mod *, const char *, const char *) {}
-void refuse(const Mod *, const char *, const char *, bool) {}
+int unsupported_calls = 0, refusals = 0;
+static void say(const char *what, const char *fn, const char *why) {
+    if (std::getenv("KEMF_TEST_VERBOSE"))
+        std::printf("  %s %s: %s\n", what, fn ? fn : "", why ? why : "");
+}
+void unsupported(const Mod *, const char *fn, const char *why) {
+    ++unsupported_calls;
+    say("unsupported", fn, why);
+}
+void refuse(const Mod *, const char *fn, const char *why, bool) {
+    ++refusals;
+    say("refused", fn, why);
+}
+std::vector<std::function<void()>> posted;  // tasks for the next tick (post_tick)
+bool post_tick(std::function<void()> f) {
+    posted.push_back(std::move(f));
+    return true;
+}
 void account(Mod *, uint64_t) {}
 uint64_t qpc_ns() { return 0; }
 bool guarded(Mod *, const char *, ThunkFn f, void *p) {
@@ -86,13 +103,19 @@ static EmfApi table{};
 static KilnUiKeyFn key_fn;
 static KilnUiFrameFn frame_fn;
 static uint32_t captured = 0;
-static int closed = 0, clicks = 0;
+static int closed = 0, clicks = 0, right_clicks = 0;
 static EmfUiEvent last{};
+static std::string last_key, last_window;  // the event's strings are valid during the callback only
 static bool reenter = false, stop_on_click = false, close_frame = true;
 static void ui_cb(EmfWorld *, const EmfUiEvent *e, void *) {
     if (e->kind == EMF_UI_CLOSED) {
         ++closed;
         last = *e;
+    } else if (e->kind == EMF_UI_RIGHT_CLICK) {
+        ++right_clicks;
+        last = *e;
+        last_key = e->key;
+        last_window = e->window;
     } else {
         ++clicks;
         if (stop_on_click) {
@@ -113,7 +136,19 @@ static EmfWindowDef window_def() {
     d.widget_size = sizeof(EmfUiWidget);
     return d;
 }
+static bool button_clicked = true, right_click_now = false;
+static bool wheel_open_now = false;
+static int wheel_open_calls = 0;
+static KilnResult wheel_rc = KILN_OK;
+static KilnUiWheelFn wheel_fn;
+static void *wheel_user;
+static KilnHandle wheel_closed = 0;
+static std::vector<std::string> wheel_items;
+static std::string wheel_title;
+static uint32_t wheel_hold = 0, wheel_count = 0;
 static void init_ui(KilnUiApi &ui) {
+    ui.header.size = sizeof ui;
+    ui.header.version = KILN_UI_VERSION;
     ui.subscribe_frame = [](KilnOwner, KilnUiFrameFn f, void *, KilnHandle *h) -> KilnResult {
         frame_fn = f;
         *h = 1;
@@ -132,7 +167,35 @@ static void init_ui(KilnUiApi &ui) {
     };
     ui.push_id = [](KilnStr) {};
     ui.pop_id = []() {};
-    ui.button = [](KilnStr, float, float) { return true; };
+    ui.button = [](KilnStr, float, float) { return button_clicked; };
+    ui.text_wrapped = [](KilnStr) {};
+    ui.is_item_clicked = [](uint32_t b) { return b == KILN_UI_MOUSE_RIGHT && right_click_now; };
+    ui.wheel_open = [](KilnOwner, const KilnUiWheel *d, KilnUiWheelFn fn, void *user, KilnHandle *out) -> KilnResult {
+        ++wheel_open_calls;
+        if (wheel_rc != KILN_OK)
+            return wheel_rc;
+        if (wheel_open_now)
+            return KILN_ERR_UNAVAILABLE;
+        wheel_items.clear();
+        for (uint32_t i = 0; i < d->count; ++i)
+            wheel_items.emplace_back(d->items[i].ptr, d->items[i].len);
+        wheel_title.assign(d->title.ptr, d->title.len);
+        wheel_hold = d->hold_key;
+        wheel_count = d->count;
+        wheel_fn = fn;
+        wheel_user = user;
+        wheel_open_now = true;
+        *out = 99;
+        return KILN_OK;
+    };
+    ui.wheel_close = [](KilnHandle h) -> KilnResult {
+        wheel_closed = h;
+        if (!wheel_open_now)
+            return KILN_ERR_NOT_FOUND;
+        wheel_open_now = false;
+        return KILN_OK;
+    };
+    ui.wheel_active = []() { return wheel_open_now; };
     ui.end = []() {};
     ui.unsubscribe = [](KilnHandle) -> KilnResult { return KILN_OK; };
     ui.set_capture = [](uint32_t c) { captured = c; };
@@ -315,9 +378,318 @@ static void test_components(KilnWorldApi &world) {
     components_world_started();
 }
 
+// ---- v18 attributes on kiln.combat v2 ----
+static uint32_t combat_id = 0;
+static int32_t combat_delta = 0;
+static int combat_get_calls = 0, combat_add_calls = 0;
+static KilnResult combat_get_rc = KILN_OK, combat_add_rc = KILN_OK;
+static int32_t combat_value = 55;
+static bool combat_no_max = false;  // the pair has no readable maximum
+static KilnCombatApi combat_full{};
+static void test_attributes() {
+    auto *w = reinterpret_cast<EmfWorld *>(worlds[0]);
+    int32_t out = -1;
+    S.combat = nullptr;
+    int before = unsupported_calls;
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_STAMINA, &out) && out == -1 && unsupported_calls == before + 1);
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_STAMINA, 5) && unsupported_calls == before + 2);
+
+    // a kiln.combat table that ends before the v2 functions: "not supported", never a call through a missing slot
+    static KilnCombatApi v1{};
+    v1.header.size = offsetof(KilnCombatApi, attribute_ids);
+    S.combat = &v1;
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_STAMINA, &out) && !table.attribute_add(w, 7, EMF_ATTR_MANA, 1));
+    CHECK(unsupported_calls == before + 4);
+
+    combat_full.header.size = sizeof combat_full;
+    combat_full.header.version = KILN_COMBAT_VERSION;
+    combat_full.attribute_get = [](KilnEntity, uint32_t id, KilnAttributeValue *v) -> KilnResult {
+        ++combat_get_calls;
+        combat_id = id;
+        if (combat_get_rc == KILN_OK) {
+            v->value = combat_value;
+            v->is_current = 1;
+            v->has_max = combat_no_max ? 0 : 1;
+        }
+        return combat_get_rc;
+    };
+    combat_full.attribute_add = [](KilnEntity, uint32_t id, int32_t delta, KilnAttributeValue *) -> KilnResult {
+        ++combat_add_calls;
+        combat_id = id;
+        combat_delta = delta;
+        // as kiln.combat: only a pair's current value can be added to
+        if (id == EMF_ATTR_MAX_HEALTH || id == EMF_ATTR_MAX_STAMINA || id == EMF_ATTR_MAX_MANA)
+            return KILN_ERR_INVALID_ARGUMENT;
+        return combat_add_rc;
+    };
+    S.combat = &combat_full;
+
+    // every id goes through unchanged, and the value comes back
+    for (uint32_t id : {EMF_ATTR_HEALTH, EMF_ATTR_STAMINA, EMF_ATTR_MANA, EMF_ATTR_MAX_HEALTH, EMF_ATTR_MAX_STAMINA, EMF_ATTR_MAX_MANA, 0x12345678u}) {
+        out = -1;
+        combat_id = 0;
+        CHECK(table.attribute_get(w, 7, id, &out) && out == 55 && combat_id == id);
+    }
+    // EMF's plain false: no such entity or component (no refusal line), a bad id and an off feature are logged
+    const int refused = refusals;
+    combat_get_rc = KILN_ERR_NOT_FOUND;
+    out = -1;
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_MANA, &out) && out == -1 && refusals == refused);
+    combat_get_rc = KILN_ERR_INVALID_ARGUMENT;
+    CHECK(!table.attribute_get(w, 7, 0xDEADBEEFu, &out) && out == -1 && refusals == refused + 1);
+    combat_get_rc = KILN_ERR_UNAVAILABLE;
+    const int unsup = unsupported_calls;
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_STAMINA, &out) && unsupported_calls == unsup + 1);
+    combat_get_rc = KILN_OK;
+    // the server world's thread only, a server world only, an out pointer
+    const int calls = combat_get_calls;
+    tick_thread = false;
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_STAMINA, &out) && combat_get_calls == calls);
+    tick_thread = true;
+    CHECK(!table.attribute_get(reinterpret_cast<EmfWorld *>(worlds[2]), 7, EMF_ATTR_STAMINA, &out) && combat_get_calls == calls);
+    CHECK(!table.attribute_get(w, 7, EMF_ATTR_STAMINA, nullptr) && combat_get_calls == calls);
+
+    // attribute_add on the world's thread runs at once, with the id and the delta as given
+    posted.clear();
+    combat_add_calls = 0;
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_STAMINA, -12) && combat_add_calls == 1 && combat_id == EMF_ATTR_STAMINA && combat_delta == -12);
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_MANA, 30) && combat_add_calls == 2 && combat_id == EMF_ATTR_MANA && combat_delta == 30);
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_HEALTH, 0) && combat_add_calls == 3 && combat_delta == 0);
+    CHECK(posted.empty());
+    // maximums are refused (kiln.combat's INVALID_ARGUMENT), with a log line
+    const int r0 = refusals;
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_MAX_STAMINA, 10) && refusals == r0 + 1);
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_MAX_HEALTH, 10) && !table.attribute_add(w, 7, EMF_ATTR_MAX_MANA, 10) && refusals == r0 + 3);
+    combat_add_rc = KILN_ERR_NOT_FOUND;
+    CHECK(!table.attribute_add(w, 99, EMF_ATTR_STAMINA, 1) && refusals == r0 + 4);
+    combat_add_rc = KILN_ERR_UNAVAILABLE;
+    const int u0 = unsupported_calls;
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_STAMINA, 1) && unsupported_calls == u0 + 1);
+    combat_add_rc = KILN_OK;
+    // EMF: a heal of an attribute without a readable maximum is refused; damage to it goes through
+    combat_no_max = true;
+    const int r_nomax = refusals, a_nomax = combat_add_calls;
+    CHECK(!table.attribute_add(w, 7, EMF_ATTR_STAMINA, 5) && refusals == r_nomax + 1 && combat_add_calls == a_nomax);
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_STAMINA, -5) && combat_add_calls == a_nomax + 1);
+    combat_no_max = false;
+    // any other thread: queued (true), run by the next tick, a later refusal is logged
+    tick_thread = false;
+    combat_add_calls = 0;
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_STAMINA, -5) && combat_add_calls == 0 && posted.size() == 1);
+    CHECK(table.attribute_add(w, 7, EMF_ATTR_MAX_STAMINA, -5) && posted.size() == 2);  // queued: it is refused when it runs
+    tick_thread = true;
+    const int r1 = refusals;
+    for (auto &f : posted)
+        f();
+    posted.clear();
+    CHECK(combat_add_calls == 2 && refusals == r1 + 1);
+    // a server world only
+    CHECK(!table.attribute_add(reinterpret_cast<EmfWorld *>(worlds[2]), 7, EMF_ATTR_STAMINA, 1) && combat_add_calls == 2);
+    CHECK(!table.attribute_add(nullptr, 7, EMF_ATTR_STAMINA, 1) && combat_add_calls == 2);
+    // XP and level stay on kiln.progression: kiln.combat is not asked
+    const int gets = combat_get_calls, adds = combat_add_calls;
+    submitted.clear();
+    CHECK(table.attribute_add(w, 2, EMF_ATTR_XP_PENDING, 50) && submitted.size() == 1 && submitted[0].op == KILN_PROG_OP_ADD_EXPERIENCE);
+    CHECK(!table.attribute_add(w, 2, EMF_ATTR_LEVEL, 1) && !table.attribute_add(w, 2, EMF_ATTR_XP, 1) && !table.attribute_add(w, 2, EMF_ATTR_XP_PENDING, -5));
+    out = -1;
+    const_cast<KilnProgressionApi *>(S.progression)->get = [](KilnEntity, KilnProgression *p) -> KilnResult {
+        p->flags = KILN_PROG_HAS_LEVEL;
+        p->level = 12;
+        return KILN_OK;
+    };
+    CHECK(table.attribute_get(w, 2, EMF_ATTR_LEVEL, &out) && out == 12);
+    CHECK(combat_get_calls == gets && combat_add_calls == adds);
+    submitted.clear();
+}
+
+// ---- v10 wheel, and right clicks on windows ----
+static int wheel_cb_calls = 0, wheel_last_choice = -99;
+static EmfWorld *wheel_last_world = nullptr;
+static void *wheel_last_user = nullptr;
+static void wheel_cb(EmfWorld *w, int choice, void *user) {
+    ++wheel_cb_calls;
+    wheel_last_choice = choice;
+    wheel_last_world = w;
+    wheel_last_user = user;
+}
+static void test_wheel_and_right_clicks(KilnUiApi &ui) {
+    auto *server = reinterpret_cast<EmfWorld *>(worlds[0]);
+    int token = 0;
+    const char *const items[] = {"Wolf", "Bear (level 3)", "Fox"};
+    EmfWheel def{};
+    def.size = sizeof def;
+    def.title = "Pets";
+    def.items = items;
+    def.count = 3;
+    def.hold_key = 0x10;
+    def.world_kind = EMF_WORLD_SERVER;
+    def.cb = wheel_cb;
+    def.user = &token;
+    windows_world_started(EMF_WORLD_SERVER);
+    wheel_open_now = false;
+    wheel_open_calls = 0;
+
+    // opens: kiln.ui gets the copied definition
+    CHECK(table.wheel_open(&def));
+    CHECK(wheel_open_calls == 1 && wheel_count == 3 && wheel_title == "Pets" && wheel_hold == 0x10 && wheel_items[1] == "Bear (level 3)");
+    // one at a time (EMF: another wheel is open), and no window meanwhile (EMF's window_open rule)
+    int refused = refusals;
+    CHECK(!table.wheel_open(&def) && wheel_open_calls == 1 && refusals == refused + 1);
+    auto win = window_def();
+    CHECK(!table.window_open(&win) && refusals == refused + 2);
+    // the pick reaches the callback after the next step of its world, on that world's thread, once
+    wheel_fn(1, wheel_user);
+    CHECK(wheel_cb_calls == 0);
+    wheel_open_now = false;  // kiln.ui closed it before calling back
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 1 && wheel_last_choice == 1 && wheel_last_world == server && wheel_last_user == &token);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 1);
+    // a cancel is -1
+    CHECK(table.wheel_open(&def));
+    wheel_fn(-1, wheel_user);
+    wheel_open_now = false;
+    windows_after_step(server, EMF_WORLD_CLIENT);  // the wrong kind of world: not yet
+    CHECK(wheel_cb_calls == 1);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 2 && wheel_last_choice == -1);
+    // a stale callback of a wheel that is not the open one is ignored
+    CHECK(table.wheel_open(&def));
+    void *old_user = wheel_user;
+    wheel_fn(0, old_user);
+    wheel_open_now = false;
+    CHECK(table.wheel_open(&def));
+    wheel_fn(2, old_user);  // the first wheel's serial again
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 3 && wheel_last_choice == 0);
+    wheel_fn(1, wheel_user);
+    wheel_open_now = false;
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 4 && wheel_last_choice == 1);
+
+    // the world ends while it is open: closed in kiln.ui, no callback; a pick not yet delivered is dropped too
+    CHECK(table.wheel_open(&def));
+    wheel_closed = 0;
+    windows_world_stopping(EMF_WORLD_SERVER);
+    CHECK(wheel_closed == 99 && !wheel_open_now);
+    wheel_fn(1, wheel_user);  // a late callback from the render thread
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 4);
+    windows_world_started(EMF_WORLD_SERVER);
+    CHECK(table.wheel_open(&def));
+    wheel_fn(1, wheel_user);
+    wheel_open_now = false;
+    windows_world_stopping(EMF_WORLD_SERVER);
+    windows_world_started(EMF_WORLD_SERVER);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(wheel_cb_calls == 4);
+
+    // refusals: kiln.ui's (another wheel of another mod, the menu), a bad definition, no world of that kind
+    refused = refusals;
+    wheel_open_now = true;  // someone else's wheel
+    CHECK(!table.wheel_open(&def) && refusals == refused + 1);
+    wheel_open_now = false;
+    wheel_rc = KILN_ERR_UNAVAILABLE;  // the Kiln menu is open / no window yet
+    CHECK(!table.wheel_open(&def) && refusals == refused + 2);
+    wheel_rc = KILN_ERR_INVALID_ARGUMENT;
+    CHECK(!table.wheel_open(&def) && refusals == refused + 3);
+    wheel_rc = KILN_OK;
+    CHECK(table.wheel_open(&def));  // the failures left nothing behind
+    wheel_fn(-1, wheel_user);
+    wheel_open_now = false;
+    windows_after_step(server, EMF_WORLD_SERVER);
+    const int calls = wheel_open_calls;
+    EmfWheel bad = def;
+    bad.count = 0;
+    CHECK(!table.wheel_open(&bad));
+    bad = def;
+    bad.hold_key = 1;  // VK_LBUTTON
+    CHECK(!table.wheel_open(&bad));
+    bad = def;
+    bad.hold_key = 0xA0;  // VK_LSHIFT, not VK_SHIFT
+    CHECK(!table.wheel_open(&bad));
+    bad = def;
+    bad.cb = nullptr;
+    CHECK(!table.wheel_open(&bad) && !table.wheel_open(nullptr));
+    CHECK(wheel_open_calls == calls);  // refused before kiln.ui was asked
+    worlds[0] = 0;  // no server world: its callback would never come
+    CHECK(!table.wheel_open(&def) && wheel_open_calls == calls);
+    bad = def;
+    bad.world_kind = EMF_WORLD_CLIENT;
+    CHECK(table.wheel_open(&bad));  // a client world runs
+    wheel_fn(0, wheel_user);
+    wheel_open_now = false;
+    worlds[0] = 0x1000;
+    windows_after_step(reinterpret_cast<EmfWorld *>(worlds[2]), EMF_WORLD_CLIENT);
+    CHECK(wheel_last_choice == 0 && wheel_last_world == reinterpret_cast<EmfWorld *>(worlds[2]));
+
+    // a dedicated server has no overlay: EMF's failure value, kiln.ui never asked (even for a valid definition)
+    const int calls2 = wheel_open_calls;
+    refused = refusals;
+    g_side = KILN_SIDE_SERVER;
+    CHECK(!table.wheel_open(&def) && wheel_open_calls == calls2 && refusals == refused + 1);
+    CHECK(!table.wheel_open(&bad) && wheel_open_calls == calls2);
+    g_side = KILN_SIDE_CLIENT;
+    // no kiln.ui at all, and a kiln.ui without the wheel (an older core): false, "not supported"
+    const KilnUiApi *saved = S.ui;
+    S.ui = nullptr;
+    CHECK(!table.wheel_open(&def));
+    S.ui = saved;
+    const uint32_t full = ui.header.size;
+    const int unsup = unsupported_calls;
+    ui.header.size = offsetof(KilnUiApi, is_item_clicked);
+    CHECK(!table.wheel_open(&def) && unsupported_calls == unsup + 1 && wheel_open_calls == calls2);
+    ui.header.size = full;
+
+    // right clicks: a widget with a key reports EMF_UI_RIGHT_CLICK next to its left click
+    wheel_open_now = false;
+    close_frame = false;
+    button_clicked = false;
+    right_click_now = true;
+    EmfUiWidget widgets[3]{};
+    widgets[0].type = EMF_UI_BUTTON;
+    widgets[0].key = "slot:1";
+    widgets[1].type = EMF_UI_TEXT;  // a text takes no clicks
+    widgets[1].key = "text";
+    widgets[2].type = EMF_UI_BUTTON;
+    widgets[2].key = "off";
+    widgets[2].flags = EMF_UI_DISABLED;
+    auto rw = window_def();
+    rw.widgets = widgets;
+    rw.count = 3;
+    CHECK(table.window_open(&rw));
+    KilnUiFrame fr{};
+    fr.dpi_scale = 1;
+    const int rc0 = right_clicks, cc0 = clicks;
+    frame_fn(&fr, nullptr);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(right_clicks == rc0 + 1 && clicks == cc0 && last.kind == EMF_UI_RIGHT_CLICK && last_key == "slot:1" && last_window == "test.win");
+    // not while the pointer is not right-clicking; a left click is still a click
+    right_click_now = false;
+    button_clicked = true;
+    frame_fn(&fr, nullptr);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(right_clicks == rc0 + 1 && clicks == cc0 + 1);
+    // a kiln.ui without is_item_clicked reports no right clicks (and is never called)
+    right_click_now = true;
+    button_clicked = false;
+    ui.header.size = offsetof(KilnUiApi, is_item_clicked);
+    frame_fn(&fr, nullptr);
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(right_clicks == rc0 + 1);
+    ui.header.size = full;
+    // the CLOSED event is still the last
+    CHECK(table.window_close("test.win"));
+    windows_after_step(server, EMF_WORLD_SERVER);
+    CHECK(last.kind == EMF_UI_CLOSED);
+    right_click_now = false;
+    button_clicked = true;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2)
         return 2;
+    std::setvbuf(stdout, nullptr, _IONBF, 0); // a crash must not eat the FAIL lines
     P.emf = argv[1];
     static KilnApi api{};
     api.world = [](uint32_t k) { return worlds[k]; };
@@ -348,6 +720,7 @@ int main(int argc, char **argv) {
     static KilnProgressionApi prog{};
     S.progression = &prog;
     fill_windows(&table);
+    fill_attributes(&table);
     fill_level(&table);
     fill_components(&table);
     static KilnWorldApi world{};
@@ -397,6 +770,8 @@ int main(int argc, char **argv) {
     CHECK(clicks == 1 && closed == 4); // CLOSED frees user: the second extracted
                                        // CLICK must be suppressed
     test_images(ui);
+    test_attributes();
+    test_wheel_and_right_clicks(ui);
     windows_shutdown();
     CHECK(live_images == 0);
     std::printf("glue_test: %d checks, %d failures\n", checks, failures);

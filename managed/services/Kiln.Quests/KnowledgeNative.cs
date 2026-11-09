@@ -132,6 +132,30 @@ internal static unsafe class KnowledgeNative
         public fixed byte Reason[160];
     }
 
+    // The Mother Flame (appended to the native table; KilnFlameStatus 160 bytes, KilnFlameResult 152 bytes)
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FlameState
+    {
+        public uint Size;
+        public byte Available, Found, Tracked, Reserved;
+        public uint Entity, Level, Cap, NetworkLevel, SystemLevel, Pending;
+        public ulong Step, Submitted, Applied, Failed;
+        public fixed byte Reason[96];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FlameOutcome
+    {
+        public uint Size;
+        public int Status;
+        public ulong Request;
+        public uint Requested, Before, After, Cap;
+        public byte Marked, Mirrored, Clamped, Reserved;
+        public uint StepsToMirror, SystemLevel, Reserved2;
+        public ulong Step;
+        public fixed byte Reason[96];
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct Table
     {
@@ -162,6 +186,10 @@ internal static unsafe class KnowledgeNative
         public delegate* unmanaged[Cdecl]<uint*, uint, int> Allow;
         public delegate* unmanaged[Cdecl]<byte*, nuint, nuint*, int> NativeManifest;
         public delegate* unmanaged[Cdecl]<uint, uint, uint*, uint*, uint, int> LabRecord;
+        // appended with the flame (managed and native ship together: Services.Get checks the whole table's size)
+        public delegate* unmanaged[Cdecl]<FlameState*, int> FlameStatus;
+        public delegate* unmanaged[Cdecl]<ulong, uint, ulong*, int> FlameSet;
+        public delegate* unmanaged[Cdecl]<ulong, FlameOutcome*, int> FlameResult;
     }
 
     internal const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, WrongThread = 4, BufferTooSmall = 5,
@@ -179,7 +207,7 @@ internal static unsafe class KnowledgeNative
             if (sizeof(Info) != 28 || sizeof(State) != 32 || sizeof(Result) != 184 || sizeof(Request) != 40 ||
                 sizeof(Query) != 12 || sizeof(Name) != 32 || sizeof(JQuest) != 64 || sizeof(JStep) != 56 ||
                 sizeof(Npc) != 36 || sizeof(Event) != 64 || sizeof(Op) != 16 || sizeof(Settings) != 20 ||
-                sizeof(Status) != 296)
+                sizeof(Status) != 296 || sizeof(FlameState) != 160 || sizeof(FlameOutcome) != 152)
                 return null;  // layout drift between this assembly and the header: refuse rather than misread
             var t = Services.Get<Table>("kiln.knowledge", 1);
             if (t != null && t->Header.Size < (uint)sizeof(Table)) t = null;

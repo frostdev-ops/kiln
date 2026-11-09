@@ -86,7 +86,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | `update.json` | the self-update's state: `{format, skipped, checked, updated: {from, to, at, source, notes}}` (releasing.md) |
 | `servers/<id>.json` | launcher records of servers that are not kilnctl instances (steam, windows, remote) and renames (`ServerInstance`) |
 | `modpacks/downloads/<sha256>.zip`, `modpacks/built/<serverId>/`, `modpacks/staging/`, `modpacks/dismissed.json` | modpack downloads (reused when the sha256 matches), built server modpacks, unpack staging, offers and refusals the user dismissed (`{gameId: {serverId: modpack sha256 | "refused <written>"}}`) |
-| `nexus/` | the catalog on Nexus Mods ([catalog.md](catalog.md)): `apikey.json` (the user's API key, 0600, only without an OS keyring backend; existing backend failures are surfaced), `handler.json` (the nxm opt-in and the handler before Kiln: `{format, registered, previous: {type: "desktop", id} \| {type: "command", command, icon, scope: "hkcu"\|"hklm"} \| null, exe, registeredAt, snapshot}`; format 2 snapshots preserve overwritten OS state before mutation), `verdicts.json` (what each mod's files hold, per mod and its `updated_at`), `installs.json` (mods installed from the catalog: `{format, mods: InstallRecord[]}`), `latest.json` (newest version per mod file, checked at most every 30 min), `inbox/*.json` (nxm links handed over by a second launcher process; private owner-only directory/files, bounded reads by the instance-lock owner), `downloads/<mod>-<file>/download-<random>/`, state transaction locks, `instance.lock` (held while a launcher runs) |
+| `nexus/` | the catalog on Nexus Mods ([catalog.md](catalog.md)): `oauth.json` (OAuth token pair and expiry, 0600, only without an OS keyring backend; existing backend failures are surfaced; retired personal-key entries are removed), `handler.json` (the nxm opt-in and the handler before Kiln: `{format, registered, previous: {type: "desktop", id} \| {type: "command", command, icon, scope: "hkcu"\|"hklm"} \| null, exe, registeredAt, snapshot}`; format 2 snapshots preserve overwritten OS state before mutation), `verdicts.json` (what each mod's files hold, per mod and its `updated_at`), `installs.json` (mods installed from the catalog: `{format, mods: InstallRecord[]}`), `latest.json` (newest version per mod file, checked at most every 30 min), `inbox/*.json` (nxm links handed over by a second launcher process; private owner-only directory/files, bounded reads by the instance-lock owner), `downloads/<mod>-<file>/download-<random>/`, state transaction locks, `instance.lock` (held while a launcher runs) |
 
 Profile ids: `^[a-z0-9][a-z0-9-]{0,47}$`, derived from the name (`Server: Ember Isles` -> `server-ember-isles`,
 a `-2` suffix on clashes).
@@ -750,9 +750,9 @@ or emits `kiln://update`; its UI calls none of these commands.
 | deck | `deck_gamepad` | on: boolean | `GamepadStatus` {native (Linux: the evdev reader exists), running, devices: {device, name, vendor, product}[], denied (gamepads in /dev/input that could not be opened)} (starts or stops the reader; events in `kiln://gamepad`) |
 | deck | `deck_fullscreen` | on: boolean | boolean (the main window's fullscreen state after the change) |
 | deck | `deck_quit` | - | null (exits the launcher: Game Mode has no window buttons) |
-| nexus | `nexus_account` | - | `NexusAccount` (checks the stored key with Nexus once per start; transient errors may retry after 60 s; never the key itself) |
-| nexus | `nexus_key_set` | key: string | `NexusAccount` (checked with Nexus first: a refused key is not stored, `auth_failed`; stored in the OS keyring; without a backend, `<data>/nexus/apikey.json` 0600 on Unix; backend failures reject without plaintext fallback) |
-| nexus | `nexus_key_clear` | - | `NexusAccount` |
+| nexus | `nexus_account` | - | `NexusAccount` (backend-held OAuth session metadata; account validation cached for 60 s; never token material) |
+| nexus | `nexus_sign_in` | - | `TaskId` (opens browser authorization with PKCE; result `NexusAccount`; cancellation/timeout supported; unavailable until Kiln has its own approved public registration) |
+| nexus | `nexus_sign_out` | - | `NexusAccount` (invalidates pending sign-in, clears memory and stored OAuth credentials) |
 | nexus | `nexus_search` | query: CatalogQuery | `CatalogPage` (the Kiln filter looks at up to 12 mods per call: `unchecked` > 0, ask again) |
 | nexus | `nexus_mod` | modId: string (game-scoped) | `CatalogDetails` |
 | nexus | `nexus_installed` | check: boolean | `InstalledCatalogMod[]` (`check`: look up the newest version of each installed file, cached 30 min) |
@@ -798,21 +798,26 @@ boolean, device: "jupiter"|"galileo"|null, forced: "deck"|"desktop"|null}` (`for
 line, the last one wins, else `KILN_LAUNCHER_UI=deck|desktop`). The UI: `forced`, else `uiMode` when not auto, else
 `detected`, else the desktop UI ([deck.md](deck.md)).
 
+Official launcher builds (`KILN_RELEASE_BUILD` set) require valid public Nexus OAuth registration at build time.
+The headless `--selftest` report adds `releaseBuild` and `nexusOAuth {configured, clientId, redirectUri}` from the
+actual compiled configuration. Unconfigured development builds pass selftest with `configured: false`; release
+report checks reject them. This metadata proves configuration, not Nexus approval or a working provider session.
+
 Catalog types (`kiln_manage::nexus`, `launcher/src/api/nexus.ts`; [catalog.md](catalog.md)): `CatalogQuery {text, filter:
 'kiln'|'all'|'installed' (default kiln), sort: 'endorsements'|'updated'|'new'|'downloads'|'name', page (1-based),
-pageSize (24, at most 100), adult, refresh}`, `CatalogPage {mods: CatalogMod[], total, page, pageSize, unchecked, needsKey,
+pageSize (24, at most 100), adult, refresh}`, `CatalogPage {mods: CatalogMod[], total, page, pageSize, unchecked, needsSignIn,
 fetched}`, `CatalogMod {id (game-scoped), uid, name, summary, version, author, category, thumbnail, endorsements,
 downloads, created, updated, adult, kind: 'kiln'|'native'|'emf'|'dll'|'modpack'|'other'|null (null: not looked at),
 url, installed: InstalledInfo | null}`, `InstalledInfo {version, versionGsid, fileName, inLibrary, latestVersion,
 latestGsid, updateAvailable}`, `CatalogDetails = CatalogMod + {description (plain text), credit, tags, uniqueDownloads,
-images: {url, thumb, title}[], files: CatalogFile[], bestFile, requirements: Requirement[], filesUrl, needsKey}`,
+images: {url, thumb, title}[], files: CatalogFile[], bestFile, requirements: Requirement[], filesUrl, needsSignIn}`,
 `CatalogFile {fileId, fileName, versionId, versionGsid, version, category, uploaded, primary, kind, archive}`,
 `Requirement {modId, name, fileName, minVersion, installed, kiln (Kiln itself), otherGame, url}`, `InstallReport {add:
 AddReport (Undo: profile_revert with its profileId and changes), modId, name, version, fileName, check: {files,
 matched, hashed, noManifest, sha256, size}, requirements, download}`, `InstalledCatalogMod = InstallRecord {modId, name,
 fileId, fileName, versionId, versionGsid, version, refs: LibraryRef[], installed, source: 'nxm'|'catalog'} + {info:
-InstalledInfo}`, `NexusAccount {keySet, keyPlace: 'keyring'|'file'|null, name, premium, error: KilnError|null, rate:
-{hourlyRemaining, dailyRemaining, blockedFor, calls}, keyPage}`.
+InstalledInfo}`, `NexusAccount {configured, signedIn, tokenPlace: 'keyring'|'file'|null, name, premium, error: KilnError|null, rate:
+{hourlyRemaining, dailyRemaining, blockedFor, calls}}`.
 
 Command line: `kiln-launcher --nxm <link>` (what Kiln registers) or a bare `nxm://` argument: an Enshrouded link is
 queued in `<data>/nexus/inbox/` and handed to the launcher that runs (this process exits), or this process starts with
@@ -906,7 +911,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `gameart` (feature `gameart`) | `extract_editor`, `extract_map`, `status`, `game_build`, `build_of`, `read_source`, `write_source`, `recipe_of`, `GameData::open`; `SourceInfo`, `GameSource`, `ArtStatus`, `GameBuild`, `EditorOptions`, `MapOptions`, `LayoutSource`; `kfc::Kfc`, `refl::{PeFile, TypeDb}`, `res`, `texture`, `image`, `work` ([gameart.md](gameart.md)) |
 | `modpack` | `inspect`, `download`, `verify`, `extract`, `check_against`, `install`, `build`, `publish`, `publish_state`, `client_mods`, `required`, `server_identity`; `ModpackManifest`, `ModpackMod`, `ModpackServer`, `ModpackSource`, `ModpackPreview`, `ModpackInstallRequest`, `ModpackInstallResult`, `BuiltModpack`, `ModpackPublishState`, `ClientMod` |
 | `lint` | `lint_paths`, `lint_text`, `lint_profile`, `lint_library_entry`, `rules`, `schema_for`, `docs::{idrefs, schema_markdown}`; `LintOptions`, `LintReport`, `Diagnostic`, `Severity`, `Span`, `Fix`, `TextEdit`, `Related` |
-| `nexus` (`api catalog install nxm handler keystore version`; network: feature `http`) | `client(key, app_version)`; `api::{Client::{new, search, mod_details, mod_files, file_versions, file_version_by_gsid, dependencies, download_links, validate, manifest, open_download, rate}, Transport, UreqTransport, AppId, Account, ManifestEntry, RateState, parse_manifest}`, `catalog::{Catalog::{new, search, details, verify, files, requirements, installed, check_updates, record_install, cached_verdict}, classify, newest, bbcode_to_text, files_url, mod_url, root_of, refuse_kiln, GAME, KILN_MOD, KILN_EPOCH, CHECK_BATCH, Query, Filter, Sort, Page, CatalogMod, Details, CatalogFile, Requirement, InstallRecord, InstalledMod, InstalledInfo, ModType, Verdict}`, `install::{install, download, check_zip, InstallRequest, InstallReport, CheckReport}`, `nxm::{parse, game_of, NxmLink}`, `handler::{register, unregister, status, state, forward, platform, acquire_instance, queue_link, take_links, exec_argv, exec_quote, fill_command, split_command, LinuxMime, HandlerPlatform, HandlerState, HandlerStatus, Previous}`, `keystore::{KeyStore, KeyPlace, SecretBackend, write_private}`, `version::{compare, is_newer}` ([catalog.md](catalog.md)) |
+| `nexus` (`api catalog install nxm handler keystore oauth version`; network: feature `http`) | `client(token, app_version)`; `api::{Client::{new, with_credentials, has_credentials, search, mod_details, mod_files, file_versions, file_version_by_gsid, dependencies, download_links, validate, manifest, open_download, rate}, Credentials, Transport, UreqTransport, AppId, Account, ManifestEntry, RateState, parse_manifest}`, `catalog::{Catalog::{new, search, details, verify, files, requirements, installed, check_updates, record_install, cached_verdict}, classify, newest, bbcode_to_text, files_url, mod_url, root_of, refuse_kiln, GAME, KILN_MOD, KILN_EPOCH, CHECK_BATCH, Query, Filter, Sort, Page, CatalogMod, Details, CatalogFile, Requirement, InstallRecord, InstalledMod, InstalledInfo, ModType, Verdict}`, `install::{install, download, check_zip, InstallRequest, InstallReport, CheckReport}`, `nxm::{parse, game_of, NxmLink}`, `handler::{register, unregister, status, state, forward, platform, acquire_instance, queue_link, take_links, exec_argv, exec_quote, fill_command, split_command, LinuxMime, HandlerPlatform, HandlerState, HandlerStatus, Previous}`, `keystore::{TokenStore::{new, with_backend, get, set, clear, file_path}, TokenPlace, SecretBackend, retire_legacy, write_private}`, `oauth::{Config::{registered, new}, Login::{bind, authorize_url, wait}, Session::{new, save, clear, place}, Tokens}`, `version::{compare, is_newer}` ([catalog.md](catalog.md)) |
 
 kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `deploy --bundle`.
 

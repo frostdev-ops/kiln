@@ -143,9 +143,13 @@ internal sealed record ResourceRow(Guid Guid, uint Part)
 /// <summary>Resources of one type, by type name or hash. The detail text comes from <see cref="Detail"/>.</summary>
 internal sealed class ResourcesView : DevView
 {
-    /// <summary>The detail seam. Raw by default (size and the first bytes); WP-06's reflected view replaces it, e.g.
-    /// <c>ResourcesView.Detail = k =&gt; Assets.Reflect(k)?.Describe() ?? ResourcesView.RawDetail(k);</c></summary>
-    public static Func<AssetKey, string> Detail = RawDetail;
+    /// <summary>The detail seam. Shows reflected fields when the type is known, otherwise raw bytes.</summary>
+    public static Func<AssetKey, string> Detail = ReflectedDetail;
+
+    private static string ReflectedDetail(AssetKey key) =>
+        GameTypes.Available && GameTypes.ByHash(key.Type) != null
+            ? Assets.Reflect(key)?.Describe() ?? RawDetail(key)
+            : RawDetail(key);
     /// <summary>Reads the resource list for a type hash (tests replace it).</summary>
     internal static Func<uint, AssetKey[]> List = Assets.ListResources;
 

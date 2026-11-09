@@ -49,7 +49,7 @@ Tags: **[refl]** the game's reflection, **[data]** decoded game data (whole data
   {invert, operation, count u16}`) compare against these values; the query db names them `motherFlameLevel_02`,
   `flameAltarLevel_01`, `flameAltarCOUNT_04`… **[data]**.
 - `keen::GameParameters {flameLevel u32, gameSettingsPreset u32, …}` is what the server advertises (server list).
-- The maximum is `BalancingTable.flameLevelMax` (not read by Kiln).
+- The maximum is `BalancingTable.flameLevelMax` (read by `WorldProgress.LimitsAt`).
 
 ## 2. The scene's global chunk: spires, shrines, wells **[data]**
 Every map marker sits in the world scene's global chunk (part 1600, map.md §3). Per placement, two spawn components
@@ -165,3 +165,48 @@ A lab (a copied save, no player), `mods/tests/worldstatus-test`, 44 PASS, 0 FAIL
 1. `chunk_persistent_data`'s layout: chests (and other persistent entities) of unloaded chunks.
 2. Whether a Flame Sanctum's end (its flame) records anything: no knowledge or named query was found for it.
 3. Which program copies the `Level` attribute into `NetworkServerProgress` (not traced; the lab shows it does within half a second).
+
+## 11. Mother Flame writes and derived limits
+
+The authoritative store is the progress entity's `Level` attribute, not `NetworkServerProgress`. The game's
+`AdminSetFlameLevel` handler takes its writable Level accessor, marks the component written, resolves the attribute slot
+with `AttrFind`, writes the requested value and calls `AttrRecompute`. The formula clamps it to the maximum stored next
+to it. `native/services/quests/flame.cpp` follows that path from an ECS program declaring a Level write and a
+NetworkServerProgress read. It refuses to write without a change tracker. Unknown attribute functions or layouts make
+the feature unavailable. The native service exposes `flame_status`, `flame_set`, and `flame_result`, appended to v1.
+Formula or readback failures restore both Level storage words and verify them. A failed restoration reports
+`ROLLBACK FAILED` rather than implying no change occurred. Mirror waits are bounded by program updates, not seconds;
+with one active request and eight waiting, a non-stalled batch can take `9 * (180 + 2) = 1638` updates. The managed task
+and SET watcher await native final outcomes so they cannot abandon queued writes which may still run.
+
+`ServerProgressSystem` has the progress entity at +0x10 and the level its rules read at +0x14. The read is accepted only
+when the entity matches the one the program found. The lab observed this level and the replicated level follow the
+stored attribute. An outstanding request is canceled when its world ends; a later world cannot confirm it.
+
+The balancing resource has `flameLevelMax` at +4, `playerBaseFogResistance` at +0x64,
+`playerFogResistancePerFlameLevel` at +0x68, and byte arrays `altarsPerFlameLevel` / `waterSourcesPerFlameLevel` at
++0x1b8 / +0x1c0. Both arrays must have maximum + 1 entries. The fog threshold comes from the live server setting
+`flameLevelFogRemoval`; the setting stays unchanged when the level changes.
+
+dev20-wp15 lab evidence (server 26430253, 2026-11-08): the armed run finished 61 PASS / 0 FAIL and the restarted run
+59 PASS / 0 FAIL. The marked write changed level 3 to 7, then the next process read
+`Level = 7`, replicated level 7 and `ServerProgressSystem.progressLevel = 7` before restoring 3. At level 3 the balancing
+table reported 6 altars, 1 water source and fog resistance 420; at 4 it reported 8, 5 and 480; at 7 it reported 12, 30 and
+660. The fog threshold remained 11. These are server reads; placement, client menus and visible fog need a player.
+
+## 12. Loca on a dedicated server
+
+The English table is in `keen::LocaTagCollectionResource` and its referenced language blobs on the client. The inspected
+server data has no collection resource among its 43,958 resources, and no matching client loca blob hashes in its
+directory. A server-only install therefore cannot supply arbitrary English text directly from its resources.
+
+Kiln's client catalog already exports `sections.loca[]` entries `{id, text}` from the owner's installed game.
+`Kiln.Content.Texts` and SET's `Res.text` read that optional local catalog, with size/count limits, without redistributing
+the texts. The id is FNV-1a-32 of the 16 GUID bytes in the resource's LocaTag reference. The lab loaded 16,740 entries from
+the client catalog for build 26430625 / svn 1287369. Missing catalog data remains unavailable, with a diagnostic; it is
+not replaced with guessed text. See [English game texts](../kiln/modding/texts.md).
+
+The lab compared three actual ItemInfo name references against `Items.DisplayName`: Wood Logs, Superior Mana Potion and
+Superior Health Potion all matched. A scan using the item registry compared 3,998 pairs and found 3,966 equal. The
+remaining shipped names are not all current English (for example, old Ashwind Strider names versus the current Sky
+Specter names); one goat name also has trailing whitespace in loca. `Texts.Get` preserves the current catalog text.

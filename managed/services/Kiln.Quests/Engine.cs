@@ -184,6 +184,19 @@ public static partial class Quests
         QuestsInternals.Info($"quest {e.Def.FullId} removed (its mod unloaded)");
     }
 
+    // Kiln.Blocks resets data-only definitions without a ModContext. A stale block lifetime must not remove a later definition with the same id.
+    internal static void ForgetBlock(QuestDefinition definition)
+    {
+        lock (Gate)
+        {
+            if (Registry.TryGetValue(definition.FullId, out var current) && !ReferenceEquals(current.Def, definition)) return;
+            Registry.Remove(definition.FullId);
+        }
+        QuestObjectives.Rebuild();
+        NativeExport.DefinedInData('q', definition.FullId, false);
+        NativeExport.Changed(definition.ModId);
+    }
+
     private static void CheckId(string id, string what)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-')))

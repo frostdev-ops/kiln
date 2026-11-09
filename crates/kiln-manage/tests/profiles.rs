@@ -271,8 +271,13 @@ fn activation_writes_profile_json_chain_and_native_state() {
 #[test]
 fn activation_native_mode_windows_paths() {
     let t = tmp("activate-win");
+    activation_native_mode_windows_paths_at(t.0.join("verbatim"));
     // a plain path, as %LOCALAPPDATA% gives it (tmp() canonicalizes, which adds the verbatim prefix on Windows)
-    let base = kiln_manage::steam::strip_verbatim(t.0.clone());
+    activation_native_mode_windows_paths_at(kiln_manage::steam::strip_verbatim(t.0.join("plain")));
+}
+
+#[cfg(windows)]
+fn activation_native_mode_windows_paths_at(base: PathBuf) {
     let dirs = DataDirs::at(base.join("Jörg Müller").join("AppData Local").join("Kiln"));
     let game = base.join("Program Files (x86)").join("Steam Ü").join("steamapps").join("common").join("Enshrouded");
     put(&game, "enshrouded.exe", b"MZ");
@@ -291,12 +296,12 @@ fn activation_native_mode_windows_paths() {
     let a = profile::activate(&dirs, &p.id, &inst).unwrap();
     assert_eq!((a.path_mode, a.copied), (PathMode::Native, 0));
     let f = profile::read_game_profile(&game).unwrap().unwrap();
-    let lib_path = library::path_of(&dirs, &refs(&r, ModKind::Kiln, "new-items")).unwrap();
+    let lib_path = kiln_manage::steam::strip_verbatim(library::path_of(&dirs, &refs(&r, ModKind::Kiln, "new-items")).unwrap());
     let kp = &f.mods.kiln[0].path;
     assert_eq!(Path::new(kp), lib_path.as_path());
     assert!(kp.contains("Jörg Müller") && kp.contains("AppData Local") && kp.as_bytes()[1] == b':', "{kp}");
     assert!(!kp.starts_with("Z:") && !kp.starts_with(r"\\?\") && !kp.contains('/'), "{kp}");
-    assert_eq!(Path::new(f.config_dir.as_deref().unwrap()), dirs.profile(&p.id).join("config").as_path());
+    assert_eq!(Path::new(f.config_dir.as_deref().unwrap()), kiln_manage::steam::strip_verbatim(dirs.profile(&p.id).join("config")).as_path());
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(game.join("kiln/profile.json")).unwrap()).unwrap();
     assert_eq!(v["pathMode"].as_str(), Some("native"));
     // chain.ini [profile]: the dllmain DLL as an absolute Windows path that resolves to the library's file; [chain] kept

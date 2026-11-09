@@ -39,7 +39,11 @@ extern std::atomic<uint32_t> g_menu_vk, g_menu_mods;
 extern std::atomic<HWND> g_hwnd;             // the game window (from the swapchain's surface)
 extern std::atomic<bool> g_text_input;       // ImGui wants text input (last frame)
 extern std::atomic<bool> g_want_mouse;       // ImGui wants the mouse (last frame)
-inline bool capturing() { return g_menu_open.load(std::memory_order_relaxed) || g_interactive.load(std::memory_order_relaxed) > 0; }
+extern std::atomic<bool> g_wheel_active;     // a radial wheel is open (wheel.cpp)
+inline bool wheel_active() { return g_wheel_active.load(std::memory_order_relaxed); }
+inline bool capturing() {
+    return g_menu_open.load(std::memory_order_relaxed) || g_interactive.load(std::memory_order_relaxed) > 0 || wheel_active();
+}
 // Something to draw this frame. The native fallback menu counts too.
 extern std::atomic<uint32_t> g_render_demand;  // kiln.render acquire_frames handles (render.cpp)
 inline bool want_draw() {
@@ -60,7 +64,8 @@ void input_replay();            // render thread, before ImGui::NewFrame: feeds 
 void input_capture_changed();   // render thread: capture started/stopped (cursor clip, ImGui mouse cursor)
 uint32_t input_take_pressed(uint32_t* mods);
 void key_name(uint32_t vk, char* out, size_t cap);
-bool dispatch_key(const KilnUiKey& key);  // runs the menu key and key subscribers; true = consumed
+bool dispatch_key(const KilnUiKey& key);  // runs the menu key, the wheel and key subscribers; true = consumed
+bool input_key_held(uint32_t vk);         // the key is down now, as far as the window's messages have told (any thread)
 
 // ---- ui.cpp ----
 // Builds one ImGui frame (NewFrame, frame callbacks, the fallback menu, Render). Render thread. False = nothing drawn.
@@ -68,6 +73,13 @@ bool build_frame(float width, float height, float dpi_scale);
 bool imgui_ready();
 bool imgui_create(HWND hwnd, float dpi_scale);  // context + Win32 backend + fonts (render thread)
 void imgui_destroy();
+
+// ---- wheel.cpp (the radial wheel: native/services/ui/wheel_math.h has its rules) ----
+KilnResult wheel_open(KilnOwner owner, const KilnUiWheel* def, KilnUiWheelFn fn, void* user, KilnHandle* out);
+KilnResult wheel_close(KilnHandle handle);
+void wheel_frame(float width, float height, float dpi);  // render thread, inside the ImGui frame, when wheel_active()
+bool wheel_on_key(const KilnUiKey& key);                 // window thread: Esc and the hold key; true = consumed
+void wheel_cancel_undrawable();                          // render thread: the overlay is off; cancel an open wheel (fn(-1))
 
 // ---- game.cpp (the game's own UI: screens, menu entries, crafting; docs/re/game-ui.md) ----
 bool game_install();   // plugin main: resolve ui.json, hook the game's UI frame and menu-entry renderers

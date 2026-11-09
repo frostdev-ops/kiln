@@ -17,6 +17,7 @@ const TEMPLATES: &[&str] = &[
     include_str!("../../../templates/kiln-body/.template.config/template.json"),
     include_str!("../../../templates/kiln-ability/.template.config/template.json"),
     include_str!("../../../templates/kiln-spell/.template.config/template.json"),
+    include_str!("../../../templates/kiln-quest/.template.config/template.json"),
     include_str!("../../../templates/kiln-vfx/.template.config/template.json"),
     include_str!("../../../templates/kiln-ui/.template.config/template.json"),
     include_str!("../../../templates/kiln-native/.template.config/template.json"),

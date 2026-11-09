@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT
  * kiln.ui v1 (client only): an in-game overlay drawn with Dear ImGui on top of the game's frames, the game window's
  * input (keys for key bindings, mouse + keyboard capture while a Kiln screen is open), and an immediate-mode drawing
- * table for the managed Kiln.Ui.
+ * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel (the last slots of the table).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 1u
+#define KILN_UI_VERSION 2u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage): check header.size */
 
 /* Colours are 0xRRGGBBAA. */
 
@@ -216,15 +216,52 @@ typedef void(KILN_CALL* KilnUiFrameFn)(const KilnUiFrame* frame, void* user);
 /* Window thread. Return true to keep the key from the game. */
 typedef bool(KILN_CALL* KilnUiKeyFn)(const KilnUiKey* key, void* user);
 
+/* ---- v2: right clicks and the radial wheel ---- */
+
+/* is_item_clicked: mouse buttons (ImGuiMouseButton values) */
+enum {
+    KILN_UI_MOUSE_LEFT = 0,
+    KILN_UI_MOUSE_RIGHT = 1,
+    KILN_UI_MOUSE_MIDDLE = 2,
+};
+
+/* wheel limits */
+enum {
+    KILN_UI_WHEEL_MAX_ITEMS = 64,  /* entries in one wheel */
+    KILN_UI_WHEEL_PAGE_ITEMS = 8,  /* entries on one page: the mouse wheel turns the page */
+};
+
+/* wheel_open: the definition (every string is copied; labels are cut at 256 bytes, the title at 64) */
+typedef struct KilnUiWheel {
+    uint32_t size;          /* sizeof(KilnUiWheel) */
+    uint32_t flags;         /* 0 (reserved; other bits are refused) */
+    KilnStr title;          /* shown in the middle of the wheel; empty = none */
+    const KilnStr* items;   /* `count` labels. "Name (details)" shows the details on a second line */
+    uint32_t count;         /* 1..KILN_UI_WHEEL_MAX_ITEMS */
+    uint32_t hold_key;      /* 0, or a keyboard key's generic virtual-key code (VK_SHIFT, VK_CONTROL, VK_MENU, a letter...;
+                               no mouse buttons, no VK_LSHIFT-style codes: refused) that the player holds while the wheel is
+                               open: releasing it picks the highlighted entry (in the centre: cancels). A tap (released within
+                               300 ms with nothing highlighted) leaves the wheel open for a click. 0, or a key that is not
+                               held when the wheel opens: no key, a left click picks */
+} KilnUiWheel;
+
+/* Called once when the wheel ends, on the render thread inside the overlay frame (keep it short; when the overlay turns
+ * off after an error, at the next present with -1). choice = the index
+ * into `items`, or -1 when the player cancelled (Esc or a right click, or a release in the centre). The wheel is closed
+ * before the call, so fn may open another wheel. */
+typedef void(KILN_CALL* KilnUiWheelFn)(int32_t choice, void* user);
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
     KilnResult(KILN_CALL* subscribe_frame)(KilnOwner owner, KilnUiFrameFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* subscribe_key)(KilnOwner owner, KilnUiKeyFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* unsubscribe)(KilnHandle handle);
-    /* Things to draw (HUD lines, windows, toasts). 0 = the overlay idles: presents pass through untouched. */
+    /* Things to draw (HUD lines, windows, toasts). 0 = the overlay idles: presents pass through untouched. Each calling
+     * native plugin (DLL; all managed code counts as one caller) sets its own count; the overlay uses the sum. */
     void(KILN_CALL* set_demand)(uint32_t layers);
-    /* Interactive Kiln windows open: > 0 = Kiln takes mouse and keyboard (as when the Kiln menu is open). */
+    /* Interactive Kiln windows open: > 0 = Kiln takes mouse and keyboard (as when the Kiln menu is open). A count per
+     * calling plugin, summed, as for set_demand. */
     void(KILN_CALL* set_capture)(uint32_t interactive);
     /* The Kiln menu: -1 toggle, 0 close, 1 open. Its key toggles it from the window thread (default Insert). */
     void(KILN_CALL* set_menu)(int32_t open);
@@ -357,6 +394,34 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* subscribe_pre_overlay)(KilnOwner owner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out);
     void(KILN_CALL* set_pre_overlay_demand)(uint32_t count);
     void(KILN_CALL* add_swapchain_usage)(uint32_t usage);
+
+    /* ================================================================================================================
+     * v2 (appended; check header.size >= offsetof(KilnUiApi, wheel_active) + sizeof(void*) before calling these)
+     * ============================================================================================================== */
+
+    /* ---- right clicks (inside a frame callback) ----
+     * is_item_clicked: true on the frame the mouse `button` (KILN_UI_MOUSE_*) went down over the item drawn last (a
+     *   button, selectable, image button...). It does not depend on the item's own click rules, so it also sees a right
+     *   click on a button. False outside a frame callback, or while something above the item (another window, the
+     *   wheel) has the pointer. Costs nothing unless called. */
+    bool(KILN_CALL* is_item_clicked)(uint32_t button);
+
+    /* ---- the radial wheel ----
+     * One wheel at a time, drawn in the middle of the screen over everything (windows below it get no input). While it is
+     * open Kiln takes the mouse and keyboard, as for a window: the mouse steers the highlight (the sector the pointer is
+     * in; nothing in the centre), the camera does not move, keys do not reach the game (releases still do), the mouse
+     * wheel turns the page (8 entries per page). A left click on a highlighted entry picks it; Esc or a right click
+     * cancel; the hold key (KilnUiWheel.hold_key) releases as described there. When it ends fn(choice, user) runs once.
+     * wheel_open: UNAVAILABLE when another wheel is open, the Kiln menu is open, or the overlay cannot draw (no window or
+     *   swapchain yet; ask wheel_active to tell the first case). INVALID_ARGUMENT for a bad definition or no fn. Any
+     *   thread; *out (optional) = the wheel's handle.
+     * wheel_close: ends the wheel without calling fn (the caller knows). NOT_FOUND when it already ended, in which case
+     *   fn has run or is running. Waits for a running fn unless called from it. Any thread.
+     * wheel_active: a wheel is open now (any owner). Any thread.
+     * Native callers close their wheel before they unload. */
+    KilnResult(KILN_CALL* wheel_open)(KilnOwner owner, const KilnUiWheel* wheel, KilnUiWheelFn fn, void* user, KilnHandle* out);
+    KilnResult(KILN_CALL* wheel_close)(KilnHandle wheel);
+    bool(KILN_CALL* wheel_active)(void);
 } KilnUiApi;
 
 /* ====================================================================================================================

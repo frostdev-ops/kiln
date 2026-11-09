@@ -1,6 +1,6 @@
 {
   "catalog": true,
-  "description": "blocks-loot: lootTables, recipes and a creature's drops: schema (KL102, KL104 ...), KL314 for an item or a table that is nothing or the wrong kind (a game item and a block of the mod are fine).",
+  "description": "blocks-loot: lootTables, recipes and a creature's drops, a quest reward's lootTable: schema (KL102, KL104 ...), KL314 for an item or a table that is nothing or the wrong kind (a game item and a block of the mod are fine); KL210 for the quest on a server-only mod.",
   "diagnostics": [
     {
       "code": "KL314",
@@ -81,6 +81,30 @@
       "line": 23,
       "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
       "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 119,
+      "file": "blocks/loot.json",
+      "line": 27,
+      "message": "no loot table block \"no-such-table\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:no-such-table\"",
+      "severity": "warning"
+    },
+    {
+      "code": "KL314",
+      "col": 125,
+      "file": "blocks/loot.json",
+      "line": 28,
+      "message": "\"shard\" is an item block; this field takes a loot table",
+      "severity": "warning"
+    },
+    {
+      "code": "KL210",
+      "col": 102,
+      "file": "kiln.mod.json",
+      "line": 1,
+      "message": "this mod has a quest in the game's journal (the default), dialogue in the game's NPC menu or an NPC clone but says \"clients\": \"kiln\": a client builds them at boot from the mod's files, so a player without those sees nothing; declare \"clients\": \"mod\" and side \"both\" (servers then refuse players without it). For a mod vanilla clients join, every quest says \"journal\": \"chat\" and every dialogue \"native\": false",
+      "severity": "error"
     }
   ]
 }

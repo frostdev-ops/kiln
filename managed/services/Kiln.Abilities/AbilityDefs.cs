@@ -281,7 +281,7 @@ internal static class AbilityRegistry
         if (!m.Ok) Hud.Toast($"{e?.Def.Name ?? m.Ability}: {m.Reason}", ToastKind.Warning, 2.5);
     }
 
-    private static void RequestCast(string id)
+    internal static void RequestCast(string id)
     {
         if (_channel is null || !_channel.SendToServer(new CastRequest(id)))
             Hud.Toast(Network.ServerHasKiln ? "the server does not have this ability" : "not connected to a Kiln server",

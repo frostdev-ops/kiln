@@ -127,6 +127,29 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<uint, void> SetHoverCapture;
     }
 
+    /// <summary>KilnUiWheel (kiln_ui.h v2): a radial wheel's definition; the strings are copied by kiln.ui during the call.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WheelDef
+    {
+        public uint Size, Flags;
+        public NativeStr Title;
+        public NativeStr* Items;
+        public uint Count, HoldKey;
+    }
+
+    /// <summary>The whole kiln.ui v2 table: <see cref="Table"/>'s slots, the three pre-overlay slots Kiln.Ui does not use, then
+    /// the v2 ones (is_item_clicked and the radial wheel). Only a kiln.ui whose table reaches the end has it (version 2).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table2
+    {
+        public Table Base;
+        public nint SubscribePreOverlay, SetPreOverlayDemand, AddSwapchainUsage;
+        public delegate* unmanaged[Cdecl]<uint, byte> IsItemClicked;
+        public delegate* unmanaged[Cdecl]<ulong, WheelDef*, delegate* unmanaged[Cdecl]<int, void*, void>, void*, ulong*, int> WheelOpen;
+        public delegate* unmanaged[Cdecl]<ulong, int> WheelClose;
+        public delegate* unmanaged[Cdecl]<byte> WheelActive;
+    }
+
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CraftMenuTable
@@ -167,7 +190,19 @@ internal static unsafe class UiNative
     }
 
     private static Table* _table;
+    private static Table2* _table2;
     public static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.ui", 1));
+
+    /// <summary>The v2 table (right clicks, the wheel), or null on a kiln.ui without them.</summary>
+    public static Table2* T2 => _table2 != null ? _table2 : (_table2 = Services.Get<Table2>("kiln.ui", 2));
+
+    /// <summary>Forgets the cached tables (tests swap the backend).</summary>
+    internal static void ResetForTests()
+    {
+        _table = null;
+        _table2 = null;
+    }
+
     public static bool Available => T != null;
     private static ulong _frameHandle, _keyHandle;
     private static readonly object Lock = new();

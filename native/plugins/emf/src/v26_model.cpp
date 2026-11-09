@@ -163,6 +163,44 @@ std::vector<std::string> describe_window(const WindowRequest& w) {
     return out;
 }
 
+// ============================================================================================= v10 wheel =======
+bool valid_hold_key(uint32_t vk) {
+    // VK_LBUTTON..VK_XBUTTON2 = 0x01..0x06, VK_LSHIFT..VK_RMENU = 0xA0..0xA5
+    return vk <= 0xFF && !(vk >= 0x01 && vk <= 0x06) && !(vk >= 0xA0 && vk <= 0xA5);
+}
+
+bool copy_wheel_def(const EmfWheel* def, WheelRequest* out, std::string* why) {
+    const auto refuse = [why](const std::string& reason) {
+        if (why) *why = reason;
+        return false;
+    };
+    if (!def || def->size < kWheelV10Size) return refuse("no wheel definition, or its size field is too small");
+    if (def->count < 1 || def->count > kMaxWheelItems) return refuse("a wheel has 1 to 64 entries");
+    if (!def->items) return refuse("items is NULL");
+    if (!valid_hold_key(def->hold_key))
+        return refuse("hold_key must be 0 or a keyboard key's generic virtual-key code (VK_SHIFT, not VK_LSHIFT; no mouse buttons)");
+    if (def->world_kind != EMF_WORLD_SERVER && def->world_kind != EMF_WORLD_CLIENT)
+        return refuse("world_kind must be EMF_WORLD_SERVER or EMF_WORLD_CLIENT");
+    if (!def->cb) return refuse("no callback");
+    const auto cut = [](const char* p, size_t max) {
+        if (!p) return std::string();
+        size_t n = 0;
+        while (n < max && p[n]) ++n;
+        while (n > 0 && p[n] && (static_cast<unsigned char>(p[n]) & 0xC0) == 0x80) --n;  // never inside a UTF-8 sequence
+        return std::string(p, n);
+    };
+    WheelRequest r;
+    r.title = cut(def->title, kMaxWheelTitleLen);
+    r.items.reserve(def->count);
+    for (uint32_t i = 0; i < def->count; ++i) r.items.push_back(cut(def->items[i], kMaxWheelLabelLen));  // a NULL label is empty
+    r.hold_vk = def->hold_key;
+    r.world_kind = def->world_kind;
+    r.cb = def->cb;
+    r.user = def->user;
+    *out = std::move(r);
+    return true;
+}
+
 bool portrait_key_ok(const std::string& k) {
     if (k.empty() || k.size() > 64 || k == "." || k == "..") return false;
     for (const char c : k)

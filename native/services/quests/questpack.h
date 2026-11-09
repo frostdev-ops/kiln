@@ -13,6 +13,11 @@ namespace kiln::qb {
 
 using ojson = nlohmann::ordered_json;
 
+constexpr size_t kMaxBlockFile = 16u << 20;
+constexpr int kMaxBlockDepth = 64;
+// blocks/*.json accepts comments and trailing commas, like the managed block loader. Invalid or oversized input is discarded.
+ojson parse_blocks_json(const std::string& text);
+
 struct ModInput {
     std::string id;                  // the manifest's id
     std::vector<ojson> documents;    // quests/*.json, then quests/generated/*.json and what code defined (kiln/data/kiln-quests/native/<id>.json)

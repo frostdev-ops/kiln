@@ -1,7 +1,6 @@
 // The online catalog on Nexus Mods and Mod Manager Download (nxm://) links: types and wrappers for the nexus_*
 // commands (launcher/src-tauri/src/commands/nexus.rs, kiln_manage::nexus; docs/kiln/launcher/catalog.md). The browser
-// mock answers from ./mockNexus.ts. The API key never comes back from the backend: the account says only whether one
-// is set, where, the account name and premium.
+// mock answers from ./mockNexus.ts. OAuth credentials never reach the frontend: the account contains only connection status, name and premium.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { isTauri, toKilnError, type AddReport, type GameId, type KilnError, type TaskId } from "./commands";
 import { mockInvoke } from "./mock";
@@ -56,7 +55,7 @@ export interface CatalogMod {
   created: string;
   updated: string;
   adult: boolean;
-  /** null: not looked at (older than Kiln, or no API key). */
+  /** null: not looked at (older than Kiln, or no authorization). */
   kind: ModType | null;
   url: string;
   installed: InstalledInfo | null;
@@ -69,7 +68,7 @@ export interface CatalogPage {
   pageSize: number;
   /** Mods that may be Kiln mods and wait to be looked at: ask again. */
   unchecked: number;
-  needsKey: boolean;
+  needsSignIn: boolean;
   fetched: string;
 }
 
@@ -109,7 +108,7 @@ export interface CatalogDetails extends CatalogMod {
   requirements: CatalogRequirement[];
   /** The files tab with the best file picked and its Mod Manager Download shown. */
   filesUrl: string;
-  needsKey: boolean;
+  needsSignIn: boolean;
 }
 
 export interface InstalledCatalogMod {
@@ -127,13 +126,13 @@ export interface InstalledCatalogMod {
 }
 
 export interface NexusAccount {
-  keySet: boolean;
-  keyPlace: "keyring" | "file" | null;
+  configured: boolean;
+  signedIn: boolean;
+  tokenPlace: "keyring" | "file" | null;
   name: string | null;
   premium: boolean;
   error: KilnError | null;
   rate: { hourlyRemaining: number | null; dailyRemaining: number | null; blockedFor: number; calls: number };
-  keyPage: string;
 }
 
 export interface HandlerStatus {
@@ -166,9 +165,9 @@ export interface InstallReport {
 }
 
 export const nexusAccount = () => call<NexusAccount>("nexus_account");
-/** Checks the key with Nexus Mods first; a refused key is not stored (auth_failed). */
-export const nexusKeySet = (key: string) => call<NexusAccount>("nexus_key_set", { key });
-export const nexusKeyClear = () => call<NexusAccount>("nexus_key_clear");
+/** Opens browser consent; the backend owns PKCE, callback and token exchange. Result: NexusAccount. */
+export const nexusSignIn = () => call<TaskId>("nexus_sign_in");
+export const nexusSignOut = () => call<NexusAccount>("nexus_sign_out");
 export const nexusSearch = (query: CatalogQuery) => call<CatalogPage>("nexus_search", { query });
 export const nexusMod = (modId: string) => call<CatalogDetails>("nexus_mod", { modId });
 export const nexusInstalled = (check = false) => call<InstalledCatalogMod[]>("nexus_installed", { check });

@@ -5,8 +5,11 @@
 //    its close_key or its X close it (CLOSED, BY_PLAYER). Clicks are queued on the render thread and reach the mod's
 //    callback after the next step of the world the window named, on that world's thread, as EMF delivers them.
 //  - A dedicated server has no overlay: window_open is refused and image_load answers 0 there (EMF's behaviour).
-//  - Differences: right clicks are not reported (kiln.ui has no right-click query yet); EMF's console look and its
-//    debug-bridge commands are not reproduced (the widgets are plain ImGui widgets).
+//  - Right clicks on a widget with a key (button, row, slot, picture) are EMF_UI_RIGHT_CLICK events, like the left clicks
+//    (kiln.ui v2's is_item_clicked); a kiln.ui without it reports none.
+//  - Differences: EMF's console look and its debug-bridge commands are not reproduced (the widgets are plain ImGui
+//    widgets).
+//  - window_open is refused while a wheel is open (api_wheel.cpp), as EMF documents.
 //  - Pictures: PNG files (or a folder of PNG frames) decoded by kiln.ui's image_load; EMF's limits (512 x 512, 64
 //    frames, 128 pictures, 64 MB) and path rules (the mod's folder, absolute, "portrait:<key>").
 #include <intrin.h>
@@ -146,6 +149,7 @@ void KILN_CALL on_frame(const KilnUiFrame* fr, void*) {
     S.ui->set_next_window_pos(x, fr->height * 0.15f, KILN_UI_COND_APPEARING, 0, 0);
     S.ui->set_next_window_size(width, 0, KILN_UI_COND_APPEARING);
     bool open = true;
+    const bool right_clicks = ui_has_item_clicked();  // kiln.ui v2
     const std::string title = (win.title.empty() ? win.id : win.title) + "###emf." + win.id;
     if (S.ui->begin(kstr(title), &open, KILN_UI_WINDOW_NO_COLLAPSE)) {
         for (size_t i = 0; i < win.widgets.size(); ++i) {
@@ -215,9 +219,13 @@ void KILN_CALL on_frame(const KilnUiFrame* fr, void*) {
                 }
                 default: break;
             }
+            // before the tooltip: it is asked of the widget drawn last
+            const bool right = right_clicks && !off && !wd.key.empty() && v26::widget_takes_clicks(wd.type) &&
+                               S.ui->is_item_clicked(KILN_UI_MOUSE_RIGHT);
             if (!wd.tooltip.empty() && S.ui->is_item_hovered()) S.ui->set_tooltip(kstr(wd.tooltip));
             if (clicked && !off && !wd.key.empty() && v26::widget_takes_clicks(wd.type))
                 post_event_locked(win, g_win_mod, EMF_UI_CLICK, wd.key, 0, &now);
+            if (right) post_event_locked(win, g_win_mod, EMF_UI_RIGHT_CLICK, wd.key, 0, &now);
             S.ui->pop_id();
         }
     }
@@ -264,6 +272,7 @@ bool api_window_open(const EmfWindowDef* def) {
     std::string why;
     if (!v26::copy_window_def(def, false, &r, &why)) return refuse(m, "window_open", why.c_str()), false;
     if (g_side == KILN_SIDE_SERVER || !S.ui || !ensure_ui()) return refuse(m, "window_open", no_overlay(), true), false;
+    if (wheel_is_open()) return refuse(m, "window_open", "a wheel is open", true), false;
     if (!g_api->world(r.world_kind))
         return refuse(m, "window_open",
                       r.world_kind == EMF_WORLD_SERVER
@@ -432,10 +441,12 @@ void windows_after_step(EmfWorld* w, uint8_t kind) {
         }
     }
     for (auto& p : due) deliver(p, w, false);
+    wheel_after_step(w, kind);  // v10: wheel results
 }
 
 // Called before Kiln clears the dying world's pointer: never deliver its clicks into a later session.
 void windows_world_stopping(uint8_t kind) {
+    wheel_world_stopping(kind);
     std::vector<Pending> due;
     {
         std::lock_guard lock(g_win_mutex);
@@ -459,13 +470,17 @@ void windows_world_stopping(uint8_t kind) {
 }
 
 void windows_world_started(uint8_t kind) {
-    windows_world_stopping(kind); // also discard pending events when an older core missed a stop
-    std::lock_guard lock(g_win_mutex);
-    g_stopping[kind] = false;
+    windows_world_stopping(kind); // also discard pending events when an older core missed a stop (and a wheel's)
+    {
+        std::lock_guard lock(g_win_mutex);
+        g_stopping[kind] = false;
+    }
+    wheel_world_started(kind);
 }
 
 void windows_shutdown() {
     g_shutdown = true;
+    wheel_shutdown();
     windows_world_stopping(EMF_WORLD_SERVER);
     windows_world_stopping(EMF_WORLD_CLIENT);
     if (S.ui) {
@@ -487,6 +502,7 @@ void fill_windows(EmfApi* t) {
     t->window_update = &api_window_update;
     t->window_close = &api_window_close;
     t->image_load = &api_image_load;
+    fill_wheel(t);
 }
 
 }  // namespace kemf

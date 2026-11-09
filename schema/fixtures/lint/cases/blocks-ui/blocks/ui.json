@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "effects": { "burst": { "heal": 1 } },
+  "abilities": { "nova": { "name": "Nova", "onCast": [ "burst" ] } },
+  "windows": {
+    "main": {
+      "title": "Main",
+      "rows": [
+        { "type": "text", "text": "FPS {game.fps:0}", "color": "orange" },
+        { "type": "button", "label": "Settings", "does": { "openWindow": "settings" } },
+        { "type": "button", "label": "Typo", "does": { "openWindow": "settngs" } },
+        { "type": "button", "label": "Effect", "does": { "openWindow": "burst" } },
+        { "type": "button", "label": "Cast", "does": { "castAbility": "nova" } },
+        { "type": "button", "label": "Bad cast", "does": { "castAbility": "burst" } },
+        { "type": "button", "label": "Apply", "does": { "applyEffect": "burst" } },
+        { "type": "button", "label": "Bad apply", "does": { "applyEffect": "nova" } },
+        { "type": "button", "label": "Two", "does": { "command": "x", "toast": "y" } },
+        { "type": "dial", "text": "x" },
+        { "type": "text", "text": "x", "colour": "red" }
+      ]
+    },
+    "settings": {
+      "title": "Settings",
+      "kind": "popup",
+      "rows": [ { "type": "button", "label": "Back", "does": { "closeWindow": "main" } } ]
+    }
+  },
+  "hudLines": { "fps": { "text": "{game.fps}", "anchor": "top", "refresh": 0 } },
+  "keyBindings": { "open": { "key": "F8", "does": { "openWindow": "main" } }, "bad": { "key": "F9" } }
+}

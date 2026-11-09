@@ -7,7 +7,7 @@ Mod authors: [catalog-authors.md](catalog-authors.md).
 
 Code:
 - `crates/kiln-manage/src/nexus/`: the API client, the catalog, downloads, nxm parsing, the handler registration and
-  the key store (unit tests in `tests.rs` against a mock Nexus Mods).
+  the OAuth token store (unit tests in `tests.rs` against a mock Nexus Mods).
 - `launcher/src-tauri/src/commands/nexus.rs`: the `nexus_*` commands, the link inbox, `kiln://nxm`.
 - `launcher/src/api/nexus.ts` and `mockNexus.ts`; `src/pages/CatalogPage.tsx`; `src/components/NexusSettings.tsx`;
   `src/shell/catalogInstall.tsx` (the shared Add flow and the nxm listener); `src/deck/screens/Catalog.tsx`.
@@ -43,24 +43,31 @@ Cost and caching:
   after its page changes. Failed manifest reads are reported and retried; they are never cached as a negative verdict.
 - The mod list itself is kept 10 minutes. Enshrouded had 237 visible mods (3 search pages) on 2026-11-07.
 
-File metadata needs the user's API key; public archive manifests are fetched without it. Without one the catalog still lists every Enshrouded mod (search and mod
-pages work anonymously) and says that finding Kiln mods needs the key.
+File metadata needs an authorized account; public archive manifests are fetched without credentials. Signed out, the
+catalog lists Enshrouded mods anonymously and offers browser sign-in to identify Kiln mods.
 
 ## Nexus's rules for apps, and how Kiln follows them
 - **Naming the app:** every request sends `Application-Name: Kiln Launcher`, `Application-Version: <launcher version>`
   and `User-Agent: Kiln-Launcher/<version> (<os>; <arch>)`. No user name, machine name or anything personal.
-- **The key:**
-  - The user pastes their personal API key from nexusmods.com/settings/api-keys.
-  - It is checked with Nexus (`/v1/users/validate.json`) before it is kept. Of that answer only the account name and
-    the premium flag are kept, in memory.
-  - It is stored in the OS keyring: the Secret Service via `secret-tool` on Linux (GNOME Keyring or KWallet),
-    Credential Manager on Windows. Without a backend it goes to `<data>/nexus/apikey.json` (0600 on Unix).
-    A present backend that fails reports an error; it never silently falls back to plaintext. A legacy plaintext
-    file migrates into an available keyring and is removed after verification.
-  - It never goes to settings.json, the UI, a log or an error message.
-  - It is sent only to `https://api.nexusmods.com`, never to the CDN or the manifest storage. Credentialed requests
-    do not follow redirects; diagnostics omit request bodies, secret headers and signed queries.
-  - `KILN_NO_KEYRING=1` skips the keyring.
+- **OAuth authorization:**
+  - Settings and Deck Settings open Nexus Mods in the system browser. The public desktop client uses authorization
+    code flow with PKCE S256 and unpredictable per-attempt state, following the
+    [Nexus guide](https://modding.wiki/en/api/oauth2-guide).
+  - The backend binds the exact approved IPv4 loopback callback before opening the browser. Callback path and state
+    must match; duplicate parameters are refused. Codes and PKCE verifiers never pass through the frontend. A
+    completed callback is consumed once; cancellation, sign-out and timeout close the attempt.
+  - Token exchange and refresh use `https://users.nexusmods.com/oauth/token`. The access token authenticates API
+    calls with `Authorization: Bearer`; the account endpoint validates account name and premium status. The app
+    does not trust an unverified JWT payload for authorization.
+  - OAuth tokens are stored in the OS keyring: Secret Service via `secret-tool` on Linux, Credential Manager on
+    Windows. A host without a backend uses `<data>/nexus/oauth.json` (0600 on Unix). Backend failures are surfaced
+    without silently downgrading to a file. `KILN_NO_KEYRING=1` explicitly skips the keyring.
+  - Expiry triggers refresh and persistence of the rotated pair, serialized across launcher instances by a private lock. Revoked refresh credentials sign the
+    account out. Sign-out clears backend state and stored tokens; an older sign-in attempt in the running launcher cannot restore them.
+  - No personal API key is accepted. Retired `apikey.json` and legacy keyring entries are removed, not reused.
+  - Credentials never go to settings, frontend state, logs, profiles or modpacks. Authenticated requests and token
+    exchanges do not follow redirects; downloads and archive manifests receive no account authorization.
+
 - **Rate limits:**
   - One API request at a time per client, at least 150 ms apart, including receipt of the previous response.
   - The `x-rl-hourly-remaining` / `x-rl-daily-remaining` headers are read. Requests stop when either drops under 20, so the
@@ -75,6 +82,17 @@ pages work anonymously) and says that finding Kiln mods needs the key.
     `key` + `expires`, which the launcher takes (below). The launcher never works around this.
 - **The Nexus Mods build:** it downloads mods the user picks, the same as the direct build. It never downloads or
   replaces itself ([releasing.md](releasing.md), "The two builds").
+
+### Public-client registration and release gate
+
+Nexus must approve Kiln's own public client ID and callback URI. Builds take these public values from
+`KILN_NEXUS_OAUTH_CLIENT_ID` and `KILN_NEXUS_OAUTH_REDIRECT_URI` at compile time. No client secret is needed or shipped.
+Absent registration, sign-in is unavailable; there is no borrowed test registration or personal-key fallback.
+The proposed callback for registration is `http://127.0.0.1:8089/callback`; it remains subject to Nexus approval.
+
+The guide requires an email to support@nexusmods.com with the application name, description, dark-background logo,
+source link and callback URI. The dev.20 release gate remains blocked until approval and real-account checks on the
+supported platforms complete. Mock-provider tests demonstrate local flow behavior, not Nexus approval.
 
 ## Adding a mod
 1. **The file:**
@@ -161,9 +179,9 @@ nxm default, and its own HKCU key.
 - `cargo test -p kiln-manage --features full nexus` runs the Nexus regression tests against mock Nexus Mods (API, storage, CDN):
   - search over cursor pages; the Kiln rule (old mods and Kiln's own page never checked, EMF classified, verdicts
     cached in memory and on disk, re-checked after `updated_at` changes); batching (`unchecked`); text, sort and
-    paging; no key;
-  - the key only to the API host; the app headers on every request; `Debug` hides the key;
-  - 429 + Retry-After, the budget headers, a bad key, ids that are not numbers; the account keeps the name and premium
+    paging while signed out;
+  - bearer authorization only to the API host; app headers on every request; `Debug` redacts credentials;
+  - 429 + Retry-After, the budget headers, refused authorization, ids that are not numbers; the account keeps the name and premium
     only;
   - details (BBCode to text, images, files, the file Add takes, requirements with Kiln marked); manifest shapes;
   - the nxm flow: a free account refused without the link's key, then the download, the check against the manifest,
@@ -171,7 +189,7 @@ nxm default, and its own HKCU key.
     30-minute cache;
   - refusals: damaged (size mismatch), nothing loadable, 7z, Kiln itself;
   - the handler (remembers Vortex, forwards, gives it back, nothing before Kiln); the real `xdg-mime` in private XDG
-    folders; the command-line helpers; the key store (keyring failure, migration and private file mode); the instance lock and
+    folders; the command-line helpers; the token store (keyring failure, migration and private file mode); the instance lock and
     the inbox; unsafe ZIPs, expansion limits, parallel downloads/records, exact handler restore, malformed links,
     rate concurrency, large versions, pagination failures and retry behavior.
 - `cargo test -p kiln-manage --features full --lib nexus::tests::live -- --ignored --nocapture` uses the real Nexus
@@ -192,13 +210,14 @@ nxm default, and its own HKCU key.
   and the process exits 0. The key is in neither log.
 
 ## Manual checklist (real API, your own account)
-Use your own key from nexusmods.com/settings/api-keys, never the release key. `KILN_DATA_DIR=<scratch>` separates
-launcher data files, but the OS keyring entry and nxm association still belong to your user account and are shared.
-Report OK or what happened for each line.
+Use Kiln's approved OAuth registration and your own Nexus account. `KILN_DATA_DIR=<scratch>` separates launcher
+files, but the OS keyring and nxm association still belong to your user account. Report each result separately on
+Windows and Linux/Deck; do not print tokens or authorization codes.
 
-1. Settings > Nexus Mods: paste the key, Save. Does it show "Signed in as <you>" with Free or Premium, and "Kept in
-   your system keyring"? Inspect the entry in your keyring application without printing its secret. Paste a wrong key: is it
-   refused, with the old key kept?
+1. Settings > Nexus Mods: Sign in, complete browser consent, and return to Kiln. Does it show your account with Free
+   or Premium? Deny consent and cancel an attempt: does it stay signed out? Sign out, then sign in again. Check token
+   expiry/refresh and revocation using Nexus's authorized-applications page. Sign out during a pending callback and
+   verify that the old callback cannot sign the account back in.
 2. Catalog: does "Kiln mods" list only mods that ship a `kiln.mod.json`? Is the count line right? While it says
    "Looking at N more", does the list grow?
 3. All Enshrouded: does every mod show, EMF and DLL mods with their word? Search by name and by author.
@@ -219,7 +238,7 @@ Report OK or what happened for each line.
     catalog say "Update <version>"? Does Update bring the new one, and only on the click?
 13. Turn the links option off. Is the previous manager the nxm handler again? Is the `.desktop` file (or the HKCU
     key) gone?
-14. Remove the key: does the catalog go back to listing everything with the "needs your API key" note?
+14. Sign out: does the catalog offer sign-in and continue anonymous browsing? Is stored authorization removed?
 15. Deck mode (`--deck`): the Catalog tab with a controller; X, Y, A on a mod, Add or Open on Nexus Mods, B.
 16. Did any step say that Nexus Mods asked Kiln to wait or slow down? Note which one.
 
@@ -232,5 +251,5 @@ Report OK or what happened for each line.
 - Archive formats other than zip (7z, RAR) are refused: Kiln has no decoder for them.
 - Text search is local (Nexus's v3 search has no text query): it covers name, summary, author and category of every
   Enshrouded mod, not descriptions.
-- No real-account run yet (the checklist above is for the first one). The v3 manifest format was read tolerantly (a
+- Public OAuth application registration and a real-account run are still pending (the checklist above is for the first one). The v3 manifest format was read tolerantly (a
   tree or a flat list of `{path, size, sha256}`); the first real run will show which one Nexus serves.

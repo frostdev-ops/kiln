@@ -793,6 +793,7 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
         info = &after_pre_overlay;
     }
     if (!info || g_failed || !want_draw()) {
+        if (g_failed && wheel_active()) wheel_cancel_undrawable();  // it can never be drawn or picked: release the input
         // capture just ended with nothing left to draw: still give the game its cursor clip back (render thread)
         if (imgui_ready()) input_capture_changed();
         return R.present.load()(queue, info);

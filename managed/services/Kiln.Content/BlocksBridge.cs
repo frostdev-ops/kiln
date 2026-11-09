@@ -10,6 +10,38 @@ internal static unsafe class BlocksBridge
 {
     public static string? CallerModId => ModContext.CurrentMod?.Info.Id;
 
+    /// <summary>The actual mod lifetime of UI defined in code or read later by the data service. The guard stays
+    /// bound to that instance after a same-id reload; it never consults a stale polling cache.</summary>
+    public static (Func<bool> Alive, IDisposable Watch)? TrackUiOwner(string id, Action retired)
+    {
+        var caller = ModContext.CurrentMod;
+        var info = caller?.Info.Id == id ? caller.Info : Mods.Get(id)?.Info;
+        if (info == null) return null; // no host in unit tests
+        var mod = ModContext.FindLive(info);
+        if (mod == null) return (() => false, new UiOwnerWatch(null, retired));
+        mod.Retiring += retired;
+        var watch = new UiOwnerWatch(mod, retired);
+        if (!mod.Alive) retired(); // retirement may have taken its callback snapshot before the subscription
+        return (() => mod.Alive, watch);
+    }
+
+    private sealed class UiOwnerWatch(ModContext? mod, Action retired) : IDisposable
+    {
+        public void Dispose() { if (mod != null) mod.Retiring -= retired; }
+    }
+
+    /// <summary>Give a generated ability the real mod owner even when its data compiled on a service tick.</summary>
+    public static bool RunAsUiOwner(string id, Action run)
+    {
+        var previous = ModContext.CurrentMod;
+        var info = previous?.Info.Id == id ? previous.Info : Mods.Get(id)?.Info;
+        var owner = info == null ? null : ModContext.FindLive(info);
+        if (info != null && owner == null) return false;
+        ModContext.CurrentMod = owner;
+        try { run(); return true; }
+        finally { ModContext.CurrentMod = previous; }
+    }
+
     /// <summary>The calling mod's owner: its layers come off with it.</summary>
     public static ulong CallerOwner() => Content.Owner();
 

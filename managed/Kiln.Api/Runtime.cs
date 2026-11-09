@@ -137,8 +137,12 @@ internal static class Backend
 /// <summary>Constructors the host needs; not part of the mod API.</summary>
 internal static class HostAccess
 {
-    public static ModContext CreateContext(ModInfo info, ulong owner, string dataDirectory) =>
-        new(info, new Logger(owner), dataDirectory) { Owner = owner };
+    public static ModContext CreateContext(ModInfo info, ulong owner, string dataDirectory)
+    {
+        var mod = new ModContext(info, new Logger(owner), dataDirectory) { Owner = owner };
+        ModContext.TrackLive(mod);
+        return mod;
+    }
 
     /// <summary>The mod whose code is running on this thread (set by the host around every call into a mod).</summary>
     public static ModContext? Current

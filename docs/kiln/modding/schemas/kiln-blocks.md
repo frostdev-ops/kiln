@@ -31,12 +31,15 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `containers` | object |  | Things that hold items, as the game's chests do: a lid, sounds and upgrades from the game's small chest. |
 | `cosmetics` | object |  | Pieces for the vanity slots: shown over what is worn there, with no stats. A look with files of the mod's own needs "clients": "mod". |
 | `creatures` | object |  | Creatures: a body, how it moves, sees and fights. |
+| `dialogues` | object |  | Conversations in the game's own NPC menu, for an NPC block's talk or a quest NPC's dialogue. Needs "clients": "mod". |
 | `doors` | object |  | Doors: they open and close for whoever uses them, and paths and water follow them. |
 | `effects` | object |  | What happens: the same effect plugs in everywhere. |
 | `format` | `1` | yes |  |
 | `hair` | object |  | Hair styles: worn looks on the head. A look with files of the mod's own needs "clients": "mod". |
+| `hudLines` | object |  | Lines of text on the game's screen with values in them, a condition and a refresh rate. Needs "clients": "mod". |
 | `interactions` | object |  | Parts: what happens when a player uses a placed thing. Use one by name in onInteract. |
 | `items` | object |  | Anything else that goes in a bag: a material, a potion, food, an arrow, a tool. Its kind follows from what you fill in, or say it. |
+| `keyBindings` | object |  | Keys that run an action (open a window, toggle a config value, run a command, cast an ability), rebindable in the Kiln menu. Needs "clients": "mod". |
 | `looks` | object |  | Parts: what an item looks like. Use one by name wherever a field takes a look. |
 | `lootTables` | object |  | Tables of what drops, rolled by Kiln: a creature's drops name one, and so does code (LootTableHandle.Roll/Drop/Give). Server only. |
 | `materialTweaks` | object |  | Changes to game materials: what it takes to dig them. Read at boot by kiln.worldtables; a strength change asks nothing of players' games. |
@@ -48,6 +51,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `placements` | object |  | Parts: where and how a player can place something. |
 | `processing` | object |  | Parts: how a station works on its own. |
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
+| `quests` | object |  | Quest chains in the game's own journal: steps, objectives, conditions, rewards. Needs "clients": "mod". |
 | `recipes` | object |  | Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench. |
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
@@ -67,6 +71,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `weaponClasses` | object |  | Parts: your own class of weapon, starting from a premade. |
 | `weaponStats` | object |  | Parts: a weapon's numbers. |
 | `weapons` | object |  | Weapons that are made exactly as their recipe tooltip shows. |
+| `windows` | object |  | Windows and screens of rows: text, values, buttons, toggles and sliders on the mod's config. Drawn by each player's game from the mod's own file, so needs "clients": "mod"; on a dedicated server checked and kept, nothing drawn. |
 | `wornLooks` | object |  | Parts: what something looks like on the body. Use one by name wherever a field takes a worn look. The cook finds the files of every look here by itself. |
 
 ## ability
@@ -558,6 +563,46 @@ How it gets there: a flight, or one of the deliveries placed where the caster is
 
 Type: [projectile](#projectile) or object or object or object or object or object or object or object
 
+## dialogue
+
+A conversation in the game's own NPC menu: nodes of text and options, each with a condition and actions. An NPC block names it (talk). A conversation in chat (native: false) is quests/*.json's. Players need the mod (clients "mod").
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `farewell` | array of `kiln-quests.schema.json text` |  | Replaces the NPC's farewell lines. |
+| `greet` | boolean |  | The start node's text is a greeting. Default: yes on a clone, no on a game NPC (its own greetings stay). |
+| `greetings` | array of object |  | More greetings, shown before the plain one while their condition holds. |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The marker over the NPC's head on the greeting. |
+| `nodes` | object | yes |  |
+| `start` | string |  | The first node (default "start"). min length 1 |
+| `transition` | array of `kiln-quests.schema.json text` |  | Replaces the line between topics. |
+
+## dialogueNode
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `do` | array of [questAction](#questaction) |  | Run when the node opens. |
+| `goto` | string |  | A node without options: where "Continue" goes. min length 1 |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The marker over the NPC's head on this node's greeting. |
+| `options` | array of [dialogueOption](#dialogueoption) |  | Add new options at the end: positions and node names feed the lines' ids. |
+| `speaker` | `kiln-quests.schema.json text` |  |  |
+| `text` | `kiln-quests.schema.json text` |  |  |
+| `voice` | string |  | A voice-over line the game's dialogue plays: a name in the mod's cooked audio, or a GUID. min length 1 |
+
+## dialogueOption
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `close` | boolean |  | The NPC plays its outro after the reply. |
+| `do` | array of [questAction](#questaction) |  |  |
+| `goto` | string |  | The next node: its text is the reply, and its options join the NPC's topics from then on. "end" or none: nothing more. min length 1 |
+| `hint` | `"None"` \| `"Hint"` \| `"Attention"` \| `"MainQuest"` |  | The topic's marker. |
+| `if` | [questCondition](#questcondition) |  | Shown only while this holds; checked again when chosen. |
+| `once` | boolean |  | The topic goes away once heard. |
+| `reply` | `kiln-quests.schema.json text` |  | What the NPC answers; default the target node's text. |
+| `text` | `kiln-quests.schema.json text` | yes |  |
+| `voice` | string |  | The reply's voice-over; default the target node's. min length 1 |
+
 ## door
 
 A door. Starts from the game's wooden door; visual.like names another.
@@ -643,6 +688,19 @@ A list of effects, a block of onHits or an effect by name, or an onHit inline.
 
 Type: [ref](#ref) or [effects](#effects) or [onHit](#onhit)
 
+## hudLine
+
+A line of text on the game's screen. It shows while its condition holds and updates at its own pace; hidden, it costs nothing. Drawn by each player's game, so the mod needs "clients": "mod".
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `anchor` | `"topLeft"` \| `"topCenter"` \| `"topRight"` \| `"middleLeft"` \| `"center"` \| `"middleRight"` \| `"bottomLeft"` \| `"bottomCenter"` \| `"bottomRight"` |  | Default topLeft. |
+| `color` | [uiColor](#uicolor) |  | Default white. |
+| `comment` | string |  |  |
+| `refresh` | number |  | Seconds between updates. Default 1. min 0.1 max 3600 |
+| `text` | [uiText](#uitext) | yes | The text, with {game.fps:0} and {config.clock.scale:0.00} for values; {{ and }} are braces. |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
 ## interaction
 
 What happens when a player uses a placed thing. A field left out is what its starter does. verb, plays, toggle and the game's lock in requires are the game's own; effects and requires' when, unless are Kiln's, on the server.
@@ -699,6 +757,21 @@ Its kind follows from what you fill in: tool, ammo, feeds, heals or onUse, else 
 An item: a game item (Material_T1_Twigs), an item of this mod by its block name, or "other-mod:name". min length 1
 
 Type: string
+
+## keyBinding
+
+A key that runs an action. The player can rebind it in the Kiln menu's Keys tab; the choice is kept in keybinds.json under <mod>:<name>. Bound on each player's game, so the mod needs "clients": "mod".
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string |  | The group in the Keys tab. Default: the mod's name. min length 1 |
+| `comment` | string |  |  |
+| `description` | [uiText](#uitext) |  | What the Keys tab says. Default: the block's name. |
+| `does` | [uiAction](#uiaction) | yes |  |
+| `key` | string | yes | The default key: F8, Ctrl+K, Shift+Alt+F2, Numpad5, or None to bind it only once the player chooses. min length 1 |
+| `onGameScreens` | boolean |  | A key that types something (a letter, a digit) fires in play only; true fires on every game screen too, chat included. |
+| `was` | [name](#name) |  |  |
+| `whileCapturing` | boolean |  | Also fire while the Kiln menu is open. |
 
 ## knockback
 
@@ -785,7 +858,7 @@ A friendly NPC on a game NPC's body: talk, wares, a place in the roster.
 | `names` | object |  |  |
 | `place` | object |  |  |
 | `roster` | object |  |  |
-| `talk` | string |  | A dialogue of the mod's quests/*.json. |
+| `talk` | string |  | A dialogue block or quests/*.json dialogue of this mod. Another mod's dialogue is not supported by the startup build. |
 | `vendor` | object |  |  |
 | `was` | string |  |  |
 
@@ -893,6 +966,192 @@ Something placed that stands there: furniture, a banner, a lamp.
 | `tweakPlaced` | [tweak](#tweak) |  | The same, set on the template it places (templates section paths). |
 | `visual` | [visualRef](#visualref) | yes | Its look: like (a game item that places something: model, collision and how it places), or model (a glTF in the mod's folder, which kiln cook makes into the game's model; item:<name>; or the GUID of a model your assets/assets.json serves). |
 | `was` | [name](#name) |  |  |
+
+## quest
+
+A quest chain in the game's own journal, tracked-quest line and map: steps that run in order, each with objectives, and what it pays. The block's name is its id: keep it and the steps' ids. Players need the mod (clients "mod"). A quest from a blocks file is built into the game's journal from the next start, unless the mod ships quests/generated/<mod>.json.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `abandonable` | boolean |  | Players may give it up (default true; never a world quest). |
+| `auto` | boolean |  | Starts by itself as soon as it is available. |
+| `description` | `kiln-quests.schema.json text` |  |  |
+| `giver` | [questNpc](#questnpc) |  | The NPC who offers it. A quest with a giver starts through that NPC, an action or code. |
+| `hidden` | boolean |  | Not listed until it is active. |
+| `main` | boolean |  |  |
+| `name` | `kiln-quests.schema.json text` | yes |  |
+| `onFail` | array of [questAction](#questaction) |  |  |
+| `onStart` | array of [questAction](#questaction) |  |  |
+| `partyRadius` | number |  |  |
+| `priority` | integer |  | Its order in the journal (the game uses 40..100; default 50). min 0 |
+| `repeatable` | boolean |  |  |
+| `requires` | array of [questCondition](#questcondition) |  |  |
+| `retryable` | boolean |  | Can start again after it failed or was given up (default true). |
+| `rewards` | [questReward](#questreward) |  |  |
+| `scope` | `"player"` \| `"party"` \| `"world"` |  | player (default), party (players within partyRadius share credit, each gets rewards), world (one shared state). |
+| `source` | `"None"` \| `"Flame"` \| `"Blacksmith"` \| `"Alchemist"` \| `"Huntress"` \| `"Farmer"` \| `"Carpenter"` \| `"CryptKeeper"` \| `"Bard"` \| `"ChineseNewYearTrader"` \| `"Barber"` \| `"Fisher"` \| `"AncientResearcher"` \| `"Grassland"` \| `"Deepforest"` \| `"Steppes"` \| `"Desert"` \| `"ColdHeights"` \| `"Wetlands"` \| `"AncientLands"` |  | The journal's portrait (keen::QuestSourceType). Default None. |
+| `steps` | array of [questStep](#queststep) | yes | min items 1 |
+
+## questAction
+
+One of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, talk, signal, call. In an option's do the first failing action stops the rest; in rewards and hooks each failure is logged and the rest runs.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `advance` | string |  | Finishes a step: "quest.step". Refused for unfinished kill, collect and reach objectives unless force. min length 1 |
+| `amount` | integer |  | min 1 |
+| `at` | [questPos](#questpos) |  |  |
+| `bindNpc` | [questNpc](#questnpc) |  | The spawned entity becomes this NPC. |
+| `call` | string |  | A name registered with Quests.RegisterAction. min length 1 |
+| `chat` | `kiln-quests.schema.json text` |  | A chat line for the player. |
+| `complete` | string |  | min length 1 |
+| `count` | integer |  | Items given or taken, spawned entities. min 1 |
+| `despawn` | string |  | The tag of what spawn made. min length 1 |
+| `exact` | boolean |  | Exactly at: no ground, no base check. |
+| `fail` | string |  | min length 1 |
+| `flag` | integer |  | revoke: one flag of a Flags object. min 0 max 31 |
+| `force` | boolean |  | start, advance: past what refuses. |
+| `item` | [itemRef](#itemref) |  | Gives count of it (what does not fit lands at the player's feet). |
+| `knowledge` | string |  | Grants it: npc:….unlock, quest:…, 0x…. min length 1 |
+| `node` | string |  | min length 1 |
+| `offset` | [questPos](#questpos) |  | Metres from the player, instead of at. |
+| `reset` | string |  | min length 1 |
+| `revoke` | string |  | Clears that id only: what the game already did because of it stays. min length 1 |
+| `signal` | string |  | Feeds custom objectives. min length 1 |
+| `spawn` | `kiln-quests.schema.json template` |  | A one-off creature near the player or at at, on the ground outside bases. For creatures a step needs, use the step's spawn. |
+| `start` | string |  | Starts a quest. min length 1 |
+| `tag` | string |  | min length 1 |
+| `take` | [itemRef](#itemref) |  |  |
+| `talk` | string |  | Opens a chat conversation: a dialogue of this mod, at node. min length 1 |
+| `target` | `"world"` \| `"player"` |  | knowledge, revoke: default the player's object if the id has one, else the world's. |
+| `teleport` | [questPos](#questpos) |  | Moves the player. |
+| `transient` | boolean |  | Never written to the save. |
+| `value` | integer |  | knowledge: a counter's amount or a flag's number. min 0 |
+| `xp` | integer |  | Experience, as a quest reward. min 0 |
+| `yaw` | number |  |  |
+
+## questCondition
+
+One of knowledge, level, quest, step, item, predicate, all, any, not. Checked on the server, also when an option is chosen.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `all` | array of [questCondition](#questcondition) |  | min items 1 |
+| `any` | array of [questCondition](#questcondition) |  | min items 1 |
+| `count` | integer |  | min 1 |
+| `is` | `"locked"` \| `"available"` \| `"active"` \| `"done"` \| `"failed"` \| `"started"` \| `"pending"` |  | Quest: locked, available, active, done, failed, started. Step: pending, active, done. Default done. |
+| `item` | [itemRef](#itemref) |  | At least count of it are in the inventory. |
+| `knowledge` | string |  | The game's knowledge holds it. min length 1 |
+| `level` | integer |  | The character's level is at least this. min 1 |
+| `not` | [questCondition](#questcondition) |  |  |
+| `predicate` | string |  | A name registered with Quests.RegisterPredicate. min length 1 |
+| `quest` | string |  | A quest of this mod (or "other-mod:quest"), in the state is. min length 1 |
+| `step` | string |  | "quest.step", in the state is. |
+
+## questIdName
+
+an id: letters, digits, '_' and '-'
+
+Type: string
+
+## questMarker
+
+The step's map marker. A step with a place (site, spawn, a reach or kill place, an NPC to talk to or deliver to) has one by itself; this names it or moves it. false: none.
+
+Type: boolean or object
+
+## questNpc
+
+An NPC: an NPC block of this mod by its name, an id of the mod's quests/*.json, "other-mod:npc". min length 1
+
+Type: string
+
+## questObjective
+
+One of kill, collect, deliver, reach, talk, craft, build, knowledge, custom.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `build` | object |  | Placing it. |
+| `collect` | object |  | What the inventory holds now. Takes nothing. |
+| `craft` | object |  | A successful craft by the player. |
+| `custom` | string or object |  | A signal name, or the signal and how many: Quests.Signal, the signal action, or a C# progress function. |
+| `deliver` | object |  | Takes the items when an advance action or the NPC's hand-over finishes it. |
+| `kill` | object |  | A death credited to the player (a world quest: any death). |
+| `knowledge` | string |  | The game's knowledge holds it: npc:…, quest:…, query:…, 0x…. min length 1 |
+| `reach` | object |  | Being there, checked twice a second. |
+| `talk` | object |  | Talking to that NPC. |
+| `text` | `kiln-quests.schema.json text` |  | Shown instead of the step's text when a step has several objectives. |
+
+## questPlace
+
+A place found at run time: on real ground (the voxel surface), outside every base, not too steep; one per world. Say what it is near: near ("player", or an NPC), or at.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `at` | [questPos](#questpos) |  |  |
+| `distance` | array of number |  | Metres from what it is near: [min, max]. It widens by itself until a good spot is found. min items 1 max items 2 |
+| `exact` | boolean |  | Exactly at: no ground, no base check. |
+| `inBase` | boolean |  | A base is fine (never for enemies: the game pacifies them there and may remove them). |
+| `margin` | number |  | Metres to keep from a base's build zone (default 20). min 0 |
+| `near` | string |  | "player" (who gets there first), or an NPC: an NPC block of this mod by its name, or an id of the mod's quests/*.json. min length 1 |
+
+## questPos
+
+Metres: [x, y, z]. x east, y up, z north. min items 3 max items 3
+
+Type: array of number
+
+## questReward
+
+What a quest or a step pays, all at once: experience, items, a status, knowledge. Each part is paid on its own: one that cannot be (a full inventory drops the rest at the player's feet) is logged and the others still are. A world quest pays every player in game.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `items` | object |  | Item and count: a game item, or an item this mod defines. |
+| `knowledge` | array of string |  | The game's knowledge granted: npc:….unlock unlocks an NPC. |
+| `lootTable` | string |  | A loot table rolled when the reward is paid: the name of a lootTables block of this mod (or "other-mod:name"). What comes up is given like items. A name that is no loot table refuses the quest. min length 1 |
+| `status` | [ref](#ref) or object |  | A status put on the player: a status block of this mod, or a game status; its own time, or seconds. |
+| `xp` | integer |  | Experience, through the game's quest path. min 0 |
+
+## questSpawn
+
+Creatures the step brings into the world: on real ground outside every base, never saved, checked every second, spawned again when the game removes them, and after a restart or rejoin as many as are still owed. Where: the step's site, or at, near and distance here.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `at` | [questPos](#questpos) |  |  |
+| `count` | integer |  | min 1 |
+| `distance` | array of number |  | min items 1 max items 2 |
+| `exact` | boolean |  |  |
+| `inBase` | boolean |  |  |
+| `level` | integer |  | The level to spawn at (0: the template's). min 0 |
+| `margin` | number |  | min 0 |
+| `near` | string |  | "player" or an NPC. min length 1 |
+| `retries` | integer |  | How many times they come back when the game removes them (default 5). Then kiln.log has an error. min 0 |
+| `spread` | number |  | Metres between them (default 4). min 0 |
+| `tag` | string |  | The Kiln.Spawn tag: a kill objective can name it. min length 1 |
+| `template` | `kiln-quests.schema.json template` | yes |  |
+
+## questStep
+
+One step of a quest. It is done when all its objectives are.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `id` | [questIdName](#questidname) | yes | Letters, digits, '_' and '-'; unique in the quest. Keep it: progress is filed under it. |
+| `marker` | [questMarker](#questmarker) |  |  |
+| `objective` | [questObjective](#questobjective) |  |  |
+| `objectives` | array of [questObjective](#questobjective) |  |  |
+| `onDone` | array of [questAction](#questaction) |  |  |
+| `onEnter` | array of [questAction](#questaction) |  |  |
+| `recommendedLevel` | integer |  | min 0 max 255 |
+| `rewards` | [questReward](#questreward) |  | Paid when the step is done. |
+| `site` | [questPlace](#questplace) |  |  |
+| `spawn` | [questSpawn](#questspawn) or array of [questSpawn](#questspawn) |  | Creatures the step brings into the world: one or a list. |
+| `text` | `kiln-quests.schema.json text` |  | The journal's paragraph. |
+| `title` | `kiln-quests.schema.json text` |  | The journal's short line (the list, the tracked quest). Default its text. |
+| `voice` | string |  | A voice-over line in the journal: a name of the mod's cooked audio, or a GUID. min length 1 |
 
 ## rarity
 
@@ -1253,6 +1512,164 @@ Game fields this block does not cover, by the path a data pack writes, set on wh
 
 Type: object
 
+## uiAction
+
+What a button or a key does: exactly one of command, toggle, set, castAbility, applyEffect, openWindow, closeWindow, toast. Runs on the player's game, never on a dedicated server.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `applyEffect` | [effectRef](#effectref) |  | Applies an effect to the player, through a hidden ability named ui-apply.<name>. The server needs the mod. |
+| `castAbility` | [ref](#ref) |  | Asks the server to cast an ability of this mod (or "other-mod:name"), as its key would. The server needs the mod. |
+| `closeWindow` | [ref](#ref) |  | Closes a window block. |
+| `command` | string |  | A command line of this game's command registry, as the console runs it: as the host's own character when this game hosts the world, else as the console. It does not reach a server this game joined. min length 1 max length 256 |
+| `openWindow` | [ref](#ref) |  | Opens a window block of this mod (or "other-mod:name"). |
+| `set` | [uiSet](#uiset) |  |  |
+| `toast` | [uiText](#uitext) |  | A short message in the corner of the screen. |
+| `toggle` | [uiBind](#uibind) |  | Flips a true/false config entry. |
+
+## uiBind
+
+A value: game.<name> (fps, frameMs, state, inGame, screen, language, clock) or config.<path> of this mod's config (config.<config id>/<path> when two configs have the path). Pattern `^(game\|config)\.[A-Za-z0-9_.\-/]+$`.
+
+Type: string
+
+## uiColor
+
+#rrggbb, #rrggbbaa, or white, black, gray, red, green, yellow, orange, cyan.
+
+Type: string
+
+## uiMenu
+
+An entry in the game's pause menu and/or main menu that opens the window.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `in` | `"pause"` \| `"main"` \| `"both"` |  | Default pause. |
+| `order` | integer |  | Lower first. Kiln's own Mods entry has 1000. |
+| `text` | [uiText](#uitext) | yes |  |
+
+## uiRow
+
+One line of a window. "type" says which: text, value, toggle, slider, choice, separator, button.
+
+Type: [uiRowText](#uirowtext) or [uiRowValue](#uirowvalue) or [uiRowToggle](#uirowtoggle) or [uiRowSlider](#uirowslider) or [uiRowChoice](#uirowchoice) or [uiRowSeparator](#uirowseparator) or [uiRowButton](#uirowbutton)
+
+## uiRowButton
+
+A button that runs an action.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `does` | [uiAction](#uiaction) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"button"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowChoice
+
+A drop-down on an enum config entry, with its options.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"choice"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowSeparator
+
+A line, with a heading when it has text.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `text` | [uiText](#uitext) |  |  |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"separator"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowSlider
+
+A slider on a whole-number or decimal config entry. A drag writes the config once it rests for a moment.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `max` | number |  |  |
+| `min` | number |  | Default: the entry's own range, which it must have when min and max are left out. |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"slider"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowText
+
+A line of text. {game.fps:0} and {config.clock.scale:0.00} in it show a value (refreshed at the window's pace); {{ and }} are braces.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `color` | [uiColor](#uicolor) |  |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `text` | [uiText](#uitext) | yes |  |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"text"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+| `wrap` | boolean |  | Break long text at the window's edge. The overlay's wrapped text has no colour: not with color. |
+
+## uiRowToggle
+
+A checkbox on a true/false config entry. A click writes the config.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"toggle"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiRowValue
+
+A label and a value that cannot be edited here: Label: value.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `format` | string |  | How a number shows ("0", "0.00", "#,##0") or a true/false ("yes\|no"). min length 1 |
+| `label` | [uiText](#uitext) | yes |  |
+| `sameLine` | boolean |  | On the same line as the row before it. |
+| `tooltip` | [uiText](#uitext) |  | Shown while the pointer rests on the row's widget. May show values like a text row does. |
+| `type` | `"value"` | yes |  |
+| `when` | [uiWhen](#uiwhen) |  |  |
+
+## uiSet
+
+A config entry and the value to give it: true or false, a number in its range, or an option of an enum.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bind` | [uiBind](#uibind) | yes |  |
+| `to` | boolean \| number \| string | yes |  |
+
+## uiText
+
+A text: plain, or one per language ({ "en": "Save", "de": "Speichern" }, "*" for every other language). The game's language picks it: the exact key ("pt-br"), the primary language ("pt"), then "en", then "*".
+
+Type: string or object
+
+## uiWhen
+
+Shown only while this is true: a name (game.inGame, config.clock.show: true, not 0, not empty), !name, or name == value with == != < <= > >=, joined with &&. Examples: "game.inGame", "!game.inGame", "game.screen == InGame", "game.fps < 30 && config.hud.on". min length 1
+
+Type: string
+
 ## vfx
 
 A VFX and where it shows: a VFX block of this mod by name, "other-mod:name", or "game:<name>" for one of the game's (a template that carries it, a sequence that plays it, or a GUID). A new VFX needs "clients": "mod".
@@ -1357,6 +1774,28 @@ A weapon's numbers: the tooltip's, made exactly so.
 | `power` | integer |  | The tooltip's damage at that level. Default: what the class has, or damage's total. min 0 |
 | `rarity` | [rarity](#rarity) |  |  |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. min 0 |
+
+## window
+
+A window or a screen of rows: text, values, buttons, toggles, sliders, choices and separators. Drawn by each player's game from the mod's own file, so the mod needs "clients": "mod"; on a dedicated server it is checked and kept, and nothing is drawn. What it shows refreshes every "refresh" seconds, not every frame; a closed window costs nothing.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `alpha` | number |  | A window: how opaque the background is. min 0 max 1 |
+| `autoResize` | boolean |  | A window: it grows and shrinks with its rows. |
+| `comment` | string |  |  |
+| `dim` | boolean |  | A screen: darken the game behind it (default true). |
+| `height` | number |  | Pixels at UI scale 1. 0: a window fits its rows, a screen is 520 high. min 0 max 4096 |
+| `interactive` | boolean |  | A window: false gives a panel the player only looks at (default true). |
+| `kind` | `"window"` \| `"screen"` |  | window (default): an overlay window the player can drag. screen: a full screen in the game's look, dimming the game, closed by Escape. |
+| `menu` | [uiMenu](#uimenu) |  |  |
+| `openAtStart` | boolean |  | Open as soon as the game has it. Default: closed until a key, a button or a menu entry opens it. |
+| `position` | array of number |  | A window: where its centre is, [x, y] as 0..1 of the screen. min items 2 max items 2 |
+| `refresh` | number |  | Seconds between updates of the values and conditions it shows. Default 0.25. min 0.1 max 3600 |
+| `rows` | array of [uiRow](#uirow) | yes | min items 1 max items 200 |
+| `title` | [uiText](#uitext) | yes |  |
+| `titleBar` | boolean |  | Default true. |
+| `width` | number |  | Pixels at UI scale 1. 0: a window fits its rows, a screen is 720 wide. min 0 max 4096 |
 
 ## wornLook
 
