@@ -6,7 +6,8 @@ namespace Kiln.Ui.Tests;
 
 /// <summary>Status lines: sources run only when someone looks, lines belong to their mod, and the game's language
 /// reaches <see cref="Game.Language"/> on a client.</summary>
-[Collection("status-lines")]
+// These fixtures replace the same process-wide backend and native tables as the render and wheel tests.
+[Collection("bus")]
 public class StatusLinesTests : IDisposable
 {
     private readonly List<ModContext> _mods = [];
