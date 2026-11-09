@@ -125,12 +125,31 @@ impl LuaError {
         )
     }
 
+    // kiln-eml: names the qualified module (`mods.<id>.<module>`) first, so Kiln's runner can tell which mod failed
+    // (`runner::failing_mod`); upstream printed only the file path.
     pub fn module_load(
+        qualified_id: impl Into<String>,
         path: impl Into<String>,
         cause: impl Into<Box<dyn std::error::Error + Send + Sync>>,
     ) -> mlua::Error {
         error!(
-            "failed to load module: {} ({})",
+            "failed to load module: {} ({}): {}",
+            qualified_id.into(),
+            path.into(),
+            cause.into()
+        )
+    }
+
+    // kiln-eml: a module its mod does not have (the mod's root and `src` are there, the file is not): a different
+    // phrase, so Kiln's runner blames the chunk that required it instead of the mod named (`runner::failing_mod`).
+    pub fn module_missing(
+        qualified_id: impl Into<String>,
+        path: impl Into<String>,
+        cause: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+    ) -> mlua::Error {
+        error!(
+            "no such module: {} ({}): {}",
+            qualified_id.into(),
             path.into(),
             cause.into()
         )

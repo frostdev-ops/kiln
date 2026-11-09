@@ -336,6 +336,11 @@ export interface LibraryRef {
   version: string;
   hash: string;
 }
+/** library_remove_many: the versions removed, and each one that was not (conflict without force, not_found, io). */
+export interface RemoveReport {
+  removed: LibraryRef[];
+  failed: { entry: LibraryRef; error: KilnError }[];
+}
 export interface LibraryVersion {
   version: string;
   hash: string;
@@ -1033,7 +1038,17 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
+/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod). */
 export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
+/** Clean up: one look at the running processes and the profiles for the whole batch. Rejects with game_running (nothing
+ *  removed) while a game runs, or a server may read one of the versions; otherwise reports the versions not removed. */
+export const libraryRemoveMany = (entries: LibraryRef[], force = false) => call<RemoveReport>("library_remove_many", { entries, force });
+/** The versions Clean up may remove: in no profile, not in any known game's active profile file, and not in a
+ *  play-once file a start can still read. */
+export const libraryUnused = () => call<LibraryRef[]>("library_unused");
+/** What library_remove refuses (conflict) over without force: profile ids, and "<profile> (active in <game>)" /
+ *  "(play-once in <game>)" for each game whose profile file points at the version. */
+export const libraryUsers = (entry: LibraryRef) => call<string[]>("library_users", { entry });
 /** One entry (with profileId: checked against the profile's other mods), or a whole profile (entry null). */
 export const libraryLint = (entry: LibraryRef | null, profileId: ProfileId | null = null) => call<LintReport>("library_lint", { entry, profileId });
 
@@ -1213,7 +1228,7 @@ export const COMMANDS = [
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
   "profile_deactivate", "profile_active",
-  "library_list", "library_detect", "library_import", "library_remove", "library_lint",
+  "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",

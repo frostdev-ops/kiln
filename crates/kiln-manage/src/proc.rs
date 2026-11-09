@@ -32,19 +32,39 @@ pub fn find_game(install: &crate::game::GameInstall) -> Result<Option<ProcessInf
 
 /// The running process of `<dir>/<exe>` (`exe` is a file name such as `enshrouded.exe`).
 pub fn find_exe(dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
-    let want_dir = canon(dir);
-    let want_exe = want_dir.join(exe);
-    let mut found: Vec<ProcessInfo> = Vec::new();
-    // Windows: only processes with the exe's image name get their full image path looked up (the launcher's watcher
-    // calls this every second; opening and canonicalizing every process on the system each time is wasteful)
-    let candidates = if cfg!(windows) { imp::list_named(exe)? } else { list_with_extra()? };
-    for (p, extra) in candidates {
-        if matches_exe(&p, &extra, &want_dir, &want_exe, exe) {
-            found.push(p);
-        }
+    Finder::default().find(dir, exe)
+}
+
+/// [`find_exe`] for several folders and exe names from one look at the process table: Linux lists /proc once, Windows
+/// once per exe name. For one decision over many folders (the Library's removal guard); the listing is not refreshed.
+#[derive(Default)]
+pub struct Finder {
+    all: Option<Vec<(ProcessInfo, Extra)>>,
+    named: std::collections::HashMap<String, Vec<(ProcessInfo, Extra)>>,
+}
+
+impl Finder {
+    pub fn find(&mut self, dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
+        // Windows: only processes with the exe's image name get their full image path looked up (the launcher's
+        // watcher calls find_exe every second; opening and canonicalizing every process each time is wasteful)
+        let candidates: &[(ProcessInfo, Extra)] = if cfg!(windows) {
+            match self.named.entry(exe.to_ascii_lowercase()) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => e.insert(imp::list_named(exe)?),
+            }
+        } else {
+            match &mut self.all {
+                Some(all) => all,
+                None => self.all.insert(list_with_extra()?),
+            }
+        };
+        let want_dir = canon(dir);
+        let want_exe = want_dir.join(exe);
+        Ok(candidates.iter()
+            .filter(|(p, extra)| matches_exe(p, extra, &want_dir, &want_exe, exe))
+            .min_by_key(|(p, _)| p.pid)
+            .map(|(p, _)| p.clone()))
     }
-    found.sort_by_key(|p| p.pid);
-    Ok(found.into_iter().next())
 }
 
 fn canon(p: &Path) -> PathBuf {

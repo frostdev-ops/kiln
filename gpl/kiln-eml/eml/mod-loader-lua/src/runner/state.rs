@@ -1,10 +1,10 @@
 use std::{cell::{Ref, RefCell}, collections::{HashMap, HashSet}, rc::Rc};
 
 use mlua::Table;
-use mod_loader::{FileSystem, Mod, ModManifest};
+use mod_loader::{FileSystem, Mod, ModManifest, ReadFailure}; // kiln-eml: ReadFailure
 use parking_lot::MutexGuard;
 
-use crate::{lua::{LuaError, LuaValue}, util::RequirePath};
+use crate::{log::error, lua::{LuaError, LuaValue}, util::RequirePath}; // kiln-eml: log::error
 
 pub struct ModLuaState {
     r#mod: Mod,
@@ -53,6 +53,40 @@ impl RunnerState {
         self.mods.borrow_mut().insert(id, state);
     }
 
+    // kiln-eml: logs one error line for a module that could not be read and builds the Lua error naming it: `no such
+    // module` when the mod is intact and simply has no such file (the requiring chunk is at fault), else `failed to load
+    // module` (the mod's own files are unreadable).
+    fn module_load_error(
+        r#mod: &Mod,
+        mod_id: &str,
+        qualified_id: &str,
+        path: &str,
+        fs: &FileSystem,
+        why: ReadFailure,
+    ) -> mlua::Error {
+        let since_load_ms = r#mod.age().as_millis() as u64;
+        let since = format!("{:.1}s", since_load_ms as f64 / 1000.0);
+
+        let what = if why.missing { "does not exist" } else { "could not be read" };
+
+        error!(
+            mod_id,
+            module = qualified_id,
+            path,
+            root = fs.root().as_str(),
+            since_load_ms,
+            "module {qualified_id} {what} {since} after the mod was loaded: {why}",
+        );
+
+        let cause = format!("{why}; mod loaded {since} ago");
+
+        if why.missing {
+            LuaError::module_missing(qualified_id, path, cause)
+        } else {
+            LuaError::module_load(qualified_id, path, cause)
+        }
+    }
+
     pub fn require(
         &self,
         qualified_id: &str,
@@ -91,10 +125,16 @@ impl RunnerState {
             }
 
             let mut fs = mod_state.fs();
-            let reader = fs.read_file(&path)
-                .map_err(|e| LuaError::module_load(&path, e))?;
-            let chunk = std::io::read_to_string(reader)
-                .map_err(|e| LuaError::module_load(&path, e))?;
+            // kiln-eml: a failed read says which stage failed (root, folder, file, canonicalize, open, read), whether
+            // the mod folder is still there and how long ago the mod was loaded, in eml.log and kiln.log, and names
+            // the module in the error (RunnerState::module_load_error).
+            let chunk = match fs.read_file(&path).and_then(std::io::read_to_string) {
+                Ok(chunk) => chunk,
+                Err(e) => {
+                    let why = fs.diagnose(&path, &e);
+                    return Err(Self::module_load_error(&mod_state.r#mod, require_path.mod_id(), qualified_id, &path, &fs, why));
+                }
+            };
 
             drop(fs);
 

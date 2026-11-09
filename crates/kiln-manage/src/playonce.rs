@@ -166,6 +166,22 @@ pub fn pending(game_dir: &Path) -> Result<Option<PlayOnce>> {
     })
 }
 
+/// Can a start of the game in `game_dir` still read `kiln/profile.once.json` at `now`? Only while `kiln/play-once.ini`
+/// asks for that file (mode profile, the default `profile=`) and the proxy would apply it (not expired; never on a
+/// `server`). The proxy deletes the flag at the next start and nothing deletes the once file, so without a flag the
+/// file is left over from an earlier start. A flag that exists but cannot be read counts: it may still be applied.
+pub fn reads_once_profile(game_dir: &Path, server: bool, now: i64) -> bool {
+    let bytes = match std::fs::read(game_dir.join(crate::paths::game::PLAY_ONCE)) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    let d = decide_detail(&bytes, now, server, true);
+    d.status == PlayOnceStatus::Profile
+        && d.profile_relative == Some(true)
+        && d.flag.and_then(|f| f.profile).is_some_and(|p| p.eq_ignore_ascii_case(DEFAULT_ONCE_PROFILE))
+}
+
 /// Removes a pending flag (the launcher cancels a launch). Ok when there is none.
 pub fn clear(game_dir: &Path) -> Result<()> {
     let path = game_dir.join(crate::paths::game::PLAY_ONCE);
