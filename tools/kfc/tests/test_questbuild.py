@@ -68,6 +68,104 @@ def all_keys(b, base):
     return list(struct.unpack_from(f"<{n}I", b, base + 8 + r))
 
 
+class BlockInput(unittest.TestCase):
+    """Portable input and error isolation checks; no installed game or game data."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.exe = compile_cli()
+
+    def parse(self, text):
+        r = subprocess.run([str(self.exe), "--parse-blocks"], input=text, capture_output=True, text=True, check=True)
+        return json.loads(r.stdout)
+
+    def test_comments_do_not_count_as_nesting(self):
+        comment = "{" * 100 + "\"[}"
+        self.assertEqual(self.parse('{/*' + comment + '*/"x": 1,//' + comment + '\n}'),
+                         {"valid": True, "value": {"x": 1}})
+
+    def test_trailing_commas_before_comments(self):
+        self.assertEqual(self.parse('{"x": [1, /* [, */], // }\n}'), {"valid": True, "value": {"x": [1]}})
+        for text in ('[,]', '{,}', '[1,,]', '{"x":,}', '{}/*', '{}/*never closed'):
+            with self.subTest(text=text):
+                self.assertFalse(self.parse(text)["valid"])
+
+    def test_strings_preserve_comments_brackets_and_escapes(self):
+        value = {"x": 'http://a/*[{},]*/\\\"quoted"'}
+        self.assertEqual(self.parse(json.dumps(value)), {"valid": True, "value": value})
+        # Removing comments must not merge two invalid adjacent tokens into one valid number.
+        self.assertFalse(self.parse('[1/**/2]')["valid"])
+
+    def test_depth_and_size_limits(self):
+        self.assertTrue(self.parse('[' * 64 + '0' + ']' * 64)["valid"])
+        self.assertFalse(self.parse('[' * 65 + '0' + ']' * 65)["valid"])
+        self.assertFalse(self.parse('{}' + ' ' * (16 << 20))["valid"])
+
+    def test_each_broken_entry_names_its_file_and_rolls_back_the_mod(self):
+        with tempfile.TemporaryDirectory(prefix="block-input-", dir=OUT) as td:
+            work = Path(td)
+            mod = work / "badmod"
+            (mod / "quests").mkdir(parents=True)
+            (mod / "kiln.mod.json").write_text(json.dumps({"id": "badmod"}))
+            (mod / "quests/first.json").write_text(json.dumps({"quests": {
+                "a_bad": {"name": "Bad", "priority": "oops", "steps": [{"id": "s", "text": "T"}]},
+                "b_good": {"name": "Good", "steps": [{"id": "s", "text": "T"}]},
+            }}))
+            (mod / "quests/second.json").write_text(json.dumps({"quests": {"missing_name": {"steps": [{"id": "s", "text": "T"}]}},
+                                                                "npcs": {"n": {"template": "No_Such_Template", "clone": True}}}))
+            out = work / "out"
+            r = subprocess.run([str(self.exe), "--out", str(out), "--mod", str(mod)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            s = json.loads((out / "summary.json").read_text())
+            errors = s["errors"]
+            self.assertTrue(any("a_bad" in e and "first.json" in e for e in errors), errors)
+            self.assertTrue(any("missing_name" in e and "second.json" in e for e in errors), errors)
+            self.assertTrue(any("No_Such_Template" in e and "second.json" in e for e in errors), errors)
+            self.assertFalse(s["any"])
+            self.assertFalse(s["ok"])
+            self.assertEqual(s["knowledge"], [])
+            self.assertFalse(s["manifest"]["mods"][0]["ok"])
+            self.assertEqual((out / "knowledge.bin").stat().st_size, 0)
+
+    def test_localized_block_farewell_and_transition_allocate_text_tags(self):
+        # The boot collector copies block dialogues unchanged. Run that same shape through the real native compiler;
+        # only its final resource rebuild is unavailable here, because this test supplies no game data.
+        with tempfile.TemporaryDirectory(prefix="block-lines-", dir=OUT) as td:
+            work = Path(td)
+            mod = work / "lines"
+            (mod / "quests").mkdir(parents=True)
+            (mod / "kiln.mod.json").write_text('{"id":"lines"}')
+            farewell = {"en": "Farewell", "de": "Auf Wiedersehen"}
+            transition = {"en": "Something else?", "de": "Noch etwas?"}
+            (mod / "quests/blocks.json").write_text(json.dumps({
+                "npcs": {"n": {"template": "SyntheticNpc", "clone": True, "dialogue": "d"}},
+                "dialogues": {"d": {"nodes": {"start": {"text": "Hello"}}, "farewell": [farewell], "transition": [transition]}}
+            }))
+            names = work / "names.json"
+            names.write_text('{"SyntheticNpc":"11111111-2222-4333-8444-555555555555"}')
+            out = work / "out"
+            subprocess.run([str(self.exe), "--names", str(names), "--out", str(out), "--mod", str(mod)], capture_output=True, text=True)
+            summary = json.loads((out / "summary.json").read_text())
+            for expected in (farewell, transition):
+                tags = [int(tag) for tag, text in summary["texts"].items() if json.loads(text) == expected]
+                self.assertEqual(len(tags), 1, summary)
+                self.assertNotEqual(tags[0], 0)
+
+    def test_external_native_dialogue_reference_is_refused_explicitly(self):
+        with tempfile.TemporaryDirectory(prefix="block-external-", dir=OUT) as td:
+            work = Path(td)
+            mod = work / "npc"
+            (mod / "quests").mkdir(parents=True)
+            (mod / "kiln.mod.json").write_text('{"id":"npc"}')
+            (mod / "quests/npc.json").write_text('{"npcs":{"n":{"template":"SyntheticNpc","dialogue":"other:talk"}}}')
+            out = work / "out"
+            result = subprocess.run([str(self.exe), "--out", str(out), "--mod", str(mod)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            summary = json.loads((out / "summary.json").read_text())
+            self.assertTrue(any('native dialogue "other:talk"' in error and "not supported" in error and "npc.json" in error for error in summary["errors"]), summary)
+            self.assertFalse(summary["any"])
+
+
 @unittest.skipUnless((GAME / "enshrouded.kfc").exists() or list(GAME.glob("*.kfc")), "no client installed")
 class RoundTrip(unittest.TestCase):
     @classmethod

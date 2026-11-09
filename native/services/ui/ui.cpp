@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // kiln.ui: service entry, subscribers, the ImGui frame and the drawing table (native/core/abi/services/kiln_ui.h).
+#include <intrin.h>
 #include <windows.h>
 
 #include <algorithm>
@@ -244,6 +245,7 @@ bool build_frame(float width, float height, float dpi) {
             std::erase_if(g_frame_subs, [&](const auto& x) { return x == s; });
         }
     }
+    if (wheel_active()) wheel_frame(width, height, dpi);  // on top of the windows
     if (f.menu_open && subs.empty()) fallback_menu();
     style_frame_end();
     t_in_frame = false;
@@ -264,6 +266,7 @@ bool dispatch_key(const KilnUiKey& key) {
         g_menu_open = false;
         return true;
     }
+    if (wheel_active() && wheel_on_key(key)) return true;  // Esc cancels the wheel; its hold key's release is noted
     std::vector<std::shared_ptr<KeySub>> subs;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
@@ -377,8 +380,46 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
     return KILN_ERR_NOT_FOUND;
 }
 
-void KILN_CALL t_set_demand(uint32_t n) { g_demand = n; }
-void KILN_CALL t_set_capture(uint32_t n) { g_interactive = n; }
+// set_demand / set_capture take a count per calling native plugin, and the overlay uses their sum: kiln-emf (its HUD and
+// window) and Kiln.Ui each send only their own count, so one of them sending 0 no longer ends the other's capture or
+// drawing. The key is the module of the return address when it is a Kiln plugin (exports kiln_plugin_main); everything
+// else (managed code, JIT-compiled or ReadyToRun, the runtime's stubs) shares one key, so a managed caller whose code moves
+// (tiered compilation) keeps one count. The module of a return address is looked up once.
+struct PerCaller {
+    std::mutex mu;
+    std::vector<std::pair<HMODULE, uint32_t>> counts;
+    std::vector<std::pair<void*, HMODULE>> seen;  // return address -> module (call sites are few)
+};
+PerCaller g_demand_by, g_capture_by;
+
+uint32_t per_caller(PerCaller& pc, void* ret, uint32_t n) {
+    std::lock_guard lk(pc.mu);
+    HMODULE m = nullptr;
+    auto at = std::find_if(pc.seen.begin(), pc.seen.end(), [&](const auto& x) { return x.first == ret; });
+    if (at != pc.seen.end()) {
+        m = at->second;
+    } else {
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                static_cast<LPCWSTR>(ret), &m) ||
+            !GetProcAddress(m, "kiln_plugin_main"))
+            m = nullptr;
+        if (pc.seen.size() < 64) pc.seen.emplace_back(ret, m);
+    }
+    auto it = std::find_if(pc.counts.begin(), pc.counts.end(), [&](const auto& x) { return x.first == m; });
+    if (it == pc.counts.end()) {
+        if (n) pc.counts.emplace_back(m, n);
+    } else if (n) {
+        it->second = n;
+    } else {
+        pc.counts.erase(it);
+    }
+    uint64_t sum = 0;
+    for (const auto& c : pc.counts) sum += c.second;
+    return static_cast<uint32_t>(std::min<uint64_t>(sum, UINT32_MAX));
+}
+
+void KILN_CALL t_set_demand(uint32_t n) { g_demand = per_caller(g_demand_by, _ReturnAddress(), n); }
+void KILN_CALL t_set_capture(uint32_t n) { g_interactive = per_caller(g_capture_by, _ReturnAddress(), n); }
 void KILN_CALL t_set_menu(int32_t open) { g_menu_open = open < 0 ? !g_menu_open.load() : open != 0; }
 void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
     if (vk == 0 || vk > 255) return;
@@ -526,6 +567,15 @@ void KILN_CALL t_window_rect(float* x, float* y, float* w, float* h) {
     if (h) *h = s.y;
 }
 void KILN_CALL t_set_hover_capture(uint32_t n) { g_hover_panels = n; }
+bool KILN_CALL t_is_item_clicked(uint32_t button) {
+    IN_FRAME(false);
+    return button < 3 && ImGui::IsItemClicked(static_cast<ImGuiMouseButton>(button));
+}
+KilnResult KILN_CALL t_wheel_open(KilnOwner o, const KilnUiWheel* def, KilnUiWheelFn fn, void* user, KilnHandle* out) {
+    return wheel_open(o, def, fn, user, out);
+}
+KilnResult KILN_CALL t_wheel_close(KilnHandle h) { return wheel_close(h); }
+bool KILN_CALL t_wheel_active() { return wheel_active(); }
 KilnResult KILN_CALL t_subscribe_pre_overlay(KilnOwner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out) {
     return vk_subscribe_pre_overlay(fn, gone, user, out);
 }
@@ -535,6 +585,11 @@ KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, Ki
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
 bool KILN_CALL tt_in_menu() { return game_in_menu(); }
 const KilnUiTickApi kTickTable = {{sizeof(KilnUiTickApi), KILN_UI_TICK_VERSION}, &tt_subscribe, &tt_unsubscribe, &tt_in_menu};
+
+// Kiln.Ui's managed table mirrors these (UiNative.Table2, WheelDef; managed/tests/Kiln.Ui.Tests/WheelTests.cs checks the same numbers)
+static_assert(offsetof(KilnUiApi, is_item_clicked) == offsetof(KilnUiApi, set_hover_capture) + 4 * sizeof(void*),
+              "kiln.ui v2 slots follow add_swapchain_usage");
+static_assert(sizeof(KilnUiWheel) == 40 && offsetof(KilnUiWheel, hold_key) == 36, "KilnUiWheel layout");
 
 const KilnUiApi kTable = {
     {sizeof(KilnUiApi), KILN_UI_VERSION},
@@ -552,6 +607,8 @@ const KilnUiApi kTable = {
     &t_image_load, &t_image_size, &t_image, &t_image_button, &t_image_free, &t_set_next_window_focus, &t_combo,
     &t_input_multiline, &t_dummy, &t_window_rect, &t_set_hover_capture,
     &t_subscribe_pre_overlay, &vk_set_pre_overlay_demand, &vk_add_swapchain_usage,
+    // v2
+    &t_is_item_clicked, &t_wheel_open, &t_wheel_close, &t_wheel_active,
 };
 
 std::string api_path(int kind) {

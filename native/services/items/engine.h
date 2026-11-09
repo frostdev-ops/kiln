@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include "kiln_api.h"
+#include "moves.h"
 #include "services/kiln_items.h"
 
 namespace kitems {
@@ -73,6 +74,14 @@ struct AttrRef {  // {u8 error (0 = found); u32 0; const AttributeDesc*}
 };
 using AttrFindFn = AttrRef*(__fastcall*)(AttrRef* out, uint32_t attribute, void* registry);
 using AttrChangedFn = void(__fastcall*)(void* component, void* registry);  // re-runs the attribute's formulas (clamps)
+// The game's slot transfer (EMF "moveStack", shroudlink `transfer`; docs/re/items.md section 13): moves a stack
+// (mode 0), half of it (1) or one item (2) from slot `src` to slot `dst` (InventorySlotId packed into a register: entity
+// | index << 32) inside the transaction, item entity and all; Result12.value = items moved.
+using SlotTransferFn = Result12*(__fastcall*)(Result12* out, void* tx, uint64_t dst, uint64_t src, int32_t mode);
+// Quick stack (a player's R key; once per chest for a Quick Stack Station) and move all: shroudlink's `quick_stack` /
+// `move_all` hook points. Both run on the game's transaction `tx`.
+using QuickStackFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t to, uint32_t from, void* feedback);
+using MoveAllFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t from, uint32_t to, uint32_t mode, uint8_t flag);
 
 // ---- what the service resolved at boot ----
 struct Engine {
@@ -97,6 +106,12 @@ struct Engine {
     JobWriteFlagFn job_write_flag = nullptr;
     AttrFindFn attr_find = nullptr;
     AttrChangedFn attr_changed = nullptr;
+    SlotTransferFn slot_transfer = nullptr;  // feature items.move
+    QuickStackFn quick_stack = nullptr;      // features items.move (quick stack by a mod), items.transfer (hook)
+    MoveAllFn move_all = nullptr;
+    uintptr_t area_deposit = 0;        // feature items.transfer: only checked, never called or hooked
+    uintptr_t set_string = 0;          // feature items.names
+    uintptr_t add_component = 0;       // feature items.names (lab only: the rename handler's AddComponent)
 
     int64_t world_storage = 0;      // world -> entity storage
     int64_t tx_size = 0;            // InventoryTx bytes (result flags + 8, rounded to 16)
@@ -111,6 +126,7 @@ struct Engine {
     int64_t storage_entities = 0;   // entity storage: HashMap<EntityId, record*>
     int64_t hmap_bits = 0, hmap_capacity = 0, hmap_keys = 0, hmap_values = 0, hmap_count = 0;
     int64_t program_count = 0;      // world: u16 registered programs
+    int64_t strings_bitmap = 0;     // CustomPlayerStringsSystem: its HashMap's bitmap pointer (the map starts hmap_bits before it)
 
     bool tx_ok = false;       // give/take symbols and constants
     bool program_ok = false;  // own program registration (fallback when kiln.world is absent)
@@ -118,6 +134,9 @@ struct Engine {
     bool catalog_ok = false;
     bool scan_ok = false;     // own entity-map scan
     bool fuel_ok = false;     // tracked Fuel writes (needs tx_ok's accessors too)
+    bool move_ok = false;     // feature items.move: moves by the game's slot transfer, inside the program
+    bool transfer_ok = false; // feature items.transfer: the quick-stack / move-all hooks can be installed
+    bool names_ok = false;    // feature items.names: container names
 };
 extern Engine E;
 
@@ -224,5 +243,60 @@ bool copy_registry(void* registry, RawItem* rows, uint32_t capacity, uint32_t* w
 
 // Own program registration (no kiln.world): validates the component names, then RegisterProgram.
 bool register_program(uintptr_t world, void* desc, int* outcome, char* why, unsigned long* code);
+
+// ---- moves (v3) ----
+constexpr uint32_t kHashSlotSelection = 0x34bc3e2fu;
+constexpr uint32_t kHashCustomPlayerString = 0x0e699564u;  // keen::ecs::CustomPlayerString: {u64 string id}, 0 = no name
+
+// The 8-slot inventories of an entity with their stacks, in link order (Virtual links expanded), read through the
+// accessors of `a` (the program's, or a game transaction's: access_from_tx).
+struct PageSet {
+    Page p[KILN_ITEMS_MAX_INVENTORIES];
+    uint32_t n = 0;
+};
+bool read_pages(const Access& a, KilnEntity e, PageSet* out, bool* initialized);
+
+// A player's own stacks, from the entity's SlotSelection: whether it is a player at all (an action-bar page is set), the
+// two action-bar pages, and the equipped slots plus the item in hand (each a slot id).
+struct PlayerGuard {
+    bool is_player = false;
+    uint32_t actionbar[2] = {0, 0};
+    uint64_t protect[24];
+    uint32_t protect_n = 0;
+    bool protects(uint64_t slot) const {
+        for (uint32_t i = 0; i < protect_n; ++i)
+            if (protect[i] == slot) return true;
+        return false;
+    }
+};
+void player_guard(const Access& a, KilnEntity e, PlayerGuard* g);
+
+// Moves `count` items (0 = all) of the stack in `slot` of `from` into `to` through the game's slot transfer in the
+// transaction `tx` (the caller owns it: program side, a transaction of ours; hook side, the game's own). Never takes
+// a player's equipped or held stack unless `allow_equipped`, never fills a player's action bar unless `actionbar`.
+// Returns the items moved; *status is KILN_ITEMS_DONE, PARTIAL, NO_ROOM, NOT_ENOUGH, SLOT_CHANGED or REFUSED, *error the
+// game's error code of the last failing transfer, why a reason in words.
+struct MoveOutcome {
+    int32_t status = KILN_ITEMS_DONE;
+    uint32_t error = 0;
+    char why[96] = "";
+};
+uint32_t move_stack_in(const Access& a, void* tx, KilnEntity from, uint64_t slot, KilnEntity to, uint32_t count,
+                       uint64_t to_slot, bool allow_equipped, bool actionbar, MoveOutcome* out);
+
+// The slots of an entity's inventories as KilnItemsSlot rows (what a transfer handler's `read` returns).
+uint32_t read_slots(const Access& a, KilnEntity e, KilnItemsSlot* out, uint32_t capacity);
+
+// Builds the program-style Access from a transaction the game built (the quick-stack / move-all hooks run inside the
+// game's own): the accessors are words of the transaction (docs/re/items.md section 3). Checks them once against the
+// world's component map; false when they do not hold (the hooks then do nothing but pass through).
+bool access_from_tx(void* tx, Access* a);
+
+// Runs a move request inside the program update: validates, builds a transaction, moves, commits (or rolls back for
+// a dry run), and fills the result including the ledger. Guarded: false on a fault.
+struct MoveJob {
+    KilnItemsMoveRequest r{};
+};
+bool run_move(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMoveResult* res, unsigned long* code);
 
 }  // namespace kitems

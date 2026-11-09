@@ -10,9 +10,11 @@ kiln_plugin(emf
     src/api_events.cpp
     src/api_hooks.cpp
     src/commands.cpp
+    src/api_attributes.cpp
     src/api_level.cpp
     src/api_components.cpp
     src/api_windows.cpp
+    src/api_wheel.cpp
     src/v26_model.cpp
     src/seh.cpp
     src/util.cpp)

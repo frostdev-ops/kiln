@@ -466,6 +466,7 @@ const EmfApi* api_table() {
         fill_core(&g_table);
         fill_settings(&g_table);
         fill_game(&g_table);
+        fill_attributes(&g_table);  // v18
         fill_events(&g_table);
         fill_hooks(&g_table);
         fill_commands(&g_table);

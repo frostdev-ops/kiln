@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// World progress: read-only, typed access to what the game stores about a world and its characters: the flame level,
+// World progress: typed access to what the game stores about a world and its characters: the flame level,
 // the difficulty, Ancient Spires, Flame Shrines and Sanctums, Shroud Roots and Elixir Wells, Ancient Obelisks, bosses,
 // survivors and chests. Facts are read with the game's own knowledge evaluator (kiln.knowledge) and entity components
 // (kiln.world); the lists come from the game's data (WorldIndex.cs). Changes stay with Knowledge and Quests.
@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 
 namespace Kiln;
 
-/// <summary>What the game stores about this world's progress, read-only. Lists are available from a moment after the
+/// <summary>What the game stores about this world's progress. Lists are available from a moment after the
 /// first call (they are read from the game's data in the background); live values are read on the tick thread.</summary>
-public static class WorldProgress
+public static unsafe class WorldProgress
 {
     /// <summary>The knowledge service is loaded (most facts are knowledge).</summary>
     public static bool Available => Knowledge.Available;
@@ -65,12 +65,117 @@ public static class WorldProgress
                 _progressEntity = found.Count > 0 ? found[0] : EntityId.None;
             }
             if (_progressEntity.IsNone || !World.TryRead<NetworkServerProgress>(_progressEntity, "NetworkServerProgress", out var p)) return null;
-            return new FlameStatus(p.Level, p.Altars, p.HighestAltarLevel, p.WaterSources, _progressEntity);
+            var status = new FlameStatus(p.Level, p.Altars, p.HighestAltarLevel, p.WaterSources, _progressEntity);
+            if (KnowledgeNative.T != null)
+            {
+                KnowledgeNative.FlameState st = default;
+                st.Size = (uint)sizeof(KnowledgeNative.FlameState);
+                if (KnowledgeNative.T->FlameStatus(&st) == KnowledgeNative.Ok && st.Found != 0 && st.Entity == _progressEntity.Value)
+                    status = status with
+                    {
+                        Stored = (int)st.Level,
+                        Max = st.Cap > 0 ? (int)st.Cap : null,
+                        SystemLevel = st.SystemLevel == uint.MaxValue ? null : (int)st.SystemLevel,
+                    };
+            }
+            return status;
         }
     }
 
     /// <summary>The Mother Flame's level (tick thread); null when unknown.</summary>
     public static int? FlameLevel => Flame?.Level;
+
+    /// <summary>What the game derives from a flame level: how many Flame Altars and water sources the world may have, the
+    /// Shroud resistance a player gets, and whether the level is high enough to remove the fog for altar placement (the game's
+    /// <c>flameLevelFogRemoval</c> setting). Read from the game's balancing table (kiln.assets); null when it cannot be read or
+    /// the level is above the game's maximum. Tick thread (it reads the setting).</summary>
+    public static FlameLimits? LimitsAt(int level)
+    {
+        Services.RequireTickThread("WorldProgress.LimitsAt");
+        return FlameLimitsReader.At(level);
+    }
+
+    // ---- changing the flame (docs/re/world-status.md section 11) ----
+
+    private static readonly object FlameLock = new();
+    private static readonly Dictionary<ulong, (TaskCompletionSource<FlameChange> Tcs, int Requested)> FlameWaiting = new();
+    private static IDisposable? _flamePump;
+
+    /// <summary>Sets the Mother Flame's level, as the game's own admin command does (the <c>Level</c> attribute of the world's
+    /// progress entity, written like the game writes it, so it is saved with the world and replicated; the game then copies
+    /// it into <c>NetworkServerProgress</c> and the altar, water-source and fog rules follow). Any thread; applied in the next
+    /// server-world step after earlier changes. The task completes on the tick thread once the game mirrored the level,
+    /// the native mirror wait ended (180 program updates), or the world ended, with
+    /// the write outcome and any reason it failed (no world, no Mother Flame, unsupported build, or attribute fault).
+    /// A failure does not guarantee unchanged state if rollback also failed; <see cref="FlameChange.Reason"/> says so.
+    /// Lowering the level is allowed, as for the admin command; the game decides what happens to altars
+    /// above the new limit. Throws <see cref="ArgumentOutOfRangeException"/> for a level below 1 or above the game's maximum
+    /// (<see cref="FlameStatus.Max"/>, 20 in 1.0).</summary>
+    public static Task<FlameChange> SetFlameLevel(int level)
+    {
+        var t = KnowledgeNative.T;
+        if (level < 1 || level > 255) throw new ArgumentOutOfRangeException(nameof(level), level, "the flame level is 1 to 255");
+        if (t == null) return Task.FromResult(FlameChange.Failed(level, "unavailable", "kiln.knowledge is not loaded on this server"));
+        KnowledgeNative.FlameState st = default;
+        st.Size = (uint)sizeof(KnowledgeNative.FlameState);
+        if (t->FlameStatus(&st) == KnowledgeNative.Ok && st.Cap > 0 && level > st.Cap)
+            throw new ArgumentOutOfRangeException(nameof(level), level, $"the flame level is 1 to {st.Cap}");
+        ulong rid = 0;
+        var rc = t->FlameSet(Services.CallerOwner, (uint)level, &rid);
+        if (rc != KnowledgeNative.Ok)
+        {
+            var why = rc switch
+            {
+                KnowledgeNative.InvalidArgument => "the flame level is 1 to 255",
+                KnowledgeNative.Unavailable => FlameWhyNot(),
+                KnowledgeNative.BufferTooSmall => "too many flame changes are waiting; try again in a moment",
+                _ => $"kiln.knowledge returned {rc}",
+            };
+            return Task.FromResult(FlameChange.Failed(level, KnowledgeNative.Code(rc), why));
+        }
+        var tcs = new TaskCompletionSource<FlameChange>(TaskCreationOptions.None);  // continuations: tick thread
+        lock (FlameLock)
+        {
+            FlameWaiting[rid] = (tcs, level);
+            _flamePump ??= ServiceTick.Add("kiln.flame results", FlamePump);
+        }
+        return tcs.Task;
+    }
+
+    private static string FlameWhyNot()
+    {
+        var t = KnowledgeNative.T;
+        if (t == null) return "kiln.knowledge is not loaded";
+        KnowledgeNative.FlameState st = default;
+        st.Size = (uint)sizeof(KnowledgeNative.FlameState);
+        if (t->FlameStatus(&st) != KnowledgeNative.Ok) return "the flame service did not answer";
+        if (st.Available == 0) return KnowledgeNative.Text(st.Reason, 96) is { Length: > 0 } r ? r : "the flame is not supported on this game build";
+        return "no Mother Flame is running (the world has not started, or it has no progress entity yet)";
+    }
+
+    private static void FlamePump(in TickInfo tick)
+    {
+        var t = KnowledgeNative.T;
+        if (t == null) return;
+        List<(ulong Id, TaskCompletionSource<FlameChange> Tcs, int Level)> due;
+        lock (FlameLock)
+        {
+            if (FlameWaiting.Count == 0) return;
+            due = [.. FlameWaiting.Select(kv => (kv.Key, kv.Value.Tcs, kv.Value.Requested))];
+        }
+        foreach (var (id, tcs, level) in due)
+        {
+            KnowledgeNative.FlameOutcome r = default;
+            r.Size = (uint)sizeof(KnowledgeNative.FlameOutcome);
+            // Only the native service can finish or cancel an accepted write. With one active and eight queued,
+            // serial 180-update mirror waits can take 9 * (180 + 2) = 1638 program updates, or longer if paused.
+            // A caller-side deadline must not report a failure while a queued request can still mutate the world.
+            if (t->FlameResult(id, &r) != KnowledgeNative.Ok) continue;
+            lock (FlameLock) FlameWaiting.Remove(id);
+            tcs.TrySetResult(new FlameChange(id, r.Status == KnowledgeNative.Ok, KnowledgeNative.Code(r.Status), level, (int)r.Before,
+                (int)r.After, (int)r.Cap, r.Clamped != 0, r.Marked != 0, r.Mirrored != 0, (int)r.StepsToMirror, KnowledgeNative.Text(r.Reason, 96)));
+        }
+    }
 
     // ---- difficulty ----------------------------------------------------------------------------------------------
 

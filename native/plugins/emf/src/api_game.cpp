@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The EmfApi table, part 2: items (kiln.items, kiln.content), spawn/destroy (kiln.spawn), chat (kiln.chat,
-// kiln.players), saves (kiln.saves), attributes and damage (kiln.combat), teleport (kiln.world), world settings
+// kiln.players), saves (kiln.saves), damage (kiln.combat), teleport (kiln.world), world settings
 // (kiln.settings), HUD lines and notes (kiln.ui, client).
 #include <intrin.h>
 
@@ -24,7 +24,10 @@ bool in_server_cb(EmfWorld* w) {
 bool is_server_world(EmfWorld* w) { return w && reinterpret_cast<uintptr_t>(w) == g_api->world(KILN_WORLD_SERVER); }
 KilnOwner owner_of(const Mod* m) { return m && m->owner ? m->owner : g_owner; }
 
+}  // namespace
+
 // a posted task that runs `f` on the tick thread (Pre of the next step)
+namespace {
 struct Posted {
     std::function<void()> f;
 };
@@ -32,12 +35,15 @@ void KILN_CALL posted_thunk(void* p) {
     std::unique_ptr<Posted> t(static_cast<Posted*>(p));
     t->f();
 }
+}  // namespace
 bool post_tick(std::function<void()> f) {
     auto* t = new Posted{std::move(f)};
     if (g_api->post(g_owner, &posted_thunk, t) == KILN_OK) return true;
     delete t;
     return false;
 }
+
+namespace {
 
 // ============================================================================================= items =========
 uint32_t live_max_stack(uint32_t id, uint32_t fallback) {
@@ -481,49 +487,7 @@ void poll_saves() {
 }
 
 // ============================================================================================= combat ========
-bool api_attribute_get(EmfWorld* w, uint32_t entity, uint32_t attr, int32_t* out) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (attr == EMF_ATTR_XP_PENDING || attr == EMF_ATTR_XP || attr == EMF_ATTR_XP_REQUIRED || attr == EMF_ATTR_LEVEL)
-        return level_attribute_get(m, w, entity, attr, out);  // v22: kiln.progression
-    if (!out || !S.combat || !is_server_world(w)) {
-        if (!S.combat) unsupported(m, "attribute_get", "kiln.combat is not available");
-        return false;
-    }
-    if (attr != EMF_ATTR_HEALTH && attr != EMF_ATTR_MAX_HEALTH) {
-        unsupported(m, format("attribute_get(0x%08X)", attr).c_str(), "only current and maximum health map onto kiln.combat");
-        return false;
-    }
-    if (!g_api->on_tick_thread()) return refuse(m, "attribute_get", "not on the server world's thread", true), false;
-    KilnHealth h{};
-    h.size = sizeof h;
-    if (S.combat->health(entity, &h) != KILN_OK) return false;
-    *out = attr == EMF_ATTR_HEALTH ? h.current : h.max;
-    return true;
-}
-
-bool attr_add_now(Mod* m, uint32_t entity, int32_t delta) {
-    KilnHealth h{};
-    h.size = sizeof h;
-    if (S.combat->health(entity, &h) != KILN_OK) return refuse(m, "attribute_add", "the entity has no Health"), false;
-    if (delta > 0 && h.current >= h.max) return true;
-    const int64_t v = std::clamp<int64_t>(static_cast<int64_t>(h.current) + delta, 0, h.max);
-    return S.combat->set_health(entity, static_cast<int32_t>(v), nullptr) == KILN_OK;
-}
-
-bool api_attribute_add(EmfWorld* w, uint32_t entity, uint32_t attr, int32_t delta) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (attr == EMF_ATTR_XP_PENDING || attr == EMF_ATTR_XP || attr == EMF_ATTR_XP_REQUIRED || attr == EMF_ATTR_LEVEL)
-        return level_attribute_add(m, w, entity, attr, delta);  // v22: kiln.progression
-    if (!S.combat) return unsupported(m, "attribute_add", "kiln.combat is not available"), false;
-    if (!is_server_world(w)) return refuse(m, "attribute_add", "server world only"), false;
-    if (attr != EMF_ATTR_HEALTH) {
-        unsupported(m, format("attribute_add(0x%08X)", attr).c_str(), "only current health maps onto kiln.combat");
-        return false;
-    }
-    if (g_api->on_tick_thread()) return attr_add_now(m, entity, delta);
-    return post_tick([m, entity, delta] { attr_add_now(m, entity, delta); });
-}
-
+// (attribute_get / attribute_add are in api_attributes.cpp)
 bool damage_now(Mod* m, uint32_t attacker, uint32_t target, int32_t amount) {
     KilnDamageRequest r{};
     r.size = sizeof r;
@@ -1091,12 +1055,6 @@ void api_notify(const char* fmt, ...) {
     update_demand();
 }
 
-bool api_wheel_open(const EmfWheel* w) {
-    Mod* m = caller_mod(_ReturnAddress());
-    unsupported(m, "wheel_open", g_side == KILN_SIDE_SERVER ? "a dedicated server has no screen" : "the radial wheel is not built yet");
-    (void)w;
-    return false;
-}
 }  // namespace
 
 void hud_on_ready() {}
@@ -1125,11 +1083,8 @@ void fill_game(EmfApi* t) {
     t->put_items = &api_put_items;
     t->put_items_ex = &api_put_items_ex;
     t->take_items = &api_take_items;
-    t->wheel_open = &api_wheel_open;
     t->notify = &api_notify;
     t->hud_set = &api_hud_set;
-    t->attribute_get = &api_attribute_get;
-    t->attribute_add = &api_attribute_add;
     t->damage = &api_damage;
     t->chat_tell = &api_chat_tell;
     t->chat_broadcast = &api_chat_broadcast;

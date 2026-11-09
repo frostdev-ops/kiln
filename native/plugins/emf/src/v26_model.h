@@ -44,6 +44,7 @@ constexpr uint32_t kWindowDefV24Size = KEMF_FIELD_END(EmfWindowDef, user);
 constexpr uint32_t kUiWidgetV24Size = KEMF_FIELD_END(EmfUiWidget, pad);
 constexpr uint32_t kOfferV25Size = KEMF_FIELD_END(EmfOffer, reserved);
 constexpr uint32_t kWidgetMinSize = KEMF_FIELD_END(EmfUiWidget, rgba);  // the fields a v24 window draws
+constexpr uint32_t kWheelV10Size = KEMF_FIELD_END(EmfWheel, user);
 
 // The x64 layouts EMF mods are built with (EMF's own asserts): a field that moves would break every built mod.
 static_assert(kApiV21Size == 592, "EmfApi v21 size");
@@ -57,6 +58,9 @@ static_assert(kUiWidgetV24Size == 56 && sizeof(EmfUiWidget) == 64 && offsetof(Em
               "EmfUiWidget layout (v24 + v26)");
 static_assert(sizeof(EmfUiEvent) == 40 && sizeof(EmfOffer) == 24 && offsetof(EmfOffer, range_m) == 20,
               "EmfUiEvent / EmfOffer layout");
+static_assert(kWheelV10Size == 56 && sizeof(EmfWheel) == 56 && offsetof(EmfWheel, hold_key) == 28 &&
+                  offsetof(EmfWheel, world_kind) == 32 && offsetof(EmfWheel, cb) == 40,
+              "EmfWheel layout (v10)");
 
 // The table size a mod built against API `version` checks (api->size >= this); 0 for an unknown version.
 uint32_t api_size_for(uint32_t version);
@@ -112,6 +116,27 @@ bool copy_window_def(const EmfWindowDef* def, bool for_update, WindowRequest* ou
 bool widget_takes_clicks(uint32_t type);
 bool valid_window_id(std::string_view id);
 std::vector<std::string> describe_window(const WindowRequest& w);
+
+// ---------------------------------------------------------------------------------------------- v10 wheel ------
+// The radial wheel (wheel_open). The drawing and the pick / cancel rules are kiln.ui's (native/services/ui/wheel_math.h);
+// this is EMF's definition as kiln-emf copies and checks it.
+constexpr size_t kMaxWheelItems = 64;
+constexpr size_t kMaxWheelLabelLen = 256;  // longer labels are cut, not refused (EMF documents only the count)
+constexpr size_t kMaxWheelTitleLen = 64;
+
+struct WheelRequest {
+    std::string title;
+    std::vector<std::string> items;
+    uint32_t hold_vk = 0;
+    uint8_t world_kind = EMF_WORLD_SERVER;
+    EmfWheelCallback cb = nullptr;
+    void* user = nullptr;
+};
+
+// A hold key: 0, or a keyboard key's generic virtual-key code (VK_SHIFT, not VK_LSHIFT; no mouse buttons).
+bool valid_hold_key(uint32_t vk);
+// Copies a mod's EmfWheel as EMF does (every string owned). False and *why (EMF's words) when refused.
+bool copy_wheel_def(const EmfWheel* def, WheelRequest* out, std::string* why);
 
 // image_load: a portrait-cache key (1-64 of A-Z a-z 0-9 _ . -, no "..", no device names).
 bool portrait_key_ok(const std::string& key);

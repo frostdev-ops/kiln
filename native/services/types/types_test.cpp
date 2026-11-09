@@ -232,14 +232,39 @@ static void regressions() {
 
     const uint64_t pool = 0x110000;
     f.put(stream + 0x30, pool); f.put(stream + 0x18, uint32_t(2)); f.put(stream + 0x40, uint16_t(1));
-    f.put(pool + 8, uint32_t(42)); f.put(pool + 16, uint32_t(43));
+    f.put(pool + 8, uint32_t(42)); f.put(pool + 12, uint32_t(43));
+    std::vector<std::vector<uint8_t>> padded;
+    CHECK(!copy_events(f, stream, 4, padded), "stride rounded past the reflected size refused");
+    f.put(stream + 0x14, uint32_t(4)); f.put(poster, buffer);
+    payload[0] = 0x5a; payload[3] = 0xa5; payload[4] = 0xee;
+    CHECK(append_event(f, stream, poster, 9, payload, 4) == 0, "4-byte event posts to a stride-4 stream");
+    // The poster record is the game's EmitEvent layout whatever the stride: {u32 hash, u16 0, u8 size, u8 0} + payload
+    // zero-padded to 8; DeliverEvents steps by 8 + align8(size) and copies the stride's bytes into the queue.
+    CHECK(f.im.d(poster + 0x10) == 16 && f.im.d(buffer) == 9 && f.im.b(buffer + 6) == 4 && f.im.b(buffer + 7) == 0 &&
+          f.im.b(buffer + 8) == 0x5a && f.im.b(buffer + 11) == 0xa5 && f.im.d(buffer + 12) == 0,
+          "4-byte record: size byte 4, payload padded to 8 with zeros");
+    f.put(stream + 0x14, uint32_t(3));
+    CHECK(append_event(f, stream, poster, 9, payload, 3) == 0 && f.im.d(poster + 0x10) == 32 && f.im.b(buffer + 22) == 3 &&
+          f.im.b(buffer + 27) == 0 && f.im.d(buffer + 28) == 0, "odd-sized event packs at stride 3, record padded to 8");
+    CHECK(append_event(f, stream, poster, 9, payload, 4) == 1 && f.im.d(poster + 0x10) == 32, "size above the stride refused");
+    std::memset(payload, 0, sizeof payload);
+    f.put(stream + 0x14, uint32_t(4)); f.put(poster + 0x10, uint32_t(0));
     std::vector<std::vector<uint8_t>> copies;
     CHECK(copy_events(f, stream, 4, copies) && copies.size() == 2 && copies[0][0] == 42 && copies[1][0] == 43,
-          "events copied using padded stride");
-    copies.clear(); f.put(stream + 0x18, uint32_t(256)); f.put(pool + 2, uint16_t(1));
+          "events copied at the reflected size (stride 4)");
+    copies.clear(); f.put(stream + 0x18, uint32_t(600)); f.put(pool + 2, uint16_t(1));
     CHECK(!copy_events(f, stream, 4, copies), "cyclic event page chain refused");
     copies.clear(); f.put(pool + 2, uint16_t(2));
-    CHECK(copy_events(f, stream, 4, copies) && copies.size() == 256, "event page transition checked");
+    // The game's queue append (0x5feb60) opens a new page when off + stride > 0x7F8: 510 stride-4 events per page.
+    f.put(pool + 8 + 509 * 4, uint32_t(0x509)); f.put(pool + 0x800 + 8, uint32_t(0x510)); f.put(pool + 0x800 + 8 + 89 * 4, uint32_t(0x599));
+    auto u32 = [&](size_t i) { uint32_t v; std::memcpy(&v, copies[i].data(), 4); return v; };
+    CHECK(copy_events(f, stream, 4, copies) && copies.size() == 600 && u32(509) == 0x509 && u32(510) == 0x510 &&
+          u32(599) == 0x599, "event page transition checked: 510 stride-4 events fill a page");
+    copies.clear(); f.put(stream + 0x14, uint32_t(12)); f.put(stream + 0x18, uint32_t(171));
+    f.put(pool + 8 + 169 * 12, uint32_t(0x169)); f.put(pool + 0x800 + 8, uint32_t(0x170));
+    CHECK(copy_events(f, stream, 12, copies) && copies.size() == 171 && copies[0].size() == 12 && u32(169) == 0x169 &&
+          u32(170) == 0x170, "stride-12 events: 170 per page, the 171st on the next");
+    copies.clear(); f.put(stream + 0x14, uint32_t(4)); f.put(stream + 0x18, uint32_t(600));
     copies.clear(); f.put(stream + 0x40, uint16_t(65535));
     CHECK(!copy_events(f, stream, 4, copies), "unreadable event page refused");
     copies.clear(); f.put(stream + 0x18, UINT32_MAX);

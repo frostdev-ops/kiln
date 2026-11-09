@@ -164,7 +164,18 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 - `put_items` / `take_items` into a player inventory (server-admin `inventory.add` / `inventory.remove`), and
   `give_item` drops.
 - Teleporting a player: server-admin `teleport`, `tp.pos`, and READY after the destination loads.
-- loot_magnet, bulk_craft, quick_stack and villager_jobs while a player plays. Their wheels are not supported.
+- loot_magnet, bulk_craft, quick_stack and villager_jobs while a player plays. Their wheels (`wheel_open`) use kiln.ui's radial
+  wheel since dev.20: see the wheel items below.
+- Radial wheel (client, a world you host): open a mod's wheel (a Lua `emf.wheel`, e.g. quick_stack's). It shows in the
+  middle with its title; the pointer lights the sector it is in and the camera does not move; a left click on a lit entry
+  picks it (the mod's callback runs, log line); Esc and a right click cancel (callback with -1). With a mod whose wheel
+  has a hold key: holding the key, moving to an entry and letting go picks; letting go in the middle cancels; a quick tap
+  leaves it open for a click. With more than 8 entries the mouse wheel turns the page. "Name (details)" labels show the
+  details on a second line. While it is open a mod window under it gets no clicks, and `window_open` is refused.
+- Window right clicks (v24, client): right-click a row or a button with a key in a mod window (beastmaster's Beasts window
+  rows): the mod's callback gets `EMF_UI_RIGHT_CLICK` with the widget's key (log line); a left click still sends `EMF_UI_CLICK`.
+- Stamina and mana of a real player: `attribute_get` / `attribute_add` of `EMF_ATTR_STAMINA` / `EMF_ATTR_MANA` on a joined
+  player (a mod that spends mana, or `emf.attribute_add`): the bar follows (the lab shows stamina on a creature only).
 - v24 windows (client, a world you host): mark a prop as a stable with beastmaster's `beastmaster.stable mark`, look
   at it and press E: the Beasts window opens with its rows; a click on a row reaches the mod; Esc and the X close it;
   the mouse returns to the game.

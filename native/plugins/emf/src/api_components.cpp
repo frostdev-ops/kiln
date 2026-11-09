@@ -6,8 +6,12 @@
 //  - Offers: the three run-time components the game adds to its own interactables (InteractionOfferRuntime,
 //    ClientInteractionOffer, CheckPlayerInRange), added through the same queue; the accept is the game's
 //    InteractionAcceptedEvent, read by an internal on_event listener. None of them is saved.
-//  - spawn_offer spawns the template (EMF's spawn rules) and offers on it: Kiln's spawn has no spawn-time components,
-//    so the prompt appears a step or two after the spawn (EMF adds them with the spawn).
+//  - spawn_offer spawns the template (EMF's spawn rules) and then offers on it, so the prompt appears a step or two after
+//    the spawn (EMF adds the components with the spawn). Not removed in dev.20: the offer components go through the same
+//    queue as every other change (kiln.gameplay's component_change, which Kiln.Gameplay Offers uses too, is also
+//    after the spawn). kiln.spawn can take spawn-time components (KilnSpawnRequest.components, lab-checked), which would
+//    remove the delay, but then a template that carries its own offer must be told apart before the spawn (offer()
+//    refuses those today) and the registry needs a way to adopt components that arrived with the entity.
 #include <intrin.h>
 
 #include "emf_internal.h"

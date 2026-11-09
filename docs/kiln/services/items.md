@@ -7,11 +7,11 @@ entity, and the change is replicated and saved like a vanilla one. Evidence and 
 
 | Layer | Where |
 |---|---|
-| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`) |
-| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v2: v1 + water) |
+| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`, `items.pide_options`, `items.move`, `items.transfer`, `items.names`) |
+| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v3: v1 + water + moves, container names, transfer rules and events) |
 | Native | `native/services/items/` → `kiln/services/kiln-items.dll` |
 | Managed | `managed/services/Kiln.Items/` → `kiln/host/Kiln.Items.dll` (namespace `Kiln`, class `Items`) |
-| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots) |
+| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log; v3: `MovesTest.cs`); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots); `native/services/items/tests/run.sh` (host tests under Wine) |
 
 ## C#
 
@@ -126,6 +126,26 @@ slow.Refilled += changes => Log.Info($"{changes.Sum(c => c.After - c.Before)} un
 - Units are the game's: what players see is `NetworkFuel`, a 16-bit copy (docs/re/items.md section 11).
 - Errors throw like `Read`: `NotSupportedException` when the runtime's kiln.items has no water functions (an older
   Kiln), `InvalidOperationException` off the tick thread.
+
+## Moves, container names, transfer rules (v3)
+Move a stack, a quick stack or a move all between inventories keeping the item entity (gear keeps its level, upgrades, gem and
+durability), read the name a player gave a chest, and keep, deny or watch the game's quick stack and move all. Ported from
+shroudlink (MIT). The guide, with examples, the limits and the client checklist: [modding/inventory.md](../modding/inventory.md).
+Evidence: `docs/re/items.md` sections 13 and 14.
+
+```csharp
+MoveResult r = await Items.Move(player, sword.Slot, chest);     // same item entity, ledger in r.Changes
+string? name = Items.ContainerName(chest);                      // the Rename button's text, or null
+using var lockSlot = Items.Transfers.Keep(slot);                // R leaves this stack alone
+```
+C (header size >= `sizeof(KilnItemsApi)` of v3): `move` (a `KilnItemsMoveRequest`: STACK, QUICK_STACK or MOVE_ALL; callback with a
+`KilnItemsMoveResult` and its ledger, tick thread Pre), `container_name` (tick thread), `transfer_rule` / `transfer_listen` /
+`transfer_report` / `transfer_end` (the first registration installs the hooks), `status2`. A transfer handler runs inside the game's
+call on its worker thread with keep, cancel, move, read and name (`KilnItemsTransferHost`); `cancel_owner` ends an owner's rules,
+handlers and reports too.
+
+Lab switches: `kiln/data/kiln.items/selftest` (a marker file) makes the service name a container through the game's own rename path and
+run a native handler scenario when the test mod asks; `KILN_ITEMS_HOOKS=early` installs the transfer hooks at load.
 
 ## C (native plugins and services)
 ```c

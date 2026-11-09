@@ -193,26 +193,48 @@ StatusLines.Set("state", "waiting for the world");                  // or push a
 - Lines go with the mod that added them. The registry works on a dedicated server too: nothing in it draws.
 
 ## Pacing (`Pacing`)
-> **Not working yet.** This release has the API and its merge rules only: Kiln does not hook the game's waits yet, so
-> `Pacing.Available` is false, handlers register but are never called, and `CapTaskWorkers` returns false, on every build.
-
 Where the engine waits and how many worker threads it starts (Enshwick's `pacing`): a mod uses them to make the game use less CPU.
 ```csharp
 Pacing.OnServerWait((ref long ns) => { if (ns == Pacing.ServerOnlineWaitNs) ns *= 2; });   // fewer passes between steps
 Pacing.OnLoopWait((in LoopWait w) => { /* sleep up to w.LeftNanoseconds when w.Milliseconds == 0 */ });
-if (!Pacing.CapTaskWorkers(TaskWorkerCaps.AtMost(4))) Log.Info("the task workers stay as the game sizes them");
+if (!Pacing.Available) Log.Info("this build's waits are not known: the handlers above are never called");
 ```
 - **What runs where:** handlers run inside the game's loops, on the thread that waits, as often as it waits: keep them short, take no
-  locks, call no game API, and expect several threads at once for a loop wait. They run in the mods' load order, each on the
-  last one's answer. A handler that throws three times in a row is removed (logged).
-- **Worker caps** apply when the task system starts, which only a dedicated server does after mods load: the call returns false on a
-  client, once the pools have started, and on a build without the place. The lowest cap of each group wins.
-- **Which places exist** is a fact about the game build: `Pacing.Sites` says which Kiln found and hooked (`PacingSites.LoopWait`,
-  `MessageWait`, `ServerWait`, `TaskWorkers`); a handler's `Found` says whether it will be called. **Today `Sites` is `None` on every
-  build**: this release has the registry and the merge rules, and the part that finds the places in the game and hooks them is not
-  written (Enshwick finds them from the strings of the function around them: `"Main_Server"`, `"[task] Worker count: %u/%u/%u"`,
-  `"Unhandled result code %d in MsgWaitForMultipleObjectsEx"`, then a byte shape in it). Until then a Kiln mod's handler registers and never runs; an
-  Enshwick mod hosted by Kiln does the job itself.
+  locks, call no game API, and expect several threads at once for a loop wait (a lab server's loops made over 100,000 waits a
+  second, almost all of them the 0 ms polls below). They run in the mods' load order, each on the last one's answer. A handler that
+  throws three times in a row is removed (logged).
+- **Loop wait** (`OnLoopWait`): the event loop is about to wait on its handles. `Milliseconds` is the time left to its deadline in whole
+  milliseconds, truncated; with less than a millisecond left the game waits 0 ms, again and again, until the deadline passes, which is
+  the polling a handler can replace by one sleep of up to `LeftNanoseconds` (never past it: the game still does its own wait and sees every event).
+  With no deadline `Milliseconds` is `int.MaxValue` and `LeftNanoseconds` is `long.MaxValue`. The handler cannot change the wait.
+- **Server wait** (`OnServerWait`): the server loop picked its wait between two passes: `Pacing.ServerIdleWaitNs` (40 ms) with nobody
+  online, `ServerOnlineWaitNs` (1 ms) with players, `ServerSlowWaitNs` (0.1 ms) after a pass longer than 14 ms. Change it with `ref`. The
+  loop still wakes for an event and for its own timers; what handlers leave is clamped into `Pacing.ServerMinWaitNs` (0.1 ms, the game's own shortest: 0 would spin the loop) to `Pacing.ServerMaxWaitNs` (1 s), and a negative value leaves the game's pick. With nobody
+  online a pass is the wait plus the step itself, so doubling the idle wait roughly halves the step rate. A longer wait with players online
+  means fewer passes between the simulation steps and up to that much more latency for what arrives between them.
+- **Worker caps** (`CapTaskWorkers`) cannot be set by a Kiln mod. The task system sizes its pools when the game starts, before the first server
+  step, and a mod loads at that step: the call returns false (`Pacing.TaskWorkersStarted` is true) and logs why once. What caps the pools on a Kiln
+  server is a file the operator writes, `kiln/config/kiln-pacing.json` (in the profile's config folder when a profile is active), read at boot:
+  ```json
+  { "taskWorkers": { "default": 4, "background": 3 } }
+  ```
+  or `{ "taskWorkers": 4 }` for both. A cap is the most workers a group starts with, besides the main workers the default group always adds (a lab server
+  with 16 CPUs went from `Group 'Default' Worker:10 Main:2` and `Group 'Background' Worker:8` to `Worker:6 Main:2` and `Worker:3`; the ECS task queue,
+  sized from the default group, went from 8 to 6). It applies at the next start. The lowest cap of every setter wins.
+- **Which places exist** is a fact about the game build: `Pacing.Sites` says which Kiln found (`PacingSites.LoopWait`, `MessageWait`,
+  `ServerWait`, `TaskWorkers`); a handler's `Found` says whether it will be called. A dedicated server has `LoopWait | ServerWait | TaskWorkers`;
+  a client adds `MessageWait` (its loop's second wait, on handles and window messages) and has no worker caps. Kiln finds them with byte patterns
+  in its symbol database (`sigdb/symbols/server.d/pacing.json`; how they were found: docs/re/pacing.md), so a game update that changes that
+  code makes `Sites` shrink, never crash: `Pacing.Available` is false and the handlers are never called. A hook goes into the game only when a mod
+  registers a handler for its place, and stays in; with no handler it costs a flag check, and with none registered the game's code is untouched.
+- **Next to Enshwick's own loader** (kiln-enshwick hosting an Enshwick mod that paces the same places): both run. Kiln's hook goes in at the
+  first handler, later than Enshwick's, chained over it. Started the other way round (`"start": "ready"` in `kiln-enshwick.json` with a worker cap
+  in `kiln-pacing.json`, so Kiln's hooks are in first) Enshwick's loader no longer finds those places and its mods are told so; nothing else
+  breaks (docs/kiln/engines/enshwick.md).
+- **Checked in a lab server** (Steam build 26430253, nobody online): a loop-wait and a server-wait handler were called with consistent values;
+  a handler that made the idle wait 80 ms gave about half the steps (12.0 Hz against 22.2), 10 ms gave 2.5x (54.8 Hz), disposing it brought the
+  rate back (22.0 Hz), and a disposed handler was never called again; the worker caps above; next to Enshwick's optimizer mod too (below). Not run: players
+  online (the 1 ms and 0.1 ms waits), a client.
 - `set_change` and `change_data` in Enshwick's table are not pacing: they declare changes of vanilla data values (set, times,
   reset, merged across mods). Kiln's counterpart is the typed fields of `Kiln.Content` and, with the reflected-resource work,
   reversible overrides; they are not part of `Pacing`.

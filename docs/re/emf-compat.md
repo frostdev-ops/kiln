@@ -105,10 +105,18 @@ point.
   - `give_item` = `kiln.spawn.spawn_item` 1 m above the player.
   - `destroy` refuses ids 1..1023.
 - **Combat:**
-  - `attribute_get` HEALTH / MAX_HEALTH = `kiln.combat.health`.
-  - `attribute_add` HEALTH = `set_health(clamp(current + delta, 0, max))`.
+  - `attribute_get` / `attribute_add` (api_attributes.cpp) = `kiln.combat` v2 `attribute_get` / `attribute_add` for health,
+    stamina, mana (and body heat, oxygen). EMF's ids are the game's: kiln.combat resolves the same numbers at run time
+    (checked by its host test and the combat lab), so an id goes through unchanged. The add clamps at the pair's minimum
+    and maximum; maximum ids are refused. Off the tick thread the add is posted. XP and level ids stay on `kiln.progression`.
+    The v2 entries are used only when the core's table reaches them (`header.size`).
   - `damage` = `kiln.combat.damage`: reaction 2 (light), aggro toward the attacker.
   - Probe: Vukah 119/119, killed by a 1119 hit, whose HitEvent reached `on_event`.
+- **Wheel and windows (client):** `wheel_open` (api_wheel.cpp) opens kiln.ui v2's radial wheel; the pick or cancel reaches the
+  mod's callback after the next step of its world kind, as the window events do. Refused (false, logged) on a dedicated
+  server and for a bad definition, another wheel, the Kiln menu, no world of that kind. A world that ends closes it silently.
+  Window right clicks are `EMF_UI_RIGHT_CLICK` from kiln.ui's `is_item_clicked`. Not reproduced: EMF hiding a held hold
+  key from mods that poll the keyboard. Probe: the server refusals; drawing and picking are on the client checklist.
 - **Teleport:** `kiln.world.teleport` (FIND_GROUND/FACE_YAW/CHECKPOINT; EMF's bounds 0..10240 / -1000..5000).
   - The Kiln result becomes MOVED/FAILED + OFF_TARGET/RAW_TARGET + LAST.
   - NOTIFY_READY: the first callback has no LAST. READY+LAST follows 1 s later for players and at once for other
@@ -269,8 +277,7 @@ The step rate is within the host's noise; other labs ran at the same time. The P
   loading state) is open RE.
 - **Not yet available:**
   - `program_write_other` and `read_events` over several events-in: `kiln.world` v1 has no API for them.
-  - `hook_program`, `spawn_ex` with components, `wheel_open`.
-  - Stamina/mana in `attribute_*`.
+  - `hook_program`, `spawn_ex` with components (kiln.spawn takes them now; the EMF side is not wired).
   - `for_each_entity`, programs and `on_event` on client worlds.
 - **Client side** (HUD via `kiln.ui`, notes, client and prediction ticks) is built but not yet run in game.
 - `NOTIFY_READY`, the HUD layout (positions are estimates of EMF's corners) and `notify` styling are approximations.

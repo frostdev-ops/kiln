@@ -11,6 +11,7 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
 | [blocks.md](blocks.md) | Building blocks: statuses, effects, spells; what they compile to, what clients need, how mistakes show. Start here to make something |
+| [inventory.md](inventory.md) | Moving items between inventories keeping their state, container names, quick stack and move all rules and events (ported from shroudlink) |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs |
 | [world-blocks.md](world-blocks.md) | Props, stations that work on their own (a forge, a drying rack) and building materials as blocks |
 | [cosmetics.md](cosmetics.md) | Pieces for the vanity slots on models of your own: skinned or on one joint, both bodies from one file, `kiln skeleton player` |
@@ -21,7 +22,7 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
-| [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, what players need, quests-sample |
+| [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, quest and dialogue blocks, what players need, quests-sample |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, catalog |

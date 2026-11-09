@@ -124,7 +124,7 @@ internal static partial class Compiler
         if (!ValidName(name)) throw new BlockError(label, null, "a block name takes letters, digits, '-', '_' and '.'");
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock and not IQuestBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -139,7 +139,7 @@ internal static partial class Compiler
             StrengthBlock s => DefineStrength(ctx, low, name, s),
             SurfaceBlock s => DefineSurface(ctx, low, name, s),
             SoundBlock s => DefineSound(ctx, low, name, s),
-            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
+            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? DefineQuestBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
         return (handle, low, label);
@@ -492,6 +492,8 @@ internal sealed class Lowered(ModBlocks mod)
         if (Json["lootTable"] is JsonObject loot && loot["entries"] is JsonArray entries) parts.Add($"loot table of {entries.Count} entr{(entries.Count == 1 ? "y" : "ies")}");
         if (Json["vfx"] is { } vfx) parts.Add($"VFX {vfx} ({Json["status"] ?? "not built here"})");
         if (Json["material"] is { } material) parts.Add($"material {material} ({Json["status"] ?? "not built here"})");
+        if (Json["quest"] is JsonObject quest) parts.Add($"quest {quest["id"]}: {quest["steps"]!.AsArray().Count} step(s), {quest["rewards"]!.AsArray().Count} reward(s)");
+        if (Json["dialogue"] is JsonObject dialogue) parts.Add($"dialogue {dialogue["id"]}: {dialogue["nodes"]!.AsArray().Count} node(s)");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);
     }
 }

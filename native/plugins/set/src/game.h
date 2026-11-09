@@ -99,8 +99,12 @@ uint8_t* component(uintptr_t world, uint32_t entity, int idx, uint32_t* size = n
 uint32_t firstWith(uintptr_t world, int idx);
 std::vector<uint32_t> allWith(uintptr_t world, const int* idx, size_t n);
 uint32_t entityCount(uintptr_t world);
+// Stream lookups are cached per (world, type): a probe runs only on a miss. Tick thread, under the Lua lock.
 int eventIndex(uintptr_t world, uint32_t typeHash);  // >= 0: has a stream; < 0: -KilnResult
-void forEachEvent(uintptr_t world, int idx, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn);
+// One event_each; 0 or -KilnResult (a cached failure returns without calling kiln.types).
+int forEachEvent(uintptr_t world, uint32_t typeHash, const std::function<void(const uint8_t* ev)>& fn);
+void forgetEvents();     // world left or closing: the next lookup starts over
+uint64_t eventProbes();  // probes run so far (tests)
 // Posting copies the payload at once (kiln.types event_post), so the caller fills a buffer first.
 bool postEvent(uintptr_t world, uint32_t typeHash, const uint8_t* data, uint32_t size);
 int64_t simTime(uintptr_t world);
