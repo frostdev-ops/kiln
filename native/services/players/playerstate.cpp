@@ -30,7 +30,7 @@
 #include "kiln_api.h"
 #include "kiln_playerstate.h"
 #include "playerstate.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_build.h"
 #include "services/kiln_client.h"
 
@@ -1149,7 +1149,7 @@ struct Passed {
     uint32_t index, version;
 };
 
-SafetyHookInline g_deliver_hook;
+kiln::RawHook g_deliver_hook;
 std::vector<Held> g_held;            // the server world's thread only, like everything below
 std::vector<Passed> g_passed;        // released versions: one a program leaves pending for a while is not held again
 std::vector<KilnEntity> g_hold_for;  // from hold(), in Pre
@@ -1443,7 +1443,7 @@ void main(const KilnApi* api, KilnOwner owner) {
     // Client actions can be refused only before the step's programs run (see "holding client actions").
     uintptr_t deliver = 0;
     if (api->feature(kstr("players.client_action_hold")) && api->symbol(kstr("gameplay/DeliverEvents"), &deliver) == KILN_OK && deliver) {
-        g_deliver_hook = safetyhook::create_inline(reinterpret_cast<void*>(deliver), reinterpret_cast<void*>(&hk_deliver_events));
+        g_deliver_hook.install(g_api, g_owner, deliver, reinterpret_cast<void*>(&hk_deliver_events), "gameplay/DeliverEvents");
         g_hold_ok = static_cast<bool>(g_deliver_hook);
         if (!g_hold_ok) PSW("hooking DeliverEvents at %p failed: client actions can be seen but not canceled", reinterpret_cast<void*>(deliver));
     }

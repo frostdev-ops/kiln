@@ -13,7 +13,8 @@
 
 #include "imgui.h"
 #include "render_math.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the camera hook's register view
 #include "services/kiln_render.h"
 #include "ui.h"
 
@@ -44,7 +45,7 @@ CamData g_cam{};
 std::atomic<uint64_t> g_cam_frames{0}, g_cam_ms{0};
 std::atomic<uint64_t> g_draws{0};
 std::atomic<bool> g_cam_on{false};
-SafetyHookMid g_cam_hook;
+kiln::MidHook2 g_cam_hook;
 std::atomic<bool> g_cam_logged{false};
 constexpr double kFixed = 1.0 / 4294967296.0;  // WorldPosition: metres in 32.32 fixed point
 constexpr uint64_t kCamFreshMs = 500;
@@ -326,7 +327,7 @@ bool render_install() {
              "world positions do not");
         return false;
     }
-    g_cam_hook = safetyhook::create_mid(reinterpret_cast<void*>(site), &hk_camera);
+    g_cam_hook.install(g_api, g_owner, site, &hk_camera, "render/client.CameraWritten");
     g_cam_on = static_cast<bool>(g_cam_hook);
     if (g_cam_on) logf(KILN_LOG_INFO, "render: camera hooked (read only)");
     else logf(KILN_LOG_ERROR, "render: hooking the camera failed: world positions do not work");

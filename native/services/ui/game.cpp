@@ -24,7 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "ui.h"
 
 namespace kui {
@@ -145,7 +145,7 @@ thread_local uint32_t t_builder_station = 0;
 uint64_t g_frame_no = 0;
 DWORD g_ui_thread = 0;
 
-SafetyHookInline g_frame_hook, g_main_hook, g_sys_hook, g_craft_hook;
+kiln::RawHook g_frame_hook, g_main_hook, g_sys_hook, g_craft_hook;
 using MainEntryFn = bool(__fastcall*)(void*, const MainDesc*);
 using SysEntryFn = bool(__fastcall*)(const GameText*, uint8_t, uint8_t);
 
@@ -263,8 +263,7 @@ void activated(KilnHandle h) {
 
 // ---- hooks ----
 bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
-    void* ret = _ReturnAddress();
-    const uintptr_t r = reinterpret_cast<uintptr_t>(ret);
+    const uintptr_t r = g_main_hook.caller();  // the game's call site, read before the original
     if (d && (r == L.main_ret_a || r == L.main_ret_b)) {
         for (const Entry& e : entries_of(KILN_UI_MENU_MAIN)) {
             MainDesc c = *d;  // the Settings entry's option bytes: same style, same behaviour
@@ -277,8 +276,8 @@ bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
 }
 
 bool __fastcall hk_sys_entry(const GameText* t, uint8_t p2, uint8_t attention) {
-    void* ret = _ReturnAddress();
-    if (t && reinterpret_cast<uintptr_t>(ret) == L.sys_ret) {
+    const uintptr_t ret = g_sys_hook.caller();  // the game's call site, read before the original
+    if (t && ret == L.sys_ret) {
         for (const Entry& e : entries_of(KILN_UI_MENU_PAUSE)) {
             const GameText c{e.text->c_str(), e.text->size(), e.fnv};
             g_draws.fetch_add(1, std::memory_order_relaxed);
@@ -435,22 +434,22 @@ bool game_install() {
     L.crafting = feat("ui.crafting") && sym("ui/CraftingMenu", &craft_fn) && sym("ui/UiApp", &L.ui_app) &&
                  cst("ui/ui.data", &L.ui_data) && cst("ui/data.craft_recipe", &L.craft_recipe) &&
                  cst("ui/data.station_recipe", &L.station_recipe);
-    g_frame_hook = safetyhook::create_inline(reinterpret_cast<void*>(frame_fn), reinterpret_cast<void*>(&hk_frame));
+    g_frame_hook.install(g_api, g_owner, frame_fn, reinterpret_cast<void*>(&hk_frame), "ui/GameUiFrame");
     if (!g_frame_hook) {
         logf(KILN_LOG_ERROR, "ui: hooking the game's UI frame failed: no game-UI integration");
         L.screens = L.main_menu = L.system_menu = L.crafting = false;
         return false;
     }
     if (L.main_menu) {
-        g_main_hook = safetyhook::create_inline(reinterpret_cast<void*>(main_fn), reinterpret_cast<void*>(&hk_main_entry));
+        g_main_hook.install(g_api, g_owner, main_fn, reinterpret_cast<void*>(&hk_main_entry), "ui/MainMenuEntry");
         L.main_menu = static_cast<bool>(g_main_hook);
     }
     if (L.system_menu) {
-        g_sys_hook = safetyhook::create_inline(reinterpret_cast<void*>(sys_fn), reinterpret_cast<void*>(&hk_sys_entry));
+        g_sys_hook.install(g_api, g_owner, sys_fn, reinterpret_cast<void*>(&hk_sys_entry), "ui/SystemMenuEntry");
         L.system_menu = static_cast<bool>(g_sys_hook);
     }
     if (L.crafting) {
-        g_craft_hook = safetyhook::create_inline(reinterpret_cast<void*>(craft_fn), reinterpret_cast<void*>(&hk_craft));
+        g_craft_hook.install(g_api, g_owner, craft_fn, reinterpret_cast<void*>(&hk_craft), "ui/CraftingMenu");
         L.crafting = static_cast<bool>(g_craft_hook);
     }
     add_builtin_entries();

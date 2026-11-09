@@ -24,13 +24,15 @@
 
 #include "creative.h"
 #include "flight_math.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the mid handlers' register view
 #include "services/kiln_client.h"
 
 namespace kiln_rules_flight {
 namespace {
 
 const KilnApi* g_api = nullptr;
+KilnOwner g_owner = 0;
 const KilnClientApi* g_client = nullptr;
 
 void logf(int level, const char* fmt, ...) {
@@ -58,8 +60,8 @@ using MoverFn = void(__fastcall*)(uint8_t* it);
 
 CurrentEntityIdFn g_entity_of = nullptr;
 ActorStateTestFn g_actor_state = nullptr;
-SafetyHookMid h_state, h_grav;
-SafetyHookInline h_mover;
+kiln::MidHook2 h_state, h_grav;
+kiln::RawHook h_mover;
 
 struct Layout {
     int64_t loco_actor = 0;    // locomotion_state: the Actor slot, rsp + (int8)
@@ -261,8 +263,9 @@ void refresh() {
 
 void KILN_CALL client_pre(const KilnTickInfo*, void*) { refresh(); }
 
-uint32_t install(const KilnApi* api, std::string& off) {
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off) {
     g_api = api;
+    g_owner = owner;
     g_client = static_cast<const KilnClientApi*>(
         api->service(KilnStr{KILN_CLIENT_SERVICE, sizeof(KILN_CLIENT_SERVICE) - 1}, KILN_CLIENT_VERSION));
     if (g_client && g_client->subscribe_tick) {
@@ -284,9 +287,9 @@ uint32_t install(const KilnApi* api, std::string& off) {
         return 0;
     }
     // all three or none: a state without its gravity or input would leave a player stuck in the air
-    h_state = safetyhook::create_mid(reinterpret_cast<void*>(state_site), &hk_state);
-    h_grav = safetyhook::create_mid(reinterpret_cast<void*>(grav_site), &hk_grav);
-    h_mover = safetyhook::create_inline(reinterpret_cast<void*>(mover), reinterpret_cast<void*>(&hk_mover));
+    h_state.install(api, owner, state_site, &hk_state, "rules/LocoStateWrite");
+    h_grav.install(api, owner, grav_site, &hk_grav, "rules/FlightGravity");
+    h_mover.install(api, owner, mover, reinterpret_cast<void*>(&hk_mover), "rules/FlightMover");
     if (!h_state || !h_grav || !h_mover) {
         logf(KILN_LOG_ERROR, "character flight: hooking failed (state %d, gravity %d, mover %d); it stays off", bool(h_state),
              bool(h_grav), bool(h_mover));

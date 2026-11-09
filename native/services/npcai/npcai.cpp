@@ -24,10 +24,10 @@
 #include <vector>
 
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the mid handler's register view
 #include "services/kiln_npcai.h"
 #include "services/kiln_world.h"
-#include "../../core/src/hook_guard.h"
 
 namespace {
 
@@ -81,10 +81,9 @@ Lives g_lives;  // tick only; hooks read the immutable published index
 std::atomic<std::shared_ptr<const Lives>> g_life_index;
 std::atomic<uintptr_t> g_storage{0};
 int64_t g_storage_offset = -1;
-// Process lifetime, including after an unload callback: a foreign trampoline may still enter these hooks.
-// Do not run safetyhook's unconditional restoring destructor during DLL/static teardown.
-safetyhook::MidHook& g_destroy = *new safetyhook::MidHook;
-kiln::hooks::HookGuard g_destroy_guard;
+// A kiln.hooks link, added when the first creature relation needs it and revoked when none is left. Revoking only
+// takes the link out of Kiln's chain (the detour stays, so another module's hook over it is never undone).
+kiln::MidHook2 g_destroy;
 uintptr_t g_destroy_at = 0;
 bool g_lifecycle = false;
 
@@ -187,14 +186,24 @@ using ValFn = bool (*)(uint8_t, uint8_t);
 
 enum : uint32_t { kHostile = 1, kHostileValue = 2, kFriend = 4, kFriendOpt = 8, kFriendValue = 16 };
 uintptr_t g_at[5] = {};
-auto& g_h = *new std::array<safetyhook::InlineHook, 5>;
-kiln::hooks::HookGuard g_hook_guards[5];
+// kiln.hooks links: added with the first relation, revoked when the last one goes. A link's continuation (original())
+// stays valid after revoke, so a game thread still inside a handler finishes safely.
+std::array<kiln::RawHook, 5> g_h;
 uint32_t g_resolved = 0;
 std::atomic<uint32_t> g_installed{0};
 std::atomic<bool> g_answering{false}, g_install_failed{false};
-PtrFn g_o_hostile = nullptr, g_o_friend = nullptr;
-PtrOptFn g_o_friend_opt = nullptr;
-ValFn g_o_hostile_value = nullptr, g_o_friend_value = nullptr;
+// The game's function past Kiln's link: the link's continuation once it was ever installed (it stays valid after
+// revoke), else the function's own entry (query() before the first relation: no link of ours is on it).
+template <class F>
+F orig(int i) {
+    const F f = g_h[i].original<F>();
+    return f ? f : reinterpret_cast<F>(g_at[i]);
+}
+bool g_o_hostile(const uint8_t* a, const uint8_t* b) { return orig<PtrFn>(0)(a, b); }
+bool g_o_hostile_value(uint8_t a, uint8_t b) { return orig<ValFn>(1)(a, b); }
+bool g_o_friend(const uint8_t* a, const uint8_t* b) { return orig<PtrFn>(2)(a, b); }
+bool g_o_friend_opt(const uint8_t* a, const uint8_t* b, const void* o) { return orig<PtrOptFn>(3)(a, b, o); }
+bool g_o_friend_value(uint8_t a, uint8_t b) { return orig<ValFn>(4)(a, b); }
 
 std::atomic<uint64_t> g_calls{0}, g_answered{0}, g_by_pair{0}, g_by_row{0}, g_by_table{0};
 
@@ -297,34 +306,18 @@ void resolve() {
 // Require the whole family: a partial override can make the same pair both hostile and friendly.
 bool usable() { return g_resolved == 0x1f; }
 
-// Prepare before game entry. Original addresses never change, and their trampolines live until process exit.
-// Disabling a hook restores the game bytes but does not free a trampoline another thread may still be executing.
-bool prepare() {
-    if (!usable()) return false;
-    for (int i = 0; i < 5; ++i) {
-        g_h[i] = safetyhook::create_inline(reinterpret_cast<void*>(g_at[i]), kDetours[i], safetyhook::InlineHook::StartDisabled);
-        if (!g_h[i]) return false;
-    }
-    g_o_hostile = g_h[0].original<PtrFn>();
-    g_o_hostile_value = g_h[1].original<ValFn>();
-    g_o_friend = g_h[2].original<PtrFn>();
-    g_o_friend_opt = g_h[3].original<PtrOptFn>();
-    g_o_friend_value = g_h[4].original<ValFn>();
-    return true;
-}
+// Checked before game entry: the links themselves go in with the first relation (kiln.hooks v2 adds and revokes them
+// while the game runs, without freezing threads).
+bool prepare() { return usable() && kiln::hooks_v2(g_api) != nullptr; }
 
 void uninstall() {
     g_answering.store(false, std::memory_order_release);
     for (int i = 0; i < 5; ++i) {
-        if (!g_h[i] || !g_h[i].enabled()) continue;
-        if (g_hook_guards[i].disable(g_h[i], [i] {
-                NA_W("foreign code covers %s; leaving the hook armed and retaining its trampoline", kNames[i]);
-            })) g_installed.fetch_and(~(1u << i));
+        if (!g_h[i]) continue;
+        g_h[i].revoke();
+        g_installed.fetch_and(~(1u << i));
     }
-    if (g_lives.empty() && g_destroy && g_destroy.enabled())
-        g_destroy_guard.disable(g_destroy, [] {
-            NA_W("foreign code covers entity lifetime observer; leaving the hook armed and retaining its trampoline");
-        });
+    if (g_lives.empty() && g_destroy) g_destroy.revoke();
 }
 
 bool install() {
@@ -334,14 +327,13 @@ bool install() {
         return true;
     }
     for (int i = 0; i < 5; ++i) {
-        const bool was_enabled = g_h[i].enabled();
-        if (!g_h[i].enable()) {
+        if (g_h[i]) continue;
+        if (!g_h[i].install(g_api, g_owner, g_at[i], kDetours[i], kNames[i])) {
             NA_W("the hook on %s failed; the game decides alone", kNames[i]);
             uninstall();
             g_install_failed.store(true);
             return false;
         }
-        if (!was_enabled) g_hook_guards[i].armed(reinterpret_cast<void*>(g_at[i]));
         g_installed.fetch_or(1u << i);
     }
     g_answering.store(true, std::memory_order_release);
@@ -349,11 +341,14 @@ bool install() {
 }
 
 bool entity_support() {
-    if (!g_world || !g_faction_hash || !g_destroy || !g_lifecycle || !server_world_ok()) return false;
+    if (!g_world || !g_faction_hash || !g_destroy_at || !g_lifecycle || !server_world_ok()) return false;
     g_storage.store(g_api->server_world() + static_cast<uintptr_t>(g_storage_offset), std::memory_order_release);
-    if (g_destroy.enabled()) return true;
-    if (!g_destroy.enable()) return false;
-    g_destroy_guard.armed(reinterpret_cast<void*>(g_destroy_at));
+    if (g_destroy) return true;
+    if (!g_destroy.install(g_api, g_owner, g_destroy_at, &hk_destroy, "spawn/DestroyEntity")) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) NA_W("the entity lifetime observer did not install (%s): per-creature relations are refused", g_destroy.error());
+        return false;
+    }
     return true;
 }
 
@@ -561,8 +556,8 @@ KilnResult KILN_CALL query(KilnEntity a, KilnEntity b, uint32_t* hostile, uint32
     if (!fa || !fb) return KILN_ERR_NOT_FOUND;
     // as the hooks answer (they may not be in before the next Pre): Kiln's relation, else the game's own code
     const uint8_t r = relation_ptr(fa, fb, false);
-    const PtrFn game_hostile = g_o_hostile;
-    const PtrOptFn game_friend = g_o_friend_opt;
+    const PtrFn game_hostile = orig<PtrFn>(0);
+    const PtrOptFn game_friend = orig<PtrOptFn>(3);
     const uint8_t opt[2] = {0, 0};
     if (hostile) *hostile = hostile_of(r) >= 0 ? static_cast<uint32_t>(hostile_of(r)) : game_hostile(fa, fb) ? 1u : 0u;
     if (friendly) *friendly = friend_of(r) >= 0 ? static_cast<uint32_t>(friend_of(r)) : game_friend && game_friend(fa, fb, opt) ? 1u : 0u;
@@ -655,12 +650,11 @@ void KILN_CALL on_unload(void*) {
 void KILN_CALL on_ready(void*) {
     g_world = static_cast<const KilnWorldApi*>(g_api->service(KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1}, KILN_WORLD_VERSION));
     if (g_world && g_world->component_hash) g_faction_hash = g_world->component_hash(KilnStr{"Faction", 7});
-    if (g_api->constant(KilnStr{"world.storage", 13}, &g_storage_offset) == KILN_OK && g_storage_offset > 0 &&
-        g_api->symbol(KilnStr{"spawn/DestroyEntity", 19}, &g_destroy_at) == KILN_OK && g_destroy_at) {
-        auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(g_destroy_at), &hk_destroy, safetyhook::MidHook::StartDisabled);
-        if (hook) g_destroy = std::move(*hook);
-    }
-    if (!g_destroy) NA_W("entity lifetime observer unavailable: per-creature relations are refused");
+    // the lifetime observer's link goes in with the first creature relation (entity_support)
+    if (!(g_api->constant(KilnStr{"world.storage", 13}, &g_storage_offset) == KILN_OK && g_storage_offset > 0 &&
+          g_api->symbol(KilnStr{"spawn/DestroyEntity", 19}, &g_destroy_at) == KILN_OK && g_destroy_at))
+        g_destroy_at = 0;
+    if (!g_destroy_at) NA_W("entity lifetime observer unavailable: per-creature relations are refused");
     if (!g_world) NA_W("kiln.world is not here: only the faction table works (no creature's own relations)");
 }
 

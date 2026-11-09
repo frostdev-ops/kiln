@@ -47,7 +47,8 @@
 #include "services/kiln_rules.h"
 #ifndef KILN_RULES_HOST_TEST
 #include "creative.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the mid handlers' register view
 #include "services/kiln_client.h"
 #include "services/kiln_world.h"
 #endif
@@ -267,12 +268,12 @@ struct Layout {
     int64_t hb_player_z = 0, cam_obj = 0, cpi_camera = 0, cam_pivot = 0;
 } L;
 
-SafetyHookMid h_fly, h_zone, h_shroud, h_grav, h_stam, h_ray, h_cam;
-SafetyHookInline h_cursor, h_apply, h_damage, h_terraform, h_glide;
+kiln::MidHook2 h_fly, h_zone, h_shroud, h_grav, h_stam, h_ray, h_cam;
+kiln::RawHook h_cursor, h_apply, h_damage, h_terraform, h_glide;
 // The storage-chest upgrade (UpgradeStorageAction) pays with the inventory payment directly, not through
 // ApplyMaterials: the payment is hooked, and only the call from that action (its return address) is waived.
 using InventoryPayFn = uint32_t(__fastcall*)(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra);
-SafetyHookInline h_pay;
+kiln::RawHook h_pay;
 uintptr_t g_upgrade_ret = 0;
 const KilnClientApi* g_client = nullptr;
 std::atomic<uint32_t> g_hooks{0};
@@ -750,7 +751,7 @@ bool scale_guarded(uint8_t* cost, int64_t* list, uint8_t take, uintptr_t ret, En
 }
 
 bool __fastcall hk_apply(uint8_t* cost, int64_t* list, uint8_t take) {
-    const auto ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const uintptr_t ret = h_apply.caller();  // the game's call site, read before the original
     Entry copy[kMaxEntries];
     int64_t scaled[2] = {0, 0};
     bool empty = false;
@@ -777,16 +778,17 @@ bool upgrade_free_guarded(void* tx, uint32_t owner, uintptr_t ret, unsigned long
 
 uint32_t __fastcall hk_pay(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
     if (kiln_rules_creative::idle()) return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
-    if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_upgrade_ret && g_upgrade_ret) {
+    const uintptr_t ret = h_pay.caller();  // the game's call site, read before the original
+    if (ret == g_upgrade_ret && g_upgrade_ret) {
         unsigned long code = 0;
-        if (upgrade_free_guarded(tx, owner, reinterpret_cast<uintptr_t>(_ReturnAddress()), &code)) {
+        if (upgrade_free_guarded(tx, owner, ret, &code)) {
             S.costs.fetch_add(1, std::memory_order_relaxed);
             return 0;
         }
         if (code) S.faults.fetch_add(1, std::memory_order_relaxed);
     }
     // creative.cpp: the recipe function's payment for an operator with FREE_CRAFTING (its own return-address test)
-    if (kiln_rules_creative::pay_free(reinterpret_cast<uintptr_t>(_ReturnAddress()), tx, owner)) return 0;
+    if (kiln_rules_creative::pay_free(ret, tx, owner)) return 0;
     return h_pay.call<uint32_t>(tx, costs, owner, multiplier, extra);
 }
 
@@ -1300,9 +1302,9 @@ bool sym(const char* name, F* out) {
 bool cst(const char* name, int64_t* out) { return g_api->constant(KilnStr{name, std::strlen(name)}, out) == KILN_OK; }
 bool feat(const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); }
 
-template <typename H>
-bool inline_hook(H& h, void* target, void* detour, const char* what) {
-    h = safetyhook::create_inline(target, detour);
+bool inline_hook(kiln::RawHook& h, void* target, void* detour, const char* what, const char* label,
+                 const char* before = nullptr) {
+    h.install(g_api, g_owner, reinterpret_cast<uintptr_t>(target), detour, label, 0, before);
     if (!h) LOGE("hooking %s failed", what);
     return static_cast<bool>(h);
 }
@@ -1312,13 +1314,13 @@ bool inline_hook(H& h, void* target, void* detour, const char* what) {
 void install_client_guards() {
     if (feat("rules.healthbar_guard") && sym("rules/client.HealthbarRay", &fn.ray_site) &&
         cst("rules/client.hb.player_z", &L.hb_player_z)) {
-        h_ray = safetyhook::create_mid(reinterpret_cast<void*>(fn.ray_site), &hk_ray);
+        h_ray.install(g_api, g_owner, fn.ray_site, &hk_ray, "rules/client.HealthbarRay");
         if (h_ray) g_client_guards |= kGuardRays;
         else LOGE("client guard: hooking the health bars' line of sight failed");
     }
     if (feat("rules.camera_check") && sym("rules/client.CameraInput", &fn.cam_site) && cst("rules/client.cam.obj", &L.cam_obj) &&
         cst("rules/client.cpi.camera", &L.cpi_camera) && cst("rules/client.cam.pivot", &L.cam_pivot)) {
-        h_cam = safetyhook::create_mid(reinterpret_cast<void*>(fn.cam_site), &hk_cam);
+        h_cam.install(g_api, g_owner, fn.cam_site, &hk_cam, "rules/client.CameraInput");
         if (h_cam) g_client_guards |= kGuardCamera;
         else LOGE("client guard: hooking the camera check failed");
     }
@@ -1335,7 +1337,7 @@ void install() {
     // flight
     if (common && feat("rules.fly") && sym("rules/FlyGate", &fn.fly_site) && sym("rules/ActorStateTest", &fn.actor_state) &&
         cst("rules/fly.entity", &L.fly_entity) && cst("rules/fly.actor", &L.fly_actor)) {
-        h_fly = safetyhook::create_mid(reinterpret_cast<void*>(fn.fly_site), &hk_fly);
+        h_fly.install(g_api, g_owner, fn.fly_site, &hk_fly, "rules/FlyGate");
         if (h_fly) g_hooks |= KILN_RULES_HOOK_FLY;
         else LOGE("hooking the fly-mode gate failed");
     } else {
@@ -1343,7 +1345,7 @@ void install() {
     }
     // building zone (server cursor)
     if (common && feat("rules.zone") && sym("rules/ZoneFlag", &fn.zone_site)) {
-        h_zone = safetyhook::create_mid(reinterpret_cast<void*>(fn.zone_site), &hk_zone);
+        h_zone.install(g_api, g_owner, fn.zone_site, &hk_zone, "rules/ZoneFlag");
         if (h_zone) g_hooks |= KILN_RULES_HOOK_ZONE;
         else LOGE("hooking the building-zone test failed");
     } else {
@@ -1351,14 +1353,14 @@ void install() {
     }
     // cursor
     if (common && feat("rules.cursor") && sym("rules/CursorFlags", &fn.cursor) &&
-        inline_hook(h_cursor, reinterpret_cast<void*>(fn.cursor), reinterpret_cast<void*>(&hk_cursor), "the cursor flags"))
+        inline_hook(h_cursor, reinterpret_cast<void*>(fn.cursor), reinterpret_cast<void*>(&hk_cursor), "the cursor flags", "rules/CursorFlags"))
         g_hooks |= KILN_RULES_HOOK_CURSOR;
     else note("placement (rules.cursor)");
     // costs: server worlds only (a dedicated server, or a client hosting one)
     if (feat("rules.costs") && sym("rules/ApplyMaterials", &fn.apply) && cst("items/tx.operator", &L.tx_operator) &&
         cst("world/programs.table", &L.programs_table) && cst("world/programs.stride", &L.programs_stride) &&
         cst("world/programs.count", &L.programs_count) &&
-        inline_hook(h_apply, reinterpret_cast<void*>(fn.apply), reinterpret_cast<void*>(&hk_apply), "ApplyMaterials"))
+        inline_hook(h_apply, reinterpret_cast<void*>(fn.apply), reinterpret_cast<void*>(&hk_apply), "ApplyMaterials", "rules/ApplyMaterials"))
         g_hooks |= KILN_RULES_HOOK_COSTS;
     else note("costs (rules.costs)");
     // creative mode's hooks and the inventory payment (free crafting, kept consumables, the storage upgrade, map reveal,
@@ -1368,15 +1370,16 @@ void install() {
     if (feat("rules.dig") && sym("rules/TerrainDamage", &fn.damage) && sym("gameplay/TerraformImpact", &fn.terraform) &&
         cst("gameplay/impact.arg_offset", &L.arg_offset) && cst("gameplay/impact.arg_base", &L.arg_base) &&
         cst("gameplay/impact.arg_stride", &L.arg_stride) &&
-        inline_hook(h_damage, reinterpret_cast<void*>(fn.damage), reinterpret_cast<void*>(&hk_damage), "the terrain damage") &&
-        inline_hook(h_terraform, reinterpret_cast<void*>(fn.terraform), reinterpret_cast<void*>(&hk_terraform), "TerraformImpact"))
+        inline_hook(h_damage, reinterpret_cast<void*>(fn.damage), reinterpret_cast<void*>(&hk_damage), "the terrain damage", "rules/TerrainDamage") &&
+        inline_hook(h_terraform, reinterpret_cast<void*>(fn.terraform), reinterpret_cast<void*>(&hk_terraform), "TerraformImpact", "gameplay/TerraformImpact",
+                    "kiln.gameplay"))  // before kiln.gameplay's zone check, as the old layered hook ran
         g_hooks |= KILN_RULES_HOOK_DIG;
     else note("mining (rules.dig)");
     // Shroud timer
     if (common && feat("rules.shroud") && sym("rules/ShroudDrain", &fn.shroud_site) &&
         sym("rules/StepDelta", &fn.step_delta) && cst("rules/fog.attr", &L.fog_attr) &&
         cst("rules/fog.actor", &L.fog_actor) && cst("rules/fog.state", &L.fog_state)) {
-        h_shroud = safetyhook::create_mid(reinterpret_cast<void*>(fn.shroud_site), &hk_shroud);
+        h_shroud.install(g_api, g_owner, fn.shroud_site, &hk_shroud, "rules/ShroudDrain");
         if (h_shroud) g_hooks |= KILN_RULES_HOOK_SHROUD;
         else LOGE("hooking the Shroud timer failed");
     } else {
@@ -1405,9 +1408,9 @@ void install() {
             L.input_stick = -1;
             LOGW("gliding: the movement stick is not found on this build: a boosted glider takes its pitch from the camera");
         }
-        h_grav = safetyhook::create_mid(reinterpret_cast<void*>(fn.grav_site), &hk_grav);
-        h_stam = safetyhook::create_mid(reinterpret_cast<void*>(fn.stam_site), &hk_stam);
-        const bool step = inline_hook(h_glide, reinterpret_cast<void*>(fn.glide), reinterpret_cast<void*>(&hk_glide), "the glide step");
+        h_grav.install(g_api, g_owner, fn.grav_site, &hk_grav, "rules/GlideGravity");
+        h_stam.install(g_api, g_owner, fn.stam_site, &hk_stam, "rules/GlideStamina");
+        const bool step = inline_hook(h_glide, reinterpret_cast<void*>(fn.glide), reinterpret_cast<void*>(&hk_glide), "the glide step", "rules/GlideStep");
         if (h_grav && h_stam && step) {
             g_hooks |= KILN_RULES_HOOK_GLIDE;
         } else {
@@ -1441,7 +1444,7 @@ void arm_payments() {
     auto note = [&off](const char* s) { off += off.empty() ? s : std::string(", ") + s; };
     [&] {
         // creative mode's hooks (creative.cpp): free crafting answers through the payment hooked below
-        g_hooks |= kiln_rules_creative::install(g_api, off);
+        g_hooks |= kiln_rules_creative::install(g_api, g_owner, off);
         if (kiln_rules_creative::flame_creative()) {
             note("storage upgrade (Creative Mode runs)");
             return;  // Creative Mode pays for chest upgrades its own way: no second hook on the payment
@@ -1449,14 +1452,14 @@ void arm_payments() {
         // the storage-chest upgrade's payment (counted with the costs); the same hook serves free crafting
         uintptr_t pay = 0;
         if ((g_hooks & KILN_RULES_HOOK_CRAFT) && (!sym("rules/InventoryPay", &pay) ||
-            !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment"))) {
+            !inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment", "rules/InventoryPay"))) {
             g_hooks &= ~KILN_RULES_HOOK_CRAFT;
             kiln_rules_creative::pay_hook_failed();
             note("free crafting (payment hook failed)");
         }
         if (feat("rules.storage") && cst("items/tx.operator", &L.tx_operator) &&
             sym("rules/InventoryPay", &pay) && sym("rules/UpgradeStoragePaid", &g_upgrade_ret) && upgrade_call_valid(g_upgrade_ret, pay) &&
-            (h_pay || inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment")))
+            (h_pay || inline_hook(h_pay, reinterpret_cast<void*>(pay), reinterpret_cast<void*>(&hk_pay), "the inventory payment", "rules/InventoryPay")))
             logf(KILN_LOG_INFO, "storage upgrade: free with BuildCost 0 (payment rva 0x%llx, the upgrade's call returns to rva 0x%llx)",
                  static_cast<unsigned long long>(pay - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
                  static_cast<unsigned long long>(g_upgrade_ret - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
@@ -1465,7 +1468,7 @@ void arm_payments() {
             note("storage upgrade (rules.storage)");
         }
     }();
-    g_hooks |= kiln_rules_flight::install(g_api, off);  // character flight yields to Creative Mode too
+    g_hooks |= kiln_rules_flight::install(g_api, g_owner, off);  // character flight yields to Creative Mode too
     if (off.empty()) return;
     std::lock_guard lock(g_detail_mu);
     g_detail = g_detail == "every hook installed" ? "off on this build: " + off : g_detail + ", " + off;

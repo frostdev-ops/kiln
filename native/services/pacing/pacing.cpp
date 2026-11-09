@@ -39,8 +39,9 @@ struct Context {
 };
 }  // namespace safetyhook
 #else
+#include "kiln_hook.hpp"
 #include "nlohmann/json.hpp"
-#include "safetyhook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the hooks' register view
 #endif
 #include "services/kiln_pacing.h"
 
@@ -93,7 +94,7 @@ struct Slot {
     bool found = false;    // sigdb resolved it (and the side has it)
     bool hooked = false;   // the hook is in the game's code
     bool refused = false;  // putting the hook in failed: never retried
-    void* hook = nullptr;  // safetyhook::MidHook, leaked on purpose (see above)
+    void* hook = nullptr;  // kiln::MidHook2, leaked on purpose (see above)
 };
 Slot g_slot[kPlaces];
 
@@ -222,9 +223,13 @@ std::string foreign_jump(uintptr_t at) {
 bool put_in(Slot& s, HookFn fn) {
     const std::string other = foreign_jump(s.at);
     if (!other.empty()) logf(KILN_LOG_INFO, "%s is already hooked by someone else (%s); this hook chains with it", kInfo[&s - g_slot].symbol, other.c_str());
-    auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(s.at), fn);
-    if (!hook) return false;
-    s.hook = new safetyhook::MidHook(std::move(*hook));
+    auto* hook = new kiln::MidHook2;
+    if (!hook->install(g_api, g_owner, s.at, fn, kInfo[&s - g_slot].symbol)) {
+        logf(KILN_LOG_WARN, "%s: %s", kInfo[&s - g_slot].symbol, hook->error());
+        delete hook;
+        return false;
+    }
+    s.hook = hook;
     return true;
 }
 #endif

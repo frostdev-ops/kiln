@@ -47,7 +47,8 @@
 #include "kiln_api.h"
 #include "lab.h"
 #include "nlohmann/json.hpp"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the mid handlers' register view
 #include "services/kiln_assets.h"
 #include "services/kiln_net.h"
 
@@ -65,12 +66,12 @@ int g_gs_register = 13;
 bool g_world_api = false;  // KilnApi has the client-support functions (subscribe_world_tick, ...)
 std::atomic<bool> g_client_faulted{false};
 
-SafetyHookMid g_after_sync;
-SafetyHookInline g_client_recv;
-SafetyHookInline g_machine_login;   // server role: Gameplay Ready (net/MachineLogin)
-SafetyHookInline g_enqueue;         // server role: an entity queued for a player (net/ReplicationEnqueue)
-SafetyHookMid g_client_ready;       // client role: right before the game sends Gameplay Ready (net/ClientGameplayReady)
-SafetyHookMid g_create_guard;       // client role: the create path's use of its template lookup (net/CreateTemplateCall)
+kiln::MidHook2 g_after_sync;
+kiln::RawHook g_client_recv;
+kiln::RawHook g_machine_login;   // server role: Gameplay Ready (net/MachineLogin)
+kiln::RawHook g_enqueue;         // server role: an entity queued for a player (net/ReplicationEnqueue)
+kiln::MidHook2 g_client_ready;       // client role: right before the game sends Gameplay Ready (net/ClientGameplayReady)
+kiln::MidHook2 g_create_guard;       // client role: the create path's use of its template lookup (net/CreateTemplateCall)
 
 constexpr uint32_t kDefaultMaxFrame = 8000;  // channel 12 carries up to 8192 bytes per message
 std::atomic<uint32_t> g_max_frame{kDefaultMaxFrame};
@@ -426,7 +427,7 @@ void __fastcall hk_machine_login(uintptr_t gs, uint32_t peer, const uint8_t* mes
         std::lock_guard<std::mutex> lk(g_mu);
         if (!gate_admit_locked(peer)) return;
     }
-    g_machine_login.unsafe_call<void>(gs, peer, message);
+    g_machine_login.call<void>(gs, peer, message);
 }
 
 // `id`, or a parent of it, has a template the game doesn't ship. Lock-free: kiln.assets answers from its snapshot.
@@ -457,7 +458,7 @@ void resend_kept_back(uintptr_t storage, uintptr_t player, uint8_t slot) {
     for (uint32_t id : ids) {
         uint8_t flags = 0;
         const uintptr_t state = knet::player_entity_state(player, id, &flags);
-        if (state && (flags & kStateInHeap) == 0) g_enqueue.unsafe_call<void>(storage, player, state, id, options);
+        if (state && (flags & kStateInHeap) == 0) g_enqueue.call<void>(storage, player, state, id, options);
     }
 }
 
@@ -541,7 +542,7 @@ void __fastcall hk_enqueue(uintptr_t storage, uintptr_t player, uintptr_t state,
             }
         }
     }
-    g_enqueue.unsafe_call<void>(storage, player, state, entity, options);
+    g_enqueue.call<void>(storage, player, state, entity, options);
 }
 
 // Logs, from the tick thread, the first entity kept from a cleared player for a template added after its clear.
@@ -1610,8 +1611,7 @@ void init_create_guard() {
     if (feat("net.client_guard") && sym("net/CreateTemplateCall", &call) && cst("net/create.entity", &L.create_entity) &&
         cst("net/create.parent", &L.create_parent)) {
         g_create_resume = call + 0x11;  // after the call and its test, which the pattern fixes: the failure branch
-        auto mid = safetyhook::MidHook::create(reinterpret_cast<void*>(call), &hk_create_template);
-        if (mid) g_create_guard = std::move(*mid);
+        g_create_guard.install(g_api, g_owner, call, &hk_create_template, "net/CreateTemplateCall");
     }
     if (!g_create_guard) logf(KILN_LOG_WARN, "net: no guard on the game's create path on this build: a template this game lacks crashes it, as without Kiln");
 }
@@ -1621,7 +1621,7 @@ void init_create_guard() {
 void init_vanilla_gate() {
     uintptr_t login = 0;
     if (feat("net.gate") && sym("net/MachineLogin", &login)) {
-        g_machine_login = safetyhook::create_inline(reinterpret_cast<void*>(login), reinterpret_cast<void*>(&hk_machine_login));
+        g_machine_login.install(g_api, g_owner, login, reinterpret_cast<void*>(&hk_machine_login), "net/MachineLogin");
         g_can_hold = static_cast<bool>(g_machine_login);
     }
     cst("world.storage", &g_world_storage);
@@ -1630,7 +1630,7 @@ void init_vanilla_gate() {
         cst("spawn/storage.entity_map_cap", &L.entity_map_cap) && cst("spawn/storage.entity_records", &L.entity_records) &&
         cst("spawn/record.parent", &L.rec_parent) && cst("spawn/record.template", &L.rec_template) && cst("spawn/record.id", &L.rec_id) &&
         cst("net/player.state_map", &L.player_state_map)) {
-        g_enqueue = safetyhook::create_inline(reinterpret_cast<void*>(enqueue), reinterpret_cast<void*>(&hk_enqueue));
+        g_enqueue.install(g_api, g_owner, enqueue, reinterpret_cast<void*>(&hk_enqueue), "net/ReplicationEnqueue");
         g_can_withhold = static_cast<bool>(g_enqueue);
     }
     logf(g_can_hold && g_can_withhold ? KILN_LOG_INFO : KILN_LOG_WARN, "net: clients without Kiln: gate %s, withholding %s",
@@ -1655,16 +1655,11 @@ bool init_server_role() {
                      cst("net/rec.peer", &L.rec_peer) && cst("net/rec.account", &L.rec_account) &&
                      cst("net/rec.name", &L.rec_name) && cst("net/rec.entity", &L.rec_entity);
     g_can_kick = feat("net.kick") && sym("net/SendLoginResult", &F.login_result);
-    auto mid = safetyhook::MidHook::create(reinterpret_cast<void*>(after), &hk_after_sync);
-    if (!mid) {
-        const auto& e = mid.error();
-        logf(KILN_LOG_ERROR, "net: mid hook at rva 0x%llx failed (error %d, inline error %d at %p): no server role",
-             static_cast<unsigned long long>(after - g_base), static_cast<int>(e.type),
-             e.type == safetyhook::MidHook::Error::BAD_INLINE_HOOK ? static_cast<int>(e.inline_hook_error.type) : -1,
-             e.type == safetyhook::MidHook::Error::BAD_INLINE_HOOK ? reinterpret_cast<void*>(e.inline_hook_error.ip) : nullptr);
+    if (!g_after_sync.install(g_api, g_owner, after, &hk_after_sync, "net/SyncReturn")) {
+        logf(KILN_LOG_ERROR, "net: mid hook at rva 0x%llx failed (%s): no server role",
+             static_cast<unsigned long long>(after - g_base), g_after_sync.error());
         return false;
     }
-    g_after_sync = std::move(*mid);
     KilnHandle h = 0;
     if (g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_server_pre, nullptr, &h) != KILN_OK) {
         logf(KILN_LOG_WARN, "net: no server tick: frames cannot be delivered (server role off)");
@@ -1685,15 +1680,14 @@ bool init_client_role() {
         logf(KILN_LOG_INFO, "net: feature net.client is off on this build: no client role");
         return false;
     }
-    g_client_recv = safetyhook::create_inline(reinterpret_cast<void*>(recv), reinterpret_cast<void*>(&hk_client_receive));
+    g_client_recv.install(g_api, g_owner, recv, reinterpret_cast<void*>(&hk_client_receive), "net/ClientReceive");
     if (!g_client_recv) {
         logf(KILN_LOG_ERROR, "net: hooking ClientReceive at rva 0x%llx failed: no client role", static_cast<unsigned long long>(recv - g_base));
         return false;
     }
     uintptr_t ready = 0;
     if (feat("net.client_ready") && sym("net/ClientGameplayReady", &ready)) {
-        auto mid = safetyhook::MidHook::create(reinterpret_cast<void*>(ready), &hk_client_ready);
-        if (mid) g_client_ready = std::move(*mid);
+        g_client_ready.install(g_api, g_owner, ready, &hk_client_ready, "net/ClientGameplayReady");
     }
     if (!g_client_ready) logf(KILN_LOG_WARN, "net: no hook on the client's Gameplay Ready on this build: the proof goes out on its timers only");
     init_create_guard();

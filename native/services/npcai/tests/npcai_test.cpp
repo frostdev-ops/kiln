@@ -31,11 +31,9 @@ int main() {
         *n = 1; return e < 4 && exists[e] ? &factions[e] : nullptr;
     };
     g_world = &world; g_faction_hash = 1; g_storage_offset = 0; g_lifecycle = true;
-    // The disable guard reads the hook site's bytes, so the observer needs a readable address (as in the game,
-    // where the hook exists only once spawn/DestroyEntity resolved).
+    // The observer's link goes in only once spawn/DestroyEntity resolved (as in the game).
     static uint8_t destroy_site[32] = {};
     g_destroy_at = reinterpret_cast<uintptr_t>(destroy_site);
-    g_destroy = *safetyhook::MidHook::create(destroy_site, nullptr, safetyhook::MidHook::StartDisabled);
     g_at[0] = reinterpret_cast<uintptr_t>(&game_ptr);
     g_at[1] = reinterpret_cast<uintptr_t>(&game_val);
     g_at[2] = reinterpret_cast<uintptr_t>(&game_friend);
@@ -47,16 +45,18 @@ int main() {
     g_resolved = 31;
     assert(prepare());
     assert(g_installed == 0);
-    for (auto& hook : g_h) assert(!hook.enabled());
+    for (auto& hook : g_h) assert(!hook);
     g_table[(3 << 8) | 5] = KILN_REL_NEUTRAL; g_table_n = 1;
-    safetyhook::test_enabled = [](int) { assert(hk_hostile(&factions[1], &factions[2])); }; // no partial-family answers
-    safetyhook::test_enable_fail = 2;
+    kiln::test::on_install = [](uintptr_t) { assert(hk_hostile(&factions[1], &factions[2])); }; // no partial-family answers
+    kiln::test::fail_target = g_at[2];
+    const int revokes = kiln::test::revokes;
     assert(!install() && g_installed == 0);
-    for (auto& hook : g_h) assert(!hook.enabled());
+    for (auto& hook : g_h) assert(!hook);
+    assert(kiln::test::revokes == revokes + 2); // the two links already in were revoked, not left half-installed
     assert(g_install_failed && relation_set(1, 3, 5, 3) == KILN_ERR_UNAVAILABLE);
-    safetyhook::test_enable_fail = -1;
+    kiln::test::fail_target = 0;
     g_install_failed = false;
-    safetyhook::test_enabled = nullptr;
+    kiln::test::on_install = nullptr;
 
     assert(relation_set(1, 3, 5, KILN_REL_NEUTRAL) == KILN_OK);
     tick(); assert(g_installed == 31);
@@ -131,7 +131,7 @@ int main() {
     on_world(&stopped, nullptr);
     assert(g_rows.empty() && g_pairs.empty() && g_cells.empty() && g_table_n == 0);
     on_unload(nullptr);
-    assert(g_installed == 0 && !g_destroy.enabled() && !g_live.load() && !g_life_index.load());
-    for (auto& hook : g_h) assert(!hook.enabled() && hook.original<void*>());
+    assert(g_installed == 0 && !g_destroy && !g_live.load() && !g_life_index.load());
+    for (auto& hook : g_h) assert(!hook && hook.original<void*>());
     std::cout << "npcai host tests passed\n";
 }

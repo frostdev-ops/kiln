@@ -21,7 +21,7 @@
 
 #include "knowledge_internal.h"
 #include "questpack.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_assets.h"
 #include "services/kiln_content.h"
 #include "services/kiln_profile.h"
@@ -36,7 +36,7 @@ std::mutex g_mu;
 bool g_built = false;
 std::string g_manifest = "{\"mods\":[],\"errors\":[]}";
 std::unordered_map<std::string, uint32_t> g_names;  // "<mod>:<name>" (lower case) -> knowledge id
-safetyhook::InlineHook g_init_hook;
+kiln::RawHook g_init_hook;
 const KilnAssetsApi* A = nullptr;
 
 std::wstring widen(const std::string& s) {
@@ -469,12 +469,13 @@ void native_pack_install() {
         KW("native: assets/ResourceInit is not resolved: mods' native quests and NPCs are off");
         return;
     }
-    auto h = safetyhook::InlineHook::create(reinterpret_cast<void*>(a), reinterpret_cast<void*>(&hk_resource_init));
-    if (!h) {
+    // before kiln.assets' link (as the old layered hook ran): its post-init code (the resource service it serves our
+    // data through) runs first, then build_once
+    if (!g_init_hook.install(g_api, g_owner, a, reinterpret_cast<void*>(&hk_resource_init), "assets/ResourceInit", 0,
+                             "kiln.assets")) {
         KW("native: hook on ResourceInit failed: mods' native quests and NPCs are off");
         return;
     }
-    g_init_hook = std::move(*h);
 }
 
 void native_pack_ready() {

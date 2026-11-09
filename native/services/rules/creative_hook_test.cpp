@@ -67,12 +67,12 @@ int main() {
     actor = 2000;
     check(!c::pay_free(100, tx, 2000), "an autonomous station still pays");
     actor = 3;
-    test_return_address = 107;
+    kiln::test::caller = 107;
     check(c::hk_alt(tx, nullptr, 3, 10, nullptr) == 0, "flagged recipe payer accepts its exact recipe call");
-    test_return_address = 108;
+    kiln::test::caller = 108;
     check(c::hk_alt(tx, nullptr, 3, 1, nullptr) == 9, "flagged recipe payer refuses unrelated return addresses");
     c::g_recipe_ret = 0;
-    test_return_address = 7;
+    kiln::test::caller = 7;
     check(c::hk_alt(tx, nullptr, 3, 1, nullptr) == 9 && !c::pay_free(100, tx, 3),
           "a missing recipe call disables both waivers");
     check(payments == 2, "both refused alternate payments ran the original payer exactly once");
@@ -89,18 +89,18 @@ int main() {
     c::g_buff_ret = 250;  // food and potions: ApplyBuffEvent's consume
     c::Result12 out{};
     for (auto ret : {uintptr_t{200}, uintptr_t{300}, uintptr_t{250}}) {
-        test_return_address = ret;
+        kiln::test::caller = ret;
         out = {1, {}, 1, 1};
         check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1) == &out && out.error == 0 && out.zero == 0 && out.value == 0,
               "each consume site returns success with no removal for the rule's player");
     }
-    test_return_address = 201;
+    kiln::test::caller = 201;
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "other inventory-removal callers still remove items");
-    test_return_address = 251;
+    kiln::test::caller = 251;
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1, "buff application outside the exact consume call cannot borrow a waiver");
-    test_return_address = 250;
+    kiln::test::caller = 250;
     check(c::hk_remove(&out, tx, 4, 7, uint64_t{8}, 1)->error == 1, "food consumed by another player is still removed");
-    test_return_address = 200;
+    kiln::test::caller = 200;
     check(c::hk_remove(&out, tx, 4, 7, uint64_t{8}, 1)->error == 1, "consumption by another player still removes items");
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 2)->error == 1, "consume waiver requires the pinned one-item removal");
     store(g_players[3], nullptr);
@@ -160,15 +160,15 @@ int main() {
     api.constant = &api_constant;
     std::string off;
     flame_published = false;
-    check(c::install(&api, off) == 0 && off.find("Creative Mode") == std::string::npos && !c::flame_creative(),
+    check(c::install(&api, 0, off) == 0 && off.find("Creative Mode") == std::string::npos && !c::flame_creative(),
           "without kiln-flame the creative hooks install as before (here: no symbols)");
     flame_published = true;
     off.clear();
-    check(c::install(&api, off) == 0 && off.find("Creative Mode") == std::string::npos, "kiln-flame without Creative Mode changes nothing");
+    check(c::install(&api, 0, off) == 0 && off.find("Creative Mode") == std::string::npos, "kiln-flame without Creative Mode changes nothing");
     flame_on = true;
     off.clear();
     const int asks = flame_asks;
-    check(c::install(&api, off) == 0 && off.find("(Creative Mode runs)") != std::string::npos && flame_asks == asks + 1,
+    check(c::install(&api, 0, off) == 0 && off.find("(Creative Mode runs)") != std::string::npos && flame_asks == asks + 1,
           "with Creative Mode running nothing is hooked, before any symbol lookup, and status says why");
     flame_on = false;
     check(c::flame_creative() && flame_asks == asks + 1, "once seen running, Creative Mode stays seen (its hooks stay too)");
@@ -176,7 +176,7 @@ int main() {
     c::g_recipe_ret = 100;
     check(!c::pay_free(100, tx, 3), "late Creative Mode disables an already installed recipe waiver");
     const int old_removals = removals;
-    test_return_address = 250;
+    kiln::test::caller = 250;
     check(c::hk_remove(&out, tx, 3, 7, uint64_t{8}, 1)->error == 1 && removals == old_removals + 1,
           "late Creative Mode makes installed food hooks call the original exactly once");
     store(g_local, &rules);

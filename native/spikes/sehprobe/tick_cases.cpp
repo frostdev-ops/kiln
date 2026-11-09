@@ -74,14 +74,15 @@ int tick_fault_case(unsigned kind, bool post_fault) {
         s->tick = post_fault ? [](const KilnTickInfo*, void*) { bad_wait(0); } : &::post;
         g_subs.push_back(s);
     }
-    g_hook = safetyhook::create_inline(reinterpret_cast<void*>(&original), reinterpret_cast<void*>(&hk_sim_step));
-    if (!g_hook) return 0;
+    // the handler is called directly: the link only supplies its continuation (the fake original)
+    g_hook.original = reinterpret_cast<void*>(&original);
+    g_hook.handle = 1;
     const uintptr_t storage = reinterpret_cast<uintptr_t>(mem);
     const bool first = hk_sim_step(storage, 1, 0, 0) == 123;
     const bool second = hk_sim_step(storage, 1, 0, 0) == 123;
     const bool ok = first && second && originals == 2 && posts == 0 && disabled_logs == 1 && !installed() &&
                     worlds[kind] == 0;
-    g_hook.reset();
+    g_hook = {};
     VirtualFree(mem, 0, MEM_RELEASE);
     return ok;
 }
@@ -93,12 +94,11 @@ int tick_destroy_fault_case() {
     worlds[0] = world;
     g_installed = true;
     g_wait_jobs = &bad_wait;
-    g_destroy_hook = safetyhook::create_inline(reinterpret_cast<void*>(&original_destroy),
-                                              reinterpret_cast<void*>(&hk_world_destroy));
-    if (!g_destroy_hook) return 0;
+    g_destroy_hook.original = reinterpret_cast<void*>(&original_destroy);
+    g_destroy_hook.handle = 1;
     hk_world_destroy(world);
     hk_world_destroy(world);
     const bool ok = originals == 2 && disabled_logs == 1 && worlds[0] == 0 && !installed();
-    g_destroy_hook.reset();
+    g_destroy_hook = {};
     return ok;
 }

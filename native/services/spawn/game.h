@@ -80,7 +80,7 @@ struct EntityRow {
 namespace game {
 
 // Resolves symbols and constants and installs the world-capture hook. False = spawn unavailable (why says why).
-bool init(const KilnApi* api, std::string& why);
+bool init(const KilnApi* api, KilnOwner owner, std::string& why);
 bool can_destroy();
 bool can_list_templates();
 bool can_list_entities();

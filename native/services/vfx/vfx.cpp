@@ -124,7 +124,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
             return KILN_ERR_UNAVAILABLE;
         }
         real_game_trace(cfg.trace);
-        Game* game = real_game(api);
+        Game* game = real_game(api, owner);
         if (!game) return KILN_ERR_UNAVAILABLE;
         core_set_game(game);
         api->subscribe_world(owner, &on_world, nullptr, &h);

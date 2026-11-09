@@ -24,7 +24,7 @@ bool flame_creative();
 bool idle();  // lock-free cached result; refreshed at tick boundaries
 // Installs what this build has, nothing while Creative Mode runs; `off` collects what is off (for status). Returns
 // KILN_RULES_HOOK_* bits. Called at the first world (kiln.flame answers only after every plugin's on_ready).
-uint32_t install(const KilnApi* api, std::string& off);
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
 // rules.cpp's payment hook asks this for every payment that is not the storage upgrade's: true = answer "paid".
 bool pay_free(uintptr_t ret, void* tx, uint32_t owner);
 // rules.cpp could not hook the payment: free crafting goes off (the second payer too).
@@ -39,6 +39,6 @@ void reset();  // world lifecycle: forget local identity and flight ownership be
 void refresh();
 // Character flight's three hooks (flight.cpp; feature rules.flight), nothing while Creative Mode runs. Returns
 // KILN_RULES_HOOK_FLIGHT or 0 (`off` says why). Called with the creative hooks, at the first world.
-uint32_t install(const KilnApi* api, std::string& off);
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
 void counters(uint64_t* takeoffs, uint64_t* landings, uint64_t* ends, uint64_t* faults);
 }  // namespace kiln_rules_flight
